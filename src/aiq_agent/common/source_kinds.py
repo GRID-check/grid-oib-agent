@@ -2,8 +2,7 @@
 rendered through (the "Belegt durch" chips, the Herleitung fan-out, the report
 sources section).
 
-The product surfaces five *coarse* source kinds, four of them mirroring the
-click-dummy ``TYPES`` registry:
+The product surfaces five *coarse* source kinds:
 
 - ``baurecht`` — authoritative building law: the OIB Richtlinien corpus **and**
   RIS (Bauordnung, Verordnungen, Bundes-/Landesrecht) **and** external Normen.
@@ -35,9 +34,8 @@ retrieved sources only on the wire, where this taxonomy is all that is left of
 either. See ``tests/aiq_agent/agents/piloti/test_agent.py::
 TestMeasurementSourcesDoNotGroundCitations``.
 
-``auto`` exists in the click-dummy as a *selection mode* ("Piloti wählt die
-passende Quelle selbst") — it is never a rendered citation and so is not part of
-this taxonomy.
+``auto`` is a *selection mode* ("Piloti wählt die passende Quelle selbst") — it
+is never a rendered citation and so is not part of this taxonomy.
 
 The finer lane classification (``norm_registry.lane_for_hit`` — OIB-Richtlinie
 vs. Bundesrecht vs. Verordnung …) is preserved as a *sub-label* within a kind;
@@ -103,10 +101,10 @@ SOURCE_KINDS: dict[str, SourceKind] = {
         description="Am BIM-Modell gemessen — mit Herkunft, Toleranz und Methode.",
         # The one kind whose ``css_token`` is honest about the promise this
         # field's docstring makes: ``--source-model`` really exists on the
-        # frontend. The older four predate the `--source-*` families and name
-        # the KIND (`baurecht`) where the token names the SIGNAL (`law`); they
-        # are left alone rather than renamed, because the tokens are what
-        # `KIND_TO_SIGNAL` resolves to and nothing reads this field.
+        # frontend. The other four name the KIND (`baurecht`) where the token
+        # names the SIGNAL (`law`); they are left alone rather than renamed,
+        # because the tokens are what `KIND_TO_SIGNAL` resolves to and nothing
+        # reads this field.
         css_token="model",
     ),
 }
@@ -197,12 +195,11 @@ def source_kind(key: str | None) -> SourceKind:
 # a private chat session, or the base corpus. ADR-0047 makes it TRAVEL AS DATA —
 # it is carried explicitly in the ``X-Grid-Collection-Scope`` header, in chunk
 # metadata and in the knowledge-tool citation payload. Nothing downstream may
-# recover it by inspecting a collection-id prefix or a German display label; the
-# prefix table that used to do that is deleted, and its absence is this ADR's
-# acceptance test.
+# recover it by inspecting a collection-id prefix or a German display label, so
+# no prefix table does that job.
 #
 # A missing/unknown shelf reads as UNKNOWN and renders unattributed. It is never
-# defaulted to ``base``/``baurecht`` — the old fail-open let an unrecognised
+# defaulted to ``base``/``baurecht``: that default would let an unrecognised
 # collection claim to be authoritative building law.
 
 
@@ -211,7 +208,7 @@ class Shelf(StrEnum):
 
     Deliberately its OWN enum, not a subset of :data:`SOURCE_KINDS`: the display
     taxonomy (``baurecht | buero | projekt | web``) is a different axis, and
-    conflating the two is what folded private session attachments into
+    conflating the two would fold private session attachments into
     "Projektwissen".
 
     The TypeScript twin declares the same four members
@@ -255,11 +252,11 @@ SHELF_QUALIFIERS: dict[Shelf, str] = {
     Shelf.BASE: "Basiswissen",
 }
 
-#: LEGACY citation-key vocabulary → qualifier. The keys are the pre-ADR-0047
-#: coarse-kind scopes (``buero``/``projekt``/``baurecht``) that qualified keys
-#: persisted in existing messages were written against; they are kept so those
-#: keys keep PARSING. ``session`` never existed in that vocabulary, so it takes
-#: the shelf's own name. Do not treat this table as transport.
+#: LEGACY citation-key vocabulary → qualifier. The coarse-kind scopes
+#: (``buero``/``projekt``/``baurecht``) are what citation keys already persisted
+#: in existing messages carry; they stay so those keys keep PARSING. ``session``
+#: is not one of them, so it takes the shelf's own name. Do not treat this table
+#: as transport.
 SCOPE_QUALIFIERS: dict[str, str] = {
     "buero": SHELF_QUALIFIERS[Shelf.ARCHIV],
     "projekt": SHELF_QUALIFIERS[Shelf.PROJECT],
@@ -305,7 +302,7 @@ def shelf_for_qualifier(qualifier: str | None) -> Shelf | None:
 
 
 def scope_for_qualifier(qualifier: str | None) -> str | None:
-    """LEGACY: a key's qualifier back to the pre-ADR-0047 coarse-scope token.
+    """LEGACY: a key's qualifier back to the coarse-scope token (``buero``/``projekt``/``baurecht``).
 
     Kept for readers that still speak the old ``buero``/``projekt``/``baurecht``
     vocabulary. New code wants :func:`shelf_for_qualifier`.
@@ -322,10 +319,9 @@ def legacy_shelf_for_collection_name(collection: str | None) -> Shelf | None:
     persisted by a previous deploy) carry a collection name and nothing else.
     Delete this function — and every call to it — once no such producer is left.
 
-    Returns ``None`` for anything it does not recognise. The predecessor
-    (``collection_scope``) fell OPEN to ``baurecht``, so an unknown collection
-    claimed to be authoritative building law; unknown now means unknown, and an
-    unknown shelf renders unattributed.
+    Returns ``None`` for anything it does not recognise, so an unknown collection
+    never claims to be authoritative building law: an unknown shelf renders
+    unattributed.
     """
     key = (collection or "").strip().lower()
     if key.startswith("archiv_"):

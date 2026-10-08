@@ -3,9 +3,9 @@
  * Fails the check when a text colour token drops below WCAG AA on a background
  * it is actually set on.
  *
- * The quiet greys used to be tuned by eye, and the sentences that keep the site
- * honest ("Fiktives Beispiel", the price disclaimer) ended up the least legible
- * text on the page at 2.3:1. The pairs below are the ones the components use;
+ * Quiet greys tuned by eye fall to 2.3:1, and the sentences that keep the site
+ * honest ("Fiktives Beispiel", the price disclaimer) are the first to lose
+ * legibility. The pairs below are the ones the components use;
  * add a pair when a component puts a token on a new background.
  */
 import { readFileSync } from 'node:fs'

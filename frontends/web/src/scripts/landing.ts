@@ -33,10 +33,9 @@ const REDUCED = MQ.reduced
  * it they print through the logo on the way up, while the bar over the hero
  * is still transparent (nav.ts condenses it at 60% of the hero).
  *
- * There is no runway. The hero used to sit in a 200vh wrapper so the closing
- * line could fade while the photograph held still: a screen of scrolling in
- * which nothing happened. Below lg, or without motion, the hero is a plain
- * screen that scrolls away.
+ * There is no runway: a 200vh wrapper would let the closing line fade while the
+ * photograph held still, a screen of scrolling in which nothing happened. Below
+ * lg, or without motion, the hero is a plain screen that scrolls away.
  */
 function initHeroCta() {
   const cta = document.querySelector<HTMLElement>('[data-hero-cta]')
@@ -213,9 +212,9 @@ function initAura() {
       // The line gathers as it travels out — but it also has to START further
       // out. A gradient that begins at zero still converges on the same pixel as
       // the other eleven, and twelve nearly-invisible strokes stacked on one
-      // point add up to a visible one: the fan was tied in a knot at her head.
-      // So each ray begins clear of the halo and there is nothing at the centre
-      // to accumulate.
+      // point add up to a visible one, tying the fan in a knot at her head. So
+      // each ray begins clear of the halo and there is nothing at the centre to
+      // accumulate.
       const START = BEAM_START
       const sx = hx + (nx - hx) * START
       const sy = hy + (ny - hy) * START
@@ -242,8 +241,8 @@ function initAura() {
       ctx.fill()
       ctx.restore()
       // A label belongs to its node, so it takes whichever side of the node has
-      // room for it. Written blindly to the right, the ones on a phone ran off
-      // the canvas and were read as a column of broken words down the edge.
+      // room for it. Written blindly to the right, the ones on a phone would run
+      // off the canvas and read as a column of broken words down the edge.
       const EDGE = 12
       if (n.label && nx > EDGE && nx < w - EDGE) {
         // A phone has no room for the three-line archive cards; the project
@@ -281,9 +280,9 @@ function initAura() {
       const grow = Math.min(1, cyc / 0.55)
       const fade = cyc > 0.78 ? 1 - (cyc - 0.78) / 0.22 : 1
       if (fade <= 0) return
-      // These are the ones that were tying the knot: five beams drawn from the
-      // exact centre at 0.28 alpha, stacked on the same pixel. They leave from
-      // the same clear radius the leader lines do, and fade in over it.
+      // Five beams drawn from the exact centre at 0.28 alpha would stack on one
+      // pixel and tie the knot again, so they leave from the same clear radius
+      // the leader lines do, and fade in over it.
       const bsx = hx + (bx - hx) * BEAM_START
       const bsy = hy + (by - hy) * BEAM_START
       const ex = hx + (bx - hx) * Math.max(BEAM_START, grow)
@@ -676,17 +675,12 @@ function initPins() {
   /**
    * The story, as one scrubbed timeline.
    *
-   * This used to be a scroll handler that recomputed every fragment's transform
-   * on each frame: two easing windows per card worked out by hand, a transform
-   * string assembled with template literals, and the connecting lines drawn by
-   * setting strokeDashoffset against a length measured earlier. The arithmetic
-   * was correct and completely opaque — the choreography lived in expressions
-   * like `0.03 + (i / n) * 0.27` and could only be read by simulating it.
-   *
    * A timeline says the same thing as a score: this fragment drifts in here, the
    * net pulls it into place there. GSAP owns the interpolation, DrawSVGPlugin
    * owns the lines, and ScrollTrigger owns the scrubbing, so the only thing
-   * still written here is the order of events.
+   * written here is the order of events. Hand-computed per-frame transforms
+   * would leave the choreography in expressions like `0.03 + (i / n) * 0.27`,
+   * readable only by simulating them.
    */
   const setNavHidden = (hide: boolean) => {
     if (!nav || hide === navHidden) return
@@ -715,10 +709,9 @@ function initPins() {
     }
     measureStory()
     // The scroll runway is the beat list's length: the ring adds the pull-in
-    // and the wiring, the net does not, so it needs less scrolling.
-    // It was 440vh and 300vh, with a static screen at either end; the beats
-    // below now fill the range, so the story takes about one screen of
-    // scrolling per idea.
+    // and the wiring, the net does not, so it needs less scrolling. The beats
+    // below fill the range, so the story takes about one screen of scrolling
+    // per idea.
     wrap.style.height = runway ? (mode === 'ring' ? '240vh' : '200vh') : ''
   }
   /** Back to a plain block: what the section is below lg. */
@@ -836,9 +829,9 @@ function initPins() {
       unpin()
       // The transform and the opacity belong to GSAP and come back with the
       // revert; `inert` and `aria-hidden` were set by hand and do not. Turning
-      // on reduced motion while the story held the navigation hidden used to
-      // leave a bar that looks perfectly normal and cannot be reached by
-      // keyboard or screen reader.
+      // on reduced motion while the story holds the navigation hidden would
+      // otherwise leave a bar that looks perfectly normal and cannot be reached
+      // by keyboard or screen reader.
       if (nav) {
         navHidden = false
         nav.removeAttribute('inert')

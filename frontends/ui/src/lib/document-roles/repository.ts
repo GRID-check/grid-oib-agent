@@ -169,14 +169,14 @@ export async function insertBinding(input: InsertBindingInput): Promise<string> 
 /**
  * Replace a single-holder slot's bindings with one new binding, atomically.
  *
- * The delete and the insert were two unlocked statements. A failing insert left
- * the slot EMPTY — the user's existing Bebauungsplan deleted and nothing put
- * back — and two concurrent declarations could both pass the read and leave two
- * bindings in a slot the vocabulary says holds one. The unique index cannot
- * catch that: it keys on the document, so two DIFFERENT documents in the same
- * slot are distinct rows.
+ * The delete and the insert share one transaction. Run as two unlocked
+ * statements, a failing insert would leave the slot EMPTY — the user's existing
+ * Bebauungsplan deleted and nothing put back — and two concurrent declarations
+ * could both pass the read and leave two bindings in a slot the vocabulary says
+ * holds one. The unique index cannot catch that: it keys on the document, so two
+ * DIFFERENT documents in the same slot are distinct rows.
  *
- * One transaction fixes the first; `FOR UPDATE` on the slot's existing rows
+ * The transaction covers the first; `FOR UPDATE` on the slot's existing rows
  * serialises the second, so the loser observes the winner's state.
  *
  * `guard` runs first in the same transaction and may throw to refuse: it is
@@ -212,9 +212,10 @@ export async function replaceSlotBinding(
 /**
  * Re-declare an existing binding as user-confirmed.
  *
- * A classifier's `suggested` binding that the user then confirms was returned
- * unchanged by the "already bound" no-op, so the prompt kept marking it
- * `[nicht bestätigt]` however many times the user confirmed it.
+ * A classifier's `suggested` binding that the user confirms must be re-written
+ * as confirmed. The "already bound" no-op would return it unchanged, and the
+ * prompt would keep marking it `[nicht bestätigt]` however often the user
+ * confirms it.
  */
 export async function confirmBinding(
   projectId: string,

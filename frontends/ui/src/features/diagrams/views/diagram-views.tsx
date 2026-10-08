@@ -205,9 +205,8 @@ function useWidthRem(): [RefObject<HTMLDivElement | null>, number | null] {
 
 /**
  * A graph where the column holds one, the outline where it does not — and only
- * the one that is shown. Both used to mount with a container query hiding one,
- * so every flow paid for the outline's dagre pass on a desktop and for the
- * graph's on a phone.
+ * the one that is shown mounts. A container query hiding the other would still
+ * pay for its dagre pass: the outline's on a desktop, the graph's on a phone.
  */
 export function FlowDiagram({ model, label }: { model: FlowModel; label: string }) {
   const [ref, width] = useWidthRem()
@@ -258,9 +257,9 @@ function MapOutline({ model }: { model: MapModel }) {
 }
 
 export function MapDiagram({ model, label }: { model: MapModel; label: string }) {
-  // Memoised on the model: a new array per render made `build` new per render,
-  // and the canvas rebuilt, re-measured and laid out the whole tree again on
-  // every re-render of the answer around it — every streamed token.
+  // Memoised on the model: a new array per render would make `build` new per
+  // render, and the canvas would rebuild, re-measure and lay out the whole tree
+  // again on every re-render of the answer around it — every streamed token.
   const nodes = useMemo(() => flatten(model.root, 0, []), [model])
   const build = useCallback(
     (width: number): GraphSpec => ({
@@ -281,8 +280,8 @@ export function MapDiagram({ model, label }: { model: MapModel; label: string })
     [nodes]
   )
   // A tree needs three columns of room; below that it is an outline. Only the
-  // one that is shown mounts: both used to, with a container query hiding one,
-  // so every map on a phone still paid for the tree's dagre pass and canvas.
+  // one that is shown mounts: a container query hiding the other would still pay
+  // for the tree's dagre pass and canvas on every phone.
   const [ref, width] = useWidthRem()
   return (
     <div ref={ref}>
@@ -402,8 +401,8 @@ const lastDay = (task: ScheduleTask) =>
 
 /**
  * Up to five dates along the axis, whole days and each one once. Spread by
- * fractions of the span, a schedule of fewer than four days put the same date
- * under several ticks („25.10." four times, and four React keys alike).
+ * fractions of the span, a schedule of fewer than four days would put the same
+ * date under several ticks („25.10." four times, and four React keys alike).
  */
 function scheduleTicks(start: number, end: number): { iso: string; at: number }[] {
   const days = Math.round((end - start) / DAY)

@@ -4,11 +4,11 @@
 /**
  * A chat attachment dropped a second time under the same name.
  *
- * The project and Archiv paths already replaced instead of inserting; the
- * session path still minted a fresh id every time. Same table, same
- * filename-keyed chunk replacement in the ingest pipeline, same ghost: the
- * first row listed and downloadable, its passages already replaced by the
- * second's, and the conversation charged for both.
+ * The project and Archiv paths replace instead of inserting, and the session
+ * path must too. Same table, same filename-keyed chunk replacement in the
+ * ingest pipeline: a second insert leaves the first row listed and
+ * downloadable, its passages already replaced by the second's, and the
+ * conversation charged for both.
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { DeleteObjectCommand, PutObjectCommand } from '@aws-sdk/client-s3'
@@ -174,10 +174,10 @@ describe('uploadSessionDocument, a file already attached under that name', () =>
   })
 
   /**
-   * Since ADR-0054 a re-upload is a new VERSION, so it writes to a new key and
-   * the previous bytes stay where the previous version's row says they are. The
-   * old expectation — new bytes on the old key, then discard the derivatives —
-   * described exactly the behaviour that made a version history impossible.
+   * A re-upload is a new VERSION (ADR-0054), so it writes to a new key, and the
+   * previous bytes stay where the previous version's row says they are. Writing
+   * the new bytes over the old key and discarding the derivatives would make a
+   * version history impossible.
    */
   it('writes the new bytes under a v2 key and leaves the previous object alone', async () => {
     await uploadSessionDocument(session, { conversationId: CONVERSATION_ID, file: file() }, new Request('http://x'))
@@ -220,7 +220,7 @@ describe('uploadSessionDocument, a genuinely new file', () => {
 })
 
 /**
- * The races the project and Archiv shelves already answer, on the chat shelf.
+ * The races the project and Archiv shelves answer, on the chat shelf.
  * Session documents version like the others (ADR-0054), so the loser of two
  * simultaneous first uploads of one name becomes the winner's next version
  * rather than a 409, and a re-upload whose attachment was deleted underneath it
@@ -283,7 +283,7 @@ describe('uploadSessionDocument, when the shelf changes under the probe', () => 
 
   it('writes a re-upload under a write key even when the version number reads 1', async () => {
     // The hint reads 1 while a concurrent first upload has its row but not
-    // yet its version. The old version-1 shortcut put this PUT on that
+    // yet its version. A version-1 shortcut would put this PUT on that
     // upload's own key.
     vi.mocked(nextVersionNumber).mockResolvedValueOnce(1)
     vi.mocked(findLiveDocumentByFilename).mockResolvedValue(existing)
@@ -298,9 +298,9 @@ describe('uploadSessionDocument, when the shelf changes under the probe', () => 
 
 /**
  * An attachment deleted, or its chat discarded, after the admission and before
- * the version is recorded. The lenient recorder answered null and the upload
- * went on: it dispatched a gone document for ingest, audited it as uploaded and
- * left its object in the bucket with no row naming it.
+ * the version is recorded. A lenient recorder would answer null and let the
+ * upload go on: it would dispatch a gone document for ingest, audit it as
+ * uploaded, and leave its object in the bucket with no row naming it.
  */
 describe('uploadSessionDocument, when the attachment is deleted mid-upload', () => {
   it('answers 409, discards the stored object, and neither dispatches nor audits', async () => {

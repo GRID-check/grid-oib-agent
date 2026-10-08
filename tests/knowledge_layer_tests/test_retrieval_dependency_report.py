@@ -1,11 +1,10 @@
 """The LlamaIndex dependency diagnostic must describe the real environment.
 
-Issues #330 and #331 were reported as "LlamaIndex dependencies not installed",
-which was simply false: the packages were installed and one was broken —
-``llama-index-core`` missing under an otherwise-populated ``llama_index``
-namespace package. Every ``ImportError`` was mapped to the same "not installed"
-string, so the advice (reinstall these three packages) was wrong and the real
-cause, carried in the chained exception all along, went unread.
+A broken install is not a missing one: every package can be present while one
+fails to import, as when ``llama-index-core`` is missing under an otherwise
+populated ``llama_index`` namespace package. Mapping every ``ImportError`` to the
+same "not installed" string gives the wrong advice (reinstall these three
+packages), and the real cause, carried in the chained exception, goes unread.
 
 A diagnostic that misdescribes the fault is worse than none, so these tests pin
 the distinction the report exists to draw.
@@ -48,7 +47,7 @@ def test_healthy_environment_reports_nothing() -> None:
 
 
 def test_a_broken_install_is_not_reported_as_missing(break_import) -> None:
-    """The regression: this is the environment that produced #330/#331."""
+    """The failing environment: the namespace package resolves while one of its pieces does not."""
     break_import("llama_index.core", _BROKEN_CORE)
 
     findings = retrieval_dependency_report()
@@ -106,7 +105,7 @@ def test_the_error_carries_the_triggering_cause_and_the_module_status(break_impo
 
     message = str(_retrieval_dependency_error(_BROKEN_CORE))
 
-    # The cause that was previously discarded, and the per-module truth.
+    # The chained cause, and the per-module truth.
     assert "cannot import name 'core'" in message
     assert "llama-index-core: installed but broken" in message
     # And a remediation that matches the actual fault: reinstall the extra

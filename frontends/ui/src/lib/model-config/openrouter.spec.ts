@@ -111,7 +111,7 @@ describe('reasoning-off enforcement (follow_ups group runs reasoning_effort:none
     })
     const forFollowUps = validateModelForGroup(grok, followUps)
     expect(forFollowUps.ok).toBe(false)
-    // A code, not prose: this used to be hard-coded German for every reader.
+    // A code, not prose: each reader gets the reason in its own language.
     expect(forFollowUps.reasons.map((r) => r.code)).toEqual(['reasoning_mandatory'])
 
     // shallow_research does not disable reasoning, so the same model is fine.
@@ -253,8 +253,8 @@ describe('fetchModelCatalog', () => {
  * One entry of `GET /api/v1/endpoints/zdr` in its LIVE shape (captured
  * 2026-09-30; `name`, `tag` and `provider_name` are exactly what the listing
  * carries). `tag` values like `azure/eu` and names like
- * `Reka | deepseek/deepseek-v4-pro-20260423` look like model ids and are not:
- * the old recursive scan collected them as ZDR models.
+ * `Reka | deepseek/deepseek-v4-pro-20260423` look like model ids and are not;
+ * a recursive scan over every string would collect them as ZDR models.
  */
 const zdrEntry = (
   modelId: string,
@@ -295,8 +295,8 @@ describe('ZDR matching is exact', () => {
   })
 
   it('does NOT let a :free / :extended / :thinking variant ride on its base model', () => {
-    // Different offerings with their own endpoints. The old matcher stripped
-    // the suffix, so `foo/bar:free` counted as ZDR when only the paid one was.
+    // Different offerings with their own endpoints. A matcher that stripped the
+    // suffix would count `foo/bar:free` as ZDR when only the paid one is.
     for (const variant of ['free', 'extended', 'thinking', 'online', 'beta']) {
       expect(hasZdrEndpoint(`vendor/full-model:${variant}`, zdr)).toBe(false)
     }
@@ -426,9 +426,9 @@ describe('fetchZdrEndpoints', () => {
   })
 
   /**
-   * Regression (issue #242): the cache round-trips through JSON, so caching a
-   * `Set`/`Map` itself returned a prototype-less `{}` on every HIT. The index
-   * must be rebuilt on the way OUT of the cache.
+   * The cache round-trips through JSON, so caching a `Set`/`Map` itself would
+   * return a prototype-less `{}` on every HIT. The index must be rebuilt on the
+   * way OUT of the cache.
    */
   it('returns a real index on a cache HIT, not the JSON-flattened shape', async () => {
     const fetchMock = listing(zdrEntry('anthropic/claude-sonnet-4.5'), zdrEntry('vendor/full-model'))
@@ -449,7 +449,7 @@ describe('fetchZdrEndpoints', () => {
   })
 
   it('fails CLOSED when the cached payload is an older shape', async () => {
-    // What a pre-:v3 replica could leave under a reused key: bare ids, or `{}`.
+    // What an older replica could leave under a reused key: bare ids, or `{}`.
     for (const payload of ['{}', JSON.stringify(['anthropic/claude-sonnet-4.5'])]) {
       const { store, entries } = memoryCacheStore()
       setCacheStore(store)

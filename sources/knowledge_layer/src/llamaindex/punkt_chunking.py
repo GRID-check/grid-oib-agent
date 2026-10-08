@@ -9,13 +9,10 @@ is the wrong unit of meaning twice over:
   Punkt-structured Richtlinien contain, and only 11 of those 946 exceed the splitter's
   ~977-token effective budget. A 1024-token window therefore blends roughly eight
   unrelated requirements into one vector, so the embedding describes none of them.
-  (An earlier draft of this docstring said 1360 Punkte at a median of 62 tokens, from an
-  exploratory count taken with a bare heading regex before any of the guards below
-  existed. It was 44% above the real inventory and nobody reconciled it against the
-  committed index; these figures are re-measured from what this module actually emits.)
 * 150 of 262 body pages (57%) *begin* mid-Punkt, and the splitter's 128-token overlap
   cannot repair that because each page is its own ``Document`` -- overlap never crosses
-  the boundary. 92% of today's chunks do not start on a Punkt-numbered line.
+  the boundary. On the per-page splitter, 92% of chunks do not start on a
+  Punkt-numbered line.
 
 This module rebuilds the unit: join the page stream first, cut on the Punkt numbering,
 and emit one ``Document`` per Punkt carrying a breadcrumb the embedder can use. Over-long
@@ -30,7 +27,7 @@ imports *this* module, and a module-level import back would close the cycle.
 
 Not every file in ``data/oib/`` is Punkt-structured (``Begriffsbestimmungen`` is an
 alphabetical glossary, ``Zitierte Normen`` is a four-column table). For those
-``punkt_documents`` returns ``None`` and the caller keeps today's per-page behaviour.
+``punkt_documents`` returns ``None`` and the caller keeps the per-page behaviour.
 """
 
 from __future__ import annotations
@@ -47,7 +44,7 @@ if TYPE_CHECKING:  # pragma: no cover - typing only
 # Running furniture, derived from all 40 PDFs in ``data/oib/``. The header is identical
 # on 646 of 686 extracted pages; the footer varies only in the document label, the
 # optional revision and the optional page counter. Together they account for the ~11,179
-# tokens of boilerplate that are currently indexed corpus-wide -- every page contributing
+# tokens of boilerplate across the corpus -- every page contributing
 # the same two lines is pure noise in a vector, and worse, it is noise that *matches*
 # every query mentioning "OIB-Richtlinie".
 _HEADER_RE = re.compile(r"^Österreichisches Institut für Bautechnik\b")
@@ -64,8 +61,8 @@ _DOT_LEADER_RE = re.compile(r"\.{4,}")
 #: A contents-page *entry*: leader dots and the page number they lead to. Requiring the
 #: number is what separates a contents page from the abbreviation legend on page 11 of
 #: `oib-rl_6-leitfaden`, whose "KD ...... Kellerdecke" lines are leaders that lead
-#: nowhere. Read as a contents page, that page was dropped from the body and took
-#: Punkte 4.3.1 and 4.3.2 with it.
+#: nowhere. Read as a contents page, that page would be dropped from the body and
+#: take Punkte 4.3.1 and 4.3.2 with it.
 _TOC_ENTRY_RE = re.compile(r"\.{4,}\s*\d+\s*$")
 #: Three leader lines on one page is well clear of prose (which never produces one) and
 #: still catches the shortest ToC in the corpus (OIB-Richtlinie 1, three entries).
@@ -110,8 +107,8 @@ _MAX_FIRST_ID = 1
 #: Metadata that exists for citation ranges, diagnostics or filtering and carries no
 #: retrieval signal, so it must not be prepended to the text the embedder sees. Extends
 #: the adapter's ``EMBED_EXCLUDED_METADATA_KEYS`` rather than replacing it.
-#: ``table_part`` orders a table's row groups for ``read_passage``; embedded, it read
-#: ``table_part: 1`` to the embedder and the model alike.
+#: ``table_part`` orders a table's row groups for ``read_passage``; embedded, it
+#: would read as ``table_part: 1`` to the embedder and the model alike.
 PUNKT_EMBED_EXCLUDED_METADATA_KEYS = ("page_end", "punkt_depth", "chunking", "table_part")
 
 #: Separator for the ancestor breadcrumb. A guillemet reads as hierarchy to the embedder
@@ -158,8 +155,8 @@ def _is_monotonic(candidate: tuple[int, ...], previous: tuple[int, ...] | None) 
     requirement that wraps onto a line beginning with a bare measurement -- OIB-Richtlinie
     2 has ``30 cm und einer Höhe von 20 cm`` inside Punkt 3.5.2 -- parses as the top-level
     id ``(30,)``, which sorts after ``(3, 5, 2)`` and so passes the naive test. It then
-    parks the cursor at 30 and every genuine Punkt from 3.5.3 to the end of the file is
-    rejected behind it: measured, 37 Punkte survived instead of 227. So monotonicity is
+    parks the cursor at 30, and every genuine Punkt from 3.5.3 to the end of the file
+    is rejected behind it. So monotonicity is
     checked as *outline succession* -- the candidate must be the next sibling (allowing at
     most one skipped number, in case a heading was mangled during extraction) or a
     descent into a fresh sub-level -- which is strictly stronger than ``>`` and rejects
@@ -254,8 +251,8 @@ def _collect_lines(text_pages: list[dict[str, Any]]) -> list[tuple[int, str]]:
             continue
         # Coerced, not trusted. `_extract_text_from_pdf` always supplies this, but this
         # function is documented as pure over page dicts and is called with caller-built
-        # lists; a missing key made `page_start` None and `page_label` the STRING "None",
-        # which breaks the citation contract silently rather than loudly.
+        # lists; a missing key would make `page_start` None and `page_label` the
+        # STRING "None", which breaks the citation contract silently rather than loudly.
         try:
             page_number = int(page.get("page_number"))
         except (TypeError, ValueError):
@@ -311,14 +308,12 @@ def _heading_candidates(
         # content page) is a pointer to a Punkt, never the Punkt itself.
         if match is None or _DOT_LEADER_RE.search(line):
             continue
-        # A lowercase opening used to be rejected here as a wrapped-prose tell -- German
-        # capitalises nouns and sentence openings, so "10 cm aus expandiertem Polystyrol"
-        # reads as a continuation rather than a heading. `_contradicts_contents` covers
-        # that case more precisely, by the number rather than by the orthography: the
-        # contents page says what Punkt 10 is called, and it is not "cm aus expandiertem".
-        # The orthographic rule also had a cost, because the corpus does open headings in
-        # lowercase -- OIB-Richtlinie 6 numbers two of them "kein ENERGIEAUSWEIS
-        # erforderlich …" -- and dropping them merged their text into the Punkt above.
+        # A lowercase opening is not rejected here as a wrapped-prose tell. German
+        # capitalises nouns and sentence openings, so `_contradicts_contents` judges
+        # by the number instead: the contents page says what Punkt 10 is called, and
+        # it is not "cm aus expandiertem". The corpus does open headings in lowercase
+        # (OIB-Richtlinie 6 numbers two of them "kein ENERGIEAUSWEIS erforderlich …"),
+        # and an orthographic rule would merge their text into the Punkt above.
         if _contradicts_contents(match, listed):
             continue
         parsed = _parse_punkt_id(match.group(1))
@@ -351,7 +346,7 @@ def _listed_headings(text_pages: list[dict[str, Any]]) -> dict[str, str]:
     The title matters as much as the number, and OIB-Richtlinie 2 is why: its annex tables
     run to a row labelled ``10 Außentreppen`` while the contents page promises ``10 Gebäude
     mit einem Fluchtniveau von mehr als 22 m``. Both carry the id ``10``, so an id-only
-    reading cannot tell them apart, and the emitted Punkt 10 was the table row -- a chunk
+    reading cannot tell them apart, and the emitted Punkt 10 could be the table row -- a chunk
     filed under a real citation whose text belongs to something else.
 
     Returned empty -- disabling the preference entirely rather than guessing -- for a
@@ -397,15 +392,14 @@ def _best_chain(
     """Pick the best outline-consistent chain of candidates, in document order.
 
     Scanning left to right and taking every candidate that succeeds the last accepted one
-    is the obvious implementation, and it is what this replaced. It fails on this corpus
-    because acceptance is irrevocable: OIB-Richtlinie 6 lays its U-value table out with a
+    is the obvious implementation, and it fails on this corpus because acceptance is
+    irrevocable: OIB-Richtlinie 6 lays its U-value table out with a
     numbered first column whose counter -- 1, 2, 3, ... -- happens to reach 5 just as the
     document's own numbering sits at 4.4.1, so ``5 WÄNDE (Trennwände) …`` is a *legal*
-    sibling of Punkt 4. The greedy scan took it, parked the cursor at 9, and then rejected
-    every genuine Punkt from 4.4.2 to the end of the file: 23 Punkte survived instead of
-    64, and the last Document spanned pages 7 to 27. Fixing that particular table by
-    inspecting its wording only moves the problem -- the Konversionsfaktoren table three
-    pages later has the same shape with different words.
+    sibling of Punkt 4. A greedy scan takes it, parks the cursor at 9, and rejects
+    every genuine Punkt from 4.4.2 to the end of the file. Fixing that particular
+    table by inspecting its wording only moves the problem: the Konversionsfaktoren
+    table three pages later has the same shape with different words.
 
     Choosing the chain globally removes the class of bug rather than the instance, because
     a table cannot offer a chain that outruns the document's own numbering: the document
@@ -426,23 +420,10 @@ def _best_chain(
     chosen chain is listed, so a rule that *required* listing would discard nearly the
     whole corpus. ``listed`` empty degrades exactly to counting.
 
-    Each part earns its place, measured against the 946 Punkte the contents pages name:
-
-    ========================================  ======  =======  ========  ==========
-    variant                                   chunks  missing  spurious  mistitled
-    ========================================  ======  =======  ========  ==========
-    greedy, no contents page                     898       64        16          6
-    greedy + contradiction filter                929       18         1          0
-    best-chain, no contents page                 953        4        11          3
-    best-chain + contradiction filter            949        1         4          0
-    best-chain + filter + listed-first (this)    946        0         0          0
-    ========================================  ======  =======  ========  ==========
-
-    A further pass restricting candidates to listed ids once agreement was high enough was
-    written, measured and deleted: it fired on 1 of 12 files and was a no-op there. Its
-    docstring justified it with table rows ``9.1``-``9.3`` in OIB-Richtlinie 2 that the
-    shipped chunker never emits. Recorded because the plausible-sounding justification
-    outlived the mechanism being useful, which is the failure this table exists to prevent.
+    On the twelve Punkt-structured Richtlinien this chain yields the 946 Punkte the
+    contents pages name, with none missing and none spurious. Without the
+    contents-page filter the chain misses, invents or mistitles Punkte; without
+    listed-first it can pick table rows over genuine headings.
 
     O(n²) in candidates, which the corpus bounds at 345.
     """
@@ -542,9 +523,9 @@ def _apply_exclusions(document: Any) -> None:
     The import goes through the INSTALLED package path. The source-tree spelling
     (``sources.knowledge_layer.src...``) resolves only when the repo root is on
     sys.path, which pytest arranges and the deployed backend -- which runs with
-    ``PYTHONPATH=src`` -- does not. Getting that wrong raised ModuleNotFoundError out
-    of ``punkt_documents`` and would have failed ingestion for every OIB PDF while
-    the whole suite stayed green.
+    ``PYTHONPATH=src`` -- does not. Getting that wrong raises ModuleNotFoundError out
+    of ``punkt_documents``, which fails ingestion for every OIB PDF while the test
+    suite stays green.
     """
     try:
         from knowledge_layer.llamaindex.adapter import _apply_metadata_exclusions
@@ -579,13 +560,11 @@ def richtlinie_key(file_name: str) -> str:
     return stem.replace("_", "-") or file_name
 
 
-#: Private alias kept for callers inside this module and its tests. The public name is
-#: what `scripts/build_punkt_index.py` imports: the eval index and the chunk metadata
-#: MUST derive the same key for the same file, because the golden set joins on it, and
-#: two copies of this function had already drifted apart -- the script stripped only
-#: `ausgabe_mai_<year>`, so `oib-rl_2_ausgabe_april_2019.pdf` keyed as
-#: "2-ausgabe-april-2019" there and "2" here, and every golden label for that file
-#: resolved to nothing.
+#: Private alias kept for callers inside this module and its tests. The public name
+#: is what `scripts/build_punkt_index.py` imports: the eval index and the chunk
+#: metadata MUST derive the same key for the same file, because the golden set
+#: joins on it. Keep one copy: two copies drift apart, and a golden label then
+#: resolves to nothing.
 _richtlinie_key = richtlinie_key
 
 
@@ -596,7 +575,7 @@ def punkt_documents(text_pages: list[dict[str, Any]], file_name: str, file_size:
     ``{"page_number": int, "text": str}`` dicts in page order.
 
     Returns ``None`` when the document is not Punkt-structured -- fewer than five accepted
-    Punkte, or Punkte covering under 60% of the body text -- so the caller keeps today's
+    Punkte, or Punkte covering under 60% of the body text -- so the caller keeps the
     per-page Documents. ``Begriffsbestimmungen`` (an alphabetical glossary) and both
     ``Zitierte Normen`` files take that path.
 

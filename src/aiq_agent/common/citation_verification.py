@@ -79,7 +79,7 @@ class SourceEntry:
     tool_name: str = ""
     # Retrieval collection the hit came from (oib_knowledge, s_*, proj_*, archiv_*),
     # parsed from the knowledge-layer tool output's `Collection:` field. None for
-    # URL/web sources and for output produced before the field was threaded.
+    # URL/web sources and for output that does not carry it.
     collection: str | None = None
     # The SHELF the hit came from (`archiv`/`project`/`session`/`base`), stated
     # by the knowledge layer's ``Shelf:`` field (ADR-0047). None when the
@@ -105,7 +105,7 @@ class SourceEntry:
     # actually appears (fuzzily) in the evidence, catching the DeepSeek "cites a
     # real section but fabricates the quote" bug. When several chunks dedup onto
     # the same (filename, page) key their bodies are joined (see ``add``). None
-    # for URL/web sources and for output produced before this field was threaded.
+    # for URL/web sources and for output that does not carry it.
     chunk_text: str | None = None
     # The Punkt this passage belongs to ("3.5.2"), as the chunker established
     # it and the knowledge layer's ``Punkt:`` line states it. This is the
@@ -132,7 +132,7 @@ class SourceEntry:
     # session-registry cache like the other fields.
     rank: str | None = None
     binding_status: str = "unbekannt"
-    # WHERE ON THE PAGE the passage sits, as boxes the viewer draws (issue #433).
+    # WHERE ON THE PAGE the passage sits, as boxes the viewer draws.
     # Stated by the producer for a passage read off a picture of the page (a
     # plan's Grundriss, a photo), never for running text, which the viewer
     # locates by matching ``chunk_text`` instead. Several chunks of one page
@@ -172,8 +172,8 @@ def lost_citations(removed_citations: Sequence[dict]) -> list[dict]:
 
     Two Punkte read from one page are one registry entry, so an answer that
     lists "file.pdf, p.4" twice gets the second merged into the first. Counted
-    as a failure, that merge bought a full repair rewrite (16 s, measured in
-    the September 2026 census) and a "Belege entfernt" note for a citation the
+    as a failure, that merge would buy a full repair rewrite (16 s, measured in
+    a census of live answers) and a "Belege entfernt" note for a citation the
     reader still has. Telemetry keeps the full list; the reader's note reads
     this one (``ledger.citations_removed_summary`` on chat, ``finalize`` in
     deep research).
@@ -308,8 +308,8 @@ def _entry_shelf(entry: SourceEntry) -> Shelf | None:
     """The shelf a registry entry sits on; ``None`` when unknown.
 
     Prefers the STATED shelf. The collection-name fallback exists only for
-    entries captured before the knowledge layer emitted ``Shelf:`` (an older
-    deploy's tool output replayed into this registry) and goes away with
+    entries whose tool output carries no ``Shelf:`` line (an older deploy's tool
+    output replayed into this registry) and goes away with
     :func:`legacy_shelf_for_collection_name`.
     """
     return parse_shelf(entry.shelf) or legacy_shelf_for_collection_name(entry.collection)
@@ -373,16 +373,16 @@ class SourceRegistry:
         #
         # `page`: two chunks from the SAME document at DIFFERENT pages are
         # distinct evidence and must both become chips. Keying on filename alone
-        # silently dropped every page after the first (and mismatched the
+        # would silently drop every page after the first (and mismatch the
         # page-aware Trace-Lanes fan-out — see ADR-0026).
         #
         # `collection`: a document is `(collection, filename)` — the PRIMARY KEY
         # of `document_metadata`, and the only pair that is unique. One search
         # fans out across the base corpus, the session collection and the project
         # collections at once, so a project `Plan.pdf` and an Archiv `Plan.pdf`
-        # can land in the same result set. Keying on the filename alone collapsed
-        # them onto whichever chunk arrived first and discarded the other
-        # document's evidence entirely.
+        # can land in the same result set. Keying on the filename alone would
+        # collapse them onto whichever chunk arrived first and discard the other
+        # document's evidence.
         self._citation_key_files: set[tuple[str | None, str, int | None]] = set()
         self._all: list[SourceEntry] = []
 
@@ -906,9 +906,9 @@ def extract_sources_from_tool_result(
         return [_entry_from_hit(hit, tool_name) for hit in block.hits]
 
     # An error or a no-result report is not evidence, whatever it links to.
-    # Checked before the parsers and the URL extractor. Until 2026-09-24 it ran
-    # after them, and "Error: Web search is unavailable ... Get an API key from
-    # https://tavily.com/" registered tavily.com as a citable source (answer suite).
+    # Checked before the parsers and the URL extractor. After them, a status text such as
+    # "Error: Web search is unavailable ... Get an API key from https://tavily.com/"
+    # would register tavily.com as a citable source (answer suite).
     if _is_non_citable_status_output(content):
         return []
 
@@ -1008,7 +1008,7 @@ def _entry_from_hit(hit: GroundingHit, tool_name: str) -> SourceEntry:
     """One captured grounding hit as a registry entry, by field copy.
 
     The structured twin of :func:`_kl_entry`, and the reason the text parsers
-    below no longer run on a live turn. Every value here is the one the
+    below do not run on a live turn. Every value here is the one the
     producer stated, so the only work left is the registry's emptiness
     convention: ``""`` and ``None`` mean the same thing to every reader
     downstream, and the entry states ``None``.
@@ -1153,8 +1153,8 @@ def _parse_generic_urls(content: str, tool_name: str) -> list[SourceEntry]:
 _KL_CITATION_RE = re.compile(r"^Citation:\s*(.+)$", re.MULTILINE)
 _KL_SOURCE_RE = re.compile(r"^Source:\s*(.+)$", re.MULTILINE)
 _KL_COLLECTION_RE = re.compile(r"^Collection:\s*(.+)$", re.MULTILINE)
-# The shelf the hit came from, stated by the producer (ADR-0047). Absent from
-# output produced before the shelf travelled — absent means unknown.
+# The shelf the hit came from, stated by the producer (ADR-0047). Absent when
+# the producer states none — absent means unknown.
 _KL_SHELF_RE = re.compile(r"^Shelf:\s*(.+)$", re.MULTILINE)
 # Machine-readable doc_class field emitted by the knowledge layer's
 # `_format_results` (``Dokumentart: <doc_class_key>``). ``Doc-Class:`` is
@@ -1172,22 +1172,22 @@ _KL_PROVENANCE_RE = re.compile(r"^Herkunft:\s*(.+)$", re.MULTILINE)
 # The Punkt the excerpt belongs to, as the chunker established it
 # (``punkt_chunking.py``, measured 946/946 against the corpus's contents
 # pages) and ``_format_results`` states it. This is the citation form Austrian
-# building law actually uses ("OIB-RL 2, Pkt. 3.5.2"); until it was parsed here
-# the number reached the model as prose and died before the citation the reader
+# building law actually uses ("OIB-RL 2, Pkt. 3.5.2"); without this parse the
+# number reaches the model as prose and dies before the citation the reader
 # sees. Absent for page-fallback chunks and web documents. The value is the
 # rest of the line, not one token: the corpus form is ``3.5.2``, a RIS passage
 # states its locus the way a lawyer reads it, ``§ 63 Abs 1``, and squeezing that
-# to ``§63Abs1`` to fit a one-token rule put an unreadable locus on every chip.
+# to ``§63Abs1`` to fit a one-token rule would put an unreadable locus on every
+# chip.
 #: ``Projekt: Name — abgeschlossen (project_id …)`` (``grounding_block._project_line``, ADR-0085).
 _KL_PROJECT_RE = re.compile(r"^Projekt:\s*(.+?)\s+—\s+(\S+)\s+\(project_id\s+([^\s)]+)\)\s*$", re.MULTILINE)
 _KL_PUNKT_RE = re.compile(r"^Punkt:\s*(.+?)\s*$", re.MULTILINE)
 #: ``Bundesland: …`` under the ``Projekt:`` line (``grounding_block._header_lines``), when the project's Land is stated.
 _KL_LAND_RE = re.compile(r"^Bundesland:\s*(.+?)\s*$", re.MULTILINE)
-# The retrieval score ``_format_results`` prints, a true cosine similarity since
-# the audit's F6 fix. Parsed from the WHOLE block rather than the header region:
-# the header is defined as everything above this very line. A body could in
-# principle contain the same words, but the header's line precedes it and
-# ``_first`` takes the first match.
+# The retrieval score ``_format_results`` prints, a true cosine similarity. Parsed from
+# the WHOLE block rather than the header region: the header is defined as everything
+# above this very line. A body could in principle contain the same words, but the
+# header's line precedes it and ``_first`` takes the first match.
 _KL_SCORE_RE = re.compile(r"^Relevance Score:\s*(-?\d+(?:\.\d+)?)\s*$", re.MULTILINE)
 
 # Per-hit block/body markers, mirroring register.py:_format_results layout: each
@@ -1375,8 +1375,8 @@ def _parse_knowledge_layer(content: str, tool_name: str) -> list[SourceEntry]:
     and ``Dokumentart:`` only when the hit HAS one, so a result set mixing a
     classified hit (OIB corpus) with an unclassified one (a project upload)
     shifts every later value up by one under positional zipping — and because
-    ``doc_class`` is the FIRST-priority signal in ``lane_for_hit``, that
-    silently rendered a project plan as an OIB Richtlinie. Block-scoped parsing
+    ``doc_class`` is the FIRST-priority signal in ``lane_for_hit``, that would
+    silently render a project plan as an OIB Richtlinie. Block-scoped parsing
     makes the association structural rather than coincidental.
     """
     blocks = _split_kl_result_blocks(content)
@@ -1413,7 +1413,7 @@ def _parse_knowledge_layer(content: str, tool_name: str) -> list[SourceEntry]:
     else:
         # No block markers (a non-``_format_results`` producer whose tool name
         # still matches "knowledge"). Nothing delimits the hits, so fall back to
-        # the historical positional pairing rather than dropping the sources.
+        # the positional pairing rather than dropping the sources.
         citations = _KL_CITATION_RE.findall(content)
         sources = _KL_SOURCE_RE.findall(content)
         collections = _KL_COLLECTION_RE.findall(content)
@@ -1432,9 +1432,9 @@ def _parse_knowledge_layer(content: str, tool_name: str) -> list[SourceEntry]:
 
     # No Citation: line, no sources. A URL in a passage body is part of the
     # retrieved text, and a knowledge tool that FAILED returns an error message
-    # whose links are nobody's evidence. Both used to register as web sources
-    # through the generic URL extractor, which is why a turn that tripped a
-    # pydantic validation error showed a source card for errors.pydantic.dev.
+    # whose links are nobody's evidence. Both would otherwise register as web sources
+    # through the generic URL extractor: a turn that tripped a pydantic validation
+    # error would show a source card for errors.pydantic.dev.
     return entries
 
 
@@ -1450,11 +1450,10 @@ register_source_parser(lambda name: "knowledge" in name, _parse_knowledge_layer)
 register_source_parser(lambda name: "ris_lookup" in name, _parse_knowledge_layer)
 # ``read_passage`` is the third producer of that grammar: it renders through the
 # knowledge layer's own ``_format_results``, and its name does not contain
-# "knowledge", so it used to fall all the way through to the non-URL fallback and
-# register ONE source whose citation key was the string "read_passage". A turn
-# that opened a passage and cited it therefore had that citation dropped as
-# ``citation_key_not_in_registry``, while the config comment beside the tool said
-# the opposite. Registering it here is also what keeps the two readers level: the
+# "knowledge", so without a parser here it would fall all the way through to the non-URL
+# fallback and register ONE source whose citation key is the string
+# "read_passage". A cited passage would then be dropped as
+# ``citation_key_not_in_registry``. Registering it here is also what keeps the two readers level: the
 # structured path reads its block by hash and would otherwise recover passages
 # the text path cannot (ADR-0061).
 register_source_parser(lambda name: "read_passage" in name, _parse_knowledge_layer)
@@ -1464,8 +1463,8 @@ register_source_parser(lambda name: "read_passage" in name, _parse_knowledge_lay
 register_source_parser(lambda name: "project_lookup" in name, _parse_knowledge_layer)
 # ``list_files`` is an INDEX, never evidence: a row proves a file exists, not
 # what it says. It sits in the knowledge data source, so its output is captured
-# like a search result, and with no parser it fell to the non-URL fallback and
-# registered one citable source keyed "list_files" — a citation that resolves to
+# like a search result, and with no parser it would fall to the non-URL fallback and
+# register one citable source keyed "list_files" — a citation that resolves to
 # a directory listing. Nothing it returns may ground a claim. ``endswith`` covers
 # a group-qualified name (``knowledge__list_files``); registered after the
 # knowledge parser, which a name containing "knowledge" reaches first and which
@@ -1477,7 +1476,7 @@ register_source_parser(lambda name: name.endswith("list_files"), lambda content,
 # ---------------------------------------------------------------------------
 
 # German labels are first-class: reports written in German use "Quellen" &c.,
-# and failing to recognize them appended a duplicate English "## Sources"
+# and failing to recognize them would append a duplicate English "## Sources"
 # section while mangling the original block.
 _GERMAN_REFERENCE_HEADING_LABEL_PATTERN = r"(?:Quellen(?:verzeichnis|angaben)?|Literatur(?:verzeichnis)?|Referenzen)"
 _REFERENCE_HEADING_LABEL_PATTERN = (
@@ -1524,8 +1523,8 @@ def expand_grouped_citations(text: str, *, unterminated_fence_is_code: bool = Fa
     The model is told to write one marker per source and sometimes writes a
     range. Every reader downstream knows ``[N]`` only: the verifier checked
     none of a range's sources and removed none of them, and the chat showed
-    ``[2–5]`` as literal text beside its neighbours' pills (answer suite,
-    2026-09-24). Expanded first, each source is verified and linked alone.
+    ``[2–5]`` as literal text beside its neighbours' pills (answer suite).
+    Expanded first, each source is verified and linked alone.
 
     Code is left as written: ``grid[1, 2]`` is an index, not two citations.
     A reader of a text still being written passes
@@ -1562,8 +1561,8 @@ _URL_IN_LINE_RE = re.compile(r"https?://\S+")
 _KL_CITATION_PATTERN_RE = re.compile(r"^(.+\.\w{2,5})(?:,\s*(?:p\.?|page)\s*\d+)?$", re.IGNORECASE)
 
 
-# Characters that may appear INSIDE a filename token. Used to require that a
-# registry filename found in a reference line stands on its own rather than
+# Characters that may appear INSIDE a filename token. A registry filename found
+# in a reference line must stand on its own rather than
 # being the tail of a longer name — without this, a registry holding `plan.pdf`
 # claims a citation to `bestandsplan.pdf` and the chip opens the wrong document.
 _FILENAME_INNER_CHARS = "_-."
@@ -1623,11 +1622,11 @@ def _match_registry_filename(ref_text: str, registry: SourceRegistry) -> str | N
     registered `plan.pdf`. ``None`` when the line names no registered document.
 
     This runs on the RAW line, before any title/parenthetical trimming, because
-    those trims are exactly what used to lose the locator: a line written as
-    ``OIB-Richtlinie 2 (oib-rl_2.pdf, p.12)`` had its whole locator removed as
-    if it were an "(Internal)" annotation, and ``Titel - oib-rl_2.pdf, p.12``
-    had the title swallowed into the filename — both dropping a citation to a
-    document that was genuinely retrieved.
+    those trims are exactly what can lose the locator: a line written as
+    ``OIB-Richtlinie 2 (oib-rl_2.pdf, p.12)`` would have its whole locator
+    removed as if it were an "(Internal)" annotation, and ``Titel -
+    oib-rl_2.pdf, p.12`` would have the title swallowed into the filename, both
+    dropping a citation to a document that was genuinely retrieved.
     """
     lowered = ref_text.lower()
     best_name: str | None = None
@@ -1722,7 +1721,7 @@ def _match_registry_title(ref_text: str, registry: SourceRegistry) -> str | None
     second while a German answer, naturally, copies the first
     („OIB-Richtlinie 2, Ausgabe Mai 2023, S. 12"). The registry holds both
     (:attr:`SourceEntry.title`), so a title-cited line is a citation to a
-    document this turn really retrieved, and removing it cost the answer its
+    document this turn really retrieved, and removing it would cost the answer its
     source AND a repair pass (two searches and a rewrite) to put back what was
     never missing.
 
@@ -1757,17 +1756,16 @@ def _match_registry_title(ref_text: str, registry: SourceRegistry) -> str | None
 def cited_document_entries(text: str, registry: SourceRegistry) -> list[SourceEntry]:
     """Registry documents the answer's SOURCE SECTION lists, in registry order.
 
-    The document-key counterpart to :meth:`SourceRegistry.has_url`: it answers
-    "which of the documents we retrieved does this answer cite?" without needing
-    a URL. Each source line is resolved by :func:`_resolve_source_line`, the one
-    reading of a source line the verifier keeps or drops it on, so a document
-    is cited here exactly when ``verify_citations`` would keep its line. A
-    filename scan of the section did not: ``Bauordnung.pdf`` is a substring of
-    ``NÖ Bauordnung.pdf``, and the other Land's document counted as cited.
+    The document-key counterpart to :meth:`SourceRegistry.has_url`: it answers "which of
+    the documents we retrieved does this answer cite?" without needing a URL. Each
+    source line is resolved by :func:`_resolve_source_line`, the one reading of a source
+    line the verifier keeps or drops it on, so a document is cited here exactly when
+    ``verify_citations`` would keep its line. A filename scan of the section would not:
+    ``Bauordnung.pdf`` is a substring of ``NÖ Bauordnung.pdf``, and the other Land's
+    document counted as cited.
 
-    Deep research had no such path — its "cited" signal was URL-only, so a
-    knowledge-base source could never be marked cited and was dropped from the
-    provenance row the moment any web source WAS cited.
+    Without this document-key path, a knowledge-base source (which has no URL)
+    could never be marked cited.
 
     A document is `(collection, filename)`, so the shelf a source line names is
     part of what it cites: a line reading `Plan.pdf (Büroarchiv), p.3` marks the
@@ -1967,7 +1965,7 @@ def source_lane(entry: SourceEntry, registry: NormRegistry | None = None) -> tup
     if entry.citation_key:
         file_name, _ = _parse_citation_key(entry.citation_key)
     # ``registry`` may be supplied by the caller (so a single ``load_registry()``
-    # serves several helpers per entry); when absent, load it exactly as before —
+    # serves several helpers per entry); when absent, load it here —
     # only for RIS URLs, so non-RIS entries still skip the load entirely.
     if registry is None:
         registry = load_registry() if (entry.url and "ris.bka.gv.at" in entry.url) else None
@@ -2000,8 +1998,8 @@ def binding_note_for_entry(entry: SourceEntry, registry: NormRegistry | None = N
     try:
         from aiq_agent.common.norm_registry import load_registry
 
-        # Reuse a caller-supplied registry when present; otherwise load it as
-        # before. The load stays inside the fail-open guard.
+        # Reuse a caller-supplied registry when present; otherwise load it.
+        # The load stays inside the fail-open guard.
         if registry is None:
             registry = load_registry()
         for norm in registry.entries:
@@ -2015,9 +2013,9 @@ def binding_note_for_entry(entry: SourceEntry, registry: NormRegistry | None = N
 # ---------------------------------------------------------------------------
 # Binding classification: carry a source's BINDING STATUS to the client.
 #
-# ``binding_note`` (above) is prose and only ever matched RIS URLs, so a
-# KB-retrieved OIB-Richtlinie carried NOTHING and the UI could not tell binding
-# law from interpretive guidance. This adds a small STRUCTURED signal — a
+# ``binding_note`` (above) is prose and only ever matches RIS URLs, so a
+# KB-retrieved OIB-Richtlinie would carry NOTHING and the UI could not tell
+# binding law from interpretive guidance. This adds a small STRUCTURED signal — a
 # ``NormRank`` (when the source resolves to a catalogued norm) and a coarse
 # ``binding_status`` — that the renderer badges. It is purely additive:
 # ``binding_note`` keeps working unchanged.
@@ -2090,10 +2088,10 @@ def _match_registry_entry(
 ) -> Any:
     """The catalogued norm a source resolves to, or ``None``.
 
-    Matching is WIDENED beyond the old RIS-only path because that path left every
+    Matching goes beyond RIS URLs, because a RIS-only path would leave every
     non-RIS source (KB docs, uploads) unclassifiable:
 
-    1. RIS URL -> precise ``document_number`` substring (the pre-existing signal).
+    1. RIS URL -> precise ``document_number`` substring (the primary signal).
     2. Otherwise the source's filename/title against each entry's
        ``short``/``title``/``alias``/``topic`` (via :func:`match_entries`).
 
@@ -2201,8 +2199,8 @@ def document_key(entry: SourceEntry) -> str:
     per document, the Herleitung one card per document, and the bibliography one
     row per locus WITHIN a document.
 
-    Stamping it on the wire (``document_id``) means the frontend no longer has
-    to re-derive the grouping from filename heuristics. Precedence mirrors the
+    Stamping it on the wire (``document_id``) means the frontend does not have to
+    re-derive the grouping from filename heuristics. Precedence mirrors the
     registry's own ``_identity``:
 
       1. ``(collection, filename)`` — the primary key of ``document_metadata``
@@ -2212,11 +2210,10 @@ def document_key(entry: SourceEntry) -> str:
       2. ``filename`` alone, when the collection is unknown.
       3. the normalized URL, for web/RIS sources.
       4. the title, so a source is never identity-less.
-      5. a content digest, when the entry has no human label at all. Falling
-         back to a bare ``label:`` made every anonymous entry share one key —
-         and because the frontend PREFERS a supplied ``document_id`` over its
-         own derivation, distinct sources would have been folded into a single
-         document downstream. The digest is deterministic (no clock, no
+      5. a content digest, when the entry has no human label at all. A bare
+         ``label:`` would make every anonymous entry share one key — and because
+         the frontend PREFERS a supplied ``document_id`` over its own derivation,
+         distinct sources would be folded into a single document downstream. The digest is deterministic (no clock, no
          randomness), so the same entry keys the same way across processes and
          across a registry rehydrated from cache.
     """
@@ -2261,8 +2258,8 @@ def source_origin_token(entry: SourceEntry) -> str:
     and the frontend falls open to plain, unlabeled text.
     """
     # RIS first: a ``ris_lookup`` passage is a grounding-block hit, so it is a
-    # ``knowledge_layer`` entry too, and checked second it went out as ``[KB]``
-    # on every Bauordnung answer the suite read.
+    # ``knowledge_layer`` entry too, and checked second it would go out as ``[KB]``
+    # on every Bauordnung answer.
     if _is_ris_source(entry):
         return "[RIS]"
     if entry.source_type == "knowledge_layer":
@@ -2573,23 +2570,22 @@ def source_entry_to_wire(entry: SourceEntry, *, number: int | None = None) -> di
         "punkt": entry.punkt,
         "score": entry.score,
         # THE PASSAGE ITSELF — the one thing a reader checking a citation is
-        # actually after, and the one field this serializer used to drop.
+        # actually after.
         #
-        # It was captured (``SourceEntry.chunk_text``), deduplicated and merged
-        # across the chunks of a page, and then left behind here. The frontend
-        # therefore had no passage for any knowledge-layer citation, and every
-        # surface built to show one was inert against real traffic: the viewer's
-        # text-layer highlight, the Fundstelle rail, the "Zitierte Stelle" box,
-        # and "Zitat kopieren", which fell back to a bare bibliography line.
-        # Nothing failed — a missing snippet is a supported outcome everywhere —
-        # so the whole apparatus looked healthy and marked nothing.
+        # It is captured (``SourceEntry.chunk_text``) and merged across the chunks of
+        # a page. Without it on the wire the frontend has no passage for any
+        # knowledge-layer citation, and the viewer's text-layer highlight, the
+        # Fundstelle rail, the "Zitierte Stelle" box and "Zitat kopieren" fall back to
+        # a bare bibliography line. Nothing fails — a missing snippet is a supported
+        # outcome everywhere — so the whole apparatus would look healthy and mark
+        # nothing.
         #
         # It is bounded here rather than at the reader: this travels on every
         # SSE frame and into ``messages.metadata``, and the client only needs
         # enough to locate a sentence in a document it already has.
         "snippet": _wire_snippet(entry.chunk_text),
         # WHERE ON THE PAGE, for a passage read off a picture of it: boxes the
-        # viewer draws over the page (issue #433). Absent for running text,
+        # viewer draws over the page. Absent for running text,
         # which the viewer finds by matching ``snippet`` instead.
         "regions": [region.to_wire() for region in entry.regions] or None,
         # The OTHER project a cross-project lookup found this passage in
@@ -2683,7 +2679,7 @@ def _wire_snippet(chunk_text: str | None) -> str | None:
 # A leading origin token on the post-``[N]`` text of a source line, e.g. the
 # ``[KB]`` in ``- [1] [KB] file.pdf, p.3``. Kept in sync with
 # ``source_origin_token`` and the frontend ``SOURCE_KIND_TOKEN_RE`` parser.
-# Used to (a) make token injection idempotent and (b) strip a pre-existing
+# Two jobs: (a) make token injection idempotent and (b) strip a pre-existing
 # token before registry identity-matching so it never pollutes the fuzzy
 # filename comparison in ``_is_knowledge_citation`` / ``has_citation_key``.
 _ORIGIN_TOKEN_RE = re.compile(r"^(\[(?:KB|RIS|Web)\])\s*", re.IGNORECASE)
@@ -2952,18 +2948,18 @@ _QUOTE_EDGE_CHARS = "„“”»«\"'‚‘’ "
 
 # Regions of the answer that are CODE, and therefore carry no quotations to
 # verify. A mermaid node label is written `A["Anwendungsbereich"]`, which the
-# ASCII branch of `_QUOTED_SPAN_RE` reads as a quoted claim — so a sourced
-# answer carrying a diagram had every one of its labels flagged, and
-# `annotate_unverified_quotes` inserted its marker after the closing quote,
-# i.e. INSIDE the bracket:
+# ASCII branch of `_QUOTED_SPAN_RE` reads as a quoted claim. Left alone, a
+# sourced answer carrying a diagram would have every one of its labels
+# flagged, and `annotate_unverified_quotes` would insert the marker after the
+# closing quote, i.e. INSIDE the bracket:
 #
 #     A["OIB-Richtlinie 2<br/>Brandschutz" [nicht wörtlich in der Quelle belegt]]
 #
-# That is not a mis-annotation, it is a syntax error: the diagram stops parsing,
-# the frontend falls back to printing the source, and the reader gets a code
-# listing where the answer promised a drawing. The same pass then reported the
-# labels as unverified quotes, which caps the turn's confidence to "low" — so
-# one diagram degraded the chip on an otherwise well-sourced answer.
+# That is not a mis-annotation, it is a syntax error: the diagram stops
+# parsing, the frontend falls back to printing the source, and the reader gets
+# a code listing where the answer promised a drawing. The same pass would also
+# report the labels as unverified quotes, capping the turn's confidence to
+# "low": one diagram would degrade the chip on an otherwise well-sourced answer.
 _FENCE_RE = re.compile(r"^[ \t]{0,3}(`{3,}|~{3,})")
 
 # Inline code, matched only outside fences. `\1` requires the same run length,
@@ -3028,8 +3024,8 @@ def _map_outside_code(
     The companion to the skip in ``verify_quoted_spans``, for the passes that
     REWRITE rather than read. `sanitize_report` strips URLs and collapses runs
     of spaces across the whole answer body, and a mermaid fence is answer body:
-    a `click` directive's URL became `[1]`, and two-space indentation became
-    one. The diagram is the source, so editing it is editing the drawing.
+    a `click` directive's URL would become `[1]`, and two-space indentation
+    would become one. The diagram is the source, so editing it is editing the drawing.
 
     Segments rather than offsets, because a rewrite changes lengths: the spans
     are read once from the ORIGINAL text, the code between them is passed
@@ -3128,18 +3124,19 @@ def _normalize_for_quote_match(text: str) -> str:
 def _quote_coverage(norm_quote: str, norm_chunk: str) -> float:
     """Fraction of ``norm_quote`` covered by a CONTIGUOUS-enough run of the chunk.
 
-    Two earlier metrics were both defeatable:
+    Summing matching blocks is defeatable in two ways:
 
     - A whole-chunk subsequence match (sum of every matching block, anywhere in
-      the chunk) scored a phrase-splice — real fragments pulled from DIFFERENT
+      the chunk) scores a phrase-splice — real fragments pulled from DIFFERENT
       clauses — at 1.0 even though the quote is not a substring.
-    - Restricting the sum to a single window sized to the quote length still let
-      an ADJACENT-clause splice through: when the quote merges two neighbouring
-      sentences (dropping a short connective), the whole spliced span is about as
-      long as the quote, so it fits one window and the summed blocks stay above
-      threshold — even though the quote skipped over real chunk text in between.
+    - Restricting the sum to a single window sized to the quote length still
+      lets an ADJACENT-clause splice through: when the quote merges two
+      neighbouring sentences (dropping a short connective), the whole spliced
+      span is about as long as the quote, so it fits one window and the summed
+      blocks stay above threshold — even though the quote skipped over real
+      chunk text in between.
 
-    The fix penalizes NON-CONTIGUITY directly. Within each candidate window we
+    The score penalizes NON-CONTIGUITY directly. Within each candidate window we
     walk the matching blocks in order and accumulate the NET chunk text the quote
     skips between consecutive blocks (``chunk_gap - quote_gap``, floored at 0 so a
     same-length substitution — the shape of OCR/casing noise — costs ~nothing).
@@ -3155,7 +3152,7 @@ def _quote_coverage(norm_quote: str, norm_chunk: str) -> float:
       is split, and no surviving run reaches the threshold → low score.
 
     The budget is a fixed constant rather than a fraction of the quote, so a
-    longer quote can no longer buy a proportionally larger silent elision.
+    longer quote cannot buy a proportionally larger silent elision.
     Candidate windows are anchored at the diagonals of the matching blocks
     (window start = ``block.b - block.a``), so only a handful are scored per
     quote×chunk. Pure stdlib (``difflib``), fail-open, and cheap.
@@ -3574,8 +3571,7 @@ def _resolve_source_line(match_text: str, registry: SourceRegistry) -> _LineSour
             return _LineSource(url=canonical, line_url=url)
         # A source cited by its key can still arrive with a link: the prompt
         # asks for ``Title - URL``, the model copies a link from a tool's
-        # source line (``ris_search`` prints ``Source: <url>``; ``ris_lookup``
-        # printed ``Source URL:`` beside ``Citation:`` until 2026-09-24), and
+        # source line (``ris_search`` prints ``Source: <url>``), and
         # the registry deliberately files RIS by key. The key decides; the
         # link it cannot vouch for is dropped.
         is_kl, citation_key = _is_knowledge_citation(_drop_url(match_text, url), registry)
@@ -3887,14 +3883,14 @@ class ReportSanitizationResult:
     # old ``[N]`` → new ``[N]`` for the gap-closing renumber this pass applied.
     # ``verify_citations`` hands callers a ``[N]``→source binding computed BEFORE
     # this renumbering, so a caller that puts those numbers on the wire has to
-    # remap them or the chips end up labelled with numbers the prose no longer
-    # uses. Empty when no source section was present or nothing moved.
+    # remap them, or the chips end up labelled with numbers the prose does not
+    # use. Empty when no source section was present or nothing moved.
     renumber_map: dict[int, int] = field(default_factory=dict)
     # Original (pre-renumber) ``[N]`` numbers whose source lines this pass
     # deleted (shortened / truncated / unsafe URLs). Callers that put
     # ``verify_citations`` numbers on the wire MUST drop these entries
     # fail-closed: without them a chip stays trusted/clickable at a URL the
-    # prose no longer cites. Empty when nothing was deleted.
+    # prose does not cite. Empty when nothing was deleted.
     removed_citation_numbers: set[int] = field(default_factory=set)
 
 

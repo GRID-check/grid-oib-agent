@@ -5,10 +5,10 @@
  * server message row (`metadata.cardInteractions`) so it also survives a quota
  * wipe or a different device.
  *
- * Regression: the outcome used to live in component-local `useState`, so a
- * reload re-mounted an accepted `project_profile_patch` / saved
- * `memory_proposal` as pending — with a live button that would apply the patch
- * or write the memory a SECOND time (neither endpoint is idempotent).
+ * The outcome must not live in component-local state: a reload would re-mount an
+ * accepted `project_profile_patch` / saved `memory_proposal` as pending, with a
+ * live button that would apply the patch or write the memory a SECOND time
+ * (neither endpoint is idempotent).
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { useChatStore } from '../store'

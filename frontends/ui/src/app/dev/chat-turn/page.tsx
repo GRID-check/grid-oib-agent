@@ -14,18 +14,18 @@
  *                 answer card dominant, with sources + confidence shown ONCE on
  *                 the answer (deduped out of the reasoning assessment node).
  *
- * `?variant=` selects an ANSWER-LAYER fixture instead. Every card, the lede and
- * the provenance footer had only ever been reviewed in the gallery — isolated,
- * on a bare page, at full width — and "does this look right on its own" is a
- * different question from "does this look right wedged between two paragraphs,
- * under a lede, above a provenance footer, at the thread's real 680px column".
- * These variants ask the second one:
+ * `?variant=` selects an ANSWER-LAYER fixture instead. The gallery shows each
+ * card, the lede and the provenance footer isolated, on a bare page, at full
+ * width; "does this look right on its own" is a different question from "does
+ * this look right wedged between two paragraphs, under a lede, above a
+ * provenance footer, at the thread's real 680px column". These variants ask the
+ * second one:
  *
  *   • `lede-card`    — a long answer (over the `LEDE_MIN_CHARS` threshold, so
  *                      the lede fires) with a `calculation` spliced in mid-answer
  *                      by a `[[card:1]]` marker: marker placement, and the gap a
  *                      card leaves in the reading rhythm on both sides.
- *   • `two-cards`    — two cards in one turn, the rule nobody had seen tested:
+ *   • `two-cards`    — two cards in one turn, a case nothing else tests:
  *                      a `building_section` placed inline and a `calculation`
  *                      left unplaced, so it lands in the fallback block between
  *                      the prose and the provenance footer.
@@ -42,9 +42,9 @@
  *                      where the `memory_reflection` stage recorded nothing and
  *                      one where it recorded two things
  *                      (`docs/architecture/post-answer-stages.md` §1.7, §5.1).
- *                      The chip is a fact about the TURN now, not a poll of the
- *                      conversation's memory fired by every rendered answer —
- *                      which is why the first panel has no chip at all, and why
+ *                      The chip is a fact about the TURN, not a poll of the
+ *                      conversation's memory fired by every rendered answer:
+ *                      that is why the first panel has no chip at all, and why
  *                      the second's number is 2 rather than the thread's total.
  *                      The footers must otherwise line up: the chip lands in a
  *                      meta row that is already on screen, which is what lets it
@@ -56,24 +56,20 @@
  *                      the same answer at rest and after a down-vote whose
  *                      reason is chosen, so the note is showing too. The footer
  *                      is the only place where a 24px control row and a form
- *                      share one wrapping row, and the open state had never been
- *                      seen in it — only in the component's own gallery, where
- *                      there is no row to break. It broke: `items-center`
- *                      centred the copy actions against the form's height, so
- *                      two icons floated mid-footer in an empty left half while
- *                      the reason chips and the note hung off the row's right
- *                      end. Read the two panels' top line: copy, export and the
- *                      thumbs must sit on it identically, with the disclosure
- *                      below on the answer's own left edge.
+ *                      share one wrapping row, so the open state is checked
+ *                      here, where there is a row to break. Read the two panels'
+ *                      top line: copy, export and the thumbs must sit on it
+ *                      identically, with the disclosure below on the answer's
+ *                      own left edge.
  *
  * Every fixture answer deliberately ends in a written "## Quellen" section, the
  * way a verified backend answer does: it must NOT render as a second source
  * list — AgentResponse folds it into the one numbered "Belegt durch" block.
  *
  * Pinned to German with `fixedLocale`: without it the provider falls back to
- * `defaultLocale` ('en') and the answer's own chrome — „Belegt durch", the
- * confidence chip, the feedback line, the copy actions' labels — was captured
- * in English above German prose. See docs/ux/visual-screenshots.md.
+ * `defaultLocale` ('en'), and the answer's own chrome — „Belegt durch", the
+ * confidence chip, the feedback line, the copy actions' labels — would be
+ * captured in English above German prose. See docs/ux/visual-screenshots.md.
  *
  * Nothing here drives an interactive state, so the `reactStrictMode`
  * double-mount gotcha in that doc does not apply: the only effect reads the
@@ -413,10 +409,9 @@ const FIRE_SOURCES = `## Quellen
 // A Markdown-first answer: the shape the static prompt's STRUCTURE block
 // teaches — the first line answers with the value in bold, ### headings that
 // state, a table per set of cases with a Fundstelle column, a Status column in
-// the fixed vocabulary (rendered as chips), a drawing where the Verfahren forks, and a task list.
-// Everything here used to be a typed_table, requirement_checklist and
-// deadline_timeline card. The values show the form, not the Richtlinie: read
-// Tabelle 1b before quoting any of them.
+// the fixed vocabulary (rendered as chips), a drawing where the Verfahren forks,
+// and a task list. The values show the form, not the Richtlinie: read Tabelle 1b
+// before quoting any of them.
 const structuredQuestion =
   'Welche Feuerwiderstandsklasse brauchen tragende Bauteile in Gebäudeklasse 5, und erfüllt unser Konzept das?'
 
@@ -506,7 +501,7 @@ const ledeCards: GridCard[] = [
 ]
 
 /* --- variant: streaming --------------------------------------------------- */
-// A live answer (GK 5, 2026-09-24) caught mid-stream, and the same answer once
+// A live answer (GK 5) caught mid-stream, and the same answer once
 // the verified terminal frame replaced it. The stream withholds the `[N]`
 // markers and the sources section; the terminal adds them (ADR-0066).
 
@@ -664,7 +659,7 @@ ${STAIR_SOURCES}`
 
 /**
  * What the `follow_ups` STAGE delivered for this turn — the payload shape of
- * §4.2, which is deliberately the same shape the card always had. Four
+ * §4.2, which is deliberately the same shape as the card. Four
  * questions, because four is the ceiling and the ceiling is where the row
  * wrapping on a phone is worth looking at.
  */
@@ -847,13 +842,10 @@ const isAnswerVariant = (value: string | null): value is AnswerVariant =>
 function AnswerLayer({ variant }: { variant: AnswerVariant }) {
   if (variant === 'feedback-open') {
     // The SAME footer twice: at rest, and after a down-vote with a reason
-    // chosen, so the note is open too — the tallest the footnote ever gets.
-    // The pair is the evidence, and the top line of the two footers is where to
-    // look: the copy actions and the thumbs must sit on it at the same height
-    // in both, with the reason chips and the note below, on the answer's left
-    // edge. They used to be one box in a centred row, which made the second
-    // footer as tall as the form, floated the copy actions halfway down its
-    // empty left half, and hung the chips and the note off the right end.
+    // chosen, so the note is open too — the tallest the footnote gets. The pair
+    // is the evidence, and the top line of the two footers is where to look: the
+    // copy actions and the thumbs must sit on it at the same height in both, with
+    // the reason chips and the note below, on the answer's left edge.
     return (
       <>
         <SeedRetryAction />
@@ -984,7 +976,7 @@ function AnswerLayer({ variant }: { variant: AnswerVariant }) {
   if (variant === 'follow-ups-rail') {
     // The same turn twice. Everything above the rail must be identical in the
     // two panels — that comparison is what "reserves no space" LOOKS like, and
-    // it is the reason §9 asked for a screenshot here instead of an assertion.
+    // it is why §9 asks for a screenshot here instead of an assertion.
     return (
       <>
         <AnswerTurn
@@ -1008,11 +1000,9 @@ function AnswerLayer({ variant }: { variant: AnswerVariant }) {
     )
   }
 
-  // 'memory-chip': two answers of ONE thread. The chip used to be fed by a poll of the whole
-  // conversation's memory, mounted by every rendered answer, so BOTH panels
-  // would have carried it and both would have read the same number. It is now
-  // a fact about the turn: the first recorded nothing, the second recorded
-  // two things, and only the second says so.
+  // 'memory-chip': two answers of ONE thread. The chip is a fact about the turn,
+  // not a poll of the conversation's memory: the first recorded nothing, the
+  // second recorded two things, and only the second says so.
   //
   // The second thing to read here is the meta row. The chip arrives seconds
   // after the answer, and it may do that without any „reserve the space"

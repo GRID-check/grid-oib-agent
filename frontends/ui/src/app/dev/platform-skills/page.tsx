@@ -10,8 +10,8 @@ import type { SkillCategoryListItem } from '@/adapters/api/skills-client'
  * backend: two published OFFERS (on every org's Skills tab, each deciding) and
  * a draft (invisible until the switch is flipped).
  *
- * There used to be a third state, a published STANDARD row running for the
- * whole fleet on nobody's tab. Migration 0088 retired the tier.
+ * There is no third state: the STANDARD tier, a published row running for the
+ * whole fleet on nobody's tab, does not exist (migration 0088).
  *
  * The shim is installed at MODULE scope, not in an effect: a child's effect
  * fires first and would race a parent's fetch patch.

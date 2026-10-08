@@ -4,15 +4,15 @@
  * „Stilllegen" — the one gesture in this panel that says what it does before it
  * does it.
  *
- * ## The word, first, because the word was half the bug
+ * ## The word
  *
- * It used to be called „Archivieren", and this product already has an Archiv:
+ * This product already has an Archiv:
  * the office archive (ADR-0024), where a document is placed so that it BECOMES
  * cross-project Bürowissen — „Hier abgelegte Dokumente werden zu Bürowissen und
  * stehen jedem Projekt Ihrer Organisation zur Verfügung", in the empty state's
  * own words. This act does the opposite: the file leaves the working set and
- * its ingested chunks are purged, so Piloti stops citing it. The same verb was
- * doing a thing and its inverse, which is not a near-miss a reader recovers
+ * its ingested chunks are purged, so Piloti stops citing it. A verb shared with
+ * the archive would name a thing and its inverse, which a reader cannot recover
  * from by thinking harder.
  *
  * So the copy is „Stilllegen" / „Stillgelegt" (EN: retire / retired), and it
@@ -25,17 +25,15 @@
  * language, not in the data, and a migration to rename an enum value nobody
  * reads would be churn. Do not "fix" the mismatch by renaming the copy back.
  *
- * ## Why it was moved, and why it now asks
+ * ## Why it is set apart, and why it asks
  *
- * It used to stand in the decision row beside „Freigeben" and „Ablehnen" as an
- * equal sibling, fired on one click, and explained nothing. On the ordinary
- * case — a person's upload, born `published`, with no review decision left to
- * take — it was the ONLY control the row had, so every file in the project
- * offered one unlabelled verb under a heading about approvals — and, per above,
- * the verb pointed at the wrong place. That is the report we got, in those
- * words: no idea what archiving does.
+ * It is not an equal sibling of the decision row beside „Freigeben" and
+ * „Ablehnen": on the ordinary case — a person's upload, born `published`, with
+ * no review decision left to take — it would be the ONLY control the row had,
+ * one unlabelled verb under a heading about approvals. So it stands in its own
+ * block, and it asks before it acts.
  *
- * Three things are true about the act and none of them were on screen
+ * Three things are true about the act, and the reader must see all of them
  * (`lib/documents/version-content.ts: archiveDocument`):
  *
  *   - the file leaves the Dateien listing, and comes back only through the one

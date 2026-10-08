@@ -20,7 +20,7 @@ def _registry() -> SourceRegistry:
     return registry
 
 
-def test_a_range_naming_a_removed_source_no_longer_names_it():
+def test_a_range_naming_a_removed_source_is_cut_to_the_kept_sources():
     registry = _registry()
     report = (
         "## Ergebnis\n\nEs gilt X [1–3].\n\n## Sources\n"

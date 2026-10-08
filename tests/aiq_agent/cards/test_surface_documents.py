@@ -256,10 +256,10 @@ class TestPlatformCounts:
     async def test_a_surfaced_file_is_filed_under_the_turns_round(self, monkeypatch):
         """The Herleitung hangs on a round the documents it returned.
 
-        A surfacing round is announced as a retrieval („Sucht in Ihren
-        Unterlagen") and used to return no document to the ledger, so the
-        layer drew as a search that found nothing. The file put on screen is
-        that document, on the shelf it came from.
+        A surfacing round is announced as a retrieval („Sucht in Ihren Unterlagen") and
+        must return the documents it surfaces to the ledger, or the layer draws as a
+        search that found nothing. The file put on screen is that document, on the shelf
+        it came from.
         """
         from aiq_agent.common import turn_status
 
@@ -365,7 +365,7 @@ class TestBriefingNamesTheFolder:
 
     The folder rides on an underscore-prefixed key: the briefing reads it and the
     `document_grid` card payload strips it, because the card schema has no folder
-    field (see the report for what that leaves undone).
+    field.
     """
 
     def test_one_file_states_its_folder_beside_the_shelf(self):

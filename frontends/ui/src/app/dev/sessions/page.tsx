@@ -3,9 +3,8 @@
 /**
  * Sessions dev preview: renders the REAL SessionsPanel — the history sheet —
  * over the REAL app shell (`AppSidebar` rail + a chat-plane stand-in), so it
- * can be reviewed and screenshotted exactly as it rises in the product
- * . Not linked anywhere and 404s outside
- * development.
+ * can be reviewed and screenshotted exactly as it rises in the product.
+ * Not linked anywhere and 404s outside development.
  *
  * Why the real rail. The sheet dims the whole shell behind it, and whether
  * that scrim reads correctly is only visible over the product's own chrome.
@@ -177,9 +176,9 @@ export default function SessionsPreviewPage() {
           projects={PROJECTS}
           user={{ name: 'Anna Berger', email: 'anna.berger@example.at' }}
           authRequired={false}
-          // The state a signed-in member is actually in. Omitting this used to
-          // default it to `false`, so the preview — whose entire job is to show
-          // what the rail looks like — showed it without the Inbox entry.
+          // The state a signed-in member is actually in. Omitting this defaults
+          // it to `false`, and the preview, whose job is to show what the rail
+          // looks like, would drop the Inbox entry.
           canAccessInbox
         />
       </div>

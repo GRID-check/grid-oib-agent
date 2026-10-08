@@ -25,8 +25,8 @@
  * archived row is not "live", so the suppression check passes again and a later
  * re-crossing alerts properly. Alerting → recovering → alerting again is a real
  * sequence (a big ingest, a bulk delete, another ingest) and the second alert is
- * as newsworthy as the first. Leaving the old row standing would have swallowed
- * it silently, which is the worst of both behaviours.
+ * as newsworthy as the first. Leaving the old row standing would swallow it
+ * silently, which is the worst of both behaviours.
  *
  * **3. Recipients are derived from a permission, not from a role name or an
  * owner column.** There is no "responsible for the org" concept in this system,

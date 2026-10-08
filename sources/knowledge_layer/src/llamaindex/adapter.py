@@ -10,7 +10,7 @@ It uses:
 
 Configuration options:
     persist_dir: Directory for ChromaDB persistence (default: /tmp/chroma_data)
-    embed_model: NVIDIA embedding model (default: nvidia/llama-nemotron-embed-vl-1b-v2)
+    embed_model: embedding model (default: ``AIQ_EMBED_MODEL``, else openai/text-embedding-3-large)
     embed_base_url: Embedding model base URL (default: https://openrouter.ai/api/v1)
     chunk_size: Chunk size for text splitting (default: 1024, model supports up to 2048 tokens)
     chunk_overlap: Overlap between chunks (default: 128)
@@ -91,8 +91,8 @@ def _env_float(name: str, fallback: float, *, minimum: float = _POSITIVE) -> flo
 
     ``minimum`` defaults to "strictly positive", which is right for a timeout or a
     batch size but WRONG for a count whose zero means "off": rejecting
-    ``AIQ_MAX_RENDERED_PAGES=0`` silently restored the default of 20 and the
-    deployment paid VLM cost it had explicitly opted out of. Pass ``minimum=0``
+    ``AIQ_MAX_RENDERED_PAGES=0`` would silently restore the default of 20, and the
+    deployment would pay VLM cost it had explicitly opted out of. Pass ``minimum=0``
     for those.
     """
     raw = os.environ.get(name, "")
@@ -143,7 +143,7 @@ def _env_switch(name: str) -> bool:
 # Default VLM model for image captioning: the house model every deployment
 # already holds a key for, so captioning needs no second credential. It takes
 # image input (verified on OpenRouter); caption quality on OIB tables and
-# drawings is still unevaluated, like its predecessor's was.
+# drawings is not yet evaluated.
 DEFAULT_VLM_MODEL = os.environ.get("AIQ_VLM_MODEL", "openai/gpt-6-luna")
 # Default VLM model base URL
 DEFAULT_VLM_BASE_URL = os.environ.get("AIQ_VLM_BASE_URL", "https://openrouter.ai/api/v1")
@@ -156,8 +156,8 @@ DEFAULT_VLM_BASE_URL = os.environ.get("AIQ_VLM_BASE_URL", "https://openrouter.ai
 # AIQ_CHROMA_HOST is set, every backend replica and research worker talks to ONE
 # shared Chroma server over HTTP instead of each opening its own embedded
 # PersistentClient on local disk (which pins the vector store to a single pod).
-# Unset -> today's embedded behaviour, unchanged, so local dev and single-node
-# deployments are untouched. The returned client is API-compatible either way,
+# Unset -> the embedded behaviour, so local dev and single-node deployments are
+# untouched. The returned client is API-compatible either way,
 # so every downstream call site (collections, queries, count/peek, heartbeat)
 # is identical.
 # ---------------------------------------------------------------------------
@@ -176,8 +176,8 @@ def retrieval_dependency_faults() -> list[tuple[str, BaseException]]:
     made the dependency graph invisible to both readers and static analysis.
     The exception type carries the distinction the report needs —
     ``ModuleNotFoundError`` means the module is genuinely absent, any other
-    import failure means it is present but cannot be loaded, which is the case
-    that was misreported as "not installed" for days.
+    import failure means it is present but cannot be loaded. The two stay apart
+    because a present-but-broken install reads as "not installed" otherwise.
     """
     faults: list[tuple[str, BaseException]] = []
 
@@ -190,8 +190,8 @@ def retrieval_dependency_faults() -> list[tuple[str, BaseException]]:
             # fine but one of ITS dependencies is missing. Only a failure
             # naming this module (or a parent of it) means "not installed";
             # anything else is a present-but-unusable install, which is the
-            # case that has to stay distinguishable because it is the one the
-            # old message got wrong.
+            # case that has to stay distinguishable: reporting it as "not
+            # installed" sends operators to reinstall packages already there.
             missing = exc.name or ""
             if missing and (module == missing or module.startswith(f"{missing}.")):
                 faults.append((f"{distribution}: not installed ({exc})", exc))
@@ -228,8 +228,8 @@ def ensure_retrieval_dependencies() -> None:
     """Fail now, with the whole picture, rather than deep in a later call.
 
     Both initialization paths import only the piece they need first
-    (``NVIDIAEmbedding``), so a missing ``llama-index-vector-stores-chroma``
-    used to sail through ``_ensure_initialized`` and surface much later inside
+    (``NVIDIAEmbedding``), so a missing ``llama-index-vector-stores-chroma`` would
+    sail through ``_ensure_initialized`` and surface much later inside
     ``_get_index`` or ``_run_ingestion`` — outside the handler that produces the
     good diagnostic, and after the component had already reported itself ready.
     Probing the full set up front means "initialized" means usable.
@@ -237,11 +237,10 @@ def ensure_retrieval_dependencies() -> None:
     faults = retrieval_dependency_faults()
     if not faults:
         return
-    # Chained from the FIRST probe failure. Running before the try/except that
-    # `_retrieval_dependency_error` serves means this is now the raise most
-    # operators will actually see, so it has to carry the original traceback
-    # too -- a summary string alone would drop the one frame that says where
-    # the import broke.
+    # Chained from the FIRST probe failure. It runs before the try/except that
+    # `_retrieval_dependency_error` serves, so this is the raise most operators
+    # see, and it has to carry the original traceback too -- a summary string
+    # alone would drop the one frame that says where the import broke.
     raise RuntimeError(
         "LlamaIndex retrieval stack is unusable in this environment.\nModule status:\n  "
         + "\n  ".join(finding for finding, _ in faults)
@@ -254,14 +253,13 @@ def ensure_retrieval_dependencies() -> None:
 def _retrieval_dependency_error(cause: BaseException) -> RuntimeError:
     """Build a truthful error for a failed LlamaIndex import.
 
-    The previous message claimed "LlamaIndex dependencies not installed" for
-    every ``ImportError``. In production the packages *were* installed and one
-    of them was broken (``llama-index-core`` missing under an otherwise
-    populated ``llama_index`` namespace), so the advice to reinstall them was
-    wrong and the real cause -- present in the chained exception all along --
-    went unread for days (issues #330, #331). A diagnostic that misdescribes the
-    fault costs more than no diagnostic at all, so this one reports what is
-    actually true of the running environment.
+    A blanket "LlamaIndex dependencies not installed" for every ``ImportError``
+    misdescribes the fault whenever the packages are installed and one of them is
+    broken (``llama-index-core`` missing under an otherwise populated
+    ``llama_index`` namespace): the advice to reinstall is wrong, and the real cause
+    sits in the chained exception. A diagnostic that misdescribes the fault costs
+    more than no diagnostic at all, so this one reports what is actually true of
+    the running environment.
     """
     findings = retrieval_dependency_report() or ["no per-module fault found; see the chained exception"]
     return RuntimeError(
@@ -400,7 +398,7 @@ MAX_OCR_PAGES = _env_int("AIQ_MAX_OCR_PAGES", 500, minimum=0)
 # response comes back truncated, but that retry runs with SDK retries disabled,
 # so the ceiling for one caption is ~9 minutes — and only on the path where the
 # provider answered once and then hung. Retries are kept (rather than dropped to
-# 0) because a transient 429/5xx now costs an indexed chunk: failure
+# 0) because a transient 429/5xx costs an indexed chunk: failure
 # placeholders are skipped, not embedded. Clamped like the sibling knobs: a
 # misconfigured 0 or negative value would fail every VLM request immediately and
 # silently disable captioning altogether.
@@ -461,11 +459,11 @@ EMBED_MAX_RETRIES = 2
 # @required false
 # Per-request timeout for the QUERY embeddings a chat turn waits on, as opposed
 # to the ingestion batches above. A query is one short text: 0.66 s at the
-# median across 276 live calls (September 2026 census), but 8.5 s at p99 and
-# 11.8 s at worst, and a turn makes 5-15 of them before the model starts, so a
-# single tail request held a whole turn for 11 s. At 3 s the client gives up on
-# that one and retries (EMBED_MAX_RETRIES), which a fresh request answers in
-# well under a second: the worst turn pays ~4 s instead of 11.
+# median across 276 live calls, but 8.5 s at p99 and 11.8 s at worst, and a turn
+# makes 5-15 of them before the model starts, so a single tail request can hold a
+# whole turn for 11 s. At 3 s the client gives up on that one and retries
+# (EMBED_MAX_RETRIES), which a fresh request answers in well under a second: the
+# worst turn pays ~4 s instead of 11.
 QUERY_EMBED_TIMEOUT_SECONDS = max(0.5, _env_float("AIQ_QUERY_EMBED_TIMEOUT_SECONDS", 3.0))
 
 # pypdfium2 page-object type constants (the C API values are not always exposed
@@ -483,7 +481,7 @@ _PAGEOBJ_IMAGE = 3
 #
 # Each entry is (phrase_fragment, line_suffix): the fragment is the bare
 # phrase regex (no anchors) and is the single source of truth for both the
-# whole-line patterns below and the substring patterns further down (used to
+# whole-line patterns below and the substring patterns further down, which
 # scrub the phrase out of VLM captions where it can appear mid-sentence). The
 # suffix is what follows the phrase to make a *whole line* match: most
 # watermarks are just the phrase itself (``\s*$``), but the Autodesk stamp is
@@ -531,7 +529,7 @@ PERMIT_RECORD_DROP_TIMEOUT_SECONDS = 5
 # The per-file error of an attempt whose document was deleted while it indexed
 # (see `document_presence`). FAILED rather than SUCCESS so the end-of-job
 # summary reconciliation, which backfills a row for every successful file,
-# never writes one for a document that no longer exists.
+# never writes one for a document that has been deleted.
 DOCUMENT_DELETED_DURING_INGEST = "document_deleted: the document was deleted while it was being ingested"
 
 
@@ -543,7 +541,7 @@ class _ClaimLost(Exception):  # noqa: N818 - a signal, not an error
 # pruned. SUCCESS files are still listable afterwards (list_files rebuilds them
 # from Chroma chunks — with a fresh id, exactly as for any never-tracked file);
 # FAILED rows drop off the listing once this window passes. Bounds self._files,
-# which otherwise grew for the life of the process (scaling review phase-2, #13).
+# which otherwise grows for the life of the process.
 FILE_TRACKING_RETENTION_SECONDS = _env_int("AIQ_FILE_TRACKING_RETENTION_SECONDS", 86400)  # 24h
 
 # Document summarization + tag-classification input limits live in the shared
@@ -553,12 +551,12 @@ FILE_TRACKING_RETENTION_SECONDS = _env_int("AIQ_FILE_TRACKING_RETENTION_SECONDS"
 # ---------------------------------------------------------------------------
 # Collection write versions (cross-replica).
 #
-# The premise the in-process counter rested on -- "one backend process owns the
-# store" -- is false: AIQ_CHROMA_URL points every backend replica and every
-# research worker at ONE Chroma. A version held in a module global is invisible
-# to every replica but its own, so a write here would leave the others serving
-# superseded results for the whole result-cache TTL. The version now lives in
-# the shared cache; these two functions are the adapter's seam onto it.
+# The version lives in the shared cache, not in a module global: AIQ_CHROMA_URL
+# points every backend replica and every research worker at ONE Chroma, and a
+# version held per process would be invisible to every replica but its own. A
+# write would then leave the others serving superseded results for the whole
+# result-cache TTL. These two functions are the adapter's seam onto the shared
+# cache.
 # ---------------------------------------------------------------------------
 def bump_collection_version(collection_name: str) -> None:
     """Record a write so every replica's cached results for this collection stop matching."""
@@ -709,15 +707,15 @@ def _to_metadata_filters(filters: dict[str, Any] | None):
 #: embedded or shown to the LLM.
 #:
 #: LlamaIndex prepends the whole metadata dict to a node's text before embedding
-#: (``MetadataMode.EMBED``) unless a key is excluded, and nothing here set any
-#: exclusions -- so every OIB chunk's vector was shifted by ``file_size: 1975942``, and
-#: table/image/drawing chunks additionally carried row counts and pixel dimensions.
+#: (``MetadataMode.EMBED``) unless a key is excluded. Without exclusions every OIB
+#: chunk's vector is shifted by ``file_size: 1975942``, and table/image/drawing
+#: chunks additionally carry row counts and pixel dimensions.
 #: A byte count and a render's pixel width carry no retrieval signal; they are also
 #: charged against the chunk's token budget, because ``SentenceSplitter`` subtracts the
 #: metadata header from ``chunk_size`` before splitting.
 #:
 #: ``file_path`` is the sharpest one: ``SimpleDirectoryReader`` sets it to the ingest
-#: temp file, so non-PDF uploads embedded a random ``/tmp/tmpk3n8w1qz.docx`` -- different
+#: temp file, so non-PDF uploads would embed a random ``/tmp/tmpk3n8w1qz.docx`` -- different
 #: on every re-upload of the same document.
 #:
 #: ``drawing_type``/``drawing_scale`` are excluded because the VLM caption already states
@@ -829,8 +827,8 @@ def embed_fingerprint_metadata(model: str, base_url: str) -> dict[str, str]:
 def embed_fingerprint_mismatch(collection_metadata: dict[str, Any] | None, model: str, base_url: str) -> str | None:
     """Describe a fingerprint conflict, or ``None`` when the collection is usable.
 
-    Three states, three behaviours. **Absent** -- which is every collection deployed
-    before this existed -- is adopted silently rather than failed: "no fingerprint"
+    Three states, three behaviours. **Absent** -- which a collection written before
+    fingerprints carries -- is adopted silently rather than failed: "no fingerprint"
     carries no claim, so it can only be wrong in the case that is already wrong today,
     and a naive ``if stored != current: raise`` would brick every live corpus.
     **Equal** proceeds. **Different** is reported.
@@ -859,9 +857,9 @@ def _cosine_distances(query_embedding: Any, embeddings: Any, count: int) -> list
     """Cosine distances between the query vector and each fetched chunk vector.
 
     The German sparse channel finds chunks by lexical match, so it has no distance of its
-    own, and it used to declare 1.0 for all of them. On this pipeline's scale that is a
-    cosine of EXACTLY 0.0 -- a positive claim that the chunk is orthogonal to the query,
-    not an absence of information. Three things then follow, all wrong: a relevance floor
+    own. Declaring 1.0 for all of them would be, on this pipeline's scale, a cosine of
+    EXACTLY 0.0 -- a positive claim that the chunk is orthogonal to the query, not an
+    absence of information. Three things would then follow, all wrong: a relevance floor
     above zero deletes every sparse-only hit while leaving overlapping vector hits alone,
     `MIN_SURFACE_SCORE` does the same in the document grid, and the grounding block prints
     `Relevance Score: 0.00` next to a chunk that may be the best answer in the corpus.
@@ -960,10 +958,10 @@ def _resolve_embed_api_key(base_url: str, model: str) -> str:
     NEVER changes ``base_url`` (embeddings need an embeddings-capable endpoint,
     so the caller keeps its configured base).
 
-    BYOK is intentionally NOT wired here, but no longer for want of an org id:
-    ``/v1/ingest`` forwards ``x-grid-organization-id`` into the ingest thread's
-    job config, which is what lets :func:`resolve_vlm_credential` reach BYOK on
-    the same pipeline. The blocker is the endpoint — a BYOK credential names a
+    BYOK is not wired here. The org id is available: ``/v1/ingest`` forwards
+    ``x-grid-organization-id`` into the ingest thread's job config, which is what
+    lets :func:`resolve_vlm_credential` reach BYOK on the same pipeline. The blocker
+    is the endpoint — a BYOK credential names a
     chat-completions base URL, and embeddings need an embeddings-capable one, so
     there is nothing to point this at yet. Known follow-up — see docs.
     """
@@ -1080,8 +1078,8 @@ def vlm_configured() -> bool:
 
 
 def _get_vlm_api_key() -> str:
-    """Back-compat alias for the ingestion path; delegates to the single source
-    of truth in :func:`resolve_vlm_api_key`."""
+    """Alias for the ingestion path; delegates to the single source of truth in
+    :func:`resolve_vlm_api_key`."""
     return resolve_vlm_api_key()
 
 
@@ -1105,7 +1103,7 @@ def _extract_images_from_pdf(
         min_height: Minimum image height to extract.
         skip_pages: 1-based pages whose rasters are not extracted, because the
             whole page is rendered and analysed as a visual page already. A
-            scanned page is one full-page raster; without this it was analysed
+            scanned page is one full-page raster; without this it is analysed
             twice, once as that raster and once as the rendered page.
 
     Returns:
@@ -1286,8 +1284,8 @@ def _extract_tables_from_pdf(pdf_path: str, taken: dict[int, list[tuple]] | None
         pdf_path: Path to the PDF file.
         taken: Per page number, the bboxes of the tables the text pass already
             indexed as captioned tables (``_extract_text_from_pdf``'s
-            ``table_boxes``). Those are skipped: indexed again here, every OIB
-            table stood in the index twice, as „Tabelle 3" and as
+            ``table_boxes``). Those are skipped, because indexing them again would
+            put every OIB table in the index twice, as „Tabelle 3" and as
             „[TABLE from page 30]", under two competing citations.
 
     Returns:
@@ -1437,7 +1435,7 @@ def _read_pdf_page(page, page_num: int, previous, pdf_path: str) -> tuple[dict[s
         logger.warning("Table finding failed on page %d of %s: %s", page_num, pdf_path, exc)
         found = []
     # Only the page right after a table can continue it: a page without one
-    # ends the chain, or a caption-less box pages later was appended to the old table.
+    # ends the chain, or a caption-less box pages later would be appended to the old table.
     continued = found[-1][0] if found else None
     boxes = [tuple(bbox) for _table, bbox in found]
     source = page.filter(lambda obj, boxes=boxes: not _inside_any(obj, boxes)) if boxes else page
@@ -1471,9 +1469,9 @@ def _raster_count(page) -> int:
 def _extract_text_from_pdf(pdf_path: str) -> PdfTextPages:
     """Extract per-page text from a PDF without falling back to raw PDF bytes.
 
-    Each page is read on its own: one page pdfplumber cannot parse used to end
-    the loop, and every page after it was dropped without a word. A failed page
-    is now logged, skipped and counted in ``failed_pages``, and the caller
+    Each page is read on its own: one page pdfplumber cannot parse must not end
+    the loop, and every page after it would be dropped without a word. A failed page
+    is logged, skipped and counted in ``failed_pages``, and the caller
     decides with ``unreadable_pdf_verdict`` whether the file still stands.
     """
     try:
@@ -1526,14 +1524,15 @@ def text_documents_for_pages(text_pages: list[dict[str, Any]], file_name: str, f
     A tenant PDF (anything not published by the OIB) is cut on its own headings FIRST
     (``section_chunking``): sections that span pages, chunks with a breadcrumb and a page
     each, overlap across page breaks, headings read from type as well as numbering. The
-    Punkt chunker used to claim any tenant report numbered ``1``, ``1.1``, ``2`` … by
-    numbering alone, and filed every piece of a long section under its first page; it
+    Punkt chunker would otherwise claim any tenant report numbered ``1``, ``1.1``,
+    ``2`` … by numbering alone, and file every piece of a long section under its
+    first page; it
     stays the path for the OIB's own files and the fallback after this one. Whatever
     has no usable structure keeps the per-page path: one Document per page, its
     captioned tables put back as Markdown after the text they were cut out of
     (``page_text_with_tables``).
 
-    Extracted from ``_run_ingestion`` so the choice between the strategies is
+    Kept out of ``_run_ingestion`` so the choice between the strategies is
     testable without a job, a Chroma client or an embedder.
     """
     from knowledge_layer.llamaindex.punkt_chunking import punkt_documents
@@ -1567,10 +1566,10 @@ def text_documents_for_pages(text_pages: list[dict[str, Any]], file_name: str, f
 def page_texts_for_visual_heuristic(text_pages: list[dict[str, Any]]) -> dict[int, str]:
     """Page number to the page's full text, captioned tables included, for the visual-page check.
 
-    ``text`` has its captioned tables cut out. A page that is mostly a table then
-    fell under ``VISUAL_PAGE_MIN_TEXT_CHARS``, was rendered and captioned by the VLM
-    as a drawing, and competed in the index with the table's own chunks (oib-rl_2
-    pages 29, 31, 33, 34). A table is text, so it counts as text here.
+    ``text`` has its captioned tables cut out. A page that is mostly a table would
+    otherwise fall under ``VISUAL_PAGE_MIN_TEXT_CHARS``, be rendered and captioned by
+    the VLM as a drawing, and compete in the index with the table's own chunks. A
+    table is text, so it counts as text here.
     """
     from knowledge_layer.llamaindex.captioned_tables import page_text_with_tables
 
@@ -1712,21 +1711,21 @@ def analyze_visual(
     """Analyse ONE visual — the single entry point for every image source.
 
     A rendered PDF page, a raster embedded in a PDF and an uploaded image file
-    all arrive here. They used to be analysed by two different prompts: pages
-    got the structured schema while embedded rasters got a generic English
-    caption, so a scanned plan placed inside a PDF was indexed as one paragraph
-    while the identical sheet as a vector page was indexed per drawing. There
-    is now one prompt, and photos and diagrams are types WITHIN it.
+    all arrive here. They would otherwise be analysed by two different prompts: pages
+    would get the structured schema while embedded rasters got a generic English
+    caption, so a scanned plan placed inside a PDF would be indexed as one paragraph
+    while the identical sheet as a vector page is indexed per drawing. There is one
+    prompt, and photos and diagrams are types WITHIN it.
 
     Returns ``(content_type, caption, fields)`` where ``content_type`` is
     ``drawing`` / ``chart`` / ``image``, ``caption`` is the text to index and
-    ``fields`` carries the flat legacy fields plus, when the reply parsed, the
+    ``fields`` carries the flat fields plus, when the reply parsed, the
     full analysis under ``fields["analysis"]``.
 
     Degradation is layered, cheapest first: a parsed v3 analysis types itself;
     a v1 ``KEY: value`` reply is a drawing by construction; a reply that parses
     as NEITHER — prose from a model that cannot hold the JSON, or an outright
-    provider failure — spends one more call on the legacy caption prompt, which
+    provider failure — spends one more call on the caption prompt, which
     both keeps charts classified and gives the big prompt a smaller thing to
     fail back to. Only when that also fails is a failure placeholder returned,
     for the caller to skip rather than index.
@@ -1752,7 +1751,7 @@ def analyze_visual(
         if analysis:
             return (visual_analysis.content_type_for(analysis), caption, fields)
         if fields:
-            # v1 fallback shape: the legacy line format only ever described drawings.
+            # v1 fallback shape: the KEY: value line format only ever describes drawings.
             return ("drawing", caption, fields)
 
     # Rare by design — the prompt types photos and diagrams itself — so the
@@ -2040,7 +2039,7 @@ def _vlm_chat_create(client, *, model: str, messages: list, max_tokens: int, tem
       an attempt that, by definition, already succeeded.
     - A failure is swallowed and the truncated first caption is returned.
       Raising here would discard usable content and — since failure placeholders
-      are no longer indexed — drop the chunk entirely over a partial success.
+      are not indexed — drop the chunk entirely over a partial success.
     """
     response = _vlm_create_fairly(
         client,
@@ -2205,7 +2204,7 @@ Provide a detailed, structured response."""
         return ("image", f"[Image - analysis failed: {str(e)[:50]}]")
 
 
-# Legacy function for backward compatibility
+# Name kept for existing callers.
 def _caption_image_with_vlm(
     image_bytes: bytes,
     vlm_model: str = DEFAULT_VLM_MODEL,
@@ -2213,7 +2212,7 @@ def _caption_image_with_vlm(
     prompt: str = "Describe this image in detail.",
     is_chart: bool = False,
 ) -> str:
-    """Legacy wrapper - use _analyze_image_with_vlm for new code."""
+    """Wrapper kept for existing callers; new code uses _analyze_image_with_vlm."""
     _, caption = _analyze_image_with_vlm(
         image_bytes,
         vlm_model=vlm_model,
@@ -2228,10 +2227,10 @@ def _caption_image_with_vlm(
 # =============================================================================
 
 # The prompt + schema live in ``visual_analysis`` (domain-neutral kernel) and
-# ``visual_domains`` (the vocabulary each domain contributes). This module keeps the legacy
-# ``KEY: value`` parser below as the FALLBACK for replies that are not
-# parseable schema JSON — a weaker VLM (or an old cached caption) degrades to
-# earlier behaviour, never to a lost page.
+# ``visual_domains`` (the vocabulary each domain contributes). This module keeps the
+# ``KEY: value`` parser below as the FALLBACK for replies that are not parseable
+# schema JSON: a weaker VLM (or an old cached caption) degrades to the v1 behaviour,
+# never to a lost page.
 
 
 def _parse_drawing_fields(caption: str) -> dict[str, str]:
@@ -2279,7 +2278,7 @@ def _analyze_drawing_page_with_vlm(
     ``fields`` is the flat dict every pre-schema consumer reads (drawing_type,
     scale, summary, …) plus — when the reply parsed — the full canonical
     analysis under ``fields["analysis"]``. A reply that is not valid schema
-    JSON falls back verbatim to the legacy ``KEY: value`` path, so a weaker
+    JSON falls back verbatim to the ``KEY: value`` path, so a weaker
     model degrades rather than fails. The domain vocabulary comes from the
     resolved :mod:`visual_domains` registry, so this function is the same for
     architecture and for any other domain. ``vlm_api_key`` is a pre-resolved
@@ -2317,7 +2316,7 @@ def _analyze_drawing_page_with_vlm(
                     ],
                 }
             ],
-            # The JSON reply is bulkier than the legacy twelve-line format; a
+            # The JSON reply is bulkier than the twelve-line KEY: value format; a
             # budget sized for that would truncate mid-object and forfeit the
             # whole structure to the fallback parser on every multi-segment
             # sheet. (_vlm_chat_create still doubles this once on truncation.)
@@ -2328,7 +2327,7 @@ def _analyze_drawing_page_with_vlm(
         logger.debug("Drawing VLM analysis: %s...", reply[:100])
         analysis = visual_analysis.parse_visual_analysis(reply, registry)
         if analysis is None:
-            # Legacy fallback: the reply is stored as-is and parsed line-wise.
+            # Fallback: the reply is stored as-is and parsed line-wise.
             return (reply, _parse_drawing_fields(reply))
         fields: dict[str, Any] = visual_analysis.legacy_fields(analysis)
         fields["analysis"] = analysis
@@ -2495,7 +2494,7 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
 
     Configuration options:
         persist_dir: ChromaDB persistence directory (default from AIQ_CHROMA_DIR)
-        embed_model: NVIDIA embedding model name (default: nvidia/llama-nemotron-embed-vl-1b-v2)
+        embed_model: embedding model name (default: ``AIQ_EMBED_MODEL``, else openai/text-embedding-3-large)
         embed_base_url: Embedding model base URL (default: https://openrouter.ai/api/v1)
         chunk_size: Text chunk size (default: 1024, model supports up to 2048 tokens)
         chunk_overlap: Chunk overlap (default: 128)
@@ -2633,12 +2632,12 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
         # process still holds each claim (`run_prepared`).
         self._claim_guards: dict[str, Callable[[], bool]] = {}
 
-        # Bounded ingestion pool: a thread per upload gave N concurrent
-        # uploads N threads all embedding against the remote API and writing
-        # into the same embedded Chroma store. Excess jobs queue (status stays
-        # PENDING until a worker picks them up) instead of piling on threads.
-        # Shared FAIRLY between organisations: a FIFO here queued every office
-        # behind one office's folder upload (`ingest_scheduler`).
+        # Bounded ingestion pool: one thread per upload would mean N concurrent
+        # uploads, N threads all embedding against the remote API and writing into
+        # the same embedded Chroma store. Excess jobs queue (status stays PENDING
+        # until a worker picks them up) instead of piling on threads. Shared fairly
+        # between organisations: a FIFO would queue every office behind one office's
+        # folder upload (`ingest_scheduler`).
         self._ingest_pool = FairIngestScheduler(
             self.INGEST_MAX_WORKERS,
             name="llamaindex-ingest",
@@ -2726,7 +2725,7 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
 
         Bounded by the job registry's retention: a terminal job is pruned
         ``JOB_RETENTION_SECONDS`` after it finished, together with its row, and
-        a job no longer tracked is dropped from the retry set.
+        a job not tracked is dropped from the retry set.
         """
         with self._persist_lock:
             pending = list(self._unpersisted)
@@ -2804,7 +2803,7 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
 
     def _record_file_counts(self, job: IngestionJobStatus, file_index: int, **counts: int) -> None:
         """Put extraction counts on a file's job status, where a later
-        "partially indexed" signal reads them (``images_over_cap`` today)."""
+        "partially indexed" signal reads them (``images_over_cap``)."""
         with self._lock:
             if file_index < len(job.file_details):
                 job.file_details[file_index].metadata.update(counts)
@@ -3229,8 +3228,8 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
                 del self._jobs[jid]
         if stale:
             # Also drop the durable cross-replica status row so the ingest_jobs
-            # table is bounded by the same retention window. Previously this grew
-            # forever: ingest_status_store.delete() existed but had zero callers.
+            # table is bounded by the same retention window. Without it the table grows
+            # forever, since nothing else calls ingest_status_store.delete().
             # Best-effort (delete() swallows its own errors) and done outside the
             # lock since it does DB I/O.
             for jid in stale:
@@ -3241,7 +3240,7 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
         """Drop terminal per-file tracking entries older than the retention window.
 
         Mirrors ``_prune_completed_jobs`` for ``self._files``, which otherwise
-        grew for the life of the process (one entry per upload, never removed
+        grows for the life of the process (one entry per upload, never removed
         except on explicit delete). Only SUCCESS/FAILED entries are eligible, and
         only once their completion/upload time is older than
         ``FILE_TRACKING_RETENTION_SECONDS`` — INGESTING/UPLOADING entries (live
@@ -3270,8 +3269,8 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
     def _index_tracked_files(self, collection_name: str) -> dict[str, tuple[str, FileInfo]]:
         """``file_name -> (file_id, FileInfo)`` for one collection, first-seen wins.
 
-        Built in a single O(files) pass so ``list_files`` no longer rescans all
-        of ``self._files`` per listed file (was O(files²) as the dict grew).
+        Built in a single O(files) pass so ``list_files`` does not rescan all
+        of ``self._files`` per listed file (that would be O(files²) as the dict grows).
         """
         index: dict[str, tuple[str, FileInfo]] = {}
         with self._lock:
@@ -3709,9 +3708,9 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
                     # No chunks in ChromaDB. Whatever else the document left
                     # behind — tracking entries for a FAILED file, the summary
                     # row the inventory is built from, the lexical mirror — is
-                    # forgotten regardless: a delete that returned early here
-                    # left a file with no chunks in the agent's inventory for
-                    # good, and every later delete took the same early exit.
+                    # forgotten regardless: a delete that returns early here
+                    # would leave a file with no chunks in the agent's inventory for
+                    # good, and every later delete would take the same early exit.
                     if tracking_ids_to_remove:
                         with self._lock:
                             for tid in tracking_ids_to_remove:
@@ -3770,8 +3769,8 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
             except Exception:
                 return []
 
-            # Correlate tracked FileInfo by name in one pass (was an O(files)
-            # rescan of self._files per listed file).
+            # Correlate tracked FileInfo by name in one pass: a rescan of self._files
+            # per listed file would be O(files²).
             tracked_by_name = self._index_tracked_files(collection_name)
 
             # Get all unique file names from chunks
@@ -3986,7 +3985,7 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
         segment_count, structured}`` where ``text`` is the caption body (the
         ``[DRAWING from page N]`` prefix stripped), ``segment`` is the drawing's
         index on its sheet (0 for v1 chunks and non-drawings), ``segment_count``
-        is how many depictions share that sheet (1 for the same legacy rows),
+        is how many depictions share that sheet (1 for the same v1 rows),
         and ``structured`` is the parsed v2 ``drawing_data`` payload (``None``
         for v1 chunks and non-drawings). Sorted by page, then content type,
         then segment.
@@ -4108,11 +4107,10 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
                 resp.raise_for_status()
             # NEVER log the upload URL, not even truncated. It is a presigned S3
             # URL — a live bearer credential to that object with no user, org or
-            # IP binding. The `[:80]` prefix this used to print was not a
-            # control: the cut lands at a different place depending on how long
-            # the org/project/document ids in the key are, so whether the
-            # signature survived was luck, and the tenant path leaked in full for
-            # short keys. Same rule as the download side in
+            # IP binding. The `[:80]` prefix would not be a control either: the cut
+            # lands at a different place depending on how long the org/project/document
+            # ids in the key are, so whether the signature survives is luck, and the
+            # tenant path leaks in full for short keys. Same rule as the download side in
             # frontends/aiq_api/src/aiq_api/routes/ingest.py.
             logger.info("Uploaded thumbnail (%d bytes)", len(thumbnail_bytes))
         except Exception as error:
@@ -4129,31 +4127,28 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
 
         Law does not go stale, it gets replaced — and the OIB sync already has
         replacement semantics through its hash registry. Uploaded office and
-        project documents had none: re-uploading `statik-standard.pdf` appended
+        project documents have none: re-uploading `statik-standard.pdf` appends
         a second full set of chunks next to the first, and both versions then
-        competed in retrieval on similarity alone, so an answer could cite the
+        compete in retrieval on similarity alone, so an answer could cite the
         superseded one with full confidence. The newest upload of a name is the
         version the user means; this enforces exactly that, per collection.
 
         The old version is retired by :meth:`_retire_previous_version` only
-        once the new one is in the vector store. Deleting it first, as this
-        step once did, meant a re-upload that then failed (an encrypted PDF, an
-        empty extraction, a missing VLM key) left the document with no chunks
-        at all: the user replaced a working version with nothing. Retiring
-        afterwards means both versions are retrievable for the length of the
-        job, which is the smaller harm.
+        once the new one is in the vector store. Deleting it first would mean a
+        re-upload that then fails (an encrypted PDF, an empty extraction, a missing
+        VLM key) leaves the document with no chunks at all: the user would replace a
+        working version with nothing. Retiring afterwards means both versions are
+        retrievable for the length of the job, which is the smaller harm.
 
         Matching mirrors delete_file's normalization (tmp[8]_ prefix strip plus
         percent-decoding), because stored names carry either form depending on
         how the file reached the backend. The read is a ``$in`` filter over
         the spellings a stored version can carry (:func:`_stored_spellings`,
         plus the tmp-prefixed names the metadata rows know), so it costs the
-        chunks of the files being replaced, not the collection: it used to read
-        every chunk's metadata, which on the OIB corpus was one full scan per
-        PDF. A legacy tmp-prefixed version with no metadata row is not found,
-        and stays beside its re-upload as it always did. Defensive: the lookup
-        failing must never fail the ingest — worst case is the pre-existing
-        duplicate behavior, logged.
+        chunks of the files being replaced, not the collection. A legacy tmp-prefixed
+        version with no metadata row is not found, and stays beside its re-upload.
+        Defensive: the lookup failing must never fail the ingest — worst case is the
+        duplicate behaviour, logged.
 
         The caller holds :func:`_replacement_lock_key`'s lock from here until
         the file has been retired or discarded: two jobs for one name would
@@ -4589,7 +4584,7 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
                     # stamped into every chunk's metadata below and persisted to
                     # the summaries row after ingestion. The guess is for the
                     # base corpus only: on a project, session or Büroarchiv
-                    # upload a guessed "sonstiges" is not harmless — it labelled
+                    # upload a guessed "sonstiges" is not harmless: it would label
                     # every user document a "Basisdokument" in the Herleitung.
                     from aiq_agent.common.norm_registry import guess_doc_class
                     from aiq_agent.common.source_kinds import legacy_shelf_for_collection_name
@@ -4772,11 +4767,11 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
                         # SimpleDirectoryReader's per-format readers are an
                         # optional distribution this deployment does not
                         # install, and its fallback reads raw bytes as text — an
-                        # .xlsx (a zip) became PK\x03… garbage that the binary
-                        # guard rejected. Plain-text formats (.txt/.md/.csv)
+                        # .xlsx (a zip) would become PK\x03… garbage that the binary
+                        # guard rejects. Plain-text formats (.txt/.md/.csv)
                         # have a reader of their own too (``text_formats``):
-                        # the generic one read them UTF-8 with errors="ignore"
-                        # (a cp1252 export lost its umlauts) into ONE Document
+                        # the generic one would read them UTF-8 with errors="ignore"
+                        # (a cp1252 export would lose its umlauts) into ONE Document
                         # with no locator.
                         from knowledge_layer.llamaindex import office_extractors
                         from knowledge_layer.llamaindex.text_formats import extract_text_format_documents
@@ -4831,10 +4826,9 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
                         logger.info(f"  Table extraction: {len(tables)} tables")
 
                     # 3+4. Combined image + drawing extraction with concurrent VLM
-                    # enrichment. Replaces the old sequential per-image and per-page
-                    # VLM loops with a single batch that runs ALL VLM calls for the
-                    # file concurrently (4 workers), with content-hash caching so a
-                    # re-ingest or cross-document duplicate skips the API call.
+                    # enrichment: one batch runs ALL VLM calls for the file concurrently
+                    # (4 workers), with content-hash caching so a re-ingest or
+                    # cross-document duplicate skips the API call.
                     if is_pdf:
                         from knowledge_layer.llamaindex import processing as _processing
 
@@ -4843,7 +4837,7 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
                             # Hand the renderer the already-extracted
                             # (watermark-stripped) page texts: the PDF's text
                             # layer is read once, and the visual heuristic's
-                            # "watermark-stripped text" threshold actually holds.
+                            # "watermark-stripped text" threshold measures that text.
                             drawing_pages_raw = _processing.render_visual_pages_no_vlm(
                                 source_path,
                                 min_text_chars=VISUAL_PAGE_MIN_TEXT_CHARS,
@@ -4897,7 +4891,7 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
                             )
 
                         # Build image/chart/drawing documents. An embedded raster
-                        # now goes through the SAME analysis as a rendered page,
+                        # goes through the SAME analysis as a rendered page,
                         # so a scanned plan placed inside a PDF is indexed per
                         # drawing rather than as one paragraph — the `drawing`
                         # content type is reachable from this branch too.
@@ -5097,7 +5091,7 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
                         # First successful file - create new index
                         # The model passed explicitly, not read off the global
                         # `Settings`: whatever else sets that global (the retriever
-                        # once set it to the query model, whose timeout is sized for
+                        # may set it to the query model, whose timeout is sized for
                         # one short text) must not decide how a batch is embedded.
                         index = VectorStoreIndex.from_documents(
                             all_documents,
@@ -5178,7 +5172,7 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
 
                     # The nodes this attempt stored, not the Documents it handed
                     # the splitter: a 40-page PDF is 40 Documents and several
-                    # hundred nodes, and the metadata row's chunk count said 40.
+                    # hundred nodes, and the metadata row's chunk count would say 40.
                     chunks_created = self._nodes_stored(chroma_collection, file_name, chunks_before, all_documents)
                     total_chunks += chunks_created
 
@@ -5236,7 +5230,7 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
                         suggestion = _future_result(doc_class_future, "Dokumentart suggestion", file_name)
                         # A replaced version's row is kept under the same
                         # name, so its old suggestion is cleared rather than
-                        # left standing for a document it no longer describes.
+                        # left standing for a document it does not describe.
                         if suggestion or previous is not None:
                             from aiq_agent.knowledge import set_document_doc_class_suggestion
 
@@ -5544,7 +5538,7 @@ class LlamaIndexRetriever(BaseRetriever):
         # query waits for it instead of paying the round trip again, and
         # shares its outcome, error included (``_InflightEmbedding``). The
         # turn-start warm-up (``warm_query``) races the turn's own search for
-        # the same question, and without this the loser embedded twice.
+        # the same question, and without this the loser would embed twice.
         self._embed_inflight: dict[tuple[str, str], _InflightEmbedding] = {}
 
         # Document frequency of each exact term, per collection size, so the
@@ -5689,8 +5683,8 @@ class LlamaIndexRetriever(BaseRetriever):
     async def warm_query(self, query: str) -> None:
         """Embed ``query`` ahead of the search that will ask for it; never raises.
 
-        The query embedding is a remote round trip (280-980 ms measured
-        2026-09-24) that the knowledge tool pays before it can rank anything.
+        The query embedding is a remote round trip (280-980 ms measured) that the
+        knowledge tool pays before it can rank anything.
         A caller that knows the query before the search starts runs it here,
         and the search then finds it in the LRU (or waits for it in flight).
         It also absorbs the adapter's lazy initialisation on a cold process.
@@ -5713,8 +5707,8 @@ class LlamaIndexRetriever(BaseRetriever):
         there rather than from the lexical mirror, which a deployment may not
         have backfilled. No embedding, no ranking: a filter over the collection.
         Chroma evaluates ``$regex`` with Rust's ``regex`` crate (Unicode ``\\s``,
-        ``\\b`` and ``(?i)``); ``$contains`` was byte-exact, so a mixed-case
-        original or a line break inside a phrase was a false „Keine Fundstelle“.
+        ``\\b`` and ``(?i)``); ``$contains`` is byte-exact, so a mixed-case
+        original or a line break inside a phrase would be a false „Keine Fundstelle“.
         A collection that does not exist is an empty answer, not a failure; any
         other store error raises, so the caller can say the search did not run.
         """
@@ -5731,7 +5725,7 @@ class LlamaIndexRetriever(BaseRetriever):
         except Exception as exc:
             # An absent collection holds no text, so it is an empty answer. Any
             # other failure (the store down, a timeout) propagates: returned as
-            # [] it read as a reliable „Keine Fundstelle“ during an outage.
+            # [] it would read as a reliable „Keine Fundstelle“ during an outage.
             if _is_missing_collection(exc):
                 return []
             raise
@@ -5847,9 +5841,9 @@ class LlamaIndexRetriever(BaseRetriever):
             # Membership is tested FIRST because resolving the version is a shared-cache
             # round trip. Every query also fans out across the per-conversation session
             # collection and any project collections, and none of those is cacheable, so
-            # resolving first spent one EVAL per non-cacheable collection per query on the
-            # retrieval hot path -- and grew a permanent memo entry for each -- to discard
-            # the answer immediately afterwards.
+            # resolving first would spend one EVAL per non-cacheable collection per query
+            # on the retrieval hot path, and grow a permanent memo entry for each, to
+            # discard the answer immediately afterwards.
             cache_key: tuple[str, int, str, int, str] | None = None
             version = (
                 collection_version(collection_name) if collection_name in self.STATIC_RESULT_CACHE_COLLECTIONS else None
@@ -5896,11 +5890,11 @@ class LlamaIndexRetriever(BaseRetriever):
                 chunks = self._hybrid_lexical_boost(query, collection_name, top_k, filters, chunks)
 
             # State each hit's rank in this collection's FINAL order, after the lexical
-            # fusion has had its say. `_rank_channel` in register.py documents reading it
-            # here and nothing ever wrote it, so every cross-collection merge fell back to
-            # list position. That fallback happens to be correct today -- position is the
-            # final order -- but it made the field dead weight and the docstring false,
-            # and it left the fuser unable to tell a genuine rank from a coincidence.
+            # fusion has had its say. `_rank_channel` in register.py reads it here;
+            # without this stamp every cross-collection merge falls back to list
+            # position. That fallback is correct while position is the final order, but
+            # it leaves the field unused and the fuser unable to tell a genuine rank from
+            # a coincidence.
             for rank, chunk in enumerate(chunks):
                 chunk.retrieval_rank = rank
 
@@ -5919,12 +5913,10 @@ class LlamaIndexRetriever(BaseRetriever):
         except Exception as e:
             # ``exception``, not ``error``: these failures are routinely chained
             # (a RuntimeError raised *from* the ImportError that actually
-            # explains it), and the bare f-string dropped the chain. Combined
-            # with the 100-char cut below, issue #330 reached us as the string
-            # "LlamaIndex retrieval failed: LlamaIndex dependencies not instal"
-            # -- truncated mid-word, cause discarded, and the surviving half was
-            # a misdescription of the fault. The log now carries the whole chain;
-            # the caller-facing summary stays bounded.
+            # explains it), and the bare f-string drops the chain. Combined with the
+            # 100-char cut below, the cause is lost: the caller sees a string truncated
+            # mid-word, and the half that survives misdescribes the fault. The log
+            # carries the whole chain; the caller-facing summary stays bounded.
             logger.exception("LlamaIndex retrieval failed")
             return RetrievalResult(
                 chunks=[],
@@ -5941,7 +5933,7 @@ class LlamaIndexRetriever(BaseRetriever):
         "OIB is noise" is a property of this corpus rather than of German, so the
         frequency is measured and never listed (``german_text``'s module docstring
         states the rule this follows). For the ubiquitous term the measurement REPLACES
-        the vector query that used to run, so the common case gets cheaper.
+        the vector query that would otherwise run, so the common case gets cheaper.
 
         The cache key is ``(collection, chunk count, term)``. The term set is tiny and
         stays stable while the corpus does, and a changed count invalidates it. An
@@ -5955,8 +5947,7 @@ class LlamaIndexRetriever(BaseRetriever):
         per-collection fan-out this retriever exists to run in parallel.
 
         Fails OPEN. An unmeasurable frequency keeps the term, so a Chroma that cannot
-        answer ``get`` degrades to the previous behaviour instead of to no lexical
-        channel at all.
+        answer ``get`` keeps the lexical channel running rather than losing it entirely.
         """
         from .hybrid import selective_terms
 
@@ -6007,18 +5998,18 @@ class LlamaIndexRetriever(BaseRetriever):
             embedding = self._embed_query_cached(query)
             collection = self._chroma_client.get_collection(name=collection_name)
             # Translate through the SAME grammar the vector channel uses. Passing the
-            # backend-neutral dict straight to Chroma diverged on two shapes it rejects
-            # but LlamaIndex accepts -- a node with sibling keys (an implicit AND) and a
-            # single-element `$and`/`$or` group. Since the base collection always carries
-            # the `exclude_file_names` clause, any caller filter with two keys made the
-            # lexical pass raise, and the fail-open below turned hybrid off for exactly
-            # the filtered queries, visible only in a log line.
+            # backend-neutral dict straight to Chroma would diverge on two shapes it
+            # rejects but LlamaIndex accepts -- a node with sibling keys (an implicit AND)
+            # and a single-element `$and`/`$or` group. The base collection always carries
+            # the `exclude_file_names` clause, so any caller filter with two keys would
+            # make the lexical pass raise, and the fail-open below would turn hybrid off
+            # for exactly the filtered queries, visible only in a log line.
             where = _to_chroma_where(filters)
             # A `$contains` pass is a FILTER over the dense ranking, so a term that is
             # on nearly every chunk hands the vector channel straight back and RRF then
             # counts that ranking twice -- demoting every chunk only the German sparse
             # channel found. Price the terms against the live collection first, the same
-            # rule and the same constants the sparse channel has always used.
+            # rule and the same constants the sparse channel uses.
             if terms:
                 terms = self._selective_exact_terms(collection, collection_name, terms)
             channels: list[list[Chunk]] = [chunks]
@@ -6064,9 +6055,9 @@ class LlamaIndexRetriever(BaseRetriever):
             except Exception as lexical_error:
                 logger.warning("German sparse channel unavailable: %s", lexical_error)
 
-            # Only the vector channel: nothing to fuse. This replaces the old early
-            # return on `not terms`, which would have made the sparse channel dead for
-            # the 71.7% of German questions that produce no exact term -- precisely the
+            # Only the vector channel: nothing to fuse. This replaces an early
+            # return on `not terms`, which would make the sparse channel dead for the
+            # 71.7% of German questions that produce no exact term -- precisely the
             # population it exists to serve.
             if len(channels) == 1:
                 return chunks
@@ -6094,13 +6085,13 @@ class LlamaIndexRetriever(BaseRetriever):
         Node reconstruction goes through ``metadata_dict_to_node`` -- the same helper
         the vector path uses -- rather than a hand-built ``TextNode``. That is not a
         tidiness preference: ``node_id`` is a read-only *property* over the ``id_``
-        field, so ``TextNode(node_id=...)`` was silently discarded by pydantic and every
-        lexical chunk was born with a fresh ``uuid4``. Since reciprocal rank fusion keys
-        on ``chunk_id``, no chunk could ever match across the two channels: fusion
-        degenerated into channel-major concatenation, the same passage was emitted twice
-        under two different ids, and the duplicates displaced genuine vector hits. The
-        helper also restores the clean node metadata instead of Chroma's raw row, which
-        carries a full JSON copy of the chunk's own text in ``_node_content``.
+        field, so ``TextNode(node_id=...)`` would be silently discarded by pydantic and
+        every lexical chunk would be born with a fresh ``uuid4``. Reciprocal rank
+        fusion keys on ``chunk_id``, so no chunk could match across the two channels:
+        fusion would degenerate into channel-major concatenation, and the same passage
+        would be emitted twice under two different ids, displacing genuine vector hits.
+        The helper also restores the clean node metadata instead of Chroma's raw row,
+        which carries a full JSON copy of the chunk's own text in ``_node_content``.
         """
         from llama_index.core.schema import NodeWithScore
         from llama_index.core.schema import TextNode

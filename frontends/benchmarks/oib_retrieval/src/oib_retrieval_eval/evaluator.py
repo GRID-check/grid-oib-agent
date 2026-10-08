@@ -167,9 +167,9 @@ class OIBRetrievalEvaluator(BaseEvaluator):
         for output_item in base_output.eval_output_items:
             reasoning = output_item.reasoning if isinstance(output_item.reasoning, dict) else {}
             # An error item carries only "error": neither `cited_units` nor `should_refuse`
-            # is present, so it used to be counted as an answer that cited nothing. A
-            # dataset defect must not be reported as a model that failed to cite -- that
-            # reads as a retrieval regression and sends the reader to the wrong place.
+            # is present, so it is skipped here. A dataset defect must not be reported as a
+            # model that failed to cite -- that reads as a retrieval regression and sends the
+            # reader to the wrong place.
             if "error" in reasoning:
                 errored += 1
                 continue

@@ -6,15 +6,13 @@
  *
  * ## Why a task's prompt gets the composer's surface
  *
- * A standing task used to attach a skill through a `<Select>` in the wizard's
- * advanced section — one skill or none, whose body the fire prompt then pasted
- * in front of the model with no `use_skill` call and no judgment. That was the
- * last forcing mechanism in the product, wearing a different hat: `ADR-0060`
- * says nothing may impose a skill on a turn, "not the request, not the
- * deployment, not a job", and a picker that guaranteed the body made the job
- * the exception the doctrine denies.
+ * A picker that attaches a skill's body to a task forces it onto the turn, with
+ * no `use_skill` call and no judgment. That is the forcing mechanism `ADR-0060`
+ * rules out: nothing may impose a skill on a turn, "not the request, not the
+ * deployment, not a job", and a picker that guaranteed the body would make the
+ * job the exception the doctrine denies.
  *
- * There was never a second mechanism needed. A person who wants a task to use
+ * No second mechanism is needed. A person who wants a task to use
  * a playbook writes its name in the task, exactly as they would in chat: the
  * model reads the name among the words and decides, the same decision it makes
  * about every other skill in its catalog. So the wizard's prompt field IS the

@@ -79,7 +79,7 @@ def output_markdown_file(markdown: str | None = None) -> dict:
 
 
 def streaming_graph_mock(*chunks, error: BaseException | None = None, hang: bool = False) -> MagicMock:
-    """A mock compiled graph that STREAMS, the way run() now drives it.
+    """A mock compiled graph that STREAMS, the way run() drives it.
 
     run() calls ``astream(state, config=..., stream_mode="values", ...)`` rather
     than ``ainvoke`` so a cut-off run still has the last graph state to salvage.
@@ -276,7 +276,7 @@ class TestDeepResearcherAgent:
             assert agent.deepagents_runtime.skill_sources_for("researcher-agent") == ["/skills/research/"]
 
     def test_init_defaults_checkpointer_to_none(self, mock_llm_provider, real_tool, mock_create_deep_agent):
-        """No checkpoint_db configured -> no durable checkpointer (current in-memory-only behavior)."""
+        """No checkpoint_db configured -> no durable checkpointer (in-memory-only behavior)."""
         with patch("aiq_agent.agents.deep_researcher.factory.create_deep_agent", return_value=mock_create_deep_agent):
             from aiq_agent.agents.deep_researcher.agent import DeepResearcherAgent
 
@@ -301,7 +301,7 @@ class TestDeepResearcherAgent:
     def test_prepare_run_forwards_checkpointer_to_graph_builder(
         self, mock_llm_provider, real_tool, mock_create_deep_agent
     ):
-        """_prepare_run passes the configured checkpointer into build_deep_research_graph (T3-8)."""
+        """_prepare_run passes the configured checkpointer into build_deep_research_graph."""
         fake_checkpointer = MagicMock(name="fake_checkpointer")
         with patch(
             "aiq_agent.agents.deep_researcher.agent.build_deep_research_graph",
@@ -390,7 +390,7 @@ class TestDeepResearcherAgent:
         assert resolved_sandbox is sandbox
 
     def test_register_checkpoint_db_defaults_to_none(self):
-        """checkpoint_db is opt-in; omitting it preserves current in-memory-only behavior (T3-8)."""
+        """checkpoint_db is opt-in; omitting it keeps the in-memory-only behavior."""
         from aiq_agent.agents.deep_researcher.register import DeepResearchAgentConfig
 
         config = DeepResearchAgentConfig(orchestrator_llm="llm")
@@ -451,7 +451,7 @@ class TestDeepResearcherAgent:
 
     @pytest.mark.asyncio
     async def test_register_omits_checkpointer_when_checkpoint_db_unset(self):
-        """Default (no checkpoint_db) behavior is unchanged: no get_checkpointer call, checkpointer=None."""
+        """Without checkpoint_db there is no get_checkpointer call, and checkpointer is None."""
         from aiq_agent.agents.deep_researcher import register as register_module
         from aiq_agent.agents.deep_researcher.register import DeepResearchAgentConfig
         from aiq_agent.agents.deep_researcher.register import deep_research_agent
@@ -1624,7 +1624,7 @@ class TestDeepResearcherAgent:
     async def test_run_wires_thread_id_and_durability_when_checkpointer_set(
         self, mock_llm_provider, real_tool, mock_create_deep_agent
     ):
-        """A configured checkpointer threads job_id as thread_id and requests async durability (T3-8)."""
+        """A configured checkpointer threads job_id as thread_id and requests async durability."""
         with patch("aiq_agent.agents.deep_researcher.factory.create_deep_agent", return_value=mock_create_deep_agent):
             from aiq_agent.agents.deep_researcher.agent import DeepResearcherAgent
 
@@ -1647,7 +1647,7 @@ class TestDeepResearcherAgent:
     async def test_run_omits_thread_id_and_durability_when_no_checkpointer(
         self, mock_llm_provider, real_tool, mock_create_deep_agent
     ):
-        """Default (no checkpointer) behavior is unchanged: no configurable/durability kwargs reach the graph."""
+        """Without a checkpointer, no configurable/durability kwargs reach the graph."""
         with patch("aiq_agent.agents.deep_researcher.factory.create_deep_agent", return_value=mock_create_deep_agent):
             from aiq_agent.agents.deep_researcher.agent import DeepResearcherAgent
 
@@ -2010,7 +2010,7 @@ class TestDeepResearchCutoffSalvage:
 
     @pytest.mark.asyncio
     async def test_run_budget_cutoff_salvages_the_partial_report(self, mock_llm_provider, real_tool):
-        """Backlog item 2 ratchet: a token-budget abort salvages once, marked — never loops.
+        """A token-budget abort salvages once, marked — never loops.
 
         The batch tool re-raises ``RunBudgetExceededError`` and the middleware
         propagates it, so the graph aborts here (no orchestrator resubmission
@@ -2099,7 +2099,7 @@ class TestPerRunIsolation:
             assert first.source_registry_middleware is not second.source_registry_middleware
             assert first.tool_set is not second.tool_set
             assert first.middleware_set is not second.middleware_set
-            # The agent instance itself holds no per-run capture state anymore.
+            # The agent instance itself holds no per-run capture state.
             assert not hasattr(agent, "source_registry_middleware")
 
     def test_prepare_run_middleware_starts_empty_even_after_prior_capture(self, mock_llm_provider):
@@ -2189,7 +2189,7 @@ class TestPerRunIsolation:
 
             # Second run without a session registry sees none of the first
             # run's sources: its fresh per-run registry is empty. An empty
-            # registry at the end of a run now fails loudly — which also proves
+            # registry at the end of a run fails loudly — which also proves
             # the second run did not inherit run-one's captured source (it would
             # otherwise have a non-empty registry and succeed).
             from aiq_agent.common.citation_verification import EmptySourceRegistryError
@@ -2387,7 +2387,7 @@ class TestDeepResearcherCitationVerification:
                 state = DeepResearchAgentState(messages=[HumanMessage(content="What is CUDA?")])
                 result = await agent.run(state)
 
-        # The report itself is preserved verbatim; it now arrives under the
+        # The report itself is preserved verbatim; it arrives under the
         # honesty banner that says nothing in it is provably grounded.
         assert result.messages[-1].content.endswith(sanitized_report)
         assert "Citation verification found no valid citations" in caplog.text
@@ -2611,12 +2611,12 @@ class TestDeepResearcherCitationVerification:
 class TestApplyRenumberingDropsSanitizeDeaths:
     """sanitize_report deletions must drop wire chips fail-closed.
 
-    Cause: sanitize_report deleted shortened/unsafe/truncated source lines and
-    stripped their orphaned [N] from the prose, but returned only renumber_map.
-    The wire only remapped via that map (``.get(n, n)``), so a dead number kept
-    its trusted clickable chip at a URL the reader no longer sees.
-    Ratchet: deaths are returned and dropped; a number absent from a non-empty
-    map is dead too.
+    sanitize_report deletes shortened, unsafe and truncated source lines and
+    strips their orphaned [N] from the prose, and returns only renumber_map.
+    The wire remaps through that map alone (``.get(n, n)``), so a dead number
+    would keep its trusted clickable chip at a URL the reader no longer sees.
+    Deaths are therefore returned and dropped, and a number absent from a
+    non-empty map is dead too.
     """
 
     def test_shortened_death_drops_chip_and_remaps_survivor(self):
@@ -2786,11 +2786,11 @@ class TestSessionRegistryBinding:
     """The live citation stream needs a registry to read; the chat path owns its own.
 
     In a Dask worker nothing binds a session registry, so every knowledge-base
-    and OIB citation failed the "was this actually retrieved?" check and was
-    never marked as cited -- a run citing four Richtlinien and one web page
-    showed the web page alone. The run binds its own registry so the check has
-    something true to read, and must NOT bind over the chat entrypoint's, which
-    deliberately spans turns.
+    and OIB citation would fail the "was this actually retrieved?" check and
+    never be marked as cited: a run citing four Richtlinien and one web page
+    would show the web page alone. The run binds its own registry so the check
+    has something true to read, and must NOT bind over the chat entrypoint's,
+    which deliberately spans turns.
     """
 
     @pytest.fixture
@@ -2864,9 +2864,9 @@ class TestSessionRegistryBinding:
 class TestDeepReportConfidence:
     """The writer's `[CONFIDENCE:...]` self-assessment: stripped, capped, surfaced.
 
-    Deep answers shipped without the confidence chip every shallow answer wears,
-    so the product's "is this trustworthy?" affordance was simply missing on the
-    longest reports it writes. These tests pin the three things that must hold:
+    Deep answers carry the confidence chip every shallow answer wears, and the
+    "is this trustworthy?" affordance matters most on the longest reports the
+    writer produces. These tests pin the three things that must hold:
     the marker never reaches a reader, the level never exceeds what the run can
     back up, and a malformed marker costs nothing but the chip.
     """
@@ -3055,7 +3055,7 @@ class TestDeepReportConfidence:
 
     @pytest.mark.asyncio
     async def test_fabricated_quote_marks_the_answer_degraded(self, mock_llm_provider, real_tool):
-        """Backlog item 2 ratchet: an unverified quote never ships as verified.
+        """An unverified quote never ships as verified.
 
         The quote is still annotated inline (fail-open), but the answer carries
         the degraded signal — state, banner, and honesty line — so a salvaged
@@ -3076,7 +3076,7 @@ class TestDeepReportConfidence:
 
     @pytest.mark.asyncio
     async def test_citation_health_ledger_records_the_cap_and_no_fallback(self, mock_llm_provider, real_tool):
-        """The ledger finally gets a cap reason — and deep's explicit "never falls back"."""
+        """The ledger records a cap reason — and deep's explicit "never falls back"."""
         body = "## Ergebnis\n\nDie Hoehe ist ausreichend bemessen.\n\n## Sources\n[1] Kein Nachweis"
         with patch("aiq_agent.agents.deep_researcher.agent.citation_events.record_turn") as record_turn:
             await self._run(mock_llm_provider, real_tool, self._report("[CONFIDENCE:high]", body=body))
@@ -3241,11 +3241,9 @@ class TestSalvageBarExcludesOurOwnBanner:
     counting it would let a stub clear the bar purely because it had been
     labelled as a stub — the label buying the thing it labels a pass.
 
-    Unpinned until now: an independent check reverted this to
-    ``len(text.strip())`` and the whole backend suite stayed green, because the
-    existing fixture's stub was short enough to fail either way. Any body of
-    65-199 characters shipped as a report with nothing noticing, which is the
-    window this fixes.
+    A revert to ``len(text.strip())`` must fail a test: the fixture's stub is
+    short enough to fail under either measure, so a body of 65-199 characters
+    would ship as a report with nothing noticing. This test closes that window.
     """
 
     def test_a_banner_does_not_buy_a_stub_a_pass(self):

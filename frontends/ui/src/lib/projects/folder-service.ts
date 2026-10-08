@@ -220,7 +220,7 @@ async function folderTree(organizationId: string, projectId: string): Promise<Ma
  * of folder access: it needs what `setFolderAccess` needs (`project:manage`)
  * and leaves the same audit line. Without this, `project:documents:write`
  * could widen a folder by moving it out from under one that narrows it. (A
- * delete no longer can: it takes the contents with it, `./folder-bin.ts`.)
+ * delete cannot either: it takes the contents with it, `./folder-bin.ts`.)
  */
 async function recordFolderAccessChange(
   session: AuthorizedSession,
@@ -236,7 +236,7 @@ async function recordFolderAccessChange(
     action: 'project.folder.access_changed',
     targetType: 'project',
     targetId: projectId,
-    // `roles`, the lists' roles alone, as the 0106 entries named them.
+    // `roles`: the lists' roles alone, without the levels.
     metadata: { folderId, grants, roles: grants.replace(/:(read|write)/g, ''), documentsMoved },
     request,
   })

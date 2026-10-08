@@ -164,8 +164,8 @@ describe('listFeedbackTurns', () => {
           answer: 'A',
           question: 'Q',
           conversation_title: 'T',
-          // A tag the vocabulary does not know — written by an LLM, or a row
-          // that predates the current keys. The UI has no label for it.
+          // A tag the vocabulary does not know — written by an LLM, or a stored
+          // key the vocabulary no longer has. The UI has no label for it.
           topics: ['brandschutz', 'not_a_real_tag'],
         },
     ])

@@ -2,10 +2,6 @@
 # Grid OIB Agent — Coolify Docker Compose (SeaweedFS)
 # =============================================================================
 #
-# MinIO → SeaweedFS migration completed 2026-07-21. The transitional compose
-# (docker-compose.coolify.yaml with both stores) was replaced by the permanent
-# SeaweedFS-only stack. See docs/deployment/minio-to-seaweedfs-migration.md.
-#
 # A Coolify-tuned variant of docker-compose.yaml. Deploy this with Coolify's
 # "Docker Compose" build pack (New Resource -> Docker Compose -> this repo).
 # See docs/deployment/coolify.md for the full walkthrough.
@@ -60,7 +56,7 @@ services:
       # here ever calls a NVIDIA endpoint.
       - OPENROUTER_API_KEY=${OPENROUTER_API_KEY:?set OPENROUTER_API_KEY}
       - TAVILY_API_KEY=${TAVILY_API_KEY:?set TAVILY_API_KEY}
-      # Embeddings + VLM route through OpenRouter. The backend now resolves each
+      # Embeddings + VLM route through OpenRouter. The backend resolves each
       # LLM key through the shared credential resolver, which INFERS the provider
       # key from the base URL: with a base URL on openrouter.ai it picks up
       # OPENROUTER_API_KEY automatically, so no per-family key wiring is required.
@@ -69,7 +65,7 @@ services:
       # and query embeddings always use the same model.
       - AIQ_EMBED_MODEL=${AIQ_EMBED_MODEL:-openai/text-embedding-3-large}
       - AIQ_EMBED_BASE_URL=${AIQ_EMBED_BASE_URL:-https://openrouter.ai/api/v1}
-      # AIQ_EMBED_API_KEY is the embeddings key override (now read by the adapter
+      # AIQ_EMBED_API_KEY is the embeddings key override (read by the adapter
       # via the shared resolver). An explicitly set value wins; otherwise the
       # OpenRouter key is used even if provider inference is ever disabled.
       - AIQ_EMBED_API_KEY=${AIQ_EMBED_API_KEY:-${OPENROUTER_API_KEY}}
@@ -91,8 +87,8 @@ services:
       # db = DB-claimed jobs run by the dedicated `agent-worker` service below
       # (FOR UPDATE SKIP LOCKED), so the token-heavy research workload scales and
       # crashes independently of the chat/web tier. Set to `dask` to fall back to
-      # the legacy in-process executor (no worker/chroma server needed) — kept as a
-      # dev escape hatch; on this stack it is redundant now that a worker exists.
+      # the in-process executor (no worker/chroma server needed) — kept as a
+      # dev escape hatch; on this stack the worker makes it redundant.
       - GRID_JOB_EXECUTION=${GRID_JOB_EXECUTION:-db}
       # Encrypts DB-claimed job payloads at rest (AES-256-GCM). Empty = plaintext
       # (a one-time warning is logged); acceptable on a single trusted node. Set a
@@ -105,18 +101,18 @@ services:
       # tool fails its credential guard and every project/Archiv image silently
       # degrades to a text-only block — no error anyone would look at.
       #
-      # READ-ONLY, and that is the point. This tier only ever calls get_object;
-      # it used to carry the `grid` credential, which holds Write and Tagging on
-      # every document bucket, so a compromise here could overwrite or delete any
-      # tenant document. `agent-worker` inherits this block through `extends`, so
-      # the narrowing covers both.
+      # READ-ONLY, and that is the point. This tier only ever calls get_object,
+      # so it carries no write credential: the `grid` credential holds Write and
+      # Tagging on every document bucket, and a compromise here must not be able
+      # to overwrite or delete any tenant document. `agent-worker` inherits this
+      # block through `extends`, so the narrowing covers both.
       - SEAWEED_ENDPOINT=http://seaweedfs:8333
       - SEAWEED_ACCESS_KEY=${SEAWEED_READONLY_ACCESS_KEY:-grid-backend-read}
       - SEAWEED_SECRET_KEY=${SERVICE_PASSWORD_SEAWEEDREADONLY}
       - SEAWEED_BUCKET=grid-documents
       # ── Knowledge base (shared Chroma server, ADR-0021) ──
       # Every replica and the agent-worker talk to ONE Chroma server over HTTP
-      # (the `chroma` service below), so the vector store is no longer pinned to a
+      # (the `chroma` service below), so the vector store is not pinned to a
       # single container's disk — the precondition for db-mode workers. AIQ_CHROMA_DIR
       # remains the embedded fallback, used only if AIQ_CHROMA_URL is unset (e.g.
       # GRID_JOB_EXECUTION=dask). The OIB corpus is (re-)embedded into the server on
@@ -223,11 +219,11 @@ services:
       - "8000"
     volumes:
       # ADOPT the existing embedded store instead of starting from an empty
-      # volume. The pre-server deploy embedded the whole corpus (oib_knowledge +
-      # project/archiv uploads) into this volume via the chromadb 1.5.9
-      # PersistentClient. The 1.5.9 server uses the SAME on-disk persist format,
-      # so pointing its persist dir (/data) at that volume brings every existing
-      # collection back with ZERO re-embedding — no migration script needed.
+      # volume. The volume holds the whole corpus (oib_knowledge + project/archiv
+      # uploads) embedded by the chromadb 1.5.9 PersistentClient. The 1.5.9
+      # server uses the SAME on-disk persist format, so pointing its persist dir
+      # (/data) at that volume serves every existing collection with ZERO
+      # re-embedding — no migration script needed.
       # (aiq-agent also mounts this volume at /app/data/chroma_data, but in db
       # mode it talks to the server over HTTP and never opens the dir, so the
       # server is the only writer.)
@@ -294,7 +290,7 @@ services:
     restart: unless-stopped
 
   seaweedfs:
-    # SeaweedFS S3-compatible object storage (replaces MinIO). One
+    # SeaweedFS S3-compatible object storage. One
     # `weed server -s3` process runs master (9333), volume (8080), filer (8888)
     # and the S3 gateway (8333). S3 identities are generated at boot from the
     # access/secret keys into s3.json (SeaweedFS has no MINIO_ROOT_* env).
@@ -316,10 +312,10 @@ services:
       - SEAWEED_TENANT_ADMIN_ACCESS_KEY=${SEAWEED_TENANT_ADMIN_ACCESS_KEY:-grid-tenant-admin}
       - SEAWEED_TENANT_ADMIN_SECRET_KEY=${SERVICE_PASSWORD_SEAWEEDTENANT}
       # The READ-ONLY identity the agent tier uses (ADR-0039), with its own
-      # Coolify-generated secret. It was missing from this file entirely, so
-      # `aiq-agent` and `agent-worker` ran on the write-capable `grid`
-      # credential — able to overwrite or delete any document object in any
-      # bucket, for a tool that only ever calls get_object.
+      # Coolify-generated secret. Without it `aiq-agent` and `agent-worker` would
+      # run on the write-capable `grid` credential — able to overwrite or delete
+      # any document object in any bucket, for a tool that only ever calls
+      # get_object.
       - SEAWEED_READONLY_ACCESS_KEY=${SEAWEED_READONLY_ACCESS_KEY:-grid-backend-read}
       - SEAWEED_READONLY_SECRET_KEY=${SERVICE_PASSWORD_SEAWEEDREADONLY}
       # The Langfuse trace archive's identity (ADR-0044), with its own
@@ -371,8 +367,7 @@ services:
   # credential: an owner connection is exempt from every row-level-security
   # policy, so any bug in the serving process that reached it would get a full
   # tenant-isolation bypass inside the very process RLS exists to constrain
-  # (ADR-0041). This stack was the last one where that credential was still
-  # mounted on `frontend`.
+  # (ADR-0041).
   grid-migrate:
     build:
       context: ./frontends/ui
@@ -416,8 +411,7 @@ services:
   #      anyone logging in at all.
   #   4. Nothing else would ever run it. This stack deploys from git per PR with
   #      no operator shell in the loop, and a "run this once per environment"
-  #      step is exactly the shape that left nine actions broken behind a
-  #      runbook (issues #255/#256).
+  #      step is exactly the shape that leaves actions broken behind a runbook.
   #
   # No key, no reconcile, exit 0 — a preview deployed with REQUIRE_AUTH=false
   # and no WorkOS keys still boots, matching `if (cfg.auth.requireAuth)` in
@@ -445,7 +439,7 @@ services:
     build:
       context: ./frontends/ui
       dockerfile: deploy/Dockerfile
-    # The image CMD migrates then serves; migration has moved to grid-migrate,
+    # The image CMD migrates then serves. Migration runs in grid-migrate instead,
     # so this container only serves.
     command: ["node", "server.js"]
     environment:
@@ -534,10 +528,9 @@ services:
       - GRID_GIT_SHA=${GRID_GIT_SHA:-}
       # ── Agent Skills (ADR-0046): dark-launch gate + save-time cron validation ──
       - GRID_SKILLS_ENABLED=${GRID_SKILLS_ENABLED:-false}
-      # Flag ENFORCEMENT itself. It was on the skill-scheduler and NOT here,
-      # which meant `enforcementOn()` in the BFF read an unset variable no
-      # matter what the operator had configured — the frontend and the
-      # scheduler could disagree about whether WorkOS flags decide anything.
+      # Flag ENFORCEMENT itself. It belongs here, not only on the skill-scheduler:
+      # `enforcementOn()` in the BFF reads it, and the frontend and the scheduler
+      # must agree about whether WorkOS flags decide anything.
       # Same default, so nothing moves until an operator sets it.
       - GRID_ENFORCE_FEATURE_FLAGS=${GRID_ENFORCE_FEATURE_FLAGS:-false}
       - GRID_SKILL_MIN_INTERVAL_MINUTES=${GRID_SKILL_MIN_INTERVAL_MINUTES:-15}
@@ -761,10 +754,10 @@ services:
 volumes:
   aiq-data:
     driver: local
-  # The vector store. Written originally by the embedded chromadb 1.5.9
-  # PersistentClient (aiq-agent, /app/data/chroma_data) and now ALSO served by
-  # the `chroma` 1.5.9 server (mounted at /data) — same version, same on-disk
-  # format, so the existing corpus is reused with no re-embedding.
+  # The vector store. Written by the embedded chromadb 1.5.9 PersistentClient
+  # (aiq-agent, /app/data/chroma_data) and served by the `chroma` 1.5.9 server
+  # (mounted at /data) — same version, same on-disk format, so the corpus is
+  # reused with no re-embedding.
   chroma_data:
     driver: local
   seaweedfs-data:

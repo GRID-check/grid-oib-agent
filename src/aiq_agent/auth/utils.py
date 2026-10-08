@@ -49,7 +49,7 @@ def register_token_fetcher(fetcher: Callable[[], str | None], priority: int = 0)
 
 
 def unregister_token_fetcher(fetcher: Callable[[], str | None]) -> None:
-    """Remove a previously registered token fetcher.
+    """Remove a registered token fetcher.
 
     Matches by callable identity (``is`` check). No-op if the fetcher
     is not currently registered.

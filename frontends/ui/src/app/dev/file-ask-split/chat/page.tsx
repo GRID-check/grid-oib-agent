@@ -7,8 +7,8 @@
  * rolls the peek: a literal `<aside>` with its own header markup, and
  * `FilePreviewPane` dropped inside it. It is a picture of the intended result,
  * so it stays green no matter what `FilePreviewHost` / `FilePreviewSplit` /
- * `useFilePeekBesideChat` actually do. The pane has always rendered; what broke is the
- * SPLIT AROUND IT, and nothing in `/dev` ever exercised that.
+ * `useFilePeekBesideChat` actually do. The pane renders on its own; the split
+ * around it is what this route exercises, because nothing else in `/dev` does.
  *
  * This route mounts `FilePreviewBridge` — the same component the project layout
  * mounts — around a stand-in for the chat column, so the resizable group, the
@@ -24,10 +24,9 @@
  * ── The shell's `<main>` is reproduced, not approximated ─────────────────────
  * The wrapper below copies `app/(shell)/layout.tsx`'s frame and `<main>`
  * verbatim (`h-dvh overflow-hidden` row → `min-h-0 flex-1 overflow-y-auto`
- * column). That pairing is the thing under suspicion: the pre-restructure
- * `<main>` was `flex-1 flex-col overflow-hidden`, and a percentage height inside
+ * column). That pairing is the thing under suspicion: a percentage height inside
  * a SCROLL container resolves differently from one inside a clipped box.
- * Substituting a simpler wrapper here would silently fix the bug in the preview.
+ * Substituting a simpler wrapper here would silently hide the defect in the preview.
  *
  * ── `arrive` is the variant that matters ────────────────────────────────────
  * `default` mounts with the peek ALREADY open, which is not a journey anyone
@@ -38,7 +37,7 @@
  * and only later, when the pathname reaches `/chat`, does `split` flip and a
  * `useLayoutEffect` try to `resize()` it back open. `defaultSize` is a
  * mount-time value, so it never gets a second chance. That cold-mount-then-flip
- * is the transition Ask Piloti always takes and the one nothing covered.
+ * is the transition Ask Piloti takes.
  *
  * Variants via `?variant=`:
  *   - default    — file open in `peek`, the split the reader should get.
@@ -46,11 +45,10 @@
  *   - `arrive`   — mounts with NO file, exactly as `/files` does, then the
  *                  button opens the peek. This is the Ask Piloti path.
  *   - `indexing` — the same peek on a document that is still being read. The
- *                  status the modal has always carried under the name, on the
- *                  one surface whose entire reason is "this is what you are
- *                  asking about" — where a file the agent cannot cite yet used
- *                  to look exactly like one it can.
- *   - `gone`     — the document is not there any more (deleted, or no longer
+ *                  status the modal carries under the name, on the one surface
+ *                  whose entire reason is "this is what you are asking about":
+ *                  a file the agent cannot cite yet must not look like one it can.
+ *   - `gone`     — the document is not there (deleted, or no longer
  *                  this reader's). A retry cannot fix that, so the pane says so
  *                  and offers the only move left.
  *   - `failed`   — indexing failed. The one state on this surface that does not
@@ -60,11 +58,8 @@
  *                  so the strip says Piloti still cites that one rather than
  *                  "cannot cite this file".
  *   - `wide`     — the peek at a width the reader dragged it to and the split
- *                  remembered. Until the seam was fixed this state was
- *                  unreachable: the drag fought back after ~20px and the old
- *                  560px cap stood well short of it. It is the state the
- *                  document is actually read in, so the two columns' behaviour
- *                  at that ratio needs evidence.
+ *                  remembered. It is the state the document is actually read
+ *                  in, so the two columns' behaviour at that ratio needs evidence.
  */
 
 import type { JSX } from 'react'
@@ -103,9 +98,9 @@ const CONTEXT = { projectId: 'proj-1', projectName: 'Seestadt Baufeld', scope: '
 /**
  * The preview endpoint, answered locally.
  *
- * `/dev` has no backend, so `/api/documents/:id/preview` 403s and every shot of
- * this route was taken against the pane's FAILURE state — a grey box where the
- * drawing should be. The seams this route exists to review (the ground under
+ * `/dev` has no backend, so `/api/documents/:id/preview` would 403, and a shot
+ * would show the pane's FAILURE state: a grey box where the drawing should be.
+ * The seams this route exists to review (the ground under
  * the document, the card's shadow, what the well does as the pane is dragged
  * from 280px to 960px) cannot be judged against an error message. Module scope
  * for the same reason as the storage seeds below: the pane fetches in an effect
@@ -198,10 +193,10 @@ export default function FileAskSplitPreview(): JSX.Element {
               {/* The REAL chat surface, not a stand-in. `MainLayout` keeps its
                   own inline width rule for the peek, and that rule is only
                   wrong in combination with the split around it — a stand-in
-                  column would have hidden exactly the defect this route is
-                  for. Every prop is optional and the stores are empty here, so
-                  it renders its signed-out/empty state, which is enough: the
-                  subject under test is the width of its column. */}
+                  column would hide exactly the defect this route is for. Every
+                  prop is optional and the stores are empty here, so it renders
+                  its signed-out/empty state, which is enough: the subject under
+                  test is the width of its column. */}
               <>
                 {/* Drives the `arrive` variant the way Ask Piloti does: the
                     peek is opened AFTER the split has already mounted cold. */}

@@ -148,13 +148,12 @@ def hand_built(tmp_path_factory: pytest.TempPathFactory) -> SpatialModel:
 def test_the_opening_between_two_walls_is_the_clear_width_not_the_axis_distance(
     hand_built: SpatialModel,
 ) -> None:
-    """The exact case the tool description used to get wrong.
+    """The exact case the horizontal distance gets wrong.
 
-    Two 30 cm walls, a 1.00 m opening. ``distance(…, 'horizontal')`` — which was
-    once described as "what a lichte Breite check needs" — returns 1.30 m,
-    because it measures centroid to centroid and half of each wall is inside the
-    number. On an escape-route width that is the difference between a failure and
-    a pass.
+    Two 30 cm walls, a 1.00 m opening: ``distance(…, 'horizontal')`` returns
+    1.30 m, where a lichte Breite check needs 1.00 m, because it measures
+    centroid to centroid and half of each wall is inside the number. On an
+    escape-route width that is the difference between a failure and a pass.
     """
     answer = cl.clear_width(hand_built, LEFT_JAMB, RIGHT_JAMB)
     assert answer.decidable

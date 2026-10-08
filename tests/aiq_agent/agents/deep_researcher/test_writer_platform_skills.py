@@ -1,10 +1,10 @@
 """The platform's own skills, on the surface that writes the LONGEST answers.
 
-``grid-agents: researcher,deep_researcher`` on a ``platform_skills`` row
-used to be honoured on one half and inert on the other: the chat researcher
-built a ``SkillRuntime`` and the deep pipeline resolved builtin skill FILES out
-of its sandbox instead, so ``piloti-voice`` — the row that carries the house
-voice — never reached the writer of a five-thousand-word report.
+``grid-agents: researcher,deep_researcher`` on a ``platform_skills`` row must
+be honoured on both halves: the chat researcher builds a ``SkillRuntime``, and
+the deep pipeline must resolve the same skills rather than builtin skill FILES
+out of its sandbox. Otherwise ``piloti-voice`` — the row that carries the house
+voice — never reaches the writer of a five-thousand-word report.
 
 These tests pin both halves of the fix, and they are asserted against the REAL
 resolution path (only the BFF round trip is stubbed) because every layer between
@@ -169,7 +169,7 @@ async def test_a_platform_skill_reaches_the_writer_as_a_catalog_line_and_a_body(
     assert "## Available skills" in prompt
     assert "- `piloti-voice`:" in prompt
     # One block, and no second one telling the writer it MUST load anything:
-    # the `standard: True` on the row above is not read on this side any more.
+    # the `standard: True` on the row above is not read on this side.
     assert "Active skills" not in prompt
     # The catalog has to tell the writer what loads a body.
     assert "use_skill" in prompt

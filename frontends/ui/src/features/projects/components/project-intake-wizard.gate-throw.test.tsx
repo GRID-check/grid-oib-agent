@@ -1,9 +1,8 @@
 /**
- * Fix 2: the deterministic pre-save gate runs before the actual save and used to
- * sit OUTSIDE any try/catch while Save was fired as `void handleSave()` — so any
- * throw there left the Save button silently inert. The gate is now wrapped: on a
- * throw it logs and proceeds straight to the save (fail-open). This spec mocks the
- * checker to throw and asserts the save still completes.
+ * The deterministic pre-save gate is wrapped: when it throws, the wizard logs and
+ * proceeds straight to the save (fail-open). Save is fired as `void handleSave()`,
+ * so a throw that escaped the wrapper would leave the button silently inert. This
+ * spec mocks the checker to throw and asserts the save still completes.
  */
 import { render, screen, waitFor } from '@/test-utils'
 import userEvent from '@testing-library/user-event'
@@ -67,8 +66,8 @@ describe('ProjectIntakeWizard — Fix 2 pre-save gate fail-open', () => {
     localStorage.setItem(
       `intake-draft-${PROJECT_ID}`,
       JSON.stringify({
-        // Every required answer, because `handleSave` now refuses without them
-        // — a fixture missing them exercises that gate rather than the fail-open
+        // Every required answer, because `handleSave` refuses without them; a
+        // fixture missing them would exercise that gate rather than the fail-open
         // path this spec is about.
         answers: {
           A1: 'Test',

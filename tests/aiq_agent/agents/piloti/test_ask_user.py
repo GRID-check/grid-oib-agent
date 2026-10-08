@@ -277,19 +277,18 @@ class TestAskUserPendingSlot:
 
 
 class TestToolDescriptionPrefersAskingWhenOptionsAreNameable:
-    """The description used to tell the model "an agent that asks before
+    """The description must not tell the model "an agent that asks before
     answering is worse than one that answers and names its assumption" —
     framing that pushed it to guess even when it could already enumerate the
-    real alternatives, which is exactly the case this tool exists for. This
-    locks in the calibration the other way: naming 2-6 real options and
-    picking wrong mattering is a reason to ask, not a reason to guess.
+    real alternatives, which is exactly the case this tool exists for. Naming 2-6 real options and
+    picking wrong matters: that is a reason to ask, not a reason to guess.
     """
 
     def test_prefers_asking_when_options_would_change_the_answer(self):
         description = ask_user_module._TOOL_DESCRIPTION.lower()
 
         assert "prefer asking over silently guessing" in description
-        # The old hard "asking is worse" framing must be gone, not merely
+        # The "asking is worse" framing must stay out of the description, not merely
         # supplemented — a stray copy would keep pulling the model back.
         assert "worse than one that answers" not in description
 

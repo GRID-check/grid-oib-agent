@@ -1,6 +1,6 @@
 /**
- * Definitions service — the standing intent and the fire path (the arrival of
- * jobs + delegated tasks at one entity, migration 0086).
+ * Definitions service — the standing intent and the fire path. Jobs and
+ * delegated tasks are one entity (migration 0086).
  *
  * A definition says what was asked, by whom, and what makes it run. A
  * `schedule` fires on its cron; a `once` definition is a delegation; a `manual`
@@ -9,11 +9,10 @@
  * lifecycle, filing and review live next door in `@/lib/tasks/service` over
  * the same `task_runs` table.
  *
- * The HTTP contract is deliberately unchanged: the project-scoped `/jobs`
- * routes still answer the shapes the UI's jobs client parses (`name`, `prompt`,
- * `output`, …), and this module projects a definition onto that shape. That
- * projection is the seam at which the old wire model meets the new storage
- * model; it disappears when the UI moves to definitions in the same release.
+ * The HTTP contract is the `/jobs` one: the project-scoped routes answer the
+ * shapes the UI's jobs client parses (`name`, `prompt`, `output`, …), and this
+ * module projects a definition onto that shape. That projection is the seam
+ * where the wire model meets the storage model.
  */
 
 import 'server-only'
@@ -88,7 +87,7 @@ function assertJobsFeatureOn(session: AuthorizedSession): void {
 // ---------------------------------------------------------------------------
 
 /**
- * A definition as the `/jobs` wire has always described one. The UI's
+ * A definition as the `/jobs` wire describes one. The UI's
  * `jobs-client.ts` parses exactly these fields, and `name`/`prompt`/`output`
  * are that model's words for `title`/`plan.prompt`/`kind`.
  */
@@ -161,8 +160,8 @@ function toJobRunView(run: TaskRun): JobRunView {
     scheduleId: run.definitionId ?? '',
     jobId: run.backendJobId,
     trigger: run.trigger,
-    // The old submission vocabulary: a worker outcome never reached this list,
-    // so every non-skip/non-error attempt reads `submitted`.
+    // The submission vocabulary: a worker outcome never reaches this list, so
+    // every non-skip/non-error attempt reads `submitted`.
     status: run.status === 'skipped' || run.status === 'error' ? run.status : 'submitted',
     detail: run.error,
     conversationId: run.conversationId,
@@ -257,8 +256,7 @@ function isDelegation(definition: TaskDefinition): boolean {
 }
 
 /**
- * Permissions attach to the TRIGGER (the decision in the follow-up plan):
- * creating or editing work is `project:edit`; giving it a recurring trigger —
+ * Permissions attach to the TRIGGER: creating or editing work is `project:edit`; giving it a recurring trigger —
  * unattended, REPEATED spend against somebody's budget — additionally needs
  * `project:skills:manage`. Two calls, not one array, because the two checks
  * have different subjects and this reads as what it is.
@@ -287,9 +285,9 @@ async function requireDefinitionAccess(
 /**
  * A project's standing tasks — everything except a delegation.
  *
- * The filter is `isDelegation`, not `trigger !== 'once'`: since 0090 a `once`
- * definition may be a one-shot somebody scheduled for a date, and that belongs
- * in the list it was created from. Only the dateless kind — dispatched at
+ * The filter is `isDelegation`, not `trigger !== 'once'`: a `once` definition
+ * may be a one-shot somebody scheduled for a date (migration 0090), and that
+ * belongs in the list it was created from. Only the dateless kind — dispatched at
  * creation from a chat — belongs to the run list instead.
  */
 export async function listJobs(
@@ -332,11 +330,11 @@ export async function createJob(
   const definition = await repository.insertDefinition({
     projectId,
     organizationId: session.organizationId,
-    // Always a research run. The wizard used to ask „Chat oder Bericht?", but
-    // since ADR-0062 both land in a thread and the only surviving difference
-    // was whether anything was FILED — and a standing task whose result is not
-    // a deliverable is a standing task nobody reads. An older `chat` definition
-    // keeps its kind and keeps firing as one; nothing new is created that way.
+    // Always a research run. Chat and report both land in a thread (ADR-0062),
+    // and the only difference left is whether anything is FILED — a standing
+    // task whose result is not a deliverable is one nobody reads. An existing
+    // `chat` definition keeps its kind and keeps firing as one; nothing new is
+    // created that way.
     kind: 'deep-research',
     title: input.name,
     plan: {
@@ -473,7 +471,7 @@ export async function runJobNow(
   return fireJob(definition, 'manual', session.userId)
 }
 
-/** What `buildFirePrompt` needs. The prompt, and since ADR-0060 nothing else. */
+/** What `buildFirePrompt` needs: the prompt, and nothing else (ADR-0060). */
 export interface FirePromptInput {
   prompt: string
 }
@@ -482,12 +480,9 @@ export interface FirePromptInput {
  * The deterministic prompt a run is submitted with: the definition's prompt,
  * exactly as a person would have typed it into a new chat.
  *
- * It used to append the attached skill's whole body under the sentence
- * „Verwende dabei den folgenden Skill VERBINDLICH und vollständig." — forcing,
- * written out in German, in the one place a person was least likely to look.
- * A job could therefore impose a skill on a turn, which ADR-0060 says nothing
- * may do, "not the request, not the deployment, not a job", and which
- * `docs/architecture/agent-skills.md` already claimed jobs did not.
+ * The attached skill's body is not appended. Appending it would impose a skill on
+ * the turn, which ADR-0060 forbids: nothing may do that, "not the request, not
+ * the deployment, not a job".
  *
  * A job that should run a playbook NAMES it in its prompt, with the same `/`
  * the chat composer has. The model reads the name among the words and decides,
@@ -564,8 +559,8 @@ export interface SubmittedAgentRun {
  *
  * The run's message is minted AFTER the backend accepted the submission, and
  * that order is the point: a fire the agent refused (an org cap, an unreachable
- * queue) leaves no empty assistant bubble in somebody's thread. Before this, the
- * same fire left a whole empty conversation behind.
+ * queue) leaves no empty assistant bubble and no empty conversation in somebody's
+ * thread.
  */
 export async function submitAgentRun(spec: AgentRunSpec): Promise<SubmittedAgentRun> {
   const { organizationId, projectId, userId } = spec
@@ -707,7 +702,7 @@ export async function fireJob(
       // Dormant: a legacy row's snapshot is still recorded on the run so the
       // history says what the job was configured with, and the submission's
       // `skills` name list is a log line. Neither puts a body in front of the
-      // model any more.
+      // model.
       skillSnapshot: definition.plan.skill.name ? definition.plan.skill : null,
       output: definition.kind === 'deep-research' ? 'deep-research' : 'chat',
       dataSources: definition.plan.dataSources ?? null,
@@ -768,8 +763,8 @@ interface FireOutcome {
  * when submission succeeded; a skipped/error fire records the definition's plan
  * unchanged, because nothing was sent.
  *
- * The id is the caller's, not the column default: the run's message was derived
- * from it before this row existed.
+ * The id is the caller's, not the column default: the run's message is derived
+ * from it, so the id has to exist before the row is written.
  */
 async function recordRun(
   definition: TaskDefinition,
@@ -836,7 +831,7 @@ async function recordRun(
  *
  * **`jobId` stamps the provenance** — it is what lets the UI render the
  * definition's name and glyph instead of the owner's face, and what keeps the
- * OLD per-fire threads out of the owner's personal chat history. The standing
+ * per-fire threads of older runs out of the owner's personal chat history. The standing
  * thread carries it too and is shown anyway: `isTaskThread` tells the two apart
  * from the id alone, and a task's one thread is a place the team goes back to.
  *

@@ -152,7 +152,7 @@ describe('reconcileOrphanedVectors', () => {
     expect(JSON.parse(deleteCall[1].body)).toEqual({ file_ids: ['ghost.pdf'] })
   })
 
-  it('treats a live document stored under a percent-encoded name as live (regression)', async () => {
+  it('treats a live document stored under a percent-encoded name as live', async () => {
     // DB has the real, decoded name; the vector store holds the encoded form.
     stubRows([{ collectionName: 'proj_a', filename: 'Zürich Plan.pdf', authoredBy: 'user' }])
     fetchMock.mockResolvedValueOnce(listResponse(['Z%C3%BCrich%20Plan.pdf']))

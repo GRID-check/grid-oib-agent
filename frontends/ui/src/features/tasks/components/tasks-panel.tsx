@@ -71,7 +71,7 @@ interface TasksPanelProps {
    * into a dead end. The server still enforces on send.
    */
   canChatInProject?: boolean
-  /** The view to open with — from `?view=`, or the timetable for a legacy `?tab=schedule` link. */
+  /** The view to open with — from `?view=`, or the timetable for a `?tab=schedule` link. */
   initialView?: TasksView
 }
 
@@ -219,9 +219,7 @@ export function TasksPanel({
       // The in-flight read was issued before whatever just happened, so it
       // resolves with stale data by construction: dropping the second read
       // leaves a just-saved task out of the list until the next poll — up to
-      // the full cadence, and indefinitely if the tab loses focus first. The
-      // retired schedule panel carried this guard; the merge into one cadence
-      // is where it went missing.
+      // the full cadence, and indefinitely if the tab loses focus first.
       if (inFlightRef.current) {
         pendingRef.current = true
         return
@@ -434,11 +432,10 @@ export function TasksPanel({
   /**
    * The colour each scheduled task wears on the grid, so a card and its blocks
    * are recognisably the same thing. The SAME function the timetable calls, not
-   * a second copy of the rule: this used to be its own filter, and when the
-   * grid learned about one-shot tasks (`dueAt`) this one did not — so a
-   * one-shot got a block on the grid and no swatch on its card, and because the
-   * colour is an INDEX, every card after it in id order wore a different colour
-   * from its own block. A comment promising one ordering is not one ordering.
+   * a second copy of the rule: a second filter would drift. A one-shot task
+   * (`dueAt`) gets a block on the grid, so it needs a swatch on its card too,
+   * and because the colour is an INDEX, every card after it in id order would
+   * wear a different colour from its own block.
    *
    * A miss stays `undefined` rather than falling back: a manual task is not on
    * the week, and a swatch for it would point at nothing.

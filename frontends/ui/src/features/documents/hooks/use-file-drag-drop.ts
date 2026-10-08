@@ -4,15 +4,15 @@
  * Drag state and the handlers for it. Validation happens in `uploadFiles`, not
  * here.
  *
- * ## It answers for uploads only, and that is new
+ * ## It answers for uploads only
  *
- * The same surface is also where a document is dragged onto a folder, and this
- * hook used to raise its full-surface overlay for ANY drag with items on it —
- * which an in-app drag has, because our own MIME type is an item. So aiming a
- * document at a folder covered that folder in „Dateien hier ablegen", and the
- * move it was about to make read as broken.
+ * The same surface is also where a document is dragged onto a folder. An overlay
+ * raised for ANY drag with items on it would cover that folder: an in-app drag
+ * has items, because our own MIME type is an item. So aiming a document at a
+ * folder would cover it in „Dateien hier ablegen", and the move would read as
+ * broken.
  *
- * Every handler now asks {@link isExternalFileDrag} first, which is the same
+ * Every handler asks {@link isExternalFileDrag} first, which is the same
  * question the folder drop targets ask, from the same module. `Files` in
  * `dataTransfer.types` is a fact the browser guarantees for a drag carrying
  * real files and never sets for one started inside the page.
@@ -125,18 +125,18 @@ export function useFileDragDrop({
       //
       // The browser reports directories only through the entries API, and only
       // from within the drop event — so dragging a project folder onto the file
-      // area used to do nothing at all, silently: the overlay appeared, the
-      // finger let go, and the page carried on. `readDroppedTree` must capture
+      // area would otherwise do nothing at all, silently: the overlay appears,
+      // the finger lets go, and the page carries on. `readDroppedTree` must capture
       // its entries synchronously for that reason; it is called before any
       // await here and returns null when the browser exposes none, which is
       // the signal to use the list below exactly as this always did.
       //
       // That list is copied HERE, synchronously, for the same reason: once the
       // drop event has finished the browser empties `dataTransfer.files`. Read
-      // after the traversal's awaits, it was empty whenever the traversal came
-      // back with nothing — an entry whose `file()` fails (an Outlook
+      // after the traversal's awaits, it would be empty whenever the traversal
+      // came back with nothing — an entry whose `file()` fails (an Outlook
       // attachment, a OneDrive file that is only in the cloud, a Windows path
-      // past 260 characters) — and the drop did nothing, silently.
+      // past 260 characters) — and the drop would do nothing, silently.
       const transfer = e.dataTransfer
       const droppedFiles = Array.from(transfer.files)
       void (async () => {

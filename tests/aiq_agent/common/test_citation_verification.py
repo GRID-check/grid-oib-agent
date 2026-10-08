@@ -53,8 +53,8 @@ def _knowledge_entry(file_name: str, page: int, title: str) -> SourceEntry:
 class TestATitleCitationResolves:
     """Every knowledge hit prints two names — ``Source:`` (the display title)
     and ``Citation:`` (the file name) — and a German answer copies the first.
-    Removing that line cost the answer its source and bought a repair pass
-    (two searches and a rewrite) for a document the turn had retrieved."""
+        Dropping that line costs the answer its source and buys a repair pass
+        (two searches and a rewrite) for a document the turn had retrieved."""
 
     @pytest.fixture
     def registry(self):
@@ -250,8 +250,8 @@ class TestSourceRegistry:
         registry.add(SourceEntry(citation_key="report.pdf, p.5"))
         registry.add(SourceEntry(citation_key="report.pdf, p.10"))
         # Same file, DIFFERENT pages — distinct evidence, both kept as chips
-        # (ADR-0026: fixes the drop that hid page 10 from the chips while the
-        # Herleitung fan-out still showed it).
+        # (ADR-0026: both pages stay, or the chips hide page 10 while the Herleitung
+        # fan-out still shows it).
         assert len(registry.all_sources()) == 2
         assert registry.has_citation_key("report.pdf")
 
@@ -603,12 +603,10 @@ class TestGenericUrlExtractor:
     def test_url_with_commas_in_path(self):
         """Commas inside URL paths (e.g., lat/lon coordinates) must not truncate the URL.
 
-        Regression: the generic URL regex previously excluded ``,`` from the
-        character class, so an FAA cam URL like
-        ``https://weathercams.faa.gov/map/-122.31167,47.22287,10/...`` was
-        registered as ``https://weathercams.faa.gov/map/-122.31167``. The LLM
-        would then cite the full URL, the verifier would compare full vs.
-        truncated, and the citation would be silently removed as
+        The generic URL regex must keep ``,`` in its character class. Without it, an FAA cam URL
+        like ``https://weathercams.faa.gov/map/-122.31167,47.22287,10/...`` would register as
+        ``https://weathercams.faa.gov/map/-122.31167``. The LLM would then cite the full URL, the
+        verifier would compare full vs. truncated, and the citation would be silently removed as
         ``url_not_in_registry``.
         """
         full_url = "https://weathercams.faa.gov/map/-122.31167,47.22287,10/airport/SEA/details/weather"
@@ -700,12 +698,12 @@ class TestParserDispatcher:
         assert entries[0].url == "https://example.com"
 
     def test_a_knowledge_text_without_a_citation_line_yields_nothing(self):
-        """A URL in a knowledge result is not a source, and never was.
+        """A URL in a knowledge result is not a source.
 
-        The knowledge parser used to hand a citation-less text to the generic
-        URL extractor. A rejected tool call carries pydantic's link to its own
-        error index, so the Herleitung drew a web source card for
-        ``errors.pydantic.dev`` on a turn whose search had not run.
+        The knowledge parser must not hand a citation-less text to the generic URL extractor. A
+        rejected tool call carries pydantic's link to its own error index, and that link would
+        put a web source card for ``errors.pydantic.dev`` in the Herleitung on a turn whose search
+        had not run.
         """
         content = (
             "Error: the call was rejected. punkt: Input should be a valid string. "
@@ -955,10 +953,9 @@ class TestVerifyCitations:
         assert not result.removed_citations
 
     def test_url_in_markdown_brackets_still_verifies(self, registry):
-        """Regression: when the LLM wraps a citation URL in markdown brackets
-        (``[https://valid.com/article1]``), the verifier captured the trailing
-        ``]`` as part of the URL and then failed to resolve it against the
-        registry, silently removing an otherwise-valid citation."""
+        """The LLM may wrap a citation URL in markdown brackets (``[https://valid.com/article1]``).
+        The verifier must not capture the trailing ``]`` as part of the URL: that fails to resolve
+        it against the registry and silently removes an otherwise-valid citation."""
         report = "Finding [1].\n\n## Sources\n[1] Article 1: [https://valid.com/article1]"
         result = verify_citations(report, registry)
         assert len(result.valid_citations) == 1
@@ -1278,7 +1275,7 @@ class TestVerifyCitations:
 
 
 class TestVerifyCitationsOriginTokens:
-    """FB-2 cycle 3: verify_citations labels the LLM-written source section.
+    """verify_citations labels the LLM-written source section.
 
     The normal deep-research path preserves the writer's ``## Sources`` block,
     so those lines carry no origin token until verify_citations injects one
@@ -1419,7 +1416,7 @@ class TestVerifyCitationsOriginTokens:
 
 
 # ---------------------------------------------------------------------------
-# source origin token tests (FB-2: knowledge base vs web vs RIS labeling)
+# source origin token tests (knowledge base vs web vs RIS labeling)
 # ---------------------------------------------------------------------------
 
 
@@ -1461,8 +1458,8 @@ class TestSourceOriginToken:
         assert source_origin_token(entry) == "[RIS]"
 
     def test_a_ris_lookup_passage_is_ris_not_kb(self):
-        # A grounding-block hit, so knowledge_layer; the suite saw every § go out
-        # as "[KB] Bauordnung für Wien, § 63".
+        # A grounding-block hit, so knowledge_layer. A RIS lookup passage is labelled [RIS],
+        # never [KB] (as "[KB] Bauordnung für Wien, § 63" would be).
         entry = SourceEntry(
             citation_key="Bauordnung für Wien, § 63",
             source_type="knowledge_layer",
@@ -1547,10 +1544,9 @@ class TestSanitizeReport:
         assert "[2]" not in result.sanitized_report
 
     def test_body_url_with_commas_matched_to_reference(self):
-        """Regression: ``_BODY_URL_RE`` previously stopped at the first comma,
-        so a bare body URL with commas in its path was truncated, only the
-        prefix got replaced with ``[N]``, and the rest of the URL was left as
-        dangling text in the sanitized report."""
+        """``_BODY_URL_RE`` must not stop at the first comma: a bare body URL with commas in its path
+        would be truncated, only its prefix replaced with ``[N]``, and the rest left as dangling
+        text in the sanitized report."""
         full_url = "https://weathercams.faa.gov/map/-122.31167,47.22287,10/airport/SEA/details/weather"
         report = f"Live cam at {full_url} confirms it [1].\n\n## Sources\n[1] FAA cam: {full_url}"
         result = sanitize_report(report)
@@ -1858,7 +1854,7 @@ class TestSessionRegistry:
 
 
 class TestSourceLane:
-    """source_lane maps SourceEntry hits to fan-out UI strata (task: lane labels)."""
+    """source_lane maps SourceEntry hits to fan-out UI strata."""
 
     def test_oib_corpus_file_is_oib_lane(self):
         entry = SourceEntry(citation_key="oib-rl_2_ausgabe_mai_2023.pdf, p.12", source_type="knowledge_layer")
@@ -2220,10 +2216,10 @@ class TestKnowledgeCitationLineFormats:
     """Real citation lines must survive, whatever shape the model writes them in.
 
     The title-prefixed and parenthesised forms are what models actually produce.
-    Both used to be dropped — the greedy filename pattern swallowed the title
-    into the "filename", and the trailing-parenthetical trim (meant for
-    "(Internal)") ate the whole locator. The user saw "Quellenangabe entfernt"
-    on a citation to a document that had genuinely been retrieved.
+    Both must survive: a greedy filename pattern must not swallow the title into the
+    "filename", and the trailing-parenthetical trim (meant for "(Internal)") must not eat the
+    whole locator. Otherwise a citation to a document that was genuinely retrieved is
+    removed with "Quellenangabe entfernt".
     """
 
     FILE = "oib-rl_2_ausgabe_mai_2023.pdf"
@@ -2365,9 +2361,9 @@ class TestSanitizeLeavesCodeAlone:
     """`sanitize_report` rewrites prose; a fence or inline span is not prose."""
 
     def test_a_code_fence_is_not_rewritten(self):
-        """Regression: URL hygiene edited INSIDE fences — a mermaid ``click``
-        directive's URL became ``[1]`` and two-space indentation collapsed to
-        one, so sanitizing the answer redrew the diagram. Code is not prose."""
+        """URL hygiene must not edit INSIDE fences: a mermaid ``click`` directive's URL would
+        become ``[1]`` and two-space indentation would collapse to one, so sanitizing the answer
+        would redraw the diagram. Code is not prose."""
         fence = (
             "```mermaid\n"
             "flowchart TD\n"
@@ -2395,10 +2391,9 @@ class TestSanitizeLeavesCodeAlone:
         assert "`pulumi config get  grid-oib:imageTag`" in sanitize_report(report).sanitized_report
 
     def test_a_link_whose_text_carries_inline_code_still_collapses(self):
-        """Regression on the fence skip itself: segmenting the body at inline
-        code split a markdown link around its code span, so the link never
-        collapsed and its URL half rotted in place — an unbalanced ``(`` and
-        literal brackets in the reader-visible report."""
+        """The fence skip must not segment the body at inline code: that splits a markdown link
+        around its code span, so the link never collapses and its URL half rots in place — an
+        unbalanced ``(`` and literal brackets in the reader-visible report."""
         report = (
             "Siehe [den `pulumi` Befehl](https://a.example/y) im Detail.\n\n## Quellen\n- [1] a: https://a.example/y\n"
         )
@@ -2509,12 +2504,11 @@ class TestSanitizeReportExposesDeaths:
 class TestKnowledgeLayerFieldsAreBlockScoped:
     """Optional header fields must bind to THEIR hit, never to a later one.
 
-    ``_format_results`` emits ``Collection:`` and ``Dokumentart:`` only when the
-    hit has one. Zipping separate whole-document ``findall`` lists therefore
-    shifted every optional value up by one as soon as a result set mixed a
-    classified with an unclassified hit — and since ``doc_class`` is the
-    FIRST-priority signal in ``lane_for_hit``, a project upload silently
-    rendered as an OIB Richtlinie.
+    ``_format_results`` emits ``Collection:`` and ``Dokumentart:`` only when the hit has one.
+    Zipping separate whole-document ``findall`` lists would shift every optional value up by
+    one as soon as a result set mixed a classified with an unclassified hit. And since
+    ``doc_class`` is the FIRST-priority signal in ``lane_for_hit``, a project upload would
+    silently render as an OIB Richtlinie.
     """
 
     # Result 1 is a project upload: no Dokumentart line (nothing classifies it).
@@ -2588,12 +2582,10 @@ class TestKnowledgeLayerFieldsAreBlockScoped:
     def test_every_producer_of_the_grammar_is_read_as_evidence(self):
         """Three tools render this grammar, and all three must parse as passages.
 
-        ``read_passage`` used to miss: the parser is registered on the substring
-        "knowledge" and that name does not contain it, so the locator's output
-        fell to the non-URL fallback and registered ONE source whose citation key
-        was the string "read_passage". Every citation to a passage the turn had
-        OPENED rather than searched was then dropped as
-        ``citation_key_not_in_registry``.
+        The parser is registered on the substring "knowledge", which ``read_passage`` does not
+        contain. Without a match, the locator's output falls to the non-URL fallback and registers
+        ONE source keyed "read_passage", and every citation to a passage the turn had OPENED rather
+        than searched is dropped as ``citation_key_not_in_registry``.
         """
         from aiq_agent.common.citation_verification import extract_sources_from_tool_result
 
@@ -2657,19 +2649,18 @@ class TestVerifyQuotedSpans:
         return reg
 
     def test_a_mermaid_label_is_not_a_quote(self):
-        """The bug this guard was breaking rather than catching.
+        """A mermaid label is not a quoted claim, and flagging it breaks the diagram.
 
-        A mermaid node label is written `A["Anwendungsbereich"]`, which the ASCII
-        branch of the quote grammar reads as a quoted claim. The labels are not
-        in any retrieved passage, so every one of them was flagged and the
-        annotation went in after the closing quote — INSIDE the bracket:
+        A mermaid node label is written `A["Anwendungsbereich"]`, which the ASCII branch of the
+        quote grammar reads as a quoted claim. The labels are not in any retrieved passage, so
+        each would be flagged, and the annotation would go in after the closing quote — INSIDE
+        the bracket:
 
             A["OIB-Richtlinie 2" [nicht wörtlich in der Quelle belegt]]
 
-        The diagram then stops parsing, the frontend falls back to printing the
-        source, and the reader gets a listing where the answer promised a
-        drawing. The confidence chip was collateral: the same flags cap the turn
-        at "low" on an otherwise well-sourced answer.
+        The diagram then stops parsing, the frontend falls back to printing the source, and the
+        reader gets a listing where the answer promised a drawing. The confidence chip would be
+        collateral: the same flags would cap the turn at "low" on an otherwise well-sourced answer.
         """
         from aiq_agent.common.citation_verification import verify_quoted_spans
 
@@ -2745,11 +2736,10 @@ class TestVerifyQuotedSpans:
         assert len(unverified) == 1
         assert unverified[0].best_coverage < 0.90
 
-    # The exact PB-7 phrase-splicing adversarial case: the quote is NOT a
-    # substring of the chunk, but every word appears somewhere in it, scattered
-    # across DIFFERENT sentences/clauses. The old whole-chunk subsequence metric
-    # summed those non-contiguous blocks to coverage 1.0 and wrongly "verified"
-    # the fabrication; the local-window metric must now reject it.
+    # The phrase-splicing adversarial case: the quote is NOT a substring of the chunk,
+    # but every word appears somewhere in it, scattered across DIFFERENT sentences/clauses.
+    # A whole-chunk subsequence metric would sum those non-contiguous blocks to coverage 1.0
+    # and verify the fabrication; the local-window metric must reject it.
     SPLICE_QUOTE = "Die Feuerwiderstandsdauer der tragenden Bauteile hat mindestens 90 Minuten zu betragen."
     SPLICE_CHUNK = (
         "Die Feuerwiderstandsdauer der tragenden Bauteile richtet sich nach der Gebaeudeklasse. "
@@ -2759,9 +2749,8 @@ class TestVerifyQuotedSpans:
     )
 
     def test_phrase_spliced_quote_is_unverified(self):
-        """PB-7 adversarial: a quote spliced from phrases scattered across the
-        chunk's clauses must FAIL verification (fails on the old summed-block
-        metric, passes with the local-window metric)."""
+        """Phrase-splicing adversarial: a quote spliced from phrases scattered across the chunk's clauses
+        must FAIL verification (a summed-block metric passes it; the local-window one fails it)."""
         from aiq_agent.common.citation_verification import _normalize_for_quote_match
         from aiq_agent.common.citation_verification import _quote_coverage
         from aiq_agent.common.citation_verification import verify_quoted_spans
@@ -2783,13 +2772,13 @@ class TestVerifyQuotedSpans:
             < 0.90
         )
 
-    # The MORE realistic LLM failure than the scattered PB-7 case: the model
-    # merges two ADJACENT real sentences of the chunk into one quote, dropping the
-    # sentence boundary and stitching them with a short connective ("und"). The
-    # spliced span is only a little longer than the quote, so it fits a single
-    # quote-length window — the local-window metric summed its blocks above
-    # threshold and wrongly verified it. The contiguity penalty must reject it
-    # because the quote skips over real chunk text ("der Massnahme.") in between.
+    # The MORE realistic LLM failure than the scattered phrase-splicing case: the model merges two
+    # ADJACENT real sentences of the chunk into one quote, dropping the sentence boundary
+    # and stitching them with a short connective ("und"). The spliced span is only a
+    # little longer than the quote, so it fits a single quote-length window, and a metric
+    # that sums blocks within that window scores it above threshold. The contiguity penalty
+    # must reject it because the quote skips over real chunk text ("der Massnahme.") in
+    # between.
     ADJACENT_SPLICE_QUOTE = (
         "Der Bauherr traegt die Kosten und der Nachbar hat den Zutritt zum Grundstueck zu gewaehren."
     )
@@ -2820,8 +2809,8 @@ class TestVerifyQuotedSpans:
         assert _normalize_for_quote_match(self.ADJACENT_SPLICE_QUOTE) not in _normalize_for_quote_match(
             self.ADJACENT_SPLICE_CHUNK
         )
-        # The prior committed window-sum metric scored this ~0.978 and verified
-        # it; the contiguity penalty must now keep it below threshold.
+        # A window-sum metric alone scores this ~0.978 and verifies it; the contiguity penalty
+        # must keep it below threshold.
         assert (
             _quote_coverage(
                 _normalize_for_quote_match(self.ADJACENT_SPLICE_QUOTE),
@@ -2849,7 +2838,7 @@ class TestVerifyQuotedSpans:
     def test_lightly_noisy_verbatim_quote_still_verified(self):
         """Verbatim with OCR/whitespace/hyphenation/German-mark noise stays verified.
 
-        Proves the local-window tightening did not over-fit into false positives:
+        Proves the local-window metric does not over-fit into false positives:
         extra whitespace, a hyphenation line-wrap in the chunk, German „…“ marks,
         and a single OCR character swap all still land above threshold.
         """
@@ -3076,11 +3065,11 @@ class TestKnowledgeLayerChunkTextCapture:
         assert hydrated.all_sources()[0].chunk_text == "round trip body"
 
     def test_every_field_a_later_turn_reads_survives_the_cache(self):
-        """``punkt`` and ``score`` used not to, and both reach the wire.
+        """``punkt`` and ``score`` must reach the wire.
 
-        A conversation that moved replica lost the locus and the match strength
-        off chips it had shown a minute earlier, and nothing failed: both fields
-        are optional everywhere they are read.
+        Otherwise a conversation that moves replica loses the locus and the match strength off
+        chips it had shown a minute earlier, and nothing fails: both fields are optional
+        everywhere they are read.
         """
         import dataclasses
 
@@ -3140,9 +3129,9 @@ class TestDocumentIdentityIsCollectionAndFilename:
         return registry
 
     def test_the_same_name_on_two_shelves_stays_two_documents(self):
-        # Same filename AND same page: keying on (filename, page) collapsed these
-        # onto whichever chunk arrived first and discarded the other document's
-        # evidence — including its chunk body, which quote verification needs.
+        # Same filename AND same page: keying on (filename, page) would collapse these onto
+        # whichever chunk arrived first and discard the other document's evidence — including
+        # its chunk body, which quote verification needs.
         registry = self._two_shelves(project_key="Plan.pdf, p.3", archiv_key="Plan.pdf, p.3")
         assert len(registry._citation_keys) == 2
         assert {entry.chunk_text for entry in registry._citation_keys} == {
@@ -3289,10 +3278,9 @@ class TestCitedDocumentsKeepTheirShelf:
     """Being cited is a per-DOCUMENT claim, and a document is `(collection, filename)`.
 
     `cited_document_entries` feeds the deep-research `citation_use` events, i.e.
-    the provenance row's "cited" filter. Matching on the bare filename marked
-    whichever same-named entry the registry held first, so a report citing the
-    Büroarchiv `Plan.pdf` credited the project's unrelated file of the same name
-    and dropped the Archiv document the answer actually stood on.
+    the provenance row's "cited" filter. Matching on the bare filename would mark whichever
+    same-named entry the registry holds first, so a report citing the Büroarchiv `Plan.pdf`
+    would credit the project's unrelated file and drop the Archiv document the answer stands on.
     """
 
     @staticmethod
@@ -3356,8 +3344,8 @@ class TestCitedDocumentsKeepTheirShelf:
 class TestBindingClassification:
     """Carry a source's structured BINDING STATUS (rank + coarse status) to the client.
 
-    ``binding_note`` (prose) only ever matched RIS URLs, so a KB-retrieved
-    OIB-Richtlinie carried nothing. ``binding_classification_for_entry`` widens
+    ``binding_note`` (prose) matches RIS URLs only, so a KB-retrieved OIB-Richtlinie would
+    carry nothing. ``binding_classification_for_entry`` widens
     the match beyond RIS and yields a small structured result the UI can badge.
     """
 
@@ -3554,9 +3542,9 @@ class TestWireCarriesBindingStatus:
 class TestQuoteWordElision:
     """A quote that drops or inserts a whole word is a different sentence.
 
-    T2-CIT1 (quote-verification-calibration-2026-07.md): the elision budget is a
-    LENGTH budget calibrated on OCR noise, and a meaning-inverting word can be
-    five characters. Tuning the budget down accuses correct answers, so the
+    The elision budget is a LENGTH budget calibrated on OCR noise (see
+    ``docs/architecture/quote-verification-calibration-2026-07.md``), and a meaning-inverting
+    word can be five characters. Tuning the budget down accuses correct answers, so the
     matcher asks what it skips: sub-word noise is tolerated, a whole word is
     not — without consulting any vocabulary.
     """
@@ -3630,9 +3618,8 @@ class TestQuoteWordElision:
 
 
 class TestPunktAndScoreReachTheWire:
-    """The chunker's Punkt and the retrieval score were printed for the model and
-    dropped before the citation the reader sees. Both now ride the entry, fold
-    sensibly under page dedup, and reach the wire."""
+    """The chunker's Punkt and the retrieval score ride the entry: they fold under page dedup
+    and reach the wire, so the citation the reader sees keeps them."""
 
     BLOCK = (
         "--- Result 1 ---\n"

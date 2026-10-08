@@ -6,17 +6,17 @@
  *
  * Why this preview exists: the toolbar is the one surface where four independent
  * features meet in a fixed 768px column — the history door, the thread's
- * identity (project / title), who can reach the thread, and the actions. Each was
- * added on its own and looked fine on its own; together they became a flat list of
- * six equal-weight things that squeezed the breadcrumb until the project name
- * rendered as "Te…". Nothing in the app captured that, because `ChatToolbar` is
- * mounted by `MainLayout`, not by `ChatArea`, so the `/dev/shared-thread` shot
- * does not contain it.
+ * identity (project / title), who can reach the thread, and the actions. Each
+ * looks fine on its own, but together they can crowd into a flat list of six
+ * equal-weight things that squeezes the breadcrumb until the project name
+ * renders as "Te…". Nothing else captures that: `ChatToolbar` is mounted by
+ * `MainLayout`, not by `ChatArea`, so the `/dev/shared-thread` shot does not
+ * contain it.
  *
- * What the shots are evidence OF, now that it is not a flat list:
+ * What the shots are evidence OF:
  *   - status and controls are separated by a hairline, and status is never
- *     clickable — the avatar stack used to be a button that looked like
- *     information, the access chip information that looked like a control;
+ *     clickable, so the avatar stack and the access chip read as information
+ *     rather than controls;
  *   - only New chat stays in the open. Share and rename are occasional, so they
  *     live in the one "…" menu;
  *   - nothing appears that has nothing to say: no chip on a private thread, no
@@ -24,8 +24,7 @@
  *     action to disclose.
  *
  * The rows are the states whose *combination* is the hard part:
- *   0. **fresh, empty chat** — the state every thread starts in, and the one
- *      nothing captured until it was noticed by eye. The right pill is absent
+ *   0. **fresh, empty chat** — the state every thread starts in. The right pill is absent
  *      here by design (nothing in it is true yet), so the LEFT one drops its
  *      frame too: a single pill facing an empty half reads as a broken toolbar.
  *   1. **solo private** — the overwhelmingly common thread. Must carry no
@@ -39,13 +38,12 @@
  * Variants via `?variant=`:
  *   - default    — a thread at rest. This is what most threads look like, which
  *                  is the point of capturing it.
- *   - `running`  — deep research in flight. This is now the ONLY research state
+ *   - `running`  — deep research in flight. This is the ONLY research state
  *                  the toolbar has, and it belongs in the open row because it is
  *                  STATUS: the thread's own progress banner scrolls away, and
- *                  this then is the only persistent "still working" signal. A
- *                  finished report used to add a "Recherchebericht" entry to the
- *                  menu; a run is read in the thread that commissioned it now
- *                  (ADR-0062), so the row states and never offers a way out.
+ *                  this is then the only persistent "still working" signal. A
+ *                  run is read in the thread that commissioned it (ADR-0062), so
+ *                  the row states it and offers no way out.
  *
  * Each row reproduces the app's geometry: `max-w-3xl` (the message column) inside
  * a `relative` block, because the toolbar positions itself `absolute inset-x-0

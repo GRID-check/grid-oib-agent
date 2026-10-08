@@ -4,9 +4,8 @@
  * Platform → Skills: the fleet-wide catalogue, and where it is written.
  *
  * One row here reaches every organization at once. That is the whole point of
- * the tier, and it is what replaced the "clone a platform skill" button
- * organizations used to get: a clone copied the instruction into one tenant and
- * froze it there, so every improvement we shipped afterwards went to a skill
+ * the tier: a clone of a platform skill would copy the instruction into one
+ * tenant and freeze it there, so every later improvement would go to a skill
  * nobody was running. The body lives in this catalogue and only here.
  *
  * TWO states per row, and they are not the same question:
@@ -17,13 +16,11 @@
  *   switched on Whether a given organization RUNS it. Theirs, on their own
  *               Skills tab. Nothing here can decide it.
  *
- * There used to be a third, `delivery`, choosing between offering a skill and
- * imposing it on the whole fleet (`standard`). It is gone with migration 0088:
- * a `standard` skill was FORCED onto every run, which is an instruction wearing
- * a capability's clothes. What the platform wants applied to every turn belongs
- * in the platform prompt; what a tenant wants applied belongs in that tenant's
- * own instruction block. Publishing a skill offers it, and an organization
- * decides.
+ * There is no way to impose a skill on the whole fleet: a skill forced onto
+ * every run is an instruction wearing a capability's clothes. What the platform
+ * wants applied to every turn belongs in the platform prompt; what a tenant
+ * wants applied belongs in that tenant's own instruction block. Publishing a
+ * skill offers it, and an organization decides.
  */
 
 import type { JSX } from 'react'
@@ -71,8 +68,8 @@ export function PlatformSkillCatalog(): JSX.Element {
   /**
    * The row a deletion is pending on.
    *
-   * Deleting is not the same act as unpublishing, and the two sat next to each
-   * other looking identical: the switch withdraws the offer and is reversible,
+   * Deleting is not the same act as unpublishing, and the two look alike on
+   * screen: the switch withdraws the offer and is reversible,
    * this destroys the only copy of an authored SKILL.md. It gets a confirm
    * step and the plainer word.
    */

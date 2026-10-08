@@ -81,8 +81,8 @@ describe('AssignPopover', () => {
     await openPopover()
     await userEvent.click(await screen.findByRole('button', { name: /Anna Weber/ }))
 
-    // The write used to `return` on a non-ok response: the row simply did not
-    // change, which in a popover about who is responsible reads as success.
+    // A write that gets a non-ok response must say so: a row that silently does
+    // not change reads as success in a popover about who is responsible.
     expect(await screen.findByTestId('assign-write-error')).toHaveTextContent('Anna Weber')
     expect(onChanged).not.toHaveBeenCalled()
   })

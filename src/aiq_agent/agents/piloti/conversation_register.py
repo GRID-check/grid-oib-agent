@@ -202,8 +202,8 @@ async def _build_clarifier(config: ChatDeepResearcherConfig, builder: Builder):
     """The clarification step, or None when this deployment runs without one.
 
     A config that turns the clarifier on without configuring it fails HERE, at
-    boot, rather than on the first escalating turn — the same trade the missing
-    ``clarifier_agent`` function used to get from ``builder.get_function``.
+    boot, rather than on the first escalating turn — the same trade a missing
+    NAT function gets from ``builder.get_function``.
     """
     if not config.enable_clarifier:
         return None

@@ -1,11 +1,11 @@
-"""Golden file-level recall for broad OIB queries (backlog item 12).
+"""Golden file-level recall for broad OIB queries.
 
-The ratchet items 13/14 are measured against: ~30 German golden questions in
+Retrieval changes are measured against these ~30 German golden questions in
 three cohorts (overview / exact-id / paraphrase), scored as recall@16
 (k = production top_k) + MRR against a deterministic in-memory fixture corpus.
 Offline, no network, no Chroma, no embedder, no PDF, no key — seconds in CI.
 
-BASELINE (recorded 2026-09-03):
+BASELINE (the recorded numbers the thresholds derive from):
 
 | cohort     | recall@16 | mrr   | empty | vector@16 |
 |------------|-----------|-------|-------|-----------|
@@ -23,7 +23,7 @@ deterministic columns describe the two channels that barely participate here.
 
 That gap is why this file asserts a CEILING on overview ``recall@16`` and why
 ``test_the_oib_n_questions_must_not_share_one_ranking`` exists. The harness
-module docstring records what it cost to learn.
+module docstring records the reasoning.
 
 A lift on the deterministic side is therefore a claim, not a pass. It has to
 beat 0.933, and it has to answer six sibling questions differently.
@@ -54,7 +54,7 @@ FIXTURES = Path(__file__).resolve().parents[2] / "frontends" / "benchmarks" / "o
 GOLDEN_PATH = FIXTURES / "oib_golden_overview.json"
 PUNKT_INDEX_PATH = FIXTURES / "punkt_index.json"
 
-#: The HEAD baseline the thresholds below are derived from. Re-record (code +
+#: The baseline the thresholds below are derived from. Re-record (code +
 #: table + module docstring) whenever a retrieval change moves the harness.
 BASELINE = {
     "overview": {"recall": 0.150, "mrr": 0.200, "empty": 0.80},
@@ -148,7 +148,7 @@ def test_the_normative_expected_files_resolve_against_the_punkt_index(entries):
 
 def test_no_expected_file_is_production_excluded(entries):
     excluded = overview.production_excluded()
-    # 17: the 16 originals plus `aenderungen_oib-richtlinie_2.2_…`, the name oib.or.at
+    # 17: the 16 files plus `aenderungen_oib-richtlinie_2.2_…`, the name oib.or.at
     # actually publishes the 2.2 diff under. The fixtures index 2.2 as `oib-rl_2.2_…`,
     # so that addition excludes nothing the baseline saw.
     assert len(excluded) == 17, "production exclusion list changed shape — re-derive the baseline"
@@ -192,12 +192,12 @@ def test_the_loader_rejects_an_expected_file_production_filters_out(tmp_path):
 
 
 # ---------------------------------------------------------------------------
-# The item-11 mechanism, pinned at HEAD behaviour
+# The overview-recall gap, pinned at current behaviour
 # ---------------------------------------------------------------------------
 
 
 def test_the_broad_overview_query_reaches_neither_deterministic_channel(index):
-    """The item-11 cause, still uncured: no deterministic channel serves
+    """The overview-recall cause, still uncured: no deterministic channel serves
     "was weißt du über die oib 2".
 
     Both halves die for the SAME reason at two different layers — the token
@@ -219,7 +219,7 @@ def test_the_broad_overview_query_reaches_neither_deterministic_channel(index):
 
 
 def test_the_precise_rewrite_of_the_same_intent_fires(index):
-    """The asymmetry item 11 describes: the retry wins because uppercase and
+    """The asymmetry behind the gap: the retry wins because uppercase and
     full-spelling terms exist — the broad turn has neither."""
     assert overview.exact_terms_for("OIB-Richtlinie 2") == ["OIB-Richtlinie 2"]
     assert overview.exact_terms_for("OIB-RL 2") == ["OIB-RL"]
@@ -227,7 +227,7 @@ def test_the_precise_rewrite_of_the_same_intent_fires(index):
 
 
 # ---------------------------------------------------------------------------
-# The baseline gate: cohort floors/ceilings items 13/14 must beat
+# The baseline gate: cohort floors and ceilings
 # ---------------------------------------------------------------------------
 
 
@@ -241,7 +241,7 @@ def test_the_cutoff_is_production_top_k(report):
 def test_overview_cohort_is_still_the_unsolved_cohort(report):
     """The overview cohort is a CEILING, not a floor, and that is the point.
 
-    It is the open problem (item 11): 8 of 10 queries reach no deterministic
+    It is the open problem: 8 of 10 queries reach no deterministic
     channel. A change that lifts these numbers has done something real and
     this test goes red on purpose — raise it to a floor and re-record
     BASELINE. A change that lifts them by widening a channel until it matches
@@ -254,12 +254,11 @@ def test_overview_cohort_is_still_the_unsolved_cohort(report):
 
 
 def test_the_exemplar_overview_query_still_does_not_retrieve(report):
-    """The item-11 exemplar ("was weißt du über die oib 2") ranks nothing here.
+    """The exemplar overview query ("was weißt du über die oib 2") ranks nothing here.
 
     It reads worse than it is. The vector channel retrieves this question at
-    0.83; what ranks nothing is the pair of deterministic channels. The one
-    release where this assert said 1.00 instead is the artefact the harness
-    module docstring records."""
+    0.83; what ranks nothing is the pair of deterministic channels. A result of
+    1.00 here would be the artefact the harness module docstring records."""
     by_id = {result.entry.id: result for result in report.results}
     assert by_id["ov-rl2"].recall == 0.0, _diff(report)
     assert by_id["ov-rl2"].ranked == ()
@@ -333,7 +332,7 @@ def test_the_oib_n_questions_must_not_share_one_ranking(report):
     When they share ONE, whatever produced it returned the corpus instead of
     searching it, and the cohort recall is only where each question's labels
     fell in that fixed list. Recall cannot see the difference. This can, and
-    the harness module docstring records the release that needed it.
+    the harness module docstring records the case that needed it.
 
     Vacuous today on the deterministic side, since those channels rank nothing
     here. It goes live the moment one of them fires, which is exactly when it

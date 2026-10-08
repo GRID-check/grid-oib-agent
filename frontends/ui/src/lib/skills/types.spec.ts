@@ -79,7 +79,7 @@ describe('preferredCardsOf', () => {
     ])
   })
 
-  it('drops names the catalogue no longer offers, including system and retired cards', () => {
+  it('drops names the catalogue does not offer, including system and retired cards', () => {
     expect(
       preferredCardsOf({ [METADATA_CARDS]: 'calculation,memory_proposal,gibt_es_nicht' })
     ).toEqual(['calculation'])

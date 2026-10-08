@@ -2,11 +2,11 @@
  * @vitest-environment node
  */
 /**
- * Rollback used to activate any stored version with no check at all, so a
- * version saved before zero data retention was on (or before its model lost
- * its ZDR endpoint) put models OpenRouter refuses back into production. Under
- * ZDR each model must have a ZDR endpoint serving its group — and nothing else
- * about rollback changes.
+ * Rollback activates a stored version only after the ZDR check. A version saved
+ * before zero data retention was on, or before its model lost its ZDR endpoint,
+ * would otherwise put models OpenRouter refuses back into production. Under ZDR
+ * each model must have a ZDR endpoint serving its group, and nothing else about
+ * rollback changes.
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
@@ -102,14 +102,15 @@ describe('POST /api/organization/model-config/versions/[id]/activate', () => {
   })
 
   it('checks ZDR only: a model outside the catalog or short on context is not a rollback refusal', async () => {
-    // Rollback never validated catalog membership or capabilities; ZDR must not
-    // start doing so under its own name. Only the ZDR list decides here.
+    // Rollback does not validate catalog membership or capabilities, and the ZDR
+    // check must not start doing so under its own name. Only the ZDR list decides
+    // here.
     storedRow = { id: VERSION_ID, overrides: { deep_research: { model: 'vendor/retired-from-catalog' } } }
     vi.mocked(fetchZdrEndpoints).mockResolvedValue(zdrIndex({ modelId: 'vendor/retired-from-catalog' }))
     expect((await activate(VERSION_ID)).status).toBe(200)
   })
 
-  it('ignores a retired group in an old version: the runtime drops it too', async () => {
+  it('ignores a retired group in a saved version: the runtime drops it too', async () => {
     storedRow = {
       id: VERSION_ID,
       overrides: { deep_research: { model: 'vendor/capable' }, intent: { model: 'vendor/whatever' } },
@@ -138,7 +139,7 @@ describe('POST /api/organization/model-config/versions/[id]/activate', () => {
     expect(fetchZdrEndpoints).not.toHaveBeenCalled()
   })
 
-  it('keeps the pre-existing answer for a version of another org (403 via the legacy not-found mapping)', async () => {
+  it('answers 403 for a version of another org, through the not-found mapping', async () => {
     storedRow = null
     expect((await activate(VERSION_ID)).status).toBe(403)
     expect(fetchZdrEndpoints).not.toHaveBeenCalled()

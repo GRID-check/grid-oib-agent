@@ -4,14 +4,13 @@
  * A conversation persists the subject's resource id and nothing else, so after
  * a reload the bar is handed an id with no filename and no shelf — and the
  * filename IS the retrieval identity that goes on the wire as
- * `focus_file_name`. The old guard ("fetch only when there is no title") meant
- * a subject restored with a title but no filename never looked the document up
- * at all.
+ * `focus_file_name`. A lookup skipped whenever there is a title would leave a
+ * subject restored with a title and no filename never looked up.
  *
  * It also recovers the subject's OPEN VERSION — the one still being worked on,
  * which retrieval cannot see because only a published version is indexed
  * (ADR-0054). That is the one field no caller can carry and whose absence is
- * itself an answer, which is why the guard is gone entirely.
+ * itself an answer, which is why no guard may skip the lookup.
  */
 
 import { render, screen, waitFor } from '@testing-library/react'
@@ -87,8 +86,8 @@ describe('ComposerSubjectBar identity recovery', () => {
   })
 
   test('looks the document up even when a title is already present', async () => {
-    // The regression: a title alone used to short-circuit the lookup, so the
-    // subject kept a title and never gained the filename the wire needs.
+    // A title alone must not short-circuit the lookup: the subject would keep
+    // the title and never gain the filename the wire needs.
     const onResolved = renderBar({
       resourceType: 'document',
       resourceId: 'doc-aufsicht',
@@ -100,7 +99,7 @@ describe('ComposerSubjectBar identity recovery', () => {
   })
 
   test('still looks up a subject whose visible fields are all filled', async () => {
-    // There is no "already complete" any more, and there cannot be: the lookup
+    // There is no "already complete" check, and there cannot be one: the lookup
     // also recovers the subject's OPEN VERSION, which no caller carries and
     // whose ABSENCE is itself an answer. A guard on the visible fields would
     // mean a document filed by this very conversation — title, filename and
@@ -155,10 +154,10 @@ describe('ComposerSubjectBar identity recovery', () => {
   })
 
   test('looks a document up once, not once per composer re-render', async () => {
-    // The bar's lookup used to depend on the caller's handler identity, and the
-    // composer above it passes an inline arrow and re-renders on every
-    // keystroke. A document that never completes the subject — deleted, or no
-    // longer readable — therefore meant one request per character typed.
+    // The bar's lookup must not depend on the caller's handler identity: the
+    // composer above passes an inline arrow and re-renders on every keystroke, so
+    // a document that never completes the subject — deleted, or no longer
+    // readable — would mean one request per character typed.
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: false, json: async () => null }))
     const onResolved = renderBar({
       resourceType: 'document',

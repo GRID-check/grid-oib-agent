@@ -207,10 +207,11 @@ export function installLangfuse(
   const { langfuse: lf } = cfg;
   const publicUrl = `https://${lf.domain}`;
 
-  // The web tier's startupProbe covers a schema migration, so it is long — long
-  // enough that it once exactly equalled the rollout deadline, which turns a
-  // healthy first deploy into `ProgressDeadlineExceeded`. Checked rather than
-  // commented, because the two numbers live in different files.
+  // The web tier's startupProbe covers a schema migration, so it is long. It
+  // must stay under the rollout deadline with room for the image pull: a budget
+  // that reaches the deadline turns a healthy first deploy into
+  // `ProgressDeadlineExceeded`. Checked rather than commented, because the two
+  // numbers live in different files.
   assertStartupFitsRollout(
     "langfuse-web",
     ROLLOUT.langfuse,
@@ -394,12 +395,11 @@ export function installLangfuse(
         replicas: 1,
         // Recreate, and `replicas: 1` alone does not achieve it — a surge
         // starts the replacement BEFORE the old pod exits, which is precisely
-        // the overlap the single replica exists to prevent. The two settings
-        // contradicted each other here until a review caught it.
+        // the overlap the single replica exists to prevent.
         //
         // The overlap is worse than the double-migrator it obviously causes.
         // On a version bump that carries schema changes, a surging deploy
-        // leaves the OLD code serving traffic while the NEW pod migrates the
+        // leaves the running release serving traffic while the new pod migrates the
         // schema underneath it — old queries against a new schema, for however
         // long the roll takes. A short gap is the cheaper failure, and this is
         // an operator dashboard, not a request path.
@@ -422,10 +422,10 @@ export function installLangfuse(
             automountServiceAccountToken: false,
             securityContext: podSecurity,
             // The FULL shutdown budget, not just the grace period. Taking only
-            // `terminationGracePeriodSeconds` (as this did) silently discards
-            // the `lifecycle.preStop` hook, so the pod behind the Gateway had
-            // no endpoint-propagation wait at all — the classic "a few 502s on
-            // every deploy", which `endpointDrainSeconds` exists to remove.
+            // `terminationGracePeriodSeconds` silently discards the `lifecycle.preStop`
+            // hook, and the pod behind the Gateway then has no endpoint-propagation wait
+            // — the classic "a few 502s on every deploy", which `endpointDrainSeconds`
+            // exists to remove.
             terminationGracePeriodSeconds: webShutdown.terminationGracePeriodSeconds,
             containers: [
               {

@@ -151,17 +151,15 @@ export async function createShelfFolder(
   /**
    * A sibling folder already has this name.
    *
-   * Before migration 0063 this insert succeeded and the shelf simply held two
-   * folders with one name. The index that stops the get-or-create race below
-   * also, unavoidably, applies here — so without this answer a person typing a
-   * name that already exists (including anyone typing `Berichte` in a project
-   * Piloti has filed into) got an opaque 500 from a raw Postgres error, for an
-   * action that is neither a bug nor a race.
+   * The index that stops the get-or-create race below also applies here, so
+   * without this answer a person typing a name that already exists (including
+   * `Berichte` in a project Piloti has filed into) would get an opaque 500 from
+   * a raw Postgres error, for an action that is neither a bug nor a race.
    *
-   * The migration header says the index is there "to stop a RACE between two
-   * identical writes, not to police what a human may name a folder". This is
-   * what keeps that true at the surface the human touches: the same rejection
-   * arrives as the validation result the caller already knows how to render.
+   * The index stops a RACE between two identical writes; it does not police what
+   * a human may name a folder. This answer keeps that true at the surface the
+   * human touches: the same rejection arrives as the validation result the
+   * caller already knows how to render.
    */
   if ('conflict' in inserted) return { ok: false, error: FOLDER_NAME_TAKEN }
   return { ok: true, folder: toFolderRow(inserted.row) }
@@ -220,8 +218,7 @@ async function findSibling(
  * Get-or-create is two statements, so two runs finishing at once both find no
  * `Berichte`, both insert one, and the shelf is left with two folders of the
  * same name and no way to say which is real. `uniq_project_folders_parent_name`
- * (0063, widened by 0102) is what makes one of those inserts fail instead of
- * succeeding.
+ * is what makes one of those inserts fail instead of succeeding.
  *
  * The index is what makes this correct; the catch is what makes it graceful. A
  * 23505 here is not an error the user caused or can act on — it is the other
@@ -297,17 +294,17 @@ const MAX_ENSURE_DEPTH = 12
  *
  * A segment matches an existing sibling by {@link folderMatchKey} — case- and
  * Unicode-form-insensitive — rather than exactly. The database's uniqueness
- * rule is exact on purpose (0063: it stops a race between two identical writes,
- * it does not police what a human may name a folder), but the question HERE is
- * a different one: the reader dropped a directory called `PLAENE` and there is
- * a `Plaene` on this shelf — did they mean it? They did, every time, and
- * creating the near-duplicate would split one folder's documents across two.
+ * rule is exact on purpose (it stops a race between two identical writes, it
+ * does not police what a human may name a folder), but the question HERE is a
+ * different one: the reader dropped a directory called `PLAENE` and there is a
+ * `Plaene` on this shelf — did they mean it? Almost always yes, and creating
+ * the near-duplicate would split one folder's documents across two.
  *
  * The macOS half of that matters more than the case half: a folder dragged off
  * a Mac carries decomposed umlauts, so `Pläne` from the desktop and `Pläne`
  * typed into Piloti are different strings that render identically. Exact
- * matching would have made this feature look broken for precisely the people
- * who use it.
+ * matching would make this feature look broken for precisely the people who
+ * use it.
  *
  * ## Concurrency
  *
@@ -392,12 +389,11 @@ interface FolderWalk {
   byParentAndKey: Map<string, FolderRow>
   hiddenNames: Set<string>
   /**
-   * The folders this walk inserted itself. Each inherits its parent's access,
-   * which the walk asked `assertMayCreateIn` about before inserting it, so a
-   * folder created inside one needs no second ask. It could not get one: the
-   * reader's access was read before the folder existed, and a folder that
-   * access does not know reads as `none`, which refused every nested path of a
-   * folder upload into a project with any own list or a folder in the bin.
+   * The folders this walk inserted itself. A folder created inside one needs no
+   * second ask: it inherits its parent's access, which the walk checked with
+   * `assertMayCreateIn` before inserting it. The reader's access is not re-read
+   * for it, because that read predates the folder, and a folder the access does
+   * not know reads as `none`.
    */
   createdHere: Set<string>
   visibility: ShelfFolderVisibility | undefined
@@ -500,10 +496,9 @@ async function rewriteDescendantPaths(
     .set({
       // `char_length`, not a number bound from JS: a bound parameter reaches
       // Postgres typed `text`, and `substring(text FROM text)` is the REGEX form —
-      // it returns NULL for a non-match, so renaming any folder that had children
-      // failed with a NOT NULL violation on `path`. (And `String.length` counts
-      // UTF-16 units where Postgres counts characters, which an emoji in a folder
-      // name would have shifted.)
+      // it returns NULL for a non-match, which a NOT NULL `path` rejects. (And
+      // `String.length` counts UTF-16 units where Postgres counts characters, which
+      // an emoji in a folder name would shift.)
       path: sql`${newPath} || substring(${projectFolders.path} from char_length(${oldPath}::text) + 1)`,
       updatedAt: new Date(),
     })
@@ -534,7 +529,7 @@ async function rewriteDescendantPaths(
  * `@/lib/documents/service`: the durable truth is the rows this function is
  * called after, and a backend that is down must not fail a folder rename the
  * user is entitled to. The bounded consequence is that the agent's inventory
- * and its `knowledge_search folder=` filter keep the old path until the next
+ * and its `knowledge_search folder=` filter keep the stored path until the next
  * rewrite or re-ingest — visible, and self-healing on the next move.
  */
 export async function mirrorShelfFolderPathRewrite(

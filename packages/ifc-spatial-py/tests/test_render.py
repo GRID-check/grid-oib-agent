@@ -2,9 +2,8 @@
 
 Testing a picture is awkward and mostly worth refusing — asserting pixel colours
 pins the drawing rather than the drawing's job. So these assert the properties
-that decide whether the image is USABLE by a model, each of which was broken at
-some point while building it and each of which is invisible from the return
-value alone:
+that decide whether the image is USABLE by a model. Each can fail without an
+error, and each is invisible from the return value alone:
 
   - it is a real PNG of a sane size (a zero-byte or 40-byte image is what a
     silently failed render produces, and it travels through a data URL happily);
@@ -148,11 +147,10 @@ def test_only_isolates_rather_than_marking(house: SpatialModel, drawn) -> None:
 def test_a_label_never_leaves_the_canvas(house: SpatialModel) -> None:
     """The highlighted window sits at the far right of the plan.
 
-    Its type name is 36 characters. Drawn to the right of the marker it ran off
-    the page; flipped to the left it printed straight across the red bar it was
-    labelling. Both are regressions this asserts against by construction — the
-    label is clamped, so the render simply must not raise and must still differ
-    from the unmarked plan.
+    Its type name is 36 characters. Drawn to the right of the marker it runs off
+    the page; flipped to the left it prints straight across the red bar it
+    labels. The label is clamped, so the render must not raise and must still
+    differ from the unmarked plan.
     """
     marked = render.plan(house, highlight=[WINDOW], width_px=700)
     assert marked is not None
@@ -186,13 +184,13 @@ def test_north_is_declared_or_absent_never_invented(house: SpatialModel) -> None
 def test_only_may_not_pull_an_element_out_of_another_storey(house: SpatialModel) -> None:
     """A plan is ONE storey at ONE cut height, and `only` selects within it.
 
-    `only` used to skip the storey filter entirely, so
-    `plan(storey="Ground Floor", only=[<id on the Roof storey>])` drew that
-    element at its own world coordinates on a page reporting „Ground Floor" and
-    a cut at 1.20 m. The sample house shows it with the loft: `IfcSpace`
-    „Roof" sits at z = 2.5…3.5, and its outline came back as `rooms=['Roof']`
-    on the Ground Floor plan — a room 2.5 m above the cut, drawn as though it
-    were on it. Rooms are the visible case because a room outline is a
+    `only` is filtered by storey as well, because
+    `plan(storey="Ground Floor", only=[<id on the Roof storey>])` would otherwise
+    draw that element at its own world coordinates on a page reporting „Ground
+    Floor" and a cut at 1.20 m. The sample house has exactly this case: `IfcSpace`
+    „Roof" sits at z = 2.5…3.5, and an unfiltered outline comes back as
+    `rooms=['Roof']` on the Ground Floor plan — a room 2.5 m above the cut,
+    drawn as though it were on it. Rooms are the visible case because a room outline is a
     projected footprint that no cut height can reject; a wall from the wrong
     storey is silently drawn the same way whenever its solid happens to cross
     the other storey's plane.

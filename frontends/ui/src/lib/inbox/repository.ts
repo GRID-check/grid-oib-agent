@@ -74,20 +74,19 @@ export async function upsertInboxItems(values: NewInboxItem[]): Promise<InboxIte
       set: {
         count: sql`${inboxItems.count} + 1`,
         updatedAt: new Date(),
-        // These three were missing while the doc above promised the folds were
-        // identical. Without them a collapsed group kept its FIRST actor and its
-        // FIRST payload for good: "Anna shared a conversation with you" stayed
-        // Anna's name after Bob re-shared, and the anchor kept pointing at the
-        // message that opened the group rather than the one that just landed.
+        // The newest actor and anchor win, as in upsertInboxItem. Otherwise
+        // a collapsed group keeps its FIRST actor and anchor for good: "Anna shared
+        // a conversation with you" stays Anna's name after Bob re-shares, and the
+        // anchor keeps pointing at the message that opened the group.
         // `sql` rather than a plain value because a batch insert has one `set`
         // for many rows — `excluded` is the row being inserted for THIS conflict.
         actorUserId: sql`excluded.actor_user_id`,
         anchorId: sql`excluded.anchor_id`,
         // MERGED, not replaced. The activity fan-out emits `{}` whenever the
         // title lookup comes back null (a collapsed group, a thread renamed to
-        // nothing), and a straight `excluded.payload` let that one null wipe the
-        // subject off every recipient's row — permanently, because the row is
-        // never re-emitted with the title. `||` is jsonb concat: new keys win,
+        // nothing), and a straight `excluded.payload` would let that empty payload
+        // wipe the subject off every recipient's row — permanently, because the row
+        // is never re-emitted with the title. `||` is jsonb concat: new keys win,
         // absent keys are left alone.
         payload: sql`${inboxItems.payload} || excluded.payload`,
         readAt: null,
@@ -124,12 +123,11 @@ export interface ListInboxOptions {
  * Which item types a recipient-facing query may touch.
  *
  * `EVERY_INBOX_TYPE` rather than `undefined` for the unrestricted case, and every
- * recipient-facing function below takes this REQUIRED. The gate used to be an
- * optional parameter the caller was trusted to pass, and the three reads passed
- * it while `markInboxItemsRead`, `archiveInboxItem` and the realtime badge count
- * did not — so a caller holding an item id from before collaboration was
- * switched off could still archive or read that now-hidden item, and the badge
- * counted rows the list refuses to show.
+ * recipient-facing function below takes this REQUIRED. An optional gate is one a
+ * caller can forget: the list reads pass it while `markInboxItemsRead`,
+ * `archiveInboxItem` and the realtime badge count do not, so an item the list
+ * hides could still be archived or read, and the badge could count rows the list
+ * refuses to show.
  *
  * Required means a new query cannot omit it silently: it does not compile. The
  * unrestricted value is spelled out so that using it reads as a decision, and so
@@ -209,8 +207,8 @@ export async function countPendingInboxItems(
  * The mutation that marks a row read.
  *
  * `count` goes back to zero alongside `readAt`, because the counter means
- * "occurrences since you last read this". Leaving it standing made a group the
- * user had just read say "21 new messages" the moment a twenty-second arrived —
+ * "occurrences since you last read this". Leaving it standing would make a group
+ * the user had just read say "21 new messages" when a twenty-second arrives,
  * twenty of which they had already seen. The upsert increments from whatever
  * this leaves behind, so the next arrival reads "1 new message".
  */
@@ -234,9 +232,9 @@ export async function markInboxItemsRead(
         eq(inboxItems.recipientUserId, recipientUserId),
         inArray(inboxItems.id, itemIds),
         isNull(inboxItems.readAt),
-        // Recipient scoping alone does not enforce the type gate: an id kept
-        // from before collaboration was switched off still belongs to this
-        // recipient, so it still matched.
+        // Recipient scoping alone does not enforce the type gate: an item of a
+        // type the reader may not see still belongs to this recipient, so it
+        // would still match.
         typeFilter(types),
       ),
     )

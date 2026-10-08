@@ -599,15 +599,13 @@ export function locatePassageInText(
  *
  * Same rules as the chunked path, and deliberately not the same DATA STRUCTURE.
  * A PDF page is a few thousand characters, so an `IndexedChar[]` there costs
- * nothing; this path is handed a whole consolidated law. At the two
- * million characters the reader route used to return, two million
- * three-property objects — twice, raw and then collapsed — measured 670 ms and
- * ~317 MB of heap, on the main thread, inside the `useMemo` that renders the
+ * nothing; this path is handed a whole consolidated law. Two million characters
+ * as three-property objects — twice, raw and then collapsed — measured 670 ms
+ * and ~317 MB of heap, on the main thread, inside the `useMemo` that renders the
  * dialog. That is a freeze on a laptop and an out-of-memory tab on a phone, and
- * it was invisible in review because the same code is correct and cheap on
- * every input the tests use. (`MAX_DOCUMENT_TEXT_CHARS` came down to one
- * million on the strength of these numbers; this side had to come down too, or
- * the cap would be the only thing holding it up.)
+ * it is invisible in review because the same code is correct and cheap on
+ * every input the tests use. The input cap bounds the size, and this side has
+ * to stay cheap too, or the cap is the only thing holding it up.
  *
  * A character plus a number, in two flat arrays, is the same information
  * without the object headers. The rules stay in one place: the two passes below

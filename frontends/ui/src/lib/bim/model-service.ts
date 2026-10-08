@@ -22,7 +22,7 @@ import { getHiddenFolderIds, isFolderVisibleTo } from '@/lib/authz/folder-access
  * Confirming or withdrawing a compliance check is a write to the model's own
  * state, so it maps onto `project:documents:write` — the umbrella stays in the
  * list for roles provisioned before the ADR-0038 split. Requiring the umbrella
- * alone locked out every role built with the narrow permission the catalog now
+ * alone would lock out every role built with the narrow permission the catalog
  * recommends.
  */
 const BIM_WRITE: readonly ProjectPermission[] = ['project:documents:write', 'project:edit']
@@ -73,22 +73,18 @@ export function assertIfcModelsEnabled(session: AuthorizedSession): void {
  *
  * ## Why this switches on `scope` and not on `projectId`
  *
- * It used to be `if (document.projectId !== null) requireProjectAccess(...)`,
- * i.e. "a model with no project is an Archiv model, and any member of the
- * organization may read it". That was true while the Archiv was the only
- * project-less shelf. ADR-0047 Phase 2 added a second one: a file dropped into
- * a chat is `scope = 'session'` with a NULL project, and it goes through the
- * same dispatcher, so an IFC attached to a private conversation becomes a
- * `bim_models` row with `project_id IS NULL` — indistinguishable, under the old
- * test, from a document deliberately shared with the whole office.
+ * A model with no project is not necessarily an Archiv model. A file dropped
+ * into a chat is `scope = 'session'` with a NULL project, and it goes through
+ * the same dispatcher (ADR-0047 Phase 2), so an IFC attached to a private
+ * conversation becomes a `bim_models` row with `project_id IS NULL`. Testing
+ * `projectId` alone would treat that row as an org-wide Archiv model, readable by
+ * any member of the organization.
  *
- * The consequence was not theoretical. Every surface that authorizes through
- * here — the model header, the element query, the compliance run, and the
- * presigned URL that streams the raw file — would have served a private chat
- * attachment to any member of the organization holding its model id. The
- * documents domain closed this exact hole in `getAccessibleDocument` (and the
- * `documents` table states it as a CHECK constraint); the BIM surface still
- * carried the old disjunction.
+ * Every surface that authorizes through here — the model header, the element
+ * query, the compliance run, and the presigned URL that streams the raw file —
+ * would otherwise serve a private chat attachment to any member holding its
+ * model id. The documents domain guards this in `getAccessibleDocument` (and the
+ * `documents` table states it as a CHECK constraint); the BIM surface must match.
  *
  * An exhaustive `switch` is what keeps it closed: a fourth shelf fails to
  * compile here rather than silently inheriting the Archiv's rule.
@@ -256,15 +252,14 @@ export async function getModelSource(
   // object is never cached — this is the difference between the viewer pulling
   // 149 MB and pulling ~20 MB, every time anyone opens the page.
   //
-  // Probed rather than recorded on the row: models extracted before the gzip
-  // existed simply do not have one, and a HEAD against the same store the
-  // presign already talks to is cheaper than a migration plus a backfill.
+  // Probed rather than recorded on the row: a model without a gzipped sibling
+  // simply lacks one, and a HEAD against the same store the presign already
+  // talks to is cheaper than a migration plus a backfill.
   const key = (await hasObject(bucket, document.storageKey)) ?? document.storageKey
   const url = await getSignedUrl(
     // The BROWSER fetches this, so it must be signed against the
     // browser-reachable endpoint. Signing with the internal client bakes the
-    // Docker hostname into the URL and the viewer can never load the model —
-    // the same bug that once broke PDF preview.
+    // Docker hostname into the URL and the viewer can never load the model.
     signingS3Client,
     new GetObjectCommand({ Bucket: bucket, Key: key }),
     { expiresIn }
@@ -493,8 +488,8 @@ export async function withdrawAccessibleCheck(
   /**
    * The building being withdrawn from.
    *
-   * Required now that a confirmation is keyed per revision: without it there
-   * is no way to say WHICH signature is being taken back, and deleting every
+   * Required because a confirmation is keyed per revision: without it there is
+   * no way to say WHICH signature is being taken back, and deleting every
    * row for the rule would silently withdraw the other buildings' too.
    */
   modelId: string

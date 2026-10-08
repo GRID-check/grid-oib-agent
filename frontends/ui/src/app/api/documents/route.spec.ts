@@ -7,9 +7,8 @@
  *
  * `authoredBy` is validated against the column's own tuple so an unknown value
  * is a 400 rather than a silently empty list somebody reads as „Piloti hat
- * nichts geschrieben". `includeArchived` is the other direction, and it exists
- * because archiving used to change nothing a reader could see: the chunks were
- * purged, `documents.lifecycle` was written, and no listing read the column.
+ * nichts geschrieben". `includeArchived` is the other direction: archived
+ * documents leave the working set, and this flag is how a reader gets them back.
  */
 
 import { describe, expect, it, vi } from 'vitest'
@@ -70,8 +69,7 @@ describe('GET /api/documents', () => {
     expect((await call('?projectId=proj_1&authoredBy=nobody')).status).toBe(400)
   })
 
-  // Paged, not capped: the oldest plans of a large project used to be absent
-  // from a listing that never said it had stopped.
+  // Paged, not capped: a listing must say when it has stopped.
   it('passes a decoded cursor to the service and returns the next one', async () => {
     const cursor = { createdAt: '2026-01-01T00:00:00.123456', id: '00000000-0000-4000-8000-000000000001' }
     vi.mocked(listDocumentsPage).mockResolvedValueOnce({ documents: [], nextCursor: 'next-page' })

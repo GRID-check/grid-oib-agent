@@ -14,7 +14,7 @@
  *     while the rest of the answer streams (ADR-0066).
  *   - **failed** — the model writes broken mermaid regularly, and that must
  *     cost the reader nothing they did not already have. A failure renders the
- *     source, exactly as it rendered before this component existed, plus one
+ *     source, as plain markdown renders it, plus one
  *     quiet line saying the drawing did not work. Never a red box, never a
  *     thrown error inside somebody's answer.
  *   - **drawn** — in one of two forms. Where the source parses into a model
@@ -27,20 +27,15 @@
  *
  * ## The drawing has no ground of its own
  *
- * It used to sit on `bg-white` in both themes, on the argument that it is a
- * preview of a document and documents are printed on paper. The screenshot is
- * what settled that: in dark mode it is a white slab punched into a charcoal
- * page, with mermaid's lavender inside it — an inherited theme, in a product
- * whose design language has no accent colour at all.
- *
  * A drawing is not a page. A flowchart is line and text; the paper under it
- * belongs to whatever it is lying on, which here is the card. So mermaid's
- * figure paints no background (the view form's `bg-muted/40` is a plane in
- * the card's own tokens, not a sheet of paper), the SVG carries none (mermaid's is dropped by
- * `flattenComputedStyles`, which does not copy `background-color`), and the
- * card surface shows through in both themes. What the drawing is MADE of — its
- * ink — comes from the product's tokens, per theme, via
- * `../diagram-palette.ts`.
+ * belongs to whatever it is lying on, which here is the card. A white `bg-white`
+ * sheet would be a slab punched into a dark page, with mermaid's lavender inside
+ * it, in a product whose design language has no accent colour at all. So mermaid's
+ * figure paints no background (the view form's `bg-muted/40` is a plane in the
+ * card's own tokens, not a sheet of paper), the SVG carries none
+ * (`flattenComputedStyles` does not copy `background-color`), and the card surface
+ * shows through in both themes. What the drawing is MADE of — its ink — comes from
+ * the product's tokens, per theme, via `../diagram-palette.ts`.
  *
  * The document argument survives where it is actually true: the bytes that get
  * FILED are always drawn on paper, whatever theme the reader is in. That is
@@ -86,7 +81,7 @@ export function MermaidDiagram({ source, isStreaming = false }: MermaidDiagramPr
   // Drawn by this product's own views when mermaid's parser can read it into
   // a model (`docs/design/answer-visuals.md`); mermaid's SVG is then only the
   // FILE, drawn on paper when the reader files it and not before. Without a
-  // model the SVG is the picture, as before.
+  // model the SVG is the picture.
   const model = useDiagramModel(source, !isStreaming)
   const { svg, fileSvg, failed } = useRenderedDiagram(source, !isStreaming && model === null)
   // And one WRITE, shared with the card for the same reason. `fileSvg` and not
@@ -94,12 +89,12 @@ export function MermaidDiagram({ source, isStreaming = false }: MermaidDiagramPr
   const filing = useDiagramFiling({ source, fileSvg, renderFileSvg: model ? () => renderPaperDiagram(source, model) : undefined })
 
   // Still being written: the drawing's place, not its source. A code block that
-  // turned into a picture when its fence closed was the largest jump a
-  // streamed answer made; a placeholder growing into the figure is the small
+  // turns into a picture when its fence closes is the largest jump a
+  // streamed answer makes; a placeholder growing into the figure is the small
   // one the drawing state below already makes (ADR-0066). Still being parsed
   // (`model === undefined`) holds the same placeholder: which of the two
   // pictures it becomes is not known yet, and mermaid's frame with its
-  // „Schematisch" line flashed before this product's view replaced it.
+  // „Schematisch" line would flash before this product's view replaced it.
   if (isStreaming || model === undefined) {
     return (
       <figure data-testid="mermaid-diagram" data-state={isStreaming ? 'streaming' : 'drawing'} className="my-4" aria-busy="true">

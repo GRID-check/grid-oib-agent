@@ -78,7 +78,7 @@ def unavailable_source_ids(
 ) -> frozenset[str]:
     """Every configured source this turn may not consult, as one set.
 
-    Two things the caller used to express by deleting tools, said once as data:
+    Two things a caller would otherwise express by deleting tools, said once as data:
     what the ORGANIZATION turned off (ADR-0022, the ``x-grid-disabled-sources``
     header) and what this REQUEST did not select. ``data_sources=None`` selects
     everything, so only the org's toggles remain; ``[]`` selects nothing and

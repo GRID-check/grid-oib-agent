@@ -1,27 +1,17 @@
 """The skill may only teach calls that can actually be made.
 
-This suite exists because of a real defect. `ifc-spatial-reasoning` shipped a
-section on drawing that read
-
-    `view: "section"` zeigt Profile und Überstände, `plan` die Anordnung,
-    `elevation` eine Fassade
-
-and `ifc_measure` has never had a `view` parameter — `draw` produces a floor
-plan and nothing else. It also ended its worked chain with „dann erst der
-Überstand und das Prisma", at a time when neither `overhang` nor
-`light_incidence` was on the tool surface at all.
-
 A skill is instructions the model believes. A wrong one is worse than a missing
 one: the model spends a turn calling something that does not exist, reads back
 an error it cannot fix, and either gives up or invents the number — which is
 precisely the failure („Überstand/Raum-% im IFC nicht messbar") the whole
-package was built to remove.
+package was built to remove. `ifc_measure` takes no `view` parameter: `draw`
+produces a floor plan and nothing else.
 
 So every identifier the prose names is pinned against the enums in
 `measure_register`. When an operator is renamed or dropped, this goes red here
 rather than in front of an architect.
 
-The skill now also routes between the two halves of the BIM surface — the
+The skill also routes between the two halves of the BIM surface — the
 question „which of `ifc_query` and `ifc_measure` answers this" is the first
 decision it teaches — so `register`'s operation vocabulary is pinned here too,
 and the routing table's rows are checked to attribute each operation to the tool
@@ -60,15 +50,12 @@ EVERY_OPERATION = TOOL_OPERATIONS["ifc_measure"] | TOOL_OPERATIONS["ifc_query"]
 
 #: Every spelling `kind` accepts, assembled ONCE.
 #:
-#: `kind` is one field over four vocabularies and this union had already drifted
-#: twice — first missing `ENVELOPE_ASPECTS`, so the skill's real
-#: `kind: "thermalEnvelope"` failed here as an invention, then missing
-#: `PROFILE_KINDS`, so `kind: "expensive"` did the same when `element_profile`
-#: arrived. Both times the drift read as a bug in the SKILL, which is the
-#: expensive direction: the obvious fix is to delete the line the skill was right
-#: to write. It was assembled by hand in two places; now it is assembled here,
-#: and `test_the_kind_union_still_covers_the_schema` fails if a fifth vocabulary
-#: is added to the tool without reaching this constant.
+#: `kind` is one field over four vocabularies. Assembled by hand, the union
+#: drifts: a missing vocabulary makes a real call read as an invention, and the
+#: drift looks like a bug in the SKILL, which is the expensive direction: the
+#: obvious fix is to delete the line the skill was right to write. So it is
+#: assembled here, and `test_the_kind_union_still_covers_the_schema` fails if a
+#: fifth vocabulary is added to the tool without reaching this constant.
 EVERY_KIND = set(KINDS) | set(FIRE_ASPECTS) | set(ENVELOPE_ASPECTS) | set(PROFILE_KINDS)
 
 SKILL = (
@@ -195,7 +182,7 @@ def test_every_operation_the_skill_names_exists(backticked: set[str]) -> None:
 
 
 def test_no_backticked_identifier_is_an_invention(backticked: set[str], text: str) -> None:
-    """The assertion that would have caught the `view` defect.
+    """The assertion that catches the `view` defect.
 
     Every bare identifier has to be an operation, a parameter, or a value of one
     of the enums. `view` was none of those.
@@ -276,9 +263,8 @@ def test_dotted_and_valued_forms_resolve_too(text: str) -> None:
     checked: the name against the tool's signature, and — where the parameter is
     an enum — the value against that enum.
 
-    Checking the name is the half that matters. The defect this suite was
-    written for was `view: "section"`, and `view` is not a bare identifier; it
-    only ever appeared as the left side of a call. A test that validated values
+    Checking the name is the half that matters. `view` is not a bare identifier;
+    it appears only as the left side of a call. A test that validated values
     and shrugged at unknown names would have passed on it.
     """
     enums = {
@@ -367,7 +353,7 @@ def test_the_description_survives_the_level_one_catalog_intact(text: str) -> Non
 
     # Both tool names belong in the one sentence: the moment the model reaches
     # for one of them is the moment it has to load this. The rest of the
-    # trigger used to be a keyword net; the body carries the method.
+    # trigger is not a keyword net; the body carries the method.
     for tool in TOOL_OPERATIONS:
         assert tool in skill.description, tool
 
@@ -376,19 +362,18 @@ def test_the_check_actually_catches_the_defect_it_was_written_for() -> None:
     """The guard on the guard.
 
     Asserting that a green suite would have caught a bug it never ran against is
-    a claim, not a test. So the removed sentence is fed back through the same
-    two checks, and both have to reject it — otherwise this file is decoration.
+    a claim, not a test. So a sentence that reintroduces the defect is fed back
+    through the same two checks, and both have to reject it — otherwise this
+    file is decoration.
     """
     removed = '`view: "section"` zeigt Profile und Überstände, `plan` die Anordnung.'
 
     parameters = [name for name, _ in written_calls(removed)]
     assert parameters == ["view"]
-    # `view` is now a real OPERATION — it renders a plan the model can see — so
-    # the original "this word appears nowhere" assertion no longer holds, and
-    # keeping it would have been wrong rather than strict. The defect was never
-    # the word: it was `view` used as a PARAMETER of `draw`, and a parameter
-    # `ifc_measure` does not take is silently dropped from the call. That is
-    # still precisely what this rejects.
+    # `view` is a real OPERATION here — it renders a plan the model can see — so
+    # the word itself is allowed. What is rejected is `view` used as a PARAMETER
+    # of `draw`: a parameter `ifc_measure` does not take is silently dropped from
+    # the call.
     assert "view" not in PARAMETERS
     assert "view" in VALID_OPERATIONS, "the operation exists — only the parameter never did"
 
@@ -398,7 +383,7 @@ def test_the_check_actually_catches_the_defect_it_was_written_for() -> None:
 
 
 def test_the_skill_does_not_promise_a_section_or_an_elevation(text: str) -> None:
-    """The specific regression.
+    """What `draw` can produce, and what the skill must say about it.
 
     `draw` calls `ifcopenshell.draw` with `auto_floorplan`. `auto_section` and
     `auto_elevation` exist in that API and are not exposed here on purpose:
@@ -412,8 +397,7 @@ def test_the_skill_does_not_promise_a_section_or_an_elevation(text: str) -> None
     """
     assert "Grundriss" in text
     # Whitespace-collapsed: pinning the line break rather than the claim is
-    # the brittleness that already broke this suite once when a paragraph
-    # rewrapped.
+    # brittle, since a rewrapped paragraph would break the test.
     flat = " ".join(text.split())
     assert "Schnitt und Ansicht gibt es **nicht**" in flat
     assert "overhang" in text

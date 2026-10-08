@@ -56,9 +56,9 @@ _local_tombstones: dict[str, float] = {}
 _client: Any | None = None
 #: ``None`` means "the client has never failed in this process". A float
 #: sentinel cannot say that: ``time.monotonic()`` is time since boot on Linux,
-#: so ``now - 0.0 < _CLIENT_RETRY_SECONDS`` held for the first 30s of a fresh
-#: container and every call silently took the in-process tier -- the cold start
-#: is exactly when the shared cache is worth most.
+#: so ``now - 0.0 < _CLIENT_RETRY_SECONDS`` would hold for the first 30s of a
+#: fresh container and every call would silently take the in-process tier -- the
+#: cold start is exactly when the shared cache is worth most.
 _client_failed_at: float | None = None
 _client_lock = threading.Lock()
 
@@ -69,19 +69,17 @@ _CLIENT_RETRY_SECONDS = 30.0
 
 # --- Counting, and saying so once -------------------------------------------
 #
-# Two things the fail-open contract was missing, both named by the
-# 2026-09 latency audit (§4.4, options E6 and E7): nothing counted a hit, and
-# an unreachable store logged one warning WITH A TRACEBACK per operation. The
-# second is the reason the first matters — a replica that has lost Dragonfly
-# is serving every reader from the per-process map, which is correct and
-# invisible, and the only evidence in the log was a wall of identical
-# tracebacks nobody reads.
+# The fail-open contract needs two things besides itself: a count of hits, and
+# one warning when the store is unreachable. Without the second, an unreachable
+# store logs one warning WITH A TRACEBACK per operation. The second is the
+# reason the first matters: a replica that has lost Dragonfly serves every
+# reader from the per-process map, which is correct and invisible, and the only
+# evidence in the log would be a wall of identical tracebacks nobody reads.
 
 #: How often the "the store is down" warning may repeat. Longer than
 #: :data:`_CLIENT_RETRY_SECONDS` on purpose: the breaker retries every 30s, and
 #: a warning per retry is the wall of tracebacks again at a tenth of the rate.
-#: Same shape as ``knowledge_layer.cross_encoder._throttled_warning``, which
-#: paid for this lesson first.
+#: Same shape as ``knowledge_layer.cross_encoder._throttled_warning``.
 _STORE_DOWN_WARN_INTERVAL_SECONDS = 300.0
 
 #: ``None`` means "never warned in this process" — the same distinction, and
@@ -486,8 +484,8 @@ def incr_fixed_window(key: str, window_seconds: int) -> int | None:
             if isinstance(count, BaseException):
                 raise count
             # INCR landed but EXPIRE did not. `raise_on_error=False` reports
-            # that as an exception IN the results list, which this used to
-            # drop on the floor -- and a counter with no TTL is not a window
+            # that as an exception IN the results list, which would otherwise
+            # be dropped on the floor -- and a counter with no TTL is not a window
             # counter: it grows without bound, never rolls over, and the
             # limiter denies that key permanently, silently. Repair it.
             expire = results[1] if isinstance(results, (list, tuple)) and len(results) > 1 else None

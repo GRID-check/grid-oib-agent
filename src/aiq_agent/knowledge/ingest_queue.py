@@ -1,13 +1,12 @@
 """The durable, fair claim queue for ingestion jobs.
 
-An ingestion job used to live only in the memory of the replica that accepted
-it: a restart lost every queued job (settled ``failed: interrupted``), a second
-replica could not take work from the first, and nothing could scale ingestion
-apart from the chat tier. A job the durable queue carries is a row here instead,
-claimed by whichever worker is free, on any replica or in the dedicated
-ingest-worker tier (``aiq_api.jobs.ingest_worker``), with ``FOR UPDATE SKIP
-LOCKED`` so no two claim it, and a heartbeat so a crashed worker's job is
-claimed again (the research queue's pattern, ``aiq_api.jobs.queue``).
+An ingestion job lives here as a row, not in the memory of the replica that
+accepted it, so a restart does not lose queued jobs, a replica can take work
+from another, and ingestion scales apart from the chat tier. Whichever worker is
+free claims the row, on any replica or in the dedicated ingest-worker tier
+(``aiq_api.jobs.ingest_worker``), with ``FOR UPDATE SKIP LOCKED`` so no two claim
+it, and a heartbeat so a crashed worker's job is claimed again (the research
+queue's pattern, ``aiq_api.jobs.queue``).
 
 THE CLAIM IS FAIR, ACROSS THE WHOLE FLEET. A free worker takes the next job of
 the LANE (an organisation, or ``PLATFORM_LANE``) with the fewest jobs running
@@ -229,8 +228,8 @@ def _release_over_cap(conn, url: str, row, params: dict) -> bool:
     The checks run one at a time and each claim commits before its own check, so
     the last check of a race sees all the others and the lane ends at most at
     its cap. A claim given back costs no attempt; the next free worker takes it.
-    (Ranking by claim time instead let three of a cap of two through: a
-    transaction's start time is not its commit order.)
+    (Ranking by claim time would not do: a transaction's start time is not its
+    commit order.)
     """
     job_id, lane = row[0], row[1]
     postgres = _is_postgres(url)

@@ -6,10 +6,7 @@
  * beneath it, rendered backend-free so the surface can be reviewed and
  * screenshotted at desktop + mobile, in light + dark.
  *
- * The composer is the reason this route exists in this shape. It used to render
- * `ChatArea` alone, which was enough while the canvas was a greeting, a subtitle
- * and a row of example chips — the composer was a separate concern pinned to the
- * bottom of the viewport. It is not a separate concern any more: on an empty
+ * The composer is the reason this route exists in this shape. On an empty
  * thread the composer is LIFTED off the floor (a measured transform, see
  * `useComposerMetrics`) so that it and the greeting read as one group in the
  * middle of the screen. That relationship is the subject under test, and it
@@ -52,8 +49,8 @@ const config: AppConfig = {
 /**
  * A short finished thread: the question, then an answer long enough to reach
  * the composer's fade scrim, with a source, a used skill and a follow-ups
- * rail — the exact stack (sources row → skills disclosure → composer) the
- * overlap fix targets.
+ * rail — the exact stack (sources row → skills disclosure → composer) that
+ * must not overlap.
  */
 const populatedMessages: ChatMessage[] = [
   {
@@ -133,10 +130,8 @@ export default function ChatWelcomePreviewPage() {
     // below) calls `setCurrentUser(authUserId)` on mount, and that action's
     // cross-user guard (`sessions-store.ts` `setCurrentUser`) clears
     // `currentConversation` whenever its `userId` differs from the id being
-    // signed in — exactly what a stray 'dev' id here silently tripped: the
-    // conversation seeded fine, then was nulled a tick later, invisible on
-    // the empty fixture (null before, null after) and only exposed once a
-    // populated one made "then it went back to null" visible.
+    // signed in. The empty fixture hides this (null before, null after); a
+    // populated one makes it visible as the thread going back to null.
     const seededConversation = {
       id: 'dev-welcome-conv',
       userId: 'default-user',
@@ -156,7 +151,7 @@ export default function ChatWelcomePreviewPage() {
 
   // Emptiness comes from the STORE, exactly as it does in `MainLayout`, not
   // from the fixture that seeded it. The two agree on load — the default
-  // fixture seeds no messages and the populated one seeds four — so this reads
+  // fixture seeds no messages and the populated one seeds two — so this reads
   // identically in a screenshot. What it buys is the transition: type into the
   // composer here and send, and the thread stops being empty for the same
   // reason it does in the product, so the greeting's exit and the composer's
@@ -184,7 +179,7 @@ export default function ChatWelcomePreviewPage() {
             {...composerMotion}
           >
             {/* `canCollaborate` is on so the addressee line renders at all: its
-                default state is now silent, and an empty row is exactly the
+                default state is silent, and an empty row is exactly the
                 evidence this capture is for. */}
             {ready && (
               <InputArea

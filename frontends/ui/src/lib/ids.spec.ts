@@ -6,7 +6,7 @@ describe('isUuid', () => {
     expect(isUuid('da1b111c-1b75-4230-b497-f9b9d3509d78')).toBe(true)
   })
 
-  it('rejects a filename, which postgres will not coerce to uuid (#572)', () => {
+  it('rejects a filename, which postgres will not coerce to uuid', () => {
     expect(isUuid('HdB-Hamm_Schnitt-1_Ansicht-Nord-West.jpg')).toBe(false)
   })
 

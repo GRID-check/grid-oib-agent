@@ -125,7 +125,7 @@ describe('ProjectChatClient ?session= hydration', () => {
     expect(chatState.selectConversation).toHaveBeenCalledWith('conv-3')
   })
 
-  test('never activates another project’s session (UX-8)', () => {
+  test('never activates another project’s session', () => {
     chatState.conversations = [conversation({ id: 'conv-other', projectId: 'p2' })]
     mockSearchParams = new URLSearchParams('session=conv-other')
 

@@ -3,8 +3,8 @@
  *
  * The history sheet: this project's chats AND its deep-research runs, newest
  * first, grouped by day. Opened from the chat toolbar's history door, it rises
- * as a page sheet over the chat — the History page it replaced is gone, and
- * this one surface is the whole record of the project's past.
+ * as a page sheet over the chat, and this one surface is the whole record of
+ * the project's past.
  *
  * It reads as a sibling of the Inbox and Archiv sheets: the same wide sheet,
  * the same centred `max-w-3xl` reading column, the same `bg-card` divided
@@ -125,15 +125,15 @@ interface SessionsPanelProps {
   /** Callback when a session is renamed */
   onRenameSession?: (sessionId: string, newTitle: string) => void
   /**
-   * FB-10: render the server-backed "Deep Research" section, the scope filter
-   * and per-session research label chips (gated by the
-   * `research-in-chat-history` flag, threaded from MainLayout). Default off so
-   * existing callers are unaffected.
+   * Render the server-backed "Deep Research" section, the scope filter and
+   * per-session research label chips (gated by the `research-in-chat-history`
+   * flag, threaded from MainLayout). Default off so callers that do not pass it
+   * are unaffected.
    */
   showDeepResearchSection?: boolean
   /** Active project id — builds the `?job=` deep links for research runs. */
   projectId?: string
-  /** Qdrant collection scoping the research-runs fetch (FB-10). */
+  /** Qdrant collection scoping the research-runs fetch. */
   projectCollection?: string
 }
 
@@ -183,7 +183,7 @@ export const SessionsPanel: FC<SessionsPanelProps> = memo(function SessionsPanel
   // ConfirmDialog fires it, and owns the pending state of its confirm button.
   const [pendingStop, setPendingStop] = useState<ResearchRun | null>(null)
 
-  // FB-10: server-truth deep-research runs for the "Deep Research" section.
+  // Server-truth deep-research runs for the "Deep Research" section.
   // Fetched on panel open (like the status refresh above) so the list includes
   // headless/CLI jobs that never touched local storage. Null = not yet loaded;
   // [] = loaded, empty.
@@ -208,7 +208,7 @@ export const SessionsPanel: FC<SessionsPanelProps> = memo(function SessionsPanel
     }
   }, [isSessionsPanelOpen])
 
-  // FB-10: load the project's research runs.
+  // Load the project's research runs.
   //
   // The in-flight ref is purely a concurrent-dedup guard; it does NOT discard
   // resolved data. Crucially, a quick close→reopen while the fetch is pending
@@ -336,10 +336,10 @@ export const SessionsPanel: FC<SessionsPanelProps> = memo(function SessionsPanel
   const hasSessions = sessions.length > 0
   const isEmptyState = filteredSessions.length === 0
 
-  // FB-10: map a run's originating conversation to the local session title so a
-  // run reads as its chat rather than an opaque job hash. Falls back to the
-  // shared "untitled run" label when the job is headless/CLI or its session
-  // isn't in local storage.
+  // Map a run's originating conversation to the local session title so a run
+  // reads as its chat rather than an opaque job hash. Falls back to the shared
+  // "untitled run" label when the job is headless/CLI or its session isn't in
+  // local storage.
   const sessionTitleById = useMemo(() => {
     const map: Record<string, string> = {}
     for (const s of sessions) {
@@ -359,9 +359,8 @@ export const SessionsPanel: FC<SessionsPanelProps> = memo(function SessionsPanel
 
   // A run opens the thread it was commissioned in, whatever became of it: its
   // report, its progress and, on a failure, what it tried are one message there
-  // now (ADR-0062). The `?job=` links this used to build — plus `&tab=thinking`
-  // for a failed run — addressed the deep-research side panel, so they read as
-  // live links and land on a chat that does nothing with them.
+  // (ADR-0062). A `?job=` link would address a side panel, and there is none, so
+  // a row links to the thread itself.
   //
   // Null when the run names no conversation, which a headless or CLI job does
   // not: this list has the backend job id and nothing that resolves it to a
@@ -498,7 +497,7 @@ export const SessionsPanel: FC<SessionsPanelProps> = memo(function SessionsPanel
             </div>
           )}
 
-          {/* Scope filter (FB-10) — the inbox toolbar pattern. It composes with
+          {/* Scope filter — the inbox toolbar pattern. It composes with
               the search: the query still covers whichever list is showing. */}
           {deepResearchEnabled && (
             <ToggleGroup
@@ -543,7 +542,7 @@ export const SessionsPanel: FC<SessionsPanelProps> = memo(function SessionsPanel
           sheet's own rise is the arrival. */}
       <div className="scroll-fade-bottom flex min-h-0 flex-1 flex-col overflow-y-auto overscroll-contain px-4 pb-6 md:px-8">
         <div className="mx-auto flex w-full max-w-3xl flex-1 flex-col">
-          {/* Deep Research (FB-10) — server-truth runs for this project, always
+          {/* Deep Research — server-truth runs for this project, always
               open, with a count. Includes headless/CLI jobs that have no local
               session. Quiet under "All" when there is nothing to show; the
               whole list under the Deep Research scope. */}
@@ -648,7 +647,7 @@ export const SessionsPanel: FC<SessionsPanelProps> = memo(function SessionsPanel
                               A run with no thread to open keeps the same line
                               without the link and without the overlay: the row
                               still names the run and states its status, and it
-                              no longer promises a click it cannot honour. */}
+                              does not promise a click it cannot honour. */}
                           {href ? (
                             <Link
                               href={href}
@@ -679,8 +678,8 @@ export const SessionsPanel: FC<SessionsPanelProps> = memo(function SessionsPanel
                             {formatRelativeTime(run.created_at, locale)}
                           </time>
                         </div>
-                        {/* The state in WORDS, on its own line — a failed run
-                            and a finished one used to differ only by icon. */}
+                        {/* The state in WORDS, on its own line: a failed run and
+                            a finished one would otherwise differ only by icon. */}
                         <div className="mt-1.5 flex items-center gap-1">
                           <Badge variant={runBadgeVariant(status)}>
                             {t(runStatusKey(status))}
@@ -713,8 +712,8 @@ export const SessionsPanel: FC<SessionsPanelProps> = memo(function SessionsPanel
 
           {showChats &&
             groupedSessions.map(([dateLabel, dateSessions]) => (
-              // `last:mb-0` — the trailing group used to add 16px of dead scroll
-              // below the final row.
+              // `last:mb-0` drops the trailing group's 16px, so no dead scroll
+              // sits below the final row.
               <div key={dateLabel} className="mb-4 flex flex-col gap-1.5 last:mb-0">
                 {/* Sticky so the day you are scrolling through stays named. The
                     scroller is the offset parent, hence `top-0`; `-mx-2 px-2`
@@ -785,9 +784,9 @@ export const SessionsPanel: FC<SessionsPanelProps> = memo(function SessionsPanel
       <div className="bg-background shrink-0 border-t px-4 py-3 md:px-8">
         <div className="mx-auto flex w-full max-w-3xl flex-col gap-2">
           <p className="text-muted-foreground text-xs">{t('sessionsPanel.syncedNote')}</p>
-          {/* Delete-all lives HERE, not above the list. It used to sit in the
-              top row with equal weight to New chat — the loudest thing in the
-              panel was the one action that destroys everything in it, one row
+          {/* Delete-all lives HERE, not above the list. In the top row it would
+              carry equal weight to New chat, and the loudest thing in the panel
+              would be the one action that destroys everything in it, one row
               above the rows it deletes. */}
           {hasSessions && (
             <Button
@@ -859,7 +858,7 @@ interface SessionItemProps {
   isBusy?: boolean
   /** Per-session block: true when the socket is mid-turn in this session. */
   isSessionActive?: boolean
-  /** FB-10: show a "Deep Research" chip when this session carries research status. */
+  /** Show a "Deep Research" chip when this session carries research status. */
   showResearchLabel?: boolean
   /** Relative ("3 hours ago") vs. clock time ("14:32") — see the call site. */
   showRelativeTime?: boolean
@@ -1078,7 +1077,7 @@ const SessionItem = forwardRef<HTMLLIElement, SessionItemProps>(function Session
                 )}
               </span>
 
-              {/* FB-10: a calm "Deep Research" badge marks sessions that carry a
+              {/* A calm "Deep Research" badge marks sessions that carry a
                   research run. It lives on its own line so it never swaps with
                   the trailing actions. */}
               {showResearchChip && (
@@ -1184,7 +1183,7 @@ const runBadgeVariant = (status: string): 'success' | 'info' | 'destructive' | '
 }
 
 /**
- * Status icon for a research run row (FB-10), drawn inside the row's media
+ * Status icon for a research run row, drawn inside the row's media
  * disc. The disc supplies the colour (neutral ink; destructive tint for failed
  * runs), so the icon only carries shape — plus the spinner's motion for a run
  * still in flight. The row's Link carries the accessible name, so the icon

@@ -192,8 +192,8 @@ describe('pruneResolvedAssumptions', () => {
   })
 
   it('drops an assumption once a confirmed fact exists under the same key', () => {
-    // The migration-backfilled bundesland=wien default must vanish when the
-    // user answers the location question — never two jurisdictions at once.
+    // The bundesland=wien onboarding default must vanish when the user answers
+    // the location question — never two jurisdictions at once.
     const profile: ProjectProfile = {
       facts: { bundesland: fact('tirol') },
       goals: {},

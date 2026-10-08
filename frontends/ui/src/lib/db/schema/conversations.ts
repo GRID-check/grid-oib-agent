@@ -24,12 +24,9 @@ export const conversations = pgTable(
      * table so the hottest read in the product costs no join: resolving access to
      * a conversation needs the row anyway.
      *
-     * `private` is the default for NEW conversations, so sharing is a deliberate
-     * act and the access chip means something. Rows that existed before this
-     * column was added were backfilled to `project` (migration 0027): everyone
-     * inside the project keeps what they could see, and the accidental org-wide
-     * readability — conversations used to be resolved org-scoped only — is
-     * withdrawn. See the migration and ADR-0032 §"existing conversations".
+     * `private` is the default for new conversations, so sharing is a deliberate
+     * act and the access chip means something. How existing conversations were
+     * classified is ADR-0032 §"existing conversations".
      */
     visibility: text('visibility').$type<ResourceVisibility>().notNull().default('private'),
     /**
@@ -57,10 +54,8 @@ export const conversations = pgTable(
     tags: text('tags').array().notNull().default([]),
     projectId: uuid('project_id').references(() => projects.id, { onDelete: 'cascade' }),
     /**
-     * The job that produced this conversation, or NULL when a person started it
-     * — which is every conversation that existed before migration 0044 and the
-     * great majority of every one that ever will (ADR-0032 §provenance is silent
-     * on this; the reasoning is written out in `0044_conversation_job_provenance`).
+     * The job that produced this conversation, or NULL when a person started it,
+     * which is most conversations.
      *
      * Provenance, not ownership. `created_by` on a job conversation is the JOB'S
      * OWNER, a real user id, because four mechanisms read that column as a
@@ -76,18 +71,15 @@ export const conversations = pgTable(
      *
      * `ON DELETE SET NULL`: deleting a job must never delete its output.
      *
-     * NOTE: the database also has `conversations_job_id_idx`, PARTIAL
+     * NOTE: the database has `conversations_job_id_idx`, PARTIAL
      * (`WHERE job_id IS NOT NULL`) so it does not carry an entry for every human
-     * chat. Drizzle's index builder cannot express a partial index, so it lives
-     * only in migration 0044 — the same arrangement as `idx_jobs_due`.
+     * chat. Drizzle's index builder cannot express a partial index, so the index
+     * is defined in a migration, the same arrangement as `idx_jobs_due`.
      *
-     * **It is not unique, and it cannot become unique** (migration 0091's
-     * header carries the record). A standing definition owns ONE thread from PR
-     * 1 onwards, but every fire before that stamped its own new conversation
-     * with the same `job_id`, so a unique index would fail at deploy on exactly
-     * the deployments that use scheduled work — and clearing the duplicates'
-     * `job_id` would delete the provenance this column exists for. The
-     * invariant is held upstream instead: the thread's id is derived from the
+     * **It is not unique, and it cannot become unique.** Some rows already share
+     * a `job_id`, so a unique index would fail on them, and clearing the
+     * duplicates' `job_id` would delete the provenance this column exists for.
+     * The invariant is held upstream instead: the thread's id is derived from the
      * definition id, so the PRIMARY KEY plus `ON CONFLICT DO NOTHING` makes
      * „ensure the thread" idempotent.
      */
@@ -111,8 +103,7 @@ export const conversations = pgTable(
      * Redundant on its own — `id` is already the primary key — and required all
      * the same: a composite foreign key can only reference a uniquely-constrained
      * column set, and `messages` / `conversation_reads` reference exactly this
-     * pair so their denormalised tenant column cannot drift from ours (migration
-     * 0031, ADR-0041).
+     * pair so their denormalised tenant column cannot drift from ours (ADR-0041).
      */
     idOrganizationKey: unique('conversations_id_organization_id_key').on(
       table.id,

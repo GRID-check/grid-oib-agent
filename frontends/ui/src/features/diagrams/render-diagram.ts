@@ -138,7 +138,7 @@ const UNFILEABLE_ELEMENTS = ['style', 'filter', 'use', 'symbol'] as const
  * understands both, `@react-pdf/renderer`'s colour parsing is happier with hex
  * and cannot express the alpha inside `rgba()` at all — it would silently paint
  * a half-transparent fill solid. Splitting the alpha out into `fill-opacity` /
- * `stroke-opacity` is what keeps the PDF looking like the answer did.
+ * `stroke-opacity` is what keeps the PDF looking like the answer.
  */
 function normalizeColor(value: string): { color: string; alpha: number | null } | null {
   const match = value.match(/^rgba?\(\s*([\d.]+)[\s,]+([\d.]+)[\s,]+([\d.]+)\s*(?:[,/]\s*([\d.%]+)\s*)?\)$/i)
@@ -174,15 +174,14 @@ export function flattenComputedStyles(root: SVGElement): void {
 
   const elements: Element[] = [root, ...Array.from(root.querySelectorAll('*'))]
 
-  // TWO PASSES, and the reason is a bug that only a screenshot could find.
+  // TWO PASSES, because the reads depend on the writes.
   //
   // Mermaid styles its output with DESCENDANT selectors — `#id .node rect { fill }`
-  // — so stripping the `class` off a group in the same pass that reads it
-  // changes the computed style of every element visited afterwards. The first
-  // version of this function did exactly that: it read a `<g class="node">`,
-  // dropped its class, and then read the `<rect>` inside, which by then matched
-  // no rule at all and answered with the inherited fill. Every node came out
-  // filled black with its label sitting outside the box.
+  // — so stripping the `class` off a group in the same pass that reads it changes
+  // the computed style of every element visited afterwards. Reading a
+  // `<g class="node">`, dropping its class and then reading the `<rect>` inside
+  // answers the `<rect>` with no rule at all: the inherited fill, so every node
+  // comes out filled black with its label sitting outside the box.
   //
   // So: read everything, then write everything. Nothing that can affect the
   // cascade is touched until the last value has been taken off it.
@@ -251,7 +250,7 @@ const renderMermaidNow: DiagramRenderer = async ({ source, id, theme }) => {
     //
     // `base` is the only mermaid theme that honours `themeVariables` in full,
     // and honouring them in full is the requirement: with `default` every
-    // diagram in this application was drawn in mermaid's lavender
+    // diagram in this application would be drawn in mermaid's lavender
     // (`#ECECFF` fill, `#9370DB` stroke), which is a brand accent colour in a
     // product whose design language says it has none. `null` means the tokens
     // could not be read — no stylesheet, no DOM — and then mermaid's own theme
@@ -312,12 +311,12 @@ const renderMermaidNow: DiagramRenderer = async ({ source, id, theme }) => {
  * `mermaid.initialize` sets GLOBAL configuration and `mermaid.render` awaits
  * before it reads it. In dark mode a drawing mermaid shows renders twice — the
  * dark screen copy and the light file copy — so an answer with several drawings
- * interleaved them: one render's `initialize` landed between another's
- * `initialize` and its read, and from the third drawing on the screen copies
- * came out in the LIGHT palette, which puts light-theme ink (dark) on the dark
- * card. Measured on /dev/answer-blocks: the first two drawings dark, the rest
- * light. Serialising costs nothing a reader sees; the renders were never
- * parallel inside mermaid anyway.
+ * interleaves them: one render's `initialize` can land between another's
+ * `initialize` and its read, and the screen copies then come out in the LIGHT
+ * palette, which puts light-theme ink (dark) on the dark card. Measured on
+ * /dev/answer-blocks, the first two drawings come out dark and the rest light.
+ * Serialising costs nothing a reader sees; the renders are never parallel inside
+ * mermaid anyway.
  */
 export function serialized<A, R>(task: (argument: A) => Promise<R>): (argument: A) => Promise<R> {
   let queue: Promise<unknown> = Promise.resolve()
@@ -330,8 +329,8 @@ export function serialized<A, R>(task: (argument: A) => Promise<R>): (argument: 
 
 /**
  * How long one task may hold the lock. A mermaid layout that never settles —
- * a grammar bug, a chunk that never loads — held it for good, and every diagram
- * after it on the page waited on its skeleton forever. Past this the task is
+ * a grammar bug, a chunk that never loads — holds it for good, and every diagram
+ * after it on the page waits on its skeleton forever. Past this the task is
  * reported as failed (the caller falls back as for any refusal) and the next
  * one runs; the stuck one is abandoned, not cancelled, since mermaid offers no
  * way to cancel.
@@ -375,11 +374,11 @@ const renderMermaid: DiagramRenderer = (request) => withMermaid(() => renderMerm
  * function. `@excalidraw/utils` — the package that exists to be the cheap path —
  * is measurably WORSE than the editor at its published `latest`, because its
  * prod build inlines assets as base64; and that `latest` is `0.1.3-test32`, a
- * prerelease, last published sixteen months ago, with 32 of 38 published
+ * prerelease, with 32 of 38 published
  * versions carrying a `-test` suffix. The last non-prerelease, `0.1.2`, is a
  * 423 KB UMD bundle that does export `exportToSvg` — but it predates today's
  * scene schema, so a stored `.excalidraw` source would round-trip through a
- * version of the format the app itself no longer writes.
+ * version of the format the app itself does not write.
  *
  * None of those is a dependency to put in the write path of an Austrian
  * compliance product for a SECOND way to draw a box and an arrow. Mermaid also

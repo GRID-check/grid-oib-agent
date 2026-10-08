@@ -11,10 +11,10 @@
  *   - `./platform`, resolving a platform-org membership held by a session whose
  *     ACTIVE organization is some tenant.
  *
- * Neither has that person's claims. Both used to answer by comparing the role
- * SLUG against a hardcoded name (`'admin'`, `'org-platform-owner'`), which is
- * precisely the role-name coupling ADR-0016 and ADR-0038 exist to remove: a
- * custom role holding the right permission was invisible to them.
+ * Neither has that person's claims. Neither may compare the role SLUG against a
+ * hardcoded name (`'admin'`, `'org-platform-owner'`): that is the role-name
+ * coupling ADR-0016 and ADR-0038 exist to remove, and a custom role holding the
+ * right permission would be invisible to them.
  *
  * So ask the identity provider. WorkOS returns every environment role with its
  * permission list in one call, and every organization role likewise, so this is
@@ -101,15 +101,13 @@ export async function orgRoleHoldsPermission(
     if (map[roleSlug]?.includes(permission)) return true
     // Falls through to the catalog on every miss, not only on an unknown slug.
     //
-    // Returning `map[roleSlug].includes(permission)` directly was wrong in the
-    // one case that matters: WorkOS knows the role but not the permission —
-    // which is exactly what a catalog that has shipped ahead of provisioning
-    // looks like. `hasPermission` unions the two for a SESSION (that union is
-    // what keeps a lagging environment usable), so answering the same question
-    // about a THIRD PARTY with a hard deny made the two disagree in the very
-    // situation this module's header says it exists to prevent: an org admin
-    // reaching every project through `requireProjectAccess` while
-    // `canUserAccessProject` refused to let anyone invite them to one.
+    // A role that WorkOS knows but without the permission is exactly what a
+    // catalog that has shipped ahead of provisioning looks like, so a hard deny
+    // there would be wrong. `hasPermission` unions the two for a SESSION (that
+    // union is what keeps a lagging environment usable), and answering the same
+    // question about a THIRD PARTY with a hard deny would make the two disagree:
+    // an org admin would reach every project through `requireProjectAccess`
+    // while `canUserAccessProject` refused to let anyone invite them to one.
   } catch (error) {
     console.warn(`[authz] environment role lookup failed for ${roleSlug}:`, error)
   }

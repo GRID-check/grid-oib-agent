@@ -505,10 +505,11 @@ def test_the_two_caller_bound_parameters_are_never_defaulted_to_an_oib_number() 
 def test_turning_circle_is_aimed_at_a_room(house: SpatialModel) -> None:
     """A door is not a room, and that is the CALLER's mistake, not the export's.
 
-    It used to come back ``decidable: false`` with a ``missing.remedy``, which
-    the renderer publishes as „ein Befund über den EXPORT" — an accusation about
-    a file with nothing wrong with it. It raises now; the suggestion travels in
-    the message so the refusal still points at the operator that would answer.
+    It raises rather than coming back ``decidable: false`` with a
+    ``missing.remedy``, which the renderer would publish as „ein Befund über den
+    EXPORT" — an accusation about a file with nothing wrong with it. The
+    suggestion travels in the message so the refusal still points at the operator
+    that would answer.
     """
     with pytest.raises(WrongKindError) as raised:
         ac.turning_circle(house, INTERNAL_DOOR)

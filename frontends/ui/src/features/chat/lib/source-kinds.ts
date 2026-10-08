@@ -44,8 +44,9 @@ export const asSourceKind = (value: string | null | undefined): SourceKind | und
 
 /**
  * Coarse kind → the `--source-*` tint family (`SourceSignal`). This is the one
- * mapping that fixes the old `kb → project` mislabel: the OIB corpus is
- * `baurecht`, so it now renders in the law family, identically to RIS.
+ * mapping that decides the family of a `kb` source: the OIB corpus is
+ * `baurecht`, so it renders in the law family, identically to RIS, and not in
+ * the project family.
  */
 export const KIND_TO_SIGNAL: Record<SourceKind, SourceSignal> = {
   baurecht: 'law',
@@ -108,12 +109,11 @@ export const kindForLane = (lane: string | null | undefined): SourceKind => {
 // The shelf TRAVELS AS DATA. It is carried explicitly by the scope header, the
 // chunk metadata and the citation payload; nothing here derives it from a
 // collection-id prefix (`archiv_` / `proj_` / `s_`) and nothing parses it back
-// out of a German label. The prefix table that used to live at this spot
-// (`COLLECTION_SCOPE_PREFIXES`) is deleted — its absence is ADR-0047's
-// acceptance test, because while it existed the shelf was still a guess.
+// out of a German label. No collection-id prefix table lives here: the shelf is
+// never a guess from a prefix (ADR-0047).
 //
-// SHELF ≠ SOURCE KIND. They are two axes and conflating them is what produced
-// the defects the ADR names:
+// SHELF ≠ SOURCE KIND. They are two axes, and conflating them is the defect
+// ADR-0047 names:
 //
 //   Shelf      — whose document is this / which collection retrieval searched.
 //                `archiv | project | session | base`.
@@ -136,9 +136,9 @@ const SHELF_SET: ReadonlySet<string> = new Set<string>(SHELVES)
  * Narrow an untrusted wire value to a Shelf, else undefined.
  *
  * Unknown reads as UNKNOWN and renders unattributed. It is never defaulted to
- * `base` (nor to the old `baurecht`): the predecessor of this function failed
- * OPEN, so an unrecognised collection claimed to be authoritative base law —
- * the strongest provenance claim this UI can make.
+ * `base` (nor to `baurecht`): a default would fail OPEN, and an unrecognised
+ * collection would claim to be authoritative base law — the strongest provenance
+ * claim this UI can make.
  */
 export const asShelf = (value: string | null | undefined): Shelf | undefined => {
   const key = (value ?? '').trim().toLowerCase()
@@ -151,26 +151,25 @@ export const asShelf = (value: string | null | undefined): Shelf | undefined => 
  * **Rendering only** (ADR-0047 §5: German is rendering, never transport):
  * nothing persists these strings, so rewording one is a copy change and never
  * invalidates a citation key already written. `session` has its own label on
- * purpose — a file attached privately to a chat used to be cited as
- * "Projektwissen" — and it is the wording the upload target uses.
+ * purpose: a file attached privately to a chat must not be cited as
+ * "Projektwissen", and it is the wording the upload target uses.
  */
 
 /**
  * Citation-key qualifiers — the READER's side of a key's disambiguating suffix.
  *
- * Two different things used to be the same string. The SHELF now travels as data
- * on the payload; nothing here is how a consumer learns it. What survives is the
- * citation KEY, which is a human-readable identity (`Plan.pdf (Büroarchiv),
- * p.3`) and still carries a qualifier when one filename was retrieved from more
- * than one shelf in the same turn — otherwise two different `Plan.pdf`s would
- * share a key. This table is what a reader must strip to recover the filename,
- * and the shelf each qualifier names is a FALLBACK for payloads that carry no
- * shelf field (every message persisted before ADR-0047).
+ * The shelf travels as data on the payload; nothing here is how a consumer
+ * learns it. What survives is the citation KEY, which is a human-readable
+ * identity (`Plan.pdf (Büroarchiv), p.3`) and still carries a qualifier when one
+ * filename was retrieved from more than one shelf in the same turn — otherwise
+ * two different `Plan.pdf`s would share a key. This table is what a reader must
+ * strip to recover the filename, and the shelf each qualifier names is a
+ * FALLBACK for payloads that carry no shelf field (stored messages without it).
  *
  * FROZEN wire values, pinned byte-for-byte against the backend's writer, and
- * deliberately independent of the shelf's display label: display copy may be reworded
- * freely, these may not — renaming a label must not change what a stored key
- * parses to, nor what today's keys strip to.
+ * deliberately independent of the shelf's display label: display copy may be
+ * reworded freely, these may not — renaming a label must not change what a
+ * stored key parses to, nor what today's keys strip to.
  */
 export const CITATION_KEY_QUALIFIERS: ReadonlyArray<readonly [qualifier: string, shelf: Shelf]> = [
   ['Büroarchiv', 'archiv'],
@@ -233,8 +232,8 @@ export const authorityTag = (lane: string | null | undefined): string | null => 
  *
  * A refinement of `SourceSignal`, not a replacement: `law` covers the whole
  * Baurecht stratum, but OIB and RIS are the two tiers architects compare most
- * often and a fan-out that painted both the same blue was unreadable — the
- * authority badge alone had to carry the entire distinction. `oib` is that
+ * often, and painting both the same blue would make a fan-out unreadable: the
+ * authority badge alone would have to carry the whole distinction. `oib` is that
  * stratum's accent; every other source keeps its signal untouched.
  *
  * Use this (never the bare signal) wherever a LANE is known, so the Herleitung

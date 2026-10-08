@@ -158,7 +158,7 @@ describe('insertRemoteMessages', () => {
     expect(messagesNow()[0].runLedger).toEqual(ended)
   })
 
-  test('orders by timestamp, then by id (spec CC-11)', () => {
+  test('orders by timestamp, then by id', () => {
     seed([message('b', { timestamp: at(3) })])
 
     insertRemoteMessages(CONVERSATION_ID, [

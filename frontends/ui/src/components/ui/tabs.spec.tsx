@@ -1,10 +1,10 @@
 /**
  * The tab strip's travelling pill, and its shared-layout IDENTITY.
  *
- * Same defect as `ToggleGroup`, same reason: `layoutId` names one travelling
- * element across the whole tree, so the constant this used to be made every
- * strip on screen the same element. Two strips mounted together — a dialog
- * over a page, two panels side by side — and the pill flew between them.
+ * Same reason as `ToggleGroup`: `layoutId` names one travelling element across
+ * the whole tree, so a constant identity would make every strip on screen the
+ * same element. Two strips mounted together — a dialog over a page, two panels
+ * side by side — and the pill would fly between them.
  *
  * `layoutId` is motion state and never reaches the DOM, so it is mirrored onto
  * `data-pill-id`; that attribute is what makes the collision observable here

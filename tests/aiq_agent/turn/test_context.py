@@ -106,8 +106,8 @@ class TestLoadTurnContext:
         assert facts.enabled_stages == frozenset({"follow_ups"})
 
     async def test_a_failed_digest_fetch_keeps_the_header_digest_and_still_captures_the_stage_facts(self, stubs):
-        """The old code wrapped the digest AND the stage facts in one try:
-        one failure dropped both. The facts are the stages' only input."""
+        """The digest and the stage facts are not wrapped in one try: one failure
+        must not drop both. The facts are the stages' only input."""
         stubs["digest"] = RuntimeError("GRID_INTERNAL_API_TOKEN is not configured")
         request = _request(project_id="p1", organization_id="org", project_memory="FROZEN", bundesland="wien")
 
@@ -152,10 +152,9 @@ class TestLoadTurnContext:
         assert context.project_context == "FROZEN"
 
     async def test_no_stage_has_a_model_but_the_capability_half_is_still_resolved(self, stubs):
-        """The round-trip used to be skipped here, when its only answer was the
-        stage set. It now also carries whether deep research may be OFFERED,
-        which is per-org and decides something on every turn — so the call is
-        made and only the stage half is discarded."""
+        """The round-trip is made even though only its stage set is discarded: it
+        also carries whether deep research may be OFFERED, which is per-org and
+        decides something on every turn."""
         stubs["deep_research_allowed"] = False
 
         context = await load_turn_context(
@@ -447,7 +446,8 @@ class TestRestrictedMemoryInTheLiveDigest:
         assert stubs["digest_user"] == "user_asker"
 
     async def test_only_the_collections_the_turn_may_draw_on_pass(self, stubs):
-        """Shared since the socket was signed: the BFF said no to this folder, so its notes are not asked for."""
+        """Only the collections the signed envelope admits pass: the BFF said no to this
+        folder, so its notes are not asked for."""
         request = _request(
             project_id="p1", organization_id="org", collection_scope=self._SCOPE, envelope_header="signed"
         )

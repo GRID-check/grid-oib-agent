@@ -155,13 +155,12 @@ export function FilePreviewHost({
       }
       // KEEP THE PROMISE `aria-modal` MAKES.
       //
-      // This surface says `aria-modal` and dims the page behind a scrim, and
-      // then let Tab walk straight out of it into the chat, the composer and
-      // the nav rail — every one of them behind the dim, none of them reachable
-      // by pointer, all of them reachable by keyboard. Every other modal in
-      // this app is a Radix `Dialog`, which traps; this one is hand-rolled
-      // because the pane inside it must survive being re-presented, and the
-      // trap was what the hand-rolling dropped.
+      // This surface says `aria-modal` and dims the page behind a scrim, so Tab
+      // must not walk out of it into the chat, the composer and the nav rail:
+      // every one of them is behind the dim, none is reachable by pointer, and
+      // all are reachable by keyboard. Other modals in this app are Radix
+      // `Dialog`s, which trap focus; this one is hand-rolled because the pane
+      // inside it must survive being re-presented.
       if (event.key !== 'Tab') return
       const panel = panelRef.current
       if (!panel) return
@@ -211,17 +210,15 @@ export function FilePreviewHost({
    * A document that is still being read settles ON SCREEN.
    *
    * The store holds a snapshot taken when the file was opened, and nothing
-   * refreshed it, so a peek opened seconds after an upload wore "Wird
-   * gelesen…" until the reader closed and reopened it — and now that the peek
-   * SHOWS that status, a stale badge would be a new way to be wrong rather
-   * than the missing answer it is meant to be. Same hook the document lists
-   * use, over a list of one: it polls only while the status can still change
-   * and stops the moment it is terminal.
+   * refreshes it on its own, so a peek opened seconds after an upload would
+   * otherwise show "Wird gelesen…" until the reader reopened it. The peek shows
+   * that status, so a stale badge would be a wrong answer. Same hook the
+   * document lists use, over a list of one: it polls only while the status can
+   * still change and stops the moment it is terminal.
    *
-   * Everything the status read carries lands, not only the status. Patching
-   * the status alone turned the badge green over an empty summary, no page
-   * count and no tags, and then stopped asking — the reader had to close and
-   * reopen the file to see what indexing had produced.
+   * Everything the status read carries lands, not only the status: patching the
+   * status alone would turn the badge green over an empty summary, no page count
+   * and no tags, and then stop asking.
    */
   const refreshStatus = useCallback(async () => {
     const id = fileId
@@ -270,10 +267,9 @@ export function FilePreviewHost({
 
   const name = documentDisplayName(file)
   // `modal` while carrying, whatever the mode says. The mode is already the
-  // DESTINATION's ("peek"), and rendering the destination's chrome on the
-  // origin's route produced the one thing worse than the pane disappearing: a
-  // dialog with the peek's headerless body in it, for the length of a
-  // navigation.
+  // DESTINATION's ("peek"). Rendering the destination's chrome on the origin's
+  // route would show a dialog with the peek's headerless body in it for the
+  // length of a navigation, which is worse than the pane disappearing.
   const panePresentation = carrying
     ? 'modal'
     : mode === 'peek'
@@ -286,11 +282,10 @@ export function FilePreviewHost({
     <>
       {chromeVisible && overlay && (
         <div
-          // Fades. The scrim used to appear in a single frame, which reads as
-          // the page being replaced rather than as something opening ON it —
-          // and the pane behind it did the same, so enlarging a document was
-          // two hard cuts. `duration-quick`/`ease-out` is the vocabulary's
-          // entry for an opacity change.
+          // Fades rather than appearing in a single frame: a hard-cut scrim reads
+          // as the page being replaced rather than something opening on it.
+          // `duration-quick`/`ease-out` is the vocabulary's entry for an opacity
+          // change.
           className="bg-overlay animate-in fade-in-0 fixed inset-0 z-50 backdrop-blur-sm duration-quick ease-out motion-reduce:animate-none"
           onClick={mode === 'expanded' ? peek : close}
           aria-hidden
@@ -314,8 +309,7 @@ export function FilePreviewHost({
                 // it: the peek is not modal, so a global listener would close
                 // the reader's document out from under a composer they were
                 // typing Escape into for another reason. The app's other
-                // panels answer Escape the same way; this one used to be the
-                // only panel that did not.
+                // panels answer Escape the same way.
                 event.stopPropagation()
                 dismissPeek(hide)
               }
@@ -326,10 +320,8 @@ export function FilePreviewHost({
           parked &&
             'invisible pointer-events-none fixed top-0 left-[-120vw] z-[-1] h-[80vh]',
           peeking && 'group h-full min-h-0 min-w-0 bg-card',
-          // The seam is ONE hairline. This pane carried a `border-l` and the
-          // resize handle beside it is itself a 1px line in the same colour —
-          // so the join between the conversation and the document was drawn
-          // twice, 2px of chrome where every other divider in the app is 1.
+          // The seam is ONE hairline. The resize handle beside the pane is itself
+          // a 1px line in the same colour, so the pane draws no left border there.
           // The handle wins: it is the one that can respond to a pointer. Off
           // the split (no handle to lean on) the pane draws its own edge.
           peeking && !inSplit && 'border-l border-border',
@@ -438,10 +430,9 @@ export function useFilePeekPlacement(): FilePeekPlacement {
  * can be open in the store, unhidden, in `peek` mode — and still invisible,
  * because the reader is on Files, or on a phone, or has the research panel
  * across the same half of the row. Everything that offers to bring the file
- * BACK has to ask this question, and the copy of it that the composer bar was
- * asking (mode and `hidden`, nothing else) answered "it is visible" for three
- * states in which nothing was on screen — so the one control that could have
- * restored the file was the control being hidden.
+ * BACK has to ask this question. Checking only `mode` and `hidden` would answer
+ * "it is visible" in states where nothing is on screen, and then the one control
+ * that could restore the file would be the control that is hidden.
  */
 export function useFilePeekBesideChat(): boolean {
   return useFilePeekPlacement() === 'beside'
@@ -469,23 +460,21 @@ function FilePreviewSplit({
   const peekWidthRef = useRef(peekWidth)
   peekWidthRef.current = peekWidth
 
-  // A MOUNT-TIME value, captured once — the seam could not be dragged without it.
+  // A MOUNT-TIME value, captured once: without that the seam cannot be dragged.
   //
-  // `defaultSize` used to be the LIVE store width, and the panel's `onResize`
-  // wrote every intermediate width straight back into that store. So each
-  // pointer move re-rendered the group with a new `defaultSize`, the library
-  // recomputed the layout from it (a default-size change is one of the sources
-  // its own `LayoutChangedMeta` lists), and the recompute landed on top of the
-  // drag in progress. The seam moved about twenty pixels and then stopped dead,
-  // whichever direction it was pulled — resizable in principle, immovable in
-  // the hand. The width is committed once per gesture now, in
-  // `onLayoutChanged`, and nothing the reader does feeds back into this prop.
+  // `defaultSize` must not follow the live store width. The panel's `onResize`
+  // writes every intermediate width into that store, so each pointer move would
+  // re-render the group with a new `defaultSize`. The library recomputes the
+  // layout from it (a default-size change is one of the sources its own
+  // `LayoutChangedMeta` lists), and the recompute lands on top of the drag in
+  // progress. The width is committed once per gesture, in `onLayoutChanged`,
+  // and nothing the reader does feeds back into this prop.
   const mountWidthRef = useRef(peekWidth)
 
   // The remembered width, adopted before the panel is first sized. Assigning
-  // `peekWidthRef` here as well is what lets the `split` effect below — same
-  // commit, declared after this one — size the panel to it rather than to the
-  // pre-restore default it read during render.
+  // `peekWidthRef` here too lets the `split` effect below (same commit, declared
+  // after this one) size the panel to it rather than to the default it read
+  // during render.
   const restoredRef = useRef(false)
   useLayoutEffect(() => {
     if (restoredRef.current) return
@@ -498,14 +487,14 @@ function FilePreviewSplit({
 
   // OPEN THE PANEL, DON'T JUST RESIZE IT.
   //
-  // The panel is `collapsible`, and on the journey that matters it is COLLAPSED
-  // when `split` flips: Ask Piloti starts in Files, and this bridge lives in the
-  // PROJECT layout, so it mounts once for the whole project — with `split`
-  // false — and is still mounted when the reader lands on chat. `resize()` alone
-  // left it at 0 there: the pane rendered, in `peek` mode, inside a zero-width
-  // panel parked off the right edge. `expand()` first is what takes a collapsed
-  // panel back into the layout; `resize()` then puts it at the reader's width
-  // rather than whatever it was last (which, on a cold mount, is zero).
+  // The panel is `collapsible`, and it is COLLAPSED whenever `split` is false.
+  // Ask Piloti starts in Files, and this bridge lives in the PROJECT layout, so
+  // it mounts once for the whole project and is still mounted when the reader
+  // lands on chat with the panel collapsed. `resize()` alone would leave it at 0
+  // there, with the pane rendered in `peek` mode inside a zero-width panel parked
+  // off the right edge. `expand()` first takes a collapsed panel back into the
+  // layout; `resize()` then sets the reader's width rather than whatever it was
+  // last (zero on a cold mount).
   useLayoutEffect(() => {
     const panel = filePanelRef.current
     if (!panel) return
@@ -524,10 +513,9 @@ function FilePreviewSplit({
       id="grid-file-ask"
       // ONCE PER GESTURE, not once per frame: this fires after the pointer is
       // released (and on each keyboard resize), which is the library's own
-      // advice for anything that writes the layout to storage. The panel's
-      // per-move `onResize` used to do this job, and paid for it twice — a
-      // synchronous localStorage write per frame, and the feedback loop
-      // described on `mountWidthRef` above.
+      // advice for anything that writes the layout to storage. Writing per move
+      // would mean a synchronous localStorage write per frame, and feeding the
+      // live width back into `defaultSize` (see `mountWidthRef` above).
       onLayoutChanged={(_layout, meta) => {
         if (!meta.isUserInteraction) return
         const size = filePanelRef.current?.getSize()
@@ -555,9 +543,9 @@ function FilePreviewSplit({
       >
         {children}
         {/* THE UNDO, AT THE EDGE THE DOCUMENT LEFT BY.
-            Dragging the seam shut, pressing Escape, clicking the ✕ — three
-            gestures, one result, and the only way back was a control in the
-            composer that belongs to the QUESTION rather than to the viewer. A
+            Dragging the seam shut, pressing Escape and clicking the ✕ are three
+            gestures with one result. The way back is not a control in the
+            composer, which belongs to the QUESTION rather than the viewer. A
             reader who has just pulled a pane off the screen looks for it where
             they pulled it, so that is where it waits: a tab on the edge it went
             out through, which opens it again at the width they had chosen.
@@ -597,11 +585,10 @@ function FilePreviewSplit({
           // control a keyboard reader lands on and its arrow keys resize the
           // pane. Unnamed, it is announced as a separator and nothing else.
           aria-label={t('preview.resizePeek')}
-          // The library's own double-click COLLAPSES a collapsible panel, and
-          // collapsed is one pixel: two quick clicks near the seam left a
-          // sliver of a document the reader was still asking about, with no
-          // word about where it went. Double-click on a splitter means "put it
-          // back", so that is what it does — the default width, in one pass.
+          // The library's own double-click collapses a collapsible panel to one
+          // pixel, which would leave a sliver of a document the reader is still
+          // asking about. Double-click on a splitter means "put it back", so it
+          // restores the default width in one pass.
           disableDoubleClick
           onDoubleClick={() => {
             filePanelRef.current?.expand()
@@ -614,13 +601,12 @@ function FilePreviewSplit({
         key="grid-file-ask-file"
         id="grid-file-ask-file"
         panelRef={filePanelRef}
-        // CONSTANT, not `split ? … : 0`. These used to collapse to zero with the
-        // flag, which meant the panel's own bounds said "you may not be wider
-        // than nothing" at the exact moment the effect above asked it to open —
-        // and a mount-time `defaultSize` never gets a second chance to say
-        // otherwise. The flag now drives one thing only: collapsed or not.
-        // `defaultSize` is likewise a mount value and not the live width — see
-        // `mountWidthRef`.
+        // CONSTANT, not `split ? … : 0`. Tying the bounds to the flag would make
+        // the panel's own limits say "you may not be wider than nothing" at the
+        // exact moment the effect above opens it, and a mount-time `defaultSize`
+        // never gets a second chance to correct that. The flag drives one thing
+        // only: collapsed or not. `defaultSize` is likewise a mount value and not
+        // the live width, see `mountWidthRef`.
         defaultSize={mountWidthRef.current}
         minSize={FILE_PEEK_WIDTH_MIN}
         maxSize={FILE_PEEK_WIDTH_MAX}
@@ -695,22 +681,20 @@ function PeekToolbar({
   const actions = useDocumentActions({ document: file, scope })
   // Shown only when it is NOT the answer the reader assumes. A peek exists
   // because this file is what the next question is about, and a document that
-  // is still indexing (or failed) is one the agent cannot cite — the modal has
-  // said so under the name since the day it was built, and the peek, the one
-  // surface whose whole reason is "you are asking about this", said nothing.
+  // is still indexing (or failed) is one the agent cannot cite. The peek, whose
+  // whole reason is "you are asking about this", has to say so.
   // Silent for a citable file: quiet chrome is the point of the peek.
   const unreadable = !isCitableStatus(file.status)
   return (
     <>
     {/* 48px row, held 10px off the top — the same band the chat's own pills
         occupy (`ChatToolbar`: `pt-2.5` + `min-h-12`), so the file's name and the
-        session's title sit on one line across the seam instead of missing each
-        other by fourteen pixels. */}
+        session's title sit on one line across the seam. */}
     <div className="mt-2.5 flex h-12 shrink-0 items-center gap-0.5 px-3">
       <p
-        // `text-sm`, like the session title in the pills across the seam. At
-        // `text-xs` the two names sat on one line in two different sizes, which
-        // reads as two unrelated surfaces that happen to be adjacent.
+        // `text-sm`, like the session title in the pills across the seam: at
+        // `text-xs` the two names would sit on one line in two sizes and read as
+        // two unrelated surfaces.
         className="text-foreground min-w-0 flex-1 truncate px-1 text-sm font-medium tracking-[-0.01em]"
         // The pane is 280px at its narrowest and a plan's filename is not.
         title={name}
@@ -756,14 +740,12 @@ function PeekToolbar({
     {/* A STRIP, not a chip beside the name.
         The status has to be here at all: a peek exists because this file is
         what the next question is about, and a document still being read (or
-        one that failed) is a document the agent cannot cite — the modal has
-        said so under the name since it was built, and the peek, the surface
-        whose whole reason is that sentence, said nothing.
-        It is a strip because the row above is 280px at its narrowest and a
-        badge in it left "Brandschutzp…" beside "Wird verarbeitet": the
-        identity truncated to make room for a word whose CONSEQUENCE — the
-        answer will not use this file — fitted nowhere but a tooltip. On its
-        own line both fit, and the sentence is the part that matters.
+        one that failed) is a document the agent cannot cite.
+        It is a strip because the row above is 280px at its narrowest, and a
+        badge in that row truncates the name to make room for a word whose
+        CONSEQUENCE — the answer will not use this file — fits nowhere but a
+        tooltip. On its own line both fit, and the sentence is the part that
+        matters.
         Nothing at all for a citable file: quiet chrome is the point of the
         peek, and a badge that says "fine" on every document is a badge nobody
         reads when it says something else. */}
@@ -787,11 +769,10 @@ function PeekToolbar({
             : 'border-base bg-surface-sunken',
         )}
       >
-        {/* ONE carrier of state per strip. A solid destructive badge on a
-            destructive ground said "failed" twice and shouted the second time,
-            next to the control the reader actually needs; and a badge plus a
-            sentence that already names the state is the same word rendered at
-            two weights. So the mark is a mark: a spinner while the document is
+        {/* ONE carrier of state per strip. A destructive badge on a destructive
+            ground would say "failed" twice, and a badge plus a sentence that
+            already names the state is the same word at two weights. So the
+            mark is a mark: a spinner while the document is
             being read — which is the honest answer to "what do I do about
             this", since the answer is "nothing, it is happening" — and an alert
             glyph when it will not resolve on its own. */}
@@ -811,10 +792,10 @@ function PeekToolbar({
               ? t('preview.peekFailedHint')
               : t('preview.peekIndexingHint')}
         </p>
-        {/* NO DEAD ENDS. "Piloti cannot cite this file" was a statement with
-            nothing after it — the worst kind of message, because it tells the
-            reader the question they are about to ask is already compromised
-            and then leaves them holding it. The enlarged view is where this
+        {/* NO DEAD ENDS. "Piloti cannot cite this file" on its own is a statement
+            with nothing after it: it tells the reader the question they are
+            about to ask is already compromised and leaves them holding it. The
+            enlarged view is where this
             document's own account of the failure lives: the ingestion error in
             full, and the retry for whoever may run it. So the strip opens it.
             The indexing case needs no control — it resolves itself, and the
@@ -825,8 +806,7 @@ function PeekToolbar({
             onClick={onExpand}
             className={cn(
               // A real hit area, not a text run: this is the only way out of
-              // the one state on this surface that does not resolve itself,
-              // and it was six pixels tall plus its line-height.
+              // the one state on this surface that does not resolve itself.
               'text-foreground hover:bg-accent flex h-7 shrink-0 items-center rounded-md px-2 font-medium underline-offset-2 hover:underline',
               FOCUS_RING,
             )}

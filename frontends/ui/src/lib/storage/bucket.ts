@@ -15,18 +15,15 @@ import { UpstreamError } from '@/lib/api/errors'
  * Which bucket an organization's objects live in (ADR-0043), and how one gets
  * created.
  *
- * One module: the naming rule, the resolution rule, and provisioning. It used
- * to be two, with the algorithm in a CommonJS twin so the purger could load it
- * — the purger is plain Node and cannot import TypeScript. That is gone, and
- * not by finding a way to load TypeScript from CommonJS: the purger stopped
- * needing the rule at all. It reads the buckets its documents RECORDED instead
- * of deriving them, which is both more complete and impossible to get wrong by
- * disagreeing with this file.
+ * One module: the naming rule, the resolution rule, and provisioning. The purger
+ * is plain Node and cannot import TypeScript, so it does not derive buckets at
+ * all: it reads the buckets its documents RECORDED, which is both more complete
+ * and impossible to get wrong by disagreeing with this file.
  *
  * ## The bucket is recorded, not recomputed
  *
  * Every document row carries `storage_bucket`. A NULL means "the shared
- * bucket", which is what every row written before this existed means, and the
+ * bucket", which is what rows predating ADR-0043 carry, and the
  * read paths resolve it with {@link resolveDocumentBucket}. Nothing recomputes
  * the bucket from the org id on a READ.
  *
@@ -79,11 +76,8 @@ export const DEFAULT_TENANT_BUCKET_PREFIX = 'grid-org-'
  * resolve to the same bucket, which is cross-tenant read and write access — so
  * the question is not "is this unlikely" but "is this the weakest link".
  *
- * At 48 bits (the previous 12 characters) it was. The birthday bound is
+ * At 48 bits (12 characters) it would be. The birthday bound is
  * `n²/(2·2^b)`: at 100,000 organizations that is ≈1.8e-5, about 1 in 56,000.
- * The ADR previously said 1 in 30,000, which was this same arithmetic missing
- * its factor of two — pessimistic, and wrong, in a note about a security
- * boundary.
  *
  * At 128 bits the same 100,000 organizations give ≈1.5e-29, and a million give
  * ≈1.5e-27. That is orders of magnitude below the probability of an undetected
@@ -175,7 +169,7 @@ export function assertValidBucketName(name: string): string {
  * 3. **Recognisable.** An operator looking at `grid-org-org-01h8…-3f9a12c4…`
  *    can see which tenant it belongs to, which a bare hash would not give them.
  *    The 128-bit suffix costs 20 characters of the slug budget, so long ids are
- *    truncated further than before — the hash, not the slug, is what identifies.
+ *    truncated further; the hash, not the slug, is what identifies.
  */
 export function tenantBucketName(
   organizationId: string,
@@ -242,13 +236,10 @@ export function resolveDocumentBucket(storageBucket: string | null | undefined):
 /**
  * ## Enumerating an organization's buckets: read the ledger, never recompute
  *
- * There used to be a `bucketsForOrganization(orgId)` here that returned
+ * `bucketsForOrganization(orgId)` is deliberately absent. It would return
  * `[shared, tenantBucketName(orgId)]`, for "usage reconciliation and any future
- * organization-level erasure". It is gone, and deleting it was the fix rather
- * than a side effect of one.
- *
- * It had no caller outside its own test, and it was a trap with a plausible
- * name. `tenantBucketName` depends on `SEAWEED_TENANT_BUCKET_PREFIX` and on the
+ * organization-level erasure", and it is a trap with a plausible name.
+ * `tenantBucketName` depends on `SEAWEED_TENANT_BUCKET_PREFIX` and on the
  * hash width, so anything that recomputes the set silently stops returning the
  * bucket a tenant's objects are actually in the moment either changes — and it
  * reports success while doing so, because a sweep over a bucket that does not
@@ -293,14 +284,14 @@ export function __resetBucketCache(): void {
  *
  * ## Why this is a PREFIX and not one object
  *
- * The first version of this was a single mutable key holding the owner's id. It
- * detected nothing in the case it was written for. Two organizations resolving to
- * one bucket both find it absent, both `PutObject` the marker with their own id,
- * and last-write-wins: the marker ends up naming one of them, and the other has
- * already read its own value back and cached the bucket as its own. Two tenants
- * then share a container, with a marker that says the boundary was verified. A
- * re-read after writing narrows the window but cannot close it — interleave the
- * two puts and reads and both parties still see themselves.
+ * A single mutable key holding the owner's id detects nothing in the case it
+ * exists for. Two organizations resolving to one bucket both find it absent,
+ * both `PutObject` the marker with their own id, and last-write-wins: the marker
+ * ends up naming one of them, and the other has already read its own value back
+ * and cached the bucket as its own. Two tenants then share a container, with a
+ * marker that says the boundary was verified. A re-read after writing narrows
+ * the window but cannot close it — interleave the two puts and reads and both
+ * parties still see themselves.
  *
  * A mutual-exclusion answer does not fit either. The obvious one, an advisory
  * lock in Postgres (as `insertDocumentWithinQuota` uses), serialises this
@@ -430,8 +421,7 @@ export async function ensureTenantBucket(
  * unhandled 500 is wrong twice over. The user is told "Internal server error"
  * when the truth is "storage is unavailable, and it is not your upload", and
  * the error tracker files a bug against this application for a disk that
- * needs attention — which is how a full staging volume arrived as
- * `[api] Unhandled error in POST /api/archiv/documents/upload`.
+ * needs attention.
  *
  * Only STORE faults are converted. A `ForbiddenError` from the ownership claim,
  * a bad argument, a programming mistake — all keep their own shape, because

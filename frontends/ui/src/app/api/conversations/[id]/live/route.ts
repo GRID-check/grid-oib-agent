@@ -27,13 +27,13 @@
  * or not any of this was delivered. That is what lets the whole route degrade to
  * a single `unsupported` event when there is no shared cache tier to read from.
  *
- * **No replay, in this cut.** A subscriber sees events from the moment it
- * attaches, and the fold accepts a first event with `seq > 1` without asking
- * to fill the gap. Opening the thread mid-turn loses only the tokens already
- * spoken: the banner is still there, and the finished answer still lands.
- * ADR-0039 §4 refused replay because the stream could not tell turns apart;
- * every v2 event names its turn now, so a spectator replay is possible and is
- * follow-up F4 of the wire v2 design, not built here.
+ * **No replay.** A subscriber sees events from the moment it attaches, and the
+ * fold accepts a first event with `seq > 1` without asking to fill the gap.
+ * Opening the thread mid-turn loses only the tokens already spoken: the banner
+ * is still there, and the finished answer still lands. ADR-0039 §4 refused
+ * replay because the stream could not tell turns apart. Every v2 event names
+ * its turn, so a spectator replay is possible; it is follow-up F4 of the wire
+ * v2 design, not built here.
  */
 
 import { apiRoute } from '@/lib/api/handler'

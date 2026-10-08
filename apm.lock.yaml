@@ -1,5 +1,5 @@
 lockfile_version: '1'
-generated_at: '2026-09-29T12:11:05.261827+00:00'
+generated_at: '2026-10-08T14:09:07.609615+00:00'
 apm_version: 0.28.0
 dependencies:
 - repo_url: _local/aiq-add-data-source
@@ -64,10 +64,10 @@ dependencies:
   - .claude/skills/aiq-customize-prompts-models/references/model-selection.md
   - .claude/skills/aiq-customize-prompts-models/references/prompt-templates.md
   deployed_file_hashes:
-    .agents/skills/aiq-customize-prompts-models/SKILL.md: sha256:0acbe39b359d0efbcfdd2a1ddd1071115ffba982d32e393669f05a25633cf935
+    .agents/skills/aiq-customize-prompts-models/SKILL.md: sha256:b35ceb7e1507e310115567e261fd7e5191aee8f5e9475d2f77d972fc84f484b9
     .agents/skills/aiq-customize-prompts-models/references/model-selection.md: sha256:61d8a44e21033776cf2a0b5234461ccfebae937091a62e304669c288f0bd3351
     .agents/skills/aiq-customize-prompts-models/references/prompt-templates.md: sha256:6651e2ad6afb7b258470d1ac271304efa1c54572756d0785a205c6b25673b2c3
-    .claude/skills/aiq-customize-prompts-models/SKILL.md: sha256:0acbe39b359d0efbcfdd2a1ddd1071115ffba982d32e393669f05a25633cf935
+    .claude/skills/aiq-customize-prompts-models/SKILL.md: sha256:b35ceb7e1507e310115567e261fd7e5191aee8f5e9475d2f77d972fc84f484b9
     .claude/skills/aiq-customize-prompts-models/references/model-selection.md: sha256:61d8a44e21033776cf2a0b5234461ccfebae937091a62e304669c288f0bd3351
     .claude/skills/aiq-customize-prompts-models/references/prompt-templates.md: sha256:6651e2ad6afb7b258470d1ac271304efa1c54572756d0785a205c6b25673b2c3
   source: local
@@ -231,9 +231,9 @@ dependencies:
   - .claude/skills/aiq-release-qa/references/validation-matrix.md
   deployed_file_hashes:
     .agents/skills/aiq-release-qa/SKILL.md: sha256:510b054480072d80334349bcb4309f4f3b894256b8b6e7a329aae30a7fec627c
-    .agents/skills/aiq-release-qa/references/validation-matrix.md: sha256:2a125dc9c84a048427b5910cbcdf2d1cd8e17aebd106b923dd64461b074b7281
+    .agents/skills/aiq-release-qa/references/validation-matrix.md: sha256:e06c48dd41ab4f48c1e1ee68b05adfd9b7a45df45de381aef39596089adc468f
     .claude/skills/aiq-release-qa/SKILL.md: sha256:510b054480072d80334349bcb4309f4f3b894256b8b6e7a329aae30a7fec627c
-    .claude/skills/aiq-release-qa/references/validation-matrix.md: sha256:2a125dc9c84a048427b5910cbcdf2d1cd8e17aebd106b923dd64461b074b7281
+    .claude/skills/aiq-release-qa/references/validation-matrix.md: sha256:e06c48dd41ab4f48c1e1ee68b05adfd9b7a45df45de381aef39596089adc468f
   source: local
   local_path: ./skills/aiq-release-qa
 - repo_url: _local/aiq-research
@@ -793,7 +793,7 @@ deployments:
   owners:
   - ./skills/aiq-customize-prompts-models
   active_owner: ./skills/aiq-customize-prompts-models
-  content_hash: sha256:0acbe39b359d0efbcfdd2a1ddd1071115ffba982d32e393669f05a25633cf935
+  content_hash: sha256:b35ceb7e1507e310115567e261fd7e5191aee8f5e9475d2f77d972fc84f484b9
 - kind: project-relative
   target: agent-skills
   value: .agents/skills/aiq-customize-prompts-models/references/model-selection.md
@@ -1099,7 +1099,7 @@ deployments:
   owners:
   - ./skills/aiq-release-qa
   active_owner: ./skills/aiq-release-qa
-  content_hash: sha256:2a125dc9c84a048427b5910cbcdf2d1cd8e17aebd106b923dd64461b074b7281
+  content_hash: sha256:e06c48dd41ab4f48c1e1ee68b05adfd9b7a45df45de381aef39596089adc468f
 - kind: project-relative
   target: agent-skills
   value: .agents/skills/aiq-research
@@ -1837,7 +1837,7 @@ deployments:
   owners:
   - ./skills/aiq-customize-prompts-models
   active_owner: ./skills/aiq-customize-prompts-models
-  content_hash: sha256:0acbe39b359d0efbcfdd2a1ddd1071115ffba982d32e393669f05a25633cf935
+  content_hash: sha256:b35ceb7e1507e310115567e261fd7e5191aee8f5e9475d2f77d972fc84f484b9
 - kind: project-relative
   target: claude
   value: .claude/skills/aiq-customize-prompts-models/references/model-selection.md
@@ -2143,7 +2143,7 @@ deployments:
   owners:
   - ./skills/aiq-release-qa
   active_owner: ./skills/aiq-release-qa
-  content_hash: sha256:2a125dc9c84a048427b5910cbcdf2d1cd8e17aebd106b923dd64461b074b7281
+  content_hash: sha256:e06c48dd41ab4f48c1e1ee68b05adfd9b7a45df45de381aef39596089adc468f
 - kind: project-relative
   target: claude
   value: .claude/skills/aiq-research

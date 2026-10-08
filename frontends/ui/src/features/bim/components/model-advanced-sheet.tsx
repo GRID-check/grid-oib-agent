@@ -1,7 +1,7 @@
 'use client'
 
 /**
- * Everything the model page used to be, behind one button.
+ * The model page's analytical surfaces, behind one button.
  *
  * ## Why it still exists
  *
@@ -14,8 +14,8 @@
  *
  * Because none of it is what someone opening a model came to do. They came to
  * look at a building. Five tabs of tables occupying half the screen before a
- * single click is what made the old page read as a debugging console — the
- * work was there, it was just standing in front of the thing it was about.
+ * single click would read as a debugging console: the work is there, but it
+ * stands in front of the thing it is about.
  *
  * ## Why a drawer and not a modal
  *
@@ -140,11 +140,11 @@ export function ModelAdvancedSheet({
   /**
    * A tab that has BEEN opened keeps its data.
    *
-   * The gate used to be "is this tab open right now", so leaving Mengen and
-   * coming back re-ran the room schedule and the take-off — two full element
-   * reads — for data the browser had held a second earlier. The comment on
-   * these calls says they are "fetched only once its tab is open"; with the
-   * gate on the live tab, "once" meant once per visit.
+   * Gating on "is this tab open right now" would re-run the room schedule and
+   * the take-off — two full element reads — every time the reader returned to
+   * Mengen, for data the browser had held a second earlier. Each heavy table
+   * is fetched once its tab is open, which means once per drawer, not once per
+   * visit.
    *
    * Sticky rather than eager: nothing is fetched for a tab nobody opens, which
    * is the whole point of gating, and nothing is re-fetched for one they
@@ -184,7 +184,7 @@ export function ModelAdvancedSheet({
    * The ids of those revisions, for scoping a human confirmation.
    *
    * A signature belongs to the building it was made about. Without this the
-   * Prüfbuch showed one building's confirmation on another's, labelled
+   * Prüfbuch would show one building's confirmation on another's, labelled
    * "Älterer Stand" — which says it is an earlier version of the same
    * building, and it is not.
    */
@@ -265,11 +265,10 @@ export function ModelAdvancedSheet({
       <div className="border-border flex items-center justify-between gap-2 border-b p-3">
         {/*
           Focused when the drawer opens, so a keyboard or screen-reader user
-          is told a panel appeared and starts inside it. Without this the
-          reader pressed "Erweitert" and stayed on a dock button while four
-          tabs of Prüfbuch, Raumbuch, Mengen and Revisionen mounted silently
-          behind them — the panel existed and was, for them, unreachable
-          except by Tabbing past the whole viewer chrome.
+          is told a panel appeared and starts inside it. Without that focus the
+          reader stays on the dock button while the tabs of Prüfbuch, Raumbuch,
+          Mengen and Revisionen mount silently behind them: the panel exists and
+          is unreachable except by Tabbing past the whole viewer chrome.
 
           `tabIndex={-1}`: programmatically focusable, not a Tab stop.
         */}
@@ -292,16 +291,15 @@ export function ModelAdvancedSheet({
         `forceMount` with a `hidden` inactive state, rather than Radix's
         default unmount.
 
-        An inactive tab used to be destroyed, and every panel here holds state
-        worth more than the render it costs: the comparison result — which read
+        An inactive tab stays mounted, because every panel here holds state
+        worth more than the render it costs: the comparison result — which reads
         two full element sets at `limit: 20_000` — the element table's search
         text and type filter, the Raumbuch's expansion, and every panel's
-        scroll offset. Leaving Revisionen and coming back silently discarded
-        all of it and reset the base model to the first candidate.
+        scroll offset. Unmounting would discard all of it on every visit to
+        another tab, and reset the base model to the first candidate.
 
-        It also refired the gated queries. The comment on those says they are
-        "fetched only once its tab is open"; with an unmounting tab, "once"
-        meant once per visit.
+        It would also refire the gated queries: each is fetched once its tab is
+        open, which with an unmounting tab would mean once per visit.
       */}
       <Tabs
         value={tab}
@@ -371,11 +369,11 @@ export function ModelAdvancedSheet({
             // `|| !ruleFacts.ready`, the same rule the chat card applies.
             // `useBimCompliance` holds the query back until the brief has been
             // read — it must not run the catalogue against a Gebäudeklasse it
-            // has not seen yet — and a held query is `isLoading: false`. So for
-            // the length of the profile round trip this panel rendered as a
-            // catalogue that had RUN and found nothing: no spinner, no badges,
-            // no rows, no error. On the surface whose whole job is to say what
-            // the building still owes.
+            // has not seen yet — and a held query is `isLoading: false`. Without
+            // `|| !ruleFacts.ready` the panel would render, for the length of the
+            // profile round trip, as a catalogue that had RUN and found nothing:
+            // no spinner, no badges, no rows, no error. On the surface whose
+            // whole job is to say what the building still owes.
             isLoading={compliance.isLoading || !ruleFacts.ready}
             error={compliance.error}
             truncated={compliance.data?.truncated ?? false}

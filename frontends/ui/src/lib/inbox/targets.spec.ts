@@ -4,9 +4,9 @@
 /**
  * The inbox target registry (ADR-0042).
  *
- * `inbox_items.resource_type` used to be the SHARING union, and the read path
- * went straight to `describeResource()`, which THROWS for a type it does not
- * know. Adding an organization-scoped alert therefore had two ways to go wrong:
+ * `inbox_items.resource_type` is wider than the SHARING union, and the read path
+ * must not go straight to `describeResource()`, which THROWS for a type it does
+ * not know. Adding an organization-scoped alert therefore has two ways to go wrong:
  * make the org "shareable" (it must never be — that would make a tenant a thing
  * you can hand somebody a grant on), or crash the inbox route for a row a newer
  * deploy wrote. These tests pin the third way.
@@ -46,8 +46,8 @@ describe('findInboxTarget', () => {
 
   it('returns null — never throws — for a type this build has never heard of', () => {
     // `resource_type` is a `text` column, so a row written by a newer deploy and
-    // read across a rollback carries an unknown value. `describeResource` threw
-    // for exactly that case and took the whole inbox route down with it; here it
+    // read across a rollback carries an unknown value. `describeResource` would
+    // throw for that case and take the whole inbox route down with it; here it
     // is simply an unreachable target, which renders as a redacted row.
     expect(findInboxTarget('spaceship')).toBeNull()
     expect(findInboxTarget('')).toBeNull()
@@ -121,9 +121,9 @@ describe('the conversation target', () => {
     vi.mocked(resolveResourceAccess).mockResolvedValue({
       role: null,
       // `null`, not a 'none' sentinel: `AccessReason` enumerates the ways access
-      // is GRANTED, so the absence of a reason is the absence of access. Typing
-      // this fixture properly is what surfaced that — an invented 'none' member
-      // would have described a shape the production type never had.
+      // is GRANTED, so the absence of a reason is the absence of access. An
+      // invented 'none' member would describe a shape the production type never
+      // had.
       reason: null,
       visibility: 'private',
       container: { organizationId: 'org_1', projectId: 'proj_1' },
@@ -135,7 +135,7 @@ describe('the conversation target', () => {
     expect(await conversationTarget.resolve(makeSession(), 'conv_1')).toBeNull()
   })
 
-  it('is unreachable — so the row renders redacted, title and all — when the reader may no longer read what the chat drew on (ADR-0081)', async () => {
+  it('is unreachable — so the row renders redacted, title and all — when the reader cannot read what the chat drew on', async () => {
     // A mention or an activity row carries the thread's TITLE, which is written
     // from the conversation's content: restricted folders included.
     vi.mocked(resolveResourceAccess).mockResolvedValue({
@@ -188,7 +188,7 @@ describe('the project target', () => {
     ).toBe('/app/projects/proj_1/automation?tab=jobs')
   })
 
-  it('redacts the row, rather than throwing, for a project the reader can no longer open', async () => {
+  it('redacts the row, rather than throwing, for a project the reader cannot open', async () => {
     vi.mocked(requireProjectAccess).mockRejectedValueOnce(new Error('forbidden'))
     await expect(projectTarget.resolve(makeSession(), 'proj_gone')).resolves.toBeNull()
   })

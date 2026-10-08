@@ -17,17 +17,17 @@
  *
  * `?variant=search-failed` renders the state a semantic search lands in when it
  * could not RUN. The hook fails open to an empty hit list so the pane cannot
- * crash, and it says which of the two happened — but nothing read that flag, so
- * a backend timeout rendered as "no semantic matches for <query>": the pane told
- * the reader something about their own corpus that it had no way of knowing, and
- * offered them a reset for it. The fixture makes the search endpoint 500 and
- * runs a query, which is the only way to see the state at all.
+ * crash, and it records which of the two happened. The pane must read that
+ * flag: a backend timeout rendered as "no semantic matches for <query>" would
+ * tell the reader something about their own corpus that it cannot know. The
+ * fixture makes the search endpoint 500 and runs a query, which is the only way
+ * to see the state at all.
  *
  * `?variant=search-list` is a semantic search answered in the DETAIL view. The
- * view toggle used to be read only on the un-searched branch, so pressing Enter
- * threw a reader who had chosen the list back into cards. The fixture's hits are
- * deliberately not in upload order, so the shot also shows the ranking surviving
- * into a view whose default sort is newest-first.
+ * view toggle applies to search results too, so a reader who chose the list
+ * stays in it after pressing Enter. The fixture's hits are deliberately not in
+ * upload order, so the shot also shows the ranking surviving into a view whose
+ * default sort is newest-first.
  *
  * `?variant=folder-rename` and `?variant=folder-menu` render the two states a
  * folder card only reaches through an interaction: its name swapped for an
@@ -38,10 +38,9 @@
  *
  * `?variant=uploading` renders the moment right after a batch lands, which is
  * the one row where the cards are NOT all the same shape: a document that is
- * still being read has no AI summary yet, while its neighbours do. That is the
- * state the grid used to render badly — the shorter card kept its natural
- * height inside a stretched grid cell and its size · time footer floated in the
- * middle of the tile with dead space underneath. One card in the fixture also
+ * still being read has no AI summary yet, while its neighbours do. The shorter
+ * card must stretch to its grid cell, so its size · time footer sits at the
+ * bottom of the tile. One card in the fixture also
  * has its page thumbnail already rendered while the badge still says
  * "Processing", because a PDF preview is produced at upload time and the rest of
  * ingestion runs after it.
@@ -115,7 +114,7 @@ const FILES: FileItem[] = [
     fileSize: 5_300_000,
   }),
   // FORMAT BEATS THE NAME. „plan" matches anywhere in a filename, so these two
-  // used to draw a floor-plan card — outer walls, partitions and a door swing —
+  // must not draw a floor-plan card — outer walls, partitions and a door swing —
   // over a Markdown note and a table. `Statik_Positionsplan.pdf` above is the
   // control: it is a PDF, it really can be a drawing, and it still reads as one.
   makeFile('p8', 'Projektplan_Sanierung.md', 'Ablauf der Sanierung in Phasen, mit offenen Punkten je Gewerk.', {
@@ -270,10 +269,9 @@ function useFixtureFolderNav(): FolderNavigation & { currentFolderId: string | n
  * this pins — the target has to decide, during the drag and before the release,
  * whether it can take what is over it.
  *
- * The shot is worth having because two surfaces used to answer this gesture at
- * once. The workspace's upload overlay reacted to any drag with items on it, so
- * dragging INSIDE the page covered the folder being aimed at in „Dateien hier
- * ablegen". What this shows is one answer: the folder, ringed.
+ * The shot pins that there is one answer to this gesture: the folder, ringed.
+ * The workspace's upload overlay must not also answer it, or it would cover the
+ * folder being aimed at with „Dateien hier ablegen".
  */
 function FolderDropTargetFixture(): JSX.Element {
   const folderNav = useFixtureFolderNav()
@@ -327,11 +325,11 @@ function FolderDropTargetFixture(): JSX.Element {
  * Folders in the DETAIL view — the one composition of this pane that had no
  * shot at all.
  *
- * Every existing file-browser target photographs the card grid, or a search. The
- * detail view's folder band was captured nowhere, which is how it came to be
- * drawn in raw `amber-*` — a band of tinted rows above a neutral table, reading
- * as a warning strip over a listing where nothing is wrong. The shot exists so
- * the next change to either half is seen against the other.
+ * Every other file-browser target photographs the card grid or a search, so the
+ * detail view's folder band would otherwise go uncaptured. The band is tinted
+ * rows above a neutral table, and it must not read as a warning strip over a
+ * listing where nothing is wrong. The shot exists so each change to either half
+ * is seen against the other.
  */
 function FoldersInListViewFixture(): JSX.Element {
   const [selected, setSelected] = useState<string | null>(null)

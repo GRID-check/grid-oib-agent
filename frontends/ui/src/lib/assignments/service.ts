@@ -65,11 +65,11 @@ export async function listAssignmentCandidates(
 /**
  * Who is assigned to ONE resource. Requires `viewer` on it.
  *
- * The route used to call the batch helper below directly, which checks
- * nothing, while its `authz` declaration claimed it did: any member of the
- * organization could read who is on the hook for a private chat or a document
- * in a project they are not in, given its id. A 404 for "missing" and "not
- * yours" alike, as everywhere in `requireResourceAccess`.
+ * The batch helper below checks nothing, so this single-resource entry point
+ * does the check itself. Otherwise any member of the organization could read
+ * who is on the hook for a private chat or a document in a project they are not
+ * in, given its id. A 404 for "missing" and "not yours" alike, as everywhere in
+ * `requireResourceAccess`.
  */
 export async function listResourceAssignments(
   session: AuthorizedSession,

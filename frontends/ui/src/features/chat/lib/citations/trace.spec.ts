@@ -4,12 +4,11 @@
 /**
  * The Herleitung fan-out, as a projection of the citation model.
  *
- * Ported from `trace-lanes.spec.ts`, which used to pin a SECOND presentation
- * pipeline: the trace derived its own display names, tints and authority badges
+ * The trace must not derive its own display names, tints and authority badges
  * from lane buckets, independently of the chips under the answer. These cases
- * assert the same user-visible facts, now produced by the one model both
- * surfaces read — so they can no longer be satisfied by two implementations
- * that agree today and drift tomorrow.
+ * assert the user-visible facts, produced by the one model both surfaces read,
+ * so they cannot be satisfied by two implementations that agree today and drift
+ * tomorrow.
  */
 
 import { describe, expect, test } from 'vitest'
@@ -79,15 +78,15 @@ describe('the fan-out is the model, grouped by document', () => {
     expect(oib2.loci).toHaveLength(2)
     // READ, not CITED. The `sources` step fan-out is the Herleitung's claim —
     // "these are the passages the turn looked at" — and every locus it
-    // contributes carries `isCited: false`. `citedPages` used to return them
-    // anyway, so a document retrieved at three pages and cited at one printed
-    // all three under „Belegt durch"; the two functions are now the two claims.
+    // contributes carries `isCited: false`. `citedPages` must not return them, so
+    // a document retrieved at three pages and cited at one prints only the cited
+    // page under „Belegt durch"; the two functions are the two claims.
     expect(readPages(oib2)).toEqual([1, 2])
     expect(citedPages(oib2)).toEqual([])
     // What every SURFACE prints. Precision only exists once something is
     // flagged; with no binding at all, the honest line is the wider one — the
     // same widening `answerDocuments` already does for the row these pages
-    // sit in. Printing nothing here is what the Herleitung card regressed to.
+    // sit in. Printing nothing here would leave the Herleitung card with no page.
     expect(documentPages(oib2)).toEqual([1, 2])
     expect(totalHits(docs)).toBe(3)
   })
@@ -165,9 +164,9 @@ describe('the fan-out is the model, grouped by document', () => {
 
 describe('robustness at the edges', () => {
   test('a source identified by nothing at all never becomes a card', () => {
-    // A citation with no filename, no URL and no label cannot be cited,
-    // previewed or copied. It used to render as a nameless card reading
-    // "label:" on the surface whose job is to say where an answer came from.
+    // A citation with no filename, no URL and no label cannot be cited, previewed
+    // or copied. Rendered anyway, it would be a nameless card reading "label:" on
+    // the surface whose job is to say where an answer came from.
     const docs = buildCitationModel({
       citations: [
         {
@@ -186,7 +185,8 @@ describe('robustness at the edges', () => {
   test('a label-only trace hit and the cited source it names are ONE document', () => {
     // The RIS case: the `sources` step knows the norm only by its name, while the
     // answer's citation of it arrives with a real RIS URL. Two identities, one
-    // document — it used to render twice, once cited and once "retrieved, not cited".
+    // document — without the merge it renders twice, once cited and once "retrieved,
+    // not cited".
     const docs = buildCitationModel({
       traceLanes: [
         lane({

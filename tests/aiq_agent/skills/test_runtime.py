@@ -1,6 +1,6 @@
 """Per-run SkillRuntime: activation order, prompt blocks, use_skill closure.
 
-Also the transparency events activation now emits (``aiq_agent.skills.events``)
+Also the transparency events activation emits (``aiq_agent.skills.events``)
 — what a reader is told while a skill is shaping the answer, and what is only
 recorded for the details panel.
 """
@@ -89,12 +89,12 @@ def test_prompt_block_lists_descriptions_only() -> None:
     assert "beta body" not in block
 
 
-def test_a_stored_auto_invoke_off_no_longer_hides_a_skill() -> None:
+def test_a_stored_auto_invoke_off_does_not_hide_a_skill() -> None:
     """The catalog is the model's inventory, not a list a person edits.
 
-    ``grid-auto-invoke: false`` used to cut a row out of L1. Its author-facing
-    switch is gone (ADR-0060: nothing but the model decides which skill runs),
-    so honouring the stored token would now hide a skill from every turn with
+    ``grid-auto-invoke: false`` must not cut a row out of L1. The catalog has no
+    author-facing switch (ADR-0060: nothing but the model decides which skill runs),
+    and honouring the stored token would hide a skill from every turn with
     nobody able to bring it back. The key still parses; it decides nothing.
     """
     silent = Skill(
@@ -131,8 +131,8 @@ def test_only_a_delivered_body_counts_as_activated() -> None:
 def test_what_was_delivered_is_reported_in_call_order() -> None:
     """One order, and it is the model's own: the order it asked.
 
-    There is no second order to reconcile with it any more — no forced list in
-    front, no fleet floor behind — so the list reads as the run happened.
+    There is no second order to reconcile with it — no forced list in front, no
+    fleet floor behind — so the list reads as the run happened.
     """
     runtime = _runtime()
     tool = _use_skill(runtime)
@@ -174,9 +174,9 @@ def test_skill_without_preferred_cards_returns_the_bare_body() -> None:
 
 
 def test_unknown_and_system_card_types_never_reach_the_model() -> None:
-    # Snapshots persisted before a card type was retired (or a row that slipped
-    # past write-time validation) must not name a card the renderer lacks — and
-    # a SYSTEM card must never be requested by name on any path.
+    # Persisted snapshots may name a retired card type, and a row may slip past
+    # write-time validation; neither may name a card the renderer lacks. A
+    # SYSTEM card must never be requested by name on any path.
     skill = Skill(
         name="delta",
         description="Vierter Skill.",
@@ -262,8 +262,8 @@ class TestActivationEvents:
         assert emitted == []
 
 
-#: A row the BFF marked ``standard``. The backend does not read that marker any
-#: more — there is no ``Skill.standard`` field — so it is an ordinary skill here,
+#: A row the BFF marked ``standard``. The backend does not read that marker —
+#: there is no ``Skill.standard`` field — so it is an ordinary skill here,
 #: which is exactly what these two tests pin.
 STANDARD = Skill(
     name="haus-stil",
@@ -274,11 +274,10 @@ STANDARD = Skill(
 
 
 def test_a_standard_row_is_an_ordinary_catalog_entry() -> None:
-    """The tier's "applied" property is gone, and with it the field behind it.
-
-    ``delivery: standard`` still means "resolved for every organization", and
-    that is all it means to the model: one line in L1 like every other skill.
-    Fleet policy that must hold on every answer is prompt text now.
+    """A tier has no "applied" property: ``delivery: standard`` means "resolved
+    for every organization", and that is all it means to the model: one line in
+    L1 like every other skill. Fleet policy that must hold on every answer is
+    prompt text.
     """
     assert not hasattr(Skill, "standard") or "standard" not in Skill.model_fields
     runtime = SkillRuntime(skills=(S1, STANDARD))

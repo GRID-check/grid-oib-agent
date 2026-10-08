@@ -1,15 +1,15 @@
 /**
  * Inline `[[card:N]]` placement markers, resolved on the PARSED document.
  *
- * A card used to be a block of its own above the whole answer, which is the one
- * place it cannot do its job: a stair diagram is an argument about the sentence
- * beside it, and three of them push the written answer below the fold. So the
- * agent now writes a marker — `[[card:2]]`, handed back by `emit_card` — on a
- * line of its own where the card belongs, and the card is drawn there.
+ * A card is placed where the prose needs it, not drawn as a block above the whole
+ * answer: a stair diagram is an argument about the sentence beside it, and three
+ * of them would push the written answer below the fold. So the agent writes a
+ * marker — `[[card:2]]`, handed back by `emit_card` — on a line of its own where
+ * the card belongs, and the card is drawn there.
  *
  * The marker names the card's INDEX in the `cards` array (1-based on the wire,
- * because the agent counts its own emissions from one). Cards gained no id
- * field for this: identity is already positional everywhere else — `cardKey`,
+ * because the agent counts its own emissions from one). Cards carry no id field
+ * for this: identity is already positional everywhere else — `cardKey`,
  * `reconcileCardInteractions` and the persisted decisions all key on the index
  * — and a second identity would be a second thing to keep in sync. Positions
  * stay meaningful because `validateGridCards` never compacts the array: a card

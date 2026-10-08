@@ -3,8 +3,8 @@
  *
  * Asserted in GERMAN throughout. The English dictionary reads almost exactly
  * like the validator's own hard-coded strings, so an English assertion would
- * pass whether or not the wiring exists — which is the bug this pins: the
- * English message used to be spliced straight into a German sentence.
+ * pass whether or not the wiring exists. The German assertions pin that the
+ * English message is never spliced straight into a German sentence.
  */
 
 import { describe, expect, it } from 'vitest'
@@ -45,7 +45,7 @@ describe('summarizeValidation', () => {
 
     const summary = summarizeValidation(result, t)
     expect(summary).toContain('das Limit liegt bei')
-    // The validator's own English is what used to reach the reader.
+    // The validator's own English must not reach the reader.
     expect(summary).not.toMatch(/exceeds|limit\b/)
     expect(result.summary).toMatch(/exceeds/)
   })
@@ -91,9 +91,9 @@ describe('summarizeValidation', () => {
     // A SESSION context, not a durable one: the batch total-size cap is the
     // chat session's, because a project or Archiv upload is bounded by the
     // organization's quota instead (see `durableCorpus` in `validation.ts`).
-    // Left on a durable corpus, this ceiling rejected a real Einreichung
-    // wholesale in an org with terabytes to spare. The message it produces is
-    // still the right one where the cap genuinely applies.
+    // On a durable corpus this ceiling would reject a real Einreichung wholesale
+    // in an org with terabytes to spare. The message it produces is still the
+    // right one where the cap genuinely applies.
     const result = validateFileUpload(
       [file('Plan.pdf', 40 * 1024 * 1024)],
       context({ existingTotalSize: 90 * 1024 * 1024, durableCorpus: false }),

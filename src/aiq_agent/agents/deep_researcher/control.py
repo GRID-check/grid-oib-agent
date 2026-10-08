@@ -3,9 +3,8 @@
 „Jetzt schreiben", and — since the Rechercheplan carries Unterlagen — a
 document added to the Grundlage while the run goes.
 
-A run used to offer a single lever, „Abbrechen", which threw the report away.
-The reader watching the rounds land usually wants the opposite: stop
-researching and write from what is there. The job runner sets the signal when
+„Abbrechen" throws the report away. The reader watching the rounds land usually
+wants the opposite: stop researching and write from what is there. The job runner sets the signal when
 the reader asks (``routes/jobs.py`` records a ``job.write_now_requested``
 event; the runner's monitor sees it), binds it here for the run, and the
 research tool reads it before every batch. Per run, on a ``ContextVar`` bound

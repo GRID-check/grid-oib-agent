@@ -1,11 +1,10 @@
 """The agent is built once; a turn binds only what it varies.
 
-Before this, every skills-enabled turn (every production turn: the builtin
-skills always resolve, so ``use_skill`` is always folded in) constructed a
-fresh ``PilotiAgent``: the 43 KB prompt re-read from disk inside
-the async request, the LangGraph recompiled, every tool schema rebound, the
-BM25 index rebuilt. The "bind once at construction" comments were true of a
-path production never took. These tests count what a turn costs.
+A skills-enabled turn (every production turn: the builtin
+skills always resolve, so ``use_skill`` is always folded in) must not construct
+a fresh ``PilotiAgent``: that would re-read the 43 KB prompt from disk inside
+the async request, recompile the LangGraph, rebind every tool schema and
+rebuild the BM25 index. These tests count what a turn costs.
 """
 
 from __future__ import annotations
@@ -111,7 +110,7 @@ def counters(monkeypatch):
         counts["agents_built"] += 1
         real_init(self, *args, **kwargs)
 
-    # BOTH caches, both ends. The prompt is two files now — the dynamic
+    # BOTH caches, both ends. The prompt is two files — the dynamic
     # template and the bundled static half — each read through its own
     # `functools.cache`. Leaving either primed would make this counter depend
     # on which test ran first, and it would read LOWER than the truth.
@@ -149,7 +148,7 @@ async def test_two_skills_turns_build_one_agent_read_the_prompt_once_and_compile
     assert first.messages[-1].content == "Die Antwort [1]."
     assert second.messages[-1].content == "Die Antwort [1]."
     # Two reads, both at BOOT and neither per turn: the dynamic template and
-    # the bundled static half are two files now. What this counts is still the
+    # the bundled static half are two files. What this counts is the
     # same thing — a read that happens per turn moves this number.
     assert counters == {"prompt_reads": 2, "graph_compiles": 1, "agents_built": 1}
     # What a turn DOES cost: one binding of the turn's tool set (search +
@@ -181,9 +180,8 @@ async def test_a_turn_that_varies_nothing_reuses_the_boot_binding():
 async def test_the_ceiling_is_the_research_budget_and_nothing_is_added_to_it():
     """One number bounds the turn, on the boot binding and on a turn binding alike.
 
-    A turn used to be able to raise the ceiling for the ``use_skill`` calls the
-    deployment forced. Nothing is forced now, so ``TurnConfig`` cannot vary the
-    budget at all: what the config says is what the turn gets, which is what the
+    ``TurnConfig`` cannot vary the budget: nothing is forced onto a turn, so there
+    is no per-turn allowance to raise. What the config says is what the turn gets, which is what the
     traced floors in ``config_oib_openrouter.yml`` measure.
     """
     llm = _mock_llm()
@@ -206,7 +204,7 @@ async def test_the_ceiling_is_the_research_budget_and_nothing_is_added_to_it():
 def test_the_recursion_guard_is_derived_from_the_ceiling():
     """Two steps per round, the final synthesis, and slack.
 
-    Nothing is added on top of the ceiling any more: a round costs one whatever
+    Nothing is added on top of the ceiling: a round costs one whatever
     it asked for, so there is no second allowance that could buy rounds the
     guard has to leave room for.
     """

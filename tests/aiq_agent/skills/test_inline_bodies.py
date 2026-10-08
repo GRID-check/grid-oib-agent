@@ -75,7 +75,7 @@ class TestTheBlock:
         # already teaches the common ones.
         assert "shape:" not in block and "Building blocks" not in block
 
-    def test_the_inline_line_leaves_out_types_that_no_longer_exist(self):
+    def test_the_inline_line_leaves_out_retired_types(self):
         # A stored org row may still name a retired type: it never reaches the prompt.
         skill = Skill(
             name="pruefen",

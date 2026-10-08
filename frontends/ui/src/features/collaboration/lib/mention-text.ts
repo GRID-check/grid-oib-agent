@@ -63,10 +63,10 @@ const MAX_QUERY_LENGTH = 64
 /**
  * Characters that may sit immediately before an `@` and still leave it a mention.
  *
- * Whitespace alone was too strict: a user who writes `(@Anna Berger)` — brackets,
- * quotes and dashes around a name are ordinary German prose — got no picker while
- * typing and, worse, no mention at all when they sent, because the reconcile pass
- * uses this same rule. The message then went to the agent with nobody asked.
+ * Whitespace alone is too strict: a user who writes `(@Anna Berger)` — brackets,
+ * quotes and dashes around a name are ordinary German prose — gets no picker while
+ * typing and, worse, no mention at all when they send, because the reconcile pass
+ * uses this same rule. The message then goes to the agent with nobody asked.
  *
  * Deliberately only OPENING marks. `-` and `/` are left out: they appear inside
  * addresses and identifiers, which is the case the boundary exists to exclude.
@@ -79,14 +79,14 @@ function isBoundary(character: string | undefined): boolean {
 }
 
 /**
- * …and only ENDS at one. Without this, a recorded `@Tom` still matched inside
- * `@Tommy`: the pill was drawn over the first four letters of somebody else's
- * name, and Tom stayed addressed by a message that no longer mentions him.
+ * …and only ENDS at one. Without this, a recorded `@Tom` would still match inside
+ * `@Tommy`: the pill would be drawn over the first four letters of somebody else's
+ * name, and Tom would stay addressed by a message that does not mention him.
  */
 function endsAtBoundary(character: string | undefined): boolean {
   // `-` counts as part of a name, not as a boundary: without it a recorded
-  // `@Tom` still matched inside `@Tom-Meier`, which is the same defect this
-  // function was added to fix for `@Tommy`. Double-barrelled names are ordinary.
+  // `@Tom` would still match inside `@Tom-Meier`, which is the same defect this
+  // function exists to prevent for `@Tommy`. Double-barrelled names are ordinary.
   return character === undefined || !/[\p{L}\p{N}_-]/u.test(character)
 }
 
@@ -175,7 +175,7 @@ function scanOccurrences(text: string, displays: readonly string[]): Occurrence[
 }
 
 /**
- * Drop every mention whose token no longer stands in the text (spec MN-3).
+ * Drop every mention whose token does not stand in the text (spec MN-3).
  *
  * Returned in TEXT order — the order the reader sees — with at most as many
  * entries per display as were actually recorded, so an edited message can never

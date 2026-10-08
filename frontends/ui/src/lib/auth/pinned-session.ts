@@ -3,11 +3,10 @@
  *
  * Unattended work — a scheduled task filing its report at 03:00 — has to act
  * as a person, because everything downstream reads a person: the permission
- * check, `documents.created_by`, the audit actor. The design that introduced
- * agent-authored documents refused the shortcut (a service token that files as
- * nobody) and named the alternative: "the requester's permission, resolved at
- * task creation and pinned on the row" (agent-authored-documents design,
- * decision 10). This is the resolution half of that.
+ * check, `documents.created_by`, the audit actor. A service token that files as
+ * nobody is refused, so the requester's permission is resolved at task creation
+ * and pinned on the row (agent-authored-documents design, decision 10). This
+ * module is the resolution half of that.
  *
  * It is built from the STORED requester only — a WorkOS user id the task row
  * pinned when the person set the work up — and from what WorkOS says about

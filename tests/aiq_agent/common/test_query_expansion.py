@@ -8,10 +8,9 @@ bridge, so what these tests pin is the shape of an augmentation that has to stay
 additive, deterministic, and invisible to German.
 
 They pin shape, not score. Not one of them asserts an MRR, and that is deliberate:
-this module was first credited with 0.674 — parity with German — by scoring the five
-worked examples its own entries were derived from. A test suite written from those
-same five examples would have agreed with that number just as confidently as this one
-agrees with the honest one.
+A score over the five worked examples its own entries were derived from reads as parity
+with German (0.674), and a suite written from those examples would agree with that number
+just as confidently as with the honest one.
 
 
 All offline: no LLM, no network, no database.
@@ -82,9 +81,9 @@ def test_a_miss_is_logged_once_per_query_and_not_by_a_second_expansion(caplog) -
 def test_a_glossary_term_inside_a_longer_word_is_not_a_match() -> None:
     """A raw substring test fires on the wrong word and prepends the wrong topic.
 
-    Measured before the fix: `roof` matched *fire p-roof-ing*, `lift` matched *up-lift*,
-    `stair` matched *stair-well*. Each one spends query budget to steer retrieval at a
-    subject the user did not raise.
+    Measured with a raw substring test: `roof` matches *fire p-roof-ing*, `lift` matches
+    *up-lift*, `stair` matches *stair-well*. Each one spends query budget to steer retrieval
+    at a subject the user did not raise.
     """
     assert expansion_terms("What fire proofing is required?") == []
     assert expansion_terms("Is uplift resistance covered?") == []
@@ -98,10 +97,10 @@ def test_a_plural_the_glossary_does_not_list_still_matches() -> None:
 
 
 def test_the_longest_form_wins_across_concepts_not_only_within_one() -> None:
-    """Sorting concepts by their longest form still tried forms in declaration order.
+    """Concepts are tried by their longest form, not in declaration order.
 
-    A short form of an earlier concept could then claim a span before a long form of a
-    later one, which is the bug that ordering by form length removes.
+    A short form of an earlier concept would otherwise claim a span before a long form of a
+    later one; ordering by form length prevents that.
     """
     terms = expansion_terms("How far is the fire brigade access road?")
     assert "Aufstellfläche" in terms, "the longer `fire brigade access` must claim the span"

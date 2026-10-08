@@ -1,9 +1,7 @@
 """An escalated question becomes a run, or says exactly why it could not.
 
-The turn used to submit the job itself and write „Deep research job submitted.
-Job ID: …" into the thread, which was the entire record of the work. It now
-asks the BFF to commission a run (ADR-0062), and every refusal it can meet has
-its own name, because the caller answers each one differently: a full queue is
+The turn asks the BFF to commission a run (ADR-0062), and every refusal it can
+meet has its own name, because the caller answers each one differently: a full queue is
 a "try later", everything else is a reason to research in process instead of
 leaving the reader with nothing.
 """

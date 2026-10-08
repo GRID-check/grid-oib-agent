@@ -328,7 +328,7 @@ describe('a stored step is the wire v2 shape and nothing else', () => {
     ])
   })
 
-  it('refuses the pre-v2 shape: no kind, no step', () => {
+  it('refuses a step that is not in the current wire shape', () => {
     // Migration 0097 rewrote every stored row. A `functionName` step reaching
     // this gate is a writer bug, and interpreting it would be the read-time
     // branch the cut deleted.
@@ -345,7 +345,7 @@ describe('a stored step is the wire v2 shape and nothing else', () => {
     expect(sanitizeProvenance({ thinkingSteps: [step({ kind: 'llm' })] })).toBeNull()
   })
 
-  it('drops the old display fields and anything a step must never carry', () => {
+  it('drops the display fields and anything a step must never carry', () => {
     const result = sanitizeProvenance({
       thinkingSteps: [
         step({

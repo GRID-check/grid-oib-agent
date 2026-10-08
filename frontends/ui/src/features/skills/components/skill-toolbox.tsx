@@ -9,21 +9,20 @@
  * than out of writing its first skill from a blank editor, so the curated set
  * is the top of the page rather than an appendix to it.
  *
- * The pipeline's own machinery used to sit in this same grid as equal cards,
- * each offering a "clone". Both were wrong. Those are hardcoded files, not
- * rows: nobody installs one, nobody can edit one, and every one of them
+ * The pipeline's own machinery is not shown here. Those are hardcoded files,
+ * not rows: nobody installs one, nobody can edit one, and every one of them
  * declares `grid-agents: deep_researcher`, so none is even invocable from chat
- * — they are how deep research analyses figures and writes its report. Five of
- * them in front of an org with two skills of its own made the page look like it
- * was mostly ours, and the one action they offered produced a frozen copy of an
- * instruction the org never wrote. They are gone from this surface entirely
- * (see `lib/skills/service.ts::listSkills`) and still resolve for every run.
+ * — they are how deep research analyses figures and writes its report. Listing
+ * them as equal cards, each offering a "clone", would make the page look mostly
+ * the org's own and would produce a frozen copy of an instruction the org never
+ * wrote. They are absent from this surface (see `lib/skills/service.ts::listSkills`)
+ * and still resolve for every run.
  *
- * What replaces clone is a switch, in both halves of the page. A skill is
- * either in play for this organization or it is not, and that is the only state
- * anyone here has an opinion about: for an org's own skill it is
- * `skills.enabled`, which already gated resolution but sat three clicks deep in
- * the editor; for a curated one it is the org's activation decision.
+ * The only action on either half of the page is a switch. A skill is either in
+ * play for this organization or it is not, and that is the only state anyone
+ * here has an opinion about: for an org's own skill it is `skills.enabled`, which
+ * gates resolution and is shown here rather than three clicks deep in the
+ * editor; for a curated one it is the org's activation decision.
  *
  * A card opens its drawer, and a `?skill=` deep link opens it directly — an
  * org id, or a curated name. Authoring is gated on org:skills:manage; without
@@ -72,9 +71,10 @@ interface SkillToolboxProps {
   /**
    * Bumped by the panel after a save, to re-fetch.
    *
-   * Without it a skill you had just written did not appear until a reload —
-   * the save succeeded, the toast said so, and the page still showed the list
-   * from before it, which reads as the save having done nothing.
+   * The list is otherwise read only on mount, so a skill just written would not
+   * appear until a reload — the toast says the save worked, and the page would
+   * still show the list from before it, which reads as the save having done
+   * nothing.
    */
   reloadKey?: number
   /** Categories changed outside (editor save) — re-fetch above. */
@@ -318,9 +318,9 @@ export function SkillToolbox({
           nothing curated yet, a lone "Your skills" heading over the only list
           on the page is a label for the page, which the page already has. */}
       {/* The heading is conditional; the way into the category manager is not.
-          It used to ride inside this block, so an org with no curated offers —
-          or a search matching only its own skills — lost the only door to the
-          manager. A control that vanishes with an unrelated list is a control
+          Tying the button to this block would lose the only door to the manager
+          for an org with no curated offers, or for a search matching only its
+          own skills. A control that vanishes with an unrelated list is a control
           nobody can find twice. */}
       {skills !== null && !error && curated.length === 0 && canManage && (
         <div className="mt-8 flex items-center">
@@ -515,13 +515,12 @@ function CategorySection({
                   className="flex shrink-0 items-center gap-2"
                   onClick={(event) => event.stopPropagation()}
                 >
-                  {/* Scope, and ONLY when there is one. This used to be an
-                      execution-mode badge on every row, which said what a
-                      scheduled run would produce while reading as though it
-                      said where the skill applied — and a badge every row
-                      carries tells you nothing anyway. A skill reaches both
-                      agents unless it says otherwise, so the badge appears
-                      exactly when that is not true. */}
+                  {/* Scope, and ONLY when there is one. A badge every row carries
+                      tells you nothing, and an execution-mode badge would say what
+                      a scheduled run produces while reading as though it said
+                      where the skill applies. A skill reaches both agents unless it
+                      says otherwise, so the badge appears exactly when that is not
+                      true. */}
                   {agentScopeLabelKey(skill.metadata['grid-agents']) && (
                     <Badge variant="outline">
                       {t(`toolbox.scope.${agentScopeLabelKey(skill.metadata['grid-agents'])}`)}
@@ -574,7 +573,7 @@ function CategorySection({
                 shape a job card's tray has.
 
                 The left side speaks only when there is something to say. "In
-                this organization" used to sit on every row, which is what the
+                this organization" would sit on every row and repeat what the
                 page already says; what is worth a line is a skill that is
                 switched OFF, because a card the agent will never reach should
                 say so somewhere that is not only a toggle's position. */}

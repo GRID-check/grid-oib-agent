@@ -119,7 +119,7 @@ DOCUMENT_PATH_SEGMENTS: dict[str, str] = {
     "Erlaesse": "Erlaesse",
 }
 
-# Document-number prefix -> citizen-application path segment, used to infer
+# Document-number prefix -> citizen-application path segment, for inferring
 # the fetch URL when the agent passes a bare document number.
 _DOC_PREFIX_SEGMENTS: tuple[tuple[str, str], ...] = (
     ("NOR", "Bundesnormen"),
@@ -253,9 +253,9 @@ _METADATA_FIELDS = (
 _TITLE_KEYS = ("Kurztitel", "Titel", "Dokumenttitel", "Kurzinformation", "Geschaeftszahl")
 
 
-#: The host OGD-RIS started stating in 2026-09 for document and whole-law URLs.
-#: It answers with a 301 to ``ris.bka.gv.at``, is on no allow-list, and written
-#: into the norm catalog it replaced every pointer the reader can open.
+#: The host OGD-RIS states for document and whole-law URLs. It answers with a
+#: 301 to ``ris.bka.gv.at``, is on no allow-list, and written into the norm
+#: catalog it would replace every pointer the reader can open.
 _OGD_HOST_PREFIX = "https://ogd.ris.bka.gv.at/"
 _PUBLIC_HOST_PREFIX = "https://www.ris.bka.gv.at/"
 
@@ -348,18 +348,18 @@ _TITLE_RE = re.compile(r"<title[^>]*>(.*?)</title>", re.IGNORECASE | re.DOTALL)
 
 #: The RIS page element that holds the document, and nothing else.
 #:
-#: Measured against ``GeltendeFassung.wxe`` for the Bauordnung für Wien
-#: (2026-09-04): the page is 759,687 characters of extracted text and ``#content``
-#: holds 759,015 of them. The 672 characters outside it are the site's own
-#: furniture — an accesskey menu ("Zum Inhalt (Accesskey 0)"), the navigation
-#: bar, the footer — and they sit at the FRONT, which is where they do the most
-#: damage: they are the first thing the in-app reader shows, the first thing the
+#: Measured against ``GeltendeFassung.wxe`` for the Bauordnung für Wien: the page
+#: is 759,687 characters of extracted text and ``#content`` holds 759,015 of them.
+#: The 672 characters outside it are the site's own furniture — an accesskey menu
+#: ("Zum Inhalt (Accesskey 0)"), the navigation bar, the footer — and they sit at
+#: the FRONT, which is where they do the most damage: they are the first thing the
+#: in-app reader shows, the first thing the
 #: agent reads inside its ``max_chars`` window, and they are ingested into the
 #: session collection where they become retrievable text that is not law.
 #:
 #: Absence is not an error. A ``/Dokumente/…`` document page, an XML payload, or
 #: a future RIS template may carry no such container, and then the whole document
-#: is the answer exactly as it was before.
+#: is the answer.
 _RIS_CONTENT_SELECTOR = "#content"
 
 
@@ -387,8 +387,8 @@ def html_to_text(markup: str) -> tuple[str, str]:
             tag.decompose()
         # RIS states every marker twice: ``a)`` for the eye (aria-hidden) and
         # ``Litera a`` for a screen reader (.sr-only), and every citation again
-        # spelled out ("Paragraph 118, Absatz eins"). Kept, the spoken twin was
-        # a third of the Bauordnung für Wien and half of some §§, and it pushed
+        # spelled out ("Paragraph 118, Absatz eins"). Kept, the spoken twin is
+        # a third of the Bauordnung für Wien and half of some §§, and it pushes
         # the provision itself out of the passage the agent reads.
         for tag in soup.select(".sr-only"):
             tag.decompose()
@@ -452,23 +452,19 @@ class RisClient:
                 # EVERY HOP IS CHECKED, NOT THE FIRST ONE.
                 #
                 # `fetch_document_text` validates the URL it is given and then
-                # hands it to a client that follows up to twenty redirects. So
-                # the allow-list bound the REQUEST and not the FETCH: a RIS
-                # endpoint that reflects a query parameter into `Location` —
-                # and the citizen application is query-driven WebForms
-                # throughout — turned the check into a formality, and the
-                # response body came back to the caller from wherever the last
-                # hop pointed. Cloud metadata, the backend's own internal API,
-                # Dragonfly, the object store: all reachable from inside the
-                # cluster, all http, none of them RIS.
+                # hands it to a client that follows up to twenty redirects, so a
+                # check on the request alone does not bound the fetch. A RIS
+                # endpoint that reflects a query parameter into `Location` (the
+                # citizen application is query-driven WebForms throughout) sends
+                # the response body from wherever the last hop points: cloud
+                # metadata, the backend's own internal API, Dragonfly, the object
+                # store. All are reachable from inside the cluster, all http, and
+                # none of them RIS.
                 #
-                # That was survivable while the only caller was the agent
-                # passing URLs it had just received FROM RIS. It stopped being
-                # survivable when `GET /v1/ris/document` began taking the URL
-                # from a signed-in user, which is what made it worth closing
-                # here rather than at that route: a hook on the client covers
-                # `search()` and every future caller too, and it cannot be
-                # forgotten by one of them.
+                # The agent passes URLs it received from RIS, but
+                # `GET /v1/ris/document` takes the URL from a signed-in user. The
+                # hook sits on the client, so `search()` and every future caller
+                # get it too, and none of them can forget it.
                 event_hooks={"request": [self._reject_non_ris_hop]},
                 headers={
                     "Accept": "application/json, text/html;q=0.9, */*;q=0.8",
@@ -604,11 +600,10 @@ class RisClient:
         return document
 
     def _cache_document(self, url: str, document: RisDocument) -> None:
-        # ``cache_max_entries=0`` means "do not cache in this process" — the
-        # caller has a shared one and does not want a second copy of the same
-        # megabyte per worker. Without this clause that argument evicted from an
-        # empty dict, and ``min(())`` raises: the way to turn the cache off
-        # crashed the first fetch that used it.
+        # ``cache_max_entries=0`` means "do not cache in this process": the caller
+        # has a shared one and does not want a second copy of the same megabyte
+        # per worker. The guard keeps the eviction below from running on an empty
+        # dict, where ``min(())`` would raise.
         if self.cache_max_entries <= 0:
             return
         if len(self._doc_cache) >= self.cache_max_entries:

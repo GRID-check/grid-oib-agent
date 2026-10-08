@@ -50,7 +50,7 @@ export const bim = {
     lengthUnit: 'Length unit',
     // Scoped: only the area and volume totals are complete. The same string
     // is rendered under the element table and above the model check, and it
-    // was reassuring across two boundaries it does not cover.
+    // would reassure across two boundaries it does not cover.
     truncated:
       'This model has more than {limit} elements. Area and volume totals are complete; the element list, the model check and the filters see only that part.',
   },
@@ -58,7 +58,7 @@ export const bim = {
     title: 'Model check',
     score: 'Model quality {score}/100',
     // Not "every element": validation does not see the elements past the
-    // extraction cap, so on a capped model this was a clean bill of health
+    // extraction cap, so on a capped model this would be a clean bill of health
     // issued over a subset — see `extract.ts`.
     clean:
       'No findings in these checks. Of the elements checked, every one is placed, uniquely identified and named.',
@@ -169,8 +169,9 @@ export const bim = {
     showInModel: 'show in model',
     more: '{count} more elements',
     // A rule with seven findings shows six and would otherwise render "1 more".
-    // The sibling key predates the plural blocks `src/i18n/translate.ts` now
-    // understands; it is correct as it stands, so it keeps its shape.
+    // The sibling key is a flat string, not a plural block, which
+    // `src/i18n/translate.ts` also understands; it is correct as it stands, so
+    // it keeps its shape.
     moreOne: 'One more element',
     truncated: 'Further elements are affected — see the counts above.',
     missingFacts:
@@ -291,12 +292,12 @@ export const bim = {
     /**
      * What each quantity is CALLED, and what it is measured in.
      *
-     * The dropdown and the value column used the raw IFC token — `NetSideArea`
-     * — and the column carried no unit at all, so a Massenermittlung read
-     * "NetSideArea · 412" where a Kostenschätzung needs "Netto-Seitenfläche ·
-     * 412 m²". The sibling Raumbuch has always appended its unit; this table
-     * did not. The `dim` half says which unit symbol from the model applies,
-     * because the model declares them and this table must not invent one.
+     * The dropdown and the value column show the name, never the raw IFC token
+     * — `NetSideArea` — and the value carries its unit: a Massenermittlung reads
+     * "Netto-Seitenfläche · 412 m²", not "NetSideArea · 412". The sibling
+     * Raumbuch appends its unit too. The `dim` half says which unit symbol from
+     * the model applies, because the model declares them and this table must
+     * not invent one.
      */
     quantityName: {
       NetSideArea: 'Net side area',
@@ -366,10 +367,9 @@ export const bim = {
    * has never opened a BIM tool: "See through", not "X-ray context"; "Storey",
    * not "IfcBuildingStorey"; "Fit the whole model", not "Zoom extents".
    *
-   * Plain language, but ONE word per thing. This surface used to say "Levels"
-   * and "components" where the drawer's tables — on the same screen, over the
-   * same building — said "Storeys" and "elements", so the two halves of the
-   * page read as two products. The German never had the split: Geschoß and
+   * Plain language, but ONE word per thing. This surface says "Storeys" and
+   * "elements", the same words as the drawer's tables on the same screen, so
+   * the two halves of the page read as one product. The German is Geschoß and
    * Bauteil throughout. Neither "storey" nor "element" is jargon.
    */
   stage: {
@@ -381,9 +381,9 @@ export const bim = {
      * One step back through the STAGE, not through the browser.
      *
      * Not "Back", which on a full-screen surface reads as "leave" — and this
-     * one never leaves the model. Not "the previous view" either, which it
-     * used to say: the step it takes back is just as often a hide or an
-     * isolate, and those are not views. "The last change" is the only phrase
+     * one never leaves the model. Not "the previous view" either: the step it
+     * takes back is just as often a hide or an isolate, and those are not
+     * views. "The last change" is the only phrase
      * that is true of every step in the stack.
      */
     back: 'Undo the last change',
@@ -397,12 +397,10 @@ export const bim = {
     otherModel:
       'This link names “{wanted}”, which is not in this project. Showing “{opened}” instead.',
     /**
-     * The reset, next to the undo — and it had to stop saying "hidden".
-     *
-     * It clears isolation too, and isolating hides nothing: it takes away
-     * everything else. A reader who had isolated one wall was offered
-     * "restore hidden elements" for the one control that would give them
-     * their building back, and nothing they had done was called hiding.
+     * The reset, next to the undo. It clears isolation too, and isolating hides
+     * nothing: it takes away everything else. So the label does not say
+     * "hidden": a reader who had isolated one wall would be offered "restore
+     * hidden elements" for the one control that gives them their building back.
      */
     showEverything: 'Show all elements again',
     elevation: '{value} m',
@@ -411,8 +409,7 @@ export const bim = {
       // NOT "the building itself is fine" — this product never delivers a
       // verdict on a building, least of all from an error toast, and the model
       // may carry a hundred Modellprüfung findings while this is on screen.
-      // The German has always said only that the failure is not the building's
-      // doing.
+      // The German says only that the failure is not the building's doing.
       'The element list could not be loaded, so nothing in the model can be selected or filtered. Nothing about the building caused this.',
     readFailed:
       // "The extractor" is an internal component; the German names none. What
@@ -430,7 +427,7 @@ export const bim = {
       loading: 'Loading…',
       // `Element`, not `Component`. The one-word rule stated at the top of
       // this block: the drawer's tables say `elements`, and this heading sits
-      // beside them. German said `Bauteil` in both places all along.
+      // beside them. German says `Bauteil` in both places.
       about: 'Element',
       hide: 'Hide',
       isolate: 'Isolate',

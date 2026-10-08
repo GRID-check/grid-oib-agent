@@ -1,11 +1,11 @@
 /**
  * The diagram's palette, and the three claims it makes.
  *
- * Every one of these was a real defect before it was a test: the drawing was
- * mermaid's lavender because nobody chose a theme; it would have been a
- * hard-coded ink ramp if the values were written down here instead of read; and
- * the filed copy would have carried the reader's dark theme onto a printed page
- * if the paper palette could not be read while `.dark` is on the root.
+ * Each of these is a defect the palette could fall into: the drawing could come
+ * out as mermaid's lavender because nobody chose a theme; it could be a hard-coded
+ * ink ramp if the values were written down here instead of read; and the filed
+ * copy could carry the reader's dark theme onto a printed page if the paper
+ * palette could not be read while `.dark` is on the root.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { diagramThemeVariables, resetDiagramPaletteCache } from './diagram-palette'
@@ -92,7 +92,7 @@ describe('the palette is the product’s, not mermaid’s', () => {
   })
 
   it('names no colour outside the monochrome it was given', () => {
-    // The defect this replaces was `#ECECFF` / `#9370DB` — mermaid's default
+    // The defect this guards against is `#ECECFF` / `#9370DB` — mermaid's default
     // theme, inherited. Chroma of any kind belongs to the provenance signals,
     // and a Verfahrensablauf is not one.
     stubCanvas()
@@ -183,7 +183,7 @@ describe('the stubbed tokens are the shipped tokens', () => {
   // hexes `styles/tokens.css` documents beside each token. A token moved
   // without its comment still slips past — but a token moved WITH its comment,
   // which is the repo's convention, fails here instead of shipping a drawing
-  // whose labels no longer pass AA.
+  // whose labels do not pass AA.
   it('matches the hexes tokens.css documents for the ramp the diagram uses', async () => {
     const { readFileSync } = await import('node:fs')
     const { resolve } = await import('node:path')

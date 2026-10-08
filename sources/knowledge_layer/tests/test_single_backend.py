@@ -1,8 +1,7 @@
 """The knowledge layer has one backend, llamaindex (ADR-0072).
 
-``backend`` is no longer a config key: a config written before the deletion
-still loads (the key is ignored), and whatever it said, the function wires the
-llamaindex adapter.
+``backend`` is not a config key: a config that still sets it loads (the key is
+ignored), and whatever it says, the function wires the llamaindex adapter.
 """
 
 from knowledge_layer.register import KnowledgeRetrievalConfig

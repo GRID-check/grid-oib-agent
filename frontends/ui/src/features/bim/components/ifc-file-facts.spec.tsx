@@ -1,9 +1,9 @@
 /**
  * The model's facts in the file preview's metadata rail.
  *
- * The rail used to describe a 148 MB building with the passage count of the
- * prose written about it. What it must say instead is what the model contains —
- * and, just as importantly, must NOT say anything the export did not publish.
+ * The rail states what the model contains, not the counts of the prose written
+ * about it. And, just as importantly, it must NOT say anything the export did
+ * not publish.
  */
 
 import { describe, expect, it, beforeEach, vi } from 'vitest'

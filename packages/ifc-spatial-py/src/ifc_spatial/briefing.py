@@ -1,10 +1,10 @@
 """Model-level operators: what the agent is told before it asks anything.
 
-A port of ``packages/ifc-spatial/src/operators/model.ts`` plus the two functions
-in ``graph/build.ts`` that feed it — ``measureDialect`` and ``findBlindSpots`` —
-onto IfcOpenShell. The German wording is verbatim; what changes underneath is
-only where the facts come from, because there is no CSR graph here to read them
-out of.
+The operators of ``packages/ifc-spatial/src/operators/model.ts`` and the two
+functions in ``graph/build.ts`` that feed them — ``measureDialect`` and
+``findBlindSpots`` — on IfcOpenShell. The German wording is the TS package's,
+verbatim; what differs underneath is only where the facts come from, because
+there is no CSR graph here to read them out of.
 
 ## Why a briefing exists at all
 
@@ -40,17 +40,18 @@ cheapest call the most expensive one. What it does instead is REPORT whether the
 pass has already run, and say — as a blind spot, in German — that the measured
 answers are unavailable until it does. That is the same discipline the TS
 version applies from the other side: its briefing has no geometry because its
-graph builder runs first, and the bug it had to fix was a hard-coded sentence
-claiming the geometric answers were impossible on files where they were not.
+graph builder runs first. A sentence claiming the geometric answers are
+impossible would be wrong on files where they are not, so this one reports the
+pass's state instead.
 
-## Where the facts come from now
+## Where the facts come from
 
 The TS briefing reads a materialised graph: ``out(graph, 'hostedIn', id)``,
 ``graph.stats.edgesByKind``, ``graph.dialect``. None of that exists here, and
 none of it needs to: ``FillsVoids``/``VoidsElements`` is the hostedIn coverage,
 ``IfcSpace.BoundedBy`` is the boundary coverage, and
-``ifcopenshell.util.element.get_psets`` is the dialect. What survives unchanged
-is every sentence and every cap.
+``ifcopenshell.util.element.get_psets`` is the dialect. Every sentence and every
+cap is shared with the TS builder.
 """
 
 from __future__ import annotations
@@ -641,13 +642,12 @@ def storey_heights(model: SpatialModel) -> Answer[list[dict[str, Any]]]:
 
     ## Why this is ``declared`` and not ``computed``
 
-    It returned ``computed``, and the renderer prints that as „aus der Geometrie
-    berechnet, nicht deklariert" — directly contradicting this function's own
-    caveat two lines below it („gebildet aus den deklarierten Höhenlagen"), in
-    the same answer. Nothing here touches geometry: ``elevation`` is
+    The renderer prints ``computed`` as „aus der Geometrie berechnet, nicht
+    deklariert", which would contradict this function's own caveat two lines
+    below it („gebildet aus den deklarierten Höhenlagen") in the same answer.
+    Nothing here touches geometry: ``elevation`` is
     ``IfcBuildingStorey.Elevation`` read verbatim, and ``height`` is one declared
-    number minus the next. The reviewer verified it — ``model.geometry_seconds``
-    stays 0.000 across the call.
+    number minus the next. ``model.geometry_seconds`` stays 0.000 across the call.
 
     A subtraction of two numbers the file states does not change where they came
     from. If the elevations are wrong, this answer is wrong, and that is exactly
@@ -1021,9 +1021,9 @@ LEXICON: tuple[LexiconEntry, ...] = (
     LexiconEntry("podest", "erschliessung"),
     # ── English, because the export language is not the building's country ───
     #
-    # The file this library was first measured against is an Austrian sample
-    # house exported from Revit with its rooms named "Living room", "Bedroom",
-    # "Entrance hall" — and a German-only lexicon classified none of the four.
+    # The sample house is an Austrian model exported from Revit with its rooms
+    # named "Living room", "Bedroom", "Entrance hall" — a German-only lexicon
+    # would classify none of them.
     # That failure is the common case, not the exotic one: the authoring tool's
     # UI language decides these strings, and an office running an English Revit
     # produces English room names for a building in Vienna. A lexicon that only
@@ -1273,8 +1273,8 @@ def measure_dialect(
     model question gets a confidently wrong answer. The cure is to publish the
     vocabulary rather than warn the reader to guess carefully.
 
-    ``ifcopenshell.util.element.get_psets`` replaces the TS parser's property
-    index, and it does one thing that index could not: it inherits from the
+    ``ifcopenshell.util.element.get_psets`` reads the property sets, and it does
+    one thing the TS parser's property index did not: it inherits from the
     element TYPE. That is the right behaviour for this measurement, because a
     filter written against the file will see the inherited value too — reporting
     a property as absent because it lives on ``IfcWindowType`` would send an
@@ -1488,21 +1488,14 @@ def _products_with_representation(model: SpatialModel) -> int:
 def _geometry_blind_spots(model: SpatialModel) -> list[BlindSpot]:
     """The geometry-related blind spots, which depend on whether geometry ran.
 
-    ## The bug this shape exists to kill
+    ## Why the geometry blind spots ask the model
 
-    The TS ``findBlindSpots`` used to append, unconditionally,
-
-        keine Geometrie in dieser Ausbaustufe → Abstände, lichte Maße,
-        Auskragungen, Flächen aus Geometrie und der freie Lichteinfall sind noch
-        nicht berechenbar
-
-    because the list was assembled in ``buildGraph``, which by construction runs
-    before the geometry pass. Every model the library opened therefore carried a
-    sentence telling the reader that the geometric answers were impossible —
-    printed under ``BLIND``, in front of an agent whose whole job is to decide
-    what it can and cannot answer. A false "undecidable" is the exact failure
-    this library was built to end, and the library was emitting one about
-    itself on every file.
+    Both directions are false claims. A sentence that says the geometric answers
+    are impossible is a false "undecidable" when the model has geometry, and a
+    sentence that says they are only a call away is a false capability claim
+    when it has none. The TS builder emits the first unconditionally, because
+    its list is assembled before the geometry pass runs; a fixed sentence in
+    either direction is wrong on some file.
 
     So this asks the model. ``SpatialModel`` is lazy: the pass runs on the first
     model-wide question and not before, and ``geometry_seconds`` is the record
@@ -1510,18 +1503,12 @@ def _geometry_blind_spots(model: SpatialModel) -> list[BlindSpot]:
     names the remedy as a call rather than as a re-export — because nothing is
     missing from the file.
 
-    ## And the mirror-image bug, which it then had
-
-    „sie sind aber berechenbar, dieser Export trägt Geometrie" was emitted
-    unconditionally, on files that contain no body at all. Four of the five
+    The capability claim is conditioned on the file as well. Four of the five
     fixtures — ``haus-mit-raeumen.ifc``, ``einheiten-fuss.ifc``,
     ``geschossdecke-und-fenster.ifc`` and ``strasse-ifc4x3.ifc`` — carry a
-    ``Representation`` on **0** of their ``IfcProduct`` entities, and every one
-    of them was told the geometric answers were only a call away. A false
-    capability claim in the block whose whole job is to say what the file cannot
-    answer is the same failure as the false „undecidable", pointing the other
-    way: it costs the agent a geometry pass and a turn, and it propagates into
-    the IDS summary.
+    ``Representation`` on **0** of their ``IfcProduct`` entities, and for them
+    "only a call away" is false: it costs the agent a geometry pass and a turn,
+    and it propagates into the IDS summary.
 
     The honest test is one attribute read per product and no kernel work: does
     any ``IfcProduct`` carry a ``Representation`` at all.

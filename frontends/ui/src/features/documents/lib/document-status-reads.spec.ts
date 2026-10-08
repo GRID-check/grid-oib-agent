@@ -83,7 +83,7 @@ describe('nextStatusBatch', () => {
 })
 
 describe('mergeStatusReads', () => {
-  it('merges by id and drops a row the server no longer has', () => {
+  it('merges by id and drops a row the server does not have', () => {
     const rows = [row('a', 'processing'), row('b', 'completed'), row('c', 'processing')]
     const reads = new Map<string, DocumentStatusRead>([
       ['a', { kind: 'row', fields: { status: 'completed', pageCount: 4 } }],

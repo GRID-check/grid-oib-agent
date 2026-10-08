@@ -1,12 +1,12 @@
 /**
  * Bounded-concurrency runner for a batch of uploads.
  *
- * The project and Archiv upload paths used to be a `for … await` loop: file two
- * did not start until file one had crossed the wire, been written to object
- * storage, been admitted against the org quota and been dispatched to the
- * ingest API. A twelve-document Einreichung therefore took twelve round trips
- * end to end, on a link that was idle for most of each one — and the last file
- * in the list showed no sign of life until the eleven before it had finished.
+ * Sending one file at a time would start file two only after file one had
+ * crossed the wire, been written to object storage, been admitted against the
+ * org quota and been dispatched to the ingest API. A twelve-document Einreichung
+ * would take twelve round trips end to end, on a link that was idle for most of
+ * each one, and the last file in the list would show no sign of life until the
+ * eleven before it had finished.
  *
  * Running several at once fixes both: wall-clock time collapses toward the
  * slowest file rather than the sum of all of them, and every file in the batch
@@ -65,10 +65,10 @@ export const RATE_LIMIT_RETRIES = 3
  * `send`, waiting out a 429 with the server's own `Retry-After` instead of
  * failing the file.
  *
- * A folder bigger than the upload budget used to lose every file past the
- * limit, and "Retry all" then fired them all at once into the same refusal. A
- * refused file now waits its turn and goes again, a bounded number of times, so
- * a big batch slows down rather than breaks. Any other failure, and an abort
+ * A folder bigger than the upload budget would lose every file past the limit,
+ * and "Retry all" would then fire them all at once into the same refusal. So a
+ * refused file waits its turn and goes again, a bounded number of times, and a
+ * big batch slows down rather than breaks. Any other failure, and an abort
  * during the wait, is rethrown as it came.
  */
 export async function sendWaitingOutRateLimit<T>(

@@ -145,10 +145,9 @@ class TestGetCollectionScopeFromContext:
 class TestTheShelfTravelsInTheHeader:
     """``X-Grid-Collection-Scope`` carries the shelf as data (ADR-0047).
 
-    Both wire shapes are read: the current ``{collection, shelf}`` objects and
-    the legacy bare strings a not-yet-deployed BFF still sends. A bare string
-    states no shelf, and that stays UNKNOWN — the collection id is never
-    inspected to guess one back.
+    Both wire shapes are read: the ``{collection, shelf}`` objects and the bare
+    strings an older BFF may still send. A bare string states no shelf, and that
+    stays UNKNOWN — the collection id is never inspected to guess one back.
     """
 
     @staticmethod
@@ -173,8 +172,8 @@ class TestTheShelfTravelsInTheHeader:
             ]
 
     def test_a_session_collection_is_session_not_projekt(self):
-        # The headline bug: `('s_', 'projekt')` was the only guess available, so
-        # a private chat attachment was attributed to project knowledge.
+        # Never guess the shelf from the collection name: `('s_', 'projekt')`
+        # would attribute a private chat attachment to project knowledge.
         ctx = self._ctx([{"collection": "s_9f2a4c", "shelf": "session"}])
         with patch("aiq_agent.knowledge.scoping.Context.get", return_value=ctx):
             (entry,) = get_scoped_collections_from_context()
@@ -237,16 +236,15 @@ class TestTheShelfTravelsInTheHeader:
 class TestABlankNameMeansTheSameOnBothSidesOfTheSeam:
     """A blank collection name is READABLE and names nothing — not unreadable.
 
-    The two parsers used to disagree about it. The resolver
-    (``scoping._parse_scope_payload``) threw the WHOLE payload away over one
-    blank name, while the envelope parser
-    (``project_context._as_scope_entries``/``_scope_names``) kept it and
-    projected ``""`` straight through. Both now skip just the blank entry.
+    Both parsers skip just the blank entry: the resolver
+    (``scoping._parse_scope_payload``) and the envelope parser
+    (``project_context._as_scope_entries``/``_scope_names``) must read it the
+    same way.
 
-    Voiding the payload was also not the fail-closed direction it looked like:
-    ``None`` reads as ABSENT downstream, so
-    ``get_scoped_collections_from_context_or`` replaces it with the
-    config-derived layers — potentially WIDER than the scope actually sent.
+    Voiding the whole payload is not the fail-closed direction: ``None`` reads
+    as ABSENT downstream, so ``get_scoped_collections_from_context_or`` replaces
+    it with the config-derived layers — potentially WIDER than the scope
+    actually sent.
     """
 
     @staticmethod
@@ -371,8 +369,8 @@ class TestSignedEnvelopePrecedence:
         assert result is None
 
     def test_raw_header_honored_when_no_envelope(self, monkeypatch):
-        # Anonymous / internal-service / legacy path: no envelope present, so the
-        # raw header is still used (parity with pre-envelope behavior).
+        # Anonymous and internal-service calls carry no envelope, so the raw
+        # header is what scopes them.
         monkeypatch.delenv("GRID_INTERNAL_API_TOKEN", raising=False)
         scope = ["oib_knowledge", "s_conv"]
         header = base64.urlsafe_b64encode(json.dumps(scope).encode()).decode()

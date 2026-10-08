@@ -2,9 +2,8 @@
  * Organization tier shell (ADR-0016).
  *
  * The chrome, the "back to projects" way out and the section nav live here, so
- * every subsection inherits them and none can forget them. The tier used to be
- * one page stacking settings, members, models, BYOK, budgets and the audit trail
- * in a single scrolling column; each is now its own route under this layout.
+ * every subsection inherits them and none can forget them. Each subsection is
+ * its own route under this layout.
  *
  * Deliberately NOT a gate. Two of the sections — the overview and a member's own
  * usage — are open to anyone in the organization, so blocking here would lock
@@ -41,7 +40,7 @@ export default async function OrganizationLayout({
     // Capability flags decide the nav, exactly as they decide each route: a custom
     // role holding a single granular permission (e.g. org:models:manage) sees that
     // one section and nothing else. Order is irrelevant here — the nav owns it.
-    // Storage joins the overview and budgets as a section every member sees:
+    // Storage sits beside the overview and budgets as a section every member sees:
     // a member whose upload was just refused needs to be able to find out why,
     // and the quota itself is only editable with `org:settings:manage`.
     // Sensitive data and quarantine are open to every member too (ADR-0079): an

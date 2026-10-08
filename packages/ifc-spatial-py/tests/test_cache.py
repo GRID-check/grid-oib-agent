@@ -39,7 +39,8 @@ def test_the_key_is_the_content_and_not_the_name(tmp_path: Path) -> None:
 
 def test_an_edited_file_is_a_guaranteed_miss(tmp_path: Path) -> None:
     """The failure a name-keyed cache eventually produces and cannot be talked
-    out of: serving the graph of the file as it used to be."""
+    out of: serving the graph of a file that has since been replaced under the
+    same name."""
     path = tmp_path / "modell.ifc"
     path.write_bytes(SMALL.read_bytes())
     cache = SpatialCache()

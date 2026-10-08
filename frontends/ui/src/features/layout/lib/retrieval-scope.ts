@@ -3,9 +3,9 @@
  *
  * Project documents and the Büroarchiv both ride the knowledge layer, which is
  * not a toggleable data source. The composer chips ("Projektunterlagen" /
- * "Büroarchiv") used to only switch RIS/web off and still searched every
- * shelf — so a project question mixed in Archiv hits (#436) and "summarize
- * this upload" walked the whole corpus (#429).
+ * "Büroarchiv") choose the shelves a turn searches: a project question must
+ * not mix in Archiv hits, and "summarize this upload" must not walk the whole
+ * corpus.
  *
  * Documented twin of `shelves_for_turn` in `src/aiq_agent/common/focus_file.py`.
  * The wire carries intent (`focus_shelf` / `source_preset`), never this list.
@@ -26,8 +26,7 @@ export function includeShelvesForTurn(input: {
 }): RetrievalShelf[] | undefined {
   // The law is not a competing shelf, so a subject file never subtracts it —
   // see `shelves_for_turn` in `src/aiq_agent/common/focus_file.py` for the
-  // argument and for the asymmetry (the `project` PRESET kept `base`; the
-  // `project` SHELF did not) that exposed it.
+  // argument.
   if (input.subjectShelf === 'session') return ['session', 'base']
   if (input.subjectShelf === 'project') return ['project', 'session', 'base']
   if (input.subjectShelf === 'archiv') return ['archiv', 'session', 'base']

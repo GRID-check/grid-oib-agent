@@ -3,13 +3,13 @@
 /**
  * The one back control for pages that live OUTSIDE the project shell — the org
  * Archiv, Organisation, Platform, Inbox, Profil. Those pages drop the project
- * rail, so this link is the whole way out, and each of them used to hard-code
- * its own guess at where "back" is (`/app/projects`, or the reader's active
- * project). For most readers that guess was wrong: they open the Archiv from
- * the ⌘K palette or the user menu, from whatever page they were working on, and
- * landing somewhere they had not been reads as "back did not work".
+ * rail, so this link is the whole way out, and each of them hard-codes its own
+ * guess at where "back" is (`/app/projects`, or the reader's active project).
+ * That guess is wrong for most readers: they open the Archiv from the ⌘K palette
+ * or the user menu, from whatever page they were working on, and landing
+ * somewhere they had not been reads as "back did not work".
  *
- * So it isn't a guess any more. The tab's return trail
+ * So it is not a guess. The tab's return trail
  * (`lib/navigation/return-trail`) knows the location one step back and, when
  * that page named itself, what to call it: coming out of a project, the label is
  * the PROJECT'S NAME — "Zurück zu Stadthaus Wien" — because leaving that project
@@ -21,8 +21,8 @@
  * cached payload, none of which a fresh push to the same URL restores.
  *
  * Tabbed shells (Organisation, Platform, Inbox, Profil) are one place, not a
- * stack of submenus. The trail already collapses those siblings; if an older
- * trail still has them stacked, this control follows the href out of the shell
+ * stack of submenus. The trail already collapses those siblings; if a trail
+ * still has them stacked, this control follows the href out of the shell
  * instead of walking one tab at a time.
  *
  * The server-resolved `fallbackHref`/`fallbackLabel` still carry the case with

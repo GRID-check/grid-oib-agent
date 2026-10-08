@@ -566,7 +566,7 @@ describe('writeRunReport', () => {
     expect(metadata).toHaveProperty('citations')
   })
 
-  it('refuses a run with no message, which is how the old path stays alive', async () => {
+  it('refuses a run with no message to write the report into', async () => {
     vi.mocked(taskRepository.findRunByBackendJobId).mockResolvedValue({
       ...run,
       runMessageId: null,

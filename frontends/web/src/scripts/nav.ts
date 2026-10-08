@@ -131,8 +131,8 @@ function initMenu(header: HTMLElement) {
     toggle.setAttribute('aria-label', (next ? toggle.dataset.labelClose : toggle.dataset.labelOpen) ?? '')
     show(sheet, next, -TRAVEL.sm)
     if (scrim) show(scrim, next, 0)
-    // The scrim says the page behind is out of play, so it holds still: the
-    // page used to scroll on under the open sheet.
+    // The scrim says the page behind is out of play, so it holds still;
+    // otherwise the page would scroll on under the open sheet.
     document.documentElement.style.overflow = next ? 'hidden' : ''
     if (next) sheet.querySelector<HTMLElement>('a[href]')?.focus({ preventScroll: true })
     else if (returnFocus) toggle.focus()

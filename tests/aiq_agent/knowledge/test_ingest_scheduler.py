@@ -1,8 +1,8 @@
 """The ingest workers are shared between organisations, not handed out in arrival order.
 
-One office's folder upload used to queue every other office behind it: the
-ingestor's pool was a FIFO across all tenants. These pin the order a free worker
-takes jobs in, with workers held on events so the order is deterministic.
+One office's folder upload must not queue every other office behind it, which a FIFO across
+all tenants would do. These pin the order a free worker takes jobs in, with workers held on
+events so the order is deterministic.
 """
 
 from __future__ import annotations

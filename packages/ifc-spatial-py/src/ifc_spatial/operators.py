@@ -1,12 +1,12 @@
 """The operator vocabulary, on IfcOpenShell.
 
-A port of `packages/ifc-spatial/src/operators/{topology,metric,constructive}.ts`,
+The TypeScript operators of `packages/ifc-spatial/src/operators/{topology,metric,constructive}.ts`,
 one function per TS operator, every one returning an :class:`~ifc_spatial.envelope.Answer`.
-The German wording of `missing.what`, `missing.remedy` and every `caveat` is kept
-verbatim wherever the TypeScript has one, because the sentence an architect reads
-must not change when the engine underneath does.
+The German wording of `missing.what`, `missing.remedy` and every `caveat` is the
+TypeScript's, verbatim, because the sentence an architect reads must not change
+when the engine underneath does.
 
-## Three outcomes, never two — unchanged from the TS
+## Three outcomes, never two
 
   - **a value** — with provenance, tolerance and a method that reads like the call.
   - **undecidable** — the question was well-formed and this file cannot answer it.
@@ -15,7 +15,7 @@ must not change when the engine underneath does.
     (:class:`~ifc_spatial.model.UnknownElementError`). Never an undecidable: a
     hallucinated id must not be reportable as "das Modell sagt dazu nichts".
 
-## Where IfcOpenShell is better than what it replaces, and it is used
+## Where IfcOpenShell does better than the TS operator
 
 Marked ``BESSER`` in the docstrings and listed in ``COVERAGE.md``:
 
@@ -85,7 +85,7 @@ from .model import ElementGeometry
 from .model import SpatialModel
 from .model import WrongKindError
 
-# ── the error model, ported verbatim from metric.ts ─────────────────────────
+# ── the error model, as in metric.ts ────────────────────────────────────────
 
 #: One coordinate off a tessellated solid, in metres. Covers the kernel's chord
 #: deviation on curved surfaces plus the millimetre sloppiness of ordinary
@@ -132,8 +132,8 @@ FENESTRATION = {
 #: Excluded from the clear-height scan. A chair is not a Raumhöhe.
 FURNISHING = ("IfcFurnishingElement", "IfcFurniture", "IfcSystemFurnitureElement")
 
-# The IFC relation behind each answer, and what to tell the architect. Lifted
-# verbatim from topology.ts so that the same gap produces the same German
+# The IFC relation behind each answer, and what to tell the architect. Shared
+# verbatim with topology.ts so that the same gap produces the same German
 # sentence whichever engine discovered it.
 _RELATIONS = {
     "voids": ("IfcRelVoidsElement", "Öffnungen und Füllungen mitexportieren"),
@@ -177,8 +177,6 @@ def _wrong_kind(
 
     ## Why this is an exception and not an undecidable
 
-    It used to return ``undecidable``, and its own docstring said „nothing is in
-    fact missing from the file" while the answer it produced said the opposite.
     ``decidable: false`` has exactly one meaning in this package — the question
     is well-formed and THIS EXPORT cannot answer it — and it travels with a
     ``missing.remedy`` addressed to an architect: set the property, switch the
@@ -187,8 +185,8 @@ def _wrong_kind(
 
     Asking ``floorArea`` of a wall is not a fact about the file. Nobody can
     re-export their way out of it, and sending them to their CAD because WE
-    pointed an operator at the wrong element inverts the whole contract. The
-    review's sweep measured the cost: 316 of 1 850 ``measure``/``relations``
+    pointed an operator at the wrong element inverts the whole contract. A sweep
+    over the corpus measured the cost: 316 of 1 850 ``measure``/``relations``
     calls came back as an export defect that did not exist.
 
     An unknown GlobalId already raises (:class:`UnknownElementError`) for the
@@ -229,16 +227,12 @@ def _no_geometry(model: SpatialModel, subject: Any, method: str, from_: list[str
     ## Why ``what`` is a bare noun phrase and never starts with „keine"
 
     The renderer builds the sentence „dieser Export liefert {what} **nicht**".
-    ``what`` used to read „keine geometrische Repräsentation für IfcWall
-    „Aussenwand“ in dieser Datei", which produced
-
-        NICHT ENTSCHEIDBAR: dieser Export liefert keine geometrische
-        Repräsentation für IfcWall „Aussenwand“ in dieser Datei nicht.
-
-    — a double negation that asserts the file DOES carry the body, in the one
-    line whose entire job is to say it does not. So ``what`` names the thing that
-    is absent, positively and without an article, and lets the template supply
-    the only „nicht" in the sentence:
+    A ``what`` that starts with „keine" makes a double negation: „dieser Export
+    liefert keine geometrische Repräsentation für IfcWall „Aussenwand“ in dieser
+    Datei nicht." asserts that the file DOES carry the body, in the one line whose
+    entire job is to say it does not. So ``what`` names the thing that is absent,
+    positively and without an article, and lets the template supply the only
+    „nicht" in the sentence:
 
         NICHT ENTSCHEIDBAR: dieser Export liefert Körpergeometrie für IfcWall
         „Aussenwand“ nicht.
@@ -454,16 +448,14 @@ def bounds(model: SpatialModel, space_global_id: str) -> Answer[list[ElementRef]
     A 2nd-level export publishes one ``IfcRelSpaceBoundary`` row PER BOUNDARY
     SURFACE, so one window bounding one room arrives two, three or six times.
     The list this returns is a list of ELEMENTS, and every consumer aggregates
-    it: `light_entry_area` summed the same 2.190 m² window twice and reported
-    the bedroom at 28.41 % against a true 14.21 %; `daylight._facade_candidates`
-    credited the north wall 4.3802 m² of aperture „aus 2 Öffnung(en)" for a
-    single window — enough to outrank a genuinely larger facade and measure the
-    depth in the wrong direction; `fire.separating_elements` listed one wall
-    twice under `trennend` and `ohneFeuerwiderstand` and answered „6 Bauteile"
-    one way round and „4 Bauteile" the other. The duplicate is an artefact of
-    how the export writes geometry, never a second element, so it is removed
-    here rather than in each of the six call sites — the next consumer would
-    otherwise inherit the same defect on the day it is written.
+    it: summed twice, the same 2.190 m² window would put the bedroom at 28.41 %
+    instead of 14.21 % in `light_entry_area`; `daylight._facade_candidates` would
+    credit a wall with 4.3802 m² of aperture „aus 2 Öffnung(en)" for one window,
+    enough to outrank a genuinely larger facade; `fire.separating_elements` would
+    list one wall twice. The duplicate is an artefact of how the export writes
+    geometry, never a second element, so it is removed here rather than in each
+    of the six call sites — the next consumer would otherwise inherit the same
+    defect on the day it is written.
 
     The FIRST occurrence is kept, so the file's own order survives.
     """
@@ -987,10 +979,10 @@ def floor_area(model: SpatialModel, global_id: str, declared_area: float | None 
         # `Area` and `NetArea` mean "floor area" only on something that HAS a
         # floor. On a wall, Revit's `Dimensions.Area` is the elevation area —
         # 26.48 m² against this wall's 4.10 m² of footprint — and triangulating
-        # the two produced "die Datei widerspricht sich" on every wall of every
-        # Revit export. Both numbers were right; they measure different things,
-        # and it is the comparison that was wrong. So the ambiguous names are
-        # only consulted for a spatial element.
+        # the two would produce "die Datei widerspricht sich" on every wall of a
+        # Revit export. Both numbers are right; they measure different things,
+        # and comparing them would be the error. So the ambiguous names are only
+        # consulted for a spatial element.
         names = ("NetFloorArea", "GrossFloorArea")
         if model.kind_of(subject) == "space":
             names = ("NetFloorArea", "NetArea", "GrossFloorArea", "Area")
@@ -1035,12 +1027,12 @@ def _footprint_area(triangles: np.ndarray) -> float:
 
     ``util.shape.get_footprint_area`` keeps only triangles whose normal points
     **towards** the given direction, so it silently returns ``0.0`` for a mesh
-    wound inside-out. Which is exactly what a Revit IFC2X3 ``IfcSpace`` is: the
-    Duplex apartment's *Hallway* has 28 downward-facing faces, no upward ones,
-    and reported **0 m² of floor** against a declared 7.80 m² — with a caveat
-    claiming the element has no horizontal surfaces, which was false. A confident
-    zero is the worst thing this library can produce, because zero is a number an
-    agent will put in a sentence.
+    wound inside-out. That is what a Revit IFC2X3 ``IfcSpace`` often is: the
+    Duplex apartment's *Hallway* has 28 downward-facing faces and no upward ones,
+    so a single-direction filter would report **0 m² of floor** against a declared
+    7.80 m², with a caveat claiming the element has no horizontal surfaces. A
+    confident zero is the worst thing this library can produce, because zero is a
+    number an agent will put in a sentence.
 
     Asking IfcOpenShell for the other direction is not a fix: ``direction=(0, 0,
     -1)`` builds a degenerate basis inside ``get_footprint_area`` and raises
@@ -1052,7 +1044,7 @@ def _footprint_area(triangles: np.ndarray) -> float:
 
     Both projections are taken and the larger wins. For a closed solid the two
     silhouettes have the same area, so nothing changes where the winding was
-    already right: the sample house's rooms still measure 15.41678125 /
+    already right: the sample house's rooms measure 15.41678125 /
     51.994825 / 8.69350625 m², identical to the IfcOpenShell values the parity
     suite asserts.
     """
@@ -1183,8 +1175,8 @@ def sill_and_head(model: SpatialModel, global_id: str) -> Answer[dict[str, float
         )
 
     # The storey datum is DECLARED and the box is MEASURED; nothing in IFC makes
-    # them share a reference, and a file where they do not produced sills 58 m
-    # below their own floor in the TS package. See `_storey_datum_drift`.
+    # them share a reference, and where they do not, a sill lands tens of metres
+    # below its own floor. See `_storey_datum_drift`.
     drift = _storey_datum_drift(model)
     if drift > 0:
         return undecidable(
@@ -1235,11 +1227,10 @@ def azimuth(model: SpatialModel, global_id: str) -> Answer[dict[str, Any]]:
 
     A slab is not blind — it has a rim, and the rim is vertical. The sample
     house's ground slab ``3cUkl32yn9qRSPvBJVyWgQ`` carries 7.9 m² of vertical
-    edge faces, ``dominant_vertical_plane`` found the biggest of them, and the
-    operator confidently reported **0.0° / „N"** for a floor plate. A bearing off
-    the edge of a floor is not the orientation of anything: a slab has no facade
-    bearing, and the answer went straight into an orientation table as though it
-    had.
+    edge faces; ``dominant_vertical_plane`` finds the biggest of them and would
+    report a bearing of **0.0° / „N"** for a floor plate. A bearing off the edge
+    of a floor is not the orientation of anything: a slab has no facade bearing,
+    and the answer would go straight into an orientation table as though it had.
 
     So the element's DOMINANT plane — over all its faces, not only the vertical
     ones — has to be vertical before a bearing is reported. That is what
@@ -1471,9 +1462,9 @@ def clear_height(model: SpatialModel, space_global_id: str, samples: int = 5) ->
     # The plan outline from the room's own MESH, not from OCCT's solid
     # classifier. `tree.select(point)` needs a closed, orientable solid, and
     # ArchiCAD writes `IfcSpace` bodies as `Brep` shells that OCCT will take
-    # into the tree but not classify — so the point query returned nothing for
-    # 82 of 82 rooms in `AC20-Institute-Var-2.ifc`, every one of them
-    # undecidable, while the same rooms triangulate 82 of 82.
+    # into the tree but not classify, so a point query finds nothing for them:
+    # 82 of 82 rooms in `AC20-Institute-Var-2.ifc`, while the same rooms
+    # triangulate 82 of 82.
     #
     # The mesh needs no classification, and it still answers the question the
     # tree query was standing in for: an L-shaped room's bounding box covers
@@ -1490,8 +1481,8 @@ def clear_height(model: SpatialModel, space_global_id: str, samples: int = 5) ->
             if footprint is not None:
                 if not footprint.covers(ShapelyPoint(x, y)):
                     continue
-            # No usable horizontal face — fall back to the classifier, which
-            # is what this did before and is right when it works.
+            # No usable horizontal face — fall back to the classifier, which is
+            # right when it works.
             elif space_global_id not in [e.GlobalId for e in tree.select((x, y, floor_z + 0.05))]:
                 continue
             tested += 1
@@ -1500,8 +1491,8 @@ def clear_height(model: SpatialModel, space_global_id: str, samples: int = 5) ->
                 # Every entry of FURNISHING, not just the first. `is_a(
                 # "IfcFurnishingElement")` happens to catch the other two in
                 # IFC4 because they are subtypes — but that subtype relation
-                # does not exist in IFC2X3, where the tuple's remaining names
-                # were dead code and a chair could stop a clear-height ray.
+                # does not exist in IFC2X3, so every entry is needed for a
+                # chair not to stop a clear-height ray.
                 if element.is_a() in AIR_TYPES or any(element.is_a(name) for name in FURNISHING):
                     continue
                 if element.GlobalId == space_global_id:
@@ -1560,10 +1551,10 @@ def _storey_datum_drift(model: SpatialModel) -> float:
     height, in metres — ``0`` when they sit inside it.
 
     ``IfcBuildingStorey.Elevation`` is a DECLARED datum and the geometry is
-    MEASURED, and nothing in IFC guarantees the two share a reference. The TS
-    package found a Revit-in-feet file whose storeys sit on the survey datum and
-    whose geometry sits on the project origin, and reported sills 58 m below
-    their own floor — with a unit, a 10 mm tolerance and a `computed` provenance.
+    MEASURED, and nothing in IFC guarantees the two share a reference. A
+    Revit-in-feet file can place its storeys on the survey datum and its geometry
+    on the project origin; a sill then comes out 58 m below its own floor, with a
+    unit, a 10 mm tolerance and a `computed` provenance attached.
     The slack is one generous storey height, because the failure being caught is
     off by tens of metres, not by one.
     """
@@ -1686,15 +1677,13 @@ def facade_plane_of(model: SpatialModel, global_id: str) -> Answer[dict[str, Any
             ),
         )
 
-    # No `area` in this payload. It used to carry `seated.area`, which is the
-    # summed triangle area of the seating bin and double-counts overlapping and
-    # opposite-facing triangles: the south wall 3cUkl32yn9qRSPvBJVyWy4 published
-    # 23.527 m² for an outer face that is 17.776 m². Nothing read the field, and
-    # `_provenance_line` stamped it „(m)" alongside a point and a normal, so the
-    # one honest option was to stop publishing it — the operator's job is to
-    # SEAT A PLANE, and a plane has a position and a direction, not an area. A
-    # facade area is `measure/extent` or the thermal-envelope operators, both of
-    # which union their faces instead of summing them.
+    # No `area` in this payload. `seated.area` is the summed triangle area of the
+    # seating bin, which double-counts overlapping and opposite-facing triangles:
+    # the south wall 3cUkl32yn9qRSPvBJVyWy4 would publish 23.527 m² for an outer
+    # face of 17.776 m². The operator's job is to SEAT A PLANE, and a plane has a
+    # position and a direction, not an area. A facade area is `measure/extent` or
+    # the thermal-envelope operators, both of which union their faces instead of
+    # summing them.
     return computed(
         {
             "normal": n.tolist(),
@@ -1717,10 +1706,11 @@ def facade_plane_of(model: SpatialModel, global_id: str) -> Answer[dict[str, Any
 def overhang(model: SpatialModel, projecting_id: str, facade_element_id: str) -> Answer[float]:
     """How far one element projects past another's facade plane, in metres.
 
-    The number the product reported as *"Überstand nicht messbar"* on a file that
-    measures it fine. Measured perpendicular to the facade plane, over every
-    vertex of the projecting element's real body — so a barrel roof is measured
-    at its furthest point and not at its bounding box.
+    The number a file that carries the projecting element's geometry can answer,
+    where a product without the measurement would say *"Überstand nicht messbar"*.
+    Measured perpendicular to the facade plane, over every vertex of the
+    projecting element's real body — so a barrel roof is measured at its furthest
+    point and not at its bounding box.
 
     Never negative: an element that does not reach the plane reports 0 with a
     caveat saying how far behind it stops.
@@ -1791,9 +1781,8 @@ def ray(
     ``None`` means the ray reached ``length`` without meeting anything — which is
     a real answer and must never be confused with "could not look".
     """
-    # Built defensively: the arguments are not validated yet, and a `method`
-    # string that formats them as floats crashed on `ray(model, "x", ...)` —
-    # before the check that was supposed to reject it could run.
+    # Built defensively: `_vector_text` falls back to repr, so a non-numeric
+    # argument is named in the label instead of crashing it.
     method = f"ray({_vector_text(origin)}, {_vector_text(direction)}" + (f", {length})" if length is not None else ")")
     try:
         d = np.array(direction, dtype=float).reshape(3)
@@ -2171,8 +2160,8 @@ def _clear_opening_area(model: SpatialModel, opening: Any, z_band: tuple[float, 
     if z_band is not None:
         # Only the part of the aperture that lies inside the ROOM. A curtain
         # wall runs past a floor: the sample house's 31.09 m² facade spans
-        # z 0–3.36 and was credited in full to the living room (z 0–2.5) AND in
-        # full to the 1.00 m loft above it, which came out at 40.65 %. Two rooms
+        # z 0–3.36, and crediting it in full to both the living room (z 0–2.5) and
+        # the 1.00 m loft above it would count the same glass twice. Two rooms
         # cannot each own all of the same glass.
         #
         # `up` is world Z projected into the aperture plane, so for a vertical
@@ -2258,9 +2247,9 @@ def _rooms_on_one_side(model: SpatialModel, element: Any, rooms: Sequence[Any]) 
 def _faces_outside(model: SpatialModel, element: Any) -> tuple[bool | None, str]:
     """Whether this window or door lets daylight IN from outside.
 
-    The first version of :func:`light_entry_area` summed every window and door
-    bounding the room, and the sample house's bedroom came back at 25.3 % — of
-    which an interior door to the hallway was 1.71 m². An internal door is not a
+    Summing every window and door bounding the room would count interior doors
+    as light: the sample house's bedroom comes to 25.3 % that way, of which an
+    interior door to the hallway is 1.71 m². An internal door is not a
     Lichteintrittsfläche under any reading of OIB 3, and 25 % versus 14 % is the
     difference between two opposite answers to a daylight check.
 
@@ -2282,11 +2271,11 @@ def _faces_outside(model: SpatialModel, element: Any) -> tuple[bool | None, str]
     # is the architect saying which side it faces.
     #
     # It also fixes a case the wall route cannot reach. A plate sits in no wall,
-    # so `hosted_in` is empty and the space-count fallback decided it. That
+    # so `hosted_in` is empty and the space-count fallback decides it. That
     # fallback is a DOOR heuristic ("joins two rooms, therefore interior"), and
     # the sample house's glazed facade touches the living room AND the loft
-    # above it — so every pane of a 4.49 m² glass wall was classified interior
-    # and the room's largest daylight source counted as zero.
+    # above it: every pane of a 4.49 m² glass wall would be classified interior,
+    # and the room's largest daylight source would count as zero.
     own = model.declared_property(element, ("IsExternal",))
     if isinstance(own, bool):
         return own, "Pset_*Common.IsExternal am Bauteil selbst (deklariert)"
@@ -2343,10 +2332,8 @@ def _faces_outside(model: SpatialModel, element: Any) -> tuple[bool | None, str]
 def light_entry_area(model: SpatialModel, space_global_id: str) -> Answer[dict[str, Any]]:
     """The room's light-entry area, and what fraction of its floor that is.
 
-    The other half of the answer this library was built because of. The agent
-    could not measure the Dachüberstand, and it could not measure the *Raum-%*
-    either — the ratio an OIB 3 daylight check is decided on. `overhang` closed
-    the first gap; this closes the second.
+    The daylight half of the answer: `overhang` measures the Dachüberstand, and
+    this measures the *Raum-%* — the ratio an OIB 3 daylight check is decided on.
 
     For every window and door bounding the room, the operator walks
     ``FillsVoids → RelatingOpeningElement`` and measures that opening's clear
@@ -2401,13 +2388,13 @@ def light_entry_area(model: SpatialModel, space_global_id: str) -> Answer[dict[s
 
     openings: list[dict[str, Any]] = []
     without_geometry: list[str] = []
-    # `IfcPlate` is here because of a real hole: the sample house's living room
-    # is glazed with a curtain wall, and a curtain wall is exported as members
-    # and PLATES, not as windows. Counting only IfcWindow/IfcDoor made the
-    # largest glazed surface in the building contribute exactly nothing — a
-    # fully glazed room reporting 0 % daylight. That is the safe direction for a
-    # threshold and still a false finding, and an architect shown 0 % on a glass
-    # wall stops trusting the number that is right.
+    # `IfcPlate` is here because a curtain wall is exported as members and
+    # PLATES, not as windows: the sample house's living room is glazed that way.
+    # Counting only IfcWindow/IfcDoor would make the largest glazed surface in the
+    # building contribute nothing, so a fully glazed room would report 0 %
+    # daylight. That is the safe direction for a threshold and still a false
+    # finding, and an architect shown 0 % on a glass wall stops trusting the
+    # number that is right.
     #
     # Plates carry no IfcOpeningElement (they fill no void; they ARE the wall),
     # so they land on the element-body route below and are labelled as such.
@@ -2422,10 +2409,9 @@ def light_entry_area(model: SpatialModel, space_global_id: str) -> Answer[dict[s
         z_band = (float(zs.min()), float(zs.max()))
 
     # Deduplicated by GlobalId. A 2nd-level export publishes one
-    # IfcRelSpaceBoundary row PER FACE, so a window bounding a room twice
-    # appeared twice in `bounds` and was summed twice — the bedroom reported
-    # 28.41 % instead of 14.21 %, listing the same GlobalId in both lines. The
-    # better the export, the more reliably it happened.
+    # IfcRelSpaceBoundary row PER FACE, so a window bounding a room twice appears
+    # twice in `bounds`; summed twice, it would put the bedroom at 28.41 %
+    # instead of 14.21 %. The better the export, the more reliably it happens.
     seen: set[str] = set()
     for ref in bounding.value or []:
         if ref.ifc_type not in GLAZING or ref.global_id in seen:
@@ -2480,9 +2466,9 @@ def light_entry_area(model: SpatialModel, space_global_id: str) -> Answer[dict[s
         )
 
     # ONLY the openings that face outside are summed. An interior door is not a
-    # Lichteintrittsfläche under any reading of OIB 3, and including one took the
-    # sample house's bedroom from 14.2 % to 25.3 % — two opposite answers to the
-    # same daylight check. The others stay in the payload, labelled, because a
+    # Lichteintrittsfläche under any reading of OIB 3, and including one would
+    # take the sample house's bedroom from 14.2 % to 25.3 % — two opposite
+    # answers to the same daylight check. The others stay in the payload, labelled, because a
     # number is only checkable when what was left out of it is visible.
     external = [entry for entry in openings if entry["external"] is True]
     internal = [entry for entry in openings if entry["external"] is False]

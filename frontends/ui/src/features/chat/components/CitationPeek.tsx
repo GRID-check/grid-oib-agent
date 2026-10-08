@@ -2,7 +2,7 @@
  * CitationPeek — what a citation IS, before you commit to opening it.
  *
  * The question a reader asks of an inline `[3]` is not "take me somewhere", it
- * is "what is this?". Answering that with a scroll — the old behaviour — makes
+ * is "what is this?". Answering that with a scroll would make
  * them do the work: land somewhere, look around, guess which chip they arrived
  * at. The peek answers it in place: which document, how authoritative, which
  * page, and the passage itself.
@@ -40,8 +40,8 @@ interface CitationPeekProps {
   /**
    * The source resolved to nothing openable — say so, in place of the control.
    *
-   * The alternative is silence, which is what this used to be: the reader is
-   * looking at a citation and wants to know whether checking it is possible.
+   * The alternative is silence: the reader is looking at a citation and wants
+   * to know whether checking it is possible.
    * "There is no way in from here" is an answer; a control that closes the
    * popover and does nothing is not.
    */
@@ -50,10 +50,10 @@ interface CitationPeekProps {
    * The document EXISTS but this app cannot draw its format — hand it over
    * instead, and say which of the two is happening.
    *
-   * A cited `.docx` used to arrive here as `unavailable`, which is a claim
-   * about the citation and was false: nothing was missing, the file was in the
-   * project's Dateiablage and the reader was entitled to it. Absent when the
-   * source is genuinely unreachable.
+   * A cited `.docx` must not arrive here as `unavailable`: that is a claim
+   * about the citation, and it would be false. Nothing is missing; the file is
+   * in the project's Dateiablage and the reader was entitled to it. Absent when
+   * the source is genuinely unreachable.
    */
   onDownload?: () => void
   /** The download is being presigned — the control says so rather than repeating. */
@@ -107,10 +107,10 @@ export const LocusLine: FC<{ citation: CitationRef }> = ({ citation }) => {
   const page = refPage(citation)
   const pages = documentPages(citation.document)
 
-  // A PUNKT IS A PLACE. It was nested inside "has a page", so a locus that knew
-  // its Punkt and not its page read „Gesamtes Dokument" — dropping the one
-  // identifier Austrian building law actually cites by, in favour of saying
-  // nothing. The chunker measures it against the corpus's contents pages
+  // A PUNKT IS A PLACE. It is not nested inside "has a page": a locus that knows
+  // its Punkt but not its page must not read „Gesamtes Dokument", which would
+  // drop the one identifier Austrian building law actually cites by in favour of
+  // saying nothing. The chunker measures it against the corpus's contents pages
   // precisely so it can be shown.
   const punkt = citation.locus?.punkt?.trim()
   const text = citation.locus
@@ -135,8 +135,8 @@ export const LocusLine: FC<{ citation: CitationRef }> = ({ citation }) => {
  *
  * The peek answers "what is this?"; the next question is often "where is it?"
  * — to see the file beside its siblings, to replace it with a newer version,
- * to check who filed it. Answering that used to mean closing the peek and
- * navigating from memory. The project shelf lives in the project's files, the
+ * to check who filed it. Answering that means closing the peek and navigating
+ * from memory. The project shelf lives in the project's files, the
  * office archive at its own route; the base corpus and the session shelf have
  * no page of their own, and a web source already carries its `url`, so for
  * those there is nothing to offer and nothing is rendered.

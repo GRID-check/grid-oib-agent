@@ -8,9 +8,9 @@ import { cn } from '@/lib/utils'
 import { FOCUS_RING } from '@/components/ui/focus-ring'
 
 const toggleVariants = cva(
-  // One radius for the whole scale (`rounded-md`, 8px): the `inverted` variant
-  // used to override the base with `rounded-lg`, so two toggles sitting in the
-  // same filter row rounded differently depending on which variant they were.
+  // One radius for the whole scale (`rounded-md`, 8px). The `inverted` variant
+  // does not override it: two toggles in the same filter row would round
+  // differently depending on which variant they were.
   // 8px is also what nests correctly inside the segmented group's `rounded-lg`
   // tray — an item as round as its container reads as a bulge.
   //
@@ -29,15 +29,12 @@ const toggleVariants = cva(
           'text-muted-foreground hover:bg-accent hover:text-foreground data-[state=on]:bg-foreground data-[state=on]:text-background data-[state=on]:shadow-2xs',
       },
       // Aligned to `Button`'s size scale, one name = one height, so a toggle
-      // and a button placed side by side in a toolbar line up. The scale used
-      // to sit one step low (Toggle `default` was Button `sm`), which is why
-      // every filter row next to a button read a notch short.
+      // and a button placed side by side in a toolbar line up. A step lower
+      // reads as a notch short beside a button.
       // `min-w-11` alongside `h-11`, for the same reason Button carries both
       // (see `touch-target.spec.ts`): height alone leaves a SHORT LABEL under the
-      // floor on the axis nobody checks. Measured on the Archiv category filters,
-      // "All" came out 40px wide inside a 44px-tall pill — a control that passes
-      // every height assertion and is still too narrow to hit, in a row where the
-      // chip beside it is three times the width and hits fine.
+      // 44px floor on the width axis, which nothing else checks. A label such as
+      // "All" passes every height assertion and is still too narrow to hit.
       size: {
         default: 'h-9 px-3 text-sm pointer-coarse:h-11 pointer-coarse:min-w-11',
         sm: 'h-8 px-3 text-xs pointer-coarse:h-11 pointer-coarse:min-w-11',

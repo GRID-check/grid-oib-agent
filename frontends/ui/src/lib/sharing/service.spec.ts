@@ -186,7 +186,7 @@ beforeEach(() => {
   vi.mocked(requireResourceWriteAccess).mockResolvedValue(undefined)
 })
 
-describe('the last-owner invariant (spec SH-11)', () => {
+describe('the last-owner invariant', () => {
   it('refuses to demote the only owner, with a machine-readable reason', async () => {
     stubGrants([{ subjectUserId: 'user_owner', role: 'owner' }])
 
@@ -242,7 +242,7 @@ describe('the last-owner invariant (spec SH-11)', () => {
   })
 })
 
-describe('the container precondition (spec SH-5)', () => {
+describe('the container precondition', () => {
   it('refuses to invite someone who cannot reach the container project', async () => {
     vi.mocked(canUserAccessProject).mockResolvedValue(false)
 
@@ -265,8 +265,8 @@ describe('the container precondition (spec SH-5)', () => {
   })
 
   it('still demands ORGANIZATION membership when there is no container to gate on', async () => {
-    // A legacy conversation with no `project_id` used to return early here, so
-    // nothing checked the subject at all: a grant could be written for a user in
+    // A conversation with no `project_id` must not return early here: nothing
+    // else would check the subject, so a grant could be written for a user in
     // another tenant, and `publishToUsers` would then write to that foreign
     // user's channel.
     vi.mocked(findConversationTenancy).mockResolvedValue({
@@ -349,7 +349,7 @@ describe('the container precondition (spec SH-5)', () => {
   })
 })
 
-describe('setResourceVisibility (spec SH-2, SH-14)', () => {
+describe('setResourceVisibility', () => {
   it('writes no audit event and publishes nothing for a no-op save', async () => {
     stubCallerAccess('owner', 'project')
 
@@ -385,7 +385,7 @@ describe('setResourceVisibility (spec SH-2, SH-14)', () => {
   })
 })
 
-describe('escalateToOwner (spec SH-10)', () => {
+describe('escalateToOwner', () => {
   beforeEach(() => {
     // A project admin who is not yet party to the thread — what `./access`
     // resolves for the only caller allowed through here.
@@ -409,9 +409,9 @@ describe('escalateToOwner (spec SH-10)', () => {
       expect.objectContaining({ subjectUserId: 'user_me', role: 'owner' }),
       widenings.executor,
     )
-    // Every other mutation here publishes and this one did not, so the creator's
-    // open share dialog kept rendering a roster the escalating admin was absent
-    // from until a focus event or the minute-long disconnected poll came round.
+    // Every other mutation here publishes, and this one must too: otherwise the
+    // creator's open share dialog renders a roster the escalating admin is absent
+    // from until a focus event or the minute-long disconnected poll comes round.
     expect(publishToUsers).toHaveBeenCalledWith(['user_creator', 'user_me'], {
       kind: 'resource.access.changed',
       resourceType: 'conversation',
@@ -422,8 +422,9 @@ describe('escalateToOwner (spec SH-10)', () => {
 
   it('survives a participant lookup that throws — the escalation is already committed', async () => {
     // The grant and its audit record are durable before the fan-out's two reads
-    // even start. Letting one of them throw answered 500 for an escalation that
-    // had in fact succeeded, so the admin retried an act already in the log.
+    // even start. Letting one of them throw would answer 500 for an escalation
+    // that had in fact succeeded, and the admin would retry an act already in
+    // the log.
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
     vi.mocked(findConversationTenancy).mockRejectedValueOnce(new Error('roster read unavailable'))
 
@@ -560,10 +561,10 @@ describe('a conversation that drew on a restricted folder reaches only people cl
   })
 })
 
-describe('the roster says who can no longer read what the chat drew on (ADR-0081)', () => {
+describe('the roster says who cannot read what the chat drew on (ADR-0081)', () => {
   const person = (userId: string) => ({ userId, email: null, name: userId, profilePictureUrl: null })
 
-  it('flags a grantee and the creator whose roles no longer reach a recorded folder, and nobody else', async () => {
+  it('flags a grantee and the creator whose roles do not reach a recorded folder, and nobody else', async () => {
     stubConversation('user_owner')
     stubGrants([
       { subjectUserId: 'user_ina', role: 'viewer' },

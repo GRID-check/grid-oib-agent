@@ -3,9 +3,9 @@
  *
  * ## Why this exists
  *
- * Document bytes live in SeaweedFS and used to reach the browser as presigned
- * object-store URLs. That is unoptimizable by construction, for two independent
- * reasons: the presigned host resolves to a private IP inside the compose
+ * Document bytes live in SeaweedFS. Presigned object-store URLs are unoptimizable
+ * by construction, for two independent reasons: the presigned host resolves to a
+ * private IP inside the compose
  * network, which `next/image` refuses to fetch (`dangerouslyAllowLocalIP` is
  * false by default), and every signature is a fresh URL, so the optimizer's
  * cache key changes on every request and it would re-download and re-encode the
@@ -48,9 +48,9 @@
  * document throughout that window, so the optimizer caches once and serves the
  * resized image from cache. The cost is that a leaked URL stays live for up to
  * two windows; the benefit is that optimization works at all. The window is five
- * minutes: it was an hour, and the access it carries (project membership, which
- * the route cannot re-check without a session) outlived a revocation by up to
- * two hours. The folder is re-checked on every use regardless of the window.
+ * minutes because the access it carries (project membership, which the route
+ * cannot re-check without a session) must not outlive a revocation for long. The
+ * folder is re-checked on every use regardless of the window.
  */
 
 import { createHmac, timingSafeEqual } from 'node:crypto'

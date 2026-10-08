@@ -1,18 +1,16 @@
 """The one way an agent receives its tools from the NAT builder.
 
-Every agent used to resolve its tools with its own copy of
-``builder.get_tools(...)`` plus an ``exclude_tools`` filter. This is that copy,
-once, and the place where what a model sends is made to fit what a tool
-declares before the tool's schema sees it.
+Every agent resolves its tools here, from one copy of ``builder.get_tools(...)``
+plus an ``exclude_tools`` filter. It is also the place where what a model sends
+is made to fit what a tool declares before the tool's schema sees it.
 
 What arrives from the model is not always what the schema asks for: providers
 send ``""`` for an optional argument they mean to leave out. A tool that
-declares ``page: int = 1`` then rejects the call with ``int_parsing`` (#656),
-the agent spends a round being told to fix the arguments, and the next tool with
-an ``int`` parameter repeats it (``read_passage`` was fixed alone on 2026-09-15;
-``ris_search`` failed the same way a week later). Here a blank string for a
-field that cannot hold a string counts as omitted, so the tool's default
-applies, for every tool an agent loads.
+declares ``page: int = 1`` then rejects the call with ``int_parsing``, the
+agent spends a round being told to fix the arguments, and every tool with an
+``int`` parameter fails the same way (``read_passage``, ``ris_search``). Here a
+blank string for a field that cannot hold a string counts as omitted, so the
+tool's default applies, for every tool an agent loads.
 """
 
 from __future__ import annotations

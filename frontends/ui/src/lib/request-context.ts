@@ -3,25 +3,25 @@
  * cross-cutting context header the BFF forwards to the Python backend
  * (aiq_agent) on a submission path.
  *
- * Backlog T3-9 (2026-07-16 audit): each submission path used to hand-roll its
- * own subset of these headers — the WS-upgrade block in `server.js`, the
+ * Each submission path (the WS-upgrade block in `server.js`, the
  * `/api/auth/websocket-scope` route, the async-jobs REST proxy, and the
- * workflows submission path all independently remembered (or, in one
- * audited case, forgot) to forward `x-grid-model-overrides`. This module is
- * the wire contract: build the input once, get back every header with the
- * exact encoding the Python side (`src/aiq_agent/project_context.py`,
+ * workflows submission path) needs the same headers. A hand-rolled subset
+ * drifts: each path has to remember every field, and one that forgets
+ * `x-grid-model-overrides` silently drops it. This module is the wire
+ * contract: build the input once, get back every header with the exact
+ * encoding the Python side (`src/aiq_agent/project_context.py`,
  * `common/model_overrides.py`, `common/cost_tracking.py`,
- * `common/data_sources.py`, `knowledge/scoping.py`) expects. A path that
- * forgets a field now gets it via `buildGridRequestContextHeaders`; a path
- * that encodes something differently is caught by the shared fixture at
+ * `common/data_sources.py`, `knowledge/scoping.py`) expects. A path cannot
+ * forget a field, because `buildGridRequestContextHeaders` emits every one;
+ * a path that encodes something differently is caught by the shared fixture at
  * `tests/fixtures/grid_request_context.json` (TS twin:
  * `frontends/ui/tests/fixtures/grid_request_context.json`).
  *
  * Header inventory (every `x-grid-*` header found via
  * `grep -rniE "x-grid-[a-z-]+"` across `frontends/ui/src`, `server.js`, and
- * `src/aiq_agent` as of this audit):
+ * `src/aiq_agent`):
  *
- * | Header                              | Wire encoding                          | Source of truth (pre-refactor)                          |
+ * | Header                              | Wire encoding                          | Source of truth                                         |
  * |--------------------------------------|-----------------------------------------|----------------------------------------------------------|
  * | X-Grid-Organization-Id                | raw string                              | server.js WS upgrade (~line 300)                         |
  * | X-Grid-User-Id                        | raw string                              | server.js WS upgrade (~line 301)                         |
@@ -29,7 +29,7 @@
  * | X-Grid-Collection-Scope               | base64url(JSON.stringify(string[]))     | `collection-scope.ts` buildCollectionScopeHeader          |
  * | X-Grid-Project-Context                | base64url(utf8 text)                    | server.js WS upgrade (~line 313)                         |
  * | X-Grid-Project-Memory                 | base64url(utf8 text)                    | server.js WS upgrade (~line 325)                         |
- * | X-Grid-Org-Instructions               | base64url(utf8 text)                    | this module (added with `organization_instructions`)     |
+ * | X-Grid-Org-Instructions               | base64url(utf8 text)                    | this module (`organization_instructions`)                 |
  * | X-Grid-Model-Overrides                | base64url(JSON.stringify(Record))       | server.js (~342) / `model-config/header-encoding.ts`     |
  * | X-Grid-Budget                         | base64url(JSON.stringify(BudgetSnapshot))| server.js (~348) / `workflows/service.ts` buildBudgetHeader |
  * | X-Grid-Disabled-Sources               | base64url(JSON.stringify(string[]))     | server.js (~358), only set when non-empty                |
@@ -44,13 +44,12 @@
  * doesn't belong to the "hand-forwarded, easy to drop" bug class this module
  * targets.
  *
- * `bundesland` (backlog T3-9 follow-up, 2026-07-16, user-mandated) is
- * DELIBERATELY envelope-only: unlike every field in the table above it never
- * had an individual `X-Grid-*` header to dual-write, so
- * `buildGridRequestContextHeaders` below has no case for it — only
+ * `bundesland` is envelope-only: unlike every field in the table above it has
+ * no individual `X-Grid-*` header, so `buildGridRequestContextHeaders` below
+ * has no case for it — only
  * `buildGridRequestContextEnvelopePayload` does. See
  * `aiq_agent.project_context`'s module docstring for the matching Python-side
- * choice (envelope-only parsing, no legacy individual-header fallback).
+ * choice (envelope-only parsing, no individual-header fallback).
  */
 
 import { createHmac, timingSafeEqual } from 'node:crypto'
@@ -82,7 +81,7 @@ export interface GridRequestContextInput {
    * callers that always want a scope header should pass at least the base
    * collection (`computeCollectionScope` never returns an empty array).
    *
-   * Entries are either a bare collection name (legacy, shelf unknown) or a
+   * Entries are either a bare collection name (shelf unknown) or a
    * `{collection, shelf}` pair (ADR-0047). Both shapes ship here AND in the
    * signed envelope below, because `scoping.py` prefers the ENVELOPE and reads
    * the raw header only when no valid envelope is present — a shelf written to
@@ -111,10 +110,8 @@ export interface GridRequestContextInput {
    * bound restated on the wire is a bound that can disagree with the one that
    * was enforced.
    *
-   * This is what REPLACED forcing a skill onto a turn. The composer no longer
-   * sends a `skills` array and the platform no longer has a `standard`
-   * delivery tier; a standing instruction is a property of the organization,
-   * so it rides the context headers with the rest of them.
+   * A standing instruction is a property of the organization, so it rides the
+   * context headers with the rest of them.
    */
   orgInstructions?: string | null
   /**
@@ -138,20 +135,18 @@ export interface GridRequestContextInput {
    */
   memoryReflectionEnabled?: boolean
   /**
-   * → envelope payload field `bundesland` ONLY (backlog T3-9 follow-up,
-   * 2026-07-16, user-mandated) — there is no individual `X-Grid-Bundesland`
-   * header; see `buildGridRequestContextEnvelopePayload`'s docstring for why.
-   * The validated jurisdiction token the intake wizard collects (PR #71) as
-   * a structured project-profile fact (nine Bundesland tokens plus
+   * → envelope payload field `bundesland` ONLY — there is no individual
+   * `X-Grid-Bundesland` header; see `buildGridRequestContextEnvelopePayload`'s
+   * docstring for why. The validated jurisdiction token the intake wizard
+   * collects as a structured project-profile fact (nine Bundesland tokens plus
    * `ausserhalb_oesterreichs` — see
-   * `@/lib/project-profile/intake-definition`'s `BUNDESLAND_TOKENS`),
-   * carried STRUCTURED alongside the unchanged `bundesland=<token>` text
-   * line inside `projectContext` (still read by the LLM — this is a
-   * parallel channel, not a replacement). Omitted when falsy: a producer
-   * with no project scope (or an unresolved/unknown token) must omit the
-   * field rather than send an unvalidated value — the backend's fallback
-   * (structured prompt-text line, then free-text probing) takes over
-   * exactly as it did before this field existed.
+   * `@/lib/project-profile/intake-definition`'s `BUNDESLAND_TOKENS`), carried
+   * STRUCTURED alongside the `bundesland=<token>` text line inside
+   * `projectContext` (still read by the LLM — this is a parallel channel, not a
+   * replacement). Omitted when falsy: a producer with no project scope (or an
+   * unresolved/unknown token) must omit the field rather than send an
+   * unvalidated value — the backend then falls back to the structured
+   * prompt-text line, and then to free-text probing.
    */
   bundesland?: string | null
   /**
@@ -175,11 +170,10 @@ export interface GridRequestContextInput {
    * carries a user id a write route acts as. `issuedAt` plus the window in
    * {@link verifyGridRequestContextEnvelope} is what bounds that.
    *
-   * Optional so every existing producer keeps minting byte-identical envelopes
-   * (the fixture's older cases pin exactly that), and so a verifier can decide
-   * for itself what an envelope without one means. The BFF's verifier refuses
-   * it; the Python side, which has always accepted envelopes without one,
-   * continues to.
+   * Optional so a producer that does not set it still mints the same bytes
+   * (the fixture's cases without it pin that), and so a verifier decides for
+   * itself what an envelope without one means. The BFF's verifier refuses it;
+   * the Python side accepts envelopes without one.
    */
   issuedAt?: number | null
   /** WebSocket-only: prompt blocks are fetched from the BFF on each turn. */
@@ -200,10 +194,10 @@ export const GRID_HEADER_NAMES = {
   DISABLED_SOURCES: 'X-Grid-Disabled-Sources',
   MEMORY_REFLECTION: 'X-Grid-Feature-Memory-Reflection',
   /**
-   * Consolidated, signed context envelope (backlog T3-9 follow-up,
-   * 2026-07-16, user-mandated): base64url(JSON) of every field above (minus
-   * the internal token — see the module docstring), sent ALONGSIDE the
-   * individual headers (dual-write; legacy removal is a later cleanup). See
+   * Consolidated, signed context envelope: base64url(JSON) of every field above
+   * (minus the internal token — see the module docstring), sent alongside the
+   * individual headers (dual-write: readers that have not moved to the envelope
+   * still read the headers). See
    * `buildGridRequestContextEnvelope` below for the exact payload shape and
    * `aiq_agent.project_context.GridRequestContext.from_envelope` for the
    * Python-side verify+parse counterpart.
@@ -293,12 +287,12 @@ export function buildGridRequestContextHeaders(input: GridRequestContextInput): 
 }
 
 // ---------------------------------------------------------------------------
-// Signed context envelope (backlog T3-9 follow-up, 2026-07-16, user-mandated)
+// Signed context envelope
 // ---------------------------------------------------------------------------
 //
-// "This consolidated header must be present, because without it we cannot
-// verify who the user is, which organization he belongs to, and what model
-// overrides the organization — without it, it is just not a valid request."
+// The consolidated header is required: without it the backend cannot verify
+// who the user is, which organization they belong to, or which model overrides
+// apply.
 //
 // One consolidated, signed envelope carrying every field above (minus the
 // internal token) as a single `X-Grid-Request-Context` header, plus an
@@ -313,8 +307,7 @@ export function buildGridRequestContextHeaders(input: GridRequestContextInput): 
 // (`aiq_agent.project_context.GridRequestContext.from_envelope`) verifies the
 // signature with `hmac.compare_digest` and treats an invalid/missing
 // signature as an ABSENT envelope (logged as a WARNING tamper signal), not
-// an error — callers fall back to the individual headers during the DUAL-WRITE
-// transition.
+// an error — callers fall back to the individual headers, which are still sent.
 
 /** Signed envelope wire values for one request. */
 export interface GridRequestContextEnvelope {
@@ -334,16 +327,15 @@ export interface GridRequestContextEnvelope {
  * the individual headers is also absent here — see the cross-language
  * contract fixture's `envelopeCases`), and a FIXED key order (organizationId,
  * userId, projectId, collectionScope, projectContext, projectMemory,
- * modelOverrides, budget, disabledSources, memoryReflectionEnabled) so the
+ * modelOverrides, budget, disabledSources, memoryReflectionEnabled, bundesland,
+ * conversationId, issuedAt, orgInstructions, contextTransport) so the
  * signed bytes are deterministic across producers/runs for the same input —
  * required for the fixture's precomputed `header`/`signature` values to be
  * exact-match assertable rather than semantic-JSON-equal.
  *
- * `bundesland` (backlog T3-9 follow-up, 2026-07-16, user-mandated) was added
- * LAST in the key order (after `memoryReflectionEnabled`) specifically so
- * every pre-existing fixture case's signed bytes stay byte-identical — an
- * earlier position would have required recomputing every prior case's
- * `header`/`signature`.
+ * New fields go LAST in the key order, so every existing fixture case's signed
+ * bytes stay byte-identical: an earlier position would force recomputing every
+ * precomputed `header`/`signature`.
  */
 export function buildGridRequestContextEnvelopePayload(input: GridRequestContextInput): Record<string, unknown> {
   const payload: Record<string, unknown> = {}
@@ -381,8 +373,7 @@ export function buildGridRequestContextEnvelopePayload(input: GridRequestContext
   if (input.bundesland) {
     payload.bundesland = input.bundesland
   }
-  // LAST in the key order, after `bundesland`, for the reason `bundesland` was
-  // last before them: every pre-existing fixture case's signed bytes stay
+  // LAST in the key order: appending keeps every fixture case's signed bytes
   // byte-identical, so the precomputed `header`/`signature` values keep
   // exact-matching on both sides of the language boundary.
   if (input.conversationId) {
@@ -391,15 +382,13 @@ export function buildGridRequestContextEnvelopePayload(input: GridRequestContext
   if (input.issuedAt !== undefined && input.issuedAt !== null) {
     payload.issuedAt = input.issuedAt
   }
-  // LAST in the key order, for the reason every field added since
-  // `memoryReflectionEnabled` has been last: every pre-existing fixture case's
-  // signed bytes stay byte-identical, so the precomputed `header`/`signature`
-  // values keep exact-matching on both sides of the language boundary. A new
-  // field inserted anywhere else would require recomputing all of them.
+  // LAST in the key order: a field inserted anywhere else would change the
+  // signed bytes of every fixture case, so each precomputed `header`/`signature`
+  // would need recomputing.
   if (input.contextTransport !== 'bff' && input.orgInstructions) {
     payload.orgInstructions = input.orgInstructions
   }
-  // Appended last so legacy HTTP/job envelopes remain byte-identical.
+  // Appended last so envelopes that omit it stay byte-identical.
   if (input.contextTransport) {
     payload.contextTransport = input.contextTransport
   }
@@ -516,10 +505,10 @@ function scopeNames(raw: unknown): string[] {
  *
  * ## Why a BFF route verifies something the BFF signed
  *
- * Until now the envelope travelled one way: the BFF minted it and the Python
- * tier verified it (`aiq_agent.project_context.GridRequestContext.from_envelope`).
- * The agent's document route is the first hop in the other direction, and the
- * problem it solves is the one ADR-0051 named for scheduled work: **an internal
+ * The envelope normally travels one way: the BFF mints it and the Python tier
+ * verifies it (`aiq_agent.project_context.GridRequestContext.from_envelope`).
+ * The agent's document route runs the other way, and it solves the problem
+ * ADR-0051 names for scheduled work: **an internal
  * route carries a service token and no user.** `GRID_INTERNAL_API_TOKEN`
  * authenticates the SERVICE, and the agent's principal is wider than any human's
  * — so a route that took `userId` from its own request body would let anything
@@ -542,10 +531,10 @@ function scopeNames(raw: unknown): string[] {
  * Two properties do the work. `issuedAt` is INSIDE the signed payload, so an
  * expired envelope cannot be refreshed by a caller. And an envelope with no
  * `issuedAt` at all is REFUSED here — fail-closed, unlike the Python side, which
- * has accepted envelopes without one since before the field existed and would
- * break for every in-flight turn if it stopped. A missing signature is refused
- * for the same reason: this tier always has the secret, so "no secret
- * configured" is not a state a write route may treat as permission.
+ * accepts envelopes without one for backward compatibility. A missing
+ * signature is refused for the same reason: this tier always has the secret,
+ * so "no secret configured" is not a state a write route may treat as
+ * permission.
  *
  * Returns `null` for every refusal rather than throwing, and never says WHICH —
  * the caller answers 401 either way, and a verifier that distinguishes "bad

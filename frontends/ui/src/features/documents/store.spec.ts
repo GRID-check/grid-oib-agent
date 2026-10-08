@@ -171,7 +171,7 @@ describe('useDocumentsStore', () => {
       expect(useDocumentsStore.getState().recentlyDeletedIds).toEqual(new Set(['b']))
     })
 
-    test('removeRecentlyDeletedIds allows setFilesFromServer to show that file_id again', () => {
+    test('removeRecentlyDeletedIds lets setFilesFromServer show a released file_id', () => {
       useDocumentsStore.setState({
         trackedFiles: [],
         recentlyDeletedIds: new Set(['reused-id']),
@@ -742,7 +742,7 @@ describe('useDocumentsStore', () => {
       expect(files[0].serverFileId).toBe('server-xyz')
     })
 
-    test('re-upload with same file name is visible when tombstone holds old ids (not fileName)', () => {
+    test('re-upload with same file name is visible when tombstone holds other ids (not fileName)', () => {
       useDocumentsStore.setState({
         trackedFiles: [],
         recentlyDeletedIds: new Set(['old-server-id', 'client-old']),

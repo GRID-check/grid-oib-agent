@@ -48,8 +48,8 @@ CLASSIFY_MAX_INPUT_CHARS = 4000
 # =============================================================================
 # The LLM is instructed to choose from these two closed vocabularies, and a
 # deterministic post-filter drops anything outside them — so a hallucinated tag
-# can never reach storage. Keep these lists in sync with the taxonomy documented
-# on FB-8 in docs/audit/feedback-backlog.md.
+# can never reach storage. Keep these lists in sync with the taxonomy in
+# docs/audit/feedback-backlog.md.
 
 # 1–2 of these describe what the document *is*. Ordered + immutable so the
 # prompt renders deterministically and callers cannot mutate the vocabulary.
@@ -147,7 +147,7 @@ def is_valid_doc_class(value: str | None) -> bool:
 # platform owner reclassifies it. The decision model reads the text and picks
 # one of the nine classes; the pick is stored beside the class, never as it,
 # and the base-knowledge page offers it. The lane changes only when a person
-# accepts. Measured 2026-09-25 on twelve openings under hint-less file names
+# accepts. Measured on twelve openings under hint-less file names
 # (``tests/fixtures/decisions/doc_class.yaml``): 12/12 at 0.97-1.00, where the
 # filename guess had 3/12.
 
@@ -390,17 +390,17 @@ DISCIPLINE_CRITERIA: dict[str, str] = {
     "Energieeinsparung/Wärmeschutz": "Energy saving and thermal insulation: U-values, Energieausweis.",
 }
 
-#: Every decision here acts at 0.8 (2026-09-26). The type is kept at this
-#: probability; below it the decision is treated as not made and the
-#: generative prompt tags the document. Tuning set (twelve openings): every
-#: type at 0.99-1.00 once `Gutachten` names a Konzept (a Brandschutzkonzept
-#: sat at 0.80 before). Held-out set (24 openings written blind): 24/24 types
-#: at 0.8 with or without that change, 13 of 14 disciplines, no false one.
+#: Every decision here acts at 0.8. The type is kept at this probability; below
+#: it the decision is treated as not made and the generative prompt tags the
+#: document. Tuning set (twelve openings): every type at 0.99-1.00, because the
+#: `Gutachten` criterion names a Konzept, which is what lets a Brandschutzkonzept
+#: clear 0.8. Held-out set (24 openings written blind): 24/24 types at 0.8, 13 of
+#: 14 disciplines, no false one.
 #: One type only: a second type was the choice's runner-up, which cannot
 #: reach 0.8 beside a chosen one, and it never rode along in a measurement.
 TYPE_THRESHOLD = 0.8
 #: A discipline is tagged at this probability or above, the top three. The
-#: answers split in two (2026-09-25, same twelve openings): every clear
+#: answers split in two on the same twelve openings: every clear
 #: discipline at 0.96-0.98, everything else at or below 0.52 — a false
 #: Standsicherheit on a meeting protocol because a Statiker attended (0.47)
 #: beside a true Schallschutz in a bauphysik report (0.52). A tag rides in the

@@ -82,8 +82,7 @@ export function installNetworkPolicies(
   //    ANY pod in the namespace — the internet-facing BFF, an LLM agent worker
   //    running model-chosen tool calls — read every tenant's telemetry
   //    (prompts, retrieved snippets, LLM output, and span URLs carrying live
-  //    presigned S3 URLs) over :18888 with no credential whatsoever. Before the
-  //    dashboard's own OIDC was removed, that path still met a claim gate.
+  //    presigned S3 URLs) over :18888 with no credential whatsoever.
   //
   //    NetworkPolicy has no deny rule and allows are additive, so the narrower
   //    `allow-edge-to-aspire-dashboard` below cannot subtract anything. NOT

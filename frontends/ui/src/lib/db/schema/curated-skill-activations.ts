@@ -21,7 +21,6 @@
  * Deliberately NOT a `skills` row. A skills row carries a body, and a body is a
  * copy — it would drift from the file it came from the first time we improved
  * the skill, leaving the org running an old instruction nobody there wrote.
- * That was exactly the flaw in the "clone a platform skill" flow this replaces.
  * What is stored here is only the decision.
  *
  * `skill_name` is plain text, not a foreign key: its referent is a file in the

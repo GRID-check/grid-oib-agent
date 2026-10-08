@@ -236,13 +236,13 @@ class TestSelectiveToolRetryMiddleware:
 
 
 class TestBudgetExhaustionIsTerminal:
-    """Backlog item 2 ratchet: budget exhaustion is terminal, never a retryable ToolMessage.
+    """Budget exhaustion is terminal, never a retryable ToolMessage.
 
     ``RunBudgetExceededError`` (token ceiling) raised inside ``run_research_batch``
-    used to fall into ``except Exception -> _handle_failure`` and return as
-    "failed after 1 attempt ... Please try again", so the orchestrator resubmitted
-    into an already-exceeded tracker until the wall clock. It must propagate so the
-    run salvages once, marked, instead of looping.
+    must propagate. Caught by the generic failure handler it would come back as
+    "failed after 1 attempt ... Please try again", and the orchestrator would
+    resubmit into an already-exceeded tracker until the wall clock. It propagates
+    so the run salvages once, marked, instead of looping.
     """
 
     def _middleware(self, **kwargs) -> SelectiveToolRetryMiddleware:
@@ -470,10 +470,10 @@ class TestSourceRegistryMiddleware:
     async def test_a_failed_call_contributes_no_source(self, middleware):
         """An errored result is the failure's own words, not evidence.
 
-        Piloti hit this first: a call rejected by argument validation returned
-        pydantic's message, whose ``https://errors.pydantic.dev/...`` line was
-        captured as a web source and drawn as a source card. The gate is the
-        message STATUS, so it holds whatever the error happens to say.
+        A call rejected by argument validation returns pydantic's message, and its
+        ``https://errors.pydantic.dev/...`` line must not be captured as a web
+        source and drawn as a source card. The gate is the message STATUS, so it
+        holds whatever the error happens to say.
         """
         content = (
             "Error: the call was rejected. query: Field required. "
@@ -706,7 +706,7 @@ class _FakeModelRequest:
 
 
 class TestDeferredStructuredOutputMiddleware:
-    """Strict structured output must bind only on the agent's exit turn (backlog T2-8).
+    """Strict structured output must bind only on the agent's exit turn .
 
     Binding response_format on every tool-loop call makes constrained decoders
     answer immediately with no tool calls; the middleware keeps the loop

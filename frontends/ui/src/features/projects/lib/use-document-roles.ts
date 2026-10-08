@@ -3,11 +3,10 @@
 /**
  * One source of role bindings per project, shared by every field on screen.
  *
- * Each field fetching for itself was wrong twice over. It opened a request per
- * field for the same two payloads — Modul I can show several at once — and,
- * worse, it let two fields for the SAME role hold different answers: binding
- * the Bebauungsplan in the wizard question left the Modul I slot still showing
- * the old document until something remounted it.
+ * Fields fetching for themselves would open a request per field for the same two
+ * payloads — Modul I can show several at once — and let two fields for the SAME
+ * role hold different answers: binding the Bebauungsplan in the wizard question
+ * would leave the Modul I slot showing the old document until something remounted it.
  *
  * So the bindings live in a module-scope store keyed by project, fields
  * subscribe, and a write refreshes every subscriber at once. Small enough to
@@ -65,8 +64,8 @@ async function load(projectId: string): Promise<void> {
   ])
 
   // `.json()` on an OK response still rejects on a truncated or non-JSON body,
-  // and a body of literal `null` type-checks but has no `.roles`. Either used to
-  // reject `load` before `publish`, leaving `bindings` at `null` — which every
+  // and a body of literal `null` type-checks but has no `.roles`. Either would
+  // reject `load` before `publish` and leave `bindings` at `null`, which every
   // subscribed field renders as a spinner that never stops.
   const readList = async <T>(
     response: Response | null,
@@ -91,10 +90,10 @@ async function load(projectId: string): Promise<void> {
   // failed: a field that shows a spinner forever is worse than one that shows
   // an empty slot the user can still fill.
   //
-  // Only while someone is still listening, though. Publishing after the last
-  // subscriber unmounted re-created the cache entry that cleanup had just
-  // deleted, so reopening the project saw `states.has(projectId)` and skipped
-  // the refetch — serving a snapshot from before whatever happened in between.
+  // Only while someone is still listening. Publishing after the last subscriber
+  // unmounted would re-create the cache entry that cleanup just deleted; reopening
+  // the project would then see `states.has(projectId)`, skip the refetch, and
+  // serve a stale snapshot.
   if (listeners.has(projectId)) publish(projectId, { bindings: roles, documents })
 }
 

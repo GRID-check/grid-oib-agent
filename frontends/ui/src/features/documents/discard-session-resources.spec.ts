@@ -2,11 +2,10 @@
  * Discarding an abandoned upload-only chat is ONE server call: the conversation
  * delete, which erases the attachments and the `s_` collection itself.
  *
- * This helper used to fire a collection delete of its own through the v1 proxy,
- * concurrently with the conversation delete. That proxy request authorizes on
- * the conversation row, so whenever the row went first the collection delete
- * was refused and the collection was orphaned. The helper now clears browser
- * state and sends nothing.
+ * The helper clears browser state and sends nothing. A collection delete fired
+ * through the v1 proxy alongside the conversation delete would race it: that
+ * request authorizes on the conversation row, so whenever the row goes first the
+ * collection delete is refused and the collection is orphaned.
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 

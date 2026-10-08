@@ -4,11 +4,12 @@
  * A card in the thread knows its message: `AgentResponse` draws
  * `message.cards` and hands `GridCards` that message's id, so an interactive
  * card's answer lands on the message it belongs to (ADR-0030). The
- * deep-research REPORT tab draws the same cards from `deepResearchCards` — a
- * transient list lifted off the finished job's output — and had no message at
- * all, so a `memory_proposal` answered there fell back to mount-local state and
- * was forgotten. The same card, answered in the thread, persisted. One card,
- * two decision states, decided by which panel the reader happened to click in.
+ * deep-research REPORT tab draws the same cards from `deepResearchCards`, a
+ * transient list lifted off the finished job's output, with no message of its
+ * own. Answered there, a `memory_proposal` would fall back to mount-local state
+ * and be forgotten, while the same card answered in the thread persists. Without
+ * an owner, one card would have two decision states, decided by which panel the
+ * reader happened to click in.
  *
  * The owning message DOES exist. `write_job_turn`
  * (`aiq_api/jobs/conversation_output.py`) writes the finished run into its

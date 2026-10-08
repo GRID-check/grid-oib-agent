@@ -14,12 +14,9 @@ of the spec file — so a disagreement of a micrometre is visible instead of bei
 hidden by rounding.
 
 **A disagreement is a finding, not a tolerance to widen.** Every row states the
-tolerance it was asserted at. One row did genuinely disagree — ``clear_height``,
-by 30 cm — and it was asserted against the value the investigation showed to be
-right rather than quietly loosened. The TypeScript operator has since been
-corrected to measure the same way, so that row is back in parity and the table
-reports no current finding; the story is kept in the test that owns it, because
-a table that still said FINDING would be describing a fixed defect.
+tolerance it was asserted at. A row where the engines genuinely disagree is
+asserted separately, in the test that owns it, against the value the
+investigation showed to be right, and the table marks it as a finding.
 
 Run with ``-s`` to see the parity table.
 """
@@ -321,8 +318,8 @@ def test_extent_and_elevation(model: SpatialModel) -> None:
 
 
 def test_names_the_facade_bearing_instead_of_inventing_one(model: SpatialModel) -> None:
-    # The original failed answer described this as the Südfassade. It faces
-    # north, and the file declares a TrueNorth, so this is checkable.
+    # A wrong answer calls this the Südfassade. It faces north, and the file
+    # declares a TrueNorth, so this is checkable.
     answer = op.azimuth(model, NORTH_WALL)
     assert answer.decidable
     assert answer.unit == "°"
@@ -380,23 +377,17 @@ def test_the_four_senses_of_distance(model: SpatialModel) -> None:
 
 
 def test_clear_height_is_where_the_two_engines_used_to_disagree(model: SpatialModel) -> None:
-    """The row that WAS the finding, and is now the proof it was acted on.
+    """The living room's clear height, which is 2.20 m and not the 2.50 m Z extent of
+    its IfcSpace solid.
 
-    TS `clearHeight(LIVING)` used to return 2.50 m, the Z extent of the
-    IfcSpace solid, while its own caveat said that is NOT the lichte Höhe
-    because it could not see what hangs in the room ("dafür fehlt dieser
-    Bibliothek noch der Verschneidungstest"). The living room has a suspended
-    ceiling (`IfcCovering` "Compound Ceiling:Plain", z 2.200–2.257), so the true
-    clear height is 2.20 m — 30 cm, on exactly the number an OIB minimum room
-    height is checked against, and on the side that passes a room that fails.
-    Porting the operators onto IfcOpenShell is what found it.
-
-    The TypeScript operator now casts the same rays: `metric.spec.ts` asserts
-    2.2 m and `clearHeight` returns 2.199999999254942 (measured by running it
-    directly, like every other reference value here). So this is no longer a
-    disagreement and must not be reported as one — a parity table that still
-    said FINDING would be describing a defect that was fixed in this same
-    change, and the reader has no way to tell a live finding from a souvenir.
+    The extent cannot see what hangs in the room, and this room has a suspended
+    ceiling (`IfcCovering` "Compound Ceiling:Plain", z 2.200–2.257). The true
+    clear height is therefore 30 cm lower, on exactly the number an OIB minimum
+    room height is checked against, and on the side that passes a room that
+    fails. The clear height is measured by casting rays: the TypeScript operator
+    casts the same rays, so `metric.spec.ts` asserts 2.2 m and `clearHeight`
+    returns 2.199999999254942 (measured by running it directly, like every other
+    reference value here). Both engines agree, so this is an ordinary parity row.
     """
     answer = op.clear_height(model, LIVING)
     assert answer.decidable
@@ -476,7 +467,7 @@ def test_the_ray_finds_the_glazing_through_the_hole_in_the_wall(model: SpatialMo
     assert answer.value["hit"] == WINDOW
     record("ray.point.y", "bedroom → north", 4.613, answer.value["point"][1], tolerance=0.005, unit="m")
     record("ray.distance", "bedroom → north", 2.613, answer.value["distance"], tolerance=0.005, unit="m")
-    # BESSER: the OCCT ray also reports the surface normal and the dot product.
+    # The OCCT ray also reports the surface normal and the dot product.
     assert answer.value["dotProduct"] == pytest.approx(-1.0, abs=1e-6)
 
     solid = op.ray(model, [1.0, 2.0, 1.5], [0, 1, 0], 50)

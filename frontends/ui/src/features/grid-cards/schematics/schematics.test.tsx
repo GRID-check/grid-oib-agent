@@ -409,14 +409,14 @@ describe('FireAccessPlanCard', () => {
 })
 
 /**
- * The provenance of a number, which the card used to drop on the floor.
+ * The provenance of a number travels with the number.
  *
  * `ifc_measure` answers „gemessen: 2,47 m (±5 mm) — aus der Geometrie
- * berechnet, nicht deklariert", the assistant repeats that in the prose, and
- * this card drew **2,47 m ✓** beside it — indistinguishable from a figure the
- * architect had stated in their own file. A card is the part a reviewer
- * screenshots into a submission, so the surface that dropped the qualifier was
- * the one most likely to be forwarded without it.
+ * berechnet, nicht deklariert", the assistant repeats that in the prose, and a
+ * card that drew **2,47 m ✓** beside it would be indistinguishable from a
+ * figure the architect had stated in their own file. A card is the part a
+ * reviewer screenshots into a submission, so it is the surface least able to
+ * drop the qualifier.
  */
 describe('a measured number carries where it came from', () => {
   it('separates our measurement from the architect’s own statement', () => {
@@ -536,8 +536,8 @@ describe('the tolerance band against the limit', () => {
     /**
      * 54 ±3 against „≤ 55" warns, because 57 fails it. 50 ±5 against the same
      * limit must NOT: every value in [45, 55] meets a „≤ 55", and the endpoint
-     * is inside the limit, not across it. The first version tested `hi >=
-     * required` and warned here.
+     * is inside the limit, not across it. A test of `hi >= required` would
+     * warn here, which is wrong.
      */
     render(
       <LimitBar

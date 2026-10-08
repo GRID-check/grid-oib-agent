@@ -326,7 +326,7 @@ class TestSurfaceIntegrity:
         assert f"`{prop}` is one of" in _refusal(card)
 
     def test_a_non_string_layout_value_is_a_validation_error_not_a_type_error(self):
-        # An unhashable value used to reach `in frozenset` and raise a bare TypeError.
+        # An unhashable value is a validation error, not a bare TypeError from `in frozenset`.
         root = {"id": "root", "component": "Row", "children": ["a", "b"], "justify": ["start"]}
         with pytest.raises(ValidationError, match="`justify` is one of"):
             SurfaceCard.model_validate(_tabs(components=[root, BASIS_A, BASIS_B]))
@@ -388,7 +388,7 @@ class TestWhereASurfaceIsTaught:
         hint = shape_hint_for("surface") or ""
         assert hint.startswith("COMPOSE.")
         assert '"component": "Tabs"' in hint
-        # The generic entry told a model every text field is PLAIN TEXT, which a `Text` leaf is not.
+        # The generic entry says every text field is PLAIN TEXT, which a `Text` leaf is not.
         assert "PLAIN TEXT" not in hint
 
     def test_the_rendered_details_are_the_compose_rule(self):
@@ -611,8 +611,8 @@ def test_a_tab_title_is_plain_text_like_every_other_card_string():
 
 
 def test_a_second_root_is_refused_as_a_duplicate_not_as_a_bad_root():
-    # Keyed by id, a later card called "root" replaced the real Tabs and the
-    # refusal said the root must be a layout, which it was.
+    # Keyed by id, a later card called "root" would replace the real Tabs, and the
+    # refusal would then say the root must be a layout, which it already was.
     card = _tabs()
     card["components"].append({**copy.deepcopy(BASIS_A), "id": "root"})
     refusal = _refusal(card)

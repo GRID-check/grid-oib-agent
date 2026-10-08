@@ -5,10 +5,9 @@
  * keyset page at a time and say where the next one starts (`nextCursor`). The
  * surfaces that read them — the Files pane, the Archiv — filter, search, count
  * folders and plan folder uploads over the corpus IN THE BROWSER, so for them
- * "the listing" has to be every row, not the newest page. They used to get the
- * newest 500 with nothing saying so: the oldest plans of a big project were not
- * findable, and the upload planner labelled files that were already there
- * „Neu".
+ * "the listing" has to be every row, not the newest page. The newest page alone
+ * would hide the oldest plans of a big project, and the upload planner would
+ * label files that are already there „Neu".
  *
  * Every request stays bounded by the server. This bounds the total too: past
  * {@link MAX_LISTING_PAGES} pages it stops and reports `truncated`, so a

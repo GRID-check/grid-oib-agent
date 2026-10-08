@@ -140,7 +140,7 @@ _MAX_CACHED_BINDINGS = 32
 
 #: Cumulative INPUT tokens one turn may spend before synthesis is forced.
 #: Rounds bound how far the investigation goes; this bounds what it COSTS, and
-#: without it nothing does — a round is now one decision however many calls it
+#: without it nothing does — a round is one decision however many calls it
 #: fans out into. Sized well above the worst turn we have measured (288 583
 #: prompt tokens over eight calls, on „was weißt du über die OIB 2"), because a
 #: bound that fires on a hard question is a hobble; it is here to stop a
@@ -148,10 +148,10 @@ _MAX_CACHED_BINDINGS = 32
 _DEFAULT_MAX_INPUT_TOKENS_PER_TURN = 600_000
 
 #: The one line that goes in FRONT of the result a withheld repeat is answered
-#: with. The guard used to answer a repeat with a scolding and a pointer at the
-#: transcript ("das Ergebnis oben ist die Antwort"), which asks the model to go
-#: and find something it already asked for — and a model that cannot find it
-#: asks a third time. A tool delivers an answer, so the repeat is answered with
+#: with. A repeat answered with a scolding and a pointer at the transcript
+#: ("das Ergebnis oben ist die Antwort") asks the model to go and find something
+#: it already asked for — and a model that cannot find it asks a third time. A
+#: tool delivers an answer, so the repeat is answered with
 #: the ANSWER: the first execution's own text, verbatim, labelled as the earlier
 #: result so nothing reads as a second, agreeing retrieval. Still uncharged,
 #: still never run again.
@@ -161,7 +161,7 @@ _REPEAT_FETCH_PREFIX = (
     "oder einer anderen Frage."
 )
 
-#: The fallback when the turn no longer holds the first execution's text (the
+#: The fallback when the turn holds no first execution's text (the
 #: tools node was driven directly, or that call answered with nothing at all).
 #: German for the same reason as the prefix, and an INSTRUCTION for the same
 #: reason: a retry of the identical call would buy the turn nothing.
@@ -204,8 +204,8 @@ _WIDTH_CAP_MESSAGE = (
 #: Why the loop stopped early. Stable tokens, not prose: they are counted, and
 #: they name two different sizing questions. ``rounds`` is the investigation
 #: being cut off — the worst failure this product has. ``input_tokens`` is the
-#: turn getting expensive, which is the bound that replaced the per-call budget
-#: and should fire on a runaway, never on a hard question.
+#: turn getting expensive, which is the bound on cost, and should fire on a
+#: runaway, never on a hard question.
 CUTOFF_ROUNDS = "rounds"
 CUTOFF_INPUT_TOKENS = "input_tokens"
 
@@ -269,7 +269,7 @@ class TurnBinding:
     #: model using its round well, and it costs one.
     ceiling: int
     #: Cumulative INPUT tokens this turn may spend before synthesis is forced.
-    #: The bound that protects the user's bill, since rounds no longer do:
+    #: The bound that protects the user's bill, because a round does not:
     #: one round of twelve fetches is cheap in rounds and is not cheap.
     max_input_tokens: int = 0
     #: How many calls of ONE round are actually run. Read in BOTH nodes, like
@@ -370,7 +370,7 @@ def _drop_withheld(
 ) -> list[Any]:
     """The calls that will actually RUN, and the records the withholding leaves.
 
-    No guard charges anything — charging is per ROUND now, and the round is
+    No guard charges anything — charging is per ROUND, and the round is
     charged whatever survives here — and all three keep their calls out of the
     announcement, so a batch that is only withheld calls consumes no
     ``status:retrieval:N`` slot and does not advance the round counter.
@@ -465,15 +465,14 @@ def _charge_tool_calls(
     that emitted tool calls; the calls inside it are that decision being
     carried out, and a model that opens all five members of a Richtlinien-
     Familie in one parallel batch is using its round WELL. Charging each call
-    made exactly that turn — the family overview the prompt asks for — the one
-    that ran out of budget, and it made the second card of the card doctrine
+    would make exactly that turn — the family overview the prompt asks for —
+    run out of budget, and would leave the second card of the card doctrine
     unreachable on any turn that had actually searched.
 
-    So there is no second currency any more. The interaction allowance existed
-    only to hold `emit_card` / `remember` / the working directory's file verbs
-    out of a per-CALL budget; with a per-round budget an interaction-only round
-    is simply a round, and it costs one like every other. A repeat-only round
-    costs one too (:func:`_charge_empty_round`).
+    So there is one currency. An interaction-only round (`emit_card` /
+    `remember` / the working directory's file verbs) is simply a round, and it
+    costs one like every other. A repeat-only round costs one too
+    (:func:`_charge_empty_round`).
 
     What the round pays for does not include a WITHHELD call — a repeat fetch,
     a call to a switched-off source, or a call past the round's width cap is
@@ -651,7 +650,7 @@ def _repeat_answer(call: Any, results: Mapping[str, str], attempted: frozenset[s
     oben" when there is no result above — the same lie a cross-round failure is
     carefully kept from telling (a failure signs nothing, so its retry runs).
     Everything else — the tools node driven directly, a first execution that
-    returned nothing at all — is the old fallback.
+    returned nothing at all — is the fallback.
     """
     signature = fetch_signature(call)
     cached = results.get(signature) if signature is not None else None
@@ -738,11 +737,10 @@ def _recursion_limit(ceiling: int) -> int:
     """The LangGraph step guard, derived from the ceiling the loop really stops at.
 
     Two graph steps per tool-calling round (agent + tools), plus slack. Nothing
-    is added on top of the ceiling any more: a round is a round whatever it
-    asked for, so the cards, the working directory and a batch of five parallel
-    fetches all cost one and the loop cannot outrun the ceiling by emitting its
-    calls one at a time. The interaction allowance that used to be added here
-    existed only to protect a per-CALL budget, and is gone with it.
+    is added on top of the ceiling: a round is a round whatever it asked for, so
+    the cards, the working directory and a batch of five parallel fetches all
+    cost one and the loop cannot outrun the ceiling by emitting its calls one at
+    a time.
 
     A round whose every call was withheld — a repeat fetch, a switched-off
     source — is charged one round (:func:`_charge_empty_round`), so a model
@@ -893,8 +891,8 @@ class PilotiAgent:
     """
 
     #: The state model ``run`` takes. Declared rather than derived: the async
-    #: job runner used to spell it out of the class name, so renaming the class
-    #: silently handed the agent a bare dict instead of a state object
+    #: job runner would otherwise spell it out of the class name, so renaming the
+    #: class would silently hand the agent a bare dict instead of a state object
     #: (``aiq_api.jobs.runner._get_agent_state_class``).
     state_model = ResearchAgentState
 
@@ -956,7 +954,7 @@ class PilotiAgent:
             card_repair_llm: The small model that fixes ONE envelope card
                 whose shape the validator refused (``cards/repair.py``): a few
                 thousand tokens instead of the full-context round the
-                ``emit_card`` retry used to cost. ``None`` drops a card that
+                ``emit_card`` retry would cost. ``None`` drops a card that
                 fails validation, and records that it did.
         """
         self.card_repair_llm = card_repair_llm
@@ -1228,8 +1226,8 @@ class PilotiAgent:
         questions. Rounds exhausted is "the investigation was cut off": the
         worst failure this product has, counted against the traced floors in
         ``configs/config_oib_openrouter.yml``. Input tokens exhausted is "the
-        turn got expensive": the bound that replaced the per-call budget, and
-        one that should fire on a runaway rather than on a hard question. What
+        turn got expensive": the bound on what a turn costs, and one that should
+        fire on a runaway rather than on a hard question. What
         is recorded either way is the SHAPE of the run, the ordered tool names,
         because that is what makes the population answerable without logging
         the reader's question.
@@ -1363,7 +1361,7 @@ class PilotiAgent:
         if withheld:
             # AFTER the capture loop, deliberately: a withholding notice is not
             # a tool result and must never be mined for citation keys — and it
-            # carries the earlier result verbatim now, so mining it would
+            # carries the earlier result verbatim, so mining it would
             # register every passage of that fetch a second time.
             result = {**result, "messages": [*ran_messages, *split.notices(fetch_results)]}
         result = {
@@ -1395,7 +1393,7 @@ class PilotiAgent:
                 # A call that raised returned no evidence, whatever its text
                 # says. Read as a result it contributes the error's own words:
                 # a pydantic message links to its error index, and that link
-                # used to register as a web source card nobody had searched.
+                # would register as a web source card nobody had searched.
                 continue
             tool_name = getattr(message, "name", "") or ""
             content = str(message.content)

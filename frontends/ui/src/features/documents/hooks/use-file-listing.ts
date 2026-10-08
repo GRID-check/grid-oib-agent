@@ -26,18 +26,16 @@ export interface FileListingOptions {
 /**
  * One shelf's documents: the full drain, and the guarantees around it.
  *
- * This is the loader that used to exist twice — once in the project workspace,
- * once (copied, with a comment saying so) in the Archiv's. Both are this now.
+ * The project workspace and the Archiv both load through this hook.
  *
  * ## Only the LATEST request may commit its answer
  *
- * `useSettlingRefresh` serialises its OWN polls, but nothing coordinated a poll
- * already in flight with a FOREGROUND load (mount, upload settled, retry). A
- * slow poll carrying `processing` could land after a newer load carrying
- * `ready` and overwrite it, regressing a badge the user was just told had
- * flipped — and, because the row went back to unsettled, restarting the poll.
- * A monotonic generation stamped when the request goes out and re-checked
- * before every state write makes the newest request the only one that can win.
+ * `useSettlingRefresh` serialises its own polls, but a poll already in flight
+ * can still land after a FOREGROUND load (mount, upload settled, retry). A slow
+ * poll carrying `processing` landing after a newer load carrying `ready` would
+ * regress a badge the user was just told had flipped, and restart the poll. A
+ * monotonic generation stamped when the request goes out and re-checked before
+ * every state write makes the newest request the only one that can win.
  */
 export function useFileListing({
   endpoints,

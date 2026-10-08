@@ -105,9 +105,9 @@ class TestBuildQuery:
         assert "metric must be one of" in build(operation="aggregate", metric="median")
 
     def test_takeoff_refuses_a_grouping_it_cannot_do(self):
-        # `byMaterial = group_by == "material"` turned every other value into
-        # `false` with no error, so a request for a per-storey Massenermittlung
-        # returned the whole building's and the agent reported it as one floor's.
+        # Every `group_by` value must reach the endpoint as itself: a flag derived
+        # from `group_by == "material"` turns the rest into `false` with no error,
+        # and a per-storey Massenermittlung comes back as the whole building's.
         answer = build(operation="takeoff", quantity="NetSideArea", group_by="storey")
         assert isinstance(answer, str)
         assert "can only group by 'material'" in answer
@@ -122,8 +122,8 @@ class TestBuildQuery:
 
     def test_grouping_by_property_is_refused_here_rather_than_by_a_400(self):
         # The endpoint requires a companion `groupProperty {set, name}` that
-        # this tool has no parameter for, so every attempt was rejected and the
-        # agent had no argument it could correct.
+        # this tool has no parameter for. Refusing here keeps the 400 from
+        # reaching the agent, which has no argument to correct it with.
         answer = build(operation="aggregate", metric="count", group_by="property")
         assert isinstance(answer, str)
         assert "operation='properties'" in answer
@@ -139,8 +139,8 @@ class TestRender:
         """The Herleitung hangs on a round the documents it returned.
 
         An ``ifc_query`` round is announced as a retrieval („Sucht im
-        Gebäudemodell") and used to return no document, so the layer drew as a
-        search that found nothing. The model file is that document, and the
+        Gebäudemodell") and must return the model file as its document, or the
+        layer draws a search that found nothing. The model file is that document, and the
         operation is its locus. An UNRESOLVED result read no file and files
         nothing.
         """
@@ -189,7 +189,7 @@ class TestTheFiveWaysAModelIsNotResolved:
     `no_models` and `extraction_failed` are facts about the PROJECT: no
     argument to this tool changes them, and the route's own sentence („Für
     dieses Projekt ist kein IFC-Modell hinterlegt.") reads like one operation's
-    miss, so the agent used to spend its remaining rounds on `overview`,
+    miss, so the agent would spend its remaining rounds on `overview`,
     `types`, `elements` and `health` in turn. `not_ready` is a fact about the
     TURN: the model exists and its extraction finishes later, and the render
     names it under „noch nicht abfragbar", which is an invitation to retry with
@@ -454,10 +454,9 @@ class TestElementLinks:
         assert _element_link("p1", None, "g1") == "/app/projects/p1/model?element=g1&hl=info%3Ag1"
 
     def test_a_failing_element_opens_red_rather_than_neutral(self):
-        # Every link this tool emitted was `info` (blue) whatever the row said,
-        # so a wall that FAILS a requirement opened in the same colour as one
-        # the user merely asked to look at. The viewer supports four verdict
-        # colours and the whole set was collapsed to one.
+        # Each link takes its tone from the row. The viewer supports four verdict
+        # colours, and a wall that FAILS a requirement must not open in the colour
+        # of one the user merely asked to look at.
         assert _element_link("p1", None, "g1", "fail") == "/app/projects/p1/model?element=g1&hl=fail%3Ag1"
         assert _element_link("p1", None, "g1", "warning").endswith("hl=warning%3Ag1")
 
@@ -547,11 +546,11 @@ class TestComplianceOperation:
         assert build(operation="compliance", gebaeudeklasse=9) == {"op": "compliance"}
 
     def test_compliance_refuses_filters_rather_than_dropping_them(self):
-        # It used to drop them, which is the one thing the tool description
-        # promises never happens ("an unknown key is REJECTED, not ignored").
-        # A rule run asked for with `{"storeys": ["Erdgeschoss"]}` came back as
-        # a run over the WHOLE building, and the agent reported it as the
-        # ground floor's — a wrong verdict, arrived at silently.
+        # Dropping them would break the one promise the tool description makes:
+        # an unknown key is REJECTED, not ignored. A rule run asked for with
+        # `{"storeys": ["Erdgeschoss"]}` must not come back as a run over the
+        # WHOLE building, reported as the ground floor's — a wrong verdict,
+        # arrived at silently.
         answer = build(operation="compliance", filters='{"ifcTypes": ["IfcWall"]}', gebaeudeklasse=2)
         assert isinstance(answer, str)
         assert "takes no filters" in answer
@@ -567,8 +566,8 @@ class TestComplianceOperation:
 
     def test_an_unknown_hauptnutzung_is_omitted_rather_than_rejected(self):
         # The description promises an unrecognised value makes the rules stand
-        # down. It did not: the value reached a `.strict()` object whose field
-        # is an enum, so the WHOLE compliance run came back 400 — on a value
+        # down. The value must not reach a `.strict()` object whose field is an
+        # enum: that would fail the WHOLE compliance run with a 400, on a value
         # the description presents as merely imprecise.
         assert build(operation="compliance", hauptnutzung="Wohngebäude") == {"op": "compliance"}
 
@@ -643,11 +642,10 @@ class TestComplianceOperation:
 
     def test_a_rule_that_left_work_behind_prints_the_id_the_card_asks_for(self):
         # `ifc_compliance.rule_ids` is documented as "rule ids from ifc_query
-        # operation='compliance'", and this renderer printed one nowhere except
-        # inside the shopping list's `entscheidet:` clause — which only covers
-        # rules with a MISSING property. For a rule that cleanly fails there
-        # was no valid id to put in the card, so the agent had to invent one
-        # (the card then renders it unresolved) or send an empty list.
+        # operation='compliance'", so the renderer prints one. The shopping list's
+        # `entscheidet:` clause covers only rules with a MISSING property; a rule
+        # that cleanly fails needs its id in the card, or the agent has to invent
+        # one (the card then renders it unresolved) or send an empty list.
         rendered = _render(
             {
                 "resolved": True,
@@ -799,9 +797,9 @@ class TestTheDescriptionDescribesTheRealTool:
 
     A parameter documented in it that the function does not have is not a typo
     — it is an instruction the model follows to produce a call that silently
-    does something else. ``by_material=true`` shipped for exactly that reason:
-    the real switch is ``group_by="material"``, so every cost-estimate takeoff
-    an obedient model asked for came back ungrouped, and nothing failed.
+    does something else. ``by_material=true`` is the failure this guards: the
+    real switch is ``group_by="material"``, so an obedient model's takeoff would
+    come back ungrouped, and nothing would fail.
     """
 
     @staticmethod
@@ -894,8 +892,8 @@ class TestGebaeudeklasseValidation:
         query = build(operation="compliance", gebaeudeklasse=value or 0)
         assert "gebaeudeklasse" not in query
 
-        # And the same value must not survive into the export URL, which is the
-        # half that used to take it raw.
+        # And the same value must not survive into the export URL, the half that
+        # takes it raw.
         assert "gebaeudeklasse" not in _bcf_link("p1", "haus.ifc", value or 0, "")
 
     @pytest.mark.parametrize("value", [1, 2, 3, 4, 5])
@@ -906,7 +904,7 @@ class TestGebaeudeklasseValidation:
         assert f"gebaeudeklasse={value}" in _bcf_link("p1", "haus.ifc", value, "")
 
     def test_the_rendered_export_link_drops_a_klasse_the_catalogue_refused(self):
-        # The end-to-end shape of the bug: the tool is called with 9, the
+        # The end-to-end shape of the failure: the tool is called with 9, the
         # catalogue runs without a Gebäudeklasse, and the link must match.
         rendered = _render(
             {"resolved": True, "op": "compliance", "model": {"filename": "haus.ifc"}, "summary": "…"},
@@ -976,9 +974,9 @@ class TestWhatTheTraceRecords:
         assert self._recorded()["tags"] == ["feature:ifc"]
 
     def test_a_list_clipped_by_one_reads_as_one(self):
-        # The renderer substitutes into a template and does nothing else, so
-        # "… 1 weitere Geschoße nicht gezeigt." was what every list clipped by
-        # exactly one produced — in an answer an architect reads as German.
+        # The renderer substitutes into a template and does nothing else, so a
+        # list clipped by exactly one must not read "… 1 weitere Geschoße nicht
+        # gezeigt." — in an answer an architect reads as German.
         from aiq_agent.tools.bim.register import _clipped
 
         assert _clipped(list(range(21)), 20, "Geschoße") == "… ein weiteres Geschoß nicht gezeigt."

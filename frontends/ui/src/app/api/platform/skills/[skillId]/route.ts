@@ -3,13 +3,12 @@
  *
  * PATCH  — edit it, including publishing and withdrawing (`published`). An edit
  *          reaches every organization running the skill immediately: the body
- *          lives here and only here, which is the property the removed "clone a
- *          platform skill" flow could not have.
+ *          lives here and only here, so no organization holds a copy that can
+ *          fall out of date.
  *
- *          Nothing here decides FOR an organization. `delivery` used to: an
- *          offer promoted to `standard` started every tenant running the skill,
- *          including ones that had switched it off. Migration 0088 retired that
- *          tier, so the field has one value and an organization always decides.
+ *          Nothing here decides FOR an organization: a row is offered, and the
+ *          organization always decides whether to run it, including when it has
+ *          switched the skill off.
  * DELETE — withdraw it from the fleet. Organizations stop resolving it; their
  *          activation rows are left alone, so re-creating the skill under the
  *          same name restores the fleet as it was.

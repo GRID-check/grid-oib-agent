@@ -135,9 +135,9 @@ describe('createPlatformSkill', () => {
   })
 
   /**
-   * There is one delivery now, and this is where it is written down: a curated
-   * skill is OFFERED. Migration 0088 retired `standard`, the tier that forced
-   * a skill onto every run and gave no organization a choice.
+   * There is one delivery: a curated skill is OFFERED. Forcing a skill onto
+   * every run would take the choice away from every organization, so nothing
+   * does that.
    */
   it('creates an OFFER, the only delivery there is', async () => {
     vi.mocked(repository.insertPlatformSkillRow).mockImplementation(async (values) =>
@@ -240,9 +240,9 @@ describe('updatePlatformSkill', () => {
    * not touch the document: a published skill is the same SKILL.md as the draft
    * it was a moment ago.
    *
-   * There is no promotion to promote to. `delivery` used to move a row between
-   * `offer` and `standard`, and the promotion took the choice away from every
-   * organization on the platform; 0088 retired the tier.
+   * There is no promotion to promote to: `delivery` takes only `offer`, since a
+   * promotion to `standard` would take the choice away from every organization
+   * on the platform.
    */
   it('publishes without touching the document', async () => {
     vi.mocked(repository.findPlatformSkillRow).mockResolvedValue(makeRow({ published: false }))

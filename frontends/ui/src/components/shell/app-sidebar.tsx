@@ -2,11 +2,11 @@
 
 /**
  * The GRID application sidebar — the product's primary navigation surface, and
- * since the app-shell change the ONE persistent piece of chrome in `/app`.
+ * the ONE persistent piece of chrome in `/app`.
  *
  * Composes the shadcn Sidebar primitive (Sheet on mobile, icon-collapse on
- * desktop) rather than owning a drawer, a rail, and collapse itself. IA is
- * still the click-dummy overhaul: "Piloti" wordmark → project switcher →
+ * desktop) rather than owning a drawer, a rail, and collapse itself. IA follows
+ * the click-dummy: "Piloti" wordmark → project switcher →
  * grouped section nav → pinned Settings → user footer. Active section is a
  * raised white card on the sunken rail.
  *
@@ -91,7 +91,7 @@ export interface AppSidebarProps {
   /**
    * The organization the reader is acting in. Shown as an eyebrow above their
    * name in the rail footer — every project, the Archiv and the Inbox are
-   * scoped to one org, and the rail never said which.
+   * scoped to one org, so the rail names which.
    */
   organizationName?: string | null
   authRequired: boolean
@@ -121,15 +121,15 @@ export interface AppSidebarProps {
    * and with it the badge subscription, so a gated reader opens no live
    * connection and issues no request (spec NF-8).
    *
-   * Not the collaboration flag since ADR-0042: the inbox also carries
-   * operational alerts, and hiding the entry from a tenant without
-   * collaboration hid the warning that its storage was filling up.
+   * Not the collaboration flag (ADR-0042): the inbox also carries operational
+   * alerts, and hiding the entry from a tenant without collaboration would hide
+   * the warning that its storage is filling up.
    *
-   * REQUIRED, unlike its neighbours. It used to default to `false`, and two of
-   * the three callers — the dev preview and the spec fixture — omitted it, so
-   * both silently exercised the HIDDEN state: the entry was missing and the badge
-   * subscription never opened, in exactly the two places whose job is to show
-   * what the rail looks like. A required prop turns that into a compile error.
+   * REQUIRED, unlike its neighbours: defaulting to `false` would let the dev
+   * preview and the spec fixture, which omit it, silently exercise the HIDDEN
+   * state — the entry missing and the badge subscription never opened — in
+   * exactly the two places whose job is to show what the rail looks like. A
+   * required prop turns that into a compile error.
    */
   canAccessInbox: boolean
 }
@@ -271,10 +271,11 @@ function AppSidebarFrame({
         className={cn(
           // The app renders edge-to-edge (`viewportFit: 'cover'` in the root
           // viewport), so a bar pinned to the top of the screen has to say where
-          // the screen actually starts. `ChatToolbar` already does this; this bar
-          // is the same band on every other section and did not, which put the
-          // hamburger under the status bar on a home-screen install and under the
-          // notch in landscape. `min-h-14` rather than `h-14`, because the inset
+          // the screen actually starts. `ChatToolbar` already does this, and this
+          // bar is the same band on every other section, so it needs the same
+          // inset: without it the hamburger sits under the status bar on a
+          // home-screen install and under the notch in landscape. `min-h-14`
+          // rather than `h-14`, because the inset
           // has to be able to make the bar taller instead of eating its contents.
           'border-border bg-surface-sunken min-h-14 w-full shrink-0 items-center justify-between gap-2 border-b px-3 pt-[env(safe-area-inset-top)] md:hidden',
           isChatRoute ? 'hidden' : 'flex'
@@ -324,8 +325,8 @@ function AppSidebarFrame({
             'shrink-0 gap-0 p-0 pt-[18px]',
             // 14px, so a 36px tile centres at x=32 in the 64px rail — the same
             // axis as the brand mark, the presence dot and the avatar. A zero
-            // inset left the icon column flush at x=0 (centre 18) while
-            // everything else centred at 32.
+            // inset would leave the icon column flush at x=0 (centre 18) while
+            // everything else centres at 32.
             iconRail ? 'overflow-hidden px-3.5' : 'px-3'
           )}
         >
@@ -348,9 +349,9 @@ function AppSidebarFrame({
         <SidebarContent
           className={cn(
             'mt-5 gap-4 flex-1',
-            // overflow-y-auto here used to replace the primitive's
-            // group-data-[collapsible=icon]:overflow-hidden, so labels kept
-            // painting past the 64px rail.
+            // overflow-y-auto here would replace the primitive's
+            // group-data-[collapsible=icon]:overflow-hidden, and labels would
+            // keep painting past the 64px rail.
             iconRail ? 'overflow-hidden px-3.5' : 'overflow-y-auto px-3'
           )}
         >
@@ -461,7 +462,7 @@ function AppSidebarFrame({
             />
           </div>
         </SidebarFooter>
-        {/* The primitive's own strings are English; the rail is a tab stop now,
+        {/* The primitive's own strings are English; the rail is a tab stop,
             so the one control a keyboard user lands on has to speak the app's
             language like every other. `iconRail` is already the collapse
             control's source of truth two rows up — same state, same wording. */}
@@ -538,8 +539,7 @@ function SidebarBrand({ iconRail }: { iconRail: boolean }) {
             'text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:ring-ring/60 flex items-center justify-center rounded-lg transition-colors duration-quick ease-out focus-visible:outline-none focus-visible:ring-2',
             // Icon rail: exactly a nav tile (36px square), so it lands on the same
             // column and the same grid as the items below instead of reading as a
-            // loose glyph floating in the header's dead space. It was `h-9 w-10` —
-            // a 40px width that matched nothing else in the rail.
+            // loose glyph floating in the header's dead space.
             iconRail ? 'mt-2 size-9' : 'ml-auto size-7'
           )}
         >
@@ -584,11 +584,10 @@ function RailNavItem({
         className={cn(
           'h-9 gap-[11px] rounded-[10px] px-3 text-[13px]',
           'group-data-[collapsible=icon]:size-9! group-data-[collapsible=icon]:p-0! group-data-[collapsible=icon]:justify-center',
-          // The active SURFACE now lives on the pill below, so every fill the
+          // The active SURFACE lives on the pill below, so every fill the
           // primitive would otherwise paint under it is turned off explicitly —
-          // including `data-[active=true]:bg-sidebar-accent`, which the old
-          // `bg-card` used to override and which would otherwise reappear the
-          // moment that override left. Only the INK stays here: colour and
+          // including `data-[active=true]:bg-sidebar-accent`, which would
+          // otherwise show through. Only the INK stays here: colour and
           // weight are a tween's business, never a spring's.
           active
             ? 'text-foreground hover:bg-transparent hover:text-foreground data-[active=true]:bg-transparent data-[active=true]:text-foreground font-medium data-[active=true]:font-medium'
@@ -601,11 +600,11 @@ function RailNavItem({
               layoutId={pillId}
               data-slot="rail-active-pill"
               aria-hidden
-              // Monochrome BY CONSTRUCTION: this is the exact chip the active
-              // item wore before — `border-border bg-card shadow-xs` — lifted
-              // off the button and onto its own element. Nothing new is drawn
-              // and no colour is introduced; only the ownership of those three
-              // classes changed, which is what lets them travel.
+              // Monochrome BY CONSTRUCTION: this is the chip
+              // `border-border bg-card shadow-xs`, lifted off the button and onto
+              // its own element. Nothing new is drawn and no colour is introduced;
+              // only the ownership of those three classes changes, which is what
+              // lets them travel.
               //
               // `absolute inset-0` resolves against the LI, not the anchor: the
               // anchor is `overflow-hidden` (it clips long labels), and an
@@ -640,7 +639,7 @@ function RailNavItem({
               active ? 'text-foreground' : 'text-muted-foreground'
             )}
           />
-          {/* `data-slot`, because the label is no longer the only <span> inside
+          {/* `data-slot`, because the label is not the only <span> inside
               this anchor — the active pill is one too. A test (or a stylesheet)
               reaching for "the rail entry's text" should say so rather than
               picking the first span and hoping. */}
@@ -648,8 +647,8 @@ function RailNavItem({
             data-slot="rail-nav-label"
             // `relative` ONLY when the label is visible. `sr-only` sets
             // `position: absolute` to take the text out of flow, and a later
-            // `relative` in the cascade beats it — which put a 1px box plus the
-            // row's 11px gap back into the icon rail and slid every glyph 5px
+            // `relative` in the cascade beats it, which would put a 1px box plus
+            // the row's 11px gap back into the icon rail and slide every glyph 5px
             // off the 32px centre line the rail is aligned to. A hidden label
             // has no paint order to fix, so it does not need the class.
             className={cn('truncate', tooltip ? 'sr-only' : 'relative')}

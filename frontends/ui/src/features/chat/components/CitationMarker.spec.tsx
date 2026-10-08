@@ -1,7 +1,7 @@
 /**
  * The inline citation, as a reader uses it.
  *
- * Each case is a question the old scroll-link could not answer: what is this,
+ * Each case is a question a scroll link cannot answer: what is this,
  * which chip did I just get sent to, and how do I reach the other pages.
  */
 
@@ -139,8 +139,7 @@ describe('an inline citation marker', () => {
     expect(container.querySelector('[data-focused]')).toBeNull()
     await user.click(screen.getByRole('button', { name: /Source 2: OIB-Richtlinie 2\.1/i }))
 
-    // Both markers belong to ONE document, so the one chip is the one marked —
-    // which is the truth the flat shape could only fake with two chips.
+    // Both markers belong to ONE document, so the one chip is the one marked.
     const focused = container.querySelector('[data-focused]')
     expect(focused).not.toBeNull()
     expect(within(focused as HTMLElement).getByText(/OIB-Richtlinie 2\.1/)).toBeInTheDocument()
@@ -235,10 +234,10 @@ describe('an inline citation marker', () => {
 
   test('two sources behind one claim are two markers, not literal text', async () => {
     // `[1][2]` is the shape the report writers are told to emit for a claim
-    // carried by two sources, and it used to reach the reader as the characters
-    // "[1][2]" — beside neighbours that got their pill — because the markers
-    // were linked by rewriting the markdown source, where an adjacent pair is
-    // indistinguishable from `[label][ref]` reference-link syntax.
+    // carried by two sources, and it must reach the reader as two markers, not
+    // as the characters "[1][2]" beside neighbours that got their pill. The
+    // markers cannot be made by rewriting the markdown source, where an adjacent
+    // pair is indistinguishable from `[label][ref]` reference-link syntax.
     const user = userEvent.setup()
     render(
       <AgentResponse
@@ -265,13 +264,13 @@ describe('an inline citation marker', () => {
   })
 
   test('the pill reserves no width its number does not use', () => {
-    // Twice now the marker has pushed the sentence's own punctuation away from
-    // the word it belongs to. First the literal brackets ("erforderlich [1] .");
-    // then, after those went, a `min-w` floor a single digit could not fill,
-    // whose surplus `justify-center` split evenly — parking a strip of tinted
-    // pill between the digit and the period ("REI 90 1 ."). Both are the same
-    // fault: a box wider than its contents has to put the difference somewhere,
-    // and next to a full stop there is nowhere harmless to put it.
+    // The marker must not push the sentence's own punctuation away from the word
+    // it belongs to. A literal bracket does ("erforderlich [1] ."), and so does a
+    // `min-w` floor a single digit cannot fill, whose surplus `justify-center`
+    // splits evenly, parking a strip of tinted pill between the digit and the
+    // period ("REI 90 1 ."). The fault is the same in both: a box wider than its
+    // contents has to put the difference somewhere, and next to a full stop there
+    // is nowhere harmless to put it.
     //
     // jsdom has no layout to measure, but the fault is not really about pixels:
     // it is about the marker claiming width in advance. `tabular-nums` is what
@@ -298,7 +297,7 @@ describe('an inline citation marker', () => {
   /**
    * A CONTROL THAT DOES NOTHING IS WORSE THAN NO CONTROL.
    *
-   * „An dieser Stelle öffnen" used to be offered for every citation without an
+   * „An dieser Stelle öffnen" must not be offered for every citation without an
    * outbound URL, with no resolution attempted. On a source the viewer cannot
    * render — a plan, a `.dwg`, a citation whose shelf holds no such file — the
    * click mounted the dialog, which resolved to `info`, closed itself and
@@ -322,8 +321,8 @@ describe('an inline citation marker', () => {
 
     test('says so instead when the cited file is in no shelf the reader can reach', async () => {
       // The knowledge base answers with no such file, and there are no stored
-      // documents — the citation resolves to `info`, which is exactly the state
-      // that used to render a button that closed the popover and did nothing.
+      // documents — the citation resolves to `info`, which must not render a
+      // button that closes the popover and does nothing.
       fetchMock.mockImplementation(() => Promise.resolve(jsonResponse({ files: [], documents: [] })))
 
       const user = userEvent.setup()

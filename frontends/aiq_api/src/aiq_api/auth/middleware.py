@@ -100,7 +100,7 @@ from .utils import is_headless_request
 
 logger = logging.getLogger(__name__)
 
-# Backwards-compatible aliases for tests and internal helper imports.
+# Aliases for tests and internal helper imports.
 _build_pseudonymous_trace_user_id = auth_utils._build_pseudonymous_trace_user_id
 _build_pseudonymous_trace_client_id = auth_utils._build_pseudonymous_trace_client_id
 

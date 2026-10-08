@@ -262,7 +262,7 @@ describe('IfcCompliancePanel', () => {
       expect(screen.getByText(/34 not decidable/)).toBeInTheDocument()
     })
 
-    it('marks a confirmation from an older revision as no longer covering', () => {
+    it('marks a confirmation from an older revision as not applying to the current revision', () => {
       panel({ rules: [{ ...CONFIRMED, confirmationStale: true }] })
       expect(screen.getByText('Older revision')).toBeInTheDocument()
       expect(screen.getByText(/does not apply to the current revision/)).toBeInTheDocument()
@@ -298,9 +298,8 @@ describe('IfcCompliancePanel', () => {
     })
 
     it('asks before deleting a signed record', async () => {
-      // One click used to delete it — permanently, across every revision of
-      // the building, with no confirmation, no undo, and no feedback beyond
-      // the button vanishing. Everything else in this component asks first;
+      // Deleting a signed record is permanent across every revision of the
+      // building, so it asks first, as everything else in this component does;
       // the note form is itself a two-step disclosure.
       const onWithdraw = vi.fn().mockResolvedValue(undefined)
       panel({ rules: [CONFIRMED], onConfirm: vi.fn(), onWithdraw })
@@ -341,9 +340,9 @@ describe('IfcCompliancePanel', () => {
     })
 
     it('says a brief it could not READ was not read, rather than naming gaps in it', () => {
-      // Untested on both sides until now: the hook's `failed` had no assertion
-      // and no caller passed `factsFailed`. The two sentences send the reader
-      // to different places, and only one of them can help.
+      // Both sides are asserted: the hook's `failed` and the caller's
+      // `factsFailed`. The two sentences send the reader to different places,
+      // and only one of them can help.
       panel({
         rules: [rule({ ruleId: 'oib3-raumhoehe', passed: 9 })],
         factsFailed: true,
@@ -401,10 +400,10 @@ describe('a confirmation that could not be saved', () => {
     )
 
   it('says so, instead of leaving the form open with no explanation', async () => {
-    // The failure used to be invisible: the request rejected, the form stayed
-    // open, and an architect who had just signed off a requirement had every
-    // reason to believe it was recorded. A record of a decision that was never
-    // recorded is the worst thing this surface can produce.
+    // A failed request must not look like a recorded one: the form stays open,
+    // and an architect who has just signed off a requirement would otherwise
+    // have every reason to believe it was recorded. A record of a decision that
+    // was never recorded is the worst thing this surface can produce.
     const user = userEvent.setup()
     panel(() => Promise.reject(new Error('offline')))
 

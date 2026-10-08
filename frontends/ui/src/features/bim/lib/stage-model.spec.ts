@@ -92,7 +92,7 @@ describe('pickStageModel', () => {
     expect(pickStageModel(models, 'haus-b.IFC')?.filename).toBe('Haus-B.ifc')
   })
 
-  it('still resolves after the upload was renamed around the name in the link', () => {
+  it('resolves a link to an upload whose filename adds words to the name', () => {
     const renamed = [{ filename: 'Haus-A (final).ifc', status: 'ready', updatedAt: 'x' }]
     expect(pickStageModel(renamed, 'Haus-A')?.filename).toBe('Haus-A (final).ifc')
   })

@@ -106,10 +106,9 @@ class TestFormatHit:
     def test_contains_the_citation_and_the_address_of_the_full_text(self):
         """A hit states an ADDRESS, never a next call.
 
-        The trailer used to read "Fetch full text: ris_fetch_document with
-        'NOR…'" — one of the four places that taught the search→fetch sequence.
-        The sequence now lives inside `ris_lookup`; these three tools are deep
-        research's, and a deep researcher needs the address, not an imperative.
+        The search→fetch sequence lives inside `ris_lookup`; these three tools are
+        deep research's, and a deep researcher needs the address, not an
+        imperative.
         """
         output = _format_hit(1, _sample_hit())
 
@@ -474,8 +473,8 @@ class TestSafeDocumentName:
     def test_the_same_law_keeps_ONE_name_across_days(self):
         """A RIS title carries "Fassung vom <retrieval date>".
 
-        Leaving it in meant the same law ingested as a NEW document every day:
-        a session accumulated near-duplicate snapshots and a citation pointed at
+        Left in, the same law would ingest as a NEW document every day: a session
+        would accumulate near-duplicate snapshots, and a citation would point at
         whichever day's copy happened to be retrieved.
         """
         title = "RIS - Wiener Garagengesetz 2008 - Landesrecht konsolidiert Wien, Fassung vom {date}"
@@ -487,7 +486,7 @@ class TestSafeDocumentName:
         assert "2026" not in monday
 
     def test_truncation_never_leaves_a_dot_against_the_extension(self):
-        """Cutting mid-token used to produce "…vom_28..txt"."""
+        """Cutting mid-token would produce "…vom_28..txt"."""
         name = _safe_document_name("NOR1", "Ein sehr langer Titel " * 10 + "28.07.2026")
 
         assert ".." not in name
@@ -496,9 +495,9 @@ class TestSafeDocumentName:
     def test_a_url_and_its_document_number_name_ONE_document(self):
         """`ris_fetch_document` takes either form for the same document.
 
-        Sanitizing the whole URL made the two forms two documents. The ingest
-        marker is keyed on the fetched URL, so the second form skipped ingestion
-        and told the agent about a filename that was never stored.
+        Sanitizing the whole URL would make the two forms two documents. The ingest
+        marker is keyed on the fetched URL, so the second form would skip ingestion
+        and name a filename that was never stored.
         """
         by_number = _safe_document_name("NOR40217157", "RIS - Garagengesetz")
         by_url = _safe_document_name(
@@ -738,7 +737,7 @@ class TestRisCatalogLookupTool:
         async with ris_catalog_lookup(RisCatalogLookupToolConfig(max_matches=5), MagicMock()) as info:
             output = await _call(info, topic="Bauordnung Tirol")
 
-        assert "NOR00000006" in output  # Tirol — was truncated out before the fix
+        assert "NOR00000006" in output  # Tirol: must survive the cap
         assert "NOR00000007" in output  # federal law is never dropped
         assert "NOR12345678" not in output  # Wien
         assert "NOR00000002" not in output  # NÖ

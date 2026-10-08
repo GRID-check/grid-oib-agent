@@ -21,8 +21,8 @@ interface ProjectChatPageProps {
  * server-computes-`isFeatureEnabled`-then-prop-drills pattern the /app layout
  * uses for `keyboard-shortcuts` — and hand the booleans to the client tree:
  *   - `chat-confidence-chip`     → AgentResponse confidence chip
- *   - `research-in-chat-history` → SessionsPanel Deep Research section (FB-10)
- *   - `answer-feedback`          → AgentResponse per-answer thumbs row (WS-7)
+ *   - `research-in-chat-history` → SessionsPanel Deep Research section
+ *   - `answer-feedback`          → AgentResponse per-answer thumbs row
  * All fail open (visible) when enforcement is off. The project layout already
  * guards auth/access, so reaching here implies an authorized session; session
  * lookup is still wrapped defensively so a transient failure never blanks chat.
@@ -36,7 +36,7 @@ const ProjectChatPage = async ({ params }: ProjectChatPageProps): Promise<ReactN
     let showAnswerFeedback = true
     // Collaboration is the one gate here that is default-DENY rather than
     // fail-open: it changes who can see a conversation, so a session-lookup
-    // failure must leave it off (spec NF-7).
+    // failure must leave it off.
     let canCollaborate = false
     let organizationId: string | null = null
     // Whether this reader may actually USE the agent here (`project:chat`).
@@ -47,8 +47,7 @@ const ProjectChatPage = async ({ params }: ProjectChatPageProps): Promise<ReactN
     // here because the authz modules are `server-only`, and prop-drilled the way
     // `canCollaborate` already is.
     //
-    // Defaults to TRUE, and FAILS CLOSED from there — which is the opposite of
-    // what this comment used to claim, so state it plainly:
+    // Defaults to TRUE, and fails CLOSED from there:
     // `requireProjectAccess` collapses a transport failure into the same
     // `NotFoundError` it uses for a denial (`checkResourcePermission` catches
     // the SDK error and returns false; `projects.spec.ts` pins that as "fails
@@ -84,16 +83,16 @@ const ProjectChatPage = async ({ params }: ProjectChatPageProps): Promise<ReactN
     }
 
     // Project lookup serves two consumers: the Deep Research section scopes its
-    // job fetch to this project's Qdrant collection (FB-10), and the chat
-    // surface shows the project name in the thread-header breadcrumb and the
-    // composer scope chip (WS-3). Fail-soft: a missing row just degrades to an
+    // job fetch to this project's Qdrant collection, and the chat surface shows
+    // the project name in the thread-header breadcrumb and the composer scope
+    // chip. Fail-soft: a missing row just degrades to an
     // unscoped section / nameless scope chip, never a broken chat.
     let projectCollection: string | null = null
     let projectName: string | null = null
     try {
-      // Scoped to the session's organization: the previous lookup matched on id
-      // alone, so it read across tenants and — once row-level security landed —
-      // ran with no tenant context at all. `findProjectInOrg` supplies both.
+      // Scoped to the session's organization: a lookup on id alone would read
+      // across tenants, and under row-level security it would run with no tenant
+      // context at all. `findProjectInOrg` supplies both.
       const project = organizationId ? await findProjectInOrg(id, organizationId) : null
       if (showResearchInHistory) {
         projectCollection = project?.collectionName ?? null

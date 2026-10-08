@@ -21,10 +21,10 @@
  *              whether it lines up with the glyphs it sits over is to paint it.
  *   `citation` the whole dialog: header, Fundstellen rail, document, mark.
  *   `single`   the same dialog for a document read at ONE page, which is a
- *              rail too. It used to be a differently shaped dialog.
+ *              rail too.
  *   `plan`     a plan sheet cited for two depictions of a Sitztreppe: the
  *              dialog marks the Grundriss and the Schnitt by their boxes
- *              rather than searching the sheet for text (issue #433).
+ *              rather than searching the sheet for text.
  *   `quote`    the dialog with a passage the READER selected, and the offer
  *              that turns it into a citation. Driven by selecting a range and
  *              releasing the pointer — the same path a drag takes — because a
@@ -369,8 +369,8 @@ export default function PdfPassagePreviewPage() {
             the arrival pulse — which has its own frozen pane in the default
             variant — and an animation still running makes the capture depend on
             when the harness got there: the light and dark shots come off one
-            page load, so they landed on different frames of the same swell and
-            every re-capture produced a different pair. */}
+            page load, so without this they would land on different frames of
+            the same swell and every re-capture would produce a different pair. */}
         <style>{`.animate-passage-ping { animation: none; }`}</style>
         {variant === 'quote' && <SelectOnLoad contains="Standsicherheit" />}
         {src && (

@@ -44,11 +44,10 @@ export interface ModelValidationResult {
 const CATALOG_TTL_MS = 5 * 60 * 1000
 const CATALOG_CACHE_KEY = 'openrouter:catalog'
 /**
- * `:v3` because the payload shape changed again: `:v1` held a `Set` (which
- * `JSON.stringify` flattens to `{}`), `:v2` held bare model ids, and this holds
- * one entry per ZDR endpoint with what that endpoint accepts. Entries written
- * by older code are still live in a shared Dragonfly for up to CATALOG_TTL_MS
- * after a deploy, so the new reader must not find them.
+ * `:v3` keeps this key clear of older payload shapes, which may still be live in
+ * a shared Dragonfly for up to CATALOG_TTL_MS after a deploy: `:v1` held a `Set`
+ * (which `JSON.stringify` flattens to `{}`), `:v2` held bare model ids, and this
+ * holds one entry per ZDR endpoint with what that endpoint accepts.
  */
 const ZDR_CACHE_KEY = 'openrouter:zdr-endpoints:v3'
 
@@ -153,11 +152,11 @@ function stringList(value: unknown): string[] {
 }
 
 /**
- * One entry of the listing. The live shape (verified 2026-09) is
+ * One entry of the listing. The shape is
  * `{data: [{model_id, provider_name, tag, supported_parameters, context_length, …}]}`.
  * Only `model_id` names the model: `tag` (`azure/eu`, `novita/fp8`) and `name`
- * (`Reka | deepseek/…-20260423`) look like model ids and are not, which is why
- * the old recursive scan over every string was wrong.
+ * (`Reka | deepseek/…-20260423`) look like model ids and are not, so a scan over
+ * every string would collect them wrongly.
  */
 function parseZdrEndpoint(raw: unknown): ZdrEndpoint | null {
   if (!raw || typeof raw !== 'object') return null
@@ -225,8 +224,8 @@ async function loadZdrEndpoints(): Promise<ZdrEndpoint[]> {
  *
  * **The cache stores an ARRAY, and the index is rebuilt on the way out.**
  * `getCached` round-trips through JSON (the shared store is Dragonfly), and a
- * `Set` or `Map` serialises to `{}`. Caching the `Set` itself once type-checked
- * fine and handed every cache HIT a prototype-less `{}` (issue #242).
+ * `Set` or `Map` serialises to `{}`. Caching the `Set` itself would type-check
+ * and still hand every cache HIT a prototype-less `{}`.
  */
 export async function fetchZdrEndpoints(): Promise<ZdrIndex> {
   let endpoints: unknown
@@ -340,8 +339,9 @@ export function zdrRejection(
  * `REASONING_MANDATORY_IDS` is matched by exact id.
  *
  * Known reasoning-only families: OpenAI's o-series (`openai/o1`, `o3`, `o4`),
- * xAI's Grok 4 line (an org override that pinned a reasoning-off group to
- * x-ai/grok-4.5 is the incident that motivated this filter), and DeepSeek R1. Everything else is assumed hybrid — see below.
+ * xAI's Grok 4 line (an override pinning a reasoning-off group to x-ai/grok-4.5
+ * is exactly the failure this filter prevents), and DeepSeek R1. Everything else
+ * is assumed hybrid — see below.
  */
 export const REASONING_MANDATORY_PREFIXES: string[] = [
   'openai/o1',
@@ -356,14 +356,13 @@ export const REASONING_MANDATORY_IDS: string[] = []
  * Whether a model is safe to select for a group that runs with reasoning
  * DISABLED (`reasoning_effort: none`).
  *
- * Rationale — we fail OPEN, the inverse of the original allowlist:
+ * Rationale — we fail OPEN:
  *   - OpenRouter's catalog cannot distinguish "supports optional reasoning"
  *     from "reasoning is mandatory" — both merely list `reasoning` in
- *     supported_parameters. Failing CLOSED on that signal excluded nearly the
- *     entire modern catalog: almost every current frontier model advertises
+ *     supported_parameters. Failing CLOSED on that signal would exclude nearly
+ *     the entire modern catalog: almost every current frontier model advertises
  *     reasoning yet accepts reasoning-off (the hybrid "reasoning is optional"
- *     design). The old rule left only legacy non-reasoning models plus a
- *     one-family allowlist.
+ *     design). An allowlist would leave only legacy non-reasoning models.
  *   - So a model is assumed SAFE for reasoning-off unless it is a known
  *     reasoning-mandatory family/id (REASONING_MANDATORY_PREFIXES via
  *     startsWith, REASONING_MANDATORY_IDS via exact match), which ops can

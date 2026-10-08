@@ -1,4 +1,4 @@
-"""Tests for the OIB base-corpus admin routes (Phase B).
+"""Tests for the OIB base-corpus admin routes.
 
 Covers the non-blocking upload (explicit + guessed doc_class, invalid → 400),
 safe ZIP extraction (happy path + zip-slip + non-pdf skip), and the reclassify
@@ -33,7 +33,7 @@ def summary_db():
     # ignore_cleanup_errors: the SQLite engine's connection (and its -wal/-shm
     # sidecar files) may not be released the instant the fixture tears down, so
     # rmtree can hit a transient "Directory not empty". Tolerate it rather than
-    # let a teardown race fail an otherwise-passing test (seen flaky on py3.13).
+    # let a teardown race fail an otherwise-passing test.
     with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
         db_url = f"sqlite:///{Path(tmpdir) / 'oib.db'}"
         DocumentMetadataStore._tables_initialized.discard(db_url)

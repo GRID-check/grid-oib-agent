@@ -65,7 +65,7 @@ describe('parseAutomationTab', () => {
     expect(parseAutomationTab('skills')).toBe('skills')
   })
 
-  test('retired tab ids land on Tasks', () => {
+  test('an id that names no tab lands on Tasks', () => {
     expect(parseAutomationTab('jobs')).toBe('tasks')
     expect(parseAutomationTab('schedule')).toBe('tasks')
   })
@@ -94,7 +94,7 @@ describe('which panel is mounted', () => {
     expect(screen.queryByTestId('tasks-panel')).not.toBeInTheDocument()
   })
 
-  test('there is no schedule tab anymore', async () => {
+  test('there is no schedule tab', async () => {
     render(<AutomationPanel {...baseProps} initialTab="tasks" />)
     expect(screen.queryByRole('tab', { name: /zeitplan|schedule/i })).not.toBeInTheDocument()
   })
@@ -114,7 +114,7 @@ describe('which panel is mounted', () => {
     expect(screen.getByTestId('skills-panel')).toHaveAttribute('data-can-manage', 'false')
   })
 
-  test('a legacy schedule link opens Tasks on the timetable view', () => {
+  test('a schedule link opens Tasks on the timetable view', () => {
     render(<AutomationPanel {...baseProps} initialTab="tasks" initialView="timetable" />)
     expect(screen.getByTestId('tasks-panel')).toHaveAttribute('data-view', 'timetable')
   })

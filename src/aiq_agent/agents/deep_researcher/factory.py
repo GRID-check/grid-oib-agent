@@ -52,9 +52,8 @@ from .tools.source_tool_batching import adapt_source_tools_for_research
 
 logger = logging.getLogger(__name__)
 
-# Orchestrator graph recursion limit. Lowered from the LangGraph default (25)
-# and from the previous hard-coded 2000 so it can actually fire as a hard stop
-# before the 40-minute wall-clock kill surfaces as a generic internal error.
+# Orchestrator graph recursion limit: a hard stop that fires before the
+# 40-minute wall-clock kill surfaces as a generic internal error.
 # 150 steps is generous: each plan→batch→synthesis cycle costs ~5–10 steps,
 # so 150 allows ~15–30 cycles before the limit triggers.
 _ORCHESTRATOR_RECURSION_LIMIT = 150
@@ -418,7 +417,7 @@ def build_researcher_runnable(
             PatchToolCallsMiddleware(),
             # Strict structured output is deferred to the researcher's exit
             # turn: binding response_format on every tool-loop call makes
-            # constrained decoders skip research entirely (backlog T2-8).
+            # constrained decoders skip research entirely.
             DeferredStructuredOutputMiddleware(ResearchNotes),
             *researcher_middleware,
             *(visibility_middleware or []),
@@ -497,7 +496,7 @@ def build_deep_research_subagents(context: DeepResearchGraphContext) -> list[dic
             prompt_name="planner",
             role=LLMRole.PLANNER,
             tools=context.tool_set.researcher_tools,
-            # Same deferred structured output as the researcher (T2-8): the
+            # Same deferred structured output as the researcher: the
             # planner also runs a tool loop, so the strict ResearchPlan schema
             # is applied only on its exit turn.
             middleware=[DeferredStructuredOutputMiddleware(ResearchPlan), *context.middleware_set.planner],
@@ -572,9 +571,9 @@ def _orchestrator_prompt(context: DeepResearchGraphContext, orchestrator_tools: 
 
     Single source of truth for the orchestrator's toolset: the prompt's
     "Available Tools" section is rendered from the same list that is bound to
-    the graph, so it can never advertise tools the orchestrator cannot call
-    (backlog T2-9 — the prompt previously listed every configured source tool,
-    and the model tried to call them directly).
+    the graph, so it can never advertise tools the orchestrator cannot call: a
+    prompt that listed every configured source tool would have the model call
+    them directly.
     """
     return context.render_prompt(
         "orchestrator",
@@ -623,7 +622,7 @@ def build_deep_research_graph(
         tool_set=tool_set,
         middleware_set=middleware_set,
         domain_catalog_path=domain_catalog_path,
-        # Date only: a per-second timestamp made every subagent system prompt
+        # Date only: a per-second timestamp would make every subagent system prompt
         # unique, defeating provider prompt caching across a run's many calls.
         current_datetime=datetime.now().strftime("%Y-%m-%d"),
         max_research_concurrency=max_research_concurrency,

@@ -301,7 +301,7 @@ describe('ensureRendition under a burst', () => {
 
 /**
  * The preview and file routes wait inside a request Cloudflare cuts at ~100s,
- * and used to convert a file LibreOffice cannot read again on every open.
+ * and a file LibreOffice cannot read is not converted again on every open.
  */
 describe('ensureRendition for a reader', () => {
   it('stops waiting after readerWaitMs, while the conversion finishes and is stored for the next open', async () => {

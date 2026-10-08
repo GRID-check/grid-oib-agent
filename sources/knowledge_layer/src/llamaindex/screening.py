@@ -8,15 +8,15 @@ before its first model call (OCR, image captioning, VLM enrichment, summary and
 tags, embeddings). A match fails the file with a ``quarantined:`` reason and nothing
 of it is sent anywhere.
 
-Rule-based and local on purpose: the NVIDIA toolkits evaluated for this read English
-only and hook in after the model call, which is one step too late.
+Rule-based and local on purpose: the NVIDIA toolkits read English only and hook in
+after the model call, one step too late.
 
 Pure: rules in, verdict out. ``ScreeningRules.from_config`` never raises into the job.
 
 The matcher itself (folding, terms, the three detectors, spans, masked samples)
 is ``aiq_agent.common.content_screen``, shared with the chat socket's mask and
 mirrored in the browser; this module turns its spans into a verdict per file.
-The names it used to define are re-exported below, so callers did not move.
+Names that callers import from here are re-exported below, so those imports stay valid.
 
 Only checksum-valid matches count, so a document full of order numbers is not
 quarantined for looking like one. The verdict never carries a matched value: a

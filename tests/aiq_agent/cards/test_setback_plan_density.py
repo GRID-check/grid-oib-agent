@@ -1,9 +1,9 @@
 """``setback_plan`` carries a pure density question without invented geometry.
 
-The craft says a pure Bebauungsgrad / GFZ question leaves ``sides`` empty. The
-card used to require the four plan dimensions anyway, so the only way through
-the validator (or the repair model) was to invent a parcel, which the renderer
-then drew to scale. And a ratio's unit defaulted to ``cm``.
+The craft says a pure Bebauungsgrad / GFZ question leaves ``sides`` empty. A card
+that requires the four plan dimensions anyway leaves the validator (or the repair
+model) only one way through: invent a parcel, which the renderer then draws to
+scale. And a ratio's unit must not default to ``cm``.
 """
 
 from __future__ import annotations

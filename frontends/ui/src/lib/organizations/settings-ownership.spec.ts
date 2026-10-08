@@ -39,13 +39,13 @@ const TENANT_ADMIN = { userId: 'user-2', email: 'admin@tenant.example' } as Grid
 /**
  * Who owns which key in the `organizations.settings` bag.
  *
- * The bag has one write path and no schema, so before this the owner of a key was
- * expressed only by which service function a caller reached for.
- * `setStorageQuota` is platform-only by construction — explicit
- * `organizationId`, a refusal below current usage, `requirePlatformPermission` on the
- * route — and all of it was bypassable through `PUT /api/organization/settings`,
- * which merges arbitrary keys under `org:settings:manage`, a permission tenant
- * admins hold. A tenant could raise its own quota, which makes it not a quota.
+ * The bag has one write path and no schema, so the owner of a key is expressed
+ * only by which service function a caller reaches for. `setStorageQuota` is
+ * platform-only by construction — explicit `organizationId`, a refusal below
+ * current usage, `requirePlatformPermission` on the route — but all of that is
+ * bypassable through `PUT /api/organization/settings`, which merges arbitrary keys
+ * under `org:settings:manage`, a permission tenant admins hold. A tenant could
+ * then raise its own quota, which makes it not a quota.
  *
  * The guard lives in the merge every writer passes through, so a new tenant-facing
  * endpoint inherits it rather than having to remember it.
@@ -91,7 +91,7 @@ describe('platform-owned settings keys', () => {
   })
 
   // Tenant-owned, but written only by its dedicated route: the generic merge
-  // used to let `org:settings:manage` switch zero data retention off.
+  // would let `org:settings:manage` switch zero data retention off.
   it('refuses a key a dedicated route owns (zdrOnly), whatever its value', async () => {
     for (const zdrOnly of [false, true, 'no']) {
       await expect(updateOrgSettings('org-1', { settings: { zdrOnly } })).rejects.toThrow(
@@ -140,11 +140,11 @@ describe('platform-owned settings keys', () => {
   /**
    * The escape enforces what its name claims.
    *
-   * It used to take no session and rely on its one caller being routed through
-   * `platformApiRoute`. That made the guard a property of the call graph rather
-   * than of the function — and the hole it would reopen is precisely the one
-   * `updateOrgSettings` was changed to close, so "there is only one caller today"
-   * is not a defence. This test is what makes the second caller impossible to get
+   * It takes the session and checks it here, rather than relying on its one caller
+   * being routed through `platformApiRoute`. That reliance would make the guard a
+   * property of the call graph rather than of the function, and the hole it would
+   * open is the one `updateOrgSettings` closes. "There is only one caller today"
+   * is not a defence. This test is what makes a second caller impossible to get
    * wrong.
    */
   it('refuses a caller who is not the platform owner', async () => {

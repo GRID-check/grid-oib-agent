@@ -2,7 +2,7 @@
  * A version's BYTES: where they live, how they are rendered, and what happens
  * to an item when it leaves the working set (ADR-0054).
  *
- * Split out of `./lifecycle`, which had grown to hold two unrelated things: the
+ * Kept apart from `./lifecycle`, which holds two unrelated things: the
  * transition table's service — states, guards, the compare-and-swap, the
  * effects registry — and everything that touches the object store. This module
  * is the second half. It knows about SeaweedFS, about the storage quota and
@@ -94,11 +94,11 @@ export function newVersionWriteId(): string {
  * Archiv, session) and a rewrite of a version's bytes. A first upload keeps the
  * plain `doc/<id>/<filename>` key, because its id is fresh. The version number
  * is a HINT (`nextVersionNumber`): it reads 1 while a concurrent first upload
- * has its row but not yet its version, so a helper that returned the plain key
- * for "version 1" aimed a re-upload at the winner's own object and overwrote
- * its bytes. That helper (`versionedStorageKey`) is gone for that reason. The
- * write id keeps two overlapping writes of one number apart; the row's number
- * is allocated under a lock when the version is recorded.
+ * has its row but not yet its version, so a plain key for "version 1" would aim
+ * a re-upload at the winner's own object and overwrite its bytes. No helper
+ * returns the plain key for a revision. The write id keeps two overlapping
+ * writes of one number apart; the row's number is allocated under a lock when
+ * the version is recorded.
  *
  * Derived from the item's OWN key rather than rebuilt from its parts, so the
  * folder path, the shelf prefix (`project/`, `archiv/`, `session/`) and the
@@ -166,19 +166,19 @@ export interface RenderedVersionBytes {
  *
  * ## Why this is not `Buffer.from(content)`
  *
- * It was, and it silently stripped the AI-provenance marking off every document
- * Piloti revised. The Python tool sends the model's raw Markdown — that is the
- * whole point of the working directory, where the model can read and edit the
- * text it wrote — and the branding line, the disclaimer and the marking are the
- * FILING seam's job, added by the producer's renderer when the first draft was
- * written. Writing the body verbatim over them meant version 2 of an
- * agent-authored file left the product saying nothing about its own authorship,
- * which is the one failure `markingIsInBytes` exists to make impossible.
+ * Writing the body verbatim would silently strip the AI-provenance marking off
+ * every document Piloti revised. The Python tool sends the model's raw Markdown
+ * — that is the whole point of the working directory, where the model can read
+ * and edit the text it wrote — and the branding line, the disclaimer and the
+ * marking are the FILING seam's job, added by the producer's renderer when the
+ * first draft was written. Written over them, the body would leave the product
+ * saying nothing about its own authorship, which is the one failure
+ * `markingIsInBytes` exists to make impossible.
  *
  * So the update runs the same render as the create, and re-asks the same
  * question of the bytes it produced. Belt and braces on purpose: the check is
- * on the BYTES rather than on the renderer's promise, because two of the three
- * earlier producers shipped unmarked while passing every test there was.
+ * on the BYTES rather than on the renderer's promise, because a producer can
+ * ship unmarked while passing every test.
  *
  * A human-authored document is NOT rendered through anything. Its bytes are its
  * own, and stamping „von Piloti erstellt" onto a Markdown file a person wrote
@@ -232,9 +232,9 @@ export async function renderVersionBytes(
  *
  * The FULL size when the old bytes stay: a draft freshly forked from the
  * published version shares the published object, and replacing the draft does
- * not free it. This used to charge `incoming − version.fileSize` there too — the
- * published file's size, so ≈ 0 for a same-sized revision — and fork, write,
- * reject, fork again grew storage without ever being checked. The DELTA when the
+ * not free it. Charging `incoming − version.fileSize` there would undercount —
+ * the published file's size makes it ≈ 0 for a same-sized revision, so fork,
+ * write, reject, fork again would grow storage unchecked. The DELTA when the
  * version owns its old object alone (a draft that has been written to, or the
  * version that IS the item's bytes), because that object goes once the swap has
  * won.
@@ -296,9 +296,9 @@ export interface WriteVersionContentInput {
  * aiming at it. That is what makes writing before the swap safe, and writing
  * before the swap is what makes the row honest: by the time
  * `swapVersionContent` commits, the object it names is stored in full, with the
- * hash and size the row states. The previous order (swap, then write to a
- * shared key) let a slow or failed PUT leave the row describing bytes the
- * object did not hold, and let two winners write one key in either order.
+ * hash and size the row states. Swapping first, then writing to a shared key,
+ * would let a slow or failed PUT leave the row describing bytes the object did
+ * not hold, and let two winners write one key in either order.
  *
  * The swap asserts the state, key and hash this request READ, so the second of
  * two writers holding one `If-Match` matches no row. Its object is deleted —
@@ -475,17 +475,16 @@ async function admitSubjectRead(
  *
  * ## Why the conversation is part of the predicate and not context
  *
- * The organization alone was the whole of it, and the organization is something
- * the caller STATES. Anything holding the internal token could then name any
- * tenant and any version id and read the bytes — a service token is not a
- * person, and this route's own header says the version id "is not addressed
- * through an unguessable collection name". Requiring the version to be the
- * SUBJECT of the conversation the turn is running in narrows that to exactly
- * what the turn already had: `conversations.subject_resource_id` was written by
- * a person's own session through `resolveResourceAccess`, so a caller that
- * cannot name the right conversation reads nothing. A wrong pairing answers 404
- * exactly as an invented id does, because "this version exists but not for you"
- * is the sentence that makes an id worth guessing.
+ * The organization is something the caller STATES, and anything holding the
+ * internal token could name any tenant and any version id and read the bytes — a
+ * service token is not a person, and this route's own header says the version id
+ * "is not addressed through an unguessable collection name". Requiring the
+ * version to be the SUBJECT of the conversation the turn is running in narrows
+ * that to exactly what the turn already had: `conversations.subject_resource_id`
+ * is written by a person's own session through `resolveResourceAccess`, so a
+ * caller that cannot name the right conversation reads nothing. A wrong pairing
+ * answers 404 exactly as an invented id does, because "this version exists but
+ * not for you" is the sentence that makes an id worth guessing.
  *
  * Why the state travels back with the text: the Python tier writes the bytes
  * into the conversation's working directory and stamps a filing record on them
@@ -564,8 +563,8 @@ export async function archiveDocument(
   await setDocumentLifecycle(documentId, session.organizationId, 'archived')
   // „Archiviert" is a statement that the file has left the working set, and a
   // file that keeps answering questions has not left it. The chunks therefore
-  // go, for a human upload as much as for a Piloti document — this docstring
-  // said so before the code did. Purged and not deleted: the row, every
+  // go, for a human upload as much as for a Piloti document. Purged and not
+  // deleted: the row, every
   // version and every object stay, so the only thing that has to be rebuilt if
   // somebody ever un-archives is the index.
   //

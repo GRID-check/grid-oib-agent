@@ -175,7 +175,7 @@ Line 3`
       expect(chip).toHaveTextContent('Anna Berger')
     })
 
-    test('text that merely looks like a mention stays plain text (spec MN-3)', () => {
+    test('text that merely looks like a mention stays plain text', () => {
       render(
         <UserMessage
           content="@Anna Berger kannst du den Plan prüfen?"

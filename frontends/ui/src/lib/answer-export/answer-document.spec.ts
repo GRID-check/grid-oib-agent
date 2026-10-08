@@ -133,9 +133,9 @@ describe('the document’s chrome', () => {
  * The marking a document carries when Piloti wrote it and nobody checked it.
  *
  * Asserted at the block level like everything else here, and asserted in both
- * directions: an ordinary export must be exactly what it was before this
- * existed, because a marking that appears on every file marks nothing and the
- * one it is meant to warn about becomes indistinguishable again.
+ * directions: an ordinary export must stay exactly as it is, because a marking
+ * that appears on every file marks nothing and the one it is meant to warn about
+ * becomes indistinguishable again.
  */
 describe('the marking on an unreviewed document', () => {
   it('is absent from an ordinary export', () => {
@@ -394,10 +394,10 @@ describe('cards', () => {
   })
 
   it('exports a matrix’s rows, headed by the columns the card declares', () => {
-    // `rows` as `list[list[str]]`: the walker handled arrays of scalars and
-    // arrays of objects and fell through both, so the retired `typed_table`
-    // exported its column definitions and not one row. No card in today's
-    // catalogue has the shape; a stored or future one still must export.
+    // `rows` as `list[list[str]]`: the walker handles arrays of scalars and
+    // arrays of objects, and a shape that falls through both exports the column
+    // definitions and not one row (the failure `typed_table` showed). No card in
+    // today's catalogue has the shape; a stored or future one still must export.
     const output = text(
       buildAnswerDocument(
         input({
@@ -449,7 +449,7 @@ describe('cards', () => {
 
   it('names a limit as a limit, and its lower bound as a lower bound', () => {
     // `CalculationLimit.value` is the BOUND, never the measured figure. The flat
-    // dictionary labelled it „Ist“ — so the Schrittmaßregel exported as
+    // dictionary would label it „Ist“, so the Schrittmaßregel would export as
     // „Obergrenze: 65; Ist: 59“, where 59 is the rule and not the stair.
     const range = text(
       buildAnswerDocument(
@@ -749,9 +749,8 @@ describe('every string in the document comes from a dictionary', () => {
         status: 'pass',
       },
       // `AufstellflaechePlan`: two `DimensionCheck`s and an optional third. The
-      // `{label, width_m, length_m}` this used to be is a shape the card has
-      // never had, so the assertion below was checking the walker against
-      // something the backend cannot emit.
+      // fixture uses the shapes the backend emits, so the assertion below checks
+      // the walker against something the backend can actually send.
       aufstellflaeche: {
         width: { label: 'Aufstellfläche Breite', value: 5, required: 5, unit: 'm', status: 'pass' },
         length: {
@@ -790,11 +789,10 @@ describe('every string in the document comes from a dictionary', () => {
   /**
    * One card of every type in the catalogue.
    *
-   * Derived from `gridCardSchema` rather than typed out. The hand-written array
-   * this replaced could not fail: a card type added to the union simply never
-   * entered it, so "every card in the catalogue" was a claim about a list, not
-   * about the catalogue — and thirteen types were outside it. Anything without
-   * an authored body falls back to the gallery's preview fixture, which
+   * Derived from `gridCardSchema` rather than typed out, so a card type added to
+   * the union cannot be left out: "every card in the catalogue" is a claim about
+   * the catalogue, not about a hand-written list. Anything without an authored
+   * body falls back to the gallery's preview fixture, which
    * `preview-fixtures.spec.ts` already forces a new type to supply.
    */
   /** How the renderer classifies this card — the single source for the split. */
@@ -935,12 +933,9 @@ describe('every string in the document comes from a dictionary', () => {
    * The assertion above, made strict.
    *
    * "The card added something" is satisfied by a card that emits its heading
-   * and drops its data — which is exactly what the retired `typed_table` did:
-   * its `rows` were `list[list[str]]`, the walker handled arrays of scalars and
-   * arrays of objects and fell through both, so the card contributed its
-   * `columns` block and not one row. Length grew, the card was "exported", and every value in
-   * it was gone. So the question has to be asked of each VALUE, not of the
-   * card.
+   * and drops its data. A `rows` shape the walker does not handle would print
+   * the `columns` block and not one row, and the length of the document would
+   * still grow. So the question has to be asked of each VALUE, not of the card.
    *
    * Only `content` cards: a `live` card prints its title and one sentence
    * saying the numbers cannot travel in a document, which is the whole point of

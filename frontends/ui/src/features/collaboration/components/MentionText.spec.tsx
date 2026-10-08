@@ -71,7 +71,7 @@ describe('MentionText', () => {
     expect(chip).toHaveTextContent('@Piloti')
   })
 
-  test('text that only LOOKS like a mention is plain text (MN-3)', () => {
+  test('text that only LOOKS like a mention is plain text', () => {
     render(<MentionText content="@Anna Weber und @Fremde Person" mentions={[anna]} />)
     expect(screen.getAllByTestId('mention-chip')).toHaveLength(1)
     expect(screen.getByTestId('mention-text')).toHaveTextContent(
@@ -133,7 +133,7 @@ describe('MentionText — the peek behind a pill', () => {
       </MentionPeopleProvider>,
     )
 
-  test('stays a plain span with no provider — a private thread grows no furniture (NF-8)', () => {
+  test('stays a plain span with no provider — a private thread grows no furniture', () => {
     render(<MentionText content="@Anna Weber bitte" mentions={[anna]} />)
     const chip = screen.getByTestId('mention-chip')
     expect(chip.tagName).toBe('SPAN')
@@ -178,7 +178,7 @@ describe('MentionText — the peek behind a pill', () => {
     expect(screen.queryByTestId('person-peek-access')).not.toBeInTheDocument()
   })
 
-  test('a mention of someone no longer in the roster stays plain — no guessing about access', () => {
+  test('a mention of someone not in the roster stays plain — no guessing about access', () => {
     withPeople(
       <MentionText
         content="@Tobias Kern hatte das geprüft"

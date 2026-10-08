@@ -5,12 +5,11 @@
  *
  * ## Why this exists
  *
- * A PDF previews as pages and an image previews as itself, but the richest file
- * in the system previewed as a decorative placeholder reading "no inline
- * preview", with the whole model experience parked on a separate `/model`
- * route. That made the model feel like a side tool bolted on beside the file
- * system rather than what the file IS — and a route nobody navigates to is a
- * feature nobody uses.
+ * A PDF previews as pages and an image previews as itself. An IFC previewed as
+ * a placeholder reading "no inline preview", with the model experience parked
+ * on a separate `/model` route, would make the model a side tool bolted on
+ * beside the file system rather than what the file IS — and a route nobody
+ * navigates to is a feature nobody uses.
  *
  * So an IFC is just another file, opened the way every other file is opened,
  * and the extra capability lives INSIDE the familiar shell rather than beside
@@ -31,20 +30,15 @@
  * preview well a few hundred pixels wide is the wrong place to read a
  * compliance table.
  *
- * ## Why an `.ifc` now behaves the same in every workspace
+ * ## Why an `.ifc` behaves the same in every workspace
  *
- * It did not. Project → Dateien intercepted the click on a model card and went
- * straight to the full-screen stage, so the preview a reader gets for every
- * other file was the one thing a model never showed; the Archiv did the
- * opposite, showing the preview with no way out because it has no project to
- * name in the link. Two surfaces, two different answers to "I clicked an IFC",
- * and neither was the one people asked for.
- *
- * Both are the same interaction now: the file opens as a preview, and the
- * preview offers the workspace. Where there is no project — the Archiv — the
- * offer asks which one to open in, because the stage's Prüfbuch reads
- * Gebäudeklasse and Hauptnutzung, and those are facts about a project rather
- * than about the file.
+ * A click on an IFC opens the file as a preview, in every workspace, and the
+ * preview offers the workspace. Going straight to the full-screen stage would
+ * skip the preview every other file gets, and a preview with no way out would
+ * be a dead end in the Archiv, which has no project to name in the link. Where
+ * there is no project — the Archiv — the offer asks which one to open in,
+ * because the stage's Prüfbuch reads Gebäudeklasse and Hauptnutzung, and those
+ * are facts about a project rather than about the file.
  */
 
 import type { JSX } from 'react'
@@ -71,23 +65,19 @@ interface IfcFilePreviewProps {
   /**
    * The project whose model list resolves this file, when the surface has one.
    *
-   * Optional, and that is the whole point. Models used to be reachable ONLY
-   * through `/api/projects/[id]/bim/models`, so a project was a prerequisite
-   * for looking at a model — and the org-wide Archiv, which has no project,
-   * therefore showed the ordinary "no inline preview" placeholder for a
-   * building it had already parsed and indexed. Without a project the model is
-   * resolved by its document instead (`useDocumentBimModel`), which is the more
-   * direct question anyway; the project path is kept as-is because it shares
-   * its in-flight list with every other model surface on the page.
+   * Optional. Without a project the model is resolved by its document instead
+   * (`useDocumentBimModel`), which is the more direct question anyway. The
+   * project path goes through `/api/projects/[id]/bim/models` and shares its
+   * in-flight list with every other model surface on the page; the org-wide
+   * Archiv has no project to name, so it resolves by document.
    */
   projectId?: string | null
   /**
    * Whether the way on to the model workspace is offered (`ifc-models`).
    *
-   * The flag used to decide whether a click SKIPPED this preview entirely. It
-   * decides the smaller thing now — whether the preview also offers the stage —
-   * which is the shape a feature flag should have had all along: the fallback
-   * is a working surface with one affordance missing, not a different surface.
+   * The flag decides whether the preview also offers the stage. Off, the
+   * preview is still a working surface with one affordance missing, not a
+   * different surface.
    */
   canOpenWorkspace?: boolean
   className?: string
@@ -134,14 +124,14 @@ export function IfcFilePreview({
   // to — the workspace resolves a model by file name (`?model=`), which is also
   // why no UUID travels through the URL.
   //
-  // Undefined without a project, and that is no longer the end of the offer:
+  // Undefined without a project, which is not the end of the offer:
   // `ModelProjectPicker` below asks which project to open in and builds the
   // same link from the answer. The stage can already reach an Archiv model
   // from any project (`listAccessibleModels` passes `includeArchiv`), so the
-  // only thing missing was somebody to name the project — which is a question,
+  // only thing missing is somebody to name the project — which is a question,
   // not an impossibility.
-  // The Archiv gets the SAME offer on its own route: the stage no longer needs
-  // a project, so „Im Modellbereich öffnen" means the same thing here as it
+  // The Archiv gets the SAME offer on its own route: the stage needs no
+  // project, so „Im Modellbereich öffnen" means the same thing here as it
   // does in a project's Dateien.
   const href = !canOpenWorkspace
     ? undefined
@@ -150,10 +140,10 @@ export function IfcFilePreview({
       : buildArchivModelHref({ model: filename })
 
   // Only while there is nothing to show. The list polls every four seconds
-  // whenever any model in the project is extracting and keeps its previous
-  // `data` across the refetch, so keying on the flag alone made this preview
-  // blink back to "Modell wird geladen…" — and remount the viewport under it —
-  // for the whole minute after somebody uploads anything.
+  // while any model in the project is extracting and keeps its previous
+  // `data` across the refetch, so keying on the flag alone would blink this
+  // preview back to "Modell wird geladen…" — and remount the viewport under
+  // it — for as long as extraction runs after an upload.
   if (lookup.isLoading && !lookup.hasData) {
     return <PreviewNote className={className} text={t('preview.loading')} />
   }
@@ -206,18 +196,16 @@ export function IfcFilePreview({
   }
 
   if (source.error !== null) {
-    // WebGPU is ruled out one branch above, so falling through to
-    // `IfcModelViewer` here rendered "Der Viewer benötigt WebGPU" — a sentence
-    // that was provably false at this point in the tree. The model is fine;
-    // the short-lived URL that streams it could not be minted.
+    // WebGPU is ruled out one branch above, so a fall through to
+    // `IfcModelViewer` here would render "Der Viewer benötigt WebGPU" — a
+    // sentence that is provably false at this point in the tree. The model is
+    // fine; the short-lived URL that streams it could not be minted.
     return (
       <PreviewNote
         className={className}
         // NOT `preview.loadFailed`, which says the project's models are
-        // unavailable. At this point the list loaded, the model is `ready`,
-        // and only the short-lived URL that streams it could not be minted —
-        // the comment above says exactly that while the string said the
-        // opposite.
+        // unavailable. At this point the list loaded and the model is `ready`;
+        // only the short-lived URL that streams it could not be minted.
         text={t('preview.sourceFailed')}
         href={href}
         label={t('preview.open')}
@@ -231,12 +219,11 @@ export function IfcFilePreview({
         sourceUrl={source.data}
         // One shared empty array: `?? []` inline mints a new one every render,
         // which changes the canvas's props identity for a value that did not
-        // change. The stage has said so in a comment since it was written;
-        // this surface did the thing the comment warns against.
+        // change.
         elements={elements.data ?? NO_ELEMENTS}
         className="min-h-[220px] flex-1"
       />
-      {/* Offered on every surface now, project or Archiv — see the header. */}
+      {/* Offered on every surface, project or Archiv — see the header. */}
       {href && <OpenInWorkspace href={href} label={t('preview.open')} />}
     </div>
   )

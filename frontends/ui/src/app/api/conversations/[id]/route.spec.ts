@@ -2,9 +2,9 @@
  * @vitest-environment node
  */
 /**
- * Deleting a conversation used to be gated by nothing but the org-scoped WHERE
- * clause. It now requires `owner` on the conversation itself (ADR-0032): a
- * project member who can merely READ a thread must not be able to destroy it.
+ * Deleting a conversation requires `owner` on the conversation itself
+ * (ADR-0032): a project member who can merely READ a thread must not be able to
+ * destroy it.
  *
  * Two properties, both regressions waiting to happen:
  *   - a non-owner's delete never runs;
@@ -14,8 +14,8 @@
  *
  * And the property that ties them together (spec SH-6): the two are
  * INDISTINGUISHABLE from outside. The endpoint answers 204 either way, so it
- * cannot be used to sort guessed ids into "real" and "not real". It used to answer
- * 204 for absent and 404 for present-but-not-yours, which is exactly that oracle.
+ * cannot be used to sort guessed ids into "real" and "not real". A 404 for
+ * present-but-not-yours would be exactly that oracle.
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
@@ -142,10 +142,9 @@ describe('DELETE /api/conversations/[id]', () => {
   })
 
   it('never deletes a conversation the caller does not own', async () => {
-    // Previously a 404. That assertion pinned the oracle: the response told the
-    // caller the id was real. It is now the same 204 an absent id gets, and the
-    // load-bearing part — nothing is destroyed, nothing is purged — is asserted
-    // directly instead of being inferred from the status code.
+    // The same 204 an absent id gets: a 404 would tell the caller the id is real.
+    // The load-bearing part — nothing is destroyed, nothing is purged — is
+    // asserted directly instead of being inferred from the status code.
     vi.mocked(findConversationTenancy).mockResolvedValue({
       organizationId: 'org_1',
       projectId: PROJECT_ID,

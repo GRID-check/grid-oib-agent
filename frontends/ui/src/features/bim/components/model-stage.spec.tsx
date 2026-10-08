@@ -50,7 +50,7 @@ vi.mock('./ifc-viewer-canvas', () => ({
     lastCanvasProps = props
     // A building with a basement: the cut slider is ranged over the model's
     // own extent, and a model whose extent starts below zero is the case the
-    // link encoding used to be unable to carry.
+    // link encoding must be able to carry.
     useEffect(() => {
       onBounds?.({ minMetres: -3, maxMetres: 9 })
     }, [onBounds])
@@ -191,7 +191,7 @@ describe('ModelStage — what is on screen', () => {
   it('opens on the building, with no metadata anywhere', async () => {
     render(<ModelStage projectId="p1" onClose={vi.fn()} />)
     expect(await screen.findByTestId('ifc-canvas')).toBeInTheDocument()
-    // The whole complaint about the page this replaces: it led with data.
+    // The building leads: no panel and no drawer until they are asked for.
     expect(screen.queryByRole('complementary')).not.toBeInTheDocument()
     expect(screen.queryByTestId('advanced-sheet')).not.toBeInTheDocument()
   })
@@ -203,15 +203,15 @@ describe('ModelStage — what is on screen', () => {
     for (const name of ['Fit the whole model', 'View', 'Section']) {
       expect(screen.getByRole('button', { name })).toBeInTheDocument()
     }
-    // The six view directions used to be six buttons in the bar, which is what
-    // pushed the controls anyone uses off the end of the row.
+    // The six view directions are not six buttons in the bar: that would push
+    // the controls anyone uses off the end of the row.
     expect(screen.queryByRole('button', { name: 'Plan' })).not.toBeInTheDocument()
   })
 
   it('gives the camera button and the restore button different names', () => {
-    // Both were called "Show everything" — one fits the camera, the other
-    // brings hidden components back. Icon-only, in the same pill, and a
-    // screen reader heard "Show everything" and "Show everything again".
+    // The two are not both called "Show everything": one fits the camera, the
+    // other brings hidden components back. Both are icon-only, in the same
+    // pill, so each needs its own name for a screen reader.
     state.elements = [
       { globalId: 'g-w1', expressId: 21, ifcType: 'IfcWall', name: 'Wand', storeyName: 'Erdgeschoss' },
     ]
@@ -351,14 +351,14 @@ describe('ModelStage — one step back', () => {
 })
 
 /**
- * Isolating had no undo, and the Undo button was right there.
+ * Undo covers hide and isolate, and the Undo button is right there for them.
  *
  * Hide and isolate are the two controls that change the building most
- * drastically — isolate takes away everything except one wall — and they were
- * the only ones the stage's history did not see. Pressing Undo after isolating
- * either did nothing or took back some unrelated earlier change, and the only
- * real way out was the reset in the dock's trailing pill, which discards every
- * other edit with it.
+ * drastically — isolate takes away everything except one wall — so the stage's
+ * history must see them. Otherwise pressing Undo after isolating would do
+ * nothing or take back some unrelated earlier change, and the only real way out
+ * would be the reset in the dock's trailing pill, which discards every other
+ * edit with it.
  */
 describe('ModelStage — taking back a hide or an isolate', () => {
   const applyNavigation = (): void => {
@@ -437,7 +437,7 @@ describe('ModelStage — taking back a hide or an isolate', () => {
     /*
       The two stacks are one stack. The view lives in the query string and
       what has been taken out of the way deliberately does not, so an undo
-      that only walked the URL skipped straight past the hide — landing the
+      that only walked the URL would skip straight past the hide — landing the
       reader on a previous level with the element still missing, and no
       indication that a press had been swallowed.
     */
@@ -473,10 +473,10 @@ describe('ModelStage — taking back a hide or an isolate', () => {
       The press that took everything else away is the press that brings it
       back. Isolating does not clear the selection, so the button stays right
       under the cursor with the building gone from around it — which is
-      exactly when it gets pressed again. That press used to resolve to the
-      state already on screen and be dropped, leaving the one control the
-      reader had just used sitting there doing nothing, and the way out
-      several controls away in the dock.
+      exactly when it gets pressed again. That press must not resolve to the
+      state already on screen and be dropped: it would leave the one control the
+      reader had just used sitting there doing nothing, with the way out several
+      controls away in the dock.
     */
     render(<ModelStage projectId="p1" onClose={vi.fn()} />)
     const isolate = () => within(card()).getByRole('button', { name: 'Isolate' })
@@ -517,8 +517,7 @@ describe('ModelStage — taking back a hide or an isolate', () => {
   })
 
   it('walks back through both halves of an isolate toggled off', async () => {
-    // Both presses changed the building, so both are steps — unlike the old
-    // second press, which changed nothing and rightly recorded nothing.
+    // Both presses change the building, so both are steps.
     render(<ModelStage projectId="p1" onClose={vi.fn()} />)
     const isolate = () => within(card()).getByRole('button', { name: 'Isolate' })
     await userEvent.click(isolate())
@@ -616,12 +615,12 @@ describe('ModelStage — every control is a link', () => {
 
   it('does not offer see-through when there is nothing to keep solid', async () => {
     // It ghosts everything that is NOT highlighted or selected, so with
-    // neither it correctly ghosts nothing. Pressing it wrote `xray=1`, filled
-    // the button and set `aria-pressed` — and the building did not change.
+    // neither it correctly ghosts nothing. Pressing it would write `xray=1`,
+    // fill the button and set `aria-pressed` — with the building unchanged.
     render(<ModelStage projectId="p1" onClose={vi.fn()} />)
-    // And the name says why. A disabled button gets no tooltip — Radix's
-    // trigger never fires on one — so an inert eye with the bare name
-    // "See through" left the reader nothing to act on.
+    // And the name says why. A disabled button gets no tooltip, because Radix's
+    // trigger never fires on one, so the reason has to be in the name itself: a
+    // bare "See through" would leave the reader nothing to act on.
     const xray = screen.getByRole('button', { name: /^See through — select an element/ })
     expect(xray).toBeDisabled()
   })
@@ -640,13 +639,12 @@ describe('ModelStage — every control is a link', () => {
    *
    * Every other test in this file leaves `searchParams` frozen and asserts on
    * the URL the stage ASKED for. That is the right shape for a discrete
-   * control — one click, one link — and it is exactly why a defect that only a
-   * continuous control can have went unseen for a release: the slider was
-   * written to the URL on every step of the drag and read its value back from
-   * it, so on a real router (`replace` re-runs the server tree; the value
-   * returns a round trip later) React reset the thumb to a stale number faster
-   * than it could be dragged. The reported symptom was a slider that would not
-   * move off the height the Schnitt button had set.
+   * control — one click, one link — but it cannot catch a defect that only a
+   * continuous control can have. A slider written to the URL on every step of
+   * the drag and read back from it resets the thumb on a real router: `replace`
+   * re-runs the server tree, the value returns a round trip later, and React
+   * snaps the thumb to a stale number faster than it can be dragged. The
+   * symptom is a slider that will not move off the height the Schnitt button set.
    *
    * So this block gives the mock the one property that matters: `replace` is
    * ASYNCHRONOUS. Nothing here can pass by accident.
@@ -669,7 +667,7 @@ describe('ModelStage — every control is a link', () => {
     it('follows the drag while the router has not caught up', async () => {
       render(<ModelStage projectId="p1" onClose={vi.fn()} />)
       // Three steps of one drag, with no navigation applied in between —
-      // which is the whole of the round trip the old code waited for.
+      // which is the whole of the round trip a slider must not wait for.
       fireEvent.change(slider(), { target: { value: '3.5' } })
       fireEvent.change(slider(), { target: { value: '2.4' } })
       fireEvent.change(slider(), { target: { value: '1.2' } })
@@ -714,9 +712,9 @@ describe('ModelStage — every control is a link', () => {
 
     it('reaches a cut below the origin, where a basement is', async () => {
       // The slider is ranged over the model's own extent, which starts below
-      // zero here. The link has to be able to carry that: the old encoding
-      // ran the height through `Math.abs`, so this cut came back as +1.4 and
-      // the plane jumped to the other side of the ground floor.
+      // zero here. The link has to be able to carry that: an encoding that ran
+      // the height through `Math.abs` would bring this cut back as +1.4, and the
+      // plane would jump to the other side of the ground floor.
       render(<ModelStage projectId="p1" onClose={vi.fn()} />)
       fireEvent.change(slider(), { target: { value: '-1.4' } })
       fireEvent.pointerUp(slider())
@@ -776,8 +774,8 @@ describe('ModelStage — selection', () => {
   it('shows the card only once something is selected, and leads with the noun', () => {
     render(<ModelStage projectId="p1" onClose={vi.fn()} />)
     const panel = screen.getByRole('complementary', { name: 'AW 38' })
-    // "Wall", not "IfcWallStandardCase" — the schema is what the old page led
-    // with and it is why the page read as a console.
+    // "Wall", not "IfcWallStandardCase": the schema name is what makes a page
+    // read as a console.
     expect(within(panel).getByText('Wall · Erdgeschoss')).toBeInTheDocument()
   })
 
@@ -786,8 +784,8 @@ describe('ModelStage — selection', () => {
     const panel = screen.getByRole('complementary', { name: 'AW 38' })
     const details = panel.querySelector('details')
 
-    // Shut by default IS the redesign, in one attribute: a 22-character
-    // GlobalId at the top of the card is how the old page read as a console.
+    // Shut by default, so a 22-character GlobalId is not at the top of the
+    // card, where it would make the page read as a console.
     expect(details).not.toHaveAttribute('open')
     expect(within(panel).getByText('g-w1')).toBeInTheDocument()
 
@@ -889,10 +887,9 @@ describe('ModelStage — getting out', () => {
  * Every failure offers a way back.
  *
  * Nielsen's ninth: a system must help a user recognise, diagnose and recover.
- * This surface managed the first two and none of the third — the notices took
- * no action, the hooks' `reload` had no caller, and the button's string had
- * sat unused in both dictionaries since it was written. Closing and reopening
- * the whole stage was the only escape, and nothing on screen suggested it.
+ * A notice that takes no action leaves the reader with only closing and
+ * reopening the whole stage, so each failure is wired to the hook that can
+ * re-run it.
  */
 describe('ModelStage — recovering from a failure', () => {
   it('offers a retry when the model list could not be loaded', async () => {
@@ -905,9 +902,9 @@ describe('ModelStage — recovering from a failure', () => {
   })
 
   it('says the view is unavailable when the URL could not be minted', async () => {
-    // Not a progress bar. This used to fall through to the indeterminate
-    // "Loading model…" veil, which never finishes — a 403 from a withdrawn
-    // feature flag looked exactly like a slow network, forever.
+    // Not a progress bar. An unavailable URL must not fall through to the
+    // indeterminate "Loading model…" veil, which never finishes: a 403 from a
+    // withdrawn feature flag would look exactly like a slow network, forever.
     state.sourceUrl = null
     state.sourceError = 'load-failed'
     render(<ModelStage projectId="p1" onClose={vi.fn()} />)
@@ -934,11 +931,11 @@ describe('ModelStage — recovering from a failure', () => {
 /**
  * What the viewport says out loud.
  *
- * Nielsen's first heuristic, and there was not one live region in this whole
- * feature — a forty-second load, its arrival, a renderer that died and two
- * transient confirmations were all carried by pixels alone. The confirmations
- * were the worst of it: a swapped icon and a changed accessible name, neither
- * of which any assistive technology announces.
+ * Nielsen's first heuristic: the status is announced, not only shown. A
+ * forty-second load, its arrival, a renderer that died and two transient
+ * confirmations must each reach a live region, because pixels alone carry none
+ * of them to a screen reader. A swapped icon and a changed accessible name are
+ * the worst case: neither is announced by any assistive technology.
  */
 describe('ModelStage — the status a screen reader hears', () => {
   // Two regions, deliberately: the stage's own status, and the measurement
@@ -975,12 +972,12 @@ describe('ModelStage — the status a screen reader hears', () => {
 /**
  * The drawer's open state is the link, and the link is the state.
  *
- * It used to be local state seeded from the URL once and never written back,
- * so three things disagreed: closing left `tab=` behind and "Ansicht
- * verlinken" handed the recipient a drawer the sender had shut; selecting
- * Überblick deleted the parameter and the link lost the drawer entirely; and
- * arriving at `?tab=compliance` while the stage was already mounted left it
- * closed.
+ * Local state seeded from the URL once and never written back would let three
+ * things disagree: closing would leave `tab=` behind, so "Ansicht verlinken"
+ * handed the recipient a drawer the sender had shut; selecting Überblick would
+ * delete the parameter and the link would lose the drawer entirely; and
+ * arriving at `?tab=compliance` while the stage was already mounted would leave
+ * it closed.
  */
 describe('ModelStage — the drawer travels in the link', () => {
   it('writes the tab when the drawer is opened', async () => {
@@ -998,10 +995,10 @@ describe('ModelStage — the drawer travels in the link', () => {
 
   it('keeps the drawer shut for a model that is still being read', async () => {
     // A compliance card links in as `?tab=compliance`. With the model still
-    // extracting the sheet cannot render, and the toolbar button used to be
-    // pressed AND disabled with no panel anywhere — and the first Escape
-    // appeared to do nothing, because it took the close-the-drawer branch for
-    // a drawer that was not there.
+    // extracting the sheet cannot render, so the drawer must stay shut:
+    // otherwise the toolbar button would be pressed AND disabled with no panel
+    // anywhere, and the first Escape would appear to do nothing, taking the
+    // close-the-drawer branch for a drawer that was not there.
     searchParams = new URLSearchParams('model=Haus-A.ifc&tab=compliance')
     state.models = [model({ status: 'extracting' })]
     render(<ModelStage projectId="p1" onClose={vi.fn()} />)
@@ -1018,11 +1015,11 @@ describe('ModelStage — the drawer travels in the link', () => {
  * A link that could not be honoured says so.
  *
  * The stage falls back to the newest ready model when `?model=` names
- * something the project does not have — right thing to do, wrong thing to do
- * silently. The answer said "3 Wände im Erdgeschoss von Haus-A", the viewer
- * opened Haus-B, the storey filter matched nothing, the legend read "(0)", and
- * with one model in the project the rail is hidden so the filename appears
- * nowhere on screen.
+ * something the project does not have. That is the right thing to do, but never
+ * silently: a reader following an answer into the wrong building would see a
+ * storey filter that matches nothing and a legend reading "(0)", and with one
+ * model in the project the rail is hidden, so the filename appears nowhere on
+ * screen.
  */
 describe('ModelStage — when the link and the project disagree', () => {
   it('names the model it opened instead', () => {
@@ -1030,8 +1027,8 @@ describe('ModelStage — when the link and the project disagree', () => {
     render(<ModelStage projectId="p1" onClose={vi.fn()} />)
 
     // On screen, and spoken. Following an agent's link into the wrong
-    // building is the single failure this notice exists to prevent, and it
-    // used to be prevented only for people who can see it.
+    // building is the single failure this notice exists to prevent, so it must
+    // reach people who cannot see it.
     expect(
       screen.getAllByText(/This link names “Haus-Z.ifc”.*Showing “Haus-A.ifc” instead/)
     ).toHaveLength(2)
@@ -1044,9 +1041,9 @@ describe('ModelStage — when the link and the project disagree', () => {
   })
 
   it('still opens after a rename the link could not know about', () => {
-    // The documented recovery, which only ever worked in a test: a real link
-    // carries `Haus-A.ifc`, and `'haus-a (final).ifc'.includes('haus-a.ifc')`
-    // is false, so the substring match never fired and the fallback did.
+    // A renamed file is recovered by the fallback to the newest ready model: a
+    // real link carries `Haus-A.ifc`, and a substring match does not find
+    // `Haus-A (final).ifc`, because it does not contain `Haus-A.ifc`.
     state.models = [model({ filename: 'Haus-A (final).ifc' })]
     searchParams = new URLSearchParams('model=Haus-A.ifc')
     render(<ModelStage projectId="p1" onClose={vi.fn()} />)
@@ -1081,8 +1078,8 @@ describe('ModelStage — the highlights a link carries', () => {
   ]
 
   it('labels the legend with the answer’s own words', () => {
-    // Before the label travelled, both of these arrived as "Error" — two
-    // identical legend rows, and the distinction the answer drew erased.
+    // Without the label, both of these would arrive as "Error": two identical
+    // legend rows, and the distinction the answer drew erased.
     state.elements = WALLS
     searchParams = linkParams({
       model: 'Haus-A.ifc',
@@ -1116,18 +1113,18 @@ describe('ModelStage — the highlights a link carries', () => {
     })
     render(<ModelStage projectId="p1" onClose={vi.fn()} />)
 
-    // Twice: the pill on screen, and the live region that speaks it. A
-    // reader who cannot see a small notice over a full-screen 3D view was the
-    // one person this warning was never reaching.
+    // Twice: the pill on screen, and the live region that speaks it. A reader
+    // who cannot see a small notice over a full-screen 3D view must still hear
+    // it.
     expect(screen.getAllByText(/A link can carry 2 of the 420 highlighted elements/)).toHaveLength(2)
   })
 
   it('does not call a highlight missing while the rows are still in flight', () => {
     // Geometry and the element rows are separate requests, and an id resolves
-    // only against the rows. Counting them early made every highlight link
-    // flash "2 of the highlighted elements are not in this model" and then
-    // withdraw it — telling the reader the answer they were sent is wrong
-    // about a model that contains every one of those elements.
+    // only against the rows. Counting before the rows arrive would make every
+    // highlight link flash "2 of the highlighted elements are not in this
+    // model" and then withdraw it — telling the reader the answer they were sent
+    // is wrong about a model that contains every one of those elements.
     state.elements = WALLS
     state.elementsLoading = true
     searchParams = new URLSearchParams('model=Haus-A.ifc&hl=fail:g-1,g-2')
@@ -1193,8 +1190,8 @@ describe('ModelStage — the file operations on the building', () => {
   })
 
   it('calls a renamed building by its new name and leaves the link alone', async () => {
-    // `?model=` carries the FILE name — so a rename cannot break a link that
-    // was written into a chat answer weeks ago.
+    // `?model=` carries the FILE name — so a rename cannot break a link that is
+    // already written into a chat answer.
     state.models = [
       model({ displayName: 'Haus A – Bestand.ifc' }),
       model({ id: 'm-2', documentId: 'doc-2', filename: 'Nebengebäude.ifc' }),

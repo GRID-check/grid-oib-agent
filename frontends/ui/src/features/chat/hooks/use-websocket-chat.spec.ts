@@ -270,7 +270,7 @@ describe('reload mid-answer', () => {
     expect(useChatStore.getState().isStreaming).toBe(false)
   })
 
-  it('asks the server for the answer when the stream no longer holds the turn, and says so only when it has none', async () => {
+  it('asks the server for the answer when the stream does not hold the turn, and says so only when it has none', async () => {
     const conversation = conversationOf(CONVERSATION, [questionOf(TURN)])
     useChatStore.setState({ conversations: [conversation], currentConversation: conversation })
     useChatStore.getState().restoreSessionState(conversation)
@@ -515,7 +515,7 @@ describe('nothing waits on silence', () => {
     await vi.waitFor(() => expect(lastError()).toMatchObject({ errorData: { errorCode: 'agent.response_interrupted' } }))
   })
 
-  it('ends a turn whose resume the server refused as invalid, like one it no longer holds', async () => {
+  it('ends a turn whose resume the server refused as invalid, like one it does not hold', async () => {
     const conversation = conversationOf(CONVERSATION, [questionOf(TURN)])
     useChatStore.setState({ conversations: [conversation], currentConversation: conversation })
     useChatStore.getState().restoreSessionState(conversation)

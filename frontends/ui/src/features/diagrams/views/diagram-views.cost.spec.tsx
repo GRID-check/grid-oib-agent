@@ -62,7 +62,8 @@ describe('a map view', () => {
   })
 
   it('shows the outline in a narrow column, without the graph', () => {
-    // Both used to mount, one hidden by a container query: a phone paid for the tree.
+    // Only the one that is shown mounts: a container query hiding the other
+    // would still pay for the tree on a phone.
     vi.spyOn(HTMLElement.prototype, 'clientWidth', 'get').mockReturnValue(300)
     render(<MapDiagram model={MAP} label="Karte" />)
     expect(builds).toHaveLength(0)

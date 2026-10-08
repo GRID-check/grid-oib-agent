@@ -11,8 +11,7 @@
  *
  * **Two columns, not one list.** What is working and what needs attention are
  * rendered as peers, side by side, at the same weight. Stacking them would make
- * the second one the conclusion — and the whole reason this exists is that the
- * surface used to have only the second one.
+ * the second one the conclusion.
  *
  * **It says it is generated, and when.** A paragraph in a product looks
  * authored. This one is written by a model over a moving window, so it carries
@@ -44,7 +43,7 @@ export interface FeedbackDigestPayload {
   generatedAt: string
   windowDays: number
   votes: number
-  /** Sampled unhelpful votes by decided cause; absent on a digest cached before causes existed. */
+  /** Sampled unhelpful votes by decided cause; optional because a cached digest may lack it. */
   causes?: { cause: string; count: number }[]
 }
 
@@ -81,7 +80,7 @@ export function FeedbackDigest({ search, className }: FeedbackDigestProps): JSX.
    * The request this card is still waiting on. Filters change faster than a
    * model answers — switch direction, then topic — and without this the slower
    * of two in-flight digests wins by finishing last, leaving sentences that
-   * describe a window nobody is looking at any more.
+   * describe a window nobody is looking at.
    */
   const latestRequest = useRef(0)
 

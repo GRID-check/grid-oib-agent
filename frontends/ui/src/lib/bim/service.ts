@@ -174,17 +174,17 @@ export interface BimExtractionOutcome {
 /**
  * Read an object into memory, refusing one that is too big BEFORE reading it.
  *
- * The check used to be on `buffer.byteLength` at the caller, which is a
- * rhetorical cap: by the time it can be evaluated the whole object is already
- * resident. On a 1 GiB pod, with an upload limit that is a separate,
- * independently configurable number, a file above the extraction limit was
- * `transformToByteArray`-ed in full and only then declined — an OOM kill on
- * the way to reporting a polite error.
+ * A check on `buffer.byteLength` at the caller would be a rhetorical cap: by
+ * the time it can be evaluated the whole object is already resident. On a 1 GiB
+ * pod, with an upload limit that is a separate, independently configurable
+ * number, a file above the extraction limit would be `transformToByteArray`-ed
+ * in full and only then declined — an OOM kill on the way to reporting a polite
+ * error.
  *
  * `ContentLength` comes back in the same `GetObject` response, ahead of the
  * body, so the size is knowable before the read. An object that does not
- * report one is read and checked afterwards, as before: a missing header is
- * not a licence to skip the limit.
+ * report one is read and checked afterwards: a missing header is not a licence
+ * to skip the limit.
  */
 async function fetchObject(bucket: string, key: string): Promise<ArrayBuffer> {
   const response = await s3Client.send(new GetObjectCommand({ Bucket: bucket, Key: key }))
@@ -249,17 +249,17 @@ export async function runBimExtraction(input: BimExtractionInput): Promise<BimEx
     /*
       Open the container HERE, once, and let everything downstream see STEP.
 
-      `extractIfcModel` unwraps for itself, so the parse was already correct —
-      but it unwraps privately, and the two things that happen with these bytes
-      besides parsing were both wrong for a `.ifczip`:
+      `extractIfcModel` unwraps for itself, so the parse is correct — but it
+      unwraps privately, and two other things happen with these bytes besides
+      parsing. Both must see the unwrapped model:
 
-        - the ceiling was applied to the COMPRESSED object, so a 40 MB archive
-          holding a 300 MB model passed a limit that exists to keep this
+        - the ceiling applies to the UNCOMPRESSED model, so a 40 MB archive
+          holding a 300 MB model cannot pass a limit that exists to keep this
           process alive (`unwrapIfcArchive` reads the declared size out of the
           zip directory, before anything is inflated);
-        - the viewer's source object was written from the archive, and the
-          browser's geometry kernel does not unwrap zip — every zipped model
-          therefore opened as an empty viewport.
+        - the viewer's source object is written from the unwrapped bytes,
+          because the browser's geometry kernel does not unwrap zip — a zipped
+          model would otherwise open as an empty viewport.
 
       Non-archive input comes back unchanged and costs a four-byte magic check,
       so nothing about the ordinary `.ifc` path changes.
@@ -355,12 +355,11 @@ export async function deleteBimDerivedObjects(
   if (!keys) return
   const bucket = resolveDocumentBucket(storageBucket)
 
-  // Paged to exhaustion. One `MaxKeys: 100` call silently stopped at the
-  // hundredth object, so anything past it — including the source gzip, which
-  // is the largest thing here and the one that carries the building — stayed
-  // in the bucket after the tenant had been told the document was deleted.
-  // A prefix holds a handful of objects today; "today" is not a retention
-  // guarantee.
+  // Paged to exhaustion: a single `MaxKeys: 100` call would silently stop at
+  // the hundredth object, leaving anything past it — including the source gzip,
+  // the largest thing here and the one that carries the building — in the bucket
+  // after the tenant was told the document was deleted. A prefix holds a handful
+  // of objects today; "today" is not a retention guarantee.
   let continuationToken: string | undefined
   do {
     const listed = await s3Client.send(

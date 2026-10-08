@@ -1,7 +1,7 @@
 """Curated norm catalog: verified RIS pointers + the legal facts the corpus cannot supply.
 
-The registry is deliberately a FLAT catalog (successor of ``ris_catalog.yml``, reduced
-from the typed-graph experiment of ADR-0025v1 — see the ADR for why). One entry per
+The registry is deliberately a FLAT catalog, not the typed graph of
+ADR-0025v1 (see the ADR for why). One entry per
 legal norm, three jobs:
 
 1. Pointer index: topic -> exact RIS location (application, document number, URLs),
@@ -515,7 +515,7 @@ _STRUCTURED_COUNTRY_RE = re.compile(r"\bcountry=([a-z]{2})\b")
 def resolve_country(text: str | None) -> str:
     """ISO country code for the project: structured `country=<cc>` fact, else 'at'.
 
-    Austria-only intake today; the structured fact ships with the first second
+    Intake is Austria-only; the structured fact ships with the first second
     country. Consumer: CountryProfile selection (doctrine, corpus note, parcel
     tags, retrieval base collection).
     """
@@ -605,8 +605,8 @@ def _render_entry_line(entry: NormEntry) -> str:
     if entry.bundesland:
         line += f" ({entry.bundesland})"
     # Render BOTH URLs when both are set (e.g. a consolidated law plus a curated
-    # annex link) — an `elif` here silently dropped a populated ``source_url``
-    # whenever ``full_law_url`` was also present.
+    # annex link): an `elif` would silently drop a populated ``source_url``
+    # whenever ``full_law_url`` is also present.
     if entry.full_law_url:
         line += f" Gesamt: {entry.full_law_url}"
     if entry.source_url:
@@ -961,8 +961,8 @@ def guess_display_title(file_name: str) -> str | None:
 #
 # "OIB-Richtlinien 1–6" is a range, and a range names no members. OIB-RL 2 is
 # four separate documents — 2, 2.1 (Betriebsbauten), 2.2 (Garagen), 2.3
-# (Hochhäuser) — and the prompt never said so, so an overview question ("Was
-# weißt du über die OIB 2?") could open three of them, forget the fourth, and
+# (Hochhäuser) — and a prompt that does not say so lets an overview question ("Was
+# weißt du über die OIB 2?") open three of them, forget the fourth, and
 # read as complete. Nothing structural noticed, because nothing knew the family
 # had four members.
 #
@@ -1142,9 +1142,9 @@ def _is_topic_free(text: str) -> bool:
 def _joined_keys(text: str, start: int) -> list[re.Match[str]]:
     """The further keys chained onto the anchor ending at ``start``, in order.
 
-    "OIB 2 und 4" names two families as surely as "OIB 2 und OIB 4"; without
-    this the bare ``4`` falls into the leftover, where a number passes as a
-    printing and the query came back as family 2 alone.
+    "OIB 2 und 4" names two families as surely as "OIB 2 und OIB 4"; without this the
+    bare ``4`` would fall into the leftover, where a number passes as a printing, and
+    the query would come back as family 2 alone.
     """
     found: list[re.Match[str]] = []
     while (joined := _FAMILY_JOINED_KEY_RE.match(text, start)) is not None:
@@ -1307,9 +1307,9 @@ def lane_for_knowledge_hit(
 
     This exists so the two consumers of the rule cannot drift: the citation
     chips (``citation_verification.source_lane``) and the Herleitung fan-out
-    (``knowledge_layer.register._trace_lanes_for_hits``) used to apply it
-    separately, and only the former actually did — so the same document showed
-    as "Projektwissen" on a chip and "Web" in the fan-out of the same answer.
+    (``knowledge_layer.register._trace_lanes_for_hits``) both apply it through
+    this one function. Applied separately, the same document could show as
+    "Projektwissen" on a chip and "Web" in the fan-out of the same answer.
     """
     lane = lane_for_hit(
         doc_class=doc_class,

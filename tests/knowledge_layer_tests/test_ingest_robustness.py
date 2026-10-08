@@ -414,7 +414,7 @@ def test_a_live_job_whose_first_write_never_landed_is_written_by_the_beat(status
     assert ingest_status_store.get("job-1").status == JobState.PENDING
 
 
-def test_a_job_no_longer_tracked_is_not_retried(monkeypatch, held_ingestor):
+def test_a_pruned_job_is_not_retried(monkeypatch, held_ingestor):
     """Retention bounds the retry set: a pruned job has nothing left to write."""
     monkeypatch.setattr(ingest_status_store, "heartbeat", lambda ids: None)
     puts: list[str] = []
@@ -426,7 +426,7 @@ def test_a_job_no_longer_tracked_is_not_retried(monkeypatch, held_ingestor):
     assert puts == [] and held_ingestor._unpersisted == set()
 
 
-def test_a_retry_writes_the_job_as_it_is_now(status_db, monkeypatch, held_ingestor):
+def test_a_retry_writes_the_latest_status(status_db, monkeypatch, held_ingestor):
     """The retry stores the latest status, never the one whose write failed."""
     job = _tracked_job(held_ingestor, "job-1", JobState.PROCESSING)
     real_put = ingest_status_store.put

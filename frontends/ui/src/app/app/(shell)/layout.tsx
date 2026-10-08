@@ -10,12 +10,12 @@
  * without a single link changing (`lib/navigation/app-routes.spec.ts` holds
  * that line).
  *
- * WHY THE CHROME IS HERE AND NOT LOWER. The rail used to be mounted in
- * `projects/[id]/layout.tsx`, so it existed only inside a project, and stepping
- * out of one unmounted the whole chrome mid-navigation. Mounted in the common
- * ancestor, Next.js does not re-render it on navigation, so the frame is the
- * same DOM before and after. The org↔project chrome SWAP is the one deliberate
- * exception, executed by the mounted component rather than by a remount.
+ * WHY THE CHROME IS HERE AND NOT LOWER. Mounted in the common ancestor, Next.js
+ * does not re-render it on navigation, so the frame is the same DOM before and
+ * after. Mounted under a project, it would exist only inside that project and
+ * unmount the whole chrome when the reader stepped out. The org↔project chrome
+ * SWAP is the one deliberate exception, executed by the mounted component
+ * rather than by a remount.
  *
  * DELIBERATELY NOT A GATE. It resolves the session TOLERANTLY
  * ({@link resolveShellChrome} never throws and never redirects) because
@@ -28,7 +28,7 @@
  * `min-h-0 flex-1 overflow-y-auto`. No surface below may set `min-h-dvh` — the
  * document itself never scrolls, so the scrollbar cannot appear and disappear
  * between sections. `<main id="main-content">` and `<RouteFocus />` are declared
- * exactly once, here, rather than in the eight places that each used to.
+ * exactly once, here.
  */
 
 import type { JSX } from 'react'
@@ -46,8 +46,7 @@ export default async function AppShellLayout({
   overlay: ReactNode
 }): Promise<JSX.Element> {
   // Its own tenant slot: React renders each layout as its own entry point, so
-  // a slot opened by the `/app` layout above does not survive down to here
-  // (issues #342/#344 — the same bug twice).
+  // a slot opened by the `/app` layout above does not survive down to here.
   const chrome = await runWithTenantSlot(resolveShellChrome)
 
   return (
@@ -68,8 +67,8 @@ export default async function AppShellLayout({
     >
       {/* `relative` is load-bearing for the docked chat panels: they position
           against this box, so "the inner edge of the rail" is true by
-          construction rather than by a CSS variable that had to be published on
-          `:root` and guessed at.
+          construction, not by a CSS variable on `:root` that has to be kept in
+          step.
           `tabIndex={-1}` makes the landmark programmatically focusable so
           RouteFocus can move focus here on client-side section changes. */}
       <main

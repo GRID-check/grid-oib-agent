@@ -9,8 +9,7 @@ Each tool here is driven the way the Piloti tools node drives it: inside
 these pin is the tool's half: it refuses what the turn may not read, never
 LISTS a restricted file, never confirms one exists, and REPORTS every
 collection whose content it returns, so the admission sees it whatever the text
-says. The first four tests are the independent verifier's proofs of the bypass,
-inverted; each failed against the code before this change.
+says.
 """
 
 from __future__ import annotations
@@ -149,7 +148,7 @@ async def _read(**kwargs) -> str:
 
 
 # ---------------------------------------------------------------------------
-# The verifier's proofs, inverted
+# Restricted content the turn may not read
 # ---------------------------------------------------------------------------
 
 

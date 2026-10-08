@@ -82,9 +82,9 @@ class DeepResearchAgentState(BaseModel):
     # by the report's own banner, in the product's voice.
     truncation_reason: str | None = None
     # Ways this answer is weaker than a clean run, as stable tokens
-    # (``no_report_file``, ``no_valid_citations``). These used to be
-    # ``logger.warning`` only — a degraded answer shipped looking exactly like a
-    # good one. Empty/None means the run degraded in none of the known ways.
+    # (``no_report_file``, ``no_valid_citations``). Logged alone, a degraded
+    # answer would ship looking exactly like a good one. Empty/None means the run
+    # degraded in none of the known ways.
     degraded_reasons: list[str] | None = None
     # The tenant whose skills this run resolves (``x-grid-organization-id`` on
     # the synchronous path). Carried on the STATE rather than read from the
@@ -102,9 +102,9 @@ class DeepResearchAgentState(BaseModel):
     # the job runner lifts it into the job output and into the message metadata
     # as ``sources``, where the BFF's ``normalizeAgentAnswerMetadata`` decodes
     # it into the stored ``citations`` envelope. Without it a deep answer's
-    # citations were nothing but numbers parsed back out of the Markdown — no
+    # citations would be nothing but numbers parsed back out of the Markdown — no
     # open-PDF-at-page, no hover snippet, no authority badge — even though the
-    # run had resolved every one of those facts and then dropped them.
+    # run resolves every one of those facts and then discards them.
     # None when the run cited nothing it could resolve to a captured source.
     verified_sources: list[dict[str, Any]] | None = None
     # This run's own account of its retrieval rounds: one entry per research
@@ -124,9 +124,9 @@ class DeepResearchAgentState(BaseModel):
     # ``/shared/output.md`` and already passed through the deterministic
     # overconfidence guard. Same three names and shapes the chat path
     # uses, because one reader consumes both: the job runner lifts them onto the
-    # job output and the frontend renders one confidence chip either way. A deep
-    # answer used to carry none of this, so the chip the product shows beside
-    # every chat answer was simply missing on the longest reports it writes —
+    # job output and the frontend renders one confidence chip either way. Without
+    # them, the chip the product shows beside every chat answer would be missing
+    # on the longest reports it writes —
     # which reads as a broken feature, not as "not assessed". None means "no
     # signal" (marker absent or malformed) and nothing renders.
     answer_confidence: Literal["low", "medium", "high"] | None = None

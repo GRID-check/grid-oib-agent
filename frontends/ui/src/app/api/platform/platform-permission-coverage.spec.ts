@@ -171,7 +171,7 @@ describe('platform route permissions', () => {
     ).toEqual([])
   })
 
-  it('the table has no rows for routes that no longer exist', () => {
+  it('the table has no rows for routes that do not exist', () => {
     const live = new Set(DECLARATIONS.map((d) => d.key))
     expect([...Object.keys(EXPECTED)].filter((key) => !live.has(key))).toEqual([])
   })

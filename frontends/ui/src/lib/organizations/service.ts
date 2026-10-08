@@ -224,8 +224,8 @@ export interface OrgSettingsPatch {
  * REFUSES platform-owned keys (see `PLATFORM_OWNED_SETTINGS`). Every tenant-facing
  * write reaches the bag through here, so this is the one place the refusal has to
  * live — putting it in the settings route would leave the next route to remember
- * it, and the reason this guard exists is that `PUT /api/organization/settings`
- * accepted `storageQuotaBytes` and let a tenant raise its own quota.
+ * it. Without the guard, a generic `PUT /api/organization/settings` would let a
+ * tenant set `storageQuotaBytes` and raise its own quota.
  *
  * Platform-tier writers call {@link updatePlatformOwnedOrgSettings} instead. That
  * is a distinct exported name rather than a boolean argument on this function
@@ -260,16 +260,13 @@ export async function updateOrgSettings(
  * Upsert Grid settings INCLUDING platform-owned keys. PLATFORM TIER ONLY.
  *
  * Named for what it permits so that the audit question — "what can write the
- * quota?" — is answerable by searching for one identifier, and it now ENFORCES
- * what the name claims rather than describing a guard that lives elsewhere.
+ * quota?" — is answerable by searching for one identifier, and it ENFORCES what
+ * the name claims.
  *
- * It used to take no session and rely on the callers being routed through
- * `platformApiRoute`. That is true of today's one caller and is not a property of
- * this function: the bypass it opens is exactly the one `updateOrgSettings`
- * closed, so "reachable only from an authorized route" was a fact about the call
- * graph at a moment in time, defended by nothing. The session is required, the
- * check runs here, and `PLATFORM_OWNED_SETTINGS` therefore has no unguarded
- * writer anywhere.
+ * The session is required and the check runs here. Reachability from an
+ * authorized route is a fact about the call graph at one moment, defended by
+ * nothing, and the bypass this opens is exactly the one `updateOrgSettings`
+ * closes; so `PLATFORM_OWNED_SETTINGS` has no unguarded writer anywhere.
  *
  * The route-level platform gate stays where it is. Checking twice costs a
  * cached predicate and means neither layer is load-bearing alone.
@@ -355,9 +352,9 @@ export async function isWebSearchEnabledForOrg(
 
 const ZDR_ONLY_CACHE_TTL_MS = 30_000
 /**
- * `:v2` because the meaning of an absent setting flipped from off to on. A
- * replica still running the old reader could have cached `false` for an org
- * that never chose; the new reader must not find that entry.
+ * `:v2` keeps this key clear of entries written under the earlier reading of an
+ * absent setting (off), which a replica still on that reading may have cached as
+ * `false` for an org that never chose.
  */
 const zdrOnlyCacheKey = (organizationId: string): string => `zdronly:v2:${organizationId}`
 
@@ -451,7 +448,7 @@ export async function saveOrgSettings(
 
 /**
  * What a save changed, as `displayName`, `defaultLocale` and `settings.<key>`.
- * The bag is listed per key: `settings` alone told the trail nothing about
+ * The bag is listed per key: `settings` alone would tell the trail nothing about
  * which switch moved.
  */
 export function changedSettingsFields(before: OrgSettings, after: OrgSettings): string[] {

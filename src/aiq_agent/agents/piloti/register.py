@@ -4,7 +4,7 @@ One :class:`PilotiAgent` is built at boot. Per request ``_run_turn``
 computes only what the turn varies (the switched-off data sources, the org's
 skills as a ``use_skill`` tool, the model override) as a :class:`TurnConfig`
 and hands it to ``agent.run``; nothing is compiled, read or re-indexed per turn.
-The tool SET no longer varies with the data-source toggles — a switched-off
+The tool SET does not vary with the data-source toggles — a switched-off
 source keeps its tool and refuses the call (``common/data_sources.py``), so
 every turn of an org sends the same tool payload to the same cache shard —
 except that a turn without a project is not sent the building-model tools
@@ -383,7 +383,7 @@ def _warm_question(facts: TurnFacts | None) -> None:
     """Start embedding the question the round-0 prefetch will search; not awaited.
 
     The prefetch is known only after the decision, and its search then pays
-    the query embedding (280-980 ms, measured 2026-09-24) before it can rank.
+    the query embedding (280-980 ms measured) before it can rank.
     The string it will search is known now, so the embedding runs beside the
     decision and the search finds it cached, or in flight. Nothing waits on it.
 
@@ -414,8 +414,8 @@ def _warm_question(facts: TurnFacts | None) -> None:
 #: Tools that read the PROJECT's building model. Outside a project they can
 #: only answer "no project" (``tools/bim/failures.NO_PROJECT_TEXT``), and
 #: their two schemas are ~8 200 of the ~17 000 tool tokens every call of the
-#: turn re-sends (measured 2026-09-23 on the live request; deferral did not
-#: reduce what was billed).
+#: turn re-sends (measured on the live request; deferral did not reduce what
+#: was billed).
 _PROJECT_MODEL_TOOLS = frozenset({"ifc_query", "ifc_measure"})
 
 
@@ -485,12 +485,12 @@ def _reply(state: ResearchAgentState, text: str) -> ResearchAgentState:
 
 
 def _warn_if_nothing_is_reachable(disabled_sources: frozenset[str]) -> None:
-    """The one diagnostic the narrowing used to give: a turn with no source left.
+    """The diagnostic for a turn with no source left.
 
     It is a request the caller probably did not mean (``data_sources`` naming
-    nothing the registry knows, or every source toggled off), and it no longer
-    shows up as an empty tool list — the tools are all still bound, they will
-    all just refuse.
+    nothing the registry knows, or every source toggled off). It is logged, not
+    shown as an empty tool list: the tools are all still bound, they will all
+    just refuse.
     """
     if not disabled_sources:
         return
@@ -502,13 +502,12 @@ def _warn_if_nothing_is_reachable(disabled_sources: frozenset[str]) -> None:
 async def _run_turn(deployment: _Deployment, state: ResearchAgentState) -> ResearchAgentState:
     """One request: narrow the tools, resolve the skills, run the shared agent."""
     config = deployment.config
-    # The tool set does NOT vary with the toggles any more (row 6). A source the
-    # org switched off (ADR-0022) or the request did not select stays BOUND and
+    # The tool set does NOT vary with the toggles. A source the org switched
+    # off (ADR-0022) or the request did not select stays BOUND and
     # is refused per call in the tools node, so every turn of an org sends the
     # same tool payload and lands on one prompt-cache shard instead of one per
-    # toggle combination. No `data_sources is not None` guard, for the same
-    # reason as before: an org's toggle applies to a request that asked for
-    # "all tools".
+    # toggle combination. No `data_sources is not None` guard: an org's toggle
+    # applies to a request that asked for "all tools".
     disabled_sources = unavailable_source_ids(state.data_sources)
     _warn_if_nothing_is_reachable(disabled_sources)
     is_valid, unavailable_tools = _tool_availability(deployment, deployment.tools)
@@ -579,8 +578,8 @@ async def _run_agent(deployment: _Deployment, state: ResearchAgentState, turn: T
     try:
         return await deployment.agent.run(state, turn=turn)
     except EmptySourceRegistryError as exc:
-        # A miss is a valid empty answer, not an unhandled NAT error. Raising
-        # here became err2issue #447 and left the user with no reply.
+        # A miss is a valid empty answer, not an unhandled NAT error: raising here
+        # would leave the user with no reply.
         logger.warning("Research captured no sources; returning an empty-result answer.")
         scoped = bool(state.focus_file_name or state.focus_shelf)
         return format_no_sources_message(_RESEARCH_TYPE, exc.unavailable_tools, exc.available_count, scoped=scoped)

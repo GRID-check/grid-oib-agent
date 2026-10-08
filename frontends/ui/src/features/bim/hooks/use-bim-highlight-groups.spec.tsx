@@ -3,9 +3,10 @@
  *
  * This is the difference between a card that shows the answer and one that
  * shows a sample of it. An id list has to travel through the model's context
- * window, so "the 420 external walls in the Erdgeschoß" arrived as however
- * many the agent managed to transcribe — the viewer coloured those, the legend
- * said *Außenwände*, and nothing anywhere said the picture was a fraction.
+ * window, so "the 420 external walls in the Erdgeschoß" would arrive as however
+ * many the agent managed to transcribe: the viewer would colour those, the
+ * legend would say *Außenwände*, and nothing would say the picture was a
+ * fraction.
  *
  * The filter is the same one `ifc_query` counted with, replayed by the browser
  * against the query endpoint, so the set is exact and costs the model nothing.
@@ -100,7 +101,7 @@ describe('useBimHighlightGroups', () => {
   it('keeps a filter group that succeeded when another one fails', async () => {
     // Two FILTER groups, deliberately: an id-only group needs no request, so
     // pairing one with a failing filter cannot detect the bug this pins.
-    // `Promise.all` rejects on the first failure, so one bad filter used to
+    // `Promise.all` rejects on the first failure, so one bad filter would
     // discard the ids of every group that had already resolved — the opposite
     // of what the fallback promises.
     fetchMock
@@ -123,8 +124,8 @@ describe('useBimHighlightGroups', () => {
 
   it('resolves one group at a time, so the page-walk cap is not multiplied', async () => {
     // `walkBimElements` caps itself at six pages in flight against a
-    // ten-connection pool. Running groups in parallel multiplied that cap by
-    // the group count — a five-group card issuing thirty concurrent queries.
+    // ten-connection pool. Running groups in parallel would multiply that cap
+    // by the group count: a five-group card would issue thirty concurrent queries.
     let inFlight = 0
     let peak = 0
     fetchMock.mockImplementation(async () => {

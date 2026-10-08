@@ -12,10 +12,10 @@ import { cn } from '@/lib/utils'
  * The control row above a data list: search, filters, and — once rows are
  * selected — the actions that apply to them.
  *
- * Previously each admin surface scattered these: a search box here, a row of
- * filter chips there, per-row action buttons repeated on every line. Selection
- * and bulk actions did not exist at all, so reclassifying twenty documents
- * meant twenty dropdowns.
+ * One place for these controls, so an admin surface does not scatter a search
+ * box here, a row of filter chips there and per-row action buttons on every
+ * line. Bulk actions come from the selection: reclassifying twenty documents is
+ * one action, not twenty dropdowns.
  *
  * When a selection is active the toolbar swaps to a selection bar. The two
  * states are mutually exclusive on purpose: filtering and acting on a

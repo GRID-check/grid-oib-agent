@@ -5,9 +5,9 @@
  *
  * „Beginnen Sie mit pd8280-2.pdf, danach der Brandschutzvorprüfung und
  * anschließend den Grundrissen." That sentence names three documents the reader
- * owns, and every one of them used to be dead text — the way to act on it was
- * Dateien, the search box, the name typed back in from memory, and a scroll
- * back to the answer to find out what the next one was called.
+ * owns. Each should be a control: otherwise the way to act on it is Dateien,
+ * the search box, the name typed back in from memory, and a scroll back to the
+ * answer to find out what the next one was called.
  *
  * ## Why this is not a citation
  *
@@ -40,13 +40,12 @@
  * composer is asking about, so the next question is retrieved against that
  * file and its shelf rather than against the whole project. That is not a
  * second behaviour bolted onto the first — it is what a document in this pane
- * has always meant. A citation's auto-peek binds it, a document card binds it,
- * and Fragen in Dateien binds it; the preview pane hides its own Ask button
- * while a conversation is on screen precisely because the peek has already
- * made the commitment. This chip was the one door into the pane that did not,
- * and the reader who walked through it was left looking at a document beside a
- * composer that had never heard of it, with Dateien and the filename typed
- * back in as the way to say what they were plainly already asking about.
+ * means. A citation's auto-peek binds it, a document card binds it, and Fragen
+ * in Dateien binds it; the preview pane hides its own Ask button while a
+ * conversation is on screen precisely because the peek has already made the
+ * commitment. A chip that did not bind would leave the reader looking at a
+ * document beside a composer that has never heard of it, with the filename
+ * typed back in as the way to say what they are plainly already asking about.
  *
  * ## Never a dead control
  *
@@ -130,8 +129,8 @@ export const useOpenStoredFile = (): ((stored: StoredFile) => void) => {
         // Every other door into this pane binds the subject, and the reader
         // pointing at a filename in a sentence has said which document they
         // mean at least as clearly as clicking a card does. Hide keeps the
-        // bar, close drops it — the rule stated in `open-file-peek`, unchanged
-        // and not special-cased here.
+        // bar, close drops it — the rule stated in `open-file-peek`, applied
+        // here without a special case.
         //
         // Except when the document cannot answer. `isCitable` is the same
         // predicate the preview pane greys its Ask button on, and binding a
@@ -185,20 +184,20 @@ const FileReferenceChip: FC<{
         className={cn(
           // `inline`, not `inline-flex`. A flex box is unbreakable, and these
           // names are long: on a phone `Wien-Lacknergasse-Grundrisse-\
-          // floorplans.pdf` was pushed onto a line of its own and the full
-          // stop that ended the sentence wrapped to the line after it, alone.
+          // floorplans.pdf` would be pushed onto a line of its own, and the
+          // full stop that ends the sentence would wrap alone onto the next.
           // Inline lets the name flow like the text it is, and
           // `box-decoration-break` keeps the rounded ends on the outside of a
           // name that broke across two lines rather than on all four.
           'inline rounded-md [box-decoration-break:clone]',
           // A `button` is centred by the UA stylesheet, which is invisible
           // until a long name wraps — and then the second line of the
-          // filename sat centred in a left-aligned paragraph.
+          // filename sits centred in a left-aligned paragraph.
           'text-start',
           // The padding is cancelled by an equal negative margin. A mention
           // pill can afford to push its neighbours 3px apart because a thread
           // holds one or two; an answer's reading order holds nine, and at
-          // 3px each the sentence rendered as „…floorplans.pdf ." — a stray
+          // 3px each the sentence would render as „…floorplans.pdf ." — a stray
           // space in front of every comma and full stop in the paragraph.
           // Negative margin keeps the hover background full-width while
           // giving the space back to the prose at rest.
@@ -255,7 +254,7 @@ const FileGlyph: FC<{ file: FileItem }> = ({ file }) => {
   return (
     <Icon
       aria-hidden
-      // Baseline-nudged rather than flex-aligned, now that the chip is inline:
+      // Baseline-nudged rather than flex-aligned, because the chip is inline:
       // an icon sitting on the text baseline reads as a dropped glyph.
       className="mr-[0.2em] inline-block size-[0.95em] shrink-0 align-[-0.12em] text-foreground/40"
       strokeWidth={2}

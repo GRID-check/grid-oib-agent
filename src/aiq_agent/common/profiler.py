@@ -369,9 +369,9 @@ def profiled_node(name: str, fn: Any) -> Any:
 def profiled_span(name: str, kind: SpanKind = "node"):
     """Open one span around a block of turn work that is not a graph node.
 
-    The per-turn setup (context loads, the ingest hold, the admission wait)
-    used to run outside the profiler entirely, so the waterfall started at the
-    first LLM call and the seconds before it had no row. A no-op when no
+    The per-turn setup (context loads, the ingest hold, the admission wait) runs
+    outside the graph nodes, so without this span the waterfall would start at
+    the first LLM call and the seconds before it would have no row. A no-op when no
     profiler is active, so it is safe at every call site; the block's own
     ``await``s are unaffected — only the span's parent is set for its duration.
     """
@@ -392,9 +392,9 @@ def profiled_span(name: str, kind: SpanKind = "node"):
         profiler.end_span(span_id, status="error", error=str(exc))
         raise
     except BaseException as exc:
-        # KeyboardInterrupt, SystemExit. Narrowing to `Exception` left every
+        # KeyboardInterrupt, SystemExit. Narrowing to `Exception` would leave every
         # non-``Exception`` unwind with the span still in `_open`, so the
-        # waterfall silently lost the row instead of showing where the turn
+        # waterfall would silently lose the row instead of showing where the turn
         # stopped -- which is exactly the turn somebody opens the waterfall for.
         profiler.end_span(span_id, status="error", error=type(exc).__name__)
         raise
@@ -462,9 +462,9 @@ def track_agent_profile(
     ``inline_flush=True`` posts the final batch synchronously at teardown, the
     right default for a job worker that may exit right after the block. The
     chat turn passes ``False`` and flushes itself AFTER the answer is on the
-    wire (``flush_after_answer``): the same POST used to run on the event loop
-    between "answer final" and "first delta", where it cost the reader up to
-    the endpoint's timeout and stalled every other turn on the replica.
+    wire (``flush_after_answer``): the same POST would run on the event loop
+    between "answer final" and "first delta", where it would cost the reader up
+    to the endpoint's timeout and stall every other turn on the replica.
     """
     profiler: AgentProfiler | None = None
     profiler_token = None
@@ -487,7 +487,7 @@ def track_agent_profile(
         logger.warning("Could not activate agent profiling", exc_info=True)
         profiler = None
     # The shared cache counts inside this block, so the root span can say how
-    # much of the turn the cache answered (latency audit §4.4, option E7). The
+    # much of the turn the cache answered. The
     # scope is a ContextVar, so two turns on one replica count separately; the
     # teardown below runs INSIDE it, which is what lets it read the totals.
     with count_cache_operations():

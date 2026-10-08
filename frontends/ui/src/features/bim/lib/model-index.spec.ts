@@ -296,9 +296,9 @@ describe('one storey name, compared one way', () => {
   it('ignores the padding an exporter left on the name', () => {
     // Trailing whitespace in an IFC storey name is common. The rail publishes
     // `name.trim()` and writes that into the link, while every element carries
-    // the padded original — so nothing matched, the model DOES assign storeys,
-    // and the answer was an empty set. The renderer reads that as "draw
-    // nothing": the app's own rail blanked the building.
+    // the padded original, so nothing would match even though the model does
+    // assign storeys. The renderer reads an empty set as "draw nothing", which
+    // blanks the building.
     const padded: BimViewerElement[] = [
       { globalId: 'g-1', expressId: 1, ifcType: 'IfcWall', name: 'Wand', storeyName: ' Erdgeschoss ' },
     ]

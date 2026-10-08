@@ -14,8 +14,9 @@ whose ``old_string`` was typed by the model one way against a file written the
 other way fails with ``String not found in file: 'Gebäudeklasse'`` — an error
 that prints a string identical to the one in the file, so the model retries the
 same bytes. Everything stored and everything matched against it is normalised
-here, at the one seam both verbs pass through. The repo paid for this once
-already in ``documentNameKey`` (``session-documents/service.ts``).
+here, at the one seam both verbs pass through. The browser normalises uploaded
+filenames the same way, in ``documentNameKey`` (``session-documents/service.ts``
+uses it).
 
 What this is NOT
 ----------------
@@ -171,7 +172,7 @@ class DraftUsage:
     #: :data:`FILING_KEYS` as stored. Empty when the draft has never been filed.
     filing: dict[str, str] = field(default_factory=dict)
     #: :data:`VERSION_KEY` as it stood when the path was last filed, or ``0``
-    #: when that is not known (never filed, or filed before the stamp existed).
+    #: when that is not known (never filed, or the stamp is missing).
     filed_at_version: int = 0
 
     @property

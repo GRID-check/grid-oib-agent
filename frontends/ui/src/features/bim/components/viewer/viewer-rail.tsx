@@ -3,8 +3,8 @@
 /**
  * The slim card on the left: which model, and which level.
  *
- * Two lists and nothing else. This is the one place the redesign kept a panel,
- * and it earns it by answering the only two questions a reader has BEFORE they
+ * Two lists and nothing else. This is the one place a panel is kept, and it
+ * earns it by answering the only two questions a reader has BEFORE they
  * have clicked anything — "is this the right building?" and "can I see just
  * this floor?" Everything that describes an element waits until an element is
  * selected, and everything analytical waits behind one button.
@@ -35,12 +35,11 @@ export function ViewerRail({ children, className }: ViewerRailProps): JSX.Elemen
       className={cn(
         // ONE scroller for the whole card, not one per section.
         //
-        // Each section used to cap itself at `max-h-52` with its own overflow,
-        // which produced two independent scrollbars inside a 14 rem card and —
-        // worse — let a section's content run past its own bottom border, so
-        // the divider drew straight through a model name. A building with
-        // forty storeys is one long list; scrolling it as one is both simpler
-        // and what a reader expects.
+        // Per-section scrollers would produce two independent scrollbars inside
+        // a 14 rem card, and a section's content could run past its own bottom
+        // border, so the divider would draw straight through a model name. A
+        // building with forty storeys is one long list; scrolling it as one is
+        // both simpler and what a reader expects.
         // The fade says "there is more" without a scrollbar. A hard cut across
         // a half-height row reads as a rendering fault; a fade reads as a list.
         'scroll-fade-bottom flex max-h-[calc(100%-1.5rem)] w-52 flex-col overflow-y-auto overscroll-contain',

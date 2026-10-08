@@ -307,7 +307,7 @@ def test_source_routing_plan_contract_validates_expected_shape():
     assert route.recommendations[0].tool_names == ["news_search_tool"]
 
 
-def test_subagent_contracts_reject_extra_fields_and_old_plan_shape():
+def test_subagent_contracts_reject_extra_fields_and_a_plan_with_report_fields():
     with pytest.raises(ValidationError):
         ResearchPlan.model_validate(
             {

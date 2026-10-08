@@ -37,7 +37,7 @@
  *      in one dialog, which reads as a bug because it is one. It also means nobody is
  *      offered an "invite" that would grant access they already have. The trade-off
  *      is deliberate: giving a derived member (a project member under `project`
- *      visibility) a *named* role is no longer reachable from here — consistent with
+ *      visibility) a *named* role is not reachable from here — consistent with
  *      rule 4, where derived access is changed by changing the rule above it.
  */
 
@@ -247,8 +247,8 @@ export function ShareDialog({
 
   const handleVisibilityChange = (next: ResourceVisibility): void => {
     if (!state || next === state.visibility) return
-    // Narrowing takes access away from everyone who only had it through the old
-    // rule, so it is never applied straight from the select.
+    // Narrowing takes access away from everyone who only had it through the rule being
+    // narrowed, so it is never applied straight from the select.
     if (VISIBILITY_RANK[next] < VISIBILITY_RANK[state.visibility]) {
       setPending({ kind: 'visibility', next })
       return
@@ -341,14 +341,13 @@ export function ShareDialog({
     const isSelf = entry.person.userId === currentUserId
     if (!canManage || entry.reason !== 'grant' || isSelf) return null
     // ONE control per row, and it does not restate the row's role. A 150px select
-    // showing "Kann mitschreiben" sat under a heading reading "KÖNNEN
-    // MITSCHREIBEN" — the group and the control said the identical thing, once per
-    // person, and two heavy controls per row turned a list of colleagues into a
-    // form. The grouping is the statement of role (the read-only overview already
-    // relies on that); this is only the way to CHANGE it, so it stays quiet until
-    // wanted. Changing the role moves the person into the other group, which the
-    // list animates — the regrouping is the feedback the select's own value used
-    // to provide.
+    // showing "Kann mitschreiben" under a heading reading "KÖNNEN MITSCHREIBEN" makes
+    // the group and the control say the identical thing, once per person, and two
+    // heavy controls per row turn a list of colleagues into a form. The grouping is
+    // the statement of role (the read-only overview already relies on that); this
+    // is only the way to CHANGE it, so it stays quiet until wanted. Changing the
+    // role moves the person into the other group, which the list animates — the
+    // regrouping is the feedback that the select's own value would otherwise give.
     return (
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
@@ -400,9 +399,9 @@ export function ShareDialog({
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       {/* `grid-cols-[minmax(0,1fr)]`: DialogContent is a grid, and a grid's implicit
-          `auto` column is floored at its widest item's min-content — so one row
-          with a nowrap chip or a 150px select pushed the whole column past the
-          dialog's own width and the controls were clipped off the right edge.
+          `auto` column is floored at its widest item's min-content — so a row
+          with a nowrap chip or a 150px select pushes the whole column past the
+          dialog's own width and clips the controls off the right edge.
           Pinning the column to a zero-minimum 1fr makes the children shrink (they
           already carry `min-w-0` + `truncate`) instead of overflowing. */}
       <DialogContent
@@ -593,9 +592,9 @@ export function ShareDialog({
                           {/* Identity is a COLUMN, and the right-hand slot is its
                               sibling — never inline with the name. With the badge
                               inside the name's line (`truncate` name beside a
-                              `shrink-0` chip) the chip won every contest for width
-                              and a narrow dialog rendered "E…" where a colleague's
-                              name should be. The one thing this row exists to show
+                              `shrink-0` chip) the chip wins every contest for width,
+                              and a narrow dialog would render "E…" where a
+                              colleague's name should be. The one thing this row exists to show
                               is who the person is. */}
                           <div className="min-w-0 flex-1">
                             <p
@@ -610,11 +609,11 @@ export function ShareDialog({
                             </p>
                             {/* Always the email, on every row. It is what tells two
                                 same-named colleagues apart, so dropping it on the
-                                blocked row removed the identifying detail exactly
+blocked row would remove the identifying detail exactly
                                 where the reader has to make a decision. The reason
                                 the row is blocked is stated once below the list
-                                instead of once per row — same sentence, and it no
-                                longer turns a list item into a paragraph. */}
+                                instead of once per row: the same sentence, and it does not
+                                turn a list item into a paragraph. */}
                             <p className="truncate text-xs text-muted-foreground">
                               {candidate.person.email ?? ''}
                             </p>
@@ -632,8 +631,8 @@ export function ShareDialog({
                             )}
                           </div>
                           {/* One slot on the right: the action, or the reason there
-                              isn't one. A disabled "Einladen" was a control that
-                              could never work no matter how often it was pressed —
+                              isn't one. A disabled "Einladen" would be a control that
+                              could never work however often it was pressed —
                               the badge says what to fix instead. */}
                           {candidate.needsProjectAccess ? (
                             <Chip variant="muted" size="sm" className="shrink-0 font-normal">
@@ -662,10 +661,10 @@ export function ShareDialog({
                   )}
 
                   {/* The rule behind every "Noch nicht im Projekt" badge above,
-                      stated ONCE. Per row it was a two-sentence paragraph repeated
-                      for each blocked colleague, which made list items different
-                      heights and buried the names it sat under. It is the same
-                      sentence — it just belongs to the list, not to a row. */}
+                      stated ONCE. Per row it would be a two-sentence paragraph repeated
+                      for each blocked colleague, making list items different
+                      heights and burying the names it sits under. It is the same
+                      sentence; it belongs to the list, not to a row. */}
                   {filteredCandidates.some((candidate) => candidate.needsProjectAccess) && (
                     <p
                       data-testid="share-blocked-note"
@@ -708,7 +707,7 @@ export function ShareDialog({
         ) : null}
 
         {/* `pt-4`: the scroll well ends flush against this footer, and on a phone
-            the row dissolving at that boundary sat directly on the Close button —
+            the row dissolving at that boundary sits directly on the Close button —
             which reads as content sliding UNDER a control rather than as a list
             with more below it. A gap is what makes the two read as separate
             planes; the fade then says "more below" instead of "something is
@@ -749,9 +748,9 @@ export function ShareDialog({
             tone="warning"
             onConfirm={async () => {
               // Every `sharing.*` mutation resolves to a boolean rather than
-              // throwing, so awaiting it and closing unconditionally dismissed
-              // the confirmation on REFUSAL too — the user watched the dialog
-              // close like a success and the explanation appeared behind it.
+              // throwing, so the confirmation closes only on success. Closing it unconditionally
+              // would dismiss it on REFUSAL too, and the dialog would close like a success with
+              // the explanation appearing behind it.
               // ConfirmDialog keeps itself open when onConfirm throws.
               const ok = await confirm.onConfirm()
               if (!ok) throw new Error('sharing mutation refused')
@@ -766,7 +765,7 @@ export function ShareDialog({
               one is open, and the overlay covers it — so the failure Alert in the
               body above is neither visible nor announced, and the user is left
               looking at an unchanged dialog with a live button they will simply
-              press again. That is worse than the false success it replaced.
+              press again. That is worse than a false success.
             */}
             {failure && (
               <p role="alert" data-testid="confirm-failure" className="text-sm text-destructive">

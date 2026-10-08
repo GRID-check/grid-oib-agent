@@ -1,4 +1,4 @@
-"""A workflow stream that stops early tears down in the task that built it (#334, #337, #338, #759).
+"""A workflow stream that stops early tears down in the task that built it.
 
 The fixture is NAT's shape, not a mock of our own code: a runner whose
 ``result_stream`` nests generators with plain ``async for``, each setting a
@@ -6,7 +6,7 @@ ContextVar before its ``yield`` and resetting it in its ``finally``, and a step
 subject that publishes while the run tears down, as NAT's FUNCTION_END and
 WORKFLOW_END steps do. NAT's own ``generate_streaming_response`` is run through
 the same fixture as the oracle: it has to produce the production errors, or the
-fixture proves nothing about the fix. Our stream subscribes to no steps (the
+fixture proves nothing about the teardown. Our stream subscribes to no steps (the
 chat wire carries only what the turn yields), so the step subject matters to
 the oracle alone.
 """
@@ -163,8 +163,8 @@ class _Adapter:
 @pytest.mark.asyncio
 async def test_nat_s_own_helper_reproduces_the_production_errors(workflow):
     with _loop_errors() as loop_errors:
-        # The oracle. If this stops failing the way production did, the fixture
-        # no longer models NAT and the test below proves nothing.
+        # The oracle: the fixture must reproduce the production errors, or it no
+        # longer models NAT and the test below proves nothing.
         def reported() -> str:
             return " ".join(f"{context.get('message')} {context.get('exception')!r}" for context in loop_errors)
 
@@ -175,8 +175,8 @@ async def test_nat_s_own_helper_reproduces_the_production_errors(workflow):
         await _settle(3, until=lambda: "different Context" in reported() and "QueueClosed" in reported())
 
         reported = reported()
-        assert "was created in a different Context" in reported  # #337, #338, #759
-        assert "QueueClosed" in reported  # #334
+        assert "was created in a different Context" in reported
+        assert "QueueClosed" in reported
 
 
 @pytest.mark.asyncio

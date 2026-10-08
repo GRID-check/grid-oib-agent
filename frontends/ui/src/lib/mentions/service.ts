@@ -3,7 +3,7 @@
  * revocation hook (ADR-0034).
  *
  * The rule this module exists to enforce (spec MN-1):
- *   - no mentions            → the agent answers (today's behaviour, unchanged);
+ *   - no mentions            → the agent answers;
  *   - a human is mentioned   → the agent stays SILENT and the thread waits;
  *   - the agent is mentioned → the agent answers, alongside any humans.
  *

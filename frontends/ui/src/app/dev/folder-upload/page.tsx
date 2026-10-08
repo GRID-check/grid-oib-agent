@@ -18,13 +18,13 @@
  * unticked, which is the difference between "nothing to decide" and "decided
  * for you".
  *
- * `?variant=collisions` is the state that used to lose work silently. Two files
+ * `?variant=collisions` is the state that would lose work silently. Two files
  * in one drop share a filename; a project holds one document per name
- * (migration 0074), so before the plan existed both uploaded and one overwrote
- * the other with nothing said. Neither is sent now, the pair is named, and the
- * upload button is disabled because the reader has something to fix first.
+ * (migration 0074), so uploading both would overwrite one with the other and
+ * say nothing. Neither is sent, the pair is named, and the upload button is
+ * disabled because the reader has something to fix first.
  *
- * `?variant=known` is the half the plan used to get wrong: the same folder,
+ * `?variant=known` is the case the plan has to get right: the same folder,
  * against a corpus somebody has since worked on. One document was renamed here,
  * so the plan names it — approving a replacement you cannot find in your own
  * file list is not approval. One file matches a document under a name the

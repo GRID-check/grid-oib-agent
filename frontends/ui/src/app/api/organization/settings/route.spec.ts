@@ -3,10 +3,10 @@
  */
 /**
  * The generic settings save must not be a second way to switch zero data
- * retention. It used to accept `{"settings":{"zdrOnly":false}}` under
- * `org:settings:manage` alone — no `org:models:manage`, no feature flag, no
- * confirmation, and any JSON value. The refusal lives in `updateOrgSettings`;
- * this pins it at the route, where the bypass was, with the real service.
+ * retention. `{"settings":{"zdrOnly":false}}` under `org:settings:manage`
+ * alone would skip `org:models:manage`, the feature flag, the confirmation and
+ * the value check. The refusal lives in `updateOrgSettings`; this pins it at
+ * the route, the entry point such a bypass would use, with the real service.
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 

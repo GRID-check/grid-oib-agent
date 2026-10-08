@@ -115,11 +115,11 @@ Chip.displayName = 'Chip'
  * A count pill for the trailing edge of a Chip (e.g. "Piloti noted \u00b7 3").
  *
  * It IS {@link CountPill} — the design language's one rounded-full numeric pill
- * — not a second shape with its own padding and min-width, which is what this
- * used to be. The only thing it overrides is the fill: `CountPill`'s `bg-muted`
- * would vanish on a `muted` chip (the default), so the count rides on the chip's
- * own ink at 10% and inherits the chip's text colour, and it therefore reads on
- * every chip variant instead of only the ones that happen not to be muted.
+ * — not a second shape with its own padding and min-width. The only thing it
+ * overrides is the fill: `CountPill`'s `bg-muted` would vanish on a `muted` chip
+ * (the default), so the count rides on the chip's own ink at 10% and inherits
+ * the chip's text colour, and it therefore reads on every chip variant instead
+ * of only the ones that happen not to be muted.
  */
 const ChipCount = React.forwardRef<HTMLSpanElement, React.HTMLAttributes<HTMLSpanElement>>(
   ({ className, ...props }, ref) => (

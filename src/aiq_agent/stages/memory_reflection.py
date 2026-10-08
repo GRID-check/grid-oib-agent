@@ -1,26 +1,20 @@
 """Memory reflection, declared as a post-answer stage.
 
-This is the migration of the bespoke block that used to sit inline in
-``agents/piloti/conversation_register.py`` (schedule + gate) and in
-``project_memory/reflection.schedule_memory_reflection`` (semaphore, pending cap,
-cost/profile tracking). **What it does is unchanged** — the same predicate, the
-same prompt, the same writes through the same token-guarded endpoint. What
-changed is how it is wired and bounded:
+Reflection runs after the answer. The gate decides whether the turn established
+anything durable, and the write goes through the BFF's token-guarded endpoint.
+Its bounds:
 
-- it now runs under a **hard 45s timeout**. Before, the only bound was the
-  provider's ``request_timeout: 120`` with ``max_retries: 2`` — nearly six
-  minutes holding one of four concurrency slots, i.e. one stalled provider
-  silently disabled reflection for the whole replica;
-- the gate now reads ``research_truncated``. A turn cut off at its
-  tool-iteration ceiling produces a substantive-looking answer, and reflection
-  was distilling durable project memory out of evidence-gathering that had been
-  interrupted;
+- it runs under a **hard 45s timeout**. The provider's own timeout with retries
+  could hold one of four concurrency slots for nearly six minutes, and one
+  stalled provider would silently disable reflection for the whole replica;
+- the gate reads ``research_truncated``. A turn cut off at its tool-iteration
+  ceiling produces a substantive-looking answer, and distilling durable project
+  memory out of interrupted evidence-gathering is memory rot;
 - every terminal state — including "the gate declined, and here is which
   condition declined" — emits a span;
-- it delivers a **frame** as well as writing its rows (slice 4b). The write is
-  still the durable act and still the source of truth; the frame tells the turn
-  that caused it what was written, which is what let the per-answer memory poll
-  be deleted rather than merely reduced (§5.1, §1.7).
+- it delivers a **frame** as well as writing its rows. The write is the durable
+  act and the source of truth; the frame tells the turn that caused it what was
+  written.
 
 See docs/architecture/post-answer-stages.md and
 docs/architecture/project-memory-design.md.
@@ -93,7 +87,7 @@ class MemoryReflectionItem(BaseModel):
     ``content`` rides along and not just the id, because the surface this
     payload feeds — the „Piloti hat sich gemerkt" chip — renders the item's own
     words. Sending ids alone would make the browser ask the database for text
-    the writer already had in hand, which is the round trip §5.1 is removing.
+    the writer already had in hand.
     """
 
     id: str = Field(description="Id of the project_memory row.")
@@ -117,7 +111,7 @@ class MemoryReflectionPayload(BaseModel):
 
 
 def _gate(facts: TurnFacts) -> GateDecision:
-    """The existing predicate, moved verbatim, plus the truncation skip.
+    """The reflection predicate, plus the truncation skip.
 
     Deterministic Python over facts the backend already has — never a model's
     opinion about its own answer. Each failed condition names itself, so the
@@ -128,7 +122,7 @@ def _gate(facts: TurnFacts) -> GateDecision:
         # report, on the worker, once that report exists.
         return GateDecision.skip("commissioned_run")
     if not facts.project_id:
-        # The autonomous stage writes project-scoped memory ONLY (audit S1), so
+        # The autonomous stage writes project-scoped memory ONLY, so
         # an org-only conversation has nothing it may safely write.
         return GateDecision.skip("no_project")
     # A turn that could read a restricted folder is NOT skipped (ADR-0080):
@@ -156,8 +150,8 @@ def digest_with_turn_writes(memory_digest: str | None, written: tuple[str, ...])
 
     Rendered in the digest's own line grammar, so the reflection prompt shows
     them as existing memory and the "already in the digest" filter drops a
-    finding that restates one — the tool and the stage no longer write the
-    same fact twice within one turn.
+    finding that restates one, so the tool and the stage do not write the same
+    fact twice within one turn.
     """
     if not written:
         return memory_digest
@@ -198,8 +192,7 @@ MEMORY_REFLECTION = register_stage(
     StageSpec(
         id="memory_reflection",
         agent_group=AgentGroup.MEMORY_REFLECTION,
-        # Unchanged from the pre-stage wiring: this migration is not a
-        # user-visible change, so the flag that governed it still does.
+        # Gated by the existing memory-reflection flag.
         flag_slug="memory-reflection",
         env_default="GRID_MEMORY_REFLECTION_ENABLED",
         timeout_s=REFLECTION_TIMEOUT_S,
@@ -210,19 +203,15 @@ MEMORY_REFLECTION = register_stage(
         # act and stays the source of truth, and the frame is a notification of
         # it addressed to the turn that caused it.
         #
-        # The frame is what retires the poll. Before it, the only way a reader
-        # learned that reflection had written anything was a three-shot HTTP
-        # poll on a fixed `[0, 1500, 4000]` ms schedule — a guess about how long
-        # an LLM takes, made by the half of the system that cannot know, and
-        # mounted once per RENDERED ANSWER, so a ten-answer thread fired thirty
-        # GETs for one conversation's memory (§1.7). The stage knows exactly
-        # when it finished and exactly what it wrote; saying so costs one frame.
+        # The reader learns of the write from this frame rather than polling on a
+        # guessed schedule: the stage knows exactly when it finished and exactly
+        # what it wrote, and saying so costs one frame.
         delivery="frame",
         # Deliberately unbound HERE. The configured model already caps output
         # (``card_llm.max_tokens``), and the model runs with reasoning enabled —
-        # reasoning tokens count against that ceiling, so a tighter cap set by
-        # this migration would truncate the response and silently turn a working
-        # stage into one that writes nothing. The cost bound that matters for
+        # reasoning tokens count against that ceiling, so a tighter cap here
+        # would truncate the response and silently turn a working stage into one
+        # that writes nothing. The cost bound that matters for
         # reflection is the input side, which is already sliced
         # (``_MAX_ANSWER_CHARS`` / ``_MAX_QUERY_CHARS`` / ``_MAX_DIGEST_CHARS``),
         # plus ``timeout_s`` above.

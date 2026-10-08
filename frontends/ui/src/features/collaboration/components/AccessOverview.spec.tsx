@@ -96,8 +96,8 @@ describe('AccessOverview — the blanket rule', () => {
     expect(screen.queryByTestId('access-chip')).not.toBeInTheDocument()
     // …but the named list still says how many people that is. The heading is
     // "Invited by name", not "People with access": with a rule block above it, this
-    // list is no longer everyone, and a heading claiming otherwise is the exact
-    // confusion the split exists to remove.
+    // list is not everyone, and a heading claiming otherwise is the confusion the
+    // split exists to prevent.
     expect(screen.getByText('Invited by name')).toBeInTheDocument()
     expect(screen.getByText('3 people')).toBeInTheDocument()
   })
@@ -245,7 +245,7 @@ describe('AccessOverview — the named exceptions', () => {
   })
 })
 
-describe('AccessOverview — someone who can no longer read what the chat drew on (ADR-0081)', () => {
+describe('AccessOverview — someone who cannot read what the chat drew on (ADR-0081)', () => {
   test('says so on that person’s row, and on nobody else’s', () => {
     const lost = state().entries.map((candidate) =>
       candidate.person.userId === 'u-anna' ? { ...candidate, lostAccess: true } : { ...candidate, lostAccess: false },

@@ -1,7 +1,7 @@
 /**
- * Wizard behaviour specs, updated for the modules-A–H intake. These land the
+ * Wizard behaviour specs for the modules-A–H intake. These land the
  * wizard on a specific module (via a seeded localStorage draft) and exercise
- * the Save path, the FB-13 conflict check, optimistic concurrency, draft
+ * the Save path, the conflict check, optimistic concurrency, draft
  * freshness, and numeric validation. The deterministic rule under test is the
  * fossil-fuel-on-a-new-build conflict (E1=gas + A5 includes Neubau).
  */
@@ -74,8 +74,7 @@ function stubFetch(): FetchStub {
  *
  * Every review-step fixture carries them because a real user cannot reach a
  * successful save without them: `handleSave` refuses and jumps to the first one
- * missing. A fixture without them models a user who cannot exist — and used to
- * pass only because that gate did not exist.
+ * missing. A fixture without them models a user who cannot exist.
  */
 const REQUIRED_ANSWERS: Record<string, ProjectPrimitiveValue> = {
   A1: 'Test',
@@ -115,7 +114,7 @@ const putProfileCalls = (stub: FetchStub) =>
 // Answers that trigger the fossil-fuel-on-a-new-build conflict.
 const FOSSIL_CONFLICT: Record<string, ProjectPrimitiveValue> = { A5: ['neubau'], 'E1@bw1': 'gas' }
 
-describe('ProjectIntakeWizard — FB-13 conflict check', () => {
+describe('ProjectIntakeWizard — conflict check', () => {
   beforeEach(() => {
     vi.unstubAllGlobals()
     vi.clearAllMocks()
@@ -269,7 +268,7 @@ describe('ProjectIntakeWizard — summary generation is fully off the save path'
   })
 })
 
-describe('ProjectIntakeWizard — Fix 3 save-success feedback', () => {
+describe('ProjectIntakeWizard — save-success feedback', () => {
   beforeEach(() => {
     vi.unstubAllGlobals()
     vi.clearAllMocks()
@@ -357,7 +356,7 @@ describe('ProjectIntakeWizard — optimistic concurrency (If-Match)', () => {
     expect(headers[0]?.['If-Match']).toBe('7')
   })
 
-  it('omits If-Match when no version was provided (legacy behavior)', async () => {
+  it('omits If-Match when no version was provided', async () => {
     const user = userEvent.setup()
     const headers = recordHeaders()
     seedReviewDraft({ A2_land: 'wien' })
@@ -396,7 +395,7 @@ describe('ProjectIntakeWizard — optimistic concurrency (If-Match)', () => {
     expect(pushMock).not.toHaveBeenCalled()
   })
 
-  it('Fix 3: the 409 alert offers a Refresh action that re-fetches server data', async () => {
+  it('the 409 alert offers a Refresh action that re-fetches server data', async () => {
     const user = userEvent.setup()
     const fetch = vi.fn((url: string, init?: RequestInit) => {
       if (url.endsWith('/intake-definition')) {
@@ -476,7 +475,7 @@ describe('ProjectIntakeWizard — edit-mode save preserves agent-recorded knowle
   })
 })
 
-describe('ProjectIntakeWizard — Fix 1 salvage banner', () => {
+describe('ProjectIntakeWizard — salvage banner', () => {
   beforeEach(() => {
     vi.unstubAllGlobals()
     vi.clearAllMocks()
@@ -584,7 +583,7 @@ describe('ProjectIntakeWizard — stale conditional answers pruned on load', () 
   })
 })
 
-describe('ProjectIntakeWizard — Fix 1 stale draft does not clobber a newer profile', () => {
+describe('ProjectIntakeWizard — stale draft does not clobber a newer profile', () => {
   beforeEach(() => {
     vi.unstubAllGlobals()
     vi.clearAllMocks()
@@ -689,7 +688,7 @@ describe('ProjectIntakeWizard — Fix 1 stale draft does not clobber a newer pro
     expect(chip('Sanierung')).toHaveAttribute('aria-pressed', 'false')
   })
 
-  it('migration window: a legacy draft with neither baseVersion nor savedAt does not win over the profile', async () => {
+  it('a legacy draft with neither baseVersion nor savedAt does not win over the profile', async () => {
     stubFetch()
     localStorage.setItem(
       `intake-draft-${PROJECT_ID}`,
@@ -715,7 +714,7 @@ describe('ProjectIntakeWizard — Fix 1 stale draft does not clobber a newer pro
   })
 })
 
-describe('ProjectIntakeWizard — Fix 2 AI-finding revise link resolves a stage', () => {
+describe('ProjectIntakeWizard — AI-finding revise link resolves a stage', () => {
   beforeEach(() => {
     vi.unstubAllGlobals()
     vi.clearAllMocks()
@@ -751,7 +750,7 @@ describe('ProjectIntakeWizard — Fix 2 AI-finding revise link resolves a stage'
   })
 })
 
-describe('ProjectIntakeWizard — Fix 5 non-finite number rejected', () => {
+describe('ProjectIntakeWizard — non-finite number rejected', () => {
   beforeEach(() => {
     vi.unstubAllGlobals()
     vi.clearAllMocks()
@@ -794,9 +793,9 @@ describe('ProjectIntakeWizard — module rail', () => {
     renderWizard(false)
     const rail = await screen.findByRole('navigation', { name: /wizard modules/i })
 
-    // The horizontal stepper this replaced cut every label to ~8 characters,
-    // which turned three different modules into "Grundstück …" / "Technik &
-    // En…" / "Zusammenfa…". Full titles are the rail's whole reason to exist.
+    // A truncated label turns three different modules into "Grundstück …" /
+    // "Technik & En…" / "Zusammenfa…". Full titles are the rail's whole reason
+    // to exist.
     for (const title of [
       'Grundstück & Widmung',
       'Technik & Energie',
@@ -985,9 +984,9 @@ describe('ProjectIntakeWizard — required answers gate the save', () => {
 
     await user.click(await screen.findByRole('button', { name: /save/i }))
 
-    // Modul H declares no required questions of its own, so before this gate
-    // ANY route onto it — the module rail, a restored draft, a condition that
-    // turned a question visible after it was passed — could save without them.
+    // Modul H declares no required questions of its own, so any route onto it —
+    // the module rail, a restored draft, a condition that turned a question
+    // visible after it was passed — would otherwise save without them.
     await waitFor(() => expect(screen.getByText(/Modul A/)).toBeInTheDocument())
     expect(putProfileCalls(stub)).toHaveLength(0)
     expect(pushMock).not.toHaveBeenCalled()

@@ -336,11 +336,9 @@ export const setCuratedSkillEnabled = async (
  * Listed on every org's Skills tab, off until that org switches it on.
  * (Chat-usable FILE offers are a different source and start on.)
  *
- * A second value, `standard`, used to mean "live for the whole fleet the moment
- * it is published, not listed, not switchable" — and it FORCED the skill onto
- * every run. Migration 0088 retired it: an instruction that always applies is
- * not a capability, and it now lives in the platform prompt or in the
- * organization's own instruction block instead.
+ * There is no forced delivery: an instruction that always applies is not a
+ * capability, so it lives in the platform prompt or in the organization's own
+ * instruction block, never here.
  *
  * Declared here rather than imported from `@/lib/db/schema` on purpose — this
  * module mirrors the JSON contract so the UI stays decoupled from the server's

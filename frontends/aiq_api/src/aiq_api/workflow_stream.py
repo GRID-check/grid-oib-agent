@@ -3,8 +3,7 @@
 NAT's ``generate_streaming_response`` runs the workflow in a producer task and
 hands items over through a queue. When its consumer stops early (the reader
 cancels, a send fails) it closes the queue and returns, without cancelling or
-awaiting that task. Two things go wrong from there, and err2issue filed both as
-production errors:
+awaiting that task. Two things go wrong from there:
 
 - The task's next ``put`` raises ``QueueClosed`` in the middle of
   ``async for chunk in runner.result_stream()``. Nothing retrieves that
@@ -14,10 +13,10 @@ production errors:
   ``yield`` and resets them in its ``finally``. The chain is only finalized
   when a later GC pass frees that traceback, outside the task and its Context,
   and every one of those resets raises ``ValueError: <Token ...> was created in
-  a different Context`` (#337 ``function_path_stack``, #338 ``workflow_run_id``,
-  #759 our profiler and cache counters).
+  a different Context`` (``function_path_stack``, ``workflow_run_id``, the
+  profiler and cache counters).
 - Its intermediate-step tasks die on the closed queue with a ``QueueClosed``
-  nobody retrieves (#334).
+  nobody retrieves.
 
 Closing NAT's generator with ``aclosing`` does not reach any of this: it ends the consumer side and leaves
 the producer task exactly as above.
@@ -32,8 +31,8 @@ Items are handed over with ``put_nowait`` on a queue that is never closed.
 
 The wait is bounded by ``PRODUCER_TEARDOWN_SECONDS``. A ``finally`` in the
 workflow that never returns (a checkpoint flush or an MCP close on a dead
-connection) used to hold the Stop forever: the turn's terminal is sent after
-this generator returns, so the reader watched "Denkt nach…" with nothing left
+connection) would hold the Stop forever: the turn's terminal is sent after
+this generator returns, so the reader would wait on a turn with nothing left
 running for them. Past the bound the teardown is logged and left to finish in
 its own task, where it still unwinds in its own Context and its outcome is
 still read; the turn ends without it.
@@ -41,10 +40,9 @@ still read; the turn ends without it.
 No intermediate step is read here: the chat wire carries what the turn's
 ``_run`` yields (wire bodies, ADR-0068), and steps go only to the exporters.
 
-It is written here instead of patched into NAT (1.9.0 still does not cancel its
-producer, #334/#337/#338/#759): the behaviour to keep is a few lines of NAT's
-helper, and the defect is in how that helper owns its task, not in anything we
-could configure.
+It is written here rather than patched into NAT, whose helper does not cancel
+its producer: the behaviour to keep is a few lines of NAT's helper, and the
+defect is in how that helper owns its task, not in anything we could configure.
 """
 
 from __future__ import annotations

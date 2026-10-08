@@ -24,7 +24,7 @@ import {
 } from './request-context'
 
 /**
- * Cross-language contract fixture (backlog T3-9): the canonical wire values
+ * Cross-language contract fixture: the canonical wire values
  * this builder must produce. Lives at `frontends/ui/tests/fixtures/` — a
  * byte-identical twin of repo-root `tests/fixtures/grid_request_context.json`
  * (see that file's header comment for why the twin exists: the frontend
@@ -56,8 +56,8 @@ interface GridRequestContextFixture {
 }
 
 // Import the fixture directly (vite/resolveJsonModule) rather than reading it
-// via fileURLToPath(import.meta.url) — under vitest that URL is not always a
-// file: scheme, which crashed this whole suite at import time.
+// via fileURLToPath(import.meta.url): under vitest that URL is not always a
+// file: scheme, and reading it that way fails at import time.
 const fixture: GridRequestContextFixture = fixtureData as GridRequestContextFixture
 
 describe('buildGridRequestContextHeaders — cross-language contract fixture', () => {
@@ -124,9 +124,7 @@ describe('buildGridRequestContextHeaders — omission rules', () => {
 /**
  * `X-Grid-Org-Instructions` — the organization's standing instruction block.
  *
- * What replaced forcing a skill onto a turn. The composer no longer sends a
- * `skills` array and the platform no longer has a `standard` delivery tier; a
- * standing preference is a property of the ORGANIZATION, so it rides the
+ * A standing preference is a property of the ORGANIZATION, so it rides the
  * context headers with the rest of them, encoded exactly as
  * `X-Grid-Project-Context` is.
  *
@@ -177,10 +175,10 @@ describe('X-Grid-Org-Instructions', () => {
     expect(Buffer.from(encoded, 'base64url').toString('utf8')).toHaveLength(2000)
   })
 
-  it('rides the signed envelope too, LAST in key order so older payloads stay byte-identical', () => {
-    // Every field added since `memoryReflectionEnabled` is appended last for
-    // this reason: the fixture's precomputed header/signature values keep
-    // exact-matching on both sides of the language boundary.
+  it('rides the signed envelope too, LAST in key order so payloads without it stay byte-identical', () => {
+    // New fields are appended last for this reason: the fixture's precomputed
+    // header/signature values keep exact-matching on both sides of the language
+    // boundary.
     const payload = buildGridRequestContextEnvelopePayload({
       organizationId: 'org_1',
       issuedAt: 1,
@@ -190,7 +188,7 @@ describe('X-Grid-Org-Instructions', () => {
   })
 })
 
-describe('bundesland (backlog T3-9 follow-up, 2026-07-16, user-mandated) — envelope-only', () => {
+describe('bundesland — envelope-only', () => {
   it('buildGridRequestContextHeaders never emits a header for it (no individual X-Grid-Bundesland header)', () => {
     const headers = buildGridRequestContextHeaders({ bundesland: 'wien' })
     expect(headers).toEqual({})
@@ -207,7 +205,7 @@ describe('bundesland (backlog T3-9 follow-up, 2026-07-16, user-mandated) — env
     expect(buildGridRequestContextEnvelopePayload({ bundesland: '' })).toEqual({})
   })
 
-  it('is appended as the LAST payload key so pre-existing signed cases stay byte-identical', () => {
+  it('is appended as the LAST payload key so signed cases without it stay byte-identical', () => {
     const json = JSON.stringify(
       buildGridRequestContextEnvelopePayload({ organizationId: 'org_1', memoryReflectionEnabled: true, bundesland: 'wien' }),
     )
@@ -416,9 +414,9 @@ describe('verifyGridRequestContextEnvelope', () => {
   })
 
   it('refuses an envelope with no issuedAt — fail-closed, unlike the Python reader', () => {
-    // The Python side has accepted envelopes without one since before the field
-    // existed and would break every in-flight turn if it stopped. A BFF WRITE
-    // route has no such history and no reason to allow an unbounded replay.
+    // The Python side still accepts envelopes without one, and stopping would
+    // break every in-flight turn. A BFF WRITE route has no such obligation and
+    // no reason to allow an unbounded replay.
     const { header, signature } = mint({ organizationId: 'org_1', userId: 'user_1' })
     expect(verifyGridRequestContextEnvelope(header, signature, SECRET, NOW)).toBeNull()
   })
@@ -451,8 +449,8 @@ describe('verifyGridRequestContextEnvelope', () => {
  * comment says so ("it cannot catch drift in this file's source automatically
  * since server.js has no test harness in this repo").
  *
- * That gap stopped being theoretical when the envelope became a credential: the
- * WS upgrade is the only producer a chat turn has, so a field it forgets is a
+ * The gap matters because the envelope is a credential: the WS upgrade is the
+ * only producer a chat turn has, so a field it forgets is a
  * field the agent's document route never sees — and the failure is a refusal
  * with no diagnostic on the other side of a language boundary.
  *
@@ -514,7 +512,7 @@ describe('server.js mints the same envelope payload this module does', () => {
     expect(source).toContain('conversationId: result.data?.conversationId')
   })
 
-  it('matches the signed bytes for compact capsules and every legacy fixture', () => {
+  it('matches the signed bytes for compact capsules and every envelope fixture', () => {
     const start = source.indexOf('function buildGridRequestContextEnvelopeHeaders(input)')
     const end = source.indexOf('\nconst dev =', start)
     const makeBuilder = new Function('crypto', 'process',

@@ -23,8 +23,8 @@ interface MemoryNotedChipProps {
    * because the answer also needs to know whether any exist to decide whether
    * the meta row renders at all.
    *
-   * It used to be the whole conversation's memory, polled per rendered answer,
-   * so after turn five turn one's answer also read „Piloti hat sich 5 gemerkt".
+   * Scoped to this turn rather than the whole conversation's memory: a count of
+   * the conversation would repeat the same total on every earlier answer.
    */
   items: TurnMemoryItem[]
 }

@@ -3,10 +3,8 @@
 /**
  * Section nav for the organization tier.
  *
- * The organization tier used to be one scrolling column: settings, members,
- * models, BYOK, budgets and the audit trail stacked as cards, each gated by a
- * different permission, none of them linkable and all of them loading at once.
- * Each is its own route now; this is how you move between them.
+ * Each organization section is its own route, gated by its own permission, and
+ * this nav is how you move between them.
  *
  * Which sections exist for you is decided by the layout, on the server, and
  * handed down as keys. Unlike the platform tier this one is read by plain
@@ -101,8 +99,7 @@ export function OrganizationNav({ sections }: OrganizationNavProps): JSX.Element
                 replace
                 aria-current={active ? 'page' : undefined}
                 className={cn(
-                  // `duration-quick ease-out`: this strip previously ran
-                  // `transition-colors` with no duration at all. `relative
+                  // `duration-quick ease-out` times the colour change. `relative
                   // isolate` + pill `-z-10` is the app-sidebar rail pattern:
                   // the active surface glides on `springGlide` below the ink.
                   'relative isolate inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm transition-colors duration-quick ease-out focus-visible:ring-2 focus-visible:ring-ring/60 focus-visible:outline-none',

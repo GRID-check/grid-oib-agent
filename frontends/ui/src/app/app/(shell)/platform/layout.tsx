@@ -2,9 +2,8 @@
  * Platform dashboard shell (ADR-0016) — exclusive to platform staff.
  *
  * The staff gate, the shell chrome and the section nav live here, so every
- * subsection inherits them and none can forget the gate. Previously the whole
- * tier was one page stacking seven admin domains in a single scrolling column;
- * each is now its own route under this layout.
+ * subsection inherits them and none can forget the gate. Each admin domain is
+ * its own route under this layout.
  *
  * Server-gated by `isPlatformStaff` (membership of the GRID Platform
  * organization holding at least one `platform:*` permission, or the break-glass

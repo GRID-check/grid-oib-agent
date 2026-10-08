@@ -17,7 +17,7 @@ afterEach(() => {
 })
 
 describe('/api/auth/callback', () => {
-  it('sends a request with no code and no state to sign in, without an error (#724)', async () => {
+  it('sends a request with no code and no state to sign in, without an error', async () => {
     const error = vi.spyOn(console, 'error').mockImplementation(() => undefined)
     vi.spyOn(console, 'debug').mockImplementation(() => undefined)
 

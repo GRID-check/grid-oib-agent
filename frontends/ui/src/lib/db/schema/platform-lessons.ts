@@ -16,9 +16,9 @@ import {
  * docs/contributing/correction-ratchet.md: "human intervention is a failure
  * signal").
  *
- * A down-vote on an answer is a human stepping in. Until now that signal ended
- * on a dashboard a person had to notice — the exact anti-pattern the repo's own
- * contributor docs name. These tables close the loop: each down-vote is
+ * A down-vote on an answer is a human stepping in. Left on a dashboard that a
+ * person has to notice, that signal goes nowhere: the anti-pattern the repo's
+ * own contributor docs name. These tables close the loop: each down-vote is
  * distilled into an anonymized, deduplicated LESSON, and the active lessons are
  * injected into every agent turn so the same failure class does not have to be
  * reported twice.
@@ -35,8 +35,8 @@ import {
  * behind the tenant boundary in `answer_feedback` and is dereferenced only
  * under the audited platform bypass.
  *
- * Unlike the other platform tables, the tenant role holds NO read grant here
- * (0068 revokes the helper's SELECT): nothing tenant-facing queries these
+ * Unlike the other platform tables, the tenant role holds NO read grant here:
+ * nothing tenant-facing queries these
  * tables — the digest is built under the platform role — and a candidate
  * lesson is exactly the text the auditor flagged as possibly identifying.
  */
@@ -80,7 +80,7 @@ export const PLATFORM_LESSON_EVENT_ACTIONS = [
   'edited',
   'root_cause_updated',
   /**
-   * Sweep verdict (0070): reports kept linking to this lesson AFTER it was
+   * Sweep verdict: reports kept linking to this lesson AFTER it was
    * activated — the failure it exists to prevent is still happening, so the
    * bandage is demonstrably not holding. Recorded once per activation; the
    * lesson STAYS active (the wound is open) and the flag routes attention to
@@ -126,8 +126,8 @@ export const platformLessons = pgTable(
       .default('open'),
     rootCauseNote: text('root_cause_note'),
     /**
-     * Semantic vector for the lesson text plus its model fingerprint
-     * (migration 0069). This is what makes dedup find a restatement that
+     * Semantic vector for the lesson text plus its model fingerprint. This is
+     * what makes dedup find a restatement that
      * shares no tokens; a NULL vector, or one from a retired embedding model,
      * degrades matching to the rank-window path rather than failing.
      */

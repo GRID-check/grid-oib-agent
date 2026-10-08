@@ -1,12 +1,11 @@
-"""The retired card types no longer exist, and every channel says what replaced them.
+"""The retired card types are refused, and every channel says what replaces them.
 
 An answer is Markdown prose; a card carries what Markdown cannot (an
 interaction, geometry drawn to scale, a computed number, a live model binding).
-The table-, list- and quote-shaped cards, the envelope's former card twins and
-`follow_ups` were deleted from the `GridCard` union
-(`catalog.RETIRED_CARD_TYPES`). Deleting them makes every channel refuse them as
-unknown; the refusal must still TELL the model what to write instead, and no
-model-facing surface may offer one.
+The table-, list- and quote-shaped cards, the envelope's card twins and
+`follow_ups` are not in the `GridCard` union (`catalog.RETIRED_CARD_TYPES`).
+Without them every channel refuses them as unknown; the refusal must still TELL
+the model what to write instead, and no model-facing surface may offer one.
 """
 
 from __future__ import annotations

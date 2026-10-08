@@ -45,7 +45,7 @@ class OrgMemoryDisabledError(RuntimeError):
 
     Raised when ``POST /api/internal/memory`` returns 403 with the
     ``ORG_MEMORY_DISABLED`` code — i.e. ``GRID_ALLOW_AGENT_ORG_MEMORY`` is not
-    enabled on the frontend service (audit finding S1 default-deny). This is a
+    enabled on the frontend service (default-deny). This is a
     deployment-policy denial, NOT a service-token mismatch, so callers surface
     it to the user distinctly instead of retrying.
     """
@@ -60,10 +60,10 @@ _REQUEST_TIMEOUT_SECONDS = 5
 # classification, so a slow BFF must never stall the turn for the full 5s the
 # write calls allow. Keep it tight; on timeout fetch_memory_digest raises and
 # the caller falls back to the frozen connection-time digest (fail-open).
-# 2.5s, up from 1.5: the digest build now embeds the turn's question for
-# relevance-ranked recall (the BFF gives that embed call ~1s of this budget).
-# Still bounded and still fail-open to the frozen header digest — a slow BFF
-# costs staleness, never the turn.
+# 2.5s: the digest build embeds the turn's question for relevance-ranked recall,
+# and the BFF gives that embed call about 1s of this budget. Still bounded and
+# still fail-open to the frozen header digest — a slow BFF costs staleness,
+# never the turn.
 _DIGEST_TIMEOUT_SECONDS = 2.5
 
 
@@ -238,9 +238,9 @@ def fetch_memory_digest(
         params["organizationId"] = organization_id
     if query and query.strip():
         # This turn's question. With it the BFF ranks recall by relevance
-        # instead of serving the twenty most recently touched notes; without it
-        # the digest is exactly what it was before. Bounded here as well as
-        # there — a caller must not be able to post a transcript as a param.
+        # instead of serving the most recently touched notes. Bounded here as
+        # well as there — a caller must not be able to post a transcript as a
+        # param.
         params["query"] = query.strip()[:2000]
     if conversation_id and conversation_id.strip():
         # Scopes the REVIEW_DECISIONS block. Not an authorization input on the
@@ -275,16 +275,16 @@ def fetch_memory_digest(
 
 # A memory row is durable, tenant-wide within its scope, and read into every
 # later prompt, so a finding that carries a person's contact details or a
-# secret must not be written by EITHER writer. This guard used to live only in
-# the reflection stage; the in-turn ``remember`` tool wrote whatever the model
-# handed it. It sits here now, on the one path both writers share.
+# secret must not be written by EITHER writer. The guard sits here, on the one
+# path both writers share (the reflection stage and the in-turn ``remember``
+# tool).
 #
 # Shapes, not meanings: an email address, a run of digits long enough to be a
 # number to call, an IBAN, an SSN-shaped triple, and the handful of secret
 # words a leaked credential travels with. And one carve-out that the phone
 # pattern needs: a date is a run of digits with separators too, and a permit
-# deadline written 12/03/2027 was being dropped as a phone number — precisely
-# the class of fact a project memory exists to carry.
+# deadline written 12/03/2027 would otherwise be dropped as a phone number —
+# precisely the class of fact a project memory exists to carry.
 _DATE_SHAPE_RE = re.compile(r"(?<!\d)(?:\d{1,2}[./-]\d{1,2}[./-]\d{2,4}|\d{4}-\d{2}-\d{2})(?!\d)")
 _PERSONAL_DATA_PATTERNS = (
     re.compile(r"[\w.+-]+@[\w-]+\.[\w.-]+"),  # email address
@@ -302,7 +302,7 @@ _PERSONAL_DATA_PATTERNS = (
 def looks_like_personal_data(content: str) -> bool:
     """Whether a memory finding matches a coarse personal-data or secret shape.
 
-    A denylist of shapes, not a privacy guarantee (audit S4). Dates are blanked
+    A denylist of shapes, not a privacy guarantee. Dates are blanked
     before the digit-run pattern looks, so a deadline survives.
     """
     scrubbed = _DATE_SHAPE_RE.sub(" ", content or "")
@@ -420,7 +420,7 @@ def insert_memory_item(
             )
         elif exc.code == 403:
             if _error_code(exc) == "ORG_MEMORY_DISABLED":
-                # Expected default-deny (audit finding S1), not a misconfiguration:
+                # Expected default-deny, not a misconfiguration:
                 # an agent's service token may not write org-wide memory, so the
                 # caller routes the user to the confirmation-card path instead.
                 # Logged at INFO (the caller logs the handled outcome); set

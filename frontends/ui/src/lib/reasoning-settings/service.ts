@@ -1,12 +1,12 @@
 /**
  * Platform-controlled reasoning effort per agent group (Platform → Models).
  *
- * How hard a role thinks used to be a build-time fact — `reasoning_effort` in
- * `configs/config_oib_openrouter.yml` — so retuning the cost/quality trade-off
- * meant a commit plus a backend redeploy. It is now a row in
- * `platform_reasoning_efforts`, written by the platform owner, and the backend
- * picks it up through `GET /api/internal/reasoning-efforts` (TTL-cached there,
- * fail-open to the YAML value when the BFF is unreachable or no row exists).
+ * How hard a role thinks is a row in `platform_reasoning_efforts`, written by
+ * the platform owner, not a build-time fact: retuning the cost/quality trade-off
+ * is a save, not a commit plus a backend redeploy. The backend picks it up
+ * through `GET /api/internal/reasoning-efforts` (TTL-cached there, fail-open to
+ * the YAML value — `reasoning_effort` in `configs/config_oib_openrouter.yml` —
+ * when the BFF is unreachable or no row exists).
  *
  * Platform-only by design — no org layer. A tenant choosing its own MODEL is a
  * product feature; a tenant dialling its own reasoning spend is not.

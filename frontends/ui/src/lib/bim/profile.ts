@@ -89,13 +89,11 @@ function classifyUse(spaceNames: readonly string[]): { use: string; hits: number
   // A single matching room in a fifty-room building is a coincidence, not a use.
   if (top[1] < 2) return null
   // Two uses within one room of each other is a mixed-use building, and picking
-  // one would be a guess dressed as a derivation.
-  //
-  // `>= top` could only ever be an exact tie — the list is sorted descending —
-  // so twelve `wohnen` rooms against eleven `buero` ones was published as a
-  // Hauptnutzung of `wohnen`, at `medium` confidence, and a Hauptnutzung
-  // decides which rules apply. The comment said "within one room"; now the
-  // code does too.
+  // one would be a guess dressed as a derivation. The margin must be more than
+  // one room: a `>= top` test would only ever catch an exact tie (the list is
+  // sorted descending), and twelve `wohnen` rooms against eleven `buero` ones
+  // would be published as a Hauptnutzung at `medium` confidence, which decides
+  // which rules apply.
   if (ranked[1] && top[1] - ranked[1][1] <= 1) return null
   return { use: top[0], hits: top[1] }
 }

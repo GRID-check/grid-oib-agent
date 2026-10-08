@@ -65,10 +65,10 @@ export function levelElevation(
   name: string | null
 ): number | null {
   if (!name) return null
-  // The same comparison the isolation uses — see `storeyKey`. `===` here meant
-  // a link with a differently-cased storey isolated the right floor and then
-  // cut the building at a third of its height, because the elevation lookup
-  // silently returned null.
+  // The same comparison the isolation uses, see `storeyKey`: with `===`, a link
+  // carrying a differently-cased storey would isolate the right floor and then
+  // cut the building at a third of its height, because the lookup silently
+  // returned null.
   const match = stageLevels(summary).find((level) => storeyKey(level.name) === storeyKey(name))
   return match?.elevation ?? null
 }
@@ -112,11 +112,11 @@ export function pickStageModel<T extends { filename: string; status: string; upd
   if (wanted) {
     const exact = models.find((model) => model.filename.toLowerCase() === wanted)
     if (exact) return exact
-    // The stem, not the whole name. The docstring above promises that a link
+    // The stem, not the whole name: the docstring above promises that a link
     // written against `Haus-A.ifc` survives a rename to `Haus-A (final).ifc`,
-    // and `'haus-a (final).ifc'.includes('haus-a.ifc')` is false — so the
-    // recovery never fired for a real link, which always carries the
-    // extension. It only ever worked in the test, which passes `'Haus-A'`.
+    // and `'haus-a (final).ifc'.includes('haus-a.ifc')` is false. A real link
+    // always carries the extension, so matching on the whole name would never
+    // recover one.
     const stem = wanted.replace(/\.(ifc|ifczip|zip)$/i, '')
     const partial =
       stem === '' ? undefined : models.find((model) => model.filename.toLowerCase().includes(stem))

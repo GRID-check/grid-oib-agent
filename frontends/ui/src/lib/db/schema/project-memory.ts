@@ -41,7 +41,7 @@ export const PROJECT_MEMORY_PROVENANCES = [
 ] as const
 export type ProjectMemoryProvenance = (typeof PROJECT_MEMORY_PROVENANCES)[number]
 
-/** At most this many source folders restrict one item: the 0111 CHECK (ADR-0081). */
+/** At most this many source folders restrict one item; a CHECK enforces it (ADR-0081). */
 export const PROJECT_MEMORY_MAX_RESTRICTED_FOLDERS = 20
 
 /**
@@ -74,27 +74,26 @@ export const projectMemory = pgTable(
     sourceConversationId: text('source_conversation_id'),
     supersedesId: uuid('supersedes_id'),
     /**
-     * The live, human-curated note this one contradicts and was NOT allowed to
-     * retire (migration 0076). An agent finding may supersede an agent
-     * finding; a pinned, user-confirmed or user-written note it may only stand
-     * beside, and this is where "beside" is recorded so a panel can show the
-     * pair and a person can resolve it. Null for the ordinary note.
+     * The live, human-curated note this one contradicts and may not retire. An
+     * agent finding may supersede an agent finding; a pinned, user-confirmed or
+     * user-written note it may only stand beside, and this is where "beside" is
+     * recorded so a panel can show the pair and a person can resolve it. Null for
+     * the ordinary note.
      */
     conflictsWithId: uuid('conflicts_with_id'),
     /**
-     * The source folders this item depends on (ADR-0080, ADR-0081, migrations
-     * 0108 and 0111): folders not every project member could read when it was
-     * written. NULL is open memory. A restricted item is served and shown only
-     * to a session that may read ALL of them NOW (`effectiveFolderLevel`), so a
-     * loosened folder opens it and a tightened one closes it; a deleted
-     * folder's tombstone keeps answering, and an id no folder has (the nil
-     * UUID a 0111 backfill wrote) is read by nobody. Project scope only, 1–20
+     * The source folders this item depends on (ADR-0080, ADR-0081): folders not
+     * every project member could read when it was written. NULL is open memory.
+     * A restricted item is served and shown only to a session that may read ALL
+     * of them NOW (`effectiveFolderLevel`), so a loosened folder opens it and a
+     * tightened one closes it; a deleted folder's tombstone keeps answering, and
+     * an id no folder has (such as the nil UUID) is read by nobody. Project scope only, 1–20
      * entries, stored sorted and de-duplicated (`canonicalRestriction` in
      * `lib/projects/memory-service.ts`).
      */
     restrictedFolderIds: uuid('restricted_folder_ids').array(),
     /**
-     * The documents and pages an item was read from (migration 0118): set on a
+     * The documents and pages an item was read from: set on a
      * decision the closing extraction drafted (`provenanceType: distillation`,
      * `verification: source_grounded`). Only the file name and page, never the
      * quote. NULL for every other item; when set, always a JSON array.
@@ -108,7 +107,7 @@ export const projectMemory = pgTable(
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
     /**
      * Semantic vector for this item's content, plus the fingerprint of the
-     * model that produced it (migration 0069). NULL means "not embedded yet" —
+     * model that produced it. NULL means "not embedded yet" —
      * and so does a fingerprint that no longer matches the deployment's
      * embedder, because a vector is comparable only within one model.
      * Consolidation and recall fall back to the lexical path when absent.
@@ -116,7 +115,7 @@ export const projectMemory = pgTable(
     /**
      * How often this item has been recalled into a prompt — the strength term
      * `S` in the retention curve (`lib/knowledge/recall-scoring.ts`). Paired
-     * with `lastReferencedAt`, which existed but was never read.
+     * with `lastReferencedAt`, the recency term.
      */
     recallCount: integer('recall_count').notNull().default(0),
     embedding: real('embedding').array(),

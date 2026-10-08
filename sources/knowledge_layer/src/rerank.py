@@ -171,8 +171,8 @@ def _validated_scores(parsed: list[tuple[int, float]], chunk_count: int) -> dict
     successful rerank in the logs.
 
     Duplicate indices resolve first-wins (a repeat is a transcription slip, not a
-    revision) and out-of-range indices are dropped, both with a warning -- the
-    previous ``dict()`` collapse silently let a repeated index *demote* a chunk.
+    revision), because a plain ``dict()`` would let a repeated index demote a chunk.
+    Out-of-range indices are dropped, both with a warning.
     """
     if chunk_count <= 0:
         return None
@@ -237,9 +237,9 @@ def _ranked_order(chunks: list[Any], scores: dict[int, float]) -> list[Any]:
 def _trim(chunks: list[Any], top_n: int | None) -> list[Any]:
     """Trim to ``top_n``; ``None`` and non-positive both mean "no trim".
 
-    A non-positive ``top_n`` used to slice the result to nothing, which turned a
-    misconfigured ``rerank_candidates`` into an empty knowledge base with the
-    fail-open path failing open to zero chunks.
+    A non-positive ``top_n`` would slice the result to nothing, turning a
+    misconfigured ``rerank_candidates`` into an empty knowledge base: the fail-open
+    path would then return zero chunks.
     """
     if top_n is None or top_n <= 0:
         return chunks
@@ -313,8 +313,8 @@ async def rerank_chunks(
         logger.info("LLM judge reranked %d candidate(s) (%d scored)", len(chunks), len(scores))
         return _trim(_ranked_order(chunks, scores), top_n)
     except Exception as e:
-        # `%s: %s` on the type and the message: the single most likely failure is
-        # `asyncio.TimeoutError`, whose str() is empty, so the old log line ended
-        # at the colon and named neither the cause nor the stage.
+        # `%s: %s` on the type and the message: the most likely failure is
+        # `asyncio.TimeoutError`, whose str() is empty, and a bare message would end
+        # at the colon, naming neither the cause nor the stage.
         logger.warning("LLM reranking failed (%s: %s), keeping original order", type(e).__name__, e)
         return _trim(chunks, top_n)

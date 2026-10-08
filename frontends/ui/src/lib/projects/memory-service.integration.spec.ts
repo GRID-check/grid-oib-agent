@@ -5,10 +5,10 @@
  * One fact, one live row — the memory service's write-time consolidation
  * against a REAL Postgres with the full migration chain applied.
  *
- * `createProjectMemoryItem` has three paths that each used to leave a second
- * live row for a fact the store already held: the exact duplicate, the
- * paraphrase, and a caller-named supersede target that was dropped once the
- * finding merged into a paraphrase (PR #602). The unit spec beside this file
+ * `createProjectMemoryItem` has three paths that must not leave a second live
+ * row for a fact the store already holds: the exact duplicate, the paraphrase,
+ * and a caller-named supersede target, which is still retired when the finding
+ * merges into a paraphrase. The unit spec beside this file
  * mocks the repository, so it can show which statements the service builds and
  * cannot show what the table holds afterwards, which is the whole claim. This
  * suite counts rows.

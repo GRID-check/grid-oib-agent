@@ -47,9 +47,8 @@ POISON_CLAIM_MARKER = "poison"
 
 # Transaction-level advisory lock so only ONE worker replica runs the
 # exhausted-claim reap per cycle. Without it every worker ran the scan+delete on
-# every poll tick, so DB load scaled with replica count, not job volume
-# (scaling review phase-2, item 12). Distinct from the web-tier reaper/cleanup
-# lock ids in routes/jobs.py. "AIQRXHS" in hex.
+# every poll tick, so DB load scaled with replica count, not job volume. Distinct
+# from the web-tier reaper/cleanup lock ids in routes/jobs.py. "AIQRXHS" in hex.
 _PG_REAP_EXHAUSTED_LOCK_ID = 0x41495152_58485300
 
 
@@ -273,8 +272,8 @@ def heartbeat(db_url: str, job_id: str, worker_id: str) -> bool:
 def claim_owner(db_url: str, job_id: str) -> str | None:
     """The worker holding the live CLAIMED row for ``job_id``, or None.
 
-    Read-only ownership probe for the runner's still-owner publish gate
-    (deep-research hardening, item 10): a worker that lost its claim to another
+    Read-only ownership probe for the runner's still-owner publish gate:
+    a worker that lost its claim to another
     replica must publish nothing user-visible — no terminal status steal, no
     thread turn or notice — so the thread, the persisted report and the job
     status stay one coherent artefact, published by the winner alone.

@@ -60,12 +60,10 @@ export async function generateMetadata({
 /**
  * The project segment: an ACCESS GATE and the project's own section chrome.
  *
- * It no longer renders a rail or a `<main>`. Both moved up to the `(shell)`
- * layout, because mounting them here is what made them disappear the moment the
- * reader stepped out of a project — the rail, the content column and the scroll
- * container all belonged to a segment that unmounts. What is genuinely
- * per-project stays: the access check, the soft-delete 404, the trail label, and
- * the section header/actions frame.
+ * It renders neither a rail nor a `<main>`: both live in the `(shell)` layout,
+ * because a segment that unmounts would take them with it when the reader leaves
+ * the project. What is genuinely per-project stays here: the access check, the
+ * soft-delete 404, the trail label, and the section header/actions frame.
  */
 export default async function ProjectLayout({
   children,

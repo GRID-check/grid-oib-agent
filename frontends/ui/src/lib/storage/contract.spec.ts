@@ -9,15 +9,15 @@ import {
 } from './contract'
 
 /**
- * The quota contract exists because the same constraint used to be written twice
- * and the copies disagreed. These tests pin the half that had no test at all:
+ * The quota contract exists because two copies of the constraint drift. These
+ * tests pin the half that had no test at all:
  * what happens to a value that is neither a number nor blank.
  *
  * The failure this prevents is not "the request is rejected". It is that
  * `Number('12x')` → `NaN` → `JSON.stringify` → `null`, and `null` is this API's
  * spelling of UNLIMITED — so a mistyped character REMOVED a tenant's quota and
  * the UI reported success. Every row below that maps to `ok: false` is a value
- * that previously became "unlimited".
+ * that would otherwise become "unlimited".
  */
 describe('parseQuotaDraft', () => {
   it('reads a whole number of GB into bytes', () => {
@@ -34,7 +34,7 @@ describe('parseQuotaDraft', () => {
     expect(parseQuotaDraft(raw)).toEqual({ ok: true, quotaBytes: null })
   })
 
-  // Each of these used to serialize to `null` and clear the quota.
+  // Each of these serializes to `null` and would clear the quota.
   it.each([
     ['a typo', '12x'],
     ['letters', 'fifty'],
@@ -53,13 +53,13 @@ describe('parseQuotaDraft', () => {
   })
 
   /**
-   * The overflow rows, and the reason the guard moved.
+   * The overflow rows.
    *
    * `1e300` is the one that matters: it is a FINITE number, so a
    * `Number.isFinite` check on what was typed waves it through — and then
    * `1e300 * 1e9` is `Infinity`, which `JSON.stringify` writes as `null`, which
    * is this API's spelling of unlimited. Same destination as the `'12x'` bug,
-   * reached by a route the first guard did not cover, which is why the check now
+   * reached by a route the first guard did not cover, which is why the check
    * sits on the scaled byte count instead of on the input.
    *
    * `1e10` GB is under the same rule for a quieter reason: 1e19 bytes is past
@@ -81,8 +81,8 @@ describe('parseQuotaDraft', () => {
 
   /**
    * The property behind all of the above: whatever this function calls `ok`, the
-   * route must accept. Stated as a test because the two used to be independent
-   * rules, and every finding in this file came from them disagreeing.
+   * route must accept. Stated as a test because the two are separate rules that
+   * can disagree, and every finding in this file came from them disagreeing.
    */
   it.each([
     '50',

@@ -2,11 +2,11 @@
  * The by-name resolve's wire contract: "give me the rows of THESE documents"
  * (ADR-0055 — the routes, the client and the tests share it).
  *
- * The readers that want particular documents — a citation chip, a
- * surfaced-documents card, a file operation naming its file — used to read the
- * first page of the listing and look the name up in it. The listing is paged,
- * so a document older than the newest 500 resolved to nothing: a dead chip on
- * a correct citation. This asks the database the reader's own question.
+ * A reader that wants particular documents — a citation chip, a
+ * surfaced-documents card, a file operation naming its file — must not look the
+ * name up in the first page of the listing. The listing is paged, so a document
+ * older than the newest 500 would resolve to nothing: a dead chip on a correct
+ * citation. This asks the database the reader's own question.
  *
  * Matching is by FILENAME, case-insensitive and in either Unicode form, which
  * is how every reader compares a name the model wrote with the name on the

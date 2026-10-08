@@ -1,19 +1,18 @@
 /**
  * The inbox, presented as a page sheet — one place per user, per organization,
- * that answers "what needs me?" (spec IB-1, IB-18).
+ * that answers "what needs me?"
  *
  * Like the Archiv, one component behind both arrivals: the intercepted overlay
  * (`(shell)/@overlay/(.)inbox`) above whatever page the reader is on, and the
  * real `/app/inbox` page for a hard load. Only `standalone` differs — see
  * {@link RoutePageSheet}.
  *
- * The gate is a `notFound()`, not a polite empty card — but it is no longer the
+ * The gate is a `notFound()`, not a polite empty card, and it is not the
  * collaboration flag. It is `inboxIsReachable`, derived from the item-type
- * registry, because the inbox stopped being a collaboration-only surface once
- * it carried operational alerts (ADR-0042): gating the page on collaboration
- * meant a tenant without that feature could never see the warning that its
- * storage was filling up. The BFF routes apply the SAME per-type gate, so the
- * two still cannot disagree.
+ * registry: the inbox carries operational alerts too (ADR-0042), and gating it
+ * on collaboration would hide the warning that a tenant's storage is filling up
+ * from a tenant without that feature. The BFF routes apply the SAME per-type
+ * gate, so the two still cannot disagree.
  */
 
 import type { JSX } from 'react'

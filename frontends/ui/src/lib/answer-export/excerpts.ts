@@ -2,8 +2,8 @@
  * The document's „Rechtsgrundlagen": the passages the answer quoted, each
  * under the source it was verified against.
  *
- * It used to be built from `legal_basis` cards. Answers are Markdown now, and a
- * quoted Fundstelle is a plain blockquote that ends in its citation
+ * It is built from the answer's Markdown rather than from `legal_basis` cards:
+ * a quoted Fundstelle is a plain blockquote that ends in its citation
  * (`> „Fluchtwege müssen …" [3]`), which the app draws as an excerpt with its
  * source in the margin. The document keeps the section by reading the same
  * lines: a quote whose `[N]` resolves to a stored, numbered reference is a
@@ -15,8 +15,8 @@
  * `message-quote-stamps.ts`), only a line it found VERBATIM in a retrieved
  * passage is promoted: a model can end any sentence in `[N]`, and the section
  * would otherwise print a sentence the Richtlinie never says under its name.
- * A surface without stamps (a deep research report, until Phase B checks its
- * quotes) passes none and keeps the resolved-number rule.
+ * A surface without stamps (a deep research report, whose quotes are not
+ * checked) passes none and keeps the resolved-number rule.
  */
 
 import { marked, type Tokens } from 'marked'

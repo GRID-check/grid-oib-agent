@@ -28,8 +28,8 @@
  *     before anything is stored. The byline "Von Piloti erstellt" is chrome and
  *     stays in the app; a file on somebody's disk, or attached to an
  *     Einreichung, carries only what is inside it. See
- *     {@link GeneratedRendering.marking} for why that stopped being a
- *     convention each producer kept, and what it cost while it was one.
+ *     {@link GeneratedRendering.marking} for why this is a field, not a
+ *     convention each producer keeps.
  *
  * A producer that copies a route handler instead of calling this keeps none of
  * the five, and it keeps them silently: the row looks identical.
@@ -74,31 +74,29 @@ import { deleteProjectDocument, findDocumentAuthoredByRef } from './repository'
  *
  * **The second producer is a key of this map and a caller of
  * {@link fileGeneratedDocument}.** It is not a second copy of the filing code.
- * `src/lib/diagrams/filing.ts` is what that looked like when it happened: two
- * members added here, one new caller, no second insert path — so the quota, the
- * audit emit and the no-ingest rule are true of the new rows because they go
- * through the same function rather than through a copy of it.
+ * `src/lib/diagrams/filing.ts` is the second caller: two members here, one call
+ * site, and no second insert path, so the quota, the audit emit and the
+ * no-ingest rule hold for its rows because they go through the same function
+ * rather than through a copy of it.
  *
  * A producer is a KIND OF DELIVERABLE, not a piece of software. `diagram_svg`
  * and `diagram_pdf` are two members rather than one `diagram` because they are
  * two files with two content types a reader uses for two different things — one
  * previews in the Files pane and carries the diagram source for regeneration,
- * the other is what gets attached to an Einreichung — and because since
- * migration 0065 the producer is half of the idempotency key. Collapsing them
- * into one member would make a diagram file one artifact or the other and never
- * both, which is the bug 0065 exists to fix.
+ * the other is what gets attached to an Einreichung — and because the producer
+ * is half of the idempotency key (migration 0065). Collapsing them into one
+ * member would file a diagram as one artifact or the other and never both.
  *
  * ## Why the reference KIND lives here and not at the call site
  *
  * Because a call site that can state it is a call site that can state the wrong
- * one, and nothing downstream could tell. That is not hypothetical — it is
- * exactly what happened without this map: `authored_by_run_id` held a backend
- * job id for `deep_research` and `{chat message id}-{source hash}` for the two
- * diagram producers, both written by callers passing a field called `runId`,
- * and the row, the column comment and the `agent_run` audit target all went on
- * saying "job id" for all three. Migration 0066 is the repair; this map is what
- * stops it recurring, because the kind is now a property of the deliverable and
- * the caller supplies only the identifier itself.
+ * one, and nothing downstream could tell. Without this map that is exactly what
+ * happens: a caller's `runId` field can carry a backend job id for
+ * `deep_research` or `{chat message id}-{source hash}` for a diagram, and nothing
+ * downstream can tell which. The column comment and the `agent_run` audit target
+ * then say "job id" for all of them (migration 0066). This map stops it
+ * recurring: the kind is a property of the deliverable, and the caller supplies
+ * only the identifier itself.
  */
 export const GENERATED_DOCUMENT_PRODUCER_REF_KINDS = {
   /** The backend async job that ran the research. */
@@ -144,8 +142,7 @@ export const GENERATED_DOCUMENT_PRODUCERS = Object.keys(
  * something an auditor can look up in the job store; a diagram's reference is
  * `{chat message id}-{hash of its source}` and is not in that store. Writing it
  * into `AIRunId` anyway would put a value nobody can resolve into the field a
- * detector reads — the same mistake the column made while it was called
- * `authored_by_run_id`, in the one place that reaches a Behörde. So a diagram's
+ * detector reads, in the one place that reaches a Behörde. So a diagram's
  * marking carries no run id at all, which `AiProvenance.runId` already says is
  * the right answer: "a run id nobody can look up is worse than no run id".
  */
@@ -253,18 +250,16 @@ export interface GeneratedRendering {
    *
    * ## Why this is a field and not a convention
    *
-   * It used to be a convention, and the convention was two-thirds unkept. The
-   * marking was applied at each producer — `deep_research` set the PDF's
-   * `Keywords` and printed a notice, `diagram_pdf` printed a footer line and
-   * set no metadata at all, and `diagram_svg` marked NOTHING anywhere in its
-   * bytes — and nothing in the type system or the tests noticed, because every
-   * assertion available was about the object that described the file rather
-   * than about the file.
+   * As a convention, the marking is left to each producer, and it goes unkept.
+   * Nothing in the type system or the tests notices, because the assertions
+   * available are about the object that describes the file rather than about
+   * the file: one producer's PDF carries `Keywords` and a notice, another's a
+   * footer line and no metadata, and an SVG has no marking anywhere in its bytes.
    *
    * Required here, a producer cannot return bytes without answering the
-   * question, and a FOURTH producer cannot be added without answering it
-   * either. Branded ({@link AiProvenanceMarking}), the answer cannot be a
-   * sentence of the producer's own invention — the only way to obtain the type
+   * question, and a new producer cannot be added without answering it either.
+   * Branded ({@link AiProvenanceMarking}), the answer cannot be a sentence of the
+   * producer's own invention — the only way to obtain the type
    * is `aiProvenanceMarking`, so every marked file is marked in the one
    * vocabulary a detector matches on. And verified against the real bytes at
    * the seam, the answer cannot be merely claimed: `fileGeneratedDocument`
@@ -290,8 +285,8 @@ export interface FileGeneratedDocumentInput {
    * say: it is read off the producer through
    * {@link GENERATED_DOCUMENT_PRODUCER_REF_KINDS} and written into
    * `authored_by_ref_kind` beside it, so the row can be resolved by somebody who
-   * was not here. See that map for what happened while callers of a field called
-   * `runId` were free to pass anything.
+   * was not here. See that map for why a free-form `runId` field is not enough:
+   * nothing downstream could tell which kind of identifier a caller passed.
    */
   ref: string
   /** What a reader should see in the Files pane. */
@@ -317,9 +312,9 @@ export interface FiledGeneratedDocument {
   documentId: string
   filename: string
   /**
-   * Where it landed. Nullable because a row filed by an earlier build, or one a
-   * person has since moved to the project root, has no folder — and reporting
-   * an empty string for that would be this function inventing a folder id.
+   * Where it landed. Nullable because a row filed without a folder, or one a
+   * person has since moved to the project root, has none — and reporting an
+   * empty string for that would be this function inventing a folder id.
    */
   folderId: string | null
   /**
@@ -335,7 +330,7 @@ export interface FiledGeneratedDocument {
  * A resolver and not an `if` in the caller, because "does this file itself, and
  * where" is the thing enterprise will want per organization — the precedent is
  * `platform_model_defaults` overridden by an org row (ADR-0014/0022): platform
- * default, tenant override, explicit beats inherited. v1 returns a constant, so
+ * default, tenant override, explicit beats inherited. Today it returns a constant, so
  * becoming that policy is replacing the constant with a lookup rather than
  * finding every call site that hard-coded a folder name.
  *
@@ -380,20 +375,18 @@ const EXTENSION_BY_CONTENT_TYPE: Readonly<Record<string, string>> = {
  * what an architect types into a folder search a year later.
  *
  * Which is exactly why it goes through `lib/text/latinize` rather than doing
- * its own NFKD. The hand-rolled version spelled only `ß`, so every other umlaut
- * was STRIPPED rather than spelled: „Fluchtweglängen Gebäudeklasse 4" filed as
- * `fluchtweglangen-gebaudeklasse-4-…`, two misspelt German words on the
- * filename of a document that goes to a Behörde. It also defeated the stated
- * purpose — an architect searching a folder types „Fluchtweglängen" or
- * „Fluchtweglaengen", and that stem matches neither.
+ * its own NFKD. A local fold that spells only `ß` strips
+ * every other umlaut: „Fluchtweglängen Gebäudeklasse 4" would file as
+ * `fluchtweglangen-gebaudeklasse-4-…`, two misspelt German words on a document
+ * that goes to a Behörde. It also defeats the stated purpose: an architect
+ * searching a folder types „Fluchtweglängen" or „Fluchtweglaengen", and that
+ * stem matches neither.
  *
  * `latinize` is DIN 5007-2 (the passport transliteration) followed by the
  * generic fold, so `ä ö ü ß` spell out and a Czech or Polish client name
- * survives instead of becoming hyphens. It was written to end precisely this
- * drift — three private copies of the table, one of which slugged
- * `Beispielstraße` to `Beispielstra-e` — and its header lists the callers that
- * deliberately opt out. This was never one of them; it was a fourth copy,
- * written after the module existed.
+ * survives instead of becoming hyphens. Private copies of the table drift (one
+ * slugged `Beispielstraße` to `Beispielstra-e`), so there is one table, and its
+ * header lists the callers that deliberately opt out.
  */
 export function generatedFilename(title: string, contentType: string, now: Date): string {
   const day = now.toISOString().slice(0, 10)
@@ -417,11 +410,12 @@ export function generatedFilename(title: string, contentType: string, now: Date)
  *
  * That guarantee is TWO mechanisms, and it needs both. The probe below answers
  * the sequential case cheaply and before anything is rendered. The unique index
- * `uniq_documents_authored_ref_producer_per_project` (migration 0065, widening
- * 0064's key by the producer; renamed with its column by 0066) answers the concurrent one, which the probe cannot: two tabs open the same report, both
- * probe before either inserts, both miss, and a lookup has no way to know it
- * lost. The catch around `admitOrDiscard` is what turns the index's rejection
- * into the same `alreadyFiled` answer the probe gives.
+ * `uniq_documents_authored_ref_producer_per_project` (migration 0065, renamed
+ * with its column by 0066) answers the concurrent one, which the probe
+ * cannot: two tabs open the same report, both probe before either inserts, both
+ * miss, and a lookup has no way to know it lost. The catch around
+ * `admitOrDiscard` is what turns the index's rejection into the same
+ * `alreadyFiled` answer the probe gives.
  *
  * The duplicate this forecloses is not merely untidy. `generatedFilename` is
  * deterministic, so two rows of ONE producer agree on filename, display name,
@@ -471,13 +465,12 @@ export async function fileGeneratedDocument(
   // **non-`user` author's** bytes be admitted at all. It is required IN ADDITION,
   // and the reasons are ADR-0047's, in its own terms:
   //
-  //   1. **ADR-0047 adds relations, it never substitutes them.** Provenance
-  //      arrived in the 2026-08-20 addendum as a FOURTH relation beside access
-  //      and assignment — "`createdBy` and `authored_by` are deliberately not
-  //      collapsed" — precisely because a schema that can record only one of two
-  //      facts has to lie about the other. A permission model that let
-  //      authorship REPLACE access would collapse at the capability level the
-  //      pair the data model was careful to keep apart.
+  //   1. **ADR-0047 adds relations, it never substitutes them.** Provenance is
+  //      a fourth relation beside access and assignment — "`createdBy` and
+  //      `authored_by` are deliberately not collapsed" — precisely because a
+  //      schema that can record only one of two facts has to lie about the other.
+  //      A permission model that let authorship REPLACE access would collapse at
+  //      the capability level the pair the data model was careful to keep apart.
   //   2. **Substitution rebuilds the wider principal the design deleted.** The
   //      design's decision 4 put the write in the commissioning user's session
   //      so that the agent never holds authority the human lacks. If `generate`
@@ -495,9 +488,9 @@ export async function fileGeneratedDocument(
   //      upload or delete is not less capable in the way the paragraph claims.
   //      Conjunction is what keeps the sentence a fact instead of history.
   //
-  // The cost is real and it is the correct one: nothing holds the new permission
+  // The cost is real and it is the correct one: nothing holds the permission
   // until the catalog is provisioned (`npm run provision:authz -- --apply`), so
-  // a custom project role that predates this change stops filing until somebody
+  // a custom project role that lacks it stops filing until somebody
   // grants it. A capability whose whole purpose is to be withholdable must fail
   // to the state the organization has not asked for — which is also why the
   // `project:edit` umbrella is NOT accepted here. The umbrella keeps grants that
@@ -555,7 +548,7 @@ export async function fileGeneratedDocument(
   const marking = generatedDocumentMarking(producer, ref)
   const rendered = await render({ projectId, projectName: project.name, marking })
 
-  // THE marking check, and the reason it is here rather than in three producers.
+  // THE marking check, and the reason it is here rather than in each producer.
   //
   // Two questions, both asked of what actually exists rather than of what a
   // producer intended:
@@ -564,10 +557,9 @@ export async function fileGeneratedDocument(
   //     built its own — with a run id for a reference that is not a run, say —
   //     is refused rather than quietly filed under a weaker statement;
   //   - is that marking IN the bytes? Every producer builds its file through a
-  //     library that is free to drop what it was handed, and two of the three
-  //     did exactly that: `diagram_pdf` set no PDF keywords and `diagram_svg`
-  //     wrote no marking at all. Both passed every test there was, because the
-  //     tests could only ask the element tree.
+  //     library that is free to drop what it was handed, and that happens: a PDF
+  //     with no keywords, or an SVG with no marking, passes every test that only
+  //     inspects the element tree.
   //
   // Before the folder, the PUT and the row, so an unmarked rendering leaves
   // nothing behind — the same ordering argument the folder creation makes one
@@ -658,8 +650,8 @@ export async function fileGeneratedDocument(
       status: 'stored',
     })
   } catch (error) {
-    // The probe above lost a race. Both callers ran it before either had
-    // inserted, both missed, both rendered, both PUT an object — and because
+    // The probe above can lose a race: both callers run it before either has
+    // inserted, both miss, both render, both PUT an object, and because
     // `generatedFilename` is deterministic (slug + date + extension), the two
     // rows would have been identical in every attribute a person can see. An
     // office cannot untangle two byte-identical reports of one run, so
@@ -706,18 +698,16 @@ export async function fileGeneratedDocument(
   // ADR-0054 opened exactly one door, and it is not this one: a PUBLISHED
   // version is dispatched, from the lifecycle's `ingestPublished` effect, after
   // a person approved it. What is filed here is a draft, and a draft is never
-  // published — so the sentence above stays literally true of this function,
-  // which is why the door could be opened without reopening it.
+  // published, so the sentence above stays literally true of this function.
 
   try {
     await recordAuditEventOrThrow({
       organizationId: session.organizationId,
       // The actor stays the human — they are the authorization principal, and
-      // the trail is searched by actor. The run rides along as a second target.
-      // The run — or whatever kind of thing this reference names. The kind IS
-      // the audit target type, so a diagram's reference lands as an
-      // `answer_artifact` target rather than being asserted to be a job id
-      // nobody can look up. See `AUTHORED_REF_KINDS`.
+      // the trail is searched by actor. The reference rides along with its kind,
+      // and the kind IS the audit target type: a diagram's reference lands as an
+      // `answer_artifact` target rather than being asserted to be a job id nobody
+      // can look up. See `AUTHORED_REF_KINDS`.
       actor: { type: 'agent', userId: session.userId, email: session.email, ref: { kind: refKind, id: ref } },
       action: 'document.generated',
       targetType: 'document',
@@ -760,20 +750,11 @@ export async function fileGeneratedDocument(
  * The second is strictly worse, so the object is deleted only once the row is
  * known to be gone.
  *
- * This corrects the arrangement that stood here before, which ran the two
- * deletes independently so that neither waited on the other. That was reasoned
- * from a real failure — an earlier version shared one `try`, so a failed row
- * delete skipped the object — but it fixed it by producing the worse leftover
- * instead of the better one: with the steps independent, a failed row delete
- * still deletes the object, which is precisely "row left, object gone". The
- * header nonetheless kept claiming the outcome was "never a document with no
- * bytes", one paragraph above the change that made it reachable.
- *
- * What the coupling actually leaves when the row delete fails is a filed,
- * quota-charged row with no audit record AND ITS BYTES INTACT — bad, and worth
- * the log line below, but a document that opens. An operator can delete it
- * through the application, which releases the quota and the object together.
- * The other order leaves them nothing to delete cleanly.
+ * When the row delete fails, what is left is a filed, quota-charged row with no
+ * audit record AND ITS BYTES INTACT — bad, and worth the log line below, but a
+ * document that opens. An operator can delete it through the application, which
+ * releases the quota and the object together. The other order leaves them
+ * nothing to delete cleanly.
  */
 async function unfile(
   documentId: string,

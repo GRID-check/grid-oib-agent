@@ -50,9 +50,9 @@ const writtenEntry = (number: number, page: number): ReportSourceEntry => ({
 
 describe('buildCitationModel', () => {
   it('folds one document cited at four pages into ONE document with four loci', () => {
-    // The reported defect: this produced one complete chip and three degraded
-    // ones (raw filename, no authority badge, wrong tint) because the
-    // document-level dedup starved the locus-level 1:1 match.
+    // Guards a regression: the document-level dedup must not starve the
+    // locus-level 1:1 match, which leaves one complete chip and three degraded
+    // ones (raw filename, no authority badge, wrong tint).
     const docs = buildCitationModel({
       citations: [wireLocus(1, 5), wireLocus(2, 12), wireLocus(3, 18), wireLocus(4, 22)],
       entries: [writtenEntry(1, 5), writtenEntry(2, 12), writtenEntry(3, 18), writtenEntry(4, 22)],
@@ -80,8 +80,8 @@ describe('buildCitationModel', () => {
   })
 
   it('gives a written entry with no structured match the same identity as one with', () => {
-    // A written entry alone used to render as its raw filename with no tint and
-    // no badge. It must resolve exactly like the structured path does.
+    // A written entry alone must not render as its raw filename with no tint and
+    // no badge: it resolves exactly like the structured path does.
     const docs = buildCitationModel({ entries: [writtenEntry(1, 7)] })
     expect(docs).toHaveLength(1)
     expect(docs[0]!.title).toBe(OIB_TITLE)
@@ -113,8 +113,8 @@ describe('buildCitationModel', () => {
 
   it('does not collapse a file that merely MENTIONS a Richtlinie onto the card naming it', () => {
     // „OIB-Richtlinie 6 Kommentar.pdf" is somebody's commentary ABOUT a
-    // Richtlinie, not the Richtlinie. Merging them made two sources one chip
-    // whose page-9 locus opened the commentary in place of the base-law
+    // Richtlinie, not the Richtlinie. Merging them would make two sources one
+    // chip whose page-9 locus opens the commentary in place of the base-law
     // document — and the shelf rule cannot catch it, because a source known
     // only from the answer's written list carries no shelf at all.
     const docs = buildCitationModel({
@@ -174,8 +174,7 @@ describe('buildCitationModel', () => {
   it('applies the shelf rule to the INCOMING side too, not only the held one', () => {
     // Producer order decides which side is which. Driving the accumulator
     // directly is what makes the symmetry testable: reorder the producers and
-    // the guard that used to be one-sided is the one that keeps this from
-    // merging.
+    // the guard that keeps this from merging has to hold from either side.
     const accumulator = new CitationAccumulator()
     accumulator.add({ identity: { label: 'OIB-Richtlinie 2' }, title: 'OIB-Richtlinie 2' })
     accumulator.add({
@@ -351,8 +350,9 @@ describe('provenance selection', () => {
 describe('a source known only from the written list', () => {
   it('still renders as the OIB document it is', () => {
     // The written `## Quellen` line carries no lane and no kind — only a
-    // filename. It used to produce a law-tinted chip with no authority badge,
-    // sitting beside an identical structured citation in a different colour.
+    // filename. Unguarded, it would produce a law-tinted chip with no authority
+    // badge, sitting beside an identical structured citation in a different
+    // colour.
     const [doc] = buildCitationModel({ entries: [writtenEntry(1, 9)] })
 
     expect(doc!.lane).toBe('baurecht_oib')
@@ -416,12 +416,12 @@ describe('merging is not fooled by empty values', () => {
 })
 
 describe('a model-written filename spelling never doubles a chip', () => {
-  // The user-visible defect: the "Belegt durch" row showed TWO identical chips
-  // for one document — one opening the full preview, the other a dead info
-  // popover. The wire carries `oib-rl_2_ausgabe_mai_2023.pdf`; the answer's
-  // written list spells it `oib-rl-2 ausgabe mai 2023` (other separators, no
-  // extension at all), and the exact filename match made them two documents
-  // claiming the same [N].
+  // Guards a user-visible defect: the "Belegt durch" row must not show TWO
+  // identical chips for one document — one opening the full preview, the other
+  // a dead info popover. The wire carries `oib-rl_2_ausgabe_mai_2023.pdf`; the
+  // answer's written list spells it `oib-rl-2 ausgabe mai 2023` (other
+  // separators, no extension at all), and an exact filename match would make
+  // them two documents claiming the same [N].
   const WIRE_FILE = 'oib-rl_2_ausgabe_mai_2023.pdf'
   const wire = (number: number, page: number): CitationSource => ({
     id: `dbl-${number}`,
@@ -455,9 +455,9 @@ describe('a model-written filename spelling never doubles a chip', () => {
 
     expect(docs).toHaveLength(1)
     expect(citationNumbers(docs[0]!)).toEqual([1, 3])
-    // Lossless: the pages survive on their own loci. Without the fix the pair
-    // either doubled the chip (separator variants) or merged through the
-    // label-only OIB path, which drops the page onto a `whole` locus.
+    // Lossless: the pages survive on their own loci. Without the normalisation
+    // the pair would either double the chip (separator variants) or merge through
+    // the label-only OIB path, which drops the page onto a `whole` locus.
     expect(docs[0]!.loci).toHaveLength(2)
     expect(citedPages(docs[0]!)).toEqual([1, 26])
   })
@@ -492,7 +492,7 @@ describe('a model-written filename spelling never doubles a chip', () => {
   })
 
   it('folds a title-decorated written line into its wire document', () => {
-    // The line the deployed prompt taught the model to write: a display title,
+    // The line the prompt teaches the model to write: a display title,
     // a spaced dash, then the locator. `parseKbLocator` reads the whole thing
     // as one filename, which met no wire document, so the row showed the same
     // Richtlinie twice — once as the real chip, once as a dead popover titled
@@ -551,11 +551,11 @@ describe('a model-written filename spelling never doubles a chip', () => {
   })
 
   it('a RIS source cited by URL is one chip even when the written URL differs', () => {
-    // The second face of the same defect: a RIS norm arrived on the wire with
-    // its lane, its binding note and `[6]`, and the written list spelled the
-    // URL differently (a `www.`, a `FassungVom=` the model added). Identity by
-    // normalised URL made them two documents, so the row showed the norm twice
-    // — once with the Bindungswirkung card, once bare.
+    // A second face of the same defect: a RIS norm arrives on the wire with its
+    // lane, its binding note and `[6]`, and the written list spells the URL
+    // differently (a `www.`, a `FassungVom=` the model added). Identity by
+    // normalised URL would make them two documents, so the row would show the
+    // norm twice — once with the Bindungswirkung card, once bare.
     const wireRis: CitationSource = {
       id: 'ris-6',
       content: '[RIS] Wiener Bautechnikverordnung 2023',

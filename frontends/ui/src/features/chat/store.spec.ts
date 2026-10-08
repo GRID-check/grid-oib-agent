@@ -409,7 +409,7 @@ describe('useChatStore', () => {
     test('selectConversation keeps a conversation whose messages are still on the server', () => {
       // Storage evicted its messages (or the server list brought it without
       // them): opened and left before they arrived, it looks upload-only and
-      // used to be deleted, on the server too.
+      // would be deleted, on the server too.
       markAwaitingServerMessages('evicted')
       const evicted: Conversation = {
         id: 'evicted',
@@ -541,10 +541,10 @@ describe('useChatStore', () => {
 
     test('restores a subject file without inventing a filename from the title', () => {
       // `conversation.title` is the filename only until addUserMessage
-      // overwrites it with the first thing the user typed. Reusing it here
-      // restored the subject as "fass das dokument zusammen" and sent that
-      // string on the wire as `focus_file_name`, matching no document — and
-      // the bar's own repair lookup skipped, because a title was present.
+      // overwrites it with the first thing the user typed. Reusing it here would
+      // restore the subject as "fass das dokument zusammen" and send that string on
+      // the wire as `focus_file_name`, matching no document — and the bar's own
+      // repair lookup would skip, because a title was present.
       const conv: Conversation = {
         id: 'conv-1',
         userId: 'user-1',
@@ -1058,7 +1058,7 @@ describe('useChatStore', () => {
     })
   })
 
-  describe('project scoping (UX-8 cross-project bleed)', () => {
+  describe('project scoping (cross-project bleed)', () => {
     const makeConv = (id: string, userId: string, projectId?: string | null): Conversation => ({
       id,
       userId,
@@ -1071,7 +1071,7 @@ describe('useChatStore', () => {
     })
 
     describe('getUserConversations', () => {
-      test("inside a project, lists that project's sessions plus unscoped legacy sessions (fail-open)", () => {
+      test("inside a project, lists that project's sessions plus unscoped sessions (fail-open)", () => {
         useChatStore.setState({
           currentUserId: 'user-1',
           projectId: 'proj-a',
@@ -1145,7 +1145,7 @@ describe('useChatStore', () => {
         expect(useChatStore.getState().currentConversation).toBeNull()
       })
 
-      test('allows selecting an unscoped legacy session in any project (fail-open)', () => {
+      test('allows selecting an unscoped session in any project (fail-open)', () => {
         const legacy = makeConv('legacy', 'user-1', null)
         useChatStore.setState({
           currentUserId: 'user-1',
@@ -1161,7 +1161,7 @@ describe('useChatStore', () => {
     })
 
     describe('deleteAllConversations scoping', () => {
-      test("deletes only the current project's sessions and unscoped legacy sessions", () => {
+      test("deletes only the current project's sessions and unscoped sessions", () => {
         useChatStore.setState({
           currentUserId: 'user-1',
           projectId: 'proj-a',

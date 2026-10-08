@@ -288,7 +288,7 @@ describe('the shapes the renderer reads off a block', () => {
   })
 })
 
-describe('pdfText coercion (#611, #589, #580)', () => {
+describe('pdfText coercion', () => {
   it('passes strings through', () => {
     expect(pdfText('Fluchtweg')).toBe('Fluchtweg')
   })

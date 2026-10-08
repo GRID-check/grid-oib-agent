@@ -60,10 +60,10 @@ describe('authorization catalog', () => {
 
   it('NO tenant-assignable role may hold a platform permission', () => {
     // The whole platform tier rests on this, and this assertion is the ONLY
-    // thing enforcing it. Verified against the live WorkOS API on 2026-07-31:
-    // a role on the `organization` resource type was created holding
-    // `project:view` (a Project-tier permission) and WorkOS accepted it, so the
-    // provider does not constrain permissions to roles of their own type.
+    // thing enforcing it. Verified against the live WorkOS API: a role on the
+    // `organization` resource type can hold `project:view` (a Project-tier
+    // permission), so the provider does not constrain permissions to roles of
+    // their own type.
     // A `platform:*` permission on an environment-scoped role would be
     // assignable inside any tenant org, and nothing upstream would object.
     const platformSlugs = new Set(PLATFORM_PERMISSION_SPECS.map((p) => p.slug))
@@ -95,9 +95,9 @@ describe('authorization catalog', () => {
 
   it('WorkOS caps descriptions at 150 characters — resource types AND permissions', () => {
     // Both learned the same way: the API rejects a longer one at provisioning
-    // time, which turns a catalog edit into a half-applied environment. The
-    // permission half was missing from this check until `org:projects:administer`
-    // shipped at 208 characters and `createPermission` refused it.
+    // time, which turns a catalog edit into a half-applied environment. Both
+    // halves are checked, because `createPermission` refuses an over-long
+    // permission description just as the resource-type call refuses one.
     for (const type of RESOURCE_TYPES) {
       expect(type.description.length, `${type.slug} description`).toBeLessThanOrEqual(150)
     }
@@ -114,9 +114,7 @@ describe('authorization catalog', () => {
     // The provisioner attaches permissions and roles via `resourceTypeSlugFor`
     // (platform → organization, otherwise the tier itself). A tier without a
     // RESOURCE_TYPES entry still compiles — it just silently prints a topology
-    // that omits where its permissions live. The skill type went missing
-    // exactly this way: skills had permissions and roles while the printed
-    // topology stopped at Project.
+    // that omits where its permissions live.
     const typeSlugs = new Set(RESOURCE_TYPES.map((type) => type.slug))
     const resourceTypeFor = (tier: PermissionTier): string =>
       tier === 'platform' || tier === 'org' ? 'organization' : tier
@@ -130,9 +128,8 @@ describe('authorization catalog', () => {
   })
 
   it('the registry constants and the catalog agree on every slug', () => {
-    // All FOUR tiers. The skill tier used to be omitted from both halves of this
-    // check, so `skill:*` was the one part of the catalog that could drift from
-    // the registry — and from WorkOS — without anything failing.
+    // All FOUR tiers, in both directions, so `skill:*` cannot drift from the
+    // registry or from WorkOS unnoticed.
     const registrySlugs: string[] = [
       ...Object.values(ORG_PERMISSIONS),
       ...Object.values(PLATFORM_PERMISSIONS),
@@ -157,8 +154,8 @@ describe('authorization catalog', () => {
   })
 
   it('Admin holds the org-wide project bypass, so existing admins keep every project', () => {
-    // The bypass moved from the role slug `admin` to the permission
-    // `org:projects:administer`. `hasPermission`'s bounded implication reads
+    // The bypass is the permission `org:projects:administer`, not the role slug
+    // `admin`. `hasPermission`'s bounded implication reads
     // THIS list, so if Admin ever stopped holding it every org admin would
     // silently lose access to every project they do not have a project role on.
     expect(findRoleSpec('admin')?.permissions).toContain('org:projects:administer')
@@ -172,8 +169,8 @@ describe('authorization catalog', () => {
   })
 
   it('read-only platform staff hold no platform write permission', () => {
-    // The catalog half of the fix for a role that was documented as changing
-    // nothing and could PUT the platform model defaults. The enforcement half is
+    // A read-only role must hold no platform write permission, or it could PUT
+    // the platform model defaults. The enforcement half is
     // `requirePlatformPermission`; this keeps the grant honest.
     const support = findRoleSpec('org-platform-support')
     expect(support).toBeDefined()
@@ -182,7 +179,7 @@ describe('authorization catalog', () => {
 
   it('every project role is assignable through the members API', () => {
     // A role in the catalog that the API refuses is a role that exists only on
-    // paper — which is what `project-contributor` was.
+    // paper.
     const assignable = ['project-viewer', 'project-contributor', 'project-editor', 'project-admin']
     const projectRoles = ROLES.filter((role) => role.tier === 'project').map((role) => role.slug)
     expect(projectRoles.sort()).toEqual([...assignable].sort())

@@ -111,10 +111,10 @@ export async function purgeConversationCollaboration(
  * Someone lost access to an entire PROJECT — clean up their collaboration state
  * inside it (spec SH-13).
  *
- * The bug this closes: removing a person from a project ends their effective
- * access to every conversation in it, but any thread that was **waiting on them**
- * would wait forever — they can no longer read it, so they can never answer, and
- * the hand-off banner has no way to clear. Their inbox items would likewise stay
+ * Removing a person from a project ends their effective access to every
+ * conversation in it. Any thread that was **waiting on them** would then wait
+ * forever — they can no longer read it, so they can never answer, and the
+ * hand-off banner has no way to clear. Their inbox items would likewise stay
  * live (redacted at read time, but never resolved).
  *
  * Grants are deliberately left intact, exactly as for a container-access loss
@@ -234,11 +234,9 @@ export async function sweepOrphanedCollaborationRows(
 /*
  * There is deliberately NO project-wide purge helper here.
  *
- * One existed (`purgeCollaborationForConversations`, a loop over
- * `purgeConversationCollaboration`) and had no caller in any tier. The one job it
- * was written for — a hard project purge — belongs to the purger service
- * (`frontends/ui/purger/`), which is a separate CommonJS process that cannot
- * import this module and must not use it if it could:
+ * A hard project purge belongs to the purger service (`frontends/ui/purger/`),
+ * which is a separate CommonJS process that cannot import this module and must
+ * not use it if it could:
  *
  *   - it runs as `node purger/index.js` with no bundler and no TS step, so a
  *     `'server-only'` TypeScript module behind `@/…` path aliases is not

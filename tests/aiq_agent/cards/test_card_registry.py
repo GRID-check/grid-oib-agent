@@ -166,10 +166,9 @@ class TestEmitCardRejectsSystemCards:
 class TestARefusedCardIsVisibleAfterTheTurn:
     """ "The model never tried" and "we refused it" must not look the same in a log.
 
-    Diagnosing a turn that shipped without its card ran into this: only the
-    SUCCESS path logged, so a turn where the model called ``emit_card`` and got a
-    validation error back left exactly the same silence as one where it never
-    called at all. The two have opposite fixes — the first is a shape the model
+    A refusal is logged, so a turn where the model called ``emit_card`` and got a
+    validation error back does not leave the silence of one where it never called
+    at all. The two have opposite fixes — the first is a shape the model
     cannot fill in, the second is a doctrine that never got the card named — and
     with nothing to separate them the choice is a guess.
 
@@ -211,9 +210,9 @@ class TestARefusedCardIsVisibleAfterTheTurn:
     async def test_a_validation_refusal_carries_no_link(self):
         """Pydantic links to its error index from every message it renders.
 
-        The refusal is a tool result, and a URL in a tool result used to be
-        captured as a web source: the reader got a source card for
-        ``errors.pydantic.dev`` beside an answer nothing had searched the web
+        The refusal is a tool result, and a URL in a tool result would be
+        captured as a web source: the reader would get a source card for
+        ``errors.pydantic.dev`` beside an answer that nothing searched the web
         for. The model needs the field and the problem, never the link.
         """
         reg = get_or_create_card_registry("conv-refusal-5")
@@ -249,7 +248,7 @@ class TestARefusedCardIsVisibleAfterTheTurn:
 
     @pytest.mark.asyncio
     async def test_a_successful_card_logs_at_info_and_not_as_a_warning(self, caplog):
-        # The success line predates this and stays where it is: a refusal is the
+        # The success line stays where it is: a refusal is the
         # abnormal outcome and has to be greppable apart from the normal one.
         reg = get_or_create_card_registry("conv-refusal-4")
         reg.clear()
@@ -315,11 +314,11 @@ class TestEmitCardPlacementMarker:
 
     @pytest.mark.asyncio
     async def test_an_envelope_shape_is_refused_with_the_channel_that_takes_it(self):
-        """The redirect the doctrine used to carry up front, on the call that needs it.
+        """The redirect, given on the call that needs it.
 
         A model that correctly recognised "this answer has a verdict" must not be
         merely refused — it has the content, and it needs to be told where it
-        goes. The up-front paragraph is the answering prompt's now; this is the
+        goes. The up-front paragraph belongs to the answering prompt; this is the
         tool's own statement, and it fires exactly when it is relevant.
         """
         reg = get_or_create_card_registry("conv-envelope-1")
@@ -330,9 +329,9 @@ class TestEmitCardPlacementMarker:
         assert reg.snapshot() == []
 
     def test_the_marker_contract_is_paid_per_CALL_and_not_per_TURN(self):
-        """The doctrine no longer carries the placement paragraph; the return does.
+        """The doctrine does not carry the placement paragraph; the return does.
 
-        It used to be stated twice: once up front in ``_CARD_DOCTRINE``, which
+        Stating it twice would cost twice: once up front in ``_CARD_DOCTRINE``, which
         every turn pays whether or not it emits a card, and once in the success
         message of every call, which only a turn that emitted one pays. The
         answering prompt keeps the up-front sentence — placement is a fact about
@@ -346,7 +345,7 @@ class TestEmitCardPlacementMarker:
 
         assert "[[card:" not in _CARD_DOCTRINE
         assert "WHERE IT GOES" not in _CARD_DOCTRINE
-        # And the doctrine is still the whole of WHEN, WHICH and HOW WELL.
+        # The doctrine is the whole of WHEN, WHICH and HOW WELL.
         assert "WHEN TO EMIT ONE" in _CARD_DOCTRINE
         assert "WHEN NOT TO" in _CARD_DOCTRINE
         assert "there is no result field" in _CARD_DOCTRINE

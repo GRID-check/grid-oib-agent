@@ -60,7 +60,7 @@ export interface BimModelView {
    * viewer had to invent one from the severity, so "Fluchtweg > 40 m (12)" and
    * "Türbreite < 80 cm (4)" both arrived as "Fehler" — two identical legend
    * rows, and the meaning the answer supplied gone. It is optional: a link
-   * written before this, or by hand, still parses.
+   * without it, or one written by hand, still parses.
    *
    * `total` is what the group counted BEFORE the id cap, so a link can say it
    * is showing 60 of 420 rather than quietly showing 60.
@@ -98,13 +98,9 @@ const MAX_LINK_IDS = 60
 export function buildModelQuery(view: BimModelView): string {
   const params = new URLSearchParams()
   if (view.model) params.set('model', view.model)
-  // `overview` is the default, so it stays out of the URL — a bare link should
-  // look bare.
-  // `overview` is encoded like any other tab. It used to be dropped as "the
-  // default", which made it impossible to say "the drawer is open on the
-  // overview" in a link — and since the drawer's open state is exactly
-  // "`tab` is set", selecting Überblick silently closed the drawer for
-  // whoever the link was sent to.
+  // `overview` is encoded like any other tab, not dropped as "the default": the
+  // drawer's open state is exactly "`tab` is set", so dropping it would
+  // silently close the drawer for whoever the link was sent to.
   if (view.tab) params.set('tab', view.tab)
   if (view.storey) params.set('storey', view.storey)
   if (view.element) params.set('element', view.element)
@@ -121,10 +117,10 @@ export function buildModelQuery(view: BimModelView): string {
     // link stays as short as it was.
     const suffix = total > ids.length ? `+${total}` : ''
     const middle = `${label}${suffix}`
-    // A group with neither a label nor a cap emits the older, shorter
-    // `status:ids` — the form a hand-written link takes, and the one most
-    // links in the wild already are. Emitting `status::ids` for it would add a
-    // character to every link to carry nothing.
+    // A group with neither a label nor a cap emits the shorter `status:ids`,
+    // the form a hand-written link takes and the form older links already
+    // carry. Emitting `status::ids` for it would add a character to every link
+    // to carry nothing.
     params.append(
       'hl',
       middle ? `${group.status}:${middle}:${ids.join(',')}` : `${group.status}:${ids.join(',')}`
@@ -141,9 +137,9 @@ export function buildModelQuery(view: BimModelView): string {
  *
  * Dateien, not a page of its own. A model is a file: it is uploaded here, it
  * is listed here, and `?model=` is what turns this page into the viewer for
- * one of them. The dedicated `/model` route is gone — it redirects here,
- * keeping its query string, so every link already written into a chat answer,
- * a card or a colleague's message still lands on the same view.
+ * one of them. The `/model` route redirects here, keeping its query string, so
+ * every link already written into a chat answer, a card or a colleague's
+ * message still lands on the same view.
  */
 export const MODEL_VIEW_SEGMENT = 'files'
 
@@ -206,8 +202,8 @@ export function parseModelView(search: string | URLSearchParams): BimModelView {
     const status = raw.slice(0, separator) as BimHighlightStatus
     if (!STATUSES.has(status)) continue
 
-    // Two shapes: `status:ids` (what links written before the label looked
-    // like, and what a hand-written one still looks like) and
+    // Two shapes: `status:ids` (what a hand-written link looks like, and what
+    // links written before the label existed carry) and
     // `status:label[+total]:ids`. The second colon is what tells them apart —
     // a GlobalId cannot contain one, so this cannot misread the older form.
     const rest = raw.slice(separator + 1)

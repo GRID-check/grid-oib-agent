@@ -63,7 +63,7 @@ describe('resolveEffectiveGroupModels', () => {
     expect(byGroup.memory_reflection).toEqual({ group: 'memory_reflection', modelIds: [], source: null })
   })
 
-  it('ignores an org override for a group that no longer exists', () => {
+  it('ignores an org override for a group that does not exist', () => {
     const models = resolveEffectiveGroupModels({ intent: 'org/own' }, inherited(NONE))
     expect(models.map((m) => m.group)).not.toContain('intent')
   })

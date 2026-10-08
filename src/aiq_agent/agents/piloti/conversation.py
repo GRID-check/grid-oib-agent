@@ -83,10 +83,10 @@ after all. The second half is literally true: the cancellation sets
 routes straight to Piloti instead of producing plan number two.
 """
 
-# Reader-facing text, and therefore left verbatim by the rename: it is what
-# `escalation_reason` carries onto the wire when the model asked to escalate
-# without saying why, so it is already stored in turns from before this commit.
-# Changing the wording is a copy change with a release note, not a rename.
+# Reader-facing text, and stored verbatim: it is what `escalation_reason`
+# carries onto the wire when the model asked to escalate without saying why, so
+# older turns already hold it. Changing the wording is a copy change with a
+# release note, not a rename.
 LEGACY_ESCALATION_REASON = "Shallow agent emitted insufficiency marker"
 
 DEEP_RESEARCH_UNAVAILABLE_NOTE = (
@@ -194,7 +194,7 @@ def _answer_update(
     The WHOLE turn is written back — the tool calls, their results, then the
     answer — not the answer alone: the passages this answer was written from
     are the context the next turn's follow-up needs, and re-fetching what the
-    transcript just held was the round every follow-up paid. The results are
+    transcript already holds would cost every follow-up a round. The results are
     cut to the passages the answer CITED (``history.compact_tool_results``);
     an uncited passage keeps its header so the next turn knows it exists.
     Older turns are pruned to what was said when the next turn's history is
@@ -349,8 +349,8 @@ def _plan_cancelled(original_query: str | None) -> Command:
 
 def _plan_rejected(original_query: str | None) -> Command:
     """A rejected plan is not a cancelled question. The question is right there
-    in the messages and Piloti can answer it; ending here told a user
-    who had just said "no" twice to retype the question the product was already
+    in the messages and Piloti can answer it; ending here would make a user
+    who had just said "no" twice retype the question the product is already
     holding. Fall through to Piloti and remember the rejection for the
     rest of the conversation so ``_should_escalate`` never offers plan two."""
     logger.info("Conversation: Plan rejected by user, answering on the shallow path instead")
@@ -518,8 +518,8 @@ class ConversationGraph:
     async def _commission_run(self, state: ConversationState) -> dict[str, Any]:
         """Hand the question to a run, and answer with nothing but where it is.
 
-        The turn used to answer „Deep research job submitted. Job ID: …", which
-        was the whole record of the work: a sentence. The run now has a row and
+        The answer is not „Deep research job submitted. Job ID: …", which would be
+        the whole record of the work: a sentence. The run has a row and
         a message of its own in this thread (ADR-0062), and THAT message is the
         narration — so this turn's answer is empty on purpose, and carries the
         two ids the reader's client needs to show the block that just appeared.
@@ -632,8 +632,8 @@ class ConversationGraph:
         # Deep research is minutes, not seconds, and this is the instant that
         # becomes true. Told now, the reader is waiting; told on the terminal
         # frame, they spent those minutes wondering whether the turn broke.
-        # Transparency must never take a turn down, and the stakes went UP when this
-        # moved into a conditional edge: a raise inside a routing function does not
+        # Transparency must never take a turn down, and the stakes are higher in a
+        # conditional edge: a raise inside a routing function does not
         # degrade the turn, it ends it with no answer at all. Nothing in
         # ``emit_escalation`` can raise today (``turn_status.emit`` swallows, and
         # ``clip``/``str.split`` are total on ``str | None``), which is exactly why the

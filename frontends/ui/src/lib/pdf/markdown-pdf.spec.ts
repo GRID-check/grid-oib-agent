@@ -44,23 +44,14 @@ const DIAGRAM_PLACEHOLDER = 'Zeichnung hier nicht wiedergegeben.'
 const BASE = { diagramPlaceholder: DIAGRAM_PLACEHOLDER }
 
 /**
- * A marking, which is now what turns the notice on.
+ * A marking, which turns the notice on and fills the Keywords.
  *
- * The two used to be separate options — a `notice` the caller wrote and a
- * `marking` for the Keywords — which meant a document could carry one without
- * the other: marked for exactly one of its two audiences. One field drives
- * both, so that state is no longer reachable.
+ * One field drives both. Two options would let a document carry one without the
+ * other, marked for exactly one of its two audiences.
  */
 const MARKING = aiProvenanceMarking({ runId: 'run_7' })
 
 const REPORT = '# Brandschutz Straßenhäuser\n\nDie Fluchtwegbreite beträgt 1,20 m.\n'
-
-// `drawnAt` — the pdf.js geometry probe — went with the two tests that used it.
-// Both asked about LAYOUT (a long label painting over its value, a wide excerpt
-// squeezed into an indented column), and layout is `lib/pdf/branding.tsx` and
-// `blocks-to-pdf.tsx` now, with their own specs. A geometry helper kept here
-// for nothing would be the next reader's puzzle.
-
 
 /** The PDF magic. A file that does not start with it is not one. */
 const magic = (bytes: Uint8Array): string =>
@@ -74,7 +65,7 @@ describe('renderMarkdownPdf', () => {
     expect(PDF_MEDIA_TYPE).toBe('application/pdf')
 
     const pdf = await readPdf(bytes)
-    // A cover sheet and the body: the document the product prints now.
+    // A cover sheet and the body: the document the product prints.
     expect(pdf.pageCount).toBe(2)
     expect(pdf.text).toContain('Brandschutz Straßenhäuser')
     expect(pdf.text).toContain('Die Fluchtwegbreite beträgt 1,20 m.')
@@ -91,12 +82,8 @@ describe('renderMarkdownPdf', () => {
     expect(pdf.text).not.toContain(de.aiNotice.title)
     expect(pdf.info.Keywords).toBeUndefined()
     expect(pdf.info.Subject).toBeUndefined()
-    // react-pdf's own default, i.e. nothing this repo wrote. Asserted so that a
-    // Every document the product prints is branded now — `BlocksDocument` sets
-    // author, creator and producer to `Piloti`. This used to assert react-pdf's
-    // default precisely so a change like that could not arrive unnoticed; it
-    // arrived, deliberately, so the assertion follows it rather than the other
-    // way round.
+    // Every document the product prints is branded: `BlocksDocument` sets author,
+    // creator and producer to `Piloti`.
     expect(pdf.info.Creator).toBe('Piloti')
   })
 
@@ -114,9 +101,9 @@ describe('renderMarkdownPdf', () => {
     expect(pdf.text).toContain(normalizePdfText(de.aiNotice.title))
     expect(pdf.text).toContain(normalizePdfText(de.aiNotice.body))
     // Before the REPORT, which is the claim worth keeping: a reader must not
-    // meet what the document asserts before the warning about it. The title is
-    // now the cover band above the marking — a heading, not an assertion about
-    // the building — so the ordering is checked against the body.
+    // meet what the document asserts before the warning about it. The title sits
+    // on the cover band above the marking, a heading and not an assertion about
+    // the building, so the ordering is checked against the body.
     expect(pdf.text.indexOf(de.aiNotice.title)).toBeLessThan(
       pdf.text.indexOf('Die Fluchtwegbreite')
     )
@@ -126,9 +113,8 @@ describe('renderMarkdownPdf', () => {
    * Both locales, because the marking is not optional in either and the .docx
    * export's own `label-coverage` reasoning applies unchanged: a key that
    * renders in German and not in English ships an unmarked document to half the
-   * users. No new keys were added for the PDF — it reads `answerExport.aiNotice`,
-   * the same two strings the .docx prints — so this is the test that the reuse
-   * is real rather than intended.
+   * users. No keys are added for the PDF: it reads `answerExport.aiNotice`, the
+   * same two strings the .docx prints, so this test checks that the reuse is real.
    */
   it.each([
     ['de', de.aiNotice],
@@ -152,36 +138,28 @@ describe('renderMarkdownPdf', () => {
   it('prints no header and no section when the caller supplies neither', async () => {
     const pdf = await readPdf(await renderMarkdownPdf(REPORT, BASE))
 
-    // A cover sheet and the body: the document the product prints now.
+    // A cover sheet and the body: the document the product prints.
     expect(pdf.pageCount).toBe(2)
     expect(pdf.text).toBe(
       normalizePdfText(
         // The cover (lockup + title), then the running header, the page footer
-        // and the body. No facts, no marking, no findings — which is what "the
-        // caller supplied neither" means now that the chrome is always there.
+        // and the body. No facts, no marking, no findings: the chrome is always
+        // there, so supplying neither only removes the content.
         'Piloti Brandschutz Straßenhäuser Piloti Brandschutz Straßenhäuser Piloti 2 / 2 ' +
           'Die Fluchtwegbreite beträgt 1,20 m.'
       )
     )
   })
 
-// The identification block moved. It is the document COVER now
-  // (`lib/pdf/branding.tsx`), assembled by `documentSections`, and
-  // `report-document.spec.tsx` owns its claims — "puts the title and the header
-  // facts on the cover, not in the body" is the same assertion this block used
-  // to make against a header rendered into the page stream. What stays here is
-  // only what this module decides: the marking, the diagram placeholder and the
-  // length bound.
+  // The identification block is the document cover (`lib/pdf/branding.tsx`,
+  // assembled by `documentSections`), and `report-document.spec.tsx` owns its
+  // claims. What stays here is what this module decides: the marking, the diagram
+  // placeholder and the length bound.
 
-
-// The appended section moved too. A run's cards are rendered by
-  // `lib/answer-export/cards.ts` — the shape-walker the .docx export already
-  // used — and `report-document.spec.tsx` asserts they go through it
-  // ("renders the cards through the shape-walker, not through a card renderer
-  // here"). That is why `legal-basis.ts` is gone: it was a second card renderer
-  // for one card type, and two walkers over one payload is how the PDF and the
-  // Word file come to disagree about a Fundstelle.
-
+  // A run's cards are rendered by `lib/answer-export/cards.ts`, the shape-walker
+  // the .docx export also uses; `report-document.spec.tsx` asserts they go through
+  // it. A second card renderer here would mean two walkers over one payload, which
+  // is how the PDF and the Word file come to disagree about a Fundstelle.
 
   describe('the machine-readable marking', () => {
     it('writes the same property names the .docx custom properties use', async () => {
@@ -250,8 +228,8 @@ describe('renderMarkdownPdf', () => {
     it('prices a table cell above a prose character', () => {
       // The whole argument for the bound being a COST: the same byte count
       // costs about ten times more as a table than as prose, so a cap that
-      // counted characters priced every report as a table and refused the one
-      // shape this product actually writes (#624).
+      // counted characters would price every report as a table and refuse the
+      // one shape this product actually writes.
       const prose = proseOf(4000)
       const table = tableOf(40)
 
@@ -262,11 +240,10 @@ describe('renderMarkdownPdf', () => {
       expect(markdownRenderCost(table) - table.length).toBe(42 * 4 * TABLE_CELL_COST_CHARS)
     })
 
-    it('renders a report the old character cap refused', async () => {
-      // 128 KiB of prose: twice the ceiling this bound used to have, and 2.6 s
-      // to lay out against the 20.4 s that same ceiling admitted as tables. It
-      // is the Deep-Research-Bericht in #624, and the assertion is that it
-      // comes back as a PDF rather than as a 400.
+    it('renders a 128 KiB prose report', async () => {
+      // 128 KiB of prose, the size of a Deep-Research-Bericht. Laying it out
+      // costs 2.6 s, against the 20.4 s that the same size admits as tables. The
+      // assertion is that it comes back as a PDF rather than as a 400.
       const bytes = await renderMarkdownPdf(proseOf(128 * 1024), BASE)
 
       expect(new TextDecoder('latin1').decode(bytes.subarray(0, 5))).toBe('%PDF-')
@@ -285,10 +262,10 @@ describe('renderMarkdownPdf', () => {
       })
     })
 
-    it('still refuses a table-heavy document at very nearly its old size', async () => {
-      // The budget IS the cost of the most expensive document the old cap ever
-      // admitted — 64 KiB of four-column tables — so raising the ceiling for
-      // prose must not have raised it for tables. ~64 KiB of them is refused.
+    it('refuses a table-heavy document of about 64 KiB', async () => {
+      // The budget is priced in cost, not characters, so raising the ceiling for
+      // prose must not raise it for tables. About 64 KiB of four-column tables is
+      // refused.
       const markdown = tableOf(1500)
 
       expect(markdown.length).toBeLessThan(96 * 1024)
@@ -311,7 +288,7 @@ describe('renderMarkdownPdf', () => {
   })
 
   /**
-   * The failure census (err2issue #611/#580). A render crash carries no input
+   * The failure census. A render crash carries no input
    * — the payload is tenant content — so the log gets lengths, a hash to match
    * repeats of one document, and the construct counts the renderer is
    * sensitive to. Pure and synchronous, so these assert the census directly
@@ -370,7 +347,7 @@ describe('renderMarkdownPdf', () => {
   })
 
   /**
-   * Hostile payloads through the real renderer (err2issue #611/#580).
+   * Hostile payloads through the real renderer.
    *
    * React #31 is an object rendered as a child — a React element where text
    * belongs. Model-written cards carry arbitrary JSON, so an unknown type with

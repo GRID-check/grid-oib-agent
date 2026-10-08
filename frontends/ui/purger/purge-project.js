@@ -62,8 +62,8 @@ async function assertNoHold(tx, entry) {
  * Ask the backend to erase one Chroma collection (and the summaries, job rows
  * and checkpoints that hang off it), throwing on anything short of success.
  *
- * Extracted because the project's own collection is no longer the only one a
- * project purge has to erase: every chat inside it may hold a private
+ * Extracted because a project purge has to erase more than the project's own
+ * collection: every chat inside it may hold a private
  * `s_<conversationId>` collection of its own (ADR-0047 Phase 2). The endpoint
  * takes an arbitrary collection name, so nothing about it is project-specific
  * except its name.
@@ -137,8 +137,8 @@ async function purgeProject(tx, entry, deps) {
   //    step 4 deletes the conversations, the document rows cascade off them, and
   //    after that nothing names these objects or these collections.
   //
-  //    They are invisible to every other query in this file, which is exactly
-  //    how they were being stranded. A session document has a NULL `project_id`
+  //    They are invisible to every other query in this file, which is how they
+  //    get stranded. A session document has a NULL `project_id`
   //    (its shelf is the conversation), so the bucket read below does not see
   //    it. Its object lives under `org/<org>/session/<conversation>/`, which the
   //    project prefix sweep does not cover. And its chunks live in the chat's
@@ -159,9 +159,9 @@ async function purgeProject(tx, entry, deps) {
   //    Every OTHER collection the project's own documents name. A document
   //    filed under a restricted folder lives in that folder's collection,
   //    `<project collection>_r<12 hex>` (ADR-0080), not in the project's, so a
-  //    purge given only the project's name left every restricted folder's
+  //    purge given only the project's name would leave every restricted folder's
   //    chunks — the files a restriction exists for — readable in Chroma after
-  //    the rows that named them were gone. Read here, before step 4 cascades
+  //    the rows that named them are gone. Read here, before step 4 cascades
   //    the document rows away, for the same reason as the session rows above.
   //
   //    DISTINCT over the rows rather than derived from the folders: a document
@@ -221,7 +221,8 @@ async function purgeProject(tx, entry, deps) {
   //     erasure per chat with the hold re-checked before each, since each is an
   //     external destructive step; a failure throws before anything below has
   //     run, so the rows that name the chats drive the retry. Chats erased on
-  //     their own earlier took their traces then. A logged no-op without Langfuse.
+  //     their own already had their traces removed at that point. A logged no-op
+  //     without Langfuse.
   for (const conversation of conversations) {
     await assertNoHold(tx, entry)
     await deps.eraseConversationTraces(conversation.id)
@@ -258,7 +259,7 @@ async function purgeProject(tx, entry, deps) {
   const targets = new Set([bucket, ...recorded.map((row) => row.storage_bucket)])
   for (const target of targets) {
     // Re-checked per BUCKET, not once for the loop. The hold check above bounds
-    // the window to a single step, and this loop is now N destructive steps —
+    // the window to a single step, and this loop is N destructive steps —
     // one sweep per bucket, each of which can take a while. A hold placed after
     // the first sweep began would otherwise be ignored for every bucket after
     // it, which is precisely the case a legal hold exists to stop: the erasure
@@ -329,7 +330,7 @@ async function purgeProject(tx, entry, deps) {
   //    The conversation set is expressed as a SUBQUERY, not as a list of bound
   //    ids. `IN ${tx(ids)}` expands to one placeholder per id, and Postgres
   //    refuses any statement with more than 65535 of them — so a project with
-  //    tens of thousands of conversations threw MAX_PARAMETERS_EXCEEDED here,
+  //    tens of thousands of conversations throws MAX_PARAMETERS_EXCEEDED here,
   //    *after* Chroma, SeaweedFS and WorkOS had already been destroyed. Nothing
   //    recovers from that: the queue row is guarded by `status='purging'` rather
   //    than by a lock (see the file header), so it stays stuck in 'purging',
@@ -340,9 +341,9 @@ async function purgeProject(tx, entry, deps) {
   //
   //    Reading the set from the table also closes a snapshot gap: a conversation
   //    that appeared after the SELECT above is still caught by
-  //    `DELETE FROM conversations WHERE project_id = …` below, but was absent
-  //    from the gathered id list — so its collaboration rows were orphaned by
-  //    the very statements meant to prevent that. Same transaction, same
+  //    `DELETE FROM conversations WHERE project_id = …` below, but is absent
+  //    from the gathered id list — so its collaboration rows would be orphaned
+  //    by the very statements meant to prevent that. Same transaction, same
   //    predicate, and the conversations are still present when these run.
   //
   //    These run UNCONDITIONALLY, including for a project that held no

@@ -150,7 +150,7 @@ TURN_HEARTBEAT_SECONDS = 20.0
 
 #: How long a HITL prompt stays open before the turn gives up. Generous, because
 #: a clarifying question can sit while somebody checks a drawing, but finite:
-#: an unanswered prompt used to pin a turn and its checkpoint forever.
+#: an unanswered prompt would pin a turn and its checkpoint forever.
 HITL_RESPONSE_TIMEOUT_SECONDS = float(os.getenv("GRID_HITL_RESPONSE_TIMEOUT_SECONDS", "1800"))
 
 #: How long a finished turn keeps its sequencer for the stage events that follow

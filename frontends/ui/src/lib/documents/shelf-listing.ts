@@ -2,10 +2,8 @@
  * What a listing row needs before it leaves the BFF — shared by a project's
  * Dateien and the org-wide Archiv (ADR-0078).
  *
- * The two used to hydrate their rows separately and ended up serving different
- * rows: the Archiv's had no assignees and no author filter, and the browser
- * carried two row mappers for one table. One function now, so a field added to
- * the listing reaches both shelves or neither.
+ * Hydrating each shelf separately lets their rows drift apart, so one function
+ * serves both: a field added to the listing reaches both shelves or neither.
  */
 
 import type { AuthorizedSession } from '@/lib/auth/types'
@@ -18,12 +16,10 @@ import type { DocumentListPage, DocumentListRow } from './repository'
 /**
  * One row of a document listing.
  *
- * `assignees` is part of it. It used to be added by the two `return`s below and
- * left out of the signature, which type-checks (nothing rejects an extra
- * property on a spread) and is a lie every caller then has to work around: the
- * wire projection could not see the field it is required to serialize, and
- * anything reading a listing had to re-widen the type to find the faces it
- * renders.
+ * `assignees` is part of it, so the wire projection sees the field it must
+ * serialize and a reader need not re-widen the type to find the faces it
+ * renders. A type that left it out would still type-check (nothing rejects an
+ * extra property on a spread) and would lie to every caller.
  */
 export type ListedDocument = Omit<DocumentListRow, 'metadata'> &
   DocumentMetadata & {

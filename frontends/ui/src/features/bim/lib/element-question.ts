@@ -80,10 +80,9 @@ export interface BimElementLink {
 /**
  * Both routes, on purpose.
  *
- * `files` is where a model view lives now. `model` is where it lived when
- * every answer in every existing conversation was written, and those links are
- * in the database — an agent answer from last month naming a wall has to keep
- * opening that wall. The old route redirects, so a chip built from a legacy
+ * `files` is where a model view lives. `model` stays recognised because those
+ * links are stored in saved answers: an answer naming a wall has to keep
+ * opening that wall. The `model` route redirects, so a chip built from a legacy
  * link lands in the same place; recognising it HERE is what lets it render as
  * a chip at all rather than as a bare URL the reader has to trust.
  *
@@ -120,8 +119,8 @@ export function parseElementLink(href: string | undefined): BimElementLink | nul
   // `decodeURIComponent` THROWS on a malformed escape — `'100%'` is a
   // `URIError`, not a fallback. This runs during render, from the citation
   // renderer inside an assistant answer, so one stray `%` in one markdown
-  // link took the whole reply down with it. The `new URL` above already
-  // treats a parse failure as "not a model link"; so does this now.
+  // link would take the whole reply down with it. The `new URL` above treats
+  // a parse failure as "not a model link"; so does this.
   let projectId: string
   try {
     projectId = decodeURIComponent(match[1])
@@ -131,8 +130,8 @@ export function parseElementLink(href: string | undefined): BimElementLink | nul
   if (!projectId) return null
 
   const search = match[3] ?? ''
-  // The legacy route was ONLY ever the model, so a bare `/model` link still
-  // means "open the model". `/files` has to say so.
+  // The `/model` route only ever held the model, so a bare `/model` link means
+  // "open the model". `/files` has to say so.
   if (match[2] === 'files') {
     const params = new URLSearchParams(search)
     if (!VIEW_PARAMS.some((name) => params.has(name))) return null

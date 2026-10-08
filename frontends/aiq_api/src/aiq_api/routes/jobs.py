@@ -329,9 +329,9 @@ class JobReportResponse(BaseModel):
 
     ## Why every card type
 
-    The „Rechtsgrundlagen" section now reads the report's own quote lines
-    (``frontends/ui/src/lib/answer-export/excerpts.ts``), not a card; the
-    retired ``legal_basis`` card no longer exists. The run's cards already reach
+    The „Rechtsgrundlagen" section reads the report's own quote lines
+    (``frontends/ui/src/lib/answer-export/excerpts.ts``), not a card; there is
+    no ``legal_basis`` card. The run's cards already reach
     the client whole by two other paths — over the socket as the answer streams,
     and on the conversation message row ``write_job_turn`` writes
     (``metadata["cards"]``). A report response carrying a filtered subset would
@@ -1109,8 +1109,8 @@ async def register_job_routes(app: FastAPI, builder: WorkflowBuilder, worker: Fa
     _start_periodic_cleanup(job_store, scheduler_address, db_url, default_expiry_seconds, log_level, use_threads)
 
     # Age-based retention for the interactive chat checkpoint store. Chat threads
-    # have no terminal event, so they accumulate forever without this (P0 #1,
-    # chat side — see checkpoint_retention.py). Runs regardless of execution mode.
+    # have no terminal event, so they accumulate forever without this (see
+    # checkpoint_retention.py). Runs regardless of execution mode.
     _start_checkpoint_reaper()
 
 
@@ -2103,13 +2103,13 @@ async def _sse_generator(job_store, job_id: str, db_url: str, start_event_id: in
 
 #: How long an SSE stream may go byte-silent before it sends a keepalive comment.
 #:
-#: Nothing in either generator emitted anything while a job sat queued or a
-#: worker was still building its graph, and deep research is silent for minutes
-#: at a time by design. Node's undici applies a 300 s inactivity `bodyTimeout`
-#: to the BFF's `fetch` of this stream, so a quiet run was torn down from the
-#: proxy side at exactly the moment the reader was waiting hardest — which is
-#: the "deep research just stops" report. A comment frame is invisible to
-#: `EventSource` (the spec says to ignore it) and costs 13 bytes.
+#: Nothing in either generator emits anything while a job sits queued or a worker
+#: is still building its graph, and deep research is silent for minutes at a time
+#: by design. Node's undici applies a 300 s inactivity `bodyTimeout` to the BFF's
+#: `fetch` of this stream, so a quiet run would be torn down from the proxy side at
+#: exactly the moment the reader is waiting hardest, and the run would look as if it
+#: just stopped. A comment frame is invisible to `EventSource` (the spec says to
+#: ignore it) and costs 13 bytes.
 SSE_KEEPALIVE_SECONDS = 20.0
 
 #: An SSE comment: ignored by every client, resets every inactivity timer.

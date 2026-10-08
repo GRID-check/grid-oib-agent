@@ -28,8 +28,8 @@ export const FEATURE_FLAGS = {
    * Delegated tasks and their schedules (ADR-0051/0054): work a chat turn hands
    * over instead of answering, plus the recurring `cadence` form.
    *
-   * Deliberately NOT part of `skills`, although the two shipped together and the
-   * Automation section shows both. They are not one feature. A skill is a
+   * Deliberately NOT part of `skills`, although the Automation section shows
+   * both. They are not one feature. A skill is a
    * published instruction the agent may follow inside a turn; a task is a unit
    * of work that OUTLIVES the turn, costs the requester's budget and runs under
    * their permissions. An organization can reasonably have the toolbox and not
@@ -51,19 +51,19 @@ export const FEATURE_FLAGS = {
   byokLlm: 'byok-llm',
   /** Platform-layer web-search gate; tenant toggle lives in org settings (ADR-0022). */
   webSearch: 'web-search',
-  /** Self-assessed confidence chip on shallow chat answers (FB-6). */
+  /** Self-assessed confidence chip on shallow chat answers. */
   chatConfidenceChip: 'chat-confidence-chip',
-  /** Files preview metadata block: summary/pages/passages/contents rows (FB-8). */
+  /** Files preview metadata block: summary/pages/passages/contents rows. */
   filesMetadataPanel: 'files-metadata-panel',
-  /** Standalone PNG/JPG image upload via VLM captioning (FB-15a); gates the
+  /** Standalone PNG/JPG image upload via VLM captioning; gates the
    *  accept-list (client) and the server-side upload allow-list (BFF). */
   imageUpload: 'image-upload',
   /** Fold the Research runs tab into the chat-history panel as a "Deep
-   *  Research" section (FB-10). ON → hide the `research` nav item, redirect
+   *  Research" section. ON → hide the `research` nav item, redirect
    *  `/research` to chat, show the Deep Research section in SessionsPanel;
    *  OFF → keep the legacy Research tab + ResearchRunsList page. */
   researchInChatHistory: 'research-in-chat-history',
-  /** End-of-wizard AI conflict check (FB-13): on Save, an LLM checks the intake
+  /** End-of-wizard AI conflict check: on Save, an LLM checks the intake
    *  answers for internal contradictions and the user confirms/overrides or
    *  revises. Server-computed in the intake page, prop-drilled to the wizard;
    *  off → the wizard saves exactly as before (no check). */
@@ -75,7 +75,7 @@ export const FEATURE_FLAGS = {
    *  `/archiv` nav entry + page, every BFF `/api/archiv/*` route, and the
    *  injection of the org archive collection into project retrieval scope. */
   orgArchiv: 'organization-archiv',
-  /** Per-answer thumbs feedback (WS-7, click-dummy overhaul spec §6): the
+  /** Per-answer thumbs feedback (click-dummy overhaul spec §6): the
    *  "Was this helpful?" row under assistant answers + the
    *  `/api/feedback/answers` routes. A standard flag — fail-open while
    *  enforcement is off; provision it default-off in WorkOS and target the
@@ -89,8 +89,7 @@ export const FEATURE_FLAGS = {
    *
    * Gates the inbox nav entry + page, the share surfaces, the mention picker, and
    * every `/api/inbox/*`, `/api/sharing/*` and `/api/stream` route. With the flag
-   * off the product behaves exactly as it did before the feature existed
-   * (spec NF-8).
+   * off the product behaves exactly as it does without the feature (spec NF-8).
    *
    * Note there is deliberately NO paired capability gate: the feature works with
    * the shared cache tier absent (live updates degrade to polling, spec RT-3), so
@@ -118,18 +117,16 @@ export const FEATURE_FLAGS = {
    * to the full-screen model stage.
    *
    * Separate from `ifcModels`, which answers whether the model surfaces exist
-   * at all. This one answers what a click does when they do — and it exists
-   * because that answer used to be decided per surface rather than per product:
-   * Dateien intercepted the click and jumped to the stage, while the Archiv
-   * showed a preview it offered no way out of. Same file, two behaviours,
-   * depending on where you clicked it.
+   * at all. This one answers what a click does when they do. The answer is
+   * decided per product, not per surface: otherwise Dateien and the Archiv treat
+   * the same file differently, depending on where it was clicked.
    *
    * ON (the default) — preview first, everywhere, with the stage one button
    * away. An `.ifc` is then a file like every other file, and the analytical
    * surface is something you choose rather than something you land in.
    *
-   * OFF — the stage opens directly, everywhere, including the Archiv, which
-   * could not do it before the stage stopped requiring a project.
+   * OFF — the stage opens directly, everywhere, including the Archiv (the stage
+   * does not require a project).
    *
    * The point of the flag is that "everywhere" holds either way: it moves both
    * surfaces together or neither.
@@ -138,7 +135,7 @@ export const FEATURE_FLAGS = {
   /**
    * Agent-authored documents: a finished deep-research report and a drawn
    * diagram filed into a project as `documents` rows
-   * (`lib/documents/generated.ts`, ADR-0047's 2026-08-20 addenda).
+   * (`lib/documents/generated.ts`, ADR-0047 addenda).
    *
    * Gates the ONE filing seam, so every producer rides it — a flag per producer
    * could only let the two disagree, which is the argument the `skills` entry
@@ -361,9 +358,9 @@ export function requireSkillsEnabled(session: Pick<GridSession, 'featureFlags'>)
  * Whether this session may create delegated tasks and schedules.
  *
  * A standard fail-open flag, the same shape as `deepResearch` and deliberately
- * not the dark-launch shape `isSkillsEnabled` uses: tasks shipped and were
- * available to every organization, so withdrawing them is a decision an
- * operator makes in WorkOS, not a default a deployment inherits.
+ * not the dark-launch shape `isSkillsEnabled` uses: tasks are available to every
+ * organization by default, so withdrawing them is a decision an operator makes
+ * in WorkOS, not a default a deployment inherits.
  */
 export function isTaskAutomationEnabled(session: Pick<GridSession, 'featureFlags'>): boolean {
   return isFeatureEnabled(session, FEATURE_FLAGS.taskAutomation)

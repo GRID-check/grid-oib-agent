@@ -4,20 +4,16 @@
  * The raised card: a white content block sitting PROUD of a subtler outer
  * surface, with a footer tab on that outer surface carrying quiet metadata.
  *
- * This shape is the product's card. It was written four separate times before
- * this file existed — `documents/file-card.tsx`, `documents/file-grid.tsx`,
- * `grid-cards/DocumentGridCard.tsx` and `projects/project-card.tsx` — each
- * carrying its own copy of `rounded-b-[10px] bg-card shadow-xs` over
- * `rounded-xl border bg-muted/50`, and each free to drift from the others by a
- * pixel or a shadow. `file-card.tsx`'s own docstring says it "mirrors
- * ProjectCard / the Archiv library card", which is a comment doing the job a
- * component should.
+ * This shape is the product's card, and this file is its one copy.
+ * `projects/project-card.tsx` renders on it (the projects-home surfaces,
+ * `docs/design/project-surfaces.md`). Three other surfaces still carry their own
+ * copy of `rounded-b-[10px] bg-card shadow-xs` over `rounded-xl border
+ * bg-muted/50` — `documents/file-card.tsx`, `documents/file-grid.tsx` and
+ * `grid-cards/DocumentGridCard.tsx` — and each is free to drift from the others
+ * by a pixel or a shadow.
  *
- * `projects/project-card.tsx` has since been migrated onto this primitive (the
- * projects-home rework, `docs/design/project-surfaces.md`), so three of the
- * four remain. It was moved when it had to change anyway — which is the cheap
- * moment, and the reason to take it: the alternative on the table was a FIFTH
- * copy, hand-rolled inside a new "project atoms" module.
+ * A card moves onto this primitive when it has to change anyway, which is the
+ * cheap moment. A new surface uses this primitive rather than a fresh copy.
  *
  * The two-surface trick is the whole point and the easiest thing to get subtly
  * wrong: the inner block is rounded only at the BOTTOM (`rounded-b-lg`)
@@ -25,11 +21,11 @@
  * tray rather than a box inside a box. The footer is not a bordered section —
  * it is the tray showing beneath the sheet, which is why it needs no divider.
  *
- * Adoption is deliberately incremental: this ships used by the Jobs cards. The
- * four originals keep their hand-rolled copies until each is moved over
- * separately, because they differ in padding, in what they wrap (button, article,
- * anchor) and in their hover behaviour, and collapsing those differences blind
- * is how a refactor breaks four surfaces at once.
+ * Adoption is deliberately incremental: each remaining copy stays hand-rolled
+ * until it is moved over separately, because they differ in padding, in what
+ * they wrap (button, article, anchor) and in their hover behaviour, and
+ * collapsing those differences blind is how a refactor breaks several surfaces
+ * at once.
  */
 
 import type { JSX } from 'react'

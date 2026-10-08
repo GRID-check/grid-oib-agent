@@ -15,10 +15,9 @@ Two detectors, and they fail in opposite directions on purpose:
 Nothing here writes a tool result by hand. Every fixture is either a real
 :class:`ifc_spatial.envelope.Answer` put through ``measure_register._render``,
 or — for the refusals that matter most — the engine's own output over the
-repository's IFC fixtures. Hand-written prose is how the previous version of
-this suite stayed green while every refusal in production granted grounding:
-its undecidable fixture said „Räume exportieren", and the real remedies say
-„…dessen Höhe gemessen werden könnte".
+repository's IFC fixtures. Hand-written prose is how a suite stays green while every refusal in
+production grants grounding: a fixture that says „Räume exportieren" where
+the real remedies say „…dessen Höhe gemessen werden könnte" proves nothing.
 """
 
 import functools
@@ -80,11 +79,11 @@ def _answer(**kwargs) -> dict:
     engine lives in a separate package with its own heavy geometry stack. The
     ``run`` fixture guards the tests that drive the engine, but the fixtures
     built HERE are real ``Answer`` envelopes and import it too — so without this
-    the module raised ImportError during collection and took twelve tests down
-    with it, including ones that never touch geometry. Skipping is right rather
+    the module raises ImportError during collection and takes every test in it
+    down, including ones that never touch geometry. Skipping is right rather
     than faking an ``Answer``: the whole point of this suite is that the
     detector reads what the renderer actually writes, and a hand-built
-    stand-in is how the previous version stayed green over a live defect.
+    stand-in is how a suite stays green over a live defect.
     """
     envelope = pytest.importorskip("ifc_spatial.envelope", reason="the spatial engine is not installed")
 
@@ -144,21 +143,21 @@ class TestMeasurementDetectionAgainstTheRealRenderer:
                 ),
             ),
         )
-        # The remedy uses the very verb the old detector searched for.
+        # The remedy uses the very verb a detector would search for.
         assert "gemessen" in result
         assert tool_result_is_measurement("ifc_measure", result) is False
 
 
 class TestMeasurementDetectionAgainstTheRealEngine:
-    """The refusals that shipped as evidence, reproduced from the real engine.
+    """The refusals that read as evidence, reproduced from the real engine.
 
     Three of ``ifc_measure``'s renderers write „gemessen"/„deklariert" into
     prose that explains why NOTHING could be measured: a survey's head renders
     „gemessen: clearHeight an 0 von 4 Bauteilen", an element profile's head
     renders „gemessen an Wand X" whatever its aspects say, and `fire`'s
-    Fluchtniveau remedy ends „…dessen Höhe gemessen werden könnte". Under the
-    old vocabulary match all three granted measurement grounding, so a model
-    that invented a number on top of a refusal surfaced at "medium".
+    Fluchtniveau remedy ends „…dessen Höhe gemessen werden könnte". Matched on
+    those words, all three would grant measurement grounding, so a model that
+    invented a number on top of a refusal would surface at "medium".
 
     No payload here is written by hand — the engine runs over the repository's
     own fixtures, so the German is whatever the product actually emits.
@@ -261,10 +260,10 @@ class TestMeasurementDetectionIsScopedToTheMeasuringTool:
     def test_a_group_qualified_name_still_grants_grounding(self):
         """NAT delivers a grouped/MCP tool as ``bim__ifc_measure``.
 
-        An exact compare against the bare name made measurement grounding a
+        An exact compare against the bare name would make measurement grounding a
         function of deployment topology: under function-group or MCP prefixing
-        every measured answer silently fell back to the "low" floor this gate
-        exists to lift. Resolved through ``tool_search.tool_basename``, the same
+        every measured answer would silently fall back to the "low" floor this
+        gate exists to lift. Resolved through ``tool_search.tool_basename``, the same
         way the meta partition and the tool-search pins resolve a name.
         """
         result = _render(
@@ -296,7 +295,7 @@ class TestNormativeClaimDetection:
             "This complies with the building code.",
             "Die Verordnung schreibt das vor.",
             # The shapes a height requirement and a breach of it are actually
-            # written in — 26 of 30 of these used to slip past the brake.
+            # written in, and the brake must catch them.
             "Die lichte Raumhöhe muss mindestens 2,50 m betragen; gemessen wurden 2,42 m.",
             "Mit 2,42 m wird die Mindesthöhe unterschritten.",
             "Die Raumhöhe darf nicht unter 2,50 m liegen.",
@@ -318,10 +317,8 @@ class TestNormativeClaimDetection:
     @pytest.mark.parametrize(
         ("normative", "descriptive"),
         [
-            # Each pair differs in ONE word: the one under test. A test whose
-            # sentence carries two triggers proves nothing about either — the
-            # previous version of this suite asserted „nachgewiesen" in a
-            # sentence about „Feuerwiderstand", and passed on the Feuerwiderstand.
+            # Each pair differs in ONE word: the one under test. A sentence carrying two
+            # triggers proves nothing about either, since a case can pass on the other one.
             ("Die Raumhöhe ist damit nachgewiesen.", "Die Raumhöhe ist damit dokumentiert."),
             ("Der Grenzwert liegt bei 2,50 m.", "Der Messwert liegt bei 2,50 m."),
             ("Die Höhe unterschreitet 2,50 m.", "Die Höhe erreicht 2,50 m."),
@@ -342,10 +339,10 @@ class TestNormativeClaimDetection:
             "Über 17 Räume liegt die Raumhöhe zwischen 2,54 m und 2,81 m.",
             "Das Fenster im Wohnzimmer hat eine Brüstungshöhe von 0,90 m.",
             "Die Grundfläche des Raums ist 15,4 m², deklariert in der Datei.",
-            # „entspricht" was an ordinary descriptive verb doing duty as a
-            # compliance verdict: it fired on half of all measurement prose, put
-            # the answer back on the "low" floor, and filled the
-            # `confidence_capped` ledger with cases nobody should act on.
+            # „entspricht" is an ordinary descriptive verb, not a compliance verdict: it
+            # would fire on half of all measurement prose, put the answer back on the
+            # "low" floor, and fill the `confidence_capped` ledger with cases nobody should
+            # act on.
             "Das entspricht 15,4 m² Bodenfläche.",
             "Die Fläche beträgt 15,4 m², das entspricht rund 14 % der Geschoßfläche.",
             "Die Werte entsprechen einander in allen Geschoßen.",
@@ -355,10 +352,10 @@ class TestNormativeClaimDetection:
         ],
     )
     def test_pure_measurement_answers_do_not_fire_the_brake(self, text):
-        """These are the answers the change exists to un-hedge.
+        """These are the answers the gate exists to un-hedge.
 
         A false positive here is not harmless: it puts the measured answer
-        straight back on the "low" floor this whole change is about. The
+        straight back on the "low" floor this gate exists to lift. The
         descriptive superlatives a survey uses about its OWN numbers
         („Mindestwert", „maximal") are deliberately absent from the vocabulary
         for exactly this reason.
@@ -381,10 +378,10 @@ class TestNormativeClaimDetection:
     @pytest.mark.parametrize(
         "text",
         [
-            # THE gap: „muss" is the commonest deontic modal in OIB prose and the
-            # vocabulary had no word for it. A whole-answer verdict — the exact
-            # shape the agent produces after a real clearHeight measurement —
-            # surfaced at "medium" and was logged as a pure measurement.
+            # THE gap: „muss" is the commonest deontic modal in OIB prose, and the
+            # vocabulary must have a word for it. Without one, a whole-answer verdict — the
+            # exact shape the agent produces after a real clearHeight measurement — surfaces
+            # at "medium" and is logged as a pure measurement.
             "Die lichte Raumhöhe beträgt 2,20 m.\n"
             "Damit ist der Raum kein Aufenthaltsraum; die Decke muss angehoben werden.",
             "Die lichte Raumhöhe beträgt 2,20 m.\nFür einen Aufenthaltsraum ist das zu wenig.",
@@ -443,8 +440,8 @@ class TestNormativeClaimDetection:
         "text",
         [
             # Near-verbatim `ifc_measure` renderer output. Every one of these
-            # carries a normative STEM used about the APPARATUS, and every one
-            # of them used to re-floor the measured answer it was attached to.
+            # carries a normative STEM used about the APPARATUS, and each would re-floor
+            # the measured answer it is attached to.
             "Für die Ermittlung der lichten Höhe ist eine Geschoßzuordnung erforderlich.",
             "Das Bauteil ist für eine Messung der lichten Höhe geeignet.",
             "Das Bauteil ist für eine Volumenberechnung nicht geeignet.",
@@ -478,10 +475,8 @@ class TestNormativeClaimDetection:
             # „die gemessene Höhe ist zu wenig" is the commonest verdict shape
             # there is, so „gemessen" is deliberately not an apparatus word.
             # Each VERDICT here must carry no strong stem at all, or the case
-            # proves nothing about the weak tier: an earlier version paired
-            # „Der Raum ist als Aufenthaltsraum geeignet" — which fires on the
-            # strong `als aufenthaltsraum` — with its apparatus twin, and would
-            # have passed with the weak tier deleted outright.
+            # proves nothing about the weak tier. A verdict that fires on the strong
+            # `als aufenthaltsraum` would pass with the weak tier deleted outright.
             ("Die gemessene lichte Höhe ist zu wenig.", "Die Datei ist zu wenig."),
             ("Der Wohnraum ist dafür nicht geeignet.", "Der Raum ist für eine Messung geeignet."),
             ("Ein zweiter Fluchtweg ist hier erforderlich.", "Für die Ermittlung ist ein Geschoß erforderlich."),
@@ -500,9 +495,9 @@ class TestNormativeClaimDetection:
         verdict because another sentence mentioned a Messung would reinstate
         exactly the miss this test class exists to prevent.
 
-        The verdict sentence deliberately carries NO strong stem — an earlier
-        version said „der Raum ist kein Aufenthaltsraum", which fires on the
-        strong tier, so the test passed however the weak tier behaved.
+        The verdict sentence deliberately carries NO strong stem. A strong one, such
+        as „der Raum ist kein Aufenthaltsraum", would fire on the strong tier and
+        let the test pass however the weak tier behaved.
         """
         text = "Die Messung erfolgte an 4 von 4 Bauteilen.\nDamit ist die lichte Höhe zu wenig."
         assert answer_mentions_normative_claim(text) is True
@@ -528,9 +523,9 @@ class TestNormativeClaimDetection:
 
         This function never sees renderer output — it reads the model's finished
         answer, where naming the apparatus is exactly what a model does when it
-        states what the numbers mean. Every sentence here was measured firing at
-        ``862e453a^`` and silent at ``862e453a``: a fire-safety or habitability
-        verdict shipped at "medium" under reason ``measurement_only``.
+        states what the numbers mean. Every sentence here is a verdict the
+        suppressor must not silence: a fire-safety or habitability verdict silenced
+        by the carve-out ships at "medium" under reason ``measurement_only``.
         """
         assert answer_mentions_normative_claim(text) is True
 
@@ -547,31 +542,26 @@ class TestNormativeClaimDetection:
         """„Fluchtniveau" and „Feuerwiderstand" name a PROPERTY that only the
         Bestimmung fixes, so no context may disarm them.
 
-        The other two stems this test used to cover — „Brandschutz" and
-        „Brandabschnitt" — are now weak; see
+        „Brandschutz" and „Brandabschnitt" are weak tier; see
         :meth:`test_a_fire_safety_model_gap_report_is_not_a_verdict` for the
-        measurement that moved them and why this assertion was reversed for
-        them and not for these two.
+        measurement behind that, and why they are asserted differently from these two.
         """
         assert answer_mentions_normative_claim(text) is True
 
     @pytest.mark.parametrize(
         "text",
         [
-            # REVERSED, deliberately. Both of these were asserted True by the
-            # old `test_fire_safety_categories_are_strong_again`, on the
-            # strength of „promoting them back cost zero false fires across 294
-            # sentences" — which was measured IN-SAMPLE, on the corpora that
-            # existed when they were promoted, and did not hold out.
+            # Both are asserted NOT to fire, deliberately. A false-fire count measured
+            # in-sample does not hold out, so it does not justify a strong stem.
             #
             # Neither sentence is a verdict. Both say what the AUSWERTUNG
             # covers; nothing here is a claim about the building that anyone
-            # could act on, so asserting that the brake fires on them was
+            # could act on, so asserting that the brake fires on them would be
             # asserting a property nobody wants.
             "Die Auswertung betrifft den baulichen Brandschutz des Stiegenhauses.",
             "Die Messung umfasst den Brandabschnitt im Regelgeschoß.",
-            # The shape that actually cost the false fires: the model-gap
-            # report, which is the commonest real fire-safety answer there is.
+            # The shape that produces false fires: the model-gap report, which is the
+            # commonest real fire-safety answer there is.
             "Die Messung ergibt, dass im Modell keine Brandabschnitte hinterlegt sind.",
             "Ein Brandschutzkonzept liegt der Auswertung nicht bei.",
         ],
@@ -579,10 +569,10 @@ class TestNormativeClaimDetection:
     def test_a_fire_safety_model_gap_report_is_not_a_verdict(self, text):
         """B3. „Brandschutz"/„Brandabschnitt" demoted to the weak tier.
 
-        On the round-5 blind corpus the four fire-safety nouns cost 9 false
+        On the blind corpus the four fire-safety nouns cost 9 false
         fires, every one of them the same shape: a report that the MODEL does
         not carry the fire-safety data, which is what a fire-safety answer
-        mostly is. Re-measured across all 376 sentences of the four
+        mostly is. Measured across all 376 sentences of the four
         independently authored corpora, demoting these two clears 5 of those 9
         and adds not one miss (0 misses before, 0 after; 30 false fires → 25).
 
@@ -615,10 +605,10 @@ class TestNormativeClaimDetection:
     @pytest.mark.parametrize(
         "text",
         [
-            # VERBATIM from the first live end-to-end run of this branch:
+            # VERBATIM from a live end-to-end run:
             # gpt-5.6-luna, the real graph, the real 10.9 MB institute model.
             # A 0,250 m clearHeight outlier in a Keller survey, and the model
-            # recommending that the EXPORT be looked at — which re-floored a
+            # recommending that the EXPORT be looked at — which re-floors a
             # correct measured answer to "low" as `normative_claim_uncited`.
             "Dieser Ausreißer sollte im Modell geprüft werden",
             "Der Wert von 0,250 m sollte im Modell nachgezogen werden.",
@@ -626,12 +616,12 @@ class TestNormativeClaimDetection:
         ],
     )
     def test_a_recommendation_about_the_export_is_not_a_verdict(self, text):
-        """B4. „soll…" left the deontic modals — the only member that moves.
+        """B4. „soll…" is not a deontic modal.
 
         „muss" and „darf" state an obligation about the world; „soll…" is also
         the ordinary German for a SUGGESTION, and a measurement answer's
-        suggestions are about the export. On the four blind corpora the move is
-        exactly neutral (0 → 0 misses, 25 → 25 false fires over 376 sentences),
+        suggestions are about the export. Excluding it is exactly neutral on the
+        four blind corpora (0 → 0 misses, 25 → 25 false fires over 376 sentences),
         which proves no collateral damage but does not supply the case for it:
         only 2 of those 376 sentences carry „soll" at all. The case is the live
         run — 5 fires over 18 descriptive answers, of which this is one.
@@ -670,16 +660,16 @@ class TestNormativeClaimDetection:
         "text",
         [
             # The module's headline verdict, typed on an ordinary keyboard. It
-            # split on „;" and on „–" and NOT on „-", so the same sentence
-            # shipped a fire-escape-width verdict as ``measurement_only``
-            # depending only on which dash the model reached for.
+            # must cover „-" as well as „;" and „–", or the same sentence ships a
+            # fire-escape-width verdict as ``measurement_only``, depending only on which
+            # dash the model reached for.
             "Die Messung ergibt 0,95 m - der Fluchtweg ist zu schmal.",
             "Die Messung lief im Vollpfad - der Fluchtweg ist dennoch zu schmal.",
             "Die Auswertung zeigt 2,70 m -- das ist zu wenig.",
         ],
     )
     def test_a_spaced_ascii_hyphen_also_separates_the_verdict(self, text):
-        """„–" and „—" were listed; „-" was not, and „-" is what gets typed.
+        """„–" and „—" are listed; „-" is not, and „-" is what gets typed.
 
         None of these carries a strong stem, so the split is the only thing
         that can fire them.
@@ -690,7 +680,7 @@ class TestNormativeClaimDetection:
         "text",
         [
             # „dass|wie|was|damit" are the COMPLEMENT clauses. A verdict is
-            # drawn in the CONSEQUENCE clause, and none of those were listed.
+            # drawn in the CONSEQUENCE clause, which none of those introduce.
             "Die Messung ergibt 0,95 m, sodass der Fluchtweg zu schmal ist.",
             "Die Messung ergibt 0,95 m, so dass der Fluchtweg zu schmal ist.",
             "Die Messung ergibt 0,95 m, weshalb der Fluchtweg zu schmal ist.",
@@ -704,8 +694,8 @@ class TestNormativeClaimDetection:
 
         „Die Messung ergibt 0,95 m, sodass der Fluchtweg zu schmal ist" is one
         sentence with two subjects exactly as „…, dass …" is; leaving the
-        consequence connectives out let „Messung" disarm the verdict it was
-        introducing.
+        consequence connectives out lets „Messung" disarm the verdict it
+        introduces.
         """
         assert answer_mentions_normative_claim(text) is True
 
@@ -747,7 +737,7 @@ class TestNormativeClaimDetection:
             # Both clauses are about the APPARATUS. A conjunction between two
             # descriptive clauses is not a verdict, and splitting here would
             # strand „zu groß"/„zu klein" away from the word that disarms it.
-            # Both are corpus sentences (critic3 c3d-32, fixer3 f3d-25).
+            # Both are corpus sentences.
             "Der Raum ist zu groß für eine einzelne Messachse, daher wurde in zwei Achsen gemessen.",
             "Der Raum ist zu klein bemaßt worden, die Bemaßung wurde daher wiederholt.",
             "Die Messung ergibt 2,48 m, der Wert ist daher belastbar.",
@@ -772,7 +762,7 @@ class TestNormativeClaimDetection:
             # unspaced hyphen already follows. The adverb lookahead scans
             # forward to the end of the clause, so without the whitespace guard
             # „…2,48 m ist somit…" splits INSIDE the number, and a weak stem
-            # can end up in a clause its apparatus word no longer reaches.
+            # can end up in a clause its apparatus word does not reach.
             "Die Raumhöhe von 2,48 m ist somit ausreichend",
             "Die Messung von 0,95 m ist daher zu ungenau",
         ],
@@ -808,7 +798,7 @@ class TestNormativeClaimDetection:
         ],
     )
     def test_a_decimal_point_is_not_a_sentence_end(self, text):
-        """The English half of the decimal guard, and it cost a real false fire.
+        """The English half of the decimal guard.
 
         German prose writes „2,50 m" and the comma rule already covers it, but a
         model answering in English — or quoting a number straight off the engine
@@ -828,7 +818,7 @@ class TestNormativeClaimDetection:
         [
             # The same three, as sentences, where tearing the hyphen apart
             # strands „erforderlich"/„Sollwert" in a clause with no apparatus
-            # word left in it and the carve-out can no longer reach them.
+            # word left in it and the carve-out cannot reach them.
             "Für die Auswertung ist eine Modell-ID erforderlich.",
             "Die Auswertung nennt 2,20-2,50 m als Sollwert.",
         ],
@@ -847,22 +837,19 @@ class TestNormativeClaimDetection:
             "Gegen § 87 wurde verstoßen.",
             "Verstöße sind der Behörde zu melden.",
             "Ein Verstoss liegt vor.",
-            # „unterschritten" was covered from the first round; the other side
-            # of the same threshold never was, and it is the side a
-            # Gebäudehöhe is breached on.
+            # „unterschritten" is the other side of the same threshold, and it is the side
+            # a Gebäudehöhe is breached on.
             "Die Gebäudehöhe wird überschritten.",
             "Die zulaessige Hoehe wird ueberschritten.",
-            # „erlaubt" covered one register of permission out of four.
+            # Permission and prohibition each come in several registers; each is cased.
             "Die Nutzung ist untersagt.",
             "Eine Abweichung ist hier nicht gestattet.",
             "Der Grenzwert wurde missachtet.",
         ],
     )
     def test_verdict_vocabulary_that_had_no_pattern(self, text):
-        """Gaps confirmed silent on both ``862e453a`` and its parent.
-
-        Each is an unhedged legal verdict a reader acts on, and each used to
-        ship at "medium" with reason ``measurement_only``.
+        """Each of these is an unhedged legal verdict a reader acts on: a brake that
+        is silent on it lets it ship at "medium" with reason ``measurement_only``.
         """
         assert answer_mentions_normative_claim(text) is True
 
@@ -1072,7 +1059,7 @@ class TestMeasurementSignalReachesTheState:
 
     @pytest.mark.asyncio
     async def test_a_refused_measurement_plus_an_invented_number_grounds_nothing(self, mock_llm_provider, mock_llm):
-        """The report this fix came from, through the whole agent.
+        """A refusal whose remedy says „gemessen" must not ground the answer, end to end.
 
         `fire kind=fluchtniveau` on an export without storeys refuses, and the
         remedy sentence ends „…dessen Höhe gemessen werden könnte". The model
@@ -1098,15 +1085,15 @@ class TestMeasurementSignalReachesTheState:
 
 
 class TestTheSingleSourceFallbackIsNotTheModelsCitation:
-    """One stale session source used to launder a whole mixed answer.
+    """A stale session source must not launder a whole mixed answer.
 
     ``_append_minimal_citation`` fires when nothing the model cited survived
     verification and the cumulative registry holds exactly one source — which,
     across a conversation, is routinely a source captured on an EARLIER turn for
-    a different question. It set ``citation_grounded``, and the normative brake
-    is gated on the absence of citation grounding, so the brake never ran and
-    „Der Keller ist 2,70 m hoch und erfüllt damit OIB 4 Punkt 2.1" surfaced at
-    the model's own "high" with an unrelated Bauordnung link beside it.
+    a different question. Setting ``citation_grounded`` would switch off the
+    normative brake, which is gated on the absence of citation grounding, and
+    „Der Keller ist 2,70 m hoch und erfüllt damit OIB 4 Punkt 2.1" would surface
+    at the model's own "high" with an unrelated Bauordnung link beside it.
     """
 
     @pytest.fixture(autouse=True)
@@ -1164,7 +1151,7 @@ class TestTheSingleSourceFallbackIsNotTheModelsCitation:
         # Grounded — but by the fallback, not by anything the model cited.
         assert result.answer_citation_grounded is True
         assert result.answer_citation_fallback_used is True
-        # …so the brake runs, where before it was switched off entirely.
+        # …so the brake runs.
         assert result.answer_measurement_grounded is True
         assert result.answer_normative_claim_uncited is True
         assert (
@@ -1205,10 +1192,9 @@ class TestTheBibliographyStripIsNotAnEscapeHatch:
     „- [1] Wiener Bauordnung — https://ris…" is a pointer, not a claim, and the
     single-source fallback appends one to every answer it grounds.
 
-    Cutting at the LAST heading match assumed the heading was the last thing in
-    the answer. It is a rule about position, and the model controls position:
-    write „**Quellen:**", then keep writing, and every sentence after it left
-    the text before the brake saw it.
+    The cut is at the heading, not at the end of the answer. It is a rule about
+    position, and the model controls position: write „**Quellen:**", then keep
+    writing, and every sentence after it must still reach the brake.
     """
 
     def test_prose_after_a_reference_heading_is_not_a_reference(self):
@@ -1238,10 +1224,9 @@ class TestTheBibliographyStripIsNotAnEscapeHatch:
         ],
     )
     def test_a_genuinely_trailing_list_is_still_removed(self, content):
-        """The regression this strip exists to prevent, still prevented.
-
-        Leaving the bibliography in made every fallback-grounded answer read as
-        normative and floored purely descriptive measured answers to "low".
+        """Stripping the bibliography keeps every fallback-grounded answer from
+        reading as normative. Left in, it would floor purely descriptive measured
+        answers to "low".
         """
         kept = prose_without_references(content)
         assert kept.strip() == "Die Höhe beträgt 2,20 m."

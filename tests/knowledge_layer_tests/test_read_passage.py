@@ -1,7 +1,7 @@
 """The locator: opening a passage the agent can already NAME.
 
-``read_passage`` exists because the only way to reach a passage used to be a
-semantic search, so a second round that already knew what it wanted paid a full
+``read_passage`` exists because the only way to reach a passage is a
+semantic search, so a second round that already knew what it wanted pays a full
 search — reranker, requery judge and all — for a lookup it could address. These
 tests pin the four properties that make it a lookup rather than a second search:
 
@@ -140,9 +140,8 @@ class TestResolution:
     )
     def test_a_member_answers_to_the_names_the_family_line_uses(self, wanted: str):
         """The inventory names a family's parts as numbers („2, 2.1, 2.2, 2.3")
-        and a conclusion names one the way the office does. Each of those used
-        to be refused — a wasted round, an empty locator layer in the
-        Herleitung — with only the edition-bearing title accepted."""
+        and a conclusion names one the way the office does. Both resolve: refusing
+        either is a wasted round and an empty locator layer in the Herleitung."""
         assert _matches(_document("oib-rl_2.1_ausgabe_mai_2023.pdf"), wanted.strip().casefold())
 
     @pytest.mark.parametrize("wanted", ["OIB 2", "OIB-RL 2", "OIB-Richtlinie 2"])
@@ -257,7 +256,7 @@ class TestTheFilterIsTheAnswer:
     async def test_neither_punkt_nor_page_outlines_the_document_instead_of_refusing(self, store):
         """Naming only the document is the OVERVIEW question, not a malformed call.
 
-        It used to be refused, and the model answered the refusal by guessing a
+        It is answered, not refused: a refusal would push the model into guessing a
         Punkt. These chunks carry no `punkt_depth`, so the outline finds no
         heading structure and falls back to the document's opening pages — two
         fetches, and a block that says plainly there is no Gliederung to list.
@@ -282,7 +281,7 @@ class TestTheFilterIsTheAnswer:
 
     def test_a_long_tables_row_groups_come_back_in_order(self):
         """Every row group of a table shares page and ``punkt_id`` and its chunk
-        id is a random uuid: "Teil 1 von N" … "Teil N von N" came back shuffled."""
+        id is a random uuid, and "Teil 1 von N" … "Teil N von N" must still come back in order."""
         from knowledge_layer.llamaindex.captioned_tables import PageTable
         from knowledge_layer.llamaindex.punkt_chunking import punkt_documents
 

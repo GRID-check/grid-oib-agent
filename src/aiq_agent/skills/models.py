@@ -42,13 +42,12 @@ MAX_COMPATIBILITY_CHARS = 500
 #: name list (absent = all agents). ``grid-cards`` is a comma-separated list of
 #: preferred Grid output card types.
 #:
-#: A skill says nothing about WHEN a JOB runs or WHAT it produces.
-#: ``grid-execution`` and ``grid-schedulable`` used to live here; scheduling is
-#: a property of a JOB now (a prompt on a timer, with a skill optionally
-#: attached), so the output kind is the job's ``output`` column and there is no
-#: schedulability marker at all. Both keys are simply unreserved: a stored org
-#: row or an old SKILL.md still carrying one keeps it as an ordinary free-form
-#: metadata entry, and nothing reads it.
+#: A skill says nothing about WHEN a JOB runs or WHAT it produces: scheduling is
+#: a property of a JOB (a prompt on a timer, with a skill optionally attached),
+#: and the output kind is the job's ``output`` column. So there is no
+#: schedulability marker, and ``grid-execution`` and ``grid-schedulable`` are not
+#: reserved: a stored org row or a SKILL.md still carrying one keeps it as an
+#: ordinary free-form metadata entry, and nothing reads it.
 #:
 #: ``grid-auto-invoke`` is the same kind of leftover, and is listed here for
 #: the same reason: it is still validated so an old document parses, and it is
@@ -212,11 +211,10 @@ def _pop_allowed_tools(payload: dict[str, Any]) -> str | None:
     """Read the tool allowlist under either spelling.
 
     SKILL.md frontmatter spells it ``allowed-tools`` (the Agent Skills spec);
-    the BFF row and this module's own field spell it ``allowed_tools``. Reading
-    only the underscore form meant a hand-written SKILL.md declaring
-    ``allowed-tools`` had its allowlist silently dropped — a permission
-    narrowing that vanishes is worse than one that errors, so both spellings
-    are accepted and the hyphenated one wins where a file sets both.
+    the BFF row and this module's own field spell it ``allowed_tools``. Both
+    spellings are accepted, because a permission narrowing that vanishes
+    silently is worse than one that errors; the hyphenated one wins where a file
+    sets both.
     """
     hyphenated = payload.pop("allowed-tools", None)
     underscored = payload.pop("allowed_tools", None)
@@ -370,8 +368,8 @@ def _validate_grid_auto_invoke(value: str, *, strict: bool) -> str | None:
 def _stringify_metadata_value(key: str, value: Any) -> str:
     """GRID metadata is strings. YAML and JSON both have native booleans.
 
-    An unquoted ``grid-hidden: true`` is a YAML bool. Rejecting it used to take
-    down every builtin when one file used that spelling. Coerce, then validate.
+    An unquoted ``grid-hidden: true`` is a YAML bool, and rejecting it would take
+    down every builtin when one file uses that spelling. Coerce, then validate.
     Integers follow for the same reason (``grid-hidden: 1``). Nested types stay
     an error — those are not a spelling of a flag.
     """

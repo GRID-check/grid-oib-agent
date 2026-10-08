@@ -11,9 +11,9 @@
  * it *changes* as the state changes, and the three states cannot coexist in one
  * composer. Stacked here, the transition is legible in a single still:
  *
- *   1. **Silence** — the default, and where a thread always returns. It used to
- *      state "Geht an Piloti" here; that sentence described the case the user is
- *      already in and was rendered forever to do it. What remains on the line is
+ *   1. **Silence** — the default, and where a thread always returns. There is no
+ *      "Geht an Piloti" line here: it would only restate the case the user is
+ *      already in. What remains on the line is
  *      the `@` offer, which is not a statement but the only thing in the product
  *      that teaches mentions exist. Captured deliberately: an empty row IS the
  *      evidence, and without it nothing would show that the other two are
@@ -22,11 +22,11 @@
  *      the agent will stay out; paired with the "Piloti antwortet nicht" hint, which
  *      the user must see BEFORE sending.
  *   3. **Geht an den Chat** — the thread is waiting on a named person, so a plain
- *      message is a remark. This is the rendering the defect was about, and it is the
- *      one that has to carry the way back (`@Piloti eingeben, …`).
+ *      message is a remark. This rendering has to carry the way back
+ *      (`@Piloti eingeben, …`).
  *
  * The fourth row is the honest edge case: tagging a person *and* `@Piloti` addresses
- * both (MN-1), so both are named and the "Piloti stays quiet" hint is suppressed —
+ * both, so both are named and the "Piloti stays quiet" hint is suppressed —
  * it would be a false statement.
  *
  * Fetch-free by construction: the component takes its state as props (the composer is
@@ -129,10 +129,9 @@ function Previews(): JSX.Element {
     <>
       <section className="space-y-3">
         <Eyebrow>Standard — der Chat fragt Piloti, ohne es zu sagen</Eyebrow>
-        {/* `onMentionSomeone` is passed because the real composer passes it, and
-            without it this preview quietly captured a state the product never
-            shows: the affordance renders only when a handler exists, so every
-            screenshot taken here was evidence for a variant nobody sees. */}
+        {/* `onMentionSomeone` is passed because the real composer passes it: the
+            affordance renders only when a handler exists, and without the handler
+            this preview would capture a state the product never shows. */}
         <MockComposer text="Gilt die 40-m-Grenze auch für das nördliche Treppenhaus?">
           <AddresseeIndicator
             mentions={[]}
@@ -162,9 +161,7 @@ function Previews(): JSX.Element {
           hint={{
             icon: 'at',
             // The PLURAL key: German inflects the verb, so the singular string
-            // rendered "Anna Berger, Tobias Kern wird gefragt" — wrong grammar,
-            // and this preview reproduced it because it copies the real
-            // composer's hint rather than sharing it.
+            // gives wrong grammar ("Anna Berger, Tobias Kern wird gefragt").
             body: t('mentions.composerHintMany', {
               names: `${ANNA.display}, ${TOBIAS.display}`,
             }),

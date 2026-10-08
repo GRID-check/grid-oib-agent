@@ -135,10 +135,9 @@ class _ReflectionFinding(BaseModel):
         A reply that came back through native structured output already fits.
         The fallback path (no ``response_format``) does not: a model writes
         ``"High"``, omits ``importance``, or adds a key the prompt never asked
-        for, and each of those used to be handled by 40 lines of imperative
-        coercion downstream. Folded here, one validated model is the only shape
-        the rest of this module handles. Only ``kind`` has no safe default — a
-        guessed category mislabels the row — so an unreadable one still fails.
+        for. Folded here, one validated model is the only shape the rest of this
+        module handles. Only ``kind`` has no safe default — a guessed category
+        mislabels the row — so an unreadable one still fails.
         """
         if not isinstance(data, dict):
             return data
@@ -278,7 +277,7 @@ def _finding_from_entry(
     """One insertable finding from a proposed entry, or None when it does not qualify.
 
     Drops anything malformed, out-of-vocabulary, empty, already present in the
-    digest, or matching a PII/secret shape (audit finding S4). The guard runs
+    digest, or matching a PII/secret shape. The guard runs
     HERE and not only at the write endpoint so a dropped finding never counts
     against ``MAX_NEW_ITEMS``.
     """
@@ -316,7 +315,7 @@ def _sanitize_findings(
     The autonomous reflection stage records project-scoped findings ONLY — it
     never writes ``organization`` scope. Firm-wide memory poisons every project
     in the tenant and there is no write-time authorization gate or human review,
-    so org-wide writes stay a deliberate, human-driven action (audit finding S1).
+    so org-wide writes stay a deliberate, human-driven action.
 
     The cap applies to what SURVIVES the filters, not to what the model
     proposed: a dropped finding must not cost a real one its slot.
@@ -339,7 +338,7 @@ def _sanitize_findings(
 #: Duplicated from ``piloti/envelope_call.is_parameter_rejection``
 #: rather than imported: that module sits inside the research package,
 #: whose ``__init__`` pulls the whole agent in, and this one is imported from a
-#: post-answer stage. It belongs in ``common/`` — see the round-1 report.
+#: post-answer stage. It belongs in ``common/``.
 _PARAMETER_REJECTION_STATUSES = frozenset({400, 422})
 
 
@@ -390,7 +389,7 @@ async def _write_finding(
     """Record one finding, returning the row the frame carries, or None if it did not land."""
     item_id = await asyncio.to_thread(
         insert_memory_item,
-        # Always project scope — org-wide writes are excluded (audit S1).
+        # Always project scope: org-wide writes are excluded here.
         scope="project",
         project_id=project_id,
         organization_id=organization_id,
@@ -430,7 +429,7 @@ async def _record_findings(
     are gathered rather than walked: five sequential 5s-timeout calls inside a
     45s stage budget is the whole batch riding on the slowest link. Order is
     preserved, which the frame's "in write order" contract depends on. Two
-    near-duplicate findings in one batch now race the BFF's dedup; the partial
+    near-duplicate findings in one batch race the BFF's dedup; the partial
     UNIQUE indexes make the loser an error that is logged and dropped, the same
     outcome the sequential second write reached by merging.
     """

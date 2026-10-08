@@ -9,16 +9,16 @@
  * foreign key), then delete the conversation row, whose `ON DELETE CASCADE`
  * takes the document rows with it.
  *
- * Between those two steps there used to be a hole. An upload that had already
- * passed `createConversation` — the conversation was still perfectly alive when
- * it did — went on to write its object and insert its row AFTER the purge had
- * finished walking. The cascade then removed that row, and its object and its
- * chunks stayed: private bytes in the tenant's bucket, private text in the
- * retrieval index, nothing naming either, no listing showing them, and the only
- * handle that could ever drive a retry deleted by the very statement that was
- * supposed to be cleaning up.
+ * Between those two steps is a hole. An upload that has already passed
+ * `createConversation` — the conversation is still alive at that point — can
+ * write its object and insert its row AFTER the purge has finished walking. The
+ * cascade then removes that row, and its object and its chunks stay: private
+ * bytes in the tenant's bucket, private text in the retrieval index, nothing
+ * naming either, no listing showing them, and the only handle that could ever
+ * drive a retry deleted by the very statement that was supposed to be cleaning
+ * up.
  *
- * The fix is a state, not a lock: the discard marks the conversation as
+ * The guard is a state, not a lock: the discard marks the conversation as
  * deleting BEFORE it purges anything, and the upload re-reads that mark
  * immediately before the object write. This file drives the interleaving by
  * hand — the upload is suspended inside its quota check, the discard is allowed
@@ -243,17 +243,17 @@ beforeEach(() => {
 
 describe('an upload that races a conversation delete', () => {
   /**
-   * The regression, driven step by step.
+   * The interleaving, driven step by step.
    *
-   * Without the fix this test fails on its first assertion: the upload gets no
-   * second look at the conversation, so `PutObjectCommand` is sent while the
-   * discard is mid-purge, and the row that would have named that object is
-   * removed moments later by the cascade.
+   * Without the re-read, this test fails on its first assertion: the upload
+   * gets no second look at the conversation, so `PutObjectCommand` is sent
+   * while the discard is mid-purge, and the row that would have named that
+   * object is removed moments later by the cascade.
    */
   it('is refused after the discard finished, before any byte is written', async () => {
     // (1) The upload starts on a live conversation and parks inside its quota
-    //     check — i.e. it has already passed `createConversation`, which is the
-    //     only authorization the old code performed.
+    //     check — i.e. it has already passed `createConversation`, which, before
+    //     the mark, is the only authorization check.
     const upload = uploadSessionDocument(session, { conversationId: CONVERSATION_ID, file: file() }, new Request('http://x'))
     const settled = upload.catch((error: unknown) => error)
     await until(() => assertWithinStorageQuota.mock.calls.length > 0)

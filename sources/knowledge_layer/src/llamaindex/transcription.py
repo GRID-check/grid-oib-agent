@@ -8,8 +8,8 @@ provider key for ``AIQ_VLM_BASE_URL``), and the reply becomes the page's text.
 It is then chunked like any other page: a transcription is text, not a visual,
 so it never enters the drawing schema.
 
-There is no local OCR engine by decision (2026-09-29): no tesseract, no new
-container, no GPU. Why this route and not OpenRouter's ``file-parser`` plugin:
+There is no local OCR engine, by decision: no tesseract, no new container, no
+GPU. Why this route and not OpenRouter's ``file-parser`` plugin:
 ``docs/architecture/visual-ingestion.md`` ("Scans and garbled text layers").
 
 Results are cached in the VLM cache (Dragonfly) under their own prompt type,
@@ -94,9 +94,9 @@ def resolve_ocr_model(vlm_model: str, org_override: str | None = None) -> str:
     """The model that transcribes: the org's vision override, else ``AIQ_OCR_MODEL``, else the VLM.
 
     The org's ``ingest_vlm`` override wins because it is the tenant's own choice
-    of vision model, made in the admin UI; a separate ``ingest_ocr`` group was
-    not added (it would be a new picker row, a new bootstrap default and a new
-    config key in the BFF for a choice no tenant has asked to make separately).
+    of vision model, made in the admin UI. A separate ``ingest_ocr`` group would
+    be a new picker row, a new bootstrap default and a new config key in the BFF,
+    for a choice no tenant has asked to make separately.
     """
     return org_override or os.environ.get(OCR_MODEL_ENV, "").strip() or vlm_model
 
@@ -258,7 +258,7 @@ class PageRoutes:
     """Where the triage sent each page of one PDF, and what came of it.
 
     ``drawing_pages`` is ``None`` when the PDF could not be measured: the
-    renderer then applies its own drawing check, as before triage existed.
+    renderer then applies its own drawing check.
     """
 
     drawing_pages: set[int] | None = None

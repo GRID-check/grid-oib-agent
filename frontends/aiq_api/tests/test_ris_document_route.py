@@ -1,7 +1,7 @@
 """Tests for the internal RIS document-reader route.
 
 The route exists so a RIS citation opens INSIDE Piloti rather than in a browser
-tab (#622), and everything it must not do is a refusal it inherits from
+tab, and everything it must not do is a refusal it inherits from
 ``RisClient``: a non-RIS host, a document RIS only publishes as a PDF, a
 reference that is neither a number nor a URL. Those are all statements about
 the REQUEST, so they must come back as 400s the BFF can turn into "this source
@@ -36,8 +36,7 @@ def _no_cached_documents(monkeypatch):
     reads through the shared Dragonfly cache. Both are the point in production
     and both are pollution here: every case below fetches the same URL, so
     without this the first case's document is served to all the rest and a test
-    asserting a transport failure passes on an earlier test's success. Which is
-    exactly what happened when this file was first written.
+    asserting a transport failure passes on an earlier test's success.
 
     The caching itself is asserted on purpose in its own case below, rather than
     left as an accident of ordering.
@@ -133,7 +132,7 @@ async def test_says_truncated_rather_than_ending_mid_sentence(client):
 async def test_an_over_long_document_is_windowed_around_the_cited_passage(client):
     """A citation is a pointer INTO a document, so clipping the head loses it.
 
-    Measured 2026-09-04: the Bauordnung für Wien is 759,595 characters and its
+    The Bauordnung für Wien is 759,595 characters and its
     § 108 sits at 524,079; the ASVG is 4,294,779. Whatever the ceiling is set to,
     a document clipped at its start is the one shape the answer must never take,
     because it drops the very paragraph the reader clicked to check.
@@ -232,10 +231,9 @@ async def test_an_unreachable_ris_is_a_bad_gateway(client):
 async def test_reads_through_the_shared_cache_rather_than_refetching(client, monkeypatch):
     """The reader and the agent share one cached document.
 
-    The read-through used to be written inline in ``ris_fetch_document``, so this
-    route — added later — fetched live on every open while its own docstring
-    claimed the cache. A helper only one caller applies is a helper the next
-    caller forgets, which is why it is a shared function now.
+    The read-through is one helper rather than code inline in each route: a helper
+    only one caller applies is a helper the next caller forgets, so the reader and
+    the agent share it.
     """
     monkeypatch.setattr(
         "ris_adapter.cache.cache_get_json",

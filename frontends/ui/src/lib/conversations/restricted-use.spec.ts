@@ -2,9 +2,10 @@
  * @vitest-environment node
  */
 /**
- * The per-person rule for restricted folders (ADR-0080, ADR-0081; product owner
- * 2026-10-02: "only when actually used … being restricted is unique to one
- * person"), driven with the stores mocked and the folder rule real. The record
+ * The per-person rule for restricted folders (ADR-0080, ADR-0081): a folder
+ * restricts a conversation only when it was actually used, and only for the
+ * people who may not read it. Driven with the stores mocked and the folder rule
+ * real. The record
  * names SOURCE FOLDERS and is judged against the folders' access at read time.
  * The SQL, the lock and the races are `restricted-use.integration.spec.ts`,
  * against Postgres.
@@ -21,7 +22,7 @@ const COLLECTION = 'proj_alpha'
 /** Verträge: Geschäftsführung writes, „Verträge" reads. Personal: Geschäftsführung only. */
 const VERTRAEGE_ID = '01234567-89ab-4cde-8f01-23456789abcd'
 const PERSONAL_ID = 'ba987654-3210-4cde-8f01-23456789abcd'
-/** Once restricted, since opened to everyone. */
+/** A folder opened to every member. */
 const OPENED_ID = 'c0ffee00-0000-4000-8000-000000000001'
 /** A deleted folder's tombstone, Geschäftsführung only. */
 const DELETED_ID = 'dead0000-0000-4000-8000-000000000001'
@@ -264,7 +265,7 @@ describe('recordedRestrictedFolders — judged at read time', () => {
     expect(await recordedRestrictedFolders(CONV, ORG)).toEqual([])
   })
 
-  it('drops a folder since opened to every member: loosening opens what was derived from it', async () => {
+  it('drops a folder opened to every member: loosening opens what was derived from it', async () => {
     state.recorded = [VERTRAEGE_ID, OPENED_ID]
     expect(await recordedRestrictedFolders(CONV, ORG)).toEqual([VERTRAEGE_ID])
   })
@@ -397,7 +398,7 @@ describe('peopleWhoMayRead: who may read the conversation now (ADR-0081)', () =>
     expect([...(await peopleWhoMayRead(ORG, CONV, ['user_nobody']))]).toEqual(['user_nobody'])
   })
 
-  it('judges a folder opened to everyone since as no restriction, and a narrowed one as a new one', async () => {
+  it('judges a folder opened to everyone as no restriction, and a narrowed one as restricting', async () => {
     state.recorded = [OPENED_ID]
     expect((await peopleWhoMayRead(ORG, CONV, ['user_nobody'])).has('user_nobody')).toBe(true)
 
@@ -454,7 +455,7 @@ describe('peopleWhoMayRead: who may read the conversation now (ADR-0081)', () =>
   })
 })
 
-describe('lockedConversationIds: which of a list the session may no longer read (ADR-0081)', () => {
+describe('lockedConversationIds: which of a list the session may not read (ADR-0081)', () => {
   const asGf = { ...session, role: 'org-gf', roles: ['org-gf'] } as AuthorizedSession
   const asNobody = { ...session, userId: 'user_nobody', role: 'member', roles: ['member'] } as AuthorizedSession
   const list = [
@@ -474,7 +475,7 @@ describe('lockedConversationIds: which of a list the session may no longer read 
     ])
   })
 
-  it('locks the chats whose recorded folders the roles no longer reach, creator or not, and leaves the rest', async () => {
+  it('locks the chats whose recorded folders the roles do not reach, creator or not, and leaves the rest', async () => {
     expect([...(await lockedConversationIds(asNobody, list))].sort()).toEqual(['c_orphan', 'c_personal', 'c_vertraege'])
     expect([...(await lockedConversationIds(asGf, list))].sort()).toEqual(['c_orphan'])
   })

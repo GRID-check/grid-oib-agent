@@ -1,13 +1,14 @@
 /**
  * Lenient, per-part salvage of a stored {@link ProjectProfile}.
  *
- * The intake page used to `ProjectProfileSchema.safeParse` the stored profile and
- * fall back to `null` on ANY failure — a single malformed fact discarded the whole
- * brief, the wizard opened blank in create mode, and the next Save overwrote the
- * stored profile with only the freshly-typed answers (silent data loss).
+ * Validating the stored profile as one `ProjectProfileSchema.safeParse` and
+ * falling back to `null` on ANY failure would discard the whole brief on a
+ * single malformed fact: the wizard would open blank in create mode, and the
+ * next Save would overwrite the stored profile with only the freshly-typed
+ * answers (silent data loss).
  *
- * This helper instead validates each part individually and keeps everything that
- * is still well-formed, dropping only the invalid entries. It reports what was
+ * This helper validates each part individually and keeps everything that is
+ * still well-formed, dropping only the invalid entries. It reports what was
  * dropped so the wizard can show an honest banner ("parts could not be loaded and
  * will be replaced when you save") instead of silently discarding data.
  *
@@ -117,10 +118,9 @@ export interface IntakeEntry {
  * Derive the intake page's mode / initialProfile / banner from a raw stored
  * profile in one coherent decision.
  *
- * A salvaged profile that retained ANY content — facts, goals, unknowns, OR
- * assumptions — is USED: the wizard opens in edit mode prefilled from it, so an
- * assumptions-only brief is no longer silently dropped into create mode by a
- * facts/goals/unknowns-only count. A genuinely empty profile (e.g. the `{}`
+ * A salvaged profile that retains ANY content — facts, goals, unknowns, OR
+ * assumptions — is used: the wizard opens in edit mode prefilled from it,
+ * including for an assumptions-only brief. A genuinely empty profile (e.g. the `{}`
  * default of a fresh project) has no content and opens in create mode. The
  * banner is 'partial' when parts were dropped but a profile survived, 'full'
  * when nothing salvageable remained, and null when the brief loaded cleanly.

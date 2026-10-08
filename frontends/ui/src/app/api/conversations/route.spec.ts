@@ -2,10 +2,8 @@
  * @vitest-environment node
  */
 /**
- * The conversation list is where the accidental org-wide readability of chats was
- * visible from the outside: it used to return EVERY conversation in the
- * organization (spec §3 fact 1, ADR-0032). It now returns what the caller may
- * actually see, filtered in SQL.
+ * The conversation list returns what the caller may see, filtered in SQL, and
+ * never every conversation in the organization (spec §3 fact 1, ADR-0032).
  *
  * The DB is a drizzle `pg-proxy` instance — a real query builder over a callback
  * "driver" that records the statement instead of connecting anywhere — because the
@@ -63,10 +61,9 @@ describe('GET /api/conversations', () => {
     expect(requireProjectAccessMock).not.toHaveBeenCalled()
 
     const { sql, params } = onlyQuery()
-    // Tenancy lives in SQL, as before.
+    // Tenancy lives in SQL.
     expect(sql).toContain('"conversations"."organization_id" = $1')
-    // ...but org membership alone is no longer enough to see a row. Deliberate
-    // tightening (spec MG-1): this list used to return the whole organization.
+    // ...but org membership alone is not enough to see a row (spec MG-1).
     expect(sql).toContain('"conversations"."created_by" = $2')
     expect(sql).toContain('exists (select 1 from "resource_shares"')
     expect(params).toContain('organization')

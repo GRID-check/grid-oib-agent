@@ -10,17 +10,16 @@
  * two counters that let a button re-trigger a camera move it has already
  * triggered once.
  *
- * That state used to live inside the viewer component, so the only way to give
- * a second surface different chrome was to grow a `variant` prop and branch on
- * it — which is how the old viewer ended up rendering a toolbar, a legend, a
- * status chip and a hint line, each behind a different condition. Pulling the
- * state out means the chrome is just composition: the stage draws a dock, the
- * preview draws nothing, and neither knows what the other does.
+ * The state lives here, outside the viewer component, so a second surface with
+ * different chrome is composition rather than a `variant` prop branching inside
+ * one component. Otherwise that component ends up rendering a toolbar, a legend,
+ * a status chip and a hint line, each behind a different condition. The stage
+ * draws a dock, the preview draws nothing, and neither knows what the other does.
  *
  * The hook owns no DOM and no renderer. It hands back a ready-made props
- * object for the canvas so a caller cannot forget to thread one through — the
- * x-ray set went unwired for a whole release because it was one of eleven
- * hand-copied props.
+ * object for the canvas so a caller cannot forget to thread one through.
+ * Hand-copied props are easy to leave out one at a time, and nothing reports
+ * which one is missing.
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
@@ -168,12 +167,13 @@ export interface ModelViewport {
    * pivoting around" must not name something that is not drawn, which is what
    * {@link selectedExpressId} answers. "What did the reader ask about" is a
    * different question with a different answer, and the card is mounted on
-   * THAT one: a reader who isolates a wall and then picks another from the
+   * THAT one. A reader who isolates a wall and then picks another from the
    * rail is looking at a card for an element the viewport has resolved to
-   * null, and every control on it that needed an id had quietly gone — the
-   * isolate button included, which is the one control that would have put
-   * them somewhere else. Null still means no selection at all, and it is null
-   * for an element this model does not contain.
+   * null; if the card keyed its controls on the renderer's id, every one of
+   * them would quietly disappear, the isolate button included, and that is the
+   * one control that would put the reader somewhere else. Null still means no
+   * selection at all, and it is null for an element this model does not
+   * contain.
    */
   selectedElementExpressId: number | null
   camera: BimViewerCameraState
@@ -229,13 +229,12 @@ export function useModelViewport({
   /**
    * A failure belongs to the source that produced it.
    *
-   * The error fallback returns BEFORE the canvas renders, so once a status of
-   * `error` was stored the canvas never mounted again — and only the canvas
-   * can report a new status. A new `sourceUrl` (the next model, or a re-signed
-   * URL after the first one expired) therefore stayed unavailable until the
-   * whole parent unmounted. Deriving from the current source, rather than
-   * resetting in an effect, avoids the frame where the old error is still on
-   * screen under the new URL.
+   * The error fallback returns BEFORE the canvas renders, so a stored status of
+   * `error` would stop the canvas mounting again, and only the canvas can report
+   * a new status. A new `sourceUrl` (the next model, or a re-signed URL after the
+   * first one expired) must not inherit that failure. Deriving from the current
+   * source, rather than resetting in an effect, avoids the frame where the old
+   * error is still on screen under the new URL.
    */
   const [statusSource, setStatusSource] = useState<string | null>(sourceUrl)
   const current: IfcViewerStatus =
@@ -281,11 +280,11 @@ export function useModelViewport({
    *
    * The camera lives in the URL, which is right — a view is a link. But a
    * continuous control cannot be driven through a router: the cut slider is a
-   * controlled input, every step of a drag was a `router.replace`, and in the
-   * App Router that re-runs the server component tree. The value the thumb is
-   * pinned to therefore lagged the pointer by a round trip, React reset the
-   * thumb to it on every render, and the slider did not move at all. It read
-   * as a hard floor at whatever height the cut had been switched on at.
+   * controlled input, and a drag that wrote every step to the router would re-run
+   * the server component tree on each one. The value the thumb is pinned to
+   * would then lag the pointer by a round trip, React would reset the thumb to
+   * it on every render, and the slider would not move at all, reading as a hard
+   * floor at whatever height the cut was switched on at.
    *
    * So the drag has a local value that WINS over the URL until the URL agrees
    * with it. `previewCut` is per step and costs a React render; `setSection`
@@ -431,10 +430,10 @@ export function useModelViewport({
     `bounds` is written once, by the canvas, after the new file has parsed —
     and the canvas unmounts on the way there (a null source URL takes
     `canvasProps` to null) without ever reporting a null. So between picking a
-    model in the rail and its geometry arriving, the section slider rendered
+    model in the rail and its geometry arriving, the section slider would render
     the PREVIOUS building's minimum and maximum metres as a fact about the one
-    on screen, and `clampCut` pinned the URL's cut height into that stale
-    extent — then wrote the clamped value back on the next commit. A cut
+    on screen, and `clampCut` would pin the URL's cut height into that stale
+    extent, then write the clamped value back on the next commit. A cut
     travels in the link, so this is the ordinary path, not a corner.
   */
   useEffect(() => {
@@ -495,14 +494,14 @@ export function useModelViewport({
 
         Isolating does not clear the selection, so the button stays right
         under the cursor with the whole building gone from around it — which
-        is precisely when a reader presses it again. That press used to
-        compare equal to the state already on screen and be dropped: the one
-        control the reader had just used, still sitting there, now inert. Nor
-        was there anything else to press ON the isolated element — the way
-        back was a reset pill in the dock, several controls away, that also
-        discards every hide made before it. So the press that took everything
-        else away is the press that brings it back, and only the isolation
-        goes: hides made before it are a separate act and survive.
+        is precisely when a reader presses it again. That press must bring the
+        building back rather than be dropped as a no-op: the control the reader
+        has just used is still there, and there is nothing else to press ON the
+        isolated element. The only other way back is a reset pill in the dock,
+        several controls away, which also discards every hide made before it. So
+        the press that took everything else away is the press that brings it
+        back, and only the isolation goes: hides made before it are a separate
+        act and survive.
       */
       isolate: (expressIds) => {
         const next = new Set(expressIds)
@@ -560,8 +559,8 @@ export function useModelViewport({
    *
    * State rather than a ref: a ref written during an event handler is not read
    * again until something else re-renders, and on a selection that arrives
-   * from the URL nothing else does — so the ref version silently framed the
-   * camera on canvas clicks too, whenever React batched the two updates.
+   * from the URL nothing else does, so a ref would silently frame the camera on
+   * canvas clicks too, whenever React batched the two updates.
    */
   const [clickedInCanvas, setClickedInCanvas] = useState<string | null>(null)
   const handleCanvasSelect = useCallback(
@@ -575,12 +574,11 @@ export function useModelViewport({
   /**
    * The marker is about the LAST selection, not about the element forever.
    *
-   * It was only ever written by the canvas, so once a wall had been clicked in
-   * the viewport its id stayed here for the rest of the session: pick that
-   * same wall later from the element table, a search result or a chat chip and
-   * the camera would not move, while the row above it — a wall never clicked —
-   * flew the camera across the building. Same list, same gesture, two
-   * behaviours, and nothing on screen to explain the difference.
+   * Written only by the canvas, the marker would otherwise keep a wall's id for
+   * the rest of the session: picking that wall later from the element table, a
+   * search result or a chat chip would not move the camera, while a wall never
+   * clicked in the viewport would. Same list, same gesture, two behaviours, and
+   * nothing on screen to explain the difference.
    *
    * Cleared as soon as the selection moves elsewhere, so the marker only ever
    * describes the selection it was recorded for.

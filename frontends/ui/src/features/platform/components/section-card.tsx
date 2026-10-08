@@ -3,10 +3,9 @@
 /**
  * One section of the platform dashboard.
  *
- * Every admin surface previously hand-rolled its own chrome: its own skeleton,
- * its own "could not load" card, its own retry button, its own empty state —
- * all subtly different, and each one a place to forget the retry entirely.
- * This is that shape, once.
+ * Admin surfaces that hand-roll their own chrome each get their own skeleton,
+ * "could not load" card, retry button and empty state — all subtly different,
+ * and each one a place to forget the retry entirely. This is that shape, once.
  *
  * The contract is deliberately narrow: give it a title, a description, an
  * optional action, and the state of your fetch. It decides what to render.

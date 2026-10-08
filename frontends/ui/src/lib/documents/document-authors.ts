@@ -25,13 +25,11 @@ export type DocumentAuthor = (typeof DOCUMENT_AUTHORS)[number]
 /**
  * What KIND of identifier `documents.authored_by_ref` holds (migration 0066).
  *
- * The column used to be called `authored_by_run_id` and its comment said, in
- * the schema and in the catalog, "the backend async job id of the run". That
- * was true of the only producer there was. It stopped being true when there
- * were three: a diagram's reference is `{chat message id}-{hash of its
- * source}`, built in the browser so that one answer holding two diagrams files
- * two documents. A perfectly good identity — just not a job id, with nothing in
- * the row saying so.
+ * The column holds one of two kinds of identifier, and the kind is recorded
+ * beside it. An `agent_run` id is a backend async job id, but a diagram's
+ * reference is `{chat message id}-{hash of its source}`, built in the browser so
+ * that one answer holding two diagrams files two documents. That is a good
+ * identity, just not a job id, so the row has to say which one it holds.
  *
  *   - `agent_run` — a backend async job id, in the `aiq_api` job store.
  *   - `answer_artifact` — ONE artifact inside ONE chat answer.
@@ -59,8 +57,8 @@ export type DocumentAuthor = (typeof DOCUMENT_AUTHORS)[number]
  * maps each producer to the kind it files under, and the one filing path reads
  * it from there — because a producer is a KIND OF DELIVERABLE and the kind of
  * identity a deliverable is filed under is a property of the deliverable, not a
- * decision its caller re-takes each time. That is what stops the column and its
- * meaning from drifting apart the way the column and its comment did.
+ * decision its caller re-takes each time. That keeps the column and its meaning
+ * from drifting apart.
  */
 export const AUTHORED_REF_KINDS = ['agent_run', 'answer_artifact'] as const
 export type AuthoredRefKind = (typeof AUTHORED_REF_KINDS)[number]

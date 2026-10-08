@@ -2,7 +2,7 @@
 
 Wraps the agent's fail-open Dragonfly/Redis cache (``aiq_agent.common.cache``,
 ADR-0020) so RIS document fetches and live searches are cached across chat
-turns, process restarts, and replicas. Previously every ``ris_fetch_document``
+turns, process restarts, and replicas. Without it, every ``ris_fetch_document``
 downloaded the full document and every ``ris_search`` hit the live API (plus the
 planner LLM) again — real, repeated spend for identical requests.
 
@@ -73,8 +73,8 @@ def _digest(text: str) -> str:
 #: The shape of the text ``client.html_to_text`` makes, in the document key.
 #: The cache holds CONVERTED text for days, so a change to the conversion is
 #: invisible until every entry expires unless the key moves with it. Bump it
-#: with any change to what ``html_to_text`` keeps. 2: screen-reader twins
-#: (``.sr-only``) dropped.
+#: with any change to what ``html_to_text`` keeps. Version 2 drops screen-reader
+#: twins (``.sr-only``).
 DOC_TEXT_VERSION = 2
 
 
@@ -121,12 +121,10 @@ async def cache_set_json(key: str, value: Any, ttl_seconds: int) -> None:
 async def fetch_document_cached(client: RisClient, url: str) -> RisDocument:
     """Fetch a RIS document, through the shared cache.
 
-    THE READ-THROUGH LIVES HERE BECAUSE IT HAS TWO CALLERS. It used to be
-    written inline in ``ris_fetch_document``, so when ``GET /v1/ris/document``
-    was added — the reader that opens a citation in the app — it fetched live
-    every time while its own docstring claimed the cache. A helper only one
-    caller applies is a helper the next caller forgets; this is that class of
-    defect, caught once.
+    THE READ-THROUGH LIVES HERE BECAUSE IT HAS TWO CALLERS: ``ris_fetch_document``
+    and ``GET /v1/ris/document``, the reader that opens a citation in the app. A
+    read-through written inline in one caller is one the next caller forgets to
+    apply, so it stays in one place.
 
     Fail-open in both directions: a cache miss, an unavailable cache or a read
     error all fall through to the live fetch, and a write failure is ignored.

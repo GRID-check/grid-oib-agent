@@ -2,8 +2,7 @@
  * @vitest-environment node
  */
 /**
- * Characterization of the jobs repository BEFORE the task_definitions /
- * task_runs collapse moves it (slice 01 of the task-model follow-up, PR #659).
+ * Characterization of the jobs repository.
  *
  * Asserted as the SQL Postgres receives rather than as chain spies: org
  * scoping, list bounds and the backend-id lookup only exist in the statement.

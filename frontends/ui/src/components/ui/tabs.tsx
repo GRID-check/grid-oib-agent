@@ -19,12 +19,12 @@ const TabsValueContext = React.createContext<string | undefined>(undefined)
 /**
  * This strip's shared-layout identity, one per mounted `Tabs`.
  *
- * A `layoutId` names ONE travelling element across the whole tree, so the
- * constant this used to be made every tab strip on screen the same element:
- * two strips mounted together (a dialog over a page, two panels side by side)
- * and the pill flew between them instead of sliding inside the one that was
- * clicked. `useId` per instance keeps the glide local. Same rule as
- * `ToggleGroup`, and as the sidebar rail's `railActivePillId` before both.
+ * A `layoutId` names ONE travelling element across the whole tree, so a constant
+ * identity would make every tab strip on screen the same element: two strips
+ * mounted together (a dialog over a page, two panels side by side) and the pill
+ * would fly between them instead of sliding inside the one that was clicked.
+ * `useId` per instance keeps the glide local. Same rule as `ToggleGroup`, and as
+ * the sidebar rail's `railActivePillId`.
  */
 const TabsPillContext = React.createContext<string>('tabs-pill')
 

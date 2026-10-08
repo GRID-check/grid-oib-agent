@@ -3,12 +3,12 @@
 Module under test: ``frontends/aiq_api/src/aiq_api/routes/jobs.py``
     GET /v1/jobs/async/job/{job_id}/report
 
-These are ROUTE-level rather than model-level on purpose. The gap this closes
-was never that ``JobReportResponse`` lacked a field it could hold — it was that
-the handler read ``output["report"]`` and dropped ``output["cards"]`` sitting
-next to it in the same blob, so the filed PDF's „Rechtsgrundlagen" section had
-nothing to render. A test that constructs the model proves the field exists; only
-a request through the handler proves the runner's cards reach the caller.
+These are ROUTE-level rather than model-level on purpose. The failure this guards
+is not that ``JobReportResponse`` lacks a field it could hold: the handler reads
+``output["report"]`` and drops ``output["cards"]`` sitting next to it in the same
+blob, so the filed PDF's „Rechtsgrundlagen" section has nothing to render. A test
+that constructs the model proves the field exists; only a request through the
+handler proves the runner's cards reach the caller.
 """
 
 from __future__ import annotations
@@ -192,12 +192,11 @@ async def test_output_stored_as_a_dict_is_read_the_same_way(report_app):
 async def test_report_carries_the_project_the_run_was_commissioned_in(report_app, monkeypatch):
     """The destination is a property of the RUN, not of the request that reads it.
 
-    Filing used to take its project from the report request, and where the
-    request named none, from the reader's stored ``active_project_id``. Both
-    describe whoever opened a tab. The cover sheet the report is filed with
-    names the Bundesland — which says which Bauordnung the report was checked
-    against — so a report researched in one project and filed into another is a
-    compliance document asserting the wrong law.
+    Filing must not take its project from the report request, nor, where the request
+        names none, from the reader's stored ``active_project_id``. Both describe whoever
+        opened a tab. The cover sheet the report is filed with names the Bundesland — which
+        says which Bauordnung the report was checked against — so a report researched in one
+        project and filed into another is a compliance document asserting the wrong law.
     """
     # Patched on the SOURCE module: `routes/jobs.py` imports it inside
     # `register_job_routes` to keep heavy imports off module load, so the name
@@ -220,7 +219,7 @@ async def test_a_run_with_no_project_reports_none_rather_than_a_guess(report_app
     """None means "do not file", never "file anywhere".
 
     A run started from a chat outside any project has no commissioning project.
-    That is the case the old fallback filled in from the reader's preferences,
+    That is the case a fallback would fill in from the reader's preferences,
     silently, with no filing disclosure ever having been shown.
     """
     from aiq_api.jobs import access

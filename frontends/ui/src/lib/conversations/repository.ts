@@ -66,13 +66,10 @@ function grantNamesCaller(organizationId: string, userId: string) {
 }
 
 /**
- * List the conversations one caller may actually see — the visibility-aware
- * replacement for the old org-scoped list (spec SH-4, ADR-0032).
- *
- * The old query returned EVERY conversation in the organization, which is the
- * defect §3 of the collaboration spec calls out: "private chat" did not exist,
- * the project-scoped UI merely masked it. Filtering happens in SQL because the
- * alternative is one authorization round trip per row.
+ * List the conversations one caller may actually see (ADR-0032). `private` chat
+ * is visible to its creator and grantees only, and the project-scoped UI does
+ * not mask that. Filtering happens in SQL because the alternative is one
+ * authorization round trip per row.
  *
  * Two shapes, because the caller's provable reach differs:
  *
@@ -83,20 +80,17 @@ function grantNamesCaller(organizationId: string, userId: string) {
  *     `project_id` is **not** inside that project, so the proof says nothing
  *     about it and it is judged on its own terms — exactly the terms
  *     `resolveResourceAccess` uses when there is no container to check: its
- *     creator, an explicit grantee, or `organization` visibility. Sharing the
- *     null-project clause and the visibility clause as two INDEPENDENT
- *     disjuncts is what leaked: an unstamped conversation whose owner set
- *     `project` visibility satisfied both for any caller in any project, so its
- *     id, title, tags and author were listed org-wide and then 404'd on open —
- *     the list and the access resolver disagreeing, which is the one thing this
- *     query must never do.
+ *     creator, an explicit grantee, or `organization` visibility. The null-project
+ *     row must not be judged by the visibility clause alone: a `project`-visible
+ *     unstamped row would then be listed to any caller in any project and 404 on
+ *     open, so the list and the access resolver would disagree, which this query
+ *     must never allow.
  *
  *   - **Without `projectId`**: there is no proven container, and we will NOT do
  *     an FGA probe per row. The unscoped list is therefore narrowed to what the
  *     caller reaches without any project claim at all: rows they created, rows
- *     granted to them, and `organization`-visible rows. This is a DELIBERATE
- *     tightening of previous behaviour (spec MG-1) — the unscoped list used to
- *     return the whole organization — and it is the safe direction: a
+ *     granted to them, and `organization`-visible rows. It is deliberately
+ *     narrower than the whole organization, and that is the safe direction: a
  *     project-visible thread is still listed by the project-scoped call the UI
  *     actually makes.
  */
@@ -140,7 +134,7 @@ export async function listVisibleConversations(
 /**
  * Load a conversation by id scoped to an organization.
  *
- * **Not an authorization check.** Org scope alone is what made every chat
+ * **Not an authorization check.** Org scope alone would make every chat
  * readable by every colleague (ADR-0032). Session-carrying callers MUST resolve
  * access through `requireResourceAccess(session, 'conversation', …)` first; this
  * query then serves the row, and is the ONLY tenancy gate on the session-less
@@ -161,7 +155,7 @@ export async function findConversationInOrg(
 
 /**
  * Every conversation id in a project — the cascade fan-out for project-level
- * cleanup (spec SH-13).
+ * cleanup.
  *
  * Ids only: the caller is settling collaboration state per conversation and needs
  * nothing else. Bounded, like every list here; a project with more conversations
@@ -193,10 +187,10 @@ export async function listConversationIdsForProject(
  * must not push the rail around).
  *
  * The `author_user_id IS NULL` arm is the attribution rule the column's own
- * docstring states: messages written before authorship existed carry no author,
- * and are credited to the conversation's creator at read time rather than
- * backfilled. Restricting it to `role = 'user'` keeps assistant and tool rows —
- * which are also NULL-authored, forever — out of it.
+ * docstring states: a message with no author (a legacy row) is credited to the
+ * conversation's creator at read time rather than backfilled. Restricting it to
+ * `role = 'user'` keeps assistant and tool rows, which are also NULL-authored,
+ * out of it.
  *
  * One grouped query for the whole page, not one per project. Returns ISO
  * strings keyed by project id; projects with no activity are simply absent.
@@ -304,9 +298,8 @@ export async function findConversationTenancy(
 ): Promise<Pick<Conversation, 'organizationId' | 'projectId' | 'visibility' | 'createdBy' | 'deletedAt'> | null> {
   // No uuid guard here, unlike `findProjectTenancy`: `conversations.id` is TEXT
   // and every id the app mints is `s_<uuid with underscores>`, which `isUuid`
-  // rejects. The guard that stood here (#813) answered null for every real
-  // conversation, so sharing 404'd and the WebSocket conversation gate passed
-  // everything as "not created yet". A text column cannot throw 22P02.
+  // rejects, so a uuid guard would answer null for every real conversation. A
+  // text column also cannot throw 22P02.
   const db = getDb()
   const [row] = await db
     .select({
@@ -412,13 +405,12 @@ export async function updateConversationMetaInOrg(
  *
  * `deleted_at` already means "this conversation is gone" everywhere it is read
  * — `resolveResourceAccess` answers 404 on it (`lib/sharing/access.ts`) — so
- * setting it is what closes the window a discard used to leave open: cleanup
- * erased the attachments' objects and chunks, then the conversation row was
- * deleted, and an upload that slipped between the two landed its bytes after
- * the sweep had walked past them and then had its row taken by the cascade. A
- * mark set BEFORE the sweep gives the upload path something to refuse on.
+ * setting it closes the window between erasing the attachments and deleting the
+ * row. An upload that lands in that gap would have its bytes missed by the sweep
+ * and then removed by the cascade. A mark set BEFORE the sweep gives the upload
+ * path something to refuse on.
  *
- * The mark is also what survives a cleanup that FAILS: the conversation and its
+ * The mark also survives a cleanup that fails: the conversation and its
  * document rows both stay, which is the only state a retry can work from. The
  * `deletion_queue` row is what makes that retry happen without a person: the
  * purger claims it once `purge_after` has passed and calls back into the same
@@ -500,9 +492,9 @@ export async function recordConversationErased(
 
 /**
  * Delete a conversation (messages cascade) and the record of the restricted
- * folders and other projects it drew on. Tenant isolation lives in the WHERE clause — deleting by
- * id alone would let any signed-in user delete another org's conversation by
- * guessing ids.
+ * folders and other projects it drew on. Tenant isolation lives in the WHERE
+ * clause: deleting by id alone would let any signed-in user delete another org's
+ * conversation by guessing ids.
  */
 export async function deleteConversationInOrg(conversationId: string, organizationId: string): Promise<void> {
   const db = getDb()
@@ -533,12 +525,10 @@ export async function deleteConversationInOrg(conversationId: string, organizati
  * A conversation's messages, oldest first, bounded to the most recent `limit`.
  *
  * The bound is taken from the NEWEST end and the page is then reversed, which
- * matters more than it looks. Ordering ascending and truncating took the OLDEST
- * `limit` rows: for a private thread that is a rehydration fallback and merely
- * odd, but for a shared thread this is *the* load path (ADR-0033), so past the
- * limit a reader was pinned to ancient history and could never see a new message
- * again — and the read receipt and the unread divider followed the same stale
- * window down.
+ * matters more than it looks. Truncating the OLDEST rows would pin a reader of a
+ * shared thread, the load path (ADR-0033), to ancient history past the limit: they
+ * could never see a new message, and the read receipt and the unread divider
+ * would follow the same stale window down.
  *
  * Callers must have resolved the conversation through `findConversationInOrg`
  * first — this query is scoped by conversation id only.
@@ -627,7 +617,7 @@ export async function listMessagesForConversation(
     .where(eq(messages.conversationId, conversationId))
     // `id` breaks ties. `created_at` alone leaves the order of two messages
     // written in the same instant UNDEFINED, and free to differ between two
-    // executions of this query — which is exactly what spec CC-11 forbids ("two
+    // executions of this query — which is exactly what the requirement forbids ("two
     // clients MUST NOT show the same two messages in different orders"). It also
     // makes the window above deterministic: without it a tie straddling the
     // limit could include or drop either message arbitrarily.
@@ -643,7 +633,7 @@ export async function listMessagesForConversation(
  * Used by the persist path to recognise a replayed client-generated id before it
  * re-runs the side effects that id already caused (mention requests, inbox
  * items): the addressee ruling is read back off the stored row instead of being
- * computed a second time (spec MN-2).
+ * computed a second time.
  */
 export async function findMessageInConversation(
   conversationId: string,
@@ -743,7 +733,7 @@ export async function mergeMessageMetadata(
     // Stripped of NUL bytes before the write: Postgres `jsonb` rejects U+0000
     // outright, and the merged payload re-writes stored agent content (cards,
     // citations from extracted document text) that no PATCH-time sanitizer
-    // ever saw (err2issue #581/#579/#576). See `@/lib/text/jsonb`.
+    // sees. See `@/lib/text/jsonb`.
     const [row] = await tx
       .update(messages)
       .set({ metadata: stripJsonNullBytes(merged) })
@@ -796,7 +786,7 @@ const isPlainObject = (value: unknown): value is Record<string, unknown> =>
   typeof value === 'object' && value !== null && !Array.isArray(value)
 
 /**
- * Move one person's read high-water mark on a conversation (spec CC-18).
+ * Move one person's read high-water mark on a conversation.
  *
  * Upsert on the composite PK `(conversation_id, user_id)`: reading is a repeated
  * act, and "how far have I read" is one row per person per thread — never a
@@ -804,7 +794,7 @@ const isPlainObject = (value: unknown): value is Record<string, unknown> =>
  *
  * `lastReadMessageId` is only overwritten when the caller supplies one, so a
  * plain "I looked at this thread" mark cannot erase the anchor a previous, more
- * precise mark stored (which is what the unread separator renders from, CC-19).
+ * precise mark stored (which is what the unread separator renders from).
  */
 export async function upsertConversationRead(values: {
   conversationId: string

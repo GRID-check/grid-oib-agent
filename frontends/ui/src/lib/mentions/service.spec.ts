@@ -187,7 +187,7 @@ beforeEach(() => {
   vi.mocked(findConversationInOrg).mockResolvedValue({ title: 'Atrium' } as never)
 })
 
-describe('applyMessageMentions — addressing (spec MN-1)', () => {
+describe('applyMessageMentions — addressing', () => {
   it('addresses the agent when there are no mentions, without touching anything', async () => {
     const result = await send([])
 
@@ -238,7 +238,7 @@ describe('applyMessageMentions — addressing (spec MN-1)', () => {
   })
 })
 
-describe('applyMessageMentions — the invite policy (spec MN-5, MN-6, OQ-3)', () => {
+describe('applyMessageMentions — the invite policy', () => {
   it('refuses a collaborator mentioning a non-participant, and writes nothing', async () => {
     stubCallerRole('collaborator')
 
@@ -333,7 +333,7 @@ describe('applyMessageMentions — the invite policy (spec MN-5, MN-6, OQ-3)', (
   })
 })
 
-describe('applyMessageMentions — bounds (spec MN-13)', () => {
+describe('applyMessageMentions — bounds', () => {
   it('refuses a message that mentions too many people', async () => {
     const many = Array.from({ length: 11 }, (_, index) => `user_${index}`)
 
@@ -361,7 +361,7 @@ describe('applyMessageMentions — bounds (spec MN-13)', () => {
   })
 })
 
-describe('applyMessageMentions — notification (spec MN-14, MN-15)', () => {
+describe('applyMessageMentions — notification', () => {
   it('emits one actionable item per recipient, anchored on the message', async () => {
     await send([ANNA], { note: 'Richtig, das Atrium als OIB 2.3 zu behandeln?', excerpt: 'quote' })
 
@@ -405,7 +405,7 @@ describe('applyMessageMentions — notification (spec MN-14, MN-15)', () => {
     )
   })
 
-  it('hands the thread back to the agent when it is tagged explicitly (spec MN-9.3)', async () => {
+  it('hands the thread back to the agent when it is tagged explicitly', async () => {
     vi.mocked(listOpenRequestsForResource).mockResolvedValueOnce([requestRow()]).mockResolvedValue([])
     vi.mocked(resolveRequests).mockResolvedValue([
       requestRow({ status: 'released', resolution: 'released' }),
@@ -419,7 +419,7 @@ describe('applyMessageMentions — notification (spec MN-14, MN-15)', () => {
   })
 })
 
-describe('resolveRequestsOnReply (spec MN-9.1, MN-16, MN-18)', () => {
+describe('resolveRequestsOnReply', () => {
   const input = {
     organizationId: 'org_1',
     resourceType: 'conversation' as const,
@@ -474,7 +474,7 @@ describe('resolveRequestsOnReply (spec MN-9.1, MN-16, MN-18)', () => {
     await resolveRequestsOnReply(input)
 
     // Only Anna is addressed. Bob shares the group key and is absent, which is
-    // exactly the pairing the repository UPDATE now keys on.
+    // exactly the pairing the repository UPDATE keys on.
     const targets = vi.mocked(resolveInboxItemsFor).mock.calls[0]![0]
     expect(targets).toEqual([
       {
@@ -492,9 +492,9 @@ describe('resolveRequestsOnReply (spec MN-9.1, MN-16, MN-18)', () => {
    * The clarifying-question cascade.
    *
    * Anna was asked. Anna replies with a question BACK to Matthias. Treating that
-   * as an answer told Matthias "Anna hat geantwortet" about a message that
-   * answered nothing, offered to hand the thread back to Piloti, and stacked a
-   * second, contradictory row next to the request Anna's own message had just
+   * as an answer would tell Matthias "Anna hat geantwortet" about a message that
+   * answered nothing, offer to hand the thread back to Piloti, and stack a
+   * second, contradictory row next to the request Anna's own message has just
    * created. One message, two opposite claims.
    */
   it('records a question put back to the asker as asked_back, not as an answer', async () => {
@@ -517,7 +517,7 @@ describe('resolveRequestsOnReply (spec MN-9.1, MN-16, MN-18)', () => {
         groupKey: 'mention.requested:conversation:conv_1:msg_1',
       },
     ])
-    // And the false claim is gone: the ONLY thing Matthias hears about this
+    // And no false claim is made: the ONLY thing Matthias hears about this
     // message is the new request it created, emitted by `applyMentions`.
     expect(emitInboxItems).not.toHaveBeenCalled()
   })
@@ -565,7 +565,7 @@ describe('resolveRequestsOnReply (spec MN-9.1, MN-16, MN-18)', () => {
   })
 })
 
-describe('releaseRequest (spec MN-9.2)', () => {
+describe('releaseRequest', () => {
   it('closes the request as released and clears the awaiting set', async () => {
     vi.mocked(findRequestById).mockResolvedValue(requestRow())
     vi.mocked(resolveRequests).mockResolvedValue([
@@ -609,7 +609,7 @@ describe('releaseRequest (spec MN-9.2)', () => {
   })
 })
 
-describe('getAwaitingState (spec MN-8)', () => {
+describe('getAwaitingState', () => {
   it('renders the derived wait with resolved people', async () => {
     vi.mocked(listOpenRequestsForResource).mockResolvedValue([requestRow()])
 
@@ -643,7 +643,7 @@ describe('getAwaitingState (spec MN-8)', () => {
   })
 })
 
-describe('listMentionCandidates (spec MN-4, SH-19)', () => {
+describe('listMentionCandidates', () => {
   it('offers the agent, participants, and invitable project members only', async () => {
     // Carol is in the organization but cannot reach the project.
     vi.mocked(filterUsersWithProjectAccess).mockResolvedValue(new Set([ANNA, BOB]))

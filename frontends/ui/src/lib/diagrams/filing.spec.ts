@@ -180,15 +180,13 @@ describe('a diagram is two files', () => {
   })
 
   it('gives both rows the same run, which is what makes them one diagram', async () => {
-    // Migration 0065's key is (organization, project, run, producer). The run is
-    // shared so the two rows can be recognised as artifacts of one drawing; the
-    // producer is what lets both exist. Synthetic per-artifact run ids would
-    // have needed no migration and would have made `authored_by_ref` join
-    // back to nothing.
+    // The producer is part of the key. The reference is shared so the two rows
+    // can be recognised as artifacts of one drawing. Synthetic per-artifact ids
+    // would make `authored_by_ref` join back to nothing.
     await file()
     expect(admitted().map((row) => row.authoredByRef)).toEqual(['msg_42-1a2b3c4d', 'msg_42-1a2b3c4d'])
-    // And both say what that identifier IS. It is not a run id and the row no
-    // longer implies one (migration 0066).
+    // And both say what that identifier IS. It is not a run id, and the row does
+    // not imply one.
     expect(admitted().map((row) => row.authoredByRefKind)).toEqual(['answer_artifact', 'answer_artifact'])
     expect(findDocumentAuthoredByRef.mock.calls.map((call) => call[3])).toEqual([
       'diagram_svg',
@@ -320,11 +318,9 @@ describe('what leaves the product says a machine made it', () => {
    *
    * Every assertion in this block reads the object that was handed to
    * `PutObjectCommand` — the bytes that reach the bucket and, from there, a
-   * person's disk and an Einreichung. That is deliberate and it is the whole
-   * lesson of the bug: `diagram_svg` shipped with no marking at all and
-   * `diagram_pdf` with no PDF keywords, and an assertion on the parsed tree or
-   * on the react-pdf element tree would have passed for both. Only the file can
-   * answer whether the file says anything.
+   * person's disk and an Einreichung. That is deliberate: an assertion on the
+   * parsed tree or on the react-pdf element tree can pass while the file says
+   * nothing. Only the file can answer whether the file says anything.
    */
   const storedBytes = (index: number): Uint8Array => {
     const command = s3Send.mock.calls[index][0] as PutObjectCommand
@@ -366,8 +362,7 @@ describe('what leaves the product says a machine made it', () => {
   it('does not claim a diagram was drawn in a run that does not exist', async () => {
     // A diagram's reference is `{chat message id}-{hash of its source}`, and
     // there is no such job. `AIRunId=msg_42-1a2b3c4d` in a file a Behörde
-    // receives would be an audit trail in appearance only — the failure
-    // migration 0066 fixed in the row, repeated in the artifact.
+    // receives would be an audit trail in appearance only.
     await file()
 
     expect(Buffer.from(storedBytes(0)).toString('utf8')).not.toContain('AIRunId')
@@ -393,15 +388,13 @@ describe('what leaves the product says a machine made it', () => {
 describe('a partial filing is recoverable rather than rolled back', () => {
   it('keeps the SVG when the PDF cannot be filed, and says so in the result', async () => {
     // The SVG is the half that carries the source, so it is the half worth
-    // keeping — and `fileGeneratedDocument` is idempotent per (run, producer),
-    // which is what makes the retry the compensation: filing again finds the
-    // SVG already filed and files only the PDF.
+    // keeping — and `fileGeneratedDocument` is idempotent per (reference,
+    // producer), which is what makes the retry the compensation: filing again
+    // finds the SVG already filed and files only the PDF.
     //
-    // It says so by RETURNING. This function used to throw here, which made
-    // `FiledDiagram`'s two required halves consistent with itself and with
-    // nothing else: the route turned the throw into `Internal server error` and
-    // the reader was told the filing had failed while their diagram sat filed
-    // and quota-charged in Berichte. A `pdf: null` is the smaller true answer.
+    // It says so by RETURNING. A throw would tell the reader the filing failed
+    // while their diagram sits filed and quota-charged in Berichte. A `pdf: null`
+    // is the smaller true answer.
     admitOrDiscard.mockResolvedValueOnce(undefined).mockRejectedValueOnce(new Error('quota'))
     vi.spyOn(console, 'error').mockImplementation(() => {})
 

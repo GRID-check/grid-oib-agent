@@ -79,7 +79,7 @@ export const files = {
   },
   toast: {
     // Fired the instant async ingestion finishes and the document becomes
-    // citable — the confirmation the completion moment previously lacked.
+    // citable — the confirmation the completion moment itself carries.
     ingestionComplete: '“{name}” is now in Piloti’s knowledge — citable',
     modelReady: '“{name}” has been read. You can now ask about the building.',
   },
@@ -318,9 +318,9 @@ export const files = {
       /**
        * A search that could not RUN, held apart from one that ran and found
        * nothing. The hook fails open to an empty result set — which is right,
-       * it must not crash the pane — and the pane used to render that as "no
-       * matches", telling the reader something about their own corpus that the
-       * app had no way of knowing.
+       * it must not crash the pane — and the pane must not render that as "no
+       * matches", which would tell the reader something about their own corpus
+       * that the app has no way of knowing.
        */
       failed: 'The search could not be run',
       failedDescription:
@@ -663,10 +663,10 @@ export const files = {
   /**
    * The Files header's filter/sort menu.
    *
-   * Replaces the open filter strip: the header already carried a view switch, a
-   * search field and an upload button, and had no room left for the filters
-   * people asked for. The count on the button is the price of hiding them — a
-   * filter nobody can see is worse than a crowded strip.
+   * The filters live behind this menu rather than in an open strip: the header
+   * already carries a view switch, a search field and an upload button, with no
+   * room left for the filters people ask for. The count on the button is the
+   * price of hiding them — a filter nobody can see is worse than a crowded strip.
    */
   filters: {
     label: 'Filter',
@@ -711,7 +711,7 @@ export const files = {
       'This is where the files Piloti wrote itself appear: filed research reports and diagrams. Documents you uploaded do not count, even where Piloti has read them.',
     /**
      * Why Ask is disabled on a generated report — and it is disabled, not
-     * hidden, following the pattern the citable-yet case already set. The
+     * hidden, following the pattern the citable-yet case sets. The
      * difference is that there is no "yet": the report was never indexed, on
      * purpose, so that the agent cannot cite its own writing back as evidence.
      */

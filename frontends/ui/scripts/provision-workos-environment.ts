@@ -2,7 +2,7 @@
  * Reconcile GRID's WorkOS environment identity — or report the drift.
  *
  * `provision:authz` makes WorkOS agree with the authorization catalog; this
- * script does the same for the pieces around it that used to be dashboard
+ * script does the same for the pieces around it that are otherwise dashboard
  * steps: the platform organization, the owner's membership and role, AuthKit
  * web origins, the observability Connect application, and feature-flag
  * targeting. Runbook: `docs/deployment/workos-provisioning.md`.

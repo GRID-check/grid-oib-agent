@@ -6,7 +6,7 @@
  * session hold `org:models:manage`?", never "is the role called admin?".
  * Roles are permission bundles managed in WorkOS — creating a new one there
  * (say a billing admin holding only `org:budgets:manage`) works with no code
- * change. That is the extensibility contract, and the catalog now ships four
+ * change. That is the extensibility contract, and the catalog ships four
  * such roles so the contract is exercised rather than merely asserted.
  *
  * Org- and platform-tier permissions arrive in the AuthKit JWT `permissions`
@@ -176,23 +176,22 @@ export function permissionsForPlatformRole(
  *     carry a role slug without the granular claims. Such a session holds
  *     exactly the permissions the CATALOG says that role holds.
  *
- * Rule 2 replaces a former wildcard — `role === 'admin'` used to imply every
- * `org:*` permission, including ones that did not exist yet. That made a
- * restricted admin impossible to build and silently pre-granted each new
- * permission to every admin the moment it was defined. Deriving the implication
- * from the catalog keeps existing admins working while making the grant finite,
- * reviewable, and identical to what WorkOS would return once provisioned.
+ * Rule 2 is bounded by the catalog, not a wildcard. `role === 'admin'` implying
+ * every `org:*` permission would pre-grant each new permission to every admin
+ * the moment it is defined, and would make a restricted admin impossible to
+ * build. Deriving the implication from the catalog keeps existing admins working
+ * while making the grant finite, reviewable, and identical to what WorkOS would
+ * return once provisioned.
  *
  * ## Why the implication applies even to a session that HAS claims
  *
  * Because the catalog routinely ships ahead of provisioning, and this fallback
  * is the only thing that keeps that gap invisible to users. Restricting it to
- * claims-less sessions was tried here and reverted: both live environments hold
- * an Admin role WITHOUT `org:skills:manage` — the catalog has it, the
- * provisioner has not been re-run — so every admin carrying claims would have
- * lost the org skills toolbox the moment the narrower rule shipped. Turning
- * every catalog/WorkOS gap into a silent permission removal is a worse failure
- * than the one the narrowing fixes.
+ * claims-less sessions would drop permissions from admins whose environment lags
+ * the catalog: an Admin role may lack `org:skills:manage` in WorkOS while the
+ * catalog grants it, and every admin carrying claims would lose the org skills
+ * toolbox. Turning every catalog/WorkOS gap into a silent permission removal is
+ * worse.
  *
  * The cost, stated plainly: a WorkOS role whose slug happens to be `admin` is
  * handed the whole Admin bundle whatever it actually holds, so a restricted

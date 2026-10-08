@@ -1,9 +1,8 @@
 """Fair share of the ingest workers between organisations.
 
-The ingestor used to hand every job to one ``ThreadPoolExecutor``: a FIFO
-across every tenant. One office's folder upload or project reindex of a few
-hundred plan sets queued every other office's single upload behind it for
-hours, and nothing reordered the queue.
+A single ``ThreadPoolExecutor`` FIFO across every tenant would let one office's
+folder upload or project reindex of a few hundred plan sets queue every other
+office's single upload behind it for hours.
 
 This scheduler keeps one lane per organisation and gives a free worker to the
 organisation with the FEWEST jobs running; among those, to the one served

@@ -22,8 +22,8 @@ class SourceToolSlotTimeout(TimeoutError):
     does not care (this subclasses it deliberately, so existing handlers keep
     working), but they mean opposite things: an upstream timeout is evidence
     about a source, while this one is evidence about OUR OWN scheduling. Letting
-    the second wear the first's name told the deep researcher its sources were
-    failing when nothing had been asked of them.
+    the second wear the first's name would tell the deep researcher its sources
+    are failing when nothing has been asked of them.
     """
 
 
@@ -162,11 +162,11 @@ def _make_throttled_source_tool(
         # A SLOT TIMEOUT IS OURS, NOT THE SOURCE'S, AND IT MUST NOT END THE RUN.
         #
         # The batch wrapper above already represents one to the model, as a
-        # per-item `ERROR:` line it can read and route around. This wrapper —
-        # the one every non-batchable source tool gets — let it escape into the
-        # graph instead, where `DeepResearcherAgent` catches TimeoutError and
-        # treats the WHOLE run as cut off by an upstream timeout. Two wrappers
-        # around one limiter, disagreeing about whether waiting for our own
+        # per-item `ERROR:` line it can read and route around. This wrapper, the
+        # one every non-batchable source tool gets, answers it the same way: left
+        # to escape, it reaches `DeepResearcherAgent`, which catches TimeoutError
+        # and treats the WHOLE run as cut off by an upstream timeout. Two wrappers
+        # around one limiter must agree about whether waiting for our own
         # semaphore is a tool failure or a run failure.
         #
         # Early in a run there is nothing to salvage (the report is under
@@ -176,12 +176,11 @@ def _make_throttled_source_tool(
         #
         # An upstream timeout raised BY the tool is evidence about ONE source,
         # and it stays that: a tool error the model reads and routes around.
-        # It used to flow through untouched into the run-level cutoff, on the
-        # argument that it was "real evidence" — and so a single slow RIS
-        # answer ended a twenty-minute run with nothing salvaged (the report
-        # did not exist yet) and a banner blaming a time limit that was never
-        # reached. The run-level catch stays for the wall clock; a source that
-        # does not answer is the tool's failure to report, not the run's to die of.
+        # Sent into the run-level cutoff, it would end a twenty-minute run with
+        # nothing salvaged (the report does not exist yet) and carry a banner
+        # blaming a time limit that was never reached. The run-level catch stays
+        # for the wall clock; a source that does not answer is the tool's failure
+        # to report, not the run's to die of.
         try:
             async with limiter.limit():
                 result = await original_tool.ainvoke(kwargs)

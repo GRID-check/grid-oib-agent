@@ -154,6 +154,6 @@ async def _file(monkeypatch: pytest.MonkeyPatch, responses: list[dict], calls: l
 
 
 async def _submit(monkeypatch: pytest.MonkeyPatch, responses: list[dict], calls: list, reviewer: str = "") -> str:
-    """``file_draft`` with ``submit=True``: the call that used to be ``submit_draft``."""
+    """``file_draft`` with ``submit=True``: files and submits in one call."""
     monkeypatch.setattr(filing_tools, "post_document_version", _responder(responses, calls))
     return await filing_tools.run_file_draft(DRAFT, submit=True, reviewer=reviewer)

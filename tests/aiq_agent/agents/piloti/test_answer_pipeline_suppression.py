@@ -11,9 +11,8 @@ unearned ``emit_card`` cards on a short, non-ruling answer without a verdict:
 3. **The window between the floors** — at or above the card floor (400)
    but below the takeaway floor (600) the cards STAY while the gate has
    already withheld the takeaways (500-char case): a short answer with one
-   table is richer than the same answer without it. The card floor sat at
-   800, above the takeaway floor, while a card cost a full-context round;
-   cards travel in the envelope now and cost none.
+   table is richer than the same answer without it. The card floor sits below the takeaway floor: a card travels in the
+   envelope and costs no full-context round.
 4. **Sibling probes** — every other system emitter's card type is a catalog
    member and vetoes the suppression: ``memory_proposal``, ``task_created``,
    ``document_draft`` via write/edit and via the ``file_draft`` re-push (plus
@@ -39,7 +38,7 @@ from aiq_agent.common.citation_verification import SourceEntry
 from aiq_agent.common.citation_verification import SourceRegistry
 
 #: Above the card floor (400) but below the takeaway floor (600): cards stay,
-#: takeaways were never gated in.
+#: takeaways are not gated in.
 WINDOW_PROSE = "x" * 500
 #: Below both floors: the trailer shrinks to the callout alone.
 SHORT_PROSE = "x" * 300
@@ -105,9 +104,9 @@ class TestShouldSuppressMetaCards:
 class TestTheProofLivesInTheProse:
     """The Fundstelle a short answer rests on is a cited quote line in the prose.
 
-    The retired ``legal_basis`` card once vetoed suppression, because clearing
-    the registry under it deleted the answer's proof. The proof is the prose's
-    own `> „…“ [N]` line now, and suppression never touches the prose: the
+    Suppression clears the card registry, so no card may hold the answer's
+    proof. The proof is the prose's
+    own `> „…“ [N]` line, and suppression never touches the prose: the
     content card goes, the quote stays.
     """
 
@@ -361,7 +360,7 @@ class TestMarkerOnlyContent:
 
 class TestTrailerCaptures:
     def test_explicit_turn_sources_are_the_log(self):
-        # The repair no longer retrieves (ADR-0067), so this turn's reads are
+        # The repair does not retrieve (ADR-0067), so this turn's reads are
         # the whole of what a trailer value may be grounded in.
         from aiq_agent.agents.piloti.answer_pipeline import _trailer_captures
 

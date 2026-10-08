@@ -1,5 +1,5 @@
 # =============================================================================
-# OIB Compliance Golden Eval Suite — runner entry point (backlog T4-5)
+# OIB Compliance Golden Eval Suite — runner entry point
 #
 # Runs the 4 golden OIB-compliance cases in
 # ../fixtures/oib_compliance_golden.json through the REAL production OIB
@@ -14,9 +14,9 @@
 #   - performance: wall-clock seconds / LLM call count / completion tokens,
 #     read from the trajectory NAT's eval runner already captures for every
 #     run, checked against generous calibration-pending bounds
-#     (reasoning.bounds) — this is what makes the 2026-07-16 latency-bug
-#     fixes (and any future regression back toward 20+ minute runs)
-#     measurable in CI/by humans, not just felt anecdotally.
+#     (reasoning.bounds) — this is what makes latency regressions (a return
+#     toward 20+ minute runs) measurable in CI/by humans, not just felt
+#     anecdotally.
 #
 # PREREQUISITES (this suite is NOT run in this sandbox — no live LLM access):
 #   1. Install this suite's evaluator plugin (editable, from repo root):

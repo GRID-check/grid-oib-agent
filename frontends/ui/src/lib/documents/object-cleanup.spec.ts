@@ -155,9 +155,9 @@ describe('deleteDerivedObjects', () => {
 })
 
 /**
- * The project and Archiv deletes used to erase the live object by hand — the
- * file, `_thumb.jpg` and `_bim/`, never the `_img/` rasters — and to swallow
- * every failure before deleting the row. They share this now.
+ * The project and Archiv deletes share the erasure path below: every shelf
+ * removes the live object, `_thumb.jpg`, the `_img/` rasters and `_bim/`, and a
+ * failure keeps the row rather than being swallowed.
  */
 describe('eraseDocumentObjectsOrKeepRow', () => {
   const live = { id: 'doc-1', ...doc }

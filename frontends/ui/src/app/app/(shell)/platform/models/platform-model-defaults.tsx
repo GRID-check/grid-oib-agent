@@ -4,8 +4,8 @@
  * Platform → models: the default model AND thinking level every organization
  * inherits.
  *
- * The default a group runs on used to be a literal in the workflow YAML, so
- * moving the fleet to a newer model meant a commit and a backend redeploy. Here
+ * The default a group runs on is otherwise a literal in the workflow YAML, and
+ * moving the fleet to a newer model means a commit and a backend redeploy. Here
  * it is one save: pick a model per agent group, and every tenant that has not
  * chosen its own model for that group follows on its next turn.
  *

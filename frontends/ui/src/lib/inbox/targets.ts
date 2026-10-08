@@ -3,15 +3,14 @@
  *
  * ## Why this module exists
  *
- * `inbox_items.resource_type` used to be typed `ShareableResourceType`, and the
- * read path went straight to `describeResource()` + `resolveResourceAccess()`.
- * Both are the SHARING registry: they answer "who has been granted what on this
- * object", and `describeResource` THROWS for a type it does not know. That was
- * fine while every notification was about a conversation, and wrong the moment
- * one was about the tenant itself — an organization is not shareable, must not
- * become shareable (adding it to `SHAREABLE_RESOURCE_TYPES` would make an org a
- * thing you can hand somebody a grant on), and has no owner/visibility/grant
- * story at all.
+ * `inbox_items.resource_type` is wider than the sharing union, so the read path
+ * cannot go straight to `describeResource()` + `resolveResourceAccess()`. Both
+ * are the SHARING registry: they answer "who has been granted what on this
+ * object", and `describeResource` THROWS for a type it does not know. That is
+ * fine for a notification about a conversation and wrong for one about the
+ * tenant itself — an organization is not shareable, must not become shareable
+ * (adding it to `SHAREABLE_RESOURCE_TYPES` would make an org a thing you can hand
+ * somebody a grant on), and has no owner/visibility/grant story at all.
  *
  * So the inbox gets its own target registry, one level above sharing:
  *
@@ -181,11 +180,11 @@ const shareableTargets = Object.fromEntries(
  * `?session=` selects the thread, `?run=` names the run and `#message-` scrolls
  * to and marks the block — the same query `taskResultTarget` builds for the
  * Aufträge index, so one mechanism carries every deep link into a run. A run
- * from before run messages existed has no message; then the row lands on the
+ * that recorded no message has nothing to land on; then the row lands on the
  * task's detail drawer (`?tab=tasks&task=`) where the result and the filed
  * document wait — and without even a task id, on the schedules view, which is
- * never wrong, only less specific. Access is the same question the page itself asks
- * (`project:view`, re-derived at read time per spec IB-13): a member removed
+ * never wrong, only less specific. Access is the same question the page itself
+ * asks (`project:view`, re-derived at read time per spec IB-13): a member removed
  * from the project since the run ended sees a redacted row rather than a link
  * into a project they can no longer open. `requireProjectAccess` throws for
  * "no"; here "no" is the ordinary answer and must not take the inbox down, so
@@ -271,9 +270,8 @@ export const INBOX_TARGET_REGISTRY: Record<InboxTargetType, InboxTargetDescripto
  *
  * Unlike `describeResource`, an unknown value here is NOT a programming error:
  * `resource_type` is a `text` column, so a row written by a newer deploy — or
- * read across a rollback — carries a value this build has never heard of. The
- * old code threw for exactly that case and took the whole inbox route with it.
- * An unknown target is simply unreachable, which is what a redacted row means.
+ * read across a rollback — carries a value this build has never heard of. An
+ * unknown target is simply unreachable, which is what a redacted row means.
  */
 export function findInboxTarget(type: string): InboxTargetDescriptor | null {
   return (INBOX_TARGET_TYPES as readonly string[]).includes(type)

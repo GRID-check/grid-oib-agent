@@ -299,8 +299,8 @@ export const mergeRemoteMessages = (
   const localOnly = local.filter((message) => !remoteIds.has(message.id))
 
   // A local-only message is either (a) part of the turn happening right now, which
-  // the server has not been told about yet, or (b) a stale leftover of the
-  // local-first era. Incremental merges keep both — they are not claiming to know
+  // the server has not been told about yet, or (b) a stale leftover of an earlier
+  // local-only write. Incremental merges keep both — they are not claiming to know
   // the whole thread. A `replace` load IS claiming that, so it keeps only what is
   // demonstrably in flight: an open streaming bubble, or a message no older than
   // the newest row the server returned. An empty server list never wipes a
@@ -426,9 +426,9 @@ export const createMessagesSlice: StateCreator<
         draft: state.composerDrafts[conversation.id] ?? '',
       })
       if (projection.messages === conversation.messages) continue
-      // No `updatedAt` bump while the turn grows: stamping every flush re-sorted
-      // and re-rendered the whole sessions list ten times a second. The
-      // settle is the turn's one activity stamp.
+      // No `updatedAt` bump while the turn grows: stamping every flush would re-sort
+      // and re-render the whole sessions list ten times a second. The settle is the
+      // turn's one activity stamp.
       conversations.set(conversation.id, {
         ...conversation,
         messages: projection.messages,
@@ -577,7 +577,7 @@ export const createMessagesSlice: StateCreator<
         const layoutState = useLayoutStore.getState()
         conversation = {
           ...createNewConversation(currentUserId),
-          // Stamp the active project (UX-8): an unstamped session created inside
+          // Stamp the active project: an unstamped session created inside
           // a project would appear in every project's list and dodge the
           // cross-project clear guard in setProjectId.
           projectId: get().projectId ?? null,
@@ -838,7 +838,7 @@ export const createMessagesSlice: StateCreator<
     setProjectId: (projectId: string | null) => {
       const { currentConversation } = get()
 
-      // Cross-project bleed guard (UX-8): entering a project must never keep
+      // Cross-project bleed guard: entering a project must never keep
       // another project's conversation active — a persisted currentConversation
       // or stale URL would otherwise continue that chat under this project's
       // WebSocket projectId and retrieve against the wrong corpus. Sessions

@@ -2,12 +2,10 @@
  * @vitest-environment node
  */
 /**
- * Characterization of the tasks repository BEFORE the task_definitions /
- * task_runs collapse moves it (slice 01 of the task-model follow-up, PR #659).
- *
- * The shipped statements, not chain spies: tenant scoping, the backend-id
- * lookup the worker reports through, and the bounded rejection history the
- * next run reads. These must pass unchanged through the additive slices.
+ * Characterization of the tasks repository, against the statements it ships:
+ * tenant scoping, the backend-id lookup the worker reports through, and the
+ * bounded rejection history the next run reads. A change to the table shape
+ * must keep these passing unchanged.
  */
 
 import { beforeEach, describe, expect, it, vi } from 'vitest'

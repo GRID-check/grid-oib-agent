@@ -310,25 +310,25 @@ config:
 
   grid-oib:requireAuth: "true"
   grid-oib:workosClientId: client_01KEF0YGXCZ6QCJGGBWD7Z266J # pragma: allowlist secret (public OAuth client id)
-  # ON since 2026-09-18: WorkOS is this environment's control plane for
+  # ON: WorkOS is this environment's control plane for
   # features, per organization, without a redeploy. Two consequences, both
   # deliberate — docs/deployment/workos-provisioning.md §6 has the detail.
   #
-  #   - Every gate below that has a WorkOS half is now inert here.
-  #     `isFeatureEnabled` no longer fails open, and the dark-launch gates
+  #   - Every gate below that has a WorkOS half is inert here.
+  #     `isFeatureEnabled` does not fail open, and the dark-launch gates
   #     (`isSkillsEnabled`, `isCollaborationEnabled`) and the default-ON gates
   #     (`isIfcModelsEnabled`, `isAgentAuthoredDocumentsEnabled`) read the flag
   #     rather than their env var.
   #   - A registry flag ABSENT from WorkOS fails closed for every organization.
-  #     All 20 in `lib/authz/feature-flags.ts` exist there as of 2026-09-18, and
-  #     each is targeted to match what prod served before the flip, except the
-  #     four switched off on purpose: `deep-research`, `skills`, `task-automation`
-  #     and the already dark `project-knowledge-page`. Adding a flag to the registry without
-  #     creating it in WorkOS now ships a feature that is off everywhere and
-  #     says nothing about why.
+  #     All 20 in `lib/authz/feature-flags.ts` exist there, and each is targeted
+  #     to keep what prod serves, except the four switched off on purpose:
+  #     `deep-research`, `skills`, `task-automation` and the dark
+  #     `project-knowledge-page`. Adding a flag to the registry without creating
+  #     it in WorkOS ships a feature that is off everywhere and says nothing
+  #     about why.
   grid-oib:enforceFeatureFlags: "true"
-  # Deliberately still "true" under enforcement. It no longer decides whether
-  # the Automation section is visible — the per-org `skills` flag does, and that
+  # Deliberately "true" under enforcement. It does not decide whether the
+  # Automation section is visible — the per-org `skills` flag does, and that
   # is OFF for every organization — only whether the `skill-scheduler` fires
   # schedules at all (it runs the run reconciler either way). Keeping it up means
   # re-enabling Automation for one organization is a WorkOS toggle rather than a
@@ -386,7 +386,7 @@ config:
 
   # true before flipping it:
 
-  #   1. `err2issueImage` is digest-pinned. Done: the default in src/config.ts
+  #   1. `err2issueImage` is digest-pinned: the default in src/config.ts
 
   #      is v0.5.1 by digest, and the trivy job in .github/workflows/security.yml
 
@@ -420,10 +420,9 @@ config:
   grid-oib:dnsZoneName: piloti.at
   grid-oib:dnsZoneId: 66de14f8d07a729634f5d230418bb907 # pragma: allowlist secret (public zone id, Cloudflare zone Overview page)
   # Prod serves the apex, so it owns the zone-level records: the apex A record,
-  # www (proxied, 301 to the apex) and _dmarc. Taken over from the dev stack,
-  # which parked the apex on a redirect to dev.piloti.at until prod existed.
+  # www (proxied, 301 to the apex) and _dmarc.
   grid-oib:dnsZoneBaseline: "true"
-  # Carried over verbatim from GoDaddy, via the dev stack. The domain has no MX
+  # The domain has no MX
   # records; `v=DMARC1; p=reject;` plus `v=spf1 -all` would be the stronger
   # posture, but that is a mail-policy decision, not a deployment one.
   grid-oib:dnsDmarc: "v=DMARC1; p=quarantine; adkim=r; aspf=r; rua=mailto:dmarc_rua@onsecureserver.net;"

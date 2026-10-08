@@ -83,8 +83,8 @@ def _skill_runtime(resolved, *, activated=()):
     """A stand-in runtime.
 
     ``activated`` is what the model actually opened this run. It defaults to
-    nothing, which is the honest default now that a turn can only be OFFERED a
-    skill: a catalog the model read past activates none of it.
+    nothing, the honest default for a turn that can only be OFFERED a skill: a
+    catalog the model read past activates none of it.
     """
     runtime = MagicMock()
     runtime.prompt_block.return_value = "## Verfügbare Skills"
@@ -149,10 +149,9 @@ async def test_research_turn_resolves_allows_and_folds_skill_tool():
 async def test_the_catalog_is_announced_before_the_llm_runs():
     """The `offered` event fires at wiring time, not after the answer.
 
-    Everything about skills used to leave the process as ``skills_activated[]``
-    on the TERMINAL frame — i.e. after the answer the skill shaped. This asserts
-    the seam: the register announces the catalog while it is still assembling
-    the run, before a single token is generated.
+    The catalog must reach the client before a single token is generated, not on
+    the TERMINAL frame after the answer the skill shaped. This asserts the seam:
+    the register announces the catalog while it is still assembling the run.
     """
     builder = _FakeBuilder({"web_search_tool": web_search_tool})
     config = ResearchAgentConfig(
@@ -336,9 +335,7 @@ async def test_a_name_the_allowlist_dropped_is_simply_not_in_the_catalog():
 async def test_the_turn_config_reserves_nothing_on_top_of_the_budget():
     """One ceiling, and it is the number the config's traced floors measure.
 
-    The register used to add one iteration per standard skill, because the
-    deployment forced those skills and the turn had to pay for calls nobody
-    asked for. Nothing is forced now, so there is nothing to compensate: a
+    Nothing is forced onto a turn, so no iteration is added per standard skill: a
     ``use_skill`` call is the model's own and is charged like a search.
     """
     builder = _FakeBuilder({"web_search_tool": web_search_tool})
@@ -472,7 +469,8 @@ async def test_one_bad_tenant_reader_does_not_poison_the_others():
 @pytest.mark.asyncio
 async def test_the_skill_resolve_runs_off_the_event_loop():
     """A cold resolve is a blocking BFF round-trip with a 5s timeout. On the
-    loop it stalled every conversation on the replica; it runs on a thread."""
+    event loop it would stall every conversation on the replica, so it runs on a
+    thread."""
     import threading
 
     builder = _FakeBuilder({"web_search_tool": web_search_tool})

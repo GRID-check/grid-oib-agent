@@ -9,9 +9,8 @@ import { getTranslations } from '@/i18n/server'
  *
  * It draws the CONTENT COLUMN only. The rail, the `<main>` landmark and the
  * scroll container belong to the persistent shell and are already on screen
- * while this renders — a fallback that re-drew a topbar was drawing chrome that
- * no longer moves, and drawing it at the wrong height was how the profile
- * fallback shipped an 8px jump.
+ * while this renders. A fallback must not re-draw a topbar: that is chrome that
+ * does not move, and drawing it at the wrong height causes a jump.
  *
  * Every block mirrors the real surface's box 1:1 (header `min-h-9` with a
  * search-width + button-width action, `RaisedCard` body/footer padding,

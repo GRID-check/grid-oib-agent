@@ -292,7 +292,7 @@ def _largest_string_leaf(obj: Any) -> tuple[Any, Any] | None:
 def _truncate_research_note(note: ResearchNotes) -> ResearchNotes:
     """Shrink an oversized note's largest text fields, keeping it round-trip-valid.
 
-    Slicing the *serialized* JSON string (the previous approach) produced an
+    Slicing the *serialized* JSON string would produce an
     invalid ResearchNotes file; the writer reads every note back, so an
     oversized note must stay a schema-valid ResearchNotes rather than merely
     lose detail. The single largest free-text leaf is truncated (with the
@@ -314,7 +314,7 @@ def _truncate_research_note(note: ResearchNotes) -> ResearchNotes:
         keep = max(0, len(current) - overshoot - len(_RESEARCH_NOTE_TRUNCATION_SUFFIX))
         new_value = current[:keep] + _RESEARCH_NOTE_TRUNCATION_SUFFIX
         if len(new_value) >= len(current):
-            # Cutting the largest leaf can no longer shrink the payload; stop.
+            # Cutting the largest leaf cannot shrink the payload any further; stop.
             # The ceiling is a soft one (the writer's total-char budget is the
             # real backstop), so a rare many-tiny-fields note may stay slightly
             # over rather than loop forever.

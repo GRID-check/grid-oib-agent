@@ -4,8 +4,8 @@
 /**
  * How the WebSocket proxy reports a spliced socket going away (`server.js`).
  *
- * A post-upgrade `write EPIPE` used to log at ERROR and file an issue (#784),
- * and the same error reached the `ws()` callback, which wrote
+ * A post-upgrade `write EPIPE` on the spliced upstream is teardown, not an
+ * error: it logs at warn, and the `ws()` callback must not write
  * `HTTP/1.1 502 Bad Gateway` into the live WebSocket stream.
  */
 import { EventEmitter } from 'node:events'

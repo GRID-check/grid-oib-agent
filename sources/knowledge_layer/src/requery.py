@@ -1,23 +1,23 @@
 """Sufficiency judgement and re-query for ``knowledge_search``.
 
-Retrieval used to be one shot: the query went to every collection in scope,
-the channels were fused, the pool was reranked, and whatever came out was the
-answer's evidence. Nothing judged whether that pool could answer the question,
-and nothing tried a second formulation when it could not. A question phrased
-the way a planner talks ("wie lang darf der Fluchtweg sein") and a corpus that
-says it the way a norm talks ("Gehweglänge … höchstens 40 m") met only if the
-embedding bridged the gap.
+Retrieval is one shot: the query goes to every collection in scope, the channels
+are fused, the pool is reranked, and whatever comes out is the answer's evidence.
+Nothing judges whether that pool can answer the question, and nothing tries a
+second formulation when it cannot. A question phrased the way a planner talks
+("wie lang darf der Fluchtweg sein") and a corpus that says it the way a norm
+talks ("Gehweglänge … höchstens 40 m") meet only if the embedding bridges the
+gap.
 
 This module is the judge half of that loop. Shown the question and the fused
 pool, the model says whether the pool contains what is needed and, if not,
 proposes a handful of alternative formulations a search index would match.
 The caller retrieves those, fuses the new channels into the same RRF, and
-reranks the widened pool. The fusion machinery was already N-ary; this is the
-part that was missing (rag-system-audit-2026-08 F13).
+reranks the widened pool. The fusion machinery is already N-ary; this is the
+part that is missing.
 
 Fail-open throughout: a missing model, a timeout, an unparseable reply or a
-reply that proposes nothing all read as "sufficient", and the search proceeds
-exactly as it did before this module existed.
+reply that proposes nothing all read as "sufficient", and the search proceeds as a
+one-shot search.
 """
 
 from __future__ import annotations
@@ -46,7 +46,7 @@ _JUDGE_CANDIDATES = 12
 
 #: How many delivered passages the coverage check reads. It judges the pool the
 #: model gets, not the judge's head, because the block's claim is about that
-#: pool: judging the first 12 of 16 and saying "none of the 16" was false for
+#: pool: judging the first 12 of 16 and saying "none of the 16" would be false for
 #: four of them. The decider runs twelve calls at a time
 #: (``aiq_agent.common.decisions.DEFAULT_CONCURRENCY``), so the default
 #: ``top_k`` of 16 is one batch in two waves; past this bound (an admin's
@@ -153,7 +153,7 @@ def _parse_verdict(raw: str, *, original_query: str, max_queries: int) -> Suffic
     return SufficiencyVerdict(sufficient=sufficient, queries=queries)
 
 
-#: Who answers the yes/no. ``llm`` is the judge as it always was; ``jev``
+#: Who answers the yes/no. ``llm`` is the judge; ``jev``
 #: asks the decision model one ``noul`` per passage of the head first
 #: (``knowledge_layer.decisions``) and runs the judge only when the head is
 #: insufficient — for the phrasings, which a decision model cannot write.
@@ -189,7 +189,7 @@ async def judge_sufficiency(
 
     Returns:
         The verdict. On any failure, :data:`SUFFICIENT`, so the caller's search
-        is exactly the one-shot search it always was.
+        is exactly the one-shot search.
     """
     if llm is None or not query or max_queries <= 0:
         return SUFFICIENT
@@ -237,15 +237,14 @@ async def judge_sufficiency(
 def requery_notice(queries: Sequence[str]) -> str:
     """The one line about the widening that the MODEL reads, or ``""``.
 
-    Until this existed the loop was invisible to the agent that had asked for
-    the search: the judge decided the first pool could not answer the question,
-    the pipeline searched again in words the model never chose, and the model
-    was handed the widened excerpts as if they were the answer to its own
-    query. Whichever way the turn then went — an answer built on a paraphrase
-    of the question, or a second search repeating a formulation that had
-    already been tried — the model could not know which, because nothing told
-    it. The live status line said so to the READER (``emit_retrieval_requery``)
-    and to nobody else.
+    Without this line the loop is invisible to the agent that asked for the
+    search: the judge decides the first pool cannot answer the question, the
+    pipeline searches again in words the model never chose, and the model is
+    handed the widened excerpts as if they were the answer to its own query.
+    Whichever way the turn then goes — an answer built on a paraphrase of the
+    question, or a second search repeating a formulation that was already tried —
+    the model cannot know which, because nothing tells it. The live status line
+    says so to the READER (``emit_retrieval_requery``) and to nobody else.
 
     German, because the model writes German and this line sits in the tool
     result beside German excerpts. One sentence, named formulations, no
@@ -271,8 +270,8 @@ def requery_notice(queries: Sequence[str]) -> str:
 #
 # Without this, ``knowledge_search`` fills ``top_k`` whatever it found, and a
 # question the corpus cannot answer gets sixteen formatted excerpts the model
-# reads as evidence (fill@16 = 1.000 on the golden set's should-refuse rows,
-# rag-system-audit-2026-08 §20). The cosine floor cannot fix that: answerable
+# reads as evidence (fill@16 = 1.000 on the golden set's should-refuse rows).
+# The cosine floor cannot fix that: answerable
 # and unanswerable top-1 similarities overlap (0.799-0.933 against
 # 0.795-0.865). What CAN tell them apart is a model reading the question
 # against the passage, and the search already asks one: the decider behind the
@@ -283,12 +282,12 @@ def requery_notice(queries: Sequence[str]) -> str:
 # after the requery round has widened and reranked it. A decision that did not
 # run, or did not run on every passage it was asked about, claims nothing.
 #
-# No cross-encoder threshold. The Cohere relevance scores are roughly
+# No cross-encoder threshold. The reranker's relevance scores may be roughly
 # calibrated, but nothing in this repository measures them against labelled
 # answerable/unanswerable questions (the golden set's should-refuse rows are
 # three distinct needs, and no rerank-score run over them is recorded), and a
 # threshold without that is a guess. The scores are also not carried past the
-# reranker today. A score floor waits for that measurement.
+# reranker. A score floor waits for that measurement.
 #
 # The verdict is said, never enforced: the pool reaches the model whole. A
 # decision never withholds a passage (ADR-0064), so the block states the gap
@@ -360,9 +359,9 @@ async def judge_coverage(
 # ---------------------------------------------------------------------------
 # Latency gate: skip the judge when the pool is already decisive.
 #
-# A production trace (28 s for a 684-token OIB overview) showed the loop's
-# cost centre: 3 sequential search rounds (~9 s), 3 requery-judge firings
-# (~4 s) and 2 full-context card generations (~4 s+). Token cost is not the
+# The loop's cost centre on a 684-token OIB overview (28 s in total): 3
+# sequential search rounds (~9 s), 3 requery-judge firings (~4 s) and 2
+# full-context card generations (~4 s+). Token cost is not the
 # concern; seconds and redundant work are. On lookups the judge manufactures
 # the insufficiency verdict that causes an entire second retrieval round
 # (~3 s+) plus its own latency, so the gate below skips it when the first
@@ -658,7 +657,7 @@ def claim_requery_slot() -> bool:
             while len(_REQUERY_SPENT_TURNS) > _REQUERY_SPENT_LIMIT:
                 _REQUERY_SPENT_TURNS.pop(next(iter(_REQUERY_SPENT_TURNS)))
         # Mirror the claim into the context flag too: a later caller in this
-        # context whose turn id is no longer visible (the stamp fallback) must
+        # context whose turn id is not visible (the stamp fallback) must
         # still read the cap as spent.
         try:
             _REQUERY_FIRED.set(True)

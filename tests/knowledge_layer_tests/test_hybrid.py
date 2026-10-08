@@ -39,15 +39,11 @@ def test_rrf_lexical_channel_boosts_exact_match() -> None:
 
 
 def test_rrf_equal_score_tie_is_broken_toward_the_better_rank_not_the_first_channel() -> None:
-    # The previous version of this test used a mirrored pair (x,y)/(y,x): both chunks
-    # ended up with the SAME score and the SAME best rank, so it passed on `sorted`
-    # being stable and asserted nothing about the tie-break itself.
-    #
     # k=0 makes the arithmetic exact and readable: a hit at rank r contributes 1/(r+1).
     # "deep-twice" is found by both channels at rank 3 (1/4 + 1/4) and "shallow-once" by
     # the second channel alone at rank 1 (1/2) — exactly equal fused scores, unequal best
     # ranks. The better (lower) rank must win, even though "deep-twice" also sits in
-    # channels[0], which the docstring used to claim decides ties.
+    # channels[0], which is not the tie-break here.
     first = [_chunk("f0"), _chunk("f1"), _chunk("f2"), _chunk("deep-twice")]
     second = [_chunk("s0"), _chunk("shallow-once"), _chunk("s2"), _chunk("deep-twice")]
     fused = fuse_with_ranks([first, second], k=0)

@@ -7,8 +7,8 @@
  * - Session switching (cleanup, resume)
  * - File loading from server
  *
- * This service lives outside React's lifecycle to avoid complex ref coordination
- * and effect races that were previously managed in the useFileUpload hook.
+ * This service lives outside React's lifecycle, so it needs none of the ref
+ * coordination and effect races a hook would have to manage.
  *
  * Two shelves, two transports. A project or Archiv collection is listed through
  * the v1 proxy and its ingest jobs are polled by job id. A chat's attachments
@@ -48,10 +48,10 @@ const POLL_INTERVAL_MS = 5000
 /**
  * How long (420 × 5 s, 35 min) the orchestrator follows one job closely.
  *
- * Running out of it says nothing about the upload. A large set of drawings is
- * still being read long after that, and calling it "timed out" put a red
- * upload problem on a document that became citable a minute later. So the end
- * of the budget hands the rows on (see `handOverToListing`), it never fails them.
+ * Running out of it says nothing about the upload. A large set of drawings can
+ * still be read long after that, and calling it "timed out" would put a red
+ * upload problem on a document that is about to become citable. So the end of
+ * the budget hands the rows on (see `handOverToListing`); it never fails them.
  */
 const MAX_POLL_ATTEMPTS = 420
 /** A chat's listing past the budget: still followed, just less often. */
@@ -106,10 +106,10 @@ class UploadOrchestratorImpl {
   /**
    * Everyone listening for an upload to finish, not whoever mounted last.
    *
-   * This was one slot that each `useFileUpload` overwrote, and several mount
-   * at once (the chat composer, the files tab, a project's Files page), so the
-   * surface that had actually started the upload lost its `onComplete` to
-   * whichever hook happened to render after it and never refreshed.
+   * A single slot would let each `useFileUpload` overwrite the others, and several
+   * mount at once (the chat composer, the files tab, a project's Files page). The
+   * surface that started the upload would lose its `onComplete` to whichever hook
+   * rendered after it.
    */
   private subscribers = new Set<OrchestratorCallbacks>()
   /**
@@ -220,7 +220,7 @@ class UploadOrchestratorImpl {
     }
 
     // A chat's attachments resume from their listing, not from a persisted job.
-    // One left over from before they were rows names a proxy job; drop it.
+    // Any persisted job for the chat names a proxy job, so it is dropped.
     if (newSessionId && shelf === 'session') {
       removePersistedJobForCollection(newSessionId)
     }
@@ -441,8 +441,8 @@ class UploadOrchestratorImpl {
 
     if (!persistedJob) return
 
-    // Progress is surfaced by the composer's inline file chips (and the files
-    // dialog), so resuming a persisted job no longer opens a side panel.
+    // Progress is surfaced by the composer's inline file chips and the files
+    // dialog, so resuming a persisted job opens no side panel.
     try {
       const [serverFiles, jobStatus] = await Promise.all([
         client.listFiles(sessionId).catch(() => []),
@@ -588,9 +588,9 @@ class UploadOrchestratorImpl {
         this.stopPolling()
         removePersistedJob(jobId)
 
-        // Same reason as the session poll: the upload's own notification went
-        // out while the job was still pending, and a failure changes the
-        // listing just as much as a success does.
+        // Same reason as the session poll: the upload's own notification can go
+        // out while the job is still pending, and a failure changes the listing
+        // just as much as a success does.
         notifyDocumentsChanged()
 
         // Terminal state (files available or an error) is reflected on the
@@ -663,9 +663,9 @@ class UploadOrchestratorImpl {
    * status, until each is terminal.
    *
    * The workspace listing settles these too, but only while a Files or Archiv
-   * page is mounted. A project upload started from the chat's side panel, or
-   * one the reader walked away from, had nothing asking at all and spun
-   * forever. This is the floor: slow, per document, and only for rows that
+   * page is mounted. Without this, a project upload started from the chat's side
+   * panel, or one the reader walked away from, would have nothing asking and
+   * spin forever. This is the floor: slow, per document, and only for rows that
    * carry a document id. Idempotent per row.
    *
    * @param trackedIds Tray row ids; rows that are not jobless-and-ingesting are ignored.

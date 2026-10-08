@@ -9,12 +9,11 @@
  * only thing that tells the user whether the skill they picked is the one they
  * meant.
  *
- * What it must NOT say is that the instructions will load. It did say that, and
- * it was true when a named skill was forced onto the turn. ADR-0060 deleted
- * forcing: the token is TEXT, Piloti reads the name among the words and decides
- * whether to reach for the skill, exactly as it decides about every other one in
- * its catalog. A chip promising the load is the interface asserting an
- * affordance the product no longer has — and the reader finds out it was wrong
+ * What it must NOT say is that the instructions will load. A named skill is not
+ * forced onto the turn (ADR-0060): the token is TEXT, Piloti reads the name among
+ * the words and decides whether to reach for the skill, exactly as it decides
+ * about every other one in its catalog. A chip promising the load would assert an
+ * affordance the product does not have, and the reader finds out it was wrong
  * only from an answer that did not use the skill they thought they had picked.
  *
  * Removing it edits the token out of the text rather than tracking a separate

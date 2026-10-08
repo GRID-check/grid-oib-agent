@@ -88,8 +88,8 @@ vi.mock('@/lib/projects/repository', () => ({
 }))
 // Only the backend call and the row lookup are replaced; the join is the real
 // `joinHitsToFiles`. A mock that handed back already-joined hits carrying their
-// own `collectionName` is what let a hit from a restricted folder's collection
-// be labelled with an open collection (a newer same-named row) unnoticed.
+// own `collectionName` would hide a hit from a restricted folder's collection
+// being labelled with an open collection (a newer same-named row).
 vi.mock('@/lib/documents/service', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@/lib/documents/service')>()
   return {
@@ -259,7 +259,7 @@ describe('searchAcrossProjects', () => {
   // Filenames are unique per collection, not per project: a restricted folder has
   // its own collection, so „GF intern/Protokoll.pdf" and a NEWER root „Protokoll.pdf"
   // coexist. The backend hit comes from the GF collection; a join on the name alone
-  // handed it to the root row and labelled it with the open collection, which a
+  // would hand it to the root row and label it with the open collection, which a
   // shared chat keeps and records nowhere.
   describe('a restricted passage and a newer same-named open document', () => {
     const GF_COLLECTION = 'proj_1_rabcdef012345'

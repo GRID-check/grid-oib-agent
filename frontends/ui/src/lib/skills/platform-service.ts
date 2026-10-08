@@ -126,9 +126,9 @@ export async function createPlatformSkill(
     body: input.body,
     metadata: input.metadata ?? {},
     published: input.published ?? false,
-    // The only value the column takes since 0088. Still written explicitly
-    // rather than left to the column default, so the row a caller gets back is
-    // the row this function decided on.
+    // The only value the column takes (migration 0088). Written explicitly,
+    // not left to the column default, so the row a caller gets back is the row
+    // this function decided on.
     delivery: input.delivery ?? 'offer',
     categoryId: await assertPlatformSkillCategory(input.categoryId),
     createdBy: author.userId,
@@ -141,14 +141,12 @@ export async function createPlatformSkill(
  * Edit a curated skill — including publishing it and withdrawing it.
  *
  * An edit reaches every organization that runs the skill immediately and without
- * anyone re-taking it. That is the property the removed clone flow could not
- * have: a copy stops being ours the moment it is made.
+ * anyone re-taking it. That is the property a copy cannot have: a copy stops
+ * being ours the moment it is made.
  *
- * Nothing here can impose the skill on a tenant. `delivery` used to move a row
- * between `offer` and `standard`, and promoting one took the decision away from
- * every organization on the platform; migration 0088 retired that tier, so the
- * only reachable value is `offer` and an organization always decides. What the
- * platform wants applied to every turn goes in the platform prompt instead.
+ * Nothing here can impose the skill on a tenant: `delivery` takes only `offer`,
+ * so an organization always decides. What the platform wants applied to every
+ * turn goes in the platform prompt instead.
  */
 export async function updatePlatformSkill(
   skillId: string,

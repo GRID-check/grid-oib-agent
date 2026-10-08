@@ -7,8 +7,8 @@
  * queues this row in the same transaction, erases the attachments, the chat's
  * `s_` collection and the rows, and closes the row. The row is for the request
  * that could not finish — the agent service was down, a store answered 5xx, the
- * process died — which used to leave the chat hidden and half-erased until
- * somebody happened to delete it again.
+ * process died — which would otherwise leave the chat hidden and half-erased
+ * until somebody happened to delete it again.
  *
  * The steps are NOT repeated in this file. They live in the BFF (TypeScript,
  * with the tenant scope, the session-document ledger and the backend clients

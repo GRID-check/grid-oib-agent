@@ -25,11 +25,10 @@
  *
  * ## Shut by default, and it opens itself when it is your turn
  *
- * This section used to stand open at the top of the rail on every document:
- * a heading, a strip of review verbs, and the full version history, above the
- * summary and the facts. On the overwhelming majority of files that is noise —
- * a person's upload is born `published`, there is no decision left to take, and
- * the one control the strip could offer was the unexplained „Archivieren".
+ * On the overwhelming majority of files, a heading, a strip of review verbs and
+ * the full version history above the summary and the facts is noise: a person's
+ * upload is born `published`, there is no decision left to take, and the one
+ * control a strip could offer would be an unexplained archive verb.
  *
  * So the panel is a disclosure, and at rest it says exactly two things: the
  * word for where the document stands, and the track that gives that word its
@@ -79,7 +78,7 @@ import { DocumentVersionStateBadge } from './document-version-badge'
 
 export interface DocumentLifecyclePanelProps {
   documentId: string
-  /** The file's own name, so „archivieren?" can name what it is about. */
+  /** The file's own name, so the archive confirm can name what it is about. */
   filename?: string | null
   viewer: DocumentLifecycleViewer
   authoredBy?: DocumentAuthor | null
@@ -438,8 +437,8 @@ async function runVersionOp(
     submit: () => client.submit(documentId, versionId, reviewerUserIds, { orderMessage, dueAt }),
     approve: () => client.approve(documentId, versionId, comment, ifMatch),
     // The flag is PASSED only when it is true, the same decision the client
-    // makes one tier down about the wire: „Änderungen anfordern" is the call it
-    // always was, and the third control is the only caller that adds anything.
+    // makes one tier down about the wire: „Änderungen anfordern" is the plain
+    // call, and the third control is the only caller that adds anything.
     request_changes: () =>
       delegateRevision
         ? client.requestChanges(documentId, versionId, comment ?? '', true, ifMatch)

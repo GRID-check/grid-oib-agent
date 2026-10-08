@@ -3,8 +3,8 @@
  *
  * The viewport itself is mocked: it needs a WebGPU adapter, which no test
  * runner has. What is pinned here is everything around it, which is where the
- * card can be wrong in a way nobody notices — the three situations it used to
- * collapse into "das Modell ist nicht verfügbar", and the two counts it
+ * card can be wrong in a way nobody notices — the three situations, which must
+ * not collapse into "das Modell ist nicht verfügbar", and the two counts it
  * reports about an answer somebody else wrote.
  *
  * Rendered in English — the default test locale.
@@ -114,8 +114,8 @@ const card = (props: Partial<React.ComponentProps<typeof IfcViewerCard>> = {}) =
 describe('IfcViewerCard — which of three situations it is in', () => {
   it('does not claim the model is missing while the list is still loading', async () => {
     // "Das referenzierte Modell ist in diesem Projekt nicht verfügbar" is the
-    // sentence that tells an architect their upload vanished. It was rendered
-    // for the first few hundred milliseconds of every card.
+    // sentence that tells an architect their upload vanished, so it is not
+    // shown while the list is still in flight.
     stubFetch({ models: 'never' })
     card()
     expect(screen.queryByText(/not available in this project/i)).not.toBeInTheDocument()

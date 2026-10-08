@@ -111,7 +111,7 @@ const propertyFilterSchema = z
   })
   // Strict for the same reason as the filter above: this is the shape the
   // agent hand-writes most often, and `{"property": "FireRating"}` for `name`
-  // silently became "no name constraint".
+  // would silently mean "no name constraint".
   .strict()
   .refine(
     (filter) =>
@@ -130,14 +130,14 @@ export type BimPropertyFilter = z.infer<typeof propertyFilterSchema>
 /**
  * The Hauptnutzung vocabulary the rest of the system uses.
  *
- * Free text before, and the rule catalogue silently stands rules down for
- * anything it does not recognise — so `hauptnutzung: "wohnbau"` or
- * `"Wohngebäude"` produced "OIB 5 nicht einschlägig — für diese Nutzung nicht
- * lärmempfindlich" on a residential building. A plausible-sounding
- * stand-down reads as a verdict and is not one.
+ * Free text would let the rule catalogue silently stand rules down for anything
+ * it does not recognise: `hauptnutzung: "wohnbau"` or `"Wohngebäude"` would
+ * produce "OIB 5 nicht einschlägig — für diese Nutzung nicht lärmempfindlich"
+ * on a residential building. A plausible-sounding stand-down reads as a
+ * verdict and is not one.
  *
  * Mirrors `projectProfilePatchOperation`'s published list; an unknown value is
- * now a rejection the agent is told to correct, not a quiet non-answer.
+ * a rejection the agent is told to correct, not a quiet non-answer.
  */
 export const BIM_HAUPTNUTZUNG = [
   'wohnen',
@@ -174,10 +174,10 @@ export const bimFilterSchema = z.object({
    *
    * Zod's default is to STRIP unknown keys. So `{"ifcTypes":["IfcWall"],
    * "storey":"Erdgeschoss"}` — singular, a very natural slip, and the real key
-   * is `storeys` — became "every wall in the building", came back as
-   * "412 Bauteile erfüllen die Abfrage", and the agent reported 412 external
-   * walls on the ground floor. Nothing anywhere signalled that a criterion had
-   * been discarded. Same for `ifcType`, `nameContain`, and a property filter's
+   * is `storeys` — would become "every wall in the building", come back as
+   * "412 Bauteile erfüllen die Abfrage", and the agent would report 412 external
+   * walls on the ground floor. Nothing downstream signals that a criterion was
+   * discarded. Same for `ifcType`, `nameContain`, and a property filter's
    * `property`.
    *
    * Rejected is recoverable: the caller is told which key it invented and can
@@ -218,11 +218,11 @@ const aggregateSchema = z.object({
  * Every member is `.strict()`, for the same reason the filter objects are.
  *
  * `bimFilterSchema.strict()` rejects an invented key one level down, and this
- * level accepted anything: `{op: 'aggregate', filters: {...}}` — plural, which
- * is what the agent's own tool parameter is called — had the key stripped,
- * `filter` defaulted to `{}`, and the aggregate ran over the WHOLE model. An
- * unfiltered number reported as a filtered one, which is precisely the failure
- * the strictness one level down was added to prevent.
+ * level must do the same: `{op: 'aggregate', filters: {...}}` — plural, which
+ * is what the agent's own tool parameter is called — would have the key
+ * stripped, `filter` would default to `{}`, and the aggregate would run over
+ * the WHOLE model. An unfiltered number reported as a filtered one is precisely
+ * the failure the strictness one level down prevents.
  */
 export const bimQuerySchema = z.discriminatedUnion('op', [
   z.object({ op: z.literal('overview') }).strict(),
@@ -278,13 +278,12 @@ export const bimQuerySchema = z.discriminatedUnion('op', [
     // conversational page, which stays small on purpose — 25 rows is an answer,
     // 1 000 is a data dump no one asked the model to narrate.
     limit: z.number().int().min(1).max(BIM_ELEMENTS_PAGE_LIMIT).default(25),
-    // The extraction cap, not half of it. At 100 000 the viewer's own paged
-    // walk — six pages of 1 000 per round, continuing while a page comes back
-    // full — asked for `offset: 101000` on any model over ~101 000 elements,
-    // the schema rejected it, and the whole element index failed rather than
-    // returning a partial one. That is the "picking a wall deselects it,
-    // filtering a storey empties the viewport" failure, for every model
-    // between the two numbers.
+    // The extraction cap, not a fraction of it. A lower ceiling would make the
+    // viewer's own paged walk — six pages of 1 000 per round, continuing while
+    // a page comes back full — ask for an offset past it on any larger model.
+    // The schema would reject that, and the whole element index would fail
+    // rather than return a partial one: "picking a wall deselects it, filtering
+    // a storey empties the viewport".
     offset: z.number().int().min(0).max(BIM_ELEMENT_OFFSET_LIMIT).default(0),
   }).strict(),
   z.object({ op: z.literal('element'), globalId: z.string().trim().min(1).max(64) }).strict(),
@@ -299,12 +298,12 @@ export const bimQuerySchema = z.discriminatedUnion('op', [
   /**
    * A grouping the caller asked for and did not describe is unanswerable.
    *
-   * It used to run UNGROUPED: `groupExpression` returns null, the repository
-   * skips the `GROUP BY` — and then `renderSummary` branches on
-   * `request.groupBy` being truthy and takes the grouped path anyway. "Wie
-   * verteilen sich die Feuerwiderstandsklassen?" answered `(ohne Angabe):
-   * 412.`, and the agent reported that 412 walls have no fire rating. The
-   * question was never put to the database.
+   * Without this check the query runs UNGROUPED: `groupExpression` returns
+   * null, the repository skips the `GROUP BY`, and `renderSummary` still
+   * branches on `request.groupBy` being truthy and takes the grouped path. "Wie
+   * verteilen sich die Feuerwiderstandsklassen?" would answer `(ohne Angabe):
+   * 412.`, and the agent would report that 412 walls have no fire rating. The
+   * question would never reach the database.
    *
    * On the union rather than on `aggregateSchema`, because a discriminated
    * union's members must be plain objects — a refined member is a `ZodEffects`
@@ -380,11 +379,11 @@ export class BimModelNotReadyError extends ApiError {
   readonly modelStatus: BimModelHeader['status']
 
   constructor(status: BimModelHeader['status'], message: string) {
-    // Extends `ApiError` so the handler maps it. As a bare `Error` every one
-    // of these surfaced as HTTP 500 "Internal server error" with a stack in
+    // Extends `ApiError` so the handler maps it. As a bare `Error` each of
+    // these would surface as HTTP 500 "Internal server error" with a stack in
     // the logs: a model still extracting — the normal state for the first
-    // minute after a 250 MB upload — read to the user as a crashed server,
-    // and a model in another tenant read as one too.
+    // minute after a 250 MB upload — would read to the user as a crashed
+    // server, and so would a model in another tenant.
     //
     // A missing model is 404, like every other resource. A model that exists
     // but is not readable YET is 409: the request was well-formed and the
@@ -418,11 +417,10 @@ function storeyFacts(
 /**
  * The rule catalogue over one model, through every shortcut there is.
  *
- * Written once because it is needed twice, and the second caller — the
- * revision diff — had none of it: two unconditional `loadBimElementsForSchedule`
- * calls, no projection, no memo, and no truncation flag, so the op that
- * compares two 400 000-element revisions was the slowest thing in the product
- * and the least honest about what it had read.
+ * Written once because two callers need it: the single-model run and the
+ * revision diff. Both take the same shortcuts and carry the same truncation
+ * flag, so the diff of two 400 000-element revisions is neither the slowest op
+ * in the product nor the least honest about what it read.
  *
  * The order matters: memo, then the stored projection, then the full load.
  * Each step is a fact about an IMMUTABLE model — a `ready` model never changes
@@ -445,9 +443,9 @@ async function complianceRun(
     ? { elements: stored.elements, truncated: stored.truncated }
     : await loadBimElementsForSchedule(header.id, organizationId)
 
-  // Models extracted before the projection existed have none. The first reader
-  // pays the old cost once and leaves it behind for everyone else, which is
-  // why there is no backfill job.
+  // A model with no stored projection takes the full load once, and the first
+  // reader saves one for everyone after it, which is why there is no backfill
+  // job.
   if (!stored) {
     // Guarded on what we read: a re-extraction that landed while we were
     // loading elements has already written a NEWER projection, and ours
@@ -518,14 +516,12 @@ function valueCondition(filter: BimPropertyFilter): SQL | null {
     case 'exists':
     case 'missing':
       return null
-    // A NUMERIC `eq`/`neq` compares numerically, like `gt`/`lt` already do.
-    // Comparing `#>> '{}'` text against `String(value)` made the two sides
-    // disagree on rendering: JavaScript writes `1e-7` where Postgres stores
-    // `0.0000001`, and a stored `2.50` never equals the string `2.5`. The
-    // filter matched nothing and the answer came back "Kein Bauteil erfüllt
-    // die Abfrage" — a fact about number formatting, reported as a fact about
-    // the building. (`rule-inputs.ts` grew `renderScalar` for exactly this
-    // disagreement; this path never used it.)
+    // A NUMERIC `eq`/`neq` compares numerically, like `gt`/`lt` do. Comparing
+    // `#>> '{}'` text against `String(value)` disagrees on rendering:
+    // JavaScript writes `1e-7` where Postgres stores `0.0000001`, and a stored
+    // `2.50` never equals the string `2.5`. The filter would match nothing and
+    // answer "Kein Bauteil erfüllt die Abfrage" — a fact about number
+    // formatting, reported as a fact about the building.
     case 'eq':
       return typeof filter.value === 'number'
         ? numericCondition(sql`=`, filter.value)
@@ -539,12 +535,10 @@ function valueCondition(filter: BimPropertyFilter): SQL | null {
           sql`NOT (CASE WHEN jsonb_typeof(p.prop_value) = 'number' THEN (p.prop_value)::numeric = ${filter.value} ELSE false END)`
         : sql`lower(${asText}) IS DISTINCT FROM lower(${String(filter.value)})`
     case 'contains':
-      // `likeContains`, not a raw interpolation. `%` and `_` are ILIKE
-      // wildcards: a filter for `WC_1` also matched `WC-1` and `WCx1`, and a
-      // value of `%` matched every element that carries the property at all —
-      // an inflated count, reported as a fact. Three name/material/
-      // classification predicates already route through this; the property
-      // path was the one that did not.
+      // `likeContains`, not a raw interpolation: `%` and `_` are ILIKE
+      // wildcards, so `WC_1` would also match `WC-1` and `WCx1`, and `%` would
+      // match every element that carries the property at all. The name,
+      // material and classification predicates route through this too.
       return sql`${asText} ILIKE ${likeContains(String(filter.value))}`
     case 'gt':
       return numericCondition(sql`>`, Number(filter.value))
@@ -588,9 +582,9 @@ function numericCondition(operator: SQL, value: number): SQL {
  *
  * The caller decides whether the model is indexed at all
  * (`bim_models.search_keys_indexed`); this function assumes it is. Writing the
- * fallback into the predicate instead — `search_keys IS NULL OR …` — was
- * measured and is a trap: `IS NULL` is not GIN-indexable, so the disjunction
- * makes the whole condition unindexable and every query keeps the old plan.
+ * fallback into the predicate instead — `search_keys IS NULL OR …` — is a
+ * trap: `IS NULL` is not GIN-indexable, so the disjunction makes the whole
+ * condition unindexable and every query keeps the slow plan.
  *
  * Measured on a seeded 200 000-element model, filter matching one element:
  *
@@ -676,9 +670,9 @@ function sharedConditions(filter: BimFilter): SQL[] {
 
   if (filter.ifcTypes?.length) {
     // Every spelling of each requested type — see `ifcTypeVariants`. An IFC4
-    // export whose walls are `IfcWallStandardCase` used to answer a filter for
-    // `IfcWall` with nothing at all, and the agent read that as a building
-    // with no walls.
+    // export whose walls are `IfcWallStandardCase` would otherwise answer a
+    // filter for `IfcWall` with nothing at all, and the agent would read that
+    // as a building with no walls.
     conditions.push(
       inArray(
         sql`lower(${bimElements.ifcType})`,
@@ -696,9 +690,9 @@ function sharedConditions(filter: BimFilter): SQL[] {
     // form is always GlobalId-shaped and a token that is not can never equal
     // it — dropping the arm for a list of plain names is exact, not a
     // shortcut. It matters because an unconditional `OR` over two columns is
-    // unindexable: the expression index added in 0040 serves the name arm, and
-    // an OR with an unindexed second arm sends the whole predicate back to a
-    // sequential scan, which is what made that index dead on arrival.
+    // unindexable: the expression index from migration 0040 serves the name
+    // arm, and an OR with an unindexed second arm sends the whole predicate
+    // back to a sequential scan, which leaves that index unused.
     const globalIds = lowered.filter((storey) => IFC_GLOBAL_ID.test(storey))
     conditions.push(
       globalIds.length === 0
@@ -785,11 +779,11 @@ function groupExpression(
  * The value one element carries for the property a `group_by: 'property'` names.
  *
  * The same case-insensitive, set-optional lookup `propertyPredicate` and
- * `quantityExpression` use, and for the same reason. It used to be a literal
- * `properties -> <set> ->> <name>`, so the identical `{set, name}` that
- * MATCHED 412 walls as a filter grouped all 412 under "(ohne Angabe)" — which
- * is exactly the "412 walls have no fire rating" answer the schema's own
- * `superRefine` was added to prevent, arrived at from the other side.
+ * `quantityExpression` use, and for the same reason. A literal
+ * `properties -> <set> ->> <name>` would let the identical `{set, name}` that
+ * MATCHES 412 walls as a filter group all 412 under "(ohne Angabe)": the
+ * "412 walls have no fire rating" answer that the schema's `superRefine`
+ * exists to prevent, reached from the other side.
  */
 function groupPropertyExpression(groupProperty: { set: string; name: string }): SQL {
   const conditions: SQL[] = [sql`lower(p.prop_name) = lower(${groupProperty.name})`]
@@ -846,9 +840,9 @@ function formatNumber(value: number): string {
  *
  * Deliberately conservative: the dimension is inferred from the quantity's
  * NAME, and a name this does not recognise gets no symbol rather than a
- * guessed one. A missing unit makes the agent quote a bare number, which is
- * what it did for every aggregate until now; a WRONG unit would have it write
- * "4 120 000 m²" for a model in millimetres, which is worse than silent.
+ * guessed one. A missing unit makes the agent quote a bare number; a WRONG unit
+ * would have it write "4 120 000 m²" for a model in millimetres, which is worse
+ * than silent.
  *
  * The IFC quantity vocabulary is small and stable — `Qto_*` sets use
  * `…Area`, `…Volume`, `…Length`/`Width`/`Height`/`Perimeter`/`Depth`/
@@ -980,19 +974,18 @@ function renderSummary(request: BimQuery, result: Omit<BimQueryResult, 'summary'
     case 'aggregate': {
       const groups = result.groups ?? []
       if (groups.length === 0) return 'Kein Bauteil erfüllt die Abfrage.'
-      // The model's own unit symbol, the way `overview` and `schedule` already
-      // attach one. This used to be `request.metric === 'count' ? '' : ''` — a
-      // placeholder never filled — so a model declaring millimetres answered
-      // "4120000" and the agent wrote m².
+      // The model's own unit symbol, the way `overview` and `schedule` attach
+      // one: without it, a model declaring millimetres answers "4120000", and
+      // the agent writes m².
       const unit = quantityUnit(request, result.units)
       /**
        * How many elements CARRIED the quantity, beside how many matched.
        *
        * `sum`/`avg` skip elements that publish nothing, so a hundred rooms of
-       * which ten have a floor area produced "250 über 100 Bauteile" — a sum
-       * of ten values asserted over a hundred elements. `takeoff` and
-       * `schedule` have carried this distinction from the start; the operation
-       * the tool description calls "how you answer how much" did not.
+       * which ten have a floor area would produce "250 über 100 Bauteile" — a
+       * sum of ten values asserted over a hundred elements. `takeoff` and
+       * `schedule` carry this distinction, and so does the operation the tool
+       * description calls "how you answer how much".
        */
       const over = (group: { elements: number; measured: number }): string =>
         group.measured === group.elements
@@ -1068,17 +1061,17 @@ export async function runBimQuery(
    * `summary.truncatedAt` records that the file was bigger than the stored
    * element list. Every op that reads ROWS therefore answers over part of the
    * building, while `overview` — which reads the summary — answers over all of
-   * it. The agent could put both in one reply and had no way to know they
-   * disagreed: "350 000 Bauteile" from the overview, and a filtered count over
-   * the 200 000 that were stored.
+   * it. Both can land in one reply with no way to tell they disagree: "350 000
+   * Bauteile" from the overview, and a filtered count over the 200 000 that
+   * were stored.
    *
-   * `compliance` and `health` were the two that read rows and said nothing.
-   * `compliance` is the worse of the pair by a distance: the Prüfbuch, the BCF
-   * export and a signed human confirmation all read "X erfüllt / Y nicht
-   * erfüllt" as verdicts over the building, when a capped model means they are
-   * verdicts over the part of it that was stored. `health` reports orphan and
-   * duplicate-GlobalId counts over the same capped list — "43 Bauteile keinem
-   * Geschoß zugeordnet" out of 200 000, with 150 000 never examined.
+   * `compliance` and `health` read rows too, so they carry the same banner.
+   * `compliance` matters most: the Prüfbuch, the BCF export and a signed human
+   * confirmation all read "X erfüllt / Y nicht erfüllt" as verdicts over the
+   * building, when a capped model makes them verdicts over the part of it that
+   * was stored. `health` reports orphan and duplicate-GlobalId counts over the
+   * same capped list — "43 Bauteile keinem Geschoß zugeordnet" out of 200 000,
+   * with 150 000 never examined.
    */
   const ROW_READING_OPS = new Set([
     'types',
@@ -1240,11 +1233,11 @@ export async function runBimQuery(
 
     case 'profile': {
       if (!model.summary) throw new BimModelNotReadyError('failed', 'Model has no summary')
-      // `truncated` was destructured away here and nowhere else. The
-      // Hauptnutzung is classified from the `IfcSpace` names that fell inside
-      // the row window, and it is the fact a Gebäudeklasse — and therefore
-      // half the rule catalogue — is decided from downstream. A suggestion
-      // drawn from part of the building must say so.
+      // The Hauptnutzung is classified from the `IfcSpace` names that fall
+      // inside the row window, and it is the fact a Gebäudeklasse — and
+      // therefore half the rule catalogue — is decided from downstream. A
+      // suggestion drawn from part of the building must say so, hence
+      // `truncated` in the result.
       const { elements, truncated } = await loadBimElementsForSchedule(
         context.modelId,
         context.organizationId
@@ -1297,9 +1290,7 @@ export async function runBimQuery(
         metricValueExpression: metricValueExpression(request),
         limit: request.limit,
       })
-      // The model's units travel with the answer so the summary can name
-      // them — the aggregate is the one quantity operation that reported bare
-      // numbers.
+      // The model's units travel with the answer so the summary can name them.
       return finish({
         ...modelBase,
         groups,

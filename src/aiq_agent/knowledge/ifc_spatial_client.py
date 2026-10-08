@@ -123,10 +123,10 @@ def _container_memory_bytes() -> int | None:
 def _derive_max_model_bytes() -> int:
     """The largest model this process will admit, from the memory it actually has.
 
-    A fixed 512 MB was the previous rule, justified as "a refusal rather than an
-    OOM". It accounted for the DOWNLOAD and not for the parse: at 20× the low
-    end, a 512 MB file needs 10 GB resident before a single question is asked,
-    so on any ordinary pod the guard guaranteed exactly the OOM it named.
+    A fixed ceiling accounts for the DOWNLOAD and not for the parse: at 20× the
+    low end, a 512 MB file needs 10 GB resident before a single question is
+    asked, so on an ordinary pod a fixed ceiling guarantees the OOM it is meant
+    to refuse.
 
     Half the container's memory, divided by the footprint ratio, leaves room for
     the model already resident (``MAX_RESIDENT_MODELS`` is 2) and for the rest of
@@ -322,8 +322,8 @@ def source_identity(result: dict[str, Any]) -> str:
 #: is the whole fix and it is easy to get wrong: `build_opener` starts from the
 #: default handler set and merely adds to it, so
 #: `build_opener(HTTPHandler, HTTPSHandler)` still carries the `FileHandler` and
-#: still reads `file:///…`. Verified rather than assumed — the first version of
-#: this used `build_opener` and returned the file's bytes.
+#: still reads `file:///…`. Verified rather than assumed: `build_opener` with the
+#: HTTP handlers returns the bytes of a `file:` URL.
 def _http_only_opener() -> urllib.request.OpenerDirector:
     opener = urllib.request.OpenerDirector()
     for handler in (
@@ -394,16 +394,16 @@ _LOCK = threading.Lock()
 #: :func:`call_spatial_tool` on every operator call, and the thing that has to be
 #: atomic here takes SECONDS — `create_tools` replaces the table and clears
 #: `_OPEN_HANDLES`, and a handle opened against the old table is absent from the
-#: new one. Reproduced: with `MAX_RESIDENT_MODELS` at 2, one slow parse and three
-#: other turns landing during it, the slow turn's handle registers into a table
-#: that never saw its model, and the next operator on it fails with
+#: new one. Without the lock, with `MAX_RESIDENT_MODELS` at 2, one slow parse and
+#: three other turns landing during it leave the slow turn's handle registered in
+#: a table that never saw its model, and the next operator on it fails with
 #: „model … ist nicht geöffnet — open_model aufrufen" — an argument mistake, for
 #: a GlobalId and a handle that were both correct.
 #:
-#: The cost is stated rather than hidden: two DIFFERENT models can no longer be
-#: parsed at the same time. That is the trade the rebuild rule already implies —
-#: the table is sized by `MAX_RESIDENT_MODELS` (2), so a third concurrent parse
-#: was going to evict one of the two anyway. The download is deliberately
+#: The cost is stated rather than hidden: two DIFFERENT models cannot be parsed
+#: at the same time. That is the trade the rebuild rule already implies — the
+#: table is sized by `MAX_RESIDENT_MODELS` (2), so a third concurrent parse would
+#: evict one of the two anyway. The download is deliberately
 #: OUTSIDE this lock, because that is the part that takes two minutes and the
 #: part that has its own per-identity key.
 _OPEN_LOCK = threading.Lock()
@@ -437,10 +437,9 @@ def _engine() -> tuple[Any, Any]:
     hundred megabytes of address space that a deployment answering no model
     questions should never pay.
 
-    The lock is the whole build, not just the ``None`` test, and the docstring
-    used to claim that while the code did not. Measured with four
-    ``asyncio.to_thread`` workers arriving together on a cold process: FOUR tool
-    tables were built, three callers walked away holding a table that was not
+    The lock covers the whole build, not just the ``None`` test: without that,
+    four ``asyncio.to_thread`` workers arriving together on a cold process each
+    built a tool table, three callers walked away holding a table that was not
     the module's, and every model they opened against it was invisible to the
     next operator call.
     """
@@ -509,7 +508,7 @@ def open_model(result: dict[str, Any]) -> str:
 
     Which makes the rebuild the one step that MUST NOT interleave with another
     open, and :data:`_OPEN_LOCK` is what says so — see its own comment for the
-    failure that was reproduced without it.
+    failure it prevents.
     """
     global _TOOLS
 

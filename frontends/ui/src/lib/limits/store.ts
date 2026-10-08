@@ -6,11 +6,10 @@
  * per rule, and expose a typed surface tests can swap.
  *
  * It deliberately does NOT reuse `@/lib/cache`. That store's contract is JSON
- * values with a TTL and no atomic primitive — which is precisely why the
- * counter it used to back (`@/lib/sharing/rate-limit`) could undercount under
- * concurrency, as its own header admitted. Widening that interface to serve one
- * caller would have been the wrong trade; the cost of not doing so is a second
- * ioredis connection per process, which is a connection, not a problem.
+ * values with a TTL and no atomic primitive, which is why a counter kept there
+ * can undercount under concurrency. Widening that interface to serve one caller
+ * would be the wrong trade; the cost of not doing so is a second ioredis
+ * connection per process, which is a connection, not a problem.
  *
  * With `REDIS_URL` unset (local dev, tests) the limiters are per-process. They
  * still limit — just per replica, so the effective budget with N replicas is

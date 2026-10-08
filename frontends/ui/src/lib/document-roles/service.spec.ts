@@ -37,7 +37,7 @@ const repo = vi.hoisted(() => ({
   // A project whose intake was never saved: the column holds `{}`, which
   // `findProjectProfile` hands out as this empty profile (never `null` for an
   // existing project). The implicit first building (`bw1`) is the only one.
-  // Modelling it as `null` here is how the 500 on the real value went unseen.
+  // Modelling it as `null` here would hide the 500 the real value causes.
   profile: emptyProfile() as ProjectProfile | null,
 }))
 
@@ -55,10 +55,10 @@ vi.mock('./repository', () => ({
     async (documentId: string, _projectId: string, reader: { hiddenFolderIds: string[] }) =>
       repo.documentInProject && (reader.hiddenFolderIds.length === 0 || !repo.hiddenDocumentIds.includes(documentId))
   ),
-  // The replacement is ONE call now, not a delete followed by an insert: the
-  // two separate statements could leave a single-holder slot empty when the
-  // insert failed. The double bookkeeping here mirrors that both still happen,
-  // inside one transaction.
+  // The replacement is one call, not a delete followed by an insert: two
+  // separate statements could leave a single-holder slot empty when the insert
+  // failed. The bookkeeping here records both statements, which run inside one
+  // transaction.
   replaceSlotBinding: vi.fn(
     async (
       input: Record<string, unknown>,
@@ -98,9 +98,9 @@ vi.mock('./repository', () => ({
   ),
   deleteBindings: vi.fn(async (_projectId: string, ids: readonly string[]) => {
     // Count what actually matched, as the real repository does via
-    // `.returning()`. Returning `ids.length` unconditionally made the
-    // "binding not found" case impossible to reach, so the test that
-    // asserts it was testing this mock rather than the service.
+    // `.returning()`. Returning `ids.length` unconditionally would make the
+    // "binding not found" case unreachable, and the test asserting it would test
+    // this mock rather than the service.
     const matched = repo.bindings.filter((b) => ids.includes(b.id)).map((b) => b.id)
     repo.deleted.push(...matched)
     repo.bindings = repo.bindings.filter((b) => !ids.includes(b.id))
@@ -280,9 +280,9 @@ describe('declareDocumentRole — a repeat can confirm', () => {
       session
     )
 
-    // The "already bound" early return handed back the old row untouched, so
-    // the prompt kept marking it [nicht bestätigt] however often the user
-    // confirmed it.
+    // The confirm must update the row. An "already bound" early return would
+    // hand back the old row untouched, and the prompt would keep marking it
+    // [nicht bestätigt] however often the user confirms it.
     expect(repo.confirmed).toEqual([
       { bindingId: 'binding-1', confidence: 'declared', source: 'user' },
     ])
@@ -344,8 +344,8 @@ describe('declareDocumentRole — the Bauwerk has to exist', () => {
     ).rejects.toThrow(/bw9/)
 
     // The vocabulary can only check the SHAPE of an instance id. An accepted
-    // string that names no building produced a binding matching no generated
-    // slot — invisible in the checklist, invisible to the agent, and impossible
+    // string that names no building would yield a binding matching no generated
+    // slot: invisible in the checklist, invisible to the agent, and impossible
     // for the user to find and remove.
     expect(repo.inserted).toEqual([])
   })

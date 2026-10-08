@@ -4,12 +4,10 @@
 /**
  * `GET /api/conversations/[id]/messages` — listing a thread's history.
  *
- * **Rewritten for the collaboration authorization model (ADR-0032)**, for the
- * same reason as the sibling `[id]/route.test.ts`: this file used to fake drizzle
- * by call ORDER (first `select()` = the conversation probe, second = the
- * messages), which broke the moment access resolution added queries of its own.
- * Mocking the repository boundary instead makes it robust against the next such
- * change, and tests the contract rather than the query builder.
+ * Mocks the repository boundary (ADR-0032), not drizzle. Faking drizzle by call
+ * ORDER (first `select()` = the conversation probe, second = the messages)
+ * breaks as soon as access resolution adds a query of its own, and the contract
+ * under test is the route, not the query builder.
  *
  * Reading a thread requires `viewer` — the weakest role — so both cases here are
  * about the route, with one addition worth keeping honest: legacy messages with
@@ -100,7 +98,7 @@ describe('/api/conversations/[id]/messages', () => {
         organizationId: 'org_1',
         conversationId: 's_conv_1',
         role: 'user',
-        // Written before authorship existed — attribution happens on read.
+        // No recorded author — attribution happens on read.
         authorUserId: null,
         runId: null,
         content: 'hello',

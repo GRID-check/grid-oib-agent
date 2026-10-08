@@ -158,15 +158,15 @@ export function highlightedExpressIds(highlights: readonly ResolvedHighlight[]):
 /**
  * One storey name, reduced to the form every comparison uses.
  *
- * Three places matched storey names three different ways: this module
- * lowercased without trimming, the rail publishes `name.trim()`, and the
- * elevation lookup used `===`. Both differences bite:
+ * Every comparison of storey names goes through this key, because the rail, the
+ * element filter and the elevation lookup would otherwise disagree. Two
+ * mismatches bite:
  *
  * - An IFC storey named `' Erdgeschoss '` — trailing whitespace is common in
  *   exports — makes the rail write `?storey=Erdgeschoss` while every element
  *   carries the padded name. Nothing matches, the model DOES assign storeys,
  *   so the answer is an empty set, which the renderer reads as "draw
- *   nothing". The app's own rail blanks the building.
+ *   nothing". The rail would blank the building.
  * - A link carrying `?storey=erdgeschoss` isolates correctly but finds no
  *   elevation, so switching on the cut lands a third of the way up the
  *   building instead of a metre above that floor, and no rail row shows as
@@ -255,8 +255,8 @@ export function hasVisibilityEdits(visibility: ViewerVisibility): boolean {
  * from the one they are looking at.
  *
  * Note what this is NOT for: deciding what a repeated press means. Isolating
- * the same element twice arrives here looking identical, and treating that as
- * "nothing happened" is what made the isolate button a one-way door — see
+ * the same element twice arrives here looking identical, so treating that as
+ * "nothing happened" would make the isolate button a one-way door — see
  * {@link ModelVisibility.isolate}, which resolves the second press into a
  * different state before it ever reaches this comparison.
  *

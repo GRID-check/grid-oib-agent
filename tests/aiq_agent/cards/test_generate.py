@@ -33,8 +33,8 @@ class TestParseCardsText:
         assert _parse_cards_text("```json\n" + _ONE_CARD_OBJECT + "\n```")[0]["title"] == "Überblick"
 
     def test_leading_and_trailing_prose_is_salvaged(self):
-        """The reported failure mode: a whole-string json.loads throws on any
-        prose around the JSON and loses every card. The salvage path recovers it."""
+        """A whole-string json.loads throws on any prose around the JSON and loses every
+        card. The salvage path recovers it."""
         text = "Here are the cards you asked for:\n" + _ONE_CARD_OBJECT + "\nHope that helps!"
         assert _parse_cards_text(text) == [{"type": "ifc_model_picker", "title": "Überblick"}]
 
@@ -45,7 +45,7 @@ class TestParseCardsText:
         assert _parse_cards_text('{"cards": []}') == []
 
     def test_list_content_blocks_are_joined(self):
-        """Regression #653: some providers return content as a list of blocks;
+        """Some providers return content as a list of blocks;
         joining their text must not crash on list.strip."""
         blocks = [
             {"type": "text", "text": '{"cards": '},
@@ -112,8 +112,8 @@ class TestGenerateCards:
 
     @pytest.mark.asyncio
     async def test_prose_wrapped_response_still_yields_cards(self):
-        """Regression: a non-chat LLM (no structured output) that wraps JSON in
-        prose previously produced zero cards; the tolerant parser recovers them."""
+        """A non-chat LLM (no structured output) that wraps JSON in prose still yields
+        cards: the tolerant parser recovers them."""
         llm = MagicMock()
         llm.ainvoke = AsyncMock(
             return_value=AIMessage(content="Sure! " + _ONE_CARD_OBJECT + " Let me know if you need more.")
@@ -163,9 +163,9 @@ class TestGenerateCards:
 class TestGenerateCardsResult:
     """``failed`` tells an accident from an outcome.
 
-    A run whose card model timed out used to look exactly like a run whose
-    report warranted no proposals; the job runner records the first kind as a
-    degraded reason on the answer, so the two must be distinguishable here.
+    A run whose card model timed out must not look like a run whose report
+    warranted no proposals: the job runner records the first kind as a degraded
+    reason on the answer, so the two must be distinguishable here.
     """
 
     @pytest.mark.asyncio

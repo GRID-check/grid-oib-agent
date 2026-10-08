@@ -92,9 +92,8 @@ class TestValidateCards:
 class TestIfcViewerHighlightSelectors:
     """A highlight names a set by FILTER or names elements by id — not both.
 
-    The id list is what the agent could write before `match` existed, and it
-    stops working the moment the answer is about a set: "the 420 external
-    walls" has to survive the model's context window as 420 opaque strings, so
+    The id list stops working the moment the answer is about a set: "the 420
+    external walls" has to survive the model's context window as 420 opaque strings, so
     the card highlighted whatever fitted while the legend claimed all of it.
     """
 
@@ -156,7 +155,7 @@ class TestIfcViewerHighlightSelectors:
     def test_a_filter_copied_from_ifc_query_is_not_silently_emptied(self):
         # `ifc_query` writes camelCase (`ifcTypes`, `nameContains`) and the
         # agent is told to reuse the filter it already wrote. Without aliases
-        # the card validated cleanly with every key dropped, leaving an empty
+        # the card validates cleanly with every key dropped, leaving an empty
         # match and a highlight group that selects nothing — the feature
         # failing exactly the way it was meant to prevent.
         [card] = self._card(
@@ -179,14 +178,14 @@ class TestIfcViewerHighlightSelectors:
 
 
 class TestAMeasuredNumberCarriesWhereItCameFrom:
-    """`DimensionCheck` used to be a number with a verdict and nothing else.
+    """`DimensionCheck` carries its provenance, not just a number and a verdict.
 
-    That made the card the least honest surface in the product. `ifc_measure`
+    Without it the card is the least honest surface in the product. `ifc_measure`
     answers „gemessen: 2.47 m (±5 mm) — aus der Geometrie berechnet, nicht
-    deklariert"; the card beside it drew „2,47 m ✓", which is what a figure the
-    architect had stated in their own file would look like. The card is the part
-    a reviewer screenshots into a submission, so the surface that dropped the
-    qualifier was the one most likely to be forwarded without it.
+    deklariert"; a card beside it that drew „2,47 m ✓" would look like a figure the
+    architect had stated in their own file. The card is the part a reviewer
+    screenshots into a submission, so the surface that drops the qualifier is the
+    one most likely to be forwarded without it.
     """
 
     def test_the_three_provenances_are_the_engine_s_own(self):
@@ -240,7 +239,7 @@ class TestAMeasuredNumberCarriesWhereItCameFrom:
     def test_the_remedy_survives_onto_the_card(self):
         """The whole product thesis: an honest refusal that says what to change.
 
-        Before this field the undecidable case reached the card as `value: null`
+        Without this field the undecidable case reaches the card as `value: null`
         and `status: 'needs_input'` — an empty slot, which reads as a fact about
         the building rather than a finding about the export.
         """
@@ -441,12 +440,12 @@ class TestBothNewCardsAreInTheDoctrineAndNotInTheCraft:
 class TestCardTextIsPlainText:
     """No card renders markup, so no card field may carry any.
 
-    The defect these pin shipped: a production card put
+    The defect these pin: a card puts
     „[OIB-Richtlinie ansehen](https://www.oib.or.at/de/oib-richtlinien)“ on
     screen as literal brackets, beside the card's own working link to that same
-    page. The contract was never written down anywhere, so nothing enforced it.
+    page. The contract is not written down anywhere, so nothing enforces it.
 
-    The fix is on the way IN, never in the renderer. A card is what gets
+    Sanitising happens on the way IN, never in the renderer. A card is what gets
     screenshotted into an Einreichung; a renderer that parsed markdown in a field
     nobody declared as markdown would let the model put an arbitrary link into a
     legal citation.
@@ -505,7 +504,7 @@ class TestCardTextIsPlainText:
         assert card.reference.document == "Siehe RIS (https://ris.bka.gv.at)"
 
     def test_every_card_type_inherits_the_guarantee(self):
-        # The point of putting it on a base class: a card type added next sprint
+        # The point of putting it on a base class: a card type added later
         # is covered by BEING a card, not by someone remembering to annotate its
         # fields. 177 free-text fields across 71 models is 177 chances to forget.
         for card_cls in GridCard.__args__:

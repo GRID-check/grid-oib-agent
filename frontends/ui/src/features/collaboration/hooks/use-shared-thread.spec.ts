@@ -198,7 +198,7 @@ afterEach(() => {
   useChatStore.setState({ conversations: [], currentConversation: null, currentUserId: null })
 })
 
-describe('useSharedThread — the private path is untouched (spec NF-8)', () => {
+describe('useSharedThread — the private path is untouched', () => {
   test('does nothing at all when collaboration is disabled: no fetch, no subscription', async () => {
     seedStore([{ id: 'local-1', content: 'my private note', timestamp: new Date(at(1)) }])
 
@@ -215,7 +215,7 @@ describe('useSharedThread — the private path is untouched (spec NF-8)', () => 
     expect(hub.subscribeToEvents).not.toHaveBeenCalled()
     expect(result.current.shared).toBe(false)
     expect(result.current.turnInFlight).toBeNull()
-    // The local-first copy is exactly as it was.
+    // The local-first copy is left untouched.
     expect(storedMessages().map((m) => m.id)).toEqual(['local-1'])
   })
 
@@ -271,7 +271,7 @@ describe('useSharedThread — the server is authoritative', () => {
     expect(result.current.shared).toBe(true)
   })
 
-  test('orders by server timestamp with the message id as the tiebreak (spec CC-11)', async () => {
+  test('orders by server timestamp with the message id as the tiebreak', async () => {
     routes.messages = [
       row('b', { createdAt: at(3) }),
       row('a', { createdAt: at(3) }),
@@ -414,7 +414,7 @@ describe('useSharedThread — reconciliation', () => {
     expect(requested()).toHaveLength(before)
   })
 
-  test('converges on window focus alone, with no event at all (spec CC-10, RT-4)', async () => {
+  test('converges on window focus alone, with no event at all', async () => {
     renderHook(() =>
       useSharedThread({ conversationId: CONVERSATION_ID, enabled: true, currentUserId: ME })
     )
@@ -432,9 +432,9 @@ describe('useSharedThread — reconciliation', () => {
 
   test('a thread that is not shared yet still converges on focus', async () => {
     // `useLiveEvents` owns the focus listener AND is gated on `shared`, so a
-    // thread that has not been shared for this reader had no listener, no poll
-    // and no subscription: once the short access-retry ladder was spent there
-    // was no route back at all. "Anna shared this while I had it open" could
+    // thread that has not been shared for this reader has no listener, no poll
+    // and no subscription: once the short access-retry ladder is spent there is
+    // no route back at all. "Anna shared this while I had it open" could
     // only be discovered by navigating away and returning.
     routes.shared = false
     const { result } = renderHook(() =>
@@ -522,8 +522,8 @@ describe('useSharedThread — reconciliation', () => {
     await waitFor(() => expect(result.current.turnInFlight).toBeNull())
   })
 
-  test('picks up the server-authoritative path when a thread that was private is re-opened', async () => {
-    // The documented cost of NF-8's strictness: a private thread listens for
+  test('picks up the server-authoritative path when a private thread is re-opened', async () => {
+    // The documented cost of the private path's strictness: a private thread listens for
     // nothing, so it learns it has been shared on the next open rather than
     // instantly. What must NOT happen is that it stays on the local-first path
     // afterwards.
@@ -568,11 +568,11 @@ describe('useSharedThread — reconciliation', () => {
   })
 
   test('a network failure on the access read is retried, not treated as "not shared"', async () => {
-    // A thrown fetch used to clear `shared`, which ALSO switched off the live
-    // subscription, the focus listener and the fallback poll — every one of
-    // which is gated on that flag. One dropped request therefore froze the
-    // thread for the rest of the session, silently, with no way back except a
-    // remount. It must retry instead.
+    // A thrown fetch must not clear `shared`: that would also switch off the live
+    // subscription, the focus listener and the fallback poll, every one of which
+    // is gated on that flag. One dropped request would freeze the thread for the
+    // rest of the session, silently, with no way back except a remount. It must
+    // retry instead.
     vi.useFakeTimers()
     try {
       let accessReads = 0
@@ -621,9 +621,9 @@ describe('useSharedThread — reconciliation', () => {
     // The first `@` in a private thread makes it shared server-side. This hook
     // only reads sharedness on a conversation change, and every live
     // subscription that would carry the news is gated on `shared` — the very
-    // flag that is now wrong. Without a nudge the asker sent their mention and
-    // the product did nothing: no waiting banner, no explanation, no way back
-    // short of a reload.
+    // flag that is now wrong. Without a nudge, the asker's mention would leave the
+    // product doing nothing: no waiting banner, no explanation, no way back short
+    // of a reload.
     let shared = false
     fetchMock.mockImplementation(async (input: RequestInfo | URL) => {
       const url = String(input)
@@ -659,7 +659,7 @@ describe('useSharedThread — reconciliation', () => {
 
   test('a turn that keeps showing signs of life is never expired', async () => {
     // The banner's deadline is a SILENCE timeout, not a turn-length one. A fixed
-    // one erased a colleague's answer mid-sentence on any turn longer than it —
+    // one would erase a colleague's answer mid-sentence on any turn longer than it —
     // deep research routinely is — and both expiry doors (the interval and the
     // focus/poll refresh) have to agree about that, or the stricter one wins by
     // accident and the bug comes back through the other door.
@@ -702,11 +702,11 @@ describe('useSharedThread — reconciliation', () => {
   })
 
   test('a 502 is a blip, not a revocation', async () => {
-    // The retry ladder only ever covered a THROWN fetch. A 5xx resolves with
-    // `ok: false` and took the authoritative branch: it cleared `shared` — which
-    // switches off the live subscription, the focus listener and the poll — told
-    // the reader they had lost access, and published "private" to the composer's
-    // socket gate. One rolling deploy froze the thread for the session.
+    // The retry ladder only covers a THROWN fetch. A 5xx resolves with `ok: false`
+    // and must not take the authoritative branch: that would clear `shared`, which
+    // switches off the live subscription, the focus listener and the poll, tell
+    // the reader they had lost access, and publish "private" to the composer's
+    // socket gate. A rolling deploy would freeze the thread for the session.
     vi.useFakeTimers()
     try {
       let accessReads = 0
@@ -759,10 +759,10 @@ describe('useSharedThread — reconciliation', () => {
   })
 
   test('access revoked between the access read and the history read is still flagged', async () => {
-    // The race the initial load used to drop: the access read says "shared", the
+    // The race the initial load has to handle: the access read says "shared", the
     // history read that follows it is denied. Nothing in the first read can know
     // that, so the denial has to escalate to a second access read — otherwise the
-    // reader keeps a live-looking composer over a thread they can no longer read.
+    // reader keeps a live-looking composer over a thread they cannot read.
     let accessReads = 0
     fetchMock.mockImplementation(async (input: RequestInfo | URL) => {
       const url = String(input)
@@ -800,7 +800,7 @@ describe('useSharedThread — reconciliation', () => {
 })
 
 describe('useSharedThread — read state', () => {
-  test('exposes the unread anchor the reader arrived with (spec CC-19)', async () => {
+  test('exposes the unread anchor the reader arrived with', async () => {
     routes.lastReadMessageId = 'm1'
     routes.messages = [row('m1', { createdAt: at(2) }), row('m2', { authorUserId: ANNA, createdAt: at(3) })]
 
@@ -942,7 +942,7 @@ describe('useSharedThread — a chat this page minted', () => {
 
   test('is not asked about before the server has created it, and is private meanwhile', async () => {
     // `ensureSession` mints the id on the first keystroke; the row exists only
-    // once the first message is stored. The read in between was a 404 on every
+    // once the first message is stored. The read in between is a 404 on every
     // new chat.
     markConversationMinted(CONVERSATION_ID)
 
@@ -955,7 +955,7 @@ describe('useSharedThread — a chat this page minted', () => {
 
     expect(fetchMock).not.toHaveBeenCalled()
     expect(result.current.shared).toBe(false)
-    // The socket gate still opens on mount, as it did when the 404 said so.
+    // The socket gate opens on mount, as it does for any private thread.
     expect(getThreadSharing(CONVERSATION_ID)).toBe('private')
   })
 
@@ -1081,7 +1081,7 @@ describe('useSharedThread — composing presence', () => {
     await emit(typing(ANNA, true))
 
     // No roster to resolve against and no subscription that could have carried
-    // it — the private path stays exactly as cheap as it was (spec NF-8).
+    // it — the private path stays this cheap (spec NF-8).
     expect(result.current.typists).toHaveLength(0)
     expect(requested()).not.toContain(`/api/sharing/conversation/${CONVERSATION_ID}`)
   })

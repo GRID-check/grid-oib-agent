@@ -2,8 +2,9 @@
  * A commissioned run's message goes into the thread that commissioned it.
  *
  * The socket hook fetches the run's message after the turn ends, and the fetch
- * is async: the reader may have opened another thread by the time it lands.
- * The message used to be appended to whichever thread was open then.
+ * is async: the reader may have opened another thread by the time it lands. The
+ * message is routed by the commissioning thread, never by whichever thread is
+ * open when it lands.
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 

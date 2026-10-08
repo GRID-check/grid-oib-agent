@@ -1,11 +1,11 @@
 """The composer's "Asking about <file>" subject must reach the models.
 
 `focus_file_name` arrives on the wire and is stored in the turn ContextVars,
-where retrieval reads it. For a long while that was ALL it did: no prompt in
-the repo named the focused file, so a deictic turn ("summarize this document",
-"fass zusammen") reached the answering model with no antecedent at all. The
-model did the only reasonable thing and asked which file was meant — over an
-open PDF, with the composer bar on screen saying exactly which one.
+where retrieval reads it. It must reach the prompts too: a deictic turn
+("summarize this document", "fass zusammen") with no prompt naming the focused
+file reaches the answering model with no antecedent at all, and the model asks
+which file was meant — over an open PDF, with the composer bar on screen saying
+exactly which one.
 
 These tests hold the wire → state → prompt path shut at each seam.
 """
@@ -64,7 +64,7 @@ def real_tool():
 
 def _render(agent: PilotiAgent, **overrides) -> str:
     kwargs = {
-        # The static half is its own file now (`piloti_static.md`, the bundled
+        # The static half is its own file (`piloti_static.md`, the bundled
         # fallback for the prompt Langfuse serves). The subject block this test
         # is about sits BELOW the KV-cache boundary, so rendering the template
         # with an empty static half changes nothing it asserts.
@@ -93,7 +93,7 @@ class TestPilotiPromptNamesTheSubject:
 
     def test_the_block_states_the_fact_and_leaves_the_procedure_to_the_tool(self, mock_llm_provider, real_tool):
         """How to retrieve the focused file is `knowledge_search`'s own rule
-        („pass `file_name=` that exact indexed name"), and it used to be
+        („pass `file_name=` that exact indexed name"), and it is not
         restated here on every turn with a focused file (ADR-0060 (d)).
         """
         from sources.knowledge_layer.src.register import _KNOWLEDGE_SEARCH_DESCRIPTION
@@ -149,11 +149,11 @@ class TestShelfLabel:
 class TestSubjectKeepsTheSearchTools:
     """A deictic turn with a subject must have the search tools on it.
 
-    A pre-answer partition once withheld the search tools from anything that
-    read as chit-chat, and "fass zusammen" over an open PDF read as chit-chat —
-    so the only tool that could read the file was gone before the model saw
-    the question. Since ADR-0052 every turn carries the full tool set; this
-    pins that the bare summary request is one of them.
+    A pre-answer partition must not withhold the search tools from anything that
+    reads as chit-chat: "fass zusammen" over an open PDF reads as chit-chat, and
+    would take the only tool that can read the file away before the model sees the
+    question. Per ADR-0052 every turn carries the full tool set; this pins that the
+    bare summary request is one of them.
     """
 
     @pytest.mark.asyncio

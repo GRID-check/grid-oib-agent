@@ -283,8 +283,8 @@ describe('a card through A2UI', () => {
   })
 
   it('mounts a card once, A2UI’s drawing only, with no hidden copy beside it', async () => {
-    // It used to draw the card directly first and mount A2UI's copy invisibly
-    // behind it: two copies of every card, and a swap when A2UI had drawn.
+    // A2UI draws the card and nothing else: a direct copy mounted invisibly
+    // beside it would mean two copies of every card, and a swap once A2UI drew.
     let mounts = 0
     function Counted() {
       useEffect(() => {

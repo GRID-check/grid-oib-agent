@@ -78,7 +78,7 @@ describe('citation deep links', () => {
     expect(restored?.locus?.page).toBe(3)
   })
 
-  it('opens the document when the linked passage no longer exists', () => {
+  it('opens the document when the linked passage is gone', () => {
     // Re-retrieval can land on different pages than when the link was shared.
     // Losing the page is a graceful outcome; losing the document is not.
     const stale = parseCitationLink(

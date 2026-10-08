@@ -2,8 +2,8 @@
  * Storage quota rules.
  *
  * What these protect, in order of how expensive the bug would be:
- *   - an org with no quota is UNLIMITED (introducing quotas must not
- *     retroactively block tenants who were never given a limit);
+ *   - an org with no quota is UNLIMITED (a tenant that was never given a limit
+ *     is not blocked by one);
  *   - an explicit null beats the platform default, so "deliberately unlimited"
  *     survives an operator later setting a fleet-wide floor;
  *   - the ceiling is checked against total stored bytes PLUS the incoming file,
@@ -259,15 +259,13 @@ describe('storage quota', () => {
     /**
      * The authorization is the service's, not the route's.
      *
-     * This file used to carry a note explaining why there was deliberately no
-     * such test: the gate was `platformApiRoute`'s `requirePlatformPermission`, and
-     * asserting a second check here "would test a belt that does not exist". The
-     * note was accurate and the design was wrong. This function probes whether an
-     * organization exists, writes a platform-owned setting, and records who
-     * changed it — so a caller reaching it any other way got an enumeration
-     * oracle over every organization id and a row in the audit log. A guard in
-     * another file is a fact about today's call graph, and call graphs change
-     * without anyone revisiting the comment that depended on them.
+     * `platformApiRoute` checks the permission before the handler runs, but that
+     * is not a substitute: this function probes whether an organization exists,
+     * writes a platform-owned setting, and records who changed it. A caller
+     * reaching it any other way would get an enumeration oracle over every
+     * organization id and a row in the audit log. A guard in another file is a
+     * fact about today's call graph, and call graphs change without anyone
+     * revisiting the comment that depended on them.
      */
     it('refuses a caller who is not the platform owner', async () => {
       requirePlatformPermission.mockRejectedValue(new PlatformAccessDeniedError())

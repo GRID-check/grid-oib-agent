@@ -37,9 +37,8 @@ const model = (over: Partial<BimModelHeader> & Pick<BimModelHeader, 'id' | 'file
   documentId: `doc-${over.id}`,
   // Every REQUIRED field of `BimModelHeader` needs a default here, or a
   // `Partial` spread leaves it `undefined` and the fixture stops satisfying the
-  // type it claims to be. `displayName` arrived on develop after this spec was
-  // written and broke exactly that way — invisibly on the branch, and only in
-  // CI, which type-checks the merge rather than the branch.
+  // type it claims to be. CI type-checks the merge rather than the branch, so a
+  // field added on the base branch breaks this fixture only in CI.
   displayName: null,
   projectId: PROJECT,
   status: 'ready',
@@ -181,10 +180,10 @@ describe('POST /api/internal/bim/source', () => {
     })
 
     it('reports a modelId whose extraction has not finished as not ready', async () => {
-      // The selector-less case above went through `readable`; this one did not.
-      // A `modelId` naming a model still being extracted used to resolve, and
-      // this route — unlike its sibling — never re-checks `status`, so it
-      // presigned the raw `.ifc` of a half-written building.
+      // The selector-less case above is filtered through `readable`; a `modelId`
+      // is not, so it needs its own check. This route never re-checks `status`,
+      // so without one a `modelId` naming a model still being extracted would
+      // presign the raw `.ifc` of a half-written building.
       vi.mocked(listBimModels).mockResolvedValue([model({ ...NEW, status: 'extracting' }), OLD])
 
       const body = await (

@@ -159,7 +159,7 @@ def test_open_and_briefing_do_not_run_geometry() -> None:
 
 
 def test_the_tool_list_is_the_ported_surface_plus_what_the_port_added(tools: list) -> None:
-    """Ten tools ported from `tools.ts`, and ten the port added.
+    """Ten tools that mirror `tools.ts`, and ten that this port adds.
 
     `view` sits BEFORE `draw` deliberately. They look like duplicates and are
     not: `draw` writes an SVG file for a human, `view` returns a raster the
@@ -167,24 +167,22 @@ def test_the_tool_list_is_the_ported_surface_plus_what_the_port_added(tools: lis
     actually use first, because the one it cannot returns a file path that tells
     it nothing.
 
-    `overhang` and `light_incidence` existed as operators from the start and
-    were reachable from nothing. That is worse than not having them: the skill
-    teaches a call chain that ends in the overhang, and a chain whose last link
-    is missing answers the original question exactly as badly as before. The
-    order is asserted because it is the order the model reads them in, and the
-    two additions sit after `draw` — after everything they compose.
+    `overhang` and `light_incidence` must be reachable: a skill that teaches a call
+    chain ending in the overhang answers the original question exactly as badly
+    as before if its last link is missing. The order is asserted because it is
+    the order the model reads them in, and these two sit after `draw`, after
+    everything they compose.
 
     `envelope` is the same story one Richtlinie over, and it sits beside `fire`
     because the two are the same shape: one subject, several aspects, no
-    GlobalId. Its three operators shipped implemented and tested and reachable
-    from nothing, so every OIB 6 question was answered „das kann dieser Export
-    nicht" — a sentence about the file that was really about our wiring.
+    GlobalId. Its three operators are implemented and tested, and they must be
+    reachable: an OIB 6 question with no tool is answered „das kann dieser Export
+    nicht", a sentence about the file that is really about our wiring.
 
-    `clearance` and `sun_position` are the third and fourth instances of that
-    same defect, found by walking every public operator against this list.
-    `clearance` sits directly after `distance` because it is the operator
-    `distance` sends the reader to and never had: on the roof against the
-    partition, `distance('min')` reports 0.000 m where the clear dimension is
+    `clearance` and `sun_position` are the same defect, caught by walking every
+    public operator against this list. `clearance` sits directly after `distance`
+    because it is the operator `distance` sends the reader to: on the roof against
+    the partition, `distance('min')` reports 0.000 m where the clear dimension is
     0.995 m. `sun_position` sits after `light_incidence` because it is the other
     half of a shading question and composes with nothing else.
 
@@ -192,10 +190,10 @@ def test_the_tool_list_is_the_ported_surface_plus_what_the_port_added(tools: lis
     all — they are the two ways `measure` gets composed, and they sit on either
     side of it because a model reading down the list should meet the plural
     form („alle Räume dieses Geschoßes") immediately after the singular. They
-    exist because the caller's budget is five tool calls: the capability to
-    answer „wie hoch ist der Keller" was present and correct for months, and the
-    agent still answered it from the declared storey pitch, because reaching the
-    measurement one room at a time did not fit.
+    exist because the caller's budget is five tool calls. The capability to
+    answer „wie hoch ist der Keller" is present and correct, and an agent that
+    reaches the measurement one room at a time answers it from the declared storey
+    pitch instead, because that does not fit the budget.
     """
     assert [tool.name for tool in tools] == [
         "open_model",
@@ -242,10 +240,9 @@ def test_one_relations_tool_carries_every_relation(tools: list) -> None:
 def test_measure_lists_every_measurement_and_corrects_the_clear_height(tools: list) -> None:
     measure = next(tool for tool in tools if tool.name == "measure")
     assert measure.input_schema["properties"]["measure"]["enum"] == list(MEASURES)
-    # The TS description said clearHeight returns the space solid's height and
-    # NOT the lichte Höhe. On this engine it is the lichte Höhe, measured under
-    # the lowest obstruction; keeping the old sentence would describe an
-    # operator that no longer exists.
+    # On this engine clearHeight is the lichte Höhe, measured under the lowest
+    # obstruction. The TS port's sentence about the space solid's height would
+    # describe an operator that does not exist here.
     assert "Lichte Raumhöhe" in MEASURES["clearHeight"]
     assert "NICHT die Höhe des Raumkörpers" in MEASURES["clearHeight"]
 
@@ -258,11 +255,12 @@ def test_the_expensive_tools_say_they_are_expensive(tools: list) -> None:
 
 
 def test_clear_height_measures_under_the_suspended_ceiling(tools: list, house: str) -> None:
-    """The one number where the engine swap changes an ANSWER.
+    """The one number where the choice of method changes an ANSWER.
 
-    The TS operator reports the 2.50 m space solid; this one casts rays and
-    finds the ceiling at 2.20 m. An OIB minimum room height is a clear dimension
-    under the lowest obstruction, so the TS number would pass a room that fails.
+    A clear height taken from the 2.50 m space solid would pass a room that
+    fails. This operator casts rays and finds the ceiling at 2.20 m. An OIB
+    minimum room height is a clear dimension under the lowest obstruction, so the
+    solid's height is the wrong number.
     """
     answer = call(tools, "measure", {"model": house, "globalId": BEDROOM, "measure": "clearHeight"})
     assert answer["decidable"] is True
@@ -283,12 +281,12 @@ def test_draw_writes_a_file_and_does_not_return_the_svg(tools: list, house: str)
     assert "Maße nicht aus dem Bild ablesen" in result["note"]
 
 
-# ── the two tools the original question needed ──────────────────────────────
+# ── the two tools the question needs ──────────────────────────────
 
 
 def test_overhang_measures_the_number_the_agent_called_unmeasurable(tools: list, house: str) -> None:
-    """„Überstand/Raum-% im IFC nicht messbar" — the five words this library
-    exists to delete. The roof projects 0.647 m past the wall the window sits
+    """A refusal of the form „Überstand/Raum-% im IFC nicht messbar" is what this
+    library exists to replace. The roof projects 0.647 m past the wall the window sits
     in, normal to that wall's outer plane, straight out of the roof's own
     triangles."""
     roof = call(tools, "find_elements", {"model": house, "ifcType": "IfcRoof"})["elements"][0]["globalId"]
@@ -397,14 +395,14 @@ def test_an_unreadable_file_is_refused_with_the_reason_a_person_can_act_on(tools
 
 
 class TestTheEnvelopeReachesTheSurface:
-    """OIB 6 through the tool surface, which is where it was missing.
+    """OIB 6 through the tool surface.
 
-    `thermal_envelope`, `envelope_area_by_orientation` and `compactness` shipped
-    implemented and covered by `test_envelope_geometry.py`, and were on NO tool
-    surface — not in `MEASURE_FN`, not a tool of their own. An agent asked a
-    Kompaktheit or Hüllflächen question therefore reached nothing and reported
-    that the export could not answer it, which is a statement about the file and
-    was really a statement about our wiring. These tests are about the wiring:
+    `thermal_envelope`, `envelope_area_by_orientation` and `compactness` are
+    implemented and covered by `test_envelope_geometry.py`, and each must be
+    reachable from a tool, not only from `MEASURE_FN`. Without one, an agent asked
+    a Kompaktheit or Hüllflächen question reaches nothing and reports that the
+    export cannot answer it: a statement about the file that is really about our
+    wiring. These tests are about the wiring:
     the operators' own numbers are pinned next door.
     """
 
@@ -477,19 +475,20 @@ class TestTheEnvelopeReachesTheSurface:
 
 
 class TestTheClearanceReachesTheSurface:
-    """The lichte Breite between TWO elements, which had no tool at all.
+    """The lichte Breite between TWO elements, which needs a tool of its own.
 
-    `clearance.clear_width` shipped with fifteen tests in `test_clearance.py`
-    and was on no surface. What an agent could reach instead was `distance`,
-    whose own description sends the reader to „measure/clearWidth on the
-    opening" — an operator that takes ONE element and cannot answer the
-    two-element question at all. So the honest route for „how wide is the gap
-    between these two walls" was a box gap, in the one direction that matters.
+    `clearance.clear_width` is covered by fifteen tests in `test_clearance.py`,
+    and it must be on a surface. Without one, what an agent can reach is
+    `distance`, whose own description sends the reader to „measure/clearWidth on
+    the opening" — an operator that takes ONE element and cannot answer the
+    two-element question at all. Without `clear_width`, the only route to „how
+    wide is the gap between these two walls" is a box gap, which can only err
+    towards closer than the truth.
     """
 
     def test_the_box_gap_and_the_clear_dimension_disagree_by_a_metre(self, tools: list, house: str) -> None:
         """The pitched roof over the interior partition — the case that shows why
-        this needed a tool rather than a sentence in `distance`'s description.
+        this needs a tool rather than a sentence in `distance`'s description.
 
         The roof's bounding box swallows the partition's, so `distance('min')`
         reports 0.000 m and a reader concludes the two touch. They are 0.995 m
@@ -537,13 +536,14 @@ class TestTheClearanceReachesTheSurface:
 
 
 class TestTheDoorGraphReachesTheSurface:
-    """`egressPath` was on the surface and the graph under it was not.
+    """`egressPath` is only as complete as the graph under it, so the graph's own
+    completeness must reach the answer.
 
     A route is only as complete as the graph it was found in, and the two lists
     that say how complete — the doors whose rooms could not be resolved and the
-    doors deliberately excluded — live on the graph, not on the route. An agent
-    could therefore report a Fluchtweg over three doors from a building whose
-    export made five doors unreadable, and nothing in its answer said so.
+    doors deliberately excluded — live on the graph, not on the route. Without
+    them an agent could report a Fluchtweg over three doors from a building whose
+    export made five doors unreadable, with nothing in its answer to say so.
     """
 
     def test_the_graph_answers_through_fire_and_names_the_room_with_no_exit(self, tools: list, house: str) -> None:
@@ -583,11 +583,11 @@ class TestTheDoorGraphReachesTheSurface:
 
 
 class TestTheSunPositionReachesTheSurface:
-    """Named „library only" in the coverage map for a whole release, and it was.
+    """Reachable from a tool, not library only.
 
-    The operator was validated against the NREL SPA reference and three USNO
-    almanac positions, and no tool called it — so a question about where the sun
-    stood over the building reached nothing.
+    The operator is validated against the NREL SPA reference and three USNO
+    almanac positions. A tool must call it, or a question about where the sun
+    stood over the building reaches nothing.
     """
 
     def test_the_almanac_position_arrives_through_the_tool(self, tools: list, house: str) -> None:
@@ -672,13 +672,11 @@ OPERATOR_MODULES = (
 #:
 #: An entry here is a DECISION that somebody wrote down, not a backlog item. The
 #: point of the test below is that the third state — implemented, tested, and
-#: reachable from nothing because nobody noticed — stops existing. It has been
-#: found three times: `overhang` and `light_incidence`, then all three
-#: `envelope_geometry` operators, then `clearance.clear_width`,
-#: `circulation.door_graph` and `daylight.sun_position` — and every time the
-#: user was told the export could not answer a question our own wiring could not
-#: ask. Only the last of those six was ever written down as „library only",
-#: which is what a hand-maintained list is worth.
+#: reachable from nothing because nobody noticed — stops existing. That state has
+#: been found repeatedly: `overhang` and `light_incidence`, the three
+#: `envelope_geometry` operators, `clear_width`, `door_graph` and `sun_position`.
+#: Each time the user was told the export could not answer a question our own
+#: wiring could not ask.
 NOT_ON_THE_SURFACE = {
     "operators.facade_plane_of": (
         "A construction, not an answer: it returns a normal and a point, and the only thing an agent "
@@ -740,13 +738,12 @@ def _tool_surface_references() -> set[str]:
 
 
 def test_no_operator_is_implemented_tested_and_reachable_from_nothing() -> None:
-    """The defect this suite keeps re-learning, checked once for all modules.
+    """The defect this suite guards against, checked once for all modules.
 
     „Library only" is the worst shape a gap can take, because it does not look
     like a gap: the operator is written, the tests are green, the coverage map
     claims the row, and the only person who finds out is the architect who is
-    told their export cannot answer a question the engine answers fine. Three
-    rounds of it shipped before anybody walked the list.
+    told their export cannot answer a question the engine answers fine.
 
     A new operator therefore has exactly two ways past this line: reach it from
     a tool, or write down here why it stays unreachable.
@@ -782,9 +779,8 @@ def test_no_operator_is_implemented_tested_and_reachable_from_nothing() -> None:
 def test_the_deliberate_omissions_are_still_real_functions() -> None:
     """The allowlist may not outlive what it excuses.
 
-    A stale entry is how a real gap hides: `clearance.clear_width` renamed,
-    listed here from a previous round, and the test above goes green on an
-    operator nobody can call.
+    A stale entry is how a real gap hides: a renamed operator whose old name is
+    still listed here lets the test go green on an operator nobody can call.
     """
     import importlib
 
@@ -958,15 +954,15 @@ def test_every_measure_subject_names_a_real_measure_and_a_real_type(tools: list)
             assert subject.startswith("Ifc"), f"{name} names {subject}, which is not an IFC type"
 
 
-# ── what a corpus sweep found, and what now cannot happen again ─────────────
+# ── failure modes a survey must not have ───────────────────────────────────────
 #
-# 1 960 survey calls across 17 models: 48.7 % of them DIED. Not refused —
+# Measured over 1 960 survey calls on 17 models, 48.7 % DIED. Not refused —
 # died, returning nothing about any element because one element in the
 # selection was of a type the measure does not accept. The call that died most
-# reliably was the one this tool's own description invites, „wie hoch ist der
+# reliably is the one this tool's own description invites, „wie hoch ist der
 # Keller", because a storey holds annotations and walls beside its rooms.
 #
-# The other two were quieter and worse. A spread computed over one element
+# Two more are quieter and worse. A spread computed over one element
 # printed `spread: 0.0`, which reads as „they all agree" — the strongest claim
 # the tool can make, manufactured from a single sample. And eighteen of the
 # twenty measures return a dict, so they could produce no spread at all while
@@ -974,7 +970,7 @@ def test_every_measure_subject_names_a_real_measure_and_a_real_type(tools: list)
 
 
 def test_a_wrong_type_in_the_selection_does_not_kill_the_survey(tools: list, house: str) -> None:
-    """One annotation used to cost the caller all seventeen rooms.
+    """One annotation must not cost the caller all seventeen rooms.
 
     The turn is the scarce resource. A survey that raises returns NOTHING — not
     a partial answer, not a refusal per element — and at a budget of five calls
@@ -1010,8 +1006,8 @@ def test_a_spread_is_never_derived_from_a_single_measurement(tools: list, house:
     """`spread: 0.0` off one element is not a weak claim, it is a false one.
 
     It reads as „alle Räume gleich", which is the one sentence this tool exists
-    to make impossible — and it was reachable with `limit` set to anything the
-    clamp could not parse.
+    to make impossible — and it is reachable with `limit` set to anything the
+    clamp cannot parse.
     """
     one = call(tools, "survey", {"model": house, "measure": "floorArea", "ifcType": "IfcSpace", "limit": 1})
 
@@ -1023,7 +1019,7 @@ def test_a_spread_is_never_derived_from_a_single_measurement(tools: list, house:
 def test_an_unreadable_limit_is_refused_rather_than_floored_to_one(tools: list, house: str) -> None:
     """The clamp floors to its low bound, and the low bound is 1.
 
-    So `limit: 0` surveyed ONE room out of eighty-two and reported a spread of
+    So `limit: 0` would survey ONE room out of eighty-two and report a spread of
     zero. A caller who typed a bad limit gets told; a caller who is silently
     given one room gets a false finding.
     """

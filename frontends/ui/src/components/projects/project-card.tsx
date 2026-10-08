@@ -52,8 +52,8 @@ export function ProjectCard({ project, docCount = 0, activityAt }: ProjectCardPr
 
   return (
     // `RaisedCard` is the shared two-surface shape (tray + laid-in sheet +
-    // footer tab). This card used to carry its own copy of that geometry — one
-    // of the four the primitive's docstring lists; this is that migration.
+    // footer tab), so this card takes its geometry from the primitive rather
+    // than carrying a copy.
     <RaisedCard interactive>
       <RaisedCardBody>
         <div className="flex items-center justify-between gap-2.5">

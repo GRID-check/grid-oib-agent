@@ -8,11 +8,11 @@
  * Both halves of that sentence are load-bearing.
  *
  * Lazy, because the triggers are everywhere. Every citation chip, `[N]` marker,
- * file reference and @-mention used to wrap itself in a Radix `Popover` up
- * front, and a closed one is not free: Popper, Presence, the anchor's layout
- * effects and a handful of context subscriptions, per chip. Opening a
- * twenty-message conversation spent a follow-up commit of ~1,500 fibers on
- * panels nobody had asked for. Before engagement this renders `null`.
+ * file reference and @-mention would otherwise wrap itself in a Radix `Popover`
+ * up front, and a closed one is not free: Popper, Presence, the anchor's layout
+ * effects and a handful of context subscriptions, per chip. A twenty-message
+ * conversation would mount ~1,500 fibers of panels nobody had asked for.
+ * Before engagement this renders `null`.
  *
  * Beside, because mounting the popover around the trigger at engagement would
  * move the trigger in the React tree — `<button>` becomes

@@ -5,7 +5,7 @@ import { ConfidenceChip } from './ConfidenceChip'
 
 /**
  * ConfidenceChip surfaces the model's self-assessment and — when the backend
- * capped that confidence — explains WHY in the tooltip (PB-9). These specs
+ * capped that confidence — explains WHY in the tooltip. These specs
  * cover the reason→copy mapping and the fail-open generic behaviour.
  */
 describe('ConfidenceChip', () => {
@@ -33,7 +33,7 @@ describe('ConfidenceChip', () => {
   test('shows the quote-unverified reason in the tooltip when a quote could not be verified', async () => {
     const user = userEvent.setup()
     // A grounded answer with one unverified quote is held at "medium", so the
-    // reason no longer names a level; it says what was capped and why.
+    // reason does not name a level; it says what was capped and why.
     render(<ConfidenceChip confidence="medium" cappedReason="quote_unverified" />)
 
     await user.hover(screen.getByRole('button'))

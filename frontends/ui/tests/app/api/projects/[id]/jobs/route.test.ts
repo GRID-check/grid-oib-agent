@@ -17,8 +17,8 @@ import { requireAuthorizedSession } from '@/lib/auth/require-auth'
 import { listJobs, createJob } from '@/lib/jobs/service'
 import type { AuthorizedSession } from '@/lib/auth/types'
 // The type the MOCKED service returns, not the legacy `jobs` table row: this
-// helper stands in for `listJobs`/`createJob` output, and pointing it at the
-// table row only ever compiled because the two shapes happened to overlap.
+// helper stands in for `listJobs`/`createJob` output, and the table row compiles
+// here only because the two shapes overlap.
 import type { JobView } from '@/lib/jobs/service'
 
 const mockSession = vi.mocked(requireAuthorizedSession)
@@ -94,10 +94,10 @@ describe('POST /api/projects/[id]/jobs', () => {
     expect(mockCreate).not.toHaveBeenCalled()
   })
 
-  // The body no longer carries an output kind at all: a task is always a
-  // research run that files a report, so the service writes that itself. A
-  // caller that still sends one is not refused — the field is dropped, which is
-  // what keeps a stale client from 400ing on a question nobody asks any more.
+  // The body carries no output kind: a task is always a research run that files
+  // a report, and the service writes that itself. A caller that still sends one
+  // is not refused — the field is dropped, so a stale client does not 400 on a
+  // question nobody asks.
   it('drops an output kind the caller still sends, rather than refusing it', async () => {
     process.env.GRID_SKILLS_ENABLED = 'true'
     mockCreate.mockResolvedValue(asJob({ id: 'job-new', name: 'Weekly' }))

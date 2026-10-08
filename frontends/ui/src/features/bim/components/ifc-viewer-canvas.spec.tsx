@@ -2,13 +2,13 @@
  * The imperative half of the viewport, against a stand-in ifc-lite.
  *
  * A WebGPU device cannot exist in happy-dom, so this suite does not prove that
- * pixels appear. What it proves is the thing that actually kept breaking: the
- * OPTIONS this component hands the renderer. Every defect the section plane and
- * the x-ray control shipped with was of one shape — a key the renderer does not
- * read, or a number in units it does not use — and neither is visible in a
- * screenshot, a type error or a lint rule. The renderer's API is structural and
- * permissive: an unknown key is ignored, and metres in a percentage field are a
- * valid number. Only an assertion on the call catches it.
+ * pixels appear. What it proves is the thing that breaks: the OPTIONS this
+ * component hands the renderer. A defect in the section plane or the x-ray
+ * control is of one shape — a key the renderer does not read, or a number in
+ * units it does not use — and neither is visible in a screenshot, a type error
+ * or a lint rule. The renderer's API is structural and permissive: an unknown
+ * key is ignored, and metres in a percentage field are a valid number. Only an
+ * assertion on the call catches it.
  *
  * So the fake below is deliberately faithful to ifc-lite's real contract rather
  * than convenient: `render` records what it was given, `getModelBounds` returns
@@ -106,12 +106,11 @@ vi.mock('@ifc-lite/renderer', () => ({
       // Recorded so a test can assert the frame drawn immediately BEFORE the
       // capture was the exhaustive one.
       loadOrder.push('captureScreenshot')
-      // WHICH frame, not "some frame". The assertion used to read
-      // `renders.at(-2)`, which is the capture frame only because exactly one
-      // interactive frame happens to follow it — and its `?? renders.at(-1)`
-      // fallback silently pointed at a different frame rather than failing if
-      // that ever changed. Recording the index here ties the assertion to the
-      // frame the renderer actually captured.
+      // WHICH frame, not "some frame": the index is recorded here, so the
+      // assertion ties to the frame the renderer actually captured. Reading
+      // `renders.at(-2)` would only be right while exactly one interactive frame
+      // follows the capture, and would silently point at a different frame if
+      // that changed.
       capturedFrame = renders.length - 1
       return 'data:image/png;base64,AAA'
     }
@@ -253,8 +252,8 @@ describe('the cut the renderer is actually given', () => {
 
   it('states the cardinal position as a percentage of THIS building', async () => {
     // -3 m to +9 m is 12 m of building, so a cut at 3 m is halfway up.
-    // Passing `3` here — the old behaviour — meant 3%, i.e. 36 cm above the
-    // basement floor, which is why the slider appeared to do nothing.
+    // Passing `3` here would mean 3%, i.e. 36 cm above the basement floor, and
+    // the slider would appear to do nothing.
     await mountLoaded({ section: { atMetres: 3, flipped: false } })
 
     await waitFor(() => expect(lastRender().sectionPlane).toBeDefined())
@@ -472,10 +471,10 @@ describe('two fingers on a tablet', () => {
 
   it('keeps orbiting with the finger that is still on the glass', async () => {
     // Pinch to frame, then keep dragging with one finger to turn: the natural
-    // tablet gesture, and it stopped dead. The second `pointerdown` nulls the
-    // drag — a pinch is not an orbit — and nothing put it back when a finger
-    // was lifted, so the survivor fell through to the hover branch and did
-    // nothing at all. The reader had to lift and re-place.
+    // tablet gesture. The second `pointerdown` nulls the drag — a pinch is not
+    // an orbit — so when a finger lifts, the survivor must re-arm the drag;
+    // without that it falls through to the hover branch and does nothing, and
+    // the reader has to lift and re-place.
     const { container } = await mountLoaded()
     const canvas = container.querySelector('canvas')!
 

@@ -41,7 +41,7 @@ describe('documentNameKey', () => {
 })
 
 describe('documentNameVariants', () => {
-  it('offers both spellings, so a row written before the key existed is still found', () => {
+  it('offers both spellings, so a row stored without the key is still found', () => {
     expect(documentNameVariants(DECOMPOSED)).toEqual([COMPOSED, DECOMPOSED])
   })
 

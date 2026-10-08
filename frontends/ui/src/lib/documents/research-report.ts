@@ -26,9 +26,9 @@
  *
  *   - `PREVIEW_TYPES` in `features/documents/components/file-preview-pane.tsx`
  *     lists the content types the Files pane can render. `.docx` is not one of
- *     them, so the report a user had just commissioned landed in Berichte as a
- *     generic icon with no in-app preview — download-only, for the one document
- *     in the project nobody had read yet;
+ *     them, so a Word report would land in Berichte as a generic icon with no
+ *     in-app preview — download-only, for the one document in the project nobody
+ *     has read yet;
  *   - an Einreichung attachment is a PDF. Handing the Behörde an editable Word
  *     file is not the form the artifact takes at the end of this flow.
  *
@@ -71,9 +71,9 @@ export interface FileResearchReportInput {
    * reasons. It is UNKNOWN because these are jsonb that crossed a process
    * boundary and `@/lib/pdf/legal-basis` is the module that narrows them. It is
    * OPTIONAL because a run need not have produced any — `JobReportResponse`
-   * (`frontends/aiq_api/src/aiq_api/routes/jobs.py`) now returns `cards`
-   * alongside the report, but returns it null when the run generated none, and
-   * a scheduled or replayed run may pass none at all. A section that cannot be
+   * (`frontends/aiq_api/src/aiq_api/routes/jobs.py`) returns `cards`
+   * alongside the report, and null when the run generated none. A scheduled or
+   * replayed run may also pass none at all. A section that cannot be
    * built prints nothing rather than an empty heading, so absent is a
    * first-class value here, not a gap waiting to be filled.
    */
@@ -103,8 +103,7 @@ export function splitReportTitle(report: string): { title: string | null; body: 
  * The facts the cover block prints, and why each one is on it.
  *
  * A report that reaches a Behörde with no project, no place and no date is an
- * anonymous essay, and roadmap #3 asks for "a deliverable an architect can hand
- * to the authority". The opposite failure is just as real: a cover sheet that
+ * anonymous essay. The opposite failure is just as real: a cover sheet that
  * reprints the intake is a second document standing in front of the first. So
  * the rule applied here is that a row earns its place only if the reader cannot
  * READ THE REPORT without it — either because it identifies the object, or
@@ -113,8 +112,7 @@ export function splitReportTitle(report: string): { title: string | null; body: 
  * On the sheet:
  *
  *   - **Projekt** — the object, as the app names it. The one fact a reader
- *     away from the app cannot recover; the .docx has carried it since the
- *     saved-answer export shipped.
+ *     away from the app cannot recover; the .docx carries it too.
  *   - **Standort** (`standort_adresse`, intake A2_adr) — the object, as a
  *     Behörde names it. A project name is an internal label; an Einreichung is
  *     about an address, and two projects in one office may share a name.
@@ -301,19 +299,18 @@ export async function fileResearchReport(
  *
  * ## Why a report goes through the same door as a chat draft
  *
- * Before ADR-0054 a filed report had no editorial state at all: it appeared in
- * Berichte looking exactly like a document somebody had checked, and the only
- * thing saying otherwise was the „KI-generiert — nicht geprüft" block printed
- * inside the PDF. „Piloti hat für Sie recherchiert" and „das Büro steht dahinter"
- * are different sentences, and until now the Files pane could only say the
- * second one.
+ * Without an editorial state a filed report appears in Berichte looking exactly
+ * like a document somebody had checked, and the only thing saying otherwise is
+ * the „KI-generiert — nicht geprüft" block printed inside the PDF. „Piloti hat für
+ * Sie recherchiert" and „das Büro steht dahinter" are different sentences, and
+ * the Files pane must be able to say the first one.
  *
  * So the report is a `draft` and its arrival is a request for somebody to look
- * at it. One vocabulary for humans and for Piloti was the whole point of the
- * decision (ADR-0054, option 4 overturned): a reviewer should not have to know
- * who produced a file to know what state it is in.
+ * at it. One vocabulary for humans and for Piloti is the point of ADR-0054: a
+ * reviewer should not have to know who produced a file to know what state it is
+ * in.
  *
- * ## What stays exactly as it was
+ * ## What does not change
  *
  * The producer (`deep_research`), the PDF renderer, the cover sheet, the
  * marking, the `Berichte` folder and the idempotency key. This adds a version
@@ -357,16 +354,14 @@ async function openReviewRound(
     // recipient is its own actor, so a report somebody asked for interactively
     // opens no inbox item at THEM — they are looking at it — while a scheduled
     // run, submitted in the pinned requester's session, does. Either way the
-    // Files pane shows „in Prüfung", which is the state that had no way to be
-    // true before.
+    // Files pane shows „in Prüfung", which is a state no filed report could otherwise show.
     await transitionDocumentVersion(session, filed.documentId, version.id, 'submit', {
       reviewerUserIds: [session.userId],
       request,
-      // The RUN made this gesture, in the commissioning human's session
-      // (migration 0085). Without saying so, `submitted_by` reads as that
-      // person having asserted the report themselves — and the
-      // not-the-submitter guard then refused the one person who asked for it
-      // the right to release it.
+      // The RUN made this gesture, in the commissioning human's session.
+      // Without saying so, `submitted_by` reads as that person having asserted
+      // the report themselves, and the not-the-submitter guard would refuse the
+      // one person who asked for it the right to release it.
       actingHuman: false,
     })
   } catch (error) {
@@ -429,11 +424,10 @@ async function renderAndFileReport(
       //      `fileReportIfCommissioned`, so the report response carries
       //      `filingFailed: true` — the promise the starting banner made
       //      („wird abgelegt") was made and broken, and that is the one case
-      //      that key exists for. A key nobody reads is the same as no key
-      //      at all, and that is what this one is again: `deep-research-client.ts`
-      //      (`getJobReport`) carries it across the boundary, but its reader,
-      //      the research side panel's success banner, was retired with that
-      //      panel and the run block does not read it yet. No reason travels with
+      //      that key exists for. A key nobody reads is the same as no key at
+      //      all, and at present nothing does: `deep-research-client.ts`
+      //      (`getJobReport`) carries it across the boundary, but no reader in the
+      //      UI consumes it yet. No reason travels with
       //      it, deliberately: a quota refusal, a revoked permission and a
       //      report too long to render are one fact to an architect — the
       //      document is not there. The length and the limit are on the error,
@@ -442,8 +436,8 @@ async function renderAndFileReport(
       // Not pre-checked here even though the length is known before the
       // permission read and the two lookups it would save. The bound is the
       // renderer's invariant, and a caller that re-states it is a caller that
-      // can re-state it wrongly — which is precisely how this path came to have
-      // no bound while `POST /api/generate-pdf` had one.
+      // can re-state it wrongly — which is how a path ends up with no bound
+      // while `POST /api/generate-pdf` has one.
       const bytes = await renderMarkdownPdf(body, {
         title: documentTitle,
         // The writer agent is not taught mermaid, but a skill scope does not
@@ -471,8 +465,7 @@ async function renderAndFileReport(
           locale
         ),
         // The run's cards become the document's findings section, which is
-        // where „Rechtsgrundlagen" now comes from. This used to be a
-        // PDF-specific `legalBasisSection`; `lib/answer-export/cards.ts` already
+        // where „Rechtsgrundlagen" comes from. `lib/answer-export/cards.ts`
         // renders every card type for the Word export, `legal_basis` included,
         // so the two documents an architect puts side by side are built from
         // one walker rather than two that can disagree.
@@ -481,8 +474,7 @@ async function renderAndFileReport(
         // Handed down by the seam and handed straight back below, so the
         // marking in the file's `Keywords` and the marking
         // `fileGeneratedDocument` verifies are the same string by construction.
-        // This producer used to build its own from `{ runId }`, which was right
-        // twice and is now right once — for the reason the seam gives: it is
+        // Building it here from `{ runId }` would be a second copy: the seam is
         // the one place that knows whether a reference IS a run.
         marking,
         // The header line, the cover prose and the footer line. `branding` is a

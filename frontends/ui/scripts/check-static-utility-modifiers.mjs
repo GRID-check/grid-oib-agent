@@ -27,14 +27,11 @@ const SCAN_ROOT = 'src'
 const SCAN_EXTENSIONS = new Set(['.ts', '.tsx', '.js', '.jsx', '.mjs', '.css'])
 
 /**
- * Violations that predate this guard — deliberately EMPTY, and worth the effort
+ * Known violations the guard tolerates — deliberately EMPTY, and worth the effort
  * of keeping it that way.
  *
  * A guard with a baseline reports "clean" while the thing it guards against is
- * still on screen, and nobody reads a baseline entry twice. The single entry
- * this shipped with was `border-base/60` on a dev preview page: a dashed border
- * that silently fell back to the default colour, and a one-word fix rather than
- * an exception worth carrying.
+ * still on screen, and nobody reads a baseline entry twice.
  *
  * If an entry ever does belong here, it is per-occurrence rather than a
  * directory exclusion on purpose: every other slash-on-static-utility in

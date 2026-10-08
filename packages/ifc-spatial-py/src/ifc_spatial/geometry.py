@@ -1,18 +1,18 @@
 """Plane, clip and box helpers — the parts of the TS geometry pass that survive.
 
-IfcOpenShell replaces most of `pass.ts`: bounding boxes, areas, footprints and
-volumes are one call each on `ifcopenshell.util.shape`. What it does **not**
-supply is the reference plane an architect means by "die Fassade", and the
-constructive operators are all measured from that plane. So three things stay
-hand-written, and they are ported here rather than re-invented:
+IfcOpenShell supplies bounding boxes, areas, footprints and volumes, one call
+each on `ifcopenshell.util.shape`. What it does **not** supply is the reference
+plane an architect means by "die Fassade", and the constructive operators are
+all measured from that plane. So three things are written here rather than
+taken from the library:
 
 1. :func:`dominant_vertical_plane` — the element's largest vertical planar
    cluster, which is the glazing plane of a window and the face of a wall.
 2. :func:`outermost_parallel_face` — the plane re-seated onto a REAL outermost
-   face. The TS package learnt this the hard way: binning faces by normal alone
-   put the sample house's north facade at y = 4.4221, which lies on no surface of
-   the building (a blend of faces at 4.409 and 4.521), and every overhang
-   measured from it was 0.28 m too large.
+   face. Binning faces by normal alone seats the plane on a blend of faces: on
+   the sample house's north facade that puts y at 4.4221, which lies on no
+   surface of the building (faces at 4.409 and 4.521), and every overhang
+   measured from it is 0.28 m too large.
 3. :func:`clip_polygon` — Sutherland–Hodgman against the light prism's convex
    half-spaces. A vertex-inside test would miss this file entirely: the roof is
    376 triangles over 108 m², and a triangle spanning the whole prism can have
@@ -64,9 +64,8 @@ class Plane:
 
     It is kept because the seating needs it: the winner is chosen by offset among
     the bins that clear a fraction of the largest bin's vote, and that comparison
-    is between like and like. It is a **selection weight**, and the name now says
-    so, so that no caller can read it as a surface. ``facade_plane_of`` used to
-    publish it as ``"area"`` under „(m)"; it does not any more.
+    is between like and like. It is a **selection weight**, and the name says so,
+    so that no caller can read it as a surface.
     """
 
     normal: np.ndarray
@@ -97,7 +96,7 @@ def dominant_plane(triangles: np.ndarray) -> np.ndarray | None:
 
     The failure it exists to catch: ``azimuth`` on the sample house's ground slab
     ``3cUkl32yn9qRSPvBJVyWgQ``. The slab's 7.9 m² of vertical EDGE faces were the
-    only ones the vertical filter kept, so a floor plate reported a compass
+    only ones the vertical filter kept, so a floor plate would report a compass
     bearing of 0.0° / „N" off its own rim. Its dominant plane is horizontal
     (``|n_z| = 1``) by two orders of magnitude of area, and a floor plate has no
     facade bearing to report.
@@ -109,13 +108,13 @@ def dominant_plane(triangles: np.ndarray) -> np.ndarray | None:
     # normal at |cross| <= 1e-12 and still reports area = |cross| / 2, so a
     # triangle in the band 0 < |cross| <= 1e-12 passes an area filter carrying no
     # direction at all: it folds to the sign fallback 1.0, lands in the (0, 0, 0)
-    # bin and votes with a zero vector. For a mesh whose triangles are ALL in that
-    # band this returned array([0., 0., 0.]) instead of None, and `azimuth` reads
+    # bin and votes with a zero vector. A mesh whose triangles are ALL in that
+    # band must return None, not array([0., 0., 0.]): `azimuth` would read
     # |n_z| = 0.0 as vertical — a compass bearing off a body with no measurable
-    # face, which is the exact failure this function was added to prevent.
-    # No triangle in any fixture is anywhere near the band (the sample house's
-    # smallest of 25 312 has |cross| = 2.6e-07, five orders above it), so this
-    # moves no measured number; it closes the door.
+    # face, which is the failure this function exists to prevent.
+    # No triangle in any fixture is near the band (the sample house's smallest
+    # of 25 312 has |cross| = 2.6e-07, five orders above it); the guard is a
+    # backstop.
     usable = np.linalg.norm(normals, axis=1) > 0
     if not usable.any():
         return None
@@ -310,12 +309,10 @@ def plan_footprint(triangles: np.ndarray) -> Any | None:
     ``geom.tree.select(point)`` needs a closed, orientable solid to classify
     against. ArchiCAD writes its `IfcSpace` bodies as `Brep` shells that OCCT
     accepts into the tree — `select_box` finds them — and will not classify as
-    solids, so the point query returns nothing for every room in the file. On
-    `AC20-Institute-Var-2.ifc` that was **82 of 82 spaces**, and `clear_height`
-    answered „kein Rasterpunkt lag im Raumkörper" about an 11.6 × 11.4 m
-    seminar room. The operator then blamed the room's shape („zu schmal oder zu
-    zerklüftet"), the agent fell back to the declared storey height, and a
-    structural 3.00 m was reported where the modelled room is 2.70 m.
+    solids, so the point query returns nothing for them. On
+    `AC20-Institute-Var-2.ifc` that is **82 of 82 spaces**, and a point-based
+    height would fall back to the declared storey height: a structural 3.00 m
+    where the modelled room is 2.70 m.
 
     A mesh needs no such classification. The triangles are already in world
     coordinates and they already build for these rooms — 82 of 82 — so the

@@ -4,14 +4,13 @@
  *
  * ## Why this is a module and not two literals
  *
- * The constraint used to be written twice — once as the route's zod schema
- * (`positive integer of bytes`) and once as the editor input's `min="0"` /
- * `step="1"` — and the two did not agree. `step="1"` rejected the decimal the
- * editor itself prefilled, `min="0"` accepted a zero the API answered 422, and
- * neither guarded the case that actually mattered: `Number('12x')` is `NaN`,
- * `JSON.stringify` writes `NaN` as `null`, and `null` is how this API spells
- * UNLIMITED. A single mistyped character therefore removed a tenant's quota and
- * the UI reported success.
+ * The constraint is written once, because two copies drift: the route's zod
+ * schema (`positive integer of bytes`) and the editor input's `min="0"` /
+ * `step="1"` disagreed. `step="1"` rejected the decimal the editor itself
+ * prefilled, and `min="0"` accepted a zero the API answers 422. Neither guards
+ * the case that matters: `Number('12x')` is `NaN`, `JSON.stringify` writes `NaN`
+ * as `null`, and `null` is how this API spells UNLIMITED. A single mistyped
+ * character would remove a tenant's quota while the UI reported success.
  *
  * So the parse lives here, once, and the editor has no numeric logic of its own.
  * `min`/`step` are deliberately NOT re-stated as HTML constraints: HTML's `min`
@@ -58,7 +57,7 @@ export const MAX_QUOTA_BYTES = Number.MAX_SAFE_INTEGER
  *
  * This schema is also what {@link parseQuotaDraft} judges its own output with,
  * which is what keeps the browser's idea of "acceptable" from drifting from the
- * route's — the drift that this module was created to remove.
+ * route's — the drift this module exists to prevent.
  */
 export const storageQuotaPutSchema = z.object({
   quotaBytes: z.number().int().positive().max(MAX_QUOTA_BYTES).nullable(),
@@ -88,9 +87,9 @@ export type QuotaDraft =
  * - `Number('1e300')` is perfectly finite; `1e300 * 1e9` is `Infinity` → `null`
  *
  * — and `null` is how this API spells UNLIMITED, so each of those removes the
- * tenant's quota while the UI reports success. The third one survived a guard
- * that tested `Number.isFinite` on the input, which is exactly why the guard now
- * sits on the output and is the route's own schema rather than a copy of it.
+ * tenant's quota while the UI reports success. The third one passes
+ * `Number.isFinite` on the input, which is why the guard sits on the output and
+ * is the route's own schema rather than a copy of it.
  *
  * A value small enough to round to zero bytes is refused for the same reason it
  * would be refused server-side: a zero-byte quota is not a quota, it is an

@@ -31,12 +31,12 @@ export interface SettlingStatusReads<T extends FileItem> {
  * The cheap half of a document list's refresh: what can change while rows
  * settle, read per row.
  *
- * `useSettlingRefresh` used to call the list loader itself, which drains every
- * listing page (up to 20 × 500 rows) — every four seconds, for as long as one
- * PDF was being read. Now the tick asks `/api/documents/{id}/status` for the
- * settling rows only, a bounded batch at a time and round-robin across a big
- * upload, and merges by id. The full drain stays with the loads that need the
- * corpus: mount, a filter change, an upload landing, an explicit retry.
+ * `useSettlingRefresh` does not call the list loader: that would drain every
+ * listing page (up to 20 × 500 rows) every four seconds, for as long as one PDF
+ * is being read. The tick asks `/api/documents/{id}/status` for the settling
+ * rows only, a bounded batch at a time and round-robin across a big upload, and
+ * merges by id. The full drain stays with the loads that need the corpus: mount,
+ * a filter change, an upload landing, an explicit retry.
  *
  * The two can cross. A drain sent before a tick and answered after it would
  * put the older rows back; {@link SettlingStatusReads.beginLoad} lays the

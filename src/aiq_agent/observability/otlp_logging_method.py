@@ -41,9 +41,9 @@ def _resource_attributes(env: Mapping[str, str]) -> dict[str, str]:
     so the per-tier OTEL_SERVICE_NAME Pulumi injects is resolved here.
 
     ``service.version`` is the commit the image was built from (GRID_GIT_SHA,
-    stamped by both Dockerfiles). Without it every err2issue issue read
+    stamped by both Dockerfiles). Without it every err2issue issue would read
     "Version: unknown", and a "regression" on a closed issue could not be told
-    apart from a pod still running the image from before the fix.
+    apart from a pod still running an older image.
     """
     attributes = {"service.name": env.get("OTEL_SERVICE_NAME", "aiq-agent")}
     sha = env.get("GRID_GIT_SHA", "").strip()
@@ -70,8 +70,8 @@ class _NatBuildFailureItemizationFilter(logging.Filter):
     ``nat.builder.workflow_builder._log_build_failure`` reports a failed build
     as a dozen ``logger.error`` calls: a header, then every built and every
     remaining component on its own line, then ``Original error`` with the
-    traceback. Each record is an ERROR, so err2issue filed one startup failure
-    as eleven issues (#742-#752), none of which carried the cause. Only the
+    traceback. Each record is an ERROR, so err2issue would file one startup
+    failure as a dozen issues, none of which carries the cause. Only the
     ``Original error`` record is exported; the itemization still reaches stdout
     through the other handlers. If NAT renames the function, nothing matches
     and every line is exported again: this fails towards reporting.

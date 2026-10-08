@@ -1,11 +1,11 @@
 """``ris_lookup`` — ONE RIS tool that hands back citable passages.
 
 The three tools it replaces on the chat surface (``ris_search``,
-``ris_fetch_document``, ``ris_catalog_lookup``) are a sequence the model had to
+``ris_fetch_document``, ``ris_catalog_lookup``) are a sequence the model has to
 run by hand: search, pick a document number, fetch the ENTIRE document, then
-find the paragraph inside 40 000 characters. Three charged calls, and the blob
-at the end carried no ``Citation:`` key and no ``Punkt:``, so
-``_parse_knowledge_layer`` never saw it and the answer cited a URL instead of a
+find the paragraph inside 40 000 characters. That is three charged calls, and the
+blob at the end carries no ``Citation:`` key and no ``Punkt:``, so
+``_parse_knowledge_layer`` cannot see it and the answer cites a URL instead of a
 paragraph.
 
 This package takes the QUESTION and returns passages in the knowledge layer's
@@ -34,7 +34,7 @@ enforces stated at the top of it:
     tool.py       the config, the description, and the orchestration.
 
 The three old tools stay registered and stay bound to DEEP RESEARCH, which has
-a different budget shape; they are simply no longer the chat surface's way in.
+a different budget shape; the chat surface does not use them.
 
 This package has its own ``nat.plugins`` entry point rather than riding in on
 ``ris_adapter.register``: it hard-imports the knowledge layer for the passage

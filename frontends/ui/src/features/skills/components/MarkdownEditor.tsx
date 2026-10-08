@@ -1,7 +1,7 @@
 'use client'
 
 /**
- * The Markdown editor used to write a skill's instruction body.
+ * The Markdown editor that writes a skill's instruction body.
  *
  * A skill body IS Markdown — headings, lists and fenced blocks are how the
  * agentskills.io format carries structure — so the box it is written in should

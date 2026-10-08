@@ -130,7 +130,7 @@ describe('SkillsUsedDisclosure', () => {
     expect(hiddenRow.className).not.toContain('opacity-60')
   })
 
-  it('keeps a row whose skill can no longer be described', async () => {
+  it('keeps a row whose skill cannot be described', async () => {
     // Deleted or renamed since the answer was written: the NAME is still true,
     // so the row stays rather than vanishing from the record.
     listInvocableSkills.mockResolvedValue([])

@@ -168,7 +168,7 @@ class _Sequence(_Client):
 
 
 class TestTheReportIsRetriedBriefly:
-    """A BFF restart at the moment a run ends used to leave its row running for good.
+    """A BFF restart at the moment a run ends must not leave its row running for good.
 
     Three attempts, and the policy for each answer is the point: a transport
     failure or a 5xx is asked again, a 404 only when the job was submitted for a

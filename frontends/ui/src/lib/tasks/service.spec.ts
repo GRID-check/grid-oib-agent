@@ -155,7 +155,7 @@ describe('completeRunForOutcome', () => {
     expect(result.run.status).toBe('succeeded')
   })
 
-  it('refuses, and records why, when the requester is no longer a member', async () => {
+  it('refuses, and records why, when the requester is not a member', async () => {
     vi.mocked(resolvePinnedRequesterSession).mockResolvedValueOnce(null)
 
     const result = await completeRunForOutcome(run, { status: 'success', report: '# Bericht' })

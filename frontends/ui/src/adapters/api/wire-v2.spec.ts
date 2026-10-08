@@ -95,7 +95,7 @@ describe('chat wire v2 fixtures', () => {
     expect(parseWireEvent(raw)).toBeNull()
   })
 
-  it('takes no turn event, and no old frame, for a hello', () => {
+  it('parseHello rejects a turn event and an unknown frame', () => {
     for (const raw of [...lines('rejected.jsonl'), ...lines('invalid-events.jsonl'), ...lines('turn-answered.jsonl')]) {
       expect(parseHello(raw)).toBeNull()
     }

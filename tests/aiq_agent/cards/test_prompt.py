@@ -27,8 +27,8 @@ class TestBuildCardGenerationPrompt:
         assert "A staircase drawn to scale" in prompt
 
     def test_expands_nested_building_blocks(self):
-        # The nested shapes (the thing that made cards fail to emit when hidden)
-        # must be spelled out with their field descriptions.
+        # Nested shapes must be spelled out with their field descriptions. Hidden, they
+        # stop cards being emitted.
         prompt = build_card_generation_prompt()
         assert "DimensionCheck = {" in prompt
         assert "NormReference = {" in prompt
@@ -45,8 +45,8 @@ class TestBuildCardGenerationPrompt:
         assert '{"cards":' in build_card_generation_prompt()
 
     def test_does_not_dump_raw_json_schema(self):
-        # Regression: the old builder dumped the full ~42KB json schema ($defs
-        # / $ref), which is expensive and worse for the model than examples.
+        # The full json schema ($defs / $ref, ~42KB) is expensive and worse for the
+        # model than examples, so the builder must not dump it.
         prompt = build_card_generation_prompt()
         assert "$defs" not in prompt
         assert "$ref" not in prompt
@@ -55,10 +55,9 @@ class TestBuildCardGenerationPrompt:
 class TestCatalogSharedAcrossSurfaces:
     """Both surfaces render from the one catalog, and differ in exactly one way.
 
-    The rule used to be "identically". It is now "identically, except that
-    post-hoc generation is not shown the cards it cannot fill" — the IFC cards
-    are addressed by GlobalId, rule id and model file name, and that path is
-    handed only the question and the finished answer text.
+    Post-hoc generation is not shown the cards it cannot fill: the IFC cards are
+    addressed by GlobalId, rule id and model file name, and that path is handed only
+    the question and the finished answer text.
     """
 
     def test_the_tool_embeds_the_card_index(self):
@@ -72,16 +71,14 @@ class TestCatalogSharedAcrossSurfaces:
         assert render_card_catalog() not in description
 
     def test_the_tool_teaches_the_shape_on_the_RETRY_rather_than_in_advance(self):
-        # This used to point at `describe_card` and talk the model into paying
-        # for it up front — on every turn, for every card, including the ones it
-        # would have filled in correctly. The shape is only ever needed when the
-        # first attempt would have been wrong, so that is where it is spent now:
-        # a failed `emit_card` returns the same L2 entry `describe_card` did.
+        # Point at `describe_card` and do not pay for the shape up front: that costs on
+        # every turn, for every card, including the ones the model would have filled in
+        # correctly. The shape is needed only when the first attempt would have been
+        # wrong, so a failed `emit_card` returns the same L2 entry `describe_card` does.
         description = _build_tool_description()
         assert "describe_card" not in description
         assert "the error hands you that type's full shape and a worked example" in description
-        # And the reason the pointer existed at all is preserved: an unfamiliar
-        # shape must never be what stops a card being emitted.
+        # The pointer exists so that an unfamiliar shape never stops a card being emitted.
         assert "never a reason to skip a card the answer called for" in description
 
     def test_post_hoc_generation_embeds_the_catalog_minus_the_model_cards(self):
@@ -98,9 +95,8 @@ class TestCatalogSharedAcrossSurfaces:
             assert f"  {card_type}:" not in prompt, card_type
 
     def test_the_tool_still_is(self):
-        # The pair matters: withholding from BOTH surfaces would silently
-        # retire five working card renderers, which is the failure this
-        # feature was fixing in the first place.
+        # The pair matters: withholding from BOTH surfaces would silently retire five
+        # working card renderers.
         tool = _build_tool_description()
         for card_type in MODEL_BACKED_CARD_TYPES:
             assert f'"{card_type}"' in tool, card_type
@@ -116,13 +112,11 @@ class TestCatalogSharedAcrossSurfaces:
 class TestTheDoctrineReachesThePostHocPath:
     """The trigger vocabulary must be in front of the model that builds these cards.
 
-    This path produces cards for the LONGEST answers Grid writes, and its whole
-    instruction used to be "only include a card when it adds real value" — the
-    disclaimer that left fifteen diagram renderers unused until commit 6302033a
-    replaced it with a trigger table on the OTHER surface. Losing it again here
-    would look like nothing in a diff and would silently take the takeaway
-    block, the callout and the follow-ups back out of every deep-research
-    report, which is the exact regression these assertions exist to catch.
+    This path produces cards for the LONGEST answers Grid writes. A bare "only include
+    a card when it adds real value" disclaimer leaves the diagram renderers unused, and
+    dropping the trigger table from this path would silently take the takeaway block,
+    the callout and the follow-ups out of every deep-research report. Losing it here
+    would look like nothing in a diff, which is why these assertions exist.
     """
 
     def test_the_trigger_table_is_rendered(self):
@@ -132,24 +126,23 @@ class TestTheDoctrineReachesThePostHocPath:
         # generic ones that fire on an ordinary answer.
         assert "a riser, tread or stair width" in prompt
         assert "-> stair_diagram" in prompt
-        # The rhetorical triggers left the table with their card types: those
-        # shapes are answer-envelope fields now, on every surface.
+        # The rhetorical triggers are not in the table: those shapes are answer-envelope
+        # fields, on every surface.
         assert "key_takeaways" not in prompt
         assert "-> callout" not in prompt
 
     def test_the_negative_default_survives(self):
-        # The trigger table without its counterweight is an instruction to
-        # decorate every report. The counterweight is now two blocks — what may
-        # go on a card, and how many — and this path pays for both.
+        # The trigger table without its counterweight is an instruction to decorate every
+        # report. The counterweight is two blocks — what may go on a card, and how many —
+        # and this path pays for both.
         prompt = build_card_generation_prompt()
         assert "WHEN NOT TO" in prompt
         assert "two the ceiling" in prompt
         assert "Never fabricate a field, a reference or a number" in prompt
 
     def test_the_volume_rule_is_stated_once_across_the_two_blocks(self):
-        # This module used to close its craft block with its own copy of the
-        # two-card ceiling, written before the shared doctrine carried one. Two
-        # numbers a paragraph apart is how they drift; the doctrine owns it.
+        # The two-card ceiling lives in the shared doctrine only. Two numbers a paragraph
+        # apart are how they drift.
         prompt = build_card_generation_prompt()
         assert prompt.count("two the ceiling") == 1
         assert "Two content cards is the ceiling and one is often right" not in prompt
@@ -161,9 +154,8 @@ class TestTheDoctrineReachesThePostHocPath:
         a field, so a prompt that still asked for the card would spend input
         tokens describing it and output tokens building it, and the result would
         be thrown away without a word to the model. The rule, the trigger row,
-        the shape, the worked example and the craft paragraph all had to go
-        together — leaving any one of them is an invitation the validator then
-        refuses.
+        the shape, the worked example and the craft paragraph go together:
+        leaving any one of them is an invitation the validator then refuses.
 
         What this costs is real and is written down rather than glossed: a
         finished deep-research REPORT now carries no follow-up questions at all,
@@ -174,8 +166,7 @@ class TestTheDoctrineReachesThePostHocPath:
         prompt = build_card_generation_prompt()
         assert "follow_ups" not in prompt
         assert "closes a subject-matter answer by default" not in prompt
-        # The ordering rule used to end on "follow_ups last", which was the only
-        # place the word survived the removals above.
+        # The ordering rule itself, with no follow_ups clause.
         assert "WHERE THEY GO" in prompt
         assert "the substance the report turns on first" in prompt
 
@@ -273,7 +264,7 @@ class TestTheCraftThatCouldNotBeInherited:
         assert "WHICH ONE EARNS ITS PLACE" in prompt
         # calculation: only a number the report WORKED OUT, operands as stated.
         assert "a number the report WORKED OUT" in prompt
-        # The envelope paragraphs are gone with their card types — a craft
+        # The envelope paragraphs are absent because their card types are: a craft
         # section teaching a card the validator drops is dead prompt weight.
         assert "verdict_header" not in prompt
         assert "A second callout" not in prompt
@@ -298,9 +289,8 @@ class TestTheFramingStaysAffordable:
     card type we add — real, but it is the schema, it is measured by the shapes
     themselves, and capping the total here would fail on catalog growth while
     saying nothing about this file. What drifts in THIS module is prose: the
-    grounding rule, the craft block and the ordering note, which went from 122
-    tokens (a single disclaimer sentence) to roughly 1,300 in one commit and
-    would go on accreting a paragraph at a time if nothing watched.
+    grounding rule, the craft block and the ordering note. Left unwatched, that
+    prose would grow a paragraph at a time, so it is capped here.
 
     This is the post-hoc twin of the ``emit_card`` ceiling in
     ``test_tool_description.py``. The budgets are different on purpose: that one
@@ -308,7 +298,7 @@ class TestTheFramingStaysAffordable:
     deep-research report, so it can afford more — but not without a decision.
     """
 
-    #: cl100k_base tokens, catalog excluded. Measured at 1,318 when written.
+    #: cl100k_base tokens, catalog excluded. Measured at 1,318.
     MAX_FRAMING_TOKENS = 1_700
 
     def test_the_framing_stays_under_the_ceiling(self):

@@ -2,7 +2,7 @@
  * Which restricted folders a conversation drew on, and who may therefore read
  * it (ADR-0080, ADR-0081). The one place that decides.
  *
- * Product rule (product owner, 2026-10-02): a conversation is restricted only
+ * Product rule: a conversation is restricted only
  * by what it actually USED, and per person: different people may read
  * different folders. So:
  *

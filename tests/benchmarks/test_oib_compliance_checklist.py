@@ -157,9 +157,9 @@ def test_bounds_flag_each_exceeded_dimension_independently():
     assert "wall_clock_seconds" in result.violations[0]
 
 
-def test_bounds_regression_guard_catches_the_20_minute_runaway_class_of_bug():
-    # This is the exact scenario the eval suite exists to catch per backlog
-    # T4-5: a workflow silently regressing back to 20+ minute runs.
+def test_bounds_flag_a_runaway_run_past_twenty_minutes():
+    # The eval suite exists to catch a workflow that silently drifts back to
+    # 20+ minute runs.
     metrics = RunMetrics(wall_clock_seconds=25 * 60, llm_calls=400, completion_tokens=15_000)
     result = check_bounds(metrics, {"max_wall_clock_s": 600, "max_llm_calls": 150, "max_completion_tokens": 60_000})
     assert result.within_bounds is False

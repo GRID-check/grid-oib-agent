@@ -2,11 +2,11 @@
  * Per-document status reads: `GET /api/documents/{id}/status`, a bounded batch
  * at a time.
  *
- * The document lists used to follow an in-flight row by re-reading the WHOLE
- * listing (every page, up to 20 × 500 rows) every few seconds. What can change
- * while a row settles is that row, so the quiet settling tick asks about the
- * settling rows by id and merges the answers in; the full drain stays for the
- * loads that need the corpus. Per id rather than "the newest page": a
+ * The document lists follow an in-flight row by asking about that row, not by
+ * re-reading the WHOLE listing (every page, up to 20 × 500 rows) every few
+ * seconds. What can change while a row settles is that row, so the quiet
+ * settling tick asks about the settling rows by id and merges the answers in;
+ * the full drain stays for the loads that need the corpus. Per id rather than "the newest page": a
  * re-ingested OLD document is settling too, and it sits wherever its
  * `createdAt` put it, not on the first page.
  *

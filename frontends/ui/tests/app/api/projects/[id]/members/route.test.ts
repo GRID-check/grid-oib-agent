@@ -128,15 +128,15 @@ describe('/api/projects/[id]/members', () => {
           { id: 'om_contributor', userId: 'user_contributor' },
         ])
       )
-      // project:edit (the pre-split umbrella) — editor, admin
+      // project:edit (the umbrella over the write rungs below) — editor, admin
       .mockResolvedValueOnce(
         paginated([
           { id: 'om_editor', userId: 'user_editor' },
           { id: 'om_admin', userId: 'user_admin' },
         ])
       )
-      // project:documents:write — plus the custom narrow-write role, which the
-      // old three-rung ladder reported as a plain Viewer
+      // project:documents:write — plus the custom narrow-write role, which a
+      // ladder without this rung would report as a plain Viewer
       .mockResolvedValueOnce(
         paginated([
           { id: 'om_editor', userId: 'user_editor' },
@@ -181,9 +181,9 @@ describe('/api/projects/[id]/members', () => {
     const probed = listMembershipsForResourceByExternalId.mock.calls.map(
       (call) => (call[0] as { permissionSlug: string }).permissionSlug
     )
-    // Every rung the catalog defines is probed. It used to be three, so a
-    // Contributor read as "Viewer" and so did a role holding only the narrow
-    // writes — on the one screen whose job is to report access accurately.
+    // Every rung the catalog defines is probed: skip one and a Contributor, or a
+    // role holding only the narrow writes, reads as "Viewer" — on the one screen
+    // whose job is to report access accurately.
     expect(probed).toEqual([
       'project:view',
       'project:chat',

@@ -100,16 +100,15 @@ JOB_DEGRADED_EVENT_TYPE = "job.degraded"
 # channel exists so a live listener and an operator counting cutoffs can see it.
 _DEGRADED_EVENT_FIELDS = ("research_truncated", "truncation_reason", "degraded_reasons")
 
-#: Lifecycle event a reclaimed loser emits instead of ``job.cancelled``
-#: (deep-research hardening, item 7). The ownership-loss abort arrives as a
-#: bare ``task.cancel()`` — the same delivery as a user cancel — so the loser
-#: and a real cancel are told apart by positive claim state (``_lost_claim``),
-#: never by message sniffing. Same ``job.*`` lifecycle shape as the other
-#: terminal events, stored through the same ``EventStore`` the SSE stream
-#: replays, so the stored history and the live stream agree on both
+#: Lifecycle event a reclaimed loser emits instead of ``job.cancelled``. The
+#: ownership-loss abort arrives as a bare ``task.cancel()`` — the same delivery as
+#: a user cancel — so the loser and a real cancel are told apart by positive claim
+#: state (``_lost_claim``), never by message sniffing. Same ``job.*`` lifecycle
+#: shape as the other terminal events, stored through the same ``EventStore`` the
+#: SSE stream replays, so the stored history and the live stream agree on both
 #: ``GRID_JOB_EXECUTION`` paths. Deliberately NOT a ``job.phase`` row:
-#: ``phase_events`` owns phase progress for the progress display, and an
-#: ownership change is not a phase (frontends/aiq_api/AGENTS.md).
+#: ``phase_events`` owns phase progress for the progress display, and an ownership
+#: change is not a phase (frontends/aiq_api/AGENTS.md).
 JOB_OWNERSHIP_LOST_EVENT_TYPE = "job.ownership-lost"
 
 #: The only payload of the ownership-lost event. A stable reason token, never
@@ -164,8 +163,8 @@ def sanitize_job_error(exc: BaseException) -> str:
         # Already curated, user-safe messages ("run exceeded the configured
         # completion-token budget of N"; "the organization's LLM budget is
         # exhausted … an org admin can raise limits under …") -- persist
-        # verbatim. The second used to fall through to "internal error", so
-        # the one failure a person could act on themselves read as a crash.
+        # verbatim. Folding them into "internal error" would make the one failure a
+        # person could act on themselves read as a crash.
         return str(exc)
 
     root_module = (type(exc).__module__ or "").split(".")[0]
@@ -280,8 +279,8 @@ async def _current_job_status(job_store: Any, job_id: str) -> str | None:
     """Best-effort read of a job's current status; None when unreadable/missing.
 
     Separate from :func:`_update_status_if_not_terminal` on purpose: that
-    function owns the terminal-status write (hardening item 6) and reports only
-    whether it wrote. The conversation-write gates below (item 10) need the
+    function owns the terminal-status write and reports only
+    whether it wrote. The conversation-write gates below need the
     standing verdict itself — e.g. to keep a legitimate user-cancel notice
     while skipping a loser's notice beside the winner's answer — so they read
     it here, and only on the path where the status write did not win.
@@ -355,8 +354,8 @@ async def _should_notify_outcome(*, job_store: Any, job_id: str, verdict: str, f
     The BFF closes the run's ``task_runs`` row from this call and nothing else,
     so a path whose verdict is already standing must report it too: the cancel
     route writes INTERRUPTED before the runner's ``CancelledError`` arrives, and
-    until 2026-09 only a run that wrote the status itself (``finalized``)
-    notified, so a cancelled run stayed ``running`` in the BFF forever.
+    only a run that wrote the status itself (``finalized``) would notify,
+    leaving a cancelled run ``running`` in the BFF forever.
 
     Stricter than :func:`_should_write_notice` on one point: an unreadable status
     does NOT fail open. The outcome route overwrites the row's status, so a
@@ -370,9 +369,9 @@ async def _should_notify_outcome(*, job_store: Any, job_id: str, verdict: str, f
 
 
 async def _should_emit_cancelled_event(*, job_store: Any, job_id: str, finalized: bool) -> bool:
-    """Whether the cancel path may stream ``job.cancelled`` (hardening item 7).
+    """Whether the cancel path may stream ``job.cancelled``.
 
-    Extends item 10's verdict-agreement rule (``_should_write_notice``) from
+    Extends the verdict-agreement rule (``_should_write_notice``) from
     the thread to the lifecycle stream: the event must agree with the standing
     verdict, or a late abort rewrites history as "cancelled by user". This run
     wrote INTERRUPTED itself (``finalized``), or the cancel route owns the
@@ -433,20 +432,19 @@ async def _finalize_cancelled_run(
     event_store: Any | None,
     expect_run: bool = False,
 ) -> Any:
-    """Finalize a run aborted via ``asyncio.CancelledError`` (hardening item 7).
+    """Finalize a run aborted via ``asyncio.CancelledError``.
 
-    Root cause this closes: the DB worker aborts a reclaimed run with a bare
-    ``run_task.cancel()``, which is indistinguishable on delivery from the
-    ``CancellationMonitor``'s user cancel — so the handler told every abort as
-    a user cancel (INTERRUPTED "cancelled by user" + user notice +
-    ``job.cancelled``) while the new owner was still running. The two causes
-    are told apart here by positive claim state — item 10's ``_lost_claim`` —
+    A reclaimed run is aborted with a bare ``run_task.cancel()``, which is
+    indistinguishable on delivery from the ``CancellationMonitor``'s user cancel.
+    Treating every abort as a user cancel (INTERRUPTED "cancelled by user" + user
+    notice + ``job.cancelled``) would mark a run the new owner is still running.
+    The two causes are told apart here by positive claim state (``_lost_claim``),
     never by message sniffing.
 
     A reclaimed loser publishes nothing user-visible: no INTERRUPTED write, no
     thread notice, no outcome notify, no ``job.cancelled``. Its only signal is
     the truthful ``job.ownership-lost`` lifecycle event. Anything else follows
-    the pre-existing user-cancel shape, with the ``job.cancelled`` event
+    the user-cancel shape, with the ``job.cancelled`` event
     additionally gated on verdict agreement (``_should_emit_cancelled_event``)
     so a late abort after the winner's SUCCESS or the reaper's FAILURE streams
     nothing.
@@ -455,11 +453,10 @@ async def _finalize_cancelled_run(
     """
     from nat.front_ends.fastapi.async_jobs.job_store import JobStatus
 
-    # Still-owner first (item 10): a reclaim abort must not steal the
-    # terminal write from the new owner — and must not leave an
-    # INTERRUPTED_NOTICE beside the winner's answer. The distinct
-    # ownership-lost signal itself is item 7's; this gate only ensures the
-    # loser publishes nothing.
+    # Still-owner first: a reclaim abort must not steal the terminal write from the
+    # new owner, and must not leave an INTERRUPTED_NOTICE beside the winner's answer.
+    # The distinct ownership-lost signal is a separate event; this gate only ensures
+    # the loser publishes nothing.
     lost_claim = await _lost_claim(db_url, job_id, claim_owner)
     if lost_claim:
         logger.warning(
@@ -482,7 +479,7 @@ async def _finalize_cancelled_run(
         except (ConnectionError, TimeoutError, RuntimeError):
             finalized = False
 
-    # Gated on verdict agreement (item 10): a user cancel (standing
+    # Gated on verdict agreement: a user cancel (standing
     # INTERRUPTED, or the write above) still leaves its notice — otherwise
     # the thread stays empty. A loser cancelled after the winner's SUCCESS
     # or the reaper's FAILURE writes nothing beside it.
@@ -511,7 +508,7 @@ async def _finalize_cancelled_run(
             job_id=job_id, usage_context=usage_context, status="interrupted", expect_run=expect_run
         )
 
-    # The event agrees with the standing verdict too (item 7): after the
+    # The event agrees with the standing verdict too: after the
     # winner's SUCCESS or the reaper's FAILURE a late abort must not rewrite
     # history as "cancelled by user".
     if await _should_emit_cancelled_event(job_store=job_store, job_id=job_id, finalized=finalized):
@@ -726,9 +723,9 @@ def _resolve_worker_tool_refs(fn_config: Any) -> list[str]:
 
     The empty check is falsy (not ``is None``): agent configs declare ``tools``
     with ``default_factory=list``, so an omitted list arrives as ``[]``, never
-    ``None``. A prior ``is None`` guard therefore never inherited and silently
-    built a tool-less agent — the researcher workers received no source tools
-    while validation elsewhere reported the inherited tools as available. This
+    ``None``. An ``is None`` guard would never inherit, and would silently build a
+    tool-less agent while validation elsewhere reports the inherited tools as
+    available. This
     matches the two other resolution sites (the sync agent build in
     deep_researcher/register.py and the chat-route validator in
     piloti/conversation_register.py), which both treat an empty list as "inherit".
@@ -744,7 +741,7 @@ def _resolve_worker_tool_refs(fn_config: Any) -> list[str]:
 async def _resolve_deep_research_checkpointer(fn_config: Any) -> Any | None:
     """Build the durable checkpointer for a deep-research async job, if configured.
 
-    Async deep-research jobs have no restart safety by default (T3-8): each
+    Async deep-research jobs have no restart safety by default: each
     Dask job builds a fresh in-memory-only DeepAgents graph via a new
     DeepResearcherAgent, so a worker crash mid-run loses all execution state
     -- only the SQL JobStore row survives, and the ghost-job reaper eventually
@@ -760,7 +757,7 @@ async def _resolve_deep_research_checkpointer(fn_config: Any) -> Any | None:
 
     Returns None (current default behavior, no durability) for any agent
     type other than ``deep_research_agent``, or when ``checkpoint_db`` is
-    unset -- both keep the prior in-memory-only, non-durable behavior.
+    unset -- both keep the in-memory-only, non-durable default.
     """
     if getattr(fn_config, "type", None) != "deep_research_agent":
         return None
@@ -810,10 +807,10 @@ async def _purge_deep_checkpoint_unless_reclaimed(db_url: str, job_id: str, clai
 
     The rows (``AIQ_DEEP_CHECKPOINT_DB``, ``thread_id == job_id``) are keyed by
     job, not by worker, so after a reclaim they are the NEW owner's resume
-    point. A stalled loser reaching its ``finally`` deleted them from under it,
-    and the winner resumed from nothing. ``worker.py`` already skipped its own
-    purge on claim loss; the runner's did not. Same positive-loss rule as every
-    other gate here (:func:`_lost_claim`): an indeterminate claim still purges,
+    point. A stalled loser reaching its ``finally`` must not delete them from under
+    the new owner, who would resume from nothing. ``worker.py`` skips its own
+    purge on claim loss, and this one does the same. Same positive-loss rule as
+    every other gate here (:func:`_lost_claim`): an indeterminate claim still purges,
     and the Dask path (no claim) always does. Both purges are idempotent.
 
     Returns True when it purged.
@@ -971,8 +968,8 @@ async def run_agent_job(
     # last: the Dask submit path passes these positionally.
     claim_owner: str | None = None,
     # The ``task_runs`` row this job IS, when the BFF knows it — the only
-    # identity the run-ledger route has. Absent for a job submitted before that
-    # plumbing exists, and then the fold still narrates the run on its own event
+    # identity the run-ledger route has. Absent for a job submitted without it,
+    # and then the fold still narrates the run on its own event
     # stream and posts nothing (``jobs/run_ledger_fold.py``). Keyword-only in
     # practice: the Dask path passes positionally up to ``claim_owner``.
     run_id: str | None = None,
@@ -1125,7 +1122,7 @@ async def run_agent_job(
 
         # Same JOIN as deploy/start_web.py: Grid telemetry `_type`s register at
         # import and are not in NAT's stock registry. A worker that reaches
-        # load_config without that import fails the same way the web pod did.
+        # load_config without that import fails the same way a web pod without it does.
         register_grid_telemetry()
         config = load_config(config_file_path)
 
@@ -1200,10 +1197,10 @@ async def run_agent_job(
                             llm = provider.get(LLMRole.ORCHESTRATOR)
 
             # Zero Data Retention (ADR-0014), after BYOK so the pin lands only on
-            # models that still point at OpenRouter. The worker once applied
-            # every dial but this one, and deep research runs here. Every model
-            # the job builds below (the agent, grid cards, anatomy, report
-            # follow-ups) comes from this provider, so pinning it pins them all.
+            # models that still point at OpenRouter. Deep research runs in this worker, so
+            # the pin is applied here as well. Every model the job builds below (the agent,
+            # grid cards, anatomy, report follow-ups) comes from this provider, so pinning
+            # it pins them all.
             # Off the loop: a cold lookup is a BFF call. Fails closed.
             from aiq_agent.common import LLMRole
             from aiq_agent.common.openrouter import data_policy_for
@@ -1289,7 +1286,7 @@ async def run_agent_job(
                 )
                 context_state.metadata.set(request_attrs)
             elif getattr(fn_config, "type", None) == "deep_research_agent":
-                # Audit-confirmed silent fallback: with no collection scope,
+                # A silent fallback: with no collection scope,
                 # get_collection_scope_from_context() returns None and knowledge-retrieval
                 # tools fall back to searching only the base/OIB collection plus the
                 # s_<conversation> session collection for the rest of this job — any
@@ -1340,9 +1337,8 @@ async def run_agent_job(
 
             # WHO this job runs for. The chat path sets these on the WebSocket
             # upgrade and every project-scoped tool reads them back through
-            # `get_project_id_from_context()`; a worker had none, so `remember`
-            # answered "no project in scope" on every deep-research run and the
-            # memory the run should have kept was never written.
+            # `get_project_id_from_context()`. A worker has none, so `remember` answers
+            # "no project in scope" and the memory the run should keep is never written.
             _identity = (usage_context or {}).get("identity") or {}
             _identity_headers = {
                 name: value
@@ -1461,7 +1457,7 @@ async def run_agent_job(
                     callbacks.append(agent_event_callback)
                     callbacks.append(nat_profiler_callback)
 
-                    # Phase-progress events (T4-4) and the completion-token budget
+                    # Phase-progress events and the completion-token budget
                     # cap are deep-research-specific: only that agent has the
                     # planner/researcher/writer subagent structure the phase
                     # detector understands, and long-running fan-out research is
@@ -1481,7 +1477,7 @@ async def run_agent_job(
                         if budget_guard_callback is not None:
                             callbacks.append(budget_guard_callback)
 
-                    # Durable checkpointing (T3-8): None unless deep_research_agent.checkpoint_db is
+                    # Durable checkpointing: None unless deep_research_agent.checkpoint_db is
                     # configured, in which case DeepResearcherAgent resumes via job_id as thread_id.
                     checkpointer = await _resolve_deep_research_checkpointer(fn_config)
 
@@ -1578,11 +1574,10 @@ async def run_agent_job(
                     #   fail-open — the user already has the report, so this
                     #   never affects the job outcome, only its bookkeeping.
                     #
-                    # They used to run one after the other, and the reflection
-                    # carried no bound of its own, so the job stayed RUNNING (and
-                    # the thread turn and the notification waited) for up to the
-                    # card timeout plus the reflection model's retries after the
-                    # reader already had the report.
+                    # Running them one after the other would let the reflection, which carries no
+                    # bound of its own, keep the job RUNNING (and the thread turn and the notification
+                    # waiting) for up to the card timeout plus the reflection model's retries, after
+                    # the reader already has the report.
                     cards_result, anatomy, follow_ups = await asyncio.gather(
                         _generate_grid_cards(llm, input_text, report),
                         # The report's anatomy (masthead) and its findings
@@ -1681,7 +1676,7 @@ async def run_agent_job(
                     # BOTH surfaces below: the job output feeds the live Report
                     # panel, the message metadata feeds the thread on reload. A
                     # source list — or a cutoff mark — that reached only one of
-                    # them is the bug this closes, one layer up.
+                    # them would show the reader two different answers.
                     verified_sources = _extract_verified_sources(result)
                     output = _build_job_output(report, cards=cards, transparency=transparency, sources=verified_sources)
                     # Sticky terminal statuses: never flip a job the reaper or
@@ -1690,7 +1685,6 @@ async def run_agent_job(
                     # claim was reclaimed lost the race even if job_info is
                     # still RUNNING — stealing the terminal write here would
                     # block the new owner's SUCCESS and its thread turn below.
-                    # (Hardening item 10; the conditional write itself is item 6.)
                     lost_claim = await _lost_claim(db_url, job_id, claim_owner)
                     if lost_claim:
                         logger.warning(
@@ -1709,7 +1703,7 @@ async def run_agent_job(
                     # contract: the report is already stored on the job above,
                     # and a conversation write must never unmake a good run.
                     #
-                    # Gated on owning the terminal verdict (item 10): a reaped
+                    # Gated on owning the terminal verdict: a reaped
                     # job finishing late, or a reclaimed loser finishing second,
                     # must not write its answer into the thread while the
                     # status stays FAILURE — thread, Report and status would
@@ -1768,10 +1762,10 @@ async def run_agent_job(
                         )
 
     except asyncio.CancelledError:
-        # Item 7 owns the abort vocabulary: user cancel vs ownership loss are
-        # told apart inside _finalize_cancelled_run (positive claim state, never
-        # message sniffing). The loser emits job.ownership-lost only; a real
-        # cancel keeps its INTERRUPTED verdict, notice and job.cancelled event.
+        # User cancel and ownership loss are told apart inside _finalize_cancelled_run
+        # (positive claim state, never message sniffing). The loser emits
+        # job.ownership-lost only; a real cancel keeps its INTERRUPTED verdict, notice
+        # and job.cancelled event.
         event_store = await _finalize_cancelled_run(
             job_store=job_store,
             db_url=db_url,
@@ -1802,9 +1796,9 @@ async def run_agent_job(
         # The conversation was created when the job FIRED, before the outcome
         # was known. Left alone, a failed run leaves a thread somebody opens to
         # find completely empty, which reads as a broken product rather than a
-        # failed run. Gated on verdict agreement like the cancel path (item
-        # 10): a loser's failure notice must not land beside the winner's
-        # answer, nor relabel a user cancellation.
+        # failed run. Gated on verdict agreement like the cancel path: a loser's
+        # failure notice must not land beside the winner's answer, nor relabel a user
+        # cancellation.
         if await _should_write_notice(
             job_store=job_store,
             job_id=job_id,
@@ -1913,7 +1907,7 @@ def _create_agent_instance(
             checkpointer=checkpointer,
         )
 
-    # Try original deep_researcher pattern (llm_provider + tools + verbose)
+    # Try the deep_researcher pattern (llm_provider + tools + verbose)
     try:
         return agent_cls(
             llm_provider=llm_provider,
@@ -2008,7 +2002,7 @@ async def _run_agent(
                 # No request headers exist in a Dask worker, so an agent that
                 # resolves per-tenant data (deep research resolves the org's
                 # skills) cannot read the organization off the context the way
-                # the synchronous chat path does. It was captured at submit
+                # the synchronous chat path does. It is captured at submit
                 # time; hand it over the same way as the fields above.
                 ("organization_id", organization_id),
             ):
@@ -2230,8 +2224,8 @@ async def _generate_grid_cards(llm: Any, query: str, report: str) -> CardGenerat
 
     Best-effort: never raises, so card generation can never crash or fail the
     job. It does say when it LOST — ``failed`` on the result — because a run
-    whose card model timed out used to look exactly like a run whose report
-    warranted no proposals, and the reader had no way to ask for them again.
+    whose card model timed out must not look like a run whose report warranted
+    no proposals, or the reader has no way to ask for them again.
     """
     try:
         from aiq_agent.cards.generate import generate_cards_result
@@ -2289,11 +2283,10 @@ async def _run_deep_research_reflection(
     safety net, not part of the job contract.
 
     Bounded by the same ``REFLECTION_TIMEOUT_S`` the chat path's stage declares
-    (``stages/memory_reflection.py``). Without it the only bound was the
-    reflection model's own ``request_timeout`` times its retries, close to six
-    minutes, during which the job read RUNNING, the thread turn was not written
-    and the outcome notification did not go out — over a report the reader
-    already had.
+    (``stages/memory_reflection.py``). The reflection model's own ``request_timeout``
+    times its retries is close to six minutes; that wait must not hold the job
+    RUNNING, the thread turn or the outcome notification over a report the reader
+    already has.
     """
     if not reflection_enabled or not reflection_llm_ref or not report:
         return
@@ -2312,7 +2305,7 @@ async def _run_deep_research_reflection(
     project_id = identity.get("project_id")
     if not project_id:
         # The autonomous reflection stage only writes project-scoped memory
-        # (audit finding S1); an org-only job has nothing it may safely record.
+        # an org-only job has nothing it may safely record.
         return
     try:
         from aiq_agent.common import AgentGroup
@@ -2351,10 +2344,9 @@ async def _run_deep_research_reflection(
                     project_id=project_id,
                     organization_id=identity.get("organization_id"),
                     conversation_id=identity.get("conversation_id"),
-                    # The MEMORY digest, not the intake profile: the pass compares
-                    # the report against what is already remembered, and against
-                    # the profile it re-recorded known findings and could never
-                    # resolve a supersede quote.
+                    # The MEMORY digest, not the intake profile: the pass compares the report
+                    # against what is already remembered. The intake profile would re-record known
+                    # findings and could never resolve a supersede quote.
                     memory_digest=memory_digest,
                 ),
                 timeout=REFLECTION_TIMEOUT_S,
@@ -2509,19 +2501,17 @@ def _extract_answer_transparency(result: Any) -> dict[str, Any]:
 
     # The answer's own self-assessment, read here so it rides the SAME dict to
     # the same two surfaces instead of growing a second lift with its own bugs.
-    # The three travel together on purpose: the chat path has always sent the
-    # level with its reason, because "niedrig" alone tells a reader their answer
-    # might be wrong and nothing about what to check, and a level whose reason
-    # was dropped in transport is the exact complaint that pairing exists to
-    # prevent. Deep may not record any of them yet — absent is the ordinary case
-    # and writes nothing, so this lands before the field exists and stays correct
-    # after it does.
+    # The three travel together on purpose: the chat path always sends the level
+    # with its reason, because "niedrig" alone tells a reader their answer might be
+    # wrong and nothing about what to check, and a level whose reason was dropped in
+    # transport is the exact complaint that pairing exists to prevent. Deep may not
+    # record any of them: absent is the ordinary case and writes nothing.
     for confidence_field in _ANSWER_CONFIDENCE_FIELDS:
         value = field(confidence_field)
         if isinstance(value, str) and value.strip():
             transparency[confidence_field] = value
 
-    # Recorded on the deep state and, until this, dropped on the way to the
+    # Recorded on the deep state and carried on to the
     # message: the run's own retrieval ledger and the skills the disclosure
     # mutes. Both ride the same dict as the rest, present or absent.
     ledger = field("retrieval_ledger")

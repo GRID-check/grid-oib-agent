@@ -58,8 +58,8 @@ describe('SourceCard — pages', () => {
  * card per document, listing every passage the round read of it.
  *
  * The turn aggregate — "2 Treffer", the cited page — is identical on every
- * repeat of the same file, which is what made a round that re-opened four
- * files at new pages indistinguishable from a second fetch of them.
+ * repeat of the same file, so a round that re-opens four files at new pages
+ * would be indistinguishable from a second fetch of them.
  */
 describe('SourceCard — a ledger round speaks for its own slot', () => {
   const loci: CitedDocument['loci'] = [
@@ -86,7 +86,7 @@ describe('SourceCard — a ledger round speaks for its own slot', () => {
   })
 
   test('five Punkte of one document are one card listing all five', () => {
-    // The whole point of the fold: five opens used to be five identical cards.
+    // The whole point of the fold: five opens would be five identical cards.
     const punkte = ['Pkt. 3.1', 'Pkt. 3.2', 'Pkt. 3.3', 'Pkt. 3.4', 'Pkt. 3.5']
     const { container } = render(
       <SourceCard

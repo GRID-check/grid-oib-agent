@@ -14,9 +14,9 @@ export interface CreateProjectState {
  *
  * Server actions are transport, exactly like route handlers: open a scope,
  * resolve the session, validate the input shape, call the service, redirect.
- * This one used to re-implement the whole of `projects/service.ts#createProject`
- * — the same insert, the same WorkOS resource, the same role assignment, the
- * same audit event — which meant the two copies could (and did) drift.
+ * The insert, the WorkOS resource, the role assignment and the audit event live
+ * in `projects/service.ts#createProject` alone; a second copy here would drift
+ * from it.
  *
  * A server action gets no route factory, so like a page it opens its own tenant
  * slot; without one every query underneath runs with no context and fails
@@ -45,11 +45,11 @@ export async function createProject(
 
   // `'/app', 'layout'` rather than `'/app/projects', 'page'`.
   //
-  // The rail's project list is now resolved in the `(shell)` LAYOUT, not in the
-  // page — that is what makes it persist across navigation. The flip side is
-  // that a page-scoped revalidation no longer reaches it: the redirect below
-  // walks to a route whose shell segment is already in the client router cache,
-  // so Next would reuse the cached layout payload and the switcher would open
+  // The rail's project list is resolved in the `(shell)` LAYOUT, not in the
+  // page, which is what makes it persist across navigation. The flip side is
+  // that a page-scoped revalidation does not reach it: the redirect below walks
+  // to a route whose shell segment is already in the client router cache, so
+  // Next would reuse the cached layout payload and the switcher would open
   // without the project that was just created. Revalidating the layout marks
   // that segment stale too, so the first navigation after a create refetches
   // the rail. (Renames go the other way — `project-rename-button.tsx` calls

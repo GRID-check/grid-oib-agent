@@ -6,7 +6,7 @@ import { conversations } from './conversations'
  * `conversation_reads` — how far each participant has read a conversation.
  *
  * Per PERSON, server-side, because that is the whole point: with two people in a
- * thread, "unread" is no longer a property of one browser. This backs the unread
+ * thread, "unread" is a property of each person, not of one browser. This backs the unread
  * separator in the thread and the grouped activity item in the inbox (which is
  * cleared by reading the thread, not by dismissing the notification).
  *
@@ -18,7 +18,7 @@ import { conversations } from './conversations'
 export const conversationReads = pgTable(
   'conversation_reads',
   {
-    // Composite in the database since 0031 — see the foreign key below.
+    // The foreign key below is composite and pins this to the conversation's tenant.
     conversationId: text('conversation_id').notNull(),
     /** Owning tenant, denormalised from the conversation — see `messages`. */
     organizationId: text('organization_id')

@@ -44,11 +44,10 @@ import {
 /**
  * A failure with a way out.
  *
- * Every panel here used to render one red sentence and stop. The drawer's tab
- * state is sticky, so switching away and back does not refetch and the only
- * recovery was closing the whole stage — which nothing suggested. The stage's
- * own comment states the rule: "Every error state in this viewer used to be
- * terminal."
+ * Every panel here offers a way out of its error. The drawer's tab state is
+ * sticky, so switching away and back does not refetch, and closing the whole
+ * stage would be the only recovery — which nothing suggests. An error state is
+ * recoverable, not terminal.
  */
 function PanelError({ text, onRetry }: { text: string; onRetry?: () => void }): JSX.Element {
   const t = useTranslations('bim')
@@ -89,9 +88,9 @@ export interface IfcRoomScheduleProps {
    *
    * Load-bearing on this surface: the `Gesamt` row is a building total, and
    * over a capped room list it is a partial sum labelled as a complete one —
-   * a Flächenaufstellung that can go into an Einreichung. The file's own
-   * header says "every total here states how many rows it could not see"; it
-   * stated `roomsWithoutArea` and not this.
+   * a Flächenaufstellung that can go into an Einreichung. Every total here
+   * states how many rows it could not see, and that includes the rows the cap
+   * left out.
    */
   truncated?: boolean
   schedule: BimRoomSchedule | null
@@ -124,9 +123,9 @@ export function IfcRoomSchedule({
     // Built in the browser from the rows on screen, so the file and the table
     // cannot disagree — and a BOM, because Excel reads a UTF-8 CSV without one
     // as Latin-1 and turns every "Grundfläche" into "GrundflÃ¤che".
-    // `truncated` travels into the file: the banner above the table says the
-    // sums are not building figures, and the downloaded version was the one
-    // copy of this Flächenaufstellung with no warning on it.
+    // `truncated` travels into the file too: the banner above the table says the
+    // sums are not building figures, and the downloaded copy carries the same
+    // warning.
     const blob = new Blob([`﻿${roomScheduleToCsv(schedule, { truncated })}`], {
       type: 'text/csv;charset=utf-8',
     })
@@ -200,15 +199,13 @@ export function IfcRoomSchedule({
               </thead>
               {schedule.storeys.map((storey) => {
                 /**
-                 * A storey is never dropped, only its rooms are.
-                 *
-                 * The budget used to cut the map itself: once 60 rooms had
-                 * been rendered every later storey returned `null` — heading,
-                 * rooms AND `Summe Geschoß` all gone — while the `Gesamt` row
-                 * below still counted them. A reader adding the visible
-                 * subtotals got a number that did not reach the total, with
-                 * nothing on screen naming the missing floors, and an expand
-                 * button that reads as "more rows in the storeys I can see".
+                 * A storey is never dropped, only its rooms are. The budget
+                 * applies to rooms, not storeys: dropping a storey would take its
+                 * heading and `Summe Geschoß` with it while the `Gesamt` row below
+                 * still counted its rooms. A reader adding the visible subtotals
+                 * would get a number that did not reach the total, with nothing on
+                 * screen naming the missing floors, and the expand button would
+                 * read as "more rows in the storeys I can see".
                  */
                 const visible = expanded
                   ? storey.rooms
@@ -220,10 +217,10 @@ export function IfcRoomSchedule({
                     <tr className="bg-accent">
                       {/*
                         `rowgroup`, not `colgroup`. A colgroup header claims to
-                        head the rest of a COLUMN, so the rooms beneath were
-                        never associated with their storey — reading the
-                        Raumbuch cell by cell gave no way to tell which floor a
-                        room is on, which is the first thing the table sorts by.
+                        head the rest of a COLUMN, so the rooms beneath would not
+                        be associated with their storey — a reader going cell by
+                        cell would have no way to tell which floor a room is on,
+                        and the floor is the first thing the table sorts by.
                       */}
                       <th
                         scope="rowgroup"
@@ -252,14 +249,14 @@ export function IfcRoomSchedule({
                           {/*
                             A real button, the way the element table does it.
                             A `<tr onClick>` is reachable by nothing else — no
-                            Tab stop, no Enter, nothing announced — so the
-                            Raumbuch was the one table on this page a keyboard
-                            could not select from.
+                            Tab stop, no Enter, nothing announced — and would
+                            make the Raumbuch the one table on this page a
+                            keyboard cannot select from.
 
                             `aria-current` rather than `aria-selected` on the
                             row: a `role="row"` inside a `role="table"` does
-                            not support `aria-selected`, so the selected room
-                            was conveyed by a background colour and nothing
+                            not support `aria-selected`, so a selected room
+                            would be conveyed by a background colour and nothing
                             else.
                           */}
                           {onSelect ? (
@@ -390,11 +387,11 @@ export function IfcQuantityTakeoff({
   const incomplete = (rows ?? []).reduce((sum, row) => sum + row.missing, 0)
   const [expandedRows, setExpandedRows] = useState(false)
   /**
-   * The only table on this surface that had no cap.
+   * Capped, because the group count is not bounded by the type list.
    *
    * Grouped by type it is fifty rows; with "nach Material trennen" the group
    * key is `type · material`, which on real material strings runs to thousands
-   * of distinct groups — every one of them rendered, in a 26 rem drawer.
+   * of distinct groups, more than a 26 rem drawer can render.
    * Everything else here caps (300, 60, 25, 8) and says what it left out.
    */
   const visibleRows = expandedRows ? (rows ?? []) : (rows ?? []).slice(0, VISIBLE_TAKEOFF_ROWS)
@@ -493,10 +490,10 @@ export function IfcQuantityTakeoff({
             </table>
           </div>
           {/*
-            A toggle, like the Raumbuch's above it. It used to only expand,
-            which deleted the button the reader had just pressed: focus fell
-            out of the table, nothing announced that a few hundred rows had
-            appeared, and there was no way back to the short list.
+            A toggle, like the Raumbuch's above it. Expanding only would delete
+            the button the reader had just pressed: focus would fall out of the
+            table, nothing would announce that a few hundred rows had appeared,
+            and there would be no way back to the short list.
           */}
           {(rows?.length ?? 0) > VISIBLE_TAKEOFF_ROWS && (
             <Button

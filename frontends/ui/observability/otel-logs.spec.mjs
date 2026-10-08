@@ -65,7 +65,7 @@ describe('classifyConsoleRecord', () => {
     expect(classifyConsoleRecord('error', 'boom: everything is on fire')).toEqual(ERROR)
   })
 
-  it('records a Node deprecation warning at WARN (issue #230)', async () => {
+  it('records a Node deprecation warning at WARN', async () => {
     const { classifyConsoleRecord } = await freshModule()
     // Verbatim from the issue: Node's default 'warning' handler prints this
     // through console.error, so the bridge sees an ERROR-stream WARNING.
@@ -104,7 +104,7 @@ describe('classifyConsoleRecord', () => {
     }
   })
 
-  it('records an expected NotFoundError escaping a render at WARN (issue #262)', async () => {
+  it('records an expected NotFoundError escaping a render at WARN', async () => {
     const { classifyConsoleRecord } = await freshModule()
     // Verbatim from the issue: Next's server error logger formatting a
     // `NotFoundError` from `@/lib/api/errors` that escaped a server component.
@@ -122,7 +122,7 @@ describe('classifyConsoleRecord', () => {
     })
   })
 
-  it('records a render the browser abandoned as WARN (#578)', async () => {
+  it('records a render the browser abandoned as WARN', async () => {
     const { classifyConsoleRecord } = await freshModule()
     const body = "⨯ Error: The destination stream closed early.\n    at ignore-listed frames {\n  digest: '1392313014'\n}"
     expect(classifyConsoleRecord('error', body)).toEqual({
@@ -131,10 +131,10 @@ describe('classifyConsoleRecord', () => {
     })
   })
 
-  it('matches #578 as err2issue recorded it, once err2issue\'s own "Error: " prefix is taken off', async () => {
+  it('matches the record err2issue files once err2issue\'s own "Error: " prefix is taken off', async () => {
     // err2issue titles and quotes every record as `<type>: <body>` with the
-    // type `Error`: #800's body was `[job-scheduler] run reconcile failed: …`
-    // and the issue shows `Error: [job-scheduler] run reconcile failed: …`.
+    // type `Error`: a body of `[job-scheduler] run reconcile failed: …` is
+    // filed as `Error: [job-scheduler] run reconcile failed: …`.
     // So the recorded `Error: ⨯ Error: The destination stream closed early.`
     // is the body `⨯ Error: …`, the shape the rule is anchored to. A body
     // that really began with `Error: ⨯` would be a different call shape, and
@@ -222,11 +222,11 @@ describe('initOtelLogs', () => {
     expect(logs.getLoggerProvider()).toBeInstanceOf(LoggerProvider)
   })
 
-  it('actually exports records end-to-end (regression: SDK 2.x processor ctor)', async () => {
-    // SDK 2.x BatchLogRecordProcessor takes { exporter } — positional
-    // construction left _exporter undefined and every flush threw inside the
-    // processor (swallowed by diag), so init looked fine but nothing ever
-    // landed. This test asserts a real POST reaches the collector endpoint.
+  it('exports records end-to-end through the SDK 2.x batch processor', async () => {
+    // SDK 2.x BatchLogRecordProcessor takes { exporter }: positional
+    // construction leaves _exporter undefined, and every flush throws inside
+    // the processor (swallowed by diag), so init looks fine and nothing lands.
+    // This test asserts a real POST reaches the collector endpoint.
     const http = await import('node:http')
     const received = []
     const server = http.createServer((req, res) => {
@@ -260,7 +260,7 @@ describe('initOtelLogs', () => {
     }
   }, 15000)
 
-  it('emits the classified severity, not the console method (issues #230, #262)', async () => {
+  it('emits the classified severity, not the console method', async () => {
     // The classification is only worth anything if the patched console.* is
     // what applies it — a correct pure function wired to nothing still files
     // the issue. This asserts on the record the bridge actually hands the SDK.
@@ -294,7 +294,7 @@ describe('initOtelLogs', () => {
     }
   })
 
-  it("records #578 through Next's own error logger at WARN", async () => {
+  it("records a failed render through Next's own error logger at WARN", async () => {
     // The production call, not a string written to look like it: Next's
     // server logs a failed render with `Log.error(err)`
     // (`base-server.js` logError), which is `console.error('⨯', err)` — the

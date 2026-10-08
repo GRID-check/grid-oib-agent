@@ -52,11 +52,10 @@ const EXPIRY_MARGIN_MS = 60_000
  * When a signed image url stops working, from its `exp` (seconds), or
  * undefined for a url that carries none (a presigned object-store fallback).
  *
- * The cache used to keep a resolved url for the page's lifetime, but a signed
- * url lives an hour or two. A tab left open replayed urls that had expired days
- * earlier (#366: `exp` of Sep 8, requested Sep 18). The route answered 403
- * with a JSON body, and Next's image optimizer, which never looks at the
- * status, logged "isn't a valid image" for it.
+ * A signed url lives an hour or two, so a resolved url is not kept for the
+ * page's lifetime: a tab left open would replay urls that had expired days
+ * earlier. The route answers 403 with a JSON body, and Next's image optimizer,
+ * which never looks at the status, logs "isn't a valid image" for it.
  */
 export function signedUrlExpiresAtMs(url: string): number | undefined {
   const exp = Number(new URL(url, 'http://relative.invalid').searchParams.get('exp'))
@@ -122,8 +121,8 @@ export function ThumbnailWithFallback({ file }: { file: FileItem }) {
   const t = useTranslations('files')
   const kind = inferDocumentKind(file)
   // Office files too: ingest renders their `_thumb.jpg` from the PDF rendition
-  // (ADR-0070). One uploaded before that, or with conversion off, has none, and
-  // the route answers `{ url: null }` — the kind sketch below, not a failure.
+  // (ADR-0070). A file without one (conversion off) gets `{ url: null }` from
+  // the route — the kind sketch below, not a failure.
   const canHaveThumbnail =
     file.contentType === 'application/pdf' ||
     (file.contentType ?? '').startsWith('image/') ||
@@ -163,7 +162,7 @@ export function ThumbnailWithFallback({ file }: { file: FileItem }) {
     return (
       // `fill` against the card's positioned thumbnail well: the URL announces
       // no intrinsic dimensions, and this is the shape next/image gives you for
-      // that — it supplies the inset-0 sizing the plain tag used to spell out by
+      // that — it supplies the inset-0 sizing the plain tag would spell out by
       // hand. `sizes` describes the card's well so the optimizer picks a width
       // for it rather than assuming the viewport.
       //
@@ -182,7 +181,7 @@ export function ThumbnailWithFallback({ file }: { file: FileItem }) {
           // …but the URL itself may be stale rather than the document imageless
           // (a thumbnail object replaced after we resolved it): evict it so a
           // later mount re-resolves instead of replaying the same poisoned URL
-          // on every remount (#366, #395).
+          // on every remount.
           thumbnailCache.delete(file.id)
           setState('error')
         }}
@@ -232,7 +231,7 @@ export interface FileCardProps {
   testId?: string
   /**
    * Rename / delete / download, rendered on the card so the reader does not
-   * have to open the preview to act on a file (#435). Must be a control of
+   * have to open the preview to act on a file. Must be a control of
    * its own — this card is a `<button>`, so the slot sits beside it.
    */
   actions?: ReactNode
@@ -308,11 +307,8 @@ export function FileCard({
         </div>
       )}
       {/* `aria-current`, not `aria-pressed`: pressing this OPENS the file, it
-          does not toggle anything. The card used to close the preview when you
-          clicked the row you were already looking at — the one surface in the
-          product that did — and `aria-pressed` was at least honest about that.
-          The behaviour was the bug; a row opens, and closing is the overlay's
-          job. `aria-current` says the remaining true thing: this is the one on
+          does not toggle anything. Closing the preview is the overlay's job, not
+          the row's. `aria-current` says the true thing: this is the one on
           screen. */}
       <button
         type="button"
@@ -326,11 +322,11 @@ export function FileCard({
         {/* Raised inner block — white surface, rounded bottom, soft divider shadow.
             `flex-1` because a grid row is only as tall as its tallest card and
             every cell stretches to match: a document that is still being read has
-            no summary yet, so without it the short tile kept its natural height,
-            its size · time footer floated in the middle of the cell, and the
-            leftover height showed as a band of dead surface underneath. Growing
-            the white block instead puts every footer on the bottom edge, so the
-            row reads as one strip whatever each card carries above it. */}
+            no summary yet, and a tile that kept its natural height would float its
+            size · time footer in the middle of the cell, with a band of dead
+            surface underneath. Growing the white block puts every footer on the
+            bottom edge, so the row reads as one strip whatever each card carries
+            above it. */}
         <GridTileBody className={cn('flex-1 p-0', hideFooter && 'rounded-none')}>
           <GridTileMedia className="h-[124px]">
             <ThumbnailWithFallback file={file} />

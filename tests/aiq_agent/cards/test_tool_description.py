@@ -67,7 +67,7 @@ _EXAMPLE_EXEMPT = {
     "file_operation_proposal",
     # System-emitted (by `create_task`) and built in Python from the id and the
     # title the BFF returned. An example would teach the model to author proof
-    # that a task row exists — which is the one claim this card was added to
+    # that a task row exists — which is the one claim this card exists to
     # make unfakeable.
     "task_created",
 }
@@ -101,11 +101,10 @@ class TestToolDescription:
         assert isinstance(_build_tool_description(), str)
 
     def test_several_cards_are_one_call(self):
-        # Two cards used to arrive as two emit_card rounds, each a full pass over
-        # the turn's context. Told they were one call each in one round, the
-        # fleet still spent a round per card; the array is the form that cannot
-        # be issued serially. Stated here and nowhere else: the doctrine owns
-        # the ceiling, this owns how the cards are issued.
+        # Cards are issued as one array. Separate calls, even when told to go in one round,
+        # still cost a round per card, each a full pass over the turn's context; the array
+        # is the form that cannot be issued serially. Stated here and nowhere else: the
+        # doctrine owns the ceiling, this owns how the cards are issued.
         desc = _build_tool_description()
         assert "Several cards are one call: pass a JSON array of card objects." in desc
         assert "one call each" not in desc
@@ -128,10 +127,10 @@ class TestToolDescription:
         assert "memory_proposal" not in desc
 
     def test_expands_nested_building_blocks_on_demand(self):
-        # Nested object shapes must be spelled out, not hidden behind a bare
-        # field name like `glass_area`. They moved OFF the always-on tool
-        # description (~5,200 tokens every turn, emitted card or not) and onto
-        # `describe_card`, which is asked for the one type that is needed.
+        # Nested object shapes must be spelled out, not hidden behind a bare field name like
+        # `glass_area`. They sit on `describe_card`, not the always-on tool description
+        # (~5,200 tokens every turn, emitted card or not), which is asked for the one type
+        # that is needed.
         detail = render_card_details(["daylight_incidence"])
         assert "DimensionCheck = {" in detail
         assert "NormReference = {" in detail
@@ -143,19 +142,18 @@ class TestToolDescription:
         assert "daylight_incidence" in detail
 
     def test_the_index_names_every_card_without_its_shape(self):
-        # L1 is one line per type: enough for the model to know a card EXISTS
-        # and pick it, not enough to fill it in. That split is what keeps the
-        # marginal cost of a new card type at ~23 tokens instead of ~193.
+        # L1 is one line per type: enough for the model to know a card EXISTS and pick it,
+        # not enough to fill it in. That split keeps the marginal cost of a new card type
+        # at ~23 tokens.
         desc = _build_tool_description()
         assert '"daylight_incidence"' in desc
         assert "DimensionCheck = {" not in desc
         assert "Worked examples" not in desc
 
     def test_says_the_fields_are_plain_text_wherever_the_shapes_are_shown(self):
-        # A shipped card wrote a markdown link into a text field
-        # and the card printed the brackets. `CardModel` strips them, so this
-        # rule is not what makes the card correct — it is what keeps the field
-        # holding what the model meant instead of the wreckage of a link.
+        # A card field that receives a markdown link prints the brackets. `CardModel`
+        # strips them, so this rule is not what makes the card correct — it is what keeps
+        # the field holding what the model meant instead of the wreckage of a link.
         #
         # It rides with the SHAPES, not with the doctrine, for the same reason
         # the measured-numbers rule does: the doctrine is paid on every turn
@@ -185,23 +183,21 @@ class TestTheDoctrineStaysCalibrated:
 
     Under-emission, specific: asked „Wie läuft das Baubewilligungsverfahren in
     Wien ab?" — almost the words of the ``process_map`` trigger line — the model
-    answered in numbered prose, then two turns later named the card and built a
-    good one on the first attempt. ``follow_ups`` has never been seen at all,
-    with its shape already inlined in ``grid-cards``, so a `describe_card`
-    round-trip was never the cost in the way.
+    answers in numbered prose, and names the card only on a later turn, when it builds
+    a good one on the first attempt. ``follow_ups`` has never been seen at all, even
+    with its shape already inlined in ``grid-cards``, so a `describe_card` round-trip
+    is not the cost here.
 
-    Over-emission, general: the product owner's reading of the fleet is that
-    cards "do get put out quite good". So the general rate was not the problem,
-    and pushing on it buys only the failure the charter's anti-goal D.8 names —
-    a card that restates the prose beside it, which "cannot be made beautiful,
-    only bigger". That charter names ``_CARD_RESTRAINT`` as where the rule is
-    enforced, so this doctrine is load-bearing for it.
+    Over-emission, general: the product owner's reading of the fleet is that cards
+    "do get put out quite good". So the general rate is not the problem, and pushing
+    on it buys only the failure the charter's anti-goal D.8 names — a card that
+    restates the prose beside it, which "cannot be made beautiful, only bigger". That
+    charter names ``_CARD_RESTRAINT`` as where the rule is enforced, so this doctrine
+    is load-bearing for it.
 
-    The first fix overcorrected and this suite is the record of it. The original
-    default was scoped to one card class ("an answer that turns on a DIMENSION
-    gets its card by default"), measuring 2.4 : 1 restraint to invitation; the
-    rewrite made a match an obligation and swung to 0.9 : 1, i.e. net
-    invitation. The landing point is a match as a REASON, at ~1.4 : 1.
+    Scoping the default to one card class over-restrains (2.4 : 1 restraint to
+    invitation); making a match an obligation over-invites (0.9 : 1). The landing point
+    is a match as a REASON, at ~1.4 : 1.
 
     So the assertions below pin a BAND, not a direction. Either edge is a
     regression and neither is visible in a diff.
@@ -210,21 +206,17 @@ class TestTheDoctrineStaysCalibrated:
     #: Span-level polarity of the always-on doctrine PROSE, cl100k tokens.
     #: Deliberately excludes the trigger rows, their craft blocks and the card
     #: index: those are vocabulary, and counting them would swamp the prose that
-    #: sets the disposition. The craft that came out of the prompt's `<cards>`
-    #: section is craft — how a card that has already been chosen is filled well
-    #: — so it moves neither side of this ratio, which is why the band held
-    #: through that move untouched. Measured at 1.42 : 1 when written (invitation 167,
-    #: restraint 237), and 1.48 : 1 after the naming clause and the
-    #: form-versus-facts discriminator went in together (invitation 198,
-    #: restraint 293) — both edges of the band untouched, because each half of
-    #: that pass pushes the opposite way.
+    #: sets the disposition. The craft in the prompt's `<cards>` section is how a card that has
+    #: already been chosen is filled well, so it moves neither side of this ratio. The band holds
+    #: through a move of that craft.
     #:
-    #: Retiring the ``follow_ups`` card took spans off BOTH sides at once —
-    #: ``_FOLLOW_UPS_RULE``'s "closes a subject-matter answer by default" was
-    #: invitation, its "Two narrow exceptions" was restraint, and the volume
-    #: rule's exemption went with them — landing at 1.44 : 1 (invitation 163,
-    #: restraint 234). That the band held through a removal this size is the
-    #: point of pinning a ratio rather than a token count.
+    #: Measured at 1.48 : 1 (invitation 198, restraint 293) with the naming clause and the
+    #: form-versus-facts discriminator in: each half of that pass pushes the opposite way, so both
+    #: edges of the band hold.
+    #:
+    #: The ``follow_ups`` rules are not in the doctrine, and the band holds without them: measured
+    #: at 1.44 : 1 (invitation 163, restraint 234). The ratio is pinned rather than a token count,
+    #: so a change of this size still has to land inside the band.
     MIN_RESTRAINT_RATIO = 1.15
     MAX_RESTRAINT_RATIO = 1.75
 
@@ -274,25 +266,21 @@ class TestTheDoctrineStaysCalibrated:
         assert "one failure mode" not in doctrine
 
     def test_the_naming_clause_converts_recognition_into_emission(self):
-        # What commit a5488b1c took out and this puts back, minus the framing it
-        # was right to remove. The deleted sentence read "if you can NAME the
-        # card that fits, emit it: knowing which one fits and writing the answer
-        # as prose anyway is this tool's one failure mode" — a naming clause
-        # welded to an obligation, deleted whole. Every other line of the head
-        # is about RECOGNISING the card; both field transcripts show recognition
-        # working (asked again in plainer words, the model named the right card
-        # and built it well first try) and emission not following. That step is
-        # the only one the rest of the doctrine cannot reach.
+        # The naming clause is kept without its obligation. The sentence that welded "if you can
+        # NAME the card that fits, emit it" to "knowing which one fits and writing the answer as
+        # prose anyway is this tool's one failure mode" is what must not come back. Every other line
+        # of the head is about RECOGNISING the card; both field transcripts show recognition working
+        # (asked again in plainer words, the model named the right card and built it well first try)
+        # and emission not following. That step is the only one the rest of the doctrine cannot reach.
         doctrine = render_card_doctrine()
         assert "Naming the card IS the decision" in doctrine
-        # Restored as a consequence, not a duty: the obligation half stays out,
-        # which the sibling test below re-asserts.
+        # The naming half is a consequence, not a duty: the obligation half stays out, which the
+        # sibling test below re-asserts.
         assert "not a second judgement" in doctrine
 
     def test_markdown_carries_what_the_retired_cards_carried(self):
-        # Tables, lists, flowchart fences and verified quotes carry the content
-        # the retired cards (RETIRED_CARD_TYPES) did; the doctrine says so
-        # before any trigger is read, on every surface.
+        # Tables, lists, flowchart fences and verified quotes carry the content of the retired card
+        # types (RETIRED_CARD_TYPES); the doctrine says so before any trigger is read, on every surface.
         doctrine = render_card_doctrine()
         assert doctrine.startswith("MARKDOWN FIRST.")
         assert "trifft zu" in doctrine and "> „…“ [N]" in doctrine
@@ -301,12 +289,10 @@ class TestTheDoctrineStaysCalibrated:
         assert "is a restatement: keep the prose" in _CARD_RESTRAINT
 
     def test_every_craft_row_names_its_card_and_says_it_once(self):
-        # The consolidation's invariant: a card type with craft has ONE craft
-        # block, and it sits under the row that names it. Two blocks for one
-        # card is the split coming back — the prompt's `<cards>` section grew a
-        # second budget, a second restatement test and a second set of sharpened
-        # triggers beside the doctrine's, and nobody could see it in a diff
-        # because each copy read fine on its own.
+        # The invariant: a card type with craft has ONE craft block, and it sits under the row that
+        # names it. Two blocks for one card would bring the split back: a second budget, a second
+        # restatement test and a second set of sharpened triggers beside the doctrine's, and nobody
+        # could see it in a diff, because each copy reads fine on its own.
         doctrine = render_card_doctrine()
         # The craft is wrapped to the doctrine's column when it is rendered, so
         # compare on whitespace-normalised text rather than on line breaks.
@@ -337,26 +323,23 @@ class TestTheDoctrineStaysCalibrated:
         assert "there is no result field" in render_card_doctrine()
 
     def test_the_default_is_not_scoped_to_one_class_of_card(self):
-        # The original defect, and the one thing the rewrite must not give back:
-        # a default naming only one class of card as the default.
+        # A default that names only one class of card is the defect; the rewrite must not bring it back.
         doctrine = render_card_doctrine()
         assert "An answer that turns on a dimension gets its card by default" not in doctrine
 
     def test_the_specific_cards_keep_their_own_imperative_in_the_always_on_index(self):
-        # What actually carries the two observed misses, now that the head is a
-        # reason rather than an obligation. These live in the L1 index, are paid
-        # on every turn already, and push per CARD instead of across the table —
-        # which is the difference between fixing a miss and raising the rate.
+        # What carries the two observed misses, with the head a reason rather than an obligation. These
+        # live in the L1 index, are paid on every turn already, and push per CARD instead of across the
+        # table — which is the difference between fixing a miss and raising the rate.
         index = render_card_index()
         assert '"calculation": Emit for' in index
         for card_type in RETIRED_CARD_TYPES:
             assert f'"{card_type}"' not in index
 
     def test_the_anti_fabrication_rule_stands_apart_and_outranks_the_triggers(self):
-        # The one rule that must NOT be softened to get more cards. It was a
-        # sentence inside the volume paragraph, where a model discounting "two
-        # is plenty" as tone discounts it too; it is its own block now, and it
-        # says out loud that it beats a trigger match.
+        # The one rule that must NOT be softened to get more cards. A sentence inside the volume
+        # paragraph is discounted with the rest of that paragraph, where a model reads "two is plenty"
+        # as tone; it is its own block, and it says out loud that it beats a trigger match.
         doctrine = render_card_doctrine()
         assert "Never fabricate a field, a reference or a number" in _CARD_HONESTY
         assert "outranks every trigger" in _CARD_HONESTY
@@ -367,20 +350,20 @@ class TestTheDoctrineStaysCalibrated:
         assert doctrine.count("Never fabricate a field") == 1
 
     def test_the_volume_rule_reads_as_a_ceiling(self):
-        # The charter names this constant as where "no card that restates the
-        # prose beside it" is enforced, so it may not read as an invitation to
-        # spend. It briefly said "a budget and it is there to be SPENT"; a rule
-        # that invites spending cannot enforce a restatement veto.
+        # The charter names this constant as where "no card that restates the prose beside it" is
+        # enforced, so it may not read as an invitation to spend. A rule that invites spending cannot
+        # enforce a restatement veto, so the wording must not read as "a budget, and it is there to be
+        # SPENT".
         assert "ceiling" in _CARD_RESTRAINT
         assert "there to be SPENT" not in _CARD_RESTRAINT
         assert "budget" not in _CARD_RESTRAINT
         assert "none the normal case" in _CARD_RESTRAINT
 
     def test_looking_a_shape_up_is_not_framed_as_a_cost(self):
-        # Cause two, addressed for 20 tokens instead of the ~693 it costs to
-        # inline `process_map`'s shape on every turn. The old wording named only
-        # what a WRONG guess costs, which prices the round-trip and never prices
-        # the card that does not get emitted.
+        # Cause two, addressed for 20 tokens instead of the ~693 it costs to inline
+        # `process_map`'s shape on every turn. The wording must name what a missing card costs as
+        # well as what a WRONG guess costs: naming only the wrong guess prices the round-trip and
+        # never the card that does not get emitted.
         desc = _build_tool_description()
         assert "never a reason to skip a card" in desc
         assert "guessing the nesting wastes a turn" not in desc
@@ -389,14 +372,13 @@ class TestTheDoctrineStaysCalibrated:
 class TestShapeHint:
     """What a failed ``emit_card`` hands back — the whole L2 entry, not a gist.
 
-    It used to be a one-line abbreviation: shape and blocks joined with "where",
-    example after a full stop, no field rules. A model that had just got a field
-    wrong was handed the same information more densely, so its retry was a guess
-    too, and the only way to actually learn a shape was a charged
-    ``describe_card`` call the tool description had to talk it into paying in
-    advance — on every turn, for every card, including the ones it would have
-    got right. The retry is the one moment we know a shape is needed and know
-    which type needs it, so that is where the tokens go.
+    The retry carries the whole entry, not a one-line abbreviation with shape and blocks joined by
+    "where", the example after a full stop, and no field rules. A model that has just got a field
+    wrong needs the information in full, or its retry is a guess too. The only other way to learn a
+    shape is a charged ``describe_card`` call that the tool description would have to talk the model
+    into paying in advance: on every turn, for every card, including the ones it would have got
+    right. The retry is the one moment we know a shape is needed and know which type needs it, so
+    that is where the tokens go.
     """
 
     @pytest.mark.parametrize("card_type", sorted(model_facing_card_types()))
@@ -409,7 +391,7 @@ class TestShapeHint:
         assert hint == render_card_details([card_type])
         if card_type in CHAT_ONLY_CARD_TYPES:
             return  # a surface's entry is the COMPOSE rule (test_surface_card.py)
-        # The four parts of an L2 entry a one-line gist did not carry.
+        # The four parts of an L2 entry that a one-line gist would not carry.
         assert "shape:" in hint
         assert "Every text field is PLAIN TEXT" in hint
 
@@ -438,12 +420,10 @@ class TestTheDescriptionStaysAffordable:
     """A ceiling on what `emit_card` costs before the model has done anything.
 
     This description is prepended to every turn on the cost-optimised tier,
-    whether or not the answer ends up emitting a card. It was 5,209 tokens when
-    every shape and worked example was rendered inline; splitting the catalog
-    into an index plus `describe_card` cut it to roughly 700, and it then crept
-    back to 2,126 because each new card type added a trigger line AND a
-    paragraph of craft — a drift nobody could see in a diff, because every
-    individual paragraph was worth its own hundred tokens.
+    whether or not the answer ends up emitting a card. Every shape and worked example rendered
+    inline would cost thousands of tokens here, so they sit behind an index and ``describe_card``.
+    The drift that threatens this is a trigger line AND a paragraph of craft added per card type:
+    nobody sees it in a diff, because every individual paragraph is worth its own hundred tokens.
 
     The ceiling is the guard against that specific failure. It is deliberately
     slack: it does not pin today's number, it fails only when the description
@@ -452,8 +432,8 @@ class TestTheDescriptionStaysAffordable:
     and put its paragraph in the `piloti-cards` skill, which is applied on every
     answering turn anyway and is a database row rather than a deploy.
 
-    That doctrine now lives in `cards.catalog` and is rendered by the post-hoc
-    card prompt as well, so it is no longer only this description's to spend —
+    That doctrine lives in `cards.catalog` and is rendered by the post-hoc card prompt as well, so
+    it is not only this description's to spend —
     but it is still PAID here, on every turn, which is why the ceiling still
     measures `_build_tool_description()` end to end rather than the framing
     around it. Text added to the shared doctrine for the benefit of the batch
@@ -461,25 +441,14 @@ class TestTheDescriptionStaysAffordable:
     is the scarce one. `test_prompt.py` caps what the post-hoc side adds on its
     own account.
 
-    Raising this number is a decision, not a fix. It should come with a
-    measurement of what the turn now costs in total. The measurement that
-    raised it from 2,300 to 2,900, in o200k_base tokens per call:
-
-        emit_card's description   2,086 -> 2,600   (+514, the craft arriving)
-        piloti.j2's `<cards>`     1,272 ->   149   (-1,123, all but two sentences)
-        describe_card's schema       69 ->     0   (unbound from the chat surface)
-                                                   ---------
-        net per call                                   -678
-
-    So the ceiling went UP and the turn got CHEAPER, which is the only shape of
-    argument that may move this number. The craft was always paid on every turn;
-    it was paid in the system prompt, where nothing measured it.
+    Raising this number is a decision, not a fix. It comes with a measurement of what the turn
+    costs in total, in o200k_base tokens per call: a rise here is acceptable only when the same
+    change makes the turn cheaper elsewhere. The craft is paid on every turn wherever it sits;
+    in the system prompt, nothing measured it.
     """
 
-    #: cl100k_base tokens. Measured at 2,655 after the craft moved in (1,745
-    #: before, under the old split). The slack is the same third-or-so it always
-    #: was: this fails when the description has grown by roughly a third, which
-    #: is far too much to arrive by accident.
+    #: cl100k_base tokens. Measured at 2,655. The slack is about a third: this fails when the
+    #: description has grown by roughly a third, which is far too much to arrive by accident.
     MAX_TOKENS = 2_900
 
     def test_the_tool_description_stays_under_the_ceiling(self):

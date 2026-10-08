@@ -681,8 +681,8 @@ describe('DocumentDraftCard — already with a reviewer', () => {
   })
 
   it('names a superseded version replaced, never published', () => {
-    // A version a newer one overtook is read, but it is no longer the stand —
-    // sharing `published` claimed it still was.
+    // A version a newer one overtook is read, but it is no longer the stand, so
+    // it is not labelled `published`, which would claim it still is.
     render(<DocumentDraftCard {...FILED} versionState="superseded" />)
     expect(screen.getByTestId('document-draft-state')).toHaveTextContent('Superseded')
     expect(screen.queryByRole('button', { name: 'Send for approval' })).not.toBeInTheDocument()

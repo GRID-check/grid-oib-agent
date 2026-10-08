@@ -262,7 +262,7 @@ class TestGetCheckpointer:
 
     @pytest.mark.asyncio
     async def test_postgres_pool_default_sizing(self, monkeypatch):
-        """Pool defaults to min_size=1, max_size=10 (raised from the old hard-coded 3)."""
+        """Pool defaults to min_size=1, max_size=10."""
         monkeypatch.delenv("GRID_CHECKPOINT_POOL_MIN_SIZE", raising=False)
         monkeypatch.delenv("GRID_CHECKPOINT_POOL_MAX_SIZE", raising=False)
         mock_checkpointer = MagicMock()
@@ -379,11 +379,10 @@ class TestGetCheckpointer:
     async def test_a_checkpoint_holding_a_retired_state_type_still_restores(self):
         """A conversation mid-flight when a state type is retired keeps working.
 
-        ``ShallowResult`` used to be a channel value and an allow-list entry;
-        its one escalation bit is a plain field now. Checkpoints written before
-        that still carry the old object, so this pins what the serde does with
-        a type it no longer allows: hand back the kwargs dict, never raise —
-        and the graph drops the channel it no longer declares.
+        ``ShallowResult`` is not a channel value or an allow-list entry: its one escalation bit
+        is a plain field. Checkpoints written before that still carry the old object, so this
+        pins what the serde does with a type it does not allow: hand back the kwargs dict,
+        never raise — and the graph drops the channel it does not declare.
         """
         import aiosqlite
         from langchain_core.messages import HumanMessage

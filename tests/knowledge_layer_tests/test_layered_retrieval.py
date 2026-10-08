@@ -141,7 +141,7 @@ class TestRestrictScopeToTurn:
     def test_session_focus_drops_archiv_but_keeps_the_building_code(self):
         """A subject narrows which DOCUMENTS the turn reads, not whether the law applies.
 
-        Dropping ``base`` here made the product unable to answer its own central
+        Dropping ``base`` here would leave the product unable to answer its own central
         question: attach a plan, ask whether it meets the escape-route
         requirement, and retrieval held the plan and no OIB at all.
         """
@@ -157,7 +157,7 @@ class TestRestrictScopeToTurn:
                 ScopedCollection("s_1", Shelf.SESSION),
             ]
             kept = [entry.collection for entry in _restrict_scope_to_turn(entries)]
-            # The Büroarchiv is still subtracted — that narrowing is what #429 asked for.
+            # The Büroarchiv is still subtracted: that narrowing is what the shelf is for.
             assert "archiv_org" not in kept
             assert set(kept) == {"s_1", "oib_knowledge"}
         finally:
@@ -195,7 +195,7 @@ class TestMergeResults:
         # Each collection contributes one channel. Both rank-0 hits fuse to the same
         # score, so the base collection (channels[0]) takes the exact tie and the
         # rank-1 hit lands last DESPITE holding the best cosine in the set. Sorting by
-        # score here is what used to throw the fusion away.
+        # score here is what would throw the fusion away.
         r1 = _result([_chunk(0.5, "a.pdf", rank=0), _chunk(0.9, "b.pdf", rank=1)])
         r2 = _result([_chunk(0.7, "c.pdf", rank=0)])
         merged = _merge_results([r1, r2], query="q", top_k=5, backend_name="llamaindex")
@@ -268,10 +268,10 @@ class TestMergeResults:
 class TestMergeEmbeddingMismatch:
     """A fingerprint mismatch must surface, never read as a genuine miss.
 
-    Regression: a wrong AIQ_EMBED_MODEL/AIQ_EMBED_BASE_URL raised RuntimeError
-    in ``_get_index``, ``_retrieve_sync`` converted it to ``success=False``,
-    and ``_merge_results`` skipped the layer and returned ``success=True`` —
-    total base-corpus loss read as fewer sources.
+    A wrong AIQ_EMBED_MODEL/AIQ_EMBED_BASE_URL raises RuntimeError in
+    ``_get_index``. If ``_retrieve_sync`` turned that into ``success=False``,
+    ``_merge_results`` would skip the layer and return ``success=True``: a total
+    base-corpus loss read as fewer sources.
     """
 
     def _mismatch(self, collection: str = "oib_knowledge"):
@@ -464,14 +464,13 @@ class TestRelevanceFloor:
     Without a floor, top_k is always filled: a question the corpus cannot answer
     still returns sixteen formatted excerpts carrying page citations and a
     Dokumentart line asserting binding legal force. In a building-law product that
-    is the highest-consequence failure available, and it was structurally
-    impossible to express before scores became true similarities.
+    is the highest-consequence failure available.
     """
 
     def test_the_floor_is_disabled_by_default(self) -> None:
         """A floor is a number on one embedding model's cosine distribution.
 
-        Shipping a default would repeat MIN_SURFACE_SCORE's whole history: a value
+        Shipping a default would be a value
         calibrated elsewhere, silently wrong here. 0 means "not calibrated yet".
         """
         from aiq_agent.common.retrieval_settings import get_retrieval_setting

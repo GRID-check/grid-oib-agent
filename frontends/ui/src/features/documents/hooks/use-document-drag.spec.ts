@@ -123,7 +123,8 @@ describe('useFolderDropTarget', () => {
   it('lets an upload drag leave the tile — the workspace counted its entry', () => {
     // The workspace pairs every enter with a leave to know when the upload
     // overlay goes away. The enter over a tile bubbles to it; a leave stopped
-    // here never did, so the count stayed above zero and the overlay stuck.
+    // here would never reach it, so the count would stay above zero and the
+    // overlay would stick.
     const { result } = setup()
     const event = dragEvent(transfer(['Files']))
 
@@ -195,8 +196,8 @@ describe('useFolderDropTarget', () => {
 
   it('keeps the highlight when the pointer crosses the tile’s own children', () => {
     // `dragleave` fires on every internal boundary — the button, the label, the
-    // count — and each one used to switch the highlight off and back on, so a
-    // folder under the finger flickered for the whole drag.
+    // count — and each one would switch the highlight off and back on, so a
+    // folder under the finger would flicker for the whole drag.
     const { result } = setup()
     const dt = transfer([DOCUMENT_DRAG_TYPE])
     act(() => result.current.dropProps.onDragOver(dragEvent(dt)))

@@ -30,7 +30,7 @@ import { mapVersionInsertError } from './unique-conflicts'
  * A document's version list is a page, like every other list in this tier.
  *
  * 500, matching `DOCUMENT_LIST_LIMIT`: version rows are light display rows,
- * and the page no longer feeds any logic — the diff base is a direct
+ * and the page feeds no logic — the diff base is a direct
  * `findPreviousVersion` query, never a scan of this page — so the cap is a
  * render bound only. It is still a cap, not a promise: past it the list keeps
  * the oldest rows (`ORDER BY version_number ASC` below), and a true
@@ -57,10 +57,10 @@ type Transaction = DbTransaction
  *
  * ## Why this is not `nextVersionNumber` followed by an insert
  *
- * It was. `max + 1` read in one statement and inserted in another is a
- * check-then-act: two overlapping re-uploads of one filename read the same N
- * and both recorded „Version N" — and before migration 0092 nothing refused the
- * second. The per-document advisory lock makes the read and the insert one step
+ * `max + 1` read in one statement and inserted in another is a check-then-act:
+ * two overlapping re-uploads of one filename read the same N and both record
+ * „Version N", and nothing refuses the second. The per-document advisory lock
+ * makes the read and the insert one step
  * for every writer of this document: the second transaction blocks here until
  * the first commits, then reads the number the first one wrote.
  *
@@ -69,7 +69,7 @@ type Transaction = DbTransaction
  * can never share a key with the quota lock (`storage_quota:`). Held for one
  * `max()` and one insert; never across an object write.
  *
- * `UNIQUE (document_id, version_number)` (migration 0092) is the ratchet under
+ * `UNIQUE (document_id, version_number)` is the ratchet under
  * it: a path that inserts without this lock gets a 23505, not a duplicate.
  */
 export async function allocateVersionNumber(
@@ -128,7 +128,7 @@ export async function insertDocumentVersion(
  *
  * ## Why this is not an insert followed by {@link promoteVersionToPublished}
  *
- * It was, and a re-upload could not work. `uniq_document_versions_published_per_document`
+ * A re-upload could not work that way. `uniq_document_versions_published_per_document`
  * is a plain partial unique index and therefore NOT deferrable: it is checked
  * per statement, so the INSERT of version N+1 as `published` is refused while
  * version N is still `published`. The supersede has to come FIRST, and it has
@@ -234,9 +234,9 @@ export async function findDocumentVersion(
  * given one, or `null` for a first version.
  *
  * A DIRECT `version_number < $n ORDER BY version_number DESC LIMIT 1` — never
- * the asc-limited-200 page scanned in memory. Past 200 versions the page no
- * longer contains the predecessor at all, and the scan then names the wrong
- * row (the highest inside the window) as the diff base.
+ * a page scanned in memory: past 200 versions a page no longer contains the
+ * predecessor, and a scan would name the highest row inside the window as the
+ * diff base.
  */
 export async function findPreviousVersion(
   documentId: string,
@@ -460,12 +460,11 @@ export async function compareAndSwapVersionState(
  *
  * ## Why not `tx.rollback()`
  *
- * {@link promoteVersionToPublished} used to call it and then `return null`. On
- * drizzle 0.45 with postgres-js, `rollback()` does not mark the transaction and
- * return: it THROWS `TransactionRollbackError`, and `db.transaction` re-throws
- * it. The `return null` after it was unreachable, so the loser of two people
- * pressing „Veröffentlichen" at once got a 500 instead of the promised 409.
- * Throwing a class of our own keeps the rollback and makes the outcome
+ * Calling `rollback()` and then `return null` does not work. On drizzle 0.45
+ * with postgres-js, `rollback()` does not return: it THROWS
+ * `TransactionRollbackError`, and `db.transaction` re-throws it, so the loser of
+ * two people pressing „Veröffentlichen" at once would get a 500 instead of the
+ * 409. Throwing a class of our own keeps the rollback and makes the outcome
  * something this module decides, not whatever the driver's error type is in the
  * next release. `version-repository.spec.ts` pins it.
  */
@@ -617,19 +616,19 @@ class OverQuota extends Error {
 /**
  * Point a version at new bytes, but only if it is still what the caller read.
  *
- * ## Why state alone was not enough
+ * ## Why state alone is not enough
  *
  * {@link compareAndSwapVersionState} filters on `state = $expected`, which is
  * the whole question for a transition that MOVES the state. `update` does not:
- * it goes draft → draft, so two writers holding the same `If-Match` both
- * matched, both won, and the second silently replaced the first. The predicate
+ * it goes draft → draft, so two writers holding the same `If-Match` both match,
+ * both win, and the second silently replaces the first. The predicate
  * here also carries the `content_hash` and the `storage_key` the caller read,
  * which is what `If-Match` means: the loser of two writers who read the same
  * version matches no row and is told so.
  *
  * `content_hash IS NULL` is matched as such, not as `= NULL` (which matches
- * nothing): a row backfilled from a document that predates `content_hash`
- * carries NULL, and `assertGuards` already lets such a version be replaced.
+ * nothing): a version with no recorded hash carries NULL, and `assertGuards`
+ * already lets such a version be replaced.
  *
  * ## One transaction, on the locked admission path
  *
@@ -641,13 +640,13 @@ class OverQuota extends Error {
  *
  * The quota is admitted HERE, under the same per-organization lock as every
  * upload, by measuring the usage before the swap and again after it inside the
- * transaction, and rolling back when the after-state crosses the ceiling. That
- * replaced a delta computed outside any lock (`incoming − version.fileSize`),
- * which was wrong exactly where it mattered: a draft freshly forked from the
- * published version shares the published object, so its "old size" was the
- * published file's and the delta was ≈ 0 — and fork, write, reject, fork again
- * grew the bucket without ever being checked. Measuring the after-state with the
- * ledger's own predicate (`readStorageUsage`) charges what the commit really
+ * transaction, and rolling back when the after-state crosses the ceiling. A
+ * delta computed outside the lock (`incoming − version.fileSize`) would be wrong
+ * exactly where it matters: a draft freshly forked from the published version
+ * shares the published object, so its "old size" is the published file's and the
+ * delta is ≈ 0 — and fork, write, reject, fork again would grow the bucket
+ * unchecked. Measuring the after-state with the ledger's own predicate
+ * (`readStorageUsage`) charges what the commit really
  * adds: the full size when the old bytes stay (a fork's shared key), the
  * difference when they go (a draft's own previous object). A shrinking write is
  * always admitted, even over a quota someone lowered.
@@ -769,21 +768,18 @@ export async function setDocumentLifecycle(
 /**
  * Every stored object a document's versions own, for the delete cascade.
  *
- * `deleteDocument` used to erase one object because a document had one set of
- * bytes. With history it has several, and a delete that removed only the live
- * one would leave every superseded version's object in the bucket: invisible to
- * the UI, still charged to the organization, and readable by anyone who can
- * presign a key.
+ * A document with history has one object per version, and a delete that removed
+ * only the live one would leave every superseded version's object in the bucket:
+ * invisible to the UI, still charged to the organization, and readable by anyone
+ * who can presign a key.
  *
  * ## Every version, not the first page
  *
- * This read the same 500-row page as the version list, so a document with a
- * longer history left every object past row 500 in the bucket when it was
- * deleted — the leak the paragraph above exists to prevent, one weekly
- * re-upload at a time. It pages through ALL of them now, by `version_number`
- * (unique per document since migration 0092, so the cursor never skips or
- * repeats a row), one bounded page per query. Two rows over one object (a
- * fork) come back once.
+ * The read pages through ALL of them, by `version_number` (unique per document,
+ * so the cursor never skips or repeats a row), one bounded page per query. Two
+ * rows over one object (a fork) come back once. A read of only the first page
+ * would leave every object past row 500 in the bucket — the leak the paragraph
+ * above exists to prevent.
  */
 export async function listDocumentVersionObjects(
   documentId: string,
@@ -827,8 +823,8 @@ export async function listDocumentVersionObjects(
  * (`REVIEW_DECISIONS v1`, `./review-decisions.ts`) rides the memory channel and
  * shares that channel's character budget. Only the two refusing states, and
  * only rows that carry words: `document_versions_refusal_has_comment` makes a
- * commentless refusal unrepresentable, so a null here would be a row written
- * before that CHECK existed rather than a decision anybody can act on.
+ * commentless refusal unrepresentable, so a row without words is not a decision
+ * anybody can act on.
  *
  * Joined to `documents` for the display name, because the block names the
  * document a person will look for in the Files pane and a version id is not a

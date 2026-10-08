@@ -103,8 +103,8 @@ def _prompt_templates() -> dict[str, str]:
     """The five subagent prompt templates, read from disk once per process.
 
     ``register.py`` constructs a new agent for every request that carries a
-    model override, and each construction used to re-read five files. The
-    templates are immutable at runtime. ``_prompt_templates.cache_clear()``
+    model override, and each construction would otherwise re-read five files.
+    The templates are immutable at runtime. ``_prompt_templates.cache_clear()``
     is the reset for tests that want a missing file to fail construction.
     """
     return {name: load_prompt(AGENT_DIR / "prompts", name) for name in _PROMPT_NAMES}
@@ -186,8 +186,8 @@ class DeepResearchRunArtifacts:
     plan_documents: PlanDocuments | None
     #: This run's resolved skills. The runtime accumulates the activation list
     #: DURING the run and ``_finalize`` reports it — a runtime that went out of
-    #: scope at graph-build time is why deep research shipped
-    #: ``skills_activated=None`` on every answer while the researcher reported it.
+    #: scope at graph-build time would ship ``skills_activated=None`` on every
+    #: answer while the researcher reports it.
     skill_runtime: SkillRuntime
 
 

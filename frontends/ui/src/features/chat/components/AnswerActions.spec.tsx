@@ -113,11 +113,11 @@ describe('AnswerActions', () => {
   })
 
   test('an uncited answer in a real conversation can still be copied', () => {
-    // The regression: the plain copy used to be withheld from any turn that had
-    // an export, and every persisted turn has one. So an answer with no
-    // resolved citations — a Rückfrage, a conversational reply, an answer whose
-    // citations were all dropped — offered a .docx download and no way to put a
-    // sentence on the clipboard. The download is not a copy.
+    // The plain copy must not be withheld from a turn that has an export, and
+    // every persisted turn has one. Otherwise an answer with no resolved
+    // citations — a Rückfrage, a conversational reply, an answer whose citations
+    // were all dropped — offers a .docx download and no way to put a sentence on
+    // the clipboard. The download is not a copy.
     render(
       <AnswerActions
         content="Nur Prosa."

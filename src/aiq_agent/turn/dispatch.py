@@ -1,11 +1,11 @@
 """Handing a deep-research turn to a RUN instead of running it in process.
 
-The turn no longer submits a job itself. It asks the BFF to commission a run
-(``turn/commission.py``): the BFF writes the ``task_runs`` row, mints the run's
+The turn asks the BFF to commission a run (``turn/commission.py``) rather than
+submitting a job itself: the BFF writes the ``task_runs`` row, mints the run's
 message in this thread and submits the job with that run's id, which is what
 makes the block in the thread live (ADR-0062). What is decided HERE is only
 whether this deployment can do that at all — a machine with no worker behind
-the BFF still answers, in process, exactly as before.
+the BFF still answers, in process.
 """
 
 from __future__ import annotations
@@ -50,10 +50,9 @@ def build_run_commissioner(config: DispatchSettings) -> RunCommissioner | None:
 
     ``None`` is the fallback, not a failure: a local dev machine with neither
     backend still answers, just synchronously. THE acceptance condition is read
-    from the dispatch seam rather than mirrored — a second copy of the condition
-    is how the db-mode blindness happened — and it is still read here, before
-    anything is written, because a run whose job can never be submitted is a
-    failed row where an answer would do.
+    from the dispatch seam rather than mirrored, because a second copy of it
+    drifts. It is read here, before anything is written, because a run whose job
+    can never be submitted is a failed row where an answer would do.
     """
     if not config.use_async_deep_research:
         return None

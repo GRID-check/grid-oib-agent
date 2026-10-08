@@ -361,7 +361,7 @@ describe('every value an exported card can print is a translated word', () => {
     ).toEqual([])
   })
 
-  it('carries no word for a member the catalogue can no longer emit', () => {
+  it('carries no word for a member the catalogue cannot emit', () => {
     const dead: string[] = []
     for (const [name, members] of Object.entries(values)) {
       for (const member of Object.keys(members)) {

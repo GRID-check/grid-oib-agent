@@ -237,7 +237,7 @@ describe('identity comes from the signed envelope, never from the body', () => {
     expect(withTenant).toHaveBeenCalledWith({ organizationId: 'org_1' }, expect.any(Function))
   })
 
-  it('refuses a requester who is no longer a member', async () => {
+  it('refuses a requester who is not a member', async () => {
     vi.mocked(resolvePinnedRequesterSession).mockResolvedValue(null)
     const response = await call({ op: 'submit', documentId: DOC, versionId: VERSION })
     expect(response.status).toBe(403)
@@ -289,7 +289,7 @@ describe('the ops it does serve', () => {
     )
   })
 
-  it('hands both writes the conversation, never the signed scope: what may leave is what the conversation USED (ADR-0081)', async () => {
+  it('hands both writes the conversation id, never the signed scope (ADR-0081)', async () => {
     const restricted = 'proj_3333_r0123456789ab'
     const headers = envelopeHeaders({ collectionScope: ['oib_knowledge', 'proj_3333', restricted] })
     await call(

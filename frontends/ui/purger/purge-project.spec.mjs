@@ -16,7 +16,7 @@ import { LEGAL_HOLD_CODE, purgeProject } from './purge-project.js'
  * comment on the subquery test below.
  *
  * `expansions` records calls made as a FUNCTION rather than as a template tag
- * (`tx(ids)`), which is how the parameter blow-up was expressed. A real template
+ * (`tx(ids)`), which is how the parameter blow-up is expressed. A real template
  * strings array carries `.raw`; a plain array of ids does not.
  */
 function makeTx({
@@ -29,7 +29,7 @@ function makeTx({
    * (ADR-0047 Phase 2): `{ conversation_id, collection_name, storage_bucket }`.
    * They answer a DIFFERENT query from `documentBucketRows` — a session
    * document's `project_id` is NULL, so the project-scoped bucket read cannot
-   * see it, which is exactly how its object and its chunks were being stranded.
+   * see it, which is how its object and its chunks get stranded.
    */
   sessionDocumentRows = [],
   /**
@@ -180,8 +180,8 @@ describe('purgeProject', () => {
     expect(executed.some((q) => q.text.startsWith('DELETE'))).toBe(false)
   })
 
-  // Per-organization buckets (ADR-0043). An organization that predates the flip
-  // has objects in the shared bucket AND in its own, so a purge that visits only
+  // Per-organization buckets (ADR-0043). An organization whose objects predate
+  // them has objects in the shared bucket AND in its own, so a purge that visits only
   // one of them leaves half the tenant's files behind while deleting the rows
   // that named them — an erasure that reports success and did not happen.
   //
@@ -240,10 +240,9 @@ describe('purgeProject', () => {
     expect(deps.deleteStoragePrefix.mock.calls).toHaveLength(2)
   })
 
-  // A hold placed mid-sweep. The hold check used to run once before the loop, so
-  // once the first bucket's sweep had started the erasure continued through every
-  // remaining bucket regardless — which is exactly what a legal hold exists to
-  // stop. The loop now re-checks per bucket, so the second sweep never happens.
+  // A hold placed mid-sweep. The hold is checked before each bucket, so a sweep
+  // that has started cannot carry the erasure through every remaining bucket,
+  // which is exactly what a legal hold exists to stop. The second sweep never happens.
   it('stops between buckets when a hold appears mid-sweep', async () => {
     const { tx } = makeTx({
       projectRow: { id: 'p1', collection_name: 'proj_abc' },
@@ -368,7 +367,7 @@ describe('purgeProject', () => {
  * And `DELETE FROM conversations` cascades the rows away, so after a purge the
  * bytes and the chunks are still there with nothing naming them: no listing, no
  * ledger entry, no id to retry from. These tests pin that each of the three is
- * now erased, and that a failure stops the row deletes rather than proceeding.
+ * erased, and that a failure stops the row deletes rather than proceeding.
  */
 describe('session attachments', () => {
   const sessionEntry = {
@@ -524,8 +523,8 @@ describe('session attachments', () => {
 })
 
 // ADR-0080: a restricted folder's documents live in their own collection,
-// `<project collection>_r<12 hex>`. Purging only the project's collection left the
-// one set of chunks a restriction exists for readable after the project was gone.
+// `<project collection>_r<12 hex>`. Purging only the project's collection would
+// leave the chunks a restriction exists for readable after the project is gone.
 describe('restricted folder collections', () => {
   const RESTRICTED_A = 'proj_abc_r0123456789ab'
   const RESTRICTED_B = 'proj_abc_rfedcba987654'
@@ -614,7 +613,7 @@ describe('collaboration rows', () => {
   it('purges grants, mention requests and inbox items BEFORE the conversations they point at', async () => {
     // Those three tables address their target as a polymorphic
     // (resource_type, resource_id) pair with no foreign key, so nothing about
-    // them cascades. Deleting the conversations first orphaned every one of
+    // them cascades. Deleting the conversations first would orphan every one of
     // them permanently — leaving redacted rows in people's inboxes for a
     // project that no longer exists.
     const { tx, executed } = makeTx({
@@ -632,7 +631,7 @@ describe('collaboration rows', () => {
     expect(table('resource_shares')).toBeGreaterThanOrEqual(0)
     expect(table('resource_assignments')).toBeGreaterThanOrEqual(0)
     // `DELETE FROM conversations`, not `FROM conversations`: the collaboration
-    // statements now name that table too, inside their subquery.
+    // statements also name that table, inside their subquery.
     for (const name of [
       'inbox_items',
       'mention_requests',
@@ -648,17 +647,16 @@ describe('collaboration rows', () => {
       What this pins: with 70_000 conversations — past Postgres's hard 65535
       parameters per statement — each collaboration delete still binds exactly
       ONE value (the project id) and reads its target set from the conversations
-      table. The old form (`IN ${tx(conversationIds)}`) bound one parameter per
-      id, so the statement was refused with MAX_PARAMETERS_EXCEEDED *after* the
-      Chroma collection, the SeaweedFS objects and the WorkOS resource were
-      already destroyed — leaving the queue row stuck in 'purging' (the header's
-      point: status, not a lock, is what prevents re-claim) with no retry that
-      could ever succeed.
+      table. A form that binds one parameter per id (`IN ${tx(conversationIds)}`)
+      is refused with MAX_PARAMETERS_EXCEEDED *after* the Chroma collection, the
+      SeaweedFS objects and the WorkOS resource are already destroyed — leaving
+      the queue row stuck in 'purging' (the header's point: status, not a lock, is
+      what prevents re-claim) with no retry that could ever succeed.
 
       What it CANNOT prove: nothing here talks to Postgres. The mock resolves
-      every statement to `[]` and never expands anything, so the old code RAN
-      green against it at any conversation count — the bug was invisible to this
-      file, not caught by it. Hence the assertions are on the SHAPE of the
+      every statement to `[]` and never expands anything, so a per-id form would
+      run green against it at any conversation count: this file cannot see that
+      class of bug. Hence the assertions are on the SHAPE of the
       statement (one bound value, a subquery in the text, no `tx(array)` call)
       rather than on an outcome: shape is all a mock can witness. That the
       subquery selects the same rows the id list did, that 65535 is the real

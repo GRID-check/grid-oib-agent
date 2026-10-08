@@ -122,7 +122,7 @@ describe('DocumentGridCard', () => {
     const link = screen.getByTestId('document-grid-unresolved')
     expect(link).toHaveAttribute('href', '/app/projects/proj-1/files')
     expect(screen.getByText('Open in project files')).toBeInTheDocument()
-    // Not the old dead "no longer available" grey box.
+    // Never the dead "no longer available" grey box.
     expect(screen.queryByText('No longer available')).not.toBeInTheDocument()
   })
 

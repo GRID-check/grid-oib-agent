@@ -15,11 +15,11 @@ import {
  * The single source of truth for the project-centric navigation IA
  * (click-dummy overhaul §5, FB-9/FB-10).
  *
- * Historically the desktop rail (`app-sidebar`) and the ⌘K command palette
- * (`command-palette`) each hand-maintained their own parallel list of
- * destinations. They drifted: the palette could not reach a whole section (a real
- * rail item), and the same destinations used different icons (Compass vs
- * MessageSquare, Clock vs History, Folder vs FolderOpen). This module makes the
+ * Left to themselves, the desktop rail (`app-sidebar`) and the ⌘K command palette
+ * (`command-palette`) each hand-maintain a parallel list of destinations, and the
+ * lists drift: the palette can miss a whole section (a real rail item), and the
+ * same destination can get different icons (Compass vs MessageSquare, Clock vs
+ * History, Folder vs FolderOpen). This module makes the
  * key, segment, icon, label, and flag gating for every project section live in
  * ONE place, so the rail and the palette can never disagree again.
  *
@@ -27,20 +27,19 @@ import {
  * separately): Ask Piloti · Files · Automation* · Archiv* · Inbox*.
  *
  * Ask Piloti is the primary job-to-be-done and leads; Files is the other work
- * surface. History has no rail entry any more — the chat toolbar's history
- * sheet is the record of the project's past. Automation is the THIRD work
- * surface and sits in the same group as the other two: Tasks (what Piloti did
- * while you were away), Zeitplan (what it will do, and when) and Skills (the
- * org toolbox). It used to stand alone under an "Automatisieren" heading, which
- * made a place people work every day read as a settings drawer — a group label
- * over a single item is a category of one, and it cost the section a rail
- * position it had earned. Archiv then Inbox are cross-project doorways; Inbox
- * is last because the badge already draws the eye. Settings stays pinned at the
- * bottom.
+ * surface. History has no rail entry — the chat toolbar's history sheet is the
+ * record of the project's past. Automation is the THIRD work surface and sits in
+ * the same group as the other two: Tasks (what Piloti did while you were away),
+ * Zeitplan (what it will do, and when) and Skills (the org toolbox). Standing
+ * alone under an "Automatisieren" heading would make a place people work every
+ * day read as a settings drawer: a group label over a single item is a category
+ * of one, and it costs the section a rail position it has earned. Archiv then
+ * Inbox are cross-project doorways; Inbox is last because the badge already draws
+ * the eye. Settings stays pinned at the bottom.
  *
- * There is deliberately no Model entry: an IFC is a file, it opens
- * from the Files grid, and a second rail item for one file type was a
- * destination nobody navigated to. The palette additionally surfaces the
+ * There is deliberately no Model entry: an IFC is a file, it opens from the Files
+ * grid, and a second rail item for one file type would be a destination nobody
+ * navigates to. The palette additionally surfaces the
  * palette-only destinations Knowledge* and Setup (intake). A `*` marks a
  * flag-gated section.
  */
@@ -61,9 +60,9 @@ export type ProjectSectionKey =
  * this.
  *
  * Two groups, not three: `work` is everything you do inside one project and
- * `org` the doorways out of it. There was an `automate` group holding exactly
- * one item — a heading whose only job was to separate Automation from the work
- * it automates.
+ * `org` the doorways out of it. An `automate` group holding exactly one item
+ * would be a heading whose only job is to separate Automation from the work it
+ * automates.
  */
 export type ProjectNavGroup = 'work' | 'org'
 
@@ -78,17 +77,17 @@ export interface ProjectSectionFlags {
   /** Collaboration surfaces — `collaboration` flag / env opt-in (ADR-0032…0035). */
   canCollaborate?: boolean
   /**
-   * Inbox page + rail entry. Deliberately separate from `canCollaborate` since
-   * ADR-0042: the inbox also carries operational alerts, which must reach a
+   * Inbox page + rail entry. Deliberately separate from `canCollaborate`
+   * (ADR-0042): the inbox also carries operational alerts, which must reach a
    * tenant that does not have collaboration. `getNavFlags().canAccessInbox`.
    */
   canAccessInbox?: boolean
   /**
    * Whether IFC models are enabled for this org (`ifc-models`, ADR-0046).
    *
-   * No longer gates a rail entry: the model viewer is a file preview inside
-   * Dateien, so there is no destination to hide. Kept because the flag still
-   * decides whether the BIM endpoints answer at all, and the Files page reads
+   * It gates no rail entry: the model viewer is a file preview inside Dateien,
+   * so there is no destination to hide. It is kept because the flag decides
+   * whether the BIM endpoints answer at all, and the Files page reads
    * it to know whether opening an `.ifc` should open a viewer.
    */
   showModels?: boolean
@@ -170,9 +169,9 @@ const PROJECT_SECTIONS: readonly ProjectSection[] = [
     // Automation: Tasks, Zeitplan and Skills as tabs inside one section, in
     // the `work` group beside Ask Piloti and Dateien because that is what it
     // is — the surface where a project's delegated work is read and where the
-    // next week of it is set. Same `showSkills` gate as before: the three
-    // surfaces ship together, and a schedule wizard whose skill picker
-    // resolves nothing is not worth having on its own.
+    // next week of it is set. Gated by `showSkills`: the three surfaces ship
+    // together, and a schedule wizard whose skill picker resolves nothing is not
+    // worth having on its own.
     key: 'automation',
     segment: 'automation',
     icon: Zap,

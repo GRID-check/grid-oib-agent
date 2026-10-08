@@ -44,11 +44,10 @@ export default async function FilesPage({ params }: FilesPageProps): Promise<JSX
     // Fail-open when enforcement is off (isFeatureEnabled → true).
     const showMetadataPanel = isFeatureEnabled(session, FEATURE_FLAGS.filesMetadataPanel)
 
-    // The model viewer lives inside this page now (there is no `/model` route
-    // any more — it redirects here). The org flag no longer hides a
-    // destination; it decides whether the model surfaces exist at all for this
-    // tenant, which is the honest behaviour for one whose BIM endpoints would
-    // refuse the request anyway.
+    // The model viewer lives inside this page; the `/model` route redirects
+    // here. The org flag decides whether the model surfaces exist at all for
+    // this tenant, which is the honest behaviour for one whose BIM endpoints
+    // would refuse the request anyway.
     const showModels = isIfcModelsEnabled(session)
 
     // What a click on an `.ifc` DOES — preview first, or straight to the stage.
@@ -57,20 +56,19 @@ export default async function FilesPage({ params }: FilesPageProps): Promise<JSX
     const previewFirst = isIfcPreviewFirstEnabled(session)
 
     /*
-     * THE LISTING, READ HERE INSTEAD OF AFTER HYDRATION.
+     * THE LISTING, READ HERE, NOT AFTER HYDRATION.
      *
-     * Dateien used to paint a skeleton, download and boot its JavaScript, and
-     * only then ask for the folders and the documents — three round trips
-     * stacked behind the bundle, on a page whose entire job is to show a list
-     * this request could already have. The first thing anyone saw was a grid of
-     * grey rectangles, for as long as the slowest of those took.
+     * Read on the client, the page would paint a skeleton, download and boot
+     * its JavaScript, and only then ask for the folders and the documents: three
+     * round trips stacked behind the bundle, on a page whose entire job is to
+     * show a list this request can already have.
      *
      * Both reads run here, in parallel with each other, and the workspace is
      * handed the answers. They cost this request the slower of two queries it
      * would have served a moment later anyway; what they save is the whole
-     * waterfall behind them. The client keeps every one of its own loaders —
-     * they are what a filter change, a settling poll and a retry use — it
-     * simply no longer needs one to see the corpus for the first time.
+     * waterfall behind them. The client keeps its own loaders, which a filter
+     * change, a settling poll and a retry use; the first view of the corpus
+     * does not need one.
      *
      * `Promise.all` and not two awaits: the folder listing does not depend on
      * the document listing, and sequencing them here would rebuild in one tier

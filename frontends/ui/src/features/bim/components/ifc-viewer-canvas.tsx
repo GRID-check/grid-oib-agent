@@ -58,7 +58,7 @@
  * A wrapper, the canvas, and two overlay layers that draw measurements in the
  * PAGE rather than in the scene (`measure-overlay.ts` says why). Both overlays
  * are `pointer-events-none`, so every gesture still reaches the canvas and the
- * viewport behaves exactly as it did when it was a single element.
+ * viewport behaves as a single element.
  */
 
 import type { JSX } from 'react'
@@ -66,17 +66,16 @@ import { useCallback, useEffect, useId, useRef, useState } from 'react'
 /**
  * The renderer, typed by the renderer.
  *
- * The declarations below used to be hand-written structural interfaces —
- * `render(options?: Record<string, unknown>)` and a dozen methods copied out by
- * eye — and that is what let every defect this component has shipped through.
- * `xrayContextIds` was not a key the renderer reads; `position: atMetres` was
- * metres in a percentage field. A `Record<string, unknown>` accepts both
- * happily, and neither shows up in a screenshot, so both survived a release.
+ * The declarations below are the renderer's own types, not hand-written
+ * structural interfaces. A `render(options?: Record<string, unknown>)` accepts
+ * anything, so a key the renderer does not read (`xrayContextIds`) or a number
+ * in the wrong unit (metres in a percentage field) passes the type check and
+ * reaches the picture unseen.
  *
  * `import type` is erased at build time: it costs nothing in the bundle, does
  * not defeat the `next/dynamic` split this file exists for, and makes the
- * renderer's own `RenderOptions` the contract. A misspelled option is now a
- * type error at the call site, which is where it was always meant to be caught.
+ * renderer's own `RenderOptions` the contract. A misspelled option is a type
+ * error at the call site.
  */
 import type { Camera, RenderOptions, Renderer, Scene } from '@ifc-lite/renderer'
 import { useLocale, useTranslations } from '@/i18n'
@@ -248,27 +247,25 @@ type RendererLike = Pick<
 type CameraLike = Pick<
   Camera,
   /**
-   * `addVelocity` feeds the renderer's own inertia system. Omitting it — which
-   * the old hand-written declaration forced, by not declaring the parameter —
-   * makes every drag a raw per-event jump with no momentum and no damping.
+   * `addVelocity` feeds the renderer's own inertia system. Omitting it makes
+   * every drag a raw per-event jump with no momentum and no damping, so the
+   * declaration keeps it.
    */
   | 'orbit'
   | 'pan'
   /**
    * The cursor arguments are the difference between "zoom toward what I am
    * pointing at" and "zoom toward the middle of the screen, and watch the
-   * detail I wanted slide off the edge". They were absent from the old
-   * declaration, so the call site could not pass them and nobody could see
-   * that the renderer had supported it all along.
+   * detail I wanted slide off the edge". They are declared, so the call site
+   * can pass them.
    */
   | 'zoom'
   /**
    * Advance inertia and any running tween; true while still moving.
    *
-   * Nothing called this, which is why momentum never existed AND why
-   * `zoomExtent` and the preset views did not animate: both are tweens that
-   * only advance when something drives them, and the on-demand renderer drew
-   * exactly one frame and stopped.
+   * Something must call this: `zoomExtent` and the preset views are tweens
+   * that only advance when driven, and the on-demand renderer draws exactly one
+   * frame and stops.
    */
   | 'update'
   /** Rotate about this point instead of the scene centre. `null` restores it. */
@@ -380,8 +377,8 @@ export function IfcViewerCanvas({
   const overlayLabelsRef = useRef<HTMLDivElement | null>(null)
   const rendererRef = useRef<RendererLike | null>(null)
   // The geometry kernel is a WASM instance with its own heap, and it outlives
-  // the parse: `processAdaptive` returns but the module stays resident. Only
-  // the renderer used to be disposed, so every viewport mount leaked a kernel.
+  // the parse: `processAdaptive` returns but the module stays resident. It is
+  // disposed alongside the renderer, or every viewport mount leaks a kernel.
   const geometryRef = useRef<{ dispose(): void } | null>(null)
   const [ready, setReady] = useState(false)
   /** Over pickable geometry — drives the cursor, and nothing else. */
@@ -441,11 +438,11 @@ export function IfcViewerCanvas({
   /**
    * The theme the model is lit for.
    *
-   * Read at mount and kept current — see the observer below. It used to be
-   * captured once, on the reasoning that "nobody switches themes underneath a
-   * modal", which was wrong twice over: the theme can be `system`, in which
-   * case `prefers-color-scheme` flips it at sunset with nobody doing anything,
-   * and the command palette that toggles it opens over the dialog.
+   * Read at mount and kept current — see the observer below. A theme captured
+   * once would rest on the assumption that nobody switches themes under an open
+   * modal, which is wrong twice over: the theme can be `system`, in which case
+   * `prefers-color-scheme` flips it at sunset with nobody doing anything, and
+   * the command palette that toggles it opens over the dialog.
    *
    * A ref rather than state on purpose. It is read inside `frameOptions`,
    * which the render loop calls sixty times a second; a state change here
@@ -515,20 +512,19 @@ export function IfcViewerCanvas({
       // as "ghost everything", so passing an empty set through would fade
       // the whole building the moment a highlight resolved to nothing.
       //
-      // The option is `ghostExceptIds`. It used to be spelled
-      // `xrayContextIds` here, which is not a key the renderer has ever
-      // read — so the x-ray control was inert from the day it shipped, and
-      // looked like it worked because the button's pressed state is local.
+      // The option is `ghostExceptIds`: `xrayContextIds` is not a key the
+      // renderer reads, and a misspelled key would leave the x-ray control
+      // inert while its pressed state, which is local, looked like it worked.
       ghostExceptIds: xrayRef.current && xrayRef.current.size > 0 ? xrayRef.current : null,
       // Co-selected, which is what actually keeps them solid.
       //
       // Ghosting resolves per COLOUR BATCH, at the minimum alpha among the
       // batch's non-selected entities — the renderer's own docs say so and
       // prescribe the fix. Highlighted walls almost always share a batch with
-      // un-highlighted ones, so x-ray faded most of the very elements it
-      // exists to keep solid: the control looked half-broken rather than
-      // simply off. The selection highlight pass then repaints them opaque,
-      // which is exactly what the clash viewer relies on.
+      // un-highlighted ones, so x-ray would fade the very elements it exists to
+      // keep solid: the control would look half-broken rather than simply off.
+      // The selection highlight pass repaints them opaque, which is exactly what
+      // the clash viewer relies on.
       ...(xrayRef.current && xrayRef.current.size > 0
         ? { selectedIds: xrayRef.current }
         : {}),
@@ -597,9 +593,9 @@ export function IfcViewerCanvas({
    *
    * The environment and the clear colour are read out of `themeRef` on every
    * frame, so the whole correction is one ref write and one redraw — nothing
-   * is rebuilt, no geometry is re-uploaded. Without it the model keeps the
-   * clear colour of the theme it loaded in, which is the one element on the
-   * page that would not follow a switch.
+   * is rebuilt, no geometry is re-uploaded. Without it the model would keep the
+   * clear colour of the theme it loaded in: the one element on the page that
+   * would not follow a switch.
    */
   useEffect(
     () =>
@@ -617,8 +613,8 @@ export function IfcViewerCanvas({
    * frame per input event, the other needs frames AFTER the input stops. So
    * anything that gives the camera velocity — a drag, a wheel, a pinch — starts
    * this loop, and `Camera.update` decides when it is over. Tweens
-   * (`frameBounds`, preset views) ride the same loop; they never animated
-   * before because nothing was advancing them.
+   * (`frameBounds`, preset views) ride the same loop; without it they would
+   * never advance.
    *
    * Idle cost is unchanged: `update` returns false on the first frame after the
    * motion decays, the loop cancels itself, and a static model spins nothing.
@@ -668,15 +664,15 @@ export function IfcViewerCanvas({
       report({ phase: 'downloading', percent: 0, meshCount: 0 })
       try {
         // Aborted on unmount. Without a signal, leaving the page mid-download
-        // left the whole model transferring to a component that no longer
-        // exists — on the large models this feature is for, that is hundreds of
+        // would leave the whole model transferring to a component that no longer
+        // exists — on the large models this feature is for, hundreds of
         // megabytes per abandoned visit.
         const response = await fetch(sourceUrl, { signal: controller.signal })
         if (!response.ok) throw new Error(`model download failed (${response.status})`)
         // Read the body as it arrives rather than awaiting `arrayBuffer()`.
         // Same bytes and the same total time, but the progress the user sees is
-        // now the download's real position instead of an indeterminate spinner
-        // that sits still for a minute on a 149 MB file and reads as a hang.
+        // the download's real position, not an indeterminate spinner that would
+        // sit still for a minute on a 149 MB file and read as a hang.
         const downloaded = await downloadWithProgress(response, (percent) => {
           if (!cancelled) report({ phase: 'downloading', percent, meshCount: 0 })
         })
@@ -696,18 +692,17 @@ export function IfcViewerCanvas({
 
         const geometry = new GeometryProcessor()
         geometryRef.current = geometry
-        // No cast: `RendererLike` is now built out of `Renderer`'s own member
-        // types, so the real class satisfies it and a package change that
-        // renames a method lands here as a type error rather than as a
-        // viewport that silently stops responding.
+        // No cast: `RendererLike` is built out of `Renderer`'s own member
+        // types, so a package change that renames a method lands here as a type
+        // error rather than as a viewport that silently stops responding.
         const renderer: RendererLike = new Renderer(canvas)
-        // Stored BEFORE the awaits. It used to be assigned after them, so a
-        // rejection from either `init()` left the local `renderer`
-        // unreachable and the cleanup's `rendererRef.current?.destroy()` was a
-        // no-op — a `geometry.init()` failure in particular orphaned a fully
-        // initialised device, swap chain and pipelines. A retry loop over a
-        // bad model then walked through VRAM, which is the exact failure this
-        // component's lifecycle note says every path out of it prevents.
+        // Stored BEFORE the awaits. Assigned after them, a rejection from either
+        // `init()` would leave the local `renderer` unreachable, and the
+        // cleanup's `rendererRef.current?.destroy()` would be a no-op — a
+        // `geometry.init()` failure in particular would orphan a fully
+        // initialised device, swap chain and pipelines. A retry loop over a bad
+        // model would then walk through VRAM, which is the failure the lifecycle
+        // note above says every path out of this component prevents.
         rendererRef.current = renderer
         try {
           await Promise.all([geometry.init(), renderer.init()])
@@ -722,9 +717,9 @@ export function IfcViewerCanvas({
           return
         }
 
-        // Both of these apply to batches built FROM NOW ON, so they have to be
-        // set before a single mesh arrives — after `processAdaptive` starts it
-        // is too late for the geometry that already landed.
+        // Both of these apply only to batches built after they are set, so they
+        // have to be set before a single mesh arrives — after `processAdaptive`
+        // starts it is too late for the geometry that already landed.
         //
         // `enableQuantizedBatches` probes the pipeline variants and answers
         // whether they exist; a backend that refuses them keeps the f32 path,
@@ -773,14 +768,14 @@ export function IfcViewerCanvas({
         /*
           Merge the streaming fragments into real batches.
 
-          Every batch arrived through `addMeshes(…, true)`, which builds
+          Every batch arrives through `addMeshes(…, true)`, which builds
           STREAMING FRAGMENTS: no bucket key, and therefore — `scene.ts` only
-          builds LOD1 when a bucket key is present — no LOD1 index range. So
-          `setLodBuildsEnabled(true)` above and `lod: { screenPx: 12 }` in
-          `viewer-performance.ts` were both inert, and the scene kept a CPU
-          copy of the geometry alongside every fragment's GPU buffers. On the
-          150 MB models this path exists for that is the difference the
-          performance module claims to make, not made.
+          builds LOD1 when a bucket key is present — no LOD1 index range. Left
+          as fragments, `setLodBuildsEnabled(true)` above and
+          `lod: { screenPx: 12 }` in `viewer-performance.ts` would both be inert,
+          and the scene would keep a CPU copy of the geometry alongside every
+          fragment's GPU buffers. On the 150 MB models this path exists for, that
+          is the difference the performance module claims to make.
 
           The async form: it re-groups in time slices and yields between them,
           so a reader who starts orbiting the moment the building appears is
@@ -803,12 +798,12 @@ export function IfcViewerCanvas({
         // as a model with holes punched through the slabs.
         const bounds = renderer.getModelBounds()
         if (bounds) renderer.getCamera().setSceneBounds?.(bounds)
-        // Instant, and the only fit on load — see `fittedOnLoadRef`. The view
-        // effect used to fit AGAIN the moment `ready` flipped, with
-        // `animate: true` and the adaptive policy, so every load framed the
-        // building and then visibly travelled to a different pose. On an
-        // elongated model, where the adaptive policy picks an along-axis view
-        // and this picks an isometric, the two are nowhere near each other.
+        // Instant, and the only fit on load — see `fittedOnLoadRef`. A view
+        // effect that fitted again the moment `ready` flipped, with
+        // `animate: true` and the adaptive policy, would frame the building and
+        // then visibly travel to a different pose. On an elongated model, where
+        // the adaptive policy picks an along-axis view and this picks an
+        // isometric, the two are nowhere near each other.
         renderer.fitToView()
         fittedOnLoadRef.current = true
         setReady(true)
@@ -913,11 +908,10 @@ export function IfcViewerCanvas({
   /**
    * Every pointer currently down, by id — the whole of touch support.
    *
-   * A single-pointer drag orbits, which a phone could already do. Nothing
-   * mapped the SECOND finger, and the canvas is `touch-action: none`, so the
-   * browser's own pinch was suppressed as well: a tablet could turn the
-   * building and never get closer to it. Two fingers now pinch to zoom and
-   * drag to pan, which is what every BIM viewer on a tablet does.
+   * A single-pointer drag orbits, which a phone can do. The second finger is
+   * what this map is for: the canvas is `touch-action: none`, so the browser's
+   * own pinch is suppressed too, and two fingers pinch to zoom and drag to pan,
+   * as every BIM viewer on a tablet does.
    */
   const pointersRef = useRef(new Map<number, { x: number; y: number }>())
   const pinchRef = useRef<{ distance: number; centreX: number; centreY: number } | null>(null)
@@ -957,10 +951,10 @@ export function IfcViewerCanvas({
       One finger left of a pinch — re-arm the orbit for it.
 
       `handlePointerDown` nulls `dragRef` when the second finger lands, because
-      a pinch is not an orbit. Nothing put it back: the surviving finger fell
-      through to the hover branch in `handlePointerMove` and did NOTHING, so
-      the natural tablet gesture — pinch to frame, then keep dragging to turn —
-      stopped dead and the reader had to lift and re-place.
+      a pinch is not an orbit. So the surviving finger must be re-armed here: left
+      alone it falls through to the hover branch in `handlePointerMove` and does
+      nothing, which breaks the natural tablet gesture — pinch to frame, then keep
+      dragging to turn.
 
       `moved: true` because this finger has already travelled: the release must
       not be read as a click and select whatever it happens to be over.
@@ -1012,9 +1006,9 @@ export function IfcViewerCanvas({
    */
   const handlePointerCancel = (event: React.PointerEvent<HTMLCanvasElement>) => {
     // Cleared BEFORE `endPointer`, not after: with a second finger still on the
-    // glass `endPointer` re-arms the drag for it, and clearing afterwards threw
-    // that away — a palm rejection during a two-finger gesture then left the
-    // remaining finger inert.
+    // glass `endPointer` re-arms the drag for it, and clearing afterwards would
+    // throw that away — a palm rejection during a two-finger gesture would leave
+    // the remaining finger inert.
     dragRef.current = null
     endPointer(event)
   }
@@ -1040,13 +1034,12 @@ export function IfcViewerCanvas({
     runCameraLoop()
   }, [runCameraLoop])
 
-  // This used to be a `useImperativeHandle`, which never worked. The parent
-  // reaches this component through `next/dynamic`, whose `LoadableComponent`
-  // is a plain function component, so on React 18 the JSX runtime strips `ref`
-  // out of props before it can arrive. `ref.current` was React's internal
-  // lazy-retry object — truthy, so the parent's `?.fit()` did not
-  // short-circuit; it threw a TypeError on every click. A nonce crosses
-  // `dynamic` because it is an ordinary prop.
+  // A nonce rather than `useImperativeHandle`: the parent reaches this component
+  // through `next/dynamic`, whose `LoadableComponent` is a plain function
+  // component, so on React 18 the JSX runtime strips `ref` out of props before
+  // it can arrive. A ref would be React's internal lazy-retry object — truthy,
+  // so the parent's `?.fit()` would not short-circuit and would throw on every
+  // click. A nonce crosses `dynamic` because it is an ordinary prop.
   //
   // The initial value is skipped: the load path fits once on its own, and
   // fitting before the first batch lands frames an empty scene.
@@ -1103,7 +1096,7 @@ export function IfcViewerCanvas({
   // `frameBounds`, not `zoomExtent`: framing keeps the view DIRECTION and only
   // changes the distance, which is what "Frame Selection" means in every CAD
   // tool. `zoomExtent` re-poses the camera as well, so picking a row in a list
-  // spun the building — the reader lost their orientation as the price of
+  // would spin the building: the reader loses their orientation as the price of
   // seeing the thing they asked for.
   //
   // Skipped when the element has no geometry yet (streaming has not reached
@@ -1134,12 +1127,13 @@ export function IfcViewerCanvas({
    *
    * The renderer supports a pivot and defaults to `camera.target`, which on a
    * building means the middle of the whole model. Inspecting a stair core in
-   * one corner therefore swung the camera in a huge arc around the centre of
-   * the building — the element you were looking at left the screen on every
-   * drag. Pivoting on the selection makes the drag rotate the thing under
-   * examination, which is what every BIM viewer does.
+   * one corner would swing the camera in a huge arc around the centre of the
+   * building, and the element would leave the screen on every drag. Pivoting on
+   * the selection makes the drag rotate the thing under examination, which is
+   * what every BIM viewer does.
    *
-   * Cleared on deselect, so orbiting with nothing selected behaves as before.
+   * Cleared on deselect, so orbiting with nothing selected stays around the
+   * scene centre.
    */
   useEffect(() => {
     if (!ready) return
@@ -1201,10 +1195,9 @@ export function IfcViewerCanvas({
       fittedOnLoadRef.current = false
       renderer.getCamera().setPresetView(preset, renderer.getModelBounds() ?? undefined)
       // A preset view is a TWEEN, and a tween needs `Camera.update()` stepped
-      // every frame — which is what `runCameraLoop` does. `requestFrame()` drew
-      // exactly one, so pressing a view snapped a fraction of the way there and
-      // stopped. Same bug as the one that made `zoomExtent` never animate,
-      // surviving in the one place that had not been converted.
+      // every frame — which is what `runCameraLoop` does. A single
+      // `requestFrame()` would draw exactly one frame, so pressing a view would
+      // snap a fraction of the way there and stop.
       runCameraLoop()
     }
   }, [view, viewNonce, ready, runCameraLoop, fitModel])
@@ -1299,10 +1292,10 @@ export function IfcViewerCanvas({
    * Put the crosshair in the middle of the viewport.
    *
    * `cursorRef` is written by `handlePointerMove` and by nothing else, so a
-   * keyboard user — who has never moved a pointer — had a null cursor forever
-   * and the Enter branch below was a permanent no-op. The tool could be
-   * switched on from the keyboard and then not used, which is the exact
-   * failure the Enter branch was added to prevent.
+   * keyboard user — who has never moved a pointer — would have a null cursor
+   * and the Enter branch below would be a no-op. The tool could then be
+   * switched on from the keyboard and not used, which is the failure the Enter
+   * branch exists to prevent.
    *
    * The centre of the canvas is where a keyboard user's attention is and the
    * only point the app can name without a pointer; the arrow keys then move
@@ -1328,7 +1321,7 @@ export function IfcViewerCanvas({
     }
     // Arming the tool puts the crosshair in the middle of the viewport, so
     // there is something to aim before a pointer has ever moved. Without it a
-    // keyboard user pressed Enter blind — see `seedMeasureCursor`.
+    // keyboard user would press Enter blind — see `seedMeasureCursor`.
     if (cursorRef.current) return
     const seeded = seedMeasureCursor()
     if (!seeded) return
@@ -1440,8 +1433,8 @@ export function IfcViewerCanvas({
             // `× 1000` puts the log ratio into the camera's pixel-scale units
             // (it multiplies by 0.001), so the camera distance changes by the
             // same proportion the fingers did — which is what a pinch means.
-            // At `× 4` a ten-percent pinch moved the camera by four
-            // hundredths of a percent.
+            // A factor of `× 4` would move the camera by four hundredths of a
+            // percent for a ten-percent pinch.
             Math.log(previous.distance / current.distance) * 1000,
             false,
             current.centreX - rect.left,
@@ -1486,9 +1479,8 @@ export function IfcViewerCanvas({
     drag.x = event.clientX
     drag.y = event.clientY
     // Right or middle button pans, and so does shift-drag; anything else
-    // orbits. Right-drag was missing, which is the pan every architect reaches
-    // for first — and without a `contextmenu` handler it opened the browser
-    // menu over the building instead.
+    // orbits. Right-drag is the pan every architect reaches for first, and the
+    // `contextmenu` handler keeps the browser menu from opening over the building.
     if (drag.button === 1 || drag.button === 2 || event.shiftKey) {
       renderer.getCamera().pan(dx, dy, true)
     } else {
@@ -1512,12 +1504,10 @@ export function IfcViewerCanvas({
     const rect = canvas.getBoundingClientRect()
     // CSS pixels, NOT device pixels. `PickingManager.pick` divides by
     // `canvas.width / rect.width` itself — "scaled internally", says the
-    // contract — so pre-multiplying by the device pixel ratio squared the
-    // scale. On any HiDPI display, which is most laptops, a click resolved to
-    // a point twice as far from the top-left as the cursor: the right and
-    // bottom halves of the viewport selected nothing at all, everywhere else
-    // selected the wrong element, and hover (which already used CSS pixels,
-    // two functions down) highlighted one wall while the click took another.
+    // contract — so pre-multiplying by the device pixel ratio would square the
+    // scale. On a HiDPI display, which is most laptops, a click would resolve to
+    // a point twice as far from the top-left as the cursor. Hover uses CSS
+    // pixels too, and the click and the hover must agree.
     const hit = await renderer.pick(
       Math.round(clientX - rect.left),
       Math.round(clientY - rect.top),
@@ -1600,9 +1590,9 @@ export function IfcViewerCanvas({
    * React attaches `onWheel` at the root as a passive listener, so
    * `preventDefault` inside it is ignored — the browser scrolls the page as
    * well as zooming the model. `touch-action: none` covers touch and does
-   * nothing for a wheel. In a scrollable page that meant every zoom also
-   * scrolled the viewport out from under the cursor, which is the single most
-   * damning thing a 3D view can do.
+   * nothing for a wheel. In a scrollable page, a zoom that also scrolled the
+   * page would move the viewport out from under the cursor, which is the single
+   * most damning thing a 3D view can do.
    */
   useEffect(() => {
     const canvas = canvasRef.current
@@ -1619,7 +1609,7 @@ export function IfcViewerCanvas({
       //
       // Deltas are normalised per `deltaMode`: a mouse wheel reports pixels, but
       // a trackpad or a Firefox line-mode wheel reports lines or pages, and
-      // treating 3 lines as 3 pixels is why a trackpad barely moved.
+      // treating 3 lines as 3 pixels would make a trackpad barely move.
       renderer
         .getCamera()
         .zoom(
@@ -1660,17 +1650,16 @@ export function IfcViewerCanvas({
       /**
        * Enter places a measurement point where the cursor last was.
        *
-       * Measuring was pointer-only: the toggle is keyboard-reachable, so a
-       * keyboard user could switch on a tool they then could not use. The
-       * crosshair already tracks a snapped point on every pointer move, and
-       * the arrow keys already orbit — so Enter closes the loop without a
-       * second input model.
+       * Measuring must work without a pointer: the toggle is keyboard-reachable,
+       * so a keyboard user must be able to place a point too. The crosshair
+       * already tracks a snapped point on every pointer move, and the arrow keys
+       * already orbit — so Enter closes the loop without a second input model.
        */
       if ((event.key === 'Enter' || event.key === ' ') && measuringRef.current) {
         event.preventDefault()
         // Seeded here as well as when the tool arms, because arming can happen
-        // before the model is ready — and then the seed found nothing and the
-        // key would be dead for the rest of the session.
+        // before the model is ready — and then the seed would find nothing,
+        // leaving the key dead for the rest of the session.
         const cursor = cursorRef.current ?? seedMeasureCursor()
         if (cursor) {
           const pending = anchorRef.current
@@ -1722,23 +1711,21 @@ export function IfcViewerCanvas({
       A wrapper rather than a bare `<canvas>` because a dimension line has to
       be drawn in the page, not in the scene — see `measure-overlay.ts` for
       why. Both layers are `pointer-events-none`, so every gesture still
-      reaches the canvas underneath and the viewport behaves exactly as it did
-      when it was one element.
+      reaches the canvas underneath, and the viewport behaves as a single element.
     */
     <div className={cn('relative', className)}>
       <canvas
         ref={canvasRef}
         className={cn(
-          // `ring-inset`: the canvas fills a `overflow-hidden` dialog, so an
-          // outward ring lands exactly on the clip boundary and is cut off —
-          // the viewport is the primary keyboard target and had no visible
-          // focus at all. Same fix the repo already uses on `FileCard` and
-          // `CodeBlock`.
+          // `ring-inset`: the canvas fills an `overflow-hidden` dialog, so an
+          // outward ring lands exactly on the clip boundary and is cut off. The
+          // viewport is the primary keyboard target and must show focus. Same fix
+          // the repo already uses on `FileCard` and `CodeBlock`.
           // `[-webkit-touch-callout:none]`: `select-none` and the suppressed
           // context menu below cover Android and the desktop right-drag, but
           // not Safari's image action sheet — a `<canvas>` with `role="img"`
           // is an image to iOS, so a finger resting while its owner decides
-          // where to measure got "Save Image / Copy" over the building.
+          // where to measure would get "Save Image / Copy" over the building.
           'size-full touch-none select-none [-webkit-touch-callout:none] outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/60',
           // The cursor IS the affordance. A canvas with a text caret over it
           // reads as a picture; a grab hand reads as something you can turn.
@@ -1770,11 +1757,11 @@ export function IfcViewerCanvas({
         // English screen reader cannot read.
         role="img"
         aria-label={t('viewer.canvasLabel')}
-        // `role="img"` tells assistive technology this is a graphic, so the
-        // whole arrow/shift/+/-/F scheme below was undiscoverable: a focusable
-        // picture with no hint that it can be driven at all. The description
-        // is the only place those keys are written down for a reader who
-        // cannot see the building move.
+        // `role="img"` tells assistive technology this is a graphic, and a
+        // focusable picture gives no hint that it can be driven at all, so the
+        // arrow/shift/+/-/F scheme below must be written down in the
+        // description. The description is the only place those keys are written
+        // down for a reader who cannot see the building move.
         aria-describedby={keysId}
       />
       <p id={keysId} className="sr-only">
@@ -1784,10 +1771,8 @@ export function IfcViewerCanvas({
         ref={overlaySvgRef}
         className="pointer-events-none absolute inset-0 size-full overflow-visible"
         // Decorative: the same measurements are published as text beside the
-        // dock, in the list the stage renders from `measure.measurements`.
-        // (That list did not exist when this comment was first written, and
-        // the drawing was the only place a dimension appeared — so every
-        // number the tool produced was unreadable to a screen reader.)
+        // dock, in the list the stage renders from `measure.measurements`, so
+        // the drawing adds no information for a screen reader.
         aria-hidden="true"
       />
       <div

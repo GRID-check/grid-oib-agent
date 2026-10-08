@@ -130,12 +130,12 @@ export const renderTextLayer = async (
  * NOT `page.getTextContent()`. That method drains the same stream with
  * `for await (… of readableStream)`, which needs `ReadableStream` to be async
  * iterable: Chrome 124, Firefox 110, and Safari only from 27. The legacy build
- * polyfills much of what pdf.js assumes but not that, so on every Safari before
- * 27 the call threw, the viewer caught it as "this page has no text", and a
- * cited passage was never marked while the page itself rendered fine. pdf.js's
- * own `TextLayer` reads the stream with `getReader()`, which is why selecting
- * text kept working and made the fault look like a matching bug. This reads it
- * the same way. `eslint.config.mjs` bans `getTextContent` so it stays that way.
+ * polyfills much of what pdf.js assumes but not that, so on Safari before 27
+ * the call throws, the viewer catches it as "this page has no text", and a
+ * cited passage is never marked while the page renders fine. pdf.js's own
+ * `TextLayer` reads the stream with `getReader()`, which is why selecting text
+ * still works and the fault looks like a matching bug. This reads it the same
+ * way. `eslint.config.mjs` bans `getTextContent` so it stays that way.
  *
  * `TextMarkedContent` entries carry structure, not text; `'str' in item`
  * narrows to the runs that have any, without a cast.

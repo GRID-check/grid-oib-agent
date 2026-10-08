@@ -317,13 +317,11 @@ export function hourMarks(segment: BandSegment): number[] {
  * colour a task gets is its index here — and a colour that changes when an
  * unrelated task is renamed is a colour nobody can learn.
  *
- * This lives here, called from both readers, because the two used to filter
- * separately and drifted: the list kept `scheduleCron && enabled` when the grid
- * gained `dueAt`, so a one-shot got a block on the grid and no swatch on its
- * card — and, because the colour is an INDEX, every card after it in id order
- * then wore a different colour from its own block. Two independent orderings is
- * how a legend and a grid end up disagreeing, and the only fix that stays fixed
- * is that there is one of them.
+ * This lives here, called from both readers. Two copies of the filter drift: a
+ * one-shot on the grid with no swatch on its card, and, because the colour is
+ * an INDEX, every later card wearing a different colour from its own block. Two
+ * independent orderings is how a legend and a grid end up disagreeing, so there
+ * is one of them.
  */
 export function placeableSchedules<T extends { id: string; scheduleCron: string | null; dueAt: string | null; enabled: boolean }>(
   jobs: readonly T[],

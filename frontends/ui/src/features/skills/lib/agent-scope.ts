@@ -2,10 +2,10 @@
  * `grid-agents` — which agents may use a skill, and the only scope there is.
  *
  * A skill is available to every agent unless it says otherwise in so many
- * words. `grid-execution` used to narrow this too, which meant declaring what a
- * SCHEDULED run should produce silently decided where the skill existed; it no
- * longer does (see `lib/skills/service.ts::skillTargetsAgent` and the Python
- * mirror in `src/aiq_agent/skills/resolver.py`).
+ * words. `grid-execution` does not narrow this: what a SCHEDULED run should
+ * produce never decides where the skill exists (see
+ * `lib/skills/service.ts::skillTargetsAgent` and the Python mirror in
+ * `src/aiq_agent/skills/resolver.py`).
  *
  * Client-side and dependency-free on purpose: the editor and the toolbox both
  * need it, and `@/lib/skills/types` is the server-side write boundary that
@@ -22,10 +22,10 @@ export type SkillAgent = (typeof SKILL_AGENTS)[number]
 /**
  * Retired `grid-agents` names, and the agent each one now means.
  *
- * `shallow_researcher` became `researcher`. Authors write this key by hand and
- * ten past migrations seeded it, so rows carrying the old name outlive the
- * rename; `0081_grid_agents_researcher_rename.sql` rewrites the rows we can
- * see and this map covers the rest.
+ * `shallow_researcher` is the retired name of `researcher`. Authors write this
+ * key by hand, so rows carrying the old name outlive the rename;
+ * `0081_grid_agents_researcher_rename.sql` rewrites the rows it can see, and
+ * this map covers the rest.
  *
  * It must be an alias rather than a third entry in `SKILL_AGENTS`, and the
  * reason is that BOTH other readings fail silently. Unknown, the name is
@@ -101,7 +101,7 @@ export function formatAgentScope(scope: AgentScope): string {
  *
  * Null rather than an "all agents" label because that is the default and the
  * overwhelming majority — a badge on every row would carry no information and
- * would be the repeated chrome this UI has been stripping out.
+ * would be repeated chrome.
  */
 export function agentScopeLabelKey(raw: string | undefined): 'chatOnly' | 'deepOnly' | null {
   const known = split(raw).map(canonicalAgent).filter(isAgent)

@@ -6,17 +6,16 @@
  * out of the catalog it reads every turn, exactly as it would for a skill
  * somebody typed the name of by hand.
  *
- * It used to travel as a structured field as well (`skills: ['name']` on the
- * envelope, lifted onto `force_skills`), which made the turn apply the skill
- * whether or not the model judged it relevant. That is gone: a skill is a
- * capability the model may reach for, and a forced skill is an instruction
- * wearing a capability's clothes. What an office always wants applied is a
- * standing instruction, and those live in the platform prompt and in the
- * organization's own instruction block instead.
+ * The name never travels as a structured field. A forced field would apply the
+ * skill whether or not the model judged it relevant: a skill is a capability
+ * the model may reach for, and a forced skill is an instruction wearing a
+ * capability's clothes. What an office always wants applied is a standing
+ * instruction, and those live in the platform prompt and in the organization's
+ * own instruction block instead.
  *
- * So the picker is a convenience over the textarea and nothing more — which is
- * also why `resolveSlashInvocation` survives the removal. Nothing on the wire
- * depends on it; the composer uses it to show which skill the current text
+ * So the picker is a convenience over the textarea and nothing more.
+ * `resolveSlashInvocation` reads the text back for display: nothing on the wire
+ * depends on it, and the composer uses it to show which skill the current text
  * names (the chip, and the control that removes the token again).
  *
  * Three operations, kept here rather than inside the composer so they can be

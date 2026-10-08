@@ -5,21 +5,18 @@
 Why this exists
 ---------------
 
-An audit of the 53 records here found four kinds of silent drift:
+Silent drift between the directory and its index takes four forms:
 
-* **Number collisions.** 0027, 0039, 0044 and 0047 were each used twice, every
-  time because two people took the next number from ``README.md`` on the same
-  day. The index lags the directory; the directory cannot. The four later
-  records were renumbered to 0056-0059 and this script now REFUSES any repeat;
-  it used to carry them as a recorded exemption, which is a checker agreeing
-  that a number may name two decisions.
-* **Index drift.** ADR-0021 and ADR-0045 read *Accepted* in the file and
-  *Proposed* in the index. The index is what people scan, so the wrong one won.
-* **An unindexed record.** ``0058-retrieval-correctness-and-the-measurement-gate``
-  existed on disk and appeared nowhere in the index.
+* **Number collisions.** Two people can take the same next number from
+  ``README.md`` on the same day. The index lags the directory; the directory
+  cannot. So this script REFUSES any repeat, with no recorded exemption: a
+  checker agreeing that a number may name two decisions is no check.
+* **Index drift.** The file reads *Accepted* and the index reads *Proposed*.
+  The index is what people scan, so the wrong one wins.
+* **An unindexed record.** A file on disk that appears nowhere in the index.
 * **Four metadata formats.** ``- **Status:** x``, ``- **Status**: x``, a
   ``## Status`` section, and a bare ``**Status:** x`` with no Deciders at all —
-  so nothing could read the directory programmatically.
+  so reading the directory programmatically takes a parser per format.
 
 None of these have a symptom until somebody acts on a decision that was
 superseded a month ago.
@@ -30,8 +27,8 @@ What it checks
 Numbers are unique — no exemptions — every ADR is indexed, the index status
 matches the file, statuses come from the legend, and new ADRs (0050 and up)
 carry MADR frontmatter. Records 0001-0049 predate the template and are read
-with a legacy parser rather than being asked to convert, as do the four
-pre-template records renumbered into 0056-0059 (``RENUMBERED_LEGACY``).
+with a legacy parser rather than converted, as are the pre-template records
+numbered 0056-0059 (``RENUMBERED_LEGACY``).
 
 Usage:
     python scripts/check_adrs.py            # validate; exit 1 on drift
@@ -55,14 +52,14 @@ TEMPLATE = "0000-template.md"
 # process here forbids.
 MADR_FROM = 50
 
-# Pre-template records that were RENUMBERED out of a collision (0027, 0039,
-# 0044 and 0047 were each used twice; the later record of each pair moved to
-# 0056-0059). Their NUMBER is now above MADR_FROM; their content is not, and a
-# renumbering must not rewrite an accepted decision, so they are read with the
-# legacy parser like every other record written before the template.
+# Pre-template records numbered 0056-0059 after a collision (the later record
+# of each of 0027, 0039, 0044 and 0047). Their NUMBER is above MADR_FROM; their
+# content is not, and rewriting an accepted decision is not allowed, so they are
+# read with the legacy parser like every other record written before the
+# template.
 #
-# This set is closed. It exists because four records moved once; it is not a
-# way to opt a NEW ADR out of the template.
+# This set is closed: these four records only. It is not a way to opt a NEW ADR
+# out of the template.
 RENUMBERED_LEGACY = frozenset({56, 57, 58, 59})
 
 STATUSES = ("proposed", "rejected", "accepted", "deprecated", "superseded")
@@ -178,9 +175,9 @@ def check(errors: list[str]) -> int:
     seen: dict[int, Path] = {}
     for path in files:
         num = number_of(path)
-        # No exemptions. The four historical collisions were renumbered to
-        # 0056-0059 rather than recorded, because a recorded collision is a
-        # number that names two decisions and a checker that says that is fine.
+        # No exemptions. A collision is fixed by renumbering, not by recording it: a
+        # recorded collision is a number that names two decisions, and a checker that
+        # says that is fine.
         if num in seen:
             errors.append(
                 f"{path.name}: number {num:04d} is already used by {seen[num].name}. Take the next one from `--next`."

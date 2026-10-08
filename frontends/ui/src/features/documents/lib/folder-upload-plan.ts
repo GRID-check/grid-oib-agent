@@ -4,14 +4,13 @@
  *
  * ## The problem
  *
- * A folder upload used to be a flat list of files. Every one of them landed in
- * whichever folder the reader happened to be standing in, its directory
- * structure surviving only as the `origin_path` string on the row; and because
- * a document is identified inside a project by its FILENAME (migration 0074),
- * two `Deckblatt.pdf` from two different subfolders silently became one
+ * A folder upload is not a flat list of files that all land in the folder the
+ * reader stands in: the tree's directory structure has to be reproduced. A
+ * document is identified inside a project by its FILENAME (migration 0074), so
+ * two `Deckblatt.pdf` from two different subfolders would silently become one
  * document, the second overwriting the first. A büro dragging an Einreichung in
- * got a flat pile with an unknown number of files missing from it, and nothing
- * on screen said so.
+ * must not get a flat pile with files missing from it, and nothing on screen
+ * saying so.
  *
  * ## What this computes
  *
@@ -454,9 +453,9 @@ export function buildFolderUploadPlan(input: FolderUploadPlanInput): FolderUploa
      * `refiled` below is what the two are for, and keeping them apart is what
      * makes it right: a folder that has still to be created cannot already
      * hold the document, so anything bound for one is filed wrongly by
-     * definition. Reading the unresolved `null` as "the project root" is how a
-     * re-file into a new folder went uncounted — and how a move would have sent
-     * the document to the root instead of into the folder.
+     * definition. Reading the unresolved `null` as "the project root" would leave
+     * a re-file into a new folder uncounted, and would send a move to the root
+     * instead of into the folder.
      */
     const targetExists = targetPath ? existingByRelativePath.has(pathKey(targetPath)) : true
     const targetFolderId = targetPath

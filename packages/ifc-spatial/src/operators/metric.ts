@@ -373,7 +373,7 @@ export function sillAndHead(
   }
 
   // The storey datum is DECLARED and the box is MEASURED; nothing in IFC makes
-  // them share a reference, and a file where they do not produced sills 58 m
+  // them share a reference, and a file where they do not can produce sills 58 m
   // below their own floor. See `storeyDatumDrift`.
   const drift = storeyDatumDrift(graph, geometry)
   if (drift > 0) {
@@ -660,20 +660,18 @@ export function clearHeight(graph: BuildingGraph, geometry: GeometryIndex, space
   /**
    * What actually hangs into the room, found by looking upward from inside it.
    *
-   * This used to return the space solid's own height with a caveat explaining
-   * that beams, ducts and suspended ceilings shorten the real clear height and
-   * that the intersection test was missing. On the sample house that answered
-   * **2.500 m** for a living room whose `IfcCovering` ceiling sits at
-   * **2.200 m**. The caveat carried the truth and the number did not, which is
-   * the wrong way round: 30 cm is a large error on precisely the figure a
-   * minimum room height is checked against, in the direction that turns a fail
-   * into a pass.
-   *
-   * A bounding-box test was tried first and is not good enough — it cannot
-   * tell "hangs into the room" from "is near the room". A window sitting in
-   * the enclosing wall overlaps the room's box in plan, and a roof spanning
-   * the whole building overlaps every room's; both reported as intrusions and
-   * the living room came back at 0.90 m. Only real surfaces answer this, so a
+   * The space solid's own height ignores beams, ducts and suspended ceilings, so
+ * a caveat that says they shorten the real clear height beside that number is
+ * the wrong way round. On the sample house the solid answers **2.500 m** for a
+ * living room whose `IfcCovering` ceiling sits at **2.200 m**: 30 cm is a large
+ * error on precisely the figure a minimum room height is checked against, in the
+ * direction that turns a fail into a pass.
+ *
+ * A bounding-box test is not good enough — it cannot tell "hangs into the
+ * room" from "is near the room". A window sitting in the enclosing wall overlaps
+ * the room's box in plan, and a roof spanning the whole building overlaps every
+ * room's; both would be reported as intrusions, and the living room would come
+ * back at 0.90 m. Only real surfaces answer this, so a
    * grid of rays is cast upward from just above the floor and the nearest hit
    * wins.
    *
@@ -682,9 +680,9 @@ export function clearHeight(graph: BuildingGraph, geometry: GeometryIndex, space
    */
   // What may lower a clear height is an explicit LIST, not an exclusion.
   //
-  // Exclusion was tried twice and failed twice, in both directions. Left open,
-  // the rays hit a sofa and reported the living room as 0.37 m high. With
-  // furniture excluded, they hit a window sill in the south wall at 0.90 m —
+  // Exclusion fails in both directions. Left open, the rays hit a sofa and report
+  // the living room as 0.37 m high. With furniture excluded, they hit a window
+  // sill in the south wall at 0.90 m —
   // and a window is part of the enclosure, not something hanging over the
   // floor. Every exclusion list is a bet that nothing unforeseen sits in the
   // room, and an IFC always has something unforeseen in it.
@@ -771,8 +769,8 @@ export function clearHeight(graph: BuildingGraph, geometry: GeometryIndex, space
  *
  * Things above you: ceilings, slabs, beams, roofs, stairs, ducts and pipes.
  * Deliberately NOT walls, windows or doors — those bound the room rather than
- * hang into it, and including them made a window sill 0.90 m above the floor
- * report as the room's height.
+ * hang into it, and including them would make a window sill 0.90 m above the
+ * floor the room's height.
  */
 const OVERHEAD = new Set([
   'IfcCovering',
@@ -881,11 +879,10 @@ function requireGeometry<T>(
 /**
  * The operator was aimed at the wrong kind of element.
  *
- * Copied in spirit from `topology.ts`, including the reason `missing.what` is
- * German here while it names an IFC identifier everywhere else: nothing is
- * missing from the FILE, so naming an entity would send the architect off to
- * re-export something that is already there. `remedy` names the operator that
- * would in fact answer the question.
+ * As in `topology.ts`, the reason `missing.what` is German here while it names
+ * an IFC identifier everywhere else: nothing is missing from the FILE, so naming
+ * an entity would send the architect off to re-export something that is already
+ * there. `remedy` names the operator that would in fact answer the question.
  */
 function wrongKind<T>(subject: GraphNode, method: string, operator: string, expected: string, suggestion: string): Answer<T> {
   return undecidable<T>({
@@ -933,15 +930,14 @@ function storeyDatum(graph: BuildingGraph, subject: GraphNode): { storey: GraphN
  * reference. `Trapelo_Design_Intent.ifc` (Revit 2015, feet) declares its storeys
  * at 182.67…231.875 ft — 55.68…70.68 m, on the survey datum — while its
  * geometry, re-based by the kernel, spans −3.62…12.29 m. `sillAndHead` on every
- * one of its 68 windows therefore returned
+ * one of its 68 windows would therefore return
  *
  *     sill = −58.353 m   head = −56.556 m   height = 1.797 m
  *
  * — a window whose head is fifty-six metres below its own floor, with a unit
  * attached, a tolerance of 10 mm and a `computed` provenance. The height is
  * right (both terms carry the same error), which is what makes it look like a
- * measurement. That is the single worst kind of output this library can produce,
- * and it produced it on the first foot-based file it was ever shown.
+ * measurement. That is the single worst kind of output this library can produce.
  *
  * ## The test
  *

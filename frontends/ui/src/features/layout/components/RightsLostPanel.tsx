@@ -2,8 +2,7 @@
 
 /**
  * What the thread area shows for a chat the reader may no longer read
- * (ADR-0081): a folder it drew on is no longer one of theirs, since it was
- * shared with them.
+ * (ADR-0081): a folder it drew on is no longer one of theirs.
  *
  * It replaces the transcript and the composer. Nothing of the chat is rendered
  * and nothing is fetched for it: not its messages, cards or attachments, and

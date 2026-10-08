@@ -6,13 +6,12 @@ what the turn can already see (``resolve.py``), emits one
 ``file_operation_proposal`` card, and returns text that says in its first words
 that NOTHING has been changed.
 
-It used to be four tools, one per operation. They shared the card, the
-contract, the resolver and every refusal; what differed was one or two
-arguments. Four names cost the model four choices and ~760 tokens of schema on
-every call for what a person thinks of as one act — "tidy the files" — so the
-operation is an argument now (docs/architecture/agent-tool-surface.md). The
-card's ``operation`` vocabulary is unchanged, so the frontend executor and every
-stored card read exactly as before.
+One tool rather than one per operation: they would share the card, the contract,
+the resolver and every refusal, and differ only in one or two arguments. Four
+names cost the model four choices and ~760 tokens of schema on every call for
+what a person thinks of as one act — "tidy the files" — so the operation is an
+argument (docs/architecture/agent-tool-surface.md). The card's ``operation``
+vocabulary is what the frontend executor and every stored card read.
 
 The reason is the invariant in ``src/aiq_agent/tools/AGENTS.md``: the BFF is
 the single writer of ``grid_app`` (ADR-0003), so this tier has no route to a

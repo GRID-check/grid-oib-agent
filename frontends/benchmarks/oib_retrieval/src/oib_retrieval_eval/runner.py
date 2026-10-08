@@ -398,8 +398,7 @@ def main(argv: list[str] | None = None) -> int:
 
     # An empty `data/oib` is the ordinary state of a fresh clone, not a bug in the
     # harness, so it exits with the instruction rather than a traceback. This is also
-    # why there is no CI job here any more: no CI checkout can hold the corpus
-    # (ADR-0058, "Update (2026-09-09)").
+    # why there is no CI job here: no CI checkout can hold the corpus (ADR-0058).
     try:
         report = structure.measure_structure(index)
     except corpus.CorpusMissingError as exc:
@@ -438,10 +437,10 @@ def main(argv: list[str] | None = None) -> int:
         )
 
     settings = corpus.production_retrieval_settings()
-    # The assertion PARITY_K's comment promises, and did not make. Without it a top_k
-    # change in configs/config_oib_openrouter.yml leaves the language-parity headline
-    # quoted at a depth production no longer uses -- silently, and in the one number the
-    # report leads with.
+    # PARITY_K must match production's top_k. Without this check, a top_k change in
+    # configs/config_oib_openrouter.yml would leave the language-parity headline quoted at
+    # a depth production does not use -- silently, and in the one number the report leads
+    # with.
     if settings.top_k != PARITY_K:
         print(
             f"\nWARNING: PARITY_K={PARITY_K} but production top_k={settings.top_k}. "

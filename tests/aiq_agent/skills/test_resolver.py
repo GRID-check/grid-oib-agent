@@ -83,13 +83,12 @@ def test_grid_agents_filter_applies_to_builtin_and_org(resolver: SkillResolver) 
 
 
 def test_a_leftover_grid_execution_is_ignored_not_honoured(resolver: SkillResolver) -> None:
-    """``grid-execution`` is gone from the model, and a stored one changes nothing.
+    """``grid-execution`` is not a skill key, and a stored one changes nothing.
 
-    It used to gate availability, then it meant "what a scheduled run produces",
-    and now scheduling is a property of the JOB and the key is not part of a
-    skill at all. Org rows written before the change still carry it, so
-    resolution must neither honour it nor choke on it: both agents see both
-    values. Scoping is ``grid-agents`` and only ``grid-agents``.
+    Scheduling is a property of the JOB, and the key is not part of a skill at
+    all. Org rows may still carry it, so resolution must neither honour it nor
+    choke on it: both agents see both values. Scoping is ``grid-agents`` and
+    only ``grid-agents``.
     """
     for execution in ("chat", "deep-research"):
         skill = Skill(
@@ -115,7 +114,7 @@ def test_org_row_with_a_stored_grid_execution_still_resolves(resolver: SkillReso
     Org rows are not migrated in lockstep with the code. A row still carrying
     ``grid-execution`` (or ``grid-schedulable``) has to travel the full BFF
     payload -> ``build_skill_from_payload`` path intact instead of being dropped
-    as an invalid row, which is what a still-reserved key would have done.
+    as an invalid row, as a reserved key would be.
     """
     with mock.patch.object(
         resolver,
@@ -143,7 +142,7 @@ def test_grid_agents_is_the_only_scope(resolver: SkillResolver) -> None:
         description="d.",
         body="b",
         origin="platform",
-        # A stale key from before the rename. Anyone may still invoke the skill.
+        # A stale key the resolver no longer reads. Anyone may still invoke the skill.
         metadata={"grid-execution": "deep-research"},
     )
     deep_only = Skill(
@@ -206,12 +205,11 @@ def test_cache_tty_default_is_60(resolver: SkillResolver, monkeypatch: pytest.Mo
 # The BFF wire contract
 # ---------------------------------------------------------------------------
 #
-# `_fetch_org_skills` once sent `organizationId` (camelCase) and `agent=""`,
-# while the BFF's `resolveQuerySchema` requires snake_case `organization_id`
-# and a NON-EMPTY optional `agent`. Both were rejected with a 400 — and because
-# resolution fails open to the builtin set, the only symptom was that org
-# skills never appeared anywhere. Nothing asserted the query, so nothing caught
-# it. These tests assert the request itself.
+# `_fetch_org_skills` must send snake_case `organization_id`, and must omit
+# `agent` when it is empty: the BFF's `resolveQuerySchema` requires the first
+# and rejects a blank `agent` with a 400. Resolution fails open to the builtin
+# set, so that 400 shows up only as org skills that never appear. These tests
+# assert the request itself.
 
 
 class _FakeResponse:
@@ -298,8 +296,8 @@ def test_the_retired_agent_name_still_scopes_a_skill_to_the_chat_agent() -> None
 def test_a_caller_still_asking_under_the_retired_name_gets_the_same_answer() -> None:
     """The CALLER's name is canonicalised too, not only the stored one.
 
-    A backend on the pre-rename build asks for `shallow_researcher` for as long
-    as a rolling deploy takes. Normalising only the stored side would drop every
+    A backend still on the old name asks for `shallow_researcher` for as long as
+    a rolling deploy takes. Normalising only the stored side would drop every
     migrated row for that caller — the same skill blackout, in the other
     direction, for the length of the deploy.
     """

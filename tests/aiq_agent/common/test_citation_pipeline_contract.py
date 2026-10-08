@@ -1,6 +1,6 @@
 """Contract tests across the citation pipeline's SEAMS.
 
-Every bug the citation audit found lived between two well-tested units, not
+Bugs in this pipeline live between two well-tested units, not
 inside one. The worst pair is the knowledge-layer text protocol: it is PRODUCED
 by ``sources/knowledge_layer/src/register.py::_format_results`` and PARSED by
 ``aiq_agent.common.citation_verification::_parse_knowledge_layer`` — two
@@ -84,10 +84,10 @@ class Hit:
     (``file_name``, ``page_number``, ``content``, ``content_type.value``,
     ``score``, ``metadata``) plus the parsed identity it must come back as.
 
-    The fields below ``body`` are the OPTIONAL half of the grounding grammar.
-    They default to absent, so every test written before them produces the same
-    bytes it did; they exist so one test can state them all at once and compare
-    what the two readers make of a fully populated hit.
+    The fields below ``body`` are the OPTIONAL half of the grounding grammar. They
+    default to absent, so a test that leaves them out gets the same bytes it always
+    does; they exist so one test can state them all at once and compare what the two
+    readers make of a fully populated hit.
     """
 
     file_name: str
@@ -102,7 +102,7 @@ class Hit:
     content_type: str = "text"
     score: float = 0.87
     #: The segment box the visual analysis stored for a plan's depiction
-    #: (``drawing_data``), and the title it read off the sheet (issue #433).
+    #: (``drawing_data``), and the title it read off the sheet.
     drawing_bbox: tuple[float, float, float, float] | None = None
     drawing_title: str | None = None
 
@@ -170,12 +170,12 @@ def identities(entries) -> list[tuple[str | None, str | None, str | None]]:
 class TestProducerParserContract:
     """Fields must bind to THEIR hit through the real producer's real output.
 
-    The parser used to zip separate whole-document ``findall`` lists by
-    position. ``_format_results`` emits ``Collection:`` and ``Dokumentart:``
-    only when a hit HAS one, so a single unclassified hit shifted every later
-    optional value onto the wrong document — and since ``doc_class`` is the
-    first-priority signal in ``lane_for_hit``, a user's own project upload was
-    silently presented as a binding OIB Richtlinie.
+    Fields bind per hit, never by position across whole-document ``findall`` lists:
+    ``_format_results`` emits ``Collection:`` and ``Dokumentart:`` only when a hit HAS
+    one, so a single unclassified hit would shift every later optional value onto the
+    wrong document. And since ``doc_class`` is the first-priority signal in
+    ``lane_for_hit``, a user's own project upload would be silently presented as a
+    binding OIB Richtlinie.
     """
 
     OIB = Hit(
@@ -199,7 +199,7 @@ class TestProducerParserContract:
     )
 
     def test_only_some_hits_classified_keeps_every_field_on_its_own_hit(self):
-        """The audited bug: one unclassified hit shifted doc_class onto its neighbour."""
+        """One unclassified hit must not shift doc_class onto its neighbour."""
         entries = roundtrip(self.PROJEKT, self.OIB, self.ARCHIV)
         assert identities(entries) == [self.PROJEKT.identity, self.OIB.identity, self.ARCHIV.identity]
 
@@ -331,7 +331,7 @@ GOLDEN_HITS = [
 
 # The model's answer: two real sources and, between them, one it invented.
 # The fabricated source sits in the MIDDLE so its removal opens a gap that
-# renumbering must close — the combination that was broken.
+# renumbering must close, which is the combination this test pins.
 GOLDEN_ANSWER = (
     "Brandabschnitte sind nach OIB-Richtlinie 2 auszubilden [1]. "
     "Ergaenzend fordert die OENORM B 1300 eine jaehrliche Begehung [2]. "
@@ -353,7 +353,7 @@ def run_golden_path():
     """
     # Under a grounding capture, as Piloti's turn runs: the registry reads the
     # records the producer filed, not the text back. Only the records carry what
-    # the text does not state, such as a plan's region (issue #433).
+    # the text does not state, such as a plan's region.
     token = begin_grounding_capture()
     try:
         tool_output = format_hits(GOLDEN_HITS)
@@ -377,10 +377,9 @@ def run_golden_path():
 class TestGoldenPathToWire:
     """One realistic turn, end to end, including a fabricated citation.
 
-    Removal, renumbering and the wire ``number`` were each covered alone; their
-    COMBINATION was not, and it was broken — the chip kept the number the model
-    wrote while the prose had already been renumbered, so the inline marker
-    scrolled to a source row that no longer existed.
+    Removal, renumbering and the wire ``number`` are each covered alone. Their
+    combination is the risk: the chip must take the renumbered number, or the inline
+    marker scrolls to a source row that does not exist.
     """
 
     def test_the_invented_source_is_the_only_one_removed(self):
@@ -435,9 +434,9 @@ class TestGoldenPathToWire:
 
         A wire source is a LOCUS — one passage at one page — and every surface
         groups them by DOCUMENT: one chip per Richtlinie, one Herleitung card per
-        file, one bibliography row per passage. The frontend used to infer that
-        grouping from the filename, which is a second identity derivation living
-        a repository away from the registry's own.
+        file, one bibliography row per passage. Grouping by filename in the frontend
+        would be a second identity derivation, living a repository away from the
+        registry's own.
         """
         _, _, _, wire = run_golden_path()
         assert [source["document_id"] for source in wire] == [
@@ -484,11 +483,11 @@ def _without_regions(entry: SourceEntry) -> dict[str, object]:
 class TestTheTwoReadersAgree:
     """The structured reader and the text parser must produce the same entries.
 
-    ADR-0061 moved the live path off the text: a rendered block is filed under
-    its own bytes and the registry copies fields off the records. The text
-    parser stays for everything that holds the bytes without the records: a
-    registry hydrated from the shared cache, a turn replayed out of Postgres,
-    the job runner's callback.
+    ADR-0061: the live path reads the records, not the text. A rendered block is filed
+    under its own bytes, and the registry copies fields off the records. The text
+    parser stays for everything that holds the bytes without the records: a registry
+    hydrated from the shared cache, a turn replayed out of Postgres, the job runner's
+    callback.
 
     That makes the two paths a pair, and a pair drifts. Here they read the SAME
     bytes off a real producer, one with the capture open and one without, and
@@ -554,10 +553,9 @@ class TestTheTwoReadersAgree:
     def test_a_region_rides_on_the_record_and_never_on_the_text(self):
         """The second place the two readers differ, written down rather than found.
 
-        A region is geometry for the reader's viewer, so it is deliberately not a
-        line of the text the model reads (issue #433), and the text parser has
-        nothing to recover it from. A replayed turn therefore opens a plan at its
-        page without the box, which is what every turn did before.
+        A region is geometry for the reader's viewer, so it is deliberately not a line of
+        the text the model reads, and the text parser has nothing to recover it from. A
+        replayed turn therefore opens a plan at its page without the box.
         """
         structured, parsed = self.read_both_ways(GOLDEN_HITS)
         plan = next(entry for entry in structured if entry.citation_key == "einreichplan_og.pdf, p.4")
@@ -688,9 +686,9 @@ class TestDocumentKey:
     def test_two_sources_with_no_label_at_all_do_not_share_one_key(self):
         """Never identity-less, and never falsely identical.
 
-        A bare ``label:`` made every anonymous entry key the same — and the
-        frontend PREFERS a supplied ``document_id`` over its own derivation, so
-        distinct sources would have been folded into one document downstream.
+        A bare ``label:`` would make every anonymous entry key the same, and the frontend
+        PREFERS a supplied ``document_id`` over its own derivation, so distinct sources
+        would be folded into one document downstream.
         """
         first = SourceEntry(source_type="tool_result", chunk_text="ein Absatz")
         second = SourceEntry(source_type="tool_result", chunk_text="ein anderer Absatz")
@@ -736,14 +734,13 @@ class TestSharedWireFixturesAreCurrent:
     def test_wire_sources_fixture_matches_the_serializer(self):
         """Counterpart: wire-citation.ts (`citationFromWire`).
 
-        EXACT, not a subset. It was ``sampled.items() <= live.items()``, which
-        pins that the fixture's fields still mean what they did and says nothing
-        about fields the serializer stopped sending — so ``snippet``, the
-        retrieved passage every reading surface is built around, could be
-        captured, merged and then dropped at serialization with this contract
-        green and nothing on either side failing. A missing snippet is a
-        supported outcome everywhere it is read, which is what made the loss
-        invisible rather than loud.
+        EXACT, not a subset. A subset check (``sampled.items() <= live.items()``) pins that
+        the fixture's fields still mean what they did, and says nothing about fields the
+        serializer stopped sending. So ``snippet``, the retrieved passage every reading
+        surface is built around, could be captured, merged and then dropped at serialization,
+        with this contract green and nothing failing on either side. A missing snippet is a
+        supported outcome everywhere it is read, which is what makes the loss invisible
+        rather than loud.
 
         The key sets must therefore agree too: a field that only one side knows
         about is the defect this file exists to catch.
@@ -807,13 +804,12 @@ class TestBatchToolOutputContract:
 class TestPassageBodyCannotForgeHeaderFields:
     """A retrieved passage must never be read as another hit's header field.
 
-    Block-scoped parsing alone was not enough: a block holds the header AND the
-    retrieved text, and the producer omits ``Dokumentart:``/``Collection:`` for
-    a hit that has none — so a scanned title block or metadata table inside the
-    passage supplied them instead. That reproduced the exact user-visible
-    failure positional misalignment caused: a project upload presented as a
-    binding OIB Richtlinie. Header fields are now read from the header region
-    only (``_kl_block_header``).
+    Block-scoped parsing is not enough on its own: a block holds the header AND the
+    retrieved text, and the producer omits ``Dokumentart:``/``Collection:`` for a hit
+    that has none, so a scanned title block or metadata table inside the passage would
+    supply them instead. That is the same user-visible failure positional misalignment
+    causes: a project upload presented as a binding OIB Richtlinie. Header fields are
+    read from the header region only (``_kl_block_header``).
     """
 
     POISONED = Hit(

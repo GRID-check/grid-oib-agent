@@ -25,12 +25,12 @@ export type FilePreviewMode = 'modal' | 'peek' | 'expanded'
 
 export const FILE_PEEK_WIDTH_MIN = 280
 /**
- * The ceiling was 560px, which is narrower than an A3 plan at any readable
- * zoom: the reader dragged the seam out, hit a wall a third of the way across
- * a 1600px window, and the pane stopped being something they could size to the
- * document. The chat column keeps its own floor (the chat panel's `minSize` is
- * 40% of the split), so on a small window that constraint still binds first —
- * this only lifts the cap on the displays where there was room all along.
+ * The ceiling is wide enough for an A3 plan at a readable zoom. A narrower one
+ * would stop the reader's seam a third of the way across a 1600px window, short
+ * of sizing the pane to the document. The chat column keeps its own floor (the
+ * chat panel's `minSize` is 40% of the split), so on a small window that
+ * constraint still binds first. The ceiling only opens the room on the displays
+ * that have it.
  */
 export const FILE_PEEK_WIDTH_MAX = 960
 export const FILE_PEEK_WIDTH_DEFAULT = 320
@@ -99,9 +99,8 @@ export interface FilePreviewContext {
   /**
    * Whether an `.ifc` preview offers the model workspace (`ifc-models`).
    *
-   * The flag used to decide whether a click on a model card SKIPPED the preview
-   * and went straight to the workspace. It decides the opposite thing now: the
-   * preview always opens, and this says whether it also offers the way on.
+   * The preview always opens on a model card. This flag says whether it also
+   * offers the way on to the model workspace.
    */
   showModels?: boolean
   /**
@@ -137,11 +136,9 @@ interface FilePreviewState {
    * The file is being CARRIED from one route to the other — Ask Piloti, which
    * turns a modal on Files into a peek beside a chat that has not loaded yet.
    *
-   * Without it the viewer vanished at the click: `askAboutFile` sets `peek`
+   * Without it the viewer vanishes at the click: `askAboutFile` sets `peek`
    * and then navigates, and a `peek` on Files belongs nowhere, so the pane
-   * parked itself and the reader watched their document disappear, looked at
-   * the file grid for as long as the router took, and then found it again on
-   * the right of a chat. Nothing was broken and every frame was wrong.
+   * parks itself until the chat loads.
    *
    * Intent is why this is a flag rather than something derived: "the file is
    * following me to the conversation" and "I walked away from it to another

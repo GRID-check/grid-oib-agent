@@ -39,8 +39,8 @@
  * ## Why there is no XML library here
  *
  * There is no DOMParser in the Node runtime this route executes in, and adding
- * a parser dependency to read a file format we are about to narrow to twenty
- * elements is the wrong trade — a general parser's job is to accept, and this
+ * a parser dependency to read a file format narrowed to twenty elements is the
+ * wrong trade — a general parser's job is to accept, and this
  * one's job is to refuse. The scanner below therefore refuses everything it
  * does not explicitly understand, including DOCTYPE and entity declarations,
  * which is also what makes XXE and billion-laughs unrepresentable rather than
@@ -113,12 +113,10 @@ export type SvgNode = SvgElement | SvgTextNode
 /**
  * A content-free census of a parsed diagram, for the failure log.
  *
- * The diagram-PDF crash (err2issue #589, React minified #31) arrived with the
- * drawing's SHAPE as the only suspect and no way to recover it: the tree
- * holds tenant content and is never logged. Tag frequencies name the
- * construct the renderer choked on (a `<tspan>` nesting, an `<a>`-wrapped
- * label), the depth and node count name the size — and no text content leaves
- * the process.
+ * A renderer failure needs a suspect, and the tree cannot be logged: it holds
+ * tenant content. Tag frequencies name the construct the renderer choked on (a
+ * `<tspan>` nesting, an `<a>`-wrapped label), the depth and node count name the
+ * size, and no text content leaves the process.
  */
 export interface SvgCensus {
   nodes: number
@@ -272,11 +270,9 @@ const ELEMENT_GEOMETRY: ReadonlyMap<string, ReadonlySet<string>> = new Map([
   // Its attributes are handled separately in `keptAttributes`.
   //
   // **Only as a direct child of the root**, which is the one position this
-  // module ever writes one in — see {@link refuseUnsupportedElements}. Membership
-  // of this map alone used to mean "at any depth", and `withDiagramSource`
-  // filters only the ROOT's children, so a `<g><metadata
-  // data-grid-diagram-source="mermaid">…` carried 200 KiB of client text into a
-  // stored file against a 32 KiB source cap the server thought it had enforced.
+  // module ever writes one in — see {@link refuseUnsupportedElements}. Anywhere
+  // else it would carry client text past `withDiagramSource`, which filters only
+  // the ROOT's children, into a stored file the 32 KiB source cap never measures.
   ['metadata', new Set<string>()],
 ])
 
@@ -439,9 +435,9 @@ function parseAttributeValue(scanner: Scanner, elementName: string, attributeNam
  * `depth` is what stops a hostile input here rather than in the runtime: this
  * function recurses once per level of nesting, and so do the three walks after
  * it, so a document that is trivially small in BYTES can still exhaust the
- * stack. Depth 5000 is ~35 KB — 3% of the 1 MiB budget — and threw a bare
- * `RangeError`, which is not a `DiagramSvgError` and therefore reached the route
- * as an untranslated 500 on a request the caller was promised a named 400 for.
+ * stack. A bare `RangeError` from that is not a `DiagramSvgError`, so it would
+ * reach the route as an untranslated 500 instead of the named 400 the caller is
+ * promised. A 5000-deep document is only ~35 KB, well inside the byte budget.
  * See {@link MAX_DIAGRAM_SVG_DEPTH} for the measurement behind the number.
  *
  * The check is BEFORE the recursion and before any work on the child, because
@@ -612,10 +608,9 @@ function refuseUnsupportedElements(node: SvgNode, depth: number): void {
   // in, as a direct child of the root, where `withDiagramSource` can throw the
   // client's copy away and put the server-validated source there instead. Deeper
   // than that it is refused rather than dropped, because a nested one is not a
-  // decoration this pipeline can ignore — `keptAttributes` carries
-  // `data-grid-diagram-source` wherever it appears, so a `<g><metadata
-  // data-grid-diagram-source="mermaid">…` was serialised into the stored file
-  // with 200 KiB of text the 32 KiB per-kind source cap never saw. A file
+  // decoration this pipeline can ignore: `keptAttributes` keeps
+  // `data-grid-diagram-source` wherever it appears, so a nested one would store
+  // client text that the 32 KiB per-kind source cap never measures. A file
   // claiming two sources is a file whose reader cannot tell which one the server
   // stood behind.
   if (node.name === METADATA_ELEMENT && depth !== 1) {
@@ -768,7 +763,7 @@ function serializeNode(node: SvgNode, out: string[]): void {
  *
  * The client's bytes are never what is stored. Anything this file did not
  * recognise is simply not written — so a `style="…"`, a `data-*`, an `aria-*`
- * or an attribute invented after this was written cannot reach the stored
+ * or an attribute invented later cannot reach the stored
  * object even if the deny-list above never heard of it.
  */
 export function serializeDiagramSvg(root: SvgElement): string {
@@ -814,9 +809,8 @@ export function withDiagramSource(root: SvgElement, kind: DiagramSourceKind, sou
     children: [{ kind: 'text', text: source }],
   }
   // Filtering the ROOT's children is enough, and only because
-  // `refuseUnsupportedElements` refuses a `<metadata>` anywhere else. When it
-  // did not, this filter was the whole of the "discarded" promise above and a
-  // nested one walked straight past it into the stored file.
+  // `refuseUnsupportedElements` refuses a `<metadata>` anywhere else: a nested
+  // one would walk straight past this filter into the stored file.
   const rest = root.children.filter((child) => !(child.kind === 'element' && child.name === METADATA_ELEMENT))
   return { ...root, children: [metadata, ...rest] }
 }
@@ -824,14 +818,14 @@ export function withDiagramSource(root: SvgElement, kind: DiagramSourceKind, sou
 /**
  * Say, inside the file, that a machine drew it.
  *
- * ## The problem this fixes
+ * ## Why the marking is written into the file
  *
- * A filed diagram used to carry NO marking of any kind in its bytes. The grey
- * „Von Piloti erstellt" byline is chrome — it lives in the Files pane and stops
- * at the download button — and the PDF sibling prints a footer line, but the
- * `.svg` a person drags onto their desktop, embeds in a Word document or mails
- * to a colleague said nothing at all about who drew it. That is the exact
- * artifact the marking exists for.
+ * A filed diagram carries NO marking unless this module writes one into its
+ * bytes. The grey „Von Piloti erstellt" byline is chrome — it lives in the Files
+ * pane and stops at the download button — and the PDF sibling prints a footer
+ * line, but the `.svg` a person drags onto their desktop, embeds in a Word
+ * document or mails to a colleague would say nothing about who drew it. That is
+ * the exact artifact the marking exists for.
  *
  * ## Why `<title>` and `<desc>`, and not the four other candidates
  *

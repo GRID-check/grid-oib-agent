@@ -278,7 +278,7 @@ beforeEach(() => {
   vi.mocked(deleteGrant).mockResolvedValue(true)
 })
 
-describe('two people answering the same mention (matrix D21, spec CC-15)', () => {
+describe('two people answering the same mention', () => {
   it('transitions only rows that are still open, so a late close cannot rewrite a resolution', async () => {
     // The race is settled in SQL. `status = 'open'` in the WHERE clause is the
     // whole mechanism: the loser's UPDATE matches nothing.
@@ -334,7 +334,7 @@ describe('two people answering the same mention (matrix D21, spec CC-15)', () =>
   })
 })
 
-describe('a replayed message id (matrix D22, spec MN-2)', () => {
+describe('a replayed message id', () => {
   it('reads back the first ruling instead of minting a second mention request', async () => {
     // The client fires create-if-missing per appended message, so the same id can
     // arrive twice. The first attempt's addressee ruling is authoritative.
@@ -353,7 +353,7 @@ describe('a replayed message id (matrix D22, spec MN-2)', () => {
   })
 })
 
-describe('emitting the same notification twice (matrix D23, spec IB-8)', () => {
+describe('emitting the same notification twice', () => {
   const emission = {
     organizationId: 'org_1',
     recipientUserId: ANNA,
@@ -411,7 +411,7 @@ describe('emitting the same notification twice (matrix D23, spec IB-8)', () => {
   })
 })
 
-describe('releasing a request twice (matrix D24, spec MN-9.2)', () => {
+describe('releasing a request twice', () => {
   it('is a no-op the second time, not an error', async () => {
     // The row already settled, so `resolveRequests` (open-only) touches nothing.
     vi.mocked(findRequestById).mockResolvedValue(
@@ -437,7 +437,7 @@ describe('releasing a request twice (matrix D24, spec MN-9.2)', () => {
   })
 })
 
-describe('revoking a grant twice (matrix D25, spec SH-13)', () => {
+describe('revoking a grant twice', () => {
   it('answers 404 for a grant that is already gone rather than pretending to succeed', async () => {
     stubConversation({ visibility: 'private', createdBy: 'user_creator' })
     stubMyGrant('owner')

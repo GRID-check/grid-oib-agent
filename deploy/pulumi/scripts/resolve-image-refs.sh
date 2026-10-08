@@ -25,19 +25,19 @@
 #   3. otherwise the newest commit on develop's first-parent history, at or
 #      before DEPLOY_SHA, whose sha-<commit> tag GHCR actually has.
 #
-# Case 3 used to read the Actions run index
-# (`/actions/workflows/publish-images.yml/runs?branch=develop&status=success`).
-# GitHub serves those filters from a search index with limits, and on 09-28 it
-# twice returned a list without the newest backend build: a docs-only commit's
-# deploy pinned the backend to a 09-11 image, the new UI spoke wire v2 to it,
-# and every chat hung on "Denkt nach…". Git history and the registry are the
-# two facts that decide what can be deployed, so the walk reads only those. A
-# commit whose publish failed has no tag and is stepped over.
+# Case 3 walks git history and the registry, never the Actions run index
+# (`/actions/workflows/publish-images.yml/runs?branch=develop&status=success`):
+# GitHub serves those filters from a search index with limits, and a list can
+# silently omit the newest backend build, which pins a deploy to an older image
+# and leaves a new UI talking to a backend that speaks an older wire version.
+# Git history and the registry are the two facts that decide what can be
+# deployed, so the walk reads only those. A commit whose publish failed has no
+# tag and is stepped over.
 #
 # The guard: the resolved commit must descend from (or equal) the one the stack
-# last deployed, read from the stack output `deployedImages`. Nothing else ever
-# compared the two, which is why that downgrade was silent. Only an explicit
-# rollback may go backwards, and it says so.
+# last deployed, read from the stack output `deployedImages`. Nothing else
+# compares the two, so this guard is the only check against a silent downgrade.
+# Only an explicit rollback may go backwards, and it says so.
 set -euo pipefail
 
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

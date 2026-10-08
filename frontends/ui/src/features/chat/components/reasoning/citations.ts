@@ -4,8 +4,7 @@
  * `citationChips` collapses the flat streamed citation list into unique
  * per-lane provenance chips (mock has none real), and `ChoicePrompt` is the
  * live HITL multiple-choice payload rendered by the branches node. Both are
- * consumed by `ReasoningFlow`; extracted here so the graph no longer depends on
- * the retired plain-DOM node components.
+ * consumed by `ReasoningFlow`, and kept apart from its layout code.
  */
 
 import type { SourceSignal } from '@/features/layout/lib/source-presets'

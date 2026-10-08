@@ -17,7 +17,7 @@ THE RULE: NEVER TUNE ON THESE SETS
 Change a criterion because the tuning sets or production say so, then run
 this to see whether it generalised. A change made to fix a held-out row makes
 the held-out set a tuning set; when that happens, write a new held-out set.
-The floors below sit just under the 2026-09-26 result so a regression fails;
+The floors below sit just under the reference run below, so a regression fails;
 they are not targets.
 
 IT NEEDS A KEY, NOT A BACKEND
@@ -25,9 +25,9 @@ IT NEEDS A KEY, NOT A BACKEND
 OPENROUTER_API_KEY (or GRID_DECISIONS_API_KEY); a few cents. Exit 0
 when every floor holds.
 
-THE LAST RUN
-------------
-2026-09-26, two runs, identical: tags 24/24 types, 13 of 14 disciplines, no
+THE REFERENCE RUN
+-----------------
+Two runs, identical: tags 24/24 types, 13 of 14 disciplines, no
 false one; Dokumentart 13/13; feedback causes 20/24 (1 wrong, 3 unlabelled).
 """
 

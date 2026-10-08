@@ -224,8 +224,9 @@ describe('saveBudgetPolicy, member scope', () => {
 
 describe('removeBudgetPolicy, member scope', () => {
   it('removes a departed member’s stale policy without consulting the roster', async () => {
-    // The cure for the row this ticket is about. A roster check here would make
-    // it permanent: the subject is exactly the person who is no longer a member.
+    // Removing a departed member's stale row must work. A roster check here
+    // would make the row permanent: its subject is exactly the person who is no
+    // longer a member.
     const { removeBudgetPolicy } = await import('./service')
     resolveSubjectMembership.mockResolvedValue(null)
 

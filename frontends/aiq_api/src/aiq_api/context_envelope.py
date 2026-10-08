@@ -1,6 +1,6 @@
 """Enforcement for the consolidated, signed ``X-Grid-Request-Context`` envelope.
 
-User-mandated requirement (2026-07-16): a workflow-invoking request from a
+A workflow-invoking request from a
 WorkOS-authenticated user MUST carry the consolidated context envelope —
 without it we cannot verify who the user is, which organization they belong
 to, and what model overrides the organization has configured, so the request
@@ -29,8 +29,8 @@ for the ``/websocket`` path this middleware independently re-runs the same
 purely to decide whether an authenticated JWT caller is present and must
 therefore carry the envelope — it never itself validates token *authenticity*
 beyond that classification, so no auth behavior changes; a request that fails
-this check today would also have failed (or been treated as internal by) the
-downstream handshake.
+this check would also fail, or be treated as internal, in the downstream
+handshake.
 
 Enforcement matrix
 -------------------
@@ -45,17 +45,13 @@ Enforcement (403 / WS policy-violation close) applies only when ALL of:
    in ``aiq_agent.project_context`` — the single verify function this module
    calls, shared with the runtime ``from_context()`` parse path).
 
-**Deny by default.** Condition 3 used to be the opposite: an allowlist of
-ENFORCED paths (the async job submit, the internal skills submit, NAT's
-``/generate``). Every workflow endpoint NAT mounts that nobody had listed —
-``/chat``, ``/chat/stream``, ``/v1/chat``, ``/v1/chat/stream``,
-``/v1/chat/completions``, ``/v1/workflow``, ``/v1/workflow/stream`` — ran a
-full agent turn for a signed-in member with no organization, no budget, no
-disabled sources and no model overrides, reached through the BFF's v1 proxy
-with nothing but the member's cookie. A path a future NAT release adds would
-have been open the same way. Now a JWT caller needs the envelope everywhere
-except the short list of paths that run no workflow and that a BFF proxy
-legitimately forwards with the member's bearer and no envelope.
+**Deny by default.** A JWT caller needs the envelope on every path except the
+short list of paths that run no workflow and that a BFF proxy legitimately
+forwards with the member's bearer and no envelope. An allowlist of enforced
+paths would leave open every workflow endpoint NAT mounts that nobody listed
+(``/chat``, ``/chat/stream``, ``/v1/chat``, ``/v1/workflow/stream``, ...), and
+every path a future NAT release adds: each would run a full agent turn for a
+signed-in member with no organization, no budget and no model overrides.
 
 EXEMPT (enforcement never applies):
 

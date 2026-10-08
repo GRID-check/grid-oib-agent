@@ -7,10 +7,10 @@
  * project uploads, project re-ingests, org-wide Archiv uploads, and (ADR-0047
  * Phase 2) session uploads.
  *
- * That branch used to be copied at each call site. These specs are about the
- * single copy: `dispatchDocument` routes an IFC to extraction and everything
- * else to `/v1/ingest`, and no caller can opt out of the choice because no
- * caller makes it.
+ * The branch lives at one call site, not copied per caller. These specs are
+ * about that single copy: `dispatchDocument` routes an IFC to extraction and
+ * everything else to `/v1/ingest`, and no caller can opt out of the choice
+ * because no caller makes it.
  */
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -103,16 +103,14 @@ afterEach(() => {
 describe('dispatchDocument', () => {
   /**
    * The invariant the whole agent-authored feature rests on, tested at the ONE
-   * place every ingestion path funnels through.
-   *
-   * It used to be tested in `generated.spec.ts` alone, which proved only that
-   * the FILING path does not ingest — a claim about one function, where the
-   * design's claim is about the document. `reindexProject`, behind the
-   * „Projekt neu indizieren" button, enumerated every document in the project
-   * and re-dispatched it; an agent-authored row passed its guard, went into the
-   * project's own retrieval collection, and came back out as a green „Bereit"
-   * document with „Piloti dazu fragen" enabled. One click, and the model could
-   * cite its own writing as Projektwissen.
+   * place every ingestion path funnels through. Testing the filing path alone
+   * would prove only that filing does not ingest, a claim about one function,
+   * where the design's claim is about the document. `reindexProject`, behind the
+   * „Projekt neu indizieren" button, enumerates every document in the project
+   * and re-dispatches it, so an agent-authored row must be refused here as well:
+   * otherwise it goes into the project's own retrieval collection, comes back as
+   * a green „Bereit" document with „Piloti dazu fragen" enabled, and one click
+   * lets the model cite its own writing as Projektwissen.
    */
   it('REFUSES a document a machine wrote, whatever the caller asked for', async () => {
     vi.mocked(findDocumentInOrg).mockResolvedValue(makeDocument({ authoredBy: 'agent' }))
@@ -128,7 +126,7 @@ describe('dispatchDocument', () => {
   })
 
   /**
-   * The one clause ADR-0054 added, and everything it deliberately does not
+   * The published-version clause (ADR-0054), and what it deliberately does not
    * cover.
    *
    * The rule is a COMPARISON — `published_version_id === the dispatched
@@ -163,7 +161,7 @@ describe('dispatchDocument', () => {
      * one and a rejected one are all versions the row's pointer does not name;
      * a superseded one is the version the pointer named until the last publish
      * moved it. The pointer is `null` while nothing has ever been published,
-     * which is the first three rows.
+     * which is the first five rows.
      */
     const refused: Array<[string, string | null, string | null]> = [
       ['a draft, before anything was ever published', null, 'ver_1'],
@@ -201,9 +199,8 @@ describe('dispatchDocument', () => {
     })
 
     it('leaves a human upload admitted with no version named at all', async () => {
-      // Every upload shelf and every re-ingest dispatches without a version:
-      // the clause widened the rule for machine-authored rows and changed
-      // nothing for a person's.
+      // Every upload shelf and every re-ingest dispatches without a version.
+      // The clause applies to machine-authored rows and leaves a person's alone.
       vi.mocked(findDocumentInOrg).mockResolvedValue(makeDocument({ authoredBy: 'user' }))
 
       await expect(dispatchDocument(input('plan.pdf'))).resolves.toEqual({
@@ -599,11 +596,11 @@ describe('an office file is converted, detached, before it is ingested', () => {
  * A timeout is the one dispatch outcome that leaves the backend's side unknown.
  *
  * The backend may still be downloading when the ten-second budget runs out and
- * start the job afterwards; recording `failed` then was a false failure, and a
- * duplicate once someone retried. `/v1/ingest` is idempotent per document and
- * object, so the dispatch sends the same request once more and takes whichever
- * job id comes back. The backend twin is the idempotency block at the end of
- * `frontends/aiq_api/tests/test_ingest.py`.
+ * start the job afterwards, so a timeout cannot be recorded as a failure without
+ * risking a false one, and a duplicate once someone retries. `/v1/ingest` is
+ * idempotent per document and object, so the dispatch sends the same request
+ * once more and takes whichever job id comes back. The backend twin is the
+ * idempotency block at the end of `frontends/aiq_api/tests/test_ingest.py`.
  */
 describe('the ingest dispatch after a timeout', () => {
   const timeout = () =>

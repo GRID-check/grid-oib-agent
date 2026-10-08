@@ -261,9 +261,8 @@ describe('FilePreviewHost', () => {
       )
 
       // The peek exists BECAUSE this file is what the next question is about.
-      // "Still indexing" is the difference between an answer and an apology,
-      // and the peek used to be the one surface that did not say it. The
-      // CONSEQUENCE is the assertion, not the badge: "Processing" is a word,
+      // "Still indexing" is the difference between an answer and an apology.
+      // The CONSEQUENCE is the assertion, not the badge: "Processing" is a word,
       // "Piloti cannot cite this file yet" is the reason the reader is about
       // to get a worse answer than they expect.
       expect(screen.getByRole('status')).toHaveTextContent(/cannot cite this file until it has been read/i)
@@ -446,8 +445,8 @@ describe('FilePreviewHost', () => {
       render(
         <FilePreviewBridge>
           <div>chat transcript</div>
-          {/* Stands in for the composer's "Asking about …" bar, which is what
-              appears in the same commit the peek goes away in. */}
+          {/* Stands in for the composer's "Asking about …" bar, which offers
+              "Show file" once the peek is away. */}
           <button type="button" data-testid="composer-show-file">
             Datei anzeigen
           </button>
@@ -749,8 +748,8 @@ describe('FilePreviewHost', () => {
       render(<Probe />)
 
       // Each of these takes the pane off screen without touching `mode` or
-      // `hidden`, which is exactly what the composer bar used to ask — so it
-      // withheld "Show file" in three states where nothing was visible.
+      // `hidden`. Asking only those two withholds "Show file" in states where
+      // nothing is visible.
       expect(answer()).toBe('false')
     })
   })

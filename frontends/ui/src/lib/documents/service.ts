@@ -149,7 +149,7 @@ const TEXT_PREVIEW_MAX_BYTES = 256 * 1024
  * a same-origin response. BMP and TIFF are excluded because sharp's support is
  * patchier than the browsers' and a decode failure is a broken image, not a
  * slow one. Everything excluded here still previews; it just renders straight
- * from the object store as it does today.
+ * from the object store.
  */
 const OPTIMIZABLE_IMAGE_CONTENT_TYPES = [
   'image/png',
@@ -295,10 +295,9 @@ function contentDisposition(type: 'attachment' | 'inline', rawFilename: string):
  *   - a job id came back  → status pending  (setDocumentIngestJob)
  *   - anything else        → status failed   (markDocumentIngestFailed)
  *
- * The third shape the old code allowed — OK without a job id, row left at its
- * 'uploaded' birth status — is gone on purpose: the backend answers 202 with a
- * `job_id` on every success, so that shape was never a quieter success, and
- * the birth status renders as a green "Ready" the document has not earned.
+ * A success without a job id is not a shape this path accepts: the backend
+ * answers 202 with a `job_id` on every success, and a row left at its 'uploaded'
+ * birth status would render as a green "Ready" the document has not earned.
  */
 /**
  * The things only some dispatch callers know.
@@ -490,11 +489,11 @@ export async function dispatchIngest(
  * never leaves the BFF; the curated metadata fields ride alongside as
  * top-level properties.
  *
- * `nextCursor` is where the next page starts, `null` on the last one. The
- * listing used to be one page of 500 with nothing saying so: in a big project
- * the oldest plans were simply absent, so search, filters and the folder-upload
- * planner (which labelled them „Neu") worked on a corpus that was not the
- * project's. A client that needs the whole corpus follows the cursor.
+ * `nextCursor` is where the next page starts, `null` on the last one. Without a
+ * cursor a big project's oldest plans would be silently absent, and search,
+ * filters and the folder-upload planner (which labels them „Neu") would work on
+ * a corpus that is not the project's. A client that needs the whole corpus
+ * follows the cursor.
  */
 export async function listDocumentsPage(
   session: AuthorizedSession,
@@ -502,7 +501,7 @@ export async function listDocumentsPage(
   /**
    * Narrowing options. `authoredBy` is pushed down to the query rather than
    * filtered here: the „Von Piloti" chip asks for the small minority of rows a
-   * machine wrote, migration 0063 gave that predicate its own partial index,
+   * machine wrote, and that predicate has its own partial index,
    * and filtering after the fact would read the whole project's corpus — plus
    * reconcile and assignment-hydrate every row of it — to return a handful.
    */
@@ -529,8 +528,8 @@ export async function listDocumentsPage(
  *
  * For the readers that want particular documents rather than the corpus: a
  * citation chip, a surfaced-documents card, a file operation naming its file.
- * They used to read the first listing page and look the name up in it, so a
- * cited document older than the newest 500 resolved to nothing. Same gate and
+ * Reading the first listing page and looking the name up in it would leave a
+ * cited document older than the newest 500 unresolved. Same gate and
  * same row as the listing; archived documents are left out as they are there.
  */
 export async function resolveProjectDocumentsByName(
@@ -702,7 +701,7 @@ function collectionFileKey(collectionName: string, filename: string): string {
  * A filename is unique only within a collection, and a project has several: its
  * own, plus one per restricted folder (`<collection>_r<12hex>`, ADR-0080). The
  * same name can sit in a restricted folder and, newer, at the root. A join on the
- * name alone handed the restricted folder's passage to the root row, which
+ * name alone hands the restricted folder's passage to the root row, which
  * carries the OPEN collection — so everything downstream that decides "restricted
  * or not, and which folder" from the joined row's `collectionName` (the
  * cross-project search keeps a hit in a shared chat because its collection is
@@ -779,7 +778,7 @@ export function joinHitsToFiles<
  *
  * The rows are looked up BY THE HIT NAMES, as `searchArchivDocuments` does,
  * never read from the listing: the listing is paged, and a hit on a document
- * past its first page used to be dropped as if the search had not found it.
+ * past its first page would be dropped as if the search had not found it.
  */
 export async function searchProjectDocuments(
   session: AuthorizedSession,
@@ -828,7 +827,7 @@ export interface UploadDocumentInput {
   /**
    * Where the file sat before it was uploaded, when the browser knows — a
    * folder upload reports `webkitRelativePath`. Absent for a picked file.
-   * Recorded once (migration 0072) and never rewritten; see the schema comment
+   * Recorded once and never rewritten; see the schema comment
    * for why this is not Piloti's own folder path.
    */
   originPath?: string | null
@@ -840,7 +839,7 @@ export interface UploadDocumentInput {
    */
   screeningRelease?: boolean
   /**
-   * The upload gesture this file belongs to (migration 0105), as the browser
+   * The upload gesture this file belongs to, as the browser
    * opened it. Recorded on the row when it is the uploader's own open batch
    * for this project; anything else is ignored rather than refused.
    */
@@ -857,9 +856,9 @@ function fileExtension(name: string): string {
 
 /**
  * Server-side upload allow-list. The client already filters by accepted type,
- * but nothing enforced it on the server until now — so any type could be
- * POSTed directly. This mirrors the same env-driven accepted-types config the
- * client uses (closing that gap for ALL types), and gates image types by
+ * but the server must enforce it too, or any type could be POSTed directly.
+ * This mirrors the same env-driven accepted-types config the client uses, for
+ * ALL types, and gates image types by
  * availability = the `image-upload` flag AND the derived VLM capability:
  * images are in the allow-list only when the session's org has the flag AND a
  * vision model resolves on the backend. The capability comes from the same
@@ -964,8 +963,7 @@ export interface DispatchDocumentInput extends BeginModelExtractionInput {
    * approved-but-unpublished one, a superseded one and a rejected one all fail
    * the same check rather than each needing to be listed. Absent means "the
    * caller is not dispatching a particular version", which is every human
-   * upload path and every re-index — and which an agent-authored row is refused
-   * for, exactly as it was before this door existed.
+   * upload path and every re-index, and an agent-authored row is refused for it.
    */
   versionId?: string | null
   /**
@@ -997,12 +995,9 @@ export interface DispatchDocumentResult {
  * embedded as unreadable noise. It is parsed here instead, and the Markdown
  * digest that parse produces is what gets ingested (see `@/lib/bim/service`).
  *
- * That branch used to be written out at each call site — the project upload,
- * the project re-ingest, and the org-wide Archiv upload — which made "does this
- * caller remember that a model is not a document?" a question every new caller
- * had to be asked. Session uploads are the third shelf (ADR-0047 Phase 2) and
- * would have been the fourth copy. There is one copy now, so a caller cannot
- * forget the branch: it cannot see it.
+ * The branch lives here once, not at each call site (the project upload, the
+ * project re-ingest, the org-wide Archiv upload and session uploads, ADR-0047
+ * Phase 2), so no caller has to remember that a model is not a document.
  */
 /**
  * Thrown when something tries to index a document a machine wrote and nobody
@@ -1030,9 +1025,9 @@ export async function dispatchDocument(
    *
    * ## The one case, and why it is a row invariant
    *
-   * The rule used to be "human-authored, full stop". ADR-0054 widened it by one
-   * clause and no more: an agent-authored row passes when the dispatch names
-   * the version the row's `published_version_id` points at. Everything else a
+   * The rule is "human-authored", plus one clause from ADR-0054: an
+   * agent-authored row passes when the dispatch names the version the row's
+   * `published_version_id` points at. Everything else a
    * version can be — `draft`, `in_review`, `changes_requested`, `approved` but
    * not yet published, `superseded`, `rejected` — fails the SAME comparison
    * rather than being enumerated, so a later state cannot be forgotten here.
@@ -1051,30 +1046,30 @@ export async function dispatchDocument(
    * and re-dispatched them names no version and is refused, which is what keeps
    * „Projekt neu indizieren" from putting a superseded draft back in the index.
    *
-   * The invariant used to live in `generated.ts`, which only proved that the
-   * FILING path does not ingest. That is a claim about one function; the claim
-   * the design actually makes is about the document. `reindexProject` — behind
-   * the „Projekt neu indizieren" button in Project Settings — enumerated every
-   * document in the project and re-dispatched it, and an agent-authored row
-   * passed its guard: `stored` is neither `pending` nor `processing`, and the
-   * row carries a real storage key and the project's own collection. One click
-   * put Piloti's own report into the corpus it retrieves from, whereupon the
-   * status became `completed` and the entire not-citable UI — which derives
-   * from `status`, not from `authoredBy` — went green.
+   * The invariant is checked here, not only in `generated.ts`, because that
+   * file proves only that the FILING path does not ingest: a claim about one
+   * function. The claim the design makes is about the document. `reindexProject`
+   * — behind the „Projekt neu indizieren" button in Project Settings —
+   * enumerates every document in the project and re-dispatches it, and an
+   * agent-authored row would pass a guard that looks only at status and storage
+   * key: `stored` is neither `pending` nor `processing`, and the row carries a
+   * real storage key and the project's own collection. One click would put
+   * Piloti's own report into the corpus it retrieves from, and the status would
+   * become `completed`, which turns the not-citable UI — derived from `status`,
+   * not from `authoredBy` — green.
    *
    * Reading the row costs one primary-key select on an operation that is about
    * to make an HTTP call to the backend, and it buys an invariant no caller can
    * forget and no caller can lie about. Passing authorship in the input would
-   * be cheaper and weaker: the next caller would simply be able to get it
-   * wrong, which is exactly what happened.
+   * be cheaper and weaker: the next caller would simply be able to get it wrong.
    */
   const row = await findDocumentInOrg(input.documentId, input.organizationId)
-  // An allow-list on a row that must EXIST. `if (row && …)` read a missing row
-  // as permission to ingest, which is the one default this guard was moved here
-  // to stop making: the argument for reading the row is "never trust the
-  // caller", and treating an absent row as `user` trusts the caller about the
-  // only thing left. No caller reaches this without having inserted first, so
-  // the refusal costs nothing today; it is what keeps the next one honest.
+  // An allow-list on a row that must EXIST. `if (row && …)` would read a missing
+  // row as permission to ingest, which is the one default this guard refuses:
+  // the argument for reading the row is "never trust the caller", and treating
+  // an absent row as `user` trusts the caller about the only thing left. No
+  // caller reaches this without having inserted first, so the refusal costs
+  // nothing; it is what keeps the next one honest.
   if (!row || !mayBeIndexed(row, input.versionId ?? null)) {
     throw new AgentAuthoredDocumentNotIndexableError(input.documentId)
   }
@@ -1159,9 +1154,9 @@ export async function beginModelExtraction(
     // model the row names, so the backend's own derivation from the presigned
     // URL (`digest.md`) is what these chunks have always been filed under.
     // Stating `input.filename` would rename them to `haus.ifc` and orphan every
-    // chunk already written under the old name. That the row's purge therefore
-    // addresses a name its chunks do not carry is a defect this change did not
-    // introduce and does not fix — see the note in the slice report.
+    // chunk already written under the derived name. That the row's purge
+    // therefore addresses a name its chunks do not carry is a known defect, not
+    // fixed here.
     dispatchDigest: (digestStorageKey) =>
       dispatchIngest(
         input.documentId,
@@ -1199,12 +1194,12 @@ export async function beginModelExtraction(
  * Convert an office original to its PDF rendition, then ingest — DETACHED,
  * like {@link beginModelExtraction} and for the same reason (ADR-0071).
  *
- * The conversion used to be raced against a 20-second wait inside the upload
- * request, because a person was waiting on it and the PDF only fed the
- * thumbnail. Now it also decides what text is indexed, so a deck that took 25
- * seconds would be indexed from a different source than one that took 15 —
- * and a slow conversion would silently index the worse text. Detached, the
- * conversion gets its full two minutes and nobody waits on it.
+ * The conversion is detached from the upload request. The PDF decides what
+ * text is indexed as well as feeding the thumbnail, so a conversion cut off at
+ * a deadline would index a deck from a different source when it took 25 seconds
+ * than when it took 15 — and a slow conversion would silently index the worse
+ * text. Detached, the conversion gets its full two minutes and nobody waits on
+ * it.
  *
  * The row goes to `processing` first, exactly as an IFC model does, so it never
  * renders a green "Ready" before anything was dispatched. Every terminal
@@ -1315,8 +1310,9 @@ export interface ReingestDocumentResult {
  *    the job — see the branch below.
  *  - indexed (the `success` family, e.g. `completed`) and written by a person:
  *    a deliberate re-read of an unchanged file, to pick up a change to how
- *    files are READ (ADR-0071 taught Word and PowerPoint to read their
- *    pictures; nothing in the upload path would notice that). Safe because the
+ *    files are READ (ADR-0071 reads Word and PowerPoint pictures from the
+ *    rendition; nothing in the upload path would notice a change there). Safe
+ *    because the
  *    backend replaces a version only once the new one has indexed
  *    (`_retire_previous_version`, `llamaindex/adapter.py`): the old chunks stay
  *    citable for the length of the job, and stay for good if it fails.
@@ -1356,11 +1352,11 @@ export async function reingestDocument(
   if (isInFlight) {
     // In flight: retry only what the backend has LOST. A row can sit at
     // `processing` forever — a backend restart wipes the in-memory job
-    // registry, a detached IFC extraction dies with the process — while the
-    // old guard answered every one of those with 409 and the user's only way
-    // out was delete + re-upload under a NEW id, breaking every citation,
-    // chat subject and assignment pointing at the old one. Retrying keeps the
-    // id, so nothing pointing at the document breaks.
+    // registry, a detached IFC extraction dies with the process — and refusing
+    // those with 409 would leave delete + re-upload under a NEW id as the only
+    // way out, breaking every citation, chat subject and assignment pointing at
+    // the old one. Retrying keeps the id, so nothing pointing at the document
+    // breaks.
     //
     // The check is live backend state, not a timer: a row is retryable when
     // the backend knows neither a job nor a file for it. A job that is
@@ -1399,10 +1395,10 @@ export async function reingestDocument(
   // The bucket the object is ACTUALLY in — `doc.storageBucket`, not the bucket
   // a new upload would go to. Both presigned URLs the dispatch mints name it:
   // the download the backend reads from, and the thumbnail slot it writes back
-  // to. Omitting it defaulted both to the shared bucket, so retrying a
-  // per-organization document presigned a GET for an object that is not there
-  // (the retry can never succeed) and a PUT into the shared bucket for a
-  // thumbnail every read path then looks for in the tenant bucket.
+  // to. Omitting it defaults both to the shared bucket, so retrying a
+  // per-organization document would presign a GET for an object that is not
+  // there, and a PUT into the shared bucket for a thumbnail every read path then
+  // looks for in the tenant bucket.
   // A failed IFC document is retried by re-EXTRACTING it, not by re-dispatching
   // its bytes: the raw model was never what ingestion consumed, so handing the
   // STEP file to the ingestor here would "succeed" into a collection full of
@@ -1458,11 +1454,10 @@ export const REINDEX_MAX_PAGES = 20
  * the file is read, `_retire_previous_version` removes exactly those after the
  * file reaches SUCCESS (`llamaindex/adapter.py`; docs/technical-reference/
  * document-ingestion.md, "A re-upload replaces the previous version once it has
- * indexed"). This function used to DELETE the chunks and then dispatch, so any
- * dispatch or ingest failure — a backend blip, an encrypted PDF, a missing VLM
- * key — left a document that answered yesterday with zero chunks today. The
- * backend moved away from delete-first for exactly that reason; the pre-delete
- * here reintroduced it one tier up.
+ * indexed"). A delete first would make any dispatch or ingest failure — a
+ * backend blip, an encrypted PDF, a missing VLM key — leave a document with
+ * zero chunks where it had answered questions before. The backend does not
+ * delete first for that reason, and a pre-delete here would reintroduce it one tier up.
  *
  * What the pre-delete bought is not worth that. The replacement is keyed on the
  * row's own filename, which is also what the delete addressed, so there is no
@@ -1551,9 +1546,9 @@ export async function reindexProject(
     await Promise.all(workers)
   }
 
-  // Every page, not the first: this read the newest `DOCUMENT_LIST_LIMIT` rows
-  // and stopped, so a project-wide reindex of a large project silently left
-  // its oldest documents on the old chunks. The keyset order is `created_at`,
+  // Every page, not the first: a read of the newest `DOCUMENT_LIST_LIMIT` rows
+  // alone would leave a large project's oldest documents on the old chunks. The
+  // keyset order is `created_at`,
   // which a dispatch never touches, so re-dispatching a page cannot move a row
   // across the cursor.
   //
@@ -1576,24 +1571,6 @@ export async function reindexProject(
   return result
 }
 
-/**
-/**
- * Re-dispatch every failed ingestion in the organization.
- *
- * The rescan behind "Rescan failed ingestions" in Organization > Enterprise:
- * all files that were stored but could never be read (`failed`/`error`, plus
- * rows stranded at the `uploaded` birth status) go back through the ingest
- * pipeline under their own ids, so citations, chat subjects and assignments
- * pointing at them keep working.
- *
- * Each id goes through `reingestDocument`, so per-document access checks and
- * the status guards stay in exactly one place. Rows that are not retryable
- * (still running, already finished behind the row's back, not eligible, or no
- * longer visible to this session) count as `skipped`, never as failures - a
- * rescan that reports failures must mean retries that actually went wrong,
- * not rows that were never eligible. One document's failure never abandons
- * the rest, and the fan-out is bounded like `reindexProject`.
- */
 /**
  * Re-dispatch every failed ingestion in the organization.
  *
@@ -1803,7 +1780,7 @@ export async function updateDocumentTags(
  * different names depending on which surface you are looking at.
  *
  * `filename` is untouched. It is the join key to the stored object and to every
- * chunk in the retrieval index (see migration 0048), so renaming it would
+ * chunk in the retrieval index, so renaming it would
  * detach the document from its own content. That is also why this needs no
  * re-ingestion: nothing about the indexed document changed.
  *
@@ -1959,8 +1936,8 @@ export async function eraseProjectDocument(doc: Document, organizationId: string
  * org-scoped `/api/archiv/documents/[id]` route and a session attachment
  * through `/api/session/documents/[id]`, each with its own authorization — so
  * either surfaces as a 404 rather than being force-fit through project FGA.
- * The scope is asked for by name: "has no project" used to mean "is an Archiv
- * document" and stopped meaning that when session documents became rows.
+ * The scope is asked for by name: "has no project" does not mean "is an Archiv
+ * document", since session documents have no project either.
  */
 export async function deleteDocument(
   session: AuthorizedSession,
@@ -2005,21 +1982,21 @@ export interface DocumentVisualDetail {
   text: string
   /**
    * Which depiction on the sheet this is. A sheet carrying a plan AND a section
-   * is indexed as one chunk per depiction, so the page number alone no longer
-   * identifies a row.
+   * is indexed as one chunk per depiction, so the page number alone does not
+   * identify a row.
    */
   segment: number
   /**
    * How many depictions share this chunk's sheet. A sheet carrying two floor
    * plans side by side is indexed one chunk per depiction, so the preview
-   * reads this to say which of the sheet's depictions a row is. `1` for
-   * chunks indexed before per-segment chunking recorded it.
+   * reads this to say which of the sheet's depictions a row is. `1` where a
+   * chunk carries no count.
    */
   segmentCount: number
   /**
    * The structured analysis behind the description — entities, compositions,
-   * quantities, provenance. `null` for chunks indexed before the structured
-   * schema, and for backends that do not produce one.
+   * quantities, provenance. `null` where a chunk has no structured analysis, and
+   * for backends that do not produce one.
    */
   structured: DrawingStructured | null
 }
@@ -2108,12 +2085,11 @@ export async function getDocumentDownload(
  * The key of an office document's PDF rendition, converting on first read
  * (ADR-0070), with the two failures mapped to what the routes answer.
  *
- * Lazy here because every office file uploaded before the conversion in
- * {@link beginRenditionIngest} existed has no rendition, nor does one whose
- * conversion failed there. "Disabled" is today's 415 exactly — a deployment without
- * `GOTENBERG_URL` must look as it did — and a converter failure is a 502 of its
- * own so the reader is told the preview failed rather than that the product
- * cannot show Word files.
+ * Lazy here because an office file may have no rendition: the conversion at
+ * upload ({@link beginRenditionIngest}) is not guaranteed to have produced one,
+ * and a failed conversion leaves none. "Disabled" answers 415, and a converter
+ * failure is a 502 of its own so the reader is told the preview failed rather
+ * than that the product cannot show Word files.
  *
  * A person is waiting here, so the wait is bounded by
  * {@link RENDITION_READER_WAIT_MS} and a file whose conversion failed in the
@@ -2332,8 +2308,9 @@ export async function streamDocumentFile(
  * Bounded by {@link TEXT_PREVIEW_MAX_BYTES} and decoded the way the knowledge
  * layer reads the same bytes (`decodeTextBytes`: BOM, else strict UTF-8, else
  * Windows-1252). A Windows-authored `.csv` in cp1252 is common, and decoding it
- * as UTF-8 with replacement glyphs showed every umlaut as „�". `truncated` is part of the contract because a viewer that
- * silently shows the first half of a document is worse than one that shows none
+ * as UTF-8 would show every umlaut as „�". `truncated` is part of the contract,
+ * because a viewer that silently shows the first half of a document is worse
+ * than one that shows none
  * of it — the reader would take the last line they see for the end of the file.
  */
 export async function getDocumentTextPreview(
@@ -2400,14 +2377,14 @@ export async function getDocumentThumbnail(
   if (!thumbnailKey) return { url: null }
 
   // The signed same-origin URL is only useful if the JPEG actually exists.
-  // Returning it blindly sent Next's image optimizer to a 404 / empty body
+  // Returning it blindly sends Next's image optimizer to a 404 / empty body
   // ("isn't a valid image … received null") for every file that is citable
-  // but has no thumbnail yet (#366, #395).
+  // but has no thumbnail yet.
   //
   // Existence is not enough: a failed ingest render can leave a 0-byte object
   // behind in the thumbnail slot, which passes HeadObject and then fails the
-  // optimizer's decode — the same error, recurring for the same documents
-  // across days. An empty object is no thumbnail.
+  // optimizer's decode, with the same error on every read. An empty object is
+  // no thumbnail.
   try {
     const head = await s3Client.send(
       new HeadObjectCommand({
@@ -2470,7 +2447,7 @@ export async function streamDocumentImage(
   const doc = await findDocumentInOrg(documentId, organizationId)
   if (!doc?.storageKey) throw new NotFoundError()
   // The URL outlives the moment it was minted, and the optimizer's fetch has no
-  // session, so the person it names is asked again: a folder they can no longer
+  // session, so the person it names is asked again: a folder they cannot
   // read does not load its images (ADR-0080, ADR-0081). Not found, like every
   // other refusal on this path.
   if (
@@ -2538,9 +2515,9 @@ export async function getDocumentStatus(session: AuthorizedSession, documentId: 
     status: reconciled.status,
     filename: reconciled.filename,
     // The label, next to the identity. Every other surface renders a renamed
-    // document through `documentDisplayName`; this payload omitted the column,
-    // so the one caller that reads `displayName` here always fell back to the
-    // raw filename and a renamed file was named two different ways in one view.
+    // document through `documentDisplayName`; this payload carries the column so
+    // that `displayName` does not fall back to the raw filename, which would name
+    // a renamed file two different ways in one view.
     displayName: reconciled.displayName,
     // The shelf, straight off the row. The composer's "Asking about <file>"
     // bar re-reads it after a reload, where the client no longer holds one —
@@ -2561,10 +2538,10 @@ export async function getDocumentStatus(session: AuthorizedSession, documentId: 
     tags: reconciled.tags,
     // The place in the ingest queue, null once the job is claimed or settled.
     queueAhead: reconciled.queueAhead ?? null,
-    // Whose hand wrote the bytes. Added because this payload is how the CHAT
-    // resolves a document into the peek pane, and a report Piloti wrote that
-    // opens beside the conversation without its „Von Piloti erstellt" byline is
-    // an agent-authored file presented as an uploaded one. PROVENANCE, never
+    // Whose hand wrote the bytes. This payload is how the CHAT resolves a
+    // document into the peek pane, and a report Piloti wrote that opens beside
+    // the conversation without its „Von Piloti erstellt" byline would be an
+    // agent-authored file presented as an uploaded one. PROVENANCE, never
     // responsibility — the row's assignees are unaffected and still say
     // `Unvergeben`.
     authoredBy: reconciled.authoredBy,
@@ -2582,7 +2559,7 @@ export async function getDocumentStatus(session: AuthorizedSession, documentId: 
     // HOW MANY VERSIONS, so the chat peek can tell a failed re-upload from a
     // file that never indexed. A new version that fails to process leaves the
     // previous one's passages in the index — Piloti still cites it — and a
-    // peek that said "cannot cite this file" for that case was wrong. The same
+    // peek that said "cannot cite this file" for that case would be wrong. The same
     // count the Files listing carries (`summarizeDocumentVersions`), for the
     // one document this payload is about. `null` when there is no version row
     // at all, which the peek reads as "no earlier version known".

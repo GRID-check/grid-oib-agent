@@ -17,10 +17,9 @@ function Item({
       className={cn(
         // A row is `px-4 py-3` — the design language's list-row padding.
         'flex items-center gap-3 px-4 py-3 text-left transition-colors duration-snap ease-out hover:bg-accent/40 motion-reduce:transition-none',
-        // Keyboard focus must not be the same pixel as hover. It used to be
-        // exactly that — `outline-none` plus the hover background — so a
-        // keyboard reader could not tell which row they were on when the
-        // pointer happened to rest on another. The ring is inset because
+        // Keyboard focus must not be the same pixel as hover: a keyboard reader
+        // has to tell which row they are on while the pointer rests on another.
+        // The ring is inset because
         // `ItemList` clips (`overflow-hidden`) and an offset ring on the first
         // or last row would be sliced off by its rounded edge.
         'outline-none',

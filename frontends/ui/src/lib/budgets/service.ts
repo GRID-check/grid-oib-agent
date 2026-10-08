@@ -9,7 +9,7 @@
  *
  *   cost    — USD, what OpenRouter charged. Recorded raw, never shown to a
  *             tenant. The share that ran on a tenant's own key is kept apart
- *             (`ownKeyCostUsd`) because it was the tenant's bill, not ours.
+ *             (`ownKeyCostUsd`) because it is the tenant's bill, not ours.
  *   price   — USD, what a platform-billed tenant is charged: cost × margin,
  *             frozen on the ledger row at write time from the active pricing
  *             version. Zero for a generation on the tenant's own key. No
@@ -456,7 +456,7 @@ export async function invalidateSeededLimits(): Promise<void> {
 
 /**
  * The enforcement snapshot forwarded to the backend as `X-Grid-Budget` on the
- * WS upgrade, and used to refuse the upgrade outright when already exhausted.
+ * WS upgrade, and refuses the upgrade outright when already exhausted.
  */
 export async function getBudgetStatus(
   organizationId: string,
@@ -464,9 +464,8 @@ export async function getBudgetStatus(
   projectId: string | null,
 ): Promise<BudgetStatus> {
   const unit = await getOrgBudgetUnit(organizationId)
-  // Two parallel waves instead of up to six serial round-trips: policies and
-  // org spend first, then the scoped spend aggregations only where a policy
-  // actually exists.
+  // Two parallel waves: policies and org spend first, then the scoped spend
+  // aggregations, and only where a policy actually exists.
   const [orgBudget, orgSpend, memberBudget, projectBudget, pricing] = await Promise.all([
     getCachedOrgLimits(organizationId, unit),
     getSpendTotals(organizationId),
@@ -578,8 +577,8 @@ export async function getBudgetOverview(session: AuthorizedSession): Promise<Bud
  * Whether the write being authorized creates a policy or removes one.
  *
  * The subject checks below are asymmetric on purpose. Storing a policy for
- * somebody who is not a member is the bug; REMOVING one is the cure, and a
- * roster check on the clear path would make a departed member's stale limit
+ * somebody who is not a member is refused; REMOVING one must stay possible, and
+ * a roster check on the clear path would make a departed member's stale limit
  * permanent — the one row an admin most wants gone is the one whose subject no
  * longer resolves.
  */

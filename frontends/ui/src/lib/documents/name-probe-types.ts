@@ -2,11 +2,11 @@
  * The name probe's wire contract: "which of these filenames does this shelf
  * already hold?" (ADR-0055 — the routes, the client and the tests share it).
  *
- * The upload planner used to answer that from the listing the browser had
+ * The upload planner must not answer that from the listing the browser has
  * loaded. A listing is paged, can be narrowed by a filter, and leaves archived
  * documents out — while the server's upload replaces by filename across all of
  * them (`findLiveDocumentByFilename`, `uniq_documents_live_name_per_collection`).
- * A same-name document the browser had not loaded was then silently given a
+ * A same-name document the browser has not loaded would be silently given a
  * new version. The probe asks the database the question the upload will ask.
  *
  * A match is returned when the name is the SAME document to the server (the

@@ -23,13 +23,11 @@ const httpProxy = require('http-proxy')
 const { parse } = require('url')
 const crypto = require('crypto')
 
-// ── Boot identity (ledger item 1) ────────────────────────────────────────────
+// ── Boot identity ────────────────────────────────────────────────────────────
 // One greppable line naming the deployed commit and the effective value of the
-// four gates, printed before this process serves anything. A pilot said a
-// feature did not work and nobody could say which build they were on, nor
-// whether that feature was switched on for them at all — three of the four
+// four gates, printed before this process serves anything. Three of the four
 // flags default OFF, so "broken" and "never enabled" look identical from
-// outside. Rationale in full: `src/lib/boot.ts`.
+// outside; this line tells them apart. Rationale in full: `src/lib/boot.ts`.
 //
 // DUPLICATED from `formatBootLine`/`bootFlags`/`deployedSha` in that module,
 // for the same reason the envelope builder below is duplicated: this file is
@@ -55,7 +53,7 @@ function bootLogLine(env) {
   )
 }
 
-// ── Signed context envelope (backlog T3-9 follow-up, 2026-07-16, user-mandated) ──
+// ── Signed context envelope ──
 // One consolidated, signed `X-Grid-Request-Context` header (+ integrity
 // signature `X-Grid-Request-Context-Sig`) carrying every x-grid-* field this
 // file already forwards individually below. Minted in ONE canonical place on
@@ -71,8 +69,8 @@ function bootLogLine(env) {
 // degrading silently in prod, but it cannot catch drift in this file's
 // *source* automatically since server.js has no test harness in this repo.
 // DUAL-WRITE: called alongside (not instead of) the individual x-grid-*
-// header assignments below — this is the transition-safety design agreed
-// with the user; removing the individual headers is a later cleanup.
+// header assignments below, so both can be read during the transition;
+// removing the individual headers is a later cleanup.
 function buildGridRequestContextEnvelopeHeaders(input) {
   const payload = {}
   if (input.organizationId) payload.organizationId = input.organizationId
@@ -87,16 +85,15 @@ function buildGridRequestContextEnvelopeHeaders(input) {
   if (input.budget) payload.budget = input.budget
   if (input.disabledSources && input.disabledSources.length > 0) payload.disabledSources = input.disabledSources
   if (input.memoryReflectionEnabled !== undefined) payload.memoryReflectionEnabled = input.memoryReflectionEnabled
-  // `bundesland` (backlog T3-9 follow-up, 2026-07-16, user-mandated):
-  // envelope-only structured jurisdiction field, appended LAST in key order
-  // to keep every pre-existing signed payload byte-identical — see
+  // `bundesland`: envelope-only structured jurisdiction field, appended LAST in
+  // key order to keep every signed payload byte-identical — see
   // `buildGridRequestContextEnvelopePayload`'s docstring in request-context.ts
   // (the canonical definition this function is pinned to).
   if (input.bundesland) payload.bundesland = input.bundesland
-  // `conversationId` and `issuedAt` (ADR-0054), appended LAST in key order for
-  // the reason `bundesland` was last before them: every pre-existing signed
-  // payload stays byte-identical, so the fixture's precomputed header/signature
-  // values keep exact-matching on both sides of the language boundary.
+  // `conversationId` and `issuedAt` (ADR-0054), appended LAST in key order so
+  // every signed payload stays byte-identical, and the fixture's precomputed
+  // header/signature values keep exact-matching on both sides of the language
+  // boundary.
   //
   // These two are what make the envelope usable as a CREDENTIAL and not only as
   // context. The agent's document route reads the acting user out of the
@@ -107,9 +104,8 @@ function buildGridRequestContextEnvelopeHeaders(input) {
   if (input.conversationId) payload.conversationId = input.conversationId
   if (input.issuedAt !== undefined && input.issuedAt !== null) payload.issuedAt = input.issuedAt
   // `orgInstructions` — the organization's standing instruction block
-  // (`organization_instructions`, migration 0087), appended LAST in key order
-  // for the reason every field added since `memoryReflectionEnabled` has been
-  // last: every pre-existing signed payload stays byte-identical. Pinned to
+  // (`organization_instructions`, migration 0087), appended LAST in key order so
+  // every signed payload stays byte-identical. Pinned to
   // `buildGridRequestContextEnvelopePayload` in request-context.ts, as this
   // whole function is.
   if (input.contextTransport !== 'bff' && input.orgInstructions) payload.orgInstructions = input.orgInstructions
@@ -202,9 +198,9 @@ function pickBackendWsTarget(conversationId) {
 }
 
 // ── Upstream reachability and teardown ──
-// A backend that is not there for an upgrade (rollout, restart: issues #270,
-// #272) logs at WARN and is refused with a 502. A peer leaving an
-// already-spliced socket (EPIPE, ECONNRESET: #588, #775, #784) logs at WARN
+// A backend that is not there for an upgrade (rollout, restart) logs at WARN
+// and is refused with a 502. A peer leaving an already-spliced socket (EPIPE,
+// ECONNRESET) logs at WARN
 // with the side and the connection's age, and the first close names who
 // closed. Neither files an issue per reconnect (ADR-0031); anything else stays
 // ERROR. The codes, and why a spliced socket never gets a 502: ws-teardown.js.
@@ -235,8 +231,8 @@ const { createFrameObserver, classifyFrame } = require('./src/lib/limits/ws-fram
 // Inbound x-grid-* / authorization are the proxy's to set, never the client's.
 const { stripClientContextHeaders, findOversizedWsHeader } = require('./src/lib/proxy/ws-upgrade-headers.js')
 
-// `GRID_WS_UPGRADE_RATE_LIMIT` predates the catalog and stays honoured: an
-// operator who tuned it should not have it silently reverted by this refactor.
+// `GRID_WS_UPGRADE_RATE_LIMIT` sits outside the shared catalog and stays
+// honoured: an operator who tuned it should not have it silently ignored.
 // 0 still disables the upgrade limit entirely.
 const parsedUpgradeOverride = parseInt(
   process.env.GRID_WS_UPGRADE_RATE_LIMIT || String(WS_UPGRADE_LIMIT.limit),
@@ -250,14 +246,14 @@ if (!Number.isFinite(parsedUpgradeOverride)) {
   )
 }
 // A typo must not silently switch the limit off. `parseInt('thirty')` is NaN,
-// and `NaN > 0` is false — so without this guard a malformed value took the
-// `upgradeLimiter = null` path and disabled upgrade limiting with nothing in the
+// and `NaN > 0` is false — so without this guard a malformed value would take the
+// `upgradeLimiter = null` path and disable upgrade limiting with nothing in the
 // logs. Only an explicit 0 disables it.
 const WS_UPGRADE_OVERRIDE = Number.isFinite(parsedUpgradeOverride)
   ? parsedUpgradeOverride
   : WS_UPGRADE_LIMIT.limit
-// Frames per session. 0 disables, for an operator who needs the old behaviour
-// back in a hurry.
+// Frames per session. 0 disables the limit, for an operator who needs to bypass
+// it in a hurry.
 const WS_MESSAGE_LIMITS_ENABLED = process.env.GRID_WS_MESSAGE_LIMITS !== '0'
 
 let limitStoreClient = null
@@ -653,8 +649,8 @@ const startServer = async () => {
       const conversationId = normalizeQueryParam(parsedUrl.query.conversationId)
       req.url = '/websocket' + (parsedUrl.search || '')
       // Before anything below writes the context headers: each is set only
-      // when the scope has a value, so a client's own header survived every
-      // field the scope left empty (model overrides, budget, disabled sources).
+      // when the scope has a value, so a client's own header is kept for every
+      // field the scope leaves empty (model overrides, budget, disabled sources).
       stripClientContextHeaders(req.headers)
 
       try {
@@ -736,8 +732,7 @@ const startServer = async () => {
               'utf8'
             ).toString('base64url')
           }
-          // Consolidated, signed context envelope (backlog T3-9 follow-up,
-          // 2026-07-16, user-mandated) — DUAL-WRITE alongside every
+          // Consolidated, signed context envelope — DUAL-WRITE alongside every
           // individual x-grid-* header set above, built from the SAME
           // `result.data` values. See buildGridRequestContextEnvelopeHeaders'
           // own comment (top of file) for why this is duplicated rather than
@@ -752,14 +747,11 @@ const startServer = async () => {
           // of it is caller-supplied, and the client cannot influence which
           // fields come back.
           //
-          // The rule is also not new to this change. The identical block is on
-          // `develop` at this line; ADR-0047 edited ONE field inside it
-          // (`collectionScope` now carries shelves), and the scan is
-          // diff-aware, so touching a line put the whole pre-existing pattern
-          // into the diff window. Suppressed narrowly, by rule id, on this call
-          // only — a broader ignore would hide the case where genuinely
-          // caller-supplied data starts reaching `req.headers`, which is what
-          // the rule is worth having for.
+          // The scan is diff-aware, so editing any line in this block puts the
+          // whole pre-existing pattern into the diff window. Suppressed narrowly,
+          // by rule id, on this call only — a broader ignore would hide the case
+          // where genuinely caller-supplied data starts reaching `req.headers`,
+          // which is what the rule is worth having for.
           // nosemgrep: javascript.express.security.express-data-exfiltration.express-data-exfiltration
           Object.assign(
             req.headers,

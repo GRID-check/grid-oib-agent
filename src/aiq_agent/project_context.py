@@ -1,4 +1,4 @@
-"""Grid cross-cutting request-context headers (backlog T3-9).
+"""Grid cross-cutting request-context headers.
 
 The Next.js BFF sends a family of internal ``X-Grid-*`` headers on every
 submission path (WS upgrade in ``server.js``, the async-jobs REST proxy, the
@@ -58,10 +58,9 @@ MEMORY_HEADER_MAX_CHARS = 3000
 #: instruction can never supply a normative value (that comes from a document
 #: retrieved this turn, and from nowhere else).
 #:
-#: It replaced the two ways a skill used to be FORCED onto a turn (the fleet's
-#: ``delivery: standard`` tier and the request's ``skills`` array). A standing
-#: instruction is prompt text, cheap and always present; a skill is a working
-#: method the model picks out of its catalog when the question calls for one.
+#: A standing instruction is prompt text, cheap and always present; a skill is a
+#: working method the model picks out of its catalog when the question calls for
+#: one, never forced onto a turn.
 ORG_INSTRUCTIONS_HEADER = "x-grid-org-instructions"
 
 #: Hard ceiling on the office block, applied HERE at decode rather than trusted
@@ -88,16 +87,15 @@ USER_ID_HEADER = "x-grid-user-id"
 #: that carry it. DECLARATIVE, so a test can check every entry path that binds
 #: a tool supplies what it needs: the chat path sets these on the WebSocket
 #: upgrade, the job worker injects them from the run's identity
-#: (`aiq_api.jobs.runner.WORKER_IDENTITY_HEADERS`). `remember` answered "no
-#: project in scope" on every deep-research run for weeks because this
-#: contract lived in two hand-maintained lists that nothing compared.
+#: (`aiq_api.jobs.runner.WORKER_IDENTITY_HEADERS`). Kept as one table, not two
+#: hand-maintained lists, so a test can compare every entry path against it.
 TOOL_CONTEXT_REQUIREMENTS: dict[str, tuple[str, ...]] = {
     "project_memory_remember": (PROJECT_ID_HEADER, ORGANIZATION_ID_HEADER),
     # The write-side workspace tool (`tools/files/`). It proposes a change to a
     # PROJECT's workspace — folders are project-scoped, and the reader's session
     # applies the change against a project — so a run without the project
     # header can only refuse, and refusing on every unattended run is the
-    # failure this table was written for.
+    # failure this table guards against.
     "propose_file_change": (PROJECT_ID_HEADER,),
     # Filing a draft into the project, and with `submit` sending it for review
     # (`tools/documents/register.py`). The project header is what makes a filing ADDRESSABLE — a draft is filed INTO
@@ -121,7 +119,7 @@ TOOL_CONTEXT_REQUIREMENTS: dict[str, tuple[str, ...]] = {
     "create_task": (PROJECT_ID_HEADER,),
 }
 
-# Consolidated signed context envelope (backlog T3-9 follow-up, 2026-07-16).
+# Consolidated signed context envelope.
 # `X-Grid-Request-Context` carries base64url(JSON) of the SAME fields the
 # individual x-grid-* headers above carry (minus the internal token, which is
 # deliberately out of scope — see the module docstring), and
@@ -129,8 +127,8 @@ TOOL_CONTEXT_REQUIREMENTS: dict[str, tuple[str, ...]] = {
 # keyed on GRID_INTERNAL_API_TOKEN. Minted in one place on the TS side
 # (`buildGridRequestContextEnvelope` in `frontends/ui/src/lib/request-context.ts`,
 # duplicated with a pinning comment in `server.js` because it is plain
-# CommonJS). Producers DUAL-WRITE: the envelope is sent ALONGSIDE the
-# individual headers during the transition; `from_context`/`from_headers`
+# CommonJS). Producers DUAL-WRITE: the envelope is sent alongside the
+# individual headers; `from_context`/`from_headers`
 # below prefer the envelope when present+valid, mirroring the individual
 # headers otherwise.
 REQUEST_CONTEXT_ENVELOPE_HEADER = "x-grid-request-context"
@@ -145,18 +143,15 @@ MODEL_OVERRIDES_HEADER = "x-grid-model-overrides"
 BUDGET_HEADER = "x-grid-budget"
 DISABLED_SOURCES_HEADER = "x-grid-disabled-sources"
 
-# `bundesland` (backlog T3-9 follow-up, 2026-07-16, user-mandated): the
-# validated jurisdiction token the intake wizard collects (PR #71) as a
+# `bundesland`: the validated jurisdiction token the intake wizard collects as a
 # structured project-profile fact, carried STRUCTURED on the signed envelope
-# instead of being re-parsed out of the `project_context` prompt text. This
-# is ENVELOPE-ONLY by design — unlike the headers above there never was an
-# individual `X-Grid-Bundesland` header to dual-write (see
-# `frontends/ui/src/lib/request-context.ts`'s module docstring for the TS
-# side of this decision), so `from_context`/`from_headers`'s legacy
-# individual-header fallback path simply has no source for it and leaves it
-# `None` — a pre-envelope caller falls through to
-# `aiq_agent.common.ris_catalog.extract_bundesland`'s existing prompt-text
-# parsing exactly as before this field existed.
+# instead of being re-parsed out of the `project_context` prompt text. This is
+# ENVELOPE-ONLY by design: there is no individual `X-Grid-Bundesland` header to
+# dual-write (see `frontends/ui/src/lib/request-context.ts`'s module docstring
+# for the TS side of this decision), so `from_context`/`from_headers`'s
+# individual-header fallback has no source for it and leaves it `None`. A caller
+# that sends no envelope falls through to
+# `aiq_agent.common.ris_catalog.extract_bundesland`'s prompt-text parsing.
 #
 # Vocabulary mirrored (not imported) from `ris_catalog.py`'s
 # `_BUNDESLAND_TOKENS` / the intake wizard's `bundesland` question options
@@ -409,9 +404,9 @@ class GridRequestContext:
     conversation_id: str | None = None
     #: Epoch MILLISECONDS the envelope was minted. Inside the signed bytes, so
     #: its age cannot be edited without breaking the signature. Parsed but NOT
-    #: enforced here: this tier has accepted envelopes without one since before
-    #: the field existed, and the window is the BFF verifier's to enforce
-    #: (`verifyGridRequestContextEnvelope`), which fails closed on it.
+    #: enforced here: an envelope without one is accepted, and the window is the
+    #: BFF verifier's to enforce (`verifyGridRequestContextEnvelope`), which fails
+    #: closed on it.
     issued_at: int | None = None
     #: The envelope EXACTLY as it arrived — the base64url header and its hex
     #: signature, unparsed.
@@ -442,7 +437,7 @@ class GridRequestContext:
         ``from_envelope``) takes precedence when present and valid: an
         invalid signature is treated as an ABSENT envelope (logged as a
         WARNING — a tamper signal) and this method falls back to parsing the
-        individual headers below, exactly as before the envelope existed.
+        individual headers below.
         """
         envelope = cls.from_envelope(
             _read_header(REQUEST_CONTEXT_ENVELOPE_HEADER),
@@ -740,7 +735,7 @@ def get_signed_request_context() -> GridRequestContext | None:
     agent group runs on, the budget left, the sources the organization switched
     off. When an envelope arrived, those come from it and nowhere else. The
     individual ``x-grid-*`` headers are unsigned, and a client talking to the WS
-    proxy directly could set them; `server.js` now strips them, but a reader that
+    proxy directly could set them; `server.js` strips them, but a reader that
     trusts the signature does not depend on the proxy remembering to.
 
     ``None`` off the BFF (a job worker, which injects its own headers; the CLI;

@@ -326,9 +326,8 @@ describe('the transition table is coherent', () => {
 
   it('makes „darf freigeben“ project:edit and nothing else', () => {
     // The permission list is an ANY-OF, so every member of it is a WIDENING.
-    // `project:documents:write` sat beside `project:edit` on the three review
-    // decisions, which handed the office's assertion about a
-    // Brandschutzkonzept to any role that may upload a file.
+    // `project:documents:write` beside `project:edit` would hand the office's
+    // assertion about a Brandschutzkonzept to any role that may upload a file.
     for (const op of ['approve', 'request_changes', 'reject'] as const) {
       for (const row of DOCUMENT_VERSION_TRANSITIONS.filter((entry) => entry.op === op)) {
         expect([...row.permission], `${op} is reachable with more than project:edit`).toEqual([
@@ -379,7 +378,7 @@ describe('transitionDocumentVersion — guards', () => {
   it('lets the commissioner approve a version a RUN submitted in their session', async () => {
     // `submitted_by` on an agent filing is the commissioning human, not the
     // author (migration 0085). Reading it as "they asserted this themselves"
-    // refused the one person who had asked for the report the right to release
+    // would refuse the one person who asked for the report the right to release
     // it.
     vi.mocked(findDocumentVersion).mockResolvedValue(
       version({ submittedBy: session.userId, submittedByActor: 'agent' }),
@@ -394,7 +393,7 @@ describe('transitionDocumentVersion — guards', () => {
   it('waives the guard for a sole editor, and says so on the trail', async () => {
     // A one-person project has nobody else. „Freigabe" by the only person who
     // could ever give it is still a decision; it is simply not a second pair of
-    // eyes, and that is what the audit event now records.
+    // eyes, and that is what the audit event records.
     vi.mocked(listReviewCandidates).mockResolvedValue([])
     vi.mocked(findDocumentVersion).mockResolvedValue(
       version({ submittedBy: session.userId, submittedByActor: 'human' }),
@@ -418,13 +417,10 @@ describe('transitionDocumentVersion — guards', () => {
   it.each([[undefined], [null], ['']])(
     'treats a version with NO stored digest as having no If-Match to satisfy (%s)',
     async (ifMatch) => {
-      // `content_hash` is nullable — a row backfilled by 0082 from a document
-      // that predates 0078 carries null — and NO STRING equals null. The guard
-      // was therefore unsatisfiable from one side and unreachable from the
-      // other: the task outcome path sent `contentHash ?? ''` and got a 409 on
-      // every revision of such a document, while `undefined` slipped past by
-      // accident because `undefined ?? null` happens to be null. "Nothing to
-      // match" is now the row's answer rather than a coincidence of coalescing.
+      // `content_hash` is nullable (a row backfilled from a document that
+      // predates it carries null), and NO STRING equals null. "Nothing to match"
+      // is the row's answer, stated here rather than left to a coincidence of
+      // coalescing (`undefined ?? null`).
       vi.mocked(findDocumentVersion).mockResolvedValue(
         version({ state: 'draft', contentHash: null }),
       )
@@ -493,9 +489,9 @@ describe('transitionDocumentVersion — effects', () => {
     })
 
     // The generic inbox renderer interpolates `payload.subject` into „{actor}
-    // bittet Sie um die Freigabe von {subject}". Without it the row named
-    // nothing and the reader had to open the link to learn which file was
-    // waiting — the one thing an inbox exists to save them.
+    // bittet Sie um die Freigabe von {subject}". Without it the row would name
+    // nothing, and the reader would have to open the link to learn which file is
+    // waiting.
     const emissions = vi.mocked(emitInboxItems).mock.calls[0][0]
     expect(emissions[0].payload).toMatchObject({
       versionId: 'ver_1',
@@ -514,10 +510,10 @@ describe('transitionDocumentVersion — effects', () => {
   })
 
   it('resolves the round BEFORE the swap, not inside the effect', async () => {
-    // The version was left durably `in_review` with nobody told about it when
-    // the resolution ran after the state had moved — and every exit from that
-    // state is a decision one of the people who were never told would have to
-    // make.
+    // Resolution must come before the swap. If it ran after the state had moved,
+    // the version would be left durably `in_review` with nobody told, and every
+    // exit from that state is a decision one of the people who were never told
+    // would have to make.
     const order: string[] = []
     vi.mocked(resolveReviewers).mockImplementation(async () => {
       order.push('resolve')
@@ -537,9 +533,9 @@ describe('transitionDocumentVersion — effects', () => {
 
   it('submits an Unvergeben draft rather than refusing it', async () => {
     // A Piloti draft is unassigned by construction (ADR-0047), and the draft
-    // card, the panel and `file_draft` with `submit` all submit without naming anybody.
-    // Refusing that made the lifecycle unreachable for the documents it exists
-    // for.
+    // card, the panel and `file_draft` with `submit` all submit without naming
+    // anybody. Refusing that would make the lifecycle unreachable for the
+    // documents it exists for.
     vi.mocked(findDocumentVersion).mockResolvedValue(version({ state: 'draft' }))
     vi.mocked(compareAndSwapVersionState).mockResolvedValue(version({ state: 'in_review' }))
 
@@ -657,9 +653,9 @@ describe('transitionDocumentVersion — effects', () => {
   })
 
   it('asks the direct predecessor query even past 200 versions', async () => {
-    // The old asc-limited-200 scan no longer contained the predecessor at
-    // all past 200 versions and named the wrong row. The repository now
-    // answers `version_number < $n ORDER BY version_number DESC LIMIT 1`.
+    // A bounded list would lose the predecessor past 200 versions and name the
+    // wrong row, so the repository answers `version_number < $n ORDER BY
+    // version_number DESC LIMIT 1`.
     vi.mocked(findDocumentVersion).mockResolvedValue(version({ state: 'draft', versionNumber: 201 }))
     vi.mocked(compareAndSwapVersionState).mockResolvedValue(
       version({ state: 'in_review', versionNumber: 201 }),
@@ -902,7 +898,7 @@ describe('ingestPublished — what publishing a Piloti document does to the inde
   })
 
   it('refuses to index a row outside the piloti/ namespace, and still publishes it', async () => {
-    // Reachable for a document filed before the namespace existed. Indexing it
+    // Reachable only for a row filed outside the namespace. Indexing it
     // would write chunks under `slug(model's title)-YYYY-MM-DD.ext` — a name
     // `collectionFileRef` answers `null` for, so nothing could ever purge them,
     // and a name a human upload can carry.
@@ -1001,7 +997,7 @@ describe('createDocumentVersion — a human upload', () => {
   it('inserts the published row INSIDE the supersede transaction, never beside it', async () => {
     // `uniq_document_versions_published_per_document` is a plain partial unique
     // index — checked per statement, not deferred — so an insert of version N+1
-    // as `published` is refused while version N still is. Every re-upload went
+    // as `published` is refused while version N still is. Every re-upload goes
     // through that path.
     vi.mocked(insertPublishedVersion).mockResolvedValue({
       version: version({ id: 'ver_new', state: 'published' }),
@@ -1270,7 +1266,7 @@ describe('replaceVersionContent', () => {
 // ---------------------------------------------------------------------------
 
 /**
- * The `openRevisionTask` effect (ADR-0051, slice 6).
+ * The `openRevisionTask` effect (ADR-0051).
  *
  * The rule under test is a CONDITION, not a button: a version filed from a live
  * conversation reaches that conversation as a `REVIEW_DECISIONS v1` block and

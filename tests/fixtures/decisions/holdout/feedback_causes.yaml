@@ -1,4 +1,4 @@
-# Held-out set, written blind to the classifier wording (2026-09-26). Do not tune on it.
+# Held-out set, written blind to the classifier wording. Do not tune on it.
 - question: "Welchen U-Wert muss ein Fenster im Neubau einhalten?"
   reason: inaccurate
   comment: "1,4 stimmt nicht, in der aktuellen Ausgabe sinds 1,1"

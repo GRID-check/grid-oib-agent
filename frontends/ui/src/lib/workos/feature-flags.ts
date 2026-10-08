@@ -20,9 +20,9 @@ export const MEMORY_REFLECTION_FLAG = 'memory-reflection'
 /**
  * Slug of the flag gating the async post-answer follow-up-questions stage.
  * The stage delivers a `grid_stage_message` frame that renders as a rail below
- * the answer; it ran `silent` for one slice first so its skip rate, empty rate
- * and true per-turn cost were measured before any reader saw a chip
- * (docs/architecture/post-answer-stages.md §10, slices 1 and 3).
+ * the answer. It is rolled out silent first, so its skip rate, empty rate and
+ * per-turn cost are measured before any reader sees a chip
+ * (docs/architecture/post-answer-stages.md §10).
  */
 export const FOLLOW_UPS_FLAG = 'post-answer-follow-ups'
 
@@ -47,7 +47,7 @@ export const WEB_SEARCH_FLAG = 'web-search'
 
 /**
  * Slug of the flag gating deep research. Taken from the registry rather than
- * re-spelled, because this one is now read on TWO paths that must agree: the
+ * re-spelled, because this one is read on TWO paths that must agree: the
  * session gate on `POST /api/jobs/async/submit`, and the session-less per-turn
  * read below that tells the agent tier whether it may offer the run at all.
  */
@@ -127,24 +127,20 @@ export const POST_ANSWER_STAGE_FLAGS: readonly PostAnswerStageFlag[] = [
     id: 'follow_ups',
     flag: FOLLOW_UPS_FLAG,
     envVar: 'GRID_STAGE_FOLLOW_UPS_ENABLED',
-    // ON. It shipped OFF, as every new stage does, and was switched on per org
-    // while the empty rate and the per-turn cost were read off the
-    // `stage:follow_ups` spans. It is ON for every organization in both WorkOS
-    // environments now, and the in-answer `follow_ups` CARD it replaces has been
-    // deleted (ADR-0069), so this stage is the only thing that
-    // produces follow-up questions at all.
+    // ON. A shipped core capability, so the default is on wherever the flag
+    // product is absent (see below). The in-answer `follow_ups` card is gone
+    // (ADR-0069), which makes this stage the only producer of follow-up questions.
     //
-    // That is what moves the default: `defaultOn` is what a deployment without
+    // That is what sets the default: `defaultOn` is what a deployment without
     // the flag product sees, and leaving it false there would mean a Grid with
-    // no follow-ups anywhere and nothing to switch on. It is a shipped core
-    // capability now, on the same footing as `memory_reflection` — including the
-    // capability bit, so a workflow config with no `follow_ups_llm` is still a
-    // no-op rather than a failure.
+    // no follow-ups anywhere and nothing to switch on. It is on the same footing
+    // as `memory_reflection` — including the capability bit, so a workflow config
+    // with no `follow_ups_llm` is still a no-op rather than a failure.
     //
     // Turning the WorkOS flag off still stops the frames within a turn or two,
-    // no deploy and no reconnect, and the answer is unaffected either way. What
-    // it no longer does is fall back to the card: the card type no longer
-    // exists, so reversing that means restoring it (ADR-0069).
+    // no deploy and no reconnect, and the answer is unaffected either way. There
+    // is no card to fall back to; bringing one back means restoring the card type
+    // (ADR-0069).
     defaultOn: true,
   },
 ]
@@ -170,10 +166,10 @@ export async function isPostAnswerStageEnabled(
 /**
  * The ids of every post-answer stage switched on for this org.
  *
- * Served per TURN (`GET /api/internal/stages`), not per socket upgrade: the
- * upgrade-time evaluation could not reach an already-open tab, so an operator
- * reaching for the kill switch did not actually switch anything off until every
- * reader reconnected. A 30s flag cache sits underneath, so the per-turn cost is
+ * Served per TURN (`GET /api/internal/stages`), not per socket upgrade: an
+ * upgrade-time evaluation cannot reach a tab that is already open, so a kill
+ * switch would not take effect until every reader reconnected. A 30s flag cache
+ * sits underneath, so the per-turn cost is
  * a map lookup rather than a WorkOS round-trip.
  */
 export async function enabledPostAnswerStages(
@@ -190,8 +186,8 @@ export async function enabledPostAnswerStages(
 /**
  * Whether the async post-answer memory-reflection stage runs for this org.
  *
- * Retained as the name the WebSocket-upgrade path uses; it now delegates to the
- * stage registry above so there is one source of truth for the decision.
+ * The name the WebSocket-upgrade path uses. It delegates to the stage registry
+ * above so there is one source of truth for the decision.
  */
 export async function isMemoryReflectionEnabled(
   organizationId: string | null | undefined,
@@ -206,11 +202,11 @@ export async function isMemoryReflectionEnabled(
  *
  * The session-bearing half of this decision is `requireFeature(session,
  * FEATURE_FLAGS.deepResearch)` on `POST /api/jobs/async/submit`, which refuses
- * the job. That gate is necessary and was never sufficient: it closes the queue
- * and nothing upstream of it knows the flag, so the agent still escalated, the
- * clarifier still put a plan in front of the reader, and the approval button
- * answered 403. This is what the agent tier reads per turn (`GET
- * /api/internal/stages`) so it can decline to OFFER the run.
+ * the job. That gate is necessary but not sufficient: it closes the queue, and
+ * nothing upstream of it knows the flag. Without this check the agent would
+ * still escalate, the clarifier would still put a plan in front of the reader,
+ * and the approval button would answer 403. This is what the agent tier reads
+ * per turn (`GET /api/internal/stages`) so it can decline to OFFER the run.
  *
  * Fail-open with enforcement off, exactly like `isFeatureEnabled`: the two
  * halves must reach the same verdict, and a deployment that does not enforce

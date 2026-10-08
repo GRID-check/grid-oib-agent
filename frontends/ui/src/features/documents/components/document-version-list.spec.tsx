@@ -3,9 +3,8 @@
  *
  * A lone version collapses to its stand — no „Versionen" header, no one-row
  * list, no counter — and a refusal leaves a milestone with who and when.
- * Refusals used to leave none: only submitted/approved/published stamped a
- * row, so a version sent back showed the reviewer's words with no record of
- * the act itself.
+ * A refusal is a milestone like the others: a version sent back shows the
+ * reviewer's words under a record of the act itself.
  *
  * The who/when of a refusal lives in the generic review columns
  * (`reviewedBy`/`reviewedAt`), which an approval stamps too — so the refusal
@@ -204,13 +203,10 @@ describe('DocumentVersionList — refusals leave milestones in the full list', (
   })
 })
 
-describe('DocumentVersionList — past the old 200-version page', () => {
-  // The repository page used to end at 200 rows, and the diff base was found
-  // by scanning that page — past 200 versions the predecessor named was the
-  // top of the window, not the true one. The cap is raised since, but the
-  // component's half of the contract stands on its own: whatever page arrives
-  // renders newest-first, and every compare pairs a version with its TRUE
-  // predecessor, at any depth.
+describe('DocumentVersionList — past a 200-version page', () => {
+  // The diff base is the version's TRUE predecessor, never the top of whatever
+  // window the page holds. Whatever page arrives renders newest-first, and every
+  // compare pairs a version with its TRUE predecessor, at any depth.
   const many = (count: number): DocumentVersionView[] =>
     Array.from({ length: count }, (_, index) =>
       makeVersion(index + 1, index === count - 1 ? 'published' : 'superseded'),

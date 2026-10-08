@@ -1,6 +1,6 @@
 /**
- * The run picker lists what a run can read. It used to read the first page of
- * each listing, so a project's older documents were simply not offered.
+ * The run picker lists what a run can read, from every page of each listing, so
+ * a project's older documents are offered too.
  */
 
 import { describe, expect, it } from 'vitest'

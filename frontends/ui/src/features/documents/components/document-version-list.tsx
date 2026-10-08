@@ -7,31 +7,31 @@
  *
  * ## Where the comparison is rendered
  *
- * The route still hands back BOTH contents and still does not diff
- * (`versions/diff`): word or line granularity, whitespace, and whether a moved
- * paragraph is a move or a delete-plus-insert are rendering decisions, and
- * baking one into the API would freeze it for every later surface. What changed
- * is that the client now HAS an implementation — `diff` (jsdiff) behind
- * `lib/documents/version-diff` — so the two texts are aligned properly instead
- * of being shown beside each other under a note saying differences are not
- * marked. `document-version-diff.tsx` owns everything about how a changed line
- * looks; this file owns which two versions are compared.
+ * The route hands back BOTH contents and does not diff (`versions/diff`):
+ * word or line granularity, whitespace, and whether a moved paragraph is a move
+ * or a delete-plus-insert are rendering decisions, and baking one into the API
+ * would freeze it for every later surface. The client has the implementation —
+ * `diff` (jsdiff) behind `lib/documents/version-diff` — so the two texts are
+ * aligned rather than shown beside each other. `document-version-diff.tsx` owns
+ * everything about how a changed line looks; this file owns which two versions
+ * are compared.
  *
  * ## The lone version says only what the stand does not
  *
- * With one version there is no list, and since the panel's stand now carries
+ * With one version there is no list, and since the panel's stand carries
  * the state (a badge on the section row, a sentence under the track) this file
  * carries only what the stand cannot: the acts and their timestamps, and the
  * reviewer's words. It renders nothing at all when there are neither.
  *
  * ## The rows are `ItemList`, not three bordered boxes
  *
- * They used to be a hand-rolled `rounded-lg border px-2.5 py-2` per `li` — the
- * shape `components/ui/item.tsx` exists to stop being written again, and three
- * of them stacked read as three cards rather than as one history. `ItemList` is
- * one block with hairlines between its rows, which is what a list of versions
- * is; `job-run-history.tsx` composes the same three atoms for the same reason.
- * The padding is tightened for a 280px rail and nothing else is overridden.
+ * Rows are not a hand-rolled `rounded-lg border px-2.5 py-2` per `li`: that is
+ * the shape `components/ui/item.tsx` exists to stop being written again, and
+ * three of them stacked read as three cards rather than as one history.
+ * `ItemList` is one block with hairlines between its rows, which is what a list
+ * of versions is; `job-run-history.tsx` composes the same three atoms for the
+ * same reason. The padding is tightened for a 280px rail and nothing else is
+ * overridden.
  *
  * ## Names
  *
@@ -161,8 +161,7 @@ export function DocumentVersionList({
     // NOT the state, and not „Aktuell". The panel's stand says the state twice
     // already (the badge on the section's own row, and the sentence under the
     // track), and „Aktuell" distinguishes nothing where there is one version to
-    // be current. Said a third time it stopped reading as the same fact and
-    // started reading as a third one.
+    // be current. Said a third time, it reads as a third fact, not the same one.
     const acts = actsOf(only).map(
       ({ key, actor, when }) =>
         `${t(`lifecycle.versions.${key}`)} ${t('lifecycle.versions.byAt', {
@@ -234,8 +233,8 @@ export function DocumentVersionList({
               data-state={version.state}
             >
               {/* WRAPS. „Mit 2 vergleichen" is the longest label in the panel
-                  and the row is two buttons wide, which at a phone's 390px ran
-                  the second one out past the card and gave the whole page a
+                  and the row is two buttons wide, which at a phone's 390px runs
+                  the second one out past the card and gives the whole page a
                   horizontal scrollbar. Wrapping puts the pair on their own line
                   there and changes nothing where the row already fits. */}
               <div className="flex min-w-0 flex-wrap items-center gap-2">

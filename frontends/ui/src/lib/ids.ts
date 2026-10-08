@@ -3,8 +3,7 @@
  *
  * A value that is not this shape must not be bound to a uuid column: the
  * driver sends it as text and Postgres throws `invalid input syntax for type
- * uuid`, which the route factory used to turn into a 500. Issue #572 was a
- * filename in `/api/documents/[id]/status`.
+ * uuid`.
  *
  * The check is the eight-four-four-four-twelve hex groups Postgres itself
  * accepts, not RFC-4122's version/variant bits — `gen_random_uuid()` is v4

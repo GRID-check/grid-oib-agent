@@ -1,10 +1,10 @@
 """Tests for research budget and termination guards.
 
 Covers:
-- F1: GraphRecursionError ÔåÆ terminal ResearcherExhaustedError (not resubmittable)
-- F2: Query digest resubmission cap ÔåÆ terminal unresearchable outcome
-- F4a: Oversized research note truncation
-- F6: RunBudgetExceededError re-raised (not wrapped)
+- GraphRecursionError → terminal ResearcherExhaustedError (not resubmittable)
+- query digest resubmission cap → terminal unresearchable outcome
+- oversized research note truncation
+- RunBudgetExceededError re-raised (not wrapped)
 """
 
 from __future__ import annotations
@@ -89,11 +89,11 @@ def _structured_response() -> dict:
 
 
 class TestGraphRecursionErrorIsTerminal:
-    """F1: an exhausted worker becomes a terminal unresearchable note, not a resubmittable error."""
+    """An exhausted worker becomes a terminal unresearchable note, not a resubmittable error."""
 
     @pytest.mark.asyncio
     async def test_graph_recursion_error_yields_terminal_note(self):
-        """GraphRecursionError ÔåÆ terminal unresearchable note (no resubmittable RuntimeError)."""
+        """GraphRecursionError → terminal unresearchable note (no resubmittable RuntimeError)."""
         from langgraph.errors import GraphRecursionError
 
         runnable = MagicMock()
@@ -133,7 +133,7 @@ class TestGraphRecursionErrorIsTerminal:
 
     @pytest.mark.asyncio
     async def test_run_budget_exceeded_passthrough(self):
-        """F6: RunBudgetExceededError is NOT wrapped into a resubmittable RuntimeError."""
+        """RunBudgetExceededError is NOT wrapped into a resubmittable RuntimeError."""
         runnable = MagicMock()
         runnable.ainvoke = AsyncMock(side_effect=RunBudgetExceededError(ceiling=1000, used=1500))
 
@@ -165,7 +165,7 @@ class TestGraphRecursionErrorIsTerminal:
 
 
 class TestQueryDigestResubmissionCap:
-    """F2: Same query digest submitted > MAX_QUERY_SUBMISSIONS times ÔåÆ terminal unresearchable."""
+    """Same query digest submitted > MAX_QUERY_SUBMISSIONS times → terminal unresearchable."""
 
     @pytest.mark.asyncio
     async def test_under_limit_runs_normally(self):
@@ -224,11 +224,8 @@ class TestQueryDigestResubmissionCap:
             # Submit two different queries each time
             await batch_tool.ainvoke({"queries": [_make_query("query A"), _make_query("query B")]})
 
-        # Both should now be terminal on the next invocations, but we already
-        # consumed the last allowed run in the loop above. The sub-calls above
-        # used all budgets and each already succeeded. Let's verify they
-        # succeeded throughout (each call had a mix of ok queries).
-        # Actually let's just verify the final single-query call returns terminal:
+        # Each query has used its budget by now, so the final single-query call
+        # must return a terminal note.
         result = await batch_tool.ainvoke({"queries": [_make_query("query A")]})
         payload = json.loads(result)
         assert "nicht recherchiert werden" in payload[0]["summary"]
@@ -285,7 +282,7 @@ class TestTerminalUnresearchableNote:
 
 
 class TestResearchNoteTruncation:
-    """F4a: Oversized research notes are truncated at persist time."""
+    """Oversized research notes are truncated at persist time."""
 
     def _big_note(self) -> ResearchNotes:
         return ResearchNotes(
@@ -350,7 +347,7 @@ class _FakeModelRequest:
 
 
 class TestTotalCharBudget:
-    """F4b: ToolResultPruningMiddleware total_char_budget enforcement."""
+    """ToolResultPruningMiddleware total_char_budget enforcement."""
 
     async def _sent(self, middleware, messages):
         captured = []
@@ -373,12 +370,12 @@ class TestTotalCharBudget:
         sent = await self._sent(middleware, list(messages))
 
         # All 4 fit in keep_last_n=10, so none evicted by keep-last-N.
-        # Total=800 > 300 budget ÔåÆ truncate oldest until under budget.
-        # Truncated msg ÔåÆ max_chars(100) + suffix Ôëê 122 chars.
-        # After msg0 truncated: total Ôëê 800-200+122 = 722. Still > 300.
-        # After msg1 truncated: total Ôëê 722-200+122 = 644. Still > 300.
-        # After msg2 truncated: total Ôëê 644-200+122 = 566. Still > 300.
-        # After msg3 truncated: total Ôëê 566-200+122 = 488. Still > 300.
+        # Total=800 > 300 budget → truncate oldest until under budget.
+        # Truncated msg → max_chars(100) + suffix ≈ 122 chars.
+        # After msg0 truncated: total ≈ 800-200+122 = 722. Still > 300.
+        # After msg1 truncated: total ≈ 722-200+122 = 644. Still > 300.
+        # After msg2 truncated: total ≈ 644-200+122 = 566. Still > 300.
+        # After msg3 truncated: total ≈ 566-200+122 = 488. Still > 300.
         # All 4 truncated, but total 488 > 300. Budget is a soft ceiling;
         # verify at least the oldest was truncated.
         assert sent[0].content.endswith("[... truncated ...]")
@@ -413,15 +410,15 @@ class TestTotalCharBudget:
 
 
 class TestBudgetThroughBatchToolPath:
-    """Backlog item 2 ratchet: budget-exceeded through the real batch tool path.
+    """Budget exhaustion through the real batch tool path.
 
     Drives ``RunBudgetExceededError`` from a researcher worker through
     ``build_research_batch_tool`` AND the orchestrator's
-    ``SelectiveToolRetryMiddleware`` (the exact production stack). Before the fix
-    the middleware converted the terminal error into a retryable error
-    ToolMessage ("Please try again"), so the orchestrator resubmitted into an
-    already-exceeded tracker until the wall clock. Now it must propagate after a
-    single execution — no retry loop, no ToolMessage to re-queue.
+    ``SelectiveToolRetryMiddleware`` (the exact production stack). The middleware
+    must not convert the terminal error into a retryable error ToolMessage
+    ("Please try again"), or the orchestrator would resubmit into an
+    already-exceeded tracker until the wall clock. It propagates after a single
+    execution — no retry loop, no ToolMessage to re-queue.
     """
 
     def _batch_tool(self):

@@ -11,7 +11,7 @@ import type { ChatStoreWithHydration } from '@/features/chat/store'
 // Mock the layout store
 const mockSetSessionsPanelOpen = vi.fn()
 
-// FB-10: the Deep Research section fetches server-truth runs on panel open.
+// The Deep Research section fetches server-truth runs on panel open.
 const mockListResearchRuns = vi.fn()
 vi.mock('@/adapters/api/research-runs-client', () => ({
   listResearchRuns: (...args: unknown[]) => mockListResearchRuns(...args),
@@ -40,7 +40,7 @@ vi.mock('../store', () => ({
   }),
 }))
 
-// Mock the chat store (no longer uses useIsCurrentSessionBusy for navigation)
+// Mock the chat store.
 vi.mock('@/features/chat', () => ({
   useChatStore: vi.fn(),
 }))
@@ -254,7 +254,7 @@ describe('SessionsPanel', () => {
     expect(firstSession).toHaveAttribute('aria-current', 'true')
   })
 
-  test('lists a chat the reader may no longer read under a neutral title, with no way to rename it (ADR-0081)', async () => {
+  test('lists a chat the reader may not read under a neutral title, with no way to rename it (ADR-0081)', async () => {
     const user = userEvent.setup()
     render(
       <SessionsPanel
@@ -327,8 +327,8 @@ describe('SessionsPanel', () => {
     rerender(<SessionsPanel sessions={[...mockSessions]} />)
 
     // Closed, the sheet unmounts its content entirely (Radix dialog) — after
-    // the exit animation, hence the waitFor: the rows are motion elements now,
-    // so dismissal plays out instead of snapping.
+    // the exit animation, hence the waitFor: the rows are motion elements,
+    // so dismissal plays out rather than snapping.
     await waitFor(() => {
       expect(screen.queryByRole('textbox', { name: /search chats/i })).not.toBeInTheDocument()
     })
@@ -722,7 +722,7 @@ describe('SessionsPanel - Delete Button States', () => {
   })
 })
 
-describe('SessionsPanel - Deep Research section (FB-10)', () => {
+describe('SessionsPanel - Deep Research section', () => {
   const today = new Date()
 
   const makeRun = (overrides: Partial<ResearchRun>): ResearchRun => ({
@@ -802,8 +802,8 @@ describe('SessionsPanel - Deep Research section (FB-10)', () => {
 
     renderPanel()
 
-    // Always open — with the History page gone this sheet is the one record,
-    // so the runs are visible without a click.
+    // Always open: this sheet is the one record, so the runs are visible
+    // without a click.
 
     // A run inherits its originating session's title and opens THAT thread,
     // where the run narrates itself in one message (ADR-0062).
@@ -813,10 +813,9 @@ describe('SessionsPanel - Deep Research section (FB-10)', () => {
     expect(completed.getAttribute('href')).toBe('/app/projects/p1/chat?session=conv-1')
 
     // A run that names no conversation — headless, or from the CLI — has no
-    // thread to open. It keeps the shared untitled label and offers NO link:
-    // the `?job=…&tab=thinking` URL it used to get was read by the research
-    // panel alone, so with the panel gone it would land on the chat page and
-    // silently do nothing.
+    // thread to open. It keeps the shared untitled label and offers NO link: a
+    // `?job=…` URL would be read by a research panel, and there is none, so it
+    // would land on the chat page and silently do nothing.
     expect(screen.getByText('Deep research run')).toBeInTheDocument()
     expect(
       screen.queryByRole('link', { name: /Open deep research run: Deep research run/i })

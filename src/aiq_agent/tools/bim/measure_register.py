@@ -241,12 +241,11 @@ MEASURES: dict[str, str] = {
     "clearApproach": "the free floor in front of a door on each side, and what ends it",
 }
 
-# NONE of these is a clear dimension, and saying otherwise was a defect. The
-# entry for 'horizontal' read "what a lichte Breite check needs"; the operator
-# measures CENTROID to CENTROID in plan, which is an Achsabstand. On a 1.00 m
-# opening between two 30 cm walls that is 1.30 m — too large by half of each
-# element, in the direction that turns a failed escape-route width into a passing
-# one. A clear width is `measure` + `clearWidth`, measured on the aperture.
+# NONE of these is a clear dimension. The operator measures CENTROID to CENTROID
+# in plan, which is an Achsabstand. On a 1.00 m opening between two 30 cm walls
+# that is 1.30 m — too large by half of each element, in the direction that turns
+# a failed escape-route width into a passing one. A clear width is `measure` +
+# `clearWidth`, measured on the aperture.
 DISTANCE_MODES = {
     "min": (
         "gap between the two axis-aligned BOUNDING BOXES. 0 means the boxes overlap — it does NOT "
@@ -347,8 +346,8 @@ def _enum_lines(entries: dict[str, str], indent: str = "    ") -> str:
 # FLAT rather than a discriminated union: a `RootModel[Union[...]]` reaches the
 # wire as one property called `root`, a wrapper the model cannot learn about.
 # Measured, not assumed — `tests/aiq_agent/tools/bim/test_ifc_measure_tool.py`
-# keeps the measurement. Why the schema was tightened at all, and what it buys
-# (fewer bad calls EMITTED, not turns refunded): ``docs/roadmap/spatial-review-findings.md``.
+# keeps the measurement. What the tightened schema buys is fewer bad calls
+# EMITTED, not turns refunded (``docs/roadmap/spatial-review-findings.md``).
 
 
 def _literal(*groups) -> Any:
@@ -367,7 +366,7 @@ def _literal(*groups) -> Any:
 #: the union of all of them because the call builders are the layer that
 #: knows which applies: `element_profile` ignores a `kind` that is not
 #: 'expensive', and narrowing the type here would turn that shrug into a
-#: refusal. What IS scoped is the backlog line: „fire kind='brandabschnitt'" and
+#: refusal. What IS scoped is the ledger entry: „fire kind='brandabschnitt'" and
 #: „find_elements kind='brandabschnitt'" are different requests, and a ledger
 #: that merged them would rank neither.
 _KIND_FIELD: dict[str, str] = {
@@ -379,10 +378,10 @@ _KIND_FIELD: dict[str, str] = {
 #: Every spelling `kind` accepts, across all four of its vocabularies.
 _ALL_KINDS: tuple[str, ...] = (*KINDS, *FIRE_ASPECTS, *ENVELOPE_ASPECTS, *PROFILE_KINDS)
 
-#: The fields this tool has always matched case-insensitively, and their
-#: canonical spellings. A `Literal` is case-SENSITIVE, and kind='Compactness'
-#: has always been a working call. `measure` and `relation` are absent on
-#: purpose: those have always been required exact.
+#: The fields matched case-insensitively, and their canonical spellings. A
+#: `Literal` is case-SENSITIVE, and kind='Compactness' is a working call that
+#: callers depend on. `measure` and `relation` are absent on purpose: those are
+#: required exact.
 _CASE_FOLDED: dict[str, tuple[str, ...]] = {
     "operation": OPERATIONS,
     "room_kind": ROOM_KINDS,
@@ -571,14 +570,14 @@ class IfcMeasureInput(BaseModel):
     @model_validator(mode="before")
     @classmethod
     def _fold_case(cls, data: Any) -> Any:
-        """Case-fold what the tool has always case-folded, and keep the ledger.
+        """Case-fold the fields that accept it, and keep the ledger.
 
-        A ``Literal`` is case-sensitive; ``kind='Compactness'`` has always been
-        answered, so the canonical spelling is substituted before the enum
-        runs. Whatever is still unknown afterwards is left for the ``Literal``
-        to refuse — after :func:`record_gap` has written down what was wanted,
-        because the refusal never reaches the tool body and the backlog would
-        otherwise go quiet exactly as refusals got cheaper.
+        A ``Literal`` is case-sensitive; ``kind='Compactness'`` is a working call,
+        so the canonical spelling is substituted before the enum runs. Whatever is
+        still unknown afterwards is left for the ``Literal`` to refuse — after
+        :func:`record_gap` has written down what was wanted, because the refusal
+        never reaches the tool body and the ledger would otherwise miss exactly
+        the wanted values that are refused.
         """
         if not isinstance(data, dict):
             return data
@@ -1058,17 +1057,13 @@ def _decimals(tolerance: Any) -> int | None:
     One decade finer than the band and no more, so nothing the operator resolved
     is thrown away and nothing it did not is invented.
 
-    This used to `ceil` the logarithm, which rounds a tolerance UP to the next
-    decade before counting: ±0.005 m earned four decimals (0.1 mm — fifty times
-    finer than the band) and ±3° earned one (0.1° — thirty times). Only exact
-    powers of ten came out right, which is why it looked correct on ±0.01.
-
     `floor` makes the tolerance's own leading digit set the scale, so the shown
     resolution is always between one and ten times finer than the band: ±0.005 m
     earns three decimals (0.647 m), ±3° earns none (0°), ±0.15 m² earns one
-    (15.4 m²). That last one is the change most likely to look like a
-    regression and is the clearest case of the fix — a 15-centimetre band does
-    not support a centimetre digit, and printing 15.42 claimed it did.
+    (15.4 m²). Not `ceil`: that rounds a tolerance UP to the next decade before
+    counting, so ±0.005 m would earn four decimals (0.1 mm, fifty times finer than
+    the band) and ±3° one (0.1°, thirty times finer). A 15-centimetre band does
+    not support a centimetre digit, and printing 15.42 claims that it does.
     """
     if isinstance(tolerance, bool) or not isinstance(tolerance, (int, float)):
         return None
@@ -1082,21 +1077,18 @@ def _decimals(tolerance: Any) -> int | None:
 def _num(value: Any, decimals: int | None = None) -> str:
     """A number as the engine produced it, to the precision it actually has.
 
-    The rule used to be "never round", on the reasoning that a renderer which
-    reshapes a value breaks the tool's only claim. That reasoning was right and
-    the conclusion was wrong, and the battery showed why: `floorArea` rendered
-    as „gemessen (±0.15416781250000042 m²): 15.41678125000004 m²“.
-
-    Seventeen digits against a 15-centimetre band is not fidelity, it is a
-    binary-float artifact wearing the costume of a measurement. It is LESS
-    faithful than 15.42, because it asserts precision the operator explicitly
-    disclaims — and the model reading it will quote the digits, because we told
-    it that numbers come from the tool and are never to be re-rounded.
+    Printing the raw float would assert precision the operator disclaims:
+    `floorArea` would render as „gemessen (±0.15416781250000042 m²):
+    15.41678125000004 m²“. Seventeen digits against a 15-centimetre band is not
+    fidelity, it is a binary-float artifact wearing the costume of a measurement.
+    It is LESS faithful than 15.42, and the model reading it will quote the
+    digits, because the prompt tells it that numbers come from the tool and are
+    never to be re-rounded.
 
     So the value is shown to its tolerance and to nothing else. Where there is
     no tolerance — a `declared` figure, a confidence — the value is the file's
-    own statement and is passed through untouched, which is the case the old
-    rule was really protecting.
+    own statement and is passed through untouched, which is the one case where
+    keeping every digit is correct.
     """
     if isinstance(value, bool) or value is None:
         return str(value)
@@ -1110,9 +1102,8 @@ def _num(value: Any, decimals: int | None = None) -> str:
 def _tolerance_text(tolerance: Any) -> str:
     """The band itself, at two significant figures.
 
-    Its OWN rule, not the value's. Sharing `_decimals` meant the band was
-    rounded to the precision it had just authorised for the value, so a
-    tolerance of 0.154 m² printed as „±0.2 m²" — rounded UP by a third, and in
+    Its OWN rule, not the value's. Rounding the band to the value's precision
+    would print a tolerance of 0.154 m² as „±0.2 m²“ — rounded UP by a third, in
     the direction that overstates our own uncertainty. Two significant figures
     is what an error estimate can carry, and trailing zeros are stripped so
     ±0.005 stays ±0.005 rather than becoming ±0.0050.
@@ -1146,9 +1137,8 @@ def _angle(value: Any) -> str:
 #: `_decimals` derives its precision from the answer's tolerance, which carries
 #: the answer's UNIT. Applied to a ratio that is a different quantity entirely,
 #: it destroys the number: `envelope/areaByOrientation` has a tolerance of
-#: ±2.3 m², which earns zero decimals, and the window-to-wall ratios then
-#: rendered `windowWallRatio=0` for north (0.193), south (0.405) and the
-#: building as a whole (0.177). The WWR is the entire point of that operator,
+#: ±2.3 m², which earns zero decimals, so a window-to-wall ratio of 0.193 would
+#: print as `windowWallRatio=0`. The WWR is the entire point of that operator,
 #: and a facade reported at 0 reads as one with no glazing in it — a claim about
 #: the building, made by a rounding rule, and false.
 #:
@@ -1160,8 +1150,8 @@ def _angle(value: Any) -> str:
 #: a key called `ratio` and only one of them is unitless:
 #: `lightEntryArea.ratio` is a fraction, but `compactness.ratio` is A/V in
 #: **1/m** — the answer's own main value, whose ±0.021 1/m band is exactly the
-#: right precision for it. Overriding that one would be this same bug pointed
-#: the other way. `lightEntryArea` loses nothing by the omission: its headline
+#: right precision for it. Overriding that one would make the same mistake the
+#: other way. `lightEntryArea` loses nothing by the omission: its headline
 #: line already states the share as „**14.21 %**" at full precision.
 _UNITLESS_KEYS = frozenset({"windowWallRatio", "percent", "confidence"})
 
@@ -1174,7 +1164,7 @@ def _value_text(value: Any, decimals: int | None = None) -> str:
         return _num(value, decimals)
     if isinstance(value, dict):
         # `extent`, `elevation`, `sillAndHead` — a handful of named numbers.
-        # Nested one level (extent's `box`), the flat join produced
+        # Nested one level (extent's `box`): a flat join would print
         # "box=min=[…], max=[…]", which reads as one key with two values.
         parts = []
         for key, inner in value.items():
@@ -1213,14 +1203,11 @@ def _provenance_line(answer: dict[str, Any]) -> str:
         what = missing.get("what") or "die nötige Angabe"
         remedy = missing.get("remedy") or ""
         # Two sentence forms, because `missing.what` comes in two grammatical
-        # shapes and one template cannot carry both. Around thirty of them
-        # across the package are already negated („keine IfcSpace-Elemente"),
-        # and „liefert keine IfcSpace-Elemente nicht" is not German — read
-        # literally it says the opposite of the finding.
-        #
-        # Fixed here rather than by rewriting thirty German strings: the
-        # renderer owns the sentence, so the renderer is where the agreement
-        # belongs, and a string added tomorrow gets it for free.
+        # shapes and one template cannot carry both. Many of them are already
+        # negated („keine IfcSpace-Elemente"), and „liefert keine IfcSpace-Elemente
+        # nicht" is not German — read literally it says the opposite of the
+        # finding. The renderer owns the sentence, so the agreement belongs here,
+        # and a string added later gets it for free.
         negated = re.match(r"kein(e|en|er|es)?\b", what.strip(), re.IGNORECASE)
         opening = f"dieser Export enthält {what}" if negated else f"dieser Export liefert {what} nicht"
         return f"NICHT ENTSCHEIDBAR: {opening}. Das ist ein Befund über den EXPORT, nicht über das Gebäude." + (
@@ -1655,7 +1642,7 @@ def _body_lines(operation: str, payload: Any) -> list[str]:
     if isinstance(payload, dict) and "decidable" in payload:
         return _render_answer(payload)
     # Never `str(payload)`: a raw dict dump strips the provenance verbs, which
-    # is the defect this renderer exists to prevent. A shape nobody renders is
+    # is the failure this renderer exists to prevent. A shape nobody renders is
     # a bug to fix, and a test should be what finds it.
     raise TypeError(f"ifc_measure: no renderer for the {operation!r} payload ({type(payload).__name__})")
 

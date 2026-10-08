@@ -3,9 +3,9 @@
 /**
  * Platform → retrieval: how many chunks/results each search fetches.
  *
- * The retrieval counts used to be literals in the workflow YAML or hard-coded
- * tool constants, so tuning recall/context-size trade-offs meant a commit and
- * a backend redeploy. Here it is one save: adjust a count and every
+ * Otherwise the counts are literals in the workflow YAML or hard-coded tool
+ * constants, and tuning recall/context-size trade-offs means a commit and a
+ * backend redeploy. Here it is one save: adjust a count and every
  * organization's searches follow on their next request.
  *
  * A setting left at its boot default is not stored at all — the PUT sends only

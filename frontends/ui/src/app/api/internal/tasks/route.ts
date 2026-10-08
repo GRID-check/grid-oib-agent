@@ -3,13 +3,12 @@
  *
  * ## What it is for
  *
- * ADR-0051 named three triggers that create a task and built one: a job on its
- * timer. This is the second — "a chat handoff (@Piloti prüf das bis Freitag)
- * becomes another" — and it exists as an HTTP route with a typed client rather
- * than as a service call the Python tier makes, because ADR-0055 says a
- * primitive has one surface and every consumer is a client of it. The `tasks`
- * table already had a session-facing surface for reading and reviewing; this is
- * the writing end of it.
+ * ADR-0051 names the triggers that create a task: a job on its timer, and a chat
+ * handoff ("@Piloti prüf das bis Freitag"), which is the one this route serves.
+ * It is an HTTP route with a typed client rather than a service call the Python
+ * tier makes, because ADR-0055 says a primitive has one surface and every
+ * consumer is a client of it. The `tasks` table has a session-facing surface for
+ * reading and reviewing; this route is the writing end of it.
  *
  * ## Identity: the same two checks as the document route, and the same reason
  *
@@ -25,7 +24,7 @@
  *
  * `create` states a standing intent („@Piloti prüf das bis Freitag"), and
  * `research` commissions one run for a question asked in the thread — the
- * escalation, which used to be a job the product had no row for (ADR-0062).
+ * escalation, which ADR-0062 gives a row to.
  * Both are a machine ASKING for work. Neither judges it: `reviewTask` is a
  * session route because a review is a person's statement about the project's
  * own record, and a machine that could accept its own output would close the

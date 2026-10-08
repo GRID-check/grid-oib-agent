@@ -1,7 +1,7 @@
 """Tests for how the clarification step is configured and wired.
 
-What was the `clarifier_agent` NAT registration: the config block (now nested
-under the workflow), the tool set it boots with, the HITL channel it asks
+The `clarifier_agent` NAT registration: the config block (nested under the
+workflow), the tool set it boots with, the HITL channel it asks
 through, and the per-request narrowing that keeps a per-org model override,
 a BYOK credential, ZDR routing and data-source filtering working.
 """
@@ -42,7 +42,7 @@ def beta_tool(query: str) -> str:
 
 
 class TestClarifierSettings:
-    """The config block, one level deeper than it used to be."""
+    """The config block, nested under the workflow."""
 
     def test_settings_with_required_fields(self):
         settings = ClarifierSettings(llm="test_llm")
@@ -76,8 +76,8 @@ class TestClarifierSettings:
         assert first.tools == [] and first.tools is not second.tools
 
     def test_the_field_names_are_the_ones_the_yaml_already_used(self):
-        """The block moved onto the workflow; the keys inside it did not change,
-        so an existing deployment re-indents its YAML and nothing else."""
+        """The keys inside the block are unchanged, so an existing deployment only
+        re-indents its YAML."""
         assert set(ClarifierSettings.model_fields) == {
             "llm",
             "planner_llm",
@@ -97,7 +97,7 @@ class TestClarifierSettings:
         assert fields["max_turns"].description is not None
 
     def test_it_hangs_off_the_workflow_config(self):
-        """The one place a deployment addresses this step from now."""
+        """The one place a deployment addresses this step."""
         from aiq_agent.agents.piloti.conversation_register import ChatDeepResearcherConfig
 
         config = ChatDeepResearcherConfig(enable_clarifier=True, clarifier={"llm": "clarifier_llm", "max_turns": 3})
@@ -173,7 +173,7 @@ class TestAskThroughNat:
     """The HITL channel: NAT prompt out, user's reply in.
 
     This is the live user interaction the plan-approval dialog blocks on, so it
-    keeps its own tests even though nothing registers a NAT function any more.
+    keeps its own tests even though nothing registers a NAT function.
     """
 
     @staticmethod

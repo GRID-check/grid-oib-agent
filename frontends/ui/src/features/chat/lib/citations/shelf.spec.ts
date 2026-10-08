@@ -4,14 +4,14 @@
 /**
  * The shelf travels as DATA (ADR-0047), end to end on the TypeScript side.
  *
- * One fact — which shelf a retrieved chunk came from — used to be destroyed at
- * the wire and guessed back twice: once from a collection-id prefix, once from
- * a German qualifier inside a citation key. These cases pin the replacement:
+ * One fact — which shelf a retrieved chunk came from — is read from the wire and
+ * never guessed back from a collection-id prefix or from a German qualifier
+ * inside a citation key. These cases pin that:
  *
  *  - the shelf is READ from the payload, never derived from `collection`;
  *  - an absent or unrecognised shelf is UNKNOWN and renders unattributed —
- *    never defaulted to base law, which is what `collectionScope` used to do;
- *  - a private session attachment is no longer filed under "Projektwissen";
+ *    never defaulted to base law;
+ *  - a private session attachment is not filed under "Projektwissen";
  *  - keys already persisted with a German qualifier still resolve.
  */
 
@@ -61,9 +61,9 @@ describe('the shelf arrives explicitly', () => {
     expect(documentFor(wire({ shelf: 'base', kind: 'baurecht' })).shelf).toBe('base')
   })
 
-  test('the shelf outranks the collection id, which no longer says anything', () => {
-    // The prefix table is deleted: `proj_alpha` used to force `projekt` on this
-    // document no matter what the payload said.
+  test('the shelf outranks the collection id, which says nothing', () => {
+    // A collection-id prefix never decides the shelf: `proj_alpha` must not force
+    // `projekt` on this document, whatever the payload says.
     const doc = documentFor(wire({ collection: 'proj_alpha', shelf: 'session' }))
 
     expect(doc.shelf).toBe('session')
@@ -80,8 +80,8 @@ describe('the shelf arrives explicitly', () => {
 
 describe('an unknown shelf renders unattributed', () => {
   test('a payload with no shelf leaves the document unattributed', () => {
-    // Not "base", not "project": nothing. The collection id is present and would
-    // have been prefix-matched into a shelf before ADR-0047.
+    // Not "base", not "project": nothing. The collection id is present, but it is
+    // never prefix-matched into a shelf (ADR-0047).
     const doc = documentFor(wire({ collection: 'archiv_org1', kind: 'buero' }))
 
     expect(doc.shelf).toBeUndefined()
@@ -104,7 +104,7 @@ describe('an unknown shelf renders unattributed', () => {
     expect(documentTabLabel(doc, t)).toBe('Büroarchiv')
   })
 
-  test('a stored message written before the field existed decodes to no shelf', () => {
+  test('a stored message without the field decodes to no shelf', () => {
     const restored = decodeCitations(
       { v: 1, sources: [{ content: '[KB] Plan.pdf, p.1', file_name: 'Plan.pdf', page: 1 }] },
       NOW
@@ -139,7 +139,7 @@ describe('a private session attachment is not project knowledge', () => {
   })
 })
 
-describe('legacy citation keys still parse', () => {
+describe('legacy citation keys parse', () => {
   const legacy = (citationKey: string): CitationSource => ({
     id: 'c-1',
     content: `[KB] ${citationKey}`,
@@ -184,17 +184,17 @@ describe('legacy citation keys still parse', () => {
     expect(doc?.shelf).toBe('session')
   })
 
-  /**
-   * An EXPLICIT shelf and a GUESSED one are two different claims, and they must
-   * not be settled by whichever observation happened to arrive first.
-   *
-   * One document is folded together from many wire sources — the registry keys
-   * on `(collection, filename, page)`, so a file read at three pages arrives as
-   * three sources. If the first of them carries only a legacy key qualifier and
-   * the second carries the real shelf, "first non-empty wins" hands the document
-   * to the GUESS: a private attachment cited at p.3 and p.4 could be filed under
-   * "Projektwissen" purely because of the order the pages came in.
-   */
+    /**
+     * An EXPLICIT shelf and a GUESSED one are two different claims, and they must
+     * not be settled by whichever observation happened to arrive first.
+     *
+     * One document is folded together from many wire sources — the registry keys
+     * on `(collection, filename, page)`, so a file read at three pages arrives as
+     * three sources. If the first of them carries only a legacy key qualifier and
+     * the second carries the real shelf, "first non-empty wins" would hand the
+     * document to the GUESS: a private attachment cited at p.3 and p.4 could be
+     * filed under "Projektwissen" purely because of the order the pages came in.
+     */
   describe('explicit and guessed shelves do not compete on arrival order', () => {
     /** A legacy source: a qualified key, no shelf field. Same document as below. */
     const guessed: CitationSource = {
@@ -286,9 +286,9 @@ describe('legacy citation keys still parse', () => {
  * `shelfLabel` is display copy and may be reworded; the qualifier inside a
  * citation key may NOT, because the backend appends one to keep a key unique
  * when two retrieved files share a name across shelves. The reader therefore
- * has to strip every qualifier the writer can emit — and the writer gained
- * `Private Sitzung` in ADR-0047, which is exactly the case a "legacy means the
- * three old strings" reading would have missed: the qualifier survives, the
+ * has to strip every qualifier the writer can emit. The writer also emits
+ * `Private Sitzung` (ADR-0047), and a reading that treats the legacy qualifiers
+ * as just the three old strings would miss it: the qualifier survives, the
  * remainder fails `FILENAME_RE`, and the citation resolves to null.
  *
  * These strings are pinned byte-for-byte against `SHELF_QUALIFIERS` in

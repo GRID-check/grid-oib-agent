@@ -4,18 +4,15 @@
  * The first screen a new customer sees after signing in: name the
  * organization, become its admin, go in.
  *
- * It used to open with a 5xl headline over a rotating starfield, three feature
- * tiles and the same three-step list twice, once as a promise and once as a
- * receipt. The design language asks for the opposite (no decoration, one focal
- * point, 20px page titles), and the screen asks one question, so it is now
- * built like the question it is: a narrow column, one field, one ink button,
- * and three quiet lines saying what happens next. Everything else it said was
- * restating the button.
+ * The screen asks one question, so it is built like that question: a narrow
+ * column, one field, one ink button, and three quiet lines saying what happens
+ * next. The design language asks for no decoration and one focal point, and
+ * anything else on the screen would only restate the button.
  *
  * Presentational on purpose: the route (`app/app/onboarding/organization`)
  * owns the fetches, and `/dev/onboarding` renders every state from fixtures.
  * Sign-out stays in the header in every state: signed in with the wrong
- * account, or waiting on an invitation, must never be a dead end (UX-17).
+ * account, or waiting on an invitation, must never be a dead end.
  */
 
 import * as React from 'react'

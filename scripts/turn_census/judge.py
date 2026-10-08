@@ -1,12 +1,11 @@
 """The two precedent checks a pattern cannot read, asked of a model.
 
 „The references hold nothing comparable" and „that precedent was decided under
-an older edition" are meanings, not words. A phrase list read them both ways
-wrong on the precedent eval's own answers (7 Oct 2026): it missed „kein
-dokumentierter Fall", and it took a cited precedent's own caveat („keine
-Vorgabe für Ihr Projekt") for „nothing found" in 11 of 65 answers that cited
-one. Every phrase added for the last miss made the next false pass likelier,
-which is tuning the instrument to the answers it grades.
+an older edition" are meanings, not words. A phrase list reads them wrong both
+ways: it misses „kein dokumentierter Fall", and it takes a cited precedent's own
+caveat („keine Vorgabe für Ihr Projekt") for „nothing found". Each phrase added
+to fix one miss makes the next false pass likelier, which tunes the instrument
+to the answers it grades.
 
 So the judge gets the question, the answer and one yes/no question about
 meaning, in English, whatever language the answer is in. It is checked the

@@ -8,10 +8,9 @@ under (ADR-0049), and the ``provenance`` of a document Piloti wrote and a
 person released (ADR-0054). The table is named ``document_metadata`` because
 it is exactly that — the summary is only one of several columns.
 
-Historically this was the ``summaries`` table (class ``SummaryStore``). A
-startup migration renames that table in place the first time the store opens
-against an older database, so existing rows are preserved untouched — see
-:meth:`DocumentMetadataStore._ensure_schema`.
+A database still holding the legacy ``summaries`` table is renamed in place the
+first time the store opens it, so its rows are preserved untouched — see
+:meth:`DocumentMetadataStore._run_schema`.
 
 Configurable SQLite/PostgreSQL storage, following the same pattern as EventStore
 in the jobs system.
@@ -52,7 +51,7 @@ LEGACY_TABLE_NAME = "summaries"
 _INDEX_NAME = "idx_document_metadata_collection"
 _LEGACY_INDEX_NAME = "idx_summaries_collection"
 
-#: Optional (nullable) columns added after the original schema shipped. Kept as a
+#: Optional (nullable) columns beyond the core ones. Kept as a
 #: single list so both the fresh-create path and the in-place backfill add the
 #: exact same set — a new column is introduced by appending one entry here.
 _OPTIONAL_COLUMNS: tuple[str, ...] = (
@@ -326,12 +325,11 @@ class DocumentMetadataStore:
         are set by people (a reclassification, a rename, a folder move) or by the
         BFF, and re-summarising a document must not undo any of them.
 
-        That is why both engines run the same ``ON CONFLICT … DO UPDATE`` and the
-        SQLite branch no longer uses ``INSERT OR REPLACE``: replace is a DELETE
-        plus an INSERT, so every column absent from the statement came back NULL.
-        A re-ingest silently un-renamed and un-filed the document, and the only
-        symptom was the agent describing a folder structure the user no longer
-        had. ``excluded`` is spelled the same in SQLite and Postgres.
+        That is why both engines run the same ``ON CONFLICT … DO UPDATE`` and not
+        ``INSERT OR REPLACE``: a replace is a DELETE plus an INSERT, so every
+        column absent from the statement comes back NULL, and a re-ingest would
+        silently un-rename and un-file the document. ``excluded`` is spelled the
+        same in SQLite and Postgres.
         """
         import json
 
@@ -724,9 +722,8 @@ class DocumentMetadataStore:
         ``deploy/compose/init-db.sql``), so Postgres returns an aware value; a
         naive one only comes from SQLite, whose ``CURRENT_TIMESTAMP`` is UTC, or
         from a table created before that, on a server whose ``TimeZone`` is UTC
-        (the Postgres image default). Taking
-        the UTC date filed an upload made at 00:30 in Vienna under the day
-        before, and „was ist seit heute neu“ missed it.
+        (the Postgres image default). Taking the UTC date would file an upload
+        made at 00:30 in Vienna under the day before.
         """
         if raw is None:
             return None

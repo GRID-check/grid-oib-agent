@@ -7,13 +7,12 @@
  * where the alternative is a markdown bullet list: three discs of equal weight
  * that a reader has to read in full to find out which one is theirs.
  *
- * THE SHAPE (`docs/design/grid-card-charter.md` §A5). The rows used to be
- * separated by `divide-y` hairlines, which is what made this a generic list —
- * four cards in the set drew the same rules around the same rows. Now the rank
- * is drawn instead of ruled: the ordinals hang off one continuous hairline and
- * every takeaway sits in one text column, so the order is carried by the
- * ordinals and by the first row's figure (below), not by an indent. A 6px
- * per-rank staircase was tried and read as misregistration.
+ * THE SHAPE (`docs/design/grid-card-charter.md` §A5). The rank is drawn, not
+ * ruled: the ordinals hang off one continuous hairline and every takeaway sits
+ * in one text column, so the order is carried by the ordinals and by the first
+ * row's figure (below), not by an indent. Hairlines between rows would make
+ * this a generic list, the same rules the other cards draw around their rows,
+ * and a per-rank staircase reads as misregistration.
  *
  * THE FIGURE (§A2). A card carries exactly one element above 14px and it must
  * be the card's answer. This card's answer is five things, so the figure is
@@ -101,9 +100,9 @@ const RowBody: FC<{ index: number; text: string }> = ({ index, text }) => {
       </span>
       <span
         className={cn(
-          // One text column for every row. The staircase this replaced (6px
-          // further in per rank) read as misregistration, not as rank; the
-          // ordinal and the first row's figure already carry the order.
+          // One text column for every row: an indent per rank reads as
+          // misregistration, not as rank; the ordinal and the first row's
+          // figure already carry the order.
           'min-w-0 text-pretty text-foreground',
           // NEVER truncated — a takeaway is the payload, and a German compound
           // that wraps to two lines is still the answer.

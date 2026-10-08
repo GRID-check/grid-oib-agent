@@ -10,7 +10,7 @@
  * incorrect by construction for two, because a browser cannot know what a
  * colleague just wrote. ADR-0033 inverts the source of truth for **shared**
  * conversations only, and this hook is the single place that inversion happens.
- * Everything below it keeps rendering from the store exactly as before.
+ * Everything below it keeps rendering from the store unchanged.
  *
  * Four properties are the whole contract:
  *
@@ -77,9 +77,9 @@ const ACCESS_RETRY_DELAYS_MS = [1_000, 3_000, 8_000]
  * for the rest of the session.
  *
  * It is a SLIDING deadline, not a fixed one. Five minutes of *silence* is the
- * bar — not five minutes of turn. A fixed five minutes erased a colleague's
+ * bar — not five minutes of turn. A fixed five minutes would erase a colleague's
  * answer mid-sentence on any longer turn (deep research routinely is); a fixed
- * thirty minutes would have made every path that produces no evidence of life —
+ * thirty minutes would make every path that produces no evidence of life —
  * a deployment with no shared cache tier, the reader's own turn, a spent
  * reconnect budget — wait six times longer behind a locked composer. So the
  * clock restarts on evidence the turn is alive (`noteTurnActivity`), and the
@@ -179,7 +179,7 @@ export interface UseSharedThreadResult {
   /**
    * Clear the turn banner because the turn demonstrably ended — the observer's
    * spectated stream saw its terminal frame. Without this the banner (and the
-   * composer lock that hangs off it) waited out {@link TURN_BANNER_MAX_AGE_MS}
+   * composer lock that hangs off it) would wait out {@link TURN_BANNER_MAX_AGE_MS}
    * whenever no assistant message was persisted to publish the `ended` event.
    */
   clearTurnInFlight: () => void
@@ -241,8 +241,8 @@ const INERT: Omit<
   participants: [],
   unreadAfterMessageId: null,
   lastArrival: null,
-  // A gated or private thread answers everything, which is what it has always
-  // done — the mode can only ever narrow a SHARED thread.
+  // A gated or private thread answers everything, as it always does: the mode
+  // can only narrow a SHARED thread.
   engagement: 'ask',
   engagementSuggestion: null,
 }
@@ -279,8 +279,8 @@ export function useSharedThread(options: UseSharedThreadOptions): UseSharedThrea
 
   const [shared, setShared] = useState(false)
   const [myRole, setMyRole] = useState<ResourceRole | null>(null)
-  // `ask` until the server says otherwise: it is the behaviour every thread had
-  // before this existed, so a load that has not landed yet cannot change routing.
+  // `ask` until the server says otherwise: it is the routing every thread gets by
+  // default, so a load that has not landed yet cannot change it.
   const [engagement, setEngagementState] = useState<ConversationEngagement>('ask')
   const [engagementSuggestion, setEngagementSuggestion] = useState<ConversationEngagement | null>(
     null
@@ -344,8 +344,8 @@ export function useSharedThread(options: UseSharedThreadOptions): UseSharedThrea
   const turnStartedAtRef = useRef<number>(0)
   /**
    * When the turn last showed a sign of life. A REF, not state, on purpose: this
-   * is fed by every spectated frame, and bumping state per frame re-rendered the
-   * hook's owner — the whole chat column — a second time per token.
+   * is fed by every spectated frame, and bumping state per frame would re-render the
+   * hook's owner, the whole chat column, once per token.
    */
   const lastTurnActivityRef = useRef<number>(0)
 
@@ -374,7 +374,7 @@ export function useSharedThread(options: UseSharedThreadOptions): UseSharedThrea
       const mapped = withAuthorIdentity(mapServerMessagesToChatMessages(rows), directoryRef.current)
 
       // `insertRemoteMessages` is declared on the messages slice; `ChatActions`
-      // (features/chat/types.ts) is shared surface this task may not extend, so
+      // (features/chat/types.ts) is shared surface this hook must not widen, so
       // the one cast lives here rather than at every call site.
       const store = useChatStore.getState() as unknown as MessagesSlice
       store.insertRemoteMessages(targetConversationId, mapped, { replace })
@@ -483,14 +483,13 @@ export function useSharedThread(options: UseSharedThreadOptions): UseSharedThrea
       // `load` TWICE, and if the second call minted its own ticket the
       // unmount/switch guard (`seq.current += 1` in the effect cleanup) could
       // never invalidate it — so a revalidation for the thread you just left
-      // wrote its access facts over the thread you are now in.
+      // would write its access facts over the thread you are now in.
       const current = generation ?? ++seq.current
 
       // A chat this page minted and has not stored yet: the server has no row,
       // so the read could only answer 404. It is private by construction —
       // nobody else can have been given a conversation that does not exist —
-      // which is exactly what that 404 used to be taken to mean, so publish
-      // that without asking. The read follows once the create lands (the
+      // so publish that without asking. The read follows once the create lands (the
       // `onServer` effect below).
       if (!isConversationOnServer(conversationId)) {
         sharedRef.current = false
@@ -515,11 +514,11 @@ export function useSharedThread(options: UseSharedThreadOptions): UseSharedThrea
             live-looking composer.
 
             Everything else — 5xx from a rolling deploy, a proxy error page, 429,
-            408 — is the transient case the retry ladder exists for, and it used
-            to land here too. That cleared `shared`, which switches off the live
-            subscription, the focus listener and the poll; told the reader they
-            had lost access; and published `private` to the composer's socket
-            gate on a guess. One 502 froze the thread for the session.
+            408 — is the transient case the retry ladder exists for, and it must not
+land here. Clearing `shared` would switch off the live subscription, the focus
+listener and the poll, tell the reader they had lost access, and publish
+`private` to the composer's socket gate on a guess. One 502 would freeze the
+thread for the session.
           */
           const authoritative = response.status === 401 || response.status === 403 || response.status === 404
           if (current === seq.current && !authoritative) {
@@ -596,15 +595,14 @@ export function useSharedThread(options: UseSharedThreadOptions): UseSharedThrea
         return messages === 'denied' ? 'denied' : 'ok'
       } catch {
         if (current === seq.current) {
-          // A network failure is not evidence about this thread at all, and it
-          // used to clear `shared` — which ALSO switched off the live
-          // subscription, the focus listener and the fallback poll, every one of
-          // which is gated on that flag. A single dropped request (a sleeping
-          // laptop, one 502) therefore froze the thread permanently: stale
-          // messages, no error, a live-looking composer, and no way back except
-          // a remount. Keep the last known answer and retry on a short ladder.
+          // A network failure is not evidence about this thread at all, so it must not
+          // clear `shared`: that would also switch off the live subscription, the focus
+          // listener and the fallback poll, every one of which is gated on that flag. A
+          // single dropped request (a sleeping laptop, one 502) would freeze the thread
+          // permanently: stale messages, no error, a live-looking composer, and no way
+          // back except a remount. Keep the last known answer and retry on a short ladder.
           //
-          // Nothing is published for the same reason as before: telling the
+          // Nothing is published here either: telling the
           // socket gate "private" on a guess is how the two-participant
           // collision comes back.
           scheduleAccessRetry()
@@ -662,18 +660,18 @@ export function useSharedThread(options: UseSharedThreadOptions): UseSharedThrea
     setParticipants((previous) => (previous.length === 0 ? previous : []))
     directoryRef.current = new Map()
     accessRetry.reset()
-    // Sharedness belongs to the conversation, not to the hook. It was never
-    // reset here — previously the failure path cleared it as a side effect, and
-    // now that a blip deliberately preserves the last known answer, an inherited
-    // `true` would follow the reader into a PRIVATE thread and open a live
-    // channel there (spec NF-8). "Not yet known" is the honest state on a switch.
+    // Sharedness belongs to the conversation, not to the hook, so it is reset on
+    // every switch. A blip deliberately preserves the last known answer, so an
+    // inherited `true` would otherwise follow the reader into a PRIVATE thread and
+    // open a live channel there (spec NF-8). "Not yet known" is the honest state on
+    // a switch.
     sharedRef.current = false
     setShared(false)
     setMyRole(null)
     // Re-seed the revision watermark. It is per-hook-instance while `revision`
     // is per-conversation, so switching from a thread where a mention was sent
-    // (revision 1) to a fresh one (revision 0) read as "declared stale" and
-    // fired a second, racing load on every switch.
+    // (revision 1) to a fresh one (revision 0) would read as "declared stale" and
+    // fire a second, racing load on every switch.
     lastRevisionRef.current = revisionRef.current
     lastOnServerRef.current = onServerRef.current
     void loadAndRevalidate(true)
@@ -697,7 +695,7 @@ export function useSharedThread(options: UseSharedThreadOptions): UseSharedThrea
     shared server-side, but this hook only reads sharedness on a conversation
     change — and every live subscription that would otherwise carry the news is
     gated on `shared`, which is exactly the flag that is now wrong. So the asker
-    watched their mention land and then saw nothing: no waiting banner, no
+    watches their mention land and then sees nothing: no waiting banner, no
     explanation for the agent's silence, no route back short of a reload.
 
     Not `replace`: the messages are already right, it is the access facts that
@@ -718,7 +716,7 @@ export function useSharedThread(options: UseSharedThreadOptions): UseSharedThrea
     Read once the server has the conversation.
 
     A new chat's reads are skipped until its first message has created the row
-    (`load` above); this is the read that was skipped. Not `replace`, for the
+    (`load` above); this is the read that waits for it. Not `replace`, for the
     same reason as the revision re-read: the thread on screen is the one this
     page just wrote, and the turn it started is running. Skipped when the
     conversation was already on the server when it opened, so an existing
@@ -797,7 +795,7 @@ export function useSharedThread(options: UseSharedThreadOptions): UseSharedThrea
     // Expire a turn banner whose `ended` never arrived, so the fallback path
     // heals it exactly like every other piece of state here — using the SAME
     // silence rule as the interval below. Measuring from the turn's start
-    // instead would have this door clear a turn that is actively streaming, at
+    // instead would clear a turn that is actively streaming, at
     // exactly the five-minute mark the sliding deadline exists to survive.
     if (turnHasGoneQuiet()) setTurnInFlight(null)
     if (!sharedRef.current) {
@@ -805,7 +803,7 @@ export function useSharedThread(options: UseSharedThreadOptions): UseSharedThrea
       // makes "a colleague shared it with me while I had it open" converge without
       // an event, and it is the ONLY request a private thread can cause. Its
       // trigger is the effect below, NOT `useLiveEvents` — that one is gated on
-      // `shared`, so for years this branch could only be reached by a caller
+      // `shared`, so without that effect this branch is reachable only by a caller
       // calling `refresh()` by hand.
       void loadAndRevalidate(false)
       return
@@ -833,17 +831,17 @@ export function useSharedThread(options: UseSharedThreadOptions): UseSharedThrea
 
     `useLiveEvents` owns the focus listener, the visibility listener and the
     disconnected poll — and it is enabled on `shared`, which is exactly the flag
-    that is false or unknown here. So a thread whose access read never landed had
-    no route back at all once the short retry ladder was spent: no listener, no
-    poll, no subscription, and the ladder does not restart itself. The reader sat
+    that is false or unknown here. So a thread whose access read never landed has
+    no route back at all once the short retry ladder is spent: no listener, no
+    poll, no subscription, and the ladder does not restart itself. The reader sits
     on a thread the server considers shared, with none of the shared behaviour,
-    until they navigated away. The `!sharedRef.current` branch of `refresh` was
-    written for this and nothing could reach it.
+    until they navigate away. This effect is the route back: it runs the
+    `!sharedRef.current` branch of `refresh`, which was written for exactly this.
 
     One access read, on focus, at most every half minute, and no connection of any
     kind — a private thread stays as quiet as NF-8 requires (this is the same
     request the hook already makes on mount, not a new capability), and "a
-    colleague shared this while I had it open" finally converges.
+    colleague shared this while I had it open" converges.
   */
   useEffect(() => {
     if (!enabled || shared || !conversationId) return
@@ -1023,8 +1021,8 @@ export function useSharedThread(options: UseSharedThreadOptions): UseSharedThrea
    *
    * The `ended` event is published as a side effect of an assistant message
    * being persisted, so a turn that dies without one — a cancelled turn, a
-   * failed server-side persist — never publishes it, and the expiry above was
-   * the only thing that ever cleared the banner. Meanwhile the observer's own
+   * failed server-side persist — never publishes it, and the expiry above is
+   * the only thing that clears the banner. Meanwhile the observer's own
    * spectated stream sees the terminal frame immediately and knows. This is how
    * it says so.
    */
@@ -1044,7 +1042,7 @@ export function useSharedThread(options: UseSharedThreadOptions): UseSharedThrea
   /**
    * The reader's own role, same channel and same reason: a viewer's send is
    * rejected server-side, so the composer must be read-only BEFORE the attempt.
-   * Cleared the moment the thread is no longer shared for this reader.
+   * Cleared as soon as the thread is not shared for this reader.
    */
   useEffect(() => {
     if (!conversationId) return

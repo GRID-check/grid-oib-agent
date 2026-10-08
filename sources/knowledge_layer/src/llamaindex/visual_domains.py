@@ -7,12 +7,12 @@ data.
 
 Why the split exists
 --------------------
-The first version of this schema had ``rooms``, ``circulation``, ``envelope``
-and ``building_physics`` as top-level fields. That reads well for a floor plan
-and has nowhere to put a site plan's planting, a schematic's components or a
-product photo's parts — so every non-architectural upload degraded to a
-paragraph of prose, and adding a domain meant editing the schema, the parser
-and the UI together. Here, a room is an entity whose category is ``space`` in
+Fixed top-level fields (``rooms``, ``circulation``, ``envelope``,
+``building_physics``) read well for a floor plan and have nowhere to put a site
+plan's planting, a schematic's components or a product photo's parts. Under
+those fields every non-architectural upload degrades to a paragraph of prose,
+and a new domain means editing the schema, the parser and the UI together. Here,
+a room is an entity whose category is ``space`` in
 the ``architecture`` domain: architecture loses nothing, and a new domain is a
 :class:`Domain` in :data:`DOMAINS` rather than a schema migration.
 
@@ -80,7 +80,7 @@ _ROLE_CONTENT_TYPES = {
 _ROLE_PRECEDENCE = (SegmentRole.PRIMARY, SegmentRole.CHART, SegmentRole.PICTORIAL)
 
 
-#: A term that is no longer offered to the model but still resolves, so a
+#: A term that is withheld from the model but still resolves, so a
 #: record extracted under it keeps rendering. Terms are deprecated, never
 #: deleted: the key is what stored payloads reference.
 ACTIVE = "active"

@@ -1,6 +1,6 @@
 /**
  * Tests for ThumbnailWithFallback — the file-card thumbnail loader. Focus: the
- * three honest states the P1 audit demanded are distinct — a skeleton while the
+ * three honest states are distinct — a skeleton while the
  * request is in flight, a WARM placeholder (with a format chip) when no
  * thumbnail exists, and a distinct "couldn't load" treatment ONLY on a genuine
  * failure — plus the module-level de-dup cache (one fetch per file id).
@@ -135,9 +135,9 @@ describe('ThumbnailWithFallback', () => {
     expect(hits).toHaveBeenCalledTimes(1)
   })
 
-  it('re-asks once the cached signed url has expired, instead of replaying it (#366)', async () => {
-    // A tab left open replayed urls whose signature had run out days earlier;
-    // the route answered 403 and the image optimizer logged it as an error.
+  it('re-asks once the cached signed url has expired, instead of replaying it', async () => {
+    // A url whose signature has run out must not be replayed: the route answers
+    // 403, and the image optimizer logs it as an error.
     const nowS = Math.floor(Date.now() / 1000)
     const urls = [
       `/api/documents/i9/image?org=o&v=thumb&exp=${nowS + 30}&sig=a`,
@@ -248,8 +248,8 @@ describe('ThumbnailWithFallback', () => {
  * The tile has to reach the bottom of its grid cell whatever it carries. A
  * document that is still being read has no AI summary yet, so it is shorter than
  * its settled neighbours; the grid stretches every cell to the row height, and
- * the card used to keep its natural height inside that cell — the size · time
- * footer floated in the middle of the tile with a band of dead surface beneath.
+ * the card must grow to fill that cell, or its size · time footer floats in the
+ * middle of the tile with a band of dead surface beneath.
  *
  * jsdom does no layout, so what is asserted is the mechanism rather than the
  * pixels: the raised content block is the growing flex child. The rendered

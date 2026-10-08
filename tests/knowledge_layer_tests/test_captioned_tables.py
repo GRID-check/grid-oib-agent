@@ -1,8 +1,7 @@
 """Captioned tables are indexed as tables, not as text read across their columns.
 
-OIB-Richtlinie 2's Tabelle 3 reached the agent as „an der obersten an der
-obersten an der obersten Stelle …" and cost the September 2026 census three
-research rounds. These pin the pure half: fragments joined across pages, the
+Read across their columns, cells come out as running text, so these pin the
+pure half: fragments joined across pages, the
 header repeated in every chunk, a two-row header merged so each column still
 names what it holds, and the per-page path keeping a table rather than losing it.
 """
@@ -152,10 +151,9 @@ class _FakePage:
         return "Fließtext."
 
 
-def test_a_captionless_box_pages_later_does_not_continue_an_old_table(monkeypatch):
+def test_a_captionless_box_pages_later_does_not_continue_a_captioned_table(monkeypatch):
     """Tabelle 3 on p.3, nothing on p.4, a caption-less ruled box at the top of
-    p.9: the box used to be appended to Tabelle 3 because the last table was
-    remembered across every page after it."""
+    p.9: the box is not part of Tabelle 3, so no table is carried across pages."""
     import pdfplumber
     from knowledge_layer.llamaindex.adapter import _extract_text_from_pdf
 
@@ -186,8 +184,8 @@ def test_a_captionless_box_pages_later_does_not_continue_an_old_table(monkeypatc
 
 
 def test_the_table_pass_skips_what_the_captioned_pass_took(monkeypatch):
-    """AIQ_EXTRACT_TABLES read every pdfplumber table again: Tabelle 3 stood in
-    the index twice, as „Tabelle 3" and as „[TABLE from page 1]"."""
+    """With AIQ_EXTRACT_TABLES on, each pdfplumber table is read once: Tabelle 3
+    stands in the index once, as „Tabelle 3", never as „[TABLE from page 1]"."""
     import pdfplumber
     from knowledge_layer.llamaindex.adapter import _extract_tables_from_pdf
     from knowledge_layer.llamaindex.adapter import _extract_text_from_pdf
@@ -246,8 +244,8 @@ def test_a_continuation_on_its_own_page_keeps_its_first_row_as_data():
 
 
 def test_a_captioned_table_is_cited_by_its_page_not_as_table_1():
-    """Every captioned table carried no ``table_index`` and was cited
-    „<file>, p.N, Table 1", whichever table it was, under a key no other hit
+    """A captioned table carries its ``table_index``: without one it is cited
+    „<file>, p.N, Table 1", whichever table it is, under a key no other hit
     on that page renders."""
     from knowledge_layer.llamaindex.adapter import LlamaIndexRetriever
     from llama_index.core.schema import NodeWithScore
@@ -265,8 +263,9 @@ def test_a_captioned_table_is_cited_by_its_page_not_as_table_1():
 
 
 def test_a_table_page_counts_its_table_as_text_for_the_visual_page_check():
-    """A page that is mostly a captioned table kept only its caption-free prose
-    in ``text``, fell under the visual-page threshold and was VLM-captioned as a
+    """A page that is mostly a captioned table must keep its table in ``text``:
+    caption-free prose alone falls under the visual-page threshold and is
+    VLM-captioned as a
     drawing (oib-rl_2 pages 29, 31, 33, 34), competing with the table's chunks."""
     from knowledge_layer.llamaindex.adapter import VISUAL_PAGE_MIN_TEXT_CHARS
     from knowledge_layer.llamaindex.adapter import page_texts_for_visual_heuristic

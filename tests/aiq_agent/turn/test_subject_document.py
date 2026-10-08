@@ -294,11 +294,10 @@ class TestWhenTheBytesDoNotArrive:
 class TestTheReadIsScopedToTheConversation:
     """The version id is the only thing a client picks; the conversation is the rest.
 
-    The BFF's read route now requires ``conversationId`` too and refuses unless
-    the version is that conversation's subject. A loader that sent only the
-    organization would be asking the route to trust an id — and would, from the
-    day the route started enforcing it, load nothing at all while every turn
-    logged a refusal.
+    The BFF's read route requires ``conversationId`` too and refuses unless the
+    version is that conversation's subject. A loader that sent only the
+    organization would ask the route to trust an id, and would load nothing at
+    all while every turn logged a refusal.
     """
 
     async def test_the_conversation_and_the_asker_travel_with_the_read(self, store, reads) -> None:
@@ -388,6 +387,6 @@ class TestTheNameItBuilds:
 
     def test_the_name_is_NFC_normalised_like_everything_else_in_the_store(self) -> None:
         # `Gebäudeklasse` typed decomposed and typed composed are different
-        # strings; two paths for one document is the same bug `edit_file` paid
-        # for once already.
+        # strings; two paths for one document is the bug `edit_file` guards
+        # against.
         assert subject_document.draft_path("Gebäude") == subject_document.draft_path("Gebäude")

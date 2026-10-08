@@ -7,16 +7,17 @@ store (:mod:`aiq_agent.knowledge.chunk_text_store`) only has to run SQL.
 
 WHY THIS EXISTS
 ---------------
-The previous lexical channel ran Chroma ``where_document {"$contains": term}``
-over the terms of ``aiq_agent.common.legal_terms.extract_exact_terms``. Measured
-against 53 real German questions mined from this repo, 28.3% produced any term
-and only 9.4% a useful one, because ``$contains`` is a raw, CASE-SENSITIVE,
+A substring test is the wrong lexical channel. Chroma's
+``where_document {"$contains": term}`` over the terms of
+``aiq_agent.common.legal_terms.extract_exact_terms`` is a raw, CASE-SENSITIVE,
 byte-level substring test: ``'oib'`` misses ``OIB``, ``'§ 3'`` also matches
 ``§ 30``, and the German morphology of the corpus (``Fluchtweg`` in five
 inflected forms, Austrian ``Geschoß`` 677× vs ``Geschoss`` 5×) is invisible to
-it. A bare ``OIB`` term matched 467 of 490 chunks — 95.3%, a near-no-op.
+it. Measured against 53 real German questions mined from this repo, 28.3%
+produced any term and only 9.4% a useful one. A bare ``OIB`` term matched 467
+of 490 chunks — 95.3%, a near-no-op.
 
-THE DF CEILING (the actual fix)
+THE DF CEILING
 -------------------------------
 Postgres' stock ``german`` FTS config solves inflection, ß→ss, umlaut folding
 and hyphenated-token splitting, but the *query operator* decides whether the
@@ -38,7 +39,7 @@ FOLDING: MIRRORED FROM ``norm_registry._normalize``, DELIBERATELY DIVERGENT
 ---------------------------------------------------------------------------
 ``aiq_agent.common.norm_registry._normalize`` already encodes this repo's
 knowledge that German matching needs umlaut/ß folding, and the lexical channel
-was the one place not using it. :func:`fold` MIRRORS it (it is not imported) and
+is the one place that does not use it. :func:`fold` MIRRORS it (it is not imported) and
 diverges on ONE point, on purpose:
 
 * ``_normalize`` expands to digraphs (``ö`` -> ``oe``) because it matches German
@@ -46,8 +47,8 @@ diverges on ONE point, on purpose:
 * :func:`fold` folds to the single vowel (``ö`` -> ``o``), because these lexemes
   must line up with what Postgres' ``german`` config produces for the SAME text.
   A digraph index would disagree with the Postgres backend on every umlaut and,
-  worse, would break the stemmer's R1 region (``türen`` -> ``tueren`` no longer
-  stems to ``tür``'s stem).
+  worse, would break the stemmer's R1 region (``türen`` -> ``tueren`` would not
+  stem to ``tür``'s stem).
 
 Both agree on ``ß`` -> ``ss``, which is the measured case that matters
 (``Geschoß``/``Geschoss``). The residual gap — a user typing ``Tuerbreite`` for
@@ -116,7 +117,7 @@ from collections.abc import Sequence
 #: Measured on the real base corpus (776 pages), the values this must separate are:
 #: ``OIB`` 95.0% and ``anforderung``/``punkt`` 27.8% (all noise, must die) against
 #: ``Geschoß`` 23.2% and ``Fluchtweg`` 14.0% (core domain nouns, must live). 0.2 cut
-#: between the wrong pair -- it silenced ``Geschoss`` entirely, a term with 779 corpus
+#: between the wrong pair -- it silences ``Geschoss`` entirely, a term with 779 corpus
 #: occurrences and its own glossary entry.
 #:
 #: The distinction the ceiling is actually drawing is corpus-IDENTITY words, which a
@@ -154,8 +155,8 @@ _SUFFIXES = ("ern", "em", "er", "en", "es", "e")
 #: Shortest lexeme kept from a query. Single DIGITS are exempt (``§ 3``, ``OIB-RL 2``).
 #:
 #: 3, not 2, because of a measured leak: this channel is supposed to be silent for an
-#: English query, and ``"What is the required width of escape routes?"`` was returning
-#: chunks on the strength of ``of`` alone — which survives the df==0 rule because the
+#: English query, and at 2 ``"What is the required width of escape routes?"``
+#: would return chunks on the strength of ``of`` alone — which survives the df==0 rule because the
 #: German corpus does contain a handful of English ÖNORM titles (5 of 776 pages, 0.6%),
 #: and survives the alphabetic rule because it is a word. Rarity normally means signal;
 #: for a two-letter foreign function word it means coincidence. No German content word
@@ -381,12 +382,12 @@ def build_tsquery(terms: list[str]) -> str:
     Each lexeme is single-quoted so Postgres treats it as a literal operand, and an
     embedded quote is doubled — the standard ``tsquery`` literal escape.
 
-    The doubling is not decoration. The docstring used to argue it was unnecessary
-    because ``_TOKEN_RE`` yields alphanumerics only, but this signature accepts any
-    ``list[str]`` and the module presents its term list as the seam that the glossary and
-    other callers inject into. One term carrying an apostrophe — which German legal text
-    and Austrian proper nouns both produce — closes the operand early and
-    ``to_tsquery('german', :tsquery)`` raises a syntax error at request time. Bound
-    parameters prevent SQL injection; they do not make a malformed tsquery well-formed.
+    The doubling is not decoration. ``_TOKEN_RE`` yields alphanumerics only, but this
+    signature accepts any ``list[str]``, and the module presents its term list as the
+    seam that the glossary and other callers inject into. One term carrying an
+    apostrophe — which German legal text and Austrian proper nouns both produce — closes
+    the operand early and ``to_tsquery('german', :tsquery)`` raises a syntax error at
+    request time. Bound parameters prevent SQL injection; they do not make a malformed
+    tsquery well-formed.
     """
     return " | ".join("'" + term.replace("'", "''") + "'" for term in terms if term)

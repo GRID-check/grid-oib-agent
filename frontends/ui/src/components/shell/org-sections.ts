@@ -1,10 +1,9 @@
 /**
  * Scope detection for the app chrome.
  *
- * The org-scope rail IA that used to live here is gone: above a project the
- * chrome is a slim header (`OrgHeader`) rather than a rail, and the org-wide
- * destinations live in the header (Archiv, Postfach) and the avatar menu
- * (Profil, Organisation, Plattform). What remains is the one function both
+ * Above a project the chrome is a slim header (`OrgHeader`) rather than a rail,
+ * and the org-wide destinations live in the header (Archiv, Postfach) and the
+ * avatar menu (Profil, Organisation, Plattform). What remains is the one function both
  * `AppShellChrome` and the palette-adjacent code need: deciding whether a
  * pathname is inside a project at all.
  */

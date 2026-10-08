@@ -12,12 +12,11 @@
  * either figure; their surfaces are in credits.
  *
  * The directory is built on the shared admin primitives (SectionCard +
- * DataToolbar + Table + Pagination). It used to be a hand-rolled list of flex
- * rows with micro-labelled stats stacked inside each row: nothing could be
- * compared column-wise, nothing could be sorted, and a cross-organization
- * directory had no search at all. The platform team moved into its own card
- * because inviting staff with platform-wide access is a different job from
- * reading org spend, and sharing a card implied otherwise.
+ * DataToolbar + Table + Pagination). A list of flex rows with stats stacked
+ * inside each row would compare nothing column-wise, sort nothing, and offer no
+ * search across organizations. The platform team sits in its own card because
+ * inviting staff with platform-wide access is a different job from reading org
+ * spend, and sharing a card implies otherwise.
  */
 
 import type { JSX } from 'react'

@@ -89,8 +89,8 @@ class TestExtraction:
         assert meta is None
 
     def test_a_break_after_the_answer_keeps_the_answer_and_drops_the_rest(self):
-        # The recorded failure: a surface card closed one brace too many, after
-        # the prose had closed whole and settled on screen.
+        # A surface card that closes one brace too many, after the prose has closed whole
+        # and settled on screen.
         content = (
             '```answer_json\n{"kind":"ruling","answer":"Die Außentreppe ist in A2 auszuführen [2].\\n\\n'
             '[[card:1]]","cards":[{"type":"surface","components":[{"id":"t","component":"Text",'
@@ -132,9 +132,8 @@ class TestExtraction:
 
     def test_a_fence_inside_the_answer_does_not_end_the_envelope(self):
         # The answer is Markdown, and Markdown carries fences: a ```mermaid
-        # drawing, a listing. The envelope used to end at the FIRST ``` after
-        # it, which is that inner fence, so the object was cut mid-string and
-        # the reader got raw JSON. It ends where its JSON object ends.
+        # drawing, a listing. The envelope ends where its JSON object ends, not at the first
+        # ``` after it, which would be that inner fence and cut the object mid-string.
         answer = 'Der Ablauf [1].\n\n```mermaid\nflowchart TD\n  A["Einreichung"] --> B\n```\n\nDanach [1].'
         prose, meta = extract_answer_envelope(_fenced({"answer": answer, "verdict": _VERDICT}))
         assert prose == answer
@@ -273,8 +272,8 @@ class TestGating:
     def test_unknown_kind_is_a_walkthrough_and_drops_the_verdict(self):
         """Garbage is not legacy. Legacy is ABSENT kind.
 
-        Exclusive kinds used to fail open to a ruling the moment the model
-        missed the token (``Walkthrough``, ``essay``, ``Durchgang``).
+        An exclusive kind does not fail open to a ruling when the model misses the token
+        (``Walkthrough``, ``essay``, ``Durchgang``).
         """
         meta = AnswerMeta.model_validate({"kind": "essay", "verdict": _VERDICT})
         assert meta.kind == "walkthrough"
@@ -442,8 +441,8 @@ class TestWireCrossing:
         The frontend's `sanitizeAnswerMeta` asserts the same file survives its
         sanitizer verbatim (`message-answer-meta.spec.ts`), so a renamed key or
         a moved cap on either side fails a test instead of shipping green with
-        every anatomy field silently dropped — the exact class of loss the
-        `binding_status` rename once proved possible.
+        every anatomy field silently dropped — the class of loss a rename such as
+        `binding_status` makes possible.
         """
         import pathlib
 
@@ -730,17 +729,17 @@ class TestHeadlessSalvage:
         assert meta is not None and meta.kind == "ruling"
 
     def test_a_headless_tail_whose_only_kind_is_a_nested_cards_is_cut_at_the_cards(self):
-        # The only `", "kind":` is the callout's: cutting there shipped a JSON
-        # fragment as prose under an invented kind. The cut is at `"cards"`,
-        # the envelope's own key, and the callout's kind invents nothing.
+        # The only `", "kind":` is the callout's: cutting there would ship a JSON fragment
+        # as prose under an invented kind. The cut is at `"cards"`, the envelope's own key,
+        # and the callout's kind invents nothing.
         content = 'Mehr Text hier.", "cards":[{"type":"callout", "kind":"hinweis", "text":"Achtung"}]}\n```'
         prose, meta = extract_answer_envelope(content)
         assert prose == "Mehr Text hier."
         assert meta is not None and meta.kind is None
 
     def test_a_headless_tail_without_a_kind_is_salvaged(self):
-        # Answer feedback, October 2026: the model never wrote `kind`, so the
-        # tail opened at `confidence` and the reader got the JSON under the answer.
+        # With no `kind` written, the tail opens at `confidence`, and the reader would get the
+        # JSON under the answer.
         content = (
             "Für eine sichere Einordnung bräuchte es die Fensterbeschreibung [1].\n\n## Quellen\n"
             '- [1] [KB] F18 Brandschutzfenster.pdf, p.1", "confidence":{"level":"medium",'
@@ -756,8 +755,8 @@ class TestHeadlessSalvage:
         assert extract_answer_envelope(content) == (content, None)
 
     def test_a_json_example_in_the_prose_is_not_cut_at_its_own_keys(self):
-        # Review finding: the example's "confidence" looked like a headless tail
-        # and the reply was cut inside the example.
+        # The example's "confidence" looks like a headless tail, so a reply must not be cut
+        # inside the example.
         content = 'Beispiel: {"name": "test", "confidence": {"level": "medium"}}'
         assert extract_answer_envelope(content) == (content, None)
 

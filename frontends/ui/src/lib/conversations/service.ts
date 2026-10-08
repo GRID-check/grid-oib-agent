@@ -13,10 +13,9 @@
  *   - `collaborator` — append messages, record a card decision;
  *   - `owner`        — rename, delete.
  *
- * This replaces resolving conversations **org-scoped only**
- * (`findConversationInOrg`), which is why any signed-in colleague holding a
- * conversation id could read its messages and why the unfiltered list returned
- * every chat in the organization (spec §3 fact 1, MG-1). Denials are
+ * Resolving conversations **org-scoped only** (`findConversationInOrg`) would
+ * let any signed-in colleague holding a conversation id read its messages, and
+ * the unfiltered list would return every chat in the organization. Denials are
  * `NotFoundError`, so a response never confirms the existence of a conversation
  * the caller may not see. The org-scoped lookup survives for the session-less
  * internal (service-token) path only, which has no session to resolve.
@@ -124,12 +123,11 @@ export interface CreateMessageInput {
   metadata?: Record<string, unknown>
   createdAt?: string
   /**
-   * Structured mentions carried by this message (spec MN-3). Untrusted: the
-   * addressee set is resolved server-side from these, never taken from the
-   * client (spec MN-2).
+   * Structured mentions carried by this message. Untrusted: the addressee set is
+   * resolved server-side from these, never taken from the client.
    */
   mentions?: MentionInput[]
-  /** The asker's question, which becomes the recipient's inbox body (spec MN-12). */
+  /** The asker's question, which becomes the recipient's inbox body. */
   mentionNote?: string | null
 }
 
@@ -150,7 +148,7 @@ export interface ConversationWithAccess extends Conversation {
   myRole: ResourceRole | null
   /** Blanket visibility, as resolved by the access check (same value as the row). */
   visibility: ResourceVisibility
-  /** The caller's own read high-water mark, for the unread separator (CC-19). */
+  /** The caller's own read high-water mark, for the unread separator. */
   myReadState: { lastReadAt: Date; lastReadMessageId: string | null } | null
   /**
    * The mode in force for a message that tags nobody (ADR-0036), already resolved
@@ -184,7 +182,7 @@ export interface ListConversationsFilter {
 }
 
 /**
- * List the conversations the caller may see (spec SH-4).
+ * List the conversations the caller may see.
  *
  * With `filter.projectId` the caller must be able to see that project (same
  * guard as `createConversation` — otherwise any org member could probe/list
@@ -193,9 +191,9 @@ export interface ListConversationsFilter {
  *
  * Without a project the list is narrowed to rows the caller created, holds a
  * grant on, or that are `organization`-visible. That is a **deliberate
- * tightening** (spec MG-1): the unscoped list used to return every conversation
- * in the organization. See `listVisibleConversations` for why it is not an FGA
- * probe per row.
+ * tightening**: an unscoped list of every conversation in the organization is
+ * what this avoids. See `listVisibleConversations` for why it is not an FGA probe
+ * per row.
  */
 export async function listConversations(
   session: AuthorizedSession,
@@ -234,7 +232,7 @@ function withheldConversation(row: Conversation): ListedConversation {
  *
  * The org-scoped row read runs AFTER `requireResourceAccess` has authorized —
  * belt and braces, not the gate. Fields are only ever added to the payload, so
- * clients that predate sharing keep working.
+ * clients without sharing support keep working.
  */
 export async function getConversation(
   session: AuthorizedSession,
@@ -279,8 +277,8 @@ export async function getConversation(
  *
  * `collaborator`, not `owner`: the mode governs how the thread behaves for
  * everyone in it, and a discussion stuck answering the wrong person must be
- * fixable by whoever is in the room — the same reasoning as releasing a wait
- * (spec MN-9.2). It cannot leak anything: the value is two words, and the caller
+ * fixable by whoever is in the room — the same reasoning as releasing a wait.
+ * It cannot leak anything: the value is two words, and the caller
  * already has to be able to write here.
  */
 export async function updateConversationEngagement(
@@ -302,11 +300,11 @@ export async function updateConversationEngagement(
  *
  * `project:chat` is checked any-of with `project:edit`, the same back-compat
  * idiom the ADR-0038 write split uses: the built-in Editor and Admin roles hold
- * both, so a tenant whose WorkOS provisioning has not been replayed since
- * `project:chat` shipped does not lose chat the day this deploys.
+ * both, so a tenant whose WorkOS provisioning has not yet been replayed keeps
+ * its chat.
  *
  * Visibility is NOT set here: the column defaults to `private`, which is the
- * conversation descriptor's `defaultVisibility` (spec MG-2, ADR-0032). Sharing
+ * conversation descriptor's `defaultVisibility` (ADR-0032). Sharing
  * is a deliberate act, so that the access chip means something.
  */
 export async function createConversation(
@@ -339,7 +337,7 @@ export async function createConversation(
   return existing
 }
 
-/** Rename a conversation. Naming a shared thread is an owner's call (spec SH-10). */
+/** Rename a conversation. Naming a shared thread is an owner's call. */
 export async function updateConversationTitle(
   session: AuthorizedSession,
   conversationId: string,
@@ -432,14 +430,13 @@ export async function generateConversationTitle(
   }
 
   if (error) {
-    // WARN, not ERROR (issue #233). These codes — `llm_response_malformed`,
+    // WARN, not ERROR. These codes — `llm_response_malformed`,
     // `llm_request_failed`, `llm_not_configured` — are the backend reporting a
     // degradation it already handled: it answered 200, the chat keeps the
     // provisional name the client set from the first message, and nothing the
-    // user can see is broken. Logging them at ERROR made err2issue open a
-    // GitHub issue every time a model phrased its JSON slightly differently,
-    // which is noise about a cosmetic nicety, not an incident. The line stays
-    // (the code is still worth having in the logs) — only the severity drops.
+    // user can see is broken. At ERROR, every model that phrases its JSON slightly
+    // differently would open an incident about a cosmetic nicety. The line stays
+    // (the code is still worth having in the logs); only the severity is lower.
     console.warn('[GenerateConversationTitle] Generation failed (non-fatal):', error)
     return { title: '', tags: [], error }
   }
@@ -531,18 +528,16 @@ export async function assertConversationAcceptsUploads(
  *
  * **This function reports the truth and answers `NotFoundError` for both "no such
  * conversation" and "not yours to delete" — the caller decides what the client
- * sees.** It used to short-circuit on a missing row and return silently, which
- * made the two cases tell a signed-in colleague apart from the outside: 204 for an
- * id that exists nowhere, 404 for one that exists in another tenant or belongs to
- * somebody else. That is a cross-tenant existence oracle, and it contradicts spec
- * SH-6.
+ * sees.** Telling the two cases apart from the outside would be a cross-tenant
+ * existence oracle: an id that exists nowhere must look the same as one that
+ * belongs to somebody else.
  *
  * Reconciling it needs both halves, and the route holds the other one: the chat
  * store deletes server rows for conversations that may only ever have lived in a
  * browser, so a genuinely-absent id must not surface an error to that client. The
- * DELETE handler therefore answers **204 for `NotFoundError` either way** — one
- * response for both, which is what SH-6 actually demands — while this function
- * stays honest for every internal caller and every test.
+ * DELETE handler therefore answers **204 for `NotFoundError` either way**, one
+ * response for both, while this function stays honest for every internal caller
+ * and every test.
  *
  * **It is also two-phase**, because the attachments live in stores no foreign
  * key reaches: mark deleting → erase the external state (every attachment row's
@@ -570,9 +565,9 @@ export async function deleteConversation(
   // Announce the deletion BEFORE erasing anything.
   //
   // The purge below and the row delete under it are two steps, and an upload
-  // that arrived between them used to land its object and its chunks after the
-  // purge had walked past them, and then lose its row to the foreign key's
-  // cascade — private bytes and private chunks in the tenant's stores with
+  // that arrives between them can land its object and its chunks after the
+  // purge has walked past them, and then lose its row to the foreign key's
+  // cascade: private bytes and private chunks in the tenant's stores with
   // nothing left naming them. `deleted_at` is already read as "gone" by
   // `resolveResourceAccess`, so this one write both hides the thread and gives
   // `assertConversationAcceptsUploads` something to refuse on, for the whole
@@ -655,8 +650,8 @@ async function eraseMarkedConversation(organizationId: string, conversationId: s
   // The chat's retrieval collection itself, which no row names: chunks from
   // attachments that predate session rows, and the collection's summaries. The
   // conversation owns this erasure so no client has to race it against the row
-  // delete (the discard used to fire both at once, and a collection delete that
-  // lost the race was refused and orphaned). Idempotent: a chat that never had a
+  // delete: a collection delete that loses that race is refused and orphans its
+  // chunks. Idempotent: a chat that never had a
   // collection, or a retry after one was erased, is success.
   const collection = await deleteSessionCollection(sessionCollectionName(conversationId))
   if (!collection.ok) {
@@ -674,7 +669,7 @@ async function eraseMarkedConversation(organizationId: string, conversationId: s
   // `messages` and `conversation_reads` cascade through their foreign keys;
   // grants, mention requests and inbox items CANNOT, because they address their
   // target as a polymorphic (resource_type, resource_id) pair with no FK. Purge
-  // them explicitly or they orphan (spec SH-13, IB-15) — harmless for access, but
+  // them explicitly or they orphan — harmless for access, but
   // they leave permanently redacted rows in people's inboxes.
   await purgeConversationCollaboration(conversationId)
 
@@ -693,10 +688,9 @@ async function eraseMarkedConversation(organizationId: string, conversationId: s
 /**
  * List a conversation's messages, oldest first. Requires `viewer`.
  *
- * Legacy rows written before authorship existed carry `role: 'user'` with no
+ * Legacy rows carry `role: 'user'` with no
  * author. They are attributed to the conversation's creator **at read time**,
- * never backfilled, so the data never claims a precision it does not have
- * (spec CC-3, MG-3).
+ * never backfilled, so the data never claims a precision it does not have.
  */
 export async function listConversationMessages(
   session: AuthorizedSession,
@@ -712,7 +706,7 @@ export async function listConversationMessages(
 }
 
 /**
- * Attribute an unstamped human message to the conversation's creator (MG-3).
+ * Attribute an unstamped human message to the conversation's creator.
  * A NULL author on an assistant/system/tool row is correct and left alone.
  */
 function attributeLegacyAuthor(row: Message, createdBy: string | null): Message {
@@ -741,7 +735,7 @@ export async function updateMessageDetail(
     provenance?: unknown
     /** The answer to a human-in-the-loop prompt on this message (ADR-0037). */
     promptState?: unknown
-    /** What a post-answer stage computed for this turn (post-answer-stages §4.3). */
+    /** What a post-answer stage computed for this turn. */
     stages?: unknown
   }
 ): Promise<Message> {
@@ -776,14 +770,14 @@ export async function updateMessageDetail(
   if (patch.stages !== undefined) {
     // Whitelisted and bounded HERE, like everything else that reaches this jsonb
     // column from a browser: a closed stage set, a truncated item list, capped
-    // strings (post-answer-stages §7.8).
+    // strings.
     const stages = sanitizeStages(patch.stages)
     if (stages) {
       metadata.stages = stages
       // Deep-merged per STAGE key, for the reason `cardInteractions` is: two
       // stages address the same turn independently and each PATCHes only its own
       // output, so a plain top-level merge would let the second erase the first
-      // (post-answer-stages §7.7). Last-writer-wins still applies per stage,
+      // Last-writer-wins still applies per stage,
       // which is correct — a stage produces at most one payload per turn.
       deepMergeKeys.push('stages')
     }
@@ -806,15 +800,15 @@ export async function updateMessageDetail(
 
 /**
  * A message arrived carrying collaboration input in a deployment where
- * collaboration is off (spec NF-8).
+ * collaboration is off.
  *
  * **Refused, not silently ignored.** Dropping the mentions would let the author
  * believe they had handed the thread to a colleague — the composer would show the
  * agent staying quiet, nobody would be asked, and no inbox item would ever
  * arrive. A stated refusal is the only outcome that does not invent a hand-off
  * that never happened. The chat path itself is untouched: a message WITHOUT
- * mentions behaves exactly as it did before this feature existed, which is the
- * whole point of the flag.
+ * mentions behaves exactly as it does without this feature, which is the whole
+ * point of the flag.
  *
  * Subclassed from `ForbiddenError` (which takes no `details`) so the reason is
  * machine-readable, mirroring the `feature-disabled` envelope
@@ -831,7 +825,7 @@ class CollaborationDisabledError extends ForbiddenError {
   }
 }
 
-/** The agent answers — no mentions, today's behaviour unchanged (spec MN-1). */
+/** The agent answers, and nobody is mentioned. */
 const AGENT_ADDRESSED: AddresseeSet = { agent: true, users: [] }
 
 /**
@@ -863,7 +857,7 @@ interface PreparedMessage {
  * the right renderer. Shared by the session-authenticated and internal
  * (token-guarded) persist paths so both write identical rows.
  *
- * `authorUserId` records WHICH person wrote a human message (spec CC-3). It stays
+ * `authorUserId` records WHICH person wrote a human message. It stays
  * NULL for assistant/system/tool rows — the agent wrote those — and on the
  * internal path, which has no session and only ever persists the agent's turn.
  */
@@ -874,11 +868,11 @@ function buildMessageRow(
 ) {
   const { input } = prepared
   // `addressees` is the SERVER's ruling on who a message was for, and only the
-  // server may ever write it (spec MN-2). Stripped from the client's metadata
+  // server may ever write it. Stripped from the client's metadata
   // unconditionally rather than merely overwritten: the spread below writes a
   // ruling only when there IS one, and there is none for an assistant/system/tool
-  // row or on the internal path — so a client-supplied value used to survive on
-  // exactly those rows, and `storedAddressees` would then read it back as
+  // row or on the internal path — so a client-supplied value would survive on
+  // exactly those rows, and `storedAddressees` would read it back as
   // authoritative on a replay.
   const {
     addressees: _clientRuling,
@@ -900,7 +894,7 @@ function buildMessageRow(
       ...(prompt ? { prompt } : {}),
       ...(input.messageType ? { messageType: input.messageType } : {}),
       // The server's ruling, stored once at persist time and never re-derived
-      // from the text later (spec MN-2). Written LAST so a client cannot supply
+      // from the text later. Written LAST so a client cannot supply
       // its own addressee set.
       ...(prepared.addressees ? { addressees: prepared.addressees } : {}),
     },
@@ -908,7 +902,7 @@ function buildMessageRow(
   }
 }
 
-/** Read back an addressee ruling a previous attempt already stored (MN-2). */
+/** Read back an addressee ruling a previous attempt already stored. */
 function storedAddressees(row: Message | null): AddresseeSet | null {
   const stored = (row?.metadata as { addressees?: unknown } | null)?.addressees
   if (!stored || typeof stored !== 'object') return null
@@ -924,8 +918,8 @@ function storedAddressees(row: Message | null): AddresseeSet | null {
  * Resolve who one message is for, before it is written.
  *
  * Mentions are applied BEFORE the insert on purpose: a mention that must be
- * refused (the target cannot reach the project, or the actor may not invite them
- * — spec MN-5, MN-6) has to fail the whole send, not leave a stored message whose
+ * refused (the target cannot reach the project, or the actor may not invite them)
+ * has to fail the whole send, not leave a stored message whose
  * mention silently did nothing.
  */
 async function prepareMessage(
@@ -970,7 +964,7 @@ async function prepareMessage(
   }
 
   // The mention path is the collaboration feature, and it must not switch itself
-  // on where an operator has not chosen it (spec NF-8). Checked BEFORE the
+  // on where an operator has not chosen it. Checked BEFORE the
   // replay lookup and before `applyMessageMentions`, so a flag-off send writes no
   // grant, no request and no inbox row.
   if (!isCollaborationEnabled(session)) throw new CollaborationDisabledError()
@@ -988,15 +982,13 @@ async function prepareMessage(
     anchorId: input.id,
     mentions,
     /*
-      The question the recipient is shown (spec MN-12) — "Ist die Annahme richtig,
+      The question the recipient is shown — "Ist die Annahme richtig,
       dass das Atrium ein eigener Brandabschnitt ist?" is far more actionable than
       "you were mentioned".
 
-      It defaults to the message text because nothing in the UI ever set an explicit
-      note, which left the field wired end to end and permanently null: the awaiting
-      banner's note block was unreachable and the "they replied" inbox row had no
-      body. Defaulting here rather than in a client means a second client cannot
-      forget it, and an explicit note (should a surface ever offer one) still wins.
+      It defaults to the message text, so the recipient always has a body to read.
+      Defaulting here rather than in a client means a second client cannot forget
+      it, and an explicit note (should a surface ever offer one) still wins.
     */
     note: input.mentionNote ?? input.content.slice(0, MENTION_EXCERPT_MAX) ?? null,
     excerpt: input.content.slice(0, MENTION_EXCERPT_MAX),
@@ -1102,12 +1094,11 @@ export async function createConversationMessages(
    * Addressing the agent inside a project requires `project:chat` — gating the
    * CREATION of a project thread is not enough on its own.
    *
-   * The hole this closes: `requireResourceAccess` above gates the container on
-   * `project:view` (correctly — a Viewer reads the project's threads), and
-   * `resolveResourceAccess` grants the creator `owner`. So a project Viewer
-   * holding a thread stamped with this project satisfied `collaborator` and could
-   * open agent turns in it indefinitely. Gating creation alone stopped new
-   * threads and left every existing one open.
+   * Gating creation alone would only cover new threads. `requireResourceAccess`
+   * above gates the container on `project:view` (correctly — a Viewer reads the
+   * project's threads), and `resolveResourceAccess` grants the creator `owner`. So
+   * a project Viewer holding a thread stamped with this project satisfies
+   * `collaborator` and could open agent turns in it indefinitely.
    *
    * Deliberately narrower than blocking the write: it fires only where the agent
    * is actually addressed, so a Viewer may still reply to a colleague in a shared
@@ -1138,7 +1129,7 @@ export async function createConversationMessages(
   // `prepareMessage` already states this discipline for the collaboration flag
   // ("Checked BEFORE the replay lookup and before `applyMessageMentions`, so a
   // flag-off send writes no grant, no request and no inbox row"); the same
-  // applies here, and the first version of this gate missed it. Reading
+  // applies here. Reading
   // `input.mentions` costs nothing and writes nothing.
   const mentionsAgent = inputs.some(
     (input) =>
@@ -1179,7 +1170,7 @@ export async function createConversationMessages(
   const humanMessages = persisted.filter((message) => message.role === 'user')
 
   // A contribution from a human closes whatever that person was asked in this
-  // thread (spec MN-9.1, MN-16). Best-effort: the message is already stored, and
+  // thread. Best-effort: the message is already stored, and
   // the awaiting state is derived, so it re-converges on the next read.
   if (humanMessages.length > 0) {
     try {
@@ -1207,7 +1198,7 @@ export async function createConversationMessages(
     actorUserId: session.userId,
     rows: persisted,
     // Only a message the agent is addressed on opens a turn — a message that
-    // hands off to a human starts nothing at all (spec MN-7).
+    // hands off to a human starts nothing at all.
     turnStartedFor: humanMessages
       .filter((message) => message.addressees.agent)
       .map((message) => message.id),
@@ -1228,7 +1219,7 @@ interface FanOutInput {
   rows: Message[]
   /** Ids of messages that open an agent turn. */
   turnStartedFor: readonly string[]
-  /** Whether to fold an ambient "activity in this thread" item (CC-20). */
+  /** Whether to fold an ambient "activity in this thread" item. */
   emitAmbient: boolean
   /**
    * The thread's title, when the caller already holds the row. Consulted only on
@@ -1247,15 +1238,15 @@ interface FanOutInput {
 }
 
 /**
- * Tell the other participants that something happened (spec CC-9, CC-13, CC-20).
+ * Tell the other participants that something happened.
  *
  * **A solo thread produces nothing at all.** A `private` conversation with no
  * grants emits no events and no notifications, so a user who never shares
- * anything cannot notice this feature exists (spec NF-8) — which is also why the
+ * anything cannot notice this feature exists — which is also why the
  * grant count is only queried when visibility alone cannot answer the question.
  *
  * Entirely best-effort. Live delivery is latency, not mechanism: every state a
- * participant can observe is reachable by a plain fetch (spec RT-4, CC-10), so a
+ * participant can observe is reachable by a plain fetch, so a
  * failure here must never fail the message write that caused it.
  */
 async function fanOutMessageActivity(input: FanOutInput): Promise<void> {
@@ -1311,12 +1302,12 @@ async function fanOutMessageActivity(input: FanOutInput): Promise<void> {
 
     // ONE grouped item per participant, however many messages just landed: the
     // group key collapses by design, so twenty messages are one row that counts
-    // up and is cleared by reading the thread (spec CC-20, IB-8).
+    // up and is cleared by reading the thread.
     // `emitInboxItems` already drops the actor's own copy.
-    // The title, so the row can say WHICH thread. Without a payload every
-    // activity row rendered "3 new messages in Untitled conversation" — and this
-    // is the commonest row type there is, so ten of them were ten identical
-    // lines. One read, shared by every recipient's row.
+    // The title, so the row can say WHICH thread. Without it every activity row
+    // would read "3 new messages in Untitled conversation", and this is the
+    // commonest row type, so the rows would be identical. One read, shared by
+    // every recipient's row.
     const subject =
       input.title ?? (await findConversationInOrg(conversationId, organizationId))?.title ?? null
 
@@ -1338,20 +1329,20 @@ async function fanOutMessageActivity(input: FanOutInput): Promise<void> {
 }
 
 /**
- * Record how far the caller has read a conversation (spec CC-18), and clear the
- * ambient inbox items that pointed at it (spec IB-9).
+ * Record how far the caller has read a conversation, and clear the ambient inbox
+ * items that pointed at it.
  *
  * Requires `viewer`, not `collaborator`: reading is not contributing, and a
  * viewer's unread state is exactly as real as a collaborator's.
  *
  * Reading a thread NEVER resolves an actionable request — being seen is not
- * being answered (spec MN-16). That distinction lives in
+ * being answered. That distinction lives in
  * `markResourceItemsReadFor`, which only touches informational items.
  *
  * The read MARK is ordinary chat state and is recorded whatever the collaboration
  * flag says — it is per person, it feeds the unread separator, and refusing it
  * would break the core path. Touching the INBOX is collaboration behaviour, so it
- * only happens where the feature is enabled (spec NF-8).
+ * only happens where the feature is enabled.
  */
 export async function markConversationRead(
   session: AuthorizedSession,
@@ -1380,8 +1371,8 @@ export async function markConversationRead(
 /**
  * Append messages via the INTERNAL (service-token) path — used by the backend
  * to persist a finished assistant turn when the client dropped mid-turn (a
- * long deep-research answer can outlive the browser's access token, so the old
- * cookie-replay POST silently 401'd and the answer vanished). There is no user
+ * long deep-research answer can outlive the browser's access token, which would
+ * make a cookie-replayed POST fail with a 401 and lose the answer). There is no user
  * session here, so tenancy is enforced by resolving the conversation against
  * the caller-supplied `organizationId` (the backend forwards it on the WS
  * upgrade as `x-grid-organization-id`): a mismatched/unknown org surfaces as a
@@ -1391,7 +1382,7 @@ export async function markConversationRead(
  * the backend derives a deterministic per-turn id, so a double-write no-ops.
  *
  * No author is stamped and no addressee set is resolved: this path exists to
- * store what the AGENT produced (spec CC-3), and mentions are a property of a
+ * store what the AGENT produced, and mentions are a property of a
  * human contribution. Participants are still told the turn landed, because that
  * is the event an observer of a shared thread is waiting for — but no ambient
  * inbox item is folded here: there is no actor to attribute it to, so the person

@@ -1,9 +1,9 @@
 """A switched-off data source keeps its tool and refuses the call.
 
-The toggles used to delete tools from the binding, and the prompt then told the
-model what it could infer from their absence. Two costs, both real. The
+Deleting a tool from the binding would tell the model what it could infer from
+its absence, and would cost two things. The
 provider's prompt cache is keyed on the tool payload
-(``common/prompt_caching.py``), so every toggle combination was its own cache
+(``common/prompt_caching.py``), so every toggle combination would be its own cache
 shard on a workload that is ~99 % input tokens and re-sends its prefix three to
 eight times per turn. And an absent tool is a capability the model has to
 notice is missing, where a refusal is a fact it can say out loud: „ich konnte
@@ -265,7 +265,7 @@ class TestWhatARefusedRoundCosts:
     async def test_the_refusal_is_reported_as_its_own_technical_event(self, steps):
         """A refused call runs nothing and announces nothing, so without this
         record the toggle's effect on a turn is invisible — the repeat guard
-        beside it has had `status:repeat:N` all along."""
+        beside it records `status:repeat:N`."""
         agent, _llm = _agent(
             _batch(
                 _call("web_search_tool", "w", query="OIB 2"),

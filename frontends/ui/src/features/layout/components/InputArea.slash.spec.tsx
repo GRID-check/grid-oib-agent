@@ -7,14 +7,12 @@
  * reference back off, and that a message which merely begins with a slash is
  * still an ordinary message.
  *
- * "And nothing else" is the assertion that matters most here, because it is the
- * one that used to be false. The envelope carried `skills: ['name']`, the
- * backend lifted it onto `force_skills`, and the turn HAD to apply the skill.
- * That was removed together with the platform's `standard` delivery tier
- * (migration 0088): a skill is a capability the model may reach for, and what
- * an office always wants applied is a standing instruction, which lives in the
- * platform prompt and in the organization's own instruction block instead. The
- * name reaches the model as the text it is.
+ * "And nothing else" is the assertion that matters most here. The envelope has
+ * no `skills` field: a skill is a capability the model may reach for, not
+ * something the turn must apply. What an office always wants applied is a
+ * standing instruction, which lives in the platform prompt and in the
+ * organization's own instruction block. The name reaches the model as the text
+ * it is.
  *
  * A separate file from `InputArea.spec.tsx` on purpose: that suite is already
  * the slowest in the project (the repo's own working notes call it out), and it
@@ -141,8 +139,8 @@ describe('the composer’s / invocation', () => {
     await user.click(screen.getByRole('button', { name: /send message/i }))
 
     // ONE argument: the text. No `skills` field, and no options object at all —
-    // the composer's fast path is the literal single-argument call it has
-    // always been, and a picked skill no longer pushes it off that path.
+    // the composer's fast path is the literal single-argument call, and a picked
+    // skill does not push it off that path.
     expect(mockSendMessage).toHaveBeenCalledWith('/oib-brandschutz Stiegenhaus prüfen')
   })
 

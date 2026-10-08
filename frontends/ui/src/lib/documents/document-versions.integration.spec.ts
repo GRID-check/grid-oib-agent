@@ -133,8 +133,8 @@ describe.skipIf(!url)('document versions under concurrency', () => {
     const doc = await seedDocument()
     await inTenant(() => repo.insertPublishedVersion(published(doc.id, doc.storageKey)))
 
-    // Both "re-uploads" arrive at once. Before 0092 both read max = 1 and both
-    // recorded version 2; now the second waits on the document's lock.
+    // Both "re-uploads" arrive at once. Read without a lock, both would see
+    // max = 1 and record version 2; the document's lock makes the second wait.
     await Promise.all([
       inTenant(() => repo.insertPublishedVersion(published(doc.id, `${doc.storageKey}.a`))),
       inTenant(() => repo.insertPublishedVersion(published(doc.id, `${doc.storageKey}.b`))),
@@ -269,8 +269,8 @@ describe.skipIf(!url)('document versions under concurrency', () => {
         }),
       )
 
-    // A same-sized revision of a 1_000-byte file: the old delta was 0. The
-    // published object stays, so the commit really adds 1_000.
+    // A same-sized revision of a 1_000-byte file. The published object stays,
+    // so the commit really adds 1_000; a delta from the old version alone is 0.
     await expect(swap(used + 999)).resolves.toEqual({ ok: false, reason: 'quota', usedBytes: used })
     expect((await versionsOf(doc.id))[1].storage_key).toBe(doc.storageKey)
 
@@ -296,14 +296,14 @@ describe.skipIf(!url)('document versions under concurrency', () => {
       createdBy: USER,
     })
 
-    // The old arithmetic excluded this document and called 900 bytes free.
+    // Arithmetic that excluded this document would call 900 bytes free.
     await expect(
       inTenant(() => storage.replaceDocumentWithinQuota(ORG, doc.id, next(900), used + 899)),
     ).resolves.toEqual({ ok: false, usedBytes: used })
     await expect(
       inTenant(() => storage.replaceDocumentWithinQuota(ORG, doc.id, next(900), used + 900)),
     ).resolves.toEqual({ ok: true })
-    // And the ledger agrees afterwards: the old version joined the overhead.
+    // And the ledger agrees afterwards: the old version is part of the overhead.
     const after = await inTenant(() => db.transaction((tx) => storage.readStorageUsage(tx, ORG)))
     expect(after).toBe(used + 900)
   })
@@ -344,8 +344,8 @@ describe.skipIf(!url)('document versions under concurrency', () => {
     expect(outcomes.filter((outcome) => outcome.status === 'fulfilled')).toHaveLength(1)
     const lost = outcomes.find((outcome) => outcome.status === 'rejected')
     const reason = lost?.status === 'rejected' ? lost.reason : null
-    // Mapped at the repository — not a raw drizzle wrapper, which a route
-    // would have answered with a 500.
+    // Mapped at the repository, not a raw drizzle wrapper, which a route would
+    // answer with a 500.
     expect(reason).toBeInstanceOf(conflicts.LiveFilenameTakenError)
     expect(reason).toMatchObject({ status: 409 })
 
@@ -475,8 +475,8 @@ describe.skipIf(!url)('document versions under concurrency', () => {
       ),
     )
 
-    // It used to resolve `{ ok: true }` having updated nothing, and the caller
-    // went on to record a version for a document that no longer existed while
+    // A replacement that updates nothing must not resolve `{ ok: true }`: the
+    // caller would record a version for a document that no longer existed, while
     // its new object was named by no row.
     await expect(replaced).rejects.toBeInstanceOf(conflicts.ReplacedDocumentGoneError)
     const after = await inTenant(() => db.transaction((tx) => storage.readStorageUsage(tx, ORG)))
@@ -509,8 +509,8 @@ describe.skipIf(!url)('document versions under concurrency', () => {
 
     await inTenant(() => db.execute(sql`DELETE FROM documents WHERE id = ${doc.id}::uuid`))
 
-    // Before 0094 the row stayed: the composite key is MATCH SIMPLE, and with
-    // project_id NULL it neither checked nor cascaded anything.
+    // The composite key is MATCH SIMPLE, so with project_id NULL it neither
+    // checks nor cascades anything: the row would otherwise stay.
     expect(await versionsOf(doc.id)).toEqual([])
   })
 
@@ -530,9 +530,9 @@ describe.skipIf(!url)('document versions under concurrency', () => {
       }),
     )
 
-    // On the Archiv this used to SUCCEED: a published version, naming the
-    // upload's object, for a document nothing lists — bytes and a row nothing
-    // would ever reach again.
+    // On the Archiv a published version naming the upload's object, for a
+    // document nothing lists, would leave bytes and a row nothing would ever
+    // reach again, so it must be refused.
     await expect(recorded).rejects.toBeInstanceOf(conflicts.DocumentDeletedError)
     await expect(recorded).rejects.toMatchObject({ status: 409, documentId: doc.id })
     expect(await versionsOf(doc.id)).toEqual([])

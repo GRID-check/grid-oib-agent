@@ -23,8 +23,8 @@ It is not free. The tool-search apparatus itself costs input tokens (measured:
 is a LOSS. Turn it on where the withheld schemas are large — that is the
 measurement to make per deployment, not an assumption to carry.
 
-And the provider may not honour it at all. On 2026-09-23 a replayed Piloti
-research call to ``openai/gpt-5.6-luna`` with 19 deferred functions billed
+And the provider may not honour it at all. A replayed Piloti research call
+to ``openai/gpt-5.6-luna`` with 19 deferred functions billed
 40 154 input tokens with ``defer_loading`` true and with it false, while the
 response echoed ``defer_loading: true`` on every function. That is why the
 capability probe measures the SAVING (a deferred ballast function must not
@@ -131,10 +131,10 @@ Then the floor (:func:`meets_intelligence_floor`), on Artificial Analysis's
 FALSE IS NOT A REFUSAL, AND THIS IS NOT A MODEL POLICY
 ======================================================
 Every "no" above means one thing: bind the full schemas — exactly what this
-agent did before any of this existed. No path here can fail a request or a
+agent binds without any of this. No path here can fail a request or a
 build over the floor, because the floor answers "is deferring worth it for this
 model", not "may this model be used". A sub-floor model runs normally and
-simply pays today's token cost.
+simply pays the full token cost.
 
 The whole mechanism is scoped to the agent that has something to defer.
 ``deferred_tool_loading`` sits under ``shallow_research_agent`` in the YAML,
@@ -167,7 +167,7 @@ Loud where it is free, silent-degrading where a user is waiting:
 * REQUEST time — :class:`DeferredToolBinding` falls back to the ordinary
   full-schema binding on any error, logs it at ERROR, and latches the deferred
   path off for the rest of the process so the next four iterations do not each
-  pay for the same failing round trip. Degrading to today's behaviour costs
+  pay for the same failing round trip. Degrading to the full schemas costs
   tokens; failing costs the answer.
 
 A transient error is never evidence about a model. Only a status the provider
@@ -205,18 +205,16 @@ NAMESPACE_TOOL_TYPE = "namespace"
 #: vendors (see the module docstring), so ``anthropic/*``, ``openai/*``,
 #: ``google/*`` and ``z-ai/*`` all appear.
 #:
-#: "Verified" here means exactly one thing: the provider accepted the deferred
-#: shape and returned it intact. That is NOT evidence of a saving: on 2026-09-23
-#: ``openai/gpt-5.6-{luna,sol}`` and ``anthropic/claude-sonnet-5`` echoed
-#: ``defer_loading`` on every function and billed the deferred schemas in
-#: full. So this list says "the request will not 400", and the probe
-#: (:func:`_run_capability_probe`) still decides whether deferral pays. It does
-#: NOT mean the model was watched calling a tool through it. Acceptance is the
-#: right criterion for a capability gate — it is the condition that decides
-#: whether the request succeeds — but only
-#: ``openai/gpt-5.6-{luna,sol,terra}``, ``anthropic/claude-opus-4.8``,
-#: ``anthropic/claude-sonnet-4.6`` and ``anthropic/claude-fable-5`` were also
-#: seen emitting a ``function_call`` end to end.
+#: "Verified" here means exactly one thing: the provider accepted the deferred shape and
+#: returned it intact. That is NOT evidence of a saving: ``openai/gpt-5.6-{luna,sol}``
+#: and ``anthropic/claude-sonnet-5`` echo ``defer_loading`` on every function and bill
+#: the deferred schemas in full. So this list says "the request will not 400", and the
+#: probe (:func:`_run_capability_probe`) still decides whether deferral pays. It does
+#: NOT mean the model was watched calling a tool through it. Acceptance is the right
+#: criterion for a capability gate — it is the condition that decides whether the
+#: request succeeds — but only ``openai/gpt-5.6-{luna,sol,terra}``,
+#: ``anthropic/claude-opus-4.8``, ``anthropic/claude-sonnet-4.6`` and
+#: ``anthropic/claude-fable-5`` were also seen emitting a ``function_call`` end to end.
 #:
 #: Refresh with ``scripts``-free curl if this list ages::
 #:
@@ -245,14 +243,14 @@ KNOWN_DEFERRING_MODELS: tuple[str, ...] = (
     "google/gemini-3.5-flash",
     "z-ai/glm-5.2",
 )
-# ``openai/gpt-6-luna``, the boot default since 2026-09-24, is deliberately in
+# ``openai/gpt-6-luna``, the boot default, is deliberately in
 # NEITHER list and has no intelligence score: nobody has measured its deferral.
 # Its capability is measured by the build-time probe
 # (:func:`verify_deferred_tool_loading`, which runs whatever ``probe_unknown``
 # says) and, for an override that selects it, by the background probe. Without
 # a score it fails the floor, so it binds full schemas until a measurement adds
 # it here and to :data:`MODEL_INTELLIGENCE_INDEX`. That is also what every
-# model measured on 2026-09-23 earned: none billed less for deferring.
+# model measured so far has earned: none billed less for deferring.
 
 #: Permitted on the operator's instruction, capability NOT established.
 #:
@@ -639,7 +637,7 @@ def capability_verdict(model_id: str, models: DeferredToolLoadingModels) -> bool
     cached = cached_model_verdict(model_id)
     if _matches_any(model_id, models.allow):
         # The allowlist records an echo, and an echo is not a saving: every
-        # model measured on 2026-09-23 echoed `defer_loading` and billed the
+        # model measured echoed `defer_loading` and billed the
         # schemas in full. While the probe can measure the saving, an allowed
         # model waits for it like any other (full schemas meanwhile, which is
         # always correct). Only with probing switched off does the echo decide.
@@ -770,8 +768,8 @@ def model_supports_deferred_tool_loading(llm: Any, settings: DeferredToolLoading
     path, at most once per model) so the next binding has a real answer.
 
     False is never a refusal. It means "bind the full schemas", which is what
-    this agent did before any of this existed — so a model below the floor runs
-    exactly as it always has, one config layer having decided only that
+    this agent binds without any of this — so a model below the floor runs
+    exactly as it always does, one config layer having decided only that
     DEFERRING is not worth it for that model. Nothing here can fail a request or
     a build.
 
@@ -967,7 +965,7 @@ _PROBE_TOOLS: list[dict[str, Any]] = [
 
 #: A deferred function big enough that billing it cannot hide in noise:
 #: ~3 900 input tokens on ``openai/gpt-5.6-luna``, ~5 200 on
-#: ``anthropic/claude-sonnet-5`` (measured 2026-09-23). The probe sends it
+#: ``anthropic/claude-sonnet-5`` (measured). The probe sends it
 #: once, so an endpoint that does not honour deferral costs one such request.
 _BALLAST_TOOL: dict[str, Any] = {
     "type": "function",
@@ -1039,7 +1037,7 @@ def _rejects_our_tool_payload(exc: BaseException) -> bool:
     attachment, or content policy. A model verdict is only written when the
     status says "bad shape" AND the provider's text points at the part of the
     payload this module builds. When in doubt the binding just latches, exactly
-    as it did before this gate existed.
+    as it does without this gate.
     """
     if not _is_shape_rejection(exc):
         return False
@@ -1057,7 +1055,7 @@ async def _probe_input_tokens(client: Any, model: str, payload: list[dict[str, A
     ``outcome`` is ``"ok"`` with the parsed body, or ``"rejected"`` /
     ``"unreachable"`` with the error text. No ``reasoning`` override is sent:
     ``reasoning: {"effort": "none"}`` turns ``google/gemini-3.7-flash`` into a
-    400 (measured 2026-09-23), which this probe would cache as a shape
+    400 (measured), which this probe would cache as a shape
     rejection. ``max_output_tokens`` alone keeps the call cheap.
     """
     try:
@@ -1091,7 +1089,7 @@ async def _run_capability_probe(llm: Any, settings: DeferredToolLoadingSettings)
     description, also marked deferred. If deferral is honoured the ballast
     stays server-side and ``usage.input_tokens`` barely moves; if it is not,
     the ballast is billed in full. An echoed ``defer_loading`` proves nothing
-    about that: on 2026-09-23 ``openai/gpt-5.6-luna`` echoed it on every
+    about that: ``openai/gpt-5.6-luna`` echoed it on every
     function and still billed 187 → 4 100 tokens for the ballast, exactly what
     the same payload costs with ``defer_loading: false``.
 
@@ -1154,7 +1152,7 @@ async def verify_deferred_tool_loading(llm: Any, *, settings: DeferredToolLoadin
 
     The fourth is the only one that does not raise: a model that accepts the
     shape and bills it anyway is recorded as not deferring and binds the full
-    schemas — today's behaviour — with a WARNING naming the measured growth.
+    schemas — the ordinary binding — with a WARNING naming the measured growth.
 
     Raises:
         DeferredToolLoadingError: on any of the first three. Never on a transport
@@ -1365,7 +1363,7 @@ def _schedule_model_probe(llm: Any, settings: DeferredToolLoadingSettings) -> No
 class DeferredToolBinding(Runnable):
     """A deferred-tools binding that degrades to the full-schema one on failure.
 
-    The agent holds this where it used to hold ``llm.bind_tools(...)`` and calls
+    The agent holds this where it would otherwise hold ``llm.bind_tools(...)`` and calls
     it the same way. On any error from the deferred path it logs at ERROR, drops
     to the ordinary binding, and LATCHES: the remaining tool iterations of this
     process do not each re-pay for the same failing round trip.
@@ -1462,7 +1460,7 @@ def bind_tools_deferred(
     full tool set in one form or another:
 
     * feature off, or an LLM that cannot carry the shape → ``llm.bind_tools``,
-      byte-identical to what the caller did before;
+      byte-identical to a plain ``bind_tools`` call;
     * a model not cleared for deferral → the same. This is the per-model gate,
       and it is why an org override to ``openai/gpt-4o-mini`` costs nothing
       rather than a 400 the user waits for;

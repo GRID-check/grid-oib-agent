@@ -328,7 +328,7 @@ describe('the session loaders', () => {
     expect((await clearanceOf(session(['admin'], []), 'proj-1')).seesEverything).toBe(true)
   })
 
-  it('a demoted admin no longer reads or writes a folder whose list names none of their roles', async () => {
+  it('a demoted admin does not read or write a folder whose list names none of their roles', async () => {
     vi.mocked(projectHasCustomOrBinnedFolders).mockResolvedValue(true)
     vi.mocked(listProjectFolderTree).mockResolvedValue(TREE)
     vi.mocked(resolveMembershipRoles).mockResolvedValue(['member'])
@@ -432,7 +432,7 @@ describe('a closed project (ADR-0082): closing opens no restricted folder', () =
     expect(checkResourcePermission).not.toHaveBeenCalled()
   })
 
-  it('an active project never asks whether someone is a member: the roles decide as before', async () => {
+  it('an active project never asks whether someone is a member: the roles decide', async () => {
     vi.mocked(findProjectTenancy).mockResolvedValue({ organizationId: 'org-1', deletedAt: null, status: 'active' })
     vi.mocked(checkResourcePermission).mockResolvedValue(false)
     expect((await clearanceOf(session([GF]), 'proj-1')).roles).toEqual([GF])
@@ -512,7 +512,7 @@ describe('a role deleted in WorkOS leaves its folders to the admins (ADR-0081)',
   ]
   const existing = new Set([PL, GF, 'admin', 'member'])
 
-  it('flags a folder whose own list names only roles that no longer exist', () => {
+  it('flags a folder whose own list names only roles that do not exist', () => {
     expect(foldersWithoutValidRole(folders, existing)).toEqual([DEAD])
   })
 
@@ -521,7 +521,7 @@ describe('a role deleted in WorkOS leaves its folders to the admins (ADR-0081)',
     for (const id of [MIXED, OPEN_LIST, TOMB, CHILD_OF_DEAD, F.plaene]) expect(flagged).not.toContain(id)
   })
 
-  it('flags nothing once the role exists again (the slug is back, the grants match again)', () => {
+  it('flags nothing once the role exists, with the slug and grants matching', () => {
     expect(foldersWithoutValidRole(folders, new Set([...existing, GONE]))).toEqual([])
   })
 

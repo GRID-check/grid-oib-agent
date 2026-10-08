@@ -416,7 +416,7 @@ class TestLaneForHit:
         assert nr.lane_for_hit(collection="whatever", shelf="archiv") == ("buero", "Büroarchiv")
 
     def test_the_default_class_never_relabels_a_users_document(self):
-        # Ingestion used to stamp "sonstiges" on every upload; on a user's own
+        # Ingestion stamps "sonstiges" on every upload; on a user's own
         # shelf that guess is not a decision, and the shelf wins.
         assert nr.lane_for_hit(collection="proj_123", doc_class="sonstiges") == ("projekt", "Projektwissen")
         assert nr.lane_for_hit(collection="archiv_org", doc_class="sonstiges") == ("buero", "Büroarchiv")
@@ -563,9 +563,8 @@ def test_repo_registry_has_24_entries():
 
 
 def test_salzburg_permit_questions_reach_the_baupolizeigesetz():
-    """Salzburg keeps its permit procedure out of the Bautechnikgesetz; the
-    catalog pointed "bewilligungsfrei" at the technical act and the lookup never
-    found the law the question was about (answer suite, 2026-09-24)."""
+    """Salzburg keeps its permit procedure out of the Bautechnikgesetz: "bewilligungsfrei" must
+    resolve to the law the question is about, not to the technical act."""
     registry = nr.load_registry(str(REPO_ROOT / "configs" / "norms"))
     permits = {
         entry.id for entry in registry.entries if entry.bundesland == "Salzburg" and "baubewilligung" in entry.topics
@@ -607,9 +606,8 @@ class TestNonRisEntries:
         assert "Quelle: https://www.wien.gv.at/x" in block
 
     def test_entry_with_both_urls_renders_both(self, tmp_path):
-        # Regression: an entry carrying a consolidated-law link AND a curated
-        # annex/source link must render BOTH — an `elif` previously dropped
-        # ``source_url`` whenever ``full_law_url`` was also set.
+        # An entry carrying a consolidated-law link AND a curated annex/source link must render
+        # BOTH: an `elif` would drop ``source_url`` whenever ``full_law_url`` is also set.
         entry = self._base(full_law_url="https://www.ris.bka.gv.at/GeltendeFassung/x")
         registry = nr.load_registry(self._write(tmp_path, [entry]))
         block = nr.render_prompt_block(registry, bundesland="Wien")
@@ -662,9 +660,8 @@ class TestParcelNote:
 
     def test_the_note_is_the_file_list_and_not_the_doctrine(self):
         """What to DO with a parcel document is standing doctrine and lives
-        above the KV-cache boundary (`prompts/piloti_static.md`). Repeating it
-        under the file list charged the same three sentences on every call of
-        every turn that had one (ADR-0060 amendment)."""
+        above the KV-cache boundary (`prompts/piloti_static.md`). Repeating it under the file list
+        would charge the same three sentences on every call of every turn that had one (ADR-0060)."""
         note = nr.parcel_note([{"file_name": "bplan_7602.pdf", "tags": ["Bebauungsplan"]}])
 
         assert note is not None
@@ -724,8 +721,8 @@ class TestGuessDisplayTitle:
         assert nr.guess_display_title("oib-rl_6_ausgabe_mai_2023.pdf") == "OIB-Richtlinie 6, Ausgabe Mai 2023"
 
     def test_an_edition_other_than_the_shipped_one_is_read_not_assumed(self):
-        # The parser used to know exactly one edition, so the next OIB release
-        # would have been labelled "Mai 2023" or refused outright.
+        # The parser must not assume one edition: the next OIB release would otherwise be
+        # labelled "Mai 2023" or refused outright.
         assert nr.guess_display_title("oib-rl_2_ausgabe_maerz_2019.pdf") == "OIB-Richtlinie 2, Ausgabe März 2019"
         assert nr.guess_display_title("oib-rl_4_ausgabe_april_2027.pdf") == "OIB-Richtlinie 4, Ausgabe April 2027"
         assert nr.guess_display_title("oib-rl_4_ausgabe_2015.pdf") == "OIB-Richtlinie 4, Ausgabe 2015"
@@ -753,10 +750,9 @@ class TestGuessDisplayTitle:
 class TestNormsDirResolution:
     """The YAML seed must be found from any working directory of the checkout.
 
-    Every package suite that boots the registry (``frontends/aiq_api`` included)
-    used to see an empty registry when run from its own directory: the default
-    ``configs/norms`` is cwd-relative, and nothing said so. It failed four route
-    tests for weeks and read as a test bug.
+    Every package suite that boots the registry (``frontends/aiq_api`` included) sees an empty
+    registry when run from its own directory: the default ``configs/norms`` is cwd-relative,
+    and nothing says so. The symptom reads as a test bug, not a path bug.
     """
 
     def test_explicit_path_wins(self, tmp_path, monkeypatch):
@@ -932,9 +928,8 @@ class TestFamilyQueryNumber:
         "query", ["OIB 2 und 4", "OIB 2 und 4.", "OIB 2, 4", "OIB 2 oder 4", "OIB-RL 2/4", "OIB 2 und 4 Überblick"]
     )
     def test_a_second_key_chained_without_its_anchor_is_still_a_second_family(self, query):
-        """The bare ``4`` in "OIB 2 und 4" used to fall into the leftover, where
-        a number passes as a printing year, and the turn prefetched family 2
-        alone while suppressing family 4's overview."""
+        """The bare ``4`` in "OIB 2 und 4" must not fall into the leftover, where a number passes as a
+        printing year: the turn would prefetch family 2 alone and suppress family 4's overview."""
         from aiq_agent.common.norm_registry import family_query_number
 
         assert family_query_number(query) is None
@@ -959,9 +954,9 @@ class TestFamilyQueryNumber:
 # ---------------------------------------------------------------------------
 # The names oib.or.at actually publishes. Most parts use `oib-rl_`, but OIB-RL
 # 2.2 ships as `oib-richtlinie_2.2_…`, `erlaeuterungen-zu-oib-richtlinie_2.2_…`
-# and `aenderungen_oib-richtlinie_2.2_…`. Before these were pinned, the 2.2
-# Richtlinie dropped out of the OIB 2 family, its Erläuterungen were
-# unclassified, and its Änderungen slipped past the retrieval exclusion list.
+# and `aenderungen_oib-richtlinie_2.2_…`. Pinned, the 2.2 Richtlinie stays in the OIB 2
+# family and its Erläuterungen are classified. Unpinned, it would drop out, and its
+# Änderungen would slip past the retrieval exclusion list.
 # ---------------------------------------------------------------------------
 
 #: (published filename, oib_doc_class, oib_family_member, guess_display_title)

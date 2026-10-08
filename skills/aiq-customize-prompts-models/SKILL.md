@@ -111,7 +111,7 @@ smoke run is the real check; a config/prompt-only change needs no Python lint.
   selection is data-driven (`data_source_registry`, `source_router.j2`); keep
   prompts task-agnostic.
 - Hard-coding a model name in Python instead of using an `llms:` ref and the
-  agent's role field, so the model can no longer be swapped from config.
+  agent's role field, so the model cannot be swapped from config.
 - Changing an agent's default model when you meant a single sub-role. The deep
   research agent's default is `orchestrator_llm` (there is no generic `llm`
   field); the clarifier's default is `llm`. Editing the default shifts every

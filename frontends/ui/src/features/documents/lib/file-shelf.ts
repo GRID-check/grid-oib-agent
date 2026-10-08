@@ -3,9 +3,8 @@
  *
  * Dateien (a project's documents) and the Archiv (the office's) are the same
  * workspace over two stores: same folders, same upload plan, same drag and
- * move, same search, same filters. They used to be two components, and the
- * Archiv spent a release flat and without folders because every capability
- * had to be built twice. A shelf is the part that is genuinely different,
+ * move, same search, same filters. Each capability is built once, for both, so
+ * the two cannot drift apart. A shelf is the part that is genuinely different,
  * named once and handed to {@link FileWorkspace}; anything not in this type is
  * not allowed to differ.
  */

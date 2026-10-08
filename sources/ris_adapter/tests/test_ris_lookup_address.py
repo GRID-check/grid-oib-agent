@@ -139,8 +139,8 @@ class TestAListOfParagraphs:
         assert parse_address("x", "§§ 63 bis 65 BO Wien", "").sections == ("63", "64", "65")
 
     def test_a_list_past_the_budget_reads_its_first_six_and_names_the_rest(self):
-        # It used to fall back to the first § alone, silently: "§§ 3 bis 12"
-        # came back as § 3, as if that were the answer.
+        # A list past the budget is not cut to its first § silently: "§§ 3 bis 12"
+        # would come back as § 3, as if that were the answer.
         address = parse_address("x", "§§ 3 bis 12 BO Wien", "")
 
         assert address.sections == ("3", "4", "5", "6", "7", "8")
@@ -181,8 +181,8 @@ def test_a_list_shares_one_budget_and_one_named_paragraph_keeps_its_own():
 
 
 def test_a_range_past_the_old_span_names_every_paragraph_it_did_not_read():
-    # Past 200 §§ a range used to keep only its two ends: §§ 3-299 were
-    # dropped while the result claimed to name what it had not read.
+    # Past 200 §§ a range must not keep only its two ends: §§ 3-299 would be
+    # dropped while the result claims to name what it has not read.
     address = parse_address("x", "§§ 1 bis 300 BO Wien", "")
 
     assert address.sections == ("1", "2", "3", "4", "5", "6")
@@ -198,10 +198,10 @@ def test_the_unread_line_says_bis_only_for_a_run():
 
 
 class TestTheListReaderAgainstPracticeInputs:
-    """Inputs a list parser built from one regex got wrong (code review, 2026-09-25)."""
+    """Inputs that a single-regex list parser gets wrong."""
 
     def test_the_list_starts_at_the_first_paragraph_named(self):
-        # A later list is a reference, not the address: § 3 was dropped for §§ 75, 81.
+        # A later list is a reference, not the address: § 3 stays the address.
         assert parse_address("Gilt § 3 BO auch für §§ 75 und 81?", "", "").sections == ("3",)
         address = parse_address("x", "§ 3 BO Wien, siehe §§ 75 und 81", "")
         assert (address.sections, address.law) == (("3",), "BO Wien")
@@ -215,7 +215,7 @@ class TestTheListReaderAgainstPracticeInputs:
         assert parse_address("x", instrument, "").law == "BO Wien"
 
     def test_a_run_of_unclosed_references_is_read_in_linear_time(self):
-        # "(s. (s. (s. …" backtracked exponentially: 23 repeats took six seconds (CodeQL py/redos).
+        # A run of "(s. " openers must not backtrack exponentially (CodeQL py/redos).
         started = time.perf_counter()
         parse_address("x", "§ 3 BO Wien (s." + " (s." * 40 + "x", "")
         assert time.perf_counter() - started < 1.0
@@ -225,7 +225,7 @@ class TestTheListReaderAgainstPracticeInputs:
         assert (address.sections, address.absatz, address.law) == (("5", "7"), "", "BO Wien")
 
     def test_every_qualifier_of_a_paragraph_is_read_before_the_next_one(self):
-        # One qualifier per item ended the list at "Z 2" and dropped § 7 into the law's name.
+        # Each item carries its own qualifier: "Z 2" must not end the list and drop § 7 into the law's name.
         cases = {
             "§ 5 Abs 1 Z 2 und § 7 BO Wien": (("5", "7"), "BO Wien"),
             "§ 5 Abs 2 lit. a und § 7": (("5", "7"), ""),

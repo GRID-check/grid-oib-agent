@@ -152,7 +152,7 @@ describe.skipIf(!url)('collection placement against Postgres', () => {
     await inTenant(() => db.execute(sql`DELETE FROM projects WHERE organization_id = ${ORG}`))
   })
 
-  it('leaves a document where it is when its old chunks could not be purged, and says so', async () => {
+  it('leaves a document where it is when its chunks could not be purged, and says so', async () => {
     await restrict(['org-geschaeftsfuehrung'])
     vi.mocked(purge).mockResolvedValue(false)
 

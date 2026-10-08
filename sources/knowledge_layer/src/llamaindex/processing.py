@@ -8,15 +8,14 @@ Provides a DRY, extensible extraction pipeline that:
   re-ingest or cross-document duplicate image skips the API call entirely. The
   VLM model is part of the cache identity, so a model switch never serves
   stale captions produced by a different model.
-- Maintains backward compatibility with ``adapter.py`` module-level functions
-  (test patches control adapter attributes; this module accesses them through
-  the module reference so patches still fire).
+- Reaches ``adapter.py`` module-level functions through the module reference,
+  so test patches on adapter attributes still fire.
 - Failed VLM analyses (exceptions AND the placeholder captions the call sites
   return on error) are SKIPPED rather than indexed, so placeholder text like
   "[Drawing - analysis failed]" never pollutes the vector store.
 - The visual-page heuristic accepts pre-extracted page texts (the caller's
   watermark-stripped pdfplumber output) so the PDF's text layer is read once,
-  and the documented "watermark-stripped text" threshold actually holds.
+  and the heuristic measures the same text its threshold was set for.
 
 Typical usage (inside ``_run_ingestion``)::
 
@@ -296,11 +295,10 @@ def _read_visual_page(doc: Any, page_num: int, *, can_render: bool, max_dim: int
     """Judge one page and render it when it is visual; all of it under the PDFium lock."""
     pdf_path = criteria["pdf_path"]
     with pdfium_lock():
-        # Guarded separately, and this is the defect the guard exists for:
-        # `doc[page_num]` raises on a damaged page and used to sit OUTSIDE the
-        # render's guard, so one unreadable page abandoned every page after it.
-        # A 40-page drawing set could lose 38 captions to page 2 and report
-        # nothing — the caller sees a short list, not an error.
+        # Guarded separately: `doc[page_num]` raises on a damaged page, and that
+        # must cost only that page. Outside a guard of its own, an unreadable
+        # page 2 would abandon the other 38 pages of a 40-page set with nothing
+        # reported: the caller sees a short list, not an error.
         try:
             page = doc[page_num]
         except Exception as e:  # noqa: BLE001
@@ -354,8 +352,8 @@ def render_visual_pages_no_vlm(
     # Opening is its own step so the failure can say what it actually means. A PDF
     # pdfium cannot parse is NOT a failed ingestion: the text layer is read by
     # pdfplumber on a separate path, so the document still ingests and simply
-    # contributes no visual pages. Logging that at ERROR filed a GitHub issue for
-    # every unusual PDF in the corpus while the ingest it described succeeded.
+    # contributes no visual pages. Logging that at ERROR would flag every unusual
+    # PDF in the corpus as a failure, though the ingest it describes succeeds.
     doc = _open_pdf(pdf_path, "Visual-page rendering (text ingestion is unaffected)")
     if doc is None:
         return []
@@ -380,8 +378,7 @@ def render_visual_pages_no_vlm(
             if read.capped:
                 # Said out loud rather than inferred from a short chunk list:
                 # capped pages still index their text layer, but their drawings
-                # are never described — a plan set whose later sheets show
-                # sparse facts lost them here.
+                # are never described.
                 logger.warning(
                     "Visual-page render cap (%d) reached for %s; remaining visual pages index as text only",
                     max_pages,
@@ -403,7 +400,7 @@ def render_visual_pages_no_vlm(
         logger.info("Detected %d visual page(s) in %s", len(results), pdf_path)
     if skipped_pages:
         # Said out loud rather than inferred from a short list: partial output that
-        # looks complete is the failure mode this whole function had.
+        # looks complete is the failure mode to avoid.
         logger.warning("Skipped %d unreadable page(s) while rendering %s", skipped_pages, pdf_path)
 
     return results

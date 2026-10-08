@@ -1,10 +1,10 @@
 """NAT function for opening a NAMED passage: the locator beside the search.
 
-`knowledge_search` is the only way this agent could reach a passage, and it is
-a semantic search. So a second round that already knows what it wants — "the
+`knowledge_search` is the only way this agent reaches a passage, and it is a
+semantic search. So a second round that already knows what it wants — "the
 Herleitung concluded that OIB-Richtlinie 2 Pkt. 3.5.2 decides this, and I have
-not read it" — had to ask the corpus to *find* that passage again, by
-similarity, competing with every neighbouring requirement. The model paid one
+not read it" — has to ask the corpus to *find* that passage again, by
+similarity, competing with every neighbouring requirement. The model pays one
 more search, one more reranker pass and one more requery judge for a lookup it
 could already address.
 
@@ -22,8 +22,8 @@ Three properties are load-bearing, and they hold for the same lookup one
 granularity up: ``document=`` with neither Punkt nor page is the OUTLINE, which
 answers "what is in this document at all?" with the document's opening passage
 plus a ``## Gliederung`` of its top-level Punkte. That question has no Punkt and
-no page to name, and refusing it sent the model to a search that returns cover
-pages and then to a Punkt number it had guessed.
+no page to name, and refusing it would send the model to a search that returns
+cover pages and then to a Punkt number it has to guess.
 
 **It never guesses a document.** The name is resolved against the documents
 registered for the collections this turn may read — exact file name, stored
@@ -268,7 +268,7 @@ async def _resolve_targets(entries: list[Any], document: str) -> list[PassageTar
 
 
 def _coerce_page(page: Any) -> int | None:
-    """Coerce a model-supplied page number to int; ``''`` means omitted (#656).
+    """Coerce a model-supplied page number to int; ``''`` means omitted.
 
     The tool schema types ``page`` as int, but providers send ``''`` for
     "no page" and occasionally numeric strings. Pydantic rejects ``''`` with
@@ -353,11 +353,12 @@ def _outline_filters(file_name: str) -> dict[str, Any]:
 def _whole_document_filters(file_name: str) -> dict[str, Any]:
     """The fallback outline's filter: the named document, nothing narrower.
 
-    It used to narrow to ``page_label $in ("1", "2", "3")``, on the assumption
-    that ``page_label`` holds a page number. It does not always: the Office
+    It does not narrow to ``page_label $in ("1", "2", "3")``: that assumes
+    ``page_label`` holds a page number, and it does not always. The Office
     extractors write the WORKSHEET NAME there for ``.xlsx``/``.xlsm``
-    (``llamaindex/office_extractors``), so an indexed spreadsheet matched no
-    chunk at all and the outline told the model the store held none of it.
+    (``llamaindex/office_extractors``), so that clause would match no chunk of an
+    indexed spreadsheet, and the outline would tell the model the store held none
+    of it.
     The file-name clause and ``_MAX_OUTLINE_CHUNKS`` bound the set; document
     order then decides which ``_MAX_PASSAGE_CHUNKS`` of it are returned, which
     is the opening of a paginated document and the first sheets of a workbook.
@@ -431,7 +432,7 @@ def _punkt_sort_key(chunk: Any) -> tuple:
 
     Every row group of one captioned table shares its page and ``punkt_id``
     („Tabelle 1a" has no number to sort on), and the chunk id is a random
-    uuid, so without ``table_part`` its "Teil 1 von 5" … "Teil 5 von 5" came
+    uuid, so without ``table_part`` its "Teil 1 von 5" … "Teil 5 von 5" would come
     back shuffled.
     """
     raw = _punkt_of(chunk)
@@ -460,7 +461,7 @@ def _document_order(chunk: Any) -> tuple[int, int]:
 
     A Markdown section („Geschoße") or a text block („Zeilen 12-30") has no page and no
     Punkt number to sort on, so without this the opening passages of a Markdown file
-    came back in alphabetical order of their headings. ``(0, 0)`` for an OIB chunk,
+    would come back in alphabetical order of their headings. ``(0, 0)`` for an OIB chunk,
     which carries neither, so their order is unchanged.
     """
     return (_int_metadata(chunk, "section_order"), _int_metadata(chunk, "line_start"))
@@ -637,8 +638,8 @@ def _gliederung_block(entries: Sequence[OutlineEntry]) -> str:
 # A whole Richtlinien-Familie at once
 #
 # "Was weißt du über die OIB 2?" is a question about four documents. Search
-# ranks passages, so it answered with the two that scored best and the model
-# opened the rest one round at a time, when it knew they existed at all.
+# ranks passages, so it answers with the two that score best, and the model
+# opens the rest one round at a time, when it knows they exist at all.
 # `knowledge_search` detects the question (`norm_registry.family_query_number`)
 # and asks for this: every member's scope passage and every member's
 # Gliederung, in the block it was going to render anyway. One round, then one
@@ -849,7 +850,7 @@ _MAX_DID_YOU_MEAN = 3
 #: Minimum similarity (difflib ratio over case-folded names) for a guess to be
 #: named. Below this the closest inventory title is noise rather than help,
 #: and the refusal stands on the two recovery ways alone. 0.6 is the stdlib
-#: ``get_close_matches`` default: 0.4 let cross-document titles with a shared
+#: ``get_close_matches`` default: 0.4 would let cross-document titles with a shared
 #: suffix ("Plan.pdf" vs "Brandschutzkonzept.pdf" at 0.40) spend a guess the
 #: caller cannot use.
 _DID_YOU_MEAN_CUTOFF = 0.6
@@ -1113,7 +1114,7 @@ async def read_passage(config: ReadPassageConfig, _builder: Builder):
                 accepts a numeric string. Omit it, and `page`, for the outline.
             page (int | str | None): Optional. The page number, 1-based. Ignored
                 when `punkt` is given: the Punkt alone names the passage. ``''`` is
-                treated as omitted (#656: providers send empty string for "no
+                treated as omitted (providers send an empty string for "no"
                 page"). Omit it, and `punkt`, for the outline.
             conclusion (str): ONE sentence: what you now know and what you
                 still need, which is why you are opening this passage. It is
@@ -1138,10 +1139,10 @@ async def read_passage(config: ReadPassageConfig, _builder: Builder):
         if punkt is not None and page is not None:
             # A Punkt (or „Tabelle 3") names one passage in a document, and
             # every chunk of it is filed under its FIRST page. A page beside it
-            # can only repeat that page or empty the read: a Tabelle filed
-            # under p. 30 and asked for as „page 29" (the printed page number)
-            # came back empty, and the agent searched for it for two more rounds
-            # (September 2026 census). The number decides; the page is dropped.
+            # can only repeat that page or empty the read: a Tabelle filed under
+            # p. 30 and asked for as „page 29" (the printed page number) comes back
+            # empty, and the agent searches for it for two more rounds. The number
+            # decides; the page is dropped.
             page = None
         if not document:
             return (

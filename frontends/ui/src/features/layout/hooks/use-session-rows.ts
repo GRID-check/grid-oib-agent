@@ -68,8 +68,8 @@ const rowFor = (conversation: Conversation, cache: RowCache): SessionRow => {
 
 /**
  * The current user's sessions in the active project context, newest first.
- * Legacy sessions without a projectId fail open (always visible) so users
- * never lose sight of pre-scoping history.
+ * Sessions without a projectId fail open (always visible), so no reader loses
+ * sight of older history.
  */
 export function useSessionRows(): SessionRow[] {
   const cache = useRef<RowCache>({ byConversation: new WeakMap(), byId: new Map() })

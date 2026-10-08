@@ -54,12 +54,10 @@ interface SurfacedIndex {
    * filename → row, THIS conversation's private attachments (ADR-0047's
    * `session` shelf). Empty unless the caller named a conversation.
    *
-   * Added for the answer's file references: a reader drops a PDF into the
-   * composer, asks about it, and the answer names it back — and until this map
-   * existed that filename resolved to nothing at all, because the only two
-   * corpora here were the ones the backend's `surface_documents` tool can tag.
-   * Consulted last, and only for a surfaced document that names no source, so
-   * no tagged resolution changes.
+   * For the answer's file references: a reader drops a PDF into the composer,
+   * asks about it, and the answer names it back. The backend's `surface_documents`
+   * tool cannot tag such a file, so it resolves here. Consulted last, and only for
+   * a surfaced document that names no source, so no tagged resolution changes.
    */
   session: Map<string, FileItem>
   /**
@@ -118,11 +116,10 @@ async function fetchCorpus(
  *
  * Keyed on the LOWERCASED name, and read back through {@link corpusLookup}.
  * A name is a name: `Grundriss.PDF` and `grundriss.pdf` in one corpus are a
- * re-upload, not two documents, and the exact-match index made an answer that
- * spelled a filename in a different case resolve to nothing — a dead tile on a
- * card, and (once answers began naming their files in prose) plain text where a
- * chip belonged. Two rows that differ only in case collapse onto the newer one,
- * which is what the same-name rule above already does.
+ * re-upload, not two documents. So an answer that spells a filename in another
+ * case still resolves to the file, and a card or a prose chip is not left dead.
+ * Two rows that differ only in case collapse onto the newer one, which is what
+ * the same-name rule above already does.
  */
 function indexByFilename(rows: unknown): Map<string, FileItem> {
   const map = new Map<string, FileItem>()
@@ -259,15 +256,15 @@ function loadSurfacedIndex(
  *
  * Asks the server for exactly the surfaced names (`documents-by-name.ts`, cached
  * per name and batched across the cards of one render), then joins each
- * surfaced file name to its row within the corpus the backend tagged (`source`) — never crossing corpora when the source is known, so a
- * same-named file in the other store can't be opened by mistake. Fail-open: a
- * failed fetch yields unresolved entries (rendered as lean, non-clickable
- * cards), never a crash. Order is preserved (best match first).
+ * surfaced file name to its row within the corpus the backend tagged (`source`).
+ * It never crosses corpora when the source is known, so a same-named file in
+ * the other store can't be opened by mistake. Fail-open: a failed fetch yields
+ * unresolved entries (rendered as lean, non-clickable cards), never a crash.
+ * Order is preserved (best match first).
  *
- * By name rather than from the listing: the listing is paged, and a
- * legitimately surfaced file older than its first page used to render as
- * unresolved. An unresolved file still renders an actionable "open in the
- * archive/files" card, never a dead tile.
+ * By name rather than from the listing: the listing is paged, and a legitimately
+ * surfaced file older than its first page must still resolve. An unresolved file
+ * still renders an actionable "open in the archive/files" card, never a dead tile.
  */
 export function useSurfacedDocuments(
   documents: SurfacedDocument[],

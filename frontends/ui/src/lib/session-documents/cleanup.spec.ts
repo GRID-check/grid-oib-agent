@@ -11,11 +11,11 @@
  * key is presignable by anyone who learns it. So the invariant these tests pin
  * is one sentence: **the row outlives every failure to erase what it names.**
  *
- * Both halves used to break it. `deleteDocumentObjects` swallowed every S3
- * error, and `purgeCollectionChunks` treated any answer at all — a 500, a 404
- * naming the wrong collection — as a completed purge. The loop then deleted the
- * rows regardless, which is how a transient blip became private data nobody can
- * ever remove.
+ * Each half can break it: `deleteDocumentObjects` must not swallow an S3 error,
+ * and `purgeCollectionChunks` must not treat any answer at all — a 500, a 404
+ * naming the wrong collection — as a completed purge. Deleting the rows
+ * regardless is how a transient blip becomes private data nobody can ever
+ * remove.
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { DeleteObjectCommand, ListObjectsV2Command } from '@aws-sdk/client-s3'
@@ -64,10 +64,9 @@ function sessionDoc(overrides: Partial<Document> = {}): Document {
     organizationId: ORG_ID,
     conversationId: CONVERSATION_ID,
     scope: 'session',
-    // A real session row carries this — every `documents` row does, since 0063.
-    // Omitting it made the fixture a shape the application cannot produce, and
-    // `collectionFileRef` (correctly) refuses such a row, which is what turned
-    // the omission into a failing test rather than a silent one.
+    // A real session row carries this: every `documents` row does (migration
+    // 0063). `collectionFileRef` refuses a row without it, so a fixture that
+    // omits it is a shape the application cannot produce.
     authoredBy: 'user',
     filename: 'brandschutz.pdf',
     collectionName: CONVERSATION_ID,
@@ -77,7 +76,7 @@ function sessionDoc(overrides: Partial<Document> = {}): Document {
   } as unknown as Document
 }
 
-/** A fetch stand-in: `ok` is what the code must now read, and used not to. */
+/** A fetch stand-in: the code reads `ok`, and a 500 resolves with `ok: false`. */
 function stubFetch(response: { ok: boolean; status?: number } | Error): void {
   vi.stubGlobal(
     'fetch',
@@ -130,7 +129,7 @@ describe('deleteDocumentObjects', () => {
 
   // The thumbnail is rendered FROM the private file and the `_bim/` derivatives
   // are the parsed building. Leaving either behind is a disclosure, not a
-  // cosmetic remainder, so neither may be swallowed the way both used to be.
+  // cosmetic remainder, so neither may be swallowed.
   it('reports FAILURE when the thumbnail cannot be removed', async () => {
     send.mockResolvedValueOnce({}).mockRejectedValueOnce(new Error('thumb 503'))
 
@@ -157,7 +156,7 @@ describe('deleteDocumentObjects', () => {
     await expect(deleteDocumentObjects(sessionDoc())).resolves.toEqual({ ok: true })
   })
 
-  // `storage_key` is NOT NULL, so this is the legacy/hand-edited shape rather
+  // `storage_key` is NOT NULL, so this is a hand-edited shape rather
   // than one the upload path can produce — and a row naming no object has
   // nothing to erase, which is success.
   it('is a no-op success for a row that names no object', async () => {
@@ -167,8 +166,8 @@ describe('deleteDocumentObjects', () => {
 })
 
 describe('purgeCollectionChunks', () => {
-  // Built through the constructor, like production: a bare filename is no
-  // longer callable, which is the point of the signature.
+  // Built through the constructor, like production: a bare filename is not
+  // callable, which is the point of the signature.
   const ref = (filename: string) => {
     const value = collectionFileRef({
       collectionName: CONVERSATION_ID,
@@ -186,8 +185,8 @@ describe('purgeCollectionChunks', () => {
     await expect(purgeCollectionChunks(CONVERSATION_ID, [ref('a.pdf')])).resolves.toEqual({ ok: true })
   })
 
-  // The bug: `fetch` rejects only on a transport error, so a 500 resolved and
-  // every caller read that as "the chunks are gone".
+  // `fetch` rejects only on a transport error, so a 500 resolves, and a caller
+  // that does not check `ok` reads it as "the chunks are gone".
   it('reports FAILURE on a non-2xx answer', async () => {
     stubFetch({ ok: false, status: 500 })
 
@@ -238,11 +237,10 @@ describe('purgeSessionDocuments', () => {
   })
 
   /**
-   * THE regression. With the old code this test fails on both assertions: the
-   * S3 error was swallowed, the function returned void, and the row went with
-   * the rest of the page — leaving a private PDF in the tenant's bucket that
-   * nothing lists, nothing can delete, and that still counts against the
-   * organization's quota.
+   * A failed object delete fails the function and keeps the row. Otherwise the
+   * row goes with the rest of the page, leaving a private PDF in the tenant's
+   * bucket that nothing lists, nothing can delete, and that still counts
+   * against the organization's quota.
    */
   it('never sends a machine-authored filename to the chunk purge', async () => {
     // The sweep batches filenames per collection, and the batch is where a
@@ -307,9 +305,8 @@ describe('purgeSessionDocuments', () => {
 
   /**
    * Retained rows stay in the listing at the same position, so a loop that
-   * re-read until the page came back empty would re-attempt the same page for
-   * ever. The old shape could not have this failure because it always emptied
-   * what it read; keeping rows is what introduces it.
+   * re-reads until the page comes back empty would re-attempt the same page
+   * forever.
    */
   it('terminates when every row on the page is retained', async () => {
     listSessionDocumentsForCleanup.mockResolvedValue([sessionDoc()])

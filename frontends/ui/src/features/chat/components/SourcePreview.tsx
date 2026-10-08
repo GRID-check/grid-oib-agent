@@ -1,16 +1,16 @@
 /**
- * SourcePreview (WS-9, spec §6 / backlog FB-4) — clicking a citation/source
- * chip opens a preview of the source instead of doing nothing.
+ * SourcePreview — clicking a citation/source chip opens a preview of the
+ * source instead of doing nothing.
  *
  * Behavior by resolved target (see `resolveCitationTarget`):
  *  - `url`      — Web chips keep linking out to the real source.
  *  - `ris`      — an Austrian RIS source opens the in-app reader
  *                 (`RisDocumentDialog`), with the authoritative RIS link kept in
- *                 its header. It used to link out like any web source, which
- *                 took the reader out of the answer to check it (#622).
+ *                 its header. A link out would take the reader out of the answer to
+ *                 check it.
  *  - `download` — a stored document with no in-app viewer (.dwg, .ifc, .zip).
  *                 The file is offered and the reason is stated; it is NOT the
- *                 same answer as `info` (#623).
+ *                 same answer as `info`.
  *  - `document` — knowledge-layer citations that resolve to a project upload
  *                 or a base-corpus PDF open the EXISTING PdfViewerDialog
  *                 (presigned preview URL for project docs, the corpus stream
@@ -28,7 +28,7 @@
  * the cited document's project and Archiv rows BY NAME
  * (`POST /api/documents/by-name`, `POST /api/archiv/documents/by-name`, batched
  * across the chips of one render — the listings are paged, and a citation of a
- * plan older than their first page used to resolve to nothing), plus this
+ * plan older than their first page would resolve to nothing), plus this
  * conversation's attachments (`/api/session/documents?conversationId=…`) and
  * the base-corpus file list (`/api/knowledge-base`), per project+conversation.
  */
@@ -112,9 +112,8 @@ export const resetSourcePreviewIndexCache = (): void => {
 }
 
 // A document uploaded DURING the conversation is one the answer can cite and
-// this index has never seen. Without this the chip offered no way in and no
-// reason until a reload — the #623 complaint, on the path its fix did not
-// reach.
+// this index has never seen. Without this the chip offers no way in and no
+// reason until a reload.
 onDocumentsChanged(resetSourcePreviewIndexCache)
 
 // The shelf is stated by the LIST the rows came from — the project document
@@ -178,9 +177,9 @@ const loadShelfLists = (
   const promise = (async (): Promise<ShelfLists> => {
     const [sessionResult, corpusResult] = await Promise.allSettled([
       // This conversation's private attachments (ADR-0047 Phase 2). Without
-      // them the `session` shelf had NO rows at all, so a session citation
-      // matched nothing — and, before the shelf became part of a document's
-      // identity, quietly opened the project's unrelated file of the same name.
+      // them the `session` shelf has NO rows at all, so a session citation
+      // matches nothing — and a shelf that is not part of a document's identity
+      // quietly opens the project's unrelated file of the same name.
       conversationId
         ? fetch(`/api/session/documents?conversationId=${encodeURIComponent(conversationId)}`).then(
             (r) => (r.ok ? r.json() : null)
@@ -262,9 +261,9 @@ const useConversationId = (): string | null =>
 // Shared chip styling (mirrors SourceSignalChip's chip vocabulary)
 // ---------------------------------------------------------------------------
 
-// (The per-signal icon map used to be duplicated here "kept in sync with
-// SourceSignalChip" by hand; it now comes from `iconForTint`, so the accent
-// families cannot drift between the chip and the preview.)
+// (The per-signal icon map comes from `iconForTint`, shared with
+// SourceSignalChip, so the accent families cannot drift between the chip and
+// the preview.)
 
 const chipButtonClasses =
   'inline-flex h-6 max-w-full shrink-0 cursor-pointer items-center gap-1 truncate whitespace-nowrap pointer-coarse:h-11 ' +
@@ -295,16 +294,15 @@ export type CitationVariant = 'chip' | 'card'
  * `name-only` is for a surface that ALREADY states all of that around the
  * citation — the Herleitung fan-out puts the icon, the badge and the lane on
  * its folder tab and the markers and pages on its own meta line, so repeating
- * them inside the card left the document's NAME, the one thing only the card
- * can say, squeezed into an ellipsis.
+ * them inside the card would squeeze the document's NAME, the one thing only
+ * the card can say, into an ellipsis.
  */
 export type CitationDetail = 'full' | 'name-only'
 
 /**
- * The card is the source list's existing row, unchanged in shape: one bordered
- * card holding everything, hover-highlighted, full-width. Only its CONTENT
- * gained provenance (a tinted icon and an authority badge) and its behaviour
- * became real.
+ * The card is the source list's row, in shape: one bordered card holding
+ * everything, hover-highlighted, full-width. Its CONTENT carries provenance (a
+ * tinted icon and an authority badge), and its behaviour is real.
  */
 const cardButtonClasses =
   'flex w-full cursor-pointer gap-3 rounded-lg border bg-card p-3 text-left ' +
@@ -318,8 +316,7 @@ const faceClasses = (variant: CitationVariant): string =>
 /**
  * The card face while nothing can be opened yet (the preview index is still
  * loading): the same shape, none of the affordances. A hover tint and a press
- * scale on a box with no handler behind it read as a broken button, which is
- * exactly what the Herleitung's source chips looked like before resolution.
+ * scale on a box with no handler behind it read as a broken button.
  */
 const inertCardClasses = 'flex w-full gap-3 rounded-lg border bg-card p-3 text-left'
 
@@ -558,8 +555,8 @@ const asDownloadTarget = (target: DocumentTarget): DownloadTarget | null =>
  * The preview route's two answers that mean "there is no PDF of this office
  * file", as opposed to "something broke": 415 when conversion is switched off
  * (`GOTENBERG_URL` unset) and 502 `RENDITION_FAILED` when LibreOffice could not
- * make one. Both leave the reader exactly where #623 left them before ADR-0070
- * — a real file with no viewer — so both get that answer, the download.
+ * make one. Both leave the reader with a real file and no viewer, so both get
+ * that answer, the download.
  */
 const isRenditionUnavailable = (status: number): boolean => status === 415 || status === 502
 
@@ -610,15 +607,14 @@ const CitedPassageBox: FC<{ snippet: string; signal: SourceTint }> = ({ snippet,
  * The Fundstellen rail — every place in this document the turn read, as a
  * table of contents you can walk.
  *
- * This is the half the click used to throw away. The model knows a document was
- * read at pages 5, 12, 18 and 22; the viewer opened at 5 and offered no way to
- * reach the rest, so verifying the other three meant closing the dialog,
- * finding another chip, and hoping.
+ * A click opens one passage, but the model knows a document was read at pages
+ * 5, 12, 18 and 22. Without a way to reach the rest, verifying the other three
+ * means closing the dialog, finding another chip, and hoping.
  *
- * A row of page pills was the first repair, and it was still the wrong shape:
- * pills say "p. 12" and nothing else, so choosing between four of them is
- * choosing between four numbers. What the reader is actually looking for is a
- * PASSAGE, so each entry now shows the passage — its marker in the answer, its
+ * A row of page pills is the wrong shape: pills say "p. 12" and nothing else,
+ * so choosing between four of them is choosing between four numbers. What the
+ * reader is actually looking for is a PASSAGE, so each entry shows the passage —
+ * its marker in the answer, its
  * page, and the opening of the text itself. That turns the rail from a pager
  * into a contents list, which is why it sits BESIDE the document (a contents
  * list you scroll past to reach the book is not a contents list) and stays
@@ -629,13 +625,13 @@ const CitedPassageBox: FC<{ snippet: string; signal: SourceTint }> = ({ snippet,
  * hiding it would make the document look thinner than the research was. The
  * `[N]` badge is what separates the two.
  *
- * It shows for ONE Fundstelle too, and that is deliberate. Withholding it there
- * was reasoning about navigation — one entry is nowhere to go — but the rail is
- * not only a way through the document, it is the standing answer to "which
- * passage am I checking", which a reader deep on page 12 needs whether the
- * document was read once or four times. Withholding it also made the dialog
- * change shape between two citations that look identical from the chat, which
- * reads as a glitch rather than as a statement about the document.
+ * It shows for ONE Fundstelle too, and that is deliberate. One entry is
+ * nowhere to go, but the rail is not only a way through the document: it is the
+ * standing answer to "which passage am I checking", which a reader deep on
+ * page 12 needs whether the document was read once or four times. Withholding
+ * it would also change the dialog's shape between two citations that look
+ * identical from the chat, which reads as a glitch rather than as a statement
+ * about the document.
  */
 const LocusRail: FC<{
   document: CitedDocument
@@ -714,10 +710,10 @@ const LocusRail: FC<{
               <button
                 type="button"
                 // Follow the reading position. Stepping through a document read
-                // at nine places used to walk the mark off the bottom of the
-                // rail: the entry was current and out of sight, so the one
-                // control that says WHERE YOU ARE stopped saying it exactly when
-                // the list got long enough to need it. `nearest` scrolls only
+                // at nine places must not walk the mark off the bottom of the
+                // rail: a current entry out of sight stops the one control that
+                // says WHERE YOU ARE from saying it exactly when the list gets
+                // long enough to need it. `nearest` scrolls only
                 // when it has to, and covers the sideways strip on a phone as
                 // well as the column beside the document.
                 ref={(node) => {
@@ -760,8 +756,7 @@ const LocusRail: FC<{
                     className={cn(
                       'mt-1 block text-xs leading-snug',
                       // The one being read is the citation itself, so it is
-                      // shown whole — this rail replaced the band that used to
-                      // carry it above the document. The others stay two lines:
+                      // shown whole. The others stay two lines:
                       // enough to recognise a passage, not enough to bury the
                       // list under one long quotation. Narrow viewports keep the
                       // clamp throughout, where the rail is a strip of cards and
@@ -822,18 +817,18 @@ export const CitationDocumentDialog: FC<{
   // A passage read off a picture of the page (a plan's Grundriss) is marked
   // by its box, not searched for: its "snippet" is the vision model's
   // description of the drawing, and none of those words are on the sheet
-  // (issue #433). A locus with no box keeps the text search, as before.
+  // A locus with no box keeps the text search.
   const regions = activeLocus?.regions
   const passage = regions?.length ? undefined : (activeLocus?.snippet ?? target.snippet)
   // What the rail will show, decided here because it also decides whether the
   // dialog draws the passage a second time above the document.
   const railLoci = citation ? navigableLoci(citation.document) : []
-  // The rail is where the Fundstelle lives once it can hold it: beside the
-  // document, in the tint of its source, still there after the reader has
-  // scrolled. Now that the rail shows for one Fundstelle too, the band above
-  // the frame is the same words a second time, charging the document a band of
-  // its height for the repetition. It stays for the passage the rail cannot
-  // carry — a locus with no page, or a document-level snippet.
+  // The rail is where the Fundstelle lives: beside the document, in the tint
+  // of its source, still there after the reader has scrolled. The rail also
+  // shows for one Fundstelle, so the band above the frame would be the same
+  // words a second time, charging the document a band of its height for the
+  // repetition. It stays for the passage the rail cannot carry — a locus with
+  // no page, or a document-level snippet.
   const passageInRail =
     Boolean(activeLocus?.snippet) && railLoci.some((locus) => locus.key === activeLocus?.key)
   // The reference the dialog is CURRENTLY showing — what its copy actions must
@@ -965,13 +960,13 @@ const useDocumentPreview = (target: DocumentTarget, citation?: CitationRef) => {
   const [src, setSrc] = useState<string | null>(null)
   // A chip is a DOCUMENT-level reference, so it arrives with no locus — but the
   // viewer still opens at the first cited passage, and the rail must say so.
-  // Leaving it unset marked nothing, so the reader could not tell which of four
-  // Fundstellen they were looking at.
+  // Leaving it unset would mark nothing, so the reader could not tell which of
+  // four Fundstellen they were looking at.
   //
-  // Resolved through `openAtLocus`, the same rule the target used to pick its
+  // Resolved through `openAtLocus`, the same rule the target uses to pick its
   // page: a reference bound to a page-less locus opens at a Fundstelle the
-  // document actually has. Picking the locus separately here is how the header
-  // and rail came to mark one place while the document showed another.
+  // document actually has. Picking the locus separately here would let the
+  // header and rail mark one place while the document shows another.
   const [activeLocus, setActiveLocus] = useState<CitationLocus | undefined>(() =>
     citation ? openAtLocus(citation.document, citation.locus) : undefined
   )
@@ -983,7 +978,7 @@ const useDocumentPreview = (target: DocumentTarget, citation?: CitationRef) => {
     // THE KEY, NOT THE OBJECT. `AgentResponse` rebuilds the whole citation model
     // whenever the turn's citations change, so during a streaming turn every
     // locus is a new object for the same reference — and depending on identity
-    // meant this effect fired on each rebuild and threw away the Fundstelle the
+    // would fire this effect on each rebuild and throw away the Fundstelle the
     // reader had just chosen in the rail.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [citation?.locus?.key])
@@ -1015,7 +1010,7 @@ const useDocumentPreview = (target: DocumentTarget, citation?: CitationRef) => {
       const res = await fetch(`/api/documents/${target.document.id}/preview`)
       // Only an office source has a rendition to be refused. A 502 on an
       // ordinary PDF is a gateway hiccup, and downloading the file instead of
-      // saying so turned a failed preview into a silent download.
+      // saying so would turn a failed preview into a silent download.
       if (rendition && isRenditionUnavailable(res.status)) {
         clearTimeout(pendingTimer)
         if (pendingToast !== undefined) toast.dismiss(pendingToast)
@@ -1076,9 +1071,8 @@ const DocumentPreviewChip: FC<{
   trailing?: ReactNode
   detail?: CitationDetail
   /**
-   * The document turned out to have no viewer after all — an office file whose
-   * rendition the BFF could not make. The owner re-renders the chip as the
-   * download it now is.
+   * The document has no viewer after all — an office file whose rendition the
+   * BFF could not make. The owner re-renders the chip as the download it is.
    */
   onUnrenderable?: () => void
 }> = ({
@@ -1139,8 +1133,9 @@ const DocumentPreviewChip: FC<{
     <>
       {face}
       {/* Hovering answers the question; clicking commits to the document. An
-          openable source used to offer only the commitment, so checking one of
-          eight chips meant opening and closing eight near-fullscreen dialogs.
+          openable source would otherwise offer only the commitment, so checking
+          one of eight chips would mean opening and closing eight near-fullscreen
+          dialogs.
           Without a reference there is nothing to preview, so the chip keeps its
           plain open-on-click behaviour rather than promising a peek it cannot
           fill. */}
@@ -1260,7 +1255,7 @@ const DownloadPreviewChip: FC<{
 /**
  * A RIS source, read inside Piloti.
  *
- * Behaves like the document chip and not like the web link it used to be:
+ * Behaves like the document chip, not like a web link:
  * hovering answers "what is this?", clicking commits to the document. The
  * outbound link is not lost — it moves into the dialog's header, where it is
  * the authoritative publication rather than the only way in.
@@ -1379,8 +1374,9 @@ const InfoPreviewChip: FC<{
   /**
    * Canonical coarse kind (ADR-0026) — the popover's provenance line. It is the
    * document's kind, never the kb/ris/web origin token: a knowledge-base copy
-   * of a legal text used to read "Project knowledge" here while the chip beside
-   * it showed a RIS badge and a Baurecht lane — the same source, contradicted.
+   * of a legal text must not read "Project knowledge" here while the chip
+   * beside it shows a RIS badge and a Baurecht lane — the same source,
+   * contradicted.
    */
   kind: SourceKind
   /** A precedent from another project (ADR-0085): its kind line says „Präzedenzfall“, not the coarse kind's label. */
@@ -1529,8 +1525,9 @@ export interface SourcePreviewChipProps {
    *
    * Everything the chip renders — label, tint, authority badge, `[N]`, preview
    * target — comes from here. It is deliberately the ONLY source prop: the
-   * component used to take a ref, a signal and a row object that each carried
-   * part of the answer, and keeping them in step was left to every call site.
+   * component would take a ref, a signal and a row object that each carried
+   * part of the answer, and keeping them in step would be left to every call
+   * site.
    */
   citation: CitationRef
   /**
@@ -1600,7 +1597,7 @@ export const SourcePreviewChip: FC<SourcePreviewChipProps> = ({
   )
   // The stored document whose office rendition the BFF refused (415/502). Only
   // the preview route can say so, so it is learned on the first open, and from
-  // then on this chip is the download it would have been before ADR-0070.
+  // then on this chip is the download.
   const [unrenderableId, setUnrenderableId] = useState<string | null>(null)
 
   const resolved = resolveCitationTarget(doc, {
@@ -1639,8 +1636,8 @@ export const SourcePreviewChip: FC<SourcePreviewChipProps> = ({
   }
 
   if (target.kind === 'url') {
-    // A URL source keeps linking out — that is what a web/RIS chip has always
-    // done and what makes it feel like a link. It only opens the popover when
+    // A URL source keeps linking out — that is what a web/RIS chip does, and
+    // what makes it feel like a link. It only opens the popover when
     // the click genuinely adds something the link cannot: the "does this bind
     // me?" note or the authority tier of a legal source.
     if (doc.bindingNote || doc.laneLabel) {
@@ -1675,7 +1672,7 @@ export const SourcePreviewChip: FC<SourcePreviewChipProps> = ({
         href={target.url}
         // `rounded-md` overrides the signal chip's pill: in the answer's source
         // row a web source sits beside a document source, and only the shape
-        // differed — one capsule, one rounded rectangle, for two things that
+        // differs — one capsule, one rounded rectangle, for two things that
         // are the same kind of thing. The chip keeps its pill everywhere it is
         // used as a label; as a CITATION it wears the citation silhouette.
         className={cn('max-w-56 rounded-md', className)}
@@ -1687,8 +1684,8 @@ export const SourcePreviewChip: FC<SourcePreviewChipProps> = ({
     )
   }
 
-  // RIS is read INSIDE Piloti now (#622) — the outbound link moves into the
-  // reader's header rather than being the only way in.
+  // RIS is read INSIDE Piloti — the outbound link lives in the reader's header
+  // rather than being the only way in.
   if (target.kind === 'ris') {
     return <RisPreviewChip {...shared} target={target} />
   }
@@ -1823,9 +1820,9 @@ export const SourceDocumentDialog: FC<{
   }, [isDocument])
 
   // A `?cite=` link to a document with no in-app viewer hands over the FILE.
-  // It used to fall through to "nothing openable" and close silently — the same
-  // dead control #623 removed from the chip, left behind on the one path a
-  // reader arrives at from outside the conversation.
+  // It must not fall through to "nothing openable" and close silently: that
+  // would be the same dead control the chip does not offer, left on the one
+  // path a reader arrives at from outside the conversation.
   const downloadStartedRef = useRef(false)
   useEffect(() => {
     if (!downloadTarget || downloadStartedRef.current) return

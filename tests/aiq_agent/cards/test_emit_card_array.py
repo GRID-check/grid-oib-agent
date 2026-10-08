@@ -1,9 +1,9 @@
 """``emit_card`` with an array: several cards, one call, one reply.
 
-Two cards used to cost two rounds, each one a full pass over the turn's
-context — and a description saying "one call each, in the same round" did not
-move the fleet, because nothing stops a model issuing those calls one round
-apart. An array cannot be issued serially.
+Two cards would cost two rounds, each a full pass over the turn's context, if
+they came as separate calls: a description saying "one call each, in the same
+round" does not hold the fleet to it, because nothing stops a model issuing
+those calls one round apart. An array cannot be issued serially.
 
 What the array must not buy is a softer standard: every element goes through
 the same validation and the same closed channels as a card emitted on its own,

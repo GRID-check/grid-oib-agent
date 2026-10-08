@@ -210,13 +210,12 @@ def _build(path: Path) -> None:
         )
 
     # A COUNTER, never `hash()`. `hash` on a `str` is salted per process by
-    # PYTHONHASHSEED, so the relation's GlobalId used to be a different
-    # 22-character string on every run — the written `treppenhaus.ifc` was not
-    # byte-reproducible, and a failure that names an id could not be reproduced
-    # from a rerun of the same commit. The set id was deterministic and merely
-    # collision-prone: `name[:6]` reads "Pset_S" for both `Pset_StairCommon`
-    # and `Pset_StairFlightCommon`, so two property sets on ONE element would
-    # have shared a GlobalId. Counting sidesteps both.
+    # PYTHONHASHSEED, so a relation's GlobalId would differ from run to run: the
+    # written `treppenhaus.ifc` would not be byte-reproducible, and a failure that
+    # names an id could not be reproduced from a rerun of the same commit. Set ids
+    # must not collide either: `name[:6]` reads "Pset_S" for both `Pset_StairCommon`
+    # and `Pset_StairFlightCommon`, so two property sets on ONE element would share
+    # a GlobalId. Counting sidesteps both.
     pset_index = 0
 
     def pset(element: Any, name: str, values: dict[str, tuple[str, float]]) -> None:
@@ -414,14 +413,14 @@ def _build(path: Path) -> None:
 def test_the_fixtures_global_ids_are_the_same_on_every_run(tmp_path: Path) -> None:
     """Reproducible, not merely valid — checked across PROCESSES.
 
-    The property-set relations used to take their GlobalId from the builtin
-    ``hash``, which Python salts per process for ``str`` (``PYTHONHASHSEED``).
-    Two runs of the same commit then wrote two different staircases, so an id
-    quoted in a failure message meant nothing on a rerun and a bisect could not
-    hold the fixture still. One interpreter cannot see this — inside a single
-    process ``hash`` is perfectly stable — so the file is built twice in child
-    processes seeded differently, which is exactly the difference between two
-    CI runs.
+    The property-set relations take their GlobalId from a counter, not from the
+    builtin ``hash``, which Python salts per process for ``str``
+    (``PYTHONHASHSEED``). With ``hash``, two runs of the same commit would write
+    two different staircases, so an id quoted in a failure message would mean
+    nothing on a rerun and a bisect could not hold the fixture still. One
+    interpreter cannot see this — inside a single process ``hash`` is perfectly
+    stable — so the file is built twice in child processes seeded differently,
+    which is exactly the difference between two CI runs.
 
     The GlobalIds are compared rather than the bytes: the STEP header carries a
     creation timestamp, which is a second and unrelated reason two files differ.
@@ -815,12 +814,13 @@ def test_an_assembly_reports_the_tightest_of_its_flights(stairs: SpatialModel) -
 def test_the_flight_above_belongs_to_the_same_stair_and_still_counts(stairs: SpatialModel) -> None:
     """Treppe Turm: the ceiling over Lauf UG is Lauf OG, of the same assembly.
 
-    The exclusion set used to hold every flight of the assembly, identically for
-    all of them, so no flight could ever see another. The two routes to the same
-    physical question then disagreed: asked about Lauf UG the operator answered
-    **1.280 m**, and asked about the stair that Lauf UG is part of it answered
-    „kein Bauteil … begrenzt die Durchgangshöhe" — read as a gap in the export,
-    over a flight with a staircase 1.28 m above its top nosing.
+    The exclusion set holds the flight itself and never its siblings: an
+    assembly-wide exclusion would mean no flight can see another. Both routes to
+    the same physical question must agree. Asked about Lauf UG the operator
+    answers **1.280 m**, and asked about the stair that Lauf UG is part of it must
+    give the same answer, not „kein Bauteil … begrenzt die Durchgangshöhe", which
+    would read as a gap in the export over a flight with a staircase 1.28 m above
+    its top nosing.
 
     The number is arithmetic: Lauf OG is the same body raised to z = 2.900, so
     its soffit is flat at 2.900 over the whole of Lauf UG, and the tightest point
@@ -844,8 +844,8 @@ def test_the_flight_above_belongs_to_the_same_stair_and_still_counts(stairs: Spa
     assert lower["sampledPerpendicular"] == pytest.approx(1.5384, abs=1e-3)
     assert lower["sampledPerpendicular"] > lower["headroom"]
 
-    # Lauf OG has nothing over it, and a flight is still not its own ceiling:
-    # excluding the assembly's siblings was wrong, excluding SELF is not.
+    # Lauf OG has nothing over it, and a flight is still not its own ceiling. The
+    # siblings are what counts, and only SELF is excluded.
     upper = next(f for f in assembly.value["flights"] if f["globalId"] == FLIGHT_UPPER)
     assert upper["headroom"] is None
 
@@ -896,17 +896,17 @@ def test_a_landing_is_recognised_by_its_predefined_type_and_not_by_its_name(stai
 def test_a_stair_without_parts_reports_the_export_and_not_the_building(stairs: SpatialModel) -> None:
     """Treppe Süd is one body with no IfcRelAggregates — Revit's normal output.
 
-    This test used to assert ``decidable`` beside ``flights == []``, and that is
-    the defect it was written against, not a property worth keeping: the answer
-    carried a caveat reading „Eine Aussage … ist an dieser Datei deshalb nicht zu
-    treffen" while `decidable=True` told every caller that the value could be
-    used. On `AC20-Institute-Var-2.ifc` the same shape of answer said
-    ``landings: []`` about a stair with two Podeste in its solid — an empty list
+    The answer is undecidable, not an empty list. `decidable` must not sit beside
+    `flights == []`: the answer carries a caveat reading „Eine Aussage … ist an
+    dieser Datei deshalb nicht zu treffen", and `decidable=True` would tell every
+    caller that the value can be used. On `AC20-Institute-Var-2.ifc` the same
+    shape of answer said ``landings: []`` about a stair with two Podeste in its
+    solid — an empty list
     that would be false for every building ever built, which `relations.py`'s
     module docstring names as the definition of an `undecidable`.
 
-    So the German moved from the caveat into `missing`, where a renderer cannot
-    drop it, and the value is gone.
+    So the German goes into `missing`, where a renderer cannot drop it, and the
+    value is withheld.
     """
     answer = st.steps_of(stairs, STAIR_SOUTH)
     assert answer.decidable is False
@@ -1081,12 +1081,11 @@ def test_both_routes_produce_the_same_key_shape(stairs: SpatialModel) -> None:
 
 
 class TestADoglegWrittenAsOneBodyIsThreeFlightsAndNotOne:
-    """Every number this operator reported about `AC20-Institute-Var-2.ifc` was
-    wrong, and it reported them with `decidable=True` and no hedging.
+    """The four numbers a naive reading gets wrong on `AC20-Institute-Var-2.ifc`, and
+    by how much. A naive reading reports them with `decidable=True` and no hedging.
 
     ============  =========  ==========  ================================
-    reported      truth      factor      what it actually was
-    ============  =========  ==========  ================================
+    naive         truth      factor      what the naive count is
     45 risers     21         2.1 ×       every step counted twice
     0.065 m       0.137 m    0.47 ×      the 60 mm tread finish
     0.318 m wide  1.500 m    **0.21 ×**  the stair's own GOING
@@ -1094,17 +1093,17 @@ class TestADoglegWrittenAsOneBodyIsThreeFlightsAndNotOne:
     ============  =========  ==========  ================================
 
     Two causes, and they are independent. ArchiCAD writes each step twice — the
-    structural step and the tread finish 60 mm above it — and both cleared the
-    sliver filter, so the riser count doubled and the riser halved. And the
-    reader took the chord from the first tread centre to the last as the
-    direction of travel, which on a three-flight dogleg is a diagonal ACROSS the
-    stairwell: measured across that diagonal, the „Nutzbreite" it reported was
-    the going. The error is 4.7 × on the one number OIB 4's Nutzbreite question
-    turns on, and it is in the direction that fails a stair which complies.
+    structural step and the tread finish 60 mm above it — and both clear the
+    sliver filter, so the riser count doubles and the riser halves. And a reader
+    that takes the chord from the first tread centre to the last as the direction
+    of travel measures a diagonal ACROSS the stairwell on a three-flight dogleg:
+    the „Nutzbreite" it reports is then the going. The error is 4.7 × on the one
+    number OIB 4's Nutzbreite question turns on, and it is in the direction that
+    fails a stair which complies.
 
     Nothing in the file announces the flights: no `IfcStairFlight`, no landing
     slab, no `PredefinedType`, no `Pset_StairCommon`. The first test below pins
-    that, because the fix has to work on a file that says nothing.
+    that, because the measurement has to work on a file that says nothing.
 
     The fixture is „Treppe-EG", the balustrade beside it and the slab it comes up
     through, extracted from `AC20-Institute-Var-2.ifc` (KIT/IFC Wiki example,
@@ -1158,11 +1157,11 @@ class TestADoglegWrittenAsOneBodyIsThreeFlightsAndNotOne:
         assert value["riserHeight"]["spread"] == pytest.approx(0.0, abs=1e-6)
 
     def test_the_nutzbreite_is_the_flight_and_not_the_going(self, model: SpatialModel) -> None:
-        """1.500 m. The number that came back before was 0.3175 m — the GOING.
+        """1.500 m. The going, 0.3175 m, is the wrong quantity.
 
         Asserted against the going explicitly, because „a bit too small" and
-        „the wrong quantity entirely" are different defects and only the second
-        one was here.
+        „the wrong quantity entirely" are different defects, and the going is the
+        second.
         """
         value = st.stair_geometry(model, self.STAIR).value
         assert value["clearWidth"] == pytest.approx(self.WIDTH, abs=1e-3)
@@ -1184,11 +1183,11 @@ class TestADoglegWrittenAsOneBodyIsThreeFlightsAndNotOne:
         assert value["treadDepth"]["measured"] == pytest.approx(self.GOING, abs=0.005)
 
     def test_both_podeste_are_found_although_the_file_declares_none(self, model: SpatialModel) -> None:
-        """`landings: 0` on a stair with two Podeste is a claim about a building.
+        """`landings: 0` on a stair with two Podeste would be a claim about a building.
 
         OIB 4 limits the risers of a flight WITHOUT an intervening landing, so a
         count of 21 risers means one thing over three flights and something else
-        over one — and the answer said the stair had no landing at all.
+        over one, and the answer must not say the stair has no landing at all.
         """
         value = st.stair_geometry(model, self.STAIR).value
         assert value["landings"] == 2
@@ -1198,38 +1197,39 @@ class TestADoglegWrittenAsOneBodyIsThreeFlightsAndNotOne:
         assert [f["landingAbove"] for f in value["flights"]] == [True, True, False]
 
     def test_the_headroom_is_the_slab_the_stair_comes_up_through(self, model: SpatialModel) -> None:
-        """0.117 m „unter dem Geländer" was a plane through the stairwell.
+        """A plane fitted across the stairwell is not a walking surface: „unter dem
+        Geländer" must not come out at 0.117 m.
 
-        The old rake — one plane fitted across all three flights, 0.318 m wide,
-        tilted along the diagonal — passed through everything standing in the
-        well, and the balustrade beside the flight was the first thing it met.
-        With each flight measured over its own nosings the tight point is the
-        slab, 1.745 m up, which is what a person walking this stair meets.
+        One plane fitted across all three flights, 0.318 m wide and tilted along
+        the diagonal, passes through everything standing in the well, and the
+        balustrade beside the flight is the first thing it meets. Each flight
+        measured over its own nosings puts the tight point at the slab, 1.745 m
+        up, which is what a person walking this stair meets.
         """
         answer = st.headroom(model, self.STAIR)
         assert answer.decidable
         assert answer.value["headroom"] == pytest.approx(1.7455, abs=0.01)
         assert answer.value["obstructedBy"] == self.SLAB
         assert model.file.by_guid(answer.value["obstructedBy"]).is_a() == "IfcSlab"
-        # No flight of this stair is limited by a railing any more — and the
-        # railing is still in the file and still in the ray tree, so this is a
-        # statement about where the rays go and not about what was deleted.
+        # No flight of this stair is limited by a railing — and the railing is still
+        # in the file and in the ray tree, so this is a statement about where the rays
+        # go and not about what was deleted.
         assert model.file.by_guid(self.RAILING).is_a() == "IfcRailing"
         assert self.RAILING not in [flight["obstructedBy"] for flight in answer.value["flights"]]
 
     def test_a_railing_is_not_excluded_by_type(self, model: SpatialModel) -> None:
-        """The fix that was NOT made, pinned so it is not made by accident.
+        """A path not taken, pinned so it is not taken by accident.
 
-        Skipping `IfcRailing` in the overhead pass would have made the numbers
-        above come out right for the wrong reason, and it would have cost the one
-        case where a balustrade really does stand over a walking line. See
+        Skipping `IfcRailing` in the overhead pass would make the numbers above
+        come out right for the wrong reason, and it would cost the one case where
+        a balustrade really does stand over a walking line. See
         `stairs.HEADROOM_TRANSPARENT`.
         """
         assert "IfcRailing" not in st.HEADROOM_TRANSPARENT
 
     def test_steps_of_refuses_rather_than_reporting_no_landings(self, model: SpatialModel) -> None:
-        """`{"flights": [], "landings": []}` with `decidable=True` about a stair
-        with three flights and two Podeste in its solid."""
+        """`{"flights": [], "landings": []}` with `decidable=True` must never be the
+        answer for a stair with three flights and two Podeste in its solid."""
         answer = st.steps_of(model, self.STAIR)
         assert answer.decidable is False
         assert answer.value is None
@@ -1238,15 +1238,16 @@ class TestADoglegWrittenAsOneBodyIsThreeFlightsAndNotOne:
 
 
 class TestAWinderIsRefusedRatherThanAveraged:
-    """`AC20-FZK-Haus.ifc`'s „Wendeltreppe" answered with four numbers and every
-    one of them was about a chord across the stairwell.
+    """The „Wendeltreppe" of `AC20-FZK-Haus.ifc` must not be answered with four
+    numbers, each of them a chord across the stairwell.
 
-    ``riserCount 16``, ``riserHeight 0.219 m`` (from 0.177 m to 0.850 m),
-    ``treadDepth 0.184 m``, ``clearWidth 0.200 m`` — for a spiral of 15 winder
-    treads at a constant 0.177 m whose Auftritt is only defined along a Lauflinie
-    this engine does not have. The 0.850 m „riser" is the gap between the top
-    tread and a 0.2 × 0.2 m face on the newel; the 0.200 m „Nutzbreite" is the
-    width of the diagonal the reader mistook for the direction of travel.
+    A chord-based reading gives ``riserCount 16``, ``riserHeight 0.219 m`` (from
+    0.177 m to 0.850 m), ``treadDepth 0.184 m``, ``clearWidth 0.200 m``, for a
+    spiral of 15 winder treads at a constant 0.177 m whose Auftritt is only
+    defined along a Lauflinie this engine does not have. The 0.850 m „riser" is
+    the gap between the top tread and a 0.2 × 0.2 m face on the newel; the 0.200 m
+    „Nutzbreite" is the width of the diagonal a chord reading takes for the
+    direction of travel.
 
     There is no correct number to put in their place, so there is none. The
     refusal names the measurement that decided it — the tread centres bow 0.774 m
@@ -1288,8 +1289,8 @@ class TestAWinderIsRefusedRatherThanAveraged:
         assert "exportieren" in answer.missing.remedy
 
     def test_headroom_refuses_for_the_same_reason(self, model: SpatialModel) -> None:
-        """It used to answer „über diesem Lauf liegt kein Bauteil" — a statement
-        about the export — from a rake that was not a walking surface at all."""
+        """It must not answer „über diesem Lauf liegt kein Bauteil" — a statement
+        about the export — from a rake that is not a walking surface at all."""
         answer = st.headroom(model, self.STAIR)
         assert answer.decidable is False
         assert "keine gerade Lauflinie" in answer.missing.what
@@ -1299,9 +1300,10 @@ class TestAWinderIsRefusedRatherThanAveraged:
 def test_a_riser_no_leg_could_climb_is_refused_and_not_reported() -> None:
     """The backstop, exercised directly on the level list.
 
-    The Institute's doubled faces measured 0.065 m and were reported as a stair;
-    `_walking_surfaces` now removes their cause, and this is the guard behind it
-    for the export that finds another way to produce a face 65 mm over a tread.
+    The Institute's doubled faces measure 0.065 m, and a stair must not be
+    reported from them: `_walking_surfaces` removes their cause, and this is the
+    guard behind it for the export that finds another way to produce a face 65 mm
+    over a tread.
     It is a plausibility bound and NOT a threshold: 0.08 m is far below anything
     OIB 4 has an opinion about, and every riser above it is reported without
     comment.
@@ -1338,10 +1340,9 @@ def test_one_tread_alone_is_a_blockstufe_and_one_between_two_turns_is_not() -> N
 
     The distinction is the whole reason `_measure_run` takes `alone`. A
     Blockstufe — one step down into a room — has no second tread centre to take a
-    direction from, and the old reader's fallback (the body's longer plan axis)
-    is right for it. A single tread left over between two direction changes is a
-    winder step, and there the same fallback is what produced „Auftritt 0.184 m"
-    on a Wendeltreppe.
+    direction from, and the body's longer plan axis is right for it. A single
+    tread left over between two direction changes is a winder step, and there
+    that same fallback would produce „Auftritt 0.184 m" on a Wendeltreppe.
     """
     tris = np.array(
         [

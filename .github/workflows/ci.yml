@@ -63,11 +63,10 @@ jobs:
       - run: task be:lint
 
   # Deliberately NOT behind a paths filter. `pre-commit run --all-files` scans
-  # the WHOLE repo, so gating it on the backend filter meant a PR touching only
-  # deploy/** or frontends/ui/** could land drift on develop that stayed
-  # invisible until some later, unrelated backend PR tripped over it — which is
-  # exactly how the secrets baseline kept breaking CI. Running it on every PR
-  # means whoever introduces the drift is the one who sees it.
+  # the WHOLE repo, so gating it on the backend filter would let a PR touching
+  # only deploy/** or frontends/ui/** land drift on develop, invisible until some
+  # later, unrelated backend PR trips over it. Running it on every PR means
+  # whoever introduces the drift is the one who sees it.
   repo-lint:
     name: Repo lint (pre-commit, all files)
     runs-on: ubuntu-latest
@@ -114,9 +113,8 @@ jobs:
       # than behind a paths filter: `skills/` is the source, `.claude/` and
       # `.agents/` are generated and gitignored, and apm.lock.yaml records
       # hashes of both — so an edit to a skill that was never re-locked appears
-      # in no diff at all. It went unnoticed for seven files until an audit was
-      # run by hand. `apm audit` exits 0 on drift; `task agents:audit` is the
-      # wrapper that does not.
+      # in no diff at all. `apm audit` exits 0 on drift; `task agents:audit` is
+      # the wrapper that does not.
       - name: Agent-skill lockfile (apm)
         run: task agents:audit
 
@@ -131,19 +129,18 @@ jobs:
         with:
           # ONE version, stated once, everywhere: the interpreter the backend
           # image ships (`deploy/Dockerfile`) is the one this suite runs on.
-          # The old 3.12/3.13 matrix guarded a version nobody deployed and
-          # cost real debugging time (ToolNode batch order differs per
-          # interpreter; see the gotchas register).
+          # A matrix over versions nobody deploys tests what production never
+          # runs, and ToolNode batch order differs per interpreter (see the
+          # gotchas register).
           python-version: "3.14"
       - uses: ./.github/actions/setup-task
       - name: Core suite (coverage-gated)
         run: task be:test:ci
       - name: aiq_api plugin suite
         run: task be:test:api:ci
-      # sources/ was covered only by the push-stage pre-commit hook, which the
-      # repo-lint job skips — so a stale test there stayed green through every
-      # gate until someone ran pytest by hand. Same definition as the local
-      # `task be:verify`.
+      # sources/ is tested here, not only by the push-stage pre-commit hook,
+      # which the repo-lint job skips: a stale test there would otherwise stay
+      # green through every gate. Same definition as the local `task be:verify`.
       - name: sources/ package suites
         run: task be:test:sources
       - name: Coverage comment (backend)
@@ -227,10 +224,9 @@ jobs:
     strategy:
       # One shard's failure should not hide the others' results.
       fail-fast: false
-      # Six, not four. Measured per-shard wall clock locally at 2 workers (to
-      # match the 2-core runners), calibrated against the real N=4 CI run — the
-      # runners came out 1.68x slower, and the model then predicted N=4's slowest
-      # job at 194s against an actual 194s.
+      # Six shards, where the curve flattens. Per-shard wall clock measured
+      # locally at 2 workers (to match the 2-core runners), calibrated against a
+      # real N=4 CI run, whose runners came out 1.68x slower than the local model.
       #
       #   N=4   slowest 194s    N=6   152s    N=8   132s    N=10  ~116s
       #
@@ -375,11 +371,9 @@ jobs:
         working-directory: .
 
   packages:
-    # The `packages/` directory had NO gate at all: no Taskfile target, no CI
-    # job, no pre-commit hook — 830 tests behind a default-ON feature that
-    # renders OIB compliance verdicts, and the only thing between a broken
-    # assertion and a customer was somebody remembering to run pytest by hand.
-    # Same shape as `sources/` before it, and the same fix.
+    # packages/ is gated here because it renders OIB compliance verdicts behind a
+    # default-ON feature, so a broken assertion there must not reach a customer
+    # unseen. Same shape as `sources/` (see backend-test).
     #
     # Its own job rather than a step in `backend-test`/`frontend`, because both
     # packages sit OUTSIDE their neighbouring workspace: `ifc-spatial` has its
@@ -463,29 +457,22 @@ jobs:
     name: CI OK
     if: always()
     # `frontend-coverage` is deliberately NOT here. It is serialised after all
-    # four shards but produces only the coverage comment — correctness is
-    # already gated by the shards themselves, which do fail this gate. Requiring
-    # it added ~58s to every run (shards finished 18:57:57, CI OK landed
-    # 18:58:55) for a job whose real work is a 5s merge. It still reports its own
-    # red check if the merge breaks; it just no longer holds the gate open.
+    # the shards but produces only the coverage comment — correctness is already
+    # gated by the shards themselves, which do fail this gate. Requiring it adds
+    # ~58s to every run for a job whose real work is a 5s merge. It still reports
+    # its own red check if the merge breaks; it just does not hold the gate open.
     #
     # `tenant-isolation` IS here, and must stay: it is the only check that proves
     # the row-level-security boundary actually holds (ADR-0041). The unit shards
     # cannot — the integration suite self-skips without a database.
     #
-    # `retrieval-eval` USED TO BE here, for the same reason: it was the only
-    # check that proved a chunker still leaves Punkte as citable units
-    # (ADR-0058 rule 7). It is gone, deliberately, and the reason is written
-    # down here rather than deleted with it: the gate reads the real OIB
-    # Richtlinien, and those are now operator-provided and gitignored
-    # (data/oib/README.md), so no CI checkout can ever have a corpus to measure.
-    # A job that can only pass vacuously is worse than no job.
-    #
-    # The harness survives as an opt-in local tool (`task be:eval:retrieval`),
-    # and it now says so when the corpus is absent instead of raising.
-    # What restoring the gate would take, and what was lost with it:
-    # docs/adr/0058-retrieval-correctness-and-the-measurement-gate.md,
-    # "Update (2026-09-09)".
+    # `retrieval-eval` is not here, and cannot be: the check that proves a
+    # chunker still leaves Punkte as citable units (ADR-0058 rule 7) reads the
+    # real OIB Richtlinien, which are operator-provided and gitignored
+    # (data/oib/README.md), so no CI checkout can hold a corpus to measure. A job
+    # that can only pass vacuously is worse than no job. The harness is an opt-in
+    # local tool (`task be:eval:retrieval`) and says so when the corpus is absent.
+    # What restoring the gate would take: docs/adr/0058-retrieval-correctness-and-the-measurement-gate.md.
     needs: [changes, backend-lint, backend-test, frontend, frontend-test, tenant-isolation, web, infra, packages, repo-lint, release-note]
     runs-on: ubuntu-latest
     steps:

@@ -63,12 +63,11 @@ import {
 /**
  * A COMPLETE session, not a two-field cast.
  *
- * This fixture used to be `{ userId, organizationId } as unknown as
- * AuthorizedSession`. That was harmless only while the service ignored
- * everything else on the session; it stopped being harmless when `listInbox`
- * began deriving the visible item types from `featureFlags` (ADR-0042), because
- * the cast made a session carrying NO flags look like a fully specified one.
- * Spelling the session out means the gate is exercised deliberately in both of
+ * A cast such as `{ userId, organizationId } as unknown as AuthorizedSession`
+ * would hide the fields the service reads. `listInbox` derives the visible item
+ * types from `featureFlags` (ADR-0042), so a cast session carrying NO flags would
+ * look like a fully specified one. Spelling the session out means the gate is
+ * exercised deliberately in both of
  * its states — see the `visibleInboxTypes` describe block — rather than
  * accidentally in whichever one the missing field happened to produce.
  */
@@ -187,7 +186,7 @@ afterEach(() => {
   vi.unstubAllEnvs()
 })
 
-describe('listInbox — read-time re-authorization (IB-13)', () => {
+describe('listInbox — read-time re-authorization', () => {
   it('redacts an inert row: no working link, no snippet', async () => {
     vi.mocked(repository.listInboxItems).mockResolvedValue([
       row({ inertAt: at, payload: { subject: 'Brandschutz', excerpt: 'leaked text' } }),
@@ -426,9 +425,9 @@ describe('mutations are scoped to the caller\'s own inbox', () => {
 
     const result = await markRead(session, ['item_of_another_user'])
 
-    // The type scope travels with the mutation, not just with the reads: an id
-    // kept from before collaboration was disabled belongs to this recipient
-    // either way, so recipient scoping alone did not enforce the gate.
+    // The type scope travels with the mutation, not just with the reads: an item
+    // of a type the reader may not see belongs to this recipient either way, so
+    // recipient scoping alone would not enforce the gate.
     expect(repository.markInboxItemsRead).toHaveBeenCalledWith(
       'org_1',
       'user_1',
@@ -477,12 +476,11 @@ describe('mutations are scoped to the caller\'s own inbox', () => {
     expect(publishToUser).not.toHaveBeenCalled()
   })
 
-  // The gap the type scope closes. A caller who kept an item id from before
-  // collaboration was switched off could still archive or read that now-hidden
-  // item: the row is theirs, so recipient scoping matched it, and the gate lived
-  // only on the read paths. Both mutations now carry the same scope the list
-  // does, and the repository takes it as a REQUIRED argument so a new query
-  // cannot omit it silently.
+  // The gap the type scope closes. A caller holding the id of an item the gate
+  // hides could still archive or read it: the row is theirs, so recipient
+  // scoping matched it, and the gate would live only on the read paths. Both
+  // mutations carry the same scope the list does, and the repository takes it
+  // as a REQUIRED argument so a new query cannot omit it silently.
   it('narrows both mutations to the types the caller may see', async () => {
     // Collaboration off, the way the rest of this file does it.
     vi.stubEnv('GRID_COLLABORATION_ENABLED', 'false')
@@ -507,7 +505,7 @@ describe('mutations are scoped to the caller\'s own inbox', () => {
     expect(publishToUser).toHaveBeenCalledWith('user_1', { kind: 'inbox.changed', pending: 2 })
   })
 
-  it('clears a resource\'s items for the caller when they open it (IB-9)', async () => {
+  it('clears a resource\'s items for the caller when they open it', async () => {
     vi.mocked(repository.markResourceItemsRead).mockResolvedValue(4)
     vi.mocked(repository.countPendingInboxItems).mockResolvedValue(1)
 
@@ -570,10 +568,10 @@ describe('the SQL predicates behind the filters', () => {
   it('resolves a settled request for ITS recipient only, never a colleague sharing the group key', async () => {
     // Everyone mentioned on the same message shares
     // `mention.requested:conversation:<id>:<anchor>` — only `recipient_user_id`
-    // differs. An UPDATE keyed on the group alone therefore closed Bob's
-    // untouched request when Anna answered hers (spec MN-10, lifecycle
-    // invariant 3): his badge dropped and his row left `pendingOnly` while the
-    // banner still said "awaiting Bob".
+    // differs. An UPDATE keyed on the group alone would close Bob's untouched
+    // request when Anna answers hers (spec MN-10, lifecycle invariant 3): his
+    // badge would drop and his row would leave `pendingOnly` while the banner
+    // still says "awaiting Bob".
     let condition: unknown
     const returning = vi.fn().mockResolvedValue([])
     const where = vi.fn((value: unknown) => {
@@ -630,12 +628,12 @@ describe('the SQL predicates behind the filters', () => {
 /**
  * The per-type gate (ADR-0042).
  *
- * The inbox used to be gated as a whole, at the route: without the collaboration
- * flag every `/api/inbox/*` call answered 403. That became wrong the moment the
- * inbox carried something that is not a collaboration event, because it made the
- * storage warning unreachable for precisely the tenants most likely to hit a
- * quota. The gate now lives on the registry entry and is applied here, so what a
- * reader sees is decided per ITEM TYPE.
+ * The gate is per item type, not per route. A route-level collaboration gate
+ * would answer every `/api/inbox/*` call with 403 without the flag, which makes
+ * the storage warning unreachable for precisely the tenants most likely to hit a
+ * quota, because the inbox carries things that are not collaboration events. The
+ * gate lives on the registry entry and is applied here, so what a reader sees is
+ * decided per ITEM TYPE.
  */
 describe('visibleInboxTypes gate — the inbox is not collaboration-only', () => {
   it('a tenant WITHOUT collaboration still sees operational items', async () => {
@@ -796,8 +794,8 @@ describe('the platform lane', () => {
 
 /**
  * Two emissions that fold into one row in the same call (two files of one
- * settle quarantined for the same reviewer) used to reach one INSERT … ON
- * CONFLICT DO UPDATE, which Postgres refuses. They go in successive waves.
+ * settle quarantined for the same reviewer) would reach one INSERT … ON
+ * CONFLICT DO UPDATE, which Postgres refuses, so they go in successive waves.
  */
 describe('emitInboxItems — repeated keys in one call', () => {
   it('splits rows so no wave repeats a (recipient, group) key, keeping order', () => {

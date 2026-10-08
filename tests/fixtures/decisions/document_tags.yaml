@@ -1,4 +1,4 @@
-# Hand-labelled, written for ADR-0064 use 4 (2026-09-25). Not captured payloads:
+# Hand-labelled, written for ADR-0064 use 4. Not captured payloads:
 # openings in the shape the office uploads, labelled by a person. Re-run with
 # `task be:eval:decisions:offpath`.
 - file_name: EG_Grundriss_M100.pdf

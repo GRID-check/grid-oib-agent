@@ -68,7 +68,7 @@ describe('FollowUpsRail', () => {
 })
 
 /**
- * „Als Aktenvermerk schreiben" (ledger 23) — the one chip the CLIENT offers.
+ * „Als Aktenvermerk schreiben" — the one chip the CLIENT offers.
  *
  * The condition lives in `lib/aktenvermerk-chip` and is tested there; what is
  * tested here is that the offer reaches the rail, keeps the chips' one promise
@@ -96,8 +96,8 @@ describe('FollowUpsRail — the Aktenvermerk offer', () => {
   })
 
   it('appears on a turn that produced no follow-up questions at all', () => {
-    // The rail used to be mounted only where a stage had delivered items, so an
-    // offer computed in the browser had no surface to land on.
+    // The rail is not tied to a stage's output: an offer computed in the browser
+    // needs a surface to land on even when no stage delivered items.
     render(<FollowUpsRail items={[]} offerAktenvermerk />)
     expect(screen.getByTestId('follow-ups-rail')).toBeInTheDocument()
     expect(screen.getAllByRole('button')).toHaveLength(1)

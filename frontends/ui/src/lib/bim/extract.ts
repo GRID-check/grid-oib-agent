@@ -137,12 +137,11 @@ const STEP_MAGIC = 'ISO-10303-21'
  * Run AFTER any `.ifczip` has been unwrapped, never instead of it — see
  * {@link extractIfcModel}.
  *
- * Decoded as UTF-8, not latin1. A `EF BB BF` byte-order mark — which plenty of
- * exporters write — became the three characters `ï»¿` under latin1, which
- * `trimStart()` does not strip (it strips `\uFEFF`, not its mojibake), so the
- * prefix check failed and a perfectly readable file was rejected as "not an
- * IFC file", losing the whole upload. `TextDecoder('utf-8')` consumes the BOM
- * itself; the header is ASCII either way, so nothing else changes.
+ * Decoded as UTF-8, not latin1. A `EF BB BF` byte-order mark, which plenty of
+ * exporters write, decodes under latin1 to the three characters `ï»¿`. Those
+ * `trimStart()` does not strip (it strips U+FEFF, not its mojibake), so the
+ * prefix check would reject a readable file. `TextDecoder('utf-8')` consumes the
+ * BOM itself; the header is ASCII either way, so nothing else changes.
  */
 export function looksLikeStepIfc(buffer: ArrayBuffer): boolean {
   const head = new Uint8Array(buffer, 0, Math.min(64, buffer.byteLength))
@@ -197,21 +196,20 @@ function toPropertySets(
  *
  * ## Any qualifier, not just Net/Gross
  *
- * The prefix used to be `(Net|Gross)?`, which covered the fallbacks and missed
- * every PREFERRED key the dimensional rules read: `ClearWidth`,
- * `FinishCeilingHeight`, `ClearHeight`, `RiserHeight`, `TreadLength`,
- * `OverallWidth`. A Revit or ArchiCAD export that writes
- * `Qto_DoorBaseQuantities` with `ClearWidth` unmeasured — the ordinary case —
- * therefore stored `0`, and the escape-route rule read it as a measurement:
- * "Lichte Durchgangsbreite 0,00 m — Schwellwert ≥ 0,80 m", **nicht erfüllt**,
- * on a door nobody has measured. Worse, `missing` is only recorded for an
- * undecidable element, so the shopping list left out the very property that
- * would settle it. Same shape for `FinishCeilingHeight` on a room and for the
- * two stair quantities.
+ * A `(Net|Gross)?` prefix would cover only the fallbacks and miss every PREFERRED
+ * key the dimensional rules read: `ClearWidth`, `FinishCeilingHeight`,
+ * `ClearHeight`, `RiserHeight`, `TreadLength`, `OverallWidth`. A Revit or
+ * ArchiCAD export that writes `Qto_DoorBaseQuantities` with `ClearWidth`
+ * unmeasured — the ordinary case — stores `0`, and the escape-route rule reads
+ * it as a measurement: "Lichte Durchgangsbreite 0,00 m — Schwellwert ≥ 0,80 m",
+ * **nicht erfüllt**, on a door nobody has measured. Worse, `missing` is only
+ * recorded for an undecidable element, so the shopping list would leave out the
+ * very property that would settle it. Same shape for `FinishCeilingHeight` on a
+ * room and for the two stair quantities.
  *
- * Matching on the SUFFIX is what makes that class of bug not come back: the
- * measure decides, and whatever qualifier an exporter puts in front of it
- * comes along. Count-shaped quantities (`NumberOfRisers`, `…Count`) end in
+ * Matching on the SUFFIX keeps that class of bug out: the measure decides, and
+ * whatever qualifier an exporter puts in front of it comes along. Count-shaped
+ * quantities (`NumberOfRisers`, `…Count`) end in
  * none of these, so a real zero still stores.
  */
 const ZERO_MEANS_ABSENT =
@@ -465,13 +463,12 @@ export async function extractIfcModel(
   /*
     Unwrap the archive OURSELVES, and sniff what comes out.
 
-    `parseColumnar` does not unwrap — only `parseAuto` does — so a `.ifczip`
-    used to be handed to the parser as zip bytes. That does not throw: the
-    entity scan finds nothing, the spatial-hierarchy failure is swallowed, and
-    the upload completes as `status: 'ready'` with zero elements, zero
-    storeys, null totals and a health score computed over nothing. Every
-    zipped upload — a normal way to send an IFC — silently produced an empty
-    building that nothing anywhere reported as a failure.
+    `parseColumnar` does not unwrap — only `parseAuto` does — and handed a
+    `.ifczip` as zip bytes it does not throw: the entity scan finds nothing, the
+    spatial-hierarchy failure is swallowed, and the upload would complete as
+    `status: 'ready'` with zero elements, zero storeys, null totals and a health
+    score computed over nothing. That is an empty building nothing reports as a
+    failure, so the unwrap happens here.
 
     `unwrapIfcZip` returns non-zip input unchanged, so it is safe to call on
     everything and the extension is no longer a special case. The sniff then
@@ -527,10 +524,8 @@ export async function extractIfcModel(
 
       `SPATIAL_ELEMENT_TYPES` also holds `IfcSpatialZone`, which is an overlay
       over rooms — a Nutzungseinheit, a Brandabschnitt — not a room. Counting
-      zones here made the Überblick say "92 Räume" for a model with 84 rooms
-      and 8 zones, while the Raumbuch on the next screen said 84, because it
-      filters on `IfcSpace` and so do the area totals below. Two screens
-      disagreeing about how many rooms a building has, from one export.
+      zones here would make the Überblick disagree with the Raumbuch, which
+      filters on `IfcSpace`, as do the area totals below.
 
       The type stays in `SPATIAL_ELEMENT_TYPES` for what that set is really
       for — storey inheritance and type selection — where a zone does belong.
@@ -542,12 +537,10 @@ export async function extractIfcModel(
      *
      * Only spaces do — see the note at the accumulation below. It matters here
      * because the element CAP is a cap on the stored list, not on what the
-     * building is: the overview tells the reader in as many words that "the
-     * totals are complete, the element list is capped", and until this branch
-     * existed that sentence was false. Every space past the cap was silently
-     * left out of the floor area, so a large model published a Netto-
-     * Grundfläche that was short by however much of the building did not fit —
-     * with a note beside it promising the opposite.
+     * building is: the overview tells the reader that "the totals are complete,
+     * the element list is capped", so every space past the cap must still count
+     * toward the floor area. Otherwise a large model would publish a Netto-
+     * Grundfläche short by however much of the building did not fit.
      *
      * Spaces are a few hundred rows in a model with tens of thousands of
      * elements, so reading their quantities past the cap costs little. Nothing
@@ -566,12 +559,11 @@ export async function extractIfcModel(
       if (!entity) {
         /*
           An id the index lists and the store cannot produce — a forward or
-          dangling reference. It was counted into `typeCounts` and
-          `elementTotal` before this loop and then silently dropped, so the
-          overview said "19 Bauteile" while 17 rows were queryable and
-          `truncatedAt` was null: every surface downstream treated the element
-          list as complete. That is the same silent shortfall the cap
-          machinery exists to announce, arrived at a different way.
+          dangling reference. It is counted into `typeCounts` and
+          `elementTotal` before this loop, so keeping it would make the overview
+          say "19 Bauteile" while only 17 rows are queryable, with `truncatedAt`
+          null: every surface downstream would treat the list as complete. That
+          is the same silent shortfall the cap machinery exists to announce.
 
           Counted out of both, so the total is the number of elements that can
           actually be answered about. `unreadable` is reported separately.
@@ -699,8 +691,7 @@ export async function extractIfcModel(
   // check reads it. So on a file bigger than the cap, "43 Bauteile keinem
   // Geschoß zugeordnet" is 43 out of the stored 200 000 and says nothing about
   // the rest. The `health` op is in `ROW_READING_OPS`, so a truncated model
-  // carries the cap caveat with it; the comment here used to claim the
-  // findings were about the model, which they are not.
+  // carries the cap caveat with it.
   index.health = validateModel(index)
   return index
 }

@@ -634,11 +634,11 @@ class TestReSummarisingKeepsTheHumanColumns:
     """`register` owns summary + tags. It must not clear anything else.
 
     SQLite's `INSERT OR REPLACE` is a DELETE plus an INSERT, so re-summarising a
-    document used to null every column the statement did not name — the admin's
-    rename, the platform owner's reclassification, and (once folders travelled)
-    the user's filing. Postgres, on its `ON CONFLICT DO UPDATE` branch, kept all
-    three. Same store, same call, two different outcomes, and the SQLite one is
-    what the default `AIQ_SUMMARY_DB` uses.
+    document would null every column the statement does not name: the admin's
+    rename, the platform owner's reclassification, and the user's filing. Postgres,
+    on its `ON CONFLICT DO UPDATE` branch, keeps all three. Same store, same call,
+    two different outcomes, and the SQLite one is what the default `AIQ_SUMMARY_DB`
+    uses.
     """
 
     @pytest.fixture

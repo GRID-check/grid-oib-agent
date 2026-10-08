@@ -65,21 +65,18 @@ export type AuditMetadata = Record<string, string | number | boolean>
  * the other. That is ADR-0047's provenance-is-not-responsibility line drawn
  * through the audit trail rather than only through the `documents` row.
  *
- * The target's TYPE is the reference's kind and not a constant, which it was
- * until migration 0066. Every agent-authored event used to be emitted with
- * `{type: 'agent_run'}` regardless of what the id actually named, so a filed
- * diagram asserted — in a structured field the audit-log export filters on —
- * that `msg_42-1a2b3c4d` was a backend job id. An auditor resolving it looked up
- * a run that does not exist and got nothing: a dead end in the one record that
- * answers "what wrote this, in which run, on whose authority", and a silent one,
- * because a target that resolves to nothing looks exactly like a target nobody
- * has looked up yet.
+ * The target's TYPE is the reference's kind, not a constant. A constant would
+ * assert, in a structured field the audit-log export filters on, that the id
+ * names a kind of record it may not name: a filed diagram tagged with the
+ * `agent_run` type would send an auditor looking up `msg_42-1a2b3c4d` as a
+ * backend job id, and get nothing. A target that resolves to nothing looks
+ * exactly like a target nobody has looked up yet, so the dead end is silent.
  *
  * The cost of the choice, stated so it is not discovered: an action emitted
  * with `type: 'agent'` MUST register EVERY member of `AUTHORED_REF_KINDS` among
  * its targets in `schemas.mjs`, or WorkOS rejects the whole event the way it
- * rejects an unregistered action (issues #255/#256). `schemas.spec.ts` fails
- * when a kind is added here and not registered there.
+ * rejects an unregistered action. `schemas.spec.ts` fails when a kind is added
+ * here and not registered there.
  */
 export type AuditActorType = 'user' | 'agent'
 
@@ -213,14 +210,12 @@ async function emit(input: AuditEventInput): Promise<void> {
       // action that registers a metadata map also marks `actor.metadata`
       // required — `actor: {required: [id, type, metadata]}` with an EMPTY
       // property map — even though the app never registers an actor schema
-      // and `createSchema` is never passed one. Omitting it is what issues
-      // #274/#277 were: every emit rejected with "Invalid Audit Log event:
-      // incorrect or missing metadata keys", pointing at `/actor`, on the one
-      // path that deliberately swallows its errors — so the trail lost
-      // `resource.shared` and `platform.model_defaults.updated` events while
-      // the mutations themselves succeeded. The property map is empty and
-      // unconstrained, so `{}` satisfies it; the actor's identity is already
-      // carried by `id` and `name`.
+      // and `createSchema` is never passed one. Omitting it makes every emit
+      // fail with "Invalid Audit Log event: incorrect or missing metadata
+      // keys", pointing at `/actor`, on the one path that deliberately swallows
+      // its errors: the trail silently loses events while the mutations succeed.
+      // The property map is empty and unconstrained, so `{}` satisfies it; the
+      // actor's identity is already carried by `id` and `name`.
       metadata: {},
     },
     targets: eventTargets(input),
@@ -246,9 +241,9 @@ export async function recordAuditEvent(input: AuditEventInput): Promise<void> {
  * record: the trail loses a line, the system of record does not. It is wrong
  * for an event that IS the record — "this document was written by a machine on
  * this human's authority" has no domain table to fall back on, and a missing
- * record is indistinguishable from the thing never having happened. That is
- * the shape issues #274/#277 had: every emit rejected, nothing thrown, and the
- * trail silently short a whole class of event while the mutations succeeded.
+ * record is indistinguishable from the thing never having happened. A rejected
+ * emit has that shape: nothing thrown, and the trail silently short a whole
+ * class of event while the mutations succeed.
  *
  * A separate exported function rather than a `required: true` flag on the
  * input, so opting in is a name a reviewer can grep for and never something a
@@ -270,9 +265,8 @@ export async function recordAuditEventOrThrow(input: AuditEventInput): Promise<v
   // writing a document. What the `OrThrow` contract still buys, and why it is
   // not collapsed into `recordAuditEvent`, is the case where audit IS on and
   // the emit is REJECTED — an unregistered action, target type or metadata key.
-  // That is the failure that once left this feature silently not working at
-  // all, and there it must still take the document back rather than leave a row
-  // whose provenance nothing recorded.
+  // That failure is silent otherwise, so it must still take the document back
+  // rather than leave a row whose provenance nothing recorded.
   if (!auditLogsEnabled()) return
   try {
     await emit(input)

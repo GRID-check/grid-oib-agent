@@ -10,7 +10,7 @@
  * product, and the server-side claim is deliberately long-lived enough that the
  * gaps between publishes are invisible.
  *
- * Three things end a claim early, all of which are "the draft is no longer being
+ * Three things end a claim early, all of which are "the draft is not being
  * written": the message was sent, the box was emptied, or the component went away
  * (navigated off, switched conversation, closed the tab). Everything else is left
  * to the server-side expiry, because a browser cannot be relied upon to say
@@ -83,10 +83,10 @@ export function useTypingBroadcast(
   /*
     Keep the claim alive across a PAUSE, not just across keystrokes.
 
-    The claim was refreshed only by a key press, and it expires after
+    The claim is refreshed only by a key press, and it expires after
     `TYPING_TTL_MS` (6s). So a colleague who stops mid-sentence to think, or to
     check a document — the ordinary rhythm of writing anything considered —
-    dropped off the reader's screen and popped back on the next keypress. A
+    drops off the reader's screen and pops back on the next keypress. A
     flickering indicator is worse than none: it reads as a person who keeps
     changing their mind about answering.
 
@@ -118,7 +118,7 @@ export function useTypingBroadcast(
       heartbeatRef.current = setInterval(() => {
         // `enabled` can go false mid-draft — the reader downgraded to viewer by a
         // live access change, the thread unshared, the flag revoked. `onTyping`
-        // checks it; the heartbeat did not, so it went on publishing "typing" for
+        // checks it, so the heartbeat must as well, or it keeps publishing "typing" for
         // up to TYPING_IDLE_MS afterwards. A viewer's draft can never become a
         // message, so that is exactly the claim the server must never carry.
         if (!enabledRef.current) {
@@ -159,7 +159,7 @@ export function useTypingBroadcast(
     if (previous === conversationId) return
     // Before the claim guard, not after: the heartbeat must stop on a switch
     // whether or not a claim is outstanding. The two happen to be set together
-    // today, so this was an invariant held by convention rather than by code.
+    // today, so this is an invariant held by convention rather than by code.
     stopHeartbeat()
     if (lastPublishedAtRef.current === 0) return
     lastPublishedAtRef.current = 0

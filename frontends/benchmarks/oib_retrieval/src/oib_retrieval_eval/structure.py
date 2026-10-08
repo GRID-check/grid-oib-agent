@@ -288,8 +288,7 @@ def measure_structure(
     Raises ``CorpusMissingError`` when the PDFs the index names are not on disk. The
     corpus is operator-provided and gitignored (``data/oib/README.md``), so an empty
     ``data/oib`` is the ordinary state of a fresh clone — the answer to it is an
-    instruction, not the ``FileNotFoundError`` that ``pdf_path.stat()`` used to raise
-    several frames deep.
+    instruction, not a ``FileNotFoundError`` from several frames deep.
     """
     corpus_dir = default_corpus_dir() if corpus_dir is None else corpus_dir
     _require_corpus(index, corpus_dir)

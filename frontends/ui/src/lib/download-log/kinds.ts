@@ -25,7 +25,7 @@ export type DownloadLogKind = (typeof DOWNLOAD_LOG_KINDS)[number]
 /**
  * `download` is logged wherever the document is. Everything else is an OPEN: a
  * viewer fetch, logged only when the document sits under a folder with its own
- * access list (product decision, 6 Oct 2026). The migration's CHECK states the
+ * access list. The migration's CHECK states the
  * same rule, so a code path that logs an open of an ordinary folder is refused
  * by the database.
  */

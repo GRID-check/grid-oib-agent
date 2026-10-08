@@ -20,9 +20,8 @@ import { requireProjectAccess, type ProjectPermission } from '@/lib/authz/projec
  * The deprecated umbrella stays in the any-of list for the reason ADR-0038 gave
  * it: the built-in Editor and Admin roles hold both, and a custom role
  * provisioned before the split holds only the umbrella. Requiring the umbrella
- * ALONE — which is what these four call sites used to do — was the mirror-image
- * fault: a role built the way the catalog now recommends could not save the
- * project brief at all.
+ * ALONE would be the mirror-image fault: a role built the way the catalog
+ * recommends could not save the project brief at all.
  */
 const PROFILE_WRITE: readonly ProjectPermission[] = ['project:memory:write', 'project:edit']
 import { getBackendUrl } from '@/lib/backend-proxy'
@@ -113,10 +112,10 @@ export async function saveProjectProfile(
   return persistProfile(projectId, session.organizationId, profile, current, {
     resetSummary: true,
     // The wizard is where buildings are removed, and this is its save: the
-    // bindings of a building it no longer has go with it. Removing a Bauwerk
-    // used to keep them, invisible in every slot and still read by the agent
-    // (as "Bestandspläne (bw2)"), and a building added later under the reused
-    // id inherited them. In the save's transaction, under the row lock the
+    // bindings of a building it no longer has go with it. Kept, they would sit
+    // invisible in every slot, still be read by the agent (as "Bestandspläne
+    // (bw2)"), and a building added later under the reused id would inherit
+    // them. In the save's transaction, under the row lock the
     // update holds: committed with the profile or not at all, and never after
     // a later save that brought the building back
     // (docs/architecture/document-roles.md).
@@ -227,8 +226,8 @@ async function persistProfile(
 ): Promise<ProjectProfileState> {
   // Single choke point for BOTH the wizard save and agent patches: a confirmed
   // fact always retires an unconfirmed assumption under the same key (e.g. the
-  // migration-backfilled `bundesland=wien` default once the user answers the
-  // location question).
+  // `bundesland=wien` onboarding default once the user answers the location
+  // question).
   const profile = pruneResolvedAssumptions(rawProfile)
   const updated = await updateProjectProfileIfVersion(
     projectId,
@@ -289,7 +288,7 @@ function toAiFinding(raw: BackendConsistencyFinding): AiConsistencyFinding | nul
 }
 
 /**
- * End-of-wizard FREE-TEXT consistency check (FB-13): ask the Python backend's
+ * End-of-wizard FREE-TEXT consistency check: ask the Python backend's
  * LLM whether the free-text answers contradict the structured answers (or each
  * other), BEFORE the profile is saved. Structured answers are checked
  * deterministically on the client (`intake-consistency.ts`) and passed here only
@@ -310,9 +309,9 @@ export async function checkProjectConsistency(
     locale?: string
   }
 ): Promise<{ findings: AiConsistencyFinding[] | null; error?: string }> {
-  // Only editors can save the wizard, and this check is part of that save flow —
-  // align it with generateProjectSummary (also PROFILE_WRITE) rather than the
-  // broader 'project:view'.
+  // Only editors can save the wizard, and this check is part of that save flow,
+  // so it takes the same PROFILE_WRITE gate as generateProjectSummary rather
+  // than the broader 'project:view'.
   await requireProjectAccess(session, projectId, PROFILE_WRITE)
 
   try {
@@ -365,8 +364,8 @@ export async function checkProjectConsistency(
  * auto/manual generate) can render a state instead of a blown-up request.
  *
  * The LLM is fed the human-readable brief rendering (question/option labels),
- * not the machine prompt view — raw tokens like `fluchtniveau=7-11m` were
- * leaking verbatim into the generated prose. `locale` controls the output
+ * not the machine prompt view: raw tokens like `fluchtniveau=7-11m` would leak
+ * verbatim into the generated prose. `locale` controls the output
  * language (mirrors the consistency check; defaults to German).
  */
 export async function generateProjectSummary(

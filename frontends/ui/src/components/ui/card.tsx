@@ -26,25 +26,18 @@ const CardHeader = React.forwardRef<HTMLDivElement, React.HTMLAttributes<HTMLDiv
         '@container/card-header grid auto-rows-min grid-rows-[auto_auto] items-start gap-1.5 px-6 [.border-b]:pb-6',
         // A header with an action is TWO COLUMNS ONLY WHEN THERE IS ROOM FOR TWO.
         //
-        // It used to be `grid-cols-[1fr_auto]` at every width, and a grid item's
-        // default `min-width: auto` means the `1fr` title column cannot shrink
-        // below its own min-content. So on a phone the title held its ground, the
-        // `auto` column held the buttons, and the header simply grew wider than
-        // the card — measured with its right edge at 418px inside a 390px
-        // viewport, i.e. the buttons were off the screen. Every card in the app
-        // that uses `CardAction` carried that; it surfaced on the answer-feedback
-        // console first only because that one has two long button labels.
+        // The title column is `minmax(0,1fr)`, not `1fr`: a grid item's default
+        // `min-width: auto` stops a `1fr` column shrinking below its min-content,
+        // so a wide action would push the header past the card edge on a phone.
         //
         // Below `sm` the action drops under the title, which is the only honest
-        // layout at phone width. At or above it the previous arrangement returns
-        // — except that the title column is now `minmax(0,1fr)`, so it gives
-        // ground instead of pushing when the action is wide.
+        // layout at phone width. At or above it the action sits in its own
+        // column, and the title column gives ground when the action is wide.
         //
-        // A VIEWPORT breakpoint and not the `@container/card-header` above it,
-        // which would be the obvious reach and does not work: an element with
-        // `container-type` establishes a query container for its DESCENDANTS,
-        // never for itself, so `@sm/card-header:` on this element matches
-        // nothing and every header would silently stay single-column. The
+        // A VIEWPORT breakpoint and not the `@container/card-header` above it:
+        // an element with `container-type` establishes a query container for its
+        // DESCENDANTS, never for itself, so `@sm/card-header:` on this element
+        // matches nothing and the header would silently stay single-column. The
         // container is still there and still correct for `CardContent` and
         // anything else inside.
         'has-data-[slot=card-action]:grid-cols-1',

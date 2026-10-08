@@ -83,13 +83,13 @@ def describe_card(card_types: str) -> str:
 
 
 def _piloti_prompt_source() -> str:
-    """Piloti's bundled prompt as ONE template, the way it was before the split.
+    """Piloti's bundled prompt as ONE template, with both halves substituted in.
 
     `piloti.j2` holds the dynamic half and opens with `{{ static_block }}`; the
     static half is `piloti_static.md`, the bundled fallback for the platform
-    prompt Langfuse serves. Substituting one into the other reproduces the
-    single template these tests were written against, so they keep asserting
-    about the whole prompt rather than silently about a third of it.
+    prompt Langfuse serves. Substituting one into the other gives the whole prompt as one template,
+    so these tests keep asserting about the whole prompt rather than silently
+    about a third of it.
     """
     from pathlib import Path
 
@@ -103,7 +103,7 @@ def _piloti_prompt_source() -> str:
 def _bundled_static_block() -> str:
     """The static half of Piloti's prompt, rendered the way the agent renders it.
 
-    The prompt is two files now: `piloti_static.md` (the bundled fallback for
+    The prompt is two files: `piloti_static.md` (the bundled fallback for
     the platform prompt Langfuse serves) and `piloti.j2` (the dynamic half,
     which opens with `{{ static_block }}`). A test that renders the template
     directly has to supply the half the prompt store would have resolved.
@@ -358,7 +358,7 @@ class TestPilotiAgent:
     async def test_run_flattens_list_shaped_answer_content(self, mock_llm_provider, mock_llm, real_tool):
         """Reasoning models can return the answer as a list of content blocks.
 
-        Regression: ``str(answer_msg.content)`` turned that list into a Python
+        ``str(answer_msg.content)`` turns that list into a Python
         repr (``"[{'type': 'text', ...}]"``) as the answer text, which every
         downstream filter (marker extraction, citation checks) then no-oped on.
         The answer text must be the flattened block text, not the list repr.
@@ -575,9 +575,9 @@ class TestPilotiAgent:
     async def test_a_transport_error_is_not_retried_down_the_ladder(self, mock_llm_provider, mock_llm, real_tool):
         """Auth, quota and network faults fail the same way on every rung.
 
-        Retrying them under a different ``response_format`` only logged the
-        real error three times as "response_format failed" and tripled the
-        latency of a turn that was already lost.
+        Retrying them under a different ``response_format`` would log the
+        real error three times as "response_format failed" and triple the
+        latency of a turn that is already lost.
         """
         bound = self._bindable(mock_llm, "")
         bound.ainvoke = AsyncMock(side_effect=ConnectionError("upstream reset"))
@@ -740,17 +740,17 @@ class TestPilotiAgent:
         )
 
     def test_the_formatting_block_routes_a_diagram_to_a_drawing_card(self, mock_llm_provider, real_tool):
-        """The model-side half of "a diagram printed as a shell listing".
+        """The model-side half of the rule against a diagram printed as a shell listing.
 
-        Asked for a diagram the model drew ASCII box art into a bare fence, and
-        the answer promised a drawing and printed a listing. The formatting rule
-        routes a drawing to a TAGGED mermaid fence (the envelope parser now
+        Asked for a diagram, the model draws ASCII box art into a bare fence, and
+        the answer promises a drawing and prints a listing. The formatting rule
+        routes a drawing to a TAGGED mermaid fence (the envelope parser
         survives one) or to the shaped card whose fields it needs, and keeps
         the ban on box art.
         """
         rendered = self._render_default_prompt(mock_llm_provider, real_tool)
         formatting = rendered.split("<formatting>")[1].split("</formatting>")[0]
-        # Since 2026-09-24 a drawing is a tagged mermaid fence in the answer,
+        # A drawing is a tagged mermaid fence in the answer,
         # reached for whenever the answer HAS a shape, not only when asked;
         # the shaped cards keep what their fields carry, and anything measured
         # stays with the schematic cards.
@@ -802,12 +802,10 @@ class TestPilotiAgent:
         assert "classified as conversational / meta" not in rendered
 
     def test_the_confidence_marker_does_not_depend_on_having_sources(self, mock_llm_provider, real_tool):
-        """A measured answer cites nothing, and used to drop the marker with it.
+        """A measured answer cites nothing, and the model drops the marker with it.
 
-        On the first live run of this branch the marker was absent from 4 of 32
-        real answers — and the split was not random. Every answer that produced
-        a `**Quellen:**` section carried the marker (18/18); every answer that
-        produced none dropped it 4 times in 14. The raw model output was
+        The split is not random: every answer with a `**Quellen:**` section carried
+        the marker (18/18), and answers without one dropped it 4 times in 14. The raw model output is
         captured BEFORE the strip, so this is the model omitting the marker,
         not the parser losing it.
 
@@ -828,7 +826,7 @@ class TestPilotiAgent:
         # Grounding is evidence, not sources alone — a measurement counts.
         assert "the sources you retrieved AND the measurements you took" in rendered
         assert "a measurement made this turn" in rendered
-        # And WHY it matters, which is what the model was never told.
+        # And WHY it matters, which the model must be told.
         assert "An answer that cites nothing still carries it" in rendered
         assert "there is no confidence chip" in rendered
 
@@ -885,12 +883,12 @@ class TestPilotiAgent:
 
     @pytest.mark.asyncio
     async def test_a_round_of_cards_costs_one_round(self, mock_llm_provider, mock_llm, real_tool):
-        """The regression behind "an answer only ever carries one card".
+        """An answer can carry two cards.
 
-        One search, then a shape lookup and two cards. Every tool CALL used to
-        be charged to ``max_tool_iterations``, so three calls of the answer's
-        own output channel ate three of the budget and the second card the
-        doctrine allows was unreachable on any turn that had actually searched.
+        One search, then a shape lookup and two cards. Each tool ROUND is charged
+        to ``max_tool_iterations``, not each call: charged per call, the answer's
+        own output channel would eat three of the budget and leave the second
+        card the doctrine allows unreachable on any turn that had searched.
         Charging ROUNDS removes the problem at its cause rather than exempting
         the card channel: the whole card round is one, like the search before
         it, and no second currency has to be kept in step.
@@ -1132,7 +1130,7 @@ class TestPilotiSourceRegistryGating:
 
     @pytest.mark.asyncio
     async def test_a_greeting_keeps_the_full_binding(self, mock_llm_provider, mock_llm):
-        """No turn is narrowed by a classification any more (ADR-0052): the
+        """No turn is narrowed by a classification (ADR-0052): the
         greeting is answered from the same construction-time binding a
         Baurecht question uses, search tool included. Whether to call it is
         the model's decision, made with the tool in hand.
@@ -1169,8 +1167,8 @@ class TestPilotiSourceRegistryGating:
     @pytest.mark.asyncio
     async def test_a_search_the_model_calls_on_a_greeting_executes(self, mock_llm_provider, mock_llm):
         """The other half of the same rule: a tool the model decides to call
-        runs, on any turn. The old meta partition returned an invalid-tool
-        error here; that partition is what made "zeig mir die Grundrisse"
+        runs, on any turn. A meta partition would return an invalid-tool
+        error here; that partition is what makes "zeig mir die Grundrisse"
         answer that its tool was not available in this session.
         """
         _SPY_SEARCH_EXECUTIONS.clear()
@@ -1318,7 +1316,7 @@ class TestPilotiSourceRegistryGating:
         A search over the office's projects that matched nothing, a listing and
         a brief register no passage; replacing the model's answer with the
         retry message told a planner to try again a question whose answer is
-        „das hatten wir noch nie" (precedent eval, Oct 2026).
+        „das hatten wir noch nie" (precedent eval).
         """
         populate_from_config(
             [{"id": "knowledge_layer", "name": "Knowledge", "description": "Projects.", "tools": ["project_lookup"]}],
@@ -1375,10 +1373,9 @@ class TestPilotiSourceRegistryGating:
     async def test_research_turn_answered_from_context_returns_answer(self, mock_llm_provider, mock_llm):
         """A research-routed turn the agent answers from conversation/project
         context WITHOUT attempting any data-source lookup must return the
-        answer, not raise. Regression for the misrouted-conversational-turn
-        incident: the citation guard replaced a substantive answer with a
-        misleading "search tools did not return any results" error even though
-        no tool was ever called.
+        answer, not raise. The citation guard must not replace a substantive answer with a
+        misleading "search tools did not return any results" error when no tool
+        was called.
         """
         final_response = AIMessage(content="To fill in hohe_gebaeude_details I need the exact building height.")
         mock_llm.ainvoke = AsyncMock(side_effect=[final_response])
@@ -1810,8 +1807,8 @@ class TestAppendMinimalCitation:
         assert result.count("**References:**") == 1
 
     def test_strips_leftover_german_heading_and_cites_the_body(self):
-        # The only line under „## Quellen" was an invented source: the emptied
-        # heading used to stay, the [1] glued to it, and a second section followed.
+        # The only line under „## Quellen" is an invented source: the leftover
+        # heading is not left behind, and the [1] goes on the body sentence.
         report = "Treppen brauchen 2,10 m.\n\n## Quellen"
 
         result = append_minimal_citation(report, self._tool_source())
@@ -2005,7 +2002,7 @@ class TestPilotiAnswerGrounding:
 
     @pytest.mark.asyncio
     async def test_verified_sources_empty_when_answer_cites_nothing(self, mock_llm_provider, mock_llm):
-        # The reported bug: a per-session registry carries a prior turn's RIS
+        # A per-session registry carries a prior turn's RIS
         # source, but this turn's answer cites nothing (e.g. a greeting routed
         # as research). No citation survives verification → NO chips are emitted
         # (must not re-emit the previous turn's source).
@@ -2025,8 +2022,8 @@ class TestPilotiAnswerGrounding:
                 removed_citations=[],
             )
             state = ResearchAgentState(messages=[HumanMessage(content="hallo wie gehts")])
-            # Two registry sources would exist here in the real bug; add a second
-            # so the single-source minimal-citation path does NOT fire.
+            # Add a second registry source, so the single-source minimal-citation path
+            # does NOT fire.
             registry.add(
                 SourceEntry(
                     url="https://ris.bka.gv.at/prev2",
@@ -2339,8 +2336,8 @@ class TestPilotiQuoteVerification:
 
         output = result.messages[-1].content
         assert "[nicht wörtlich in der Quelle belegt]" not in output
-        # REGRESSION: without quote verification this stays at the default True,
-        # so the assertion below only exercises the new path when a fabricated
+        # Without quote verification this stays at the default True,
+        # so the assertion below only exercises the quote path when a fabricated
         # quote is present (covered by the sibling test); here it must remain True.
         assert result.answer_quotes_verified is True
 
@@ -2480,7 +2477,7 @@ class TestPilotiRepairPass:
         assert patch_llm.ainvoke.await_count == 0
 
     @pytest.mark.asyncio
-    async def test_switched_off_ships_the_marker_as_before(self, mock_llm_provider, mock_llm, patch_llm):
+    async def test_switched_off_ships_the_marker_without_a_repair_call(self, mock_llm_provider, mock_llm, patch_llm):
         mock_llm.ainvoke = AsyncMock(side_effect=[self._tool_call(), self.MISQUOTED])
         agent = PilotiAgent(
             llm_provider=mock_llm_provider, tools=[knowledge_search], repair_pass=False, card_repair_llm=patch_llm
@@ -2515,9 +2512,9 @@ class TestClarificationGuidance:
     """Piloti must be told to push back on under-specified queries —
     in shallow mode too, and independent of whether project_context is present.
 
-    Regression: the only Rueckfrage/pushback guidance lived INSIDE the
-    ``{% if project_context %}`` block, so a shallow turn with no project brief
-    got zero clarification guidance and always answered straight through.
+    Rueckfrage/pushback guidance must not live only inside the
+    ``{% if project_context %}`` block: a shallow turn with no project brief
+    would get no clarification guidance and always answer straight through.
     """
 
     def _render(self, *, project_context):
@@ -2536,8 +2533,7 @@ class TestClarificationGuidance:
         )
 
     def test_clarification_guidance_present_on_research_turn_without_project_context(self):
-        """A turn with NO project context still gets the push-back guidance —
-        the core regression."""
+        """A turn with NO project context still gets the push-back guidance."""
         rendered = self._render(project_context=None)
         assert "<clarification>" in rendered
         assert "Folgefrage" in rendered
@@ -2558,10 +2554,9 @@ class TestOffTopicDeclineShape:
     the assistant must DECLINE + redirect them — not answer them from its own
     knowledge.
 
-    Regression: the direct-reply shape said "answer from your own knowledge",
-    so a clearly off-topic question (e.g. "how do I bake a cake") risked
-    getting a cheerful full answer. The contract carves out an explicit
-    off-topic decline shape.
+    The direct-reply shape says "answer from your own knowledge", and only
+    the explicit off-topic decline shape keeps a clearly off-topic question
+    (e.g. "how do I bake a cake") from getting a cheerful full answer.
     """
 
     def _render(self):
@@ -2601,12 +2596,11 @@ class TestOffTopicDeclineShape:
 class TestADirectReplyMayStillEmitACard:
     """The direct-reply shape and the `<cards>` block must not contradict.
 
-    Field case: „Wie läuft das Baubewilligungsverfahren in Wien ab?" was offered
-    a deep-research plan, refused twice, then retyped in plain words — and the
-    reply came as prose because the conversational shape said "no tool calls"
-    while `<cards>` told the model to emit one. Every tool is bound on every
-    turn (ADR-0052), so the shape now says so, and the restraint lives where it
-    lived: a greeting has nothing to put on a card and emits none.
+    A question such as „Wie läuft das Baubewilligungsverfahren in Wien ab?" must
+    not come back as prose because the conversational shape says "no tool calls"
+    while `<cards>` tells the model to emit one. Every tool is bound on every
+    turn (ADR-0052), so the shape says so, and the restraint lives where it
+    belongs: a greeting has nothing to put on a card and emits none.
     """
 
     def _render(self):
@@ -2664,7 +2658,7 @@ class TestADirectReplyMayStillEmitACard:
     def test_walkthrough_examples_exist_and_carry_no_verdict(self):
         rendered = self._render()
         assert 'type="walkthrough"' in rendered
-        # Two workspace moves the old contract had no shape for.
+        # Two workspace moves the contract needs a shape for.
         lowered = rendered.lower()
         assert "zusammen" in lowered or "summar" in lowered
         assert "ordn" in lowered or "organis" in lowered
@@ -2677,9 +2671,9 @@ class TestADirectReplyMayStillEmitACard:
             assert '"verdict"' not in example
 
     def test_the_research_example_is_a_walkthrough_not_a_topic_gavel(self):
-        """An overview question taught ``kind=ruling`` / ``value: Brandschutz``.
+        """An overview question must not teach ``kind=ruling`` / ``value: Brandschutz``.
 
-        Brandschutz is a topic, not a copyable legal value. The model copies
+        Brandschutz is a topic, not a copyable legal value, and the model copies
         the example.
         """
         rendered = self._render()
@@ -2702,7 +2696,7 @@ class TestADirectReplyMayStillEmitACard:
         """The rules say what must be true of a finished answer, never which
         tool to call next or how many times.
 
-        The budget is the graph's business and the prompt no longer names it;
+        The budget is the graph's business and the prompt does not name it;
         a fetch the turn already ran is answered from the transcript, stated
         as the fact it is; and the Herleitung checkpoint is a declared slot.
         """
@@ -2720,7 +2714,7 @@ class TestADirectReplyMayStillEmitACard:
         assert "not run a second time" in rules
         # The family search RETURNS the members opened; the only open left is a
         # Punkt. Told instead that an overview needs every member opened, the
-        # model re-opened the three it had just been handed.
+        # model re-opens the three it has just been handed.
         assert "every member the corpus holds" in rules
         assert "what is left to open is a Punkt by number" in rules
         assert "`read_passage(document=…)`" in rules
@@ -2747,8 +2741,8 @@ class TestKnowledgeInventoryIsNotCitable:
     citation keys verification matches against, so a model that cites one it
     never retrieved produces citations that are all dropped
     (`citation_key_not_in_registry`) and an answer that ships with no source at
-    all. The prompt used to forbid recalling URLs from memory but said nothing
-    about document keys, while handing the model a list of them.
+    all. The anti-memory rule covers document keys as well as URLs, and the prompt
+    hands the model the list as an index, not as evidence.
     """
 
     def _render(self, prompt: str, documents: list[dict]) -> str:
@@ -2797,10 +2791,10 @@ class TestKnowledgeInventoryIsNotCitable:
         assert "knowledge_search" in citation_block
 
     def test_piloti_prompt_asks_for_disagreement_between_sources_to_be_shown(self):
-        """The everyday chat surface had no rule about contradictory sources.
+        """The everyday chat surface must have a rule about contradictory sources.
 
         `deep_researcher/prompts/writer.j2` has told the writer to surface
-        disagreement for a long time; Piloti's prompt — the one that answers
+        disagreement; Piloti's prompt — the one that answers
         almost every question — mentioned contradiction only as a reason to
         escalate or to lower confidence, never as something to TELL the reader.
         In a legal product a smoothed-over difference is the dangerous failure:
@@ -2855,7 +2849,7 @@ class TestKnowledgeInventoryIsNotCitable:
 
     def test_no_prompt_still_calls_the_base_corpus_a_user_upload(self):
         """The list mixes the platform's OIB corpus with project uploads, so
-        "User Uploaded Documents" was also simply untrue — and a heading rename
+        "User Uploaded Documents" is also simply untrue — and a heading rename
         must not leave dangling references to the old one."""
         for path in (
             "piloti/prompts/piloti.j2",
@@ -2891,9 +2885,9 @@ class TestKnowledgeInventoryIsNotCitable:
 
 
 class TestTheModelCardsAreActuallyAskedFor:
-    """The five IFC cards had renderers and no instruction that named them.
+    """The five IFC cards have renderers and need an instruction that names them.
 
-    That instruction now lives in ``ifc-spatial-reasoning``, because most turns
+    That instruction lives in ``ifc-spatial-reasoning``, because most turns
     never touch a model and the always-on prompt must not teach a minority
     path. The prompt keeps a pointer so the model loads that skill before it
     emits. The skill keeps the card types and the id rule.
@@ -2963,7 +2957,7 @@ class TestTheModelCardsAreActuallyAskedFor:
 #: engine returns for „wie hoch ist der Keller". Written out rather than built
 #: through ``ifc_spatial.envelope`` because the backend CI job does not install
 #: the spatial engine, and a module-level import of it takes this whole file
-#: down at collection (see the fix in commit 3ec4a3b3). Every field here is a
+#: down at collection. Every field here is a
 #: field of ``ifc_spatial.envelope.Answer``; ``test_ifc_measure_tool.py`` is
 #: where the two are pinned against each other.
 _MEASURED_BASEMENT = {
@@ -3002,7 +2996,7 @@ class TestMeasurementSourcesDoNotGroundCitations:
         (a) „Der Keller ist 2,70 m hoch"            — measured, reproducible
         (b) „…und erfüllt damit OIB 4 Punkt 2.1"    — a legal claim, uncited
 
-    Giving measurements a derivation trail means they now travel on the citation
+    Giving measurements a derivation trail means they travel on the citation
     WIRE, beside the retrieved sources. If that also put them in the
     ``SourceRegistry``, ``citation_grounded`` would flip true off (a) and the
     normative brake — which is gated on its ABSENCE — would never run, so (b)
@@ -3124,10 +3118,10 @@ class TestMeasurementSourcesDoNotGroundCitations:
 
     @pytest.mark.asyncio
     async def test_measured_descriptive_answer_still_reaches_medium(self, mock_llm_provider, mock_llm):
-        """The signal this work must not weaken: measured + descriptive → medium.
+        """The signal that must not weaken: measured + descriptive → medium.
 
         Same turn as above minus the legal claim. ``measurement_only`` is the
-        reason, exactly as before measurements had a Herleitung.
+        reason.
         """
         from aiq_agent.agents.piloti.markers import answer_confidence_capped_reason
         from aiq_agent.agents.piloti.markers import surface_answer_confidence
@@ -3261,13 +3255,10 @@ class TestMeasurementSourcesDoNotGroundCitations:
 class TestTheResearchBudgetIsOneNumber:
     """``max_tool_iterations`` is the whole ceiling, and every call is charged to it.
 
-    It used to have a reserve on top, sized to the skills the deployment forced
-    onto every turn: those calls were overhead the question never asked for, and
-    charging them shortened every research chain in the product by one per
-    published house skill. Nothing is forced now — a ``use_skill`` call is one
-    the model chose, exactly like a search — so there is no overhead to
-    compensate, and the number the config's traced floors measure is the number
-    the turn gets.
+    No reserve sits on top for the skills a deployment might force onto a turn.
+    Nothing is forced, so a ``use_skill`` call is one the model chose, exactly
+    like a search, and there is no overhead to compensate: the number the
+    config's traced floors measure is the number the turn gets.
     """
 
     def _agent(self, iterations: int = 3):
@@ -3288,7 +3279,7 @@ class TestTheResearchBudgetIsOneNumber:
         assert agent.tool_iteration_ceiling == 7
 
     def test_the_agent_takes_no_reserve_at_all(self):
-        """Not "reserve zero": the knob is gone, so nothing can put one back."""
+        """Not "reserve zero": there is no knob to set one."""
         import inspect
 
         assert "reserved_tool_iterations" not in inspect.signature(PilotiAgent.__init__).parameters
@@ -3300,7 +3291,7 @@ class TestTruncationIsObservable:
     Hitting the ceiling means evidence-gathering was CUT OFF and the answer was
     written from whatever had been gathered by then. ``[CONFIDENCE:…]`` does not
     cover it — that grades whether the claims are sourced, not whether the
-    search finished — so before this there was nothing anywhere that could
+    search finished — so only this count can
     answer "how often does this happen, and on which question shapes".
     """
 
@@ -3384,10 +3375,10 @@ class TestTruncationIsObservable:
             f"nothing here can answer how often it happens; steps were {[step.id for step in emitted.steps]}"
         )
         record = records[0]
-        # `spent` and `rounds` are the same number now: the budget is one unit
+        # `spent` and `rounds` are the same number: the budget is one unit
         # per ROUND, so a greedy parallel batch cannot outspend its own round.
-        # Both stay on the record so one counted across the change reads the
-        # same way. Nothing was reserved, so there is no such field to read.
+        # Both stay on the record so existing readers of it keep working.
+        # Nothing is reserved, so there is no such field to read.
         assert record.detail == {
             "truncated": True,
             "ceiling": 5,
@@ -3499,11 +3490,11 @@ def _entwuerfe_block() -> str:
 
 
 class TestTheWorkingDirectoryBlock:
-    """What is LEFT in the prompt about drafting, after ADR-0060's amendment.
+    """What the prompt keeps about drafting (ADR-0060).
 
-    The block used to teach the whole drafting workflow: which verb writes,
+    The drafting workflow is not taught here: which verb writes,
     which revises, when to file, when to submit, what a filed draft may be
-    called. Every one of those is a tool's own contract and now lives in the
+    called. Each of those is a tool's own contract and lives in the
     tool description that owns it (see ``TestTheDraftingRulesLiveInTheTools``).
     Two sentences stay here, because no tool description can carry them: what
     „mach daraus ein File" refers to, and what happens with no project.
@@ -3526,9 +3517,10 @@ class TestTheWorkingDirectoryBlock:
         assert "Ohne Projekt" in block
         assert "bleibt der Entwurf im Arbeitsordner" in block
 
-    def test_the_workflow_the_tools_own_is_no_longer_in_the_prompt(self):
-        """The cut itself. Each of these was a sentence about how to hold a
-        tool, charged on every call of every turn (ADR-0060 (d))."""
+    def test_the_workflow_the_tools_own_is_absent_from_the_prompt(self):
+        """Each of these is a sentence about how to hold a
+        tool, charged on every call of every turn (ADR-0060 (d)), so none of them
+        stays in the prompt."""
         block = _entwuerfe_block()
         for teaching in ("`write_file`", "`edit_file`", "`file_draft`", "`submit=true`", "`reviewer`"):
             assert teaching not in block, teaching
@@ -3554,11 +3546,11 @@ class TestTheWorkingDirectoryBlock:
 
 
 class TestTheDraftingRulesLiveInTheTools:
-    """Every rule the `<entwuerfe>` block dropped, in the description that owns it.
+    """Every rule kept out of the `<entwuerfe>` block, in the description that owns it.
 
-    A tool owns its whole contract (ADR-0060 (d)), so a rule deleted from the
-    prompt has to be findable in the schema the provider already sends. These
-    are the receipts for that move, one assertion per deleted sentence.
+    A tool owns its whole contract (ADR-0060 (d)), so a rule kept out of the
+    prompt has to be findable in the schema the provider already sends. Each
+    assertion pins one such sentence.
     """
 
     @staticmethod
@@ -3603,7 +3595,7 @@ class TestTheDraftingRulesLiveInTheTools:
         assert "niemand hat ihn freigegeben" in _FILE_DRAFT_DESCRIPTION
 
     def test_submitting_needs_an_explicit_request(self):
-        """`submit_draft` merged into `file_draft(submit=true)`; its rules came with it."""
+        """`file_draft(submit=true)` is the submit path, and its description carries the rules."""
         from aiq_agent.tools.documents.register import _FILE_DRAFT_DESCRIPTION
 
         assert "Nur mit `submit=true` aufrufen, wenn die Nutzerin um Freigabe" in _FILE_DRAFT_DESCRIPTION
@@ -3617,7 +3609,7 @@ class TestTheDraftingRulesLiveInTheTools:
 
 
 class TestTheDelegationRulesLiveInTheTool:
-    """`<delegieren>` is gone; `create_task`'s description carries what it said."""
+    """`create_task`'s description carries the delegation rule."""
 
     @staticmethod
     def _description() -> str:
@@ -3625,13 +3617,13 @@ class TestTheDelegationRulesLiveInTheTool:
 
         return _CREATE_TASK_DESCRIPTION
 
-    def test_the_prompt_no_longer_teaches_delegation(self):
+    def test_the_prompt_does_not_teach_delegation(self):
         assert "<delegieren>" not in _render_researcher_prompt(drafting_enabled=True)
 
     def test_it_names_the_delegatable_kinds(self):
-        """All four kinds are delegatable: the retirement was the chat TOOL, not the kind.
+        """All four kinds are delegatable: the chat TOOL is not the kind.
 
-        ``compliance_check`` was removed from the chat agent's tool list; it
+        ``compliance_check`` is not in the chat agent's tool list; it
         stays a durable task kind and runs as a delegated Normprüfung
         (`delegation.ts::TASK_ENGINES`, `docs/architecture/system-overview.md`).
         """
@@ -3659,8 +3651,8 @@ class TestTheDelegationRulesLiveInTheTool:
         assert "nicht für eine Frage, die sich jetzt beantworten lässt" in self._description()
 
     def test_the_precondition_is_stated_where_the_model_reads_it(self):
-        """Without a project no task is created — the fact the deleted block
-        carried and the description did not."""
+        """Without a project no task is created, a fact the tool description
+        has to carry itself."""
         description = self._description()
         assert "Ohne Projekt in dieser Unterhaltung entsteht keiner" in description
         assert "statt es erneut zu versuchen" in description
@@ -3695,10 +3687,10 @@ class TestTheWorkingDirectoryBudget:
 class TestAFailedCallIsNotASource:
     """The round loop reads the message STATUS, never the error text.
 
-    A retrieval call rejected by argument validation came back as pydantic's
-    own message, and the ``https://errors.pydantic.dev/...`` line in it was
-    mined as a URL: the Herleitung then showed a web card for a host nobody had
-    searched, on a turn whose search had not run at all. The tool here is the
+    A retrieval call rejected by argument validation returns pydantic's
+    own message, and the ``https://errors.pydantic.dev/...`` line in it must not
+    be mined as a URL: the Herleitung would show a web card for a host nobody
+    searched. The tool here is the
     web one on purpose, because that is the tool whose results are read for
     URLs at all.
     """
@@ -3995,21 +3987,20 @@ class TestATurnThatWritesADraft:
 def _file_verb_descriptions() -> dict[str, str]:
     from aiq_agent.tools.files import register as files_register
 
-    # One tool since the merge; the rules below are what its description must
+    # One tool; the rules below are what its description must
     # still carry for every operation it proposes.
     return {"propose_file_change": files_register._DESCRIPTION}
 
 
 class TestTheTidyingRulesLiveInTheTools:
-    """`<aufraeumen>` is gone; the tool's description carries what it said.
+    """The tidying rules live in the tool's description, not in a block.
 
-    The block taught the tidying verbs how to behave, in a paragraph charged on
-    every call of every turn. A tool owns its whole contract (ADR-0060 (d)); the
-    four verbs are one tool with an `operation` now, and the assertions below
-    are what its description has to keep.
+    A tool owns its whole contract (ADR-0060 (d)); the four verbs are one tool
+    with an `operation`, and the assertions below are what its description has
+    to keep.
     """
 
-    def test_the_prompt_no_longer_teaches_tidying(self):
+    def test_the_prompt_does_not_teach_tidying(self):
         assert "<aufraeumen>" not in _render_researcher_prompt(drafting_enabled=True)
 
     def test_the_tool_says_it_changes_nothing(self):
@@ -4029,7 +4020,7 @@ class TestTheTidyingRulesLiveInTheTools:
             assert "Nur vorschlagen, wenn die Nutzerin darum bittet" in description, name
 
     def test_it_offers_no_operation_that_is_not_bound(self):
-        """`set_doc_class` is gone; a description still naming it teaches a call
+        """`set_doc_class` is not a tool; a description naming it teaches a call
         that fails, and a Dokumentart the reader could never accept."""
         for name, description in _file_verb_descriptions().items():
             assert "set_doc_class" not in description and "doc_class" not in description, name
@@ -4048,8 +4039,8 @@ class TestTheThreeDraftingTurnShapes:
     """Commission, revise, file — the same three cases the live eval runs.
 
     ``tests/benchmarks/test_turn_shapes_live.py`` puts these prompts to the
-    real model and skips without a key, so nothing about a drafting turn was
-    checked on any PR (ledger row 5). These are the same cases, the same
+    real model and skips without a key, so no PR run checks a drafting turn
+    (ledger row 5). These are the same cases, the same
     assertion (``tests/fixtures/drafting_turns.py``) and the same real tools —
     the working directory, the card registry and the budget accounting — with
     the model scripted, which is what makes them runnable in CI.

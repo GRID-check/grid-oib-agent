@@ -18,8 +18,8 @@ import { findProjectWorkosResourceId } from './repository'
  * The project roles a member can be assigned, exactly as the catalog defines
  * them. `project-contributor` belongs here even though `requireProjectAccess`'s
  * derived ladder does not distinguish it (see `ProjectRole` there): this is what
- * WorkOS holds and what the roster shows, and leaving it out is why the role
- * shipped assignable-in-theory and unassignable-in-practice.
+ * WorkOS holds and what the roster shows; leaving it out would make the role
+ * assignable in theory and unassignable in practice.
  */
 export type ProjectMemberRole =
   | 'project-viewer'
@@ -79,11 +79,11 @@ function assertNotLastAdmin(
  * permission and a later match overwrites an earlier one, so the strongest rung
  * a member reaches is the one shown.
  *
- * Every rung the catalog defines has an entry, which it did not before. Probing
- * only `view`/`edit`/`manage` meant a Contributor displayed as "Viewer" (it
- * holds `project:view` and nothing further down the old ladder) and a custom
- * role built the way the catalog recommends — narrow writes, no umbrella —
- * displayed as "Viewer" too. A roster that under-reports somebody's access is
+ * Every rung the catalog defines has an entry. Probing only
+ * `view`/`edit`/`manage` would display a Contributor as "Viewer" (it holds
+ * `project:view` and nothing further down that ladder), and a custom role built
+ * the way the catalog recommends — narrow writes, no umbrella — would display as
+ * "Viewer" too. A roster that under-reports somebody's access is
  * worse than no roster: it is the screen an admin uses to audit exactly that.
  *
  * The two narrow writes both map to Editor because that is the rung, not because

@@ -61,12 +61,11 @@ def _isolate_shared_cache():
 
 # ── provider-contract test double ────────────────────────────────────────────
 #
-# Every LLM double in this suite used to be a bare ``MagicMock``, which accepts
-# any message sequence it is handed. That is why a whole family of production
-# 400s (issues #291-#294, #333, #335, #336, #340 — "Requests ending with a model
-# turn are not supported") was invisible in CI: the tests exercised our graph
-# logic correctly and never once asserted that what we put on the wire is a
-# request a real provider would accept.
+# A bare ``MagicMock`` accepts any message sequence it is handed, so a whole
+# family of production 400s ("Requests ending with a model turn are not
+# supported") is invisible to a suite built on it: the tests exercise the graph
+# logic and never assert that what goes on the wire is a request a real provider
+# would accept.
 #
 # ``StrictProviderChatModel`` closes that gap. It is a real ``BaseChatModel``
 # that enforces the wire contract the strictest provider we route to (Google,
@@ -169,8 +168,8 @@ def strict_provider_llm():
 def _no_live_decisions(monkeypatch):
     """The decision model (ADR-0064) is off unless a test turns it on.
 
-    Ingestion tags, memory reflection, the turn start and every search now ask
-    it, and its key is the OpenRouter key a developer's shell already holds:
+    Ingestion tags, memory reflection, the turn start and every search ask it,
+    and its key is the OpenRouter key a developer's shell already holds:
     without this a test that never mentions decisions calls the live endpoint,
     passes or fails on its latency, and spends money. A test of a decision
     deletes the variable and stubs the endpoint (``test_decisions.py``).

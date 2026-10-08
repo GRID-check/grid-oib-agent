@@ -1,8 +1,6 @@
 /**
  * The one way to name a document to the backend by `(collectionName, filename)`.
  *
- * ## The bug this closes, and why the previous four fixes did not
- *
  * The Python backend knows a document only as a filename inside a collection.
  * The BFF knows it as a row. Those are not the same identity, because
  * `generatedFilename` (`lib/documents/generated.ts`) builds
@@ -12,59 +10,40 @@
  * Sicherheitskonzept it was written from, on the same day, in the same
  * collection. The collision is reachable by the model, not merely accidental.
  *
- * A machine-authored row owns backend state in exactly ONE case, and owned none
- * at all until ADR-0054's publish door existed. Nothing `authoredBy !== 'user'`
- * reaches `/v1/ingest` unless it is the document's PUBLISHED version, filed
- * under the `piloti/` namespace (the guard in `dispatchDocument`, and the
- * `ingestPublished` effect that is its only agent-authored caller). Every other
- * machine-authored row has no chunks, no summary row, no page text and no tags,
- * so every `(collection, filename)` call it makes addresses SOMEBODY ELSE'S
- * document — reading their summary onto its own card, or deleting their chunks
- * when it is deleted.
+ * A machine-authored row owns backend state in exactly one case: its published
+ * version, filed under the `piloti/` namespace (the guard in `dispatchDocument`,
+ * and the `ingestPublished` effect that is its only agent-authored caller).
+ * Every other machine-authored row has no chunks, no summary row, no page text
+ * and no tags, so every `(collection, filename)` call it makes addresses
+ * SOMEBODY ELSE'S document — reading their summary onto its own card, or
+ * deleting their chunks when it is deleted.
  *
- * Instances of that were found one at a time until this module existed:
- * `reindexProject`, `findStorageKeyByCollectionAndFilename`, `joinHitsToFiles`,
- * the metadata-enrichment pass in `reconcile-status`, `deleteDocument`'s chunk
- * purge, and then — once somebody enumerated instead of waiting for the next
- * report — `updateDocumentTags`, `renameDocument`'s display-title mirror,
- * `getDocumentVisualDetails`, the Archiv's own delete, and the session-document
- * cleanup sweep. Ten. Most of those sites ALREADY HAD `authoredBy` in hand —
- * `getAccessibleDocument` returns the full `Document` row and `DocumentListRow`
- * has carried the column as required since migration 0063. Making the column
- * available is what had been tried; it is not what was missing. What was
- * missing is that nothing forced anyone to READ it.
- *
- * So the join gets a constructor instead of a convention. {@link
- * collectionFileRef} is the only way to obtain a {@link CollectionFileRef}, it
- * cannot be called without a row that states its authorship AND whether it has
- * a published version, and it answers `null` for a row that owns nothing over
- * there. The URL builders below take a ref and nothing else. A caller that
- * forgets the question does not have the value the call needs, and
- * `CollectionFileRef | null` makes the compiler ask what to do about the `null`
- * — so the failure mode is "does not compile" rather than "fails open at
- * runtime, silently, against another tenant's document".
+ * The rows the call sites hold already carry `authoredBy`. Carrying the column
+ * is not enough, because nothing forces a caller to read it, so the join gets a
+ * constructor instead of a convention. {@link collectionFileRef} is the only way
+ * to obtain a {@link CollectionFileRef}, it cannot be called without a row that
+ * states its authorship AND whether it has a published version, and it answers
+ * `null` for a row that owns nothing over there. The URL builders below take a
+ * ref and nothing else. A caller that forgets the question does not have the
+ * value the call needs, and `CollectionFileRef | null` makes the compiler ask
+ * what to do about the `null` — so the failure mode is "does not compile" rather
+ * than "fails open at runtime, silently, against another tenant's document".
  *
  * ## What this does NOT cover
  *
- * - It cannot forbid string concatenation. Nothing in TypeScript stops a future
- *   caller from writing the `/v1/collections/${c}/documents/${f}` template by
- *   hand. The gate is reached by reaching for it; it is not a wall. Two callers
- *   had already written that template before this module existed — the Archiv
- *   delete and the session-document purge — and neither was on the list above
- *   until somebody grepped for the template rather than for the helper. They
- *   were safe only because `fileGeneratedDocument` sets no `scope`, so its rows
- *   default to `project` and never appear in an `archiv` or `session` query.
- *   Safety that rests on a column default is worth writing down, not relying
- *   on; both go through the constructor now.
- * - It used to gate on `authoredBy !== 'user'` alone, which encoded the
- *   invariant of the day ("machine-authored ⇒ never indexed ⇒ owns no backend
- *   state"), and said in this list that a producer which is machine-authored
- *   AND indexed would need the rule RESTATED rather than reused. That producer
- *   arrived — a published Piloti document (ADR-0054) — and the rule is restated
- *   here rather than relaxed: a machine-authored row is addressable only when
- *   it has a published version and its filename is in the `piloti/` namespace,
- *   which are precisely the two conditions under which chunks of its own can
- *   exist. Both are asked of the ROW, so no caller can assert either.
+ * - It cannot forbid string concatenation. Nothing in TypeScript stops a caller
+ *   from writing the `/v1/collections/${c}/documents/${f}` template by hand. The
+ *   gate is reached by reaching for it; it is not a wall. The Archiv delete and
+ *   the session-document purge both go through the constructor. Their safety
+ *   also rests on `fileGeneratedDocument` leaving `scope` unset, so its rows
+ *   default to `project` and never appear in an `archiv` or `session` query, and
+ *   a column default is not something to rely on alone.
+ * - A machine-authored row is addressable only when it has a published version
+ *   and its filename is in the `piloti/` namespace. A bare `authoredBy !== 'user'`
+ *   check would refuse a published Piloti document (ADR-0054), which is
+ *   machine-authored and does own chunks. Those two conditions are exactly when
+ *   chunks of its own can exist, and both are asked of the ROW, so no caller can
+ *   assert either.
  * - It is the BFF side only. The Python backend joins on `(collection,
  *   file_name)` with no notion of `authored_by`; this BFF is the sole authority
  *   on authorship, and anything else that talks to that backend is outside the
@@ -84,9 +63,8 @@ declare const humanAuthored: unique symbol
  * A `(collectionName, filename)` pair that has been shown to name a row which
  * owns backend state, and may therefore address it.
  *
- * The brand is still called `humanAuthored` because that is what it meant for
- * every row until the publish door existed, and renaming a module-private
- * symbol changes no behaviour while making every `git blame` on this file lie.
+ * The brand is called `humanAuthored`, a name that no longer describes all it
+ * admits: a published machine-authored row owns backend state too.
  *
  * The brand is a `declare`d module-private symbol: no other module can name it,
  * so no other module can produce this type. {@link collectionFileRef} is the
@@ -139,12 +117,12 @@ export function collectionFileRef(row: AuthoredDocumentRow): CollectionFileRef |
   // exist, and that is exactly one place: a PUBLISHED version, filed under the
   // `piloti/` namespace. Both halves are load-bearing and neither implies the
   // other. Without the published check, a draft — which is never dispatched —
-  // would purge a name it never wrote. Without the namespace check, a row from
-  // before the namespace existed (or from a producer that never adopted it)
-  // would address `slug(model's title)-YYYY-MM-DD.ext` in the project's own
-  // collection, which is the human document's name on the day the model reused
-  // its title. `ingestPublished` refuses to dispatch such a row for the same
-  // reason, so "indexed" and "addressable" stay the same set.
+  // would purge a name it never wrote. Without the namespace check, a
+  // machine-authored row from a producer that never filed under `piloti/` would
+  // address `slug(model's title)-YYYY-MM-DD.ext` in the project's own collection,
+  // which is the human document's name on the day the model reused its title.
+  // `ingestPublished` refuses to dispatch such a row for the same reason, so
+  // "indexed" and "addressable" stay the same set.
   if (row.authoredBy !== 'user') {
     if (!row.publishedVersionId) return null
     if (!isAgentDocumentFilename(row.filename)) return null

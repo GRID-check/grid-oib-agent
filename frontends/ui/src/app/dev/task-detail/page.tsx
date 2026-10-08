@@ -6,12 +6,11 @@
  *
  * What the shot is evidence of is the DECISION: clicking a row in Aufträge
  * opens the account of the work rather than a second description of the row.
- * The drawer used to restate the card it was opened from — kind chip, status
- * chip, the goal, the review reason, the error — which made the bigger surface
- * say less about the run than the row that opened it. Now the body IS
- * `RunBlock`, off the run's own ledger, opened rather than folded, with the
- * result, the way into the thread and „als stehende Aufgabe speichern"
- * beneath it.
+ * The drawer does not restate the card it was opened from (kind chip, status
+ * chip, goal, review reason, error): a bigger surface would say less about the
+ * run than the row that opened it. The body is `RunBlock`, off the run's own
+ * ledger, opened rather than folded, with the result, the way into the thread
+ * and „als stehende Aufgabe speichern" beneath it.
  *
  * Two variants, because the drawer is an overlay and only one can be on screen:
  *
@@ -19,7 +18,8 @@
  *     subject; judge whether it sits in a sheet as well as it sits in a thread,
  *     and whether two outline buttons under one primary read as a ladder rather
  *     than as three equal choices.
- *   - `?state=legacy` — a run from before run messages existed. It has no
+ *   - `?state=legacy` — a run with no run messages, the shape older runs are
+ *     stored in. It has no
  *     ledger, so the drawer falls back to exactly the paragraphs it always
  *     showed. Judge that this reads as „this is all there is" and not as a
  *     surface that failed to load.
@@ -81,7 +81,7 @@ const BASE: TaskWireRow = {
   runSummary: { status: 'fertig', rounds: 3, docs: 9 },
 }
 
-/** The same task as it arrived before run messages existed: no run to read. */
+/** The same task in its legacy shape, with no run messages: no run to read. */
 const LEGACY: TaskWireRow = {
   ...BASE,
   runMessageId: null,

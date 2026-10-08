@@ -6,7 +6,7 @@ header-first, but each falls back to a blocking BFF call under a threading
 lock. Called from a coroutine, a cold miss stalls every turn the worker is
 serving. What is asserted is WHERE each ran — the shape of
 ``tests/aiq_agent/agents/piloti/test_prompt_render_off_the_loop.py`` — for the
-reader itself and for the two agents that used to call them inline: the
+reader itself and for the two agents that call them: the
 clarifier (``Clarifier.__call__`` → ``deps_for``) and deep research
 (``run_deep_research``). Chat (``piloti/register._active_provider``) is covered
 by ``test_active_provider.py``, which goes through the same reader.

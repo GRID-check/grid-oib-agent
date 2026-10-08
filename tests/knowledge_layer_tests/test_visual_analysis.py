@@ -224,9 +224,9 @@ class TestJsonSchema:
         assert len(prompt) < 12000
 
     def test_the_prompt_names_side_by_side_repeats_as_separate_segments(self, registry):
-        # Issue #440: two floor plans next to each other must be read as two
-        # segments, even though both are "floor_plan". The prompt never named
-        # that case, so a merge was the model's reasonable reading of it.
+        # Two floor plans next to each other must be read as two segments, even though
+        # both are "floor_plan". The prompt names that case, because a merge is
+        # otherwise the model's reasonable reading of it.
         prompt = va.build_prompt(registry)
         assert "side by side" in prompt
         assert "Two floor plans" in prompt
@@ -334,8 +334,8 @@ class TestParsing:
         assert len(analysis["segments"]) == va._MAX_SEGMENTS
 
     def test_truncating_a_runaway_reply_says_so(self, registry, caplog):
-        # Issue #437: a sheet with more depictions than the cap kept its first
-        # twelve and silently lost the rest. The cap stays; the silence goes.
+        # A sheet with more depictions than the cap keeps its first twelve and reports
+        # the rest. The cap stays; the silence does not.
         import logging
 
         segments = [{"domain": "general", "segment_type": "photo", "summary": f"p{i}"} for i in range(15)]
@@ -420,7 +420,7 @@ class TestSegmentPayloads:
 
 
 def _two_floor_plans_reply() -> str:
-    """One sheet, two floor plans side by side plus a section — issue #440."""
+    """One sheet, two floor plans side by side plus a section."""
     return _reply(
         [
             {"domain": "architecture", "segment_type": "floor_plan", "title": "EG", "summary": "Erdgeschoss."},
@@ -434,7 +434,7 @@ class TestRepeatedSegmentOrdinals:
     """A repeated type stays addressable: two floor plans side by side read
     "Floor plan 1 of 2" and "Floor plan 2 of 2", so the chunks are
     distinguishable in retrieval even when the model gave both the same
-    title. A type that occurs once renders exactly as before."""
+    title. A type that occurs once renders without an ordinal."""
 
     def test_repeated_types_carry_per_type_ordinals(self, registry):
         payloads = va.segment_payloads(va.parse_visual_analysis(_two_floor_plans_reply(), registry), registry)
@@ -516,9 +516,9 @@ def _write_image(tmp_path, name="plan.webp", fmt="WEBP"):
 class TestOneAnalysisForEverySource:
     """The unification: a rendered page, a raster embedded in a PDF and an
     uploaded image file are understood by the SAME analysis. Embedded rasters
-    used to get a generic caption prompt instead, so a scanned plan placed
-    inside a PDF was indexed as one paragraph while the identical sheet as a
-    vector page was indexed per drawing."""
+    must not get a generic caption prompt instead: a scanned plan placed inside
+    a PDF would be indexed as one paragraph, while the identical sheet as a vector
+    page is indexed per drawing."""
 
     def _fields(self, registry):
         analysis = va.parse_visual_analysis(_MIXED_SHEET, registry)

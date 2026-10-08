@@ -1,7 +1,7 @@
 'use client'
 
 /**
- * AnswerFeedback — the footnote under an answer (WS-7, `answer-feedback` flag).
+ * AnswerFeedback — the footnote under an answer (`answer-feedback` flag).
  *
  * ── Shape ────────────────────────────────────────────────────────────────────
  * ONE left edge, ONE vertical rhythm, read top-to-bottom:
@@ -24,9 +24,9 @@
  * is stated once, on the vote's own line. The reason and the note are a
  * SEPARATE, optional second act — never an open form sitting under a "thanks"
  * that claims the same act is already finished. Reason and note are each
- * optional and neither waits for the other: when the note waited for a chip,
- * a voter who skipped the chips never saw it, and the October 2026 export had
- * down-votes with neither, nothing the cause labelling could read.
+ * optional and neither waits for the other: a note that waited for a chip would
+ * never be seen by a voter who skipped the chips, and a down-vote with neither
+ * would leave nothing the cause labelling could read.
  *
  * ── Weight ───────────────────────────────────────────────────────────────────
  * This sits under EVERY answer, including one-line ones, so at rest it is a
@@ -36,7 +36,7 @@
  *
  * ── Colour ───────────────────────────────────────────────────────────────────
  * NO chroma. Provenance green (`--status-active`) and error red
- * (`--signal-error`) both used to mark the thumbs; neither meaning applies — a
+ * (`--signal-error`) must not mark the thumbs; neither meaning applies — a
  * down-vote is not an error, and green is Projektwissen. Selected is ink FILL
  * instead (`bg-foreground text-background`) — unmistakable without borrowing a
  * signal colour, and the chosen reason chip repeats exactly that language, so
@@ -298,11 +298,10 @@ export const AnswerFeedback: FC<AnswerFeedbackProps> = ({ messageId, conversatio
                 rows={2}
                 maxLength={2000}
                 // 12px because a footnote about an answer must not out-weigh
-                // the answer. The `md:text-xs` that used to sit here was
-                // beating Textarea's `md:text-sm`; that override is now
-                // `pointer-coarse:text-base`, which this deliberately does NOT
-                // undo — a field this small still zooms iOS on focus, and a
-                // comment box is exactly where somebody is typing prose.
+                // the answer. Textarea's `pointer-coarse:text-base` is
+                // deliberately not undone: a field this small still zooms iOS on
+                // focus, and a comment box is exactly where somebody is typing
+                // prose.
                 className="min-h-14 resize-none rounded-lg py-2 text-xs"
               />
               <FieldLabel htmlFor={expectedId} className="text-[11px] font-normal text-muted-foreground">

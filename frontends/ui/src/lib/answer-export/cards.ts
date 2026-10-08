@@ -10,9 +10,8 @@
  *
  * ## One walker, not a renderer per type
  *
- * The catalogue has twenty-two card types (it peaked at forty-five before
- * ADR-0069 moved the tables into Markdown). A bespoke renderer per type
- * would mean the export silently loses a card type on the day the
+ * The catalogue has twenty-two card types. A bespoke renderer per type would
+ * mean the export silently loses a card type on the day the
  * next one ships — the exact failure this feature exists to prevent, because a
  * finding missing from an exported file reads as a finding the answer never
  * made. So the renderer walks the card's OWN fields and dispatches on the shape
@@ -63,9 +62,9 @@ import type { Translator } from '@/i18n/translate'
 // payload paths carry a label override, and which field names carry a closed
 // vocabulary. Every locale is annotated `typeof en.answerExport`, so that shape
 // is the same in all of them — reading it off English decides only WHETHER to
-// look a word up, and the word itself still comes from `t`. The alternative was
-// probing `t` for keys that are usually absent, which warns once per miss and
-// would have filled every dev console with the walker's own guesses.
+// look a word up, and the word itself still comes from `t`. The alternative,
+// probing `t` for keys that are usually absent, warns once per miss and fills
+// every dev console with the walker's own guesses.
 import { answerExport as canonicalDictionary } from '@/i18n/dictionaries/en/answer-export'
 import type { GridCard } from '@/shared/cards/schemas'
 import { compact, type DocBlock, type DocRun, type HeadingLevel } from './blocks'
@@ -569,7 +568,7 @@ const isMatrix = (value: unknown): value is unknown[][] =>
  *
  * A shape rule, not a card-type list: a matrix `n` cells wide is headed by a
  * sibling array of exactly `n` labelled objects. No card in today's catalogue
- * is built that way (the table cards became Markdown tables, ADR-0069); a stored
+ * is built that way (tables are Markdown, ADR-0069); a stored
  * or future one is picked up without this function learning its name.
  */
 const headerFieldFor = (card: CardRecord, matrix: unknown[][]): string | null => {
@@ -805,7 +804,7 @@ export function cardBlocks(value: unknown, t: Translator, options: CardBlocksOpt
  *
  * The levels nest as the surface does: its title at the answer's card level
  * (3), what stands under it one level lower, and a tab's title one level above
- * its card. A tab title is a heading, not a bold line: a bold line looked
+ * its card. A tab title is a heading, not a bold line: a bold line would look
  * like the card heading under it, and both formats keep a heading on the page
  * with what follows it.
  */

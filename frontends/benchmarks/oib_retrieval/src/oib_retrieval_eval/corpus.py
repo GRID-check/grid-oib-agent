@@ -6,13 +6,12 @@ reimplementing either:
 
 * ``knowledge_layer.llamaindex.adapter._extract_text_from_pdf`` — the same pdfplumber walk
   and watermark strip ingestion runs, so the harness sees the text the index sees;
-* the OLD arm: one llama-index ``Document`` per extracted page, then
-  ``SentenceSplitter(chunk_size=1024, chunk_overlap=128)``, which is what
-  ``adapter.py`` did before Punkt chunking (and still does for any file the Punkt chunker
-  declines);
-* the NEW arm: ``knowledge_layer.llamaindex.punkt_chunking.punkt_documents``, then the
+* the page arm: one llama-index ``Document`` per extracted page, then
+  ``SentenceSplitter(chunk_size=1024, chunk_overlap=128)``, which is how ``adapter.py``
+  chunks a page (and still does for any file the Punkt chunker declines);
+* the punkt arm: ``knowledge_layer.llamaindex.punkt_chunking.punkt_documents``, then the
   SAME splitter, because production applies it downstream to whatever documents ingestion
-  produced — leaving it off the new arm would credit it for over-long Punkte that
+  produced — leaving it off the punkt arm would credit it for over-long Punkte that
   production does in fact split.
 
 Neither arm needs an API key: extraction and splitting are local.
@@ -46,15 +45,14 @@ logger = logging.getLogger(__name__)
 CHUNK_SIZE = 1024
 CHUNK_OVERLAP = 128
 
-#: The two chunking strategies under test. ``page`` is what shipped; ``punkt`` is the
-#: replacement. Names are used as arm labels throughout the report.
+#: The two chunking strategies under test: ``page`` chunks each extracted page, ``punkt``
+#: chunks by Punkt. Names are used as arm labels throughout the report.
 ARM_PAGE = "page"
 ARM_PUNKT = "punkt"
 ARMS = (ARM_PAGE, ARM_PUNKT)
 
 #: What one cached page looks like. Bump it whenever ``_extract_text_from_pdf`` changes
-#: the keys or the text it returns, so every entry written by the old extractor misses.
-#: 2: captioned tables cut out of ``text`` into ``tables`` / ``table_boxes``.
+#: the keys or the text it returns, so entries written by an earlier extractor miss.
 PAGE_SHAPE_VERSION = 2
 
 
@@ -118,11 +116,10 @@ def default_cache_dir() -> Path:
 def _cache_key(pdf_path: Path) -> str:
     """Cache file name for one PDF, keyed on its identity so an edited corpus re-extracts.
 
-    Tolerates a MISSING PDF, because the cache exists precisely so a warm run does not
-    need one — stat-ing unconditionally made `extract_pages` raise before it ever looked
-    at the cache, which defeats the purpose. A missing file yields a distinct key, so a
-    warm entry written from the real file is still found while a corpus that never had
-    the file cannot silently collide with one that did.
+    Tolerates a MISSING PDF, because the cache exists so a warm run does not need one: a
+    stat that raised would fail before the cache was looked at. A missing file yields a
+    distinct key, so a warm entry written from the real file is still found while a corpus
+    that never had the file cannot silently collide with one that did.
     """
     try:
         stat = pdf_path.stat()
@@ -189,10 +186,10 @@ def _splitter():
 
 
 def page_documents(pages: list[dict[str, Any]], file_name: str, file_size: int) -> list[Any]:
-    """The OLD arm's documents: one per extracted page, as ``adapter.py`` builds them.
+    """The page arm's documents: one per extracted page, as ``adapter.py`` builds them.
 
     The page's captioned tables are put back as Markdown, as production's per-page path
-    does (``adapter.text_documents_for_pages``): ``text`` alone no longer holds them.
+    does (``adapter.text_documents_for_pages``), since ``text`` alone does not hold them.
     """
     from knowledge_layer.llamaindex.captioned_tables import page_text_with_tables
     from llama_index.core import Document
@@ -212,7 +209,7 @@ def page_documents(pages: list[dict[str, Any]], file_name: str, file_size: int) 
 
 
 def punkt_or_page_documents(pages: list[dict[str, Any]], file_name: str, file_size: int) -> list[Any]:
-    """The NEW arm's documents: Punkt-cut where possible, per-page where not.
+    """The punkt arm's documents: Punkt-cut where possible, per-page where not.
 
     ``punkt_documents`` returns ``None`` for the three files with no usable numbering
     (``Begriffsbestimmungen``, both ``Zitierte Normen``), and production then keeps the

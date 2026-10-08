@@ -194,11 +194,11 @@ describe('PdfDocumentView', () => {
   })
 
   /**
-   * Regression: matching used to sit in the same effect as rasterisation, whose
-   * deps include the zoom-driven width. Every zoom click therefore re-ran the
-   * match, re-announced the hit, and dragged a reader who had deliberately
-   * scrolled elsewhere back to the citation — replaying the arrival pulse at
-   * them. Zoom changes how big the passage is drawn, nothing else.
+   * Matching runs in its own effect, not with rasterisation: rasterisation
+   * depends on the zoom-driven width, and a zoom click must not re-run the
+   * match, re-announce the hit, or drag a reader who scrolled elsewhere back to
+   * the citation with the arrival pulse. Zoom changes how big the passage is
+   * drawn, nothing else.
    */
   it('does not re-reveal the passage when the reader zooms', async () => {
     state.pages = [{ items: [run('Die Frist betraegt vier Wochen', 700, 180)] }]
@@ -260,10 +260,10 @@ describe('PdfDocumentView', () => {
 
   /**
    * The page number comes from retrieval, which counts sheets. A Bescheid with a
-   * cover sheet numbers its own pages one lower, and before the search widened,
-   * that one-off cost the reader the whole feature in silence: the viewer opened
-   * at the wrong page with nothing marked, indistinguishable from a passage that
-   * could not be found at all.
+   * cover sheet numbers its own pages one lower, so the search looks at the
+   * neighbouring pages too. Without that, the viewer opens at the wrong page
+   * with nothing marked, indistinguishable from a passage that could not be
+   * found at all.
    */
   it('looks one page either side when the cited page does not hold the passage', async () => {
     state.pages = [
@@ -344,8 +344,8 @@ describe('PdfDocumentView', () => {
   })
 
   /**
-   * The reader clicked a Fundstelle and nothing lit up. Silence let them
-   * conclude what they liked from that — that the passage is not in the
+   * The reader clicked a Fundstelle and nothing lit up. Silence lets them
+   * conclude what they like from that — that the passage is not in the
    * document, that the viewer is broken, that they had missed it. It is none of
    * those, and the viewer is the only party that knows.
    */
@@ -438,7 +438,7 @@ describe('PdfDocumentView', () => {
     expect(screen.queryByTestId('pdf-quote-bar')).toBeNull()
   })
 
-  it('marks a cited region on its page, as shares of the page box (#433)', async () => {
+  it('marks a cited region on its page, as shares of the page box', async () => {
     state.pages = [{ items: [] }, { items: [] }]
     render(
       <PdfDocumentView

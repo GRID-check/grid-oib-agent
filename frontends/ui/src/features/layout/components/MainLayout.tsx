@@ -40,32 +40,32 @@ interface MainLayoutProps {
   onSignIn?: () => void
   /**
    * Whether shallow answers show the confidence chip (WorkOS
-   * `chat-confidence-chip` flag, FB-6). Threaded to ChatArea → AgentResponse.
-   * Defaults to true (fail-open) so existing callers/specs are unaffected.
+   * `chat-confidence-chip` flag). Threaded to ChatArea → AgentResponse.
+   * Defaults to true (fail-open) so callers that do not pass it are unaffected.
    */
   showConfidenceChip?: boolean
   /**
    * Whether answers show the per-answer thumbs feedback row (WorkOS
-   * `answer-feedback` flag, WS-7). Threaded to ChatArea → AgentResponse.
-   * Defaults to true (fail-open) so existing callers/specs are unaffected.
+   * `answer-feedback` flag). Threaded to ChatArea → AgentResponse.
+   * Defaults to true (fail-open) so callers that do not pass it are unaffected.
    */
   showAnswerFeedback?: boolean
   /**
    * Whether the sessions panel shows the Deep Research section and per-session
-   * research labels (WorkOS `research-in-chat-history` flag, FB-10). Threaded to
-   * SessionsPanel. Defaults to false so existing callers/specs are unaffected.
+   * research labels (WorkOS `research-in-chat-history` flag). Threaded to
+   * SessionsPanel. Defaults to false so callers that do not pass it are unaffected.
    */
   showResearchInHistory?: boolean
-  /** Qdrant collection scoping the Deep Research section's job fetch (FB-10). */
+  /** Qdrant collection scoping the Deep Research section's job fetch. */
   projectCollection?: string | null
   /** Active project name — thread-header breadcrumb + composer scope chip. */
   projectName?: string | null
   /**
    * Whether the collaboration surfaces are available (ADR-0032…0035): message
    * authorship, the unread divider, the turn-in-flight banner. Threaded to
-   * ChatArea. Defaults to false — this feature is dark-launched, and unlike the
-   * fail-open flags above it changes who can see a conversation, so it must not
-   * switch itself on for callers that have not opted in (spec NF-7/NF-8).
+   * ChatArea. Defaults to false — unlike the fail-open flags above, this one
+   * changes who can see a conversation, so it must not switch itself on for
+   * callers that have not opted in.
    */
   canCollaborate?: boolean
   /** Whether the reader may chat in this project (`project:chat`). */
@@ -180,8 +180,8 @@ export const MainLayout: FC<MainLayoutProps> = ({
 
   const content = (
     // h-full pins the chat surface to the viewport: the composer floats at the
-    // bottom and only the message list scrolls. The toolbar is no longer a top
-    // band — it floats over the chat plane (see below).
+    // bottom and only the message list scrolls. The toolbar floats over the chat
+    // plane (see below) rather than sitting in a top band.
     <div className="flex h-full min-w-0 flex-col overflow-hidden">
       {/* Main Content Area - using explicit widths instead of flex for smoother animation */}
       <div className="relative flex min-h-0 flex-1 overflow-hidden">
@@ -191,16 +191,13 @@ export const MainLayout: FC<MainLayoutProps> = ({
           style={{
             // Research shares the row 50/50, and this column yields half.
             //
-            // The FILE PEEK IS NOT LISTED HERE, deliberately. It used to be:
-            // when the peek was a floating pane, this column subtracted the
-            // pane's width to clear a lane for it. `FilePreviewSplit` replaced
-            // that pane with a real resizable panel BESIDE this whole subtree,
-            // so the room is already made one level up — and subtracting it
-            // again here took it out a second time, out of a panel that had
-            // already shrunk. At 1440px that left the chat 539px wide inside an
-            // 883px panel: a 344px dead band between the conversation and the
-            // file it is about, with the resize handle stranded on the far side
-            // of it. `/dev/file-ask-split/chat` is the regression evidence.
+            // The FILE PEEK IS NOT LISTED HERE, deliberately. `FilePreviewSplit`
+            // puts the peek in a real resizable panel BESIDE this whole subtree,
+            // so the room is already made one level up. Subtracting the pane's
+            // width here as well would take it out a second time, out of a panel
+            // that has already shrunk, leaving a dead band between the
+            // conversation and the file it is about. `/dev/file-ask-split/chat`
+            // is the regression check for this layout.
             width: '100%',
             // Published by useComposerMetrics; inherits into ChatArea (a
             // descendant), which reads both via calc().
@@ -298,11 +295,11 @@ export const MainLayout: FC<MainLayoutProps> = ({
                 style={composerStyle}
                 // The composer TRAVELS between the two places it lives. On an empty
                 // canvas it sits with the greeting in the middle of the column; the
-                // first message sends it to the floor, and before this it got there
-                // between two frames — the input the reader had just been typing in
-                // vanished and an identical one appeared somewhere else. A move is
-                // what says those are the same object. The rules for when that move
-                // is real, and why it is a transform, are in `useComposerMetrics`.
+                // first message sends it to the floor. It moves rather than jumps,
+                // because a jump reads as the input vanishing and an identical one
+                // appearing elsewhere: a move is what says they are the same object.
+                // The rules for when that move is real, and why it is a transform,
+                // are in `useComposerMetrics`.
                 {...composerMotion}
               >
                 {/* No sources warning - shown when no data sources or files available */}
@@ -314,8 +311,7 @@ export const MainLayout: FC<MainLayoutProps> = ({
                   connectionMode="websocket"
                   projectName={projectName ?? undefined}
                   // Gates the composer's addressee statement (and the hand-off read
-                  // behind it). False — the default — is byte-for-byte today's
-                  // composer (spec NF-8).
+                  // behind it). False, the default, leaves the composer unchanged.
                   canCollaborate={canCollaborate}
                   canChatInProject={canChatInProject}
                 />

@@ -83,10 +83,8 @@ describe('remarkFileReferences', () => {
     expect(references(tree)).toEqual([])
   })
 
-  // The matching used to compile the names into a regex alternation, so every
-  // one of these characters had to be escaped by hand and correctly. There is
-  // no pattern any more, so there is nothing left to escape wrongly — these pin
-  // that the names are treated as literal text.
+  // There is no regex here, so nothing needs escaping; these pin that the names
+  // are treated as literal text.
   it('treats regex metacharacters in a filename as literal text', () => {
     const awkward = 'Plan (Rev.2) [final] +neu $1.pdf'
     expect(references(parse(`Siehe ${awkward} bitte.`, [awkward]))).toEqual([[awkward, awkward]])

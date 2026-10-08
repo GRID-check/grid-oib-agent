@@ -29,19 +29,17 @@ import type { BimElement, BimModelStatus, BimModelSummary } from './types'
 /**
  * Hard cap for any single element page the API will serve.
  *
- * Re-exported from `types.ts` rather than declared here, and that is the whole
- * point of this line. It used to be its own `500` while the query schema and
- * the viewer's page walk both used `BIM_ELEMENTS_PAGE_LIMIT` (1 000). The two
- * were equal in effect until the schema's ceiling was raised from 200, at
- * which point this clamp started silently cutting every page in half — and the
- * viewer's walk terminates on a short page, so it read 500 rows and stopped.
+ * Re-exported from `types.ts` rather than declared here, so the query schema,
+ * the viewer's page walk and this clamp share one number. A separate constant
+ * drifts: a clamp of 500 beside a page of 1 000 silently cuts every page in
+ * half, and the viewer's walk terminates on a short page, so it reads 500 rows
+ * and stops.
  *
- * For every model over 500 elements that meant: clicking a wall deselected
- * instead of selecting it (the pick's expressId was not in the index), a
- * storey filter emptied the viewport, the element table said "500 von 500",
- * and a highlight from the agent reported real elements as "not in this
- * model". All silently, and all from two constants that were supposed to be
- * one number.
+ * For every model over 500 elements that means: clicking a wall deselects
+ * instead of selecting it (the pick's expressId is not in the index), a storey
+ * filter empties the viewport, the element table says "500 von 500", and a
+ * highlight from the agent reports real elements as "not in this model". All
+ * silently, from two constants that are supposed to be one number.
  */
 export const BIM_ELEMENT_PAGE_LIMIT = BIM_ELEMENTS_PAGE_LIMIT
 
@@ -59,10 +57,10 @@ export interface BimModelHeader {
    */
   filename: string
   /**
-   * The document's rename, when it has one (0048). NULL means the file name is
-   * the name. Carried on the header so the viewer's model rail and title can
-   * call a building what its owner called it without a second round trip —
-   * resolve the pair with `documentDisplayName`.
+   * The document's rename, when it has one (migration 0048). NULL means the file
+   * name is the name. Carried on the header so the viewer's model rail and
+   * title can call a building what its owner called it without a second round
+   * trip — resolve the pair with `documentDisplayName`.
    */
   displayName: string | null
   status: BimModelStatus
@@ -134,19 +132,18 @@ export async function findBimModelByDocument(
  *
  * ## The Archiv is `scope = 'archiv'`, never "no project"
  *
- * This used to read `project_id IS NULL` for both of those cases, which was an
- * exact description of the Archiv right up until there was a second
- * project-less shelf. ADR-0047 Phase 2 added one: a file dropped into a chat is
- * `scope = 'session'` with a NULL project, and it goes through the same
- * extraction dispatcher — so every private chat attachment that happened to be
- * an IFC appeared in EVERY project's model list in the organization, and in the
- * agent's model resolution for every conversation. Filename, storey counts,
- * floor area, and a model id that the query and source routes would then serve.
+ * A project-less row is not necessarily the Archiv: a file dropped into a chat
+ * is `scope = 'session'` with a NULL project too (ADR-0047 Phase 2), and it goes
+ * through the same extraction dispatcher. Matching on `project_id IS NULL`
+ * would list every private chat attachment that is an IFC in EVERY project's
+ * model list in the organization, and in the agent's model resolution for
+ * every conversation, with its filename, storey counts, floor area, and a model
+ * id that the query and source routes would then serve.
  *
- * The join to `documents` was already here for the file name. Reading the shelf
+ * The join to `documents` is there for the file name too. Reading the shelf
  * off the same row is what makes the predicate mean what its name says, and it
  * is the phrasing `documents_session_requires_conversation` (migration 0049)
- * was written to make available.
+ * makes available.
  */
 export async function listBimModels(
   organizationId: string,
@@ -304,9 +301,8 @@ export async function completeBimModel(input: {
           // `truncatedAt` and NOT a hardcoded `false`. Extraction stops at
           // `BIM_ELEMENT_LIMIT`, and a projection that claims to cover a
           // building it only covers part of is the "Prüfbuch judged over part
-          // of a building" failure — reintroduced on the fast path, where it
-          // would be worse than before because the fast path is the one every
-          // reader gets.
+          // of a building" failure, on the fast path, where it would be worse
+          // because the fast path is the one every reader gets.
           ruleInputs: buildStoredRuleInputs(input.elements, input.summary.truncatedAt !== null),
           // Set in the SAME transaction that wrote the elements above, so the
           // flag cannot claim an index the rows do not have. An older image
@@ -501,7 +497,7 @@ export async function listBimElements(input: {
   return withTenant({ organizationId: input.organizationId }, async () => {
     // Counted through a bounded subquery, not `count(*)` over the whole
     // predicate. The row half stops at `limit`; an exact total cannot, so on a
-    // filtered 400 000-element model it was the slower half of the pair by an
+    // filtered 400 000-element model it is the slower half of the pair by an
     // order of magnitude — 15.8 s warm, 21.9 s cold, holding a second pool slot
     // the entire time. Nothing in the product needs an exact figure past the
     // cap; it needs to know there are more.
@@ -646,8 +642,8 @@ export async function aggregateBimElements(input: {
         // How many of those elements published the quantity at all.
         //
         // `sum()` and `avg()` skip nulls, so a hundred rooms of which ten
-        // carry a `NetFloorArea` produced "250 über 100 Bauteile" — a sum of
-        // ten values, asserted over a hundred elements. `count(expr)` counts
+        // carry a `NetFloorArea` would produce "250 über 100 Bauteile" — a sum
+        // of ten values, asserted over a hundred elements. `count(expr)` counts
         // non-nulls, which is exactly the contributor count.
         measured: input.metricValueExpression
           ? sql<number>`count(${input.metricValueExpression})`.as('measured')
@@ -661,9 +657,8 @@ export async function aggregateBimElements(input: {
       // the reader saw a table that changed under a refresh.
       .orderBy(desc(count()), asc(sql`1`))
       // One more than asked for, so the caller can tell a full page from a
-      // complete answer. A thirty-storey building grouped by storey returned
-      // the top 25 and read as the whole Flächenaufstellung; five storeys were
-      // simply absent, and the agent's own sum of the list came up short.
+      // complete answer. Without it, a thirty-storey building grouped by storey
+      // reads as complete at the top 25, with five storeys silently absent.
       .limit(limit + 1)
     return input.groupExpression ? query.groupBy(sql`1`) : query
   })
@@ -714,10 +709,10 @@ export interface BimPropertyCatalog {
  * Past this many in-scope elements the catalog reads a sample instead.
  *
  * The unnest is the cost: a realistic element carries ~29 property and
- * quantity pairs, so the old unbounded query produced `Append (actual
- * rows=11600000)` on a seeded 400 000-element model and two sorts of 45-48 MB
- * against a 4 MB `work_mem` — measured at over the 30 s `statement_timeout`,
- * which reached the caller as HTTP 500. At this ceiling the same unnest is
+ * quantity pairs, so an unbounded query produces `Append (actual
+ * rows=11600000)` on a seeded 400 000-element model, and two sorts of 45-48 MB
+ * against a 4 MB `work_mem`. Measured at over the 30 s `statement_timeout`,
+ * which reaches the caller as HTTP 500. At this ceiling the same unnest is
  * ~145 000 rows.
  */
 export const PROPERTY_CATALOG_SCAN_LIMIT = 5_000
@@ -761,11 +756,11 @@ export async function listBimPropertyCatalog(input: {
   const db = getDb()
   const maxValues = Math.min(Math.max(1, Math.trunc(input.maxValues)), 50)
   // Every spelling of the requested type, the way every other type predicate
-  // in this feature does it. An exact match meant an IFC4 export whose walls
-  // are `IfcWallStandardCase` answered `properties` with `total: 0`, `complete`
-  // then read `true`, and the summary said "Das Modell enthält keine Property
-  // Sets" — after which the agent invents property names, which is the precise
-  // failure this catalog exists to prevent.
+  // in this feature does it. An exact match would answer `properties` for an
+  // IFC4 export whose walls are `IfcWallStandardCase` with `total: 0`, `complete`
+  // would read `true`, and the summary would say "Das Modell enthält keine
+  // Property Sets" — after which the agent invents property names, which is the
+  // precise failure this catalog exists to prevent.
   const typeFilter = input.ifcType
     ? sql`AND lower(e.ifc_type) IN (${sql.join(
         ifcTypeVariants(input.ifcType).map((variant) => sql`${variant}`),
@@ -1076,10 +1071,10 @@ export async function countBimElementsByType(
       .from(bimElements)
       .where(elementScope(modelId, organizationId))
       .groupBy(bimElements.ifcType)
-      // Tie-broken on the type name, the same fix `aggregateBimElements`
-      // carries. Two IFC types with equal counts came back in whatever order
-      // the plan produced, so two runs of the `types` op over one unchanged
-      // export could list them differently — and the agent quotes that order.
+      // Tie-broken on the type name, as `aggregateBimElements` is. Two IFC
+      // types with equal counts would otherwise come back in whatever order the
+      // plan produced, so two runs of the `types` op over one unchanged export
+      // could list them differently — and the agent quotes that order.
       .orderBy(desc(count()), asc(bimElements.ifcType))
   )
   return rows.map((row) => ({ ifcType: row.ifcType, elements: Number(row.elements) }))
@@ -1154,9 +1149,9 @@ export async function upsertBimCheckConfirmation(input: {
         note: input.note,
       })
       .onConflictDoUpdate({
-        // The MODEL is part of the key (0045). Without it, confirming a rule
-        // on the second building in a project updated the first building's row
-        // in place and its signature was gone with no record that it existed.
+        // The MODEL is part of the key (migration 0045). Confirming a rule on the
+        // second building in a project must not update the first building's row
+        // in place, which would lose its signature with no record that it existed.
         target: [
           bimCheckConfirmations.organizationId,
           bimCheckConfirmations.projectId,

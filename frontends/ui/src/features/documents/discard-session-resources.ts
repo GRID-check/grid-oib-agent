@@ -5,9 +5,9 @@
  * Client state only. The server side — the attachment rows, their objects and
  * chunks, and the chat's `s_` collection — is erased by the conversation delete
  * the caller issues next (`DELETE /api/conversations/[id]`), which owns that
- * erasure. This used to delete the collection itself, concurrently with the
- * conversation delete: when the row went first, the collection delete was
- * refused (it authorizes on the row) and the collection was orphaned.
+ * erasure. The collection is not deleted here: a collection delete sent
+ * alongside the conversation delete races it, and one that lands after the row
+ * is refused (it authorizes on the row), which orphans the collection.
  */
 
 import { removePersistedJobForCollection, unmarkSessionCollection } from './persistence'

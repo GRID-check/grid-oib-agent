@@ -44,7 +44,7 @@ vi.mock('@/lib/authz/organizations', () => ({
 }))
 
 // Clients doubled, key builders real — see the note in
-// `@/lib/documents/service.spec.ts` for why a stubbed builder made the key
+// `@/lib/documents/service.spec.ts` for why a stubbed builder would make the key
 // assertions vacuous.
 vi.mock('@/lib/s3', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/lib/s3')>()),
@@ -66,9 +66,8 @@ vi.mock('@/lib/audit/service', () => ({
 vi.mock('@/lib/documents/service', () => ({
   assertFileSizeAllowed: vi.fn(),
   assertUploadTypeAllowed: vi.fn().mockResolvedValue(undefined),
-  // The ONE model-vs-ingest dispatcher every shelf shares. The Archiv used to
-  // call `dispatchIngest` with its own `isIfcFilename` branch beside it; the
-  // branch now lives in `dispatchDocument`, which is what this asserts on.
+  // The ONE model-vs-ingest dispatcher every shelf shares; `dispatchDocument`
+  // owns the `isIfcFilename` branch, which is what this asserts on.
   dispatchDocument: vi.fn().mockResolvedValue({ jobId: 'job-1', status: 'pending' }),
   // The semantic-search join is unit-tested in the documents service; here we
   // assert the Archiv service wires the collection + hits through it correctly.
@@ -83,8 +82,8 @@ vi.mock('@/lib/documents/reconcile-status', () => ({
 // The admitting insert, not the repository's — see the note in
 // `documents/service.spec.ts`. The Archiv shares the tenant's bytes, so it goes
 // through the same quota admission and the same compensating delete.
-// The re-upload collision lookup. Default: no collision, so the Archiv upload
-// path is the insert path it has always been.
+// The re-upload collision lookup. Default: no collision, so the upload takes
+// the insert path.
 vi.mock('@/lib/documents/repository', () => ({
   findLiveDocumentByFilename: vi.fn().mockResolvedValue(null),
   // The folder an upload is filed into, resolved on the Archiv shelf. Default:
@@ -616,8 +615,8 @@ describe('deleteArchivDocument', () => {
 
     await expect(deleteArchivDocument(session, 'd1', request)).rejects.toBeInstanceOf(UpstreamError)
 
-    // The `_img/` rasters used to be left behind here and every failure
-    // swallowed; now the shared erasure runs, and a failure keeps the row.
+    // The shared erasure removes the `_img/` rasters too, and a failure keeps
+    // the row.
     expect(eraseDocumentObjectsOrKeepRow).toHaveBeenCalledWith(doc, 'org-1')
     expect(deleteArchivDocumentRow).not.toHaveBeenCalled()
   })
@@ -626,8 +625,8 @@ describe('deleteArchivDocument', () => {
     // An Archiv row cannot be machine-authored today: `fileGeneratedDocument`
     // sets no scope, so the column defaults to `project`. That is a coincidence
     // of a default, and this call — DELETE by `file_ids: [filename]` — is the
-    // exact shape that took a human document's chunks out of retrieval when a
-    // machine-written report shared its name. The row still goes; it is only
+    // exact shape that takes a human document's chunks out of retrieval when a
+    // machine-written report shares its name. The row still goes; it is only
     // the purge that has nothing to do, because such a row owns no chunks.
     vi.mocked(canManageArchiv).mockReturnValue(true)
     vi.mocked(findArchivDocument).mockResolvedValue(
@@ -650,11 +649,11 @@ describe('deleteArchivDocument', () => {
   })
 
   /**
-   * The Archiv is not a different filing system — it is the same `documents`
-   * table with `scope = 'archiv'` — so it carried the same ghost: a second
-   * upload of one filename wrote a second row and a second stored object, while
-   * the ingest pipeline's filename-keyed chunk replacement killed the first
-   * row's chunks. Listed, downloadable, findable by nothing, billed twice.
+   * The Archiv is the same `documents` table with `scope = 'archiv'`, so a second
+   * upload of one filename must replace the first, not write a second row and a
+   * second stored object. The ingest pipeline's filename-keyed chunk replacement
+   * would otherwise kill the first row's chunks, leaving a row that is listed,
+   * downloadable, findable by nothing, and billed twice.
    */
   it('replaces an Archiv document of the same name instead of ghosting it', async () => {
     vi.mocked(findLiveDocumentByFilename).mockResolvedValue({

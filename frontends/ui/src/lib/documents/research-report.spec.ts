@@ -35,7 +35,7 @@ vi.mock('@/lib/pdf/markdown-pdf', async (importOriginal) => {
 })
 
 /**
- * The review round the report now opens (ADR-0054, slice 6). Mocked at the
+ * The review round the report opens (ADR-0054). Mocked at the
  * lifecycle rather than at the database, because what this spec is about is
  * WHICH state a filed report arrives in and who is asked to look at it.
  */
@@ -153,9 +153,9 @@ const runRenderer = () => {
 
 // The cover sheet is dated from the real clock (`research-report.ts` passes
 // `new Date()`, deliberately: a report filed today is dated today). The
-// assertions below name „20. August 2026", so without a frozen clock they
-// passed on exactly one day and failed on 25 August with a diff that looks
-// like a formatting change rather than a calendar.
+// assertions below name „20. August 2026", so without a frozen clock they would
+// fail on any other day, with a diff that looks like a formatting change rather
+// than a calendar.
 beforeEach(() => {
   vi.useFakeTimers()
   vi.setSystemTime(new Date('2026-08-20T11:00:00Z'))
@@ -211,7 +211,7 @@ describe('fileResearchReport', () => {
     expect(input.producer).toBe('deep_research')
     // The identifier only. What KIND of identifier it is is the producer's
     // property, read off `GENERATED_DOCUMENT_PRODUCER_REF_KINDS` inside the
-    // service, so this caller cannot state — or misstate — it (migration 0066).
+    // service, so this caller cannot state — or misstate — it.
     expect(input.ref).toBe('run_7')
     expect(input.projectId).toBe('proj-1')
     expect(input.title).toBe('Brandschutz Straßenhäuser')
@@ -223,12 +223,11 @@ describe('fileResearchReport', () => {
   })
 
   /**
-   * The document is filed as a PDF and not as the `.docx` this path first
-   * shipped with, because `PREVIEW_TYPES` in `file-preview-pane.tsx` has no
-   * entry for a Word document: the report a user had just commissioned landed
-   * in Berichte as a generic icon with no in-app preview. The content type is
-   * also what `generatedFilename` reads to pick the extension, so a wrong one
-   * here is a `.docx` that is not one.
+   * The document is filed as a PDF, because `PREVIEW_TYPES` in
+   * `file-preview-pane.tsx` has no entry for a Word document, and a report filed
+   * as one would land in Berichte as a generic icon with no in-app preview. The
+   * content type is also what `generatedFilename` reads to pick the extension,
+   * so a wrong one here is a `.docx` that is not one.
    */
   it('files a PDF — the type the Files pane can preview', async () => {
     await fileResearchReport({ session: SESSION, projectId: 'proj-1', runId: 'run_7', report: REPORT })
@@ -256,7 +255,7 @@ describe('fileResearchReport', () => {
     const pdf = await readPdf(rendering.bytes)
 
     // Handed back to the seam, which checks it against these same bytes before
-    // anything is stored. The producer no longer formats its own: the string it
+    // anything is stored. The producer does not format its own: the string it
     // returns is the string the context gave it, so the marking in the file and
     // the marking the service verifies cannot be two different answers.
     expect(rendering.marking).toBe(RUN_MARKING)
@@ -318,14 +317,13 @@ describe('fileResearchReport', () => {
    * different document from the one this file describes.
    */
   it('opens with the title, then the marking, then the identifying facts', async () => {
-    // The order changed when the report moved onto the product's own document
-    // (cover sheet, running header, page footer) instead of a bare page. The
-    // title is now the cover BAND — a heading, not a claim about the building —
-    // and the marking is the first thing in the cover body.
+    // The product's own document has a cover sheet, a running header and a page
+    // footer. The title is the cover BAND — a heading, not a claim about the
+    // building — and the marking is the first thing in the cover body.
     //
-    // The rule this test exists for is unchanged and still holds: the marking
-    // comes before every FACT and before the report itself, so nothing the
-    // document asserts is read before the warning about how much to trust it.
+    // The rule this test exists for: the marking comes before every FACT and
+    // before the report itself, so nothing the document asserts is read before
+    // the warning about how much to trust it.
     await fileResearchReport({ session: SESSION, projectId: 'proj-1', runId: 'run_7', report: REPORT })
     const pdf = await readPdf((await runRenderer()).bytes)
 
@@ -414,9 +412,8 @@ describe('fileResearchReport', () => {
     const pdf = await readPdf((await runRenderer()).bytes)
 
     // The absence is the claim, so it is asserted as an absence rather than by
-    // pinning the whole page: an exact-match assertion on a document that now
-    // has a cover, a running header and a page footer breaks on chrome and says
-    // nothing about the fact that matters.
+    // pinning the whole page: an exact-match assertion breaks on the chrome
+    // (cover, running header, footer) and says nothing about the fact that matters.
     for (const label of ['t:reportCover.location', 't:reportCover.bundesland', 't:fields.gebaeudeklasse']) {
       expect(pdf.text, `${label} has no value, so it prints no line`).not.toContain(label)
     }
@@ -452,8 +449,7 @@ describe('fileResearchReport', () => {
     await fileResearchReport({ session: SESSION, projectId: 'proj-1', runId: 'run_7', report: '' })
     const pdf = await readPdf((await runRenderer()).bytes)
 
-    // Two pages, and that is the document now: a cover sheet and the body. It
-    // used to be one because the report was rendered onto a bare page.
+    // Two pages: a cover sheet and the body.
     expect(pdf.pageCount).toBe(2)
     expect(pdf.text).toContain(normalizePdfText('KI-generiert — nicht geprüft'))
     expect(pdf.text).toContain('t:documentTitle')
@@ -469,15 +465,15 @@ describe('fileResearchReport', () => {
         steps: [{ label: 'Schrittmaß', operation: 'sum', operands: [{ label: 'Steigung', value: 17, factor: 2 }, { label: 'Auftritt', value: 30 }] }],
       },
     ]
-    /** The Fundstelle the report quotes, verbatim and cited, the way an answer quotes it now (ADR-0069). */
+    /** The Fundstelle the report quotes, verbatim and cited, the way an answer quotes it (ADR-0069). */
     const QUOTING =
       '# Brandschutz Straßenhäuser\n\nDer Bericht beginnt hier.\n\n' +
       '> „Fluchtwege sind so auszubilden, dass sie im Brandfall sicher benützbar sind.“ [1]\n\n' +
       '## Quellen\n\n[1] [OIB] OIB-Richtlinie 2, Ausgabe Mai 2023\n'
 
     /**
-     * The content ask of roadmap #3, in the artifact: the cited Richtlinie, the
-     * §, and the excerpt — after the report, under a heading of their own.
+     * The cited sources in the artifact: the Richtlinie, the §, and the excerpt —
+     * after the report, under a heading of their own.
      */
     it('appends the cited Richtlinie and its excerpt as their own section', async () => {
       await fileResearchReport({
@@ -520,14 +516,13 @@ describe('fileResearchReport', () => {
 
       // ONE Quellen section, still carrying the sanitizer's origin tokens.
       //
-      // Where it sits changed: `splitProse` lifts the report's own written
-      // sources out of the prose and renders them as the document's reference
-      // list, so they end the document rather than sitting mid-body with the
-      // cards appended after. The thing this test was written to protect is
-      // unchanged and is what is asserted — the section is not duplicated, and
-      // the `[OIB]` / `[KB]` / `[Web]` / `[RIS]` tokens the backend's
-      // `citation_verification.sanitize_report` put there survive the round
-      // trip, which is what a second hand-rolled parser would have lost.
+      // `splitProse` lifts the report's own written sources out of the prose and
+      // renders them as the document's reference list, so they end the document
+      // rather than sitting mid-body with the cards appended after. Asserted: the
+      // section is not duplicated, and the `[OIB]` / `[KB]` / `[Web]` / `[RIS]`
+      // tokens the backend's `citation_verification.sanitize_report` put there
+      // survive the round trip, which is what a second hand-rolled parser would
+      // lose.
       expect(pdf.text.match(/Quellen/g)).toHaveLength(1)
       expect(pdf.text).toContain(normalizePdfText('Quellen 1 [OIB] OIB-Richtlinie 2, Ausgabe Mai 2023'))
       expect(pdf.text.indexOf('Der Bericht beginnt hier.')).toBeLessThan(
@@ -536,7 +531,7 @@ describe('fileResearchReport', () => {
     })
 
     /**
-     * Today's only caller has no cards to pass — `JobReportResponse` carries
+     * The production caller has no cards to pass — `JobReportResponse` carries
      * `report` and nothing else — so this is the shape that actually ships, and
      * it must print no heading standing over nothing.
      */
@@ -599,10 +594,10 @@ describe('fileResearchReport', () => {
 /**
  * A report arrives as a DRAFT, and its arrival is a request to look at it.
  *
- * Before ADR-0054 a filed report had no editorial state at all: it appeared in
- * Berichte looking exactly like a document somebody had checked. „Piloti hat für
- * Sie recherchiert" and „das Büro steht dahinter" are different sentences, and
- * the Files pane could only say the second.
+ * Without a draft state a filed report would appear in Berichte looking exactly
+ * like a document somebody had checked. „Piloti hat für Sie recherchiert" and
+ * „das Büro steht dahinter" are different sentences, and the Files pane must be
+ * able to say the first.
  */
 describe('fileResearchReport opens a review round', () => {
   it('records version 1 as a draft and submits it to the commissioning person', async () => {
@@ -612,8 +607,8 @@ describe('fileResearchReport opens a review round', () => {
     expect(transitionDocumentVersion).toHaveBeenCalledWith(SESSION, 'doc-1', 'ver-1', 'submit', {
       reviewerUserIds: ['user-1'],
       request: undefined,
-      // The RUN made this gesture in the commissioning human's session
-      // (migration 0085). Without it `submitted_by` reads as that person having
+      // The RUN made this gesture in the commissioning human's session.
+      // Without it `submitted_by` reads as that person having
       // asserted the report themselves, and the not-the-submitter guard then
       // refuses the one person who asked for it the right to release it.
       actingHuman: false,
@@ -622,8 +617,8 @@ describe('fileResearchReport opens a review round', () => {
 
   it('keeps the producer and the renderer exactly as they were', async () => {
     await fileResearchReport({ session: SESSION, projectId: 'proj-1', runId: 'run_7', report: REPORT })
-    // The bytes are untouched by this change: it adds a version row and a
-    // submit, and nothing about what a report LOOKS like.
+    // The bytes are untouched: the filing adds a version row and a submit, and
+    // nothing about what a report LOOKS like.
     expect(fileGeneratedDocument.mock.calls[0][0].producer).toBe('deep_research')
   })
 

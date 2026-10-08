@@ -62,8 +62,8 @@ describe('IfcModelViewer without WebGPU', () => {
     // says it WITHOUT delivering a verdict on the model. "The model itself is
     // fine" is a clean bill of health issued by an error toast, on a product
     // that never certifies anything and on a file that may carry a hundred
-    // Modellprüfung findings. The German always said only that the browser is
-    // the reason.
+    // Modellprüfung findings. The German says only that the browser is the
+    // reason.
     expect(
       screen.getByText(/a browser limitation, not a problem with the model/)
     ).toBeInTheDocument()
@@ -79,9 +79,9 @@ describe('IfcModelViewer without WebGPU', () => {
 describe('IfcModelViewer with WebGPU', () => {
   it('says it is loading while the source URL is being minted, not that the browser cannot', () => {
     // These are two different situations and only one of them is about the
-    // browser. Folding them together told a browser that HAS WebGPU that it
-    // does not — for a second on every card while the presigned URL was
-    // minted, and permanently when that request failed.
+    // browser. Folding them together would tell a browser that HAS WebGPU that
+    // it does not — briefly while the presigned URL is minted, and permanently
+    // when that request fails.
     setWebGpu(true)
     render(<IfcModelViewer sourceUrl={null} elements={ELEMENTS} />)
     expect(screen.queryByTestId('ifc-canvas')).not.toBeInTheDocument()
@@ -121,10 +121,10 @@ describe('IfcModelViewer with WebGPU', () => {
   })
 
   it('gives a new source its own chance, rather than staying broken', async () => {
-    // The error fallback returns BEFORE the canvas renders, so once `error`
-    // was stored the canvas never mounted again — and only the canvas can
-    // report a new status. The next model, or a re-signed URL after the first
-    // expired, stayed unavailable until the whole parent unmounted.
+    // The error fallback returns BEFORE the canvas renders, so a stored `error`
+    // keeps the canvas unmounted — and only the canvas can report a new status.
+    // The next model, or a re-signed URL after the first expired, must not stay
+    // unavailable until the whole parent unmounts.
     setWebGpu(true)
     canvas.status = { phase: 'error', percent: null, meshCount: 0, message: 'Failed to get GPU adapter' }
     const { rerender } = render(
@@ -141,10 +141,10 @@ describe('IfcModelViewer with WebGPU', () => {
   it('keeps two groups that share a label apart', () => {
     // The URL form groups by STATUS (`?hl=fail:A&hl=fail:B`) and the workspace
     // labels each group from its status, so two `fail` groups arrive with the
-    // identical translated label. Keyed on that label, React treated them as
-    // one row: the second group's count vanished from the legend while its
-    // elements stayed coloured on the model — a legend that undercounts what
-    // the viewport is showing.
+    // identical translated label. Two groups with the same label must still be
+    // two rows: keyed on that label, React would treat them as one row, and the
+    // second group's count would vanish from the legend while its elements stayed
+    // coloured — a legend that undercounts what the viewport is showing.
     setWebGpu(true)
     // React does not throw on a duplicate key, it warns and then reconciles
     // wrongly on the NEXT update — which no single render can observe. The
@@ -181,10 +181,9 @@ describe('IfcModelViewer with WebGPU', () => {
       expect(screen.getByText('(1)')).toBeInTheDocument()
       expect(screen.getByText('(2)')).toBeInTheDocument()
 
-      // And the counts FOLLOW the groups through an update, which is the
-      // reconciliation the shared key actually broke: keyed by label, React
-      // treats these as one row and reuses the first one's subtree, so the
-      // reordered pair renders with the old counts.
+      // And the counts FOLLOW the groups through an update: keyed by label, React
+      // would treat these as one row and reuse the first one's subtree, so a
+      // reordered pair would render with the old counts.
       rerender(
         <IfcModelViewer
           sourceUrl="https://example.test/model.ifc"
@@ -230,10 +229,10 @@ describe('IfcModelViewer with WebGPU', () => {
   })
 
   it('draws no controls at all — this is the viewport, not the stage', async () => {
-    // The controls used to live in here behind a `variant` prop, which is how
-    // one component ended up rendering a toolbar, a legend, a status chip and
-    // a hint line each behind its own condition. They belong to `ModelStage`
-    // now, and a file preview must not sprout a section slider.
+    // The controls belong to `ModelStage`, not here: a `variant` prop on the
+    // viewport is how one component ends up rendering a toolbar, a legend, a
+    // status chip and a hint line each behind its own condition, and a file
+    // preview must not sprout a section slider.
     setWebGpu(true)
     render(<IfcModelViewer sourceUrl="https://example.test/model.ifc" elements={ELEMENTS} />)
     await screen.findByTestId('ifc-canvas')
@@ -249,9 +248,9 @@ describe('IfcModelViewer with WebGPU', () => {
   })
 
   it('claims no position while the geometry is being built', async () => {
-    // Parsing has no known end, and the old version filled the gap with a mesh
-    // count — a number that measures the exporter's tessellation settings and
-    // tells an architect nothing about how long they are waiting.
+    // Parsing has no known end, and a mesh count would fill the gap with a
+    // number that measures the exporter's tessellation settings and tells an
+    // architect nothing about how long they are waiting.
     setWebGpu(true)
     canvas.status = { phase: 'parsing', percent: null, meshCount: 12847 }
     render(<IfcModelViewer sourceUrl="https://example.test/model.ifc" elements={ELEMENTS} />)

@@ -56,10 +56,10 @@ const GROSS_AREA_KEYS = ['GrossFloorArea', 'GrossArea']
 /**
  * Net volume only.
  *
- * `GrossVolume` used to be a fallback, so a storey's `Rauminhalt` was a
- * mixture: rooms publishing net contributed net, rooms publishing only gross
- * contributed gross, and on an ordinary Wohnbau those differ by roughly the
- * enclosing construction. A single column headed "Rauminhalt" summing two
+ * `GrossVolume` must not be a fallback: a storey's `Rauminhalt` would be a
+ * mixture, with rooms publishing net contributing net and rooms publishing only
+ * gross contributing gross, and on an ordinary Wohnbau those differ by roughly
+ * the enclosing construction. A single column headed "Rauminhalt" summing two
  * different measures is worse than a column with gaps in it — the gaps are
  * visible and the mixture is not, and this product's whole stance is that an
  * absent figure stays absent rather than being approximated.
@@ -68,12 +68,12 @@ const VOLUME_KEYS = ['NetVolume']
 /**
  * Clear height first, which is what {@link BimRoomRow.height} promises.
  *
- * `Height` led, and `Qto_SpaceBaseQuantities.Height` is the STRUCTURAL height
- * — floor slab to floor slab. The Prüfbuch deliberately prefers
- * `FinishCeilingHeight`/`ClearHeight` for the 2,50 m rule, so the same room
- * was reported at 2,70 m in the Raumbuch and 2,52 m in the Prüfbuch, and the
- * Raumbuch column an architect eyeballs against that threshold was 15–25 cm
- * optimistic.
+ * `Height` must not lead: `Qto_SpaceBaseQuantities.Height` is the STRUCTURAL
+ * height — floor slab to floor slab. The Prüfbuch prefers
+ * `FinishCeilingHeight`/`ClearHeight` for the 2,50 m rule, and a Raumbuch that
+ * led with `Height` would report the same room at 2,70 m where the Prüfbuch
+ * says 2,52 m, 15–25 cm optimistic in the column an architect checks against
+ * that threshold.
  */
 const HEIGHT_KEYS = ['FinishCeilingHeight', 'ClearHeight', 'Height']
 
@@ -116,8 +116,8 @@ export function buildRoomSchedule(
 
       Rounding each room to two decimals and then adding the rounded figures
       accumulates up to half a centipoint per room — on a 150-room building
-      that is most of a square metre, and the Raumbuch total then disagreed
-      with the Kennwerte Netto-Grundfläche on the same model with nothing on
+      that is most of a square metre, and the Raumbuch total would disagree
+      with the Kennwerte Netto-Grundfläche on the same model, with nothing on
       either screen to explain the difference. `extract.ts` rounds only the
       final sum.
     */
@@ -155,14 +155,14 @@ export function buildRoomSchedule(
       Once per NAME, because that is what the rooms are bucketed by.
 
       A Wohnhausanlage exported as one IFC carries an `IfcBuildingStorey` named
-      `Erdgeschoß` under each `IfcBuilding`. Both resolved to the same room
-      array, so the schedule listed every ground-floor room twice, in two
-      identical blocks, and the building total counted them twice: two rooms of
-      40 m² and 60 m² came out as "4 Räume, 200 m²". That is the Netto-
-      Grundfläche an architect copies into a Flächenaufstellung.
+      `Erdgeschoß` under each `IfcBuilding`. Both resolve to the same room
+      array, so without this check the schedule would list every ground-floor
+      room twice, in two identical blocks, and the building total would count
+      them twice: two rooms of 40 m² and 60 m² would come out as "4 Räume,
+      200 m²". That is the Netto-Grundfläche an architect copies into a
+      Flächenaufstellung.
 
-      `seen` was already being written here — it just was not being read until
-      the loop below.
+      The `seen` set makes the first loop skip a name it has already summarised.
     */
     if (seen.has(name)) continue
     const rooms = byStorey.get(name)
@@ -203,11 +203,11 @@ export function buildRoomSchedule(
     /*
       The unit the MODEL declares, or none.
 
-      Defaulting to `m²` labelled raw model values with a unit nobody had
+      Defaulting to `m²` would label raw model values with a unit nobody had
       verified: a millimetre-unit file that declares no AREAUNIT publishes a
-      40 m² room as `40000000`, and the Raumbuch rendered "40000000 m²". A bare
-      number is wrong-looking and therefore safe; a wrong unit reads as a fact.
-      `query.ts` already takes this line.
+      40 m² room as `40000000`, and the Raumbuch would render "40000000 m²". A
+      bare number is wrong-looking and therefore safe; a wrong unit reads as a
+      fact. `query.ts` takes this line too.
     */
     units: {
       area: summary.units.area?.symbol ?? '',
@@ -263,8 +263,8 @@ export interface BimQuantityRow {
 /**
  * Which of the model's declared units each take-off quantity is measured in.
  *
- * The table printed the summed value bare, so a Massenermittlung read `412`
- * with no way to tell m² from m³ — and a Massenermittlung that cannot say
+ * The table prints the summed value bare, so a Massenermittlung would read
+ * `412` with no way to tell m² from m³ — and a Massenermittlung that cannot say
  * which cannot go into a Kostenschätzung. The model DECLARES the symbols
  * (`summary.units`), so the dimension is all this has to name.
  */
@@ -341,10 +341,10 @@ export function roomScheduleToCsv(
      * Set when the file holds ONE storey rather than the building.
      *
      * The chat card downloads `{ ...schedule, storeys: filtered }`, and
-     * `totals` came through the spread untouched — so a file called
-     * "Raumbuch Erdgeschoss" ended in a row labelled `Gesamt` carrying the
+     * `totals` comes through the spread untouched — so a file called
+     * "Raumbuch Erdgeschoss" would end in a row labelled `Gesamt` carrying the
      * whole building's Netto-Grundfläche. The screen guards against exactly
-     * that and says so; the file that reaches the Einreichung did not.
+     * that and says so; the file that reaches the Einreichung must too.
      */
     storeyFilter?: string | null
     /** The model was read only in part, so these are not building figures. */
@@ -366,11 +366,11 @@ export function roomScheduleToCsv(
   /**
    * A semicolon file for German-locale Excel, with German decimals.
    *
-   * The separator was already chosen for that audience — and every number went
-   * in as `String(24.5)`, which German Excel reads as TEXT. The downloaded
-   * Raumbuch would not sum, which is the one thing anyone downloads a Raumbuch
-   * to do. A comma decimal is what the same spreadsheet expects, and it is
-   * safe precisely because the separator is a semicolon.
+   * The separator is chosen for that audience, and numbers go in with a comma
+   * decimal: `String(24.5)` would be read by German Excel as TEXT, so the
+   * downloaded Raumbuch would not sum, which is the one thing anyone downloads
+   * a Raumbuch to do. A comma decimal is what the same spreadsheet expects, and
+   * it is safe precisely because the separator is a semicolon.
    */
   const escape = (value: string | number | null): string => {
     if (value === null) return ''
@@ -387,7 +387,7 @@ export function roomScheduleToCsv(
     // and for most CSV readers just as a newline does, so an unquoted one lets
     // an uploaded model inject whole extra rows into the Raumbuch a colleague
     // downloads: fabricated room names and areas that read as model data.
-    // `\r\n` was already caught through its `\n`; the bare one was not.
+    // `\r\n` is caught through its `\n`; the bare one must be caught too.
     return /[";\n\r]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text
   }
   const lines = [header.join(';')]
@@ -463,9 +463,9 @@ export function roomScheduleToCsv(
 
     A Flächenaufstellung that is short by four rooms, or computed over half a
     model, and does not say so is the one number in this product that could do
-    real damage — and the downloaded file was the only version of it with no
-    warning attached. Written as leading text in the first column so they
-    survive an import into any spreadsheet.
+    real damage, so the downloaded file carries both warnings the screen shows.
+    Written as leading text in the first column so they survive an import into
+    any spreadsheet.
   */
   if (options.truncated) {
     lines.push(

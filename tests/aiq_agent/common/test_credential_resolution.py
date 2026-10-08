@@ -295,7 +295,7 @@ def test_no_org_id_skips_byok(monkeypatch):
 
 
 # ---------------------------------------------------------------------------
-# NIM removal — fail fast, never a deep client failure
+# NIM is not supported — fail fast, never a deep client failure
 # ---------------------------------------------------------------------------
 
 _NIM_HOST = "https://integrate.api.nvidia.com/v1"
@@ -340,8 +340,7 @@ def test_validate_llm_configs_fails_fast_on_nim():
 
 
 def test_validate_llm_configs_still_reports_missing_keys(monkeypatch):
-    # A supported config without its key keeps the old behaviour: no raise,
-    # the missing key is reported.
+    # A supported config without its key does not raise: the missing key is reported.
     is_valid, missing = validate_llm_configs({"llms": {"ok": {"_type": "openai"}}})
     assert not is_valid
     assert missing == ["OPENAI_API_KEY"]

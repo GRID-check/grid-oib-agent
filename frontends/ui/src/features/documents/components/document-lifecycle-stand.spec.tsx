@@ -1,12 +1,12 @@
 /**
  * Where the document stands, said unconditionally.
  *
- * The line this covers used to live inside the control strip and render only
- * when that strip had NOTHING to offer — so the states a reader could act on,
- * and the published upload whose one control was „Archivieren", both got a verb
- * and no sentence. What is asserted here is that the sentence is now always
- * there, and that the track beside it puts the state's word in an order rather
- * than leaving it as a label the reader had to have been taught.
+ * The line is said whether or not the control strip has anything to offer: a
+ * state the reader can act on, and a published upload whose one control is an
+ * archive verb, both get a sentence and not only a verb. What is asserted here
+ * is that the sentence is always there, and that the track beside it puts the
+ * state's word in an order rather than leaving it as a label the reader had to
+ * have been taught.
  */
 
 import { describe, expect, it } from 'vitest'

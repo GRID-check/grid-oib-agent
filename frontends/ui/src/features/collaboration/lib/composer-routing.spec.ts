@@ -44,7 +44,7 @@ describe('resolveAddressee', () => {
     expect(routing).toEqual({ kind: 'mentions', mentions: [anna] })
   })
 
-  test('tagging @Piloti while awaiting takes the wait back (MN-9.3)', () => {
+  test('tagging @Piloti while awaiting takes the wait back', () => {
     const { mode, agentTagged } = resolve({
       text: '@Piloti bitte',
       mentions: [piloti],
@@ -54,7 +54,7 @@ describe('resolveAddressee', () => {
     expect(agentTagged).toBe(true)
   })
 
-  test('a person plus @Piloti addresses both (MN-1)', () => {
+  test('a person plus @Piloti addresses both', () => {
     const { mode, humans, agentTagged } = resolve({
       text: '@Anna @Piloti hallo',
       mentions: [anna, piloti],
@@ -64,7 +64,7 @@ describe('resolveAddressee', () => {
     expect(agentTagged).toBe(true)
   })
 
-  test('deleting the token drops the mention (MN-3)', () => {
+  test('deleting the token drops the mention', () => {
     // The mention was picked, then the text edited to remove it. Reconciliation
     // is what makes the send match what the user can see.
     const { mentions, routing } = resolve({ text: 'hallo', mentions: [anna] })
@@ -72,8 +72,8 @@ describe('resolveAddressee', () => {
     expect(routing).toEqual({ kind: 'fast' })
   })
 
-  describe('with collaboration off (NF-8)', () => {
-    test('routing is exactly the pre-feature call', () => {
+  describe('with collaboration off', () => {
+    test('routing is exactly the fast path', () => {
       expect(resolve({ text: 'Frage', canCollaborate: false }).routing).toEqual({
         kind: 'fast',
       })
@@ -87,8 +87,8 @@ describe('resolveAddressee', () => {
 
     test('…and even when mention state was populated behind the flag', () => {
       // The divergence this module closes. `mentions` can be seeded by a prefill
-      // without consulting canCollaborate; the send used to take the ruled path
-      // on that state while the line — gated on the flag — said nothing at all.
+      // without consulting canCollaborate; the send would take the ruled path
+      // on that state while the line — gated on the flag — says nothing at all.
       const { routing, mentions } = resolve({
         text: '@Anna hallo',
         mentions: [anna],
@@ -100,7 +100,7 @@ describe('resolveAddressee', () => {
   })
 
   test('reconciliation is unaffected by surrounding whitespace', () => {
-    // The line reconciled the raw text and the send the trimmed text. Neutral
+    // The line reconciles the raw text and the send the trimmed text. Neutral
     // today because whitespace is boundary-equivalent to string bounds — pinned
     // so a change to boundary handling fails here, not silently in a send.
     const padded = resolve({ text: '  @Anna hallo  ', mentions: [anna] })
@@ -110,7 +110,7 @@ describe('resolveAddressee', () => {
   })
 
   test('the line and the send can never disagree', () => {
-    // The invariant the twenty-one component tests were standing in for.
+    // The invariant the component tests stand in for.
     const allowed: Record<AddresseeMode, SendKind[]> = {
       people: ['mentions'],
       thread: ['awaiting'],

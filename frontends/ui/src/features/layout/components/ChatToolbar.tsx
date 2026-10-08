@@ -54,8 +54,8 @@ interface ChatToolbarProps {
   sessionTitle?: string
   /**
    * Accepted and unused: the project is named by the composer's scope chip,
-   * the rail and the URL, so the toolbar no longer repeats it. The prop stays
-   * so callers and specs need no change while this ruling settles.
+   * the rail and the URL, so the toolbar does not repeat it. The prop is kept so
+   * callers need no change.
    */
   projectName?: string
   onNewSession?: () => void
@@ -65,7 +65,7 @@ interface ChatToolbarProps {
    * The thread/project breadcrumb, New chat and Research controls only appear
    * once this is true — a fresh, empty chat keeps only the quiet navigation
    * affordances (history door + mobile nav opener). Defaults to true so callers
-   * that don't yet pass it (and existing specs) keep the full toolbar.
+   * that do not pass it get the full toolbar.
    */
   isChatStarted?: boolean
   /**
@@ -77,8 +77,8 @@ interface ChatToolbarProps {
   /**
    * Whether the collaboration feature is on for this org. **Default `false`**: the
    * gate is default-deny like the API's (`requireCollaborationEnabled`), so a
-   * caller that has not been taught about sharing yet opens no request and shows no
-   * collaboration furniture.
+   * caller that does not pass it opens no request and shows no collaboration
+   * furniture.
    */
   isCollaborationEnabled?: boolean
   /** The signed-in user, so the roster can mark "you" and Leave knows its target. */
@@ -171,7 +171,7 @@ export const ChatToolbar: FC<ChatToolbarProps> = memo(function ChatToolbar({
    *
    * The named exceptions under a blanket rule are real, and they are shown where
    * there is room to explain them: the sharing surface, which states the rule and
-   * the exceptions together (SH-17/SH-18).
+   * the exceptions together.
    */
   const showFaces = sharingState?.visibility === 'private'
   const showAccessChip = Boolean(sharingState && sharingState.visibility !== 'private')
@@ -198,12 +198,11 @@ export const ChatToolbar: FC<ChatToolbarProps> = memo(function ChatToolbar({
    * opened as a blur — and blur commits, so the editor opened and closed again
    * before anyone could type in it.
    *
-   * Two orderings were tried and both were wrong, because ordering is the wrong
-   * tool: deferring the open by a frame put it at the mercy of whatever else owns
-   * the frame loop (the pill animates), and deferring by a task still raced the
-   * menu's own restoration, so the editor opened *usually*. What is actually true
-   * here is simpler — a blur arriving in the first moments after the menu closed
-   * is the menu handing focus back, not the user leaving the field. So the editor
+   * Ordering is the wrong tool here: deferring the open by a frame leaves it at
+   * the mercy of whatever else owns the frame loop (the pill animates), and
+   * deferring by a task races the menu's own focus restoration. What is true is
+   * simpler: a blur arriving in the first moments after the menu closed is the
+   * menu handing focus back, not the user leaving the field. So the editor
    * ignores exactly that blur and takes focus back, and is correct whichever
    * order the two land in. The window is short enough that no real departure can
    * fall inside it (nobody clicks away in a quarter second) and it is closed by
@@ -287,16 +286,14 @@ export const ChatToolbar: FC<ChatToolbarProps> = memo(function ChatToolbar({
     //   RIGHT — the people in the room and the ways out of it. Everything here
     //           is fixed-width.
     //
-    // Mixing the two is what crowded this row. The participant faces and the
-    // access chip used to sit in the LEFT pill, "next to what the thread IS" —
-    // but they are fixed-width status, so every face was taken directly out of
-    // the thread's own title, until on a phone the stack overflowed the pill and
-    // clipped the title to a single glyph. Status now sits with the actions,
-    // where a fixed width costs the title nothing.
+    // Mixing the two crowds this row. Participant faces and the access chip are
+    // fixed-width status: beside the title they take width from it, and on a
+    // phone the stack overflows the pill and clips the title to a single glyph.
+    // Status sits with the actions, where a fixed width costs the title nothing.
     //
-    // The other half of the crowding was duplicate doors. This header does not
-    // own the research report: a run is read in the thread that commissioned
-    // it, in its run block (ADR-0062), so there is no report toggle here.
+    // Duplicate doors crowd it too, so this header does not own the research
+    // report: a run is read in the thread that commissioned it, in its run block
+    // (ADR-0062), so there is no report toggle here.
     <header className="pointer-events-none absolute inset-x-0 top-0 z-20 min-h-12 px-4 pb-2 pt-[max(0.5rem,env(safe-area-inset-top))] sm:px-6">
       {/* The SAME wide column as the message list and composer (max-w-5xl,
           mx-auto), so the pills stay aligned with the chat window's edges. */}
@@ -376,8 +373,8 @@ export const ChatToolbar: FC<ChatToolbarProps> = memo(function ChatToolbar({
             so the current thread is identifiable. On a fresh, empty chat there
             is no thread to name yet, so it stays hidden to keep the start
             screen calm. The PROJECT name is deliberately absent: the composer's
-            scope chip, the rail and the URL all name it already, so here it was
-            a fourth copy paying rent in the row's scarcest space. */}
+            scope chip, the rail and the URL all name it already, and a fourth
+            copy would spend the row's scarcest space. */}
         {isChatStarted && sessionTitle && (
           <nav
             className="flex min-w-0 items-center gap-1.5 pl-1 pr-1.5 text-sm"
@@ -410,17 +407,15 @@ export const ChatToolbar: FC<ChatToolbarProps> = memo(function ChatToolbar({
                     // a field under 16px takes focus, and this one opens focused,
                     // at the top of the thread, with the toolbar pinned over the
                     // conversation. The zoom is not undone on blur, so renaming a
-                    // chat left the reader magnified inside their own answer.
+                    // chat would leave the reader magnified inside their own answer.
                     className="h-11 w-56 max-w-full rounded-md border bg-card px-2 text-sm font-medium text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 pointer-coarse:text-base sm:h-7"
                   />
                 ) : (
                   // Click-to-rename, kept as the SHORTCUT rather than as the only
-                  // way in. On its own it was the header's least honest element:
-                  // styled exactly like the label it also was, so nobody could
-                  // discover it. The menu entry is now the discoverable path and
-                  // this is the fast one for people who know it — which is why it
-                  // carries a hover fill and a text cursor, the two hints that make
-                  // the click findable for anyone who happens to pass over it.
+                  // way in. The menu entry is the discoverable path and this is the
+                  // fast one for people who know it — which is why it carries a hover
+                  // fill and a text cursor, the two hints that make the click findable
+                  // for anyone who happens to pass over it.
                   <button
                     type="button"
                     onClick={startEditingTitle}
@@ -443,10 +438,9 @@ export const ChatToolbar: FC<ChatToolbarProps> = memo(function ChatToolbar({
           empty start screen New chat is redundant and there is no thread to share
           or rename.
 
-          The separation is the point. This row used to mix the two kinds freely,
-          and worse, it mixed them in a way that made each LIE about itself: the
-          avatar stack looks like status and was a button, while the access chip
-          looks like every other chip in the app and is `role="img"`. A reader
+          The separation is the point. Mixing the two kinds makes each one LIE about
+          itself: the avatar stack looks like status and is a button, while the
+          access chip looks like every other chip in the app and is `role="img"`. A reader
           could not tell what would respond to a click without trying. So:
 
             · everything before the hairline is INFORMATION. Not clickable, ever.
@@ -458,8 +452,8 @@ export const ChatToolbar: FC<ChatToolbarProps> = memo(function ChatToolbar({
           permanent buttons in a 768px row that also has to carry a thread title.
 
           Arrivals fade (opacity only). Width is reserved by the controls that
-          stay mounted — layout/width animation was a spring that bounced the
-          New-chat button sideways. Reduced motion is handled globally by
+          stay mounted — a layout/width spring would bounce the New-chat button
+          sideways. Reduced motion is handled globally by
           <MotionConfig reducedMotion="user">. */}
       {isChatStarted && (
       <div className="pointer-events-auto flex min-h-12 shrink-0 items-center gap-0.5 rounded-lg border border-base bg-card/60 p-0.5 backdrop-blur supports-[backdrop-filter]:bg-card/50 sm:min-h-8">
@@ -474,8 +468,7 @@ export const ChatToolbar: FC<ChatToolbarProps> = memo(function ChatToolbar({
             thread's name, and the menu below carries sharing there.
 
             The group renders only when it has something to SAY — a hairline with
-            nothing in front of it is the same empty claim as the button that
-            pointed at an empty report.
+            nothing in front of it would be an empty claim.
 
             It arrives late by nature (the roster is a fetch), so it fades and
             settles in rather than blinking into place. `initial={false}` on the
@@ -611,7 +604,7 @@ export const ChatToolbar: FC<ChatToolbarProps> = memo(function ChatToolbar({
                 </DropdownMenuItem>
               )}
 
-              {/* Share — the ONE door to the sharing surface (SH-17). Present for
+              {/* Share — the ONE door to the sharing surface. Present for
                   every participant, not only owners: a viewer is entitled to see who
                   else is in the room, and it is where they leave from. Also present
                   after a failed load: the dialog renders the retry alert, a vanished

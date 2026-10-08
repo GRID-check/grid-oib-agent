@@ -13,7 +13,7 @@ cost tracking, ownership (``job_access``), the ghost reaper, SSE and
 cancellation for free.
 
 Agent selection is DETERMINISTIC and derived from the JOB's chosen output kind.
-A skill no longer declares how it runs — scheduling is a property of the job (a
+A skill does not declare how it runs — scheduling is a property of the job (a
 prompt on a timer), and the output kind is the user's choice on that job:
 
 * ``output='chat'``          → ``researcher`` (quick single-turn job)
@@ -62,10 +62,9 @@ logger = logging.getLogger(__name__)
 # (deep_researcher, researcher). Deterministic by construction: there is
 # no path from an output kind to "some other agent".
 #
-# The mapping itself is unchanged; only where the value comes from moved. It
-# used to be read off the skill's ``grid-execution`` metadata, which made a
-# skill declare how it ran. It is now a column on the job row, chosen by the
-# user, and a skill is merely attached on top.
+# The value is a column on the job row, chosen by the user; a skill is merely
+# attached on top. It is not read off the skill's ``grid-execution`` metadata,
+# which would let a skill declare how it runs.
 _OUTPUT_AGENT_TYPES: dict[str, str] = {
     "chat": "researcher",
     "deep-research": "deep_researcher",
@@ -102,12 +101,11 @@ class SkillSubmitPayload(BaseModel):
             "composed into `input`; nothing is forced on the worker. Empty = no skill attached."
         ),
     )
-    # The wire field is `output`; `execution` is the pre-rename spelling, kept
-    # readable for ONE release. The BFF and this service deploy separately, and
-    # a hard rename would fail every scheduled run in the window between the two
-    # deploys — precisely the window nobody is watching. Delete `execution`
-    # (and `_resolved_output`'s fallback) once the BFF that sends `output` is
-    # deployed everywhere.
+    # The wire field is `output`. `execution` is still read as a deprecated alias: the
+    # BFF and this service deploy separately, and a hard rename would fail every
+    # scheduled run in the window between the two deploys, precisely the window nobody
+    # is watching. Delete `execution` (and `_resolved_output`'s fallback) once every
+    # BFF sends `output`.
     output: Literal["chat", "deep-research"] | None = Field(
         None,
         description="The job's chosen output kind; decides the agent",
@@ -198,8 +196,8 @@ class SkillSubmitPayload(BaseModel):
         Both are Optional so either spelling satisfies the schema during the
         rename window, which leaves "neither" structurally legal — and reading
         an absent key straight out of the agent table would be a KeyError, i.e.
-        a 500 on a payload the caller got wrong. Rejecting it here makes it the
-        422 it always was.
+        a 500 on a payload the caller got wrong. Rejecting it here makes it a
+        422, not a 500.
         """
         if self.output is None and self.execution is None:
             raise ValueError("one of 'output' or 'execution' is required")

@@ -11,10 +11,10 @@
  * file and leaves any behind has not erased the document.
  *
  * Shared by every shelf. The session cleanup (`session-documents/cleanup.ts`)
- * was where this first became a reported result rather than a swallowed error;
- * the project and Archiv deletes go through {@link eraseDocumentObjectsOrKeepRow}
- * here too, so all three shelves erase the same objects and keep the row on the
- * same failure.
+ * reports each erasure as a result rather than swallowing the error. The project
+ * and Archiv deletes go through {@link eraseDocumentObjectsOrKeepRow} here too,
+ * so all three shelves erase the same objects and keep the row on the same
+ * failure.
  */
 
 import 'server-only'
@@ -113,13 +113,12 @@ function resolveBucket(doc: StoredObjectRef): { bucket: string } | { failure: Ex
  * `_render.pdf` siblings, the `_img/` rasters and the `_bim/` derivatives — and
  * leave the file itself in place.
  *
- * Written for the replace path, which no longer needs it: since ADR-0054 a
- * re-upload lands under its own `v<n>/` key (`versionWriteKey`), and every
- * derivative is keyed off the file's directory, so the new version's thumbnail,
- * rasters and building are written fresh beside it and the old version's stay
- * with the old version — history, erased when the document is. It remains the
- * second half of {@link deleteDocumentObjects}. Do not wire it into a
- * re-upload: it would erase the PREVIOUS version's derivatives.
+ * A re-upload does not call this. Since ADR-0054 it lands under its own `v<n>/`
+ * key (`versionWriteKey`), and every derivative is keyed off the file's
+ * directory, so the previous version's thumbnail, rasters and building stay with
+ * that version until the document is erased. This is the second half of
+ * {@link deleteDocumentObjects}. Do not wire it into a re-upload: it would erase
+ * the PREVIOUS version's derivatives.
  */
 export async function deleteDerivedObjects(doc: StoredObjectRef): Promise<ExternalCleanupResult> {
   const storageKey = doc.storageKey
@@ -166,15 +165,14 @@ export async function deleteDerivedObjects(doc: StoredObjectRef): Promise<Extern
  * `_thumb.jpg` sibling and `_img/` rasters, the `_render.pdf` rendition of an
  * office file, and the `_bim/` derivatives an IFC extraction wrote underneath it.
  *
- * **Reports whether the bytes are actually gone.** It used to swallow every
- * S3 failure, and the callers then deleted the row regardless — which is the
- * one thing that must not happen, because the row is the ONLY handle that can
- * ever drive a retry. A suppressed failure left a private file in the tenant's
- * bucket that nothing lists, nothing can delete, and that still counts against
- * the organization's storage quota; presigning its key was all it took to read
- * it back. An object that is already gone is still success (see
- * {@link isAlreadyGone}) — that is the outcome we wanted, and it is what makes
- * a retry able to finish.
+ * **Reports whether the bytes are actually gone.** Every S3 failure is returned,
+ * not swallowed, because the row is the ONLY handle that can ever drive a retry,
+ * and a caller that deleted it over a failure would strand the bytes. A
+ * suppressed failure leaves a private file in the tenant's bucket that nothing
+ * lists, nothing can delete, and that still counts against the organization's
+ * storage quota; presigning its key is all it takes to read it back. An object
+ * that is already gone is still success (see {@link isAlreadyGone}) — that is
+ * the outcome we wanted, and it is what makes a retry able to finish.
  *
  * Every part counts. The thumbnail, the rendition, the rasters and the `_bim/` derivatives are
  * rendered FROM the private file — a floor plan and a parsed building are not
@@ -200,16 +198,15 @@ export async function deleteDocumentObjects(doc: StoredObjectRef): Promise<Exter
  * Erase every stored object of a document — each version's file, `_thumb.jpg`,
  * `_render.pdf`, `_img/` rasters and `_bim/` derivatives — or throw and leave the row.
  *
- * Shared by the project and the Archiv delete, which used to delete the live
- * object by hand: the file, the thumbnail and `_bim/`, but never the `_img/`
- * rasters (up to 64 per document), with every failure swallowed and the row
- * deleted regardless. The row is the only handle a retry has
- * (`./object-cleanup`), so a swallowed failure was a private file nothing
- * lists, nothing can delete, and that presigning its key reads back. This is
- * the session delete's rule (`deleteSessionDocument`): the live object must go,
- * or the delete answers 502 and the document stays.
+ * Shared by the project and the Archiv delete, so every shelf erases the same
+ * objects: the file, the thumbnail, the `_img/` rasters (up to 64 per document)
+ * and `_bim/`. The live object must go, or the delete answers 502 and the
+ * document stays. The row is the only handle a retry has (`./object-cleanup`),
+ * so a failure swallowed here would leave a private file nothing lists, nothing
+ * can delete, and that presigning its key reads back. This is the session
+ * delete's rule (`deleteSessionDocument`).
  *
- * A SUPERSEDED version's leftover stays best-effort, as it is there: the row
+ * A SUPERSEDED version's leftover stays best-effort (the `.catch` below): the row
  * that guards access is the live one, and a version object that survives is an
  * orphan for the project purge's prefix sweep, not a document still reachable.
  */

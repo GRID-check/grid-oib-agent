@@ -105,7 +105,7 @@ interface FilePreviewPaneProps {
   onTagsUpdated?: (fileId: string, tags: string[]) => void
   /**
    * Whether the "Indexed by GRID" metadata panel (AI summary, key-value props,
-   * editable tags) renders (WorkOS `files-metadata-panel` flag, FB-8). Defaults
+   * editable tags) renders (WorkOS `files-metadata-panel` flag). Defaults
    * to true so the feature stays visible with flag enforcement off (fail-open)
    * and existing callers/specs are unaffected. Status/type/size rows are never
    * gated — they predate the feature.
@@ -145,7 +145,7 @@ interface FilePreviewPaneProps {
   onAssigneesChanged?: (assignees: FileItem['assignees']) => void
 }
 
-/** The one list (`lib/documents/preview-types.ts`); this pane no longer keeps a copy. */
+/** The one list (`lib/documents/preview-types.ts`); this pane keeps no copy. */
 const PREVIEW_TYPES: readonly string[] = INLINE_PREVIEW_CONTENT_TYPES
 
 /**
@@ -228,17 +228,17 @@ export function FilePreviewPane({
   const { locale } = useLocale()
   /**
    * „Von Piloti indexiert" is a claim, and on a report Piloti WROTE it is a
-   * false one: that document was deliberately never dispatched to `/v1/ingest`,
-   * so there is nothing indexed to show and the eyebrow would contradict the
-   * hint on the disabled Ask button two lines above it. The rail keeps the
+   * false one: that document is deliberately never dispatched to `/v1/ingest`,
+   * so there is nothing indexed to show, and the eyebrow would contradict the
+   * hint on the Besprechen button. The rail keeps the
    * facts that come from the file itself (type, size, project) and drops the
    * section that describes an ingestion that never ran.
    */
   const showIndexedSection = showMetadataPanel && !isNeverIndexed(file)
   /**
-   * Which of the section's two claims holds right now. „Von Piloti indexiert"
-   * over nothing, while the document was still being read or under a failed
-   * block, promised a summary that was not coming (yet). Citable: the heading,
+   * Which of the section's two claims holds right now. Over nothing, while the
+   * document is still being read or under a failed block, „Von Piloti indexiert"
+   * promises a summary that is not coming (yet). Citable: the heading,
    * over the summary once there is one. Still being read: one line saying so,
    * which the settling poll replaces with the summary when it lands. Failed:
    * neither — the failure block above already says what happened.
@@ -249,11 +249,10 @@ export function FilePreviewPane({
   /**
    * What „Besprechen" will and will not be able to do with this document.
    *
-   * It is a hint and no longer a reason a control is off: a report Piloti wrote
-   * was deliberately never dispatched to `/v1/ingest`, so it is not Projektwissen
-   * and cannot be cited as such — and it can still be read and discussed. Only
-   * the never-indexed case has anything to say; a citable document's button
-   * needs no explaining.
+   * A hint, not a reason a control is off. A report Piloti wrote is deliberately
+   * never dispatched to `/v1/ingest`, so it is not Projektwissen and cannot be
+   * cited as such, and it can still be read and discussed. Only the never-indexed
+   * case has anything to say; a citable document's button needs no explaining.
    */
   const discussHint = isNeverIndexed(file) ? t('authorship.notInKnowledge') : undefined
   const storeMode = useFilePreviewStore((state) => state.mode)
@@ -301,9 +300,9 @@ export function FilePreviewPane({
   const [details, setDetails] = useState<VisualDetail[] | null>(null)
   const [detailsLoading, setDetailsLoading] = useState(false)
   /**
-   * The descriptions could not be READ — a network error, a 500. Not the same
-   * answer as "there are none", and it used to say exactly that: a hiccup told
-   * the reader the drawing had no descriptions, with no way to ask again.
+   * The descriptions could not be READ — a network error, a 500. That is not the
+   * same answer as "there are none": a hiccup must not tell the reader the drawing
+   * has no descriptions, with no way to ask again.
    */
   const [detailsFailed, setDetailsFailed] = useState(false)
   /**
@@ -312,13 +311,10 @@ export function FilePreviewPane({
    * classifies a model by format (it has to, for the card thumbnails), and the
    * viewport is behind one dynamic import.
    *
-   * Every shelf, not just a project's. This used to require a `projectId`,
-   * because a model could only be resolved through a project's model list — so
-   * a model uploaded into the org-wide Archiv previewed as a grey "no inline
-   * preview" page mock, and the file the whole feature is about was the one
-   * file the Archiv could do nothing with. The document-scoped lookup behind
-   * `IfcFilePreview` removed that prerequisite; the surfaces that have a
-   * project still use it, and the ones that do not now work.
+   * Every shelf, not just a project's: the document-scoped lookup behind
+   * `IfcFilePreview` resolves a model without a project, so a model in the
+   * org-wide Archiv previews as the building, not as a grey "no inline preview"
+   * page mock.
    */
   const kind = inferDocumentKind({
     filename: file.filename,
@@ -364,10 +360,10 @@ export function FilePreviewPane({
   /**
    * The request the well is waiting on, so a newer one can retire it.
    *
-   * An office file's rendition takes seconds. Open one, then open another file
-   * before it lands, and the first answer arrived last and won: the pane showed
-   * document A under document B's name. Every answer is checked against the
-   * request that asked for it; a retired one changes nothing.
+   * An office file's rendition takes seconds, so the reader can open another
+   * file before it lands. Each answer is checked against the request that asked
+   * for it, and a retired one changes nothing: otherwise a late answer would
+   * paint document A under document B's name.
    */
   const previewRequest = useRef<AbortController | null>(null)
   const loadPreview = useCallback(() => {
@@ -429,8 +425,8 @@ export function FilePreviewPane({
     let gone = false
     // An office file the BFF will not or could not convert: 415 when
     // conversion is switched off, 502 when the converter failed. Neither is a
-    // hiccup a retry fixes, so the pane says what it said before renditions
-    // existed — no inline preview — and offers the download of the original.
+    // hiccup a retry fixes, so the pane shows no inline preview and offers the
+    // download of the original.
     let noRendition = false
     fetch(`/api/documents/${file.id}/preview`, { signal })
       .then(async (r) => {
@@ -518,12 +514,11 @@ export function FilePreviewPane({
     setDetailsFailed(false)
   }, [file.id])
 
-  // An answer is about the document AS IT WAS when asked. Opened while it was
-  // still being read, the section got an empty list and kept it for good, so
-  // the descriptions indexing produced a minute later never appeared without
-  // closing the file. What the answer depends on changing — the status, the
-  // content types that decide there is anything visual at all — makes it
-  // stale; an expanded section then asks again below.
+  // An answer is about the document AS IT WAS when asked. A section opened while
+  // the document is still being read must not keep an empty list: what the
+  // answer depends on — the status, the content types that decide there is
+  // anything visual at all — makes it stale, and an expanded section then asks
+  // again below.
   const detailsBasis = `${file.status ?? ''}|${(file.contentTypes ?? []).join(',')}`
   useEffect(() => {
     setDetails(null)
@@ -571,7 +566,7 @@ export function FilePreviewPane({
 
   /**
    * The document's name and its download, from the shared hook — this pane
-   * holds no request logic of its own any more.
+   * holds no request logic of its own.
    *
    * Download keeps a BUTTON of its own in the header (it is what most people
    * came to do with a document they are looking at) while rename and delete sit
@@ -585,7 +580,7 @@ export function FilePreviewPane({
   // Re-dispatch a failed document to the ingest pipeline. The request itself
   // lives in `useDocumentActions` with rename/delete/download — one document
   // operation belongs in one place, and the actions MENU offers the same retry
-  // now, on the card where the failure is actually read.
+  // on the card where the failure is actually read.
   const handleReingest = useCallback(() => void actions.reingest(), [actions])
 
   const ext = fileExtensionLabel(file.filename)
@@ -595,15 +590,11 @@ export function FilePreviewPane({
       {/* Peek chrome lives on the host — this header is the modal/expanded one,
           and it is deliberately the SAME six elements on every document.
 
-          It used to be the surface's noticeboard: the name, the byline, the
-          type · status line, the assignment faces with their popover, "Piloti
-          dazu fragen", "Kollegin fragen", Herunterladen, the actions menu,
-          expand and close. Ten things, five of them conditional, in a row that
-          had to WRAP on anything narrower than a laptop — so the chrome
-          reflowed into two or three lines as you moved between files, and the
-          controls that were always there moved to make room for the ones that
-          were not. A header that changes shape per document cannot be learned;
-          the reader re-reads it every time.
+          Putting every control in this row would make it WRAP on anything
+          narrower than a laptop, so the chrome would reflow as you move between
+          files, and the controls that are always there would move to make room
+          for the ones that are not. A header that changes shape per document
+          cannot be learned; the reader re-reads it every time.
 
           What is left is what acts on THIS FILE AS A FILE — download it, rename
           or delete it, enlarge it, close it — beside the document's identity:
@@ -638,23 +629,21 @@ export function FilePreviewPane({
               it matters — that Piloti cannot quote it.
 
               „Zitierbar" is the case for almost every document in the library,
-              so a green badge saying so was a chip that appeared on everything
-              and therefore distinguished nothing; a reader scanning the header
-              learned only that the app has badges. The states worth a chip are
+              so a green badge saying so would appear on everything and
+              distinguish nothing. The states worth a chip are
               the ones that change what the reader can do next: „Wird
               verarbeitet", „Fehlgeschlagen", and „Abgelegt" for a report Piloti
               wrote and deliberately never indexed. In all three the Ask button
               in the rail is grey, and this chip is why. Citable stays silent,
               and the ordinary case has an ordinary header.
 
-              Neither chip is restated in the rail: the Status row and the
-              Document type row are gone from Properties, because the same fact
-              stated twice on one surface reads as two facts. */}
+              Neither chip is restated in the rail, because the same fact stated
+              twice on one surface reads as two facts. */}
             {/* `overflow-hidden` on the row and `shrink` on the type badge, and
               both are load-bearing at phone width: `Badge` is `w-fit shrink-0`
-              by construction, so `min-w-0` alone never made it narrow — at
-              390px „Grundriss" simply ran out of the name column and under the
-              Download button beside it. It truncates now instead. The status
+              by construction, so `min-w-0` alone does not make it narrow, and
+              the badge would run under the Download button beside it. It
+              truncates instead. The status
               badge keeps `shrink-0` on purpose: „Wird verarbeitet" clipped to
               „Wird ver…" is a state nobody can read, and it is the chip that
               explains why the Ask button in the rail is grey. */}
@@ -664,7 +653,7 @@ export function FilePreviewPane({
               )}
               {/* WHERE THE DOCUMENT STANDS, at the top with its name.
 
-                „Freigabe und Fassungen" is last in the rail now, which is right
+                „Freigabe und Fassungen" is last in the rail, which is right
                 for the machinery and wrong for the one word: whether the office
                 stands behind this document is a fact about the document, in the
                 class of its name and its type, and a reader should not have to
@@ -674,14 +663,14 @@ export function FilePreviewPane({
                 silent on the ordinary upload — one version, born published, a
                 person put it there — exactly like the file card's. A chip that
                 appeared on every document in the library would distinguish
-                nothing, which is the same argument the „Zitierbar" chip lost
-                two paragraphs up.
+                nothing, which is the same argument that rules out the „Zitierbar"
+                chip.
 
                 Restating it on the section's own row at the far end of the rail
-                is not the „same fact twice" the Properties rows were: those sat
-                in the reader's eyeful directly under this header. These two are
-                never on screen together — one names the document, the other
-                labels the section you have just opened. */}
+                is not the same fact twice: a Properties row would sit directly
+                under this header, in the reader's eyeful. These two are never on
+                screen together — one names the document, the other labels the
+                section you have just opened. */}
               <DocumentVersionStateBadge
                 versionState={file.versionState}
                 versionCount={file.versionCount}
@@ -821,9 +810,9 @@ export function FilePreviewPane({
           open={isLargePreviewOpen}
           onOpenChange={setIsLargePreviewOpen}
           fileName={actions.name}
-          // The enlarged view is the other place a full-size original used to
-          // cross the wire whole, so it gets the optimizable path too when there
-          // is one. A PDF goes to the same-origin stream instead of the
+          // The enlarged view also avoids sending a full-size original across the
+          // wire: it takes the optimizable path when there is one. A PDF goes to
+          // the same-origin stream instead of the
           // presigned URL: the enlarged viewer renders the document with pdf.js,
           // which FETCHES it, and a cross-origin fetch has no CORS policy to
           // land on. See `documentFileUrl`.
@@ -846,7 +835,7 @@ export function FilePreviewPane({
           shrink below its content, and the overflow lives on the RIGHT layer for
           each mode — the body itself scrolls when stacked, each column scrolls
           when split. Without a bounded panel above (the dialog now gives one)
-          this used to overflow into the panel's `overflow-hidden` and clip the
+          this would overflow into the panel's `overflow-hidden` and clip the
           metadata unreachably. */}
       <div
         className={cn(
@@ -885,7 +874,7 @@ export function FilePreviewPane({
                 //
                 // The well is also the peek's document SCROLL container. The peek
                 // body above is `overflow-hidden` and a text page only scrolls
-                // horizontally, so a tall document used to clip here with no way
+                // horizontally, so a tall document would clip here with no way
                 // to reach the rest. Bounded by `flex-1 min-h-0` in the peek
                 // column (the summary footer below is capped and shrink-0), in
                 // the same `scroll-fade-bottom` language the summary speaks.
@@ -947,13 +936,12 @@ export function FilePreviewPane({
                 <PageMock skeleton />
               )
             ) : (
-              // This is where the bytes actually were: the preview URL serves
-              // the FULL-SIZE original into a column a few hundred pixels wide,
-              // so a 4000px scan used to cross the wire whole. `previewImageUrl`
-              // is the same-origin signed path the optimizer can resize; it is
-              // null for the formats the optimizer would choke on (SVG and the
-              // exotic ones), which then fall back to the object-store URL
-              // unoptimized — the old behaviour, kept as the safe default.
+              // The preview URL serves the FULL-SIZE original into a column a few
+              // hundred pixels wide, so a 4000px scan would otherwise cross the
+              // wire whole. `previewImageUrl` is the same-origin signed path the
+              // optimizer can resize; it is null for the formats the optimizer
+              // would choke on (SVG and the exotic ones), which then fall back to
+              // the object-store URL unoptimized, the safe default.
               //
               // Sizing stays with CSS either way: the well is only bounded on
               // mobile (`h-[50dvh]`) and grows with its content at `@2xl`, where
@@ -1027,12 +1015,10 @@ export function FilePreviewPane({
                     {t('preview.tryAgain')}
                   </Button>
                 ) : (
-                  // "No inline preview for this file type" used to end there:
-                  // a sentence about a document, in the middle of the surface
-                  // that exists to show it, with nothing to do next. The
-                  // sentence already names the way out ("download it to view
-                  // the full document") — so the way out is here, rather than
-                  // an icon the reader has to go and find in the chrome.
+                  // The "no inline preview" sentence names the way out ("download
+                  // it to view the full document"), so the way out is here, rather
+                  // than in an icon the reader has to go and find in the chrome. A
+                  // bare sentence about a document would leave nothing to do next.
                   <Button
                     type="button"
                     variant="outline"
@@ -1051,18 +1037,16 @@ export function FilePreviewPane({
         </div>
 
         {/* WHAT PILOTI MADE OF IT, in the peek.
-            The peek dropped the whole rail — properties, tags, the lot — which
-            is right: a 320px column beside a conversation is not where a
-            reader edits metadata. But it dropped the SUMMARY with it, and the
-            summary is the one line of that rail this surface is actually about:
-            the peek exists because this document is what the next question is
-            about, so "does Piloti understand it, and as what" is the question
-            the reader has, and the answer was two clicks away in the enlarged
-            view.
-            It also lands where there was nothing. A portrait plan fitted to a
-            320px pane is half its height, so the well below the drawing was
-            several hundred pixels of empty ground — the reader's eye had
-            nowhere to go and nothing to do. Capped and scrollable so a
+            The peek leaves out the rest of the rail — properties, tags, the lot —
+            which is right: a 320px column beside a conversation is not where a
+            reader edits metadata. The SUMMARY stays, because it is the one part
+            of the rail this surface is about: the peek exists because this
+            document is what the next question is about, so "does Piloti
+            understand it, and as what" is the question the reader has.
+            It also fills space that would otherwise be empty. A portrait plan
+            fitted to a 320px pane is half its height, so the well below the
+            drawing would be several hundred pixels of empty ground. Capped and
+            scrollable so a
             twelve-line ingestion summary cannot take the document's place, and
             absent entirely when there is no summary yet. */}
         {peeking && file.summary && (
@@ -1079,14 +1063,14 @@ export function FilePreviewPane({
           </section>
         )}
 
-        {/* Right: indexed-metadata panel (files-metadata-panel flag, FB-8).
+        {/* Right: indexed-metadata panel (files-metadata-panel flag).
             The AI summary that grounds the agent's answers, the ingestion-detected
             key-value props, and the user-correctable tags. Status/type/size sit
             below it and are never gated (they predate the metadata panel).
 
             Stacked (mobile): plain flow content inside the body's single scroll —
-            never `shrink-0` against an unbounded parent, which is what clipped it
-            before. Split (@2xl+): a fixed-width column that scrolls on its own. */}
+            never `shrink-0` against an unbounded parent, which would clip it.
+            Split (@2xl+): a fixed-width column that scrolls on its own. */}
         {/* `scroll-fade-bottom` dissolves the last rows instead of guillotining
             them. This column routinely overflows — summary, six metadata rows,
             tags and the visual-details section — and a hard clip through the
@@ -1097,10 +1081,8 @@ export function FilePreviewPane({
           <div className="scroll-fade-bottom bg-surface-sunken @2xl:w-[280px] @2xl:shrink-0 @2xl:min-h-0 @2xl:overflow-y-auto @2xl:overscroll-contain @2xl:border-l @2xl:border-t-0 @2xl:pb-4 flex w-full flex-col border-t p-4 pb-[max(1rem,env(safe-area-inset-bottom))]">
             {/* WHO OWNS THIS DOCUMENT, AND WHAT YOU CAN ASK OF IT.
 
-              The byline, who is responsible and „Piloti dazu fragen" all used
-              to sit in the chrome above the document, where they made the row
-              wrap and where each was conditional. None of them acts on the
-              FILE: they say where the document came from, who is on the hook
+              The byline, who is responsible and „Piloti dazu fragen" do not act
+              on the FILE: they say where the document came from, who is on the hook
               for it, and what the agent can do with it — which is the rail's
               whole subject. The Ask button in particular belongs next to the
               summary that tells the reader whether asking is worth it.
@@ -1134,23 +1116,14 @@ export function FilePreviewPane({
                   </div>
                 </div>
               )}
-              {/* Full width, stacked, in the rail's own column. In the header
-                these were two 90px pills competing with four icon controls for
-                the same row; here they are the block's conclusion, and the
-                reader has just been told whether the document is citable. */}
-              {/* „Besprechen" — never conditional on the document being
-                citable any more, and that is the whole change.
-
-                This control used to be a PAIR: an enabled „Piloti dazu fragen"
-                for a citable file and a greyed-out twin for everything else,
-                with a hint explaining the grey. The grey covered exactly the
-                documents a reader most wants to talk about — every report Piloti
-                wrote, and every version nobody has published — because a turn
-                could only reach a document through the retrieval index, and only
-                a published version is dispatched to it (ADR-0054). The turn now
-                reads an unpublished subject version's own bytes into the
-                conversation's working directory, so the reason for the grey is
-                gone and the pair collapses into one always-live button.
+              {/* Full width, stacked, in the rail's own column: the block's
+                conclusion, after the reader has been told whether the document
+                is citable. */}
+              {/* „Besprechen" is never conditional on the document being
+                citable. Only a published version is dispatched to the retrieval
+                index (ADR-0054), but a turn reads an unpublished subject
+                version's own bytes into the conversation's working directory,
+                so the control is one always-live button.
 
                 What survives is the SENTENCE: `discussHint` still says whether
                 this document is in the knowledge base, because that changes what
@@ -1182,10 +1155,9 @@ export function FilePreviewPane({
               />
             )}
             {/* What Piloti made of the document, in its own words.
-              Promoted out of the fact list and onto a raised card: it is the
-              single most valuable thing on this rail — the answer to "does the
-              agent actually understand this file" — and it used to sit as one
-              more 12.5px paragraph between an eyebrow and six key/value rows,
+              Set apart on a raised card, not one more paragraph in the fact list:
+              it is the single most valuable thing on this rail — the answer to
+              "does the agent actually understand this file" — and it must not
               read at the same weight as the MIME type. */}
             {showIndexedHeading && (
               <section className="space-y-2.5" aria-label={t('preview.indexed.title')}>
@@ -1205,11 +1177,9 @@ export function FilePreviewPane({
             )}
 
             {/* One list of facts, not two.
-              Type and size used to sit in a separate block BELOW the tags,
-              divorced from the page count and the document type they belong
-              with, because one group was behind a feature flag and the other
-              was not. The flag now gates ROWS, which is what it was always
-              about; the group is whole either way. */}
+              Type and size sit with the page count and the document type they
+              belong with. The feature flag gates ROWS, not groups, so the group
+              is whole either way. */}
             <section className={cn('space-y-2', showIndexedHeading && 'mt-4')}>
               <SectionLabel as="p" icon={FileCode2} className="font-semibold tracking-[0.05em]">
                 {t('preview.properties')}
@@ -1273,7 +1243,7 @@ export function FilePreviewPane({
                 </MetaRow>
                 {file.originPath && (
                   /* WHERE THIS FILE CAME FROM, so the reader can go back to it.
-                     The alternative on offer was download-and-edit, which makes
+                     The alternative is download-and-edit, which makes
                      a duplicate that the office server never hears about and
                      that diverges from the moment it is saved. A path they can
                      copy and paste into Explorer or Finder is the whole
@@ -1402,15 +1372,13 @@ export function FilePreviewPane({
 
             {/* FREIGABE UND FASSUNGEN — last in the rail, and shut.
 
-              It used to lead the rail, open, directly under the identity block.
-              That put a review apparatus — a strip of verbs and the full version
-              history — above the summary and the facts on every file, including
+              A review apparatus — a strip of verbs and the full version history —
+              above the summary and the facts would sit on every file, including
               the great majority where there is nothing to decide at all: a
               person's upload is born `published`, so the only control the strip
-              could draw was an unexplained „Archivieren". Ranked by what a
+              could draw would be an unexplained „Archivieren". Ranked by what a
               reader opens a file FOR, approval and versions come after what the
-              document is and what Piloti made of it, which is where they now
-              are.
+              document is and what Piloti made of it.
 
               Shut is not hidden. The section still states the stand — the word
               and the track — without being opened, and it OPENS ITSELF when
@@ -1487,12 +1455,12 @@ export function FilePreviewPane({
               </div>
             )}
 
-            {/* No Delete block here any more. A full-width red button under the
-              tags made the most dangerous operation the loudest thing on a
+            {/* Delete is not a block here. A full-width red button under the
+              tags would make the most dangerous operation the loudest thing on a
               column whose job is to DESCRIBE the document, and its confirm step
-              expanded in place, pushing the rest of the rail down. Both moved
-              into the header's actions menu, beside the other controls that act
-              on this file. */}
+              would expand in place, pushing the rest of the rail down. Delete
+              lives in the header's actions menu, beside the other controls that
+              act on this file. */}
 
             <div className="flex-1" />
             {/* Same claim as the section eyebrow, in a sentence — „beim Hochladen
@@ -1507,10 +1475,9 @@ export function FilePreviewPane({
         )}
       </div>
 
-      {/* No footer page band. It stated the page count a second time, three
-          rows below the "Pages" row that already stated it, in a band that cost
-          the preview column ~32px of height on every document — the definition
-          of a part that could be removed without losing anything. */}
+      {/* There is no footer page band: it would state the page count a second
+          time, three rows below the "Pages" row that already states it, and cost
+          the preview column ~32px of height on every document. */}
     </div>
   )
 }
@@ -1557,7 +1524,7 @@ const ALL_VOCABULARY_TAGS: readonly string[] = [...DOCUMENT_TYPE_TAGS, ...DISCIP
  * Enter commits, Escape clears, blur commits an exact match — backed by
  * suggestion chips because the vocabulary is controlled (the tags PATCH
  * endpoint rejects out-of-vocabulary values server-side). Every add/remove
- * persists immediately and optimistically via the existing FB-8 tags API,
+ * persists immediately and optimistically via the existing tags API,
  * reverting with a toast on failure.
  */
 function DocumentTagsSection({
@@ -1763,8 +1730,8 @@ function DocumentTagsSection({
               disabled={isSaving}
               // The suggestions ARE the way to add a tag on a phone: the endpoint
               // rejects free-form values, so tapping one of these is the whole
-              // interaction, and at `py-0.5` each was a 20px chip in a wrapped row
-              // of them. Grown rather than overhung — they are neighbours in a
+              // interaction, and each is grown to the touch floor rather than left
+              // at `py-0.5`. Grown rather than overhung — they are neighbours in a
               // flex-wrap row, so catchments would land on each other.
               className="border-border text-muted-foreground duration-snap hover:bg-muted hover:text-foreground focus-visible:ring-ring pointer-coarse:min-h-11 pointer-coarse:px-3.5 inline-flex items-center rounded-md border bg-transparent px-2 py-0.5 text-xs font-medium transition-colors ease-out focus-visible:outline-none focus-visible:ring-2 disabled:opacity-50 motion-reduce:transition-none"
             >
@@ -1823,11 +1790,11 @@ function MetaRow({
  *    way is what a skeleton IS, and the silhouette tells the reader the column
  *    is about to hold a document rather than an image or an error.
  *  - NO PREVIEW / FAILED: the same page, EMPTY, carrying the sentence that
- *    explains why and the control that retries. It previously drew the same
- *    paragraph bars here — a document mocked up with fake text, permanently,
- *    for a file whose contents cannot be shown at all. That is decoration
- *    pretending to be content, and on a compliance surface it is worse than
- *    blank: a reader glancing at the column sees "a document" and moves on.
+ *    explains why and the control that retries. It draws no paragraph bars: a
+ *    document mocked up with fake text, permanently, for a file whose contents
+ *    cannot be shown at all is decoration pretending to be content, and on a
+ *    compliance surface it is worse than blank: a reader glancing at the column
+ *    sees "a document" and moves on.
  */
 function PageMock({
   caption,
@@ -1839,10 +1806,10 @@ function PageMock({
   action?: ReactNode
   skeleton?: boolean
   /**
-   * What the file IS, when there is no preview to show. The empty state used
-   * to be a dashed box with a sentence in it — the same box for a contract, a
-   * spreadsheet and a DWG floor plan — so the surface that exists to show a
-   * document showed nothing about it at all. The card in the grid behind this
+   * What the file IS, when there is no preview to show. A bare dashed box with a
+   * sentence in it would serve a contract, a spreadsheet and a DWG floor plan
+   * alike, so the surface that exists to show a document would show nothing
+   * about it at all. The card in the grid behind this
    * modal already draws the document's kind; borrowing that sketch means the
    * reader recognises the file they clicked, and the two surfaces speak one
    * visual language instead of two.

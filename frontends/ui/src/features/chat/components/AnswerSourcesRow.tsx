@@ -53,7 +53,7 @@ interface AnswerSourcesRowProps {
   /** DOM id prefix for the numbered anchors — per message, so ids stay unique. */
   anchorPrefix?: string
   /**
-   * The turn's routing (WP-A). A substantive `shallow`/`deep` (or absent/legacy)
+   * The turn's routing. A substantive `shallow`/`deep` (or absent/legacy)
    * answer with zero sources gets the honest "Lücke" gap row; a `meta`/`error`
    * turn (conversational reply, error) does not — it makes no source claim.
    */
@@ -70,10 +70,9 @@ interface AnswerSourcesRowProps {
 }
 
 /**
- * How many chips the row shows before it stops. A summary, not a dump — but the
- * cap now bites far later than it used to, because collapsing a document's
- * pages onto one chip is exactly what stopped a four-page Richtlinie from
- * eating half the budget on its own.
+ * How many chips the row shows before it stops. A summary, not a dump. The cap
+ * bites late because collapsing a document's pages onto one chip is what keeps
+ * a four-page Richtlinie from eating half the budget on its own.
  */
 const MAX_ANSWER_SOURCES = 8
 
@@ -218,13 +217,13 @@ export const AnswerSourcesRow: FC<AnswerSourcesRowProps> = ({
               // elements disagreeing rather than one element being marked.
               'inline-flex max-w-full scroll-mt-6 rounded-md',
               // Single fade for the whole row after the answer body (which has
-              // its own fade/slide) instead of a per-chip cascade: the stagger
-              // held late chips invisible behind `backwards` fill for up to
-              // ~200ms to communicate an ordering nobody was counting, and every
-              // chip flashing in sequence drew the eye down the row instead of
-              // to the prose. A FOCUSED chip skips the entrance: it
-              // belongs to an already-rendered message the reader jumped to, and
-              // a delay there would stall the citation pulse that must fire now.
+              // its own fade/slide) instead of a per-chip cascade: a stagger would
+              // hold late chips invisible behind `backwards` fill for up to ~200ms
+              // to communicate an ordering nobody was counting, and every chip
+              // flashing in sequence would draw the eye down the row instead of to
+              // the prose. A FOCUSED chip skips the entrance: it belongs to an
+              // already-rendered message the reader jumped to, and a delay there
+              // would stall the citation pulse that must fire now.
               !isFocused &&
                 'animate-in fade-in-0 slide-in-from-bottom-1 duration-base ease-entrance [animation-fill-mode:backwards] motion-reduce:animate-none',
               isFocused && 'animate-citation-pulse motion-reduce:animate-none'

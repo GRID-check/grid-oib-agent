@@ -146,8 +146,8 @@ export function assertStartupFitsRollout(
   const needed = probeBudgetSeconds + profile.minReadySeconds + imagePullSlackSeconds;
   // `>=`, not `>`: `progressDeadlineSeconds` is documented as having to EXCEED
   // this budget, so a deadline that merely equals it does not satisfy the
-  // contract — it leaves exactly zero slack, and the defect this guard was
-  // written for was an exact-equality case.
+  // contract — it leaves exactly zero slack, which is the case this guard
+  // exists to refuse.
   if (needed >= profile.progressDeadlineSeconds) {
     throw new Error(
       `Invalid ${workload} rollout budget: startupProbe (${probeBudgetSeconds}s) + ` +
@@ -221,9 +221,9 @@ export const ROLLOUT = {
   },
 
   /**
-   * Gotenberg (ADR-0070/0071). Since ADR-0071 the BFF reads Word and
-   * presentation files from the PDF it converts, so a conversion cut by a
-   * rollout fails that ingest (retryably) instead of costing a preview. The
+   * Gotenberg (ADR-0070/0071). The BFF reads Word and presentation files from
+   * the PDF it converts, so a conversion cut by a rollout fails that ingest
+   * (retryably) instead of costing a preview. The
    * preStop sleep keeps the old pod serving while the Service stops routing to
    * it; then SIGTERM, and Gotenberg finishes what it holds for up to 120s
    * (`--gotenberg-graceful-shutdown-duration` in `GOTENBERG.args`), the same
@@ -264,7 +264,7 @@ export const ROLLOUT = {
    * ClickHouse that may itself be cold on a first deploy. That is minutes, not
    * seconds — so the startupProbe budget is large, and the deadline has to be
    * larger still or the deploy fails while the migration it was configured to
-   * wait for is running (see `assertStartupFitsRollout`, which now checks it).
+   * wait for is running (see `assertStartupFitsRollout`, which checks it).
    *
    * Borrowing `observability`'s 600s deadline and simply widening it would have
    * pushed the same slack onto the dashboard and the collector, where nothing
@@ -377,8 +377,8 @@ export function surgeRollout(p: RolloutProfile) {
  * owned, and the merged object then trips
  *   spec.strategy.rollingUpdate: Forbidden: may not be specified when strategy
  *   `type` is 'Recreate'
- * Prefer `surgeRollout` for an existing workload — that was the resolution for
- * dragonfly and aspire-dashboard. If Recreate is genuinely required, clear the
+ * Prefer `surgeRollout` for an existing workload (dragonfly and
+ * aspire-dashboard use it). If Recreate is genuinely required, clear the
  * defaulted field first:
  *   kubectl -n grid patch deploy <name> --type=json \
  *     -p '[{"op":"remove","path":"/spec/strategy/rollingUpdate"}]'
@@ -394,8 +394,8 @@ export function recreateRollout(p: RolloutProfile) {
 
 /**
  * StatefulSet `spec` fragment. `RollingUpdate` rolls the highest ordinal first
- * and waits for each pod to be Ready — and now, to STAY ready for
- * `minReadySeconds` — before touching the next. That one-at-a-time behaviour is
+ * and waits for each pod to be Ready, and to STAY ready for `minReadySeconds`,
+ * before touching the next. That one-at-a-time behaviour is
  * what the conversation-affinity routing in ADR-0028 depends on.
  *
  * NOTE — `podManagementPolicy` is deliberately NOT set here, even though

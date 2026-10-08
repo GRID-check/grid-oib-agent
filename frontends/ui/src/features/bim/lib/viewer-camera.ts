@@ -186,12 +186,9 @@ export function rendererSectionPlane(
     // one when a 2D overlay has been uploaded for it
     // (`Renderer.uploadSection2DOverlay`), which nothing in this app calls.
     // So the flag is a request that is currently answered with nothing, and
-    // a cut shows the open shells of the solids it passes through: the "model
-    // with its front wall deleted" look this comment used to claim was
-    // prevented. Left ON deliberately — the moment the caps are generated and
-    // uploaded, the section becomes a drawing with no further change here —
-    // and stated honestly in the meantime rather than promising a hatch that
-    // is not on screen.
+    // a cut shows the open shells of the solids it passes through, not a
+    // filled face. Left ON deliberately: the moment the caps are generated and
+    // uploaded, the section becomes a drawing with no further change here.
     showCap: true,
     showOutlines: true,
   }
@@ -205,35 +202,35 @@ export function rendererSectionPlane(
  * `view=north`, `cut=2.6&cutup=0`, `persp=1` to keep perspective on a cardinal
  * view.
  *
- * ## Why the sign no longer carries the direction
+ * ## Why the sign does not carry the direction
  *
- * It used to: `cut=-2.6` meant "2.6 m, looking up", on the reasoning that a
- * height and a direction in two parameters invites the two to disagree. The
- * reasoning was fine and the encoding was lossy, because it quietly assumed a
- * cut height is never negative.
+ * The sign could carry it: `cut=-2.6` would mean "2.6 m, looking up", on the
+ * reasoning that a height and a direction in two parameters invites the two to
+ * disagree. But that encoding is lossy, because it quietly assumes a cut height
+ * is never negative.
  *
  * It often is. The renderer's world is metres from the MODEL's origin, and
  * plenty of buildings put that origin at the ground floor with a basement
  * below it — the viewport reports bounds like -3.00 m to +9.00 m and ranges
- * the slider over them. Under the old encoding every one of those heights came
- * back through `Math.abs` as its positive mirror, so the bottom quarter of the
- * building could not be cut at all: drag below zero and the plane jumped to
+ * the slider over them. Were every height read back through `Math.abs`, each
+ * one would come back as its positive mirror, so the bottom quarter of the
+ * building could not be cut at all: drag below zero and the plane would jump to
  * the other side of the ground floor.
  *
- * So `cut` is now the signed height and `cutup` is the direction. The pair
- * cannot disagree because neither is derivable from the other.
+ * So `cut` is the signed height and `cutup` is the direction. The pair cannot
+ * disagree because neither is derivable from the other.
  *
- * ## Reading links written by the old encoding
+ * ## Reading links written by the legacy encoding
  *
  * `cutup` doubles as the marker for which encoding wrote the link, because the
- * old one emitted it in exactly one case (a flipped cut at exactly zero, where
- * a sign cannot be written) and the new one always emits it. So:
+ * legacy one emitted it in exactly one case (a flipped cut at exactly zero, where
+ * a sign cannot be written) and the current one always emits it. So:
  *
  * - `cutup` present → the signed reading. `cut` is the height.
- * - `cutup` absent → the old reading. `|cut|` is the height and the sign is
+ * - `cutup` absent → the legacy reading. `|cut|` is the height and the sign is
  *   the direction.
  *
- * Every link the old encoding could produce still resolves to the view it was
+ * Every link the legacy encoding could produce still resolves to the view it was
  * copied from, including `cut=0&cutup=1`, which both readings agree on. "A
  * view is a link" is only true if a link keeps working.
  */
@@ -296,9 +293,9 @@ export function parseCameraState(params: URLSearchParams): BimViewerCameraState 
  *
  * Browsers do not agree on what a wheel notch is. A mouse in Chrome reports
  * PIXELS, Firefox's line mode reports LINES, and a page-mode wheel reports
- * SCREENS. Reading `deltaY` raw treats "3 lines" as three pixels, which is why
- * the viewport barely moved for anyone on a trackpad or on Firefox while
- * feeling fine on the machine it was built on.
+ * SCREENS. Reading `deltaY` raw treats "3 lines" as three pixels, so the
+ * viewport barely moves for anyone on a trackpad or on Firefox, while it feels
+ * fine on the machine it was built on.
  *
  * Extracted from the canvas because it is the one part of the wheel handler
  * that is arithmetic rather than WebGPU: the component cannot run in CI (no GPU
@@ -314,10 +311,10 @@ export function wheelZoomDelta(
    * The camera's own unit is the PIXEL, the same convention `orbit` uses: it
    * multiplies by `ZOOM_SENSITIVITY = 0.001` and caps the result at
    * `MAX_ZOOM_DELTA = 0.1`, so a 100 px wheel notch at scale 1 is the 10 %
-   * ceiling. At the old `0.01` a notch became `delta = 1`, i.e. a 0.1 % change
-   * in camera distance — roughly seven hundred notches to halve it, and below
-   * the `minVelocity` threshold that carries inertia, so nothing coasted
-   * either. The wheel did not appear slow; it appeared broken.
+   * ceiling. A scale of `0.01` would make a notch `delta = 1`, i.e. a 0.1 %
+   * change in camera distance: roughly seven hundred notches to halve it, and
+   * below the `minVelocity` threshold that carries inertia, so nothing would
+   * coast either. The wheel would appear broken rather than slow.
    *
    * `0.5` and not `1` so a notch is 5 % and a fast flick still reaches the
    * cap — a scale that saturates on every event has no dynamic range, and a
@@ -433,7 +430,7 @@ export function boundsCentre(box: {
  * Read a response body to completion, reporting real progress as it arrives.
  *
  * `response.arrayBuffer()` returns the same bytes in the same time, but it
- * yields nothing until the last one lands — so a 149 MB model showed an
+ * yields nothing until the last one lands — so a 149 MB model would show an
  * indeterminate spinner for a minute, which is indistinguishable from a hang.
  * Streaming does not make the download faster; it makes it legible, and on a
  * file this size that is the difference between waiting and giving up.

@@ -6,7 +6,7 @@ results is handed. Two properties matter. It names each problem in one clause,
 because an argument the model cannot see it got wrong is one it retries
 unchanged. And it carries no URL: pydantic appends
 ``https://errors.pydantic.dev/...`` to every error it renders, and a URL in a
-tool result used to register as a web source, so the Herleitung showed a source
+tool result registers as a web source, so the Herleitung would show a source
 card for a host nobody had searched.
 """
 

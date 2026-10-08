@@ -1,9 +1,8 @@
 """Platform-tunable retrieval settings (top_k, max_results, …).
 
-The retrieval counts used to be build-time facts: YAML values in
-``configs/config_oib_openrouter.yml`` or Python module constants, so tuning
-recall/context-size trade-offs meant a commit and a redeploy. The platform
-owner now edits them in Platform → Retrieval; they live in the BFF's
+The platform owner sets the retrieval counts in Platform → Retrieval, so tuning
+recall/context-size trade-offs needs no commit and no redeploy. The values live
+in the BFF's
 ``platform_retrieval_settings`` table and reach the backend through the same
 token-guarded internal channel as the model overrides
 (``GET /api/internal/retrieval-settings``), TTL-cached and fail-open.

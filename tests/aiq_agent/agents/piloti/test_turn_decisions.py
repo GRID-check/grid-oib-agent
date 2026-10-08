@@ -265,7 +265,7 @@ class TestThePrefetch:
 
 
 class TestTheSkillsShapes:
-    """The chosen skill's preferred cards ride the turn — what `use_skill` used to hand over."""
+    """The chosen skill's preferred cards ride the turn — as `use_skill` hands them over."""
 
     SKILL_CARDS = {"brandschutz": ["fire_compartment", "egress_diagram"], "hygiene": ["daylight_incidence"]}
 

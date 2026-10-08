@@ -282,7 +282,7 @@ describe('moving a folder', () => {
   })
 })
 
-describe('a folder the session may only read (ADR-0081)', () => {
+describe('a folder the session may only read', () => {
   it('refuses a new folder inside it with a typed 403, and one inside a folder it may not read as missing', async () => {
     state.granted = new Set(MANAGER)
     await expect(

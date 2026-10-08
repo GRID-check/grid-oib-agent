@@ -5,17 +5,17 @@ the answer can point at and the reader cannot check without leaving: the chip
 carried an ``https://www.ris.bka.gv.at/…`` URL, so it opened a browser tab —
 Piloti's own viewer, the passage rail and the copy-as-Zitat actions all sitting
 one surface behind — and a RIS document Piloti had already fetched, parsed and
-grounded on could not be shown by the product that grounded on it (#622).
+grounded on could not be shown by the product that grounded on it.
 
 The text is not new work. ``ris_fetch_document`` reads exactly this, and this
 route goes through the same two things it does: ``RisClient`` (one host
 allow-list, one size ceiling, one extractor) and ``fetch_document_cached`` (one
 shared Dragonfly read-through). Both are shared deliberately. A second
 implementation in TypeScript would be a second set of extraction rules to keep
-in step on a source whose whole value is that the text is verbatim — and the
-read-through was inline in the tool until this route was written, at which point
-it fetched live on every open while claiming the cache in its own docstring. A
-helper only one caller applies is a helper the next caller forgets.
+in step on a source whose whole value is that the text is verbatim. The
+read-through is shared for the same reason: inline in a tool, it could fetch live
+on every open while its docstring claimed the cache. A helper only one caller
+applies is a helper the next caller forgets.
 
 The client is held for the process rather than built per request: an
 ``httpx.AsyncClient`` owns a connection pool, and one per request leaks the pool
@@ -45,21 +45,18 @@ logger = logging.getLogger(__name__)
 
 #: How much document text crosses the wire.
 #:
-#: MEASURED, because the first number here was a guess and the guess broke the
-#: product's own primary document. At 400,000 characters this cap truncated the
-#: Bauordnung für Wien (759,595 characters) at 53%, and § 108 of that law sits at
-#: character 524,079 — so a citation to it opened a reader that did not contain
-#: the cited paragraph, marked nothing, and said "gekürzt". Worse than the
-#: browser tab it replaced.
+#: Measured, not guessed: a cap below the size of a building law cuts the cited
+#: paragraph out of the document. At 400,000 characters the Bauordnung für Wien
+#: (759,595 characters) is truncated at 53%, and § 108 of that law sits at
+#: character 524,079, so a citation to it would open a reader on a document that
+#: does not contain the cited paragraph, marks nothing, and says "gekürzt".
 #:
-#: The real distribution (fetched 2026-09-04, after the page furniture is
-#: dropped): Steiermärkisches Baugesetz 20,914 · NÖ Bauordnung 2014 433,820 ·
+#: The distribution once the page furniture is dropped: Steiermärkisches Baugesetz 20,914 · NÖ Bauordnung 2014 433,820 ·
 #: Bauordnung für Wien 759,595 · ABGB 971,067 · ASVG 4,294,779. So the building
 #: law this product is for tops out under a million characters.
 #:
-#: What bounds it is the CLIENT, and specifically the passage matcher — which
-#: the first version of this comment asserted was not the constraint, having
-#: measured the wrong thing. Chromium lays a `white-space: pre-wrap` text node
+#: What bounds it is the CLIENT, and specifically the passage matcher.
+#: Chromium lays a `white-space: pre-wrap` text node
 #: out in 226 ms at 760k and 630 ms at 2M, which is survivable; but
 #: `locatePassageInText` folds every character before that, on the main thread,
 #: inside the `useMemo` that renders the dialog — 68 ms at 400k, 106 ms at 600k,
@@ -137,12 +134,12 @@ def _clip_around_passage(text: str, passage: str) -> tuple[str, bool]:
 #:
 #: The client's own in-memory cache is kept, and kept SMALL. This route reads
 #: through the shared one (``fetch_document_cached``), so the default 64 entries
-#: were a second copy of bytes Dragonfly already has — and a bigger one than the
-#: response: the client caches the UNCLIPPED ``RisDocument``, bounded by
+#: would be a second copy of bytes Dragonfly already has, and a bigger one than
+#: the response: the client caches the UNCLIPPED ``RisDocument``, bounded by
 #: ``max_document_bytes`` (10 MB) rather than by ``MAX_DOCUMENT_TEXT_CHARS``, so
 #: a worker could hold well over half a gigabyte of consolidated law.
 #:
-#: Not zero, though, which is where this first landed. ``cache.py`` fails OPEN
+#: Not zero, though. ``cache.py`` fails OPEN
 #: when Dragonfly is absent: every read is a miss and every write a no-op, so on
 #: a deployment without it an empty client cache turns each dialog open into a
 #: live fetch from ris.bka.gv.at. A few entries keep that deployment working and

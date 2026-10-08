@@ -4,9 +4,8 @@
  * A task is work somebody handed to Piloti and walked away from: a chat handoff
  * („@Piloti prüf das bis Freitag"), a reviewer's „Piloti überarbeiten lassen",
  * or a schedule firing on its timer. The words here are about WORK, never about
- * a run — which is why the surface calls them Tasks in both languages now. It
- * used to say „Läufe" for the very same rows, and a person who asked for
- * something does not think of the answer as a run of anything.
+ * a run, which is why the surface calls them Tasks in both languages: a person
+ * who asked for something does not think of the answer as a run of anything.
  */
 export const tasks = {
   /** The cadence inline on a detail: a task happened once. */
@@ -59,8 +58,8 @@ export const tasks = {
     document: 'Open document',
     /**
      * The run's own message in its thread, which is the report, the account of
-     * the work and the failure alike (ADR-0062) — so „Open report" and „View
-     * thinking" are gone with the panel that used to show them separately.
+     * the work and the failure alike (ADR-0062), so there is no separate „Open
+     * report" or „View thinking" entry.
      */
     conversation: 'Continue in chat',
   },
@@ -131,7 +130,7 @@ export const tasks = {
     interrupted: 'Stopped',
     /** A fire that never reached the agent (a cap, a switched-off feature). */
     skipped: 'Skipped',
-    /** A fire whose submission broke - the visible failure the collapse added. */
+    /** A fire whose submission broke - a visible failure, not a skip. */
     error: 'Submission failed',
   },
   review: {

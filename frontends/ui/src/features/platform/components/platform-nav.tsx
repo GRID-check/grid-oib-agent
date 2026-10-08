@@ -3,10 +3,8 @@
 /**
  * Section nav for the platform dashboard.
  *
- * The platform tier used to be seven unrelated admin domains stacked in one
- * scrolling column — every one loading on mount, every one with its own
- * skeleton, error card and retry button, and no way to link to any of them.
- * Each is now its own route; this is how you move between them.
+ * Each admin domain is its own route, so each loads only when visited and can
+ * be linked to. This is how you move between them.
  *
  * A rail on `lg` and up (labels always visible — an admin surface visited
  * rarely should not ask you to decode icons), a horizontally scrolling tab

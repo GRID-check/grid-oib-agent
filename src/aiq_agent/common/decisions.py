@@ -6,7 +6,7 @@ typed answer per question with a calibrated probability: a ``noul`` is a
 yes/no as a probability, a ``choice`` one option of up to 255 with the whole
 distribution, a ``score`` a level on an ordered rubric. It generates nothing.
 It answers in 70-500 ms for ~$0.04 per million input tokens, which is the
-shape of every yes/no this agent used to pay a generative frontier call for:
+shape of every yes/no this agent asks a generative frontier model for:
 "is this pool of passages enough to answer the question", "which Richtlinie
 does this question need", "does this answer earn a table". Reached through
 OpenRouter's alpha Decisions endpoint (``POST /api/alpha/decisions``, model
@@ -18,7 +18,7 @@ skill body read in place — and never withhold a tool, a corpus or a round.
 A wrong answer costs tokens or a wasted fetch; it must never cost a
 capability the answer turns out to need. That is why every function here
 returns ``None`` on any failure and why no caller may treat ``None`` as
-anything but "run as today".
+anything but "run without a decision".
 
 Two more things are structural rather than advisory. The endpoint is alpha,
 so a circuit breaker takes it out of the path after repeated failures
@@ -66,7 +66,7 @@ logger = logging.getLogger(__name__)
 # @default true
 # @required false
 # Whether the decision model (Jev, ADR-0064) is consulted at all. `false`
-# runs every turn exactly as it ran before the decisions existed.
+# runs every turn without the decision model.
 ENABLED_ENV = "GRID_DECISIONS_ENABLED"
 
 # @environment_variable GRID_DECISIONS_MODEL
@@ -349,7 +349,7 @@ def _context_organization_id() -> str | None:
         return None
 
 
-#: The keep-alive client, one per event loop. Measured on 2026-09-22 against
+#: The keep-alive client, one per event loop. Measured against
 #: the live endpoint: a client built per call answered in ~430 ms, of which
 #: ~370 ms was the TLS handshake; the same call on a warm connection took
 #: ~60 ms. Keyed by loop because an httpx client is bound to the loop that
@@ -455,8 +455,8 @@ def _record_cost(decision: Decision, *, byok: bool) -> None:
             completion_tokens=decision.output_tokens,
             cost_usd=decision.cost_usd or 0.0,
             # The ledger's vocabulary (`COST_SOURCES` in the BFF schema): a
-            # value outside it, as `"provider"` was, has the internal endpoint
-            # refuse the whole batch, and with it up to four other calls.
+            # value outside it (`"provider"`, say) has the internal endpoint refuse the
+            # whole batch, and with it up to four other calls.
             cost_source="usage_field" if decision.cost_usd is not None else "missing",
             is_byok=byok,
         )

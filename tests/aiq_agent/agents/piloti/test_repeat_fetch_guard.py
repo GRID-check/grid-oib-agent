@@ -2,14 +2,14 @@
 
 Within one turn the model re-asks for what it already holds — the same
 ``read_passage(document, punkt)`` a round later, the same ``knowledge_search``
-query with the same narrowing. Until now only prompt prose forbade it ("a
+query with the same narrowing. Prompt prose alone can forbid it ("a
 second identical search is wasted"), and prose does not hold: the call is
 charged when the model emits it and never refunded, so a re-fetch costs the
 round that would have found the thing it was still missing.
 
 The guard is built on ONE pure derivation (``common.retrieval_rounds.repeat_fetches``) read in
 BOTH nodes — the agent node decides what to charge, the tools node what to run.
-It is the only guard on that seam now that the round-zero fan-out cap is gone.
+It is the only guard on that seam.
 So these tests go through the COMPILED
 GRAPH and assert both halves; a unit test of either one passes while they
 disagree, and a disagreement means either a charge for a call nothing executed
@@ -99,7 +99,7 @@ def read_passage(document: str, punkt: str | None = None, page: int | None = Non
 
 #: Queries the fake store refuses, once each: the first call comes back as the
 #: tool's own failure PROSE (marked), the retry succeeds — the exact shape of a
-#: store that was briefly unreachable.
+#: store that is briefly unreachable.
 FAILING_QUERIES: set[str] = set()
 
 
@@ -342,7 +342,7 @@ class TestTheGuardIsTheOnlyOneOnTheSeam:
     async def test_a_batch_keeps_everything_but_its_own_duplicate(self, scripted_agent):
         """A first round of three searches runs three searches, minus the repeat.
 
-        Nothing caps a round's fan-out any more: the budget bounds what a turn
+        Nothing caps a round's fan-out: the budget bounds what a turn
         may spend without judging the shape of one round. What is still withheld
         is only the call whose answer the turn already holds — here the second
         „Fluchtweg", identical to the first in the same batch.
@@ -374,9 +374,9 @@ class TestAFailedFetchIsNotAFetch:
 
     That is only true when something was fetched. Both retrieval tools answer
     an unreachable store with prose asking the model to RETRY the identical
-    call — so a failure that signed itself as executed turned the tool's own
-    instruction into a call the guard refused, and the passage was never read
-    at all. Nothing in the answer would have said so.
+    call. A failure must not sign itself as executed: the tool's own instruction
+    would then be a call the guard refuses, and the passage is never read at all.
+    Nothing in the answer would say so.
     """
 
     async def test_the_retry_of_a_failed_search_runs(self, scripted_agent):
@@ -473,12 +473,12 @@ class TestWhatTheSurvivingCallIsFiledUnder:
     The two nodes agree about which calls are withheld; the stamp has to agree
     too. The agent node decides „is this a retrieval round?" off what SURVIVED
     the guards — a round whose only fetch was withheld announces nothing and
-    advances no counter — while the tools node used to ask the same question of
-    the AIMessage, which still carries every call the model asked for. A round
-    of [duplicate fetch, emit_card] therefore answered „yes" on one side and
-    „no" on the other, and the card's result was filed under the PREVIOUS
-    round's search: a layer of the Herleitung gaining a fact that belongs to
-    nothing it did.
+    advances no counter. The tools node must ask the same question of the calls
+    that run, not of the AIMessage, which still carries every call the model
+    asked for: otherwise a round of [duplicate fetch, emit_card] answers „yes" on
+    one side and „no" on the other, and the card's result is filed under the
+    PREVIOUS round's search: a layer of the Herleitung gaining a fact that belongs
+    to nothing it did.
     """
 
     async def test_a_surviving_action_call_is_not_filed_under_the_last_search(self, scripted_agent):

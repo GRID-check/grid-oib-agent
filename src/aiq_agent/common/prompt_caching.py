@@ -105,8 +105,8 @@ _DIGEST_CHARS = 24
 #: schema) followed by a dynamic half (the date, the inventory, what this
 #: conversation already read), and the dynamic half changes on every turn of
 #: one conversation by construction. Keyed on the whole message, every turn
-#: got a new key, so the provider re-picked a shard and the static ~10k tokens
-#: started cold. The provider caches by prefix anyway: the shard that holds
+#: would get a new key, so the provider would re-pick a shard and the static
+#: ~10k tokens would start cold. The provider caches by prefix anyway: the shard that holds
 #: the static half is the right one for every turn of the tenant.
 _STABLE_PREFIX: ContextVar[str | None] = ContextVar("prompt_cache_stable_prefix", default=None)
 
@@ -124,8 +124,8 @@ def _cacheable_prefix(system_prompt: str) -> str:
     """What of the system prompt goes into the key: the stable prefix when it leads it.
 
     A system prompt that does not START with the named prefix is keyed whole,
-    as before: a call from another agent, or a render the prefix no longer
-    matches, must not claim a shard it does not share.
+    as before: a call from another agent, or a render the prefix does not
+    match, must not claim a shard it does not share.
     """
     prefix = _STABLE_PREFIX.get()
     if prefix and system_prompt.startswith(prefix):

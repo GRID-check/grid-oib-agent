@@ -15,9 +15,9 @@ type ProposalTone = 'pending' | 'accepted' | 'dismissed'
  * Lifecycle is its own axis (`grid-card-charter.md` §A3): "we are waiting for
  * you" is not "you are close to a limit", and amber already means the second
  * everywhere else in the set — on a Frist callout, on a tightening change, on a
- * measurement inside its tolerance band. Spending it here made an unanswered
- * question look like a compliance risk, and made a real compliance risk one
- * amber edge among several. Ink says "unresolved" without borrowing anyone
+ * measurement inside its tolerance band. Spending it here would make an
+ * unanswered question look like a compliance risk, and a real compliance risk
+ * one amber edge among several. Ink says "unresolved" without borrowing anyone
  * else's meaning, and the accepted/dismissed states still carry the verdict
  * colours they earn by being outcomes.
  */
@@ -33,9 +33,9 @@ const TONE_CLASS: Record<ProposalTone, string> = {
  * whose accent
  * colour tracks the proposal's lifecycle — ink while pending, green once
  * accepted, muted once dismissed (see TONE_CLASS above for why pending is ink
- * and not amber). Both cards used to hand-roll this identical `motion.div` +
- * `Card border-l-2 p-5 shadow-xs` chrome and state machine; this owns it once
- * so they can't drift.
+ * and not amber). Both cards share this identical `motion.div` +
+ * `Card border-l-2 p-5 shadow-xs` chrome and state machine, owned here once so
+ * they can't drift.
  */
 export function ProposalShell({
   tone,

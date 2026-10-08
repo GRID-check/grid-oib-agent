@@ -5,23 +5,19 @@ bi-encoder that retrieved them it can see whether a chunk actually answers the
 question rather than whether it occupies a similar region of embedding space.
 That is the whole job of the rerank stage, and a dedicated model does it in
 tens of milliseconds against the full chunk — where the LLM judge in
-:mod:`knowledge_layer.rerank` needs a second-scale call and, historically, a
-truncated excerpt to fit its reply budget.
+:mod:`knowledge_layer.rerank` needs a second-scale call.
 
 One provider, on purpose. OpenRouter is the host every deployment already
 holds a key for (``OPENROUTER_API_KEY``) and its ``POST /api/v1/rerank`` takes
 ``{model, query, documents: [str], top_n}`` and answers
-``{results: [{index, relevance_score}]}``. This module used to carry adapters
-for Cohere, Voyage, Jina and NVIDIA's hosted NIM as well; none of them was
-ever configured, and NVIDIA's hosted URL had gone (HTTP 410) by the time the
-feature was switched on. A self-hosted reranker that speaks the same shape
-still fits through ``AIQ_RERANKER_BASE_URL``.
+``{results: [{index, relevance_score}]}``. Other provider names are refused
+loudly by :func:`resolve_cross_encoder`. A self-hosted reranker that speaks the
+same shape still fits through ``AIQ_RERANKER_BASE_URL``.
 
-One key per SEARCH, not per process. The handle is built once at startup where
-no tenant is in scope, so for a release every organization's reranks went out
-on the platform key and onto the platform's bill; the credential is now
-resolved per call from the turn's organization, which is what lets a BYOK org
-pay for its own reranking. Each call also leaves a ``rerank`` usage event on
+One key per SEARCH, not per process. The handle is built once at startup, where
+no tenant is in scope, so the credential is resolved per call from the turn's
+organization, which is what lets a BYOK org pay for its own reranking. Each call
+also leaves a ``rerank`` usage event on
 the turn's ledger — the endpoint prices in search units and reports no cost, so
 the row carries estimated tokens and says ``estimate`` rather than inventing a
 dollar figure.
@@ -50,15 +46,15 @@ from typing import Any
 logger = logging.getLogger(__name__)
 
 PROVIDER = "openrouter"
-#: Provider names this module used to speak and no longer does. They fail LOUD
-#: (error, not warning) in :func:`resolve_cross_encoder` so a stale config is
-#: noticed instead of silently degrading to the judge.
+#: Provider names this module does not speak. They fail LOUD (error, not
+#: warning) in :func:`resolve_cross_encoder` so a stale config is noticed
+#: instead of silently degrading to the judge.
 _REMOVED_PROVIDERS = ("cohere", "voyage", "jina", "nvidia")
 _PATH = "/rerank"
 _DEFAULT_BASE_URL = "https://openrouter.ai/api/v1"
 #: Every request is pinned to zero-data-retention endpoints, and
-#: `cohere/rerank-v3.5` (the default until 2026-09) has none. Qwen3-Reranker
-#: is multilingual, and its one OpenRouter endpoint (Fireworks) is ZDR.
+#: `cohere/rerank-v3.5` has none. Qwen3-Reranker is multilingual, and its one
+#: OpenRouter endpoint (Fireworks) is ZDR.
 _DEFAULT_MODEL = "qwen/qwen3-reranker-8b"
 _KEY_ENV = "OPENROUTER_API_KEY"
 _RESULTS_KEY = "results"
@@ -76,8 +72,8 @@ _consecutive_failures = 0
 _breaker_tripped_until = 0.0  # time.monotonic() timestamp; 0.0 means closed
 #: ``None`` means "not warned yet in this process". A float sentinel cannot say
 #: that: ``time.monotonic()`` is time since boot on Linux, so a fresh container
-#: reads well under the cooldown and ``now - 0.0 < _BREAKER_COOLDOWN_SECONDS``
-#: swallowed the one warning the throttle exists to guarantee.
+#: reads well under the cooldown, and ``now - 0.0 < _BREAKER_COOLDOWN_SECONDS``
+#: would swallow the first warning the throttle exists to give.
 _last_failure_warn_at: float | None = None
 
 
@@ -151,9 +147,9 @@ DEFAULT_TIMEOUT_SECONDS = _env_float("AIQ_RERANKER_TIMEOUT_SECONDS", 3.0)
 # 8k-32k tokens per document, so a full 1024-token chunk fits comfortably; the cap
 # exists to bound a pathological chunk, not to summarise.
 #: At least one character. `_env_float` accepts any positive finite value, so
-#: AIQ_RERANKER_MAX_DOC_CHARS=0.5 truncated to 0 and every document was sliced to
-#: "" — the provider then ranked empty strings and returned a meaningless order,
-#: with a successful HTTP status and nothing in the logs.
+#: without this floor AIQ_RERANKER_MAX_DOC_CHARS=0.5 would cut every document to
+#: "", and the provider would rank empty strings and return a meaningless order
+#: under a successful status.
 DEFAULT_MAX_DOC_CHARS = max(1, int(_env_float("AIQ_RERANKER_MAX_DOC_CHARS", 4000.0)))
 
 
@@ -318,10 +314,9 @@ def _pinned_body(body: dict[str, Any], base_url: str) -> dict[str, Any] | None:
 def _organization_id_in_scope() -> str | None:
     """The organization this search belongs to, or ``None`` outside a turn.
 
-    The reranker is built ONCE at startup, where no organization is in scope,
-    which is why BYOK was unwired here: the key was resolved before any tenant
-    existed. The org id travels on the request context of every turn, so the
-    search — not the construction — is where it can be asked for.
+    The reranker is built ONCE at startup, where no organization is in scope.
+    The org id travels on the request context of every turn, so the search —
+    not the construction — is where it can be asked for.
     """
     try:
         from aiq_agent.project_context import get_organization_id_from_context
@@ -358,10 +353,9 @@ def _record_usage(model: str, query: str, documents: list[str], payload: Any, *,
     """Put one rerank on the turn's ledger (ledger row 25).
 
     A rerank is a frontier-model call on the answer's critical path — one per
-    ``knowledge_search``, sixty documents wide — and it went through `httpx`
-    rather than LangChain, so the cost tracker's callback hook never saw it. It
-    was charged to nobody: absent from the ledger, from the org's budget, and
-    from every "what did this turn cost" answer the product gives.
+    ``knowledge_search``, sixty documents wide. It goes through `httpx` rather
+    than LangChain, so the cost tracker's callback hook never sees it; this
+    writes the row itself, or the call would be charged to nobody.
 
     What it can honestly report is tokens, not dollars: the endpoint prices in
     search units and does not return a cost, so the row is ``estimate`` and the
@@ -474,9 +468,9 @@ class CrossEncoderReranker:
 
     def _build_body(self, query: str, documents: list[str], top_n: int | None) -> dict[str, Any]:
         body: dict[str, Any] = {"model": self.model, "query": query, "documents": documents}
-        # Non-positive means "no trim", matching `_trim` in rerank.py. `if top_n:` was
-        # true for a negative value and `min()` kept it negative, so the provider was
-        # asked for top_n=-1.
+        # Non-positive means "no trim", matching `_trim` in rerank.py. A negative
+        # top_n passes a truthiness check and `min()` keeps it negative, which
+        # would ask the provider for top_n=-1.
         if top_n and top_n > 0:
             body["top_n"] = min(top_n, len(documents))
         return body
@@ -484,11 +478,10 @@ class CrossEncoderReranker:
     async def _credential_for_search(self) -> _Credential:
         """The key and host THIS search runs on: the turn's org key when it has one.
 
-        Resolved per search rather than once at construction, which is the
-        whole of the BYOK fix: the reranker is built at startup, where there is
-        no tenant, so every organization's searches went out on the platform
-        key and the platform's bill. An org that brought its own key pays for
-        its own reranks now.
+        Resolved per search rather than once at construction: the reranker is
+        built at startup, where there is no tenant, so the key has to come from
+        the turn's organization. An org that brought its own key pays for its
+        own reranks.
 
         Off the event loop, because the resolution can reach the BFF on a cold
         entry (it is cached for 60s in-process afterwards) and a blocked loop
@@ -585,9 +578,9 @@ def resolve_cross_encoder(
 
     Returns ``None`` — never raises — for ``none``/empty, an unknown provider name,
     or a key that does not resolve, so a misconfiguration degrades to the
-    previous behaviour instead of taking retrieval down. The four removed
-    provider names (cohere/voyage/jina/nvidia) log an error naming the removal
-    and the migration, then fall back the same way.
+    previous behaviour instead of taking retrieval down. The four unsupported
+    provider names (cohere/voyage/jina/nvidia) log an error that names the
+    migration, then fall back the same way.
     """
     candidate = provider if provider is not None else DEFAULT_PROVIDER
     if not isinstance(candidate, str):

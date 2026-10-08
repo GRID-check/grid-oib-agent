@@ -11,8 +11,8 @@ import {
 /**
  * Fail-open contract: without a configured host/token the client never
  * initializes and every emit is a silent no-op. Analytics must never take
- * the app down with it — this is the ratchet for the dev-time throw the
- * PostHog wizard originally shipped.
+ * the app down with it — this is the ratchet against a dev-time throw in the
+ * PostHog wizard's default code.
  */
 describe('posthog analytics facade', () => {
   test('stays disabled when initialized without configuration', () => {

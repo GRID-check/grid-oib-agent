@@ -124,7 +124,7 @@ async def test_rerank_uses_single_batched_call() -> None:
 #
 # The suite above proves the reranker never crashes. These prove it never
 # silently produces a WRONG order -- the more dangerous failure, because a
-# renumbered or partial reply used to be absorbed as a successful rerank with
+# renumbered or partial reply is absorbed as a successful rerank with
 # nothing in the logs to distinguish it from a good one.
 # ===========================================================================
 
@@ -155,7 +155,8 @@ async def test_indices_past_the_candidate_count_are_dropped() -> None:
 
 @pytest.mark.asyncio
 async def test_a_repeated_index_keeps_the_first_score_and_never_demotes() -> None:
-    """``dict()`` collapse used to be last-wins, so a repeat silently demoted a chunk."""
+    """A repeated index keeps its first score: a ``dict()`` collapse would be
+    last-wins, and a repeat would silently demote the chunk."""
     llm = _FakeLLM(json.dumps({"scores": [{"i": 1, "score": 9}, {"i": 1, "score": 0}, {"i": 2, "score": 5}]}))
     chunks = [_chunk("a"), _chunk("b")]
     reranked = await rerank_chunks(llm, "query", chunks)
@@ -180,10 +181,10 @@ async def test_unscored_chunks_outrank_an_explicitly_rejected_one() -> None:
 
 @pytest.mark.asyncio
 async def test_non_positive_top_n_does_not_empty_the_result() -> None:
-    """``rerank_candidates: 0`` is config-reachable (``ge=0``) and used to return nothing.
+    """``rerank_candidates: 0`` is config-reachable (``ge=0``) and must return every chunk.
 
-    ``chunks[:0]`` emptied the knowledge base on both the success and the
-    fail-open path, so retrieval failed open to zero chunks.
+    ``chunks[:0]`` would empty the knowledge base on both the success and the
+    fail-open path, so retrieval would fail open to zero chunks.
     """
     llm = _FakeLLM(json.dumps({"scores": [{"i": 1, "score": 5}, {"i": 2, "score": 9}]}))
     chunks = [_chunk("a"), _chunk("b")]
@@ -268,7 +269,7 @@ async def test_cross_encoder_failure_falls_back_to_the_judge() -> None:
 
 @pytest.mark.asyncio
 async def test_out_of_contract_scores_cannot_invert_the_imputation() -> None:
-    """A negative score used to drag the mean below zero.
+    """A negative score must not drag the mean below zero.
 
     With mean < 0 every unscored candidate sorted beneath a chunk the judge had
     explicitly rejected — the exact inversion the imputation exists to prevent.

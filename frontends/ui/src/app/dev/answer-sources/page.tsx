@@ -4,23 +4,22 @@
  * Answer-sources dev preview: the "Belegt durch" provenance row, which is where
  * the two-level citation model becomes visible.
  *
- * The defect this surface existed to produce: an answer citing ONE Richtlinie
- * at four pages rendered FOUR rows — the first complete (display title, OIB
- * badge, indigo accent, openable) and the rest degraded to a raw corpus
- * filename with no badge and the wrong tint, because the structured citations
- * were deduplicated to the DOCUMENT level and then matched one-to-one against
- * the answer's written source list, which is at the LOCUS level.
+ * An answer citing ONE Richtlinie at four pages shows ONE row. The structured
+ * citations stay at the LOCUS level: deduplicating them to the DOCUMENT level
+ * before matching them one-to-one against the answer's written source list
+ * (which is at the locus level) degrades every row after the first to a raw
+ * corpus filename with no badge and the wrong tint.
  *
- * Each block below is a case that used to break, rendered through the real
- * component with fixture data:
+ * Each block below is a case the derivation must get right, rendered through
+ * the real component with fixture data:
  *
  *   1. ONE DOCUMENT, FOUR PAGES — one chip, "S. 5, 12, 18, 22", markers 1–4.
  *      Every inline [N] anchors to it; nothing is degraded and nothing is lost.
  *   2. MIXED PROVENANCE — OIB corpus, RIS, Büroarchiv, project upload and a web
  *      page side by side, each in its own family with its authority badge.
  *   3. WRITTEN LIST ONLY — the answer's `## Quellen` section with no structured
- *      wire at all. This is the case that produced the raw filenames; it now
- *      resolves to the same title, tint and badge as the structured path.
+ *      wire at all. It resolves to the same title, tint and badge as the
+ *      structured path.
  *   4. NO SOURCES — the honest "Lücke" row a substantive but ungrounded answer
  *      must show instead of quietly rendering nothing.
  *

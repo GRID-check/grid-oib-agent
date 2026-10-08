@@ -59,21 +59,18 @@ services:
       - GRID_INTERNAL_API_TOKEN=${GRID_INTERNAL_API_TOKEN:-grid-internal-dev-token}
       # Object storage, for `view_knowledge_image` (ADR-0039): the tool asks the
       # BFF where a document is and then reads the bytes from SeaweedFS itself.
-      # These were only ever wired in the Kubernetes deployment, so in compose
-      # the tool failed its credential guard and silently degraded every
-      # project/Archiv image to a text-only block — no error, no log line
-      # anyone would look at. The Kubernetes tier holds a dedicated read-only
-      # identity here; compose has one identity, so it uses that.
+      # Without these the tool fails its credential guard and silently degrades
+      # every project/Archiv image to a text-only block — no error, no log line
+      # anyone would look at.
       - SEAWEED_ENDPOINT=${SEAWEED_ENDPOINT:-http://seaweedfs:8333}
       # Browser-facing host: the BFF signs presigned URLs against this, so the
       # ingest endpoint must accept file_refs pointing at it too (SSRF
       # allowlist in aiq_api.routes.ingest).
       - SEAWEED_PUBLIC_ENDPOINT=${SEAWEED_PUBLIC_ENDPOINT:-http://localhost:8333}
-      # READ-ONLY. `view_knowledge_image` (ADR-0039) only ever calls get_object,
-      # and this tier used to carry the `grid` credential — which holds
-      # Write and Tagging on every document bucket, so a compromise here could
-      # overwrite or delete any tenant document. AGENTS.md already described this
-      # tier as read-only; now it is.
+      # READ-ONLY. `view_knowledge_image` (ADR-0039) only ever calls get_object, so
+      # this tier carries no write credential: the `grid` credential holds Write and
+      # Tagging on every document bucket, and a compromise here must not be able to
+      # overwrite or delete any tenant document.
       - SEAWEED_ACCESS_KEY=${SEAWEED_READONLY_ACCESS_KEY:-grid-backend-read}
       - SEAWEED_SECRET_KEY=${SEAWEED_READONLY_SECRET_KEY:?set it in deploy/.env — see the SeaweedFS section of deploy/.env.example}
       - SEAWEED_BUCKET=${SEAWEED_BUCKET:-grid-documents}
@@ -135,7 +132,7 @@ services:
   seaweedfs:
     # SeaweedFS S3-compatible object storage. One `weed server -s3` process runs
     # master (9333), volume (8080), filer (8888) and the S3 gateway (8333) — the
-    # single-node topology that replaces MinIO. S3 identities are generated at
+    # single-node topology. S3 identities are generated at
     # boot from SEAWEED_ACCESS_KEY/SEAWEED_SECRET_KEY into an s3.json config
     # (SeaweedFS has no MINIO_ROOT_* env; it authenticates via access/secret keys).
     image: chrislusf/seaweedfs:3.80
@@ -144,11 +141,11 @@ services:
       - "8888:8888" # Filer (browse/debug)
       - "9333:9333" # Master (admin/status)
     environment:
-      # Interpolated from `deploy/.env`, exactly as the CLIENTS read them. These
-      # used to be literals here while the frontend and agent read
-      # `${SEAWEED_ACCESS_KEY:-seaweedadmin}` — so setting the variable changed
-      # the clients and not the generated `s3.json`, and the first request failed
-      # `InvalidAccessKeyId`. One variable per credential, both sides.
+      # Interpolated from `deploy/.env`, exactly as the CLIENTS read them, so the
+      # clients and the generated `s3.json` always see the same value. A literal
+      # here would let setting the variable change the clients and not `s3.json`,
+      # and the first request would fail `InvalidAccessKeyId`. One variable per
+      # credential, both sides.
       #
       # ── Access keys default; SECRET keys are `:?` and have no default ────────
       #
@@ -157,9 +154,8 @@ services:
       # so a default is how the two sides stay in agreement. A secret key is the
       # credential itself, and a default there is a password shared by every
       # install that never set one, on a service that publishes port 8333 and
-      # holds every tenant's documents. `deploy/.env.example` already told
-      # operators to generate this one; the compose file quietly supplied a
-      # literal when they did not, which is the same silent-weak-default failure
+      # holds every tenant's documents. `deploy/.env.example` tells operators to
+      # generate this one, and a literal here would be the same silent weak default
       # in a place nobody looks.
       #
       # So they are required. `docker compose up` without them fails at
@@ -177,12 +173,12 @@ services:
       # from a browser.
       SEAWEED_ACCESS_KEY: ${SEAWEED_ACCESS_KEY:-seaweedadmin}
       SEAWEED_SECRET_KEY: ${SEAWEED_SECRET_KEY:?set it in deploy/.env — see the SeaweedFS section of deploy/.env.example}
-      # The READ-ONLY identity the agent tier uses (ADR-0039). It was missing
-      # from this file entirely, so `aiq-agent` and `agent-worker` ran on the
-      # write-capable `grid` credential — able to overwrite or delete any
-      # document object in any bucket, for a tool that only ever calls
-      # get_object. That made the compose stack a weaker authorization model than
-      # production, in the environment people develop against.
+      # The READ-ONLY identity the agent tier uses (ADR-0039). Without it
+      # `aiq-agent` would run on the write-capable `grid` credential, able to
+      # overwrite or delete any document object in any bucket, for a tool that only
+      # ever calls get_object. That would make the compose stack a weaker
+      # authorization model than production, in the environment people develop
+      # against.
       SEAWEED_READONLY_ACCESS_KEY: ${SEAWEED_READONLY_ACCESS_KEY:-grid-backend-read}
       SEAWEED_READONLY_SECRET_KEY: ${SEAWEED_READONLY_SECRET_KEY:?set it in deploy/.env — see the SeaweedFS section of deploy/.env.example}
       # A THIRD identity, and a DISTINCT credential, for bucket lifecycle.
@@ -246,11 +242,10 @@ services:
     # nothing, while a missing one would make `--profile langfuse` fail on its
     # first ingested event rather than at startup.
     #
-    # `|| true` used to swallow the exit code, which was survivable while
-    # nothing depended on this Job. It is not now: `langfuse-web` waits on
-    # `service_completed_successfully`, so a masked failure means the profile
-    # starts against a bucket that does not exist and fails on its first
-    # ingested event instead of at boot.
+    # `|| true` masks the exit code of `s3.bucket.create`, so the state check
+    # below decides the outcome. `langfuse-web` waits on
+    # `service_completed_successfully`: a missing bucket must fail this step, not
+    # the profile's first ingested event.
     #
     # `s3.bucket.create` errors on an existing bucket, so the exit code alone
     # cannot distinguish "already there" from "master unreachable". The
@@ -277,8 +272,7 @@ services:
   # One-shot migrator. Separate from `frontend` so the long-lived container that
   # serves requests never holds the schema-owner credential — otherwise any bug
   # that opens a second connection gets a full row-level-security bypass in the
-  # very process RLS exists to constrain (ADR-0041). Kubernetes already worked
-  # this way; compose now matches it.
+  # very process RLS exists to constrain (ADR-0041). Kubernetes does the same.
   grid-migrate:
     image: ${FRONTEND_IMAGE:-nvcr.io/nvidia/blueprint/aiq-frontend:2.0.0}
     build:
@@ -356,7 +350,7 @@ services:
       context: ../../frontends/ui
       dockerfile: deploy/Dockerfile
     container_name: aiq-blueprint-ui
-    # The image CMD migrates then serves; migration has moved to grid-migrate,
+    # The image CMD migrates then serves. Migration runs in grid-migrate instead,
     # so this container only serves.
     command: ["node", "server.js"]
     environment:
@@ -458,10 +452,9 @@ services:
       - GRID_GIT_SHA=${GRID_GIT_SHA:-}
       # ── Agent Skills (ADR-0046): dark-launch gate + save-time cron validation ──
       - GRID_SKILLS_ENABLED=${GRID_SKILLS_ENABLED:-false}
-      # Flag ENFORCEMENT itself. It was on the skill-scheduler and NOT here,
-      # which meant `enforcementOn()` in the BFF read an unset variable no
-      # matter what the operator had configured — the frontend and the
-      # scheduler could disagree about whether WorkOS flags decide anything.
+      # Flag ENFORCEMENT itself. It belongs here, not only on the skill-scheduler:
+      # `enforcementOn()` in the BFF reads it, and the frontend and the scheduler
+      # must agree about whether WorkOS flags decide anything.
       # Same default, so nothing moves until an operator sets it.
       - GRID_ENFORCE_FEATURE_FLAGS=${GRID_ENFORCE_FEATURE_FLAGS:-false}
       - GRID_SKILL_MIN_INTERVAL_MINUTES=${GRID_SKILL_MIN_INTERVAL_MINUTES:-15}
@@ -590,19 +583,16 @@ services:
       - GRID_INTERNAL_API_TOKEN=${GRID_INTERNAL_API_TOKEN:-grid-internal-dev-token}
       # Object storage, for `view_knowledge_image` (ADR-0039): the tool asks the
       # BFF where a document is and then reads the bytes from SeaweedFS itself.
-      # These were only ever wired in the Kubernetes deployment, so in compose
-      # the tool failed its credential guard and silently degraded every
-      # project/Archiv image to a text-only block — no error, no log line
-      # anyone would look at. The Kubernetes tier holds a dedicated read-only
-      # identity here; compose has one identity, so it uses that.
+      # Without these the tool fails its credential guard and silently degrades
+      # every project/Archiv image to a text-only block — no error, no log line
+      # anyone would look at.
       - SEAWEED_ENDPOINT=${SEAWEED_ENDPOINT:-http://seaweedfs:8333}
       - SEAWEED_ACCESS_KEY=${SEAWEED_ACCESS_KEY:-seaweedadmin}
       - SEAWEED_SECRET_KEY=${SEAWEED_SECRET_KEY:?set it in deploy/.env — see the SeaweedFS section of deploy/.env.example}
       - SEAWEED_BUCKET=${SEAWEED_BUCKET:-grid-documents}
       # Schedules gate: due schedules are fired only when skills are enabled
       # here or feature-flag enforcement is on; with it off the container stays
-      # up as the run reconciler's clock. This service previously passed
-      # GRID_WORKFLOWS_ENABLED, which the worker no longer reads.
+      # up as the run reconciler's clock.
       - GRID_SKILLS_ENABLED=${GRID_SKILLS_ENABLED:-false}
       - GRID_ENFORCE_FEATURE_FLAGS=${GRID_ENFORCE_FEATURE_FLAGS:-false}
       - GRID_SKILL_SCHEDULER_POLL_MS=${GRID_SKILL_SCHEDULER_POLL_MS:-30000}

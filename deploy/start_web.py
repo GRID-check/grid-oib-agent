@@ -101,7 +101,7 @@ import warnings
 #: ``asyncio.shield(pong_waiter)``: when a peer closes while a keepalive ping is
 #: unanswered, the keepalive task (and with it the shield) is cancelled first
 #: and the waiter fails afterwards, which Python 3.12+ logs at ERROR as
-#: "ConnectionClosed... exception in shielded future" (#758). The sans-I/O
+#: "ConnectionClosed... exception in shielded future". The sans-I/O
 #: implementation keeps its pings on a timer and has no such future.
 #: ``tests/test_websocket_implementation.py`` holds both to that.
 WS_IMPLEMENTATION = "websockets-sansio"
@@ -110,8 +110,8 @@ WS_IMPLEMENTATION = "websockets-sansio"
 #: 1011 "keepalive ping timeout" (logged only at TRACE) when the pong is more
 #: than ``WS_PING_TIMEOUT`` seconds late. uvicorn's default timeout is 20 s, and
 #: a throttled background tab, a mobile radio waking up or a short event-loop
-#: stall on either side can exceed that without the peer being gone, which
-#: dropped a chat socket mid-turn. The chat client recovers by replaying
+#: stall on either side can exceed that without the peer being gone, and
+#: can drop a chat socket mid-turn. The chat client recovers by replaying
 #: ``/frames?after=``, but a socket that is still there should not be killed.
 #: A dead peer is still found within 80 s. ``tests/test_websocket_implementation.py``
 #: holds ``main()`` to both.
@@ -212,11 +212,11 @@ def main():
     # -------------------------------------------------------------------------
     # NAT's load_config() discovers plugins then validates YAML `_type` tags
     # against the registry. Grid's otelcollector_logs / otelcollector_redaction
-    # register at import and are not in NAT's stock set. They used to ride in
-    # on chat_researcher.register; after that package dissolved, this process
-    # called load_config in a clean interpreter and CrashLoopBackOff'd.
-    # pytest already imported the plugins, so an in-process test cannot catch
-    # a miss — see test_shipped_config_loads_in_a_clean_interpreter.
+    # register at import and are not in NAT's stock set, so they must be
+    # imported before the config is validated: a clean interpreter that loads
+    # the config without them fails at boot. pytest already imported the
+    # plugins, so an in-process test cannot catch a miss — see
+    # test_shipped_config_loads_in_a_clean_interpreter.
     print("Loading configuration...")
     config = load_nat_config(config_file)
     print("✓ Configuration loaded and validated")

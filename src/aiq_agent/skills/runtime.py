@@ -306,13 +306,12 @@ class SkillRuntime:
         L1 catalog only, one line per resolved skill (name + description), and
         the model must opt IN via ``use_skill`` to see a body.
 
-        EVERY resolved skill is listed. ``grid-auto-invoke`` used to cut rows
-        out of here, which made the catalog a thing a person edited rather than
-        the model's own inventory — the same shape ADR-0060 removed everywhere
-        else. Its author-facing switch is gone, so honouring a stored ``false``
-        would now hide a skill from every turn with nobody able to bring it
-        back. The key is still accepted on a document (an old row must not
-        start erroring); nothing reads it.
+        EVERY resolved skill is listed. The catalog is the model's own
+        inventory, not a list a person edits, which is the shape ADR-0060
+        removed everywhere else: honouring a stored ``grid-auto-invoke: false``
+        would hide a skill from every turn with nobody able to bring it back.
+        The key is still accepted on a document (an old row must not start
+        erroring); nothing reads it.
 
         ``None`` when nothing belongs in the catalog — callers then render no
         skills section at all.

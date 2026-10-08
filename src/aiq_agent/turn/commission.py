@@ -1,21 +1,16 @@
 """Commissioning a run for a question this turn will not answer itself.
 
-## What changed, and why it is not a submit any more
+## Why a run, and not a submit
 
-An escalated question used to be submitted straight to the worker from here:
-``submit_agent_job`` with no conversation and no run row, a stub sentence
-written into the thread („Deep research job submitted. Job ID: …") and a job id
-carried on the state for the frontend to hang a panel off. Nothing else in the
-product knew that work existed — it could not be listed, stopped, filed or
-named — because the only record of it was a string in a message.
-
-It is now commissioned through the BFF, which is the single writer of the
+The run is commissioned through the BFF, which is the single writer of the
 workspace (ADR-0003) and the owner of the run primitive (ADR-0055, ADR-0062):
 ``POST /api/internal/tasks`` with ``op: "research"``. The BFF writes the
 ``task_runs`` row, mints the run's message in this thread, submits the job with
 that run's id, and answers with where the run narrates itself. The turn's own
 answer then carries those two ids and no prose at all — the block IS the
-narration.
+narration. A job submitted from here would have no conversation and no run row,
+so nothing could list, stop, file or name the work: its only record would be a
+string in a message.
 
 ## Echo, never sign
 

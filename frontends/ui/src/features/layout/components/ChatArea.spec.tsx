@@ -147,7 +147,7 @@ vi.mock('@/features/chat', () => ({
 // (shared / not shared, a turn in flight, an unread anchor) without a server. Its
 // own behaviour — what it fetches and when — is covered in
 // features/collaboration/hooks/use-shared-thread.spec.ts. The default is the INERT
-// result, which is what every pre-collaboration test in this file relies on.
+// result, which is what every test without collaboration relies on.
 /**
  * The two calls ChatArea makes back INTO the shared thread.
  *
@@ -192,9 +192,8 @@ vi.mock('@/features/collaboration/hooks/use-shared-thread', () => ({
 // ADR-0039's frame relay, mocked so this spec can hand ChatArea a turn in any
 // state — streaming, done, failed — with no server and no EventSource. What the
 // hook does with the socket is covered in
-// features/collaboration/hooks/use-spectated-turn.spec.ts; what nothing covered
-// until now is how ChatArea wires the RESULT back to the turn banner, which is
-// the last describe in this file.
+// features/collaboration/hooks/use-spectated-turn.spec.ts; how ChatArea wires the
+// RESULT back to the turn banner is covered by the last describe in this file.
 let mockSpectated: { turn: TurnView | null; live: boolean } = { turn: null, live: false }
 /** The most recent options. `onFrame` is a wire, so it is asserted by calling it. */
 let mockSpectatedOptions: UseSpectatedTurnOptions | null = null
@@ -216,8 +215,8 @@ const spectatedTurn = (overrides: Partial<TurnView> = {}): TurnView => ({
 // boundary: the offer must never compute a wait locally (ADR-0034), so what it
 // reads is the server's answer and nothing else.
 // Full rows, not `{ id }` stubs: the banner RENDERS these (name, avatar, who
-// asked, since when), so a thin fixture makes the mount untestable — which is
-// how the banner stayed unmounted with the suite green.
+// asked, since when), so a thin fixture would make the mount untestable, and the
+// banner could stay unmounted with the suite green.
 let mockAwaitingPending: Array<{
   id: string
   person: { userId: string; name: string }
@@ -260,21 +259,21 @@ describe('ChatArea', () => {
   })
 
   describe('the empty canvas offers nothing to read, only something to do', () => {
-    // The greeting used to be followed by static example questions. They are
-    // gone: static examples cannot know the project. Their replacement —
-    // categorized, backend-driven starters from the project's own documents,
-    // checks and memory — is planned separately; until it lands, the canvas
-    // stays quiet rather than showing placeholders.
+    // The greeting is not followed by static example questions: static examples
+    // cannot know the project. Their replacement — categorized, backend-driven
+    // starters from the project's own documents, checks and memory — is planned
+    // separately; until it lands, the canvas stays quiet rather than showing
+    // placeholders.
     //
     // This block is the ratchet. Suggestion chips are the kind of thing that
     // grows back one well-argued pull request at a time, so the absence is
-    // asserted in the exact conditions that used to produce the most of them.
+    // asserted in the conditions that would produce the most of them.
     // A reintroduction must prefill only (never auto-send).
 
     test('grows no suggestion chips, not even where a readable model exists', () => {
       mockProjectId = 'proj-1'
       // The strongest case: this project's model is ready, which is precisely
-      // when the canvas used to lead with two building questions.
+      // when the canvas would otherwise lead with two building questions.
       mockBimModels = [{ status: 'ready' }]
       render(<ChatArea isAuthenticated />)
 
@@ -354,7 +353,7 @@ describe('ChatArea', () => {
     expect(screen.getByTestId('user-message')).toHaveTextContent('Hello world')
   })
 
-  test('does not render legacy status messages', () => {
+  test('does not render status messages', () => {
     vi.mocked(useChatStore).mockImplementation(
       (selector?: StoreSelector<ChatStoreWithHydration>) => {
         const state: ChatStoreFixture = {
@@ -380,7 +379,7 @@ describe('ChatArea', () => {
 
     render(<ChatArea isAuthenticated={true} />)
 
-    // The dead SSE status transport was removed - status messages are no longer rendered
+    // Status messages are not rendered
     expect(screen.queryByRole('status')).not.toBeInTheDocument()
   })
 
@@ -624,9 +623,6 @@ describe('ChatArea', () => {
     expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent(GREETING_RE)
   })
 
-  // The in-feed file_upload_status banner surface was removed (contract C2), so
-  // there is no longer a render branch to exercise here.
-
   test('keeps earlier interrupted thinking state after a later completed turn', () => {
 
     vi.mocked(useChatStore).mockImplementation(
@@ -794,8 +790,8 @@ describe('ChatArea', () => {
       const spacer = container.querySelector<HTMLElement>('[aria-hidden="true"][style*="min-height"]')
       expect(spacer?.style.minHeight).toBe('600px')
 
-      // The answer lands. Dropping the spacer to 0 here is what used to clamp the
-      // scroll position and move a short finished answer down by its unused room.
+      // The answer lands. Dropping the spacer to 0 here would clamp the scroll
+      // position and move a short finished answer down by its unused room.
       use(makeState('user-1', false))
       rerender(<ChatArea isAuthenticated={true} onSignIn={vi.fn()} />)
       await new Promise((resolve) => requestAnimationFrame(resolve))
@@ -900,9 +896,9 @@ describe('ChatArea', () => {
   test('the resize observer watches the messages, not the spacer it refits', () => {
     // happy-dom's ResizeObserver is inert: record what the controller observes.
     // The observer's callback resizes the anchor spacer; a spacer inside the
-    // observed box resized that box again at the same depth, and the browser
-    // raised "ResizeObserver loop completed with undelivered notifications"
-    // once per frame while a short anchored answer streamed.
+    // observed box would resize that box again at the same depth, and the browser
+    // would raise "ResizeObserver loop completed with undelivered notifications"
+    // once per frame while a short anchored answer streams.
     const observed: Element[] = []
     const originalResizeObserver = globalThis.ResizeObserver
     class RecordingResizeObserver {
@@ -1208,7 +1204,7 @@ describe('ChatArea — a working cue after an answered HITL prompt', () => {
 })
 
 /**
- * The multi-person thread (spec CC-5, CC-13, CC-19).
+ * The multi-person thread.
  *
  * These cover what ChatArea itself decides: who each message is attributed to,
  * which messages GROUP under one header, where the unread separator lands, and
@@ -1218,11 +1214,10 @@ describe('ChatArea — a working cue after an answered HITL prompt', () => {
  * Where the follow-up chips live, structurally
  * (`docs/architecture/post-answer-stages.md` §6, §8).
  *
- * Two claims are being pinned, and the second is the one that was worth
- * verifying rather than assuming:
+ * Two claims are pinned here, and the second is the one worth verifying rather
+ * than assuming:
  *
- *   1. The chips are BELOW the answer and OUTSIDE it — the product owner's
- *      ruling, and the whole point of moving them off the card.
+ *   1. The chips are BELOW the answer and OUTSIDE it, not part of its card.
  *   2. The rail is the LAST element in the message's column. §8 spends its
  *      entire "reserve no space" argument on that claim, so it is asserted
  *      against the real DOM order rather than read off the JSX: if anything
@@ -1268,8 +1263,7 @@ describe('ChatArea — the follow-ups rail sits below the answer', () => {
     const answer = screen.getByTestId('agent-response')
     expect(rail).toBeInTheDocument()
     // Outside: the rail is not a descendant of the answer surface. Inside it,
-    // the chips would be the footer chrome this change exists to stop them
-    // being.
+    // the chips would be footer chrome on the card.
     expect(answer.contains(rail)).toBe(false)
     // Below: same column, after the answer in document order.
     expect(answer.compareDocumentPosition(rail) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
@@ -1383,7 +1377,7 @@ describe('ChatArea — shared thread', () => {
     expect(bubbles[1]).not.toHaveAttribute('data-grouped')
   })
 
-  test('draws the unread separator where the reader left off (spec CC-19)', () => {
+  test('draws the unread separator where the reader left off', () => {
     mockSharedThread = { ...mockSharedThread, unreadAfterMessageId: 'm1' }
     setThread([userMessage('m1', ME), userMessage('m2', ANNA)])
 
@@ -1404,7 +1398,7 @@ describe('ChatArea — shared thread', () => {
     expect(screen.queryByTestId('unread-divider')).not.toBeInTheDocument()
   })
 
-  test('tells an observer whose question the agent is answering (spec CC-13)', () => {
+  test('tells an observer whose question the agent is answering', () => {
     mockSharedThread = { ...mockSharedThread, turnInFlight: { actorUserId: ANNA } }
     setThread([userMessage('m1', ANNA, 'question')])
 
@@ -1437,9 +1431,9 @@ describe('ChatArea — shared thread', () => {
     expect(live).toHaveTextContent(/Anna Berger/)
   })
 
-  test('renders nothing extra for a thread the server says is not shared (spec NF-8)', () => {
+  test('renders nothing extra for a thread the server says is not shared', () => {
     // The flag can be on while THIS conversation is private: the local-first
-    // rendering must be exactly as before — no attribution, no separator, no banner.
+    // rendering stays as it is — no attribution, no separator, no banner.
     mockSharedThread = { ...INERT_SHARED_THREAD, unreadAfterMessageId: 'm1' }
     setThread([userMessage('m1', ME), userMessage('m2', ANNA)])
 
@@ -1457,11 +1451,11 @@ describe('ChatArea — shared thread', () => {
 /**
  * The waiting banner, asserted where it actually has to appear.
  *
- * The banner was built, unit-tested and screenshotted while NOTHING in the product
- * rendered it — its only consumer was the dev preview page. So the feature's central
- * promise (the thread visibly waits for Anna, and any participant can release the
- * wait) was absent from the shipped UI while every unit test around it stayed green.
- * These tests assert REACHABILITY, which coverage of the component cannot.
+ * A banner can be built and unit-tested while nothing in the product renders it,
+ * with every test green. The feature's central promise (the thread visibly waits
+ * for Anna, and any participant can release the wait) would then be absent from
+ * the shipped UI. These tests assert REACHABILITY, which coverage of the component
+ * cannot.
  */
 describe('ChatArea — the awaiting banner is reachable', () => {
   const ME = 'user-1'
@@ -1529,9 +1523,9 @@ describe('ChatArea — the awaiting banner is reachable', () => {
 
     render(<ChatArea isAuthenticated canCollaborate />)
 
-    // MN-9.2. Without this on screen a thread is stuck whenever the person who
-    // was asked goes on holiday, and ADR-0034's own mitigation for its worst
-    // risk does not exist.
+    // Without this on screen a thread is stuck whenever the person who was asked
+    // goes on holiday, and ADR-0034's own mitigation for its worst risk would not
+    // exist.
     expect(screen.getByRole('button', { name: 'Continue without Anna Berger' })).toBeInTheDocument()
   })
 
@@ -1543,7 +1537,7 @@ describe('ChatArea — the awaiting banner is reachable', () => {
     expect(screen.queryByTestId('awaiting-banner')).not.toBeInTheDocument()
   })
 
-  test('a solo thread never shows it — collaboration furniture stays out (NF-8)', () => {
+  test('a solo thread never shows it — collaboration furniture stays out', () => {
     mockAwaitingPending = [pendingRequest()]
     mockSharedThread = { ...INERT_SHARED_THREAD }
     setThread(waitingThread())
@@ -1564,7 +1558,7 @@ describe('ChatArea — the awaiting banner is reachable', () => {
     // `@Piloti` is what releases the wait server-side, so the ruling does it —
     // no separate release call, and the message stays honestly authored. The
     // token travels as a STRUCTURED mention: as plain text it would send as a
-    // remark to the chat and the wait would persist (spec MN-3).
+    // remark to the chat and the wait would persist.
     expect(mockSetComposerPrefill).toHaveBeenCalledWith('@Piloti ', [
       { targetId: 'agent:piloti', display: 'Piloti' },
     ])
@@ -1615,7 +1609,7 @@ describe('ChatArea — the hand-back offer', () => {
     ...extra,
   })
 
-  /** The hand-off itself: the server addressed people and NOT the agent (MN-1). */
+  /** The hand-off itself: the server addressed people and NOT the agent. */
   const asks = (users: string[]): MessageFixture => ({ addressees: { agent: false, users } })
 
   /** The reader asked Anna; Anna has answered; nothing is outstanding. */
@@ -1691,7 +1685,7 @@ describe('ChatArea — the hand-back offer', () => {
     expect(mockSetComposerPrefill).toHaveBeenCalledWith('@Piloti — please carry on from here.', [
       { targetId: 'agent:piloti', display: 'Piloti' },
     ])
-    // And it steps aside — the composer now holds the offer.
+    // And it steps aside: the composer holds the offer.
     expect(screen.queryByTestId('handback-offer')).not.toBeInTheDocument()
   })
 
@@ -1713,10 +1707,10 @@ describe('ChatArea — the hand-back offer', () => {
     render(<ChatArea isAuthenticated canCollaborate />)
 
     expect(screen.queryByTestId('handback-offer')).not.toBeInTheDocument()
-    // This assertion is the point. The old version of this test named the banner
-    // in its title and never checked it, so the banner could be — and was —
-    // completely unmounted while the suite stayed green. The agent's silence had
-    // no explanation on screen and the release action had no affordance.
+    // This assertion is the point: a title that names the banner proves nothing
+    // unless the banner is checked. Without it the banner can be completely
+    // unmounted while the suite stays green, and the agent's silence has no
+    // explanation on screen.
     expect(screen.getByTestId('awaiting-banner')).toBeInTheDocument()
   })
 
@@ -1755,7 +1749,7 @@ describe('ChatArea — the hand-back offer', () => {
     expect(screen.queryByTestId('handback-offer')).not.toBeInTheDocument()
   })
 
-  test('renders nothing for a thread the server says is not shared (spec NF-8)', () => {
+  test('renders nothing for a thread the server says is not shared', () => {
     mockSharedThread = { ...INERT_SHARED_THREAD }
     setThread(resolvedThread())
 
@@ -1838,7 +1832,7 @@ describe('ChatArea — the engagement notice is reachable', () => {
     )
   })
 
-  test('a solo thread never shows it — collaboration furniture stays out (NF-8)', () => {
+  test('a solo thread never shows it — collaboration furniture stays out', () => {
     mockSharedThread = { ...INERT_SHARED_THREAD, engagement: 'mention' }
     setThread(thread())
 
@@ -1868,11 +1862,10 @@ describe('ChatArea — the engagement notice is reachable', () => {
 /**
  * The three wires from the spectated stream back to the turn banner (ADR-0039).
  *
- * `useSpectatedTurn` is thoroughly tested; every wire OUT of it was invisible here
- * — both effects could be disabled outright and all 47 tests in this file stayed
- * green. That is how the `done` clear below shipped once already: an unobserved
- * wire is one somebody will rewrite from first principles, and the first principle
- * ("the turn is over, so clear it") is the wrong one.
+ * `useSpectatedTurn` is tested on its own; the wires OUT of it are only observable
+ * through this file's assertions. An unobserved wire is one somebody will rewrite
+ * from first principles, and the first principle ("the turn is over, so clear it")
+ * is the wrong one.
  */
 describe('ChatArea — the spectated stream feeds the turn banner', () => {
   const ANNA = 'user_anna'
@@ -1937,11 +1930,11 @@ describe('ChatArea — the spectated stream feeds the turn banner', () => {
     const { rerender } = render(<ChatArea isAuthenticated canCollaborate onSignIn={vi.fn()} />)
 
     // `done` is terminal for the STREAM, not for the turn: it strictly precedes
-    // persistence. Clearing here unmounted the completed answer the observer was
-    // reading and left them blank until the persisted message landed a round trip
-    // later — and in the very case the clear was written for, a turn that never
-    // persists at all, it threw a finished answer away and put nothing in its
-    // place. The persisted message's own `ended` is what clears this.
+    // persistence. Clearing here would unmount the completed answer the observer
+    // is reading and leave them blank until the persisted message lands a round
+    // trip later. In the case a clear is meant for, a turn that never persists at
+    // all, it would throw a finished answer away and put nothing in its place. The
+    // persisted message's own `ended` is what clears this.
     expect(mockClearTurnInFlight).not.toHaveBeenCalled()
 
     // The consequence, not merely the call: the fixture's clear genuinely drops
@@ -1957,10 +1950,10 @@ describe('ChatArea — the spectated stream feeds the turn banner', () => {
 
     expect(mockNoteTurnActivity).not.toHaveBeenCalled()
     // The heartbeat has to be the FRAME. Derived from `answer.length` +
-    // `steps.length` — what this used to be — it stands still for the whole of a
-    // single long tool call, because the reducer merges repeated frames into the
-    // step it already has: a six-minute search looked like silence and the banner
-    // was torn down mid-turn.
+    // `steps.length` it would stand still for the whole of a single long tool
+    // call, because the reducer merges repeated frames into the step it already
+    // has: a six-minute search would look like silence and tear the banner down
+    // mid-turn.
     mockSpectatedOptions?.onFrame?.()
 
     expect(mockNoteTurnActivity).toHaveBeenCalledTimes(1)

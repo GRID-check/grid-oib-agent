@@ -267,8 +267,8 @@ describe('ShareDialog — per-person controls', () => {
 
   test('a refused removal keeps its confirmation open instead of closing like a success', async () => {
     // Every sharing mutation resolves to a boolean rather than throwing, so the
-    // confirm used to close on refusal too — the dialog dismissed itself as if
-    // the person had been removed, and the explanation appeared behind it.
+    // confirm stays open on refusal: a dialog that dismissed itself would look as
+    // if the person had been removed, with the explanation appearing behind it.
     const user = userEvent.setup()
     revoke.mockResolvedValueOnce(false)
     renderDialog({ failure: { reason: 'last-owner', message: null } })
@@ -354,7 +354,7 @@ describe('ShareDialog — invite', () => {
     expect(screen.queryByText('Sabine Gruber')).toBeNull()
   })
 
-  test('a colleague outside the project is SHOWN, disabled, with the reason (SH-19)', () => {
+  test('a colleague outside the project is SHOWN, disabled, with the reason', () => {
     useShareCandidatesMock.mockReturnValue(
       candidatesResult({
         candidates: [candidate('u-eva', 'Eva Ritter', { needsProjectAccess: true })],
@@ -375,7 +375,7 @@ describe('ShareDialog — invite', () => {
     // and it never will until someone adds Eva to the project elsewhere.
     expect(screen.queryByRole('button', { name: 'Invite: Eva Ritter' })).toBeNull()
 
-    // The identifying detail survives. It used to be replaced by the explanation,
+    // The identifying detail survives. It is not replaced by the explanation,
     // which is precisely the row where the reader most needs to be sure WHO this is.
     const row = screen.getByText('Eva Ritter').closest('[data-testid="share-candidate"]')
     expect(within(row as HTMLElement).getByText('u-eva@example.com')).toBeInTheDocument()
@@ -402,7 +402,7 @@ describe('ShareDialog — invite', () => {
     expect(within(row).getByText('u-ina@example.com')).toBeInTheDocument()
     // The row never carries a folder name: the sharer may not be cleared for it.
     expect(row.textContent).not.toMatch(/Ordner|Verträge|Honorar/)
-    // Someone who qualifies is invited as before.
+    // Someone who qualifies gets the normal invite control.
     expect(screen.getByRole('button', { name: 'Invite: Klaus Berger' })).toBeEnabled()
     const klaus = screen.getByText('Klaus Berger').closest('[data-testid="share-candidate"]') as HTMLElement
     expect(klaus).not.toHaveAttribute('data-blocked')
@@ -454,9 +454,9 @@ describe('ShareDialog — invite', () => {
   /**
    * One person, one place (rule 7).
    *
-   * A grant holder used to get a role control in the roster AND a second one beside
-   * their invite row: two controls for one person's role in one dialog, which reads
-   * as a bug because it is one. The roster is the home — role and removal live there
+   * A grant holder must not get a role control in the roster AND a second one beside
+   * their invite row: two controls for one person's role in one dialog reads as a
+   * bug, because it is one. The roster is the home — role and removal live there
    * — so the invite list is only ever "who else could be added".
    */
   test('a person who already has access is not repeated in the invite list', () => {
@@ -621,9 +621,8 @@ describe('ShareDialog — refusals', () => {
 
 describe('ShareDialog — the row menu states the current role', () => {
   /**
-   * The select this replaced DISPLAYED the current role. Losing that would be a
-   * real regression for anyone who cannot see the group heading above the row —
-   * the checked radio is what carries it now, and a screen reader reads it.
+   * The checked radio shows the current role, which matters for anyone who cannot
+   * see the group heading above the row: a screen reader reads it.
    */
   test('the current role is the checked option, not merely the default', async () => {
     const user = userEvent.setup()

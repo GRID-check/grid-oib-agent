@@ -2,9 +2,9 @@
  * The legal-hold gate every immediate erasure passes before it destroys
  * anything (GDPR Art. 18 restriction; `docs/architecture/deletion-pipeline.md`).
  *
- * A hold used to be read by the purger alone, and the purger only erases
- * projects. Deleting a document, an Archiv document, a chat or a chat's
- * attachment is an immediate hard delete in this tier, so each of those paths
+ * The purger reads a hold before it erases a project. Deleting a document, an
+ * Archiv document, a chat or a chat's attachment is an immediate hard delete in
+ * this tier, so each of those paths
  * calls {@link assertNoActiveHold} after its access check and before its first
  * destructive step — objects, chunks, grants, rows.
  *

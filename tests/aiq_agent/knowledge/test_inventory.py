@@ -1,10 +1,9 @@
 """Shelf-aware knowledge-base inventory — the list the agent answers from.
 
-Regression: "welche Dateien hast du im Büroarchiv" mixed the OIB corpus,
-project files and the org archive because available_documents carried
-(file_name, summary) only. ADR-0047 already said that. These tests pin the
-repair: identity is (collection, filename), the prompt is grouped by shelf,
-and a listing question about one shelf cannot be answered from another.
+Listing must stay per shelf: "welche Dateien hast du im Büroarchiv" otherwise mixes the OIB
+corpus, project files and the org archive, since available_documents carries (file_name,
+summary) only (ADR-0047). These tests pin identity as (collection, filename), the prompt
+grouped by shelf, and a listing question about one shelf that cannot be answered from another.
 """
 
 from __future__ import annotations
@@ -124,8 +123,8 @@ class TestAllocateInventory:
         assert {d.collection for d in out} == {"proj_1", "archiv_org"}
 
     def test_user_shelves_are_not_evicted_by_the_oib_corpus(self):
-        """A 50-cap used to sort-then-slice. ~40 OIB filenames ate the list
-        and the Büroarchiv disappeared — so the agent answered from OIB."""
+        """A 50-cap must not sort-then-slice: ~40 OIB filenames would eat the list, the Büroarchiv
+        would disappear, and the agent would answer from OIB."""
         base = [_doc(f"oib-rl_{i}.pdf", collection="oib_knowledge", shelf="base") for i in range(40)]
         archiv = [_doc("Buero-Standard.pdf", collection="archiv_org", shelf="archiv")]
         project = [_doc("Lacknergasse.pdf", collection="proj_1", shelf="project")]
@@ -424,7 +423,7 @@ class TestBaseShelfIsFolded:
 
 
 class TestTruncationEdgesTheFirstPassMissed:
-    """Two shelves the drop notice did not reach, both found in review.
+    """Two shelves the drop notice would otherwise miss.
 
     Both are the same defect the per-shelf notice exists to prevent: a list the
     cap shortened, presented as the whole of it.
@@ -522,8 +521,8 @@ class TestFilesStillBeingRead:
         assert "still being read" not in with_none.lower()
 
     def test_a_first_upload_still_gets_a_block(self):
-        """An empty project whose only document is mid-ingest used to render no
-        inventory at all — so the turn carried no hint that anything existed."""
+        """An empty project whose only document is mid-ingest must not render no inventory at all:
+        the turn would carry no hint that anything existed."""
         block = render_inventory_block([], in_flight=["erste_datei.pdf"])
 
         assert block != ""

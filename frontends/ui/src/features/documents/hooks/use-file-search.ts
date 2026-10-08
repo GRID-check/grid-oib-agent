@@ -15,7 +15,7 @@ type SearchScope = Pick<ShelfEndpoints, 'search' | 'searchBody'>
  * one rule this hook exists to keep: any edit to the query drops semantic mode.
  *
  * It is a hook rather than state inside the browser pane because the field and
- * the results no longer live in the same box — Files renders the field in the
+ * the results do not live in the same box — Files renders the field in the
  * page header and the results below it, so the state has to be owned above
  * both.
  */

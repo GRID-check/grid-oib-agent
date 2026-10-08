@@ -12,8 +12,8 @@
  * `job_runs` row, and the worker's outcome callback closes it. The requester
  * is PINNED at creation — the job's creator, never the scheduler and never a
  * service token — because unattended work must act as somebody, and the
- * somebody is whoever asked for it (`docs/superpowers/specs/2026-08-20-
- * agent-authored-documents-design.md`, decision 10).
+ * somebody is whoever asked for it (decision 10 of
+ * `docs/superpowers/specs/2026-08-20-agent-authored-documents-design.md`).
  *
  * Review is a second, independent axis on the same row (the
  * `mention_requests` shape: a lifecycle `status`, and separately how it was
@@ -42,10 +42,9 @@ import { jobRuns, jobs } from './jobs'
  *
  * The first two are the job outputs a scheduled run produces; the rest are what
  * a person delegates from a chat turn (`create_task`) or what a reviewer's
- * „Änderungen anfordern" opens on unattended work. They arrived as a TypeScript
- * change and nothing else — migration 0075 gave `kind` no CHECK, deliberately,
- * so the vocabulary lives in one place rather than in a column and a tuple that
- * can disagree.
+ * „Änderungen anfordern" opens on unattended work. The vocabulary lives in
+ * TypeScript alone: `kind` has no CHECK, deliberately, so it lives in one place
+ * rather than in a column and a tuple that can disagree.
  *
  *   - `deep-research` · `chat` — a job fired on its timer; the value is
  *     `jobs.output`.
@@ -161,9 +160,9 @@ export const tasks = pgTable(
     /** The sanitized, user-safe error the worker reported, when it failed. */
     error: text('error'),
     /**
-     * Ceiling and deadline the requester set. Recorded now, enforced by the
-     * budget guard and the scheduler in the next step; a row with neither
-     * inherits the organization's policies as every turn does.
+     * Ceiling and deadline the requester set. Recorded here and enforced by the
+     * budget guard and the scheduler; a row with neither inherits the
+     * organization's policies as every turn does.
      */
     budgetUsd: numeric('budget_usd', { precision: 12, scale: 4 }),
     deadlineAt: timestamp('deadline_at', { withTimezone: true }),

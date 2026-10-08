@@ -11,11 +11,10 @@
  * the card shapes with the body, and `grid-agents` decides which agent may run
  * the skill at all.
  *
- * `ce47667b` pinned the Python half — the real resolver over a faked BFF
- * payload. This is the other half, and until it existed replacing
- * `metadata: { ...skill.metadata }` with `metadata: {}` in `resolveAll` — the
- * exact regression the comment there records — was caught by nothing, and it
- * takes `grid-hidden` and `grid-cards` down with it.
+ * The Python half pins the real resolver over a faked BFF payload; this is the
+ * other half. Replacing `metadata: { ...skill.metadata }` with `metadata: {}` in
+ * `resolveAll` — the regression the comment there records — would otherwise go
+ * unnoticed, and it takes `grid-hidden` and `grid-cards` down with it.
  *
  * A process boundary cannot be crossed inside one test, so both sides assert
  * against the SAME checked-in fixture, `tests/fixtures/skills_resolve/
@@ -30,15 +29,13 @@
  * invisible to the consumer and must not break the build, while renaming,
  * removing or re-valuing one of the fields the backend reads must.
  *
- * ## The one field this file now asserts is GONE
+ * ## `standard` is pinned by its absence
  *
- * `standard`. It marked a published `delivery: 'standard'` row so
- * `SkillRuntime` would FORCE the skill rather than offer its description, and
- * migration 0088 retired the tier together with the composer's `skills` array:
- * an instruction that always applies is not a capability. The key is therefore
- * pinned by its ABSENCE below — a payload that grew it back would mean the tier
- * came back with it. The shared fixture no longer carries it either, so the
- * row-for-row comparison is now against the sample as checked in.
+ * The key `standard` marked a published `delivery: 'standard'` row so
+ * `SkillRuntime` would FORCE the skill rather than offer its description.
+ * An instruction that always applies is not a capability, so the payload does
+ * not carry the key: a payload that grew it back would mean the tier came back
+ * with it. The shared fixture does not carry it either.
  */
 
 import { readFileSync } from 'node:fs'
@@ -81,9 +78,9 @@ const AGENT = 'researcher'
 const ORG = 'org_1'
 
 /**
- * The house voice — the row the retired `standard` tier existed for, and now an
- * ordinary offer. Hidden from the live line, and declaring the cards its
- * answers prefer: the two reserved keys the payload must carry verbatim.
+ * The house voice: an ordinary offer, hidden from the live line, and declaring
+ * the cards its answers prefer — the two reserved keys the payload must carry
+ * verbatim.
  */
 const VOICE_ROW: PlatformSkillRow = {
   id: 'ps-voice',
@@ -180,10 +177,9 @@ describe('the resolve payload the backend reads', () => {
   })
 
   it('marks no row as fleet policy, because there is no such tier', async () => {
-    // `standard` was the key `_build_org_skills` read to set `Skill.standard`,
-    // and it was the whole difference between a skill that is FORCED and one
-    // the model may choose. Migration 0088 retired the tier; a row that grew
-    // the key back would mean the tier came back with it.
+    // `standard` is the key that would set `Skill.standard`, the whole
+    // difference between a skill that is FORCED and one the model may choose.
+    // A row that grew the key back would mean the tier came back with it.
     const live = await served()
     for (const row of live.values()) {
       expect(Object.keys(row)).not.toContain('standard')
@@ -191,10 +187,10 @@ describe('the resolve payload the backend reads', () => {
   })
 
   it('carries the reserved metadata verbatim rather than an empty object', async () => {
-    // The regression `resolveAll` documents: sending `{}` here dropped the
-    // reserved `grid-*` keys, and the backend merges this payload OVER its own
-    // filesystem copy — so the house voice loses `grid-hidden` (a live line on
-    // every answer) and `grid-cards` (no card shapes in front of the model).
+    // `resolveAll` must not send `{}` here: that drops the reserved `grid-*`
+    // keys, and the backend merges this payload OVER its own filesystem copy,
+    // so the house voice would lose `grid-hidden` (a live line on every answer)
+    // and `grid-cards` (no card shapes in front of the model).
     const live = await served()
     expect(live.get('piloti-voice')?.metadata).toEqual({
       'grid-title': 'Piloti-Stimme',

@@ -39,7 +39,7 @@ describe('findCardOwnerMessageId', () => {
     ).toBe('answer')
   })
 
-  it('finds the owner in a thread that is no longer open', () => {
+  it('finds the owner in a thread other than the current conversation', () => {
     // The report panel outlives a session switch, so the run on screen may
     // belong to a conversation the reader has since navigated away from.
     const other = thread([{ id: 'answer', deepResearchJobId: 'job-1', cards: REPORT_CARDS }], 'conv-2')

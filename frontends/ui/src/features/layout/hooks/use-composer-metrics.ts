@@ -11,18 +11,17 @@
  *
  * `--composer-h` — the measured height of the composer stack (banner + input:
  * variable, because the textarea grows, chips wrap and banners come and go).
- * `ChatArea` reserves exactly this much bottom padding under the transcript,
- * instead of the fixed guess it used to make, so the last message clears the
- * input by a known gap and no more.
+ * `ChatArea` reserves exactly this much bottom padding under the transcript, so
+ * the last message clears the input by a known gap and no more.
  *
  * `--welcome-offset` — how much room the EMPTY canvas's greeting has to leave
  * below itself: the composer's height, plus how far the composer is lifted off
  * the floor, plus a gap. The greeting bottom-aligns against it and therefore
  * sits exactly one gap above the input, by construction rather than by
- * arithmetic. An earlier version centred the greeting and computed the
- * clearance instead; the sum silently omitted the column's own `pt-20` and the
- * composer landed on the greeting on a phone. Geometry that cannot overlap
- * beats geometry that is calculated not to.
+ * arithmetic. Centring the greeting and computing the clearance instead would
+ * let a sum silently omit the column's own padding, and the composer would land
+ * on the greeting on a phone. Geometry that cannot overlap beats geometry that
+ * is calculated not to.
  *
  * ── The lift ────────────────────────────────────────────────────────────────
  *
@@ -42,20 +41,20 @@
  *
  * ── Why the lift is a NUMBER and not a calc() ────────────────────────────────
  *
- * It used to be `max(0px, calc((100dvh − …) / 2))`, resolved by the engine and
- * written straight onto the composer's `bottom`. Two things were wrong with
- * that, and the second is the one a reader could see:
+ * A `max(0px, calc((100dvh − …) / 2))` resolved by the engine and written
+ * straight onto the composer's `bottom` would be wrong in two ways, and the
+ * second is the one a reader could see:
  *
  *   · `100dvh` is the viewport, and the lift is measured inside the chat
  *     COLUMN. Anything above the column — a route with a top bar, the mobile
- *     browser's own chrome — made the leftover too big and pushed the pair off
- *     centre. `H` is now the column's own client height, from the same
+ *     browser's own chrome — would make the leftover too big and push the pair
+ *     off centre. `H` is the column's own client height, from the same
  *     ResizeObserver that already measures the composer.
  *   · a value only CSS knows cannot be animated by anything else. Sending the
- *     first message flips this hook's one input, and the composer teleported
- *     from the middle of the column to the floor between two frames. Travel is
- *     what tells the reader that the input they were typing in and the input
- *     now under the transcript are the same object; a jump makes them two.
+ *     first message flips this hook's one input, and the composer has to travel
+ *     from the middle of the column to the floor, not teleport. Travel is what
+ *     tells the reader that the input they were typing in and the input now
+ *     under the transcript are the same object; a jump makes them two.
  *
  * So the lift resolves to px here, and `MainLayout` hands it to motion.dev as a
  * transform. It is rounded to whole pixels, because a resting transform on a
@@ -69,11 +68,10 @@ import { springGlide } from '@/components/motion'
 /**
  * Breathing room between the composer and the greeting above it.
  *
- * It is folded into `--welcome-offset` rather than published on its own. The
- * gap and the lift used to be two variables the welcome column added up in a
- * `calc()`, which meant the greeting's resting place was recomputed from three
- * live numbers — and all three change at the exact moment the greeting starts
- * to leave (see the freeze below).
+ * It is folded into `--welcome-offset` rather than published on its own. Two
+ * separate variables would be added up live in a `calc()`, so the greeting's
+ * resting place would be recomputed from three numbers that all change at the
+ * exact moment the greeting starts to leave (see the freeze below).
  */
 const COMPOSER_GAP_PX = 32
 
@@ -82,7 +80,7 @@ const GREETING_H_PX = 28
 
 /**
  * Room left under the greeting before anything has been measured, and in jsdom,
- * where every box is 0. The composer half matches the `pb-44` this replaced.
+ * where every box is 0.
  */
 export const WELCOME_OFFSET_FALLBACK = '13rem'
 
@@ -90,13 +88,12 @@ export interface ComposerMetrics {
   /**
    * Attach to the floating composer stack — this is the element measured.
    *
-   * A callback ref, not a `useRef` box read from a mount effect. The box was
-   * empty whenever the composer mounted later than its column — the `/dev`
-   * preview seeds its fixture in an effect and renders nothing on the first
-   * pass — and a mount effect with no dependencies never looks again. Nothing
-   * broke loudly: the measurement simply never happened and every consumer
-   * silently used its fallback, which is the failure mode a measurement has to
-   * be built against. A callback ref runs when the node actually arrives.
+   * A callback ref, not a `useRef` box read from a mount effect. The composer can
+   * mount after its column (the `/dev` preview seeds its fixture in an effect and
+   * renders nothing on the first pass), and a mount effect with no dependencies
+   * never looks again. Nothing would break loudly: every consumer would silently
+   * use its fallback, which is the failure mode a measurement has to be built
+   * against. A callback ref runs when the node actually arrives.
    */
   composerRef: (node: HTMLDivElement | null) => void
   /** Spread onto the chat column: publishes the variables to its descendants. */
@@ -115,10 +112,9 @@ export interface ComposerMetrics {
    *   · `initial={false}` — the composer is placed on mount, never animated in;
    *   · the spring runs ONLY across a change of emptiness. Every other reason
    *     the lift moves is arithmetic, not a journey: the composer measuring 0px
-   *     for a frame before its own content mounts (this drifted the composer
-   *     down half the screen on every new chat, which is how the rule was
-   *     found), a banner appearing, a window resize. Those are applied in one
-   *     frame. Animating them claims a movement that did not happen.
+   *     for a frame before its own content mounts, a banner appearing, a window
+   *     resize. Those are applied in one frame. Animating them claims a movement
+   *     that did not happen.
    */
   composerMotion: {
     initial: false
@@ -190,7 +186,7 @@ export function useComposerMetrics(isThreadEmpty: boolean): ComposerMetrics {
   // Compared and updated DURING the render, not from an effect: the new lift
   // and the transition that carries it have to reach motion.dev in the same
   // commit. An effect lands one commit late, by which time the animation has
-  // already started under whichever transition was there before.
+  // already started under the transition from the previous commit.
   const [wasEmpty, setWasEmpty] = useState(isThreadEmpty)
   const [travelling, setTravelling] = useState(false)
   if (wasEmpty !== isThreadEmpty) {
@@ -217,7 +213,7 @@ export function useComposerMetrics(isThreadEmpty: boolean): ComposerMetrics {
       ...(composerHeight != null ? { ['--composer-h' as string]: `${composerHeight}px` } : {}),
       ...(welcomeOffset != null ? { ['--welcome-offset' as string]: `${welcomeOffset}px` } : {}),
     },
-    // The lift is a transform now (see the header), so the box itself stays on
+    // The lift is a transform (see the header), so the box itself stays on
     // the floor: `bottom: 0` and nothing else.
     composerStyle: { bottom: 0 },
   }

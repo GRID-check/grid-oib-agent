@@ -4,10 +4,10 @@
  * Platform → cards: what the agent can actually put on screen.
  *
  * Grid answers in prose plus cards, and the card set is the ceiling on how
- * richly it can answer anything. That ceiling used to be legible only from
- * `cards/models.py`, so the question "can Grid show me a Stellplatznachweis?"
- * had no answer inside the product — and the follow-up ("it can't; how do I
- * ask for it?") had none either.
+ * richly it can answer anything. This page makes that ceiling legible inside
+ * the product, so "can Grid show me a Stellplatznachweis?" and the follow-up
+ * ("it can't; how do I ask for it?") both have an answer here, not only in
+ * `cards/models.py`.
  *
  * Every entry is a REAL render: the sample card goes through the same
  * `GridCards` dispatcher chat uses, so this page cannot show a card that the

@@ -108,11 +108,11 @@ def test_description_length_limit() -> None:
 def test_grid_execution_is_ignored_not_rejected() -> None:
     """A leftover ``grid-execution`` must not take a skill down.
 
-    Scheduling stopped being a property of a skill: the output kind is a column
-    on the JOB now. The key is therefore unreserved rather than forbidden —
-    stored org rows and un-migrated SKILL.md files still carry it (with any
-    value, including ones the old validator rejected), and resolving one has to
-    keep working. It survives as an ordinary free-form entry that nothing reads.
+    Scheduling is a property of the JOB, not of a skill: the output kind is a
+    column on the job. The key is therefore unreserved rather than forbidden —
+    stored org rows and SKILL.md files may still carry it (with any value), and
+    resolving one has to keep working. It is an ordinary free-form entry that
+    nothing reads.
     """
     for value in ("chat", "deep-research", "browser", "gibt-es-nicht"):
         md = VALID_MD.replace(
@@ -185,8 +185,7 @@ def test_build_skill_from_payload_rejects_garbage() -> None:
 def test_reserved_key_registry() -> None:
     """Reserved keys, and none of them says when a JOB runs.
 
-    ``grid-execution`` and ``grid-schedulable`` were removed outright when
-    scheduling became a property of the job. ``grid-auto-invoke`` is catalog
+    Scheduling is a property of the job, so ``grid-auto-invoke`` is catalog
     membership, not scheduling: slash and jobs still attach the skill.
     """
     assert GRID_METADATA_KEYS == {
@@ -262,8 +261,8 @@ def _with_hidden(value: str) -> str:
 def test_unquoted_yaml_bool_metadata_is_coerced_to_a_string() -> None:
     """A SKILL.md author writes ``true``, not ``\"true\"``. YAML makes a bool.
 
-    Rejecting that spelling used to fail discovery of every builtin when one
-    file used it. Coerce, then apply the same token rules as a quoted string.
+    Rejecting that spelling would fail discovery of every builtin, so coerce it,
+    then apply the same token rules as a quoted string.
     """
     hidden = VALID_MD.replace("  grid-agents: researcher", "  grid-hidden: true")
     assert skill_hidden(parse_skill_md(hidden).metadata) is True
@@ -331,10 +330,10 @@ def _with_auto_invoke(value: str) -> str:
     return VALID_MD.replace("  grid-agents: researcher", f'  grid-auto-invoke: "{value}"')
 
 
-# `grid-auto-invoke` is TOLERATED and no longer READ. Nothing decides anything
-# from it: the catalog lists every resolved skill, because a human bit that
-# deletes a row from the model's own inventory is the shape ADR-0060 removed.
-# These tests hold the toleration — an old document must keep parsing, and a
+# `grid-auto-invoke` is TOLERATED and not READ. Nothing decides anything from
+# it: the catalog lists every resolved skill, because a human bit that deletes
+# a row from the model's own inventory is the shape ADR-0060 removed. These
+# tests hold the toleration — an old document must keep parsing, and a
 # malformed value must keep being dropped rather than killing discovery.
 def test_grid_auto_invoke_falsy_tokens_are_kept_verbatim_and_read_by_nobody() -> None:
     for token in ("false", "0", "no", "FALSE", "  No  "):

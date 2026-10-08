@@ -43,9 +43,8 @@ describe('normalizeTaskStatus', () => {
  * The order is the point: the filed DOCUMENT is the durable artefact the rest
  * of the product treats as real, and the THREAD at the run's own message is
  * everything else a run produced — its report, its account of the work and,
- * when it broke, what it tried (ADR-0062). There is no third place: the
- * `?job=` report and thinking URLs addressed the deep-research side panel,
- * which is gone, so a row with neither destination says so.
+ * when it broke, what it tried (ADR-0062). There is no third place, so a row
+ * with neither destination says so.
  */
 describe('taskResultTarget', () => {
   const row = (overrides: Partial<TaskWireRow> = {}): TaskWireRow => ({
@@ -102,10 +101,9 @@ describe('taskResultTarget', () => {
   })
 
   /**
-   * The status used to choose between three `?job=` URLs — the report, the
-   * thinking tab and the progress tab. Every one of them was read by the
-   * research panel and by nothing else, so all three now resolve to the run's
-   * message, and a run that has no thread has no destination at all.
+   * A run's report, its thinking and its progress all live in the run's own
+   * message, so every status resolves to that message. A run that has no thread
+   * has no destination at all.
    */
   test('a finished run that filed nothing and has no thread points nowhere', () => {
     expect(taskResultTarget('p1', row({ backendJobId: 'bj-1' }))).toBeNull()

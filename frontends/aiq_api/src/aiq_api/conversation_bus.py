@@ -27,7 +27,7 @@ ADR-0020).
 ``BUS_CALL_TIMEOUT_S`` and raises :class:`BusUnavailable` on any failure. After
 one failure the bus stays marked down for ``BUS_RETRY_AFTER_S`` and refuses
 without I/O: ``publish_frame`` runs under the turn's sequencer lock for every
-delta, and a black-holed Dragonfly used to cost each one the full client
+delta, and a black-holed Dragonfly would cost each one the full client
 timeout (a second per delta, measured). Callers fail open on
 :class:`BusUnavailable`; the long-lived subscriptions are supervised by the
 chat registry instead.
@@ -203,8 +203,8 @@ class RedisTransport:
             # (and the bus fails open) instead of hanging the request path.
             self._redis = Redis.from_url(url, decode_responses=True, socket_timeout=1.0, socket_connect_timeout=1.0)
             # Pub/sub client: subscribe reads BLOCK waiting for the next message,
-            # so they must NOT inherit the 1s command timeout — that raised
-            # "Timeout reading from <host>" every second and tore down the relay
+            # so they must NOT inherit the 1s command timeout: it would raise
+            # "Timeout reading from <host>" every second and tear down the relay
             # loop. No read timeout here; a periodic health check still detects a
             # genuinely dead connection.
             self._sub_redis = Redis.from_url(
@@ -342,8 +342,8 @@ class ConversationBus:
 # ---------------------------------------------------------------------------
 # Process-global bus. Redis-backed (the stateless architecture) whenever
 # REDIS_URL is set and the bus is not explicitly disabled — ON by default. With
-# no REDIS_URL it uses the in-process transport (single-process, byte-identical
-# to the pre-bus path); the Redis path fails open to local delivery on error.
+# no REDIS_URL it uses the in-process transport (single-process); the Redis path
+# fails open to local delivery on error.
 # Opt out with GRID_CONVERSATION_BUS=0.
 # ---------------------------------------------------------------------------
 _bus: ConversationBus | None = None
@@ -354,14 +354,14 @@ _force_multi_for_tests = False
 def _bus_enabled() -> bool:
     # Default ON: the stateless conversation bus is the intended architecture.
     # Explicit falsey values opt out (the tier then falls back to affinity /
-    # single-process local delivery, byte-identical to the pre-bus path).
+    # single-process local delivery).
     val = os.environ.get("GRID_CONVERSATION_BUS", "1").strip().lower()
     return val not in ("0", "false", "no", "off", "")
 
 
 def get_bus() -> ConversationBus:
     """Return the process bus. Redis-backed when enabled + REDIS_URL is set,
-    else the in-process fail-open transport (identical to pre-bus behavior)."""
+    else the in-process fail-open transport (single-process delivery)."""
     global _bus, _in_memory_singleton
     if _bus is not None:
         return _bus

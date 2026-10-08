@@ -1,10 +1,10 @@
 """Tests for Punkt-aware chunking of the OIB corpus.
 
-The corpus is 1360-odd numbered requirements at a median of 62 tokens, but ingestion
-cut it into 1024-token blocks over per-page Documents: 57% of pages began mid-Punkt,
-92% of chunks did not start on a numbered line, and overlap never crossed a page
-boundary because each page was its own Document. A chunk therefore blended roughly
-fifteen unrelated requirements, and no citation could be more precise than a page.
+The corpus is 1360-odd numbered requirements at a median of 62 tokens. Cutting it
+into 1024-token blocks over per-page Documents would start 57% of pages mid-Punkt
+and leave 92% of chunks off a numbered line, and overlap would never cross a page
+boundary, since each page is its own Document. A chunk would blend roughly fifteen
+unrelated requirements, and no citation could be more precise than a page.
 
 What this file pins is mostly the *guards*, because the failure mode of a
 structure-aware chunker is not crashing -- it is confidently mis-cutting. The corpus
@@ -82,7 +82,7 @@ def test_a_wrapped_measurement_line_does_not_park_the_cursor_at_thirty() -> None
 def test_a_requirement_split_across_a_page_break_is_joined() -> None:
     """The page stream is joined before it is split; that is the whole point.
 
-    Overlap never crossed a page boundary, so a requirement broken by one was severed
+    Overlap must cross a page boundary, or a requirement broken by one is severed
     with no chunk containing it whole.
     """
     head = "2.2 Die Bauteile muessen den erforderlichen\n"
@@ -133,7 +133,7 @@ def test_text_before_the_first_requirement_is_kept_as_a_page_document() -> None:
 def test_a_document_without_usable_numbering_falls_back_to_none() -> None:
     """Begriffsbestimmungen and the zitierte-Normen list have no outline.
 
-    Returning None keeps today's per-page behaviour for them and for every non-OIB
+    Returning None keeps the per-page behaviour for them and for every non-OIB
     upload, rather than emitting one enormous mis-cut Document.
     """
     prose = "Ein Absatz ohne jede Nummerierung.\nNoch ein Absatz.\n"
@@ -194,7 +194,7 @@ OUTLINE_TAIL = (
 
 
 def test_a_table_whose_rows_continue_the_outline_does_not_swallow_the_rest() -> None:
-    """The defect this replaced a greedy scan to fix, in miniature.
+    """A greedy scan's failure, in miniature.
 
     ``5 WAENDE …`` is a legal sibling of Punkt ``4`` and reads as one, so a scan that
     commits to it parks the cursor at 7 and rejects every genuine Punkt that follows.
@@ -215,8 +215,8 @@ def test_the_contents_page_settles_which_line_is_the_heading_it_names() -> None:
 
     OIB-Richtlinie 2's annex has a row labelled ``10 Außentreppen`` while its contents
     page promises ``10 Gebäude mit einem Fluchtniveau von mehr als 22 m``. Counting
-    headings cannot choose -- both readings are the same length -- so the emitted Punkt
-    10 was the table row: a chunk filed under a real citation whose text belongs to
+    headings cannot choose -- both readings are the same length -- so a naive count would emit Punkt
+    10 as the table row: a chunk filed under a real citation whose text belongs to
     something else.
     """
     toc = (
@@ -257,7 +257,7 @@ def test_a_contents_page_that_names_only_the_top_level_still_keeps_the_rest() ->
 def test_an_abbreviation_legend_is_not_a_contents_page() -> None:
     """Dot leaders also separate a term from its definition, and lead to no page.
 
-    Page 11 of `oib-rl_6-leitfaden` is such a legend. Read as a contents page it was
+    Page 11 of `oib-rl_6-leitfaden` is such a legend. Read as a contents page it would be
     dropped from the body entirely, taking Punkte 4.3.1 and 4.3.2 with it.
     """
     legend = (
@@ -280,7 +280,7 @@ def test_a_heading_the_corpus_opens_in_lowercase_is_still_a_heading() -> None:
     """OIB-Richtlinie 6 numbers two Punkte "kein ENERGIEAUSWEIS erforderlich …".
 
     Rejecting a lowercase opening as wrapped prose is a rule the corpus breaks, and
-    breaking it merged both requirements into the Punkt above them.
+    breaking it would merge both requirements into the Punkt above them.
     """
     body = OUTLINE + "4.1.1 kein ENERGIEAUSWEIS erforderlich / keine ANFORDERUNGEN\n"
     docs = punkt_documents(_pages(COVER, body, OUTLINE_TAIL), "oib-rl_6.pdf", 1)
@@ -294,7 +294,7 @@ def test_a_heading_the_corpus_opens_in_lowercase_is_still_a_heading() -> None:
 def test_every_chunk_opens_with_the_punkt_it_claims_to_be() -> None:
     """`punkt_id` is emitted into the grounding block, so it is a citation.
 
-    A runtime assertion of this was written and then deleted: the id is parsed out of
+    A runtime assertion of this would not help: the id is parsed out of
     the very line it would be compared against, so the check cannot fail by
     construction, and a guard that can never fire is worse than none — it reads as a
     safety net. The property is real and worth pinning; what protects it in production
@@ -314,7 +314,7 @@ def test_every_chunk_opens_with_the_punkt_it_claims_to_be() -> None:
 # The ingestion seam
 #
 # The chunker is only worth anything if ingestion actually reaches for it, and
-# only safe if every document it cannot parse keeps the old behaviour exactly.
+# only safe if every document it cannot parse keeps the per-page behaviour exactly.
 # ===========================================================================
 
 
@@ -327,7 +327,7 @@ def test_ingestion_cuts_a_numbered_document_on_its_outline() -> None:
 
 
 def test_ingestion_falls_back_to_one_document_per_page_for_everything_else() -> None:
-    """A tenant upload or a glossary must ingest exactly as it did before.
+    """A tenant upload or a glossary must ingest on the per-page path.
 
     The fallback is the whole reason the chunker may be enabled by default: it can
     only ever improve a document whose structure it recognises.
@@ -345,9 +345,10 @@ def test_ingestion_falls_back_to_one_document_per_page_for_everything_else() -> 
 def test_the_chunker_works_under_the_deployed_import_path() -> None:
     """The backend runs with PYTHONPATH=src; pytest also puts the repo root on sys.path.
 
-    That difference hid a ModuleNotFoundError: the chunker reached the adapter by its
-    source-tree spelling, which resolves under pytest and not in production, so
-    ingestion would have raised on every OIB PDF with the whole suite green. This
+    The two differ: the chunker must reach the adapter by its installed-package
+    spelling, while the source-tree spelling resolves under pytest but not in
+    production, where ingestion would raise on every OIB PDF with the whole suite
+    green. This
     asserts the installed-package path is importable in isolation.
     """
     import subprocess

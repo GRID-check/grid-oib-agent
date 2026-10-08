@@ -60,20 +60,18 @@ async function readFailure(response: Response): Promise<SharingFailure> {
 /**
  * Backoff ladder, in ms, for a load that came back empty-handed.
  *
- * It was written for a RACE: a brand-new thread reaches the server only when its
- * first message is persisted (`ensureServerConversation` in the chat store),
- * while the header started asking who can read the thread the moment that
- * message appeared locally, and lost on the first turn of every new
- * conversation. The header now waits for the create itself
- * (`useConversationOnServer` in `ChatToolbar`), so the race no longer reaches
- * this hook from there; the ladder stays for the blip — a 502 from a rolling
- * deploy, a 429 — and for any caller that has not been taught to wait.
+ * It covers a RACE: a brand-new thread reaches the server only when its first
+ * message is persisted (`ensureServerConversation` in the chat store), while the
+ * header asks who can read the thread the moment that message appears locally, so
+ * the first read of a new conversation can lose. The header waits for the create
+ * itself (`useConversationOnServer` in `ChatToolbar`), so the race does not
+ * reach this hook from there; the ladder stays for the blip — a 502 from a
+ * rolling deploy, a 429 — and for any caller that has not been taught to wait.
  *
- * With a single attempt a failed read was permanent for the session: nothing
- * re-reads until the tab is refocused, or the disconnected poll comes round a
- * minute later (`useLiveEvents`), or the page is reloaded — so the thread you
- * were actually in was the one thread with no Share in its menu, which is
- * exactly when you want it.
+ * With a single attempt a failed read would be permanent for the session: nothing
+ * re-reads until the tab is refocused, the disconnected poll comes round a minute
+ * later (`useLiveEvents`), or the page is reloaded. The thread you are in would
+ * then be the one with no Share in its menu, which is exactly when you want it.
  *
  * The ladder is short on purpose. It covers a round-trip or two and then stops:
  * a resource that is genuinely gone must not be polled forever, and the three
@@ -120,9 +118,8 @@ export function useSharing(
   const [failure, setFailure] = useState<SharingFailure | null>(null)
   const [saving, setSaving] = useState(false)
   const seq = useRef(0)
-  // The ladder owns its own position and timer (see `createRetryLadder`) — four
-  // hand-rolled copies of that bookkeeping is how this codebase got four
-  // different reset bugs.
+  // The ladder owns its own position and timer (see `createRetryLadder`):
+  // hand-rolled copies of that bookkeeping are where different reset bugs come from.
   // Lazy init: bare `useRef(create…())` builds and discards a ladder on every
   // render. Harmless — no timer is armed at construction — but wasteful and not
   // the idiom.
@@ -186,9 +183,9 @@ export function useSharing(
   const restart = useCallback(() => {
     retry.reset()
     // Clearing the failure and showing the skeleton is what makes "try again"
-    // legible: without it the same destructive alert simply stayed on screen for
-    // the whole retry ladder, and if the retry failed too nothing on screen ever
-    // changed — a button that reads as broken.
+    // legible: without it the same destructive alert would stay on screen for the
+    // whole retry ladder, and if the retry failed too nothing on screen would change
+    // — a button that reads as broken.
     setLoadError(false)
     setLoading(Boolean(enabled && base))
     void refresh()
@@ -205,7 +202,7 @@ export function useSharing(
   }, [refresh, enabled, base, cancelRetry, retry])
 
   // A revocation or visibility change made by someone else must land here too —
-  // otherwise an owner's dialog keeps showing a roster that is no longer true.
+  // otherwise an owner's dialog keeps showing a roster that does not match the server.
   useLiveEvents({
     enabled: enabled && Boolean(base),
     onEvent: (event) => {
@@ -232,11 +229,11 @@ export function useSharing(
         // read could land last and quietly restore the roster without them.
         seq.current += 1
         // `reset`, and the two `set`s below it, because this response is a
-        // complete answer — the same thing the read was retrying FOR. Cancelling
-        // the pending retry without them stranded the dialog: `loading` is held
-        // true across the whole ladder on purpose, so dropping the last rung left
-        // nothing to ever set it false or raise `loadError`. A skeleton over
-        // fresh, correct state, for good.
+            // complete answer — the same thing the read was retrying FOR. Cancelling
+            // the pending retry without them would strand the dialog: `loading` is held
+            // true across the whole ladder on purpose, so dropping the last rung would
+            // leave nothing to ever set it false or raise `loadError`. Without them a
+            // skeleton would sit over fresh, correct state, for good.
         retry.reset()
         setState(data)
         setLoadError(false)
@@ -399,8 +396,8 @@ export function useMentionCandidates(
   const seq = useRef(0)
   // Same new-thread race as the sharing read above: the conversation reaches
   // the server only with its first persisted message, so the first candidates
-  // read 404s. Without the ladder that 404 was permanent for the thread — the
-  // picker stayed dead until a reload, for exactly the first-time user `@`
+  // read 404s. Without the ladder that 404 would be permanent for the thread: the
+  // picker would stay dead until a reload, for exactly the first-time user `@`
   // exists to teach.
   // Lazy init: bare `useRef(create…())` builds and discards a ladder on every
   // render. Harmless — no timer is armed at construction — but wasteful and not
@@ -468,7 +465,7 @@ export function useMentionCandidates(
   // composer needs it because a thread's FIRST `@` can outrun the thread. The
   // conversation row reaches the server only with its first persisted message,
   // so the candidates read 404s until then, and the ladder is finite — a user
-  // who types `@` before sending anything and stays in the tab had a dead
+  // who types `@` before sending anything and stays in the tab would have a dead
   // picker for the rest of that thread, which is exactly the first-time
   // interaction `@` exists to teach.
   return { data, loading, restart }

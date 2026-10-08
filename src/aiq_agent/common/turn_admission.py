@@ -2,12 +2,12 @@
 
 ## The gap this closes
 
-Async research jobs have had admission control since the scaling review
-(``GRID_MAX_ACTIVE_JOBS`` / ``…_PER_ORG`` in ``aiq_api.jobs.submit``): a
-deliberate ceiling on how many long runs may be in flight, per organization and
-overall. Interactive chat turns had none. A single shared conversation with ten
-members answering at once starts ten multi-agent runs, and the only thing that
-ever said no was the ADR-0015 euro budget — that is, after the money was spent.
+Async research jobs have admission control (``GRID_MAX_ACTIVE_JOBS`` /
+``…_PER_ORG`` in ``aiq_api.jobs.submit``): a deliberate ceiling on how many long
+runs may be in flight, per organization and overall. Interactive chat turns need
+the same. A single shared conversation with ten members answering at once starts
+ten multi-agent runs, and the only other thing that says no is the ADR-0015 euro
+budget, which says no after the money is spent.
 
 ## Why concurrency and not a rate
 
@@ -38,13 +38,12 @@ replica is OOM-killed mid-turn, and the pool shrinks silently until nobody can
 chat. A lease self-heals.
 
 The lease is RENEWED, every third of it, for as long as the turn runs
-(:func:`admit_turn_async`). It used to be taken once, which made the lease carry
-two jobs that pull opposite ways: it had to outlast the longest turn (a deep
-research fallback runs 40 minutes, the chat deadline is 45) or a live turn's
-slot was reclaimed and the pool over-admitted, and it had to be short so a
-killed replica's slots came back soon. 900 s did neither. Renewed, the lease
-only has to outlast a few missed renewals, so it is short, and no turn is too
-long for it.
+(:func:`admit_turn_async`). A lease taken once would have to carry two jobs that
+pull opposite ways: outlast the longest turn (a deep research fallback runs 40
+minutes, the chat deadline is 45), or a live turn's slot is reclaimed and the
+pool over-admitted; and stay short, so a killed replica's slots come back soon.
+Renewed, the lease only has to outlast a few missed renewals, so it is short,
+and no turn is too long for it.
 
 Fails OPEN, like every other layer except the budget: a cache outage must never
 be the reason chat stops.

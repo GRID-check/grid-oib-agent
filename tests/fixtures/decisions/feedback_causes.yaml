@@ -1,4 +1,4 @@
-# Hand-labelled, written for ADR-0064 use 9 (2026-09-25). Not captured payloads:
+# Hand-labelled, written for ADR-0064 use 9. Not captured payloads:
 # down-votes in the shape the answer-feedback table stores them (the question, the
 # reason chip, the optional comment). `cause` is what an operator reading it would
 # file it under. Re-run with `task be:eval:decisions:offpath`.

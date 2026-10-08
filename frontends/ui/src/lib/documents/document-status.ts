@@ -7,17 +7,15 @@
  *   - the schema and its docs describe `pending → processing → processed | error`;
  *   - `reconcile-status.ts` writes `completed` and `failed`, and nothing else
  *     ever writes `processed` or `error`;
- *   - the Files badge knew eleven strings (`ready`, `uploaded`, `ingested`,
- *     `success`, `completed`, `ingesting`, `pending`, `processing`,
- *     `uploading`, `failed`, `error`) through a `Record<string, …>` with a
- *     silent fallback, so a twelfth cost nothing to add and nothing noticed.
+ *   - the Files badge has to render every spelling that reaches it, and a
+ *     fallback would hide a new one.
  *
  * This module DOES NOT resolve that disagreement — it records it. Unifying what
  * the writers emit is a bigger, riskier change (a migration over live rows and
  * every reader of the column), and doing half of it here would leave the badge
- * telling a reader something the database no longer says. What changes is that
- * the set is now KNOWABLE: every value anything is known to emit is declared
- * here with what it means, `document-status.tsx` and `reconcile-status.ts`
+ * telling a reader something the database no longer says. What this module
+ * changes is that the set is knowable: every value anything is known to emit is
+ * declared here with what it means, `document-status.tsx` and `reconcile-status.ts`
  * DERIVE their tables from it instead of restating it, and
  * `document-status.spec.ts` fails when a writer emits a value nobody declared.
  * The next drift is a failing test rather than a grey badge.
@@ -27,8 +25,8 @@
  *   - `variant` — the Badge colour, which is also the FAMILY. Green is not
  *     decoration: it is the product telling the reader "Piloti can quote this",
  *     which is why `isCitableStatus` is exactly the `success` set and
- *     `isFailedStatus` exactly the `destructive` one. They were separate sets
- *     that happened to be identical; here they are one statement.
+ *     `isFailedStatus` exactly the `destructive` one. Both are derived from the
+ *     same facts, so they cannot drift apart.
  *   - `phase` — whether the row will change on its own. This is the
  *     load-bearing one for `reconcile-status.ts`, which polls the backend for
  *     every in-flight row, and for the workspace, which re-reads the listing
@@ -54,8 +52,6 @@ export interface DocumentStatusFacts {
  * Grouped by family rather than alphabetically, because the grouping is the
  * point: four spellings of "indexed" exist because four writers arrived at the
  * question separately, and seeing them stacked is what makes that visible.
- * (`uploaded` used to be the fifth; it now sits with `stored`, because a row
- * that was never indexed is not an indexing success.)
  */
 export const DOCUMENT_STATUS_FACTS = {
   // --- Indexed: Piloti can quote it. Four spellings, one meaning. ------------
@@ -100,15 +96,13 @@ export const DOCUMENT_STATUS_FACTS = {
   /**
    * Every row's birth status, and nothing else's. The upload path inserts the
    * row as `uploaded` before dispatching, so a listing read in that millisecond
-   * window meets it — and rows stranded here by the old dispatch (OK without a
-   * job id, status left as-is) still exist in the wild.
+   * window meets it, and a dispatch that returned OK without a job id can leave
+   * a row here.
    *
    * NEUTRAL on purpose, for the same reason as `stored`: the bytes are here
    * but nothing was ever indexed, so green "Zitierbar" would promise a
-   * citation the retrieval path cannot make. It used to sit in the Indexed
-   * family above, which is exactly how an unsearchable document wore a green
-   * "Ready" forever. Terminal, so nothing polls it: there is no job to ask
-   * about. Retry remains possible through the re-ingest action.
+   * citation the retrieval path cannot make. Terminal, so nothing polls it: there
+   * is no job to ask about. Retry remains possible through the re-ingest action.
    */
   uploaded: { variant: 'secondary', phase: 'terminal', labelKey: 'status.stored' },
 

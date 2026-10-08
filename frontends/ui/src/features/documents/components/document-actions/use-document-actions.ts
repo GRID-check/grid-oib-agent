@@ -4,10 +4,9 @@
  * What can be DONE to a document, in one place.
  *
  * Every surface that shows a document — the file grid's preview, the explorer
- * list, the Büroarchiv, the model viewport — needs the same three operations,
- * and before this each of them either re-implemented one or simply did not
- * offer it. The viewport had none at all: a model could be uploaded and looked
- * at, and then only deleted by finding it again in a different view.
+ * list, the Büroarchiv, the model viewport — needs the same three operations.
+ * Without one shared hook, each surface either re-implements one or does not
+ * offer it at all.
  *
  * The hook owns the WORK (request, pending flag, toast, the callback that tells
  * the surface what changed); the components beside it own the shapes. That
@@ -208,7 +207,7 @@ export function useDocumentActions({
 
   /**
    * Shared with the citation surface — see `lib/documents/download.ts`, which
-   * also carries the reason the presigned URL is never navigated to (#434).
+   * also carries the reason the presigned URL is never navigated to.
    * This side owns only how a failure READS here: an inline line, not a toast.
    */
   const download = useCallback(async (): Promise<void> => {
@@ -225,13 +224,10 @@ export function useDocumentActions({
    * Send a document back through ingestion: a retry for a failed or lost
    * one, a re-read for an indexed one.
    *
-   * Here, with rename/delete/download, rather than inline in the preview pane
-   * where it started: a failed document's card SAYS why it failed and, until
-   * this moved, could do nothing about it — the only retry in the product was
-   * two clicks inside a viewer the reader had no reason to open, since the card
-   * had already told them the bad news. An operation on a document belongs with
-   * the operations on a document, so every surface that shows the failure can
-   * offer the way out of it.
+   * It lives here, with rename/delete/download, rather than inline in the
+   * preview pane: a failed document's card says why it failed, so the way out
+   * belongs with the other operations on a document, and every surface that
+   * shows the failure can offer it.
    */
   const reingest = useCallback(async (): Promise<string | null> => {
     setIsReingesting(true)

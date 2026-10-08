@@ -18,7 +18,7 @@ export const chat = {
     },
   },
 
-  // Source preview (WS-9, FB-4): citation chips open a preview of the source.
+  // Source preview: citation chips open a preview of the source.
   sourcePreview: {
     chipAria: 'Preview source: {label}',
     view: 'View',
@@ -92,7 +92,7 @@ export const chat = {
     // Quiet receipt when the card opened exactly one file beside the chat.
     showing: 'Showing {label}',
   },
-  // Composer (InputArea) control row — WS-3 click-dummy overhaul.
+  // Composer (InputArea) control row.
   // A file the answer names in its running prose ("Start with pd8280-2.pdf") —
   // not evidence, but a pointer at a document the reader owns. Clicking it
   // opens the document beside the answer.
@@ -166,13 +166,13 @@ export const chat = {
     withName: '{greeting}, {name}.',
     // The empty canvas inside a project says ONE thing about itself: that
     // Piloti writes as well as answers. Otherwise the only people who find out
-    // are the ones who happen to phrase a request as a commission (ledger 23).
+    // are the ones who happen to phrase a request as a commission.
     // Project-only, because without a project there is nowhere for a draft to
     // be filed.
     projectWrites:
       'Piloti does more than answer — ask, and it writes file notes, memos and drafts straight into the project files.',
   },
-  // Thread role tabs (click-dummy overhaul, WS-3).
+  // Thread role tabs.
   roles: {
     input: 'Input',
     result: 'Result',
@@ -253,7 +253,7 @@ export const chat = {
       'csl-json': { label: 'CSL-JSON', hint: 'Zotero, Word, pandoc' },
     },
     // Note under the sources row when citation verification dropped one or more
-    // unverifiable citations (WP-A `citations_removed`).
+    // unverifiable citations (`citations_removed`).
     citationsRemoved:
       '{count, plural, one {# citation} other {# citations}} removed (not verifiable)',
     citationsRemovedReasonsLabel: 'Reasons',
@@ -299,8 +299,8 @@ export const chat = {
     },
     // The verification's own reasons for dropping a citation, in the reader's
     // words. The backend states them as tokens (`url_not_in_registry`, …) and
-    // they used to reach the tooltip exactly like that; an unmapped one is now
-    // left out rather than shown raw.
+    // they reach the tooltip only as those words. An unmapped one is left out
+    // rather than shown raw.
     citationsRemovedReason: {
       url_not_in_registry: 'URL not among the sources retrieved',
       citation_key_not_in_registry: 'Document not among the sources retrieved',
@@ -396,7 +396,7 @@ export const chat = {
       eyebrow: 'Ask on',
       groupAria: 'Follow-up questions',
       // The one client-side chip under a long answer: the offer nobody
-      // otherwise discovers — Piloti writes, too (ledger 23).
+      // otherwise discovers — Piloti writes, too.
       aktenvermerk: 'Write this up as a file note',
       // What the chip types into the composer. Deliberately not the label: the
       // label is a sentence fragment, not a request. It is prefill and not a
@@ -739,7 +739,7 @@ export const chat = {
     // an in-flight answer (protocol-robustness item 4). German copy is the
     // product-facing string; this English fallback is for harnesses/tests.
     interruptedNotice: 'Connection briefly lost — the answer was dropped. Please resend.',
-    // Transient "checking" state (FIX 3): shown while the reconnect recovery
+    // Transient "checking" state: shown while the reconnect recovery
     // fetch is in flight, so a turn that only LOOKS interrupted does not flash
     // the "lost" copy before we have confirmed the answer is really gone.
     recovering: 'Fetching the answer',
@@ -750,9 +750,8 @@ export const chat = {
     //
     // The agent narrates itself with `status:<slot>` steps, and it narrates in
     // KEYS: a stable dotted id plus interpolation values. Everything a reader
-    // sees is written here, in their locale. It used to be written in the
-    // Python and shipped as a finished German sentence, which is how an
-    // English-locale reader read German.
+    // sees is written here, in their locale, never in the Python: a finished
+    // German sentence from the backend would read as German to English readers.
     //
     // A key with no entry here renders NOTHING — the live line falls back to
     // the previous meaningful phrase. Never the key, never an identifier.
@@ -887,8 +886,8 @@ export const chat = {
     },
     showThinking: 'Show thinking ({count})',
     showThinkingSteps: 'Show thinking steps ({count})',
-    // The trace's header line. No step count: it counted raw NAT event names,
-    // not turns or calls (see ChatThinking). The sources clause is ABSENT when
+    // The trace's header line. No step count: raw NAT event names are not turns
+    // or calls (see ChatThinking). The sources clause is ABSENT when
     // there are none: "0 sources" is a true number that reads as a failure, and
     // an answer grounded in a measurement of the model rightly has no citations.
     herleitungSummary: 'Trace',
@@ -916,11 +915,10 @@ export const chat = {
       framingTitle: 'Question understood',
       framingQuestion: 'You asked: “{question}”',
       // Every retrieval layer on the Herleitung spine, in execution order:
-      // one counter, one noun. The old two-noun sequence (`Search 1`, then
-      // `Conclusion 2…`) read as one run but counted two things — the tool
-      // calls and the inferences — so the numbers could double-book a layer.
-      // WHAT the layer did rides along as the typed sublabel below, never as
-      // the number.
+      // one counter, one noun. A two-noun sequence (`Search 1`, then
+      // `Conclusion 2…`) would count two things, the tool calls and the
+      // inferences, so the numbers could double-book a layer. WHAT the layer did
+      // rides along as the typed sublabel below, never as the number.
       stepTab: 'Step {n}',
       // The typed sublabel beside `stepTab`: what this layer actually did,
       // read off reason × files from the round the spine already owns. A
@@ -932,8 +930,8 @@ export const chat = {
       stepKindFinding: 'Finding',
       stepKindConclusion: 'Conclusion',
       // A fetch the backend saw return nothing. Not `Search`: a layer with no
-      // fan read as one that found nothing, and was often one whose hits the
-      // old wire never stamped. Only the ledger can tell the two apart.
+      // fan reads as one that found nothing, and the wire does not always stamp
+      // its hits. Only the ledger can tell the two apart.
       stepKindNoHits: 'No hits',
       // A layer that only opened passages of files the turn already had: it
       // searched for nothing. Telling that round apart from a fresh fetch is
@@ -941,7 +939,7 @@ export const chat = {
       stepKindOpen: 'Open',
       // A folded layer keeps the scent of its fan: the count plus the top
       // filename(s), never a bare count — evidence hidden by default reads
-      // as no evidence. Still never the query (PF-12).
+      // as no evidence. Still never the query.
       roundFoldOne: '{name} · {locus}',
       roundFoldOneBare: '{name}',
       roundFoldTwo: '{first} · {second}',
@@ -957,7 +955,7 @@ export const chat = {
       roundUnfold: 'Expand step {n}',
       // A file an earlier round already showed, where its hit count would be.
       // The count is the whole turn's tally and therefore identical on every
-      // repeat — which is what made a re-read look like a second fetch.
+      // repeat — which would make a re-read look like a second fetch.
       roundDocRepeat: 'already retrieved',
       contextLabel: 'Context',
       sourcesTab: 'Sources',
@@ -988,10 +986,10 @@ export const chat = {
       // ── What the answer is NOT ──────────────────────────────────────────
       //
       // Two records the deep researcher keeps about its own limits, both on
-      // the technical channel, both invisible before this: a run that hit its
+      // the technical channel: a run that hit its
       // wall clock or its step limit, and an answer that shipped in a
-      // known-weaker form. Until they were rendered, an answer cut off after
-      // two of ten planned searches looked exactly like a complete one.
+      // known-weaker form. Without them, an answer cut off after two of ten
+      // planned searches looks exactly like a complete one.
       //
       // Written as statements an architect can act on, never as the telemetry
       // they are derived from. The record also carries a report length in
@@ -1098,8 +1096,8 @@ export const chat = {
       title: 'Something Went Wrong',
       message: 'An unexpected error occurred. Please try again.',
     },
-    // Deep-research job rejected because the queue is full (WP-A
-    // `job_admission_rejected`). Warning, not error: resending resolves it.
+    // Deep-research job rejected because the queue is full
+    // (`job_admission_rejected`). Warning, not error: resending resolves it.
     researchQueueFull: {
       title: 'Research is busy',
       message: 'The research queue is currently full. Please resend your request in a moment.',
@@ -1157,7 +1155,7 @@ export const chat = {
     // the level BEFORE the cap, not the one shown.
     reasonLabelBeforeCap: "Assistant's reason before the cap",
     // Extra sentence appended to the tooltip explaining WHY the confidence was
-    // capped, keyed by `answer_confidence_capped_reason` (WP-A, PB-9).
+    // capped, keyed by `answer_confidence_capped_reason`.
     cappedReasons: {
       ungrounded: 'Low confidence: answer not backed by sources.',
       quoteUnverified:
@@ -1176,7 +1174,7 @@ export const chat = {
         'Medium confidence: the source shown was attached by the assistant, not cited by the answer itself.',
     },
   },
-  // Per-answer thumbs feedback (WS-7, `answer-feedback` flag).
+  // Per-answer thumbs feedback, behind the `answer-feedback` flag.
   feedback: {
     question: 'Was this helpful?',
     helpfulAria: 'Mark this answer as helpful',

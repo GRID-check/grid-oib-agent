@@ -82,7 +82,7 @@ describe('use-last-project-section', () => {
   })
 
   describe('pruneProjectSections', () => {
-    test('drops entries for projects no longer present', () => {
+    test('drops entries for projects that are not present', () => {
       writeLastProjectSection('keep', 'chat')
       writeLastProjectSection('gone', 'files')
       pruneProjectSections(['keep'])

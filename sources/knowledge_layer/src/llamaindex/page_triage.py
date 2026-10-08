@@ -9,13 +9,13 @@ loses the page:
     No usable text layer and a raster covering most of the page: a scanned
     letter, a Bescheid, a photographed page. Rendered and TRANSCRIBED by the
     vision model (``transcription``), and the transcription becomes the page's
-    text. The drawing schema used to take these, and it describes a page
-    ("Dokument mit Auflagen …") instead of saying what is written on it.
+    text. A drawing schema describes such a page ("Dokument mit Auflagen …")
+    instead of saying what is written on it, so these are not drawings.
 ``garbled``
     A text layer that decodes to glyph ids or mojibake: ``(cid:37)(cid:68)…``
     runs from a CAD or scanner export whose fonts carry no ToUnicode map, or
-    UTF-8 read as cp1252 (``GebÃ¤ude``). It used to pass the binary guard and be
-    embedded as garbage. Transcribed like a scan, and the transcription
+    UTF-8 read as cp1252 (``GebÃ¤ude``). Left alone, it passes the binary guard
+    and is embedded as garbage. Transcribed like a scan, and the transcription
     replaces it. Untranscribed (no key, a failure, the cap), the page keeps
     what of its text is not glyph ids (:func:`salvage_text`).
 ``drawing``
@@ -68,13 +68,13 @@ _MOJIBAKE = re.compile(r"Ã[\x80-\xbf¡-ÿ€‚ƒ„…†‡ˆ‰Š‹ŒŽ‘�
 #: raster/path signals alone.
 MIN_JUDGEABLE_CHARS = 40
 
-#: Thresholds, measured 2026-09 on 42 clean pages (the German samples built in
+#: Thresholds, measured on 42 clean pages (the German samples built in
 #: ``tests/knowledge_layer_tests/test_page_triage.py`` and the three PDFs in
 #: ``tests/knowledge_layer_tests/data``) against garbled ones built from the
 #: same text. Clean pages: cid share at most 0.03 (a ligature or a symbol
 #: glyph), no replacement characters, no mojibake, vowel ratio at least 0.36.
-#: (Shares were then of characters; they are now of glyphs, which only lowers a
-#: clean page's cid share and leaves a garbled page's at 1.00.)
+#: Shares are of glyphs, not characters: that only lowers a clean page's cid
+#: share and leaves a garbled page's at 1.00.
 #: Garbled: cid share 1.00 (pdfplumber on a font without ToUnicode), mojibake
 #: 0.043 (UTF-8 read as cp1252), vowel ratio 0.16 and replacement share 0.065
 #: (pdfium on the same font: glyph ids shifted into letters, ``%DXEHVFKHLG`` for
@@ -215,9 +215,9 @@ def classify_page(signals: PageSignals, *, min_text_chars: int, min_paths: int) 
 
     Order matters: a garbled text layer is judged first, because its length
     says nothing (4 800 characters of ``(cid:n)`` are 120 real ones). A
-    drawing needs little text — the old rule also took any page with 300 paths,
-    which sent every table-ruled text page with 300 cell borders past the text
-    reader. A page with little text is a drawing as soon as it carries any real
+    drawing needs little text, and path count alone is not enough: a
+    table-ruled text page with 300 cell borders stays text. A page with little
+    text is a drawing as soon as it carries any real
     linework or a picture (``MIN_SKETCH_PATHS``), because a simple sketch
     matters as much as a CAD sheet; only a practically empty page stays text. A
     garbled page that is also path-heavy is a CAD sheet with unmapped fonts:

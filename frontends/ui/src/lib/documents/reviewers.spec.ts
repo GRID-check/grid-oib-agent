@@ -169,7 +169,7 @@ describe('resolveReviewers — the chain', () => {
     expect(resolved).toEqual({ reviewers: [session.userId], selfReview: true })
   })
 
-  it('never resolves to nobody, which is what used to refuse the submission', async () => {
+  it('never resolves to nobody, because an empty reviewer list refuses the submission', async () => {
     vi.mocked(loadOrganizationDirectory).mockResolvedValue(new Map())
     const resolved = await resolveReviewers(session, projectless, [])
     expect(resolved.reviewers).toHaveLength(1)

@@ -65,7 +65,7 @@ describe('useSettleTrackedUploads', () => {
 
     it('settles from its own status while „Von Piloti" narrows the listing', async () => {
       // The filter makes the listing agent-authored rows only, so a person's
-      // detached upload is never in it and used to spin forever in the tray.
+      // detached upload is never in it and would otherwise spin forever in the tray.
       vi.useFakeTimers()
       const row = upload({})
       useDocumentsStore.setState({ trackedFiles: [row] })

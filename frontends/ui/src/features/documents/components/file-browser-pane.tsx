@@ -75,12 +75,10 @@ interface FileBrowserPaneProps {
   /** The CURRENT LEVEL's files (the caller applies the folder filter). */
   files: readonly FileItem[]
   /**
-   * The order both views draw in, owned by the caller.
-   *
-   * The detail view used to hold this privately, so the card grid had no order
-   * at all and switching views discarded the one you had chosen. The pane
-   * orders what it hands to the cards and passes the same state to the list, so
-   * the list's column headers and the header's filter menu write to one place.
+   * The order both views draw in, owned by the caller: the list's column headers
+   * and the header's filter menu write to one place, and switching views keeps
+   * the order you chose. The pane orders what it hands to the cards and passes
+   * the same state to the list.
    *
    * Omitted by fixtures, which then get the default (newest first).
    */
@@ -94,9 +92,8 @@ interface FileBrowserPaneProps {
    * empty. The pane is handed already-filtered files and cannot tell the two
    * apart; the caller owns the filter state, so it owns the sentence.
    *
-   * Without it, turning on a filter that matches nothing rendered "this folder
-   * is empty" over a folder full of documents — which is how „Von Piloti" came
-   * to read as a broken or meaningless filter rather than an empty one.
+   * Without it, a filter that matches nothing would render "this folder is
+   * empty" over a folder full of documents.
    */
   filterEmptyNotice?: { title: string; description: string; onClear: () => void } | null
   /**
@@ -337,9 +334,9 @@ export function FileBrowserPane({
    * change, which is what keeps a server-rendered listing from sliding in under
    * a reader who has not navigated anywhere.
    *
-   * The derivation lives in {@link useLevelDirection} because the version that
-   * did not — two refs written during render — was wrong in a way that only
-   * showed up as "the animation goes the wrong way sometimes".
+   * The derivation lives in {@link useLevelDirection}, not in refs written
+   * during render, which went wrong in a way that only showed up as "the
+   * animation goes the wrong way sometimes".
    */
   const folderDepth = useMemo(() => {
     if (!folderNav || currentFolderId === null) return 0
@@ -402,13 +399,12 @@ export function FileBrowserPane({
    * The two numbers every folder card shows — its item count and the newest
    * thing under it — for the WHOLE tree, in one pass.
    *
-   * They were two functions called per rendered card, and each one re-scanned
-   * the corpus: the count filtered every document and every folder, and the
-   * timestamp did that AND recursed into each subtree, re-filtering the corpus
-   * again at every level. A project with 500 documents and 30 folders paid
-   * roughly 30 × (530 + subtree) comparisons on every render — every keystroke
-   * in the search field, every poll that replaces the listing, every folder
-   * card's hover state.
+   * Computed per card, each number re-scans the corpus: the count filters every
+   * document and every folder, and the timestamp does that AND recurses into
+   * each subtree, re-filtering the corpus again at every level. A project with
+   * 500 documents and 30 folders would pay roughly 30 × (530 + subtree)
+   * comparisons on every render — every keystroke in the search field, every
+   * poll that replaces the listing, every folder card's hover state.
    *
    * Nothing about the answer needs a scan per card. Both facts are aggregates
    * over the same two groupings, so they are built once: documents by folder,
@@ -498,10 +494,10 @@ export function FileBrowserPane({
   // A FILTER EMPTIED IT, AND THAT OUTRANKS BOTH EMPTY STATES BELOW.
   //
   // Checked first because a filter that matches nothing empties the CORPUS,
-  // not just the level — which sent the reader to the first-run "no documents
-  // yet, upload one" panel in a project with a hundred documents in it. Both
-  // states below describe an absence of files; this one describes an absence
-  // of MATCHES, and only it can name what to do about it.
+  // not just the level — which would send the reader to the first-run "no
+  // documents yet, upload one" panel in a project with a hundred documents in
+  // it. Both states below describe an absence of files; this one describes an
+  // absence of MATCHES, and only it can name what to do about it.
   if (filterEmptyNotice) {
     return (
       <div className="flex h-full items-center justify-center p-8">
@@ -544,7 +540,7 @@ export function FileBrowserPane({
     <div className="flex h-full flex-col">
       {/* No banner over the results. It restated in a tinted strip what the
           listing below it already shows — how many hits, for which query —
-          and it moved the whole listing down a row the moment a search ran.
+          and it would move the whole listing down a row the moment a search ran.
           Everything it carried has a better home: the skeletons say a search
           is running, the empty and failed panels say what came back, and the
           field's own ✕ is the way out. The field itself is the caller's — on
@@ -573,17 +569,16 @@ export function FileBrowserPane({
         // evidence (snippet + page + relevance). A backend error/timeout fails
         // open to an empty result set (never a crash).
         semantic.isSearching ? (
-          // Placeholders shaped like the view the answer will arrive in. Card
-          // skeletons were drawn whatever the reader had chosen, so a search
-          // from the list flashed a wall of tiles and then snapped to a table.
+          // Placeholders shaped like the view the answer will arrive in, so a search
+          // from the list does not flash a wall of tiles before it snaps to a table.
           view === 'list' ? (
             <div className={CONTENT_MAX}>
               <FileListSkeleton />
             </div>
           ) : (
-            // The cap the answer will be drawn inside. Without it the running
-            // search filled the full width and the results snapped to 1200px
-            // under the reader the instant they arrived.
+            // The cap the answer will be drawn inside. Without it the running search
+            // would fill the full width, and the results would snap to 1200px under the
+            // reader the instant they arrived.
             <div className={`${CONTENT_MAX} p-4`}>
               <FileGrid>
                 {Array.from({ length: 6 }).map((_, i) => (
@@ -594,12 +589,10 @@ export function FileBrowserPane({
           )
         ) : semantic.error ? (
           // A SEARCH THAT NEVER RAN IS NOT A SEARCH THAT FOUND NOTHING.
-          // The hook fails open to an empty result set so this pane cannot
-          // crash, and it reports which of the two happened — but nothing read
-          // that flag, so a backend timeout rendered as "Keine semantischen
-          // Treffer für 'Brandschutz'". The surface told the reader their own
-          // corpus does not contain what they were looking for, and offered
-          // them a reset for it.
+          // The hook fails open to an empty result set so this pane cannot crash, and
+          // it reports which of the two happened. The pane reads that flag: a backend
+          // timeout must not render as "Keine semantischen Treffer", which tells the
+          // reader their own corpus lacks what they searched for.
           <div className="p-8">
             <EmptyState
               variant="bare"
@@ -636,10 +629,9 @@ export function FileBrowserPane({
             />
           </div>
         ) : view === 'list' ? (
-          /* The view toggle keeps meaning while searching. It used to be read
-             only on the un-searched branch, so a reader who had deliberately
-             switched to the detail view was thrown back into cards the moment
-             they pressed Enter — and back again when they cleared the query.
+          /* The view toggle keeps meaning while searching: a reader who has switched
+             to the detail view stays there when they press Enter, and when they
+             clear the query.
              `key` on the query so a new result set starts at the top of its own
              ranking rather than inheriting the last one's sort and tab stop. */
           <div className={CONTENT_MAX}>
@@ -749,9 +741,9 @@ export function FileBrowserPane({
           {...levelTransition(navDirection, 20)}
           className={`${CONTENT_MAX} p-4`}
         >
-            {/* Section label — "Recently uploaded" at the corpus root, matching
-                the click-dummy. Hidden inside a folder (the breadcrumb already
-                names it) and while searching (the query is the context). */}
+            {/* Section label — "Recently uploaded" at the corpus root. Hidden inside
+                a folder (the breadcrumb already names it) and while searching (the
+                query is the context). */}
             {currentFolderId === null && files.length > 0 && (
               <SectionLabel as="p" className="mb-3 font-semibold tracking-[0.05em]">
                 {t('browser.recentlyUploaded')}
@@ -760,26 +752,23 @@ export function FileBrowserPane({
             {/*
               ONE ENTRANCE FOR THE LEVEL, NOT ONE PER TILE.
 
-              Every cell used to be wrapped in its own `motion.div` rising 10px
-              on a per-index delay. Two things were wrong with that, and the
-              second is the serious one.
+              Each cell is not wrapped in its own `motion.div` rising 10px on a
+              per-index delay: those compound. The level already slides in
+              sideways, so a navigation would play N+1 animations at once, each
+              tile drifting up through a container drifting across, and a
+              per-index delay puts the last tile of a full Einreichung ten
+              seconds out.
 
-              It compounded: the level was already sliding in sideways, so a
-              navigation played N+1 animations at once, each tile drifting up
-              through a container drifting across. And the delay was unbounded
-              until it was capped, which put the last tile of a full Einreichung
-              ten seconds out.
+              The serious problem is that motion writes `initial` into the
+              SERVER's HTML. The listing is rendered on the server, so every card
+              would ship with `opacity: 0` and stay invisible until the bundle
+              boots and hydration releases it: a blank grid over data that is
+              already in the document, the exact wait the server render exists
+              to remove.
 
-              The serious one is that motion writes `initial` into the SERVER's
-              HTML. The listing is rendered on the server now, so every card
-              shipped with `opacity: 0` and stayed invisible until the bundle
-              booted and hydration released it — the exact wait the server
-              render exists to remove, reintroduced as a blank grid over data
-              that was already in the document.
-
-              The level's own transition carries the whole grid, which is one
-              animation, is what a Finder-style drill actually looks like, and
-              renders at full opacity when nothing has navigated.
+              The level's own transition carries the whole grid. That is one
+              animation, it is what a Finder-style drill actually looks like, and
+              it renders at full opacity when nothing has navigated.
             */}
             <FileGrid>
               {folderNav &&
@@ -812,21 +801,20 @@ export function FileBrowserPane({
 /**
  * ENTERING A FOLDER IS AN ARRIVAL, NOT A HANDOVER.
  *
- * This was an `AnimatePresence mode="wait"`, and `wait` means exactly what it
- * says: the level you are leaving plays its exit to completion, and only then
- * does the level you asked for begin to appear. Two 180ms tweens end to end,
- * with a frame in the middle where the pane holds nothing and collapses to the
- * height of its own padding — on the gesture this page is built around, and one
- * a person repeats a dozen times walking a tree.
+ * The level is not wrapped in `AnimatePresence mode="wait"`: `wait` plays the
+ * level you are leaving to completion before the one you asked for begins. Two
+ * 180ms tweens end to end leave a frame where the pane holds nothing and
+ * collapses to the height of its own padding, on the gesture this page is built
+ * around, which a person repeats a dozen times walking a tree.
  *
- * Nothing needed the outgoing level to be watched on its way out. Dropping the
- * presence wrapper makes the swap instant and leaves the arrival, which is the
- * half that carries the direction: the new level slides in from the side it
- * came from, in one 240ms entrance, over content that is already there.
+ * Nothing needs the outgoing level watched on its way out. Without the presence
+ * wrapper the swap is instant and only the arrival animates, and the arrival
+ * carries the direction: the new level slides in from the side it came from, in
+ * one 240ms entrance, over content that is already there.
  *
  * `initial: false` when the direction is 0 — no navigation happened, so this is
- * the first paint (which, since the page now server-renders its listing, is a
- * real listing that must not slide) or a re-render the key did not change.
+ * the first paint (a server-rendered listing, which must not slide) or a
+ * re-render the key did not change.
  */
 const levelTransition = (direction: number, distance: number) =>
   ({
@@ -839,13 +827,9 @@ const levelTransition = (direction: number, distance: number) =>
  * THE FIRST FRAME, SHAPED LIKE THE SECOND ONE.
  *
  * This is the placeholder the whole pane renders while the listing is being
- * read, and it lives beside the listing rather than in a components-of-loading
- * file, because the failure it fixes is drift: the old skeleton drew a
- * full-width `h-9` bar — a search field that had moved into the page header a
- * release earlier and was never coming back — over a full-width grid, and then
- * the answer arrived as a breadcrumb row above a 1200px column of folder tiles
- * and cards. Nothing about the loading state predicted the loaded one, so every
- * load ended in a jump.
+ * read. It lives beside the listing rather than in a loading file, because the
+ * failure it prevents is drift: a skeleton that does not share the loaded layout
+ * makes every load end in a jump.
  *
  * What it mirrors, in the order the real pane renders them:
  *
@@ -914,7 +898,7 @@ export function FileBrowserSkeleton({
 
 
 /**
- * The listing's width cap. With the tree band gone the browser owns the whole
+ * The listing's width cap. With no tree band beside it, the browser owns the whole
  * column, and a 4K monitor would otherwise stretch cards into a wall — the
  * content centres inside the toolbars, which keep spanning the full width.
  */

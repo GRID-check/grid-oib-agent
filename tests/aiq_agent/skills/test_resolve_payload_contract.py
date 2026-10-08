@@ -6,21 +6,16 @@ reserved keys ride it: ``grid-hidden`` routes the activation off the live line,
 ``grid-cards`` inlines the card shapes with the body, and ``grid-agents``
 decides which agent may run the skill at all.
 
-The ``standard`` flag used to ride it too, and it is now gone from both halves:
-forcing is retired, so a fleet-wide row resolves into the catalog like any other
-skill and the model opens it or does not. It is pinned here by its ABSENCE —
-neither the payload nor :class:`Skill` has a field that means "apply this
-anyway", and a row that grew one back would mean the tier came back with it.
-
-``ce47667b`` pinned this side of the seam against a HAND-WRITTEN payload, which
-is what left the crossing open: nothing said the hand-written keys were the keys
-the BFF actually sends. Erasing the served ``metadata`` was caught by nothing at
-all.
+The ``standard`` flag does not ride it: forcing is retired, so a fleet-wide row
+resolves into the catalog like any other skill and the model opens it or does
+not. It is pinned here by its ABSENCE — neither the payload nor :class:`Skill`
+has a field that means "apply this anyway", and a row that grew one back would
+mean the tier came back with it.
 
 A process boundary cannot be crossed inside one test, so both sides assert
-against the SAME checked-in fixture — the device
-``tests/fixtures/citation_pipeline`` already uses for the citation formats. The
-TypeScript counterpart,
+against the SAME checked-in fixture, ``tests/fixtures/citation_pipeline``, which
+already serves the citation formats. A hand-written payload would not prove it
+carries the keys the BFF actually sends. The TypeScript counterpart,
 ``frontends/ui/src/lib/skills/resolve-payload-contract.spec.ts``, proves the
 fixture is still a faithful sample of what the real ``resolveSkillsForAgent``
 emits; this file proves the real :class:`SkillResolver` still reads it as fleet
@@ -95,9 +90,8 @@ def test_every_served_row_survives_validation(resolved: dict[str, Skill]) -> Non
 def test_the_standard_row_resolves_as_an_ordinary_skill(resolved: dict[str, Skill]) -> None:
     """``standard`` is off the wire entirely, and there is no field to read it into.
 
-    The flag used to force the row's body in front of the model. Neither half
-    carries it now: every resolved row is an offer, and a fleet-wide one is
-    distinguished only by the fact that every organization gets it.
+    Every resolved row is an offer, and a fleet-wide one is distinguished only by
+    the fact that every organization gets it.
     """
     row = next(row for row in served_rows() if row["name"] == STANDARD)
     assert "standard" not in row, "the BFF stopped serving it; a payload that grew it back retired nothing"

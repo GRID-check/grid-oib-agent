@@ -8,8 +8,8 @@
  *
  * A deep-research run is NOT busy-ness. It is a message in the thread with
  * its own stop control (ADR-0062), the person keeps chatting beside it, and a
- * lock keyed to it is how a run whose terminal event was lost used to hold a
- * whole session hostage.
+ * lock keyed to it would let a run whose terminal event was lost hold a whole
+ * session hostage.
  *
  * For per-session checks (e.g., session deletion), use store.isSessionBusy() instead.
  */

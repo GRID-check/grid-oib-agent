@@ -79,19 +79,15 @@ def fixture_event_store_cache_guard():
 def _job_arg(job_args, name: str):
     """One positional worker argument, resolved BY NAME.
 
-    ``job_args`` is the positional tuple Dask hands ``run_agent_job``, and these
-    tests used to index it with magic negative offsets plus a comment listing
-    what followed. Every insertion into the worker signature then broke an
-    unrelated assertion and the comment drifted — which is exactly what happened
-    when ``platform_lessons`` was added. The order is still the contract; this
-    just reads it off ``run_agent_job``'s own signature instead of hard-coding a
-    number, so an insertion moves the index automatically and a REMOVAL (a real
-    contract break) still fails loudly with a KeyError.
+    ``job_args`` is the positional tuple Dask hands ``run_agent_job``. Indexing it with magic
+    negative offsets and a comment listing what follows drifts: every insertion into the worker
+    signature breaks an unrelated assertion. Reading the index off ``run_agent_job``'s own
+    signature instead moves it automatically on an insertion, while a REMOVAL (a real contract
+    break) still fails loudly with a KeyError.
 
-    ``*parent_trace_context`` expands to two positional values, so the tail is
-    counted from the end — which is stable as long as nothing is appended after
-    the named argument, and unlike a literal offset it is derived rather than
-    remembered.
+    ``*parent_trace_context`` expands to two positional values, so the tail is counted from the
+    end — which is stable as long as nothing is appended after the named argument, and unlike a
+    literal offset it is derived rather than remembered.
     """
     import inspect
 
@@ -330,10 +326,9 @@ class TestDeepResearchEventCallback:
 
         callback.on_tool_end("search results", run_id="test-run-id", name="web_search")
 
-        # on_tool_end emits the tool.end event first; a source-bearing output
-        # additionally emits a citation_source artifact (restored by the PB-1
-        # fix — previously this second emit crashed with a TypeError), so there
-        # may be more than one store call. Assert the first is the tool.end event.
+        # on_tool_end emits the tool.end event first; a source-bearing output additionally emits a
+        # citation_source artifact, so there may be more than one store call. Assert the first is
+        # the tool.end event.
         assert mock_store.store.call_count >= 1
         call_args = mock_store.store.call_args_list[0][0][0]
         assert call_args["type"] == "tool.end"
@@ -656,8 +651,8 @@ class TestRunAgentStateFields:
         There are no request headers inside a Dask worker, so the organization
         cannot be read from the context the way the synchronous chat path reads
         it — it is captured at submit time and handed over here. Without it the
-        run resolves no organization skills at all, which is how the platform's
-        own standard skills came to be silently absent from every report.
+        Without it the run resolves no organization skills at all, so the platform's own standard
+        skills go silently absent from every report.
         """
         from aiq_agent.agents.deep_researcher.models import DeepResearchAgentState
         from aiq_api.jobs.runner import _run_agent
@@ -754,10 +749,9 @@ class TestResolveWorkerToolRefs:
     def test_empty_tools_inherits_registry(self):
         """An omitted/empty tools list (the config default) inherits the whole registry.
 
-        Regression: DeepResearchAgentConfig.tools uses default_factory=list, so an
-        omitted list is [] (never None). A prior `is None` guard skipped
-        inheritance and built a tool-less worker whose researcher sub-agents got
-        no source tools.
+        DeepResearchAgentConfig.tools uses default_factory=list, so an omitted list is [] (never
+        None). The guard must test for emptiness: an `is None` check would skip inheritance and build
+        a tool-less worker whose researcher sub-agents get no source tools.
         """
         from aiq_api.jobs.runner import _resolve_worker_tool_refs
 
@@ -1679,7 +1673,7 @@ class TestAsyncJobRunnerAgentFactory:
         assert agent.max_research_concurrency == 2
         assert agent.max_concurrent_source_tool_calls == 3
         assert agent.max_source_tool_batch_size == 4
-        # F5: max_run_seconds wired through from fn_config (DeepResearchAgentConfig default 2400)
+        # max_run_seconds is wired through from fn_config (DeepResearchAgentConfig default 2400)
         assert agent.max_run_seconds == 2400
 
     def test_async_deep_researcher_constructor_applies_config_tuning(self):
@@ -2135,11 +2129,10 @@ class TestDeepResearchReflection:
 class TestCitedSourceEmission:
     """A knowledge-base document must be markable as CITED, not just discovered.
 
-    ``citation_use`` was URL-only, so a KB source could never earn the flag. The
-    frontend's provenance row filters on it and only falls back to "show every
-    discovered source" when NOTHING is flagged — so a run that cited four OIB
-    Richtlinien plus one web page marked only the web page, and the row rendered
-    that web page alone.
+    ``citation_use`` must cover documents as well as URLs: a KB source otherwise can never earn
+    the flag. The frontend's provenance row filters on it and only falls back to "show every
+    discovered source" when NOTHING is flagged. So a run that cited four OIB Richtlinien plus one
+    web page would mark only the web page and render that web page alone.
     """
 
     def _registry(self):
@@ -2334,12 +2327,11 @@ REPORT_CITING_BOTH = (
 class TestCitedSourceRegistryResolution:
     """A knowledge-base citation must be markable as cited INSIDE A JOB.
 
-    ``_get_source_registry`` used to read the session-scoped contextvar only,
-    and nothing binds that inside a Dask worker — only the synchronous chat
-    paths call ``set_session_registry``. So in a deep-research job the lookup
-    always returned None, ``_emit_cited_documents`` early-returned, and no OIB
-    document could ever be marked cited: the live panel showed a run's four
-    Richtlinien as merely "discovered" next to the one web page it cited.
+    ``_get_source_registry`` reads the session-scoped contextvar only, and nothing binds that
+    inside a Dask worker: only the synchronous chat paths call ``set_session_registry``. So in a
+    deep-research job the lookup returns None, ``_emit_cited_documents`` early-returns, and no OIB
+    document can be marked cited: the live panel would show a run's four Richtlinien as merely
+    "discovered" next to the one web page it cited.
     """
 
     def test_an_attached_registry_marks_a_document_cited(self):
@@ -2444,11 +2436,10 @@ class TestCitedSourceRegistryResolution:
 class TestVerifiedCitedSourceStream:
     """ "Cited" is claimed only for citations the FINAL, verified report carries.
 
-    ``_emit_cited_sources`` used to run on raw ``on_llm_end`` content, which is
-    produced before ``verify_citations`` (in ``DeepResearcherAgent._finalize``)
-    strips fabricated or unverifiable citations — and before the writer decides
-    which of an intermediate agent's sources reach the answer at all. The
-    frontend's merge is monotonic (``isCited`` is sticky once true), so a
+    ``_emit_cited_sources`` must not run on raw ``on_llm_end`` content: that is produced before
+    ``verify_citations`` (in ``DeepResearcherAgent._finalize``) strips fabricated or unverifiable
+    citations, and before the writer decides which of an intermediate agent's sources reach the
+    answer at all. The frontend's merge is monotonic (``isCited`` is sticky once true), so a
     premature claim could never be taken back.
     """
 
@@ -2480,17 +2471,17 @@ class TestVerifiedCitedSourceStream:
         not an invented URL, and that distinction is the whole test. A
         fabricated URL is refused by the callback's own registry check on its
         own, so a draft-driven stream would decline to announce it anyway and
-        the assertion would hold whether or not the emit site was ever fixed —
+        the assertion would hold whatever the emit site does —
         false comfort, in the shape of a passing test.
 
         So line [1] names the real OIB Richtlinie in the shape of an
         already-read digest line, which cites the conversation's index rather
         than a passage. Verification drops the whole line, so the verified
-        report no longer claims that document — while the DRAFT still names it
+        report does not claim that document — while the DRAFT still names it
         and the callback's document matcher would happily accept it, because
-        the run really did retrieve it. That is a stripped citation the old
-        code announced. (An unbacked URL on the line no longer does this: the
-        document's key now carries the line and only the link is dropped.)
+        the run really did retrieve it. That is a stripped citation the callback would announce.
+        (An unbacked URL on the line does not do this: the document's key carries the line, and
+        only the link is dropped.)
         """
         from aiq_agent.common.citation_verification import verify_citations
 

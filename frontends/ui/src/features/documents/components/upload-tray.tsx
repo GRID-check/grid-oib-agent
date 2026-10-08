@@ -25,12 +25,6 @@ import { cn } from '@/lib/utils'
 /**
  * The upload surface.
  *
- * What it replaces was a flat list under a bar that read
- * `progress > 0 ? progress : 15` — a literal constant standing in for a
- * measurement nobody had taken. It sat at 15% for the whole upload and then at
- * whatever the ingest job had last reported for the whole indexing pass, which
- * is why it "always got stuck on the same thing".
- *
  * The rule this surface is built on: **a percentage is only ever drawn for
  * bytes actually in flight.** Everything else — waiting for a slot, waiting for
  * the backend to read a document — is shown as motion plus an elapsed time.
@@ -100,7 +94,7 @@ export function UploadTray({ files, onRetry, onCancel, onCancelAll, onDismiss }:
    * on it, a panel disappears from under the cursor and whatever was below jumps
    * up into the click that was already on its way; if the KEYBOARD is in it — on
    * the collapse control, on a row's retry — focus is dropped to the document
-   * body, which is the same "you lost your place" bug the preview dialog had.
+   * body, which loses the reader's place.
    * Six seconds is a promise about an unattended panel, not about one being
    * used, so the timer holds while it is and starts over when it is let go.
    */
@@ -144,12 +138,11 @@ export function UploadTray({ files, onRetry, onCancel, onCancelAll, onDismiss }:
       }}
     >
       {/* `flex-wrap`: the settled-with-failures state puts "Retry all",
-          "Dismiss all" and the expander in this row, all `shrink-0`, so on a
-          phone the summary — which is the only thing that says WHAT happened —
-          took what was left of the width. Measured 33px: both its lines
-          truncated to an ellipsis while three buttons sat beside them at full
-          size. The summary now holds a readable floor and the actions drop to a
-          second line when they no longer fit beside it. */}
+          "Dismiss all" and the expander in this row, all `shrink-0`. On a phone
+          the summary — the only thing that says WHAT happened — would otherwise
+          take what is left of the width and truncate to an ellipsis beside
+          full-size buttons. The summary holds a readable floor, and the actions
+          drop to a second line when they no longer fit beside it. */}
       <div className="flex flex-wrap items-center gap-3 px-4 py-2.5">
         <TrayGlyph summary={summary} />
 
@@ -157,13 +150,11 @@ export function UploadTray({ files, onRetry, onCancel, onCancelAll, onDismiss }:
           type="button"
           onClick={() => setIsExpanded((open) => !open)}
           aria-expanded={isExpanded}
-          // `min-h-11` and NOT the `-my-2.5 py-2.5` trick this used to carry.
-          // That trick let the button claim the tray's own padding without
-          // moving anything, which was right while the row could not wrap — and
-          // wrong the moment it could: `flex-wrap` above puts the actions on a
-          // second line separated by `gap-3` (12px), and a 10px overhang eats
-          // most of that gap, so a tap aimed at "Retry all" lands on the summary
-          // instead. A hit box has to stay inside its own flex line.
+          // `min-h-11`, not a negative-margin trick: a button that claims the
+          // tray's own padding overhangs its flex line. `flex-wrap` above puts the
+          // actions on a second line separated by `gap-3` (12px), and a 10px
+          // overhang eats most of that gap, so a tap aimed at "Retry all" lands on
+          // the summary instead. A hit box has to stay inside its own flex line.
           className="min-w-40 flex-1 rounded-md text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 pointer-coarse:min-h-11"
         >
           {/* Polite, not assertive: the phase changes two or three times per
@@ -302,9 +293,8 @@ function TrayGlyph({ summary }: { summary: TransferSummary }) {
         strokeWidth="2.5"
         strokeLinecap="round"
         strokeDasharray={`${filled} ${circumference}`}
-        // `duration-deliberate` is the ceiling of the motion scale; the 500ms
-        // this replaces was off it entirely, so the ring still lagged visibly
-        // behind the byte count beside it.
+        // `duration-deliberate` is the ceiling of the motion scale, and the ring
+        // must not lag visibly behind the byte count beside it.
         className="stroke-primary transition-[stroke-dasharray] duration-deliberate ease-out motion-reduce:transition-none"
       />
     </svg>
@@ -392,8 +382,8 @@ function UploadRow({
       // A dropped file LANDING is one of the three cases that earn a spring:
       // continuation of the gesture the user made a moment ago, over 4px —
       // well inside `springSnap`'s 24px travel ceiling. `springDrawer` (via
-      // the legacy `springGentle` alias) was the large-surface spring, too
-      // slow to read as the file arriving.
+      // the legacy `springGentle` alias) is the large-surface spring, too slow
+      // to read as the file arriving.
       transition={springSnap}
       data-testid="upload-row"
       data-phase={phase}

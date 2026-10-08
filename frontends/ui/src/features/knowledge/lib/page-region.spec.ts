@@ -21,7 +21,7 @@ describe('parsePageRegions', () => {
     ).toEqual([{ box: [0, 0, 1, 1] }])
   })
 
-  it('reads a source without regions as one sent before they existed', () => {
+  it('reads a source without regions as having none', () => {
     expect(parsePageRegions(undefined)).toBeUndefined()
     expect(parsePageRegions([])).toBeUndefined()
     expect(parsePageRegions([{ box: 'no' }])).toBeUndefined()

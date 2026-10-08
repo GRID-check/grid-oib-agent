@@ -1,11 +1,11 @@
 /**
  * "Which model is THIS file", asked of the document rather than of a project.
  *
- * Every model surface used to resolve through `/api/projects/<id>/bim/models`,
- * which quietly made a project a prerequisite for looking at a model at all.
- * The org-wide Archiv has no project, so a model uploaded there could not be
- * resolved by anything in the Archiv — the file was parsed, indexed and listed
- * as ready, and the preview beside it said there was no model.
+ * Resolving through `/api/projects/<id>/bim/models` would quietly make a project
+ * a prerequisite for looking at a model at all. The org-wide Archiv has no
+ * project, so a model uploaded there could not be resolved: the file would be
+ * parsed, indexed and listed as ready, and the preview beside it would say
+ * there was no model.
  *
  * Same two guarantees as the project list, because the same surfaces depend on
  * them: one request when several ask at once, and a poll that runs while — and

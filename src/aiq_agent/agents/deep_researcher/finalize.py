@@ -72,8 +72,8 @@ _HONESTY_BANNER_PREFIX = "> **Hinweis:**"
 #: Deliberately coarse: the operator channel carries the token, the reader gets
 #: the kind of cause and nothing that pretends to be an error taxonomy. An
 #: upstream timeout is NOT a time limit — a source did not answer — and calling
-#: it one had readers asking for a longer budget on runs that died in three
-#: minutes.
+#: it one would have readers asking for a longer budget on runs that die in
+#: three minutes.
 _CUTOFF_CAUSE_CLAUSES = {
     CUTOFF_WALL_CLOCK: "wegen des erreichten Zeitlimits",
     CUTOFF_STEP_LIMIT: "wegen des erreichten Schritt-Limits",
@@ -354,7 +354,7 @@ def _apply_renumbering(
     Fail-closed on sanitize deaths: ``sanitize_report`` also DELETES source
     lines with shortened / truncated / unsafe URLs. Their numbers arrive via
     ``removed_numbers`` and those chips are dropped — never remapped, never
-    shipped as clickable at a URL the reader no longer sees. A number absent
+    shipped as clickable at a URL that sanitization removed. A number absent
     from a non-empty ``renumber_map`` is likewise dead and dropped, so a
     sanitizer rule that forgets to report a death still cannot leave a trusted
     chip at a removed URL. Returns a new list; the input is left alone.
@@ -450,8 +450,8 @@ def verify_report(report: str, registry: Any, reference_sources: list[Any]) -> V
         degraded_reasons.append(DEGRADED_UNVERIFIED_QUOTES)
     if not verification.valid_citations:
         # Over-aggressive verification is a real possibility, so this is not a
-        # failure — but a report with nothing provably grounded no longer
-        # ships silently.
+        # failure — but a report with nothing provably grounded does not ship
+        # silently.
         logger.warning(
             "Citation verification found no valid citations in writer-agent output; "
             "returning the generated report without failing the job. "

@@ -1,16 +1,16 @@
 """The Herleitung spine's round stamp — across the node boundary that broke it.
 
 The stamp (``turn_status._retrieval_round``) is read by the knowledge layer
-while a TOOL runs, and it used to be set by ``emit_retrieval`` while the AGENT
-node ran. LangGraph runs every node in a task built with ``copy_context()``, so
-the tools node never saw it: every hit shipped unstamped and the frontend fell
-back to stream order, which files both fetches of a two-round turn onto the
-first checkpoint.
+while a TOOL runs. LangGraph runs every node in a task built with
+``copy_context()``, so a value set in one node is not seen by the tools node: a
+stamp set by ``emit_retrieval`` in the agent node would be unseen, every hit
+would ship unstamped, and the frontend would fall back to stream order, filing
+both fetches of a two-round turn onto the first checkpoint.
 
 Which means the test for it CANNOT be a unit test of either side. A test that
 sets the ContextVar and calls the reader passes on the broken code — that is
-exactly ``test_trace_lanes.py::test_trace_lanes_sources_carry_the_retrieval_round``,
-which was green throughout. The only test that can fail on the defect goes
+what ``test_trace_lanes.py::test_trace_lanes_sources_carry_the_retrieval_round``
+does. The only test that can fail on the defect goes
 through the COMPILED GRAPH with a real ToolNode and reads the stamp from inside
 a tool, which is what :class:`TestTheRoundStampReachesTheTool` does.
 """
@@ -184,9 +184,8 @@ class TestSynthesisAnnouncement:
     """The live line during the answer write: `status:synthesis`, once per researched turn.
 
     Without it the line keeps showing the last retrieval event through the
-    whole synthesis call — the stale-label fault the legacy path fixed by
-    never letting a finished step drive the phrase, reintroduced by events
-    that never complete.
+    whole synthesis call. A finished step must never drive the phrase, and events
+    that never complete would bring the stale label back.
     """
 
     @pytest.mark.asyncio

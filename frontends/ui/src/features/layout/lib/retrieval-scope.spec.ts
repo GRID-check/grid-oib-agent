@@ -31,9 +31,8 @@ describe('includeShelvesForTurn', () => {
   /**
    * A subject says which DOCUMENTS the turn is about. It is not a statement
    * that the reader no longer wants the building code applied — and applying it
-   * is what this product is for. The asymmetry that exposed the bug is pinned
-   * two tests down: the `project` PRESET always kept `base`, and the `project`
-   * SHELF did not, although a reader reaches for either to say the same thing.
+   * is what this product is for. The `project` shelf and the `project` preset
+   * both keep `base`, although a reader reaches for either to say the same thing.
    */
   test('no subject shelf costs the turn its building code', () => {
     for (const subjectShelf of ['session', 'project', 'archiv'] as const) {

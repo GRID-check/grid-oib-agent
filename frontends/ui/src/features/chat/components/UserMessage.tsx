@@ -1,16 +1,16 @@
 /**
  * UserMessage Component
  *
- * User message bubble displayed in the chat area — the click-dummy "Eingabe"
- * turn: a right-aligned role tab over a bubble with the dummy's asymmetric
- * corner radius, hairline border and trace shadow.
+ * User message bubble displayed in the chat area: a right-aligned role tab
+ * over a bubble with an asymmetric corner radius, hairline border and trace
+ * shadow.
  *
  * ## Two renderings, one component
  *
- * **Without `author` this is byte-for-byte the bubble it has always been.** That
- * is not an accident of refactoring but the requirement: a solo thread must not
- * change at all when sharing ships (spec CC-4, NF-8), so authorship is opt-in and
- * every existing caller keeps today's output.
+ * **Without `author` this is byte-for-byte the bubble a solo thread gets.** That
+ * is the requirement, not an accident of refactoring: a solo thread must not
+ * change at all when sharing is on, so authorship is opt-in and every existing
+ * caller keeps its output.
  *
  * **With `author` the thread has more than one human in it**, and the bubble has to
  * answer "who said this" at a glance. It answers it with the avatar + name header
@@ -28,7 +28,7 @@
  * answers full-width and dominant — and sharing *adds attribution* rather than
  * re-teaching the reading order.
  *
- * The four voices of spec CC-5 therefore separate on axes that are not "side":
+ * The voices of a shared thread therefore separate on axes that are not "side":
  * a human message is a narrow right-hand bubble (whose header names the human), the
  * agent's answer is a full-width `AgentResponse` card, and its status output is the
  * Herleitung spine. Two different colleagues separate on their headers — different
@@ -62,8 +62,8 @@ import { MessageAuthor } from './MessageAuthor'
  *
  * A REVEAL, and reveals need a second way in. `opacity-0 group-hover:opacity-100`
  * is the whole affordance on a mouse, and on a phone there is no hover event to
- * spend: the button was mounted, focusable and permanently invisible, so copying
- * your own message was a feature only desktop had. `pointer-coarse:opacity-100`
+ * spend: a button that is mounted, focusable and invisible would make copying
+ * your own message a feature only desktop has. `pointer-coarse:opacity-100`
  * is the escape the memory panel's row actions already use — where a finger
  * drives the pointer the control is simply present, because there is nothing for
  * it to wait for.
@@ -99,8 +99,7 @@ export interface UserMessageProps {
   timestamp?: Date | string
   /**
    * Authorship, present ONLY for a shared conversation (ADR-0033). Omit it — as
-   * every pre-collaboration caller does — and the bubble renders exactly as it
-   * always has, with no attribution.
+   * a solo thread does — and the bubble renders with no attribution.
    */
   author?: UserMessageAuthor
   /**
@@ -109,7 +108,7 @@ export interface UserMessageProps {
    */
   grouped?: boolean
   /**
-   * Structured mentions carried by this message (spec MN-3), rendered as chips in
+   * Structured mentions carried by this message, rendered as chips in
    * the text. Never derived from the prose: typing "@Anna" without choosing her
    * from the picker is not a mention and must not look like one.
    */
@@ -132,8 +131,8 @@ export const UserMessage: FC<UserMessageProps> = ({
   const t = useTranslations('chat')
   const [copied, setCopied] = useState(false)
   // `formatTime` without a locale falls back to the RUNTIME default, so a
-  // German user on an en-US browser read "03:35 PM" here while the HITL prompt
-  // directly below it read "15:35". Every research card already passes it.
+  // German user on an en-US browser would read "03:35 PM" here while the HITL
+  // prompt directly below reads "15:35". Every research card passes it.
   const { locale } = useLocale()
 
   const handleCopyMessage = async () => {
@@ -157,12 +156,12 @@ export const UserMessage: FC<UserMessageProps> = ({
       <MentionText content={content} mentions={mentions} currentUserId={currentUserId} />
     ) : (
       // `compact`, because the bubble itself is set in `text-sm`: without it
-      // the markdown paragraphs came out `text-base`, so the same bubble was
+      // the markdown paragraphs come out `text-base`, so the same bubble would be
       // 14px or 16px depending on whether the message carried mentions.
       <MarkdownRenderer content={content} compact />
     )
 
-  // ── Solo thread: today's rendering, untouched ───────────────────────────────
+  // ── Solo thread: the unattributed bubble, untouched ─────────────────────────
   if (!author) {
     return (
       <div className="animate-in fade-in-0 slide-in-from-bottom-1 flex w-full flex-col items-end duration-base ease-entrance motion-reduce:animate-none">
@@ -211,7 +210,7 @@ export const UserMessage: FC<UserMessageProps> = ({
     )
   }
 
-  // ── Shared thread: the same bubble, in the same column, now attributed ──────
+  // ── Shared thread: the same bubble, in the same column, attributed ──────────
   const isYou = author.isYou === true
 
   return (
@@ -251,7 +250,7 @@ export const UserMessage: FC<UserMessageProps> = ({
           // unselectable. The padding is the price of the control being present.
           'pointer-coarse:pr-14',
           // A grouped follow-up squares off the corner that pointed at the header
-          // it no longer draws, so a run reads as one block of speech. It stays
+          // it does not draw, so a run reads as one block of speech. It stays
           // flush with the bubble above — the header sits over the bubble here, not
           // in a left gutter, so indenting would break the column instead of
           // forming it.

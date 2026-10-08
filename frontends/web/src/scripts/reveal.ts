@@ -16,10 +16,9 @@ gsap.registerPlugin(ScrollTrigger)
  * are left alone — hiding them first and revealing them a frame later is how a
  * page ends up flashing its own content at whoever just opened it.
  *
- * Opacity and a short rise, nothing else. This used to un-blur as well, and a
- * `filter` on a block the size of a panel is repainted every frame of the
- * tween, which is the one thing the performance budget in docs/ux/motion.md
- * rules out.
+ * Opacity and a short rise, nothing else: a `filter` on a block the size of a
+ * panel is repainted every frame of the tween, which is the one thing the
+ * performance budget in docs/ux/motion.md rules out.
  */
 export function initReveals() {
   gsap.matchMedia().add(MQ.motion, () => {

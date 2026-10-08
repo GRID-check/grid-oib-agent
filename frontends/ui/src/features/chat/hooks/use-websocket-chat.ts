@@ -26,7 +26,7 @@
  *   until its stages have landed or the server's stage TTL has passed. A gap
  *   in a turn's seq is attached from the last seq folded.
  * - **Ending.** Stop is `cancel_turn`; the partial answer stays, marked
- *   stopped. A turn the stream no longer holds, or a socket that gave up, asks
+ *   stopped. A turn the stream does not hold, or a socket that gave up, asks
  *   the server for the finished answer before any banner. Close code 4426, or
  *   a frame this bundle cannot read, is a reload notice; a server that never
  *   says hello is `connection.server_incompatible`.
@@ -69,12 +69,12 @@ export interface SendMessageMention {
 
 export interface SendMessageOptions {
   /**
-   * Mentions chosen from the `@` picker (spec MN-3). Their presence switches the
+   * Mentions chosen from the `@` picker. Their presence switches the
    * send onto the addressee path: persistence is awaited and the SERVER decides
    * whether the agent answers.
    */
   mentions?: readonly SendMessageMention[]
-  /** The asker's question, carried into the recipient's inbox item (spec MN-12). */
+  /** The asker's question, carried into the recipient's inbox item. */
   mentionNote?: string | null
   /**
    * The thread is visibly waiting on a named person (an `open` mention request).
@@ -105,7 +105,7 @@ export interface SendMessageFailure {
 /** What a mention send resolves to — the server's ruling, or why it was refused. */
 export interface SendMessageOutcome {
   ok: boolean
-  /** The server's addressee ruling (spec MN-1/MN-2), when it answered. */
+  /** The server's addressee ruling, when it answered. */
   addressees?: AddresseeSet
   failure?: SendMessageFailure
 }
@@ -192,7 +192,7 @@ function appendLocalUserMessage(message: ChatMessage): void {
 /**
  * How often buffered answer deltas reach the store while an answer streams.
  * Each flush re-renders everything subscribed to the open conversation; once
- * per animation frame, that was a 50–70 ms task every few frames on a 4×
+ * per animation frame would be a 50–70 ms task every few frames on a 4×
  * throttled CPU. What the reader sees is paced separately (`usePacedText`),
  * so the flush can be this coarse without the text arriving in steps.
  */
@@ -497,7 +497,7 @@ const createTurnDriver = (conversationId: string, projectId: string | undefined,
       case 'conversation_mismatch':
       case 'invalid_message':
         // A resume or a Stop the server could not take leaves the turn with
-        // nobody following it: the same as a turn the stream no longer holds.
+        // nobody following it: the same as a turn the stream does not hold.
         if (value.of === 'attach' || value.of === 'cancel_turn') return lost(turnId)
         if (value.of !== 'user_message') return
         forget(turnId)
@@ -570,9 +570,8 @@ interface UseWebSocketChatOptions {
   /**
    * Whether collaboration is reachable for this org (the dark-launch flag).
    *
-   * **Defaults to false, and false means "exactly today"** (spec NF-8): the socket
-   * opens on mount, before the user has done anything, with no request in front of
-   * it. Only with the flag ON does the socket wait to learn whether the thread is
+   * **Defaults to false, and false means no change at all:** the socket opens on
+   * mount, before the user has done anything, with no request in front of it. Only with the flag ON does the socket wait to learn whether the thread is
    * shared — see `socketPermitted` below for why that is not a latency cost for
    * private threads either.
    */
@@ -637,7 +636,7 @@ const discoverBudgetFailureMessage = async (t: ReturnType<typeof useTranslations
  * no attribution and writes no author, so absent means "there is only me".
  * An unresponded HITL prompt counts: the thread is paused on an answer only this
  * browser can give. So does a still-`isStreaming` assistant message. A reload
- * no longer restores one (the storage drops an interrupted answer, and the
+ * does not restore one (the storage drops an interrupted answer, and the
  * question it answers is then the newest turn), but a socket that drops
  * mid-answer without a reload leaves exactly that.
  */
@@ -707,15 +706,16 @@ export const useWebSocketChat = (options: UseWebSocketChatOptions = {}): UseWebS
    *
    * Four things open the gate, and the order matters:
    *
-   *   1. `!canCollaborate` — the flag is off. Byte-identical to today, evaluated
-   *      synchronously on the first render, with no request in front of it (NF-8).
-   *      This is the overwhelming majority of usage and it pays nothing.
+   *   1. `!canCollaborate` — the flag is off. The socket behaves exactly as without
+   *      collaboration, evaluated synchronously on the first render, with no
+   *      request in front of it. This is the overwhelming majority of usage and it
+   *      pays nothing.
    *   2. `sharing === 'private'` — the server has said this thread is solo. Also
    *      connect-on-mount. The access read this reads from is the one
    *      `useSharedThread` already issues on open (ADR-0033 §1), so it costs no
    *      extra round trip and it resolves while the thread is still painting —
    *      long before anyone can focus a composer. A private thread therefore
-   *      keeps today's first-message latency.
+   *      keeps its first-message latency.
    *   3. `intent` — composer focus (or a send). See `noteSendIntent`.
    *   4. `ownsUnansweredTurn` — this browser is the one waiting on an answer, so
    *      it must reconnect WITHOUT being touched: the new socket `attach`es the
@@ -773,7 +773,7 @@ export const useWebSocketChat = (options: UseWebSocketChatOptions = {}): UseWebS
    * The reader-facing half of the driver, read through a ref so a socket
    * lives as long as its conversation: AuthKit hands out a new
    * `getAccessToken` whenever its token state changes, and a socket keyed on
-   * that identity reconnected all through a streaming answer.
+   * that identity would reconnect all through a streaming answer.
    */
   const isSessionExpired = authRequired && !user && !authLoading
   const hooks: DriverHooks = {
@@ -841,8 +841,8 @@ export const useWebSocketChat = (options: UseWebSocketChatOptions = {}): UseWebS
   // creates its conversation inside `sendMessage`, and `ensureDriver` makes
   // that conversation's driver in the same call, holding the question until
   // its RUN_STARTED. A cleanup keyed on the previous render (no conversation
-  // yet) closed exactly that driver, and its successor, knowing nothing of the
-  // question, attached the turn instead of asking it: the first question was lost.
+  // yet) would close exactly that driver, and its successor, knowing nothing of the
+  // question, would attach the turn instead of asking it: the first question would be lost.
   useEffect(() => {
     if (currentConversationId && autoConnect && socketPermitted) ensureDriver(currentConversationId)
     const driver = driverRef.current
@@ -900,7 +900,7 @@ export const useWebSocketChat = (options: UseWebSocketChatOptions = {}): UseWebS
    * always judge" (ADR-0034 addendum).
    *
    * The hand-off suppresses the agent by not invoking it, which is right about
-   * tokens and was wrong about MEMORY: the agent's history is its LangGraph
+   * tokens and wrong about MEMORY: the agent's history is its LangGraph
    * checkpoint, so a turn that never reached it leaves a hole, and `@Piloti given
    * that, recheck` then refers to nothing. This closes the hole without making
    * routing probabilistic — the server already ruled that the agent is not
@@ -965,7 +965,7 @@ export const useWebSocketChat = (options: UseWebSocketChatOptions = {}): UseWebS
    * now, and the question goes on the wire, or waits for the socket and goes
    * on it the moment it opens. Both send paths share this one definition of
    * "a turn starts", and the mention path can decline to call it at all: the
-   * point of MN-7 is that nothing is started rather than started and
+   * point is that nothing is started rather than started and
    * cancelled.
    */
   const openAgentTurn = useCallback(
@@ -982,9 +982,9 @@ export const useWebSocketChat = (options: UseWebSocketChatOptions = {}): UseWebS
       }
       // Retrieval follows the composer bar ("Asking about this file") and
       // nothing else. A file that merely happens to be open in a peek is
-      // context, not scope: sending it as the focus told the agent every bare
+      // context, not scope: sending it as the focus would tell the agent every bare
       // question was about that file, and a norm question ("Absturzhoehe bei
-      // Bruestungen") came back empty because the search was pinned to it.
+      // Bruestungen") comes back empty because the search is pinned to it.
       const subject = useChatStore.getState().composerSubject
       const subjectName = subject?.filename?.trim() || subject?.title?.trim() || undefined
       useChatStore.getState().beginTurn(conversationId, messageId)
@@ -1019,11 +1019,11 @@ export const useWebSocketChat = (options: UseWebSocketChatOptions = {}): UseWebS
    * follows from one rule: **the server decides who answers.** So persistence is
    * awaited, the `addressees` ruling is read off the response, and an agent turn is
    * opened only when `addressees.agent` is true. When it is false nothing is STARTED
-   * — no status, no thinking bubble, no tokens (spec MN-7) — and the thread's
+   * — no status, no thinking bubble, no tokens — and the thread's
    * awaiting-state explains the silence instead.
    *
    * The message still reaches the agent, as context only (see `deliverAsContext`).
-   * Not answering is a routing decision; not remembering was a bug.
+   * Not answering is a routing decision; not remembering would be a bug.
    *
    * It also means a refusal (a collaborator tagging a non-participant, a target
    * outside the project, a rate limit) refuses the WHOLE send: nothing is echoed
@@ -1065,7 +1065,7 @@ export const useWebSocketChat = (options: UseWebSocketChatOptions = {}): UseWebS
                 ...(messageFiles.length > 0 ? { messageFiles } : {}),
               },
               createdAt: new Date().toISOString(),
-              // Structured references, never a text match on a name (spec MN-3).
+              // Structured references, never a text match on a name.
               mentions: mentions.map((mention) => ({ targetId: mention.targetId })),
               ...(options.mentionNote ? { mentionNote: options.mentionNote } : {}),
             }),
@@ -1099,7 +1099,7 @@ export const useWebSocketChat = (options: UseWebSocketChatOptions = {}): UseWebS
       })
 
       if (!ruling.agent) {
-        // The thread now waits for a human. Nothing is STARTED (MN-7) — but the
+        // The thread now waits for a human. Nothing is STARTED — but the
         // agent still has to see what was written, or the next `@Piloti given
         // that…` has nothing to refer to. Free, silent, best-effort.
         deliverAsContext(messageId, content, dataSourcesForMessage)

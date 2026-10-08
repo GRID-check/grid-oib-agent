@@ -237,7 +237,7 @@ describe('findLiveInboxGroupKeys — the fire-once probe', () => {
   })
 })
 
-describe('archiveInboxItemsOfType — retiring a condition that no longer holds', () => {
+describe('archiveInboxItemsOfType — retiring a condition that does not hold', () => {
   it('archives every live row of the type when no bucket survives', async () => {
     await archiveInboxItemsOfType('org_1', 'storage.quota_warning')
 

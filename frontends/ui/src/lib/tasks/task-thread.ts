@@ -3,18 +3,17 @@
  *
  * A definition that keeps running — a weekly Wochencheck, a „Jetzt ausführen"
  * anybody can press again — owns ONE thread, and every fire appends its run
- * message to it. Before this, each fire minted a fresh conversation, so a weekly
- * definition deposited 52 threads a year that nobody read twice.
+ * message to it, rather than minting a conversation per fire: a weekly
+ * definition would otherwise deposit 52 threads a year that nobody reads twice.
  *
  * ## Why the id is derived and not stored
  *
  * „One thread per definition" is an invariant, and the honest place for it is a
- * unique index on `conversations(job_id)`. That index **cannot be created on
- * live data**: every fire before this change stamped its own conversation with
- * the same `job_id`, so the deployments that use scheduled work are exactly the
- * ones where it would fail, and clearing the duplicates' `job_id` would delete
- * the provenance that column exists for (migration `0091_run_messages.sql`
- * carries the full record).
+ * unique index on `conversations(job_id)`. That index **cannot be created where
+ * per-fire conversations already exist**: each of them carries the definition's
+ * `job_id`, so the index would fail in exactly the deployments that run
+ * scheduled work, and clearing those `job_id`s would delete the provenance the
+ * column records (migration `0091_run_messages.sql` carries the full record).
  *
  * So the invariant is held UPSTREAM: the thread's id is derived from the
  * definition's id, which makes `conversations`' own primary key the uniqueness
@@ -47,7 +46,7 @@ export function taskThreadConversationId(definitionId: string): string {
 
 /**
  * Whether a conversation IS a standing task's own thread, rather than one of
- * the per-fire conversations that predate this design.
+ * the per-fire conversations.
  *
  * Both carry a `job_id`; only the standing thread's id is the derived one. That
  * is the whole test, and it needs no query — which is why the sessions panel can

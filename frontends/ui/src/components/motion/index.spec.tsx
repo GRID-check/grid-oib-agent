@@ -6,8 +6,7 @@
  * every claim the module documents — "ζ = 0.658", "6.4% overshoot", "travel
  * ≤ 24px" — is recomputed here from the shipped config. A future tweak to
  * `stiffness` that quietly turns a spring overdamped fails this file rather
- * than shipping as a spring in name only, which is exactly what happened to the
- * two springs this kit replaced.
+ * than shipping as a spring in name only.
  */
 
 import { describe, expect, it } from 'vitest'
@@ -251,8 +250,8 @@ describe('stagger cap', () => {
 
   it('finishes the whole cascade inside one base duration', () => {
     // 200ms total, under the 240ms an individual item takes to arrive — so the
-    // list reads as one arrival, not as a queue. The seven-item caller that
-    // used to hold its last section back by 350ms now waits 200ms.
+    // list reads as one arrival, not as a queue. A seven-item caller waits 200ms
+    // for its last item, where an uncapped stagger would wait 350ms.
     expect(delayFor(30)).toBeLessThanOrEqual(motionBase.duration as number)
   })
 })

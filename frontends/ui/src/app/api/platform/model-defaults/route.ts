@@ -65,8 +65,8 @@ const putSchema = z.object({
 })
 
 // `platformApiRoute` supplies the owner gate, the request-bounded slot, the
-// platform scope and the 403 mapping — the four things these handlers used to
-// re-implement between them (ADR-0016, ADR-0041).
+// platform scope and the 403 mapping, so no handler re-implements them
+// (ADR-0016, ADR-0041).
 export const GET = platformApiRoute(
   async () => {
     // Platform-wide configuration, deliberately not one tenant's — and a
@@ -112,16 +112,13 @@ export const GET = platformApiRoute(
 
 export const PUT = platformApiRoute(
   async ({ request, session }) => {
-    // `parseJsonBody` raises the same 400 the local ZodError branch did, with
-    // the issue list attached, so the shared error mapping covers it.
+    // `parseJsonBody` raises a 400 with the issue list attached, so the shared
+    // error mapping covers it.
     const input = await parseJsonBody(request, putSchema)
     const flat = Object.fromEntries(
       Object.entries(input.defaults).map(([group, value]) => [group, value.model])
     )
 
-    // Server-side revalidation against the live platform catalog — the picker
-    // is never trusted, and a catalog outage rejects the save rather than
-    // pinning the whole fleet to an unvalidated model id.
     // Server-side revalidation against the live platform catalog AND the ZDR
     // list — the picker is never trusted, and an outage of either rejects the
     // save rather than pinning the whole fleet to an unchecked model id.
@@ -133,10 +130,10 @@ export const PUT = platformApiRoute(
     if (!validation.ok) {
       throw new UnprocessableError('Model validation failed', validation.errors)
     }
-    // `platform_model_defaults` grants the runtime role SELECT only, on purpose
-    // (ADR-0041) — a tenant-facing bug must not be able to rewrite fleet-wide
-    // configuration. Writing it is exactly what the platform tier is for, and
-    // the factory has already put this handler in that scope.
+    // `platform_model_defaults` grants the runtime role SELECT only (ADR-0041):
+    // a tenant-facing bug must not be able to rewrite fleet-wide configuration.
+    // Writing it is what the platform tier is for, and the factory has already
+    // put this handler in that scope.
     const rows = await savePlatformModelDefaults({
       defaults: flat,
       modelSnapshot: validation.snapshot,

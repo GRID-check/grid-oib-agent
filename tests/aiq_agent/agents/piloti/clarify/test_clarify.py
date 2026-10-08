@@ -152,7 +152,7 @@ class TestPrompts:
         assert "research planning assistant" in PLAN_GENERATION_PROMPT
 
     def test_the_turn_limit_is_single_sourced(self):
-        """The prompt used to hard-code TWO while the config said three."""
+        """The turn limit comes from the config, never a number hard-coded in the prompt."""
         assert "{{ max_turns }}" in CLARIFICATION_PROMPT
         assert "TWO clarification questions" not in CLARIFICATION_PROMPT
 
@@ -178,11 +178,10 @@ class TestPrompts:
         assert "SKIP_COMMANDS" in CLARIFICATION_PROMPT
 
     def test_clarification_prompt_prefers_asking_over_silently_guessing(self):
-        """The prompt used to bias hard against asking ("minimal friction",
-        clarification marked "(Rare)", a threshold of "genuinely cannot
-        proceed"). A live transcript pattern was the model silently picking
-        one of several plausible angles instead of offering the choice as
-        `options` — the exact UI users report enjoying, just rarely offered.
+        """The prompt must not bias against asking. "Minimal friction", clarification
+        marked "(Rare)" and a threshold of "genuinely cannot proceed" make the
+        model silently pick one of several plausible angles instead of offering
+        the choice as `options`.
 
         This locks in the calibration the other way: whenever 2-5 concrete,
         distinct directions can already be named, the prompt must say to ask
@@ -190,7 +189,7 @@ class TestPrompts:
         """
         assert "2-5 concrete" in CLARIFICATION_PROMPT
         assert "do not silently pick one and proceed" in CLARIFICATION_PROMPT.lower()
-        # The old framing that told the model clarification was rare/costly
+        # A framing that told the model clarification was rare/costly
         # must be gone, not just supplemented — a stray copy would keep
         # pulling the model back toward silence.
         assert "(rare)" not in CLARIFICATION_PROMPT.lower()
@@ -363,7 +362,7 @@ class TestParsePlanReply:
         assert parse_plan_reply('{"query": "add a security section"}') == ("feedback", "add a security section")
 
     def test_json_with_a_non_string_query_is_not_unwrapped(self):
-        """A number here used to crash the turn on .strip()."""
+        """A number here must not crash the turn on .strip()."""
         decision, _ = parse_plan_reply('{"query": 42}')
 
         assert decision == "feedback"
@@ -480,7 +479,7 @@ class TestTheQuestionLoop:
 
     @pytest.mark.asyncio
     async def test_the_llm_reply_is_parsed_once_per_call(self, caplog):
-        """The parse used to run five times per turn, warning five times over."""
+        """The reply is parsed once per call, so one unparseable reply warns once."""
         deps = deps_for(make_llm("still not json"), ask=AsyncMock(return_value="skip"))
 
         with caplog.at_level("WARNING"):
@@ -722,7 +721,7 @@ class TestOptions:
 
     @pytest.mark.asyncio
     async def test_options_are_never_parsed_out_of_the_question(self):
-        """Regex-parsing the prose back into options is the bug being fixed."""
+        """Options are never recovered by regex-parsing the prose."""
         question = "**Focus**: which area?\n\n1. Alpha: about alpha\n2. Beta: about beta"
         seen: list[list[str]] = []
 
@@ -853,8 +852,8 @@ class TestTools:
 
     @pytest.mark.asyncio
     async def test_a_model_that_only_ever_searches_is_cut_off(self, caplog):
-        """The loop states its own bound; the graph borrowed LangGraph's
-        recursion limit, which was nobody's decision about this dialog."""
+        """The loop states its own bound rather than borrowing LangGraph's
+        recursion limit, which is nobody's decision about this dialog."""
         llm = self._searching_llm(MAX_TOOL_ROUNDS + 1)
         ask = AsyncMock()
 

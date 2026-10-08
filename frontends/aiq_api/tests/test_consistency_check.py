@@ -342,11 +342,10 @@ async def test_consistency_check_no_api_key_returns_not_configured(app, monkeypa
 
 @pytest.mark.asyncio
 async def test_prose_around_the_object_is_tolerated(app):
-    """Shared with the other JSON routes since issue #233.
+    """Tolerated like the other JSON routes (see ``routes/_llm_json.py``).
 
-    This route used to strip a code fence and nothing else, so a single line of
-    preamble — which the prompt forbids but a model still writes — made a
-    perfectly good findings list unparseable and failed the check open.
+    A single line of preamble, which the prompt forbids but a model still writes,
+    must not make a perfectly good findings list unparseable and fail the check open.
     """
     content = (
         "Here is my assessment:\n"

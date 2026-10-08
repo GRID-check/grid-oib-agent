@@ -4,14 +4,12 @@
  *
  * ONE list, on purpose. WorkOS rejects an event whose action has no schema in
  * the environment ("event 'resource.shared', version '1' has not been
- * configured in this environment", issues #255/#256), and this list used to
- * exist twice: `AUDIT_ACTIONS` in `service.ts` and a hand-maintained `SCHEMAS`
- * array in `scripts/provision-workos-audit-schemas.mjs`. They drifted by nine
- * actions — the whole `resource.*` sharing family among them — and the only
- * symptom was one ERROR log per privileged mutation, on the side of the
- * emitter that deliberately never throws. Here `AUDIT_ACTIONS` is DERIVED from
- * the keys below, so an action without a schema is unrepresentable rather than
- * merely detectable.
+ * configured in this environment"). Two hand-maintained lists, `AUDIT_ACTIONS`
+ * in `service.ts` and a `SCHEMAS` array in
+ * `scripts/provision-workos-audit-schemas.mjs`, drift apart, and the drift shows
+ * up only as an ERROR log on the emitter that deliberately never throws. Here
+ * `AUDIT_ACTIONS` is DERIVED from the keys below, so an action without a schema
+ * is unrepresentable rather than merely detectable.
  *
  * Plain ESM rather than TypeScript because both consumers must read this file
  * as-is: `service.ts` through the Next.js bundler, and the provisioning script
@@ -34,7 +32,7 @@
  * targets, metadata]` AND `actor: {required: [id, type, metadata]}` — the actor
  * clause appearing even though nothing here declares an actor schema. That is
  * why `recordAuditEvent` always sends both keys, `{}` when it has nothing to
- * put in them (issues #274/#277); do not "simplify" either one back to
+ * put in them; do not "simplify" either one back to
  * `undefined`. Entries with no `metadata` map at all (`project.restored`) get
  * the permissive generic schema instead, and accept the empty objects too.
  */
@@ -106,8 +104,7 @@ export const AUDIT_SCHEMAS = /** @type {const} */ ({
     metadata: {
       scope: 'string',
       subjectId: 'string',
-      // The limit's unit since 0080 (ADR-0053): 'credit' or 'token'. Before
-      // 0079 the keys were dailyLimitEur/monthlyLimitEur.
+      // The limit's unit: 'credit' or 'token' (ADR-0053).
       unit: 'string',
       dailyLimit: 'number',
       monthlyLimit: 'number',
@@ -393,12 +390,11 @@ export const AUDIT_SCHEMAS = /** @type {const} */ ({
   // agent actor owes these same entries.
   //
   // There are TWO because there are two kinds of identity a machine-authored
-  // document is filed under, and until migration 0066 both were emitted as
-  // `agent_run`: a research report's reference is a backend async job id, and a
-  // diagram's is the chat answer it was drawn in plus a hash of its source. One
-  // target type for both meant an auditor resolving a diagram's provenance
-  // looked up a job that does not exist. The list must stay in step with
-  // `AUTHORED_REF_KINDS` in `lib/documents/document-authors.ts`, and
+  // document is filed under: a research report's reference is a backend async
+  // job id, and a diagram's is the chat answer it was drawn in plus a hash of
+  // its source. One target type for both would send an auditor resolving a
+  // diagram's provenance to a job that does not exist. The list must stay in
+  // step with `AUTHORED_REF_KINDS` in `lib/documents/document-authors.ts`, and
   // `schemas.spec.ts` is what notices when it does not — a kind added there and
   // missing here does not lose an audit line, it unfiles the document the line
   // was about, because this action's emit throws.

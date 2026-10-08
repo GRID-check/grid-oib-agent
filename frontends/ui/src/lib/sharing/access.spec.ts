@@ -198,10 +198,10 @@ describe('resolveResourceAccess — effective role is the STRONGEST applicable',
 
   it('withholds canEscalate from a project admin who ALREADY owns the resource', async () => {
     // An audit-integrity claim, not a cosmetic one: offering the button to an
-    // owner let them "take ownership" of something they already owned, writing
-    // `resource.ownership.escalated` with `previousRole: 'owner'` — a permanent
-    // record of an escalation that never happened, in the very log spec SH-10
-    // exists to keep trustworthy.
+    // owner would let them "take ownership" of something they already own,
+    // writing `resource.ownership.escalated` with `previousRole: 'owner'` — a
+    // permanent record of an escalation that never happened, in the very log
+    // spec SH-10 exists to keep trustworthy.
     stubConversation({ visibility: 'private', createdBy: 'user_creator' })
     stubContainer('project-admin')
     stubGrant('owner')
@@ -234,8 +234,8 @@ describe('resolveResourceAccess — effective role is the STRONGEST applicable',
   })
 
   it('does not require a container when the resource hangs off the organization', async () => {
-    // Legacy conversations predate project stamping; no project membership could
-    // describe them, so there is nothing to gate on.
+    // A conversation with no project stamp cannot be described by any project
+    // membership, so there is nothing to gate on.
     stubConversation({ projectId: null, visibility: 'private', createdBy: session.userId })
 
     const access = await resolveResourceAccess(session, 'conversation', 'conv_1')
@@ -246,7 +246,7 @@ describe('resolveResourceAccess — effective role is the STRONGEST applicable',
 })
 
 describe('requireResourceAccess', () => {
-  it('denies as NOT FOUND when the role is too weak (spec SH-6)', async () => {
+  it('denies as NOT FOUND when the role is too weak', async () => {
     stubConversation({ visibility: 'project' })
     stubContainer('project-viewer') // → viewer
 
@@ -293,7 +293,7 @@ describe('resolveResourceAccess — a document in a restricted folder (ADR-0080)
     expect(isFolderVisibleTo).toHaveBeenCalledWith(session, 'proj_1', 'folder_honorare')
   })
 
-  it('resolves as before for a cleared session, and asks nothing for an unfiled document', async () => {
+  it('resolves a cleared session as owner, and asks nothing for an unfiled document', async () => {
     stubDocument('folder_open')
     vi.mocked(isFolderVisibleTo).mockResolvedValue(true)
     await expect(resolveResourceAccess(session, 'document', 'doc_1')).resolves.toMatchObject({ role: 'owner' })

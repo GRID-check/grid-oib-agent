@@ -35,7 +35,7 @@ export type SessionsSlice = {
   currentConversation: Conversation | null
   conversations: Conversation[]
   /**
-   * True while an interrupted-answer recovery fetch is in flight (FIX 3). A
+   * True while an interrupted-answer recovery fetch is in flight. A
    * turn that LOOKS interrupted locally (user message, thinking steps, no
    * reply) may simply have had its terminal frame persisted server-side during
    * a drop. While we re-fetch to check, the UI shows a calm "reconnecting —
@@ -51,16 +51,16 @@ export type SessionsSlice = {
    */
   resumableTurn: ResumableTurn | null
 
-  /**
-   * Whether the server conversation list has been ASKED for at least once
-   * (regardless of what it returned, or whether it failed).
-   *
-   * The one fact a `?session=<id>` deep link needs and could not get: an id that
-   * is unknown locally is either stale or simply not fetched yet. Without this,
-   * "unknown → strip it from the URL" fires before the fetch lands and destroys
-   * every link into a conversation this browser has never seen — which is
-   * exactly what an inbox notification is (ADR-0035).
-   */
+    /**
+     * Whether the server conversation list has been ASKED for at least once
+     * (regardless of what it returned, or whether it failed).
+     *
+     * The one fact a `?session=<id>` deep link needs: an id that is unknown locally
+     * is either stale or simply not fetched yet. Without this, "unknown → strip it
+     * from the URL" fires before the fetch lands and destroys every link into a
+     * conversation this browser has never seen — which is exactly what an inbox
+     * notification is (ADR-0035).
+     */
   serverConversationsLoaded: boolean
 
   loadServerConversations: (projectId?: string) => Promise<void>
@@ -140,7 +140,7 @@ const createNewConversation = (
 ): Conversation => ({
   id: mintConversationId(),
   userId,
-  // Stamp the active project so the session stays scoped to it (UX-8);
+  // Stamp the active project so the session stays scoped to it;
   // null = created outside a project context (visible everywhere).
   projectId,
   title: subject?.title ?? '',
@@ -249,11 +249,11 @@ const ensuredServerConversations = new Map<string, Promise<void>>()
  *
  * The create IS the check: `POST /api/conversations` answers an id that already
  * exists with the existing row when the caller may contribute to it
- * (`createConversation` in `lib/conversations/service.ts`). It used to look the
- * id up in `list()` first, which added a failure that was not about this
- * conversation at all — a 429 on the list and the message was never stored —
- * and was capped at `CONVERSATION_LIST_LIMIT`, so past 200 conversations it
- * answered "missing" for rows that were there.
+ * (`createConversation` in `lib/conversations/service.ts`). Looking the id up in
+ * `list()` first would add a failure that is not about this conversation at all
+ * (a 429 on the list would stop the message being stored), and the list is
+ * capped at `CONVERSATION_LIST_LIMIT`, so past that many conversations it would
+ * answer "missing" for rows that are there.
  */
 const ensureServerConversation = (
   conversation: Conversation,
@@ -336,8 +336,8 @@ const maybeDiscardAbandonedUploadOnlySession = (
   const conv = conversations.find((c) => c.id === sessionId && c.userId === currentUserId)
   if (!conv) return
   // No messages HERE is not no messages: the server holds a conversation whose
-  // messages storage evicted or this page never fetched, and discarding it
-  // deleted it on the server.
+  // messages storage evicted or this page never fetched, and discarding it would
+  // delete it on the server.
   // A fetch in flight is not an answer yet either.
   if (isAwaitingServerMessages(conv.id) || hydratingConversationIds.has(conv.id)) return
   if (!hasNoUserChatMessages(conv.messages)) return
@@ -397,7 +397,7 @@ export const createSessionsSlice: StateCreator<
           //
           // So it must be the person who FETCHED the list, not the creator: the
           // server already decided visibility (`listVisibleConversations`), and
-          // stamping the creator made every conversation a colleague shared with
+          // stamping the creator would make every conversation a colleague shared with
           // you invisible in your own sessions panel and refused by
           // `selectConversation` — the whole of ADR-0032 with no way in.
           userId: currentUserId ?? serverConv.createdBy ?? 'unknown',
@@ -420,8 +420,8 @@ export const createSessionsSlice: StateCreator<
           // Provenance, and the ONLY thing that distinguishes a thread a job
           // produced from one a person started. This mapping is explicit
           // field by field, so a column left out here is silently dropped —
-          // and dropping this one makes `isJobConversation` permanently false,
-          // which quietly re-fills the owner's chat history with 52 job
+          // and dropping this one would make `isJobConversation` permanently false,
+          // which would quietly re-fill the owner's chat history with 52 job
           // threads a year while every test still passes.
           jobId: serverConv.jobId ?? null,
           subjectResourceType: locked
@@ -505,8 +505,8 @@ export const createSessionsSlice: StateCreator<
       }
 
       // Messages that arrived while the fetch was in flight stay, and the
-      // server's history goes under them. Replacing either with the other
-      // hid the history for good: the awaiting flag was cleared regardless.
+      // server's history goes under them. Replacing either with the other would
+      // hide the history for good: the awaiting flag is cleared regardless.
       const { messages: merged } = mergeRemoteMessages(target.messages, messages, false)
       const hydrated: Conversation = { ...target, messages: merged }
       const isCurrent = currentConversation?.id === conversationId
@@ -604,8 +604,8 @@ export const createSessionsSlice: StateCreator<
     // Scoped to the active project context; legacy sessions without a
     // projectId fail open (see lib/project-scope.ts).
     //
-    // The old PER-FIRE job conversations are excluded: they are the OUTPUT of a
-    // scheduled job, not chats this person started, and a weekly job put 52
+    // The per-fire job conversations are excluded: they are the OUTPUT of a
+    // scheduled job, not chats this person started, and a weekly job would put 52
     // threads a year into their history. They stay reachable by URL and from
     // the job's run history. A standing task's ONE thread is not one of them and
     // is shown — see `isHiddenJobConversation`.
@@ -705,7 +705,7 @@ export const createSessionsSlice: StateCreator<
 
     // Ownership AND project-context guard: a stale URL or persisted state
     // must never activate another project's session under this project's
-    // WebSocket projectId (cross-project retrieval bleed, UX-8).
+    // WebSocket projectId (cross-project retrieval bleed).
     const canOpen = (candidate: Conversation | undefined): candidate is Conversation =>
       candidate !== undefined &&
       candidate.userId === get().currentUserId &&
@@ -720,12 +720,11 @@ export const createSessionsSlice: StateCreator<
       set(
         {
           currentConversation: conversation,
-          // The id ONLY. `conversation.title` was the filename just long enough
-          // to be overwritten by the first user message (addUserMessage), so
-          // reusing it here restored the subject as "summarize this" and sent
-          // that string on the wire as `focus_file_name`, matching no document.
-          // ComposerSubjectBar re-reads the real filename and shelf from the
-          // document; a null title is what asks it to.
+          // The id ONLY. `conversation.title` is the filename only until the first
+          // user message overwrites it (addUserMessage), so reusing it here would
+          // restore the subject as "summarize this" and send that string on the wire as
+          // `focus_file_name`, matching no document. ComposerSubjectBar re-reads the real
+          // filename and shelf from the document; a null title is what asks it to.
           composerSubject: conversation.subjectResourceId
             ? {
                 resourceType: 'document' as const,
@@ -795,9 +794,9 @@ export const createSessionsSlice: StateCreator<
     // context — the active project's sessions plus unscoped legacy sessions
     // (fail-open display rule, see lib/project-scope.ts). Sessions stamped
     // with a DIFFERENT project are never touched, so "delete all" cannot
-    // silently wipe another project's history (UX-8).
+    // silently wipe another project's history.
     // EVERY job conversation is excluded here, including the standing task
-    // thread the list above now shows. „Delete all" usually means exactly what
+    // thread the list above shows. „Delete all" usually means exactly what
     // the panel showed; this is the one place it deliberately means less. A
     // task's thread is the shared record of work that keeps running — it belongs
     // to the project and to everyone with project:view — and clearing one
@@ -1045,7 +1044,7 @@ export const createSessionsSlice: StateCreator<
     afterUserMessageId: string,
     { quiet = false }: { quiet?: boolean } = {}
   ): Promise<RecoveryOutcome> => {
-    // Signal the "checking for a finished answer" UI (FIX 3) for the duration
+    // Signal the "checking for a finished answer" UI for the duration
     // of the fetch, so the calmer recovery-pending copy shows on every
     // recovery attempt and the lost/interrupted UI only appears after this
     // settles to false. `quiet` when a caller holds the flag for longer
@@ -1077,7 +1076,7 @@ export const createSessionsSlice: StateCreator<
       // The server HAS an answer for this turn and it is already on screen —
       // a concurrent recovery got there first (mount and reconnect can both run
       // this within a second of each other). That is not "nothing to show", and
-      // reporting it as one puts „bitte erneut senden" directly under the
+      // reporting it as one would put „bitte erneut senden" directly under the
       // answer the other call had just recovered.
       if (!recovered) return answers.length > 0 ? 'superseded' : 'nothing'
 
@@ -1176,9 +1175,9 @@ export const createSessionsSlice: StateCreator<
                 },
               }
             : {}),
-          // An answer's grounding has to outlive the tab that produced it: a
-          // chat restored from the server used to come back with the answer
-          // intact and its whole provenance row missing.
+          // An answer's grounding has to outlive the tab that produced it: a chat
+          // restored from the server must not come back with the answer intact and its
+          // whole provenance row missing.
           ...(() => {
             const citations = encodeCitations(message.citations)
             return citations ? { citations } : {}
@@ -1289,8 +1288,7 @@ export const createSessionsSlice: StateCreator<
       }
       if (assistantMessage.researchTruncated) provenance.researchTruncated = true
       // Mirrored so a reload of a LIVE turn shows what the turn showed. The
-      // sanitizer in message-provenance already accepts both; nothing was
-      // calling it with them.
+      // sanitizer in message-provenance accepts both.
       if (assistantMessage.truncationReason)
         provenance.truncationReason = assistantMessage.truncationReason
       if (assistantMessage.degradedReasons?.length)

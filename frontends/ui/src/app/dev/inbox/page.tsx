@@ -182,9 +182,9 @@ const ITEMS: InboxItemView[] = [
       `count: 0` — a grouped row that has been READ, so nothing has arrived since.
       It is the ordinary state of every activity row a user has already opened, and
       it renders the third counted title (`titleNone`, "Neue Nachrichten"): picking
-      `titleOne` for it made a group of twenty claim "1 neue Nachricht". Without a
-      zero-count row in the fixture that string is unreachable, so the fix could not
-      be seen.
+      `titleOne` for it would make a group of twenty claim "1 neue Nachricht". Without
+      a zero-count row in the fixture that title is never rendered, so the evidence
+      cannot show it.
     */
     id: 'i5b',
     type: 'conversation.activity',
@@ -205,9 +205,10 @@ const ITEMS: InboxItemView[] = [
   {
     /*
       A row whose type this build does not know — written by a newer deploy, or read
-      across a rollback. It used to index `INBOX_TYPE_PRESENTATION` to `undefined`
-      and throw, taking the whole /app/inbox route down rather than costing one row.
-      The fallback presentation must therefore be in the evidence: one unremarkable
+      across a rollback. Indexing `INBOX_TYPE_PRESENTATION` with it gives `undefined`,
+      and rendering that throws, which would take the whole /app/inbox route down
+      rather than cost one row. The fallback presentation must be in the evidence:
+      one unremarkable
       row ("Es gibt etwas Neues"), not a blank page.
 
       The cast is the point: the type is deliberately outside the compile-time union,

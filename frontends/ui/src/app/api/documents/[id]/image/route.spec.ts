@@ -231,7 +231,7 @@ describe('GET /api/documents/[id]/image', () => {
     expect(response.status).toBe(404)
   })
 
-  it('404s when the thumbnail object is empty (#366)', async () => {
+  it('404s when the thumbnail object is empty', async () => {
     // A failed ingest render can leave a 0-byte object in the slot: it exists,
     // so it is not a NoSuchKey, but it decodes to nothing.
     await stubDocument(imageRow)

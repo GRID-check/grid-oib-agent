@@ -1,4 +1,4 @@
-# Hand-labelled, written for ADR-0064 use 8 (2026-09-25). Not captured payloads:
+# Hand-labelled, written for ADR-0064 use 8. Not captured payloads:
 # openings in the shape of each Dokumentart the base corpus holds, under file
 # names that carry no OIB hint (the case the filename guess sends to
 # `sonstiges`). `doc_class` is what a platform owner would pick. Re-run with

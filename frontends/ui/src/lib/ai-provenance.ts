@@ -18,10 +18,10 @@
  *
  * ## And a reader, not only a writer
  *
- * {@link markingIsInBytes} is the other half, and it is why this module grew
- * past being a formatter. The marking used to be applied at each producer and
- * checked nowhere, and two of the three producers shipped unmarked. Writing the
- * marking and being able to FIND it in a finished file are one concern, so they
+ * {@link markingIsInBytes} is the other half, and it is why this module grows
+ * past being a formatter. A marking applied at each producer and checked nowhere
+ * can ship unmarked, silently. Writing the marking and being able to FIND it in
+ * a finished file are one concern, so they
  * live in one module and `fileGeneratedDocument` uses both at its one seam.
  *
  * Nothing here is server-only: it is constants, a formatter and a byte scan,
@@ -104,9 +104,10 @@ export type AiProvenanceMarking = string & { readonly [aiProvenanceMarkingBrand]
  * words. `Creator` carries {@link AI_GENERATOR_NAME} alongside it so a tool
  * that only reads the obvious field is not left with nothing.
  *
- * The SVG producer carries the SAME string in the root's `<desc>`, which is why
- * this is no longer called `aiProvenanceKeywords`: `Keywords` is where the PDF
- * puts it, not what it is. One string, three carriers, one detector regex.
+ * The SVG producer carries the SAME string in the root's `<desc>`, so the
+ * function is named for the marking and not for the PDF's `Keywords` field:
+ * `Keywords` is where the PDF puts it, not what it is. One string, three
+ * carriers, one detector regex.
  *
  * If react-pdf ever grows an XMP escape hatch, this is the function to change,
  * and the property names above do not move.
@@ -130,10 +131,10 @@ export function aiProvenanceMarking(provenance: AiProvenance): AiProvenanceMarki
  *
  * Every producer here builds a file through a library — react-pdf, this repo's
  * SVG serialiser — and every one of those libraries is free to drop what it was
- * handed. `diagram_pdf` set no `keywords` at all and `diagram_svg` set nothing
- * anywhere, and both shipped: the marking was applied by convention at each
- * producer, and a convention is exactly what nothing checks. An assertion on
- * the element tree, or on the options object, would have passed for both.
+ * handed. A producer that leaves the `keywords` field unset, or never writes the
+ * marking, ships an unmarked file. The marking applied by convention at each
+ * producer is exactly what nothing checks. An assertion on the element tree, or
+ * on the options object, would pass for both.
  *
  * So the question asked at the filing seam is the only one that matters to the
  * person who ends up with the file: **do the stored bytes say a machine wrote

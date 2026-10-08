@@ -1,6 +1,6 @@
-"""File-level golden recall for broad/exact/paraphrased OIB queries (backlog item 12).
+"""File-level golden recall for broad/exact/paraphrased OIB queries.
 
-The measuring instrument items 13/14 must beat. It scores ~30 German golden
+The measuring instrument that retrieval changes are judged against. It scores ~30 German golden
 questions (``fixtures/oib_golden_overview.json``) in three cohorts — overview,
 exact-id, paraphrase — as recall@k (k = production's ``top_k``) plus MRR,
 against a deterministic in-memory fixture corpus. No network, no Chroma, no
@@ -36,7 +36,7 @@ WHAT IT DOES NOT MEASURE (read before citing a number)
   the ``recall@k`` column.
 
   That column is NOT this product's retrieval quality, and reading it as such
-  is the mistake this harness invited for one release. The vector channel is
+  is the mistake this harness invites. The vector channel is
   measured too — recorded, not simulated (``vector@k``, see below) — and on the
   overview cohort it scores 0.933 where the deterministic channels score
   0.150. A query that "ranks nothing" here is usually answered in production.
@@ -65,8 +65,8 @@ them: this arm is measured on the real corpus and those are measured on the
 synthetic mirror, so a fused number would average two corpora and mean nothing.
 Read the two columns as answers to "which channel actually serves this cohort".
 
-EXPECTED BASELINE (recorded 2026-09-03)
----------------------------------------
+EXPECTED BASELINE
+-----------------
 Overview queries reach neither deterministic channel. The sparse survivors die
 at the DF ceiling, and the exact term casefolding extracts from "oib N" is the
 bare ``OIB``, which dies at the same ceiling on the exact side. The vector
@@ -74,17 +74,12 @@ channel answers them anyway, and answers the literal-filename questions too,
 because the filename is in the embedded text. ``tests/benchmarks/
 test_oib_overview_recall.py`` holds the pinned numbers.
 
-THE ARTEFACT THIS HARNESS PRODUCED, AND THE TWO GUARDS AGAINST A REPEAT
------------------------------------------------------------------------
-Scoring two channels of three, it once read a regression as a 4x win: a change
-that widened the exact channel to a term matching most of the corpus (see
-``knowledge_layer.llamaindex.hybrid.selective_terms`` for the measurement) took
-overview from 0.150 to 0.583. Nothing was retrieved. All six "oib N" questions
-produced ONE ranking, the corpus in filename order, and each score was only
-where that question's labels fell in it. Reversing the fixture order moved the
-cohort to 0.750 with no code change at all.
-
-Recall cannot see that, so two things guard it:
+GUARDS AGAINST A DEGENERATE RANKING
+-----------------------------------
+A channel that matches most of the corpus hands every question the same ranking
+(the corpus in filename order), and recall still reports a number: each score is
+only where that question's labels fall in it. Reversing the fixture order moves the
+cohort with no code change at all. Recall cannot see that, so two things guard it:
 
 * the vector column, so the channel that does the work is on the page and a
   deterministic "lift" has to be argued against it;
@@ -94,7 +89,7 @@ Recall cannot see that, so two things guard it:
 Mirror the production GATE and not only its matcher. A channel that fires is
 not a channel that retrieves.
 
-HYDE (backlog item 14) — WHAT THE ON-MODE MEASURES, AND WHAT IT CANNOT
+HYDE — WHAT THE ON-MODE MEASURES, AND WHAT IT CANNOT
 ----------------------------------------------------------------------
 ``run(..., hyde_drafter=...)`` fuses a draft channel beside the original one:
 for a query where the production gate fires
@@ -365,7 +360,7 @@ class QueryResult:
     #: deliberately not fused with them: this arm is measured on the real
     #: corpus and those are measured on the synthetic mirror, so a fused number
     #: would mix two corpora. Read them as two answers to "which channel
-    #: answers this cohort", which is the question the harness got wrong.
+    #: answers this cohort".
     vector_ranked: tuple[str, ...] = ()
     vector_recall: float = 0.0
 
@@ -534,8 +529,7 @@ def exact_files_for(terms: list[str], docs: list[FixtureDoc]) -> list[str]:
     same rule and constants the retriever applies before it spends a pass on a term.
 
     The ceiling half is what keeps this a mirror. Without it a term the retriever
-    would never search on still scores here, and the module docstring records what
-    that cost.
+    would never search on still scores here.
     """
     if not terms:
         return []

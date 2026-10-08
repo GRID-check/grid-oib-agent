@@ -9,7 +9,7 @@
  * download from an ordinary folder, opens in a folder with its own access list
  * (flagged), a version opened by number, the Archiv and a chat attachment (no
  * folder), a person who has left the organization (shown by id, said so), and a
- * project and a folder that no longer exist.
+ * project and a folder that do not exist.
  *
  * A module-scope fetch shim (browser + dev only; it must not be a `useEffect`,
  * or it loses the race with the child's own first fetch) answers the log with

@@ -108,8 +108,8 @@ export const PlatformStorageTable: FC = () => {
 
     // Parsed BEFORE anything is sent, and by the shared contract rather than by
     // `Number()` here. `Number('12x')` is NaN, `JSON.stringify` writes NaN as
-    // `null`, and `null` is how this API spells UNLIMITED — so the old code
-    // turned a typo into "quota removed" and then reported success.
+    // `null`, and `null` is how this API spells UNLIMITED, so a typo must never
+    // become "quota removed".
     const draft = parseQuotaDraft(draftGb)
     if (!draft.ok) {
       // Two messages, because the two rejections need different advice: one says
@@ -131,9 +131,8 @@ export const PlatformStorageTable: FC = () => {
         },
       )
       if (!res.ok) {
-        // The server's own message, when it sent one. Every 422 used to be
-        // reported as "below current usage", which was a guess — and the wrong
-        // one whenever it was not that.
+        // The server's own message, when it sent one: a 422 is not always
+        // "below current usage", so the server's text is shown rather than a guess.
         const body = (await res.json().catch(() => null)) as { error?: string } | null
         toast.error(body?.error ?? (res.status === 422 ? t('storage.belowUsage') : t('storage.saveError')))
         return
@@ -228,12 +227,11 @@ export const PlatformStorageTable: FC = () => {
                           type="number"
                           // `step="any"` because the editor prefills a decimal
                           // whenever the stored quota is not a whole number of
-                          // GB, and `step="1"` marked that prefill invalid. No
-                          // `min`: HTML's is inclusive, so it cannot express
-                          // "greater than zero", and every value it could carry
+                          // GB, and `step="1"` would mark that prefill invalid.
+                          // No `min`: HTML's is inclusive, so it cannot express
+                          // "greater than zero", and any value it could carry
                           // would be a second rule competing with
-                          // `parseQuotaDraft` — which is the drift that produced
-                          // the bug above.
+                          // `parseQuotaDraft`, and the two would drift apart.
                           step="any"
                           inputMode="decimal"
                           aria-label={t('storage.columnQuota')}

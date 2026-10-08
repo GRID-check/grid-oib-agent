@@ -1,13 +1,13 @@
 /**
  * One model list per project per moment, however many surfaces ask for it.
  *
- * The list stopped being one page's data. The chat welcome asks whether this
- * project has a readable model, the file preview asks which model belongs to
- * the document being previewed, its metadata rail asks what that model
- * contains, and every `ifc_viewer` card in a thread asks again. Each of those
- * mounts a separate hook, so opening a preview fired the identical request
- * three or four times within a tick — each spending a point of the `bim-query`
- * budget on rows the browser already had in flight.
+ * The list is not one page's data. The chat welcome asks whether this project
+ * has a readable model, the file preview asks which model belongs to the
+ * document being previewed, its metadata rail asks what that model contains,
+ * and every `ifc_viewer` card in a thread asks again. Each of those mounts a
+ * separate hook, so opening a preview would fire the identical request three or
+ * four times within a tick, each spending a point of the `bim-query` budget on
+ * rows the browser already has in flight.
  *
  * The collapse is in-flight only, deliberately: it can never show anyone a
  * stale model, so it needs no answer to "how old may this be".
@@ -97,11 +97,11 @@ describe('useProjectBimModels', () => {
  * Polling for an extraction must not tear the viewer down.
  *
  * The list is polled every four seconds while any model is still being read,
- * and the effect that polls is the same one that loads. It used to blank
- * `data` on every run, so for the whole minute after an upload the list
- * emptied four times a minute — which took the stage's `modelId` to null,
- * unmounted the canvas, destroyed the WebGPU device and the WASM kernel, and
- * re-downloaded and re-triangulated the entire model on the next tick.
+ * and the effect that polls is the same one that loads. Blanking `data` on every
+ * run would empty the list four times a minute for the whole minute after an
+ * upload, which would take the stage's `modelId` to null, unmount the canvas,
+ * destroy the WebGPU device and the WASM kernel, and re-download and
+ * re-triangulate the entire model on the next tick.
  */
 describe('refetching while a model is still being read', () => {
   const listing = (status: string) => ({
@@ -121,7 +121,7 @@ describe('refetching while a model is still being read', () => {
     await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2))
 
     // The refetch is in flight and the list is STILL there. Blanking it here
-    // is what unmounted the canvas.
+    // would unmount the canvas.
     expect(result.current.isLoading).toBe(true)
     expect(result.current.data).toHaveLength(1)
     gate.resolve()

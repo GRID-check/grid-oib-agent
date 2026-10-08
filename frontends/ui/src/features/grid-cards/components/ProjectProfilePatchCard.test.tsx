@@ -1,9 +1,9 @@
 /**
- * Regression test for the profile-patch consent vulnerability: the before/after
- * rows the user sees MUST be derived from the patch that will actually be
- * written plus the current profile — never from a model-authored preview. A
- * prompt-injected context could otherwise show a benign preview while the patch
- * writes a different fact under `user_confirmed` provenance.
+ * Profile-patch consent: the before/after rows the user sees MUST be derived
+ * from the patch that will actually be written plus the current profile — never
+ * from a model-authored preview. A prompt-injected context could otherwise show
+ * a benign preview while the patch writes a different fact under
+ * `user_confirmed` provenance.
  *
  * Also covers decision persistence: Accept/Reject is recorded on the owning
  * message, so a reload cannot re-offer an Accept that would apply the same
@@ -180,9 +180,9 @@ describe('ProjectProfilePatchCard', () => {
   })
 
   // ── Decision persistence ──────────────────────────────────────────────────
-  // Regression: the outcome used to live in component-local state, so after a
-  // reload the card re-mounted as pending with a live Accept that would apply
-  // the same patch to the brief again.
+  // The outcome is recorded on the message, so after a reload the card does not
+  // re-mount as pending with a live Accept that would apply the same patch to
+  // the brief again.
 
   it('records the acceptance on the owning message once the patch is applied', async () => {
     stubFetch()

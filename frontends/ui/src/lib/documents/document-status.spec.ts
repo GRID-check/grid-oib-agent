@@ -5,11 +5,10 @@
 /**
  * The guard that makes the status vocabulary knowable.
  *
- * `documents.status` is an open `text` column with no CHECK, so nothing has
- * ever failed when a writer invented a value: the badge fell back to a neutral
- * chip, the poller's in-flight set silently disagreed with the badge's table by
- * two members, and migration 0063 added a twelfth value to a set nobody owned.
- * That is the "correlated substrate debt" failure `AGENTS.md` names — a shared
+ * `documents.status` is an open `text` column with no CHECK, so nothing fails
+ * when a writer invents a value: the badge falls back to a neutral chip, and the
+ * poller's in-flight set can silently disagree with the badge's table. That is
+ * the "correlated substrate debt" failure `AGENTS.md` names — a shared
  * vocabulary with no owner and no test.
  *
  * This spec is the owner. It reads the WRITERS' own source and fails when one
@@ -18,18 +17,12 @@
  *
  * ## What this guard can see, and what it cannot
  *
- * Stated exactly, because the first version of it read as complete and was not.
- * It matched ONE shape — `status: 'lower_snake'` in single quotes — and eight
- * realistic drifts walked past it: a hyphenated value (`'not-indexed'`, a
- * natural name for exactly this feature), a digit, a capital, double quotes, a
- * raw `sql\`UPDATE … SET status = 'purged'\``, a plain assignment
- * `row.status = 'redacted'`, a value read from a variable, and a template
- * literal. A guard that misses eight of nine is worse than no guard, because
- * its green is read as coverage.
- *
- * So the scan is now an AST walk (`typescript`, the same tool
- * `server-component-db-access.spec.ts` uses) rather than one regex, and it
- * reports in two parts:
+ * Stated exactly, because a guard that reads as complete and is not is worse
+ * than none: its green is read as coverage. A regex over one quoting shape
+ * misses most realistic drifts (a hyphenated value, a digit, a capital, double
+ * quotes, a raw `sql` UPDATE, a plain assignment, a value read from a variable,
+ * a template literal), so the scan is an AST walk (`typescript`, the same tool
+ * `server-component-db-access.spec.ts` uses), and it reports in two parts:
  *
  *   1. **Literal writes** — a status written as a string, in ANY quote style,
  *      with any characters, as a property (`{ status: 'x' }`), as an assignment
@@ -101,8 +94,7 @@ interface LiteralWrite {
  * `relative()` yields `\`-separated paths on Windows while every constant in
  * this file is written with `/`. Without normalising, the guard compares two
  * spellings of the same file, matches nothing, and goes fully red on a
- * Windows checkout — which is exactly how it was found: four failures, one
- * separator.
+ * Windows checkout.
  */
 function toPosix(path: string): string {
   return path.split(sep).join('/')
@@ -112,8 +104,8 @@ function toPosix(path: string): string {
  * A status the scan could NOT read: the column is handed an expression.
  *
  * Recorded rather than ignored, because "the scanner saw nothing here" and
- * "nothing is written here" are different facts and the old guard reported them
- * identically.
+ * "nothing is written here" are different facts, and reporting them identically
+ * would hide which one holds.
  */
 interface OpaqueWrite {
   expression: string
@@ -169,8 +161,8 @@ const OPAQUE_STATUS_WRITES: Readonly<Record<string, string>> = {
   'src/lib/documents/service.ts: status': "the dispatcher's job status, returned to the caller",
   'src/lib/session-documents/service.ts: status':
     "the dispatcher's job status, returned to the caller",
-  // The one upload pipeline both shelves share (ADR-0078) — it replaced the
-  // `ingestStatus` return in service.ts and the `status` return in archiv/service.ts.
+  // The one upload pipeline both shelves share (ADR-0078), so the one status
+  // return in it is listed here.
   'src/lib/documents/shelf-upload.ts: status': "the dispatcher's job status, returned to the caller",
 }
 
@@ -225,8 +217,8 @@ function literalTypes(node: ts.TypeNode): string[] {
  * ever being a TypeScript expression, so the AST walk cannot see the value —
  * only the template's text can. Nothing in the repository writes the column this
  * way today; the scan is here because a hand-written UPDATE is exactly what a
- * migration-adjacent fix reaches for, and it was the drift shape furthest from
- * anything the old regex could match.
+ * migration-adjacent fix reaches for, and it is the drift shape furthest from
+ * anything a line-oriented regex could match.
  */
 const SQL_STATUS_WRITE_RE = /\bstatus"?\s*=\s*(?:'([^']*)'|"([^"]*)")/g
 
@@ -261,7 +253,7 @@ function scanWriters(): Scan {
         // `{ status: 'x' }` — a property assignment only ever exists in an
         // object literal, which is always a value. A type's `status: string`
         // is a PropertySignature and lands in the branch below instead, which
-        // is why `string` no longer has to be filtered out by hand.
+        // is why `string` needs no filter here.
         if (ts.isPropertyAssignment(node) && isStatusName(node.name)) record(node, node.initializer)
         // `{ status }` — the value is a binding somewhere else entirely.
         else if (ts.isShorthandPropertyAssignment(node) && isStatusName(node.name)) {
@@ -329,9 +321,7 @@ describe('every status a writer emits is declared', () => {
   it('names every write it could not read', () => {
     // The honest half. A status handed a variable, a property, a call or an
     // interpolated template is unreadable by any scanner, so each one is listed
-    // with what it can actually write instead of being silently skipped — which
-    // is what the previous version of this guard did with eight drift shapes
-    // out of nine.
+    // with what it can actually write instead of being silently skipped.
     const unexplained = [...new Set(opaque.map((write) => `${write.where.split(':')[0]}: ${write.expression}`))]
       .filter((key) => !(key in OPAQUE_STATUS_WRITES))
       .sort()
@@ -345,7 +335,7 @@ describe('every status a writer emits is declared', () => {
   })
 
   it('keeps the list of unreadable writes from growing quietly', () => {
-    // An entry that no longer matches any site is as misleading as a missing
+    // An entry that matches no site is as misleading as a missing
     // one: it reads as "this hole is understood" for a hole that has moved.
     const present = new Set(opaque.map((write) => `${write.where.split(':')[0]}: ${write.expression}`))
     const stale = Object.keys(OPAQUE_STATUS_WRITES).filter((key) => !present.has(key)).sort()
@@ -432,9 +422,9 @@ describe('the scan looks where the writing happens', () => {
 
 describe('the vocabulary is derived, not restated', () => {
   it('reconcile-status takes the in-flight set from the declaration', () => {
-    // The poller's set was a literal, and it drifted from the badge's table by
-    // two values without anything failing. Reading the source keeps that from
-    // silently coming back — an import cannot be half-done.
+    // A literal poller set drifts from the badge's table without anything
+    // failing. Reading the source keeps the set derived: an import cannot be
+    // half-done.
     const source = readFileSync(join(process.cwd(), 'src/lib/documents/reconcile-status.ts'), 'utf8')
     expect(source).toContain("import { IN_FLIGHT_DOCUMENT_STATUSES } from './document-status'")
     expect(source).not.toMatch(/const IN_FLIGHT_STATUSES = new Set\(\[/)
@@ -446,7 +436,8 @@ describe('the vocabulary is derived, not restated', () => {
       'utf8',
     )
     expect(source).toContain("from '@/lib/documents/document-status'")
-    // The two `Record<string, …>` tables this replaced, by their old names.
+    // The two `Record<string, …>` tables the declared vocabulary replaced must
+    // stay gone, by their old names.
     expect(source).not.toContain('const STATUS_VARIANT')
     expect(source).not.toContain('const STATUS_LABEL_KEY')
   })
@@ -480,8 +471,8 @@ describe('stored is terminal and neutral', () => {
 describe('uploaded is terminal and neutral', () => {
   it('never promised quotability', () => {
     // Every row's birth status: the bytes are stored but nothing was ever
-    // indexed. It sat in the Indexed family and rendered a green "Zitierbar"
-    // for documents no retrieval path could cite.
+    // indexed, so it is not in the Indexed family, which would render a green
+    // "Zitierbar" for documents no retrieval path could cite.
     expect(DOCUMENT_STATUS_FACTS.uploaded.variant).toBe('secondary')
     expect(DOCUMENT_STATUS_FACTS.uploaded.phase).toBe('terminal')
     expect(DOCUMENT_STATUS_FACTS.uploaded.labelKey).toBe('status.stored')

@@ -114,9 +114,9 @@ def _normalized(value: object) -> object:
 # puts an ``enum`` in the tool's JSON schema — so a provider constrains the
 # argument before it is ever sent — and turns anything outside it into a
 # validation error the tool loop hands back for the model to correct. The tool
-# used to rewrite an out-of-vocabulary ``scope`` to ``"project"`` and
-# ``confidence`` to ``"medium"`` in silence, which quietly moved a finding into
-# a different scope than the one that was asked for.
+# does not rewrite an out-of-vocabulary ``scope`` or ``confidence`` to a default
+# in silence: that would quietly move a finding into a different scope than the
+# one that was asked for.
 # ``tests/.../test_register.py`` pins each set against the client's ``VALID_*``.
 ScopeName = Literal["project", "organization"]
 
@@ -143,7 +143,7 @@ def _resolve_target(scope: str, project_id: str | None, organization_id: str | N
     A project-scoped call with no project in scope escalates to the
     organization, because the finding is still worth keeping. NOTE: in default
     deployments the frontend denies agent org-wide writes (ORG_MEMORY_DISABLED,
-    audit finding S1) unless ``GRID_ALLOW_AGENT_ORG_MEMORY=true``; the caller
+    default-deny) unless ``GRID_ALLOW_AGENT_ORG_MEMORY=true``; the caller
     then turns the refusal into a confirmation card. (Escalation kept
     intentionally — product decision deferred.)
     """

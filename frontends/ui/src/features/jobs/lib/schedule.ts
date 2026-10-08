@@ -9,11 +9,11 @@
  * shows the form that made it, and describing one in words. Real fire times
  * come from `occurrences.ts`, which asks the same library the server does.
  *
- * Why a composer at all, rather than the five fixed presets this file used to
- * offer: those presets all fired at 06:00, so "weekly, Wednesday at 08:00" —
- * an ordinary request — dropped the reader into a raw cron field. A cron
- * expression is recall, not recognition: nobody can check `0 8 * * 3` by
- * reading it, and nobody should have to.
+ * Why a composer at all, rather than fixed presets: presets that all fire at
+ * 06:00 cannot say "weekly, Wednesday at 08:00" — an ordinary request — and
+ * drop the reader into a raw cron field. A cron expression is recall, not
+ * recognition: nobody can check `0 8 * * 3` by reading it, and nobody should
+ * have to.
  */
 
 import { formatAbsoluteTime } from '@/lib/format'
@@ -48,9 +48,9 @@ export interface CronParts {
    *
    * A list rather than one day, because "Montag, Mittwoch und Freitag" and
    * "werktags" are ordinary asks in a planning office, and a single-day picker
-   * pushed both of them into the raw cron field — where nobody could check what
-   * they had written. `1,3,5` is one expression cron has always understood; it
-   * was only this composer that could not say it.
+   * would push both into the raw cron field, where nobody could check what they
+   * had written. `1,3,5` is an expression cron has always understood, so the
+   * composer must be able to say it too.
    */
   weekdays: number[]
   /** 1–28. Capped at 28 so a monthly schedule never skips February. */
@@ -189,7 +189,7 @@ export function supportedTimezones(): string[] {
  * holds, and a hand-kept copy is a translation that can go stale.
  */
 export function weekdayName(weekday: number, locale: string, width: 'long' | 'short' = 'long'): string {
-  // 2024-01-07 was a Sunday, so +weekday lands on the day cron means.
+  // `2024-01-07` is a Sunday, so +weekday lands on the day cron means.
   const reference = new Date(Date.UTC(2024, 0, 7 + clamp(weekday, 0, 6)))
   return new Intl.DateTimeFormat(locale, { weekday: width, timeZone: 'UTC' }).format(reference)
 }
@@ -232,10 +232,9 @@ export function scheduleSummary(
 /**
  * How a SAVED task answers "when does this run", across all three cadences.
  *
- * `scheduleSummary` above only ever knew two: a cron, or "manual only" for
- * anything without one. That reading was complete while a task could only be
- * recurring or manual, and became wrong the moment a one-shot could exist — it
- * would have described a task due on Friday as one that never fires by itself.
+ * `scheduleSummary` above knows two readings: a cron, or "manual only" for
+ * anything without one. A one-shot does not fit that, and would read as a task
+ * that never fires by itself — a task due on Friday is not manual.
  *
  * Kept as a sibling rather than folded into `scheduleSummary` because the
  * wizard's review step legitimately summarises a cron it has not saved yet,
@@ -333,11 +332,10 @@ function pad(value: number): string {
  * The three shapes a task can have, in the words a person chooses between.
  *
  * This is the client's name for the storage trigger (`manual | once |
- * schedule`), and it exists because the wizard used to ask the question as one
- * switch: "run on a schedule", on or off. That made "recurring" and "only when
- * I press the button" the entire vocabulary, and left the shape people ask for
- * most — run this once, the day before the Abgabe — unreachable. They built a
- * weekly schedule and remembered to delete it.
+ * schedule`). The wizard asks for three choices, not one on/off switch: a
+ * switch leaves "recurring" and "only when I press the button" as the entire
+ * vocabulary, and makes the common one-off — run this once, the day before the
+ * Abgabe — unreachable.
  *
  * A cadence maps onto exactly one pair of wire fields, and the pair is
  * mutually exclusive, which is what keeps the three readings from overlapping:

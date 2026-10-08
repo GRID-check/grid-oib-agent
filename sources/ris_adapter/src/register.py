@@ -356,9 +356,9 @@ def _format_hit(index: int, hit: RisHit) -> str:
         lines.append(f"Source: {source_url}")
     if hit.fetch_url:
         # The ADDRESS of the full text, not an instruction to go and get it.
-        # The sequence this used to teach ("then call ris_fetch_document") is
-        # inside `ris_lookup` now; deep research, which still drives these three
-        # tools itself, needs the address and can read a fact.
+        # The search-then-fetch sequence lives inside `ris_lookup`; deep research,
+        # which still drives these three tools itself, needs the address and can
+        # read a fact.
         lines.append(f"Full text at document number: {hit.document_number or hit.fetch_url}")
     if hit.full_law_url:
         lines.append(f"Entire consolidated law (all paragraphs): {hit.full_law_url}")
@@ -534,9 +534,9 @@ async def ris_search(tool_config: RisSearchToolConfig, builder: Builder):
             _capture_lane_hits(_cache_hits(cached_search.get("hits")))
             return cached_search["text"]
         if isinstance(cached_search, str) and cached_search:
-            # A legacy entry written before the hits rode along: the text is
-            # still good, the hits are not reconstructible — capture nothing
-            # rather than inventing a round's evidence.
+            # A string-only entry, with no hits stored: the text is still good,
+            # the hits are not reconstructible — capture nothing rather than
+            # inventing a round's evidence.
             return cached_search
 
         effective = {
@@ -624,7 +624,7 @@ async def ris_search(tool_config: RisSearchToolConfig, builder: Builder):
         # Only successful, non-empty results are cached (errors / "no documents
         # found" returned earlier and are never stored). The hits ride along so
         # a cache repeat can still feed the per-round ledger (see the read
-        # above); a legacy string entry stays readable either way.
+        # above); a string-only entry stays readable either way.
         await cache_set_json(search_key, {"text": output, "hits": hit_triples}, ris_cache_ttl_seconds())
         return output
 
@@ -780,12 +780,11 @@ class RisFetchDocumentToolConfig(FunctionBaseConfig, name="ris_fetch_document"):
 # "RIS - Wiener Garagengesetz 2008 - Landesrecht konsolidiert Wien, Fassung vom 28.07.2026".
 # Two parts of that must not reach the document name:
 #
-#  * the leading "RIS - ", which doubled up under our own "RIS_" prefix and
-#    produced "RIS_RIS_-_…";
-#  * the trailing "Fassung vom <date>" stamp, which is the RETRIEVAL date. It
-#    made the same law ingest as a NEW document on every new day, so a session
-#    accumulated near-duplicate snapshots and a citation pointed at whichever
-#    day's copy happened to be retrieved.
+#  * the leading "RIS - ", which would double up under our own "RIS_" prefix
+#    into "RIS_RIS_-_…";
+#  * the trailing "Fassung vom <date>" stamp, which is the RETRIEVAL date. Kept,
+#    the same law would ingest as a NEW document every day, and a citation would
+#    point at whichever day's copy happened to be retrieved.
 _RIS_TITLE_PREFIX_RE = re.compile(r"^\s*RIS\s*[-–—:]+\s*", re.IGNORECASE)
 _RIS_TITLE_FASSUNG_RE = re.compile(r"[,;]?\s*Fassung\s+vom\s+[\d.]+\s*$", re.IGNORECASE)
 
@@ -847,8 +846,8 @@ def _safe_document_name(reference: str, title: str) -> str:
     """
     base = _RIS_TITLE_FASSUNG_RE.sub("", _RIS_TITLE_PREFIX_RE.sub("", title or ""))
     base = re.sub(r"[^\w.\- ]+", "_", base).strip("_ ").replace(" ", "_")
-    # Trim on the truncation boundary too: cutting mid-token used to leave a
-    # trailing "." that collided with the extension ("…vom_28..txt").
+    # Trim on the truncation boundary too: a cut mid-token would leave a
+    # trailing "." that collides with the extension ("…vom_28..txt").
     base = re.sub(r"[._\-]+$", "", base[:_RIS_NAME_TITLE_CHARS])
 
     parts = [part for part in (base, _document_anchor(reference)) if part]

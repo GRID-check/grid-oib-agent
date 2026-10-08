@@ -5,11 +5,9 @@
 No card renderer parses markup. The frontend sets each string into JSX, where
 React escapes it, so a field that arrives holding ``[OIB-Richtlinie ansehen](
 https://www.oib.or.at/de/oib-richtlinien)`` puts those brackets on screen — next
-to the card's own working source link, which is what a production ``legal_basis``
-card did. The contract was never written down anywhere, which is why the model
-could not be said to have broken it.
+to the card's own working source link.
 
-It is written down here, and :class:`CardModel` enforces it: the delimiters are
+The contract is written down here, and :class:`CardModel` enforces it: the delimiters are
 removed at validation time, on every emission path, so a card cannot display raw
 markup. The enforcement deliberately does NOT live in the renderer. A card is the
 part that gets screenshotted into an Einreichung; a renderer that quietly parses
@@ -107,7 +105,7 @@ class CardModel(BaseModel):
 
     Carries the plain-text guarantee described in the module docstring, in the
     one place that covers all of it: a wildcard field validator, inherited by
-    every subclass, so a card type added next sprint is covered by BEING a card
+    every subclass, so a card type added later is covered by BEING a card
     rather than by someone remembering to annotate its fields. There are 177
     free-text fields across 71 models here; an ``Annotated[str, …]`` per field
     would be 177 chances to forget one.
@@ -267,14 +265,13 @@ class DimensionCheck(CardModel):
 
     ## Why a number here carries where it came from
 
-    This block used to be `label / value / required / unit / comparator /
-    status` and nothing else, and that made the card the least honest surface in
-    the product. `ifc_measure` answers „gemessen: 2.47 m (±5 mm) — aus der
+    A card that draws the number alone is the least honest surface in the
+    product. `ifc_measure` answers „gemessen: 2.47 m (±5 mm) — aus der
     Geometrie berechnet, nicht deklariert", the assistant repeats that in the
     prose, and the card beside it drew **2.47 m ✓** — indistinguishable from a
     figure the architect had stated in their own file. The card is the part a
-    reviewer screenshots into a submission, so the surface that dropped the
-    qualifier was the surface most likely to be forwarded without it.
+    reviewer screenshots into a submission, so it is the surface most likely to
+    be forwarded without the qualifier that made the figure true.
 
     Three fields close that, and all three are OPTIONAL: a card built from the
     Bestimmung alone (a limit with no model behind it) has nothing to put in
@@ -397,8 +394,8 @@ class DimensionDiagramCard(CardModel):
     corridor width, threshold, a barrier-free lift cabin). The renderer picks a
     prebuilt template for `shape` and draws each dimension arrow where it is
     measured, coloured by status — preventing the Stocklichte-vs-Durchgangslichte
-    misread. `lift_cabin` took over the cabin half of the retired
-    `elevator_requirement` card: Kabinenbreite, Kabinentiefe and lichte
+    misread. `lift_cabin` covers the cabin half of the
+    retired `elevator_requirement` card: Kabinenbreite, Kabinentiefe and lichte
     Türbreite, drawn on a cabin plan.
     """
 
@@ -425,7 +422,7 @@ class SetbackPlanCard(CardModel):
     `coverage` or `density` is given — a readout of Bebauungsgrad (built area /
     parcel) and GFZ (BGF / parcel) against the Bebauungsplan's limits. The
     renderer computes the ratios from the areas; the model supplies areas and
-    limits only. The readout took over the retired `density_check` card.
+    limits only. The readout covers what the retired `density_check` card did.
     """
 
     type: Literal["setback_plan"]
@@ -593,9 +590,8 @@ class FireAccessPlanCard(CardModel):
 
 
 # ── The derivation, and the procedure ────────────────────────────────────────
-# Two shapes an OIB answer takes constantly and that had no card, so they were
-# written as prose: the arithmetic that produced a number, and the ordered
-# procedure a project moves through.
+# Two shapes an OIB answer takes constantly, the arithmetic behind a number and
+# the ordered procedure a project moves through, are cards, not prose.
 #
 # `calculation` is the one card where the MODEL MUST NOT SUPPLY THE ANSWER. It
 # supplies operands, an operation and (optionally) the limit; the renderer
@@ -619,7 +615,7 @@ class FireAccessPlanCard(CardModel):
 CalculationOperation = Literal["sum", "product", "quotient", "percent_of", "percent_ratio"]
 """The five closed operation shapes a Rechenweg is allowed to take.
 
-Each is ONE formula the renderer evaluates directly. They were chosen against
+Each is ONE formula the renderer evaluates directly. They are chosen against
 the arithmetic that actually appears in Austrian Baurecht answers, not against
 what an expression grammar would cover:
 
@@ -986,8 +982,8 @@ class TaskCreatedCard(CardModel):
 
     ``conversation_id`` is the thread the run writes into, so the card can link a
     reader to the work rather than only announce it. Absent when the run's
-    conversation could not be created, which is the same degraded shape a
-    scheduled job has had since jobs got conversations at all.
+    conversation could not be created: the same degraded shape a scheduled job
+    has when it has no conversation.
     """
 
     type: Literal["task_created"] = "task_created"
@@ -1023,12 +1019,12 @@ class TaskCreatedCard(CardModel):
 MAX_FILE_OPERATIONS = 8
 
 #: The four operations, each an `operation` value of the one tool that emits
-#: them, `propose_file_change` (four tools, one per kind, until they merged).
+#: them, `propose_file_change`.
 #:
-#: A fifth, `set_doc_class`, was here and is gone. A project document has no
-#: doc_class route for an Accept to run, so the card drew the proposal and no
-#: control — a decision the reader could read and could not take. It comes back
-#: with the route, not before it.
+#: There is no `set_doc_class` operation: a project document has no
+#: doc_class route for an Accept to run, and a proposal with no control is a
+#: decision the reader could read and could not take. It comes back with the
+#: route, not before it.
 FileOperationKind = Literal["move", "rename", "create_folder", "assign"]
 
 
@@ -1081,8 +1077,8 @@ class FileOperationProposalCard(CardModel):
     """A workspace change the agent PROPOSES and the reader executes.
 
     System-emitted by ``propose_file_change`` (``src/aiq_agent/tools/files/``),
-    one card per ``operation``. Every operation is a write, none of them writes: the card is the proposal, the
-    reader's Accept runs it through the existing document/folder/assignment
+    one card per ``operation``. Every operation is a write, none of them writes:
+    the card is the proposal, the reader's Accept runs it through the existing document/folder/assignment
     routes in their own session, and the tool's own result text says plainly
     that nothing has changed yet.
     """
@@ -1161,8 +1157,8 @@ class IfcElementMatch(CardModel):
     ``nameContains``) and this card is authored in snake_case like every other
     card field. The agent is told to reuse the filter it already wrote, so BOTH
     spellings are accepted and normalise to the snake_case field: without the
-    aliases a copied filter validated cleanly with every key silently dropped,
-    leaving an empty match, and a highlight group that selects nothing.
+    aliases, a copied filter would validate cleanly with every key silently
+    dropped, leaving an empty match and a highlight group that selects nothing.
     """
 
     model_config = ConfigDict(populate_by_name=True)
@@ -1381,8 +1377,8 @@ class IfcModelPickerCard(CardModel):
     """A clickable list of the project's IFC models — pick one to open in the viewer.
 
     Emit for "zeig mir das Modell" / "welches Modell" when the user wants to SEE
-    or OPEN the building and the project may hold several models. The old answer
-    to that was a prose bullet list of file names the user had to read and retype;
+    or OPEN the building and the project may hold several models. Otherwise the
+    answer is a prose bullet list of file names the user has to read and retype;
     this card renders each model as a tile that opens the BIM viewer on click,
     client-side, with no second turn.
 
@@ -1596,9 +1592,9 @@ class SurfaceCard(CardModel):
     `"id": "root"`. Containers are `Row` and `Column` (`children`: ids) and
     `Tabs` (`tabs`: `[{title, child}]`); `Text` (`text`: Markdown) holds what
     the answer would write in prose, a table or a list; every other component
-    is a card, named by its type, with that card's own fields as props. Validated twice: the
-    structure by `a2ui-core` (unique ids, a root, no dangling reference, no
-    cycle, no orphan), each card by its own model.
+    is a card, named by its type, with that card's own fields as props.
+    Validated twice: the structure by `a2ui-core` (unique ids, a root, no
+    dangling reference, no cycle, no orphan), each card by its own model.
     """
 
     type: Literal["surface"]

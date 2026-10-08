@@ -9,8 +9,8 @@ re-embed (``scripts/backfill_chunk_text.py``).
 
 WHY A SECOND STORE AT ALL
 -------------------------
-The lexical channel used to run Chroma ``where_document {"$contains": term}``.
-That is a raw, case-sensitive, byte-level substring test: measured over 53 real
+A lexical channel on Chroma's ``where_document {"$contains": term}`` is a raw,
+case-sensitive, byte-level substring test: measured over 53 real
 German questions from this repo it produced a term for 28.3% and a USEFUL term
 for 9.4%, while a bare ``OIB`` term matched 467 of 490 chunks (95.3%) — a
 near-no-op that RRF then fused into the results. Chroma has no lexical index and
@@ -54,7 +54,7 @@ schema creation:
   ``german_text.stem``, not Snowball, so ranking and a few edge inflections
   differ from production; (3) no phrase/proximity component and no document-length
   normalisation in the score, both of which ``ts_rank_cd`` has.
-  FTS5 was NOT used: it would need a second, separately-maintained virtual table
+  FTS5 is NOT used: it would need a second, separately-maintained virtual table
   whose tokenizer still does not stem German, buying complexity without buying
   the thing that matters. The SQLite path exists so a SQLite deployment keeps
   working and so the tests can be real, offline and fast — not to be equal.

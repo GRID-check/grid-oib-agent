@@ -250,10 +250,9 @@ const SEMANTIC_DUP_THRESHOLD = 0.9
  * Paraphrase dedup that actually sees paraphrase.
  *
  * The Jaccard pass below cannot: "der Bauherr wünscht ein Flachdach" and
- * "Flachdach ist gewünscht" share no tokens and score 0.0, so the store grew a
- * second row for the same fact every time somebody rephrased it. This is the
- * embed-based consolidation gate the design named as essential and never got
- * (memory-system-audit-2026-07 F2).
+ * "Flachdach ist gewünscht" share no tokens and score 0.0, so without this gate
+ * a rephrased fact would get a second row. This is the embed-based consolidation
+ * gate the design names as essential.
  *
  * Scope-exact like its lexical sibling but NOT kind-bound: at 0.90 cosine the
  * incoming note is the same statement, and the same statement filed once as a
@@ -565,8 +564,8 @@ export async function createProjectMemoryItem(
     const refreshed = await refreshDuplicate(near.item, values)
     // The finding restates a row we already hold — and the caller ALSO named
     // the entry it makes obsolete. Merging must not swallow that: the named
-    // row was left live beside the refreshed one, which is exactly the
-    // duplicate the caller was trying to close.
+    // row would otherwise stay live beside the refreshed one, which is exactly
+    // the duplicate the caller was trying to close.
     if (named && named.id !== refreshed.id && isAgentSupersedable(named)) {
       const retired = await db
         .update(projectMemory)
@@ -853,11 +852,10 @@ const RECALL_CANDIDATE_LIMIT = 200
 /**
  * How many of the digest's slots pinned items may take.
  *
- * Pinning used to be unbounded, which made it a silent foot-gun: pin
- * twenty-one items and every unpinned memory was evicted from the digest
- * forever, with nothing on screen or in the prompt saying so
- * (memory-system-audit-2026-07). Pins still win, but they can no longer starve
- * recall entirely, and the overflow is disclosed in the digest text.
+ * Pinning is bounded, because an unbounded pin is a silent foot-gun: pin
+ * twenty-one items and every unpinned memory is evicted from the digest, with
+ * nothing on screen or in the prompt saying so. Pins still win, but they cannot
+ * starve recall entirely, and the overflow is disclosed in the digest text.
  */
 const DIGEST_MAX_PINNED = 12
 
@@ -941,12 +939,12 @@ async function formatAdmittedDigest<T extends DigestItem>(
  * Selection is `lib/knowledge/recall-scoring.ts` (relevance + importance +
  * recency, reinforced by past use).
  *
- * This replaces `ORDER BY pinned, updated_at LIMIT 20`, which the memory audit
- * called "an effectively random-by-recency subset" past twenty items (F3), and
- * under which `salience` and `last_referenced_at` were both written and never
- * read. It also stops silently truncating: when candidates do not fit, the
- * digest says so in the text the model reads, per the repo's own rule that a
- * cap must be visible to the model and not only to the operator.
+ * A plain `ORDER BY pinned, updated_at LIMIT 20` is an effectively
+ * random-by-recency subset past twenty items, and it never reads `salience` or
+ * `last_referenced_at`. This selection does not truncate silently: when
+ * candidates do not fit, the digest says so in the text the model reads, per the
+ * repo's own rule that a cap must be visible to the model and not only to the
+ * operator.
  *
  * Returns null when there is no active memory (header is then omitted).
  */
@@ -1023,10 +1021,10 @@ export async function buildProjectMemoryDigest(
     .from(projectMemory)
     .where(scope)
     // The window is the whole quality mechanism's ceiling: everything below
-    // (dedup, decay, hybrid fusion) runs over these rows only. Recency was the
-    // only order it had, so past two hundred notes a relevant old one could
-    // not be recalled at all. With a query, the database ranks by similarity
-    // first and recency breaks ties; without one, recency is still the order.
+    // (dedup, decay, hybrid fusion) runs over these rows only, so a relevant
+    // old note outside it cannot be recalled at all. With a query, the database
+    // ranks by similarity first and recency breaks ties; without one, recency is
+    // still the order.
     .orderBy(
       ...(embedded ? [sql`${relevanceColumn} desc nulls last`] : []),
       desc(projectMemory.updatedAt)
@@ -1105,9 +1103,9 @@ export async function buildProjectMemoryDigest(
 
   // Recall FOR A QUESTION is the reinforcement event: what was surfaced against
   // a query decays more slowly next time. The query-less handshake build
-  // (opening a chat, typing nothing) used to reinforce exactly as hard, and
-  // under it the selection is pinned-then-recent — so recency reinforced
-  // recency and whatever was already winning compounded. Fire-and-forget — a
+  // (opening a chat, typing nothing) does not reinforce: under it the selection
+  // is pinned-then-recent, so recency would reinforce recency and whatever was
+  // already winning would compound. Fire-and-forget — a
   // bookkeeping write must never delay a turn, and losing one is a slightly
   // colder score, not a wrong answer.
   if (queryText) void markMemoryRecalled(kept.map((item) => item.id))

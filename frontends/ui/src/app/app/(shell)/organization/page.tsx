@@ -3,10 +3,8 @@
  * Grid-side settings that shape how it behaves for everyone in it.
  *
  * The chrome, the back link and the section nav live in the shared `layout.tsx`;
- * this page only names its section and renders it. The organization tier used to
- * be one page stacking seven unrelated admin domains in a single scrolling
- * column — each is now its own route, and this one keeps the identity of the org
- * itself.
+ * this page only names its section and renders it. Each admin domain is its own
+ * route; this one keeps the identity of the org itself.
  *
  * Both reads are best-effort on purpose: a WorkOS outage or a Grid-DB hiccup
  * must degrade one card into a dash or a "could not load" note, never take down

@@ -54,10 +54,8 @@ function resolveBaseCollectionName(): string {
 }
 
 /**
- * `base64url(JSON.stringify(ScopedCollection[]))` — same header name, same
- * framing as the legacy bare `string[]` payload, so a reader can accept both
- * during rollout (ADR-0047 consequences: "the reader tolerates a missing
- * shelf").
+ * `base64url(JSON.stringify(ScopedCollection[]))`, the framing the agent's
+ * reader decodes. The reader tolerates a missing shelf (ADR-0047).
  */
 export function encodeCollectionScopeHeader(collections: ScopedCollection[]): string {
   return Buffer.from(JSON.stringify(collections)).toString('base64url')
@@ -167,11 +165,9 @@ async function resolveProjectCollectionName(
  * the wire.
  *
  * `headerValue` is the `X-Grid-Collection-Scope` payload:
- * `base64url(JSON.stringify([{ collection, shelf? }, ...]))`. It used to be a
- * bare `string[]`, which erased the shelf at this boundary and forced two
- * downstream re-derivations from `archiv_`/`proj_`/`s_` name prefixes
- * (ADR-0047). The framing is unchanged so a reader can accept both shapes
- * during rollout.
+ * `base64url(JSON.stringify([{ collection, shelf? }, ...]))`. The shelf travels
+ * as data rather than being re-derived downstream from `archiv_`/`proj_`/`s_`
+ * name prefixes (ADR-0047).
  *
  * `scope` stays a bare id list — it is what callers echo back to clients and
  * what non-shelf-aware paths pass along; the shelves live on the header.
@@ -199,8 +195,8 @@ export async function buildCollectionScopeFromRequest(
 
   const conversationId = context.conversationId
 
-  // The conversation is authorized as well as the project. Both are
-  // caller-supplied, and until this ran only the project was ever checked.
+  // The conversation is authorized as well as the project: both are
+  // caller-supplied.
   if (conversationId && session && !anonymous) {
     await authorizeConversationScope(session as AuthorizedSession, conversationId)
   }

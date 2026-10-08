@@ -37,13 +37,13 @@ async function enterPlatformScope(tx) {
 /**
  * Run `fn` in a transaction that has already stepped up.
  *
- * For the single-statement helpers that previously ran outside a transaction:
- * `SET LOCAL` needs one, and wrapping a lone statement costs nothing because
- * postgres-js pipelines the whole transaction.
+ * For the single-statement helpers: `SET LOCAL` needs a transaction, and
+ * wrapping a lone statement costs nothing because postgres-js pipelines the
+ * whole transaction.
  *
  * `Tx` rather than `unknown` for the callback's argument: every caller uses it
- * as a `postgres` tagged template, and typing it as `unknown` pushed a cast
- * into each of the nine call sites instead of stating the contract once here.
+ * as a `postgres` tagged template, and typing it as `unknown` would push a cast
+ * into every call site instead of stating the contract once here.
  *
  * @template T
  * @param {{ begin: (cb: (tx: unknown) => Promise<unknown>) => Promise<unknown> }} sql

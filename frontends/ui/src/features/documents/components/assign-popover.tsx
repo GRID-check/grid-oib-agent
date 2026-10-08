@@ -87,12 +87,10 @@ export function AssignPopover({
   /**
    * The write that failed, kept so the retry can be the SAME action.
    *
-   * Both writes used to `return` on a non-ok response and had no `catch` at
-   * all: a refused assignment did exactly nothing on screen — no error, no
-   * change, no clue — while the READ path beside it reported its failure and
-   * offered a retry. Silence in a popover whose whole job is to say who is
-   * responsible reads as success, and going offline turned the click into an
-   * unhandled rejection on top.
+   * A refused write reports its failure as the READ path beside it does, with
+   * a retry: silence in a popover whose whole job is to say who is responsible
+   * reads as success. Going offline must not turn the click into an unhandled
+   * rejection either.
    */
   const [failedWrite, setFailedWrite] = useState<{
     kind: 'assign' | 'unassign'

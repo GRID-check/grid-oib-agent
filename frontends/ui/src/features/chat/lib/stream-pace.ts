@@ -3,26 +3,25 @@
  * has arrived, instead of the text jumping forward in whatever clumps the
  * model, the network and the store batching happen to deliver.
  *
- * Why it exists (2026-09): the prose streams while the model writes it
- * (ADR-0066), and it arrives in bursts, a sentence at once and then nothing
- * for half a second. Painted as it arrives, the answer lurches. Shown a beat
- * behind at a steady rate, it reads as being written. This is not the
- * typewriter ADR-0066 removed: that one simulated a latency the system did not
- * have, over text that was already finished; this one smooths a latency the
- * system does have, and never holds text back longer than `MAX_LAG_MS`.
+ * Why it exists: the prose streams while the model writes it (ADR-0066), and it
+ * arrives in bursts, a sentence at once and then nothing for half a second.
+ * Painted as it arrives, the answer lurches. Shown a beat behind at a steady
+ * rate, it reads as being written. This is not a typewriter (ADR-0066 removed
+ * that): a typewriter simulates a latency over text that is already finished;
+ * this one smooths a latency the system does have, and never holds text back
+ * longer than `MAX_LAG_MS`.
  *
  * When the turn ends, what is still held back is not dumped at once: it is
  * finished quickly (`finishCut`, 300–500 ms), and only then does the answer
  * settle (the caret goes, the footer and the unplaced cards come, the
- * Herleitung collapses), all in one frame. Dumping it was a visible jump once
- * the reveal held back more than a beat. Pacing the terminal at the streaming
- * rate made the answer drain after the reasoning had already collapsed, a
- * second jump where one belongs (stream audit 2026-09, defect 4); the finish
- * is short, and nothing settles until it is done. A rewrite of text already
- * shown (the settled snapshot renumbering a marker) is a correction, not new
- * text: it keeps the length that was shown and paces only what lies beyond it
- * (`keepThroughRewrite`). It used to fall back to the first changed character
- * and type the answer out again (defect 1).
+ * Herleitung collapses), all in one frame. Dumping it would be a visible jump
+ * once the reveal holds back more than a beat. The finish is short rather than
+ * paced at the streaming rate, because a slow drain would outlast the collapse
+ * of the reasoning and become a second jump; nothing settles until it is done.
+ * A rewrite of text already shown (the settled snapshot renumbering a marker) is
+ * a correction, not new text: it keeps the length that was shown and paces only
+ * what lies beyond it (`keepThroughRewrite`). Falling back to the first changed
+ * character would type the answer out again.
  *
  * Pure, so the rules are testable without timers: `advancePace` takes the
  * state, what has arrived and how long since the last step, and returns the
@@ -88,9 +87,8 @@ export function isCleanCut(text: string): boolean {
   const line = text.slice(lineStart)
   // A table row may end after a finished cell, once the table has its
   // delimiter row: GFM pads a short row with empty cells, so the row appears
-  // and fills cell by cell. Holding it until it was whole stalled the reveal
-  // 0.5–1 s per row and then dropped 170–260 characters at once (stream
-  // audit, 2026-09).
+  // and fills cell by cell. Holding it until it was whole would stall the reveal
+  // 0.5–1 s per row, then drop 170–260 characters at once.
   if (/^\s*\|/.test(line)) return /\|\s*$/.test(line) && tableHasDelimiter(text, lineStart)
   if ((line.match(/`/g)?.length ?? 0) % 2 === 1) return false
   // An open `**` is fine: the renderer closes it while the answer streams

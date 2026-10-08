@@ -20,16 +20,15 @@
  *  - {@link platformPermissions} / {@link requirePlatformPermission} — WHICH
  *    platform permission does it hold? Every platform surface asks this, because
  *    `org-platform-support` is defined as read-only and a single binary gate
- *    cannot express that. It used to be one binary, and Support consequently
- *    held write on every mutating platform route.
+ *    cannot express that.
  *
  * A session holds platform permissions when:
  *  1. its ACTIVE org is the platform org — the permissions are its JWT claims,
  *    plus the bounded catalog implication for its role slug (fast path, no I/O);
  *  2. it holds an active platform-org membership while browsing a TENANT org —
  *    the permissions are that membership's role's, resolved from WorkOS and
- *    cached. Any platform-org role counts, not only `org-platform-owner`:
- *    Support was previously invisible on this path and got nothing at all; or
+ *    cached. Any platform-org role counts, not only `org-platform-owner`, so a
+ *    read-only role such as Support works on this path too; or
  *  3. break-glass bootstrap: their email is in GRID_PLATFORM_OWNER_EMAILS
  *     (documented in docs/deployment/workos-provisioning.md; intended for
  *     first-run in a fresh environment before provisioning). Break-glass grants
@@ -61,10 +60,9 @@ let platformOrgCache: { fetchedAt: number; organizationId: string | null } | nul
 /**
  * Cached platform-org membership, as the PERMISSION SET it confers.
  *
- * Was a boolean `isOwner`, which is what made Support invisible on this path:
- * the only question it could answer was "is this the owner role", so a session
- * holding a different platform-org role got nothing at all while browsing a
- * tenant org. `null` means "not a member" and is cached the same way, so a
+ * A boolean would answer only "is this the owner role", so a session holding any
+ * other platform-org role would get nothing while browsing a tenant org. `null`
+ * means "not a member" and is cached the same way, so a
  * non-member still costs one lookup per TTL rather than one per request.
  */
 const membershipCache = new Map<
@@ -158,14 +156,13 @@ async function platformMembershipPermissions(
     if (roleSlug) {
       // What the role HOLDS, asked of WorkOS (cached, catalog fallback) — not
       // inferred from its slug. `org-platform-support` is a platform-org role
-      // like any other; matching one hardcoded name is what hid it here.
+      // like any other, and matching one hardcoded name would hide it.
       //
       // Filtered to `platform:*`, exactly as the fast path filters the JWT
-      // claims. Without it, ANY non-empty permission list made the membership
-      // read as platform staff: a plain `member` of the GRID Platform
-      // organization holds `org:projects:create`, which is not nothing, so
-      // `isPlatformStaff` said yes and opened a Platform nav entry and shell
-      // whose every subsection then answered 403.
+      // claims. Without it, ANY non-empty permission list would read as platform
+      // staff: a plain `member` of the GRID Platform organization holds
+      // `org:projects:create`, so `isPlatformStaff` would say yes and open a
+      // Platform nav entry whose every subsection answers 403.
       const held = await organizationRolePermissions(platformOrgId, roleSlug)
       permissions = new Set(
         [...held].filter((permission) =>
@@ -261,10 +258,9 @@ export class PlatformAccessDeniedError extends Error {
 /**
  * Throws PlatformAccessDeniedError unless the session holds `permission`.
  *
- * This is the gate every platform surface should use. The old
- * `requirePlatformPermission` asked only whether the caller was platform staff, which
- * meant the read-only `org-platform-support` role passed the gate on eleven
- * mutating routes.
+ * This is the gate every platform surface should use. A check that asks only
+ * whether the caller is platform staff would let the read-only
+ * `org-platform-support` role pass the gate on every mutating route.
  */
 export async function requirePlatformPermission(
   session: GridSession | null,

@@ -1,4 +1,4 @@
-"""Tests for the cross-replica ingestion status store (Stage C).
+"""Tests for the cross-replica ingestion status store.
 
 Persisting ingestion status to Postgres lets a status poll routed to any replica
 resolve — otherwise a replica that didn't accept the upload returns "not found".
@@ -42,7 +42,7 @@ def test_noop_without_db(monkeypatch):
     monkeypatch.delenv("AIQ_SUMMARY_DB", raising=False)
     monkeypatch.delenv("NAT_JOB_STORE_DB_URL", raising=False)
     # No DB configured: writes are no-ops and reads return None (adapter then
-    # falls back to its in-process dict — single-node behaviour unchanged).
+    # falls back to its in-process dict, the single-node behaviour).
     ingest_status_store.put(_status("job-1"))
     assert ingest_status_store.get("job-1") is None
 
@@ -80,10 +80,10 @@ def _job_with_files(job_id: str, state: JobState, files: dict[str, FileStatus]) 
 
 
 class TestInFlightFiles:
-    """What the chat turn waits on. This used to raise on the first job with
-    per-file detail (it compared against ``FileStatus.COMPLETED``, which does
-    not exist), and the caller's fail-open swallowed it, so the "still being
-    read" warning never fired for exactly the uploads it was written for."""
+    """What the chat turn waits on, for a job with per-file detail. It must not
+    compare against ``FileStatus.COMPLETED`` (no such member): the caller's
+    fail-open would swallow the error, and the "still being read" warning would
+    never fire for exactly the uploads it exists for."""
 
     def test_lists_files_still_ingesting_in_a_running_job(self, sqlite_db):
         ingest_status_store.put(

@@ -1,6 +1,6 @@
-"""Tests for the ingestion-pipeline hardening changes.
+"""Tests for the ingestion-pipeline hardening.
 
-Covers the defects found in the 2026-07 pipeline review (vision + speed):
+Covers the vision and speed guards:
 
 - ``processing.vlm_cache_key`` / ``_cached_vlm_call`` — the VLM model is part
   of the cache identity (a model switch never serves stale captions, and two
@@ -363,8 +363,8 @@ class TestRenderVisualPagesPageTexts:
         assert len(out) == 1
 
     def test_a_text_low_page_without_paths_is_not_a_drawing(self, monkeypatch):
-        """The rule was text-low OR path-heavy, so every near-empty page — and
-        every scan — went through the drawing schema. A drawing needs both."""
+        """A drawing needs both: text-low OR path-heavy would send every near-empty page —
+        and every scan — through the drawing schema."""
         _install_fake_render_pdf(monkeypatch, [_FakeRenderPage("", n_paths=0)])
 
         assert processing.render_visual_pages_no_vlm("ignored.pdf", page_texts={1: ""}) == []
@@ -522,7 +522,7 @@ class TestVlmChatCreate:
     def test_failed_truncation_retry_keeps_the_truncated_caption(self):
         """A retry failure must not discard content we already have.
 
-        Failure placeholders are no longer indexed, so raising here would turn a
+        Failure placeholders are never indexed, so raising here would turn a
         partial success into a dropped chunk instead of a slightly short one.
         """
 
@@ -771,18 +771,14 @@ def test_module_under_test_importable():
 
 
 class TestRenderVisualPagesSurvivesDamagedInput:
-    """Two errors observed in production on the same ingest, one hour apart.
+    """Damaged input costs only what it damages.
 
     `Failed to load page.` and `Failed to load document (PDFium: Data format
-    error).` Both were logged at ERROR from one catch-all around the whole
-    function, which filed a GitHub issue for each — while the ingestion they
-    described had actually succeeded, because the text layer is read by pdfplumber
-    on a separate path and never touches pdfium.
-
-    The severity was the visible problem. The structural one underneath it was
-    worse: `doc[page_num]` sat outside the per-page try, so a single unreadable
-    page abandoned every page after it and returned a SHORT LIST rather than an
-    error. Partial output that looks complete is the failure this pins.
+    error).` are warnings, not errors: the text layer is read by pdfplumber on a
+    separate path and never touches pdfium, so the ingestion still succeeds.
+    `doc[page_num]` is guarded on its own, so one unreadable page costs that page
+    and not every page after it. Partial output that looks complete is the failure
+    this pins.
     """
 
     def _install_doc(self, monkeypatch, pages, bad_indices=()):

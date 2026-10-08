@@ -2,8 +2,8 @@
  * A map (mindmap) drawn as a file: the tree the answer shows, left to right,
  * on paper.
  *
- * A filed diagram used to be mermaid's render of the source, whatever view the
- * answer showed. For a mindmap that was a different picture from the one on
+ * A filed diagram is not mermaid's render of the source, whatever view the
+ * answer shows. For a mindmap that would be a different picture from the one on
  * screen, and a worse one: mermaid draws a bare quoted branch WITH its quotes,
  * clips a circle root's label to the circle ("OIB-Rich"), and colours every
  * branch from its own rainbow. The model the view draws (`MapModel`) already

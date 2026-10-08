@@ -21,7 +21,7 @@ const ALL: ShortcutFlags = {
   showKnowledge: true,
   canAccessArchiv: true,
   canCollaborate: true,
-  // Separate from `canCollaborate` since ADR-0042: the inbox carries operational
+  // Separate from `canCollaborate` (ADR-0042): the inbox carries operational
   // alerts as well as collaboration events, so it is reachable on its own gate.
   canAccessInbox: true,
 }
@@ -73,7 +73,7 @@ describe('jumpTargets', () => {
     expect(withoutCollaboration.map((target) => target.key)).toContain('i')
     expect(resolveJump('i', { canAccessInbox: true, canCollaborate: false }, null)).toBe('/app/inbox')
 
-    // …and collaboration on its own no longer opens it, so the two flags are
+    // …and collaboration on its own does not open it, so the two flags are
     // genuinely independent rather than one aliasing the other.
     expect(jumpTargets({ canCollaborate: true }).map((target) => target.key)).not.toContain('i')
     expect(resolveJump('i', { canCollaborate: true }, null)).toBeNull()

@@ -1,11 +1,11 @@
 /**
- * Two live answers as the agent streamed them (2026-09-24, ADR-0066): the
+ * Two live answers as the agent streamed them (ADR-0066): the
  * masthead ahead of the prose, the prose deltas, the settled snapshot, the
  * live cards, and the terminal frame with its cards and anatomy, each stamped
  * with its second since the turn began.
  *
- * The `legal_basis` card each answer carried was retired by ADR-0069 and is
- * stripped from the recording, with the `[[card:1]]` marker that placed it.
+ * The recording carries no `legal_basis` card and no `[[card:1]]` marker
+ * (ADR-0069), so both are stripped.
  *
  * Recorded, not written: a one-off script ran each question through the real
  * workflow (`load_workflow` on `configs/config_oib_openrouter.yml`) and kept

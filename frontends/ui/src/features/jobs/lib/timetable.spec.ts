@@ -236,12 +236,11 @@ describe('minuteOfDay', () => {
 /**
  * Which tasks the week contains, and in what colour.
  *
- * The regression this pins: the grid and the list beside it each filtered for
- * themselves, and when the grid learned about one-shot tasks the list did not.
- * Because the colour is an INDEX into a stable order, one missing row does not
- * just lose its own swatch — it shifts every colour after it, so cards and
- * blocks stop naming the same thing. The fix is that there is one function; the
- * test is that it answers for `dueAt` and that the index is stable.
+ * The grid and the list beside it must answer with the same set. Each filtering
+ * for itself lets them diverge, and because the colour is an INDEX into a
+ * stable order, one missing row shifts every colour after it, so cards and
+ * blocks stop naming the same thing. The test is that the one function answers
+ * for `dueAt` and that the index is stable.
  */
 describe('placeableSchedules', () => {
   const job = (
@@ -271,9 +270,9 @@ describe('seriesColorsFor', () => {
   const weekly = (id: string) => ({ id, scheduleCron: '0 6 * * 1', dueAt: null, enabled: true })
 
   test('a one-shot takes a slot rather than shifting everyone else’s', () => {
-    // 'b' is the one-shot. Before the shared filter it was absent from the
-    // list's map, so 'c' took 'b''s colour on the cards and kept its own on the
-    // grid — two colours for one task, in two views of one set.
+    // 'b' is the one-shot. Left out of the list's map, 'c' would take 'b''s
+    // colour on the cards and keep its own on the grid — two colours for one
+    // task, in two views of one set.
     const colors = seriesColorsFor(
       [weekly('a'), { id: 'b', scheduleCron: null, dueAt: '2026-10-02T07:00:00.000Z', enabled: true }, weekly('c')],
       8,

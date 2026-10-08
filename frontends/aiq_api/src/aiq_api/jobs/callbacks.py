@@ -395,28 +395,20 @@ class AgentEventCallback(BaseCallbackHandler):
            ``SourceRegistryMiddleware.active_registry``, i.e. the very registry
            ``verify_citations`` later judges the report against.
         2. The session-scoped registry, bound by the synchronous chat
-           entrypoints and — since the fix below — by ``DeepResearcherAgent.run``.
+           entrypoints and by ``DeepResearcherAgent.run``.
         3. This callback's own mirror of the sources its tool results carried
            (:meth:`_mirror_sources`).
 
-        Tier 2 used to be the WHOLE lookup, and inside a Dask worker nothing
-        bound it: only the synchronous chat paths called
-        ``set_session_registry``. Every lookup here therefore returned None for
-        a deep-research run, ``_emit_cited_documents`` early-returned, and no
-        knowledge-base document could ever be marked cited — which in a
-        knowledge-base-first product is most citations, so the live sources
-        panel showed a run's four OIB Richtlinien as merely "discovered" while
-        the one web page it cited was the only thing marked cited.
-
-        ``DeepResearcherAgent.run`` now binds its own registry to that
-        contextvar when nothing is bound, so tier 2 is the tier that actually
-        carries a deep-research job today — do not read the paragraph above as
-        "tier 2 is dead code". Tiers 1 and 3 are what keep the answer honest
-        for every OTHER caller: this callback is generic, the binding is not, so
-        a job whose agent never binds — or a run whose binding does not survive
-        the context boundary the handler is invoked across — still validates
-        against something this run really retrieved instead of falling back to
-        guessing from a URL scrape.
+        Tier 2 is the one a deep-research job carries: ``DeepResearcherAgent.run`` binds
+        its own registry to that contextvar when nothing is bound. Only the synchronous
+        chat paths bind one otherwise, through ``set_session_registry``. Without a bound
+        registry every lookup returns None, ``_emit_cited_documents`` early-returns, and
+        no knowledge-base document can be marked cited, which in a knowledge-base-first
+        product is most citations. Tiers 1 and 3 keep the answer honest for every OTHER
+        caller: this callback is generic, the binding is not, so a job whose agent never
+        binds, or a run whose binding does not survive the context boundary the handler
+        is invoked across, still validates against something this run really retrieved
+        instead of falling back to guessing from a URL scrape.
 
         Fail-open: a provider that raises or yields nothing falls through to
         the next tier rather than breaking the artifact stream.
@@ -473,18 +465,16 @@ class AgentEventCallback(BaseCallbackHandler):
         auto-emitted version).
 
         This is also the ONLY place ``citation_use`` is emitted from, and that
-        is deliberate. The cited set used to be derived from raw ``on_llm_end``
-        content, which is produced BEFORE ``verify_citations`` runs in
-        ``DeepResearcherAgent._finalize``: a fabricated or unverifiable
-        citation had already been broadcast as cited by the time verification
-        stripped it from the report, and nothing ever took it back. The
-        frontend's merge is deliberately monotonic — ``isCited`` is sticky once
-        true, so a later event cannot lower a source back to "discovered" — so
-        a retraction event would not have repaired the display; the only
-        truthful fix is to not make the claim until it is verified. Sources
-        still stream live as ``citation_source`` (discovery) throughout the
-        run; only the stronger "the answer cites this" claim waits for the
-        verified text.
+        is deliberate. The cited set is taken from the verified report, not from raw
+        ``on_llm_end`` content: that content is produced BEFORE ``verify_citations`` runs
+        in ``DeepResearcherAgent._finalize``, so a fabricated or unverifiable citation
+        would already be broadcast as cited by the time verification strips it, and
+        nothing would take it back. The frontend's merge is deliberately monotonic:
+        ``isCited`` is sticky once true, so a retraction event would not repair the
+        display, and the only truthful fix is to not make the claim until it is
+        verified. Sources still stream live as ``citation_source`` (discovery)
+        throughout the run; only the stronger "the answer cites this" claim waits for
+        the verified text.
 
         Args:
             content: The final report markdown.
@@ -594,7 +584,7 @@ class AgentEventCallback(BaseCallbackHandler):
         Driven from :meth:`emit_final_report` only — ``content`` is the
         verified, sanitised report, so what is announced as cited is what the
         reader can actually see cited. See that method for why the raw
-        streaming output no longer feeds this.
+        streaming output does not feed this.
 
         Covers BOTH source shapes:
 
@@ -604,13 +594,12 @@ class AgentEventCallback(BaseCallbackHandler):
         - Knowledge-base documents, validated by document key against the
           registry (:func:`cited_document_entries`).
 
-        The document half used to be missing entirely, and "cited" is what the
-        provenance row filters on: a run that cited four OIB Richtlinien and one
-        web page marked only the web page, so the row showed the web page ALONE
-        and the four authoritative sources vanished. The failure only appeared
-        when web and knowledge-base sources co-occurred, because with no web
-        citation at all the frontend fell back to showing every discovered
-        source.
+        The document half is part of it: "cited" is what the provenance row filters on,
+        so a run that cited four OIB Richtlinien and one web page must mark all five.
+        Without the document half the row showed only the web page and the four
+        authoritative sources vanished. The failure appears when web and knowledge-base
+        sources co-occur, because with no web citation at all the frontend falls back to
+        showing every discovered source.
         """
         self._emit_cited_urls(content)
         self._emit_cited_documents(content)
@@ -886,7 +875,7 @@ class AgentEventCallback(BaseCallbackHandler):
         """Emit ``citation_source`` artifacts from parsed tool output (KB/RIS/web).
 
         Prefer :func:`extract_sources_from_tool_result` so knowledge-layer hits
-        carry ``file_name`` / ``page`` / ``collection``. Falls back to the legacy
+        carry ``file_name`` / ``page`` / ``collection``. Falls back to the
         URL scrape for search tools when the structured parsers return nothing
         useful (keeps web discovery working for odd result shapes).
         """
@@ -1024,9 +1013,9 @@ class AgentEventCallback(BaseCallbackHandler):
             # not been through verify_citations (which runs later, in
             # DeepResearcherAgent._finalize) and it is often an INTERMEDIATE
             # agent's notes, whose sources the writer may never carry into the
-            # answer. Announcing "cited" from here claimed things that the
-            # finished report does not, and the frontend's sticky isCited made
-            # the claim permanent. emit_final_report owns that claim now.
+            # answer. Announcing "cited" from here would claim things that the
+            # finished report does not, and the frontend's sticky isCited would make
+            # the claim permanent. emit_final_report owns that claim.
 
         self._run_id_to_parent.pop(run_id, None)
 

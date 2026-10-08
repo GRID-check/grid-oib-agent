@@ -9,9 +9,9 @@
  * so it lives on the `ChatMessage`, travels through both persistence layers
  * (localStorage + the `messages.metadata` jsonb), and is replayed on restore.
  *
- * Without this the card re-mounted as `pending` after every reload, offering
- * buttons that would happily apply the same patch or write the same memory a
- * second time (neither endpoint is idempotent).
+ * Without this, a card would re-mount as `pending` after every reload and offer
+ * buttons that apply the same patch or write the same memory a second time
+ * (neither endpoint is idempotent).
  *
  * NOT persisted here: transient view state (submit spinner, request error, an
  * open PDF dialog). Those are correctly component-local — they describe an

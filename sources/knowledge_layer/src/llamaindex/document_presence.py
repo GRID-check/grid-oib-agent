@@ -9,7 +9,7 @@ Postgres (ADR-0055). Two windows let a deleted document end up indexed anyway:
   ingest then inserts the rest of its own after the delete has run;
 - a delete landing after the upload recorded its version and before or while
   the ingest dispatch runs (ADR-0054, correction 17). The dispatch indexes a
-  document that no longer exists.
+  document that has been deleted.
 
 Both close in one place. Once a file is in the vector store, and before its
 predecessor is retired, the ingestor asks the BFF whether the document it was
@@ -22,8 +22,8 @@ Only a definite answer counts. :func:`document_still_exists` returns ``None``
 for everything else: no BFF configured, a timeout, a 5xx, a 404 from a BFF
 that predates the route, a body it cannot read. The ingestor treats ``None``
 as "exists", because a BFF that cannot be reached must never cost a live
-document its chunks. What an unreachable BFF leaves behind is the window as it
-was before this module, and the platform vector reconcile still sweeps it.
+document its chunks. An unreachable BFF leaves that window open, and the platform
+vector reconcile still sweeps it.
 """
 
 from __future__ import annotations

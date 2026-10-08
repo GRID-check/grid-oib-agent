@@ -20,23 +20,21 @@
  * checkbox; Veröffentlichen is its own act in its own section, never a sibling
  * button beside approval.
  *
- * ## It no longer speaks when it has nothing to offer
+ * ## It says nothing when it has nothing to offer
  *
- * The stand — what the version is waiting for — moved OUT of here and onto
+ * The stand — what the version is waiting for — lives in
  * `DocumentLifecycleStand`, which the panel renders whether or not this strip
- * does. The reason is that the line used to appear only when there were NO
- * controls, so the case that actually confused people was the one it skipped: a
- * published upload, where the only available gesture was „Archivieren" and the
- * row therefore showed one unexplained verb and no sentence at all. With the
- * stand said unconditionally one tier up, this component renders exactly the
- * decisions and nothing else, and renders nothing when there are none.
+ * does. The line is said unconditionally there, so a published upload, whose
+ * only gesture is the archive act, gets a sentence rather than one unexplained
+ * verb. This component renders exactly the decisions and nothing else, and
+ * renders nothing when there are none.
  *
- * „Stilllegen" (the act the wire still calls `archive`) is likewise not here.
- * It is item-level, not a review decision,
- * it is offered on every active document to anybody who may write, and it is a
- * one-way door: it belongs in its own set-apart block with its consequences
- * spelled out (`document-archive-action.tsx`), never as a fifth button in a row
- * of review verbs.
+ * „Stilllegen" (the act the wire calls `archive`) is likewise not here.
+ * It is item-level, not a review decision: it is offered on every active
+ * document to anybody who may write, and it is a one-way door. It belongs in
+ * its own set-apart block with its consequences spelled out
+ * (`document-archive-action.tsx`), never as a fifth button in a row of review
+ * verbs.
  */
 
 import type { JSX } from 'react'
@@ -145,13 +143,13 @@ export function DocumentReviewControls({
   const [typing, setTyping] = useState<DocumentLifecycleGesture | null>(null)
   const [comment, setComment] = useState('')
   // Unselected until the reader says who: an open round nobody was told about
-  // used to be one forgotten picker away, and the button below stays shut
-  // until this holds a name (or there is nobody to choose between).
+  // is one forgotten picker away, so the button below stays shut until this
+  // holds a name (or there is nobody to choose between).
   const [reviewer, setReviewer] = useState<string>('')
   // The order, in one sentence, plus an optional due date. Both gate the
   // button AND ride the submit wire (`submitRequestSchema`) into the round's
   // inbox payload (excerpt + Frist) — a ceremony that transmitted nothing
-  // used to be theater.
+  // would be theater.
   const [order, setOrder] = useState('')
   const [due, setDue] = useState('')
   // Freigeben, opened: the checkbox inside is the signature.

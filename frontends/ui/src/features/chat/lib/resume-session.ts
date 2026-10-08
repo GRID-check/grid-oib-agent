@@ -1,9 +1,9 @@
 /**
  * Which session — if any — a returning user should land in.
  *
- * Opening the app with no `?session=` in the URL used to always drop you on an
- * empty composer, even when you were mid-conversation ninety seconds earlier and
- * only reloaded the tab. Re-finding that session meant opening the sessions
+ * Opening the app with no `?session=` in the URL would drop you on an empty
+ * composer, even when you were mid-conversation ninety seconds earlier and only
+ * reloaded the tab. Re-finding that session would mean opening the sessions
  * panel and picking the top row: three deliberate actions to undo an accident.
  *
  * The rule is deliberately narrow, because the opposite failure is worse. Silently

@@ -11,8 +11,9 @@
  *
  * Only projects that restrict a folder are swept, because that is the
  * direction that leaks. A restriction lifted while the backend was down leaves
- * documents in a collection only the formerly cleared can search: narrower than
- * intended, never wider, and placed again by the next change to the tree.
+ * documents in a collection only those cleared before the lift can search:
+ * narrower than intended, never wider, and placed again by the next change to
+ * the tree.
  *
  * Every such project is reached. A sweep places at most
  * `PLACEMENT_SWEEP_PROJECTS` of them, and stops starting new ones after

@@ -48,7 +48,7 @@ describe('RoleCatalog', () => {
     expect(within(group).getByText(t('access.roles.permissionCountOne'))).toBeInTheDocument()
   })
 
-  test('a permission the catalog no longer defines still shows its slug', () => {
+  test('shows the slug of a permission the catalog does not define', () => {
     render(<RoleCatalog roles={[role({ permissions: ['org:teleport:manage'] })]} />)
 
     expect(screen.getByText('org:teleport:manage')).toBeInTheDocument()

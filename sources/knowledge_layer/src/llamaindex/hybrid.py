@@ -35,11 +35,10 @@ def fuse_with_ranks(
     """Fuse ranked chunk lists by chunk identity, returning each survivor's fused rank and score.
 
     The fused *order* alone is a fragile carrier: a list is only ordered until the next
-    stage sorts it. That is exactly how the cross-collection merge used to discard this
-    fusion -- it re-sorted the fused list by ``chunk.score``, and since a lexical-only hit
-    is by construction outside the vector top-k, its cosine is at most every vector hit's,
-    so a score sort could only ever undo the boost. Handing the rank back lets a caller
-    keep the fusion in a field instead of in a list order.
+    stage sorts it. A merge that re-sorts the fused list by ``chunk.score`` discards the
+    fusion: a lexical-only hit is by construction outside the vector top-k, so its cosine
+    is at most every vector hit's, and a score sort can only undo the boost. Handing the
+    rank back lets a caller keep the fusion in a field instead of in a list order.
 
     Ties resolve in this order: higher fused score, then the better (lower) *minimum* rank
     across channels, then channel identity -- the earliest channel that contributed the
@@ -140,9 +139,9 @@ def selective_terms(
     its 39 documents (``german_text``'s module docstring records the same finding at
     chunk level, 467 of 490).
 
-    The German sparse channel has priced that since it was built and this channel never
-    did. So this is ``german_text.select_terms`` rule 2, same constants and same reason,
-    applied to literal substrings instead of lexemes. A term matching nothing costs a
+    The German sparse channel already prices this, so this applies
+    ``german_text.select_terms`` rule 2: same constants and same reason, applied to
+    literal substrings instead of lexemes. A term matching nothing costs a
     round trip and goes. A term above ``df_ceiling_ratio`` costs a round trip AND skews
     the fusion, so it goes too. Returning nothing is a correct and expected outcome; the
     caller then runs on the other channels.

@@ -9,7 +9,7 @@
  * migration and a schema file that disagree is how a future `drizzle-kit
  * generate` silently proposes to relax a constraint nobody meant to touch.
  *
- * ## The scope partition (migration 0049)
+ * ## The scope partition
  *
  * `documents_session_requires_conversation` says where a session document is
  * filed: it has a conversation, nothing else does, and it has NO project. The
@@ -25,10 +25,10 @@
  * Nothing violates it today — `uploadSessionDocument` passes `projectId: null`
  * — which is precisely why a test is worth more than the current green: the
  * invariant is held up by one careful function, and this is what notices when
- * the constraint that replaced that convention is weakened or when the drizzle
+ * the constraint is weakened or when the drizzle
  * mirror and the migration drift apart.
  *
- * ## Authorship (migration 0063)
+ * ## Authorship
  *
  * `documents_authorship_requires_provenance` says a document no person wrote can
  * always name what wrote it and in which run. It is the columns' entire
@@ -46,7 +46,7 @@
  * only thing standing between them and a `drizzle-kit generate` that drops them
  * is a comment. These tests are what makes that comment load-bearing.
  *
- * ## The idempotency index (migrations 0064, 0065 and 0066)
+ * ## The idempotency index
  *
  * `uniq_documents_authored_ref_producer_per_project` is a third rule written in
  * two places, and the second place is not the schema file — it is
@@ -54,24 +54,19 @@
  * columns or one of them is wrong, so the test reads BOTH sources instead of
  * comparing either to a literal.
  *
- * 0064 shipped that index without the producer, which allowed one machine-
- * authored document per run — impossible for a diagram, which is a previewable
- * SVG and an attachable PDF and needs both. 0065 widens the index and the probe
- * together, which is the move 0064's own header prescribes. 0066 restates it
- * under the renamed column rather than renaming it, precisely so the live rule
- * stays readable in ONE file — a renamed index has its columns in 0065 and its
- * name in 0066, and this test would have to reconstruct DDL to check it. So the
- * tests below read 0066 for the live rule and the two older files only to assert
- * that each index they created is gone.
+ * The producer is part of the key, because one machine-authored document per run
+ * is impossible for a diagram: it is a previewable SVG and an attachable PDF and
+ * needs both. The live rule is read from the migration that restates the index
+ * under the current column name, so it is readable in ONE file. The older
+ * migrations are read only to assert that each index they created is gone.
  *
- * ## The reference and its kind (migration 0066)
+ * ## The reference and its kind
  *
- * `authored_by_run_id` was documented as "the backend async job id of the run" and
- * held one for `deep_research` and `{chat answer}-{source hash}` for the two
- * diagram producers. 0066 renames it to `authored_by_ref` and adds
- * `authored_by_ref_kind`, so the row states what its identifier IS rather than
- * leaving a reader to assume — and the CHECK grows a third conjunct, because two
- * of them were satisfiable by a row nobody could resolve.
+ * The reference is one identifier whose kind varies by producer: a
+ * `deep_research` run id, or `{chat answer}-{source hash}` for a diagram.
+ * `authored_by_ref_kind` states which kind a row holds, rather than leaving a
+ * reader to assume it, and the CHECK requires it, because a row whose reference
+ * nobody can resolve must not satisfy the rule.
  */
 
 import { readFileSync } from 'node:fs'
@@ -138,9 +133,9 @@ const DOCUMENTS_REPOSITORY = readFileSync(
 )
 
 const IDEMPOTENCY_INDEX = 'uniq_documents_authored_ref_producer_per_project'
-/** 0064's, which 0065 subsumes. Named so the pair of tests below can say so. */
+/** The index an earlier migration created and a later one replaces. */
 const SUPERSEDED_INDEX = 'uniq_documents_authored_run_per_project'
-/** 0065's, which 0066 restates under the renamed column. */
+/** The index that is restated under the renamed column. */
 const RENAMED_INDEX = 'uniq_documents_authored_run_producer_per_project'
 
 /**
@@ -183,11 +178,10 @@ function probeColumns(): string[] {
  * own body — the half of the index that is NOT a key column.
  *
  * Separate from `probeColumns` because the two halves are different claims. The
- * key columns say what the index is ON; the predicate says which rows it covers,
- * and 0064's rule ("an index narrower than the probe rejects rows the probe
- * accepts, an index wider than it admits duplicates") is about BOTH. The
- * columns matched for a year while the predicate did not, and the test that was
- * supposed to catch drift compared only the columns.
+ * key columns say what the index is ON; the predicate says which rows it covers.
+ * The rule is about BOTH: an index narrower than the probe rejects rows the probe
+ * accepts, and an index wider than it admits duplicates. Comparing only the
+ * columns would let the predicate drift unnoticed.
  */
 function probeAuthorshipPredicate(): string | null {
   const start = DOCUMENTS_REPOSITORY.indexOf('export async function findDocumentAuthoredByRef')
@@ -207,12 +201,11 @@ function probeAuthorshipPredicate(): string | null {
 /**
  * The poller's in-flight set.
  *
- * It used to be read out of `reconcile-status.ts` with a regex, because the
- * poller declared its own Set literal and the module pulls in `server-only`
- * through the repository, which a schema spec has no business booting. The set
- * is now DECLARED once in `@/lib/documents/document-status` — a pure data
+ * The set is DECLARED once in `@/lib/documents/document-status` — a pure data
  * module with no server imports — and the poller derives it from there, so the
- * spec asks the declaration directly. That `reconcile-status.ts` really does
+ * spec asks the declaration directly. Reading it out of `reconcile-status.ts`
+ * would pull `server-only` in through the repository, which a schema spec has no
+ * business booting. That `reconcile-status.ts` really does
  * derive rather than restate is pinned by `document-status.spec.ts`.
  */
 function inFlightStatuses(): string[] {
@@ -294,12 +287,11 @@ describe('authorship on documents', () => {
     // which is not an answer, and the columns stop being auditable while still
     // looking like they are.
     //
-    // The THIRD conjunct is 0066's, and it is the one this file would otherwise
-    // let slip. 0063's two were satisfiable by a row whose reference nobody
-    // could resolve — a diagram's `{chat answer}-{source hash}` sitting in a
-    // column called `authored_by_run_id` whose comment said backend job id — so
-    // the constraint passed while guaranteeing nothing it was written to
-    // guarantee. The live rule is read from 0066, which is where it now is.
+    // The THIRD conjunct, the kind, is the one this file would otherwise let
+    // slip. The other two are satisfiable by a row whose reference nobody can
+    // resolve, so the constraint would pass while guaranteeing nothing it was
+    // written to guarantee. The live rule is read from the migration that
+    // defines it now.
     expect(canonical(migrationCheckBody(MIGRATION_0066, AUTHORSHIP_CONSTRAINT))).toBe(
       EXPECTED_AUTHORSHIP
     )
@@ -330,7 +322,7 @@ describe('authorship on documents', () => {
   })
 
   it('records what kind of identifier the reference is, and derives it from the producer', () => {
-    // The backfill is what makes 0066 safe on data that already exists, and it
+    // The backfill is what makes the migration safe on data that already exists, and it
     // is keyed on `authored_by_producer` because that is the one column that
     // answers the question exactly. A migration that guessed instead would write
     // a false statement into the record the whole feature exists to make
@@ -343,22 +335,18 @@ describe('authorship on documents', () => {
   })
 
   it('backfills the same producer\u2192kind table the filing path reads', () => {
-    // 0066's header rests the whole change on these two tables agreeing:
-    // "a wrong `authored_by_ref_kind` is worse than a missing column, because
-    // it is a false statement in the record this whole change exists to make
-    // truthful". Nothing compared them. Changing the SQL's `diagram_svg` to
-    // `agent_run` left this file green, and applying that migration to a
-    // database holding a pre-0066 diagram row wrote `agent_run` onto a chat
-    // answer's artifact id — reachable on real data, because 0065 ships before
-    // 0066 and diagram rows can already exist when it runs.
+    // The two tables must agree, because a wrong `authored_by_ref_kind` is a
+    // false statement in the record this whole change exists to make truthful.
+    // Nothing else compares them: a backfill that wrote `agent_run` for a diagram
+    // would leave every other test green, and it would reach real data, because
+    // diagram rows can already exist when the migration runs.
     //
-    // AGREEMENT, not equality. A producer added AFTER 0066 shipped
-    // (`agent_document`, ADR-0054) is legitimately absent from a migration that
-    // already ran everywhere: editing an applied migration to add it is the one
-    // thing a migration history must never do, and there are no pre-0066 rows of
-    // a producer that did not exist then. What must still hold — and is what the
-    // failure above was about — is that every arm 0066 DOES have says the same
-    // thing the filing path says today.
+    // AGREEMENT, not equality. A producer added after this migration
+    // (`agent_document`, ADR-0054) is absent from it by design: editing an
+    // applied migration to add one is the thing a migration history must never
+    // do, and no pre-existing row can carry a producer that did not exist then.
+    // What must hold is that every arm the migration has says the same thing the
+    // filing path says.
     const backfill = MIGRATION_0066.slice(MIGRATION_0066.indexOf('CASE "authored_by_producer"'))
     const mapped = Object.fromEntries(
       [...backfill.slice(0, backfill.indexOf('END')).matchAll(/WHEN '(\w+)' THEN '(\w+)'/g)].map(
@@ -383,9 +371,9 @@ describe('authorship on documents', () => {
     // say so".
     //
     // Compared against the CASE's own arms rather than against the live producer
-    // map, for the reason the test above gives: a producer added after 0066 is
-    // not in either half of this already-applied migration, and demanding it be
-    // would be demanding an edit to migration history.
+    // map, for the reason the test above gives: a producer added after this
+    // migration is not in either half of it, and demanding it be would be
+    // demanding an edit to migration history.
     const guard = MIGRATION_0066.slice(0, MIGRATION_0066.indexOf('RAISE EXCEPTION'))
     const allowList = /NOT IN \(([^)]*)\)/.exec(guard)?.[1] ?? ''
     const guarded = [...allowList.matchAll(/'(\w+)'/g)].map(([, producer]) => producer).sort()
@@ -471,8 +459,8 @@ describe('the indexes drizzle cannot declare', () => {
   })
 
   it('refuses to build the folder index before it has looked for duplicates', () => {
-    // Nothing has ever stopped two sibling folders sharing a name, so a
-    // deployment may already have some. Postgres would refuse with one key and
+    // Nothing stops two sibling folders sharing a name, so a deployment may
+    // already have some. Postgres would refuse with one key and
     // leave the operator to find the rest; the guard fails first with the whole
     // list, and deliberately does not deduplicate — deleting a folder row
     // cascades to `documents.folder_id` and would unfile real evidence.
@@ -494,7 +482,7 @@ describe('the indexes drizzle cannot declare', () => {
     expect(widened).toMatch(
       /CREATE UNIQUE INDEX "uniq_project_folders_parent_name"[\s\S]*?"organization_id"[\s\S]*?coalesce\("project_id"[\s\S]*?coalesce\("parent_id"/
     )
-    // And the way down restores 0063's key.
+    // And the way down restores the key the index had before the widening.
     const down = readFileSync(join(process.cwd(), 'drizzle/0102_archiv_folders.down.sql'), 'utf8')
     expect(down).toMatch(/CREATE UNIQUE INDEX "uniq_project_folders_parent_name"[\s\S]*?"project_id"/)
   })
@@ -517,17 +505,14 @@ describe('the indexes drizzle cannot declare', () => {
 })
 
 /**
- * ONE FILED REPORT PER RUN, AS A CONSTRAINT (migration 0064).
+ * ONE FILED REPORT PER RUN, AS A CONSTRAINT.
  *
- * 0063 shipped the filing path with idempotency implemented as a probe:
- * `findDocumentAuthoredByRun` runs before the render, and a hit short-circuits.
- * A lookup cannot see a caller that has not inserted yet, and the filing write
- * sits on a GET that is re-fetched every time the report tab is opened — so two
- * tabs both probe, both miss, and both file. The two rows are then IDENTICAL in
- * every visible attribute, because the generated filename is deterministic (slug
- * + date + extension): same name, size, folder, author, run and second. The
- * repository already called that "precisely the thing an office cannot untangle
- * later" and then left a lookup to prevent it.
+ * Idempotency for the filing path is a constraint, not only a probe. A probe runs
+ * before the render, and a lookup cannot see a caller that has not inserted yet:
+ * the filing write sits on a GET that is re-fetched every time the report tab is
+ * opened, so two tabs both probe, both miss, and both file. The two rows are then
+ * identical in every visible attribute, because the generated filename is
+ * deterministic (slug + date + extension).
  *
  * These tests are about the index and the probe agreeing. That agreement is the
  * whole design: an index NARROWER than the probe rejects rows the probe would
@@ -538,10 +523,9 @@ describe('the indexes drizzle cannot declare', () => {
 describe('the idempotency index and the probe it belongs to', () => {
   it('keys on exactly the columns the probe filters by', () => {
     // Read from both sources rather than from a literal, because a literal would
-    // simply be a third place to keep in step. If somebody re-scopes the probe —
-    // as 0063 already had to once, adding `project_id` after an org-wide probe
-    // handed back another project's document — this is what makes them change
-    // the index in the same commit.
+    // simply be a third place to keep in step. If somebody re-scopes the probe,
+    // this is what makes them change the index in the same commit: an org-wide
+    // probe hands back another project's document.
     expect(indexColumns(MIGRATION_0066, IDEMPOTENCY_INDEX).sort()).toEqual(probeColumns())
   })
 
@@ -557,13 +541,12 @@ describe('the idempotency index and the probe it belongs to', () => {
   })
 
   it('is UNIQUE and partial on <> user, so a human row is never rejected', () => {
-    // 0063's CHECK is one-directional on purpose: a `user` row MAY carry a
-    // producer and a run id, because a person saving an artefact a run showed
-    // them is not a contradiction. Without the predicate, two colleagues saving
-    // one run's artefact into one project would collide with each other — an
-    // index built to stop a machine racing itself rejecting an ordinary human
-    // action. `<> 'user'` rather than `= 'agent'` for 0063's reason: the next
-    // producer arrives already constrained.
+    // The CHECK is one-directional on purpose: a `user` row MAY carry a producer
+    // and a reference, because a person saving an artefact a run showed them is
+    // not a contradiction. Without the predicate, two colleagues saving one run's
+    // artefact into one project would collide with each other — an index built to
+    // stop a machine racing itself rejecting an ordinary human action. `<> 'user'`
+    // rather than `= 'agent'`: the next producer arrives already constrained.
     expect(MIGRATION_0066).toMatch(
       new RegExp(
         `CREATE UNIQUE INDEX "${IDEMPOTENCY_INDEX}"\\s*ON "documents" \\([^)]*\\)\\s*WHERE "authored_by" <> 'user'`
@@ -572,15 +555,15 @@ describe('the idempotency index and the probe it belongs to', () => {
   })
 
   it('applies the index\u2019s predicate in the probe too, not only its columns', () => {
-    // The half of the agreement that was never checked. Without it the probe is
-    // WIDER than the index — 0064's dangerous direction — and a `user` row
-    // carrying a producer and a reference answers it. 0063's CHECK permits that
-    // row deliberately, and the index is partial precisely because of it, so the
+    // The half of the agreement that is easy to forget. Without it the probe is
+    // WIDER than the index, which admits duplicates, and a `user` row carrying a
+    // producer and a reference answers it. The CHECK permits that row
+    // deliberately, and the index is partial precisely because of it, so the
     // shape is legal and reachable rather than theoretical: the caller is told
     // `alreadyFiled` and handed a human document's id, and the report that was
     // commissioned is never written.
     //
-    // `<> 'user'` and not `= 'agent'`, matching the index, for 0063's reason:
+    // `<> 'user'` and not `= 'agent'`, matching the index, for the same reason:
     // a producer added later arrives already constrained instead of slipping
     // through a deny-list nobody remembered to extend.
     expect(probeAuthorshipPredicate()).toBe("<> 'user'")
@@ -600,11 +583,11 @@ describe('the idempotency index and the probe it belongs to', () => {
 
   it('replaces 0064\u2019s index rather than standing beside it', () => {
     // Two unique indexes over the same rows, one of them narrower, is the
-    // narrower one silently deciding the rule. 0064's has to GO in the same
-    // migration that widens it, or a diagram's second artifact is rejected by
-    // an index nothing points at any more.
+    // narrower one silently deciding the rule. The narrower index has to GO in
+    // the same migration that widens it, or a diagram's second artifact is
+    // rejected by an index nothing points at any more.
     //
-    // Line-anchored, not `toContain`: 0065's header QUOTES the old index name
+    // Line-anchored, not `toContain`: the later header QUOTES the old index name
     // several times while explaining why it is going, and a `DROP` that has
     // been commented out contains the same substring as one that runs.
     expect(MIGRATION_0064).toMatch(statement(`CREATE UNIQUE INDEX "${SUPERSEDED_INDEX}"`))
@@ -613,9 +596,9 @@ describe('the idempotency index and the probe it belongs to', () => {
   })
 
   it('leaves no index behind under the name 0066 renamed away from', () => {
-    // 0066 could have renamed 0065's index and been done in a catalog update.
-    // It restates it instead, so the live rule is readable in one file — and the
-    // half that makes that safe is this one: the old name has to GO, or the
+    // Renaming the index would be a catalog update. It is restated instead, so
+    // the live rule is readable in one file, and the half that makes that safe is
+    // this one: the earlier name has to GO, or the
     // table carries two unique indexes over the same rows and a reader has two
     // candidate rules with no way to tell which is current.
     expect(MIGRATION_0066).toMatch(statement(`CREATE UNIQUE INDEX "${IDEMPOTENCY_INDEX}"`))
@@ -624,11 +607,11 @@ describe('the idempotency index and the probe it belongs to', () => {
   })
 
   it('needs no duplicate guard going up, and has one coming down', () => {
-    // 0063 and 0064 both refuse to build over violating data because their
-    // indexes were NARROWER than what the table already allowed. 0065's is
-    // strictly wider, so a guard there could not fire. Rolling back narrows,
-    // and THAT can fail on real data — a diagram that filed both artifacts is
-    // two rows 0064's key cannot tell apart — so the guard lives in the down
+    // The earlier indexes refuse to build over violating data because they were
+    // NARROWER than what the table already allowed. This one is strictly wider,
+    // so a guard going up could not fire. Rolling back narrows, and THAT can
+    // fail on real data — a diagram that filed both artifacts is two rows the
+    // narrower key cannot tell apart — so the guard lives in the down
     // migration, ahead of the create, and does not choose which row to delete.
     expect(MIGRATION_0065).not.toContain('RAISE EXCEPTION')
     const guard = DOWN_MIGRATION_0065.indexOf('RAISE EXCEPTION')
@@ -639,8 +622,8 @@ describe('the idempotency index and the probe it belongs to', () => {
 
   it('drops it again on the way down, and restores the one it replaced', () => {
     // Each down migration restores exactly the index its own up migration
-    // replaced: 0066 goes back to 0065's name over the renamed column, 0065 back
-    // to 0064's narrower key.
+    // replaced: the 0066 down goes back to the earlier name over the renamed
+    // column, and the 0065 down back to the narrower key.
     expect(DOWN_MIGRATION_0066).toMatch(statement(`DROP INDEX IF EXISTS "${IDEMPOTENCY_INDEX}"`))
     expect(DOWN_MIGRATION_0066).toMatch(statement(`CREATE UNIQUE INDEX "${RENAMED_INDEX}"`))
     expect(DOWN_MIGRATION_0065).toMatch(statement(`DROP INDEX IF EXISTS "${RENAMED_INDEX}"`))
@@ -651,8 +634,7 @@ describe('the idempotency index and the probe it belongs to', () => {
   it('refuses to roll 0066 back over a reference that is not a run', () => {
     // The down direction restores a column named `authored_by_run_id` and drops
     // the kind, so a diagram's reference would go back under a name that
-    // misdescribes it — which is the exact failure 0066 exists to remove, and
-    // the value also rides the `document.generated` audit event as an
+    // misdescribes it, and the value also rides the `document.generated` audit event as an
     // `agent_run` target id. The guard names the rows and does not delete them:
     // they carry real bytes and a real quota charge.
     expect(MIGRATION_0066).not.toMatch(/^\s*RAISE EXCEPTION[\s\S]*roll back/m)

@@ -58,15 +58,12 @@ function DeltaRow({ delta }: { delta: BimRevisionDelta }): JSX.Element {
   const t = useTranslations('bim')
   const signed = useSigned()
   /**
-   * `judged` marks the one metric that has a direction.
-   *
-   * Every delta used to be painted green when positive and red when negative.
-   * `+300 Bauteile` is not good news and `−40 m² Netto-Grundfläche` is not bad
-   * news — this file's own header warns that "an office that re-exports with a
-   * different mapping can move 300 elements without touching the design", and
-   * then the row painted that move green. Only the health score improves when
-   * it goes up; the rest are facts, and a colour on a fact is an opinion the
-   * data does not support.
+   * `judged` marks the one metric that has a direction: the health score is
+   * better when it goes up. `+300 Bauteile` is not good news and `−40 m²
+   * Netto-Grundfläche` is not bad news. This file's own header warns that "an
+   * office that re-exports with a different mapping can move 300 elements without
+   * touching the design", so a colour on those moves would be an opinion the data
+   * does not support.
    */
   const entries: Array<{ key: string; value: number | null; judged?: boolean }> = [
     { key: 'elements', value: delta.elements },

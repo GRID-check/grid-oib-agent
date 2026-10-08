@@ -157,7 +157,7 @@ export async function resolveResourceAccess(
   }
 
   // The creator always owns it — this is what makes a `private` resource
-  // reachable by its author, and a legacy unstamped conversation reachable at all.
+  // reachable by its author, and an unstamped conversation reachable at all.
   if (probe.createdBy && probe.createdBy === session.userId) {
     const merged = strongerRole(role, 'owner')
     if (merged !== role) reason = 'creator'
@@ -176,10 +176,10 @@ export async function resolveResourceAccess(
     container,
     contentLocked,
     // Escalation is for a project admin who is NOT already an owner. Offering it
-    // to somebody who owns the thread (their own thread, most often) gave them a
-    // button that upserts a redundant grant, consumes a roster slot, and writes
-    // `resource.ownership.escalated` with `previousRole: 'owner'` — an audit
-    // record of an escalation that did not happen.
+    // to somebody who owns the thread (their own thread, most often) would give
+    // them a button that upserts a redundant grant, consumes a roster slot, and
+    // writes `resource.ownership.escalated` with `previousRole: 'owner'` — an
+    // audit record of an escalation that did not happen.
     canEscalate: projectRole === 'project-admin' && !roleSatisfies(role, 'owner'),
   }
 }

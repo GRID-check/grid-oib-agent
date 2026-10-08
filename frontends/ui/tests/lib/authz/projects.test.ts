@@ -88,8 +88,8 @@ describe("requireProjectAccess", () => {
   });
 
   test("org admins are denied on another organization's project", async () => {
-    // Regression: the admin fast-path used to return BEFORE the tenancy
-    // check, letting an org-A admin act on an org-B project by id.
+    // The admin fast-path must not return before the tenancy check, or an
+    // org-A admin could act on an org-B project by id.
     mockGetDb.mockReturnValue(
       mockDbSelect([{ organizationId: "org_other" }]) as never,
     );

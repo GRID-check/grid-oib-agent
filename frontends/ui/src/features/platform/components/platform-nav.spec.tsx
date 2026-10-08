@@ -23,8 +23,8 @@ describe('PlatformNav', () => {
 
   test('labels every section from the dictionary, never with its raw key', () => {
     // The label is `t(`nav.${key}`)`, a template the key-coverage spec cannot
-    // resolve, and a missing key renders as the key itself. A new section with
-    // no `platform.nav` entry used to ship as "platform.nav.feedback".
+    // resolve, and a missing key renders as the key itself, e.g.
+    // "platform.nav.feedback".
     pathname.value = '/app/platform'
     render(<PlatformNav />)
 

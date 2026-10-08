@@ -83,8 +83,7 @@ def test_seeded_metadata_passes_strict_validation(tag: str, row: dict[str, str])
     Over the EFFECTIVE rows, not every row on disk: a superseded migration may
     legitimately name a card type retired since, and the only way to make a
     history-wide assertion pass again would be to edit a migration that has
-    already run. ``0062`` is the case that established this — see
-    ``effective_seeds``.
+    already run. ``0062`` is the example — see ``effective_seeds``.
     """
     metadata = json.loads(row["metadata"])
     assert _validate_metadata(metadata, strict=True) == metadata
@@ -130,9 +129,9 @@ def test_seeded_grid_cards_survive_the_read_path(tag: str, row: dict[str, str]):
 def test_seeded_grid_agents_are_agents_the_resolver_knows(tag: str, row: dict[str, str]):
     """An unknown agent name is logged and ignored at resolve time — never here.
 
-    Through ``canonical_agent``, because a seed is history and the vocabulary
-    moved under it: ten of these rows were written when the chat agent was
-    ``shallow_researcher``, and the resolver reads them through the same alias.
+    Through ``canonical_agent``, because a seed keeps the agent name it was
+    written with: an older row may still say ``shallow_researcher``, and the
+    resolver reads it through the same alias.
     That is the whole point of asserting against the resolver's own function
     rather than a literal set — a name it can still resolve passes, and one it
     cannot fails here instead of going silent in production.
@@ -173,13 +172,12 @@ def test_every_seed_has_a_matching_down_migration(tag: str, row: dict[str, str])
 
 
 def test_the_generic_card_seed_inlined_only_generic_cards():
-    """The last ``piloti-cards`` row named the six generic shapes — history now.
+    """The ``piloti-cards`` row names the six generic shapes.
 
-    ``0071`` retired the row, so this is asserted on the raw seeded list rather
-    than through ``preferred_cards``: the read-path filter judges against
-    TODAY's catalog, where three of the six are envelope types, and a
-    retirement is supposed to leave superseded migrations naming types the
-    read path would drop.
+    This reads the raw seeded list rather than going through ``preferred_cards``:
+    the read-path filter judges against today's catalog, where three of the six
+    are envelope types, and a superseded migration is supposed to keep naming
+    types the read path would drop.
     """
     assert split_metadata_list(json.loads(_effective_row("piloti-cards")["metadata"])["grid-cards"]) == [
         "verdict_header",
@@ -192,18 +190,18 @@ def test_the_generic_card_seed_inlined_only_generic_cards():
 
 
 def test_the_generic_card_seed_carries_the_craft_the_tool_no_longer_states():
-    """The craft moved OUT of ``_CARD_DOCTRINE`` and has to have landed here.
+    """The judgement lives in this skill, not in the tool's doctrine.
 
     ``emit_card``'s description is paid on every turn whether or not a card is
     emitted, so it holds the tool's contract — which trigger takes which card,
-    when to emit none, where a card lands — and the judgement moved into this
+    when to emit none, where a card lands — and the judgement lives in this
     skill, which is applied on every answering turn anyway and can be edited
     without a deploy.
 
-    The move is only safe if both halves hold. Deleting a paragraph from the
-    description and forgetting to write its replacement here would cost nothing
-    visible in review and would quietly take the judgement out of the product,
-    so the two are asserted against each other rather than separately.
+    Both halves must hold: deleting a paragraph from the description without
+    writing its replacement here would cost nothing visible in review and would
+    quietly take the judgement out of the product, so the two are asserted
+    against each other rather than separately.
     """
     from aiq_agent.cards.register import _CARD_DOCTRINE
 
@@ -219,7 +217,7 @@ def test_the_generic_card_seed_carries_the_craft_the_tool_no_longer_states():
     # value or the lede's sentence, never both in the same words.
     assert "Urteilskarte" in body
 
-    # And the description is no longer carrying them.
+    # And the description does not carry them.
     assert "GENERIC ones" not in _CARD_DOCTRINE
     assert "NAME something" not in _CARD_DOCTRINE
 
@@ -292,21 +290,20 @@ def _guard_hashes(tag: str) -> list[str]:
     return re.findall(r"md5\([^)]*\)\s*=\s*'([0-9a-f]{32})'", sql)
 
 
-def test_the_prompt_carries_the_voice_craft_the_retired_seed_taught():
-    """The craft moved back INTO the prompt when ``0071`` retired the seed.
+def test_the_prompt_carries_the_house_voice_craft():
+    """The craft lives in the prompt, because no seed carries it.
 
-    The split the voice chain built (craft in a DB row, routing in the prompt)
-    was reversed deliberately: a forced skill's body only reached the model
-    through a ``use_skill`` call it could skip, so the house voice was absent
-    from exactly the answers that never opened it. The ``<stimme>`` section is
-    unconditional. This asserts the retired body's load-bearing rules survived
+    A forced skill's body reached the model only through a ``use_skill`` call it
+    could skip, so the house voice was absent from exactly the answers that never
+    opened it. The ``<stimme>`` section is unconditional. This asserts the
+    body's load-bearing rules survive
     the condensation — a dense rewrite that keeps the headings and loses a rule
     reads fine in review and quietly stops teaching it.
     """
     section = _prompt_section("stimme")
     body = _unwrapped(_effective_row("piloti-voice")["body"])
 
-    # The answer-first rule, and where a caveat may NOT sit. Headings moved
+    # The answer-first rule, and where a caveat may NOT sit. Headings sit
     # under kind=ruling so a walkthrough does not open as a Bescheid.
     assert "Der erste Satz ist die Antwort" in section
     assert "kind=ruling" in section
@@ -335,8 +332,8 @@ def test_the_prompt_carries_the_voice_craft_the_retired_seed_taught():
     # The warmth rule, with its one forbidden placement.
     assert "nie als Polster vor einem Widerspruch" in section
     # The smallest form, and the heading rules.
-    # The size rule survives the move to structured answers (2026-09-24): the
-    # form follows the content, and structure is never a licence for length.
+    # The size rule holds for structured answers: the form follows the content,
+    # and structure is never a licence for length.
     assert "Die Form, die der Inhalt hat" in section
     assert "Struktur ist kein Umfang" in section
     assert "Eine lange Antwort auf eine kurze Frage ist kein Service" in section
@@ -348,7 +345,7 @@ def test_the_prompt_carries_the_voice_craft_the_retired_seed_taught():
     for rule in ("Der erste Satz ist die Antwort", "Dezimalkomma", "nie als Polster vor"):
         assert rule in body
 
-    # The old split's section is gone, pointer and all.
+    # No answer_shape section and no pointer to a writing skill.
     prompt = _piloti_prompt_text()
     assert "<answer_shape>" not in prompt
     assert "writing skill active for this turn" not in prompt
@@ -427,9 +424,9 @@ def test_the_voice_seed_teaches_the_three_cases_a_shape_rule_does_not_settle():
     # The one thing that makes a correction useful rather than merely right:
     # where the wrong number came from.
     assert "woher der genannte Wert stammt" in body
-    # And the warmth rule, which allows half a sentence of appreciation, now
-    # says where that half sentence may NOT go. Without this the two rules read
-    # as contradicting each other.
+    # And the warmth rule, which allows half a sentence of appreciation, says
+    # where that half sentence may NOT go. Without this the two rules read as
+    # contradicting each other.
     assert "nie als Polster vor" in body
 
     # 2. Only half the question is answerable. „einmal" is per PART; the firm
@@ -449,7 +446,7 @@ def test_the_voice_seed_teaches_the_three_cases_a_shape_rule_does_not_settle():
     assert "EI₂ 30-C" in body
 
     # The Fehlanzeige row names the genre's worst turn — answering out of the
-    # wrong body of law — instead of being given a worked pair it does not need.
+    # wrong body of law — and is given no worked pair, because it does not need one.
     assert "nie ersatzweise aus einem anderen Regelwerk beantwortet" in body
 
 
@@ -495,8 +492,8 @@ def test_the_voice_carries_the_certainty_split_the_confidence_field_cannot():
     answer whose OIB half is settled and whose Landesrecht half is not must
     spend it on the weaker half — which makes the prose the only place the
     distinction can live. Asserted against the contract on both carriers: the
-    prompt's ``<stimme>`` section (the live voice) and the retired seed body
-    (the history it condenses).
+    prompt's ``<stimme>`` section (the live voice) and the seed body it
+    condenses.
     """
     prompt = _piloti_prompt_text()
     body = _unwrapped(_effective_row("piloti-voice")["body"])
@@ -515,14 +512,9 @@ def test_seeded_grid_agents_all_have_a_surface_that_delivers_the_skill(tag: str,
     """Knowing an agent's name is not the same as being able to reach it.
 
     ``test_seeded_grid_agents_are_agents_the_resolver_knows`` checks the
-    vocabulary; this checks the plumbing behind each word, which is the failure
-    that actually happened. ``piloti-voice`` and ``piloti-cards`` named
-    ``deep_researcher`` from the day they were seeded, and for that whole time
-    the name was inert: one agent built a ``SkillRuntime`` and the deep pipeline
-    resolved builtin skill FILES out of its sandbox instead, so the two rows
-    carrying the house voice and the card judgement never reached the surface
-    that writes the LONGEST answers. Nothing failed, nothing logged, and the
-    metadata went on claiming otherwise.
+    vocabulary; this checks the plumbing behind each word. A name with no
+    delivery surface is inert: nothing fails, nothing logs, and the metadata
+    keeps claiming the skill reaches that agent.
 
     Both surfaces are read from the code rather than listed here, so deleting a
     channel fails this test instead of quietly reinstating that state.
@@ -557,10 +549,9 @@ def test_the_card_scope_migration_changes_only_the_scope():
 
     before = json.loads(seeded["metadata"])
     after = json.loads(rescoped["metadata"])
-    # The names 0054 and 0056 actually wrote. `shallow_researcher` was renamed
-    # to `researcher` afterwards, and past migrations keep the string they
-    # shipped with: they are history, and a database that applied them already
-    # would never see an edit here.
+    # The names 0054 and 0056 wrote. `shallow_researcher` is now an alias of
+    # `researcher`, and past migrations keep the string they shipped with: a
+    # database that applied them would never see an edit here.
     assert set(split_metadata_list(before["grid-agents"])) == {"shallow_researcher", "deep_researcher"}
     assert set(split_metadata_list(after["grid-agents"])) == {"shallow_researcher"}
     # Everything else about the row is 0054's, including the five inlined shapes.
@@ -576,14 +567,14 @@ def test_the_card_scope_migration_changes_only_the_scope():
     assert not _guard_hashes("0056_piloti_cards_chat_scope")
 
 
-def test_the_reachable_shapes_migration_added_the_two_redirect_targets():
-    """``0061``: `typed_table` and `process_map` joined the inlined shapes — history.
+def test_the_reachable_shapes_seed_declares_the_two_redirect_targets():
+    """``0061``: `typed_table` and `process_map` are among the inlined shapes.
 
     Asserted on the raw seeded list: the row is retired (``0071``) and three of
     its names are envelope types today, so the live ``preferred_cards`` filter
     would judge a historical list against a catalog it predates. The mechanism
-    the old live assertion guarded — a ``grid-cards`` name resolving to a real
-    shape — is covered by ``test_runtime`` over live fixtures.
+    behind it — a ``grid-cards`` name resolving to a real shape — is covered by
+    ``test_runtime`` over live fixtures.
     """
     row = next(row for tag, row in SEEDS if tag.startswith("0061_"))
     declared = split_metadata_list(json.loads(row["metadata"])["grid-cards"])
@@ -591,9 +582,8 @@ def test_the_reachable_shapes_migration_added_the_two_redirect_targets():
     assert "typed_table" in declared
     assert "process_map" in declared
     assert declared[-1] == "follow_ups"
-    # Both were deleted from the union since (RETIRED_CARD_TYPES): the live
-    # surface no longer resolves either, which is what the history must not
-    # be read against.
+    # Both are in RETIRED_CARD_TYPES: the live surface no longer resolves
+    # either, so the raw list must not be read against it.
     assert render_card_details(["typed_table", "process_map"]) == ""
 
 
@@ -665,8 +655,8 @@ def test_retiring_the_card_takes_its_craft_and_its_inlined_shape_together():
     and silently drops it — a seed naming a card the runtime never sees, which is
     the exact drift ``test_seeded_grid_cards_survive_the_read_path`` exists to
     catch. Removing only the list entry would leave a body arguing for a card the
-    tool refuses. So both, in one migration, plus the description: since 0060 the
-    L1 line names what the body teaches, and „Anschlussfragen als Regelfall" over
+    tool refuses. So both, in one migration, plus the description: the L1 line
+    names what the body teaches, and „Anschlussfragen als Regelfall" over
     a body that no longer discusses them is worse than either half alone.
 
     The craft is not lost. ``stages/follow_ups.py`` mined this section for its own
@@ -699,9 +689,6 @@ def test_retiring_the_card_takes_its_craft_and_its_inlined_shape_together():
     after = split_metadata_list(json.loads(current["metadata"])["grid-cards"])
     assert set(before) - set(after) == {"follow_ups"}
     assert after == [c for c in before if c != "follow_ups"]
-    # When 0062 shipped, the runtime's filter read this list back whole. Three
-    # of the names are envelope types TODAY, so that liveness claim ended with
-    # 0071's retirement and the raw-list assertions above are the history.
 
     # Only `grid-cards` moves in the metadata blob.
     assert {k: v for k, v in json.loads(current["metadata"]).items() if k != "grid-cards"} == {
@@ -710,8 +697,8 @@ def test_retiring_the_card_takes_its_craft_and_its_inlined_shape_together():
 
     forward = (DRIZZLE_DIR / "0062_piloti_cards_retire_follow_ups.sql").read_text(encoding="utf-8")
     conflict = forward.split("ON CONFLICT")[1]
-    # All three columns are written back, because all three changed. `metadata`
-    # in particular: 0060's SET clause carried only description and body, and
+    # All three columns are written back, because all three change. `metadata`
+    # in particular: 0060's SET clause carries only description and body, and
     # inheriting it would ship a body with no section and a list still naming it.
     assert '"description" = EXCLUDED."description"' in conflict
     assert '"body" = EXCLUDED."body"' in conflict
@@ -727,10 +714,10 @@ def test_retiring_the_card_takes_its_craft_and_its_inlined_shape_together():
 
 
 def test_the_card_skill_is_not_promised_to_a_surface_that_emits_no_cards():
-    """Why ``piloti-cards`` went the OTHER way from ``piloti-voice``.
+    """Why ``piloti-cards`` is not delivered to the deep writer, unlike ``piloti-voice``.
 
-    Both rows named both agents and only one of those claims was worth making
-    true. The voice teaches how a sentence lands and the deep writer writes
+    Both rows could name both agents, and only one of those claims is worth
+    making true. The voice teaches how a sentence lands and the deep writer writes
     sentences. Cards are a tool call, and the deep writer has no card tool: its
     tool set is ``think`` and ``get_verified_sources``, and a deep job's cards
     are built afterwards by a separate pass over the finished report — a pass
@@ -761,12 +748,10 @@ def test_the_card_skill_is_not_promised_to_a_surface_that_emits_no_cards():
 
 
 def test_the_deep_writer_carries_the_report_sized_voice():
-    """The writer prompt owns the voice now — no fetched skill stands behind it.
+    """The writer prompt owns the voice — no fetched skill stands behind it.
 
-    Until ``0071`` the deep writer's lead paragraph was the FLOOR under a
-    ``piloti-voice`` row that resolution could fail to deliver. The row is
-    retired, so the prompt is the only carrier, and it has to carry more than
-    the lead: the caveat placement, the wrong-premise correction and the
+    The prompt is the only carrier, so it has to carry more than the lead: the
+    caveat placement, the wrong-premise correction and the
     Austrian notation are the rules the longest answers lose most visibly.
     The shallow ``<stimme>`` section is the full voice; this is the subset a
     report needs, and the two must stay in sync by meaning.
@@ -784,7 +769,7 @@ def test_the_deep_writer_carries_the_report_sized_voice():
     # Austrian notation, verbatim class codes.
     assert "Dezimalkomma" in writer
     assert "REI 90, GK 4" in writer
-    # The retired delivery channel's floor rationale is gone with the channel.
+    # No floor is needed under a voice that cannot be fetched: there is none.
     assert "must still be produced when the voice cannot be fetched" not in writer
 
 
@@ -815,10 +800,10 @@ def test_every_card_update_is_guarded_on_the_body_it_replaces():
     one — ``created_by`` does not, because the dashboard's update path patches
     ``body`` and never touches it.
 
-    The chain was unguarded here while ``piloti-voice``'s was pinned, so ``0058``
-    shipped with nothing checking that its hash still matched the body it claimed
-    to replace. Editing any literal in place silently turns a guard into a
-    condition that matches nothing and the update into a no-op that ships green.
+    Each link has to guard on the body it replaces, or nothing checks that it
+    inherits the right row. Editing any literal in place silently turns a guard
+    into a condition that matches nothing and the update into a no-op that ships
+    green.
     """
     rows = {tag: row for tag, row in SEEDS if row["name"] == "piloti-cards" and tag in CARD_CHAIN}
     assert tuple(rows) == CARD_CHAIN, "a piloti-cards body migration is missing from the chain"
@@ -843,24 +828,23 @@ def test_every_card_update_is_guarded_on_the_body_it_replaces():
 
 
 def test_the_card_seed_names_the_failure_of_recognising_a_card_and_not_emitting_it():
-    """``0059``: the observed fault, written down where the craft lives.
+    """``0059``: a recognised card gets emitted.
 
     „Wie läuft das Baubewilligungsverfahren in Wien ab?" is almost word for word
-    the ``process_map`` trigger, and it came back as a numbered prose list with
-    no card. Asked about it two turns later the model named the right card and
-    built a good one immediately — so the vocabulary, the trigger and the shape
-    were all reaching it, and what was missing was the instruction that a
-    recognised card gets emitted.
+    the ``process_map`` trigger. Without an instruction to emit, the model answers
+    it as a numbered prose list with no card, although the vocabulary, the trigger
+    and the shape are all in reach. What is missing is the rule that a recognised
+    card is emitted.
 
-    Nine of this body's sections answered "is this card deserved?" and none
-    answered "you have decided it is". The new one does, SECOND rather than
-    last, because the reader of a long body applies its opening. Pinned rule by
-    rule: a body that keeps the heading and loses the naming rule under it reads
-    fine in a dashboard diff and quietly stops teaching it.
+    Nine of this body's sections answer "is this card deserved?" and none answers
+    "you have decided it is". The rule that does sits SECOND rather than last,
+    because the reader of a long body applies its opening. Pinned rule by rule: a
+    body that keeps the heading and loses the naming rule under it reads fine in a
+    dashboard diff and quietly stops teaching it.
     """
     body = _unwrapped(_effective_row("piloti-cards")["body"])
 
-    # The fault named as a fault, and the rule that answers it.
+    # The fault, and the rule that answers it.
     assert "## Die erkannte Karte, die nicht kommt" in body
     assert "Wenn Sie die Karte benennen können, emittieren Sie sie" in body
     assert "Der Auslöser ist bereits die Entscheidung" in body
@@ -879,14 +863,11 @@ def test_the_card_seed_names_the_failure_of_recognising_a_card_and_not_emitting_
     headings = [line for line in _effective_row("piloti-cards")["body"].splitlines() if line.startswith("## ")]
     assert headings[0] == "## Die erkannte Karte, die nicht kommt"
 
-    # `follow_ups` was 0059's counter-evidence — its shape was already inlined,
-    # so nothing but the wording kept it off the answer — and 0062 retired the
-    # card, so the section it argued from is gone from the body. What 0059
-    # actually established is the rule above, which stands on the `process_map`
-    # transcript and does not need the second example.
+    # The follow_ups section, retired with its card in 0062, is gone, so the rule
+    # above stands on the `process_map` transcript alone.
     assert "Anschlussfragen" not in body
 
-    # The volume rule is calibration now, not a warning: the same two, said as a
+    # The volume rule is calibration, not a warning: the same two, said as a
     # budget. The zero cases stay, because they are the honest ones.
     assert "## Das Kartenbudget einer Antwort" in body
     assert "es ist zum Ausgeben da" in body
@@ -918,44 +899,35 @@ def test_the_card_seed_keeps_every_honesty_rule_the_rebalance_could_have_softene
     assert "Löschen Sie gedanklich alle Karten" in body
 
 
-#: cl100k_base tokens for the whole inlined-shape block, measured at 2,157 when
-#: 0061 widened the list from five types to seven (1,199 + 265 for
-#: ``typed_table`` + 693 for ``process_map``). A CEILING with room for one more
-#: ordinary shape, not a pin on today's number.
+#: cl100k_base tokens for the whole inlined-shape block, measured at 2,157 for
+#: seven types (1,199 for the base five, 265 for ``typed_table``, 693 for
+#: ``process_map``). A CEILING with room for one more ordinary shape, not a pin
+#: on today's number.
 MAX_INLINED_SHAPE_TOKENS = 2_500
 
 
 def test_widening_the_inlined_shapes_stayed_a_priced_decision():
-    """``grid-cards`` may only grow against a measurement, and this is it.
+    """``grid-cards`` may only grow against a measurement.
 
-    This assertion used to run the other way. It held the list at five and said
-    so in those words: ``process_map``'s shape costs +693 cl100k tokens on EVERY
-    turn this skill loads — every answering turn, since it is standard delivery
-    — to save one ``describe_card`` call on the minority of turns that ask about
-    a Verfahren, and ``follow_ups`` proves inlining does not cause emission,
-    being in the list already and missing from the same answer.
+    Inlining does not cause emission: ``follow_ups`` is in the list already and is
+    missing from the same answer. Inlining is what stops an already-chosen card
+    from being the more expensive of two. The transcript behind ``typed_table``
+    and ``process_map`` shows an answer taking ``condition_tree`` — whose shape was
+    rendered and in front of it — over the ``typed_table`` the doctrine and the
+    body both redirect it to, a round trip away. That is the claim the field
+    evidence supports, and its price is paid on every turn that delivers this
+    standard skill.
 
-    What changed is not the price but what the price buys. ``follow_ups`` shows
-    inlining is not SUFFICIENT for emission; the transcript that widened the list
-    shows the other direction, where an answer took ``condition_tree`` — whose
-    shape was rendered and in front of it — over the ``typed_table`` the doctrine
-    and the body below both redirect it to, which was a round trip away. Inlining
-    is not what makes a card get emitted; it is what stops the already-chosen
-    card from being the more expensive of two. That is a narrower claim and it is
-    the one the field evidence actually supports.
-
-    So the escape hatch the old assertion left open ("widening has to argue with
-    a measurement") was taken, and this now guards the same thing from the other
-    side: the block is priced, and it may not creep past a stated ceiling
-    unmeasured. The words answering the cost of a lookup stay too
-    (``test_looking_a_shape_up_is_not_framed_as_a_cost``) — the round trip is
-    still what every card outside this list costs.
+    So the list is guarded from the cost side: the block is priced, and it may
+    not creep past a stated ceiling unmeasured. The words answering the cost of a
+    lookup stay too (``test_looking_a_shape_up_is_not_framed_as_a_cost``) — the
+    round trip is still what every card outside this list costs.
     """
     metadata = json.loads(_effective_row("piloti-cards")["metadata"])
     inlined = preferred_cards(metadata)
 
     # The list is a SET of ordinary answer shapes, not the catalog. `calculation`
-    # stayed out: it fires on a narrower answer than any of the seven and its
+    # is kept out: it fires on a narrower answer than any of the seven and its
     # shape is among the most expensive.
     assert "calculation" not in inlined
     assert len(inlined) < 10, "grid-cards is becoming the catalog; that is what describe_card is for"
@@ -976,8 +948,8 @@ def test_the_card_seed_carries_the_craft_for_the_three_dossier_types():
     A new type owes a trigger line to the always-on tool description and a
     paragraph to this skill, and the paragraph is the half that costs nothing
     visible to omit — the trigger is what makes the card emit at all, so it never
-    gets forgotten. ``document_checklist``, ``deadline_timeline`` and
-    ``change_impact`` shipped their triggers first; this is the other half.
+    gets forgotten. The triggers for ``document_checklist``, ``deadline_timeline``
+    and ``change_impact`` are in the tool; this is the other half.
 
     Named in German, like every other card in this body, because the skill is
     German prose and calls a thing what a reader would call it. Backticks are
@@ -987,7 +959,7 @@ def test_the_card_seed_carries_the_craft_for_the_three_dossier_types():
 
     body = _unwrapped(_effective_row("piloti-cards")["body"])
 
-    # The three types were deleted since; the tool no longer triggers them.
+    # The three types are deleted; the tool no longer triggers them.
     for card_type in ("document_checklist", "deadline_timeline", "change_impact"):
         assert f"-> {card_type}" not in _CARD_DOCTRINE
 
@@ -1020,11 +992,11 @@ def test_the_card_seed_carries_the_craft_for_the_three_dossier_types():
 def test_the_bedingungsbaum_vorfrage_sits_with_the_selection_guidance():
     """``0060``: a DISCRIMINATOR, so it joins the section that already discriminates.
 
-    This one prevents a wrong card rather than encouraging a right one, which is
-    why it was taken at full strength while a frequency argument elsewhere in the
-    same batch was tempered. The defect it names is specific and observed: three
-    branches marked active at once read as a decision that was never taken, which
-    is worse than no card — the model must mark none when it does not know.
+    This one prevents a wrong card rather than encouraging a right one, so it is
+    stated at full strength, where a frequency argument is tempered. The defect it
+    names is specific: three branches marked active at once read as a decision
+    that was never taken, which is worse than no card — the model must mark none
+    when it does not know.
 
     Placed as a ``###`` inside „Bedingungsbaum, typisierte Tabelle, Vergleich"
     rather than as a fourth ``##``, because a per-card heading would file a
@@ -1055,8 +1027,7 @@ def test_the_closing_calibration_stays_the_last_word_of_the_body():
     „Das Kartenbudget einer Antwort" is the body's calibration and it works by
     being read last. Appending a new card's paragraph after it would leave the
     body ending on "here is another card you could emit", which is the drift this
-    whole line of work exists to keep out — the product owner's reading is that
-    emission is already fine.
+    whole line of work exists to keep out — emission is already fine.
     """
     headings = [line for line in _effective_row("piloti-cards")["body"].splitlines() if line.startswith("## ")]
     assert headings[-1] == "## Das Kartenbudget einer Antwort"
@@ -1065,27 +1036,26 @@ def test_the_closing_calibration_stays_the_last_word_of_the_body():
 def test_every_card_type_with_a_trigger_has_its_craft_in_the_seed():
     """A new card type owes a trigger line to the tool and a paragraph to the skill.
 
-    This is the rule commit ``3f8c8e4a`` established and the one a new card type
-    is most likely to half-follow: the trigger line is what makes the card get
-    emitted at all, so it never gets forgotten, while the paragraph saying when
-    the card actually EARNS its place costs nothing visible to omit.
+    This is the rule a new card type is most likely to half-follow: the trigger
+    line is what makes the card get emitted at all, so it never gets forgotten,
+    while the paragraph saying when the card actually EARNS its place costs
+    nothing visible to omit.
 
-    Asserted for the two shapes added after the split, because they are the first
-    types to go through it — ``calculation`` and ``process_map``. Both are named
-    by their German subject rather than their type name: the skill is German
-    prose and calls a thing what a reader would call it.
+    Asserted for ``calculation`` and ``process_map``, the types that take this
+    path. Both are named by their German subject rather than their type name: the
+    skill is German prose and calls a thing what a reader would call it.
     """
     from aiq_agent.cards.register import _CARD_DOCTRINE
 
     # The LAST seed naming this skill is the current body — `SEEDS` is in
     # migration order and a later guarded DO UPDATE supersedes an earlier row.
-    # Taking the first match would assert against the body 0054 shipped and pass
-    # for text nobody ships any more.
+    # Taking the first match would assert against the body 0054 wrote, which
+    # nobody ships any more.
     body = [row for _, row in SEEDS if row["name"] == "piloti-cards"][-1]["body"]
 
     # The tool carries the triggers ...
     assert "calculation" in _CARD_DOCTRINE
-    assert "-> process_map" not in _CARD_DOCTRINE  # deleted since (RETIRED_CARD_TYPES)
+    assert "-> process_map" not in _CARD_DOCTRINE  # retired, so no trigger line
 
     # ... and the skill carries what neither trigger line has room to say.
     # The honesty property of `calculation`: there is no result field, because a
@@ -1096,8 +1066,8 @@ def test_every_card_type_with_a_trigger_has_its_craft_in_the_seed():
     # The factor in „2 x Steigung + Auftritt" belongs to the Bestimmung, not to a
     # measurement — the one modelling decision a writer gets wrong unprompted.
     assert "Der Faktor gehört der" in body
-    # `process_map` fails the other way: a row of bare station names is the
-    # numbered list it replaced, with a frame drawn round it.
+    # `process_map` fails the other way: a row of bare station names is just the
+    # numbered list, with a frame drawn round it.
     assert "Verfahrensablauf" in body
     assert "nummerierte Liste" in body
     # And never guessing where the project stands.
@@ -1131,8 +1101,8 @@ def test_the_house_skills_are_retired_by_a_guarded_migration():
         hashlib.md5(cards_body.encode("utf-8")).hexdigest(),
     ], "0071 must guard each DELETE on the body the last seed wrote"
 
-    # The loader sees the retirement the way a live database would: neither
-    # name has an effective row any more.
+    # The loader sees the retirement the way a live database would: neither name
+    # has an effective row.
     from tests.aiq_agent.skills.seeded_skill_rows import RETIRED_NAMES
 
     assert {"piloti-voice", "piloti-cards"} <= RETIRED_NAMES
@@ -1155,12 +1125,11 @@ def test_the_retirement_rollback_restores_both_rows_without_trampling():
     assert _effective_row("piloti-cards")["description"] in down
 
 
-def test_the_card_craft_the_retired_seed_taught_lives_in_the_tool():
+def test_the_card_craft_lives_in_the_tool():
     """The ``emit_card`` tool owns the judgement ``piloti-cards`` carried.
 
-    The craft moved from the prompt's ``<cards>`` section into the tool's own
-    doctrine, one home, beside each card's trigger; the prompt keeps only what
-    the tool cannot say (placement, and that the envelope fields are not
+    The craft lives in the tool's own doctrine, one home beside each card's
+    trigger; the prompt keeps only what the tool cannot say (placement, and that the envelope fields are not
     cards). Pinned against the doctrine's load-bearing sentences so a later
     tightening cannot silently drop one.
     """
@@ -1183,7 +1152,7 @@ def test_the_card_craft_the_retired_seed_taught_lives_in_the_tool():
 
 
 def test_the_answer_envelope_replaces_the_envelope_cards():
-    """The rhetorical shapes moved from tool calls into the answer contract.
+    """The rhetorical shapes live in the answer contract, not in tool calls.
 
     Assertions across every surface, so the channel cannot half-exist: the
     prompt teaches the envelope, the catalog withholds the types from every
@@ -1214,8 +1183,8 @@ def test_the_answer_envelope_replaces_the_envelope_cards():
     envelope_twins = {"summary", "verdict_header", "key_takeaways", "callout"}
     assert envelope_twins <= RETIRED_CARD_TYPES
     assert model_facing_card_types().isdisjoint(RETIRED_CARD_TYPES)
-    # No card-generating surface offers the shapes any more — the post-hoc
-    # catalog included: one system, not a parallel card path for deep reports.
+    # No card-generating surface offers these shapes: the post-hoc catalog
+    # included, one system, not a parallel card path for deep reports.
     catalog = render_card_catalog()
     for card_type in ("verdict_header", "key_takeaways", "callout"):
         assert f'"{card_type}"' not in catalog

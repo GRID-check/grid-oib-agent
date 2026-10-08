@@ -3,15 +3,13 @@
 /**
  * What changed between two versions of a document, line by line.
  *
- * ## Why this replaced the side-by-side
+ * ## Why it is a line diff
  *
- * „Was hat sich geändert" is the entire review gesture, and the panel used to
- * answer it with two texts and a note saying differences are not marked. That
- * note was honest — the repository carried no diff implementation, and pairing
- * rows by index is wrong the moment a line is inserted — but it left the reader
- * doing the comparison by eye on a twelve-page Aktenvermerk. The alignment now
- * comes from `diff` (jsdiff) through `lib/documents/version-diff`, so this file
- * has one job: showing rows somebody can read.
+ * „Was hat sich geändert" is the entire review gesture, and two texts side by
+ * side leave the reader doing the comparison by eye on a twelve-page
+ * Aktenvermerk; pairing rows by index is wrong the moment a line is inserted.
+ * The alignment comes from `diff` (jsdiff) through `lib/documents/version-diff`,
+ * so this file has one job: showing rows somebody can read.
  *
  * ## Why there is no red and no green
  *

@@ -31,10 +31,9 @@ const SIDEBAR_STORAGE_KEY = 'grid.sidebar.collapsed'
 const SIDEBAR_WIDTH_STORAGE_KEY = 'grid.sidebar.width'
 
 /**
- * Rail geometry, in px — NUMBERS, not the `'236px'` strings this used to hold,
- * because the width is now a value the reader drags: it has to survive
- * arithmetic (a pointer delta, a keyboard step, a clamp) before it is published
- * as `--sidebar-width`.
+ * Rail geometry, in px — NUMBERS, not `'236px'`-style strings, because the width
+ * is a value the reader drags: it has to survive arithmetic (a pointer delta, a
+ * keyboard step, a clamp) before it is published as `--sidebar-width`.
  *
  * The bounds are the rail's own content, not a taste: below ~200px the project
  * switcher and the longest nav labels start truncating on their own, and above
@@ -203,14 +202,11 @@ function SidebarProvider({
     [state, open, setOpen, isMobile, openMobile, toggleSidebar, width, setWidth],
   )
 
-  // `--sidebar-current-width` used to be published here, and on `:root` as
-  // well, because the docked chat panels were `position: fixed` against the
-  // VIEWPORT and so had to be told where the rail ended. They are now
-  // `absolute` inside the shell's `relative` <main>, which begins at that
-  // edge — so the offset is structural and the variable had no readers left.
-  // A width published as a global custom property is also a width that can be
-  // wrong: two mounted providers raced over it, and the unmounting one deleted
-  // it out from under the other.
+  // The width is not published on `:root`. The docked chat panels are `absolute`
+  // inside the shell's `relative` <main>, which begins at the rail's edge, so
+  // the offset is structural. A width published on `:root` would be a width that
+  // can be wrong: two mounted providers would race over it, and the unmounting
+  // one would delete it out from under the other.
   const wrapperStyle: SidebarStyle = {
     '--sidebar-width': `${width}px`,
     '--sidebar-width-icon': `${SIDEBAR_WIDTH_ICON}px`,
@@ -294,17 +290,15 @@ function Sidebar({
       {/* Desktop gap: reserves layout width for the `fixed` rail beside it.
           NO TRANSITION, on purpose. This is the design language's binding
           constraint made concrete — "a panel that changes size sets its size in
-          one pass and TRANSLATES its content" — and here it was also the app's
-          single most expensive animation: an in-flow element animating `width`
-          for 200ms re-runs layout for the whole page beside it, every frame, on
-          a change the reader made once.
+          one pass and TRANSLATES its content". An in-flow element animating
+          `width` for 200ms re-runs layout for the whole page beside it, every
+          frame, on a change the reader made once.
 
-          It was never even coherent. The rail's CONTENTS swap on the same tick
-          (`iconRail` is React state: labels unmount, the brand mark swaps, tiles
-          restyle), so the old transition animated an empty box shrinking around
-          content that had already changed. Setting both the gap and the
-          container in one pass makes the collapse a single honest layout step
-          that agrees with itself. */}
+          The rail's CONTENTS swap on the same tick (`iconRail` is React state:
+          labels unmount, the brand mark swaps, tiles restyle), so a transition
+          here would animate an empty box shrinking around content that had
+          already changed. Setting both the gap and the container in one pass
+          makes the collapse a single layout step that agrees with itself. */}
       <div
         data-slot="sidebar-gap"
         className={cn(
@@ -325,12 +319,11 @@ function Sidebar({
           // dropped. Wherever `svh > dvh` (any browser with a retracting URL
           // bar) the mismatch pushed the rail's last rows, footer included,
           // below the visible area.
-          // TRANSFORM ONLY. `left`/`right` were being animated to slide the
-          // offcanvas rail off the edge — a layout property doing a
-          // compositor's job — so the slide is now a `translate` of the same
-          // distance (100% of the rail's own width IS `--sidebar-width`), which
-          // the browser can run off the main thread. `width` is deliberately
-          // NOT in the transition list: see the gap above.
+          // TRANSFORM ONLY. The offcanvas rail slides off the edge with a
+          // `translate` of its own width (100% of the rail IS `--sidebar-width`),
+          // which the browser can run off the main thread. Animating `left` or
+          // `right` would be a layout property doing a compositor's job. `width`
+          // is deliberately NOT in the transition list: see the gap above.
           // Both legs get their own curve: `data-collapsible` is only present
           // while collapsed, so the rail leaves on `ease-exit` and returns on
           // `ease-entrance` — a departure accelerates away, an arrival decides
@@ -413,17 +406,15 @@ function railSide(element: HTMLElement): 'left' | 'right' {
 /**
  * The rail edge — the strip between the sidebar and the page.
  *
- * It has shown a `resize` cursor since the day it was vendored in, and it did
- * not resize anything: the only thing it could do was toggle between the full
- * rail and the icon column. That is the one failure mode a cursor has — the
- * reader tries the drag it was offered, the rail jumps to a width nobody asked
- * for, and the edge stops being trustworthy.
+ * It drags, and its `resize` cursor is the promise: a reader who drags it
+ * expects the width to follow the pointer. A jump to a width nobody asked for
+ * would make the edge untrustworthy.
  *
- * So it drags. Pointer: drag to set the width (clamped to
+ * Pointer: drag to set the width (clamped to
  * `SIDEBAR_WIDTH_MIN…MAX`), keep going past `SIDEBAR_COLLAPSE_AT` to collapse to
  * the icon rail, drag back out to bring it round. A press that travels less than
- * `SIDEBAR_DRAG_SLOP` is still the old toggle, so the gesture people already
- * have keeps working.
+ * `SIDEBAR_DRAG_SLOP` is a toggle click, so the gesture people already have
+ * keeps working.
  *
  * Keyboard: it is a real `role="separator"` window splitter and a tab stop —
  * arrows resize (Shift for the coarse step), Home/End go to the bounds, one more
@@ -570,9 +561,9 @@ function SidebarRail({
       data-sidebar="rail"
       data-slot="sidebar-rail"
       data-resizing={resizing || undefined}
-      // A window splitter, which is what it now is: a focusable separator that
-      // reports the width it controls. `role` does not remove a <button>'s
-      // activation behaviour, so Enter/Space still reach `onClick` — the toggle.
+      // A window splitter: a focusable separator that reports the width it
+      // controls. `role` does not remove a <button>'s activation behaviour, so
+      // Enter/Space still reach `onClick` — the toggle.
       role="separator"
       aria-orientation="vertical"
       aria-label="Resize sidebar"
@@ -587,10 +578,9 @@ function SidebarRail({
       // to change yet, only a rail to bring back.
       title={state === 'collapsed' ? 'Drag or click to expand the sidebar' : 'Drag to resize, click to collapse'}
       className={cn(
-        // Was `transition-all ease-linear` — the app's only `transition-all`,
-        // and it promised to animate every property this element might ever
-        // grow. The only thing it actually moves is its own `translate-x`
-        // between the collapsible modes, so that is what it names.
+        // Names only the property it moves: its own `translate-x` between the
+        // collapsible modes. A `transition-all` would promise to animate every
+        // property this element might ever grow.
         'absolute inset-y-0 z-20 hidden w-4 -translate-x-1/2 transition-transform duration-quick ease-out motion-reduce:transition-none group-data-[side=left]:-right-4 group-data-[side=right]:left-0 after:absolute after:inset-y-0 after:left-1/2 after:w-[2px] hover:after:bg-sidebar-border sm:flex',
         // `col-resize` while there is a width to change, and the one-way arrow
         // while collapsed, where the only move left is "come back".
@@ -697,7 +687,7 @@ function SidebarGroupLabel({
       className={cn(
         // Opacity fades, the margin does NOT. The collapsed state pulls this
         // label out of flow with `-mt-8`, and animating a margin is animating
-        // layout — the label used to drag every row below it up over 200ms.
+        // layout: it would drag every row below it up over 200ms.
         // Same split as the rail: the size change lands in one pass, and only
         // the compositable half is timed.
         'flex h-8 shrink-0 items-center rounded-md px-2 text-xs font-medium text-sidebar-foreground/70 outline-none ring-sidebar-ring transition-opacity duration-quick ease-out motion-reduce:transition-none focus-visible:ring-2 [&>svg]:size-4 [&>svg]:shrink-0',
@@ -765,12 +755,10 @@ function SidebarMenuItem({ className, ...props }: React.ComponentProps<'li'>): R
 }
 
 const sidebarMenuButtonVariants = cva(
-  // `transition-[width,height,padding]` here was the same layout animation as
-  // the rail's, multiplied by every row in the nav — and it was the ONLY
-  // transition on this control, so the one thing a nav row should ease (its
-  // hover fill) was snapping while its geometry was easing. Both are now the
-  // right way round: the tile resizes in one pass with the rail, and `colors`
-  // carries the hover.
+  // No `transition-[width,height,padding]`: that is the rail's layout animation,
+  // multiplied by every row in the nav. The one thing a nav row should ease is
+  // its hover fill, so `colors` carries the hover while the tile resizes in one
+  // pass with the rail.
   'peer/menu-button flex w-full items-center gap-2 overflow-hidden rounded-md p-2 text-left text-sm outline-none ring-sidebar-ring transition-colors duration-quick ease-out group-has-data-[sidebar=menu-action]/menu-item:pr-8 group-data-[collapsible=icon]:size-8! group-data-[collapsible=icon]:p-2! hover:bg-sidebar-accent hover:text-sidebar-accent-foreground focus-visible:ring-2 active:bg-sidebar-accent active:text-sidebar-accent-foreground disabled:pointer-events-none disabled:opacity-50 aria-disabled:pointer-events-none aria-disabled:opacity-50 data-[active=true]:bg-sidebar-accent data-[active=true]:font-medium data-[active=true]:text-sidebar-accent-foreground data-[state=open]:hover:bg-sidebar-accent data-[state=open]:hover:text-sidebar-accent-foreground [&>span:last-child]:truncate [&>svg]:size-4 [&>svg]:shrink-0',
   {
     variants: {

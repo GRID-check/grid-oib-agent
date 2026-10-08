@@ -158,8 +158,8 @@ describe('selectConversation message repopulation', () => {
     await new Promise((resolve) => setTimeout(resolve, 0))
     await new Promise((resolve) => setTimeout(resolve, 0))
 
-    // Dropping the server rows here hid the history for good: the awaiting
-    // flag was cleared, so nothing ever fetched it again.
+    // Dropping the server rows here would hide the history for good: the awaiting
+    // flag is cleared, so nothing would fetch it again.
     const messages = useChatStore.getState().currentConversation!.messages
     expect(messages.map((m) => m.content)).toEqual([
       'earlier question',
@@ -281,7 +281,7 @@ describe('loadServerConversations merge', () => {
 
     await useChatStore.getState().loadServerConversations()
     // Its empty message list means "not here yet": nothing may treat it as a
-    // thread nobody wrote in (the upload-only cleanup deleted it).
+    // thread nobody wrote in (the upload-only cleanup deletes it).
     expect(isAwaitingServerMessages(id)).toBe(true)
 
     mockConversationsClient.listMessages.mockResolvedValue([serverRow(id, 'm1', 'user', 'Frage')])
@@ -290,11 +290,11 @@ describe('loadServerConversations merge', () => {
   })
 
   it('carries jobId through the merge, so job threads stay out of the chat list', async () => {
-    // Regression with a silent failure mode. The merge maps the server row
-    // field by field, so a column left out is dropped without a type error and
-    // without a failing test — and dropping THIS one makes `isJobConversation`
-    // permanently false, which puts every scheduled job's output back into its
-    // owner's personal history (a weekly job is 52 threads a year).
+    // A silent failure mode: the merge maps the server row field by field, so a
+    // column left out is dropped without a type error and without a failing test.
+    // Dropping THIS one would make `isJobConversation` permanently false, which puts
+    // every scheduled job's output back into its owner's personal history (a weekly
+    // job is 52 threads a year).
     useChatStore.setState({ conversations: [] })
     mockConversationsClient.list.mockResolvedValue([
       {
@@ -360,9 +360,8 @@ describe('loadServerConversations merge', () => {
   })
 
   it('preserves the local per-session data-source selection across the merge', async () => {
-    // Regression: dropping enabledDataSourceIds re-enables every default data
-    // source on the next select, sending messages with sources the user
-    // explicitly turned off.
+    // Dropping enabledDataSourceIds would re-enable every default data source on
+    // the next select, sending messages with sources the user explicitly turned off.
     const conv = makeConversation({ enabledDataSourceIds: [] })
     useChatStore.setState({ conversations: [conv] })
     mockConversationsClient.list.mockResolvedValue([
@@ -382,18 +381,18 @@ describe('loadServerConversations merge', () => {
     expect(merged.enabledDataSourceIds).toEqual([])
   })
 
-  /**
-   * A conversation someone ELSE created and shared with me (ADR-0032).
-   *
-   * `listVisibleConversations` returns it — visibility/grants are resolved
-   * server-side — but everything downstream of this merge filters the store on
-   * `conversation.userId === currentUserId`: the sessions panel, the
-   * `selectConversation` guard, storage protection, deep-research scoping. That
-   * field is a MEMBERSHIP marker ("belongs in this user's list"), never rendered
-   * as an author — authorship comes from the shared-thread participants. Stamping
-   * it with the creator therefore made every shared conversation invisible and
-   * unopenable for the person it was shared with, which is the entire feature.
-   */
+    /**
+     * A conversation someone ELSE created and shared with me (ADR-0032).
+     *
+     * `listVisibleConversations` returns it — visibility/grants are resolved
+     * server-side — but everything downstream of this merge filters the store on
+     * `conversation.userId === currentUserId`: the sessions panel, the
+     * `selectConversation` guard, storage protection, deep-research scoping. That
+     * field is a MEMBERSHIP marker ("belongs in this user's list"), never rendered
+     * as an author — authorship comes from the shared-thread participants. Stamping
+     * it with the creator would make every shared conversation invisible and
+     * unopenable for the person it was shared with, which is the entire feature.
+     */
   it('claims a conversation shared by a colleague for the current user', async () => {
     useChatStore.setState({ currentUserId: 'user-anna', conversations: [] })
     mockConversationsClient.list.mockResolvedValue([
@@ -469,8 +468,9 @@ describe('_appendMessage conversation ensure', () => {
   })
 
   it('creates without listing first: the create is the idempotent check', async () => {
-    // The list was capped at 200 rows and a failure unrelated to this chat (a 429
-    // on the list) meant the message was never stored.
+    // The list is capped at 200 rows, and a failure unrelated to this chat (a 429
+    // on the list) must not stop the message being stored, so the create is the
+    // idempotent check and the list is not consulted first.
     mockConversationsClient.list.mockRejectedValue(new Error('429'))
     const conv = makeConversation({ title: 'Direct chat', projectId: 'p1' })
     useChatStore.setState({ conversations: [conv], currentConversation: conv })

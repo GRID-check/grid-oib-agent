@@ -32,9 +32,8 @@ const STALE_CLAIM_MINUTES = 15
  *   predicate the BFF's immediate deletes and the delete triggers share. For a
  *   project that is a hold on the project, on anything in it (a document, a
  *   chat, a chat's attachment), on the user who created any of those, or on
- *   the organization. The predicate used to be written out here and saw only
- *   the project and the organization, so a held document inside a deleted
- *   project was purged with it.
+ *   the organization. Checking only the project and the organization would purge
+ *   a held document along with the deleted project that contains it.
  * - stale 'purging' rows from a crashed purger are re-claimable after 15 min
  * - retry backoff: a previously-failed row (attempts > 0, claimed_at set by the
  *   failed claim) is only re-eligible after an exponential delay measured from

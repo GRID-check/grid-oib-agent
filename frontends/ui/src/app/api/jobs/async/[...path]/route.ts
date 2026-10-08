@@ -60,8 +60,7 @@ import { findProjectIdByCollectionName } from '@/lib/projects/repository'
 
 /**
  * Per-org runtime model overrides ({agentGroup: openrouterModelId}) plus the
- * signed context envelope (backlog T3-9 follow-up, 2026-07-16, user-mandated)
- * for the async-submit proxy — same header/encoding server.js forwards on
+ * signed context envelope for the async-submit proxy — same header/encoding server.js forwards on
  * the WebSocket upgrade (x-grid-model-overrides, base64url JSON), decoded by
  * the backend (model_overrides.py). Without the overrides header, submit
  * falls through to the WS-only override path and jobs silently run on
@@ -70,7 +69,7 @@ import { findProjectIdByCollectionName } from '@/lib/projects/repository'
  * outright for an authenticated caller (REQUIRE_AUTH=true).
  *
  * Routed through the shared `GridRequestContext` builder
- * (`@/lib/request-context`, backlog T3-9) so this path's headers can never
+ * (`@/lib/request-context`) so this path's headers can never
  * drift from every other producer/consumer. Always returns at least the
  * envelope headers (never just `{}`) so the caller can unconditionally
  * spread the result into the fetch headers.
@@ -100,8 +99,8 @@ async function resolveGridContextHeaders(
     } catch (error) {
       console.warn('[Deep Research API] Failed to load model overrides:', error)
     }
-    // The organization's standing instruction block (migration 0087) — the
-    // same text a chat turn carries, because a deep-research run is a turn the
+    // The organization's standing instruction block — the same text a chat
+    // turn carries, because a deep-research run is a turn the
     // same office asked for. `resolveOrgInstructions` already fails soft to
     // null, so a lookup failure costs the run its preferences and not the run.
     const orgInstructions = await resolveOrgInstructions(session.organizationId)
@@ -111,8 +110,8 @@ async function resolveGridContextHeaders(
   }
 
   if (extra.projectId) {
-    // Structured jurisdiction fact (backlog T3-9 follow-up, 2026-07-16,
-    // user-mandated) — rides the envelope's `bundesland` field. Best-effort:
+    // Structured jurisdiction fact — rides the envelope's `bundesland` field.
+    // Best-effort:
     // a lookup failure must not block job submission; the backend falls back
     // to prompt-text parsing of `project_context` (unaffected either way).
     try {
@@ -163,18 +162,18 @@ interface ReportFilingResult {
  * ## Why a failure is reported and not just swallowed
  *
  * Filing stays best-effort — the answer is never the filing's to lose, and the
- * `catch` below still swallows the error. What changed is that swallowing it
- * SILENTLY is a broken promise: before the run starts, the banner prints
+ * `catch` below still swallows the error. Swallowing it SILENTLY is a broken
+ * promise: before the run starts, the banner prints
  * „Der fertige Bericht wird in diesem Projekt unter ‚Berichte' abgelegt."
  * (`deepResearch.starting.filingDisclosure`). A reader who was told that, and
  * is then shown a plain success, goes to Berichte and finds nothing — with
  * nothing anywhere to tell them why, because the only record is a server log
  * they cannot read.
  *
- * `null` used to mean four different things: not a report request, no project
- * to file into, no report yet, and "we tried and it did not work". The first
- * three are states in which no promise was made. Only the fourth is a promise
- * broken, and it is the only one worth a word to the reader.
+ * A `null` outcome covers three states in which no promise was made: not a
+ * report request, no project to file into, and no report yet. Only "we tried
+ * and it did not work" is a promise broken, and it is the only one worth a word
+ * to the reader.
  *
  * ## Why the reason does not travel
  *
@@ -247,12 +246,11 @@ function readReportCards(data: unknown): unknown[] | undefined {
  * this handler. It is filed by the worker's outcome callback instead
  * (`/api/internal/jobs/[jobId]/outcome` → `completeTaskForRun`), as the
  * REQUESTER the task row pinned when the job was set up — the person's own
- * membership and permissions resolved at completion (ADR-0051, the design's
- * decision 10). Both paths key the document on the same backend job id, so a
- * report filed at 03:00 and opened here at 09:00 is one row (migration 0064).
- * The session check below stays the anonymous-mode guard, and the rule stays:
- * never a service token — the agent's principal is WIDER than the user's,
- * which is the hole this whole feature was shaped to avoid.
+ * membership and permissions resolved at completion (ADR-0051). Both paths key
+ * the document on the same backend job id, so a report filed at 03:00 and opened
+ * here at 09:00 is one row. The session check below stays the anonymous-mode
+ * guard, and the rule stays: never a service token. The agent's principal is
+ * WIDER than the user's, and that is the hole the feature is shaped to avoid.
  */
 async function fileReportIfCommissioned(
   req: Request,
@@ -262,14 +260,13 @@ async function fileReportIfCommissioned(
 ): Promise<ReportFilingOutcome | null> {
   if (path.length !== 3 || path[0] !== 'job' || path[2] !== 'report') return null
   const runId = path[1]
-  // The reader's project is deliberately NOT a parameter of this function. It
-  // used to be, as a precondition — `|| !projectId` — which survived the change
-  // that moved the destination onto the run and quietly kept the old coupling:
-  // a run commissioned in a project, opened from a context that resolved no
-  // project of its own, was never filed, and the response carried neither
-  // `filed` nor `filingFailed`, so a reader who had been promised „wird
-  // abgelegt" was told nothing at all. Taking the argument away is what stops
-  // that being re-introduced by someone reading the precondition as a guard.
+  // The reader's project is deliberately NOT a parameter of this function. A
+  // `projectId` precondition (`|| !projectId`) would couple filing to the reader:
+  // a run commissioned in a project, opened from a context that resolves no
+  // project of its own, would never be filed, and the response would carry
+  // neither `filed` nor `filingFailed`, so a reader promised „wird abgelegt" is
+  // told nothing at all. Keeping the argument out stops that coupling being
+  // reintroduced by someone reading the precondition as a guard.
   if (!session?.organizationId) return null
 
   const report = readReportMarkdown(data)
@@ -293,7 +290,8 @@ async function fileReportIfCommissioned(
   if (!commissioned) return null
   const commissionedProjectId = await findProjectIdByCollectionName(commissioned, session.organizationId)
   // The collection is real but names no project THIS organization owns. Filing
-  // anywhere on that basis would be the cross-tenant version of the bug above.
+  // anywhere on that basis would be the cross-tenant form of filing into the
+  // wrong project.
   if (!commissionedProjectId) return null
 
   try {
@@ -330,10 +328,9 @@ async function fileReportIfCommissioned(
  * A cancel that lands after the job finished (`400 Job not cancellable: <id>
  * (status: success|failure)`) is the backend's verdict, not a failure: the
  * Sessions panel's stop is confirmed in a dialog, the run can end while it is
- * open, and the panel re-reads the list either way. The warn guard for #632
- * went onto GET and DELETE while the live cancel is a POST
- * (`cancelJob` → `/job/{id}/cancel`), so it never ran; one helper for every
- * method is what keeps that from happening twice.
+ * open, and the panel re-reads the list either way. The live cancel is a POST
+ * (`cancelJob` → `/job/{id}/cancel`), so every method goes through this one
+ * helper and the same rule applies to each.
  */
 function logBackendError(method: 'GET' | 'POST' | 'DELETE', status: number, errorText: string): void {
   if (status === 400 && errorText.includes('Job not cancellable')) {
@@ -375,10 +372,8 @@ export const GET = tenantSlotRoute(async function GET(
     const authHeaders = buildAuthHeaders(authHeader)
     traceRequest('WorkOS access token present:', !!authHeaders.Authorization)
 
-    // Only the scope header. The reader's project used to be destructured here
-    // and handed to `fileReportIfCommissioned`; that it is now unused is the
-    // check on the claim that a report's destination comes from the run — the
-    // linter fails the build if it is ever consulted again without being read.
+    // Only the scope header. The reader's project plays no part in where a
+    // report is filed (see `fileReportIfCommissioned`).
     const { headerValue } = await buildCollectionScopeFromRequest(
       session,
       parseQueryContext(searchParams)
@@ -416,7 +411,7 @@ export const GET = tenantSlotRoute(async function GET(
       //
       // NOTE: the body is piped AFTER this handler returns, so it runs outside
       // the `runWithTenantSlot` scope this route opened. The pipeline only
-      // forwards upstream bytes, so nothing there touches the database today —
+      // forwards upstream bytes, so nothing there touches the database —
       // but a database read added inside the stream would throw
       // `MissingTenantContextError` at an awkward moment. Read what you need
       // before returning, or open a fresh scope inside the stream.
@@ -430,8 +425,7 @@ export const GET = tenantSlotRoute(async function GET(
     const data = await response.json()
 
     // This is where a run's completion is observed on the BFF: the client asks
-    // for the finished report, and until now the answer was read once, rendered
-    // into a chat message and thrown away with the run's file system.
+    // for the finished report, and the report is filed as a document here.
     const filing = await fileReportIfCommissioned(req, path, session, data)
 
     // Three shapes, and the third is the point: `filed` when it landed,
@@ -446,9 +440,9 @@ export const GET = tenantSlotRoute(async function GET(
       return handleAuthzError(error)
     }
 
-    // #646: backend unreachable (EHOSTUNREACH, fetch failed) is a transient
-    // transport miss, not an application bug. Warn with the host so operators
-    // can see which tier dropped, without filing an ERROR per blip.
+    // Backend unreachable (EHOSTUNREACH, fetch failed) is a transient transport
+    // miss, not an application bug. Warn with the host so operators can see which
+    // tier dropped, without filing an ERROR per blip.
     const message = error instanceof Error ? error.message : String(error)
     if (message.includes('fetch failed') || message.includes('EHOSTUNREACH') || message.includes('ECONNREFUSED')) {
       console.warn('[Deep Research API] GET transport miss:', message.slice(0, 300))

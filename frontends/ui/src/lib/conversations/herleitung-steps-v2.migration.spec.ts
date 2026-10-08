@@ -218,7 +218,7 @@ describe.skipIf(!url)('migration 0097: Herleitung steps v2, against live Postgre
     await db?.end()
   })
 
-  it('rewrites a whole turn by the old readers’ rules, in order, dropping what v2 never produces', async () => {
+  it('rewrites a whole v1 turn into v2 steps, in order, dropping what v2 never produces', async () => {
     expect(await stepsOf(ID.turn)).toEqual(V2_TURN)
   })
 
@@ -260,7 +260,7 @@ describe.skipIf(!url)('migration 0097: Herleitung steps v2, against live Postgre
     expect(count).toBe(0)
   })
 
-  it('down: gives the old readers their names back, and restores nothing that was dropped', async () => {
+  it('down: renames the steps back to the v1 names and restores nothing that was dropped', async () => {
     await db.unsafe(migration('0097_herleitung_steps_v2.down.sql'))
     const steps = (await stepsOf(ID.turn)) as Array<Record<string, unknown>>
     expect(steps.map((step) => step.functionName)).toEqual([

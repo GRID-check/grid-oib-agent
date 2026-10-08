@@ -12,7 +12,7 @@ import userEvent from '@testing-library/user-event'
 import { EngagementNotice } from './EngagementNotice'
 
 describe('EngagementNotice', () => {
-  test('renders nothing in ask mode with nothing to offer — the composer already says it (NF-8)', () => {
+  test('renders nothing in ask mode with nothing to offer — the composer already says it', () => {
     const { container } = render(<EngagementNotice mode="ask" onChange={vi.fn()} />)
     expect(container).toBeEmptyDOMElement()
   })
@@ -62,7 +62,7 @@ describe('EngagementNotice', () => {
     )
     expect(screen.getByTestId('engagement-notice')).toHaveTextContent(
       // Deliberately not "two of you": the mode holds for any number of
-      // people, and the notice used to state a headcount it does not know.
+      // people, and the notice must not state a headcount it does not know.
       'Several of you are talking here, so a plain message goes to everyone in the chat.',
     )
   })

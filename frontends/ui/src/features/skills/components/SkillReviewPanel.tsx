@@ -10,16 +10,14 @@
  * enforces — but not that it is specific enough to be selected over every other
  * skill in the org. So the check is the same kind of thing it is checking.
  *
- * ## It no longer holds the findings
+ * ## The findings are not listed here
  *
- * It used to render the whole list under its own heading, which put the
- * critique of the DESCRIPTION two steps away from the description. Revising
- * meant walking back with the advice held in your head and walking forward
- * again to see whether you had addressed it.
- *
- * The findings now sit under the fields they are about (`SkillFindingList`,
- * inline, on steps 1 and 2). What is left here is what is genuinely about the
- * whole draft: has it been read, what came back, and WHERE the open findings
+ * The findings sit under the fields they are about (`SkillFindingList`, inline,
+ * on steps 1 and 2). A list under its own heading would put the critique of the
+ * DESCRIPTION two steps away from the description, and revising would mean
+ * walking back with the advice held in your head and walking forward again to
+ * see whether you had addressed it. What is left here is what is genuinely about
+ * the whole draft: has it been read, what came back, and WHERE the open findings
  * are — each row a way to the step that holds them. The verdict stays one
  * object; only its parts are shown where they can be acted on.
  *

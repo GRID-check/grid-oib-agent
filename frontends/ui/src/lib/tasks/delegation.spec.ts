@@ -141,9 +141,9 @@ describe('delegateTask', () => {
 
   /**
    * A run is one message in the thread that commissioned it (ADR-0062), so
-   * „@Piloti prüf das" answers where it was asked. The old shape minted a
-   * conversation per delegation, which put the answer somewhere the person who
-   * asked had no reason to look.
+   * „@Piloti prüf das" answers where it was asked. A conversation minted per
+   * delegation would put the answer somewhere the person who asked has no
+   * reason to look.
    */
   it('lands the run in the thread the person was typing in, and records its message', async () => {
     await delegateTask(session, {
@@ -180,11 +180,10 @@ describe('delegateTask', () => {
   })
 
   // A kind that wants a playbook NAMES it, the way a person names one in the
-  // composer. It used to resolve the skill, freeze its body and paste it in
-  // under „Verwende dabei den folgenden Skill verbindlich und vollständig" —
-  // forcing, spelled out in German, reached through a code table instead of a
-  // picker. ADR-0060 says nothing may impose a skill on a turn, and a table in
-  // our own source is no more allowed to than a job or a request is.
+  // composer. The prompt never pastes a skill's body under „Verwende dabei den
+  // folgenden Skill verbindlich und vollständig": that would impose the skill on
+  // the turn through a code table instead of a picker, and ADR-0060 says nothing
+  // may impose a skill on a turn, a table in our own source included.
   it('names the einreichcheck skill in the prompt and pastes no body', async () => {
     await delegateTask(session, { projectId: PROJECT, kind: 'einreichcheck', goal: 'Prüf die Einreichung' })
 
@@ -264,7 +263,7 @@ describe('delegateTask', () => {
     expect(run?.error).toContain('backend unreachable')
   })
 
-  it('does not call a submitted run failed when recording it fails (#723)', async () => {
+  it('does not call a submitted run failed when recording it fails', async () => {
     // The backend accepted the job; the database write after it did not land.
     // The run is running, and saying `failed` would tell the reader it is not.
     vi.mocked(repository.updateRun).mockRejectedValue(new Error('connect EHOSTUNREACH 10.0.0.1:5432'))
@@ -407,7 +406,7 @@ describe('what a delegated run is told to produce', () => {
         subject: kind === 'revision' ? { documentId: 'd', versionId: 'v', comment: 'c' } : undefined,
       })
       expect(insertedDefinition.plan.prompt).not.toContain('file_draft')
-      // The retired name too: a prompt that still teaches it names a tool that no longer exists.
+      // Nor the tool's former name, which no longer exists.
       expect(insertedDefinition.plan.prompt).not.toContain('submit_draft')
       // The answer IS the document, which is what `completeRunForOutcome` files.
       expect(insertedDefinition.plan.prompt).toContain('Markdown')

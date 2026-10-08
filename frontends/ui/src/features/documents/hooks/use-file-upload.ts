@@ -304,10 +304,8 @@ export const useFileUpload = (options: UseFileUploadOptions = {}): UseFileUpload
        * The validator's own summary in the READER's language.
        *
        * `validation.ts` is pure and has callers with no dictionary, so its
-       * `message` stays English — but that English was being spliced into a
-       * localized sentence, and a German reader was told «1 Datei wird
-       * hochgeladen, 1 übersprungen ("Plan.pdf" is 210 MB, exceeds 100 MB
-       * limit)». Every error now carries its parts, and the words are chosen
+       * `message` stays English. A localized sentence must not splice that
+       * English in: every error carries its parts, and the words are chosen
        * here, where there is a `t`.
        */
       const localizedSummary = summarizeValidation(validationResult, t)
@@ -430,8 +428,8 @@ export const useFileUpload = (options: UseFileUploadOptions = {}): UseFileUpload
 
         // Several at a time, not one after another: each POST also writes to
         // object storage, checks the org quota and dispatches to the ingest
-        // API, so a serial loop left the connection idle for most of every
-        // file and made the batch take the SUM of all of them.
+        // API, so a serial loop would leave the connection idle for most of
+        // every file and take the SUM of all of them.
         const uploadUrl =
           shelf === 'archiv'
             ? '/api/archiv/documents/upload'
@@ -451,8 +449,8 @@ export const useFileUpload = (options: UseFileUploadOptions = {}): UseFileUpload
             if (conversationProjectId) formData.append('projectId', conversationProjectId)
           }
           if (projectId) formData.append('projectId', projectId)
-          // Both durable shelves are filed into folders now (the Archiv's
-          // are the office's own).
+          // Both durable shelves are filed into folders (the Archiv's are the
+          // office's own).
           if (shelf !== 'session') {
             const resolved = resolvedFolderId(file)
             if (resolved) formData.append('folderId', resolved)
@@ -521,13 +519,12 @@ export const useFileUpload = (options: UseFileUploadOptions = {}): UseFileUpload
         })
 
         // Once, after the batch — not per file inside the fan-out. The
-        // document listings held for the page lifetime are now stale: until
-        // something fired this, a file uploaded mid-conversation was
-        // invisible to the citation resolver, and the answer cited it while
-        // the chip said there was nothing to open (#623, on the path its fix
-        // missed). Firing it fifty times for a fifty-file folder upload would
-        // make every surface that mounts during the batch refetch four
-        // listings again for each one.
+        // document listings held for the page lifetime go stale after an
+        // upload: without this, a file uploaded mid-conversation is invisible
+        // to the citation resolver, and an answer can cite it while the chip
+        // says there is nothing to open. Firing it fifty times for a
+        // fifty-file folder upload would make every surface that mounts during
+        // the batch refetch four listings again for each one.
         notifyDocumentsChanged()
 
         // Sealed once every request has answered: the files that wrote no row
@@ -669,10 +666,10 @@ export const useFileUpload = (options: UseFileUploadOptions = {}): UseFileUpload
       }
 
       // Every shelf's file is a document row, deleted with its chunks and its
-      // objects by that shelf's first-party route, by DOCUMENT id. This used to
-      // be the proxy's chunk-only file delete, which takes filenames: handed a
-      // document id it matched nothing, and the row and the object stayed. A
-      // file that never reached the server has nothing to delete there.
+      // objects by that shelf's first-party route, by DOCUMENT id. The proxy's
+      // chunk-only file delete takes filenames, so handed a document id it would
+      // match nothing and leave the row and the object behind. A file that never
+      // reached the server has nothing to delete there.
       const documentId = file.serverFileId
       if (!documentId) {
         removeTrackedFile(fileId)
@@ -701,8 +698,8 @@ export const useFileUpload = (options: UseFileUploadOptions = {}): UseFileUpload
 
   // Retries asked for in the same tick ("Retry all" calls this once per
   // failed row) go out as ONE batch, so they share the batch's concurrency
-  // cap. One batch per row put every failed file in flight at once, straight
-  // into the rate limit that had failed most of them.
+  // cap. One batch per row would put every failed file in flight at once,
+  // straight into the rate limit that failed most of them.
   const pendingRetriesRef = useRef<{ files: File[]; done: Promise<void> } | null>(null)
   const retryIntentsRef = useRef(new Map<File, UploadIntent>())
   const retryFile = useCallback(

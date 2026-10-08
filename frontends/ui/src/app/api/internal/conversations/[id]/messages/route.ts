@@ -4,8 +4,8 @@
  * single-writer: the Python backend never touches the database; it POSTs here
  * over the compose network, authenticated by the shared service token
  * (GRID_INTERNAL_API_TOKEN on both services) instead of replaying the browser's
- * handshake cookie — that token expires on long deep-research turns and the old
- * cookie-replay POST would silently 401, dropping the answer.
+ * handshake cookie. That cookie expires on long deep-research turns, and a
+ * replayed cookie POST would silently 401, dropping the answer.
  *
  * Not user-facing; requests without the token are rejected and the route fails
  * closed when the token is unconfigured (both enforced by `internalApiRoute`).

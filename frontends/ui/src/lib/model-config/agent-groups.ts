@@ -59,12 +59,11 @@ export const AGENT_GROUPS: AgentGroupDefinition[] = [
     requirements: { requiredParameters: ['tools'], minContextLength: 32768 },
   },
   {
-    // The `id` is a PERSISTED KEY and deliberately keeps the old spelling: it
-    // is the value stored in `platform_models.agent_group` for every org that
-    // re-pointed this agent's model, and in the `X-Grid-Model-Overrides`
-    // header. Only the label moved when the agent stopped being "the shallow
-    // one" — which is exactly what the label exists for. Do not "finish" the
-    // rename here: an unknown group id is dropped silently on both sides
+    // The `id` is a PERSISTED KEY, so it keeps its spelling while the label
+    // carries the name the agent is known by. It is the value stored in
+    // `platform_models.agent_group` for every org that re-pointed this agent's
+    // model, and in the `X-Grid-Model-Overrides` header. Do not rename the id
+    // here: an unknown group id is dropped silently on both sides
     // (`sanitize_model_overrides` in `common/model_overrides.py`), so every
     // live override would revert to the platform default with no error.
     id: 'shallow_research',
@@ -129,13 +128,14 @@ export const AGENT_GROUPS: AgentGroupDefinition[] = [
 export const AGENT_GROUP_IDS = AGENT_GROUPS.map((group) => group.id)
 
 /**
- * Whether `id` is a group in the registry today.
+ * Whether `id` is a group in the registry.
  *
  * Stored rows outlive the group that wrote them: retiring a group leaves its
  * row in `platform_model_defaults`, `platform_reasoning_efforts` and inside old
  * org versions. Every admin GET filters through this, because the admin pages
- * send back what they loaded and the PUT schemas reject unknown ids with a 400.
- * A retired `intent` row did exactly that, and no save could clear it.
+ * send back what they loaded and the PUT schemas reject unknown ids with a 400:
+ * a retired row that reached the page would fail every save, and no save could
+ * clear it.
  */
 export function isAgentGroupId(id: string): boolean {
   return AGENT_GROUP_IDS.includes(id)

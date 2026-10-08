@@ -86,7 +86,7 @@ def _passages_for(selection: Selection, address: Address, limit: int) -> list[Pa
 
 
 #: What a LIST of named §§ may return in one call, all passages together. One
-#: named § gets SECTION_MAX_CHARS; six of them at that size were ~48k
+#: named § gets SECTION_MAX_CHARS; six of them at that size would be ~48k
 #: characters in one tool result, re-sent with every later call of the turn.
 LIST_MAX_CHARS = 2 * SECTION_MAX_CHARS
 
@@ -119,9 +119,8 @@ def citation_for(title: str, punkt_label: str, version_date: str) -> str:
 
     The Fassung parenthetical is emitted ONLY when RIS stated an in-force date
     for this document. The date in a RIS page title is the RETRIEVAL stamp, not
-    a version (``register._RIS_TITLE_FASSUNG_RE`` exists because that stamp made
-    the same law ingest anew every day); putting it in a citation key would make
-    the key change daily, which is the same defect one layer up.
+    a version (``register._RIS_TITLE_FASSUNG_RE`` strips it); putting it in a
+    citation key would make the key change daily, the same defect one layer up.
     """
     key = ", ".join(part for part in (title.strip(), punkt_label.strip()) if part) or "RIS-Dokument"
     return f"{key} (Fassung {version_date})" if version_date else key

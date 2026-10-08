@@ -3,22 +3,20 @@
 /**
  * "Who does this message go to?", said out loud in the composer (ADR-0034 addendum).
  *
- * The behaviour it describes is correct server-side and was *invisible*: after a
- * colleague answers, nothing on screen told you whether your next plain message
- * was a question for Piloti or a remark to the people in the thread. The reviewer's
- * words were "I don't think it is clear out of the UI" — and a rule the user has to
- * infer is still an unclear product.
+ * The behaviour it describes is decided server-side and is invisible on its own:
+ * after a colleague answers, nothing on screen says whether your next plain message
+ * is a question for Piloti or a remark to the people in the thread. A rule the user
+ * has to infer is an unclear product.
  *
  * Three properties are load-bearing:
  *
- *   1. **It speaks only when it has something to say.** It used to state the default
- *      out loud ("Geht an Piloti") on the theory that a reader should never have to
- *      infer from an absence. That reassurance was paid for on every keystroke of
- *      every thread, and on the empty canvas it was the last piece of furniture left
- *      under the composer. The default is now silent — the two statements below are
- *      what remain, and silence is what makes them legible as changes. The `@` offer
- *      stays exactly where it was: it is the only thing in the product that teaches
- *      mentions exist, and it is not a statement.
+ *   1. **It speaks only when it has something to say.** The default is silence. A
+ *      default statement ("Geht an Piloti") would repeat on every keystroke of every
+ *      thread, and on an empty canvas it is the last furniture under the composer.
+ *      The two statements that remain are the ones a reader cannot derive from
+ *      anything else on screen, and silence is what makes them legible as changes.
+ *      The `@` offer sits on the line: it is the only thing in the product that
+ *      teaches mentions exist, and it is not a statement.
  *   2. **It states, it does not warn.** No border, no fill, no chroma: it sits in the
  *      action row between real buttons and must never look like one of them, nor
  *      like an error. Ink and paper, one line.
@@ -56,10 +54,10 @@ export interface AddresseeIndicatorProps {
   /**
    * Start a mention — the ONLY thing in the product that teaches `@` exists.
    *
-   * There was no button, no icon, no tooltip and no onboarding for the feature this
-   * whole slice is built around: a user had to already know to type `@`. So the
-   * affordance sits on the line that already states the routing, because "this goes
-   * to Piloti" is exactly the moment somebody might want it to go to a colleague
+   * With no button, icon, tooltip or onboarding, the feature this whole slice is
+   * built around would be reachable only by people who already knew to type `@`. So
+   * the affordance sits on the line that already states the routing, because "this
+   * goes to Piloti" is exactly the moment somebody might want it to go to a colleague
    * instead.
    *
    * Offered only in the default `agent` state: while people are already tagged, or
@@ -95,12 +93,11 @@ export function AddresseeIndicator({
   // are who the question is for; Piloti answering too is the addition.
   const names = [...humans.map((mention) => mention.display), ...(agentTagged ? [agentName] : [])]
 
-  // The default has nothing to say. It used to say "Geht an Piloti" — the quiet
-  // reassurance described above — and on the empty canvas that is a line of
-  // furniture under an input box that has no other furniture left. The two
-  // statements that survive are the ones a reader cannot derive from anything
-  // else on screen: somebody is tagged, or the thread is waiting on a person.
-  // Silence in the default case makes those two legible as the changes they are.
+  // The default has nothing to say. A "Geht an Piloti" line would be furniture under
+  // an input box that has no other furniture. The two statements that remain are
+  // the ones a reader cannot derive from anything else on screen: somebody is
+  // tagged, or the thread is waiting on a person. Silence in the default case makes
+  // those two legible as the changes they are.
   const label =
     mode === 'agent'
       ? null
@@ -130,32 +127,29 @@ export function AddresseeIndicator({
       role={label ? 'status' : undefined}
       aria-label={label ? t('mentions.addressee.ariaLabel', { label }) : undefined}
       className={cn(
-        // `flex-wrap` so the OFFER yields, never the statement. Without it the
-        // affordance was `shrink-0` beside a `truncate` label, so a narrow composer
-        // rendered "Geht a… · @ Kollegin oder Kollegen erwähnen" — the optional
-        // teaching hint at full width and the promise about who receives this
-        // message cut in half. That promise is the one thing this element exists to
-        // make (ADR-0036 decision 6) and it is not the part that may be abbreviated.
-        // Wrapping puts the offer on its own line instead, where it costs nothing.
+        // `flex-wrap` so the OFFER yields, never the statement. Were the affordance
+        // `shrink-0` beside a `truncate` label, a narrow composer would render
+        // "Geht a… · @ Kollegin oder Kollegen erwähnen": the optional teaching hint at
+        // full width and the promise about who receives this message cut in half. That
+        // promise is the one thing this element exists to make (ADR-0036 decision 6), and
+        // it is not the part that may be abbreviated. Wrapping puts the offer on its own
+        // line instead, where it costs nothing.
         'inline-flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-0.5 text-xs text-muted-foreground',
-        // Placement belongs HERE, not at each call site. In the composer's
-        // wrapping chip row this element sat inline when its label was short
-        // ("Geht an Piloti") and wrapped when it was long ("Geht an Anna Berger,
-        // Tobias Kern"), so it moved between states, the row height jumped, and on
-        // a narrow viewport the send button was orphaned on a line of its own. A
-        // statement about who receives the message must not change position with
-        // the length of a recipient's name. `order-last basis-full` pins it to its
-        // own line beneath the row — and owning it here means the dev preview,
-        // which builds its own composer facsimile, cannot drift from the real one.
+        // Placement belongs HERE, not at each call site. In the composer's wrapping chip
+        // row, a short label ("Geht an Piloti") sits inline and a long one ("Geht an Anna
+        // Berger, Tobias Kern") wraps, which would move the element between states, jump
+        // the row height and, on a narrow viewport, orphan the send button on a line of
+        // its own. A statement about who receives the message must not change position
+        // with the length of a recipient's name. `order-last basis-full` pins it to its
+        // own line beneath the row, and owning it here means the dev preview, which
+        // builds its own composer facsimile, cannot drift from the real one.
         'order-last basis-full pt-0.5',
         className,
       )}
     >
       {people.length > 0 && <AvatarStack people={people} size="sm" max={3} />}
       {mode === 'thread' && <Users className="size-3.5 shrink-0 opacity-70" aria-hidden />}
-      {/* No agent glyph. The spark used to lead the agent — alone, and then at
-          the end of a list of people — and the composer no longer carries it
-          anywhere: the names say who is addressed, and "Piloti" is one of them. */}
+      {/* No agent glyph. The names say who is addressed, and "Piloti" is one of them. */}
       {label && <span className="min-w-0 truncate">{label}</span>}
 
       {/* The teaching affordance. A quiet trailing action rather than a button in
@@ -190,7 +184,7 @@ export function AddresseeIndicator({
               sits on the SAME line as the statement; once it wraps to its own line
               the dot leads the line and reads as a stray bullet. The at-rest
               underline and the `@` glyph already mark this as a separate control,
-              so the dot was carrying no meaning the reader was missing. */}
+              so the dot carries no meaning the reader would miss. */}
           <AtSign className="size-3.5 shrink-0" aria-hidden />
           {t('mentions.addressee.mentionSomeone')}
         </button>

@@ -2,9 +2,8 @@
 
 Before the first LLM call the turn already holds the question, the subject
 document, the project's confirmed facts and the inventory. ADR-0052 forbids
-a label decided here from WITHHOLDING anything — the intent router it deleted
-did exactly that — so every question asked of the decision model is one
-whose answer can only ADD to the turn:
+a label decided here from WITHHOLDING anything, so every question asked of
+the decision model is one whose answer can only ADD to the turn:
 
 - ``needs_evidence``: whether the message needs a regulation, a project file
   or the building model read at all. False on a greeting, a thank-you, a
@@ -21,7 +20,7 @@ whose answer can only ADD to the turn:
 - one ``noul`` per Richtlinien-Familie the corpus holds: which OIB documents
   the answer needs. The top ones are prefetched as family overviews, so the
   model's first call sees their Gliederung and scope and opens Punkte instead
-  of searching for them (the audit's §5 b).
+  of searching for them.
 - one ``noul`` per content card type whose shape is NOT already in the
   taught envelope: the two most likely get their full shape attached to
   this turn's prompt, so a card the answer earns is written right first time.
@@ -32,7 +31,7 @@ whose answer can only ADD to the turn:
   chosen skill's BODY into this turn's prompt — the one method the question
   is the subject of, ~400 tokens, or the IFC method on a model question —
   and attach its preferred card shapes beyond the three shapes the envelope
-  teaches, the Markdown-written types and ``surface``. Inlining every short method cost ~4 600 tokens on every
+  teaches, the Markdown-written types and ``surface``. Inlining every short method would cost ~4 600 tokens on every
   call for methods most turns never use (ADR-0063, amended); one chosen
   body costs a tenth of that and only when a question calls for it. The
   body stays an offer: the model decides whether to follow it, and the
@@ -57,7 +56,7 @@ decision having run: ``TurnDecisions.none()`` attaches nothing and inlines
 nothing, and prefetches nothing with one exception: a FIRST message that
 names an OIB family („OIB 2") still gets its own search as round 0
 (``_undecided_prefetch``, ADR-0064's amendment), so ``prefetch_calls`` on it
-is not the turn as it ran before the decisions.
+is not empty when the decision did not run.
 """
 
 from __future__ import annotations
@@ -82,8 +81,8 @@ KNOWLEDGE_SEARCH = "knowledge_search"
 #: grounding block.
 NEEDS_EVIDENCE_THRESHOLD = 0.5
 #: A family is prefetched at or above this; the top ``MAX_FAMILY_PREFETCH``.
-#: Measured, not guessed: on the 27 loop-eval questions (2026-09-22,
-#: ``tests/fixtures/herleitung/decision_eval_2026-09-22.csv``) the expected
+#: Measured, not guessed: on the 27 loop-eval questions
+#: (``tests/fixtures/herleitung/decision_eval_2026-09-22.csv``) the expected
 #: family's probability ran 0.54-0.97 and no Bauordnung row's top family
 #: passed 0.49, so 0.5 is recall 1.0 at precision 1.0 where 0.6 lost two
 #: rows. Re-run ``task be:eval:decisions`` before moving it.
@@ -271,9 +270,9 @@ class TurnFacts:
 def corpus_options(facts: TurnFacts) -> dict[str, str]:
     """The corpora this turn can search: other projects only when the office has reference projects.
 
-    Offering ``referenz`` to an office with none let the model pick a corpus
-    nothing searches, and the turn prefetched nothing where ``buero`` would
-    have prefetched the archive.
+    Offering ``referenz`` to an office with none would let the model pick a
+    corpus nothing searches, and the turn would prefetch nothing where ``buero``
+    would have prefetched the archive.
     """
     if facts.reference_projects > 0:
         return dict(CORPUS_OPTIONS)
@@ -416,7 +415,7 @@ def prefetch_calls(
     The question itself, when the corpus is one the knowledge tool searches
     and the message can be searched on its own — pinned to the open document
     (``file_name``) when one is open and the corpus is the project's or the
-    office's own files, which is the audit's cleanest case: the subject was
+    office's own files, which is the cleanest case: the subject was
     known before the model ran, and a pinned lookup skips the judge. A
     message that cannot be searched on its own (a follow-up) prefetches
     nothing: the previous turn's passages are in the transcript; and,
@@ -431,10 +430,9 @@ def prefetch_calls(
     is the evidence question by construction, and without this a missed
     decision silently took the prefetch with it and the model paid a whole
     round for the same search. How often it misses is the endpoint's latency:
-    p50 2.7 s against the 1.5 s budget, 10 of 12 over, on 2026-09-23; a median
-    0.54 s, p90 0.62 s over two suites on 2026-09-24, with no change to the
-    call in between (ADR-0064's amendment). A two-word first message („OIB
-    2") is never decided at all (``register._decide_turn``).
+    p50 2.7 s against the 1.5 s budget, 10 of 12 over, in one suite; a median
+    0.54 s, p90 0.62 s over two suites (ADR-0064's amendment). A two-word first
+    message („OIB 2") is never decided at all (``register._decide_turn``).
     Only on a FIRST message (``previous_message is None``): without the
     decision's ``self_contained`` answer a later message may be a follow-up
     („Was sagt die OIB 2 dazu?"), which the decided path refuses to prefetch,
@@ -501,8 +499,8 @@ def _undecided_prefetch(question: str) -> list[dict[str, Any]]:
 def attached_card_types(decisions: TurnDecisions, skill_cards: Mapping[str, Sequence[str]]) -> list[str]:
     """The card types whose full shape rides this turn's prompt, in order, capped.
 
-    The chosen skill's preferred cards first — the shapes ``use_skill`` used
-    to hand over with the body — then the types the card nouls picked; each
+    The chosen skill's preferred cards first — the shapes ``use_skill`` hands
+    over with the body — then the types the card nouls picked; each
     once, at most ``MAX_ATTACHED_SHAPES``. The caller's lists already leave
     out the shapes the envelope teaches (``ENVELOPE_SHAPE_TYPES``) and
     ``surface`` (``CHAT_ONLY_CARD_TYPES``).

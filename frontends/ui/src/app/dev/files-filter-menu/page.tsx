@@ -2,11 +2,11 @@
 
 /**
  * Dev preview for the Dateien FILTER MENU — every way of narrowing and ordering
- * the listing, which used to be an open strip in the page header.
+ * the listing.
  *
- * The strip showed its state by looking pressed. A popover cannot, so the count
- * on the trigger carries it instead — which makes the badge load-bearing rather
- * than decoration, and is the thing this shot exists to hold: the closed
+ * A popover cannot show its state by looking pressed, so the count on the
+ * trigger carries it instead — which makes the badge load-bearing rather than
+ * decoration, and is the thing this shot exists to hold: the closed
  * trigger at rest, the closed trigger with three constraints on, and the open
  * menu with its five sections.
  *

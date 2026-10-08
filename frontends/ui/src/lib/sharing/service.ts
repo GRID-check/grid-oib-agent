@@ -336,7 +336,7 @@ async function assertInviteeCanReachContainer(
   )
 
   if (!probe.projectId) {
-    // No container to gate on (a legacy organization-level resource), so the
+    // No container to gate on (an organization-level resource), so the
     // organization membership IS the whole precondition — and it is checked here
     // rather than deferred to "tenancy is checked when they read it", because a
     // grant and a published event are written before anyone reads anything.
@@ -594,16 +594,16 @@ export async function escalateToOwner(
     request,
   })
 
-  // Every other mutation in this module publishes; this one did not, so an owner
-  // watching the same thread kept seeing a roster without the new owner in it
-  // until a focus event or the disconnected poll came round a minute later.
+  // Every other mutation in this module publishes, and this one must too: an
+  // owner watching the same thread would otherwise see a roster without the new
+  // owner until a focus event or the disconnected poll comes round a minute later.
   //
   // Best-effort, like the conversation fan-out: the grant and its audit record
   // are already committed by the time we get here, and the participant lookup
   // this needs is two further reads that are no part of them. Letting either
-  // throw answered 500 for an escalation that had in fact succeeded, so the
-  // admin retried an act already in the audit log. Live delivery is latency, not
-  // mechanism — the roster is one plain fetch away either way.
+  // throw would answer 500 for an escalation that had in fact succeeded, and the
+  // admin would retry an act already in the audit log. Live delivery is latency,
+  // not mechanism — the roster is one plain fetch away either way.
   try {
     await publishToUsers(
       await resolveParticipants(session.organizationId, resourceType, resourceId),

@@ -303,13 +303,13 @@ describe('buildComplianceBcf', () => {
 
   it('lists at most twelve verdicts in a topic, and counts the rest', () => {
     /*
-      The row cap and the remainder, both of which were dead in every test.
+      The row cap and the remainder.
 
-      Every fixture here carries two verdicts against a `DESCRIPTION_ROWS` of
-      twelve, so the `slice(0, 12)` and the `Math.min` were never exercised:
-      replacing `shown` with `verdicts.length`, or dropping the slice, kept the
-      suite green while shipping a four-hundred-row topic description — in a
-      file that leaves the product and is opened in ArchiCAD.
+      Most fixtures carry two verdicts against a `DESCRIPTION_ROWS` of twelve,
+      so the `slice(0, 12)` and the `Math.min` would go unexercised: replacing
+      `shown` with `verdicts.length`, or dropping the slice, would keep the suite
+      green while shipping a four-hundred-row topic description — in a file that
+      leaves the product and is opened in ArchiCAD.
     */
     const failures = Array.from({ length: 15 }, (_, index) => ({
       globalId: `2O2Fr$t4X7Zf8NOew3FLK${index}`,
@@ -431,10 +431,10 @@ describe('buildComplianceBcf', () => {
   })
 
   it('spells an Austrian project name instead of punching holes in it', () => {
-    // `ß` has NO Unicode decomposition, so NFKD left it for the
-    // `[^A-Za-z0-9]` pass to turn into a hyphen: `Beispielstraße` downloaded
-    // as `Beispielstra-e`. Roughly half of Viennese project names contain
-    // *straße*, so nearly every real download carried a hole in its name.
+    // `ß` has NO Unicode decomposition, so NFKD leaves it for the
+    // `[^A-Za-z0-9]` pass to turn into a hyphen: `Beispielstraße` would download
+    // as `Beispielstra-e`. "straße" is common enough in project names that the
+    // table below must cover it.
     const named = (projectName: string) =>
       buildComplianceBcf({
         projectId: 'project-1',
@@ -457,8 +457,8 @@ describe('buildComplianceBcf', () => {
     expect(named('Rezidence Dvořák')).toBe('pruefbuch-Rezidence-Dvorak-2026-05-04.bcfzip')
     expect(named('日本橋')).toBe('pruefbuch-projekt-2026-05-04.bcfzip')
     // Letters with a stroke or a ligature have no Unicode decomposition
-    // either, so they used to be punched out the same way `ß` was:
-    // `Øresund Łódź` downloaded as `resund-odz`.
+    // either, so they are punched out the same way `ß` is: `Øresund Łódź` would
+    // download as `resund-odz`.
     expect(named('Øresund Łódź')).toBe('pruefbuch-Oeresund-Lodz-2026-05-04.bcfzip')
   })
 })

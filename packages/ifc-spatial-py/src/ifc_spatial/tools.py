@@ -1,6 +1,6 @@
 """The tool surface, defined without a transport.
 
-A port of ``packages/ifc-spatial/src/mcp/tools.ts``.
+The tool surface of ``packages/ifc-spatial/src/mcp/tools.ts``, on IfcOpenShell.
 
 ## Why this file has no MCP import
 
@@ -25,7 +25,7 @@ room inventory, a drawing — get their own tools, because folding them into the
 same enum would produce a return type that is a union of four things and a model
 that guesses which one it got.
 
-## The one rule that is not the TS file's
+## The one rule of this file
 
 **Nothing here may run geometry behind the caller's back.** On the TS engine the
 geometry pass happens once inside ``openModel`` and everything afterwards is a
@@ -151,9 +151,9 @@ GEOMETRIC_RELATIONS = frozenset(
         "opensTo",
         "adjacentSpaces",
         # `above`/`below` cast rays, so they need the OCCT tree. Left out of this
-        # set they were probed by `element` to build its "available relations"
-        # menu — which ran the geometry pass on a model whose caller had only
-        # asked what an element is called. That is the one rule this file has.
+        # set, `element` would probe them to build its "available relations"
+        # menu, which would run the geometry pass for a caller who only asked
+        # what an element is called. That is the one rule this file has.
         "above",
         "below",
     }
@@ -173,8 +173,7 @@ MEASURES: dict[str, str] = {
     # it does not have; this engine has that test and measures the lichte Höhe
     # under the lowest obstruction. On the sample house the two differ by 30 cm
     # — under a suspended ceiling — and the TS number is the unsafe side of an
-    # OIB minimum room height. Keeping the old sentence would describe an
-    # operator that no longer exists.
+    # OIB minimum room height. The sentence describes this operator, not the TS one.
     "clearHeight": (
         "Lichte Raumhöhe: vom Boden senkrecht nach oben bis zum untersten hineinragenden Bauteil "
         "(abgehängte Decke, Unterzug, Leitung). NICHT die Höhe des Raumkörpers — die liefert extent(). "
@@ -337,9 +336,9 @@ SLOW_DEFAULT_LIMIT = 12
 #:
 #: Most measures answer with a structure — `clearWidth` returns width, height,
 #: area and rectangularity — and a survey over fifty of them could report no
-#: spread at all, because there was no single number to disperse. Eighteen of
-#: the twenty measures were in that state: the tool sold „die Spanne ist der
-#: Befund" and produced a Spanne for `floorArea` and `clearHeight` only.
+#: spread at all, because there is no single number to disperse. The spread is
+#: taken from the headline key each measure names in `MEASURE_HEADLINE`, and a
+#: measure without one has no spread.
 #:
 #: The key is NAMED in the output (`summary.spreadOf`) rather than assumed, so
 #: „Spanne 0.13" cannot be read as being about the height when it is about the
@@ -372,9 +371,9 @@ def _measure_one(
     wrong kind — into `ToolError`. It does not convert a kernel-level failure: a
     `RuntimeError` out of the tessellator propagates, and in a batch that aborts
     the other forty-nine measurements. That is precisely the defect `survey` and
-    the multi-id `measure` were added to remove, so catching only `ToolError`
-    here reintroduces it one layer down. `element_profile` already caught
-    `Exception` for this reason; all three paths now share the rule.
+    the multi-id `measure` exist to avoid, so catching only `ToolError` here would
+    reintroduce it one layer down. `element_profile` catches `Exception` for this
+    reason, and all three paths share the rule.
     """
     try:
         return run(lambda: fn(model, global_id))
@@ -747,14 +746,9 @@ def create_tools(cache: SpatialCache | None = None) -> list[ToolDef]:
         what makes the common question answerable inside a caller's budget.
 
         „Wie hoch ist der Keller?" is one question and seventeen rooms. Asked
-        one call at a time it costs seventeen tool calls, and the agent that
-        reported this had a budget of FIVE: it spent them on two briefings and
-        a storey table, was cut off before the first `clearHeight`, and fell
-        back to the declared storey pitch of 3.00 m for rooms whose measured
-        clear height is 2.70 m. The measurement was available and correct the
-        whole time; nothing in the answer was wrong except which number it
-        reached for, and it ran out of turns before it could reach the right
-        one.
+        one call at a time it costs seventeen tool calls, and under a budget of
+        five turns an agent cannot reach the measurement at all: it falls back to
+        the declared storey pitch of 3.00 m, where the rooms measure 2.70 m.
 
         A list also answers a question a single measurement cannot: whether the
         rooms AGREE. „Alle 17 Kellerräume 2.70 m" is a different and much
@@ -785,11 +779,10 @@ def create_tools(cache: SpatialCache | None = None) -> list[ToolDef]:
         # caller has to be able to see which one.
         results = [{"globalId": gid, "answer": _jsonable(_measure_one(run, fn, model, gid))} for gid in ids]
         decided = [r for r in results if (r["answer"] or {}).get("decidable")]
-        # `_headline`, not `answer["value"]`: eighteen of the twenty measures
-        # answer with a DICT, and reading `value` off those yields nothing to
-        # disperse. The batch path used to do exactly that, so a comma-separated
-        # `clearWidth` returned `measured`/`of` and no range while the same
-        # measure through `survey` returned the spread — one renderer branch,
+        # `_headline`, not `answer["value"]`: most measures answer with a DICT,
+        # and reading `value` off those yields nothing to disperse. Reading it
+        # directly would give a comma-separated `clearWidth` no range, while the
+        # same measure through `survey` returns the spread — one renderer branch,
         # two different answers to the same question.
         numeric = [value for value in (_headline(name, r["answer"]) for r in decided) if value is not None]
         agreement: dict[str, Any] = {
@@ -824,10 +817,9 @@ def create_tools(cache: SpatialCache | None = None) -> list[ToolDef]:
         code. „Wie hoch ist der Keller?" is not a question about a room; it is a
         question about seventeen rooms, and the honest answer is a range with an
         outlier in it. Composed from primitives it costs `find_elements` +
-        `measure` + a GlobalId→Name join the caller has to carry in its head —
-        four turns of a five-turn budget, which is exactly how a real query came
-        back quoting the declared storey pitch of 3.00 m for rooms that measure
-        2.70 m, with one at 0.25 m nobody saw.
+        `measure` + a GlobalId→Name join the caller has to carry in its head:
+        four turns of a five-turn budget, and an answer that quotes a declared
+        number where the rooms measure differently.
 
         `find_elements` and `measure` stay: a caller who needs an unusual set,
         or one element, should not pay for a survey. This is the composition of
@@ -893,10 +885,10 @@ def create_tools(cache: SpatialCache | None = None) -> list[ToolDef]:
         # Elements this measure is not ABOUT are set aside before anything runs,
         # not discovered by crashing into them. „wie hoch ist der Keller" scopes
         # by storey, a storey holds IfcAnnotation and IfcWall as well as rooms,
-        # and `clearHeight` refuses a wall by raising — so the flagship call of
-        # this very tool used to die on the first annotation and return NOTHING
-        # about the seventeen rooms behind it. The caller loses the turn and
-        # learns nothing, which at a budget of five is most of the question.
+        # and `clearHeight` refuses a wall by raising — without this set-aside the
+        # flagship call would die on the first annotation and return NOTHING about
+        # the seventeen rooms behind it. The caller loses the turn and learns
+        # nothing, which at a budget of five is most of the question.
         results: list[dict[str, Any]] = []
         not_applicable: list[dict[str, Any]] = []
         for element in matches:
@@ -1091,8 +1083,8 @@ def create_tools(cache: SpatialCache | None = None) -> list[ToolDef]:
         """
         model = resolve(args.get("model"))
         # Matched case-insensitively against the real keys rather than
-        # lowercased into them: `_lower` turned "compartmentArea" into
-        # "compartmentarea", which matched nothing and refused a correct call.
+        # lowercased into them: lowercasing would turn "compartmentArea" into
+        # "compartmentarea", which matches no key and refuses a correct call.
         wanted = str(args.get("what") or "fluchtniveau").strip().lower()
         what = next((k for k in FIRE_ASPECTS if k.lower() == wanted), wanted)
         ids = [part.strip() for part in str(args.get("globalId") or "").split(",") if part.strip()]
@@ -1115,13 +1107,12 @@ def create_tools(cache: SpatialCache | None = None) -> list[ToolDef]:
         if what == "siteBoundary":
             return run(lambda: fi.distance_to_site_boundary(model, ids[0] if ids else None))
         if what == "doorGraph":
-            # No `globalId`, like `fluchtniveau`: the graph IS the building. It
-            # was reachable from nothing while `egressPath` and `reachableFrom`
-            # — both of which are views ONTO it — were on the surface, so an
-            # agent could get a route and never the two lists that say how many
-            # doors the route-finder could not read. A route out of a graph with
-            # four unresolved doors is not wrong, it is unfounded, and the
-            # difference was invisible from here.
+            # No `globalId`, like `fluchtniveau`: the graph IS the building. Two
+            # views onto it, `egressPath` and `reachableFrom`, would otherwise let
+            # an agent get a route and never the two lists that say how many doors
+            # the route-finder could not read. A route out of a graph with four
+            # unresolved doors is not wrong, it is unfounded, and that must be
+            # visible from here.
             return run(lambda: circ.door_graph(model))
         raise ToolError(f'what "{what}" gibt es nicht. Erlaubt: {", ".join(FIRE_ASPECTS)}')
 
@@ -1130,11 +1121,10 @@ def create_tools(cache: SpatialCache | None = None) -> list[ToolDef]:
     def envelope_op(args: dict[str, Any]) -> Any:
         """The three OIB-6 operators behind one name.
 
-        These existed, were tested, and were on NO tool surface — so an agent
-        asked a Kompaktheit or Hüllfläche question reached nothing and said the
-        export could not answer it, while the operator sat in the package with
-        30 passing tests. A capability nobody can call is indistinguishable from
-        a missing one, and the second is what the user was told.
+        A capability no tool exposes is indistinguishable from a missing one: an
+        agent asked a Kompaktheit or Hüllfläche question would reach nothing and
+        say the export could not answer it, while the operator sits in the package,
+        tested.
 
         No `globalId`: all three take the whole model. `measure` is the tool for
         a named element; this one is for a set that has to be DERIVED before it
@@ -1195,10 +1185,10 @@ def create_tools(cache: SpatialCache | None = None) -> list[ToolDef]:
         """
         # Imported HERE, not at module scope. `ids_export` needs `ifctester`,
         # which ships with IfcOpenShell as a separate distribution and is not
-        # guaranteed present — and a module-level import made a missing optional
-        # dependency take down the ENTIRE tool surface, so a deployment without
-        # it could not measure a wall either. One tool degrading is a fact about
-        # one capability; eleven tools vanishing is an outage.
+        # guaranteed present — and a module-level import would let a missing
+        # optional dependency take down the ENTIRE tool surface, so a deployment
+        # without it could not measure a wall either. One tool degrading is a fact
+        # about one capability; eleven tools vanishing is an outage.
         try:
             from . import ids_export as ids
         except ImportError as error:
@@ -1253,15 +1243,14 @@ def create_tools(cache: SpatialCache | None = None) -> list[ToolDef]:
     def room_inventory(args: dict[str, Any]) -> Any:
         """``kind`` is validated here, exactly like ``relation`` and ``measure``.
 
-        It used to go straight through as ``str(args.get("kind") or "")``, and
-        ``briefing.inventory`` indexed ``GERMAN_KIND`` with it — so an omitted or
-        misspelt kind came back as ``KeyError: ''`` from ``briefing.py:799``. A
-        Python traceback is not a refusal: the caller cannot read it, cannot act
-        on it, and an MCP client sees a crash where every other enum in this file
-        produces a German sentence naming the allowed values. The NAT tool layer
-        happened to validate ``kind`` before this was reached, but this module is
-        documented as transport-free and ``mcp_server`` hands arguments here
-        unfiltered.
+        An omitted or misspelt kind is refused here, not passed through:
+        ``briefing.inventory`` indexes ``GERMAN_KIND`` with it, and the result would
+        be a ``KeyError`` from inside the briefing. A Python traceback is not a
+        refusal: the caller cannot read it, cannot act on it, and an MCP client sees
+        a crash where every other enum in this file produces a German sentence
+        naming the allowed values. The NAT tool layer validates ``kind`` before this
+        is reached, but this module is transport-free and ``mcp_server`` hands
+        arguments here unfiltered.
         """
         model = resolve(args.get("model"))
         kind = str(args.get("kind") or "").strip()
@@ -1957,8 +1946,8 @@ def _nodes(model: SpatialModel) -> list[Any]:
 def _refuse_unroutable_destination(url: str) -> None:
     """Refuse a URL that resolves anywhere but the public internet.
 
-    The scheme check this replaces stopped ``file://`` and stopped nothing else.
-    ``http://169.254.169.254/latest/meta-data/`` passed it, and so did
+    A scheme check alone stops ``file://`` and nothing else.
+    ``http://169.254.169.254/latest/meta-data/`` passes it, and so do
     ``http://127.0.0.1:9200/``, ``http://10.0.0.5/`` and every other address
     reachable from wherever this process happens to sit. That is the whole of
     SSRF: the URL comes from an agent, the connection comes from the server, and
@@ -2162,7 +2151,7 @@ def _light_incidence(model: SpatialModel, args: dict[str, Any]) -> Any:
             "gehört zum Regelwerk."
         )
         # `obstructions` already carries this warning, in its own words. Appending
-        # unconditionally printed it twice, and a caveat repeated is a caveat
+        # it unconditionally would print it twice, and a caveat repeated is a caveat
         # skimmed — the second copy teaches the reader that this paragraph is
         # boilerplate, which is the opposite of what it is for.
         existing = payload.get("caveat") or ""

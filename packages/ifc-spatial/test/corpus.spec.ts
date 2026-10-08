@@ -1,11 +1,10 @@
 /**
  * Regressions from the exporter corpus.
  *
- * Every case here was found by running the pipeline over thirteen third-party
- * IFC files — ArchiCAD 18/20, Revit 2011/2015/2024, SketchUp, SDS/2, IFC Java
- * Toolbox, across IFC2X3, IFC4, IFC4X2 and IFC4X3 — after the library had only
- * ever been measured on one hand-written fixture and one sample house. The
- * findings and the measured numbers are written up in
+ * Each case reproduces a defect that running the pipeline over thirteen
+ * third-party IFC files exposed — ArchiCAD 18/20, Revit 2011/2015/2024,
+ * SketchUp, SDS/2, IFC Java Toolbox, across IFC2X3, IFC4, IFC4X2 and IFC4X3.
+ * The findings and the measured numbers are written up in
  * `docs/roadmap/ifc-spatial-corpus-report.md`.
  *
  * The corpus files themselves are third-party and are NOT in this repository.
@@ -37,11 +36,12 @@ describe('length unit: the project assignment, not the first unit in the file', 
   })
 
   /**
-   * `Trapelo_Design_Intent.ifc` (Revit 2015) is drawn in feet and was reported
-   * as metres, because the metre its foot is defined against appears first;
-   * `AISC_Sculpture_param.ifc` (SDS/2) is drawn in inches and was reported as
-   * millimetres for the same reason. Both then look like ordinary metric files
-   * to anything downstream that prints the unit.
+   * `Trapelo_Design_Intent.ifc` (Revit 2015) is drawn in feet, and a unit read
+   * from the first metre in the file reports it as metres, because the metre its
+   * foot is defined against appears first; `AISC_Sculpture_param.ifc` (SDS/2) is
+   * drawn in inches and would be reported as millimetres for the same reason.
+   * Both would then look like ordinary metric files to anything downstream that
+   * prints the unit.
    */
   it('resolves a conversion-based unit to its real factor instead of its SI base', () => {
     expect(graph.units.length).toEqual({ symbol: 'ft', toMetres: 0.3048 })
@@ -49,8 +49,8 @@ describe('length unit: the project assignment, not the first unit in the file', 
 
   /**
    * The decimetre at #6 is not in the unit assignment. `ifcbridge-model01.ifc`
-   * has exactly this shape and was reported as a decimetre file — a factor of
-   * ten on a 195 m bridge — while its IfcUnitAssignment names a plain metre.
+   * has exactly this shape: a scan reports it as a decimetre file, a factor of
+   * ten on a 195 m bridge, while its IfcUnitAssignment names a plain metre.
    */
   it('ignores a length unit the project never assigned', () => {
     expect(graph.units.length?.symbol).not.toBe('dm')
@@ -83,10 +83,11 @@ describe('declared space boundaries', () => {
 
   /**
    * The unrestricted rule — any two spaces bounded by any one element are
-   * neighbours — reported 6 876 neighbour pairs among the 139 spaces of
+   * neighbours — would report 6 876 neighbour pairs among the 139 spaces of
    * `Trapelo_Design_Intent.ifc`, 72 % of every possible pair, of which 4 014
-   * joined rooms on different storeys. One IfcSlab accounted for 4 278 of them.
-   * On `AC20-FZK-Haus.ifc` all 21 of 21 possible pairs came back adjacent.
+   * would join rooms on different storeys. One IfcSlab accounts for 4 278 of
+   * them. On `AC20-FZK-Haus.ifc` all 21 of 21 possible pairs would come back
+   * adjacent.
    */
   it('does not make two rooms neighbours through the floor slab they stand on', () => {
     const neighbours = adjacentSpaces(graph, ID.wohnen)
@@ -117,10 +118,10 @@ describe('declared space boundaries', () => {
 
   /**
    * The file states, at #41, that the window bounds the Kueche and nothing
-   * else. Unioning that with its host wall's three rooms buried the statement:
-   * on `C20-Institute-Var-2.ifc` all 283 openings carried such a statement and
-   * the union answered with a mean of 5.7 rooms and up to 10 — the window of
-   * `Labor K5` was reported as opening into `Labor K1`…`K4` and `WC Damen`.
+   * else. Unioning that with its host wall's three rooms would bury the
+   * statement: on `C20-Institute-Var-2.ifc` all 283 openings carry such a
+   * statement, and the union would answer with a mean of 5.7 rooms and up to 10
+   * — the window of `Labor K5` would open into `Labor K1`…`K4` and `WC Damen`.
    */
   it('a window opens into the room its own boundary names, not into every room on its wall', () => {
     const answer = opensTo(graph, ID.fenster)
@@ -170,7 +171,7 @@ describe('IFC4X3 facilities are spatial structure, not components', () => {
   /**
    * The parser's own spatial hierarchy is built for the building spine, so an
    * IfcRoad reaches its parts only through IfcRelAggregates. Treating the new
-   * container types as "already walked" would have deleted the containment
+   * container types as "already walked" would delete the containment
    * structure of every infrastructure model.
    */
   it('keeps the containment structure the aggregation states', () => {
@@ -191,7 +192,7 @@ describe('IFC4X3 facilities are spatial structure, not components', () => {
  * nothing in IFC makes them share a vertical reference. In
  * `Trapelo_Design_Intent.ifc` (Revit 2015, feet) the storeys are declared on the
  * survey datum at 55.68…70.68 m while the geometry spans −3.62…12.29 m, and
- * `sillAndHead` answered, for all 68 windows,
+ * `sillAndHead` would answer, for all 68 windows,
  *
  *     sill = −58.353 m   head = −56.556 m   height = 1.797 m
  *
@@ -325,14 +326,13 @@ describe('storey datum vs measured geometry', () => {
 
 describe('blind spots know whether geometry ran', () => {
   /**
-   * The list is assembled in `buildGraph`, which runs before the geometry pass,
-   * and it used to append "keine Geometrie in dieser Ausbaustufe → Abstände,
+      * The list is assembled in `buildGraph`, which runs before the geometry pass,
+   * so it must not append "keine Geometrie in dieser Ausbaustufe → Abstände,
    * lichte Maße, Auskragungen, Flächen aus Geometrie und der freie Lichteinfall
-   * sind noch nicht berechenbar" unconditionally. `renderBriefing` printed it
-   * under BLIND on every model this library ever opened — including
-   * `Snowdon_IFC2x3.ifc`, beside a pass that had just tessellated 6 436
-   * elements into 2 452 915 triangles. A false "undecidable" is the failure the
-   * whole library exists to end, and it was emitting one about itself.
+   * sind noch nicht berechenbar" unconditionally: `renderBriefing` would print it
+   * under BLIND on every model, including `Snowdon_IFC2x3.ifc`, beside a pass
+   * that had just tessellated 6 436 elements into 2 452 915 triangles. A false
+   * "undecidable" is the failure the whole library exists to end.
    */
   it('drops the no-geometry spot once the pass has produced geometry', async () => {
     const model = await openModel(fixture('Ifc4_SampleHouse.ifc'))
@@ -364,17 +364,16 @@ describe('blind spots know whether geometry ran', () => {
 
 describe('the RTC frame', () => {
   /**
-   * The kernel re-bases a far-from-origin model and reports what it subtracted.
-   * `pass.ts` used to read `coordinateInfo.originShift`, which is `0` whenever
-   * the WASM path did the re-basing, and to add it BEFORE the Y-up→Z-up swap
-   * although both offset fields are documented as IFC Z-up. Neither error could
-   * show on a model whose shift is zero, which is every model this library had
-   * ever been run on. `Trapelo_Design_Intent.ifc` carries
+      * The kernel re-bases a far-from-origin model and reports what it subtracted,
+   * in the IFC frame. The offset is read from `wasmRtcOffset`, not from
+   * `originShift`, which is `0` whenever the WASM path did the re-basing; it is
+   * never added before the Y-up→Z-up swap. Neither mistake can show on a model
+   * whose shift is zero. `Trapelo_Design_Intent.ifc` carries
    * (219 917.23, 907 157.92, 59.13) m and `Snowdon_IFC2x3.ifc`
-   * (417 596.05, 78 709.95, 235.86) m; both were read as zero.
+   * (417 596.05, 78 709.95, 235.86) m; read as zero, both would be wrong.
    *
-   * The offset is now published rather than baked in — every measurement here
-   * is a difference between two points in one frame, and `IfcBuildingStorey.
+   * The offset is published rather than baked in — every measurement here is a
+   * difference between two points in one frame, and `IfcBuildingStorey.
    * Elevation` is measured from the very datum the kernel re-bases onto.
    */
   it('publishes the offset, and reports none for a model at the origin', async () => {

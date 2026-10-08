@@ -33,8 +33,8 @@ import { type ResourceVisibility } from './resource-shares'
  * 3 of ADR-0047 applied to the DB shelf.
  *
  * The column carries no CHECK constraint, so adding a member needs no
- * migration for the VALUE itself. What `session` did need is the
- * `conversation_id` column below (migration 0049).
+ * migration for the VALUE itself. A session needs the `conversation_id` column
+ * below.
  */
 export const DOCUMENT_SCOPES = ['project', 'archiv', 'session'] as const
 export type DocumentScope = (typeof DOCUMENT_SCOPES)[number]
@@ -44,9 +44,9 @@ export const DOCUMENT_SCREENING_OUTCOMES = ['clean', 'partial', 'unchecked', 'qu
 export type DocumentScreeningOutcome = (typeof DOCUMENT_SCREENING_OUTCOMES)[number]
 
 /**
- * Whose hand wrote the bytes (migration 0063). The members that exist TODAY:
+ * Whose hand wrote the bytes. The members that exist today:
  *
- *   - `user`  — somebody uploaded a file. Every row that predates the column.
+ *   - `user`  — somebody uploaded a file. The default, so every row a person uploaded.
  *   - `agent` — a commissioned run produced it, and `authoredByProducer`,
  *               `authoredByRef` and `authoredByRefKind` say what, which, and
  *               what kind of identifier that is.
@@ -64,16 +64,16 @@ export type DocumentScreeningOutcome = (typeof DOCUMENT_SCREENING_OUTCOMES)[numb
  * here, because the column carries no CHECK on its value and
  * `documents_authorship_requires_provenance` is written against `<> 'user'`
  * rather than against `agent`. The alternative — a two-value flag — makes the
- * second producer a migration plus an argument about what `agent` used to mean,
- * held after production rows already exist.
+ * second producer a migration plus an argument about what `agent` means, made
+ * after production rows already exist.
  *
  * This is PROVENANCE, and provenance is never responsibility. `createdBy` stays
  * the commissioning human — the export needs somebody to print and the audit
  * needs somebody to hold — and who is on the hook stays in
  * `resource_assignments`, where `Zuweisen` puts it. ADR-0047's rule is that the
  * three are different questions; this column is the one that makes keeping them
- * apart load-bearing rather than tidy, because it is the first time the answer
- * to "who wrote this" is not a person at all.
+ * apart load-bearing rather than tidy, because the answer to "who wrote this"
+ * can be something other than a person.
  */
 import {
   AUTHORED_REF_KINDS,
@@ -97,7 +97,7 @@ export const documents = pgTable('documents', {
   projectId: uuid('project_id').references(() => projects.id, { onDelete: 'cascade' }),
   scope: text('scope').$type<DocumentScope>().notNull().default('project'),
   /**
-   * The conversation a `session` document was dropped into (migration 0049),
+   * The conversation a `session` document was dropped into,
    * NULL for every other scope.
    *
    * A real column and a real foreign key rather than a read of
@@ -122,7 +122,7 @@ export const documents = pgTable('documents', {
   conversationId: text('conversation_id'),
   createdBy: text('created_by').notNull(),
   /**
-   * Who wrote the bytes — see `DOCUMENT_AUTHORS` above (migration 0063).
+   * Who wrote the bytes — see `DOCUMENT_AUTHORS` above.
    *
    * Sits next to `createdBy` on purpose: for an agent-authored report the two
    * disagree, and that disagreement is the point. The user commissioned the run
@@ -130,9 +130,9 @@ export const documents = pgTable('documents', {
    * either direction loses a question somebody will be asked in front of a
    * Behörde.
    *
-   * Defaults to `user`, which is what every row written before this column
-   * means — there was no other way for a document to exist — so there is no
-   * backfill, the same reasoning `storageBucket` carries.
+   * Defaults to `user`, the only way a document existed before there were
+   * producers, so the column needs no backfill, the same reasoning `storageBucket`
+   * carries.
    *
    * NOTE: the database also has `documents_agent_authored_idx`, PARTIAL
    * (`WHERE authored_by = 'agent'`) on `(project_id, created_at DESC)`, so it
@@ -149,7 +149,7 @@ export const documents = pgTable('documents', {
   authoredBy: text('authored_by').$type<DocumentAuthor>().notNull().default('user'),
   /**
    * WHAT wrote a document no person wrote, as a producer identifier —
-   * `deep_research`, never `Tiefenrecherche` (migration 0063). NULL for
+   * `deep_research`, never `Tiefenrecherche`. NULL for
    * everything a person uploaded.
    *
    * A separate column from `authoredByRef` because a reference answers "which
@@ -170,15 +170,12 @@ export const documents = pgTable('documents', {
   authoredByProducer: text('authored_by_producer'),
   /**
    * WHICH ONE — the identifier of the thing that produced a document no person
-   * wrote; NULL for everything a person uploaded (migrations 0063, 0066).
+   * wrote; NULL for everything a person uploaded.
    *
    * Read it WITH {@link documents.authoredByRefKind}, which says what kind of
-   * identifier it is. Until migration 0066 this column was called
-   * `authored_by_run_id` and both its comments called it "the backend async job
-   * id of the run", which was true for as long as there was one producer and
-   * false the moment there were three — a diagram's reference is built from the
-   * chat answer it was drawn in, not from any run. The kind is now stated by the
-   * row rather than assumed by the reader, which is the whole of 0066.
+   * identifier it is. A reference is not necessarily a run: a diagram's reference
+   * is built from the chat answer it was drawn in, so the row states the kind
+   * rather than leaving the reader to assume it.
    *
    * `text`, not `uuid`: every kind of reference here is carried from somewhere
    * else and never generated in this table — the same reason `conversations.id`
@@ -195,10 +192,9 @@ export const documents = pgTable('documents', {
    *
    * NOTE: the database also has `uniq_documents_authored_ref_producer_per_project`,
    * UNIQUE and PARTIAL — `(organization_id, project_id, authored_by_ref,
-   * authored_by_producer)` WHERE `authored_by <> 'user'` (migration 0065,
-   * widening 0064's by the producer because a run can owe more than one FILE: a
-   * diagram is a previewable SVG and an attachable PDF and needs both; renamed
-   * with this column by 0066). It is
+   * authored_by_producer)` WHERE `authored_by <> 'user'`. The producer is in the
+   * key because a run can owe more than one FILE: a diagram is a previewable SVG
+   * and an attachable PDF and needs both. It is
    * what makes "one filed document per reference and producer" true under
    * concurrency rather than only under a lookup: the
    * filing path's probe runs before the insert, so two report tabs both miss it
@@ -219,16 +215,16 @@ export const documents = pgTable('documents', {
   authoredByRef: text('authored_by_ref'),
   /**
    * WHAT KIND of identifier `authoredByRef` is — see `AUTHORED_REF_KINDS`
-   * (migration 0066). NULL for everything a person uploaded.
+   * NULL for everything a person uploaded.
    *
    * A separate column and not an inference from `authoredByProducer`, even
    * though the filing path derives it from exactly that. The mapping is CODE,
    * and code changes: a producer that one day files under a different kind of
    * reference would silently re-interpret every row it had already written,
    * because the answer would be recomputed rather than recorded. Writing it down
-   * pins each row's meaning at the moment it was written, which is 0063's
-   * argument for `authoredByProducer` — a run id "only accidentally answers what
-   * produced this" — applied to the next question along.
+   * pins each row's meaning at the moment it was written, which is the
+   * argument for `authoredByProducer` (a run id only accidentally answers what
+   * produced this) applied to the next question along.
    *
    * The other half of the reason is that not every reader is TypeScript. The
    * audience for these columns is somebody resolving provenance, often through
@@ -242,8 +238,7 @@ export const documents = pgTable('documents', {
   authoredByRefKind: text('authored_by_ref_kind').$type<AuthoredRefKind>(),
   /**
    * Blanket visibility (ADR-0032). Default `project` — a file is evidence the
-   * whole project can see. `private` is available once the type is registered;
-   * the first Files vertical does not offer the chip on project-visible rows.
+   * whole project can see. `private` is available once the type is registered.
    * Provenance (`createdBy`) is never this column. Assignment is never this
    * column (ADR-0047).
    */
@@ -257,20 +252,18 @@ export const documents = pgTable('documents', {
    */
   filename: text('filename').notNull(),
   /**
-   * What a reader sees, when somebody has renamed the document (migration 0048).
+   * What a reader sees, when somebody has renamed the document.
    *
-   * NULL means "never renamed": the file's own name is shown, which is what
-   * every row written before renaming existed means. Resolve it with
+   * NULL means "never renamed": the file's own name is shown. Resolve it with
    * `documentDisplayName` (`@/lib/documents/display-name`) rather than reading
    * the column directly, so the fallback is decided in one place.
    */
   displayName: text('display_name'),
   storageKey: text('storage_key').notNull(),
   /**
-   * The S3 bucket holding this document's bytes (ADR-0043, migration 0033).
+   * The S3 bucket holding this document's bytes (ADR-0043).
    *
-   * NULL means the deployment's shared bucket — which is what every row written
-   * before per-organization buckets existed means, and the meaning is fixed:
+   * NULL means the deployment's shared bucket, and the meaning is fixed:
    * `resolveDocumentBucket` in `@/lib/storage/bucket` is the one place that
    * turns it back into a name. Recorded rather than derived from
    * `organizationId` so that enabling per-org buckets is not a cutover; see the
@@ -282,7 +275,7 @@ export const documents = pgTable('documents', {
   contentType: text('content_type'),
   /**
    * Where this file sat before it was uploaded, as the browser reported it —
-   * e.g. `Wohnbau Nord/03_Einreichung/Grundrisse/EG.pdf` (migration 0072).
+   * e.g. `Wohnbau Nord/03_Einreichung/Grundrisse/EG.pdf`.
    *
    * Only a folder upload has one; a file chosen through the picker genuinely
    * does not, and NULL says so rather than a guess derived from the filename.
@@ -297,8 +290,7 @@ export const documents = pgTable('documents', {
    */
   originPath: text('origin_path'),
   /**
-   * A digest of the stored bytes — `sha256:<64 hex>` — or NULL when unknown
-   * (migration 0078).
+   * A digest of the stored bytes — `sha256:<64 hex>` — or NULL when unknown.
    *
    * It exists to answer one question, at the one moment it is asked: a folder
    * re-upload arrives carrying 500 files, and this is how the browser learns
@@ -306,29 +298,28 @@ export const documents = pgTable('documents', {
    * cross the wire at all. Written with the bytes, rewritten when the bytes
    * are replaced.
    *
-   * NULL means "unknown", not "empty": every row written before 0078 has none,
-   * and the planner must treat such a file as an UPDATE rather than assume it
-   * unchanged. Getting that backwards would silently drop a corrected plan.
+   * NULL means "unknown", not "empty": a file with none must be treated as an
+   * UPDATE by the planner, rather than assumed unchanged. Getting that backwards would silently drop a corrected plan.
    *
    * NOT an identity. Two documents in one project may hold identical bytes —
    * the same DIN sheet filed under two disciplines is a filing decision, not a
    * duplicate — and a document is still identified by its filename within a
-   * collection (migration 0074). This column decides only whether an upload has
+   * collection. This column decides only whether an upload has
    * anything new to say.
    */
   contentHash: text('content_hash'),
   /**
    * Where ingestion got to: `pending → processing → processed | error`, plus
-   * `stored`, which is none of those (migration 0063).
+   * `stored`, which is none of those.
    *
    * `stored` means "the bytes are here and indexing was deliberately skipped" —
    * an agent-authored document, which is never dispatched to `/v1/ingest`
    * because a report the agent wrote, embedded into the project corpus, comes
    * back as retrievable evidence FOR the agent under a *Projektwissen* badge.
-   * The four existing states all describe a job that is running or has finished;
-   * there was no state for a job that was never started, and leaving such a row
-   * at `pending` renders a spinner that never resolves, because nothing will
-   * ever report on a job nobody dispatched.
+   * The four states above all describe a job that is running or has finished. A
+   * job that was never started needs a state of its own: leaving such a row at
+   * `pending` renders a spinner that never resolves, because nothing will ever
+   * report on a job nobody dispatched.
    *
    * It is TERMINAL, and the load-bearing consequence lives in
    * `@/lib/documents/reconcile-status`: `stored` must stay out of
@@ -348,13 +339,13 @@ export const documents = pgTable('documents', {
    * (`@/lib/documents/collection-file-ref`).
    *
    * Plain `text` with no CHECK, so a new state is a TypeScript change rather
-   * than a migration — the same arrangement `scope` has, and the reason 0063
-   * adds no DDL for this value.
+   * than a migration — the same arrangement `scope` has, and the reason this
+   * value needs no DDL.
    */
   status: text('status').notNull().default('pending'),
   /**
    * The version whose bytes the storage columns above mirror, or NULL when
-   * nothing has been published yet (migration 0082, ADR-0054).
+   * nothing has been published yet (ADR-0054).
    *
    * A POINTER, not a second copy of the state: `document_versions` holds every
    * version and its editorial state, and this column says which one is live.
@@ -376,14 +367,13 @@ export const documents = pgTable('documents', {
    */
   publishedVersionId: uuid('published_version_id'),
   /**
-   * Whether the item is in the working set or has left the default listings
-   * (migration 0082).
+   * Whether the item is in the working set or has left the default listings.
    *
-   *   - `active`   — every row written before this column, and the default.
+   *   - `active`   — the default.
    *   - `archived` — the office is done with it. The bytes stay, every version
    *                  stays, and the chunks are purged so it stops answering
    *                  questions; it is NOT a delete and there is no soft delete
-   *                  on this table (0077 dropped the one that existed).
+   *                  on this table.
    *
    * A CHECK on the value here rather than the plain `text` `scope` and `status`
    * have, because this column gates a LISTING: a third value nothing knows how
@@ -392,17 +382,16 @@ export const documents = pgTable('documents', {
    */
   lifecycle: text('lifecycle').$type<DocumentLifecycle>().notNull().default('active'),
   // No `deletedAt`: documents have no soft delete. Every delete is a hard
-  // DELETE, and the column 0009 added was never written by anything, so 0077
-  // dropped it — a read-only predicate over a dead column would have hidden
-  // rows the day something wrote it. `projects` and `conversations` keep
-  // theirs and use them.
+  // DELETE. A predicate over a column nothing writes would hide rows the day
+  // something wrote it, so there is no such column. `projects` and
+  // `conversations` keep theirs and use them.
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   errorMessage: text('error_message'),
   metadata: jsonb('metadata'),
   /**
-   * What the content gate concluded about the CURRENT bytes (ADR-0079,
-   * migration 0104). NULL: not screened. `quarantined` pairs with
+   * What the content gate concluded about the CURRENT bytes (ADR-0079).
+   * NULL: not screened. `quarantined` pairs with
    * `status = 'quarantined'`; `released` with a complete release below.
    */
   screeningOutcome: text('screening_outcome').$type<DocumentScreeningOutcome>(),
@@ -415,7 +404,7 @@ export const documents = pgTable('documents', {
   screeningReleasedBy: text('screening_released_by'),
   screeningReleasedAt: timestamp('screening_released_at', { withTimezone: true }),
   /**
-   * The upload gesture that last wrote this document's bytes (migration 0105),
+   * The upload gesture that last wrote this document's bytes,
    * or NULL for a row no batch wrote. No foreign key: the batch is a pointer
    * for the upload summary, and pruning it must not take the document along.
    */
@@ -429,7 +418,7 @@ export const documents = pgTable('documents', {
      * primary key, so this adds no restriction — it exists to be a foreign-key
      * target, exactly as `project_folders_id_project_id_key` does for folders.
      *
-     * Declared here as well as in migration 0063: schema-driven provisioning
+     * Declared here as well as in the migration: schema-driven provisioning
      * builds the FK from THIS file, and Postgres rejects a composite reference
      * with "no unique constraint matching given keys" when the target is only
      * in the migration.
@@ -441,19 +430,18 @@ export const documents = pgTable('documents', {
   orgScopeIdx: index('documents_org_scope_idx').on(table.organizationId, table.scope),
   /**
    * One live document per filename in a collection, over every row that can own
-   * chunks (migrations 0074, restated by 0077, widened by 0083).
+   * chunks.
    *
    * The ingest pipeline replaces passages by filename, so a second row under
    * one name is a ghost; `findLiveDocumentByFilename` is the probe that makes
    * the upload paths replace instead, and this is that probe's WHERE clause as
    * a constraint, for the concurrent first upload the probe misses. "Live"
-   * means "exists": there is no soft delete on this table (0077 dropped the
-   * `deleted_at IS NULL` half).
+   * means "exists": there is no soft delete on this table.
    *
    * The predicate is a UNION of two disjoint sets, and it is disjoint by
    * construction rather than by luck:
    *
-   *   - `authored_by = 'user'` — 0074's original rule. A machine-authored row
+   *   - `authored_by = 'user'` — the rule for a person's upload. A machine-authored row
    *     outside the namespace carries a model-chosen name, owns no chunks, and
    *     must coexist with a person's file of the same name.
    *   - `filename LIKE 'piloti/%'` — the namespace a publishable Piloti
@@ -471,8 +459,7 @@ export const documents = pgTable('documents', {
     .on(table.organizationId, table.collectionName, table.filename)
     .where(sql`${table.authoredBy} = 'user' OR ${table.filename} LIKE 'piloti/%'`),
   /**
-   * A document's folder must belong to the document's own project (migration
-   * 0030). The project is pinned to the tenant by its row-level-security
+   * A document's folder must belong to the document's own project. The project is pinned to the tenant by its row-level-security
    * policy, so same-project implies same-organization — which is what stops one
    * tenant filing a document into another tenant's folder, without a recursive
    * policy and without a subquery.
@@ -487,7 +474,7 @@ export const documents = pgTable('documents', {
   }).onDelete('cascade'),
   /**
    * A document's folder is on the document's own SHELF and in its own TENANT
-   * (migration 0102, ADR-0078). `organizationId` and `scope` are both NOT NULL,
+   * (ADR-0078). `organizationId` and `scope` are both NOT NULL,
    * so whenever `folderId` is set the key is all-non-null and MATCH SIMPLE does
    * check it — including for an Archiv row, which `folderProjectFk` skips.
    *
@@ -504,13 +491,11 @@ export const documents = pgTable('documents', {
     foreignColumns: [projectFolders.id, projectFolders.organizationId, projectFolders.scope],
   }).onDelete('cascade'),
   /**
-   * A filed document is a project document or an Archiv one (migrations 0031,
-   * 0102). Its original job was to make `folderProjectFk` checkable — a NULL
-   * `projectId` made the composite key skip, so `(someone else's folder, NULL)`
-   * passed unexamined. `folderShelfFk` now checks every folder reference
-   * whatever the project, so what remains is the shelf rule itself.
+   * A filed document is a project document or an Archiv one. A document with no
+   * project must be an Archiv one, so this is the shelf rule itself:
+   * `folderShelfFk` checks every folder reference whatever the project.
    *
-   * MATCH FULL would be the reflex fix for the old problem and is wrong: it
+   * MATCH FULL would be the reflex fix for the NULL-project case and is wrong: it
    * demands all-null or all-non-null, which rejects an ordinary document
    * sitting at the root of a project.
    */
@@ -519,9 +504,8 @@ export const documents = pgTable('documents', {
     sql`${table.folderId} IS NULL OR ${table.projectId} IS NOT NULL OR ${table.scope} = 'archiv'`
   ),
   /**
-   * A session document belongs to a conversation in its OWN tenant (migration
-   * 0049). Composite rather than a plain `references(conversations.id)` for the
-   * same reason `messages` and `conversation_reads` are composite (0031/0032):
+   * A session document belongs to a conversation in its OWN tenant. Composite rather than a plain `references(conversations.id)` for the
+   * same reason `messages` and `conversation_reads` are composite:
    * `documents.organization_id` is denormalised, so without the tenant column
    * inside the key nothing stops a row claiming this org while pointing at
    * another org's conversation. `conversations` carries the matching unique
@@ -548,13 +532,12 @@ export const documents = pgTable('documents', {
    *   1. a session row has a conversation, and nothing else does;
    *   2. a session row has NO project.
    *
-   * Before `session` existed, "which shelf is this row on" was answered in
-   * three different ways across the codebase — `scope = 'archiv'`,
-   * `project_id IS NULL`, and `project_id = $1` — and they agreed only because
-   * there were two shelves and the second one happened to be the only one with
-   * a null project. A third shelf with a null project is what breaks that, so
-   * the tie between a scope and its owning column is written down here rather
-   * than left for each query to reconstruct.
+   * "Which shelf is this row on" is answered three ways across the codebase —
+   * `scope = 'archiv'`, `project_id IS NULL`, and `project_id = $1` — and they
+   * agree only because each shelf has a column pattern no other shelf shares. A
+   * shelf with a null project breaks that, so the tie between a scope and its
+   * owning column is written down here rather than left for each query to
+   * reconstruct.
    *
    * The second half does not follow from the first: a row with `scope =
    * 'session'`, a conversation AND a project satisfies the biconditional while
@@ -571,13 +554,13 @@ export const documents = pgTable('documents', {
    * and the dispatch (`lib/session-documents/service.ts`), and uses the project
    * a chat belongs to only to create the conversation row. So the bug this
    * forecloses is LATENT — the invariant holds because one function is careful,
-   * which is precisely the convention-versus-invariant gap migration 0049
-   * exists to close. The next writer (a backfill, an import, a "promote this
+   * which is precisely the convention-versus-invariant gap this
+   * constraint closes. The next writer (a backfill, an import, a "promote this
    * attachment into the project" feature) is one column away from it, and the
    * failure mode is silent orphaning in the object store rather than an error
    * anyone sees.
    *
-   * Kept as ONE constraint under the original name because it is one statement
+   * Kept as ONE constraint because it is one statement
    * — where a session document is filed — and splitting it would let half the
    * partition be dropped without the other half noticing.
    */
@@ -587,14 +570,12 @@ export const documents = pgTable('documents', {
   ),
   /**
    * A document no person wrote can always say what wrote it, which one, and
-   * what kind of identifier that is (migrations 0063, 0066). See `authoredByRef`
+   * what kind of identifier that is. See `authoredByRef`
    * for why half of that answer is worse than none.
    *
-   * 0066 added the third conjunct. Two of them were satisfiable by a row whose
-   * reference nobody could resolve — the value said `msg_42-1a2b3c4d` and the
-   * column's own name and comment said it was a backend job id — so the row
-   * passed a constraint written to guarantee it was auditable while not being
-   * auditable. The kind is what closes that.
+   * The kind is the third conjunct, and it closes a gap the other two leave
+   * open: a row whose reference nobody can resolve satisfies them, so it passes
+   * a constraint written to guarantee it is auditable while not being auditable.
    *
    * Written against `<> 'user'` rather than against `'agent'`, which is the
    * whole point: the invariant is true of every producer, not of this one, so a
@@ -610,7 +591,7 @@ export const documents = pgTable('documents', {
    * wrote.
    */
   /**
-   * The listing gate's vocabulary, as a database invariant (migration 0082).
+   * The listing gate's vocabulary, as a database invariant.
    * See the column for why this one has a CHECK where `scope` and `status` do
    * not.
    */

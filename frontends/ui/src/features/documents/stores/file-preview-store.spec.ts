@@ -120,9 +120,9 @@ describe('file-preview-store', () => {
       expect(useFilePreviewStore.getState().peekWidth).toBe(320)
     })
 
-    it('lets the pane past the old 560px ceiling', () => {
-      // The cap used to sit at 560, which is narrower than an A3 plan at any
-      // readable zoom: the seam hit a wall a third of the way across the window.
+    it('lets the pane past a 560px ceiling', () => {
+      // A cap at 560 is narrower than an A3 plan at any readable zoom: the seam
+      // would hit a wall a third of the way across the window.
       useFilePreviewStore.getState().setPeekWidth(700)
 
       expect(useFilePreviewStore.getState().peekWidth).toBe(700)

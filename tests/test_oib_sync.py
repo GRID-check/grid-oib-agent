@@ -161,8 +161,7 @@ class _CollectionInfoStub:
 def test_sync_reingests_when_registry_full_but_collection_empty(monkeypatch, tmp_path):
     """Registry (data volume) says the PDF is ingested, but the vector store is a
     fresh/empty collection — e.g. after repointing at a new shared Chroma server.
-    The registry is stale, so sync must re-ingest instead of skipping. Regression
-    for the shared-Chroma migration leaving oib_knowledge empty."""
+    The registry is stale, so sync must re-ingest instead of skipping."""
     fake_ingestor = FakeIngestor({"a.pdf": FileStatus.SUCCESS}, release_after_uploads=1)
     # Collection exists but is EMPTY (0 chunks) — the drifted-store signal.
     fake_ingestor.get_collection = lambda _name: _CollectionInfoStub(chunk_count=0, file_count=0)
@@ -308,7 +307,7 @@ def test_unexclude_document_restores_discovery(monkeypatch, tmp_path):
 
 def test_uploaded_file_overrides_stale_exclusion(monkeypatch, tmp_path):
     """A physically present upload reappears even if its basename is excluded —
-    the self-heal for corpora uploaded before the upload path lifted exclusions."""
+    the self-heal that stops a stale exclusion from hiding an upload."""
     fake_ingestor = FakeIngestor({})
     _configure_sync(monkeypatch, tmp_path, fake_ingestor)
     # Same basename exists both as a repo-shipped file and as an admin upload,
@@ -403,14 +402,11 @@ class TestChunkFormatVersionGate:
     def test_the_forced_reingest_leaves_the_replacement_to_the_ingestor(self, monkeypatch, tmp_path):
         """The version bump re-uploads every file and deletes none of them first.
 
-        `sync()` triggers the re-ingest by emptying the registry. It once had to force
-        a pre-ingest `delete_file` for every file, because the delete was guarded by
-        `str(pdf) in registry` and the new chunks would otherwise have joined the old
-        ones. That delete ran before the new file was read, so a PDF that then failed
-        to ingest lost its old version too, and the metadata row went with it. The
-        ingestor now replaces by name after the new version is indexed
-        (`tests/knowledge_layer_tests/test_reingest_replaces_versions.py`), so the
-        sync must not delete: a delete here would bring the data loss back.
+        `sync()` triggers the re-ingest by emptying the registry. A delete before the
+        new file is read would lose the old version, and its metadata row, for a PDF
+        that then fails to ingest. The ingestor replaces the old version by name once
+        the new one is indexed (`tests/knowledge_layer_tests/test_reingest_replaces_versions.py`),
+        so the sync must not delete.
         """
         fake_ingestor = FakeIngestor({"a.pdf": FileStatus.SUCCESS, "b.pdf": FileStatus.SUCCESS})
         registry_path = _configure_sync(monkeypatch, tmp_path, fake_ingestor)

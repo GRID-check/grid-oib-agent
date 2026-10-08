@@ -38,9 +38,9 @@ export interface JobSubmitPayload {
   /**
    * The job's output kind, which decides the agent.
    *
-   * The wire field used to be `execution`; the backend reads `output` when
-   * present and falls back to `execution` for one release, because the BFF and
-   * the Python service deploy separately (see routes/skills.py).
+   * The backend reads `output` and falls back to `execution` when it is absent,
+   * because the BFF and the Python service deploy separately (see
+   * routes/skills.py).
    */
   output: 'chat' | 'deep-research'
   /**

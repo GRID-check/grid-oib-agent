@@ -18,14 +18,13 @@
  *
  * ## The grammar it borrows
  *
- * The document lifecycle's stand, which is the surface in this product that had
- * already solved „where does this stand": a track whose walked segments are
+ * The document lifecycle's stand answers „where does this stand" in this product,
+ * and this block borrows its grammar: a track whose walked segments are
  * filled, the state NAMED in one muted line under it, and the history below as
  * `Item` rows with hairlines rather than as stacked cards (`ItemList`, the same
  * atoms `document-version-list.tsx` composes). The track itself is the shared
- * atom, `components/ui/stage-track.tsx`, lifted out of that stand when this
- * block needed the same shape — two surfaces showing the same thing compose the
- * same atom, or they drift on the first token retune.
+ * atom, `components/ui/stage-track.tsx`: two surfaces showing the same thing
+ * compose the same atom, or they drift on the first token retune.
  *
  * The document chips stay the „Belegt durch" chips (`SourceSignalChip` +
  * `AuthorityTag`), painted by the shelf the ledger stated: provenance is the
@@ -37,9 +36,9 @@
  * No tool names — the ledger carries none, on purpose. No identifiers. No
  * numbers except the two tallies and the clock. One ambient loop: the glyph.
  * And no second account of the state — the word appears in the status line and
- * nowhere else, because a state said twice stops reading as one fact. That is
- * what „stripped down" bought: the old header said it four ways (glyph, bold
- * word, phase summary, footer sentence) before the reader got to the work.
+ * nowhere else, because a state said twice stops reading as one fact. A header
+ * that says it four ways (glyph, bold word, phase summary, footer sentence)
+ * buries the work under it.
  *
  * ## How a change reads
  *
@@ -284,7 +283,7 @@ function completedBeforeLabel(
  * `unterbrochen` is `settled` and not a third colour: there IS a report, only a
  * narrower one, and the line under the track is what says so. The palette holds
  * no further chroma family that is not a provenance source, and borrowing the
- * Büroarchiv gold for it would put an archive collision back as a colour.
+ * Büroarchiv gold for it would make an archive collision a colour.
  */
 function trackTone(status: RunStatus): StageTrackTone {
   switch (status) {
@@ -728,14 +727,14 @@ export function RunBlock({
       ? t(`connection.${connection}`)
       : null
 
-  // `filesToProject` is a CLAIM a caller makes, never inferred. It used to
-  // default to „there is a project", which made every freshly-commissioned run
-  // in a chat promise „Ergebnis kommt ins Projekt" — including an escalated
-  // question whose report lands inline in the thread, which the `fertig` line
-  // then correctly contradicts (`fertigFiled` vs `fertigInline`). A block that
-  // promises a destination at the start and names a different one at the end
-  // has spent the reader's trust to say nothing. Unclaimed, it says only that
-  // the run is angelegt, which is the part that is true either way.
+  // `filesToProject` is a CLAIM a caller makes, never inferred. Defaulting it to
+  // „there is a project" would make every freshly-commissioned run in a chat
+  // promise „Ergebnis kommt ins Projekt" — including an escalated question whose
+  // report lands inline in the thread, which the `fertig` line then correctly
+  // contradicts (`fertigFiled` vs `fertigInline`). A block that promises a
+  // destination at the start and names a different one at the end has spent the
+  // reader's trust to say nothing. Unclaimed, it says only that the run is
+  // angelegt, which is the part that is true either way.
   const line = statusLine(t, ledger, status, tallies, filesToProject ?? false)
   const before =
     status === 'fehlgeschlagen' || status === 'abgebrochen'

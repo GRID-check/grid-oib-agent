@@ -2,9 +2,9 @@
  * @vitest-environment node
  */
 /**
- * Characterization of the run-history contract (slice 01 of the task-model
- * follow-up, PR #659): pagination parsed from ?limit&offset with the 50/0
- * defaults, and the service called with the numbers, not the strings.
+ * Characterization of the run-history contract: pagination parsed from
+ * ?limit&offset with the 50/0 defaults, and the service called with the
+ * numbers, not the strings.
  */
 
 import { beforeEach, describe, expect, it, vi } from 'vitest'

@@ -1,9 +1,9 @@
 """The norm catalog's builder still imports.
 
 It loads ``norm_registry`` standalone, without the ``aiq_agent`` package, so
-every import that module gains has to be loaded by hand. Nothing ran it, and it
-died on ``source_kinds`` until a catalog change needed it (2026-09-24). This
-imports it and reads the real catalog, with no network.
+every import that module gains has to be loaded by hand. Nothing else runs it,
+so a broken import stays unseen until someone does. This imports it and reads
+the real catalog, with no network.
 """
 
 from __future__ import annotations

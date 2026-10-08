@@ -5,10 +5,9 @@
  * the real reason on `cause`: a SQLSTATE from the server, a Node errno from the
  * socket, or a postgres.js connection code. The difference decides what the
  * caller is owed. A wrong query is a bug and a 500. An unreachable database is
- * an outage, and every request during it fails the same way: the 2026-09-25
- * restart filed nine issues (#733-#741) for one event, each at the path that
- * happened to hit it. Walk the chain once, here, so every caller asks the same
- * question the same way.
+ * an outage, and every request during it fails the same way, so each path that
+ * happens to hit it would report the same event on its own. Walk the chain once,
+ * here, so every caller asks the same question the same way.
  */
 
 /**
@@ -36,10 +35,10 @@ export const UNIQUE_VIOLATION = '23505'
  *
  * Every drizzle query failure is a `DrizzleQueryError` ("Failed query: …")
  * whose own `code` is undefined; the driver's `PostgresError`, the one carrying
- * `code` and `constraint_name`, is its `cause`. The catch sites that compared
- * `error.code === '23505'` on the wrapper (a folder name, a filed report, a
- * memory fact, a lesson) were race backstops that never ran in production, so
- * the loser got a 500. Walked the way {@link databaseUnavailableCode} walks it.
+ * `code` and `constraint_name`, is its `cause`. A catch site that compares
+ * `error.code === '23505'` on the wrapper never matches, so a race loser gets a
+ * 500 instead of the recovery written for it. Walk the cause chain the way
+ * {@link databaseUnavailableCode} does.
  *
  * Name the constraint whenever the recovery is right for ONE index only: a
  * 23505 from another index on the same table is a different fault, and a

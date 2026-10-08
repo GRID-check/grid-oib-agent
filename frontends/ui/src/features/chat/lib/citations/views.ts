@@ -28,9 +28,9 @@ import {
  * equally good answers. The retrieval payload states the page the passage was
  * read at; the answer's written source list states the same `[N]` and often
  * names no page — so the document ends up with a located locus and a page-less
- * one, both numbered. Taking whichever came last handed the marker the
- * page-less one, and clicking a citation that knew it was page 18 opened the
- * viewer at page 1 (#621).
+ * one, both numbered. Taking whichever came last would hand the marker the
+ * page-less one, and a click on a citation that knows its page would open the
+ * viewer at page 1.
  *
  * So a locus that names a page wins, and among two that do the first stands
  * (loci arrive ordered by `[N]`, then by page). A document whose number is
@@ -77,17 +77,17 @@ export const answerSourceAnchorPrefix = (messageId: string): string =>
  * used.
  *
  * Falls back to the full list when nothing is flagged — messages persisted
- * before `isCited` existed, and turns whose backend never resolved a `[N]`
- * binding. Showing everything that was retrieved is a weaker claim than
- * "these are the sources", but it is an honest one; showing nothing would
- * hide grounding that exists.
+ * without `isCited`, and turns whose backend never resolved a `[N]` binding.
+ * Showing everything that was retrieved is a weaker claim than "these are the
+ * sources", but it is an honest one; showing nothing would hide grounding that
+ * exists.
  */
 export const answerDocuments = (docs: CitedDocument[]): CitedDocument[] => {
   // A document with NO loci is not "uncited" — it has no retrieved evidence for
   // `isCited` to be a statement about: a law the answer named with no passage
-  // behind it. Filtering on `isCited` alone dropped every such source the moment
-  // the turn also had one real citation, which is exactly the mixed answer
-  // where it matters most.
+  // behind it. Filtering on `isCited` alone would drop every such source whenever
+  // the turn also has one real citation, which is exactly the mixed answer where
+  // it matters most.
   const claimed = docs.filter((doc) => isCited(doc) || doc.loci.length === 0)
   return claimed.length > 0 ? claimed : docs
 }
@@ -95,10 +95,9 @@ export const answerDocuments = (docs: CitedDocument[]): CitedDocument[] => {
 /**
  * Documents the turn retrieved but the answer never cited.
  *
- * The Herleitung's honest half: "retrieved, not cited" is a real research outcome and
- * the surface that claims to show the derivation has to be able to say it.
- * Before the model existed this set was not expressible at all — the trace and
- * the answer were separate pipelines with no shared identity to subtract.
+ * The Herleitung's honest half: "retrieved, not cited" is a real research
+ * outcome, and the surface that claims to show the derivation has to be able to
+ * say it.
  *
  * The same rule {@link answerDocuments} applies, read the other way: "read, not
  * used" is a claim about a LOCUS, so a locus-less card document is not a member
@@ -122,7 +121,7 @@ export interface BibliographyRow {
  * This is the LOCUS-level projection: a document cited at four pages is four
  * rows, because the inline markers are four and every marker must lead
  * somewhere. The answer's chip row is the DOCUMENT-level projection of the same
- * data. Both levels are now explicit, so neither has to guess the other.
+ * data. Both levels are explicit, so neither has to guess the other.
  */
 export const bibliographyRows = (docs: CitedDocument[]): BibliographyRow[] => {
   const rows: BibliographyRow[] = []
@@ -207,7 +206,7 @@ export interface SourceTabLabels {
  * Rendering only, and a pure function of the shelf (ADR-0047 §5) — the string is
  * never read back to recover the shelf. Undefined means UNATTRIBUTED: a document
  * whose shelf is unknown says nothing about where it is filed rather than
- * guessing, which is what the deleted prefix table used to do.
+ * guessing.
  */
 export const documentShelfLabel = (doc: CitedDocument, t: SourceTabLabels): string | undefined =>
   doc.shelf ? t(`sourceTabs.shelves.${doc.shelf}`) : undefined
@@ -220,9 +219,9 @@ export const documentShelfLabel = (doc: CitedDocument, t: SourceTabLabels): stri
  * The shelf outranks the coarse stratum because the two answer different
  * questions and only one of them is a fact about this document's filing: a file
  * the user attached privately to the chat is `projekt`-KIND (it is project-ish
- * material, and paints in that family) but sits on the `session` SHELF — and
- * labelling it "Projektwissen" told the reader it was project knowledge the
- * office had filed, which was never true.
+ * material, and paints in that family) but sits on the `session` SHELF.
+ * Labelling it "Projektwissen" would tell the reader it is project knowledge the
+ * office has filed, which it is not.
  */
 export const documentTabLabel = (doc: CitedDocument, t: SourceTabLabels): string =>
   doc.laneLabel?.trim() || documentShelfLabel(doc, t) || t(`sourceTabs.${KIND_TO_SIGNAL[doc.kind]}`)

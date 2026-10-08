@@ -3,9 +3,9 @@
  * documents and not the corpus: citation chips, surfaced-document cards, a file
  * operation naming its file.
  *
- * They used to read the first page of each listing and look the name up in it.
- * The listing is paged, so a correct citation of a plan older than the newest
- * 500 resolved to nothing. This asks the server by name instead
+ * Each name is asked of the server by name, not looked up in a listing. A
+ * listing is paged, and its first page cannot hold a plan older than the newest
+ * 500, so a citation of that plan must not depend on it
  * (`POST /api/documents/by-name`, `POST /api/archiv/documents/by-name`).
  *
  * ## One request per render, not per chip

@@ -37,12 +37,12 @@ describe('buildStoreyBreakdown', () => {
   })
 
   it('keys each rollup, so the digest cannot join it back by position', async () => {
-    // The digest used to read `breakdown[index]` against `summary.storeys`,
-    // which holds only while the two are the same length. Two storeys sharing
-    // a GlobalId — a real export defect, with a validation rule of its own —
-    // collapse into one entry, so the array came back short and every storey
-    // after the collision was rendered with the NEXT storey's element count,
-    // room count and floor area.
+    // The digest looks each storey's rollup up by key. A positional lookup
+    // against `summary.storeys` holds only while the two are the same length, and
+    // two storeys sharing a GlobalId — a real export defect, with a validation
+    // rule of its own — collapse into one entry. A positional array would come
+    // back short and render every storey after the collision with the NEXT
+    // storey's element count, room count and floor area.
     const index = await model()
     const breakdown = buildStoreyBreakdown(index, index.elements)
     for (const storey of index.storeys) {
@@ -58,9 +58,9 @@ describe('buildStoreyBreakdown', () => {
     }
     const breakdown = buildStoreyBreakdown(collided, index.elements)
     expect(breakdown.size).toBe(1)
-    // And the digest renders BOTH rows from that one entry rather than
-    // rendering the second from nothing — wrong, but identically wrong, and
-    // no longer an off-by-one that shifts every later storey.
+    // The digest renders BOTH rows from that one entry: the duplication is wrong
+    // but identical in both rows, rather than an off-by-one that shifts every
+    // later storey.
     expect(breakdown.get('same-id')).toBeDefined()
   })
 })
@@ -70,10 +70,10 @@ describe('buildModelDigest — storeys the export wrote twice', () => {
     /*
       Two storeys written with the same GlobalId — the export defect
       `validate.ts:identity` reports — collapse to ONE entry in the breakdown
-      map, and the table rendered that entry once per summary storey: `EG | 2
-      Bauteile | 2 Räume | 100 m²` and `1.OG | 2 | 2 | 100 m²` for a building
-      with one room of 40 m² on each. The Bauteile and Netto-Grundfläche
-      columns then summed to double the building.
+      map. A table with a row per summary storey renders that entry for each:
+      `EG | 2 Bauteile | 2 Räume | 100 m²` and `1.OG | 2 | 2 | 100 m²` for a
+      building with one room of 40 m² on each. The Bauteile and
+      Netto-Grundfläche columns would then sum to double the building.
 
       This digest is indexed for retrieval, so the agent can quote it back as a
       fact about the project.

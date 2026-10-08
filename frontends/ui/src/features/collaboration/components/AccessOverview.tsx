@@ -23,12 +23,11 @@
  *     this?" support ticket, so the reason is not optional garnish — it is the
  *     point of the row.
  *
- * **Why rule-people and named-people are two blocks and not one list.** They were
- * one list, and it could not be read: the consequence sentence floated above rows
- * that were partly project members and partly named invitees, so nothing on screen
- * said whether the list was everyone or a sample, or why the head count was what it
- * was. The two also behave differently — a derived row has no per-person controls,
- * because there is no per-person deny (SH-3) — so a uniform-looking list did two
+ * **Why rule-people and named-people are two blocks and not one list.** The
+ * consequence sentence sits above the rows, so a single list would leave nothing on
+ * screen to say whether it shows everyone or a sample, or why the head count is what
+ * it is. The two also behave differently: a derived row has no per-person controls,
+ * because there is no per-person deny (SH-3), so a uniform-looking list would do two
  * different things depending on the row. Splitting them makes that structural.
  *
  * The rule block names its people as **text**, not only as faces: `AvatarStack`
@@ -147,15 +146,15 @@ export function AccessOverview({
   return (
     <section className={cn('space-y-4', className)} data-testid="access-overview">
       {/* ---- The RULE, and who it currently reaches ----
-          One list mixing both kinds of access could not be read. "Alle im Projekt
-          können mitlesen" sat as a caption above rows that were partly project
-          members and partly named invitees, so nothing on screen answered the two
-          questions a reader actually has: is this list everyone, and why is the
-          count what it is? Worse, the derived rows carry no controls (rule 4 —
-          there is no per-person deny) while the named ones do, which made an
-          apparently uniform list behave two different ways.
+          Both kinds of access in one list cannot be read. "Alle im Projekt
+          können mitlesen" as a caption above rows that are partly project members
+          and partly named invitees leaves the two questions a reader has
+          unanswered: is this list everyone, and why is the count what it is? The
+          derived rows also carry no controls (rule 4 — there is no per-person
+          deny) while the named ones do, so a uniform list would behave two
+          different ways.
 
-          They are two different facts, so they are now two blocks. The rule states
+          They are two different facts, so they are two blocks. The rule states
           itself and shows the colleagues it resolves to as faces rather than rows:
           they are not individually actionable, and a row that cannot be acted on
           should not look like one that can. Their access changes by changing the
@@ -164,12 +163,11 @@ export function AccessOverview({
         <div className="space-y-1.5">
           <div className="flex flex-wrap items-center gap-2">
             <AccessChip visibility={state.visibility} sharedWith={namedOthers} size="md" />
-            {/* The count is only meaningful when it actually enumerates the
-                audience: under a blanket rule it counts only the NAMED exceptions,
-                so printing it next to "Alle im Projekt können mitlesen" would
-                contradict the rule sentence (the server currently reports no
-                derived entries). Once derived entries exist, the count is the
-                union and can stand again. */}
+            {/* The count is shown when it enumerates the audience: under `private`
+                that is the named grants, and once derived entries exist it is the
+                union. Under a blanket rule with no derived entries it would count
+                only the NAMED exceptions and contradict the rule sentence, so it is
+                hidden. */}
             {(state.visibility === 'private' || derived.length > 0) && (
               <span className="text-xs tabular-nums text-muted-foreground">{countLabel}</span>
             )}
@@ -187,10 +185,10 @@ export function AccessOverview({
         >
           <AvatarStack people={derived.map((entry) => entry.person)} size="sm" max={6} />
           {/* The NAMES, as text — not only as faces. "Who can see this?" is the
-              question this whole panel answers, and answering it with unlabelled
-              initials answers it worse than the mixed list did: `AvatarStack` has
-              no accessible name, so a screen reader got nothing at all and a touch
-              user had no hover to fall back on. Compact, but still readable. */}
+              question this whole panel answers, and unlabelled initials answer it
+              badly: `AvatarStack` has no accessible name, so a screen reader gets
+              nothing and a touch user has no hover to fall back on. Compact, but
+              still readable. */}
           <p className="min-w-0 text-xs leading-relaxed text-muted-foreground">
             <span className="text-foreground/75">{derivedNames}</span>
             {' — '}
@@ -211,8 +209,8 @@ export function AccessOverview({
           <div className="flex items-baseline justify-between gap-3">
             <SectionLabel as="h3">
               {/* "Namentlich" rather than "Personen mit Zugriff": with a rule block
-                  above, this list is no longer everyone who has access, and a
-                  heading that claims otherwise is the confusion this split fixes. */}
+                  above, this list is not everyone who has access, and a heading
+                  that claims otherwise is the confusion this split prevents. */}
               {t('sharing.overview.namedHeading')}
             </SectionLabel>
             <span className="text-xs tabular-nums text-muted-foreground">{namedCountLabel}</span>
@@ -246,8 +244,8 @@ export function AccessOverview({
                      * unmounts from one group and mounts in another in a single
                      * commit; a shared layout id tells motion those are the same
                      * person, so they GLIDE from "can write" to "can read" instead
-                     * of blinking out of one list and into another. Since the row
-                     * menu no longer restates the role, this movement IS the
+                     * of blinking out of one list and into another. The row menu
+                     * does not restate the role, so this movement IS the
                      * confirmation that the change took.
                      *
                      * Namespaced per instance: the id must be unique in the layout

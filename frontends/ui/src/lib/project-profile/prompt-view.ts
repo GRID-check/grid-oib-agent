@@ -6,9 +6,9 @@ import { isValidBundeslandToken } from './intake-definition'
 import { ProjectProfileSchema } from './types'
 import type { ProjectPrimitiveValue, ProjectProfile, ProjectProfileDisplay } from './types'
 
-// Re-exported so existing server-side importers (profile / patches routes, tests)
-// keep a single import surface; the engine itself now lives in the isomorphic
-// patch-engine module so the intake wizard can share it.
+// Re-exported so server-side importers (profile / patches routes, tests) keep a
+// single import surface; the engine lives in the isomorphic patch-engine module
+// so the intake wizard can share it.
 export { applyProjectProfilePatch, emptyProjectProfile } from './patch-engine'
 
 const PROMPT_VIEW_CACHE_TTL_MS = 5 * 60 * 1000
@@ -23,10 +23,10 @@ const ANONYMOUS_TENANT = 'anon'
  *
  * The organization is part of the key, and that is a tenancy boundary rather
  * than a nicety. `getCached` returns BEFORE the loader runs, so a key of
- * `projectId` alone meant a hit served whatever the first caller had populated
+ * `projectId` alone would serve a hit whatever the first caller had populated
  * — without ever entering the tenant scope or consulting row-level security.
  * The project id is supplied by the caller on the websocket-scope path, so an
- * id belonging to another organization would have returned that organization's
+ * id belonging to another organization would return that organization's
  * project context straight out of the cache. Partitioning by tenant is what
  * makes the cached path obey the same boundary as the query behind it.
  */
@@ -38,8 +38,8 @@ const bundeslandCacheKey = (projectId: string, organizationId: string | null | u
 /**
  * Cached read of the project-context prompt view injected into the agent on
  * every WS upgrade. Backed by the shared cache (ADR-0020), so a profile edit
- * on one replica invalidates for all replicas — the per-process Map this
- * replaces served stale project context for up to 5 minutes after an edit.
+ * on one replica invalidates for all replicas; a per-process map would serve
+ * stale project context for up to 5 minutes after an edit.
  *
  * The view is one per project, read by every member and by scheduled and
  * deep-research runs, and it names no document in a restricted folder, for
@@ -124,11 +124,9 @@ export async function invalidateProjectProfileCaches(
  * the SAME source `buildProjectPromptView` reads to emit the
  * `bundesland=<token>` text line `loadProjectPromptView` above serves.
  *
- * Backlog T3-9 follow-up (2026-07-16, user-mandated): jurisdiction is a
- * cross-cutting request fact and must travel STRUCTURED on the
- * `X-Grid-Request-Context` envelope, not be re-parsed out of that prompt
- * text — this is the read producers resolve `GridRequestContextInput.bundesland`
- * from. Returns `null` for no project, no fact, or a value outside the
+ * Jurisdiction is a cross-cutting request fact and travels STRUCTURED on the
+ * `X-Grid-Request-Context` envelope, not re-parsed out of that prompt text —
+ * this is the read producers resolve `GridRequestContextInput.bundesland` from. Returns `null` for no project, no fact, or a value outside the
  * validated intake vocabulary (a stale/corrupt row must never leak an
  * unvalidated token onto the wire).
  */
@@ -155,7 +153,7 @@ export function buildProjectPromptView(profile: ProjectProfile): string {
 
   const factKeys = Object.keys(normalized.facts).sort()
 
-  // Legacy profile: no country fact but valid AT bundesland → derive country=at
+  // No country fact but a valid AT bundesland: derive country=at
   const countryInFacts = normalized.facts.country
   if (!countryInFacts && normalized.facts.bundesland?.value) {
     const bv = normalized.facts.bundesland.value

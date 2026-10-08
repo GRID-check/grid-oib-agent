@@ -61,13 +61,12 @@ export interface IfcCompliancePanelProps {
   /**
    * Show these elements in the model.
    *
-   * A PATCH of the view, not a fresh one. These used to be `<Link>`s built by
-   * `buildModelHref` from scratch: clicking a failing door threw away the
-   * storey filter, the camera and the section cut the reader had set up, and —
-   * because a `<Link>` pushes while the stage navigates with `replace`
-   * everywhere else — made the back button do something different from what
-   * it had done a click earlier. The health panel beside it has always
-   * patched; this is the same callback.
+   * A PATCH of the view, not a fresh one. A `<Link>` built by `buildModelHref`
+   * from scratch would throw away the storey filter, the camera and the section
+   * cut the reader had set up, and — because a `<Link>` pushes while the stage
+   * navigates with `replace` everywhere else — would make the back button
+   * behave differently from every other click. The health panel beside it
+   * patches too; this is the same callback.
    */
   onShowElements?: (globalIds: string[], status: 'fail' | 'info') => void
   /** Set when the project brief is missing a fact some rules need. */
@@ -187,8 +186,7 @@ export function IfcCompliancePanel({
       {error && (
         <div className="flex flex-wrap items-center gap-2">
           <p className="text-destructive text-sm">{t('compliance.failed')}</p>
-          {/* The rule the stage states and this panel used to break: "Every
-              error state in this viewer used to be terminal." */}
+          {/* Errors are recoverable here: a retry is offered whenever the panel can re-run. */}
           {onRetry && (
             <Button
               type="button"
@@ -228,10 +226,11 @@ export function IfcCompliancePanel({
             {t('compliance.badge.notApplicable')} {summary.rulesNotApplicable}
           </Badge>
           {/*
-            The fifth bucket. `summarizeBimRules` produces it and nothing
-            rendered it, so on a model with no doors and no stairs a
-            seven-rule catalogue showed badges summing to five — and the rows
-            that explain why are below the fold.
+            The fifth bucket: `summarizeBimRules` counts rules with no elements
+            here, and the badges must sum to the catalogue. On a model with no
+            doors and no stairs a seven-rule catalogue would otherwise show
+            badges summing to five, and the rows that explain why are below the
+            fold.
           */}
           {summary.rulesEmpty > 0 && (
             <Badge variant="secondary">
@@ -369,13 +368,12 @@ function RuleRow({
       : checked === 0
         ? { Icon: MinusCircle, tone: 'text-muted-foreground' }
         : // ANY undecidable element leaves the requirement unsettled, not met.
-          // This used to read `rule.passed === 0`, so "9 erfüllt, 2 nicht
-          // entscheidbar" scored a green tick — the precise reading the
-          // three-state design exists to prevent, and the one the badge row
-          // above already refuses to give: `summarizeBimRules` counts that
-          // rule under `rulesUndecidable`, and `standing()` returns `unknown`
-          // for it. Only this icon disagreed, and the icon is what a reader
-          // scans.
+          // Scoring on `rule.passed === 0` would give "9 erfüllt, 2 nicht
+          // entscheidbar" a green tick — the precise reading the three-state
+          // design exists to prevent, and the one the badge row above already
+          // refuses to give: `summarizeBimRules` counts that rule under
+          // `rulesUndecidable`, and `standing()` returns `unknown` for it. This
+          // icon must agree with them, because it is what a reader scans.
           rule.undecidable > 0
           ? { Icon: HelpCircle, tone: 'text-warning' }
           : { Icon: CheckCircle2, tone: 'text-success' }
@@ -470,21 +468,21 @@ function Confirmation({
   const [open, setOpen] = useState(false)
   const [note, setNote] = useState('')
   const [busy, setBusy] = useState(false)
-  // A signature that did not save must SAY so. Without this the request failed
-  // silently, the form stayed open with no explanation, and the architect had
-  // every reason to believe the rule was confirmed — a record of a decision
-  // that was never recorded, on the one surface that exists to be a record.
+  // A signature that did not save must SAY so. Silence would leave the form
+  // open with no explanation, and the architect would have every reason to
+  // believe the rule was confirmed — a record of a decision that was never
+  // recorded, on the one surface that exists to be a record.
   const [failed, setFailed] = useState(false)
 
   /**
    * Where focus goes when a control removes itself.
    *
    * Pressing "Bestätigen" unmounts the button that was pressed and mounts a
-   * note field in its place; saving or cancelling does the reverse. Neither
-   * moved focus, so each press threw the reader's place to the top of the
-   * enclosing dialog and left them Tabbing back through the whole Prüfbuch to
-   * reach a field they had just asked for — a signature workflow that a
-   * keyboard cannot complete without counting Tab stops.
+   * note field in its place; saving or cancelling does the reverse. Focus has
+   * to move with them: otherwise the reader is thrown to the top of the
+   * enclosing dialog and left Tabbing back through the whole Prüfbuch to reach a
+   * field they had just asked for — a signature workflow that a keyboard cannot
+   * complete without counting Tab stops.
    */
   const noteRef = useRef<HTMLTextAreaElement>(null)
   const openerRef = useRef<HTMLButtonElement>(null)
@@ -602,12 +600,10 @@ function Confirmation({
             onWithdraw &&
             (confirmingWithdraw ? (
               /*
-                One click used to delete a signed record — permanently, across
-                every revision of the building, with no confirmation, no undo
-                and no feedback beyond the button vanishing. Everything else in
-                this component asks first: the note form is itself a two-step
-                disclosure. This is the same shape, so no new pattern and no
-                dialog.
+                Deleting a signed record is permanent across every revision of
+                the building, so it asks first. Everything else in this component
+                asks first too: the note form is itself a two-step disclosure.
+                This is the same shape, so no new pattern and no dialog.
               */
               <>
                 <span className="text-muted-foreground text-xs">
@@ -717,9 +713,8 @@ function VerdictList({
    *
    * The rule engine carries at most `VISIBLE_VERDICTS` (25) individual
    * verdicts per bucket, so a rule with 300 failures arrives here with 25 of
-   * them. Counting the remainder off the array said "19 weitere" when 294
-   * were missing — a number produced entirely by two caps and true of
-   * neither the model nor the finding.
+   * them. Counting the remainder off the array would give a number produced
+   * entirely by those two caps, true of neither the model nor the finding.
    */
   total: number
   projectId: string

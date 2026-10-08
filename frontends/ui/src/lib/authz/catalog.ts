@@ -10,10 +10,9 @@
  *     environment (`--apply`) or fails CI on drift (`--check`).
  *
  * Because both read the SAME structure, "the code says X but WorkOS says Y"
- * stops being possible to ship. That drift was a real finding: `org:audit:view`
- * and `org:archiv:manage` lived in the app's registry and in the runbook for
- * three weeks while existing in no WorkOS environment, so no custom role could
- * ever hold them and only the legacy `admin` implication made them work.
+ * stops being possible to ship. A permission present in the app's registry but
+ * in no WorkOS environment can never be held by a custom role, so the two must
+ * not be maintained separately.
  *
  * ## Tiers
  *
@@ -87,8 +86,7 @@ export interface ResourceTypeSpec {
 /**
  * The resource topology: Organization → Project → Skill schedule.
  *
- * `document` was deliberately REMOVED (it existed with zero roles and zero
- * permissions, so nothing ever checked it). Document access is pure inheritance
+ * There is no `document` resource type. Document access is pure inheritance
  * from the parent project and is enforced in `lib/documents/service.ts`; giving
  * every uploaded file its own FGA resource would mean a WorkOS write per upload,
  * a delete per delete, a backfill and a reconciliation job — an unbounded
@@ -199,9 +197,9 @@ export const ORG_PERMISSION_SPECS: readonly PermissionSpec[] = [
  * Platform-tier permissions. Only ever attached to `platform-org` roles.
  *
  * **This separation is enforced by US, not by WorkOS.** Verified against the
- * live API on 2026-07-31: a role whose resource type is `organization` was
- * created holding `project:view`, a Project-tier permission, and WorkOS accepted
- * it — permissions are NOT constrained to roles of their own resource type.
+ * live API: a role whose resource type is `organization` may hold `project:view`,
+ * a Project-tier permission, because WorkOS does not constrain permissions to
+ * roles of their own resource type.
  * Moving `platform:*` onto a dedicated resource type would therefore buy tidier
  * grouping and no security guarantee at all.
  *
@@ -281,11 +279,9 @@ export const PROJECT_PERMISSION_SPECS: readonly PermissionSpec[] = [
      *
      * `project:documents:write` gates the ORDINARY upload — a person choosing a
      * file off their disk — and it is the same permission behind delete and a
-     * whole-project re-index (`lib/documents/service.ts`). An organization that
-     * wanted Piloti to answer but not to write into its file system therefore
-     * had exactly one lever, and pulling it also stopped its own architects
-     * uploading plans. That is not a choice, and a deploy runbook that offered
-     * it as a kill switch was wrong
+     * whole-project re-index (`lib/documents/service.ts`). Withholding it to stop
+     * machine writes would also stop the organization's own architects uploading
+     * plans, so it cannot serve as the kill switch for machine authorship
      * (`docs/deployment/agent-authored-documents-rollout.md` §4).
      *
      * This permission is required **in addition to** the write permission at

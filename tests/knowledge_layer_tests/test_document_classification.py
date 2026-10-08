@@ -65,7 +65,7 @@ class TestVocabulary:
 
     def test_allowed_tags_is_union(self):
         assert ALLOWED_TAGS == frozenset(DOCUMENT_TYPE_TAGS) | frozenset(DISCIPLINE_TAGS)
-        # The six OIB disciplines the user asked for are all present.
+        # The six OIB disciplines are all present.
         assert "Brandschutz" in ALLOWED_TAGS
         assert "Standsicherheit" in ALLOWED_TAGS
 
@@ -114,7 +114,7 @@ class TestClassifyDocumentTags:
         assert classify_document_tags("text", "f.pdf", llm) is None
 
     def test_off_vocabulary_tags_are_dropped(self):
-        """The user's core concern: an off-vocabulary tag (a semantic duplicate
+        """An off-vocabulary tag (a semantic duplicate
         like 'Feuerschutz' for the canonical 'Brandschutz', or any invented
         category) is deterministically dropped and never reaches storage."""
         llm = _llm_returning('["Feuerschutz", "Brandschutz", "MadeUpCategory", "Grundriss"]')

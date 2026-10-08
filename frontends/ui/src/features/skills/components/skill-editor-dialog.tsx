@@ -7,24 +7,23 @@
  * ONE availability gate), whether its live line is muted (`grid-hidden`), and
  * its preferred output cards (`grid-cards`) — and the master enabled switch.
  *
- * There is no control for `grid-auto-invoke`. It was a switch an author
- * flipped to keep a skill OUT of the model's catalog, which is a person
- * deciding whether the model may pick — the thing ADR-0060 deleted everywhere
- * else. The key is still tolerated on a stored document (it rides through as
- * unreserved metadata, like `grid-execution`), so an old row keeps loading; it
- * is simply not written, not read and not offered. Editing a clone shows
- * its source. Platform-builtin skills have no DB row and are never edited here;
- * they are cloned instead (see the toolbox).
+ * There is no control for `grid-auto-invoke`: a switch that keeps a skill OUT of
+ * the model's catalog would be a person deciding whether the model may pick, the
+ * thing ADR-0060 rules out everywhere. The key is still tolerated on a stored
+ * document (it rides through as unreserved metadata, like `grid-execution`), so an
+ * old row keeps loading; it is simply not written, not read and not offered.
+ * Platform-builtin skills have no DB row and are never edited here; they are
+ * switched on or off in the curated section instead.
  *
  * There is deliberately nothing here about time or output. A skill does not
  * know when it runs or what a run produces: scheduling belongs to the JOB that
  * attaches it, and the output kind is that job's choice (`jobs.output`).
  *
- * Laid out as one view rather than a wizard. The fields are few; what is not
- * few is the number of things an author has to hold in mind at once — the
- * document the fields produce, whether the description will actually be
- * matched, and where the skill will exist. All three are live beside the
- * fields, and a step-by-step flow could only show them after the fact.
+ * Stepped rather than one long form. The fields are few; what is not few is the
+ * number of things an author has to hold in mind at once — the document the
+ * fields produce, whether the description will actually be matched, and where the
+ * skill will exist. The check step shows the first two beside the reviewer's
+ * verdict, and the scope sits behind its one „Erweitert".
  *
  * The server owns all final validation; this dialog only mirrors the write
  * boundary rules (name shape/lengths) for instant feedback.
@@ -590,19 +589,16 @@ export function SkillEditorDialog({
       <Dialog open={open} onOpenChange={(next) => !form.state.isSubmitting && onOpenChange(next)}>
         {/* A reading column, not a page.
 
-            This used to be a `sm:max-w-5xl` two-column form: the document on
-            the left, a rail of eight settings on the right, everything at once.
-            It asked an author to hold the whole skill in their head before
-            they had written a line of it, and the rail — agents, cards,
-            category, two switches — sat at the same weight as the description,
-            which is the ONE field that decides whether the skill is ever
-            picked.
+            Not a two-column form: that asks an author to hold the whole skill in
+            their head before writing a line of it, and puts the rail — agents,
+            cards, category, two switches — at the same weight as the description,
+            which is the ONE field that decides whether the skill is ever picked.
 
-            It is a stepped form now, the same shape and the same `Stepper` the
-            task builder wears, because it asks the same kind of thing: a short
-            sequence of questions where knowing how many are left is what
-            decides whether somebody finishes. Everything that is not the
-            document is behind one „Erweitert" on the last step. */}
+            It is a stepped form, the same shape and the same `Stepper` the task
+            builder wears, because it asks the same kind of thing: a short sequence
+            of questions where knowing how many are left is what decides whether
+            somebody finishes. Everything that is not the document is behind one
+            „Erweitert" on the last step. */}
         <DialogContent className="flex max-h-[calc(100dvh-2rem)] flex-col gap-0 overflow-hidden p-0 sm:max-w-2xl">
           <DialogHeader className="border-border shrink-0 border-b px-6 py-5 pr-14">
             <DialogTitle>

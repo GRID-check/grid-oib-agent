@@ -238,8 +238,8 @@ beforeEach(() => {
   vi.mocked(countPendingInboxItems).mockResolvedValue(0)
   vi.mocked(canUserAccessProject).mockResolvedValue(true)
   vi.mocked(isUserInOrganization).mockResolvedValue(true)
-  // Every candidate reaches the project unless a test says otherwise — the
-  // mention path now asserts the container precondition for participants too
+  // Every candidate reaches the project unless a test says otherwise: the
+  // mention path asserts the container precondition for participants too
   // (spec MN-6), so this mirrors `canUserAccessProject` above.
   vi.mocked(filterUsersWithProjectAccess).mockImplementation(
     async (_session, _projectId, candidateUserIds) => new Set(candidateUserIds),
@@ -254,7 +254,7 @@ beforeEach(() => {
   )
 })
 
-describe('the per-message mention cap (matrix E26, spec MN-13)', () => {
+describe('the per-message mention cap', () => {
   it('refuses the whole message rather than sending the first ten mentions', async () => {
     // Mention-bombing is the attack, and a message naming two hundred people is
     // what it looks like. A partial send would be worse than a refusal: the author
@@ -284,7 +284,7 @@ describe('the per-message mention cap (matrix E26, spec MN-13)', () => {
   })
 })
 
-describe('the grant roster cap (matrix E27, spec SH-16)', () => {
+describe('the grant roster cap', () => {
   it('refuses a grant once the roster is full, and writes nothing', async () => {
     vi.mocked(countGrantsForResource).mockResolvedValue(SHARE_ROSTER_LIMIT)
 
@@ -313,7 +313,7 @@ describe('the grant roster cap (matrix E27, spec SH-16)', () => {
   })
 })
 
-describe('user-controlled text in a notification (matrix E28, spec IB-3, MN-12)', () => {
+describe('user-controlled text in a notification', () => {
   it('truncates an oversized note instead of storing and copying it whole', async () => {
     const note = 'A'.repeat(1000)
 
@@ -350,7 +350,7 @@ describe('user-controlled text in a notification (matrix E28, spec IB-3, MN-12)'
   })
 })
 
-describe('the per-anchor group key (matrix E29, spec IB-8)', () => {
+describe('the per-anchor group key', () => {
   it('throws for a per-anchor type with no anchor instead of collapsing mentions together', () => {
     // Collapsing would make the second mention in a thread overwrite the first —
     // a lost request for help, which is the one failure this feature must not have.
@@ -375,9 +375,9 @@ describe('the per-anchor group key (matrix E29, spec IB-8)', () => {
   })
 })
 
-describe('a legacy conversation with no container (matrix E30, spec MG-2)', () => {
+describe('a conversation with no container', () => {
   beforeEach(() => {
-    // Pre-project-stamping rows: no project membership could describe them, so
+    // Rows with no project stamp: no project membership could describe them, so
     // there is nothing to gate on and nothing to crash on.
     stubConversation({ projectId: null })
     stubContainer('denied')
@@ -402,8 +402,9 @@ describe('a legacy conversation with no container (matrix E30, spec MG-2)', () =
   })
 
   it('still checks that the invitee is in the ORGANIZATION — no container is not no precondition', async () => {
-    // "Nothing to gate on" used to mean "nothing checked": a grant could name a
-    // user in another tenant, and the fan-out would publish to their channel.
+    // "Nothing to gate on" must not mean "nothing checked": otherwise a grant
+    // could name a user in another tenant, and the fan-out would publish to
+    // their channel.
     await grantResourceAccess(session, 'conversation', CONVERSATION_ID, {
       subjectUserId: BOB,
       role: 'collaborator',
@@ -413,7 +414,7 @@ describe('a legacy conversation with no container (matrix E30, spec MG-2)', () =
   })
 })
 
-describe('duplicate mention targets in one message (matrix E31, spec MN-13)', () => {
+describe('duplicate mention targets in one message', () => {
   it('costs one request, one notification and one unit of budget', async () => {
     // The composer can emit the same target twice (typed once, re-picked once).
     const result = await send([ANNA, ANNA, ANNA])
@@ -425,7 +426,7 @@ describe('duplicate mention targets in one message (matrix E31, spec MN-13)', ()
   })
 })
 
-describe('an unresolvable person (matrix E32, spec SH-17)', () => {
+describe('an unresolvable person', () => {
   it('still renders a roster entry when the directory comes back empty', async () => {
     // WorkOS is authoritative for identity and the app keeps no user table, so a
     // directory outage must degrade to ids and initials, never to a broken page.
@@ -465,7 +466,7 @@ describe('an unresolvable person (matrix E32, spec SH-17)', () => {
   })
 })
 
-describe('the mention text bound is shared with the inbox projection (matrix E28)', () => {
+describe('the mention text bound is shared with the inbox projection', () => {
   it('caps the payload the inbox reads back, whatever was stored', async () => {
     await send([ANNA], { note: 'B'.repeat(400) })
 

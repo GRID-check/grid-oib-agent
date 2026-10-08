@@ -357,7 +357,7 @@ beforeEach(() => {
   authorizationCheck.mockResolvedValue({ authorized: true })
 })
 
-describe('a conversation in another organization does not exist (matrix F33, spec SH-6)', () => {
+describe('a conversation in another organization does not exist', () => {
   /** Every session-carrying entry point that resolves a conversation. */
   const entryPoints: Array<[string, () => Promise<unknown>]> = [
     ['getConversation', () => getConversation(session, CONVERSATION_ID)],
@@ -425,7 +425,7 @@ describe('a conversation in another organization does not exist (matrix F33, spe
   })
 })
 
-describe('an inbox is only ever the caller\'s own (matrix F34, spec IB-1)', () => {
+describe('an inbox is only ever the caller\'s own', () => {
   it('scopes marking read to the caller in SQL, so foreign ids match nothing', async () => {
     const queries = captureSql()
     const inbox = await vi.importActual<typeof import('@/lib/inbox/repository')>('@/lib/inbox/repository')
@@ -459,8 +459,8 @@ describe('an inbox is only ever the caller\'s own (matrix F34, spec IB-1)', () =
       'org_1',
       session.userId,
       ['item_of_another_user'],
-      // The type gate travels with the mutation now: recipient scoping alone let
-      // an id kept from before collaboration was disabled still be marked read.
+      // The type gate travels with the mutation: recipient scoping alone would
+      // let an id kept from before collaboration was disabled still be marked read.
       expect.any(Array),
     )
     expect(result.affected).toBe(0)
@@ -473,7 +473,7 @@ describe('an inbox is only ever the caller\'s own (matrix F34, spec IB-1)', () =
   })
 })
 
-describe('releasing a mention on an unreachable thread (matrix F35, spec MN-9.2)', () => {
+describe('releasing a mention on an unreachable thread', () => {
   it('404s a release on a conversation the caller cannot open', async () => {
     // Anyone in the room may release a wait — but only someone in the room.
     vi.mocked(findRequestById).mockResolvedValue(requestRow())
@@ -494,7 +494,7 @@ describe('releasing a mention on an unreachable thread (matrix F35, spec MN-9.2)
   })
 })
 
-describe('sharing is never a back door into a project (matrix F36, spec SH-5)', () => {
+describe('sharing is never a back door into a project', () => {
   it('refuses an invitee who cannot reach the container project, and writes no grant', async () => {
     // The real `canUserAccessProject` runs: no membership in this organization, so
     // the container precondition is unmet.
@@ -531,7 +531,7 @@ describe('sharing is never a back door into a project (matrix F36, spec SH-5)', 
   })
 })
 
-describe('an unregistered resource type (matrix F37)', () => {
+describe('an unregistered resource type', () => {
   it('is refused before any lookup happens', async () => {
     const unknownType = 'not-a-resource' as ShareableResourceType
 
@@ -551,7 +551,7 @@ describe('an unregistered resource type (matrix F37)', () => {
   })
 })
 
-describe('the container precondition fails CLOSED (matrix F38, spec SH-5)', () => {
+describe('the container precondition fails CLOSED', () => {
   it('says no for a user with no membership in the organization', async () => {
     listOrganizationMemberships.mockResolvedValue({ data: [] })
 
@@ -596,7 +596,7 @@ describe('the container precondition fails CLOSED (matrix F38, spec SH-5)', () =
   })
 })
 
-describe('a notification never outlives the access it describes (matrix F39, spec IB-13)', () => {
+describe('a notification never outlives the access it describes', () => {
   it('redacts the link and the snippet once the target is unreachable', async () => {
     vi.mocked(listInboxItems).mockResolvedValue([inboxRow()])
     // The thread is somebody else's private conversation now — a revoked grant, a
@@ -608,13 +608,11 @@ describe('a notification never outlives the access it describes (matrix F39, spe
 
     expect(items[0]!.href).toBeNull()
     expect(items[0]!.excerpt).toBeNull()
-    // The SUBJECT is the conversation's title, so it is withheld too. This
-    // assertion used to pin `'Brandschutz Halle 3'` — deliberately, on the
-    // reading that a redacted row must still "explain itself". It does explain
-    // itself: the row survives, carries its inert/unavailable label and its
-    // timestamp, and the client renders the generic `inbox.inert` copy in place of
-    // the name. What it must not do is keep leaking the title of a thread the
-    // recipient can no longer open (spec IB-13, SH-19).
+    // The SUBJECT is the conversation's title, so it is withheld too: a redacted
+    // row must not keep leaking the title of a thread the recipient can no longer
+    // open (spec IB-13, SH-19). The row still explains itself — it survives with
+    // its inert/unavailable label and its timestamp, and the client renders the
+    // generic `inbox.inert` copy in place of the name.
     expect(items[0]!.subject).toBeNull()
     // Redacted, not dropped — the row is still there to explain itself.
     expect(items).toHaveLength(1)
@@ -647,7 +645,7 @@ describe('a notification never outlives the access it describes (matrix F39, spe
   })
 })
 
-describe('a single-player user cannot notice this feature exists (matrix F40, spec NF-8)', () => {
+describe('a single-player user cannot notice this feature exists', () => {
   it('emits no events and no inbox items for a private conversation with no grants', async () => {
     stubConversation({ visibility: 'private', createdBy: session.userId })
     vi.mocked(countGrantsForResource).mockResolvedValue(0)

@@ -123,8 +123,8 @@ describe('FilePreviewPane', () => {
   /**
    * The header is the same shape on every document, so it can be learned: the
    * name, two chips that say which document it is, and the four controls that
-   * act on the file. Before this, ten things fought for one row and five were
-   * conditional, so the chrome reflowed as the reader moved between files.
+   * act on the file. Ten things competing for one row, five of them conditional,
+   * would reflow the chrome as the reader moves between files.
    */
   it('keeps what acts on the file in the header, and what Piloti made of it in the rail', () => {
     render(
@@ -159,13 +159,13 @@ describe('FilePreviewPane', () => {
   })
 
   /**
-   * Both chips used to be rows in the rail as well. The same fact stated twice
-   * on one surface reads as two facts, so the rows went when the chips came.
+   * The chips carry these facts, so the rail does not repeat them. The same fact
+   * stated twice on one surface reads as two facts.
    */
   /**
    * The status chip earns its place only when the answer is not the default.
-   * „Zitierbar" is true of almost every document, so a badge saying so
-   * appeared on everything and therefore distinguished nothing; the states
+   * „Zitierbar" is true of almost every document, so a badge saying so would
+   * sit on everything and distinguish nothing; the states
    * that change what the reader can do next are the ones worth a chip, and
    * each of them is the reason the rail's Ask button is grey.
    */
@@ -189,8 +189,8 @@ describe('FilePreviewPane', () => {
   /**
    * A re-upload that fails to index keeps the previous version's passages in
    * search, while the row already points at the new bytes. Saying only
-   * "failed" left the reader to discover that the answers quote a file the
-   * download no longer returns.
+   * "failed" would leave the reader to discover that the answers quote a file
+   * the download no longer returns.
    */
   it('says the previous version is still searched when a new version failed', () => {
     const failed = { ...mockFile, status: 'failed', errorMessage: 'PDF is encrypted' }
@@ -233,7 +233,7 @@ describe('FilePreviewPane', () => {
     expect(screen.queryByText(docx)).toBeNull()
   })
 
-  it('offers the expand affordance for an image once its preview URL has loaded (FB-15a)', async () => {
+  it('offers the expand affordance for an image once its preview URL has loaded', async () => {
     vi.spyOn(globalThis, 'fetch').mockResolvedValue({
       ok: true,
       json: async () => ({ url: 'https://example.test/diagram.png' }),
@@ -474,7 +474,7 @@ describe('FilePreviewPane', () => {
     })
 
     it('marks which of the sheet\'s depictions a row is when a sheet carries several', async () => {
-      // Issue #440: two floor plans side by side index as two rows. Without
+      // Two floor plans side by side index as two rows. Without
       // the position they read as one drawing stated twice.
       vi.spyOn(globalThis, 'fetch').mockImplementation(async (input: RequestInfo | URL) => {
         const url = String(input)
@@ -695,7 +695,7 @@ describe('FilePreviewPane', () => {
       expect(screen.queryByRole('button', { name: /structured data/i })).toBeNull()
     })
 
-    it('still renders a chunk indexed before the structured schema', async () => {
+    it('renders a chunk with no structured schema', async () => {
       mockVisualDetails([
         {
           page: 1,
@@ -736,7 +736,7 @@ describe('FilePreviewPane', () => {
           projectName="Stadthaus Linz"
         />
       )
-      // The detected type is a chip beside the name now, not a rail row —
+      // The detected type is a chip beside the name, not a rail row —
       // 'Grundriss' appears there and as a tag chip, and nowhere else.
       expect(screen.queryByText('Document type')).toBeNull()
       expect(screen.getAllByText('Grundriss')).toHaveLength(2)
@@ -772,12 +772,12 @@ describe('FilePreviewPane', () => {
       expect(screen.queryByText('Pages')).toBeNull()
       expect(screen.queryByText('Passages')).toBeNull()
       expect(screen.queryByText('Contents')).toBeNull()
-      // …but the ungated rows stay. Status is no longer one of them: it moved
-      // to the header beside the filename, because "can Piloti quote this" is
-      // the first question on opening a file and it used to sit below the fold
-      // in a column the flag can hide entirely. It is answered there by a chip
-      // that appears only when the answer is NO — which for this citable
-      // fixture means nothing at all, on either surface.
+      // …but the ungated rows stay. Status is not one of them: it sits in the
+      // header beside the filename, because "can Piloti quote this" is the first
+      // question on opening a file, and a column the flag can hide entirely is the
+      // wrong place for it. It is answered there by a chip that appears only when
+      // the answer is NO — which for this citable fixture means nothing at all, on
+      // either surface.
       expect(screen.queryByText('Citable')).toBeNull()
       expect(screen.queryByText('Status')).toBeNull()
       expect(screen.queryByText('Status')).toBeNull()
@@ -1017,12 +1017,10 @@ describe('FilePreviewPane', () => {
     })
 
     it('previews the building in the org Archiv too, which has no project', async () => {
-      // This used to assert the opposite, and the opposite was the bug: an
-      // `.ifc` uploaded into the Archiv was parsed, indexed and listed as
-      // ready, and then previewed as the grey placeholder every unreadable
-      // format gets. The viewport resolves the model by DOCUMENT when no
-      // project is in hand, so the shelf no longer decides whether a building
-      // can be looked at.
+      // An `.ifc` in the Archiv is a model like any other. The viewport resolves
+      // the model by DOCUMENT when no project is in hand, so the shelf does not
+      // decide whether a building can be looked at. It must not fall through to
+      // the grey placeholder every unreadable format gets.
       render(<FilePreviewPane file={modelFile} />)
 
       const preview = await screen.findByTestId('ifc-file-preview')
@@ -1122,8 +1120,8 @@ describe('FilePreviewPane', () => {
       const user = userEvent.setup()
       render(<FilePreviewPane file={mockFile} projectId="proj-1" />)
 
-      // The full-width red button under the tags is gone; what is left is one
-      // menu next to the other controls that act on this document.
+      // No full-width delete button under the tags: the document menu, next to
+      // the other controls that act on this document, is the one place for it.
       expect(screen.queryByRole('button', { name: /delete document/i })).toBeNull()
       await user.click(screen.getByTestId('document-actions-trigger'))
 
@@ -1175,10 +1173,10 @@ describe('FilePreviewPane', () => {
   })
 
   it('offers Besprechen while the file is still being read', () => {
-    // It used to be greyed out here, with a hint promising a wait. The wait was
-    // about the retrieval INDEX, and a conversation about a document no longer
-    // depends on it: the turn reads the subject version's own bytes. Disabling
-    // the control would now be withholding something that works.
+    // The control stays enabled. The wait is about the retrieval INDEX, and a
+    // conversation about a document does not depend on it: the turn reads the
+    // subject version's own bytes. Disabling the control would withhold something
+    // that works.
     render(<FilePreviewPane file={{ ...mockFile, status: 'processing' }} projectId="proj-1" />)
     expect(screen.getByRole('button', { name: 'Discuss' })).toBeEnabled()
   })
@@ -1188,7 +1186,7 @@ describe('FilePreviewPane', () => {
     expect(screen.getByRole('button', { name: 'Discuss' })).toBeEnabled()
   })
 
-  describe('a document that is not there any more', () => {
+  describe('a document that cannot be found', () => {
     afterEach(() => vi.unstubAllGlobals())
 
     it('says so, and offers the one move left instead of a retry that cannot work', async () => {
@@ -1585,12 +1583,11 @@ describe('FilePreviewPane — a report Piloti wrote', () => {
   })
 
   it('offers Besprechen and still says the report is not in the knowledge base', async () => {
-    // THE POINT OF THE CHANGE. This button used to be greyed out for exactly
-    // this document — a report Piloti wrote, deliberately never indexed — which
-    // made the one file the reader most wants to talk about the one file they
-    // could not. The turn reads an unpublished version's own bytes now, so the
-    // control works; what it cannot do is cite the report as Projektwissen, and
-    // the hint still says so.
+    // THE POINT OF THE TEST. This is a report Piloti wrote and deliberately never
+    // indexed, and the reader most wants to talk about exactly that file, so the
+    // button must work on it. The turn reads an unpublished version's own bytes,
+    // so the control works; what it cannot do is cite the report as
+    // Projektwissen, and the hint still says so.
     render(<FilePreviewPane file={generated} projectId="proj-1" />)
 
     const discuss = screen.getByRole('button', { name: 'Discuss' })
@@ -1599,17 +1596,13 @@ describe('FilePreviewPane — a report Piloti wrote', () => {
   })
 
   it('withholds Ask on a machine-authored row whose status says citable', () => {
-    // The design's own lesson from this feature, which had been written down
-    // and not applied: "Every not-citable affordance derived from `status`.
-    // That was fine while `stored` implied agent-authored, and wrong the
-    // instant anything moved the row out of `stored`. Provenance is the durable
-    // fact." The gates read `status` alone until now.
+    // The not-citable gate reads `authored_by`, not `status`: provenance is the
+    // durable fact, and an affordance derived from `status` is wrong the instant
+    // anything moves the row out of `stored`. `status` says where a document is
+    // in a pipeline and can move; `authored_by` says what it is and cannot.
     //
     // Nothing can move an agent row out of `stored` today — `dispatchDocument`
-    // refuses it, and `stored` is terminal so the poller never revisits it —
-    // which is precisely why this is cheap to fix now and expensive to discover
-    // later. `status` says where a document is in a pipeline and can move;
-    // `authored_by` says what it is and cannot.
+    // refuses it, and `stored` is terminal so the poller never revisits it.
     render(<FilePreviewPane file={{ ...generated, status: 'completed' }} projectId="proj-1" />)
 
     const discuss = screen.getByRole('button', { name: 'Discuss' })
@@ -1651,9 +1644,9 @@ describe('FilePreviewPane — a report Piloti wrote', () => {
     })
 
     /**
-     * The regression this whole branch exists for: `.md`, `.txt` and `.csv` are
-     * accepted at upload and used to draw the same "no inline preview" mock as a
-     * format the product genuinely cannot open.
+     * The regression this guards: `.md`, `.txt` and `.csv` are accepted at upload
+     * and must not draw the same "no inline preview" mock as a format the product
+     * genuinely cannot open.
      */
     it('renders a Markdown document instead of the no-preview mock', async () => {
       vi.spyOn(globalThis, 'fetch').mockResolvedValue({

@@ -3,9 +3,9 @@
  *
  * `platform_model_defaults` (migration 0026) is created empty, and an empty
  * middle layer means resolution falls through to the workflow YAML `model_name`
- * (see `getEffectiveModelOverrides`). So until a platform owner visited
- * Platform → Models, the fleet ran on a literal in a config file: a model nobody
- * had declared as a decision, invisible in the admin surface and absent from the
+ * (see `getEffectiveModelOverrides`). Until a platform owner saves under
+ * Platform → Models, the fleet runs on a literal in a config file: a model nobody
+ * has declared as a decision, invisible in the admin surface and absent from the
  * audit trail. This module closes that by writing the defaults once, on boot.
  *
  * ## Why this is not a SQL migration
@@ -16,8 +16,8 @@
  * `base_url` and `api_key` alone, so that an override can never re-point traffic
  * at another provider. A migration runs on every deployment regardless of which
  * `BACKEND_CONFIG` that deployment loaded, and a deployment may point that at a
- * config on another provider (the repo used to ship Kimi- and NVIDIA-hosted
- * ones). Seeding an OpenRouter id there sends an unknown model to that provider
+ * config on another provider (a Kimi- or NVIDIA-hosted one, say). Seeding an
+ * OpenRouter id there sends an unknown model to that provider
  * on every request — and the admin UI cannot repair it, because its save path
  * only accepts ids the OpenRouter catalog knows.
  *

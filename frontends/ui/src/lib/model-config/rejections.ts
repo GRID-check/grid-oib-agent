@@ -1,12 +1,12 @@
 /**
  * Why a model was refused for an agent group, as a stable code.
  *
- * The save paths (org PUT, rollback, platform defaults) used to answer a 422
- * with English prose per group, which the admin cards pasted into a toast
- * verbatim: a German admin read `model 'x' not found in the model catalog` for
- * what was really "this model has no zero-data-retention endpoint", and one
- * reason was hard-coded German for everybody. A code is what the UI localizes;
- * `message` stays English for logs and for API clients that do not.
+ * The save paths (org PUT, rollback, platform defaults) answer a 422 with a
+ * stable code per refusal rather than prose. The admin cards would otherwise
+ * paste English into a toast verbatim, and a German admin would read `model 'x'
+ * not found in the model catalog` for what is really "this model has no
+ * zero-data-retention endpoint". A code is what the UI localizes; `message`
+ * stays English for logs and for API clients that do not.
  *
  * Client-safe on purpose (no `server-only`): the cards import the type and
  * `localizeRejection`, the server builds the values.

@@ -1,15 +1,15 @@
 /**
  * The guard that a card's NESTED fields are actually validated.
  *
- * `generate-card-schemas.mjs` used to flatten every nested `$ref` to
- * `z.any()`, because `json-schema-to-zod` has no `$ref` resolution and a
- * single `$def` handed to it in isolation cannot see the siblings it points
- * at. The result was not weak validation of nested card fields, it was none:
- * `{ type: 'verdict_header', …, reference: 'banana' }` was a valid card, and
- * because `z.any()` also accepts `undefined`, 14 card types could arrive
- * missing a field `models.py` requires. Eight of those threw during render,
- * and with no error boundary between a card and its route that unmounted the
- * whole thread rather than dropping the one card.
+ * A nested `$ref` must be validated, not flattened. `generate-card-schemas.mjs`
+ * must not turn one into `z.any()`: `json-schema-to-zod` has no `$ref`
+ * resolution, and a single `$def` handed to it in isolation cannot see the
+ * siblings it points at. That is not weak validation of nested card fields, it
+ * is none: `{ type: 'verdict_header', …, reference: 'banana' }` would be a valid
+ * card, and because `z.any()` also accepts `undefined`, a card could arrive
+ * missing a field `models.py` requires. With no error boundary between a card
+ * and its route, a render failure unmounts the whole thread rather than
+ * dropping the one card.
  *
  * So the assertion here is deliberately EXHAUSTIVE over the canonical JSON
  * Schema rather than a handful of examples: every field that `schemas.json`

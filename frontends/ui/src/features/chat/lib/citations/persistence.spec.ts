@@ -49,7 +49,7 @@ describe('citation persistence', () => {
     expect(citationNumbers(doc!)).toEqual([1, 2])
   })
 
-  it('keeps a plan\u2019s regions, so a reload still marks the drawing (#433)', () => {
+  it('keeps a plan\u2019s regions, so a reload still marks the drawing', () => {
     const regions = [{ box: [0.1, 0.2, 0.5, 0.6] as [number, number, number, number], label: 'Grundriss EG' }]
     const [restored] = decodeCitations(encodeCitations([{ ...source(4, 1), regions }]), WHEN)!
     expect(restored!.regions).toEqual(regions)
@@ -87,8 +87,8 @@ describe('citation persistence', () => {
     expect(restored[0]!.isCited).toBe(false)
   })
 
-  it('reads the pre-envelope array already sitting in local storage', () => {
-    // Client-shaped, unversioned — what localStorage held before the envelope.
+  it('reads a bare array already sitting in local storage', () => {
+    // Client-shaped and unversioned, with no envelope around it.
     const legacy = [
       {
         content: '[KB] oib-rl_2.1_ausgabe_mai_2023.pdf, p.5',
@@ -128,16 +128,16 @@ describe('citation persistence', () => {
 })
 
 describe('untrusted stored payloads', () => {
-  it('a legacy row with a non-string field decodes to nothing, never a crash', () => {
-    // Storage is untrusted: a hand-edited localStorage entry or a row from an
-    // older build can hold any JSON type, and `citationFromWire` calls `.trim()`
+  it('a row with a non-string field decodes to nothing, never a crash', () => {
+    // Storage is untrusted: a hand-edited localStorage entry, or a row written
+    // by another build, can hold any JSON type, and `citationFromWire` calls `.trim()`
     // on it. Unvalidated, one bad row took down the whole history restore.
     const legacy = [{ title: 123, citation_key: { nope: true }, content: 'x' }]
     expect(() => decodeCitations(legacy, WHEN)).not.toThrow()
     expect(decodeCitations(legacy, WHEN)).toBeUndefined()
   })
 
-  it('a well-formed legacy row alongside a malformed one is not silently half-read', () => {
+  it('a well-formed row alongside a malformed one is not silently half-read', () => {
     const rows = [
       { content: '[KB] Plan.pdf, p.1', citationKey: 'Plan.pdf, p.1', fileName: 'Plan.pdf' },
       { content: 'x', title: { not: 'a string' } },

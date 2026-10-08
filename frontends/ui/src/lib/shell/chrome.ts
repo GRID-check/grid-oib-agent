@@ -15,13 +15,13 @@ import type { SidebarUser } from '@/components/shell/sidebar-user-menu'
 /**
  * Everything the persistent app frame needs to draw itself, for one reader.
  *
- * The rail used to be assembled inside `app/projects/[id]/layout.tsx`, which is
- * why it existed only inside a project: the moment the reader stepped up to the
- * Archiv, the Postfach, Organisation, Plattform or Profil, the whole chrome
- * unmounted. Nothing in this shape is per-project — `getNavFlags`,
+ * The rail is assembled here rather than in `app/projects/[id]/layout.tsx`,
+ * because it has to draw outside a project too: a reader who steps up to the
+ * Archiv, the Postfach, Organisation, Plattform or Profil keeps the whole
+ * chrome. Nothing in this shape is per-project — `getNavFlags`,
  * `isSkillsEnabled` and `isIfcModelsEnabled` all take only the session, and the
- * project list is org-wide — so it can be resolved once, in the common
- * ancestor, and handed to a rail that is mounted exactly once per tab.
+ * project list is org-wide — so it is resolved once, in the common ancestor,
+ * and handed to a rail that is mounted exactly once per tab.
  */
 export interface ShellChrome {
   /** Org-wide projects the reader may see, name-sorted; empty when unresolvable. */

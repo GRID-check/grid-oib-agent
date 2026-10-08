@@ -2,9 +2,9 @@
  * Storage service — how much object storage an organization is using, and the
  * quota that bounds it.
  *
- * Why a quota exists at all: before this, nothing in the stack limited how many
- * bytes a tenant could store. The SeaweedFS PVC size and `-volume.max` were the
- * only ceilings, and reaching either is a cluster-wide outage rather than one
+ * Why a quota exists at all: nothing else in the stack limits how many bytes a
+ * tenant can store. The SeaweedFS PVC size and `-volume.max` are the only
+ * ceilings, and reaching either is a cluster-wide outage rather than one
  * tenant hitting a limit — every other tenant's uploads fail too. A per-org
  * quota turns a shared failure into a scoped, explainable one.
  *
@@ -43,9 +43,8 @@ export const STORAGE_QUOTA_SETTING = 'storageQuotaBytes'
 /**
  * Fleet-wide default applied when an org has set no quota of its own.
  *
- * Unset (the default) means unlimited, which is what every existing deployment
- * already had — introducing a quota must not retroactively block tenants who
- * were never told there was a limit. Operators opt the fleet in by setting
+ * Unset (the default) means unlimited, so a deployment that has never configured
+ * a quota is not blocked by one. Operators opt the fleet in by setting
  * `GRID_DEFAULT_STORAGE_QUOTA_BYTES`; an org-level value always wins.
  */
 function platformDefaultQuotaBytes(): number | null {
@@ -59,10 +58,10 @@ function platformDefaultQuotaBytes(): number | null {
  * The effective quota for a settings bag that has already been read.
  *
  * Pure, and separated from {@link getStorageQuotaBytes} because the platform
- * overview holds every organization's settings row in memory already: resolving
- * the quota there used to call `getStorageQuotaBytes` per row, which is a
- * database round trip per tenant for a value the caller was holding. The rule
- * lives here so both callers apply the same one.
+ * overview holds every organization's settings row in memory already. Resolving
+ * the quota through `getStorageQuotaBytes` there would be a database round trip
+ * per tenant for a value the caller holds. The rule lives here so both callers
+ * apply the same one.
  */
 export function effectiveQuotaFromSettings(settings: Record<string, unknown>): number | null {
   const configured = settings[STORAGE_QUOTA_SETTING]
@@ -285,9 +284,9 @@ export async function setStorageQuota(
     }
   }
 
-  // The platform-tier write. `updateOrgSettings` REFUSES this key — that refusal
-  // is what closed the hole where `PUT /api/organization/settings` let an
-  // `org:settings:manage` holder raise its own quota.
+  // The platform-tier write. `updateOrgSettings` REFUSES this key, so a
+  // `PUT /api/organization/settings` by an `org:settings:manage` holder cannot
+  // raise its own quota.
   await updatePlatformOwnedOrgSettings(session, organizationId, {
     settings: { [STORAGE_QUOTA_SETTING]: quotaBytes === null ? null : Math.floor(quotaBytes) },
   })

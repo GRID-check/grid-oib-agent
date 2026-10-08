@@ -120,7 +120,7 @@ describe('KnowledgeBasePanel', () => {
   })
 
   // The panel counts and lists the project's documents, so it reads every
-  // page: a first page of 500 used to be the whole project as far as it knew.
+  // page: a first page of 500 would be the whole project as far as it knew.
   it('lists project documents from every page of the listing', async () => {
     mockEndpoints()
     const doc = (id: string, filename: string) => ({

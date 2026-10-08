@@ -374,7 +374,7 @@ beforeEach(() => {
 // A. Deletion
 // ---------------------------------------------------------------------------
 
-describe('deleting a conversation (matrix A1–A3, spec SH-13)', () => {
+describe('deleting a conversation', () => {
   it('purges the grants, mention requests and inbox items that no foreign key cascades', async () => {
     // These three tables address their target as a polymorphic
     // (resource_type, resource_id) pair, so nothing in Postgres removes them.
@@ -415,7 +415,7 @@ describe('deleting a conversation (matrix A1–A3, spec SH-13)', () => {
   })
 })
 
-describe('soft-deleting a project (matrix A4–A5, spec SH-13)', () => {
+describe('soft-deleting a project', () => {
   const CONVERSATIONS = ['conv_a', 'conv_b', 'conv_c']
 
   beforeEach(() => {
@@ -465,8 +465,8 @@ describe('soft-deleting a project (matrix A4–A5, spec SH-13)', () => {
   })
 })
 
-describe('the orphan sweep (matrix A6)', () => {
-  it('targets only rows whose conversation no longer exists', async () => {
+describe('the orphan sweep', () => {
+  it('targets only rows whose conversation does not exist', async () => {
     // The predicate IS the guarantee: a row whose conversation still exists must
     // be excluded in SQL, not filtered in JS after the fact.
     const queries = captureSql()
@@ -510,7 +510,7 @@ describe('the orphan sweep (matrix A6)', () => {
   })
 })
 
-describe('inbox retention (matrix A7, spec IB-15)', () => {
+describe('inbox retention', () => {
   it('deletes only items older than the LONGEST registered retention window', async () => {
     vi.mocked(pruneInboxItemsOlderThan).mockResolvedValue(12)
     const now = new Date('2026-07-30T12:00:00.000Z')
@@ -533,7 +533,7 @@ describe('inbox retention (matrix A7, spec IB-15)', () => {
 // B. Modification
 // ---------------------------------------------------------------------------
 
-describe('changing visibility (matrix B8–B10, spec SH-2, SH-13, SH-14)', () => {
+describe('changing visibility', () => {
   it('keeps explicit grants when visibility narrows from project to private', async () => {
     // People who only had project-derived access lose it; the invitees do not —
     // otherwise "narrow the audience" would silently un-invite everyone.
@@ -575,7 +575,7 @@ describe('changing visibility (matrix B8–B10, spec SH-2, SH-13, SH-14)', () =>
   })
 })
 
-describe('changing a role (matrix B11–B13, spec MN-9.4)', () => {
+describe('changing a role', () => {
   // A role change edits an existing grant, so every case here starts from one.
   beforeEach(() => {
     stubGrants([{ subjectUserId: ANNA, role: 'collaborator' }])
@@ -609,8 +609,9 @@ describe('changing a role (matrix B11–B13, spec MN-9.4)', () => {
       vi.mocked(voidOpenRequestsForSubject).mockClear()
       vi.mocked(upsertGrant).mockClear()
       // Anna starts BELOW the target every time, so each iteration is a genuine
-      // upgrade. Starting at `collaborator` made the first pass a no-op, which now
-      // returns early — and a no-op does not exercise "an upgrade voids nothing".
+      // upgrade: starting at `collaborator` would make the first pass a no-op,
+      // which returns early, and a no-op does not exercise "an upgrade voids
+      // nothing".
       stubGrants([
         { subjectUserId: session.userId, role: 'owner' },
         { subjectUserId: ANNA, role: 'viewer' },
@@ -674,7 +675,7 @@ describe('changing a role (matrix B11–B13, spec MN-9.4)', () => {
 // C. Access revocation
 // ---------------------------------------------------------------------------
 
-describe('revoking a grant (matrix C14–C15, spec SH-13, IB-14)', () => {
+describe('revoking a grant', () => {
   beforeEach(() => {
     stubConversation({ createdBy: 'user_creator' })
     stubMyGrant('owner')
@@ -733,7 +734,7 @@ describe('revoking a grant (matrix C14–C15, spec SH-13, IB-14)', () => {
   })
 })
 
-describe('leaving, and the last-owner invariant (matrix C16–C17, spec SH-11, SH-12)', () => {
+describe('leaving, and the last-owner invariant', () => {
   it('lets a viewer remove their own grant without any ownership', async () => {
     stubConversation({ visibility: 'private', createdBy: 'user_creator' })
     stubMyGrant('viewer')
@@ -794,7 +795,7 @@ describe('leaving, and the last-owner invariant (matrix C16–C17, spec SH-11, S
   })
 })
 
-describe('losing PROJECT membership (matrix C18–C20, spec SH-13)', () => {
+describe('losing PROJECT membership', () => {
   it('settles that person\'s state in the project they left, and only there', async () => {
     vi.mocked(voidOpenRequestsForSubjectInProject).mockResolvedValue([
       requestRow({ resourceId: 'conv_a' }),

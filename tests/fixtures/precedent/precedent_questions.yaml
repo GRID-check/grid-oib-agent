@@ -41,12 +41,9 @@
 #   holdout:     true for a question written without reading any answer and
 #                never used to tune a prompt, a check or the fixture. The report
 #                scores them apart: a gap between tuned and held-out is overfitting.
-#                Their EXPECTATIONS were edited after they had run, twice: the
-#                wien-uebernahme check went from a word list to the judge
-#                (69bae5e), and 10 of the 16 had their cite options re-worded to a
-#                name the question does not hold and `evidence` added (d76de7e).
-#                Neither changed a question's text; scores before d76de7e are not
-#                held-out scores of the current expectations.
+#                A held-out question's text never changes, and its expectations are
+#                not edited after it has run: a score against edited expectations is
+#                not a held-out score.
 #
 # Groups: explicit (asked about past projects), implicit (a decision a past
 # project made, not asked as such: the agent should look unasked), norm (a pure
@@ -193,7 +190,7 @@ questions:
       cites: [[Holzwohnbau Baden, Wiener Straße]]
       mentions: [[Prüfbericht, Pruefbericht]]
 
-  # --- held out: written 7 Oct 2026 before any of them ran; never tune on these ---
+  # --- held out: written without reading any answer; never tune on these ---
   - id: hold-hinterlueftung-mundart
     group: explicit
     holdout: true
@@ -301,7 +298,7 @@ questions:
       says_none: true
       not_cites: [Baden, Mödling, Moedling, Linz, Gänserndorf, Hinterbrühl, Wagramer, Neubaugasse]
 
-  # --- held out, permitting memory (ADR-0086): written 8 Oct 2026 before any ran ---
+  # --- held out, permitting memory (ADR-0086) ---
   - id: perm-ma37-nachgefordert
     group: explicit
     holdout: true

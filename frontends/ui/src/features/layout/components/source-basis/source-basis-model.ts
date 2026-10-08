@@ -9,23 +9,23 @@
  *
  * ## Why this module exists at all
  *
- * The composer used to render a naked integer taken from `enabledDataSourceIds`.
- * That number was wrong in two directions at once:
+ * A naked integer taken from `enabledDataSourceIds` is the wrong thing to show,
+ * because it is wrong in two directions at once:
  *
  * 1. `knowledge_layer` is stripped out of `availableDataSources` by
  *    `adapters/api/data-sources-client.ts`, so it can never be counted — while
  *    `use-websocket-chat.ts` unconditionally appends it to every turn's
- *    `dataSourcesForMessage`. The pill said "2" while three things went out, and
- *    the two it omitted (Projektwissen, Büroarchiv) are exactly the ones an
- *    architect cares about.
+ *    `dataSourcesForMessage`. A count hides the two strata it carries
+ *    (Projektwissen, Büroarchiv), which are exactly the ones an architect cares
+ *    about.
  * 2. `computePresetSourceIds('office', …)` legitimately returns `[]` (the office
  *    archive is retrieved through the knowledge layer, not through a toggleable
- *    source), so picking the **Büroarchiv** preset made the composer report
- *    "Datengrundlage 0" — zero sources, right after the user named one.
+ *    source), so picking the **Büroarchiv** preset would report "Datengrundlage
+ *    0" — zero sources, right after the user named one.
  *
- * Both bugs are fixed here, once: the knowledge layer is folded in as `always`
- * entries so the invisible participant is finally represented, and the trigger
- * summary is a *shape* (a named preset, a set of strata) rather than a count.
+ * So the knowledge layer is folded in as `always` entries, which makes the
+ * invisible participant visible, and the trigger summary is a *shape* (a named
+ * preset, a set of strata) rather than a count.
  */
 
 import type { DataSourceFromAPI } from '@/adapters/api'
@@ -37,8 +37,9 @@ import type { SourcePresetId } from '../../types'
  *
  * `off` and `unavailable` are deliberately different values, because they are
  * different facts: one is a choice the reader made and can unmake, the other is
- * a door that is shut to them. The old picker painted both as `opacity-50` plus
- * an unchecked Switch — an unflippable switch is a lie about agency.
+ * a door that is shut to them. Painting both the same way (`opacity-50` with an
+ * unchecked Switch) would be a lie about agency: an unflippable switch looks
+ * like a choice.
  */
 export type SourceBasisState = 'on' | 'off' | 'unavailable' | 'always'
 
@@ -156,7 +157,7 @@ export const buildSourceBasis = ({
 
 /**
  * The four shapes the trigger can take. There is no fifth shape that is just a
- * number: a naked integer is what made the old control unreadable.
+ * number: a naked integer is what makes a control unreadable.
  */
 export type BasisSummaryKind =
   /** A preset is active — say its name, even when it selects no external source. */
@@ -228,7 +229,7 @@ export const summariseBasis = (
  * True when the reader has switched off every external source they could use.
  * The composer's `NoSourcesBanner` cannot say this — it short-circuits on
  * `knowledgeLayerAvailable`, so with the knowledge layer present the case is
- * completely silent today.
+ * completely silent.
  */
 export const hasNoExternalSources = (basis: SourceBasis): boolean => {
   const selectable = basis.external.filter((entry) => entry.state !== 'unavailable')

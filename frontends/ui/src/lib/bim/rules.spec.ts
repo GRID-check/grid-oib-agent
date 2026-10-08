@@ -71,17 +71,16 @@ const STOREYS = [
 
 describe('an unmeasured dimension is not a measurement of zero', () => {
   /*
-    The parser substitutes `0` for a quantity written `$`, and `ClearWidth`,
+    The parser substitutes `0` for a quantity written `$`. `ClearWidth`,
     `FinishCeilingHeight`, `RiserHeight` and `TreadLength` — the PREFERRED keys
-    of every dimensional rule — fell outside the extractor's zero-means-absent
-    pattern, which only covered `Net`/`Gross` prefixes. Read as a measurement,
-    an unmeasured clear width produces "Lichte Durchgangsbreite 0,00 m — nicht
-    erfüllt" on an escape-route rule, for a door nobody has measured; and
-    because `missing` is recorded only for undecidable elements, the shopping
-    list left out the property that would settle it.
+    of every dimensional rule — are therefore treated as absent when zero. Read
+    as a measurement, an unmeasured clear width would produce "Lichte
+    Durchgangsbreite 0,00 m — nicht erfüllt" on an escape-route rule, for a door
+    nobody has measured; and because `missing` is recorded only for undecidable
+    elements, the shopping list would leave out the property that settles it.
 
-    Fixed in `extract.ts` for new uploads, and here for the rows already stored
-    under the old rule.
+    The extractor applies this at upload (`extract.ts`); this file applies it to
+    rows already stored.
   */
   const door = (quantities: Record<string, number>): BimElement =>
     element({
@@ -141,7 +140,7 @@ describe('OIB 2 Tabelle 1b, row 1 — the storey decides the duration', () => {
 
   it('fails a Kellergeschoß wall that would pass above ground', () => {
     // Row 1.3: GK3 and up need R 90 in a basement, where row 1.2 asks R 60.
-    // The catalogue only had the above-ground row, so this wall passed.
+    // Above-ground rows alone would pass this wall.
     const rule = fire([wallOn('Keller', 'R 60')], 3)
 
     expect(rule.failed).toBe(1)
@@ -201,9 +200,9 @@ describe('OIB 2 Tabelle 1b, row 1 — the storey decides the duration', () => {
 
 describe('rules that never matched, and ticks that were not earned', () => {
   it('checks an IFC4 IfcDoorStandardCase like any other door', () => {
-    // ArchiCAD writes this routinely. The catalogue listed `IfcDoor` only, so
-    // the door rule matched zero elements and the Prüfbuch had nothing to say
-    // about any door in the building — silence, not a verdict.
+    // ArchiCAD writes this routinely. Listing `IfcDoor` alone would match zero
+    // elements, and the Prüfbuch would say nothing about any door in the
+    // building — silence, not a verdict.
     const [rule] = runBimRules(
       [
         element({
@@ -235,7 +234,7 @@ describe('rules that never matched, and ticks that were not earned', () => {
   })
 
   it('does not count a requirement with unknowns left as erfüllt', () => {
-    // 9 passed + 2 undecidable rendered a green "Erfüllt" badge. The two
+    // 9 passed + 2 undecidable must not render a green "Erfüllt" badge: the two
     // unknowns are the reason the requirement is not settled.
     const summary = summarizeBimRules([
       {
@@ -282,13 +281,13 @@ describe('rules that never matched, and ticks that were not earned', () => {
   })
 })
 
-describe('false verdicts a reviewer found by running the catalogue', () => {
+describe('verdicts on columns, load-bearing walls and zero values', () => {
   const facts = { gebaeudeklasse: 4 as const, storeys: STOREYS }
 
   it('asks R of a column, not REI — a linear member cannot separate', () => {
     // `R 90` on a column is a correct declaration. Requiring REI of it (the
-    // criteria a WALL needs) reported it as nicht erfüllt, sending an
-    // architect to argue with a Brandschutzplaner about a column that was
+    // criteria a WALL needs) would report it as nicht erfüllt, sending an
+    // architect to argue with a Brandschutzplaner about a column that is
     // right, and teaching them to distrust the whole Prüfbuch.
     const [rule] = runBimRules(
       [
@@ -319,15 +318,15 @@ describe('false verdicts a reviewer found by running the catalogue', () => {
 
     // Tabelle 1b row 1 is "tragende Bauteile (ausgenommen Decken und
     // brandabschnittsbildende Wände)" and asks R throughout. REI belongs to
-    // rows 2 and 3, which are different components. Demanding REI here failed
-    // a correctly declared load-bearing wall.
+    // rows 2 and 3, which are different components. Demanding REI here would
+    // fail a correctly declared load-bearing wall.
     expect(rule.failed).toBe(0)
     expect(rule.passed).toBe(1)
   })
 
   it('does not let a wall vanish because nobody said whether it is load-bearing', () => {
-    // The scope predicate used to be `LoadBearing === true`, so an unstated
-    // wall left the rule's scope entirely — not undecidable, not counted,
+    // The scope predicate must not be `LoadBearing === true`: an unstated wall
+    // would leave the rule's scope entirely — not undecidable, not counted,
     // simply absent from a fire-resistance check.
     const [rule] = runBimRules(
       [
@@ -429,11 +428,11 @@ describe('false verdicts a reviewer found by running the catalogue', () => {
 /**
  * The same normalisation, one layer out.
  *
- * The catalogue learned to read `IfcDoorStandardCase` as a door; the QUERY
- * layer — which every question the agent asks goes through — kept matching
- * `lower(ifc_type)` exactly. An IFC4 export whose walls are
- * `IfcWallStandardCase` answered a filter for `IfcWall` with nothing, and the
- * agent reported a building with no walls in it.
+ * The catalogue reads `IfcDoorStandardCase` as a door; the QUERY layer — which
+ * every question the agent asks goes through — must do the same, rather than
+ * match `lower(ifc_type)` exactly. Otherwise an IFC4 export whose walls are
+ * `IfcWallStandardCase` answers a filter for `IfcWall` with nothing, and the
+ * agent reports a building with no walls in it.
  */
 describe('the spellings one requested IFC type can have', () => {
   it('expands a plain type to the IFC4 subtypes an exporter may have written', () => {
@@ -616,14 +615,14 @@ describe('oib2-feuerwiderstand-tragend', () => {
 
   it('cannot decide without the Gebäudeklasse — and says that, not "nicht einschlägig"', () => {
     /*
-      Assuming GK1 would turn a GK5 building's missing R 90 into a pass, so
-      standing down is right. WHICH stand-down was not: this used to report
-      `applicable: false`, which the panel renders as the badge "Nicht
-      einschlägig" — the rule does not apply to your building. It does apply;
-      it cannot be evaluated. And `rulesWithOpenWork` / `outstandingRules` both
-      drop inapplicable rules, so the fire rule disappeared from "what still
-      needs a human before this can be signed" and its walls never reached the
-      BCF export. One unset project fact removed OIB 2 from the Prüfbuch.
+      Standing down would be wrong here: assuming GK1 would turn a GK5 building's
+      missing R 90 into a pass. The rule must be undecided, not inapplicable.
+      `applicable: false` is rendered as the badge "Nicht einschlägig" — the rule
+      does not apply to your building. It does apply; it cannot be evaluated.
+      `rulesWithOpenWork` and `outstandingRules` drop inapplicable rules, so an
+      inapplicable fire rule would vanish from "what still needs a human before
+      this can be signed", and its walls would never reach the BCF export. One
+      unset project fact would remove OIB 2 from the Prüfbuch.
     */
     // Storeys supplied, so the only thing missing is the Gebäudeklasse and
     // the reading names it rather than the storey.
@@ -644,12 +643,11 @@ describe('oib2-feuerwiderstand-tragend', () => {
   it('refuses to call every storey the top one when the export wrote no elevations', () => {
     /*
       The classic broken export: `0.` for every `IfcBuildingStorey.Elevation`.
-      Every storey then equalled the maximum, so every storey classified as
-      `top` — the Kellergeschoß included — and `top` being non-null meant the
-      undecidable guard never fired. On GK1, whose top row carries no
-      requirement at all, three load-bearing walls with no FireRating came back
-      as three PASSES. "No contradiction found" rendered as compliant, on the
-      fire rule.
+      Every storey then equals the maximum, so every storey classifies as `top`
+      — the Kellergeschoß included — and since `top` is non-null, the undecidable
+      guard never fires. On GK1, whose top row carries no requirement at all,
+      three load-bearing walls with no FireRating would come back as three
+      PASSES: "no contradiction found" rendered as compliant, on the fire rule.
     */
     const flat = [
       { name: 'Kellergeschoß', elevation: 0 },
@@ -687,8 +685,8 @@ describe('oib2-feuerwiderstand-tragend', () => {
     expect(rule.passed).toBe(1)
   })
 
-  it('does not cry wolf over the older F-classification', () => {
-    // F 90 is the older Austrian/German designation and DOES mean load-bearing
+  it('does not cry wolf over an F-classified fire rating', () => {
+    // F 90 is the Austrian/German designation and DOES mean load-bearing
     // 90 minutes. Scoring it against REI 90 on letters would mark a compliant
     // wall as failing, and a checker that raises false alarms on fire ratings
     // is one nobody reads. The value is shown, the verdict is withheld.
@@ -740,9 +738,9 @@ describe('reading a number out of a string a CAD wrote', () => {
     })
 
   it('does not concatenate digits that were never part of the value', () => {
-    // The regression: stripping non-numerics turns `0,35 W/m2K` into 0.352,
-    // which fails a ≤ 0,35 check. A compliant wall reported as non-compliant
-    // because the exporter spelled the unit with an ASCII 2.
+    // Stripping non-numerics would turn `0,35 W/m2K` into 0.352, which fails a
+    // ≤ 0,35 check: a compliant wall reported as non-compliant because the
+    // exporter spelled the unit with an ASCII 2.
     for (const written of ['0,35 W/m2K', '0.35 W/m²K', '0,35', 0.35, '0.35 W/(m2.K)']) {
       const rule = ruleOf(runBimRules([wall(written)]), 'oib6-u-wert-aussenwand')
       expect(rule.passed, `written as ${JSON.stringify(written)}`).toBe(1)
@@ -796,9 +794,9 @@ describe('oib4-tuer-durchgangsbreite', () => {
     element({ ifcType: 'IfcDoor', name: 'T-14', quantities: { Qto_DoorBaseQuantities: quantities } })
 
   it('reads the CLEAR width, not the nominal one, when both are published', () => {
-    // The bug this rule shipped with. A 0,90 m door leaf passes through a
-    // frame and over a stop; the clear opening is routinely 0,78 m. Reading
-    // `Width` first passed the door — on an escape-route rule.
+    // A 0,90 m door leaf passes through a frame and over a stop; the clear
+    // opening is routinely 0,78 m. Reading `Width` first would pass the door on
+    // an escape-route rule.
     const rule = ruleOf(runBimRules([door({ Width: 0.9, ClearWidth: 0.78 })]), 'oib4-tuer-durchgangsbreite')
 
     expect(rule.failed).toBe(1)
@@ -851,10 +849,10 @@ describe('oib3-raumhoehe', () => {
   it('checks a room whose PredefinedType says nothing', () => {
     // `NOTDEFINED` is what Revit and ArchiCAD write for an ordinary room, and
     // `SPACE` is IFC4's own generic value. Reading either as "a type WAS
-    // published and it is not one I recognise" put the majority of every real
-    // model's rooms out of scope — the rule then reported nothing to check,
-    // which reads as a building with no Aufenthaltsräume rather than as a
-    // check that never ran.
+    // published and it is not one I recognise" would put the majority of every
+    // real model's rooms out of scope, and the rule would then report nothing
+    // to check, which reads as a building with no Aufenthaltsräume rather than
+    // as a check that never ran.
     for (const predefinedType of ['NOTDEFINED', 'SPACE', 'USERDEFINED', null]) {
       const rule = ruleOf(
         runBimRules([{ ...space('Wohnen', 2.3), predefinedType }]),
@@ -915,8 +913,8 @@ describe('oib3-raumhoehe', () => {
   it('will not pass a room on its GROSS height', () => {
     // `Qto_SpaceBaseQuantities.Height` is the structural space height, not the
     // lichte Raumhöhe. Floor build-up and a suspended ceiling take 15–25 cm out
-    // of it, so a room publishing 2,65 m gross can finish at 2,42 m. The rule
-    // read it as a clear height and ticked the room.
+    // of it, so a room publishing 2,65 m gross can finish at 2,42 m. Reading it
+    // as a clear height would tick the room.
     const gross = element({
       ifcType: 'IfcSpace',
       name: 'Wohnen',
@@ -967,7 +965,7 @@ describe('room names are matched by word, not by substring', () => {
     })
 
   it('checks the Aufenthaltsräume a substring match silently dropped', () => {
-    // Every one of these produced NO ROW under `name.includes(marker)` — not a
+    // Under `name.includes(marker)` every one of these produces NO ROW — not a
     // pass, not a fail, nothing. An invisible exclusion is worse than a wrong
     // verdict because there is nothing on screen to disagree with.
     const dropped = [
@@ -1014,10 +1012,10 @@ describe('room names are matched by word, not by substring', () => {
 })
 
 describe('a reading never contradicts the verdict printed beside it', () => {
-  // `round(0.795)` is `0.8`, so the row read
-  // `Lichte Durchgangsbreite 0,80 m — Schwellwert ≥ 0,80 m` and then said
-  // **nicht erfüllt**. The same arithmetic appeared on the U-value, Raumhöhe
-  // and stair rules, and it travels verbatim into the BCF export.
+  // `round(0.795)` is `0.8`, so the row would read
+  // `Lichte Durchgangsbreite 0,80 m — Schwellwert ≥ 0,80 m` and then say
+  // **nicht erfüllt**. The same arithmetic applies to the U-value, Raumhöhe
+  // and stair rules, and the text travels verbatim into the BCF export.
   const door = (clear: number) =>
     element({
       ifcType: 'IfcDoor',
@@ -1136,11 +1134,10 @@ describe('oib5-schalldaemmung-deklariert', () => {
     ruleOf(runBimRules([wall(rating)], { hauptnutzung: 'wohnen' }), 'oib5-schalldaemmung-deklariert')
 
   it('refuses prose as a declaration', () => {
-    // The bug, and the worst kind this catalogue can have: `numericProperty` is
-    // anchored at the START of the string, so it parsed neither `Rw 30 dB` nor
-    // `siehe Beilage` — and everything it failed to parse fell through to
-    // `pass`. A wall whose rating read "siehe Beilage" was reported ERFÜLLT
-    // under an OIB 5 caption.
+    // The worst kind of bug this catalogue can have: a number parser anchored at
+    // the START of the string parses neither `Rw 30 dB` nor `siehe Beilage`,
+    // and everything it fails to parse falls through to `pass`. A wall rated
+    // "siehe Beilage" would be reported ERFÜLLT under an OIB 5 caption.
     for (const prose of ['siehe Beilage', 'keine Anforderung', 'tbd', 'n/a', 'gemäß ÖNORM']) {
       const rule = verdict(prose)
       expect(rule.passed, prose).toBe(0)
@@ -1149,11 +1146,10 @@ describe('oib5-schalldaemmung-deklariert', () => {
   })
 
   it('refuses prose that merely CONTAINS a number', () => {
-    // The first fix for the bug above recreated it from the other side: taking
-    // the first number anywhere in the string read `siehe OIB 5` as 5 dB and
-    // `ÖNORM B 8115-2` as 8115 dB, and reported both **erfüllt**. A number
-    // counts only when an acoustic label introduces it, `dB` follows it, or it
-    // is the entire value.
+    // Taking the first number anywhere in the string would read `siehe OIB 5`
+    // as 5 dB and `ÖNORM B 8115-2` as 8115 dB, and report both **erfüllt**. A
+    // number counts only when an acoustic label introduces it, `dB` follows it,
+    // or it is the entire value.
     for (const prose of [
       'siehe OIB 5',
       'ÖNORM B 8115-2',
@@ -1175,8 +1171,7 @@ describe('oib5-schalldaemmung-deklariert', () => {
   })
 
   it('accepts a rated value however the exporter labelled it', () => {
-    // The other half of the same anchoring bug: these are real declarations and
-    // all of them failed to parse.
+    // These are real declarations, and every one of them must parse.
     for (const rating of ['Rw 53 dB', "R'w = 55 dB", 'DnT,w 52', '52 dB', 52]) {
       const rule = verdict(rating)
       expect(rule.passed, String(rating)).toBe(1)
@@ -1285,7 +1280,7 @@ describe('diffBimCompliance', () => {
     expect(changes[0].trend).toBe('broken')
   })
 
-  it('reports a property the revision LOST as no longer decidable', () => {
+  it('reports a property the revision LOST as undecidable', () => {
     // A re-export with a different mapping silently un-checks a requirement
     // that was green yesterday. Comparing only pass↔fail would miss it.
     const changes = diffBimCompliance(runOn('REI 90'), runOn(null))
@@ -1303,9 +1298,9 @@ describe('diffBimCompliance', () => {
 
   it('reports a PARTIAL loss of a property, not just a total one', () => {
     // Two compliant walls; the re-export drops FireRating from one of them.
-    // The rule used to stand at `pass` with 2 passed and still stood at `pass`
-    // with 1 passed + 1 undecidable, so the diff said nothing moved — and
-    // "nothing moved" is exactly the answer this op exists to disprove.
+    // A rule with 2 passed stands at `pass`, and so does one with 1 passed + 1
+    // undecidable, so the diff would say nothing moved — and "nothing moved" is
+    // exactly the answer this op exists to disprove.
     const second = (rating: string | null) =>
       element({
         ifcType: 'IfcWall',
@@ -1397,7 +1392,8 @@ describe('human confirmations', () => {
       (entry) => entry.ruleId === 'oib4-tuer-durchgangsbreite'
     )
     // Still there — a signature is not deleted by a re-export — but no longer
-    // covering: it was true of the building that person looked at.
+    // covering: it holds for the building that person looked at, not for this
+    // revision.
     expect(rule.confirmation).not.toBeNull()
     expect(rule.confirmationStale).toBe(true)
   })

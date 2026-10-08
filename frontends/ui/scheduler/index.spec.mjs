@@ -63,7 +63,7 @@ describe('readConfig', () => {
   })
 
 
-  it('prefers the new GRID_SKILL_* name when both new and old are set (no warning)', () => {
+  it('prefers GRID_SKILL_* over GRID_WORKFLOW_* when both are set, with no warning', () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
     const c = readConfig({
       GRID_SKILL_SCHEDULER_POLL_MS: '1000',
@@ -211,7 +211,7 @@ describe('reconcileRuns (the run reconciler’s clock)', () => {
   })
 })
 
-describe('reconcileRuns during a rollout or an outage (#785, #793, #799, #800)', () => {
+describe('reconcileRuns during a rollout or an outage', () => {
   const config = { frontendUrl: 'http://frontend:3000', internalToken: 't', pollMs: 30000 }
 
   /** What an old frontend pod without the route answers mid-rollout. */
@@ -346,7 +346,7 @@ describe('tick', () => {
     ])
   })
 
-  it('logs a claim the database outage refused at WARN, escalating once after ten ticks (#804)', async () => {
+  it('logs a claim the database outage refused at WARN, escalating once after ten ticks', async () => {
     const error = vi.spyOn(console, 'error').mockImplementation(() => {})
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
     const log = vi.spyOn(console, 'log').mockImplementation(() => {})

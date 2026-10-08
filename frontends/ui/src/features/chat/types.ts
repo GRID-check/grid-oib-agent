@@ -52,8 +52,8 @@ export interface ComposerSubject {
   /**
    * Which knowledge shelf the file sits on. Sent as ``focus_shelf``; the
    * agent maps it to the shelves it may keep. "Summarize this upload"
-   * does not walk the Archiv (#429); a project file does not mix in
-   * Büro hits (#436).
+   * does not walk the Archiv; a project file does not mix in
+   * Büro hits.
    */
   shelf?: 'project' | 'archiv' | 'session'
   /**
@@ -119,12 +119,12 @@ export type ErrorCode =
 /**
  * What happened when the client asked the server for a turn's finished answer.
  *
- * A boolean could not carry this, and the missing distinction was a bug: two
- * different "false"s meant "the server has nothing" and "the answer is already
- * on screen, someone else fetched it". Recovery runs from three places — on
- * mount, on reconnect, and when the streaming watchdog gives up — and any two
- * of them can be in flight at once, so the second one back would print
- * „bitte erneut senden" underneath the answer the first had just recovered.
+ * A boolean cannot carry this: two different "false"s mean "the server has
+ * nothing" and "the answer is already on screen, someone else fetched it".
+ * Recovery runs from three places — on mount, on reconnect, and when the
+ * streaming watchdog gives up — and any two of them can be in flight at once,
+ * so the second one back would print „bitte erneut senden" underneath the
+ * answer the first had just recovered.
  *
  * - `recovered`  — the server had it and it is now in the conversation.
  * - `superseded` — do not tell the reader anything: either the answer is
@@ -240,15 +240,15 @@ export interface ChatMessage {
    * `features/grid-cards/card-decision.ts`).
    */
   cardInteractions?: CardInteractions
-  /**
-   * WHICH person wrote this message (collaboration, ADR-0032/CC-3).
-   *
-   * `role` only ever said what KIND of author wrote a message, which was free
-   * while a thread had one human in it. With two it is a defect: the reader must
-   * be able to tell colleagues apart, and apart from the agent. Absent/null for
-   * assistant, status and system messages, and for solo threads where the UI
-   * deliberately renders no attribution at all.
-   */
+    /**
+     * WHICH person wrote this message (collaboration, ADR-0032/CC-3).
+     *
+     * `role` says what KIND of author wrote a message, and that is not enough once
+     * a thread has more than one human in it: the reader must be able to tell
+     * colleagues apart, and apart from the agent. Absent/null for assistant, status
+     * and system messages, and for solo threads where the UI deliberately renders
+     * no attribution at all.
+     */
   authorUserId?: string | null
   /** Resolved display name + avatar, so a bubble needs no directory lookup. */
   authorName?: string | null
@@ -507,16 +507,16 @@ export interface CitationSource {
   punkt?: string
   /** Retrieval score (cosine similarity) for this passage, when the wire carried one. */
   score?: number
-  /**
-   * The retrieved PASSAGE — the words the answer read, as the backend captured
-   * them (`SourceEntry.chunk_text`, bounded on the wire).
-   *
-   * Distinct from `content`, which is a human-readable locator line, and it is
-   * the field every passage surface should read: the viewer's highlight, the
-   * Fundstelle rail, the "Zitierte Stelle" box, "Zitat kopieren". Deriving one
-   * out of `content` is the fallback for messages persisted before this field
-   * travelled — and it is only ever a locator, so it derives nothing.
-   */
+    /**
+     * The retrieved PASSAGE — the words the answer read, as the backend captured
+     * them (`SourceEntry.chunk_text`, bounded on the wire).
+     *
+     * Distinct from `content`, which is a human-readable locator line, and it is
+     * the field every passage surface should read: the viewer's highlight, the
+     * Fundstelle rail, the "Zitierte Stelle" box, "Zitat kopieren". Deriving one
+     * out of `content` is the fallback for messages persisted without this field,
+     * and it is only ever a locator, so it derives nothing.
+     */
   snippet?: string
   /**
    * Coarse source kind (baurecht | buero | projekt | web) — the canonical
@@ -524,20 +524,20 @@ export interface CitationSource {
    * persisted messages, which fall back to origin/URL heuristics.
    */
   kind?: SourceKind
-  /**
-   * The SHELF the retrieved chunk came from (`archiv | project | session |
-   * base`, ADR-0047) — a separate axis from `kind` above, carried explicitly so
-   * no consumer has to prefix-match the collection id or parse a German label.
-   * Absent on messages persisted before the wire carried it (and during the
-   * BFF/agent rollout), where it reads as unknown — never as a default shelf.
-   */
+    /**
+     * The SHELF the retrieved chunk came from (`archiv | project | session |
+     * base`, ADR-0047) — a separate axis from `kind` above, carried explicitly so
+     * no consumer has to prefix-match the collection id or parse a German label.
+     * Absent on messages persisted without it, where it reads as unknown — never
+     * as a default shelf.
+     */
   shelf?: Shelf
-  /**
-   * Identity of the DOCUMENT this source is a passage of, as the backend
-   * registry groups it (`citation_verification.document_key`). Absent on
-   * messages persisted before the wire carried it, where the client derives an
-   * equivalent key from filename/collection instead.
-   */
+    /**
+     * Identity of the DOCUMENT this source is a passage of, as the backend
+     * registry groups it (`citation_verification.document_key`). Absent on
+     * messages persisted without it, where the client derives an equivalent key
+     * from filename/collection instead.
+     */
   documentId?: string
   /** Fine lane stratum-key (baurecht_oib, baurecht_ris, …) — drives the authority badge. */
   lane?: string
@@ -560,7 +560,7 @@ export interface CitationSource {
   bindingStatus?: string
   /**
    * Where on the page the passage sits, for a passage read off a picture of the
-   * page — a plan's Grundriss, a photo (issue #433). The viewer draws these
+   * page — a plan's Grundriss, a photo. The viewer draws these
    * boxes instead of searching the page's text for `snippet`, which for such a
    * passage is the model's description of the drawing, not words on the page.
    */
@@ -611,7 +611,7 @@ export interface WireCitationSource {
    * prose `binding_note`.
    */
   binding_status?: string | null
-  /** Boxes on the page, `[{box: [x0, y0, x1, y1], label}]` normalised 0-1 (issue #433). */
+  /** Boxes on the page, `[{box: [x0, y0, x1, y1], label}]` normalised 0-1. */
   regions?: unknown
   /** `{id, name, status}` of the other project (ADR-0085); validated by `projectFromWire`. */
   project?: unknown

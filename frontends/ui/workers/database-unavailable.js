@@ -17,9 +17,8 @@
  * It is CommonJS so all three can load it, and it lives in `workers/` because
  * that directory is copied into the runtime image whole (`deploy/Dockerfile`),
  * so a worker's `require` of it cannot go missing the way a single-file COPY
- * can. It used to be three copies, and they had already drifted: the log
- * bridge's regex lacked `EPIPE`. `database-unavailable.spec.mjs` fails when a
- * code is spelled anywhere else.
+ * can. One list, so the three readers cannot drift; `database-unavailable.spec.mjs`
+ * fails when a code is spelled anywhere else.
  *
  * Drizzle wraps every driver failure as `Failed query: … params: …` and hangs
  * the real reason on `cause`: a SQLSTATE from the server, a Node errno from the

@@ -1,13 +1,12 @@
 """The overconfidence guard with TWO kinds of grounding.
 
 An IFC measurement can never satisfy the citation gate — it has no passage to
-quote — so a correctly measured number used to be reported at "low" for lacking
-evidence it structurally cannot have. It now grounds the answer, and this file
-exists mostly to prove what it does NOT ground.
+quote — so a measured number grounds the answer by itself. This file exists
+mostly to prove what it does NOT ground.
 
 The four claims under test, and only the first is the feature:
 
-1. a measured, descriptive answer is no longer floored at "low";
+1. a measured, descriptive answer is not floored at "low";
 2. an ungrounded prose answer is STILL floored — the guard survives intact;
 3. a measured answer that ALSO asserts something normative without a citation
    does not launder that claim (``…does_not_launder…`` below — the most
@@ -39,8 +38,8 @@ KELLER_MEASURED_PLUS_VERDICT = "Der Keller ist 2,70 m hoch und erfüllt damit OI
 class TestGuardWithMeasurementGrounding:
     """``surface_answer_confidence`` / ``answer_confidence_capped_reason``."""
 
-    def test_measured_descriptive_answer_is_no_longer_floored_at_low(self):
-        """The bug: a right number reported with a hedge nobody could act on."""
+    def test_measured_descriptive_answer_is_not_floored_at_low(self):
+        """A right number is not reported with a hedge nobody can act on."""
         assert (
             surface_answer_confidence("high", citation_grounded=False, measurement_grounded=True)
             == MEASUREMENT_CONFIDENCE_CEILING
@@ -66,7 +65,7 @@ class TestGuardWithMeasurementGrounding:
         assert answer_confidence_capped_reason("medium", citation_grounded=False, measurement_grounded=True) is None
 
     def test_ungrounded_prose_is_still_floored_at_low(self):
-        """The guard this change is NOT allowed to weaken.
+        """The guard that must stay intact.
 
         A model asserting an OIB requirement with no verified citation and
         nothing measured is the "real section, fabricated quote" failure the gate
@@ -106,8 +105,7 @@ class TestGuardWithMeasurementGrounding:
     def test_the_mixed_case_reports_itself_instead_of_resolving_silently(self):
         """The mixed answer is not just capped — it says WHY it was capped.
 
-        Same level as before the change, a different and more honest reason. It
-        is also the only way anyone finds out how often the brake fires: the
+        The reason is the honest one. It is also the only way anyone finds out how often the brake fires: the
         reason rides the citation-health ledger.
         """
         assert (
@@ -169,8 +167,8 @@ class TestGuardWithMeasurementGrounding:
         assert surface_answer_confidence("low", citation_grounded=False, measurement_grounded=True) == "low"
         assert surface_answer_confidence(None, citation_grounded=False, measurement_grounded=True) is None
 
-    def test_defaults_reproduce_the_pre_measurement_behaviour(self):
-        """Every caller that does not pass the new signals is untouched."""
+    def test_defaults_leave_the_confidence_unchanged(self):
+        """Every caller that does not pass the grounding signals is untouched."""
         for level in ("low", "medium", "high"):
             for grounded in (True, False):
                 for quotes in (True, False):
@@ -269,11 +267,9 @@ class TestTheSingleSourceFallbackDoesNotLaunder:
     Piloti appends ONE registry source when nothing the model cited
     survived verification. The registry is cumulative across the conversation,
     so that source can be a Bauordnung link captured two turns ago for a
-    different question — and treating it as citation grounding switched off the
-    normative brake (which only runs when citation grounding is absent) AND
-    handed the answer the model's own self-report. A measured answer with
-    „…erfüllt damit OIB 4 Punkt 2.1" bolted on came out at "high", with the
-    unrelated link attached to the verdict.
+    different question. Treating it as citation grounding would switch off the
+    normative brake (which only runs when citation grounding is absent) and
+    hand the answer the model's own self-report.
     """
 
     def test_a_fallback_citation_does_not_reach_high(self):

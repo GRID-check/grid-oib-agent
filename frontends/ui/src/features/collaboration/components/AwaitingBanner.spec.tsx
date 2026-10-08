@@ -27,7 +27,7 @@ const state = (
   awaitingMe = false,
 ): AwaitingStateResponse => ({ pending, awaitingMe })
 
-describe('AwaitingBanner — the silence is explained (MN-8)', () => {
+describe('AwaitingBanner — the silence is explained', () => {
   test('renders nothing when nothing is awaited — the agent is free to answer', () => {
     const { container } = render(<AwaitingBanner awaiting={state([])} onRelease={vi.fn()} />)
     expect(container).toBeEmptyDOMElement()
@@ -46,7 +46,7 @@ describe('AwaitingBanner — the silence is explained (MN-8)', () => {
     expect(screen.getByText(/^since /)).toBeInTheDocument()
   })
 
-  test('shows the asker’s question when there is one (MN-12)', () => {
+  test('shows the asker’s question when there is one', () => {
     render(
       <AwaitingBanner
         awaiting={state([request({ note: 'Ist das Atrium ein eigener Abschnitt?' })])}
@@ -57,8 +57,8 @@ describe('AwaitingBanner — the silence is explained (MN-8)', () => {
   })
 
   test('keeps the question visible when several people are awaited', () => {
-    // It used to render only for a single request, so the moment a second person
-    // was asked, what they were asked vanished from the banner entirely.
+    // Each person asked gets their own row, so a second person's question stays
+    // on the banner rather than vanishing.
     render(
       <AwaitingBanner
         awaiting={state([
@@ -197,7 +197,7 @@ describe('AwaitingBanner — the silence is explained (MN-8)', () => {
     expect(screen.getAllByText('MH').length).toBeGreaterThanOrEqual(2)
   })
 
-  test('several outstanding requests name everyone and list them per person (MN-10)', () => {
+  test('several outstanding requests name everyone and list them per person', () => {
     render(
       <AwaitingBanner
         awaiting={state([
@@ -231,7 +231,7 @@ describe('AwaitingBanner — you are the one being awaited', () => {
   })
 })
 
-describe('AwaitingBanner — always a way out (MN-9)', () => {
+describe('AwaitingBanner — always a way out', () => {
   test('one outstanding request offers to continue without that person', async () => {
     const user = userEvent.setup()
     const onRelease = vi.fn(async () => true)

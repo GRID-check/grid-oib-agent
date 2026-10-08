@@ -6,9 +6,7 @@ cope with what a real model actually sends back. Each grew its own copy of that
 logic and the copies disagreed about what to tolerate: the title and digest
 routes recover a ``{...}`` span from surrounding prose, the consistency check
 only strips a code fence (so a single line of preamble defeats it), and **none
-of them survived a reply the completion-token cap cut off mid-object** — the
-failure behind issue #233, where a cosmetic conversation title logged an
-ERROR-severity `llm_response_malformed` three times in four hours.
+of them survived a reply the completion-token cap cut off mid-object**, which the structural repair below is for.
 
 What is tolerated here is deliberately bounded:
 
@@ -102,7 +100,7 @@ def _object_span(text: str) -> str | None:
     """The first top-level ``{...}`` span, or ``None`` when there is no ``{``.
 
     String-aware on purpose. ``text[text.find("{") : text.rfind("}") + 1]`` —
-    what each route used to do — swallows a trailing "Hope that helps! :}" into
+    a naive slice swallows a trailing "Hope that helps! :}" into
     the object and mis-ends on a ``}`` that lives inside a string value.
 
     When the object never closes, everything from the opening brace on is

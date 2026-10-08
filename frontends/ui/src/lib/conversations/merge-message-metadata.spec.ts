@@ -151,7 +151,7 @@ describe('mergeMessageMetadata', () => {
     expect(updateSpy.mock.calls[0][0].metadata).toEqual({ cardInteractions: { a: 1 } })
   })
 
-  it('strips NUL bytes before the write: jsonb rejects U+0000 (#581)', async () => {
+  it('strips NUL bytes before the write: jsonb rejects U+0000', async () => {
     // Extracted document text can carry a stray NUL into cards or citations,
     // and the merge re-writes that stored content on every PATCH — so the
     // strip happens here, at the SQL boundary, not in the PATCH sanitizers.

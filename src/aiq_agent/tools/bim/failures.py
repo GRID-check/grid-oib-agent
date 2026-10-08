@@ -3,9 +3,8 @@
 Every text here is read by the agent, not by a person, so each says what to DO:
 retry with different arguments, do not retry at all, or tell the user. The
 distinction between "the arguments were wrong" and "nothing could be read" is
-the whole point — every 4xx used to arrive as an outage, which ends a turn on a
-typo with the agent told to say nothing about the building
-(``docs/roadmap/ifc-review-findings.md``).
+the whole point: a 4xx reported as an outage ends a turn on a typo, with the
+agent told to say nothing about the building (``docs/roadmap/ifc-review-findings.md``).
 """
 
 from __future__ import annotations

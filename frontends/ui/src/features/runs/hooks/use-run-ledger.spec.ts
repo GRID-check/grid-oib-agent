@@ -293,9 +293,9 @@ describe('useRunLedger', () => {
   })
 
   it('reads the run again when the stop is refused because it already ended, and stops offering it', async () => {
-    // The block was showing a ledger older than the run: the row had closed
-    // and the server settled the block since. „Abbrechen" used to close its
-    // dialog on the 409 and leave „Läuft" on screen for good.
+    // The block can show a ledger older than the run: the row has closed and the
+    // server has settled the block since. A 409 on „Abbrechen" must not leave
+    // „Läuft" on screen for good.
     const ended = ledger({
       status: 'fehlgeschlagen',
       error: { reason: 'Job timed out', completedBefore: [] },

@@ -19,17 +19,16 @@
  * `Grundriss Plan.pdf` claims its text before `Plan.pdf` can take the tail of
  * it.
  *
- * ## No regex, deliberately
+ * ## No regex
  *
  * The obvious implementation of "find any of these strings" is one alternation
- * compiled with `new RegExp(names.map(escape).join('|'), 'gi')`, and that is
- * what this was. Semgrep blocked it (`detect-non-literal-regexp`) and it was
- * right to, even though the ReDoS it names cannot actually happen here: an
- * alternation of escaped literals has no quantifier to backtrack on. The rule
- * is pointing at the shape rather than the exploit, and the shape is real —
- * the pattern was built at runtime out of FILENAMES, which are whatever
- * somebody typed into an upload dialog, so its safety rested entirely on one
- * hand-written escape function staying correct forever.
+ * compiled with `new RegExp(names.map(escape).join('|'), 'gi')`. Semgrep flags
+ * that shape (`detect-non-literal-regexp`), and the flag is right even though
+ * the ReDoS it names cannot happen here: an alternation of escaped literals has
+ * no quantifier to backtrack on. The pattern is built at runtime out of
+ * FILENAMES, which are whatever somebody typed into an upload dialog, so its
+ * safety would rest entirely on one hand-written escape function staying
+ * correct forever.
  *
  * Nothing here needs a regex engine. Finding a literal string in another
  * literal string is `indexOf`, which cannot be talked into interpreting its
@@ -165,8 +164,7 @@ const occurrences = (value: string, needle: string): number[] => {
  *
  * Names arrive longest-first, and a name claims its span before any shorter one
  * is considered — so in „Grundriss Plan.pdf" the longer name wins and the
- * `Plan.pdf` inside it is not a second reference. That is the same precedence
- * the alternation used to get from leftmost-first matching, made explicit.
+ * `Plan.pdf` inside it is not a second reference.
  */
 const claimedSpans = (value: string, fileNames: readonly string[]): Span[] => {
   const claimed: Span[] = []

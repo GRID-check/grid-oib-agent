@@ -94,10 +94,10 @@ export function openFilePeek(options: OpenFilePeekOptions): void {
  *
  * The ✕ on the composer's "Asking about …" bar is the only control in this
  * flow that ENDS things rather than putting them away: it drops the retrieval
- * subject and closes the viewer together, and the way back used to be
- * remembering which document it had been and finding it again in Dateien.
- * Everything it destroys is in memory at the moment it is pressed, so the undo
- * is a snapshot and two setters.
+ * subject and closes the viewer together. Without an undo, the way back would be
+ * remembering which document it was and finding it again in Dateien. Everything
+ * it destroys is in memory at the moment it is pressed, so the undo is a
+ * snapshot and two setters.
  *
  * It lives here because this module already owns the other half of the
  * relationship — `openFilePeek` is what BINDS a subject to a peek, and the

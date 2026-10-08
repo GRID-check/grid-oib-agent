@@ -58,14 +58,14 @@ export function toTaskWireRow(
     // reader ON the run rather than at the bottom of a thread that may hold a
     // year of them (ADR-0062).
     runMessageId: task.runMessageId,
-    // The handle on the run's own report. Added so a finished task that filed
-    // no document and minted no conversation still has somewhere to go — the
-    // dead end the Tasks list used to leave. Opaque, and already public in the
-    // URLs the run history builds, so it widens nothing this tier was keeping.
+    // The handle on the run's own report, so a finished task that filed no
+    // document and minted no conversation still has somewhere to go. Opaque, and
+    // already public in the URLs the run history builds, so it widens nothing
+    // this tier was keeping.
     backendJobId: task.backendJobId,
     // How it started, so the drawer offers „als Zeitplan speichern" only on
     // work that is not already recurring. The trigger rather than the
-    // definition id: since 0086 a delegated task has a definition too.
+    // definition id, because a delegated task has a definition too.
     trigger: task.trigger,
     requesterUserId: task.requesterUserId,
     // The DISPLAY NAME, resolved server-side through the directory every

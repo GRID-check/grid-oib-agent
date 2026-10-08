@@ -32,7 +32,7 @@ class TestDeepResearchAgentState:
 
         assert state.user_info == {"name": "John", "role": "developer"}
 
-    def test_state_ignores_fields_it_no_longer_declares(self):
+    def test_state_ignores_fields_it_does_not_declare(self):
         """``tools_info``, ``subagents`` and ``rubric`` were never read; a stale payload still validates."""
         state = DeepResearchAgentState(
             messages=[HumanMessage(content="Test")],

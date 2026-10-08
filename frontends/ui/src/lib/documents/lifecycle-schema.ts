@@ -5,21 +5,19 @@
  *
  * The agent's `file_draft` tool has to describe the same request body the
  * internal route parses. Writing a Pydantic model beside the zod one is two
- * hand-written descriptions of one contract, and the repo already has the
- * cautionary tale: `AUDIT_ACTIONS` and the provisioning script's `SCHEMAS` array
- * were two lists meant to be one and drifted by nine actions, with the only
- * symptom an ERROR log on the side that never throws. So the zod schemas are the
+ * hand-written descriptions of one contract, and two lists of one contract drift
+ * apart silently: the only symptom is an ERROR log on the side that never
+ * throws. So the zod schemas are the
  * source, `lib/api/zod-json-schema.ts` converts them, and
  * `tests/fixtures/document-lifecycle.schema.json` is the committed artifact both
  * languages read.
  *
- * ## Why the converter is no longer in this file
+ * ## Where the converter lives
  *
- * It was written here and has a second caller now — the run ledger
- * (`lib/runs/run-ledger-schema.ts`) — so it moved to `lib/api/zod-json-schema.ts`
- * rather than being copied. Nothing about it was ever document-specific; it
- * describes zod. `toJsonSchema` is re-exported here so this module stays the one
- * import for everything about the lifecycle's wire contract.
+ * It is in `lib/api/zod-json-schema.ts`, because the run ledger
+ * (`lib/runs/run-ledger-schema.ts`) uses it too, and it is not document-specific:
+ * it describes zod. `toJsonSchema` is re-exported here so this module stays the
+ * one import for everything about the lifecycle's wire contract.
  */
 
 import { jsonSchemaDocument, type JsonSchemaNode } from '@/lib/api/zod-json-schema'

@@ -1,15 +1,14 @@
 """The answer's one repair: a misremembered quotation corrected in place.
 
-The repair used to rewrite the WHOLE answer when verification failed: a second
-frontier call with the full history, up to two retrievals, 10-25 s, and an
-answer adopted if it verified better. With the prose streaming (ADR-0066), the
-reader had read the answer by then, and an adopted rewrite swapped every byte
-of it. ADR-0067 narrows the repair to the one failure where one buys the
-reader something, and to the one place it happened:
+The repair corrects one kind of failure in place and never rewrites the
+answer. The prose streams (ADR-0066), so a whole-answer retry would swap text
+the reader is already reading. ADR-0067 narrows the repair to the one failure
+where a correction buys the reader something, and to the one place it
+happened:
 
 * A citation whose source line did not resolve gets no repair. The settled
   snapshot has already dropped it where the reader can see; putting one back
-  seconds later is the swap again.
+  seconds later swaps text the reader already has.
 * A quote no passage holds verbatim, when a passage of a source its own
   sentence CITES comes close (``UnverifiedQuote.nearest``), is a quotation the
   model misremembered. A close passage of a source it does not cite is never

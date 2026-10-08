@@ -4,17 +4,12 @@
 /**
  * `/api/conversations/[id]` — GET / PATCH happy paths and input validation.
  *
- * **Rewritten for the collaboration authorization model (ADR-0032).** These tests
- * used to fake drizzle by call ORDER: a `getDb` mock returning a different chain
- * object depending on how many times `select()` had been called. That only worked
- * while the number of queries per request stayed frozen, so adding the
- * access-resolution probes turned each of them into a 500. The brittleness was
- * the defect, not the new queries.
- *
- * They now mock at the **repository boundary**, like the newer specs beside them
- * (`src/app/api/conversations/[id]/route.spec.ts`). That is more robust and more
- * honest: what is under test is the route + service contract, not drizzle's
- * builder shape.
+ * These tests mock at the **repository boundary**, like the specs beside them
+ * (`src/app/api/conversations/[id]/route.spec.ts`), under the collaboration
+ * authorization model (ADR-0032). Faking drizzle by call ORDER breaks whenever a
+ * request's query count changes, since access-resolution probes turn each such
+ * test into a 500. What is under test is the route + service contract, not
+ * drizzle's builder shape.
  *
  * DELETE's authorization (owner-only, and the no-op for an id that never reached
  * the server) is covered by that sibling spec, so this file keeps only its own

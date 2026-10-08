@@ -2,7 +2,7 @@
  * A citation you can send someone.
  *
  * "See OIB-Richtlinie 2.1, S. 18" is the sentence an architect writes to a
- * colleague, and until now the only way to act on it was: open the app, find
+ * colleague, and the only way to act on it is: open the app, find
  * the conversation, find the answer, find the chip, click, scroll. The evidence
  * was reachable but not *addressable*.
  *
@@ -122,7 +122,7 @@ export const resolveCitationLink = (
   if (!document) return null
   if (!link.locusKey) return { document }
   const locus = document.loci.find((candidate) => candidate.key === link.locusKey)
-  // A locus the document no longer has (re-retrieved at different pages since
+  // A locus the document does not have (re-retrieved at different pages since
   // the link was shared) still opens the right DOCUMENT rather than nothing.
   return locus ? { document, locus } : { document }
 }

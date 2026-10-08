@@ -10,10 +10,10 @@ import { PAGE_SHEET_OVERLAY_CLASS, PAGE_SHEET_PANEL_CLASS } from '@/components/u
  * trapping focus in a skeleton would fight the real sheet arriving.
  *
  * It ARRIVES like the sheet it stands in for — the same rise on the same
- * curve, in CSS since there is no client component here. It used to pop in at
- * full opacity, so the flow read as a hard cut followed by the real sheet's
- * second, redundant rise; now the skeleton's rise IS the sheet's arrival and
- * the content swap underneath it is just a repaint.
+ * curve, in CSS since there is no client component here. The skeleton's rise IS
+ * the sheet's arrival, and the content swap underneath it is just a repaint: a
+ * skeleton that popped in at full opacity would read as a hard cut followed by
+ * the real sheet's second, redundant rise.
  *
  * `loadingLabel` is announced (`role="status"`), so the arrival is not silent
  * for a screen-reader user either.

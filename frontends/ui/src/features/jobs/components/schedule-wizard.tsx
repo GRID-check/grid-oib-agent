@@ -3,13 +3,12 @@
 /**
  * The schedule wizard — three steps, one decision each.
  *
- * What this replaced was one page holding six stacked cards: name, prompt,
- * output, data sources, cron, timezone, two switches, and a live preview
- * pane beside them. Every field was justified on its own and the page was still
- * wrong, because the cost of a form is not the number of fields — it is the
- * number a person has to hold in mind AT ONCE. Sixteen controls with no stated
- * order is a page you read three times before touching anything, and the first
- * thing most people did with it was leave.
+ * One page of stacked cards — name, prompt, output, data sources, cron,
+ * timezone, two switches, and a live preview pane beside them — is wrong even
+ * when every field is justified on its own, because the cost of a form is not
+ * the number of fields — it is the number a person has to hold in mind AT
+ * ONCE. Sixteen controls with no stated order is a page you read three times
+ * before touching anything, and the usual first move on it is to leave.
  *
  * The rules this is built to, in the order they mattered:
  *
@@ -41,7 +40,7 @@
  *
  * Scalar text fields use TanStack Form + Zod (`components/form`); the dynamic
  * pieces — the data-source checkboxes, the schedule composer
- * — are local state merged on submit, as before.
+ * — are local state merged on submit.
  */
 
 import type { JSX } from 'react'
@@ -125,14 +124,14 @@ import type { ScheduleDraft } from '../lib/schedule-draft'
 const ALWAYS_ON_IDS: readonly string[] = ['knowledge_layer', 'ris']
 
 /**
- * Three questions, not four.
+ * Three questions: the work, the schedule, and the review.
  *
- * „Was soll dabei herauskommen? Chat oder Bericht?" used to be step 2. Since
- * ADR-0062 both land in a thread, so the only difference the choice still
- * carried was whether anything was FILED — and a standing task whose result is
+ * „Was soll dabei herauskommen? Chat oder Bericht?" is not one of them. Since
+ * ADR-0062 both answers land in a thread, so the only difference the choice
+ * carries is whether anything is FILED — and a standing task whose result is
  * not a deliverable is a standing task nobody reads. It is always a research
- * run that files a report; the data sources it used to hide moved up to the
- * step that states the work.
+ * run that files a report, and the data sources sit in the step that states
+ * the work.
  */
 const STEP_KEYS = ['task', 'schedule', 'review'] as const
 type StepKey = (typeof STEP_KEYS)[number]
@@ -140,12 +139,11 @@ type StepKey = (typeof STEP_KEYS)[number]
 /**
  * Where a schedule error is shown, derived rather than counted.
  *
- * It was the literal `2`, which was the schedule step while there were four of
- * them. Dropping the output step moved the schedule to 1 and left `2` pointing
- * at the review — so an invalid cron, or the server refusing the interval, sent
- * the reader to a step that does not render `scheduleError` and said nothing at
- * all. An error a reader cannot see is an error they cannot fix, which is the
- * thing the code around it claims to prevent.
+ * A literal index would break as soon as a step is dropped: `2` would point at
+ * the review, which does not render `scheduleError`, so an invalid cron or a
+ * refused interval would send the reader to a step that says nothing at all.
+ * An error a reader cannot see is an error they cannot fix, which is the thing
+ * the code around it claims to prevent.
  */
 const SCHEDULE_STEP = STEP_KEYS.indexOf('schedule')
 
@@ -214,9 +212,9 @@ export function ScheduleWizard({
   const [enabled, setEnabled] = useState<boolean>(job?.enabled ?? true)
   /**
    * Which of the three shapes this task has. One question with three answers,
-   * not two switches: "run on a schedule" on/off could not express "once, on
-   * Friday" at all, and a second boolean for it would have made four states of
-   * which one is nonsense. See `cadenceOf`.
+   * not two switches: "run on a schedule" on/off cannot express "once, on
+   * Friday" at all, and a second boolean would make four states of which one is
+   * nonsense. See `cadenceOf`.
    */
   const [cadence, setCadence] = useState<Cadence>(() =>
     job ? cadenceOf(job) : 'recurring',
@@ -356,8 +354,8 @@ export function ScheduleWizard({
         prompt: value.prompt.trim(),
         // Always null. A task names a skill IN ITS PROMPT (`/name`, the chat
         // gesture), which the model reads and decides on. Explicit rather than
-        // omitted because on PATCH that is what DETACHES a skill a previous
-        // build attached — a job edited here stops carrying one.
+        // omitted, because on PATCH that is what DETACHES a skill: a job edited
+        // here does not carry one.
         skillName: null,
         dataSources: selectedSources.size > 0 ? Array.from(selectedSources) : null,
         enabled,
@@ -370,14 +368,13 @@ export function ScheduleWizard({
       }
 
       try {
-        // The product events the retired builder emitted, carried over
-        // unchanged — same names, same properties. A surface that replaces
-        // another inherits its measurements, or the series breaks at the
-        // rewrite and nobody can tell whether the new flow does better.
+        // The product events keep their names and properties, so the measured
+        // series does not break: a surface that replaces another inherits its
+        // measurements, or nobody can tell whether the new flow does better.
         const analytics = {
           additional_source_count: selectedSources.size,
-          // Kept as it was named when the step was a switch, so the series
-          // does not break at the rewrite: "is this task on a timer at all".
+          // Named for the question it measures, and kept under that name, so a
+          // rename does not break the series: "is this task on a timer at all".
           schedule_enabled: cadence !== 'manual',
           cadence,
           enabled,
@@ -489,11 +486,10 @@ export function ScheduleWizard({
                 And it is the CHAT INPUT, `/` and all. A task that should run a
                 playbook names it here the way a person would name it in a
                 message — the model reads the name and decides. The advanced
-                section used to hold a one-or-none `<Select>` instead, whose
-                body the fire prompt then pasted in front of the model: the
-                last mechanism in the product that could impose a skill on a
-                turn, which ADR-0060 says nothing may do, "not the request, not
-                the deployment, not a job". */}
+                section holds no one-or-none `<Select>`: its body would be
+                pasted in front of the model, which ADR-0060 forbids — nothing
+                may impose a skill on a turn, "not the request, not the
+                deployment, not a job". */}
             <form.AppField name="prompt">
               {(field) => (
                 <FieldShell
@@ -1006,9 +1002,9 @@ function ScheduleStep({
               </div>
 
               {/* Seven toggles, not a dropdown. "Montag, Mittwoch und Freitag"
-                  and "werktags" are ordinary asks, and a single-day picker sent
-                  both of them to the raw cron field — where nobody could check
-                  what they had written. Monday first: this product's week
+                  and "werktags" are ordinary asks, and a single-day picker would
+                  send both of them to the raw cron field — where nobody could
+                  check what they had written. Monday first: this product's week
                   starts there. */}
               {parts.frequency === 'weekly' && (
                 <Field>
@@ -1205,7 +1201,7 @@ function UpcomingRuns({
  * memory of the whole flow, and the last thing this flow does should be
  * confidence: they read a plain sentence describing what they just built, see
  * that it is right, and press one button. The compiled fire prompt is still
- * here — it is the WYSIWYG contract the builder has always carried — but folded,
+ * here — it is the WYSIWYG contract of the builder — but folded,
  * because "what the agent literally receives" is a thing you check when you
  * doubt something, not a thing you read every time.
  */
@@ -1232,11 +1228,9 @@ function ReviewStep({
 }): JSX.Element {
   const t = useTranslations('jobs')
   const [promptOpen, setPromptOpen] = useState(false)
-  // The prompt IS what the agent receives, verbatim. It used to be the prompt
-  // plus the attached skill's whole body, which is why this pane existed: what
-  // was submitted differed from what was typed. Nothing is appended any more —
-  // a `/name` in the text is part of the text — so the pane shows the trimmed
-  // prompt, and that is now the honest answer rather than a stale one.
+  // The prompt IS what the agent receives, verbatim: nothing is appended, and a
+  // `/name` in the text is part of the text, so the pane shows the trimmed
+  // prompt.
   const compiled = values.prompt.trim()
 
   const rhythm = scheduleSummary(t, effectiveCron, timezone, locale, { withTimezone: false })
@@ -1314,9 +1308,9 @@ function ReviewStep({
           something: a task that fires on its own can be saved switched OFF,
           which is how somebody sets one up before the site work starts.
           A manual task has nothing to pause — it runs when a person presses
-          the button — so offering it there produced a task that could not run
-          at all and did not say why. It still appears on a manual task that is
-          ALREADY paused, or there would be no way back. */}
+          the button — so offering it there would make a task that could not
+          run at all and would not say why. It still appears on a manual task
+          that is ALREADY paused, or there would be no way back. */}
       {(cadence !== 'manual' || !enabled) && (
         <Field
           orientation="horizontal"

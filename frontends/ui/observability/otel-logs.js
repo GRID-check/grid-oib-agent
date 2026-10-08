@@ -24,7 +24,7 @@
  *   GRID_GIT_SHA                - resource service.version: the commit the image
  *     was built from (stamped by the Dockerfile). err2issue shows it as the
  *     issue's "Version"; without it a regression on a closed issue could not be
- *     told apart from a pod still running the image from before the fix.
+ *     told apart from a pod still running an image without the fix.
  */
 
 const util = require('node:util')
@@ -70,9 +70,9 @@ const NOT_AN_ERROR = [
     // Node prints its process warnings through `console.error` — the default
     // 'warning' handler in `lib/internal/process/warning.js` does exactly that
     // — so what reaches this bridge is a WARNING that merely chose the error
-    // stream. Issue #230 was DEP0060 (`util._extend`, raised by http-proxy
-    // 1.18.1 on the first request each pod proxies) filed nine times. Matching
-    // Node's own prefix, anchored at the start of the record, means an
+    // stream. DEP0060 (`util._extend`, raised by http-proxy 1.18.1 on the first
+    // request each pod proxies) is one such warning. Matching Node's own
+    // prefix, anchored at the start of the record, means an
     // application error would have to open with a literal "(node:<pid>)
     // …Warning: " to be caught by this.
     reason: 'node-process-warning',
@@ -86,15 +86,15 @@ const NOT_AN_ERROR = [
     // `@/lib/api/handler` deliberately logs no `ApiError` at all: an expected
     // outcome is not a failure. A page render has no such wrapper, so the same
     // error escaping a server component is reported by Next's own error logger
-    // and reached this bridge as ERROR (issue #262). The 404 the visitor got
-    // was the correct answer; only the severity was wrong.
+    // and reaches this bridge as ERROR. The 404 the visitor got is the correct
+    // answer; only the severity is wrong.
     //
     // Deliberately narrow: it matches the `ApiError` field envelope Node's
     // inspect output prints (status before code, the order the constructor
     // assigns them) and only for NOT_FOUND, so a 5xx, an upstream failure, or
     // any other code is untouched. A 404 that IS a bug — a server-side read of
-    // something that should exist — is still recorded here in full, it just no
-    // longer files an issue on its own; the signal that distinguishes it from a
+    // something that should exist — is still recorded here in full, it just
+    // does not file an issue on its own; the signal that distinguishes it from a
     // visitor following a stale link is volume, which the dashboard shows and
     // a per-occurrence severity cannot.
     reason: 'expected-404',
@@ -107,8 +107,8 @@ const NOT_AN_ERROR = [
     // to closes (`destination.on("close", …)` in react-server-dom-*), and Next
     // logs it with ⨯ because its `isAbortError` knows only the names
     // AbortError and ResponseAborted. It has no stack and no route because
-    // React made the error itself. #578 filed it 28 times. The render stopped
-    // because nobody was reading it, which is not an application error.
+    // React made the error itself. The render stopped because nobody was reading
+    // it, which is not an application error.
     // Anchored to the whole sentence Next prints, so an application error
     // would have to reuse React's wording to be caught.
     reason: 'client-disconnect',
@@ -119,12 +119,10 @@ const NOT_AN_ERROR = [
     // outage itself is an ERROR, filed once by the API wrapper's fixed
     // `[db] database unavailable (<code>)` line (`lib/api/handler.ts`); this is
     // the same outage reported again by Next's own logger for every page that
-    // rendered during it, each with its own query text, which is how one
-    // restart became #734 and #737-#739 beside the API's own. Matched on the
+    // rendered during it, each with its own query text. Matched on the
     // driver's cause code as Node's inspect prints it, and only under a
     // `Failed query` that Next logged, so a bad query stays an ERROR. The code
-    // set is `workers/database-unavailable.js`, never a copy: the copy this
-    // regex used to carry had already lost `EPIPE`.
+    // set is `workers/database-unavailable.js`, never a copy: a copy drifts.
     reason: 'database-unavailable-render',
     match: new RegExp(
       `^⨯ Error: Failed query:[\\s\\S]*\\[cause\\]:[\\s\\S]*code: '(${UNAVAILABLE_CODE_PATTERN})'`,

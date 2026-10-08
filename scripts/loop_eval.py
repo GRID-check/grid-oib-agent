@@ -3,7 +3,7 @@
 
 WHY THIS EXISTS
 ---------------
-The second landing on `docs/roadmap/architect-workspace-voice-and-agentic-loop.md`
+The agentic-loop change in `docs/roadmap/architect-workspace-voice-and-agentic-loop.md`
 makes three claims about behaviour: a conclusion that names a passage is OPENED
 rather than searched for again (`read_passage`), the Herleitung checkpoint is a
 slot the model fills rather than prose it usually skips, and the first round is
@@ -143,17 +143,16 @@ class Observation:
     cross_turn: str = ""
     #: The turn read more than one family, or a family it was not asked for.
     family_overlap: str = ""
-    #: RIS tool calls in the turn. Before the consolidation the shape was 2-3
-    #: (catalog → search → fetch); after it, one `ris_lookup` answers. This is
-    #: the whole claim of that change, as one integer.
+    #: RIS tool calls in the turn. One `ris_lookup` answers a RIS question, so a
+    #: count above one means the single-call design is not holding.
     ris_calls: str = ""
     #: Did the answer cite a § the turn actually retrieved (or the § the row
     #: expects, when it names one)? Same three-value shape as `punkt_match`.
     paragraph_match: str = ""
     #: Did a RIS citation key survive into the answer? The answer this harness
     #: reads is the POST-verification one, so a key still in it is a key
-    #: `verify_citations` kept. Structurally near-zero before the
-    #: consolidation: `ris_fetch_document` emitted no Citation key at all.
+    #: `verify_citations` kept. Structurally near-zero for a tool that emits no
+    #: Citation key, such as `ris_fetch_document`.
     ris_citation_resolved: str = ""
     error: str = ""
 
@@ -163,7 +162,7 @@ class Observation:
 #: and comparing across versions silently is how a delta comes out of nowhere.
 FIELDS: tuple[str, ...] = tuple(f.name for f in dataclass_fields(Observation))
 
-#: Columns added for double-fetch rates. Old CSVs (without them) still read:
+#: Columns for double-fetch rates. A CSV written without them still reads:
 #: :func:`read_csv` fills them with ``""`` rather than refusing the file.
 _DOUBLE_FETCH_FIELDS: tuple[str, ...] = (
     "repeat_query",
@@ -174,9 +173,9 @@ _DOUBLE_FETCH_FIELDS: tuple[str, ...] = (
     "family_overlap",
 )
 
-#: Columns added for the RIS consolidation, read back the same way: a run
-#: written before they existed compares with these cells empty rather than
-#: being refused, which is the whole point of having a before.csv.
+#: RIS columns, read back the same way: a run written without them compares
+#: with these cells empty rather than being refused, which is the point of
+#: keeping a before.csv.
 _RIS_FIELDS: tuple[str, ...] = ("ris_calls", "paragraph_match", "ris_citation_resolved")
 
 #: Columns whose value is a yes/no, counted as a rate by :func:`summarise`.
@@ -272,11 +271,9 @@ _LOCATOR_ELIGIBLE_RE = re.compile(
     re.IGNORECASE,
 )
 
-#: Step names that record the turn being CUT OFF: the round ceiling and the
-#: input-token bound. ``status:budget:fanout`` used to be here and names a slot
-#: nothing emits — the round-zero fan-out cap was removed — while
-#: ``status:budget:input`` was missing, so every token-bound stop read as no cap
-#: at all.
+#: Step names that record the turn being CUT OFF: the round ceiling
+#: (``status:budget``) and the input-token bound (``status:budget:input``). A
+#: token-bound stop missing from this set would read as no cap at all.
 _CAP_STEP_NAMES = frozenset({"status:budget", "status:budget:input"})
 
 #: The per-round WIDTH cap carries its round in the step name
@@ -353,10 +350,10 @@ def flag_cap_retry(payloads: Sequence[tuple[str, dict]]) -> str:
     """``"yes"`` when a capped fetch was followed by another fetch.
 
     The POSITION of the cap is the fact: a cap on the turn's last fetch is the
-    guard working as designed, not a retry. The old ``rounds > 1`` asked
+    guard working as designed, not a retry. A ``rounds > 1`` test would ask
     whether the turn had several rounds, which is also true when the cap came
-    last — so a turn that stopped exactly where the guard stopped it read as
-    the redundant work this column exists to catch.
+    last — so a turn that stopped exactly where the guard stopped it would read
+    as the redundant work this column exists to catch.
     """
     capped_at: int | None = None
     for index, (name, body) in enumerate(payloads):
@@ -421,7 +418,7 @@ def flag_cross_turn(payloads: Sequence[tuple[str, dict]]) -> str:
     return "no"
 
 
-# --- RIS consolidation columns -----------------------------------------------
+# --- RIS lookup columns ------------------------------------------------------
 #
 # Read off the SAME telemetry the product emits: the round announcements name
 # the tools a round called, and `retrieve.ris_lookup` spans carry the citation
@@ -616,11 +613,11 @@ def read_csv(path: Path) -> list[Observation]:
 
     The header is the contract. A CSV from another version of this script has
     different columns, and comparing the two without noticing produces a delta
-    that came from the schema rather than from the agent. The one exception is
-    the ADDED columns — the double-fetch six and the RIS three: runs written
-    before they existed read with those cells empty rather than refused, so an
-    old ``before.csv`` still compares. That exemption is what makes a
-    before/after run across a change to this script possible at all.
+    that came from the schema rather than from the agent. The exception is
+    the optional columns, the double-fetch six and the RIS three: a run written
+    without them reads with those cells empty rather than refused, so an older
+    ``before.csv`` still compares. That exemption is what makes a before/after
+    run across a change to this script possible at all.
     """
     with path.open(encoding="utf-8", newline="") as handle:
         reader = csv.DictReader(handle)

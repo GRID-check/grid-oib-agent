@@ -12,9 +12,10 @@ no-op and the adapter falls back to its in-process dict — single-node behaviou
 is unchanged.
 
 A LIVE ROW IS A CLAIM SOMEBODY HAS TO KEEP MAKING. The job itself runs in one
-process's thread pool, so a restart ends it without a word, and the row used to
-say ``processing`` forever: the BFF showed the file as in progress and refused
-its re-ingest as already running. Every row therefore carries the process that
+process's thread pool, so a restart ends it without a word, and nothing would
+ever change the row, which would then say ``processing`` forever: the BFF would
+show the file as in progress and refuse its re-ingest as already running. Every
+row therefore carries the process that
 wrote it (``owner``) and a ``heartbeat_at`` that process refreshes while the job
 is live (``heartbeat``). A pending or processing row whose heartbeat is older
 than ``STALE_AFTER_SECONDS`` has lost its owner, and is read as ``failed`` with
@@ -86,10 +87,11 @@ HEARTBEAT_INTERVAL_SECONDS = 30
 #: so one slow beat under load is not a death.
 STALE_AFTER_SECONDS = 4 * HEARTBEAT_INTERVAL_SECONDS
 
-#: A row written by a replica that predates heartbeats has none, and is still
-#: being worked on while that replica runs (a rolling deploy). Only its
+#: A row with no heartbeat (written by a replica that does not beat, during a
+#: rolling deploy) is still being worked on while that replica runs. Only its
 #: ``updated_at`` can age it, and a single file can go minutes between status
-#: writes, so the old fifteen-minute in-flight window is the bound for it.
+#: writes, so the window is fifteen minutes: long enough that a live job between
+#: writes is not read as dead.
 _LEGACY_STALE_AFTER_SECONDS = 15 * 60
 
 #: The machine-readable reason, as the prefix of ``error_message`` (the same
@@ -100,8 +102,8 @@ INTERRUPTED_MESSAGE = f"{INTERRUPTED}: ingestion stopped when the service restar
 #: Newest stale rows the startup sweep settles; older ones settle when read.
 _SWEEP_LIMIT = 500
 
-#: Columns added after the table first shipped. Nullable and without defaults,
-#: so adding them never rewrites or rejects an existing row.
+#: Columns added to an existing table by migration. Nullable and without
+#: defaults, so adding them never rewrites or rejects an existing row.
 _ADDED_COLUMNS = {"owner": "VARCHAR", "dispatch_key": "VARCHAR"}
 
 
@@ -413,12 +415,12 @@ def fail_interrupted() -> int:
     return settled
 
 
-#: A crashed worker used to leave a row at ``processing`` forever, and a prompt
+#: A crashed worker must not leave a row at ``processing`` forever: a prompt
 #: that says "this file is still being read" about a job that died an hour ago
-#: is worse than saying nothing: the reader waits for something that is not
-#: coming. A row counts as in flight only while its owner vouches for it (see
-#: ``_stale_predicate``); that replaced a fixed fifteen-minute window, which
-#: also dropped a live job that spent longer than that on one large file.
+#: is worse than saying nothing, because the reader waits for something that is
+#: not coming. A row counts as in flight only while its owner vouches for it (see
+#: ``_stale_predicate``), not for a fixed window, which would also drop a live
+#: job that spends longer than that on one large file.
 
 #: Ceiling on rows read for one turn's question. This runs on the chat path.
 _IN_FLIGHT_SCAN_LIMIT = 200
@@ -481,10 +483,9 @@ def in_flight_files(collections: Iterable[str]) -> dict[str, list[str]]:
         if status.status not in (JobState.PENDING, JobState.PROCESSING):
             continue
         # ``SUCCESS`` is the file-level terminal token (``JobState`` has
-        # ``COMPLETED``; ``FileStatus`` does not). Comparing against the member
-        # that did not exist raised on the first job that carried per-file
-        # detail, the caller swallowed it, and the "still being read" warning
-        # this function feeds never fired for exactly the uploads it was for.
+        # ``COMPLETED``; ``FileStatus`` does not). Comparing a file against
+        # ``JobState.COMPLETED`` would raise on the first job that carries
+        # per-file detail, and the caller would swallow it.
         names = [
             detail.file_name
             for detail in status.file_details

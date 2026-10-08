@@ -264,7 +264,7 @@ def _types(events: list[dict]) -> list[str]:
 
 
 # ---------------------------------------------------------------------------
-# The route: NAT's socket is off and unpatched, ours is mounted (DoD 5)
+# The route: NAT's socket is off and unpatched, ours is mounted
 # ---------------------------------------------------------------------------
 
 
@@ -596,7 +596,7 @@ async def test_the_heartbeat_is_stamped_on_the_turn_and_stops_at_the_terminal(ha
 
 
 # ---------------------------------------------------------------------------
-# Stop (DoD 6)
+# Stop
 # ---------------------------------------------------------------------------
 
 
@@ -1367,9 +1367,9 @@ def _restricted_envelope(*collections: str) -> list[tuple[bytes, bytes]]:
 async def test_a_restricted_scope_runs_the_turn_on_the_same_socket(harness):
     """Which restricted folders a turn may draw on is the agent's question, per turn, not the socket's.
 
-    The socket used to close when the thread had been shared since the upgrade
-    signed its scope. A restricted collection is now narrowed away per turn
-    (``aiq_agent.knowledge.restricted_use``), so the socket stays and the turn runs.
+    A restricted collection is narrowed away per turn
+        (``aiq_agent.knowledge.restricted_use``), so the socket stays open and the turn
+        runs, even when the thread was shared since the upgrade signed its scope.
     """
     h = harness()
     sock = h.connect(headers=_restricted_envelope(_RESTRICTED))

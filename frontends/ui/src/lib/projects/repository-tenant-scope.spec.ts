@@ -138,7 +138,7 @@ describe('projects repository establishes its own tenant scope', () => {
     expect(getTenantContext()).toBeUndefined()
   })
 
-  it('the tenancy probe answers null for a non-uuid id without querying (#813)', async () => {
+  it('the tenancy probe answers null for a non-uuid id without querying', async () => {
     await expect(repository.findProjectTenancy('e1105dec-20f7-4f9njl5f28e8d19')).resolves.toBeNull()
     expect(observed).toEqual([])
   })

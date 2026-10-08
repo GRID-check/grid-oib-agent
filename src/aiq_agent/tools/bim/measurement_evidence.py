@@ -2,18 +2,19 @@
 
 ``ifc_measure``'s renderer and the confidence gate in
 :mod:`aiq_agent.agents.piloti.grounding` need to agree on a single
-question: **did this result actually measure anything?** They used to agree by
-vocabulary — the gate searched the whole rendered string for „gemessen" or
-„deklariert" — and that is not a contract, it is a coincidence. The renderer
-writes those words in prose that explains why nothing COULD be measured:
+question: **did this result actually measure anything?** The gate must not answer
+it by vocabulary, searching the whole rendered string for „gemessen" or
+„deklariert": that is a coincidence, not a contract. The renderer writes those
+words in prose that explains why nothing COULD be measured:
 
     „gemessen: raumhoehe an 0 von 3 Bauteilen."
     „Abhilfe: … ohne Geschoßebenen gibt es kein Fußbodenniveau, dessen Höhe
      gemessen werden könnte."
 
-Both are refusals. Both used to grant measurement grounding, which is the exact
-failure the grounding gate exists to prevent: a model that invents „rund 9,5 m"
-on top of a refused measurement surfaced at "medium" with nothing behind it.
+Both are refusals. A gate that read the words would grant measurement grounding
+on them, which is the exact failure the grounding gate exists to prevent: a model
+that invents „rund 9,5 m" on top of a refused measurement surfaced at "medium"
+with nothing behind it.
 
 So the renderer states the fact instead of implying it. Every ``ifc_measure``
 result ends with one line saying how many values in it carry a ``declared`` or

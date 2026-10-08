@@ -9,14 +9,14 @@
  *
  * That suite doubles `insertDocumentVersion` and `promoteVersionToPublished` at
  * their seams, which is right for what it asserts — permissions, effects,
- * whether the swap is asked for with the state that was read. It is exactly the
- * wrong shape for THIS bug, because the bug was an ORDERING that only a
- * database refuses: `createDocumentVersion` inserted the new version as
- * `published` and superseded the old one afterwards, and
+ * whether the swap is asked for with the state that was read. It is the wrong
+ * shape for THIS invariant, because the invariant is an ORDERING that only a
+ * database enforces: `createDocumentVersion` must supersede the old version
+ * before it inserts the new one as `published`. The index
  * `uniq_document_versions_published_per_document` is a plain partial unique
- * index — checked per statement, never deferred — so the insert was refused
- * while the previous version was still published. Every re-upload of a
- * document. A double that says "yes" to any insert cannot see it.
+ * index — checked per statement, never deferred — so an insert-then-supersede
+ * order is refused on every re-upload, while the previous version is still
+ * published. A double that says "yes" to any insert cannot see it.
  *
  * So the repository is an in-memory FAKE rather than a mock: it holds rows, and
  * it refuses a second `published` row for one document exactly as Postgres
@@ -54,7 +54,7 @@ function assertOnePublished(documentId: string): void {
 /**
  * A row as the repository would write it. The number is ALLOCATED here, as the
  * real inserts allocate it inside their transaction (`allocateVersionNumber`):
- * callers no longer hand one in.
+ * callers never hand one in.
  */
 function materialize(values: Omit<NewDocumentVersion, 'versionNumber'>): DocumentVersion {
   return {
@@ -88,8 +88,9 @@ vi.mock('./version-repository', () => ({
     rows.filter((row) => row.documentId === documentId).length + 1,
   ),
   /**
-   * The pre-fix path: insert, then supersede. Kept callable so the revert check
-   * is a one-line edit in `lifecycle.ts` rather than a rewrite of this fake.
+   * The insert-then-supersede order the real repository must not use. Kept
+   * callable so the revert check is a one-line edit in `lifecycle.ts` rather
+   * than a rewrite of this fake.
    */
   insertDocumentVersion: vi.fn(async (values: Omit<NewDocumentVersion, 'versionNumber'>) => {
     const row = materialize(values)

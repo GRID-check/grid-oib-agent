@@ -24,17 +24,17 @@ const renderMenu = (overrides: Partial<Parameters<typeof FileFilterMenu>[0]> = {
 const open = () => userEvent.click(screen.getByTestId('file-filter-menu-trigger'))
 
 /**
- * The strip these tests replaced showed its state by looking pressed. A popover
- * cannot, so the count on the trigger carries it instead — which makes the
- * badge load-bearing rather than decoration, and is why it is tested first.
+ * A popover cannot show its state by looking pressed, so the count on the trigger
+ * carries it instead. That makes the badge load-bearing rather than decoration,
+ * which is why it is tested first.
  */
 describe('the retired filter', () => {
   test('offers a way back to a file somebody archived', async () => {
     // Retiring takes the file out of the listing (`lifecycle = 'active'` is in
     // the query), so this checkbox is the ONLY way back to one. Matched on the
-    // copy the reader sees: „Stillgelegte auch zeigen" / „Also show retired" —
-    // the act is no longer called archiving, because the Archiv is the office
-    // archive a document is put INTO to become cross-project knowledge.
+    // copy the reader sees: „Stillgelegte auch zeigen" / „Also show retired".
+    // Not called archiving: the Archiv is the office archive a document is put
+    // INTO to become cross-project knowledge.
     const { onFiltersChange } = renderMenu()
     await open()
     await userEvent.click(screen.getByLabelText(/retired/i))
@@ -77,9 +77,8 @@ describe('FileFilterMenu', () => {
     })
     await open()
     await userEvent.click(await screen.findByLabelText('3D model (IFC)'))
-    // Spread from the empty set rather than enumerated: this expectation used
-    // to list every dimension by hand and broke the day one was added, which is
-    // the same fragility the reset button had.
+    // Spread from the empty set rather than enumerated: listing every dimension
+    // by hand breaks whenever one is added.
     expect(onFiltersChange).toHaveBeenCalledWith({
       ...NO_FILE_FILTERS,
       assignment: 'mine',

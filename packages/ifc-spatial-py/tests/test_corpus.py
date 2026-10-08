@@ -1,4 +1,4 @@
-"""One regression per defect the corpus run found — see ``CORPUS.md``.
+"""One regression per defect the corpus exposed — see ``CORPUS.md``.
 
 The corpus itself is eleven third-party IFC files (buildingSMART, KIT/FZK, the
 IfcOpenShell test repository, Revit sample projects) and **none of them are in
@@ -44,14 +44,15 @@ def model() -> SpatialModel:
 
 
 # ════════════════════════════════════════════════════════════════════════════
-# Defect 1 — a declared quantity was compared without converting its unit
+# A declared quantity is converted to its SI unit before it is compared
 # ════════════════════════════════════════════════════════════════════════════
 #
 # `Trapelo_Design_Intent.ifc` (Revit, IFC2X3, FOOT / SQUARE FOOT) declares
 # `BaseQuantities.NetFloorArea = 68.1017516344055` for its ground-floor locker
-# room. The geometry measures 6.3269 m². Those are the same room. `floor_area`
-# compared 6.33 against 68.10, called it a 91 % disagreement and blamed the
-# export — in an operator whose whole purpose is to report export defects.
+# room. The geometry measures 6.3269 m². Those are the same room, so an
+# unconverted comparison of 6.33 against 68.10 would report a 91 % disagreement
+# and blame the export — in an operator whose whole purpose is to report export
+# defects.
 
 #: A wall whose body is a degenerate profile (three identical points) extruded to
 #: depth 0. The kernel builds nothing from it, which is the shape of the failure
@@ -138,17 +139,16 @@ def test_a_declared_area_in_square_feet_is_read_in_metres(tmp_path: Path) -> Non
     assert found.raw == pytest.approx(68.1017516344055)
     assert found.unit_label == "SQUARE FOOT"
     assert found.scale == pytest.approx(0.09290304)
-    # 68.10 ft² is 6.327 m². Before the fix this came back as 68.10 and was
-    # compared against a measurement in metres.
+    # 68.10 ft² is 6.327 m². Read as-is, it would be compared against a measurement
+    # in metres.
     assert found.value == pytest.approx(6.3269, abs=1e-3)
 
 
 def test_the_length_unit_does_not_decide_the_area_unit(model: SpatialModel) -> None:
     """The sample house measures in MILLIMETRES and declares areas in m².
 
-    Which is why `unit_scale ** 2` is the wrong conversion and was never used:
-    it would have divided this file's room areas by a million. The area unit is
-    read on its own.
+    Which is why `unit_scale ** 2` is the wrong conversion: it would divide this
+    file's room areas by a million. The area unit is read on its own.
     """
     assert model.unit_scale == pytest.approx(0.001)
     found = model.declared_quantity(model.file.by_guid(BEDROOM), ("NetFloorArea",))
@@ -160,9 +160,9 @@ def test_the_length_unit_does_not_decide_the_area_unit(model: SpatialModel) -> N
 def test_a_quantity_set_outranks_a_look_alike_property_set(tmp_path: Path) -> None:
     """`PSet_Revit_Dimensions.Area` must not beat `Qto_SpaceBaseQuantities`.
 
-    On the Duplex apartment it did, because `get_psets` merges quantity sets and
-    property sets into one dictionary and the old search took whichever pset
-    iterated first.
+    `get_psets` merges quantity sets and property sets into one dictionary, so a
+    search that takes whichever pset iterates first picks the wrong one on the
+    Duplex apartment.
     """
     body = _FEET_MODEL.replace(
         "ENDSEC;\nEND-ISO-10303-21;",
@@ -183,14 +183,14 @@ END-ISO-10303-21;""",
 
 
 # ════════════════════════════════════════════════════════════════════════════
-# Defect 2 — a space wound inside-out measured 0 m² of floor
+# A space wound inside-out still has a floor
 # ════════════════════════════════════════════════════════════════════════════
 #
 # The Duplex apartment's *Hallway* (Revit, IFC2X3) is a closed solid with 28
 # downward-facing triangles and none facing up. `util.shape.get_footprint_area`
-# keeps only faces pointing towards +Z, so it returned 0.0 — and `floor_area`
-# published that zero with a caveat saying the element has no horizontal
-# surfaces, which was false, and triangulated it against a declared 7.80 m².
+# keeps only faces pointing towards +Z, so on its own it reads 0.0 for that
+# solid. `floor_area` must not publish that zero with a caveat saying the
+# element has no horizontal surfaces: it has them, wound the other way.
 
 
 def _unit_box_triangles(flip: bool) -> np.ndarray:
@@ -223,7 +223,7 @@ def test_a_footprint_is_measured_whichever_way_the_mesh_is_wound() -> None:
     outward = op._footprint_area(_unit_box_triangles(flip=False))
     inward = op._footprint_area(_unit_box_triangles(flip=True))
     assert outward == pytest.approx(6.0)
-    # This was 0.0 before the fix — a confident zero on a 6 m² floor.
+    # A 6 m² floor wound inside-out must not read as zero.
     assert inward == pytest.approx(6.0)
 
 
@@ -256,14 +256,14 @@ def test_zero_is_still_the_answer_for_something_with_no_horizontal_face() -> Non
 
 
 def test_a_walls_own_footprint_is_unchanged(model: SpatialModel) -> None:
-    """The sample house's north wall measured 4.10205 m² of footprint before the
-    winding fix and must measure it after."""
+    """The sample house's north wall has a footprint of 4.10205 m², and that
+    number must not change."""
     assert op.floor_area(model, NORTH_WALL).value == pytest.approx(4.10205, abs=1e-5)
 
 
 def test_the_sample_house_room_areas_do_not_move(model: SpatialModel) -> None:
-    """The regression guard on the regression: the corrected footprint must
-    reproduce the numbers the parity suite was built on, to 1e-9 m²."""
+    """The corrected footprint must reproduce the numbers the parity suite was
+    built on, to 1e-9 m²."""
     for global_id, expected in (
         ("3w0zWKm7n8SB1qbfwUzt0J", 15.41678125),
         ("3w0zWKm7n8SB1qbfwUzt0U", 51.994825),
@@ -273,7 +273,7 @@ def test_the_sample_house_room_areas_do_not_move(model: SpatialModel) -> None:
 
 
 # ════════════════════════════════════════════════════════════════════════════
-# Defect 3 — every way a file can fail to open produced a different exception
+# A file that cannot be opened gets a stated refusal, not a crash
 # ════════════════════════════════════════════════════════════════════════════
 
 
@@ -377,7 +377,7 @@ def test_a_valid_header_with_no_entities_is_a_model_not_an_error(tmp_path: Path)
 
 
 # ════════════════════════════════════════════════════════════════════════════
-# Defect 4 — a non-GlobalId reached an operator and answered about the wrong thing
+# A non-GlobalId is refused, never answered about another entity
 # ════════════════════════════════════════════════════════════════════════════
 
 
@@ -388,8 +388,8 @@ def test_anything_that_is_not_a_global_id_raises_the_contract_error(model: Spati
     `by_guid(None)` returns `None`, and the operator then dies of an
     `AttributeError` several frames later; `by_guid(123)` falls through to lookup
     **by entity id** and hands back `#123`, a real entity of the wrong kind for
-    an id nobody asked about. Both used to escape as unhandled exceptions or, in
-    the second case, as an ANSWER about the wrong element.
+    an id nobody asked about. Left alone, both escape as unhandled exceptions or,
+    in the second case, become an ANSWER about the wrong element.
     """
     with pytest.raises(UnknownElementError):
         model.by_id(bad, "test")
@@ -411,7 +411,7 @@ def test_an_entity_id_is_not_a_global_id(model: SpatialModel) -> None:
 
 
 # ════════════════════════════════════════════════════════════════════════════
-# Defect 5 — a malformed prism reached the broad phase
+# A malformed prism is refused before it reaches the broad phase
 # ════════════════════════════════════════════════════════════════════════════
 
 
@@ -433,7 +433,7 @@ def test_obstructions_on_a_prism_from_another_model_raises(model: SpatialModel) 
 
 
 # ════════════════════════════════════════════════════════════════════════════
-# Defect 9 — an unhosted window came back as a bare empty list
+# An unhosted window is reported with a caveat, not as a bare empty list
 # ════════════════════════════════════════════════════════════════════════════
 
 
@@ -482,7 +482,7 @@ END-ISO-10303-21;""",
 
 
 # ════════════════════════════════════════════════════════════════════════════
-# Defect 11 — geometry the kernel rejects was reported as geometry that is absent
+# Geometry the kernel rejects is reported as rejected, not as absent
 # ════════════════════════════════════════════════════════════════════════════
 
 
@@ -508,8 +508,8 @@ def test_a_body_the_kernel_rejects_is_not_reported_as_a_missing_body(tmp_path: P
     assert answer.decidable is False
     assert "auswertbare Körpergeometrie" in answer.missing.what
     # The renderer builds „dieser Export liefert {what} nicht", so `what` has to
-    # be a bare noun phrase — „Körpergeometrie … ist nicht auswertbar" produced
-    # a sentence with two negations and one verb too many.
+    # be a bare noun phrase — „Körpergeometrie … ist nicht auswertbar" would
+    # produce a sentence with two negations and one verb too many.
     assert not answer.missing.what.startswith("kein")
     assert "Geometriekern" in answer.missing.remedy
     assert "ändert daran nichts" in answer.missing.remedy
@@ -533,7 +533,7 @@ def test_an_element_with_no_representation_at_all_says_that_instead(model: Spati
 
 
 # ════════════════════════════════════════════════════════════════════════════
-# Defect 6 — a ray with a nonsense length answered anyway
+# A ray with a nonsense length is refused, not answered
 # ════════════════════════════════════════════════════════════════════════════
 
 
@@ -556,16 +556,16 @@ def test_a_ray_with_an_unusable_geometry_is_undecidable(model: SpatialModel, ori
 
 
 # ════════════════════════════════════════════════════════════════════════════
-# Defect 7 — deriving space boundaries had no time bound
+# Deriving space boundaries is time-bounded
 # ════════════════════════════════════════════════════════════════════════════
 
 
 def test_bounds_costs_one_offset_not_one_per_room(model: SpatialModel) -> None:
     """`bounds(space)` needs the contacts of THAT space.
 
-    It used to build the model-wide map, which is one OCCT offset per room:
-    **212 seconds** on a 99-room office export, inside one call about one
-    window. The per-space path must not populate the whole map.
+    The model-wide map is one OCCT offset per room: **212 seconds** on a 99-room
+    office export, inside one call about one window. The per-space path must not
+    populate the whole map.
     """
     fresh = SpatialModel(str(SAMPLE_HOUSE))
     answer = op.bounds(fresh, "3w0zWKm7n8SB1qbfwUzt0J")
@@ -599,8 +599,8 @@ def test_a_model_too_large_to_derive_refuses_before_it_starts(
     """The time budget can only be checked BETWEEN offsets.
 
     One `tree.select(space, extend=…)` is a single OCCT call with no
-    interruption point — a `SIGALRM` set for 900 s did not stop one on the
-    3 729-product Trapelo export, because a Python signal handler only runs when
+    interruption point — on the 3 729-product Trapelo export a `SIGALRM` set
+    for 900 s does not stop one, because a Python signal handler only runs when
     the interpreter regains control. So a model above the product threshold is
     refused before anything is started.
     """

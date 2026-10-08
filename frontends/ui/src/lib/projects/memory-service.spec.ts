@@ -326,11 +326,11 @@ describe('buildProjectMemoryDigest', () => {
         openOnly
       )
     )
-    // Most-recent-first is now the CANDIDATE order, not the digest order:
+    // Most-recent-first is the CANDIDATE order, not the digest order:
     // recency is rank-based in `rankByRecallScore`, so the SQL supplies the
     // recency signal and the ranking (relevance + importance + reinforcement)
     // happens over the fetched candidates. Pinned-first is applied in JS,
-    // bounded by DIGEST_MAX_PINNED so pins can no longer starve recall.
+    // bounded by DIGEST_MAX_PINNED so pins cannot starve recall.
     expect(orderBy).toHaveBeenCalledWith({ op: 'desc', col: 'pm.updatedAt' })
   })
 
@@ -502,14 +502,11 @@ describe('createProjectMemoryItem write-time de-duplication', () => {
 
   /**
    * Two people saving the SAME `memory_proposal` card in a shared conversation
-   * (ADR-0032) — the case I mistakenly reported as a double-write.
-   *
-   * It is not one, and this test is here so the claim cannot be re-litigated from
-   * the card component's comment (which is about the ROUTE having no idempotency
-   * parameter, not about this function). The second save finds the active duplicate
-   * by normalized content and REFRESHES it; no second row is written. The partial
-   * unique indexes in migration 0010 are the backstop, and the 23505 path below is
-   * what handles losing that race.
+   * (ADR-0032) are not a double write. The route has no idempotency parameter
+   * (the card component says so); this function is what keeps it safe. The
+   * second save finds the active duplicate by normalized content and REFRESHES
+   * it; no second row is written. The partial unique indexes in migration 0010
+   * are the backstop, and the 23505 path below is what handles losing that race.
    */
   it('refreshes rather than duplicating when a colleague already saved the same memory', async () => {
     const { values, set } = mockCreateChain({ id: 'existing-1', confidence: 'medium' })
@@ -828,9 +825,9 @@ describe('createProjectMemoryItem paraphrase de-duplication', () => {
 
   /**
    * The finding restates a row we already hold AND the caller named the entry
-   * it makes obsolete. Merging into the restatement used to end the write
-   * before the quote was read, so the named row stayed live beside the
-   * refreshed one — the second entry a reviewer saw after a correction.
+   * it makes obsolete. Merging into the restatement must not end the write
+   * before the quote is read: the named row would otherwise stay live beside
+   * the refreshed one.
    */
   it('retires a named target even when the finding merges into a paraphrase', async () => {
     const existing = makeMemoryItem({

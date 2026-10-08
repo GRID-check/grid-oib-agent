@@ -2,10 +2,10 @@
  * @vitest-environment node
  */
 /**
- * The conversations service is where the collaboration feature's security fix
- * lives: a conversation used to be resolved **org-scoped only**, so any signed-in
- * colleague holding an id could read the thread and the unfiltered list returned
- * every chat in the organization (spec §3 fact 1, ADR-0032).
+ * The conversations service is where the collaboration feature's access rules
+ * live: a conversation resolved **org-scoped only** would let any signed-in
+ * colleague holding an id read the thread, and the unfiltered list would return
+ * every chat in the organization (ADR-0032).
  *
  * The access rules are therefore exercised through the REAL
  * `@/lib/sharing/access` — only the registry's probe, the grant lookup and the
@@ -16,9 +16,9 @@
  * experience could be disturbed:
  *   - cross-tenant, and someone else's `private` thread → 404 (the fix itself);
  *   - `project` visibility and an explicit grant → readable;
- *   - authorship on write, creator-attribution of legacy rows on read (CC-3/MG-3);
- *   - the addressee ruling that decides whether the agent answers (MN-1/MN-7);
- *   - a solo thread produces NO events and NO notifications (NF-8).
+ *   - authorship on write, creator-attribution of legacy rows on read;
+ *   - the addressee ruling that decides whether the agent answers;
+ *   - a solo thread produces NO events and NO notifications.
  */
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -216,7 +216,7 @@ function stubConversation(
   })
 }
 
-/** Whether the caller can reach the container project at all (spec SH-5). */
+/** Whether the caller can reach the container project at all. */
 function stubContainer(role: ProjectRole | 'denied'): void {
   if (role === 'denied') {
     vi.mocked(requireProjectAccess).mockRejectedValue(new NotFoundError())
@@ -244,7 +244,7 @@ beforeEach(() => {
   vi.mocked(peopleWhoMayRead).mockImplementation(async (_org, _id, userIds) => new Set(userIds))
   vi.mocked(lockedConversationIds).mockResolvedValue(new Set())
   vi.mocked(restrictingOtherProjects).mockResolvedValue([])
-  // The collaboration feature is dark-launched (spec NF-7): without an operator
+  // The collaboration feature is dark-launched: without an operator
   // opt-in the mention path refuses outright, so the tests that exercise it must
   // enable it. The flag-OFF behaviour has its own tests.
   process.env.GRID_COLLABORATION_ENABLED = 'true'
@@ -283,8 +283,8 @@ describe('reading a conversation — the access rules', () => {
   })
 
   it("404s someone else's PRIVATE conversation in the same org and project", async () => {
-    // THE regression this slice exists for. Before the fix this returned the row:
-    // org scope alone was the only gate, so "private" did not exist.
+    // THE regression this guards against: with org scope as the only gate, the row
+    // comes back, and "private" does not exist.
     stubConversation({ visibility: 'private', createdBy: 'user_other' })
 
     await expect(getConversation(session, CONVERSATION_ID)).rejects.toThrow(NotFoundError)
@@ -382,7 +382,7 @@ describe('listing conversations', () => {
     expect(listVisibleConversations).not.toHaveBeenCalled()
   })
 
-  it('lists without a project scope, narrowed to the caller (spec MG-1)', async () => {
+  it('lists without a project scope, narrowed to the caller', async () => {
     await listConversations(session)
 
     expect(requireProjectAccess).not.toHaveBeenCalled()
@@ -392,7 +392,7 @@ describe('listing conversations', () => {
   })
 })
 
-describe('a chat the reader may no longer read (ADR-0081)', () => {
+describe('a chat the reader may not read (ADR-0081)', () => {
   /** The folders the conversation recorded are no longer ones this reader's roles reach. */
   function lockFor(...locked: string[]): void {
     vi.mocked(peopleWhoMayRead).mockImplementation(async (_org, _id, userIds) =>
@@ -531,7 +531,7 @@ describe('a chat the reader may no longer read (ADR-0081)', () => {
     await expect(listConversationMessages(session, CONVERSATION_ID)).rejects.toBeInstanceOf(ResourceRightsLostError)
   })
 
-  it('still lets the owner delete a chat they may no longer read', async () => {
+  it('still lets the owner delete a chat they may not read', async () => {
     stubConversation({ visibility: 'private', createdBy: 'user_me' })
     vi.mocked(markConversationDeleting).mockResolvedValue({ id: CONVERSATION_ID } as never)
     vi.mocked(purgeSessionDocuments).mockResolvedValue({ ok: true, purged: 0, retained: 0, failures: [] })
@@ -614,14 +614,13 @@ describe('writing requires more than reading', () => {
     expect(deleteConversationInOrg).not.toHaveBeenCalled()
   })
 
-  it('answers the SAME refusal for an id that does not exist at all (spec SH-6)', async () => {
-    // This assertion used to be `resolves.toBeUndefined()`, pinning a silent
-    // no-op — which made the service, and through it the endpoint, an existence
-    // oracle: 204 for an unknown id, 404 for one that exists in another tenant or
-    // belongs to a colleague. Any signed-in member could sort guessed ids into
-    // "real" and "not real" with it.
+  it('answers the SAME refusal for an id that does not exist at all', async () => {
+    // Resolving to nothing would be a silent no-op, and that makes the service,
+    // and through it the endpoint, an existence oracle: 204 for an unknown id, 404
+    // for one that exists in another tenant or belongs to a colleague. Any
+    // signed-in member could sort guessed ids into "real" and "not real" with it.
     //
-    // The service now reports one truth for both, and the DELETE route turns that
+    // The service reports one truth for both, and the DELETE route turns that
     // truth into ONE response (204 either way) so the chat store can still delete
     // ids that only ever lived in a browser — see `[id]/route.spec.ts`.
     vi.mocked(findConversationTenancy).mockResolvedValue(null)
@@ -672,7 +671,7 @@ describe('discarding a chat that holds attachments', () => {
 
     // Marked first, so an upload arriving at any point during the purge has
     // something to refuse on — without it, one landing between the purge and
-    // the row delete lost its row to the cascade and left its bytes behind.
+    // the row delete loses its row to the cascade and leaves its bytes behind.
     // The collection goes after the rows' own erasure and before the row: once
     // the conversation row is gone, nothing could authorize erasing it.
     expect(order).toEqual(['mark', 'purge', 'collection', 'delete'])
@@ -732,9 +731,8 @@ describe('discarding a chat that holds attachments', () => {
 })
 
 /**
- * A delete whose erase failed (the agent service was down) used to leave the
- * chat hidden and marked deleting until somebody deleted it again. The mark now
- * queues the erasure, the purger retries it through `retryConversationErasure`,
+ * A delete whose erase failed (the agent service was down) leaves the chat
+ * hidden and marked deleting. The mark queues the erasure, the purger retries it through `retryConversationErasure`,
  * and both reach the same steps.
  */
 describe('a chat erasure the request could not finish is retried', () => {
@@ -863,7 +861,7 @@ describe('a chat erasure the request could not finish is retried', () => {
   })
 })
 
-describe('message authorship (spec CC-3, MG-3)', () => {
+describe('message authorship', () => {
   it('stamps a user message with WHICH person wrote it, and never the agent', async () => {
     stubConversation({ createdBy: 'user_me' })
 
@@ -889,7 +887,7 @@ describe('message authorship (spec CC-3, MG-3)', () => {
     const messages = await listConversationMessages(session, CONVERSATION_ID)
 
     expect(messages[0].authorUserId).toBe('user_creator')
-    // Not backfilled — the stored row is untouched (MG-3).
+    // Not backfilled — the stored row is untouched.
     expect(vi.mocked(listMessagesForConversation).mock.results).toHaveLength(1)
     // An authorless assistant row is correct as it stands.
     expect(messages[1].authorUserId).toBeNull()
@@ -898,13 +896,13 @@ describe('message authorship (spec CC-3, MG-3)', () => {
   })
 })
 
-describe('the addressee ruling (spec MN-1, MN-2, MN-7)', () => {
+describe('the addressee ruling', () => {
   beforeEach(() => {
     stubConversation({ createdBy: 'user_me', visibility: 'project' })
   })
 
   it('does NOT wake the agent for a plain message while the thread awaits a human', async () => {
-    // The defect this pins: a colleague's answer carries no mentions, so the
+    // This pins the case where a colleague's answer carries no mentions, so the
     // "no mentions means ask the agent" rule would have Piloti answer a message
     // that was written to a person. Same for "thanks, take your time" from the
     // asker. While a wait is open, a plain message is a remark to the thread.
@@ -932,7 +930,7 @@ describe('the addressee ruling (spec MN-1, MN-2, MN-7)', () => {
    *
    * `@Piloti` always answers, a humans-only tag never starts a turn, tagging both
    * answers. Those three are absolute. A message that tags NOBODY is governed by
-   * the thread's engagement mode, and the reason that exists is the reported bug:
+   * the thread's engagement mode, and the reason that exists is this case:
    * Anna answers, Matthias replies TO ANNA, and Piloti answers a message that was
    * never for it.
    */
@@ -987,7 +985,7 @@ describe('the addressee ruling (spec MN-1, MN-2, MN-7)', () => {
 
   it('resolves the mode at most once for a batch, however many messages it carries', async () => {
     // The ruling and the settle-the-flip step both need the mode. Resolving it
-    // twice was a duplicate query on every plain message in every shared thread.
+    // twice would be a duplicate query on every plain message in every shared thread.
     vi.mocked(resolveEngagementFor).mockResolvedValue({
       mode: 'mention',
       stored: null,
@@ -1043,7 +1041,7 @@ describe('the addressee ruling (spec MN-1, MN-2, MN-7)', () => {
 
     expect(persisted.addressees).toEqual({ agent: true, users: [] })
     expect(applyMessageMentions).not.toHaveBeenCalled()
-    // Stored on the row, so it is never re-derived from the text later (MN-2).
+    // Stored on the row, so it is never re-derived from the text later.
     expect(vi.mocked(insertMessages).mock.calls[0][0][0].metadata).toMatchObject({
       addressees: { agent: true, users: [] },
     })
@@ -1071,7 +1069,7 @@ describe('the addressee ruling (spec MN-1, MN-2, MN-7)', () => {
     expect(applyMessageMentions).toHaveBeenCalledWith(
       expect.objectContaining({ resourceId: CONVERSATION_ID, anchorId: 'msg_1' })
     )
-    // MN-7: nothing is started, so no turn event claims one is running.
+    // Nothing is started, so no turn event claims one is running.
     const turnEvents = vi
       .mocked(publishToUsers)
       .mock.calls.filter(([, event]) => event.kind === 'conversation.turn')
@@ -1096,7 +1094,7 @@ describe('the addressee ruling (spec MN-1, MN-2, MN-7)', () => {
     expect(persisted.addressees).toEqual({ agent: false, users: ['user_anna'] })
   })
 
-  it('closes what the author was asked, because they just contributed (MN-9.1)', async () => {
+  it('closes what the author was asked, because they just contributed', async () => {
     await createConversationMessages(session, CONVERSATION_ID, [
       { id: 'msg_1', role: 'user', content: 'Ja, stimmt.' },
     ])
@@ -1113,7 +1111,7 @@ describe('the addressee ruling (spec MN-1, MN-2, MN-7)', () => {
   })
 
   it('passes on who the reply addressed, so a question back is not filed as an answer', async () => {
-    // The message that used to produce two contradictory notifications: Anna,
+    // The message that would otherwise produce two contradictory notifications: Anna,
     // who was asked, replies by asking Matthias something.
     await createConversationMessages(session, CONVERSATION_ID, [
       {
@@ -1140,7 +1138,7 @@ describe('the addressee ruling (spec MN-1, MN-2, MN-7)', () => {
   })
 })
 
-describe('participant fan-out (spec CC-9, CC-20, NF-8)', () => {
+describe('participant fan-out', () => {
   it('emits NOTHING for a solo thread — private, no grants', async () => {
     stubConversation({ visibility: 'private', createdBy: 'user_me' })
     vi.mocked(countGrantsForResource).mockResolvedValue(0)
@@ -1237,8 +1235,8 @@ describe('participant fan-out (spec CC-9, CC-20, NF-8)', () => {
       { id: 'msg_1', role: 'user', content: 'Frage' },
     ])
 
-    // Without the payload this row — the commonest type in the inbox — rendered
-    // "3 new messages in Untitled conversation", so ten threads read the same.
+    // Without the payload this row — the commonest type in the inbox — would read
+    // "3 new messages in Untitled conversation", so ten threads would read the same.
     const emissions = vi.mocked(emitInboxItems).mock.calls[0][0]
     expect(emissions.map((item) => [item.recipientUserId, item.payload])).toEqual([
       ['user_me', { subject: 'Brandschutz Stiegenhaus' }],
@@ -1259,10 +1257,10 @@ describe('participant fan-out (spec CC-9, CC-20, NF-8)', () => {
   })
 })
 
-describe("the addressee ruling is the SERVER's, and only the server's (spec MN-2)", () => {
+describe("the addressee ruling is the SERVER's, and only the server's", () => {
   it('strips a client-supplied `addressees` from metadata on a NON-user row', async () => {
     // The server writes its ruling only when it HAS one, and it has none for an
-    // assistant/system/tool row — so a client-supplied value used to survive
+    // assistant/system/tool row — so a client-supplied value would survive
     // untouched on exactly those rows, and `storedAddressees` would read it back
     // as authoritative when the id was replayed.
     stubConversation({ visibility: 'project', createdBy: session.userId })
@@ -1312,10 +1310,10 @@ describe("the addressee ruling is the SERVER's, and only the server's (spec MN-2
   })
 })
 
-describe('the collaboration flag is off (spec NF-8, NF-7)', () => {
+describe('the collaboration flag is off', () => {
   beforeEach(() => {
-    // A deployment that never opted in. The chat path must be the product it was
-    // before this feature existed — the flag is the operator's decision, and the
+    // A deployment that never opted in. The chat path must be the product it is
+    // without this feature — the flag is the operator's decision, and the
     // feature must not switch itself on by being POSTed to.
     delete process.env.GRID_COLLABORATION_ENABLED
   })
@@ -1344,7 +1342,7 @@ describe('the collaboration flag is off (spec NF-8, NF-7)', () => {
     expect(emitInboxItems).not.toHaveBeenCalled()
   })
 
-  it('still persists an ordinary message exactly as before, agent addressed', async () => {
+  it('persists an ordinary message, addressing the agent', async () => {
     stubConversation({ visibility: 'private', createdBy: 'user_me' })
 
     const [persisted] = await createConversationMessages(session, CONVERSATION_ID, [
@@ -1362,14 +1360,14 @@ describe('the collaboration flag is off (spec NF-8, NF-7)', () => {
 
     await markConversationRead(session, CONVERSATION_ID, { lastReadMessageId: 'msg_9' })
 
-    // CC-18/CC-19 read state is ordinary chat state and keeps working…
+    // Read state is ordinary chat state and keeps working…
     expect(upsertConversationRead).toHaveBeenCalled()
     // …but the ambient-item clearing is collaboration behaviour.
     expect(markResourceItemsReadFor).not.toHaveBeenCalled()
   })
 })
 
-describe('read state (spec CC-18, IB-9)', () => {
+describe('read state', () => {
   it('moves the caller mark and clears ambient items only', async () => {
     stubConversation({ visibility: 'project', createdBy: 'user_other' })
     vi.mocked(upsertConversationRead).mockResolvedValue({
@@ -1391,7 +1389,7 @@ describe('read state (spec CC-18, IB-9)', () => {
       lastReadMessageId: 'msg_9',
     })
     expect(markResourceItemsReadFor).toHaveBeenCalledWith(session, 'conversation', CONVERSATION_ID)
-    // Reading a thread is NOT answering the question someone asked in it (MN-16).
+    // Reading a thread is NOT answering the question someone asked in it.
     expect(resolveRequestsOnReply).not.toHaveBeenCalled()
     expect(mark.lastReadMessageId).toBe('msg_9')
   })
@@ -1414,11 +1412,11 @@ describe('read state (spec CC-18, IB-9)', () => {
 
 /**
  * Naming a conversation is cosmetic, and its log severity has to say so
- * (issue #233). The backend answers HTTP 200 for every LLM outcome it knows how
+ * The backend answers HTTP 200 for every LLM outcome it knows how
  * to degrade from, so an `error` code on a 200 is a handled degradation: the
  * chat keeps the provisional first-message name and nothing a user can see is
- * broken. Logging that at ERROR made err2issue file a GitHub issue every time a
- * model phrased its JSON slightly differently. A non-2xx is the opposite case —
+ * broken. At ERROR, every model that phrases its JSON slightly differently would
+ * open an incident. A non-2xx is the opposite case —
  * the endpoint broke its own always-200 contract — and stays at ERROR.
  */
 /**
@@ -1623,9 +1621,8 @@ describe("the backend's own persist path speaks a different dialect", () => {
 
 describe('project:chat gates the AGENT, not the conversation (the message-write hole)', () => {
   /**
-   * The gap an adversarial pass found after `project:chat` shipped: gating
-   * `createConversation` stopped a Viewer STARTING a project thread and did
-   * nothing about the ones they already owned.
+   * Gating `createConversation` alone stops a Viewer STARTING a project thread,
+   * and does nothing about the ones they already own.
    *
    * `requireResourceAccess` gates the container on `project:view` — correctly, a
    * Viewer reads the project's threads — and `resolveResourceAccess` grants the
@@ -1714,8 +1711,7 @@ describe('project:chat gates the AGENT, not the conversation (the message-write 
   })
 
   it('refuses an explicit @Piloti BEFORE applying its mentions', async () => {
-    // The ordering defect a review caught in the first version of this gate.
-    // `prepareMessage`'s mention path WRITES — grants, requests and inbox rows,
+    // The ordering matters: `prepareMessage`'s mention path WRITES — grants, requests and inbox rows,
     // through `applyMessageMentions` — so a gate that ran after the prepare loop
     // rejected the message and left that state behind for a row that was never
     // inserted. Asserting the refusal alone could not tell "gated" from "gated

@@ -238,10 +238,9 @@ export interface DeepResearchCallbacks {
   /**
    * A citation source arrived. `wire` is the backend's citation payload
    * (`source_entry_to_wire`) verbatim — pass it to `citationFromWire` rather
-   * than re-mapping field by field. Hand-mapping here is how the deep-research
-   * path silently lost `kind`/`lane`/`lane_label`/`binding_note`/`number` and
-   * fell back to the pre-ADR-0026 origin heuristic that tints the OIB corpus as
-   * project material.
+   * than re-mapping field by field. Hand-mapping silently drops
+   * `kind`/`lane`/`lane_label`/`binding_note`/`number`, and the origin heuristic
+   * that fills in for them tints the OIB corpus as project material (ADR-0026).
    */
   onCitationUpdate?: (wire: WireCitationSource, isCited: boolean) => void
   onFileUpdate?: (filename: string, content: string) => void
@@ -680,9 +679,9 @@ export const createDeepResearchClient = (options: DeepResearchStreamOptions): De
       'tool.start',
       'tool.end',
       'artifact.update',
-      // `job.phase` had a `case` above and no listener here, so the named event
-      // the browser never subscribed to never reached the switch. The spec
-      // drives every listed type through a fake EventSource for that reason.
+      // Every type with a `case` in handleMessage is listed here: a named event
+      // the browser has not subscribed to never reaches the switch. The spec
+      // drives every listed type through a fake EventSource.
       'job.phase',
       'run.ledger',
     ]
@@ -851,8 +850,7 @@ export const getJobStatus = async (
  * back as an additive `filed` object. It is optional in every direction: a
  * chat outside a project sends no `projectId` and nothing is filed, an
  * organization can withhold `project:documents:write`, a quota can refuse the
- * bytes, and a report fetched from a build that predates the feature carries
- * nothing at all.
+ * bytes, and a backend without the feature sends nothing at all.
  */
 export interface JobReportFiling {
   documentId: string
@@ -872,7 +870,8 @@ export interface JobReportResponse {
    * Mutually exclusive with `filed`, and NOT the same as its absence. The BFF
    * sets it only in the one state where a promise was made and broken: a
    * project was resolved, so `deepResearch.starting.filingDisclosure` told the
-   * reader the report would land under „Berichte", and then it did not. No
+   * reader the report would land under „Berichte", and a report that does not
+   * land breaks that promise. No
    * project, no report yet and no filing attempt all leave both keys absent,
    * because in none of them was anything promised.
    *
@@ -885,9 +884,9 @@ export interface JobReportResponse {
   /**
    * The report's verified sources, each carrying the `[N]` the report cites it
    * by. The live stream announces a source when a tool finds it, before
-   * verification has numbered anything, so a reader of the finished report
-   * had rows with no way to tell which one `[3]` was. Absent when the run
-   * recorded none, or on a body from before the field existed.
+   * verification has numbered anything, so this field is what lets a reader of
+   * the finished report match `[3]` to its source. Absent when the run recorded
+   * none, or from a backend that does not send the field.
    */
   sources?: WireCitationSource[]
 }

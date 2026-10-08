@@ -27,17 +27,16 @@ describe('permission registry', () => {
     expect(hasPermission(admin, ORG_PERMISSIONS.settingsManage)).toBe(true)
     expect(hasPermission(admin, ORG_PERMISSIONS.modelsManage)).toBe(true)
     expect(hasPermission(admin, ORG_PERMISSIONS.complianceManage)).toBe(true)
-    // The two that used to work ONLY through the wildcard, because they were in
-    // the code registry and the runbook but in no WorkOS environment.
+    // The two that rely on the catalog implication: they are in the code registry
+    // but in no WorkOS environment.
     expect(hasPermission(admin, ORG_PERMISSIONS.auditView)).toBe(true)
     expect(hasPermission(admin, ORG_PERMISSIONS.archivManage)).toBe(true)
   })
 
   it('the admin implication is BOUNDED by the catalog, not a wildcard', () => {
-    // The old rule was `permission.startsWith('org:') && role === 'admin'`, so
-    // any future org:* permission was pre-granted to every admin the moment it
-    // was defined — and a restricted admin was impossible to build. The rule now
-    // grants exactly what the catalog says the Admin role holds.
+    // The rule grants exactly what the catalog says the Admin role holds. A future
+    // org:* permission is therefore not pre-granted to every admin, and a
+    // restricted admin can be built.
     const adminGrants = new Set(findRoleSpec('admin')?.permissions ?? [])
     const notOnAdmin = 'org:not:provisioned' as unknown as OrgPermission
 
@@ -66,10 +65,10 @@ describe('permission registry', () => {
   })
 
   it('the implication survives partial claims, so a lagging environment loses nothing', () => {
-    // Deliberate, and load-bearing: both live WorkOS environments hold an Admin
-    // role WITHOUT `org:skills:manage` while the catalog has it. Restricting the
-    // fallback to claims-less sessions — which was tried — would have taken the
-    // org skills toolbox away from every admin the day it shipped. The catalog
+    // Deliberate, and load-bearing: an environment may hold an Admin role WITHOUT
+    // `org:skills:manage` while the catalog has it. Restricting the fallback to
+    // claims-less sessions would take the org skills toolbox away from every
+    // admin until provisioning caught up. The catalog
     // bounds what is implied, and the drift job is what closes the gap for real.
     const admin = session('admin', ['org:settings:manage'])
     expect(hasPermission(admin, ORG_PERMISSIONS.settingsManage)).toBe(true)

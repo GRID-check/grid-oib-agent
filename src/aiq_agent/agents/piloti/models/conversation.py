@@ -159,8 +159,7 @@ class ConversationState(BaseModel):
     # (ADR-0062): the ``task_runs`` row and the message that run narrates itself
     # in, both minted by the BFF before the worker was asked for anything.
     # Structured, because the frontend scrolls to that message and renders the
-    # block from it — the prose stub and the job id it used to parse are gone,
-    # along with every wording change that could break them.
+    # block from it, so no wording has to stay stable for a parser.
     run_id: str | None = None
     run_message_id: str | None = None
     # The model's own self-assessment of how well the shallow answer is grounded
@@ -194,9 +193,8 @@ class ConversationState(BaseModel):
     already_read_digest: list[str] | None = None
     # The backend's own account of this turn's retrieval rounds (one entry per
     # announced round: query, tools, returned docs, new docs). Carried for the
-    # Herleitung — no renderer reads it yet (phase b) — and persisted now so
-    # the record exists from the first turn, not from the release that renders
-    # it. None when no round was announced.
+    # Herleitung, and persisted from the first turn so the record exists before
+    # any renderer reads it. None when no round was announced.
     retrieval_ledger: list[dict[str, Any]] | None = None
     # The server's stamp on each quote line of the answer (``common/quote_stamps.py``),
     # lifted from Piloti's state and onto ``TurnResult.quote_stamps``. None when

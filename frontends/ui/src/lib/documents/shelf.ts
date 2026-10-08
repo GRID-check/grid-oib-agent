@@ -3,12 +3,10 @@
  * rows are these" that the project's Dateien and the org-wide Archiv share
  * (ADR-0078).
  *
- * The two used to be answered by two sets of queries that agreed by copy: a
- * project's `projectListingWhere` and the Archiv repository's own
- * `scope = 'archiv'` clauses. Folders made that untenable — the Archiv would
- * have grown a second copy of every folder query — so the shelf is a value, and
- * each question about it (documents, folders, the row a new folder is inserted
- * as) is one function over it.
+ * Each question about a shelf (documents, folders, the row a new folder is
+ * inserted as) is one function over it. Two sets of queries that agreed by copy
+ * would drift apart, and every folder query would need a second copy for the
+ * Archiv, so the shelf is a value.
  *
  * A third shelf, `session`, exists on `documents.scope` and is deliberately not
  * a member: a chat attachment is never filed, and the database says so
@@ -39,7 +37,7 @@ export function shelfScope(shelf: DocumentShelf): 'project' | 'archiv' {
  * The shelf a stored row is on, or `null` for one that is on none a folder can
  * hang from (a `session` attachment).
  *
- * A project is named by `projectId`, as it always has been; the Archiv by its
+ * A project is named by `projectId`; the Archiv by its
  * scope. The two never overlap: a row with a project is a project document, and
  * `documents_session_requires_conversation` keeps a session row projectless.
  */
@@ -55,10 +53,10 @@ export function documentShelf(doc: {
 /**
  * The `documents` rows of a shelf, in a tenant.
  *
- * The scope is stated for BOTH shelves. The project listing used to filter on
- * `project_id` alone and be correct by accident (the only other shelf had a NULL
- * project); a shelf is named by its scope and, for a project, narrowed by its
- * id — never inferred from a NULL.
+ * The scope is stated for BOTH shelves. Filtering on `project_id` alone would
+ * be correct only by accident (the Archiv's rows have a NULL project), so a
+ * shelf is named by its scope and, for a project, narrowed by its id — never
+ * inferred from a NULL.
  */
 export function shelfDocumentWhere(shelf: DocumentShelf, organizationId: string): SQL {
   return and(
@@ -73,9 +71,9 @@ export function shelfFolderWhere(shelf: DocumentShelf, organizationId: string): 
   return and(
     eq(projectFolders.organizationId, organizationId),
     eq(projectFolders.scope, shelfScope(shelf)),
-    // A deleted project folder, in the Papierkorb or a tombstone (migrations
-    // 0110, 0113), is no folder of the shelf: only the access rule and the bin
-    // read it, through their own repositories.
+    // A deleted project folder, in the Papierkorb or a tombstone, is no folder
+    // of the shelf: only the access rule and the bin read it, through their own
+    // repositories.
     isNull(projectFolders.deletedAt),
     ...(shelf.kind === 'project' ? [eq(projectFolders.projectId, shelf.projectId)] : []),
   ) as SQL

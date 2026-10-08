@@ -101,7 +101,7 @@ describe('when mermaid refuses the source', () => {
     expect(result.current.fileSvg).toBeNull()
   })
 
-  it('drops the paper copy of a drawing that is no longer drawn', async () => {
+  it('drops the paper copy once the new source fails to draw', async () => {
     // The dangerous shape: a diagram drew, the source changed, the new source
     // is broken — and the filing button still holds the OLD paper bytes. The
     // reader would file a picture the answer has stopped showing.

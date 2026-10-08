@@ -3,7 +3,7 @@
 This package's most valuable output is often not a number. It is
 ``decidable: false`` with a ``missing.what`` and a ``missing.remedy``: *the
 question is well-formed, this export cannot answer it, and here is what to
-change in the CAD*. Today that arrives as German prose inside one chat turn,
+change in the CAD*. That arrives as German prose inside one chat turn,
 which means it is read once, by one person, and is gone.
 
 **IDS** — *Information Delivery Specification*, buildingSMART's standard for
@@ -428,8 +428,8 @@ def answers_as_ids(
     absent fact *in the file's own vocabulary*: a property path
     (``Pset_WindowCommon.SillHeight``), an entity (``IfcSpace``) or a relation
     (``IfcRelFillsElement``). Those three shapes are exactly the three IDS can
-    express, which is not a coincidence — it is why the envelope was worth
-    porting unchanged.
+    express, which is not a coincidence — it is why the envelope can be consumed
+    unchanged.
 
     Decidable answers are skipped in silence; they are not findings. Answers
     whose ``missing.what`` is German prose about geometry ("keine senkrechte

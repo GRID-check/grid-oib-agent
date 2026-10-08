@@ -21,24 +21,21 @@
  *
  * `FILE_UPLOAD_MAX_SIZE_MB` (100 MB) is sized for documents. An Einreichung
  * IFC is routinely 50–500 MB and is measured against `BIM_MAX_IFC_BYTES`
- * instead. When the transport limit still followed the document figure, a
- * 149 MB model passed both validators and was then cut off in front of the
- * handler, so `request.formData()` threw
- * `TypeError: Failed to parse body as FormData` — an unhandled 500 that named
- * neither the file nor a size (issue #369). The ceiling therefore has to clear
- * the largest file ANY route may admit, not the largest document.
+ * instead. A transport limit sized for documents would let a 149 MB model pass
+ * both validators and then cut it off in front of the handler, so
+ * `request.formData()` throws `TypeError: Failed to parse body as FormData` — an
+ * unhandled 500 that names neither the file nor a size. The ceiling therefore
+ * has to clear the largest file ANY route may admit, not the largest document.
  */
 
 /**
  * Bytes in the MB an administrator types.
  *
  * Decimal, matching `BYTES_PER_GB` on the storage side and the one byte
- * formatter (`lib/format.ts`). These limits used to be `MB * 1024 * 1024`, so a
- * deployment configured for 100 MB actually admitted 104.9 MB and the refusal
- * message — rendered by a formatter that also counted in 1024s — said "100.0 MB"
- * about a different number than the one enforced. Two wrongs cancelling is not
- * the same as being right: the moment either side is fixed alone, the limit and
- * the sentence describing it disagree.
+ * formatter (`lib/format.ts`). The refusal message is rendered by that
+ * formatter, so the limit and the sentence describing it must count in the same
+ * unit: a limit in 1024s next to a formatter in 1000s says "100.0 MB" about a
+ * different number than the one enforced.
  *
  * Declared here rather than imported because this module must stay import-free
  * (see above); `@/lib/storage/contract` states the same convention for GB.

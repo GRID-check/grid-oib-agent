@@ -102,14 +102,14 @@ from .model import SpatialModel
 #:
 #: **This is a tie-breaker, not a veto.** It is consulted only after the room
 #: lexicon has been asked and returned nothing — see :func:`_judge_one_storey`.
-#: Tested ahead of the rooms it struck out the 107 m² Galerie in the
-#: „Dachgeschoss" of ``AC20-FZK-Haus.ifc`` and reported a Fluchtniveau of
+#: Tested ahead of the rooms, these terms would strike the 107 m² Galerie in the
+#: „Dachgeschoss" of ``AC20-FZK-Haus.ifc`` and report a Fluchtniveau of
 #: **1.000 m** instead of **3.700 m**.
 #:
-#: Never used to remove a room the lexicon has PLACED. Run that way these terms
-#: struck „Dachzimmer" and „Attikazimmer" out of the habitable list and dropped
-#: the storey holding them, reporting a Fluchtniveau of 0.000 m for a house
-#: whose upper floor sits at 3.500 m. What a room is used for is the room
+#: A room the lexicon has PLACED is never removed by these terms. Run that way
+#: they would strike „Dachzimmer" and „Attikazimmer" out of the habitable list
+#: and drop the storey holding them, reporting a Fluchtniveau of 0.000 m for a
+#: house whose upper floor sits at 3.500 m. What a room is used for is the room
 #: lexicon's question, and :func:`~ifc_spatial.briefing.classify_rooms` answers
 #: it; these terms only corroborate a storey name over the room names it could
 #: not answer for.
@@ -244,8 +244,8 @@ def fluchtniveau(model: SpatialModel) -> Answer[dict[str, Any]]:
        ``Dachgeschoss``, ``Attika``), and then only while every unplaceable room
        name falls in that same vocabulary.
 
-    The order is not cosmetic. Tested first, the name vetoed unconditionally and
-    reported **1.00 m** instead of **3.70 m** for ``AC20-FZK-Haus.ifc``, whose
+    The order is not cosmetic: tested first, the name would veto unconditionally
+    and report **1.00 m** instead of **3.70 m** for ``AC20-FZK-Haus.ifc``, whose
     „Dachgeschoss" holds a 107 m² Galerie — see :func:`_judge_one_storey`.
 
     A storey is removed only on **positive** evidence. A storey with no rooms in
@@ -444,20 +444,19 @@ def _judge_storeys(model: SpatialModel, storeys: Sequence[Any]) -> list[StoreyJu
 def _judge_one_storey(storey: Any, described: Sequence[dict[str, Any]]) -> tuple[bool, str]:
     """Counted or not, and the German reason — rooms first, storey name last.
 
-    ## The order is the fix, and it is the second time it had to be made
+    ## The room evidence comes first
 
     The room evidence is read FIRST and the storey's own name only breaks a tie.
-    Until this ordering the storey name was tested ahead of everything and
-    vetoed unconditionally, which is the same mistake the comment below records
-    against ROOM names, one level up: a substring is not the positive evidence
-    the rule demands, and it was outranking the rooms that are.
+    A substring is not the positive evidence the rule demands, so a storey name
+    tested ahead of the rooms would outrank the rooms that are.
 
     Measured on ``AC20-FZK-Haus.ifc``: the „Dachgeschoss" at elevation 2.70 m
     holds the 107 m² **Galerie** — two windows, a stair up to it, a 2.70 m drop
-    into the living room — and was struck out because the German word for an
-    attic storey contains „dach". The Fluchtniveau came back **1.00 m** instead
-    of **3.70 m**, on the one number the Gebäudeklasse hangs on and in the
-    direction the module docstring names as the dangerous one.
+    into the living room. A name test ahead of the rooms would strike it out,
+    because the German word for an attic storey contains „dach", and report a
+    Fluchtniveau of **1.00 m** instead of **3.70 m**: on the one number the
+    Gebäudeklasse hangs on, in the direction the module docstring names as the
+    dangerous one.
 
     ## Why the name still has a job, and exactly how small a one
 
@@ -473,27 +472,26 @@ def _judge_one_storey(storey: Any, described: Sequence[dict[str, Any]]) -> tuple
     substring must not be allowed to overrule.
 
     Note what this is NOT: :data:`NOT_OCCUPIED_TERMS` never removes a room the
-    lexicon has placed — that veto was taken out once already (see below) and
-    stays out. It is read over room names only to corroborate a storey name
+    lexicon has placed; a veto over placed rooms would strike them, and is not
+    made (see the room branch below). It is read over room names only to
+    corroborate a storey name
     where the lexicon returned nothing, and never to contradict it.
 
     ``AC20-Institute-Var-2.ifc`` needs none of this: its „Dachgeschoss" at
     9.00 m holds ``Dachboden-1``, ``Dachboden-2`` and a Flur, all three placed
     by the lexicon as Neben-/Erschließungsflächen, so the room branch drops it
     on room evidence alone and the Fluchtniveau stays **9.30 m**. That is the
-    proof that the name was never carrying this case.
+    proof that the name is not carrying this case.
     """
-    # The lexicon's classification is the whole of the positive room signal. The
-    # veto that used to sit here ran `NOT_OCCUPIED_TERMS` — a STOREY vocabulary,
-    # matched on substrings — over ROOM names, so a „Dachzimmer" or
-    # „Attikazimmer" that `classify_rooms` had placed as `aufenthaltsraum` was
-    # struck out. With no habitable room left, the branch below then read „Alle
-    # Räume … sind Neben- oder Erschließungsflächen" and dropped the storey: on
-    # a two-storey house whose upper storey is cleanly named „1. Obergeschoss"
-    # and holds one Dachzimmer, the Fluchtniveau came back 0.000 m instead of
-    # 3.500 m. That is the direction the module docstring names as the dangerous
-    # one, the reason given was untrue, and a substring on a room name is not
-    # the positive evidence the rule demands.
+    # The lexicon's classification is the whole of the positive room signal. A
+    # substring veto from `NOT_OCCUPIED_TERMS` — a STOREY vocabulary — over ROOM
+    # names would strike a „Dachzimmer" or „Attikazimmer" that `classify_rooms`
+    # placed as `aufenthaltsraum`. With no habitable room left, the branch below
+    # would read „Alle Räume … sind Neben- oder Erschließungsflächen" and drop
+    # the storey: a two-storey house whose upper storey holds one Dachzimmer
+    # would report 0.000 m instead of 3.500 m. That is the direction the module
+    # docstring names as the dangerous one, and a substring on a room name is
+    # not the positive evidence the rule demands.
     habitable = [entry for entry in described if entry["nutzung"] == "aufenthaltsraum"]
     placed = [entry for entry in described if entry["nutzung"] is not None]
     unplaced = [entry for entry in described if entry["nutzung"] is None]
@@ -1445,11 +1443,11 @@ def _separating_caveat(
             "Pset_DoorCommon.FireRating, Pset_SlabCommon.FireRating) und mitexportieren."
         )
         if blanks:
-            # Named separately because the file LOOKS like it declares something.
-            # In `AC20-FZK-Haus.ifc` four ArchiCAD placeholders carry FireRating
-            # as the empty string; counting those as declarations sent the whole
-            # answer down the „Lücke in genau diesen Bauteilen" branch below and
-            # blamed the architect for a defect that is the export's.
+            # Named separately because the file LOOKS like it declares something:
+            # `AC20-FZK-Haus.ifc` carries FireRating as the empty string on four
+            # ArchiCAD placeholders, and counting those as declarations would send
+            # the answer down the „Lücke in genau diesen Bauteilen" branch below,
+            # blaming the architect for a defect in the export.
             parts.append(
                 f"{blanks} Bauteil(e) führen das Merkmal FireRating zwar mit, aber LEER — ein Platzhalter, "
                 "wie ihn manche CAD-Vorlagen mitexportieren. Ein leerer Wert ist keine Deklaration und wird "
@@ -1481,15 +1479,14 @@ def _fire_rating(model: SpatialModel, element: Any) -> str | None:
 
     ``AC20-FZK-Haus.ifc`` carries ``FireRating = ''`` on four ArchiCAD
     placeholder properties (two ``IfcDoor``, two ``IfcWindow``) and declares a
-    fire resistance nowhere else. ``''`` is not ``None``, so every reader of the
-    raw property counted those four as declarations:
-    :func:`_declares_fire_rating` answered ``True`` and
-    :func:`_separating_caveat` therefore told the reader the gap was „eine Lücke
-    in genau diesen Bauteilen" — a finding about the DESIGN, addressed to the
-    architect — where the truth is a finding about the EXPORT, addressed to
-    whoever runs the CAD, with a different remedy attached. ``_opening_entry``
-    published ``{'fireRating': '', 'fireRatingDeklariert': True}``: a declared
-    class that is blank.
+    fire resistance nowhere else. ``''`` is not ``None``, so a reader of the raw
+    property would count those four as declarations: :func:`_declares_fire_rating`
+    would answer ``True``, and :func:`_separating_caveat` would tell the reader
+    the gap was „eine Lücke in genau diesen Bauteilen" — a finding about the
+    DESIGN, addressed to the architect — where the truth is a finding about the
+    EXPORT, addressed to whoever runs the CAD, with a different remedy attached.
+    ``_opening_entry`` would publish ``{'fireRating': '', 'fireRatingDeklariert':
+    True}``: a declared class that is blank.
 
     Whitespace counts as blank for the same reason: ``' '`` is what a cleared
     field leaves behind, and it is not a fire resistance class either.
@@ -1696,11 +1693,9 @@ def distance_to_site_boundary(model: SpatialModel, global_id: str | None = None)
             "Abstand nach außen."
         )
     # `elemente` carries the ten nearest, never all of them, and the caveat has
-    # to say which of the two it is. On a model with 12 candidate elements the
-    # sentence „Die vollständige … Liste steht unter „elemente““ stood over a
-    # payload of 10: a truncation that reads as „das ist alles" is exactly what
-    # `Answer.caveat` means by "a caller that drops this is reporting a subset
-    # as a total".
+    # to say which of the two it is: a sentence calling the list „vollständig“
+    # over a payload of ten is a truncation that reads as „das ist alles", which
+    # is what `Answer.caveat` exists to prevent.
     listed = measured[:10]
     if global_id is None:
         caveat.append(
@@ -1845,8 +1840,8 @@ def _distance_to_polygon(vertices: np.ndarray, boundary: np.ndarray) -> tuple[fl
     # here, deliberately: a survey layer routinely carries three sides of a
     # parcel, and the fourth side this code would invent lands wherever the
     # first and last point happen to be. Measured on a three-sided fixture, that
-    # fabricated closing line came out **1.06 m** from a wall that is 7.70 m
-    # from the nearest drawn boundary — a plausible, precise, invented number,
+    # fabricated closing line would come out **1.06 m** from a wall that is
+    # 7.70 m from the nearest drawn boundary — a plausible, precise, invented number,
     # which is the same substitution this operator refuses to make from the
     # site's bounding box. The caveat says a missing side makes the distance too
     # large instead.

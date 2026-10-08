@@ -8,8 +8,8 @@ All operations are idempotent — re-running on already-deleted data is a no-op.
 Also reconciles the summaries table against the vector store
 (``reconcile-summaries``): the agent's document inventory is built from
 summary rows alone, so a row whose chunks are gone lists a file nobody can
-retrieve. ``delete_file`` now forgets both together; this sweep catches the
-rows orphaned before it did.
+retrieve. ``delete_file`` removes both together; this sweep catches any row that is
+still orphaned.
 """
 
 import asyncio
@@ -270,7 +270,7 @@ def add_maintenance_routes(router: APIRouter) -> None:
                 collection_deleted = await asyncio.to_thread(ingestor.delete_collection, body.collection_name)
                 collection_status = "deleted" if collection_deleted else "failed"
             # delete_collection clears summaries too, but run it explicitly so a
-            # previously half-failed purge (collection gone, summaries left) heals.
+            # half-failed purge (collection gone, summaries left) heals.
             await asyncio.to_thread(clear_collection_summaries, body.collection_name)
             jobs_deleted = await _purge_jobs(body.collection_name)
 

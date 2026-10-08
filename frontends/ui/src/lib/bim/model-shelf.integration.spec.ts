@@ -6,16 +6,15 @@
  * `listBimModels(..., { includeArchiv: true })` is the predicate behind three
  * surfaces: the project's model list, the agent's model resolution
  * (`/api/internal/bim/query`), and the revision series a compliance
- * confirmation is scoped to. It used to spell "the org-wide Archiv" as
- * `project_id IS NULL`, which was an exact description of the Archiv for
- * exactly as long as the Archiv was the only project-less shelf.
+ * confirmation is scoped to. "The org-wide Archiv" must not be spelled as
+ * `project_id IS NULL`: the Archiv is not the only project-less shelf.
  *
  * ADR-0047 Phase 2 added a second one. A file dropped into a chat is
  * `scope = 'session'` with a NULL project and goes through the same extraction
- * dispatcher, so every IFC anyone attached to a private conversation became a
- * row this predicate returned — to every project in the organization, and to
- * the agent in every other conversation. Filename, storey counts, floor area,
- * and a model id that the query and source routes would then serve.
+ * dispatcher, so every IFC attached to a private conversation would be a row
+ * this predicate returns — to every project in the organization, and to the
+ * agent in every other conversation. Filename, storey counts, floor area, and a
+ * model id that the query and source routes would then serve.
  *
  * A mock cannot show that: the thing under test is the SQL. So this runs
  * against the real migration chain, through the restricted runtime role, like
@@ -182,9 +181,9 @@ describe.skipIf(!url)('listBimModels shelf scoping', () => {
   })
 
   it('never hands a private chat’s model to a project', async () => {
-    // The regression this suite exists for. `privater-chat.ifc` is readable
-    // only inside its conversation; before the predicate read the SHELF it
-    // appeared here, in every project in the organization.
+    // The regression this suite exists for: `privater-chat.ifc` is readable only
+    // inside its conversation, and must not appear in every project in the
+    // organization.
     const listed = await listBimModels(ORG, { projectId: PROJECT, includeArchiv: true })
 
     expect(listed.map((model) => model.filename)).not.toContain('privater-chat.ifc')

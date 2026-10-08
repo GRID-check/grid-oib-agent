@@ -112,7 +112,7 @@ describe('FileBrowserPane — card grid', () => {
     const card = cards.find((c) => within(c).queryByText('site-plan.pdf'))!
     expect(within(card).getByText('PDF')).toBeInTheDocument()
     expect(within(card).getByText(/1 kB/)).toBeInTheDocument()
-    // The ingestion-status badge is kept — critical info the dummy lacks.
+    // The ingestion-status badge stays: it carries information the cards need.
     expect(within(card).getByText('Citable')).toBeInTheDocument()
   })
 
@@ -125,8 +125,7 @@ describe('FileBrowserPane — card grid', () => {
   })
 
   // `aria-current`, not `aria-pressed`: the card opens the file, it does not
-  // toggle. It used to close the preview when you clicked the row you were
-  // already looking at — the one surface in the product that did.
+  // toggle. Clicking the row that is already open leaves the preview open.
   it('marks the card the preview is showing with aria-current', () => {
     renderPane({ selectedFileId: 'f1' })
     const cards = screen.getAllByTestId('file-card')
@@ -294,10 +293,9 @@ describe('FileBrowserPane — semantic search (explicit run)', () => {
 
   it('says the search failed rather than reporting an empty corpus', async () => {
     // The hook fails OPEN — an empty hit list, never a crash — and reports
-    // which of the two happened. Nothing read that flag, so a backend timeout
-    // rendered as "no semantic matches for 'fire escape'": the pane told the
-    // reader something about their own files that it had no way of knowing,
-    // and offered them a reset for it.
+    // which of the two happened. The pane reads that flag: a backend timeout must
+    // not render as "no semantic matches", which would tell the reader something
+    // about their own files that the pane cannot know, and offer a reset for it.
     fetchMock.mockImplementation((url: string | URL) =>
       String(url).includes('/api/documents/search')
         ? Promise.resolve({ ok: false, status: 500, json: () => Promise.resolve({}) })
@@ -308,7 +306,7 @@ describe('FileBrowserPane — semantic search (explicit run)', () => {
 
     await user.type(screen.getByRole('textbox', { name: /search files/i }), 'fire escape{Enter}')
 
-    // Said once, by the panel — the banner that used to repeat it is gone.
+    // Said once, by the panel.
     expect(await screen.findAllByText(/could not be run/i)).toHaveLength(1)
     expect(screen.queryByText(/no semantic matches/i)).not.toBeInTheDocument()
     // And nowhere a count: a count is a claim about the corpus, and a search
@@ -347,9 +345,8 @@ describe('FileBrowserPane — semantic search (explicit run)', () => {
 
     await user.type(screen.getByRole('textbox', { name: /search files/i }), 'fire escape{Enter}')
 
-    // The toggle was read only on the un-searched branch, so pressing Enter
-    // threw a reader who had deliberately switched to the detail view back into
-    // cards — and clearing the query threw them back again.
+    // The toggle is read on the searched branch too, so a reader who has switched
+    // to the detail view stays there when they press Enter or clear the query.
     expect(await screen.findByTestId('file-list-view')).toBeInTheDocument()
     expect(screen.queryByTestId('semantic-match')).not.toBeInTheDocument()
     // And the ranking survives into it: the score is on the row.
@@ -371,8 +368,8 @@ describe('FileBrowserPane — semantic search (explicit run)', () => {
 
     await user.type(screen.getByRole('textbox', { name: /search files/i }), 'fire escape{Enter}')
 
-    // Card skeletons were drawn whatever the reader had chosen, so a search from
-    // the list flashed a wall of tiles and then snapped to a table.
+    // The skeleton follows the view the reader chose, so a search from the list
+    // does not flash a wall of tiles before it snaps to a table.
     expect(await screen.findByTestId('file-list-skeleton')).toBeInTheDocument()
     release()
     expect(await screen.findByTestId('file-list-view')).toBeInTheDocument()
@@ -425,8 +422,7 @@ describe('FileBrowserPane — semantic search (explicit run)', () => {
     await user.type(screen.getByRole('textbox', { name: /search files/i }), 'fire escape{Enter}')
     await screen.findByTestId('semantic-match')
 
-    // The field's own ✕ is the whole way out now that the banner — which used
-    // to carry a second one — is gone.
+    // The field's own ✕ is the way out.
     await user.click(screen.getByRole('button', { name: /reset search/i }))
 
     expect(screen.queryByTestId('semantic-match')).not.toBeInTheDocument()
@@ -467,11 +463,11 @@ describe('FileBrowserPane — search zero-match', () => {
 /**
  * A FILTER THAT MATCHES NOTHING MUST NOT CLAIM THE FOLDER IS EMPTY.
  *
- * The pane is handed already-filtered files, so it could not tell the two
- * apart and drew "this folder is empty" over a folder full of documents. „Von
- * Piloti" paid for that twice: it is the filter whose meaning nobody could
- * infer, and the one state where the product could have explained it said
- * something false instead.
+ * The pane is handed already-filtered files, so it cannot tell a filter that
+ * hides everything from an empty folder, and it must not draw "this folder is
+ * empty" over a folder full of documents. „Von Piloti" is the filter whose
+ * meaning nobody can infer, and the one state where the product could explain
+ * it must not say something false.
  */
 describe('FileBrowserPane — a filter emptied the level', () => {
   const notice = {
@@ -517,15 +513,14 @@ describe('FileBrowserPane — a filter emptied the level', () => {
 /**
  * THE SKELETON IS A PROMISE ABOUT THE NEXT FRAME.
  *
- * The one it replaced drew a full-width `h-9` bar — a search field the page had
- * moved into its header a release earlier and was never bringing back — above a
- * full-width grid of six card placeholders. What then arrived was a breadcrumb
- * row over a 1200px column that starts with folder tiles and ends with a dashed
- * upload cell. Every load ended in a jump, and the loading state described a
- * layout that had not existed for months.
+ * A loading state has to describe the layout the listing lands in: a full-width
+ * search bar over a full-width grid of six card placeholders does not, and the
+ * answer then arrives as a breadcrumb row over a capped column of folder tiles
+ * and cards ending in a dashed upload cell. Every load would end in a jump.
  *
- * These pin the parts that made it wrong, so the next person to move a control
- * out of this pane finds out here rather than in a screenshot.
+ * These pin the parts that make the skeleton predict the frame, so the next
+ * person to move a control out of this pane finds out here rather than in a
+ * screenshot.
  */
 describe('FileBrowserPane — loading', () => {
   const folderNav = {
@@ -571,9 +566,8 @@ describe('FileBrowserPane — loading', () => {
 
 /**
  * A folder card carries two aggregates — how much is inside, and how recently
- * anything under it changed. Both used to be computed per card by re-scanning
- * the corpus, and the second recursed while doing it. They are one pass now;
- * these say the answers did not move.
+ * anything under it changed. They are computed in one pass over the corpus,
+ * not per card, so these pin what each answer is.
  */
 describe('FileBrowserPane — folder aggregates', () => {
   const tree: FolderItem[] = [
@@ -636,10 +630,10 @@ describe('FileBrowserPane — folder aggregates', () => {
  * The Files page reads its documents server-side so the first paint is the
  * corpus rather than a skeleton. motion writes an `initial` prop into the
  * SERVER's markup — `initial={{opacity: 0}}` really does render
- * `style="opacity:0"` — so every per-tile entrance animation this pane had was
- * quietly undoing that: the cards were in the document and invisible until the
- * bundle booted and hydration released them, which is the exact wait the server
- * render exists to remove.
+ * `style="opacity:0"` — so a per-tile entrance animation would quietly undo
+ * that: the cards would be in the document and invisible until the bundle
+ * boots and hydration releases them, which is the exact wait the server render
+ * exists to remove.
  *
  * This renders the pane the way the server does and asserts the markup carries
  * no hidden content. It is the only place that catches it: in a browser the

@@ -1,28 +1,21 @@
 /**
  * SourceBasisPicker — the body of the Datenbasis popover.
  *
- * Replaces `SourcesPopoverContent`, which nested cards three deep
- * (`bg-popover` → `rounded-xl bg-card` toggle-all → N × `rounded-2xl bg-card`
- * rows), hid the knowledge layer entirely, and put its only honest sentence in
- * a footnote under the fold.
- *
- * What changed, and why:
+ * Cards are not nested: the popover is one flat list of rows, so a row reads as
+ * one thing. The layout, and why:
  *
  * - **The honest sentence is first.** A `Field` + `FieldDescription` at the top
  *   says what this control does *and* what it does not do: it sets where Piloti
  *   may look; what it actually used is the Herleitung's job to report.
  * - **"Immer dabei" is a real section.** The knowledge layer rides on every turn
  *   whether or not it is drawn, so it is drawn — non-interactive, with a Chip
- *   where the Switch would be. It used to be invisible, which is precisely how
- *   the trigger's count came to be wrong.
+ *   where the Switch would be.
  * - **One list, not a stack of cards.** `ItemList` + `Item`, hairline divided.
  * - **The scroll region fades.** `scroll-fade-bottom` on the scroll container so
  *   a half-clipped row reads as "more below" rather than as broken chrome.
- * - **The presets are permanent and live outside the fade.** They used to render
- *   only on an empty thread — the informative, colour-coded control was
- *   onboarding-only while the naked integer lasted forever. Backwards. "Alle
- *   Quellen" is one of the options, so the default all-on state is a named
- *   choice rather than an accident.
+ * - **The presets are always shown and live outside the fade.** They are not
+ *   limited to an empty thread. "Alle Quellen" is one of the options, so the
+ *   default all-on state is a named choice rather than an accident.
  */
 
 'use client'
@@ -106,7 +99,7 @@ export const SourceBasisPicker: FC = () => {
   /**
    * A preset click is one write: which preset is named AND which ids it stands
    * for. "Alle Quellen" is the null preset with every id — the same state a
-   * fresh fetch produces, now reachable by name.
+   * fresh fetch produces, reachable by name.
    */
   const handlePreset = useCallback(
     (value: string) => {
@@ -207,7 +200,7 @@ export const SourceBasisPicker: FC = () => {
 
             {/* The case the composer's NoSourcesBanner cannot see: it
                 short-circuits on `knowledgeLayerAvailable`, so switching off
-                every external source is completely silent today. */}
+                every external source is completely silent there. */}
             {nothingExternal && (
               <Alert variant="warning">
                 <AlertTriangle aria-hidden="true" />

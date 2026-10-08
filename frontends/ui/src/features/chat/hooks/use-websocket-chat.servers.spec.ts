@@ -3,7 +3,7 @@
  * do not behave: the one the dev deploy rolled back to (NAT's stock socket,
  * which accepts the upgrade, ignores `?v=2`, never says hello and answers a
  * `user_message` with a frame of its own dialect), and a v2 server that says
- * hello and then never answers. In both the page used to show „Denkt nach…"
+ * hello and then never answers. In both the page would show „Denkt nach…"
  * forever. Every one of these ends, visibly, on a clock.
  *
  * `use-websocket-chat.spec.ts` drives the driver through a mocked socket; this

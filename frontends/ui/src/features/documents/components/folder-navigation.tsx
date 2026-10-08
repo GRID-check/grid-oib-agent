@@ -37,14 +37,11 @@ import { FolderAccessMark, FolderReadOnlyBadge } from './folder-access-mark'
 import type { FolderItem } from './project-file-workspace'
 
 /**
- * Finder-style folder navigation: the drill-down that replaced the tree pane.
+ * Finder-style folder navigation: drilling down one level at a time.
  *
- * The tree drew every level at once in a side band and, outside the tree view,
- * nested folders were unreachable at all (the chip row listed top-level
- * folders only). This module makes drilling the ONE model: at each level the
- * folders render as cards (or rows) beside the files, clicking one enters it,
- * and the breadcrumb up top names the path and walks back out. Same flat
- * `FolderItem[]` data, same server API — only the presentation changed.
+ * At each level the folders render as cards (or rows) beside the files, clicking
+ * one enters it, and the breadcrumb up top names the path and walks back out.
+ * It reads the same flat `FolderItem[]` the server returns for the tree.
  */
 
 /** The chain of ancestors from the root to `folderId`, oldest first. */
@@ -98,9 +95,7 @@ export function FolderBreadcrumbRow({
    * Dropping a FOLDER there moves it out to the project root.
    *
    * This is the only way OUT. Every other target nests one folder inside
-   * another, so without it a folder could be dragged deeper and never back —
-   * the same half-a-gesture the document drag shipped with before the root
-   * became a target for it.
+   * another, so without it a folder could be dragged deeper and never back.
    */
   onDropFolder?: (draggedFolderId: string, parentId: string | null) => void
   canAcceptFolder?: (draggedFolderId: string, targetFolderId: string | null) => boolean
@@ -445,15 +440,13 @@ function FolderActionsMenu({
  * A file card shows the document itself: a page preview, a thumbnail, or the
  * kind sketch we draw when there is neither. A folder card shows a folder
  * filling that same well, and the difference between "a page" and "a container"
- * is the whole distinction. It used to be carried by a warm amber wash as well;
- * that wash was invisible at its own opacity in the grid and read as a warning
- * strip in the detail view, and gold is a provenance signal in this product
- * (see `grid-tile.tsx` for the argument). What is left is the thing that was
- * doing the work.
+ * is the whole distinction. It carries no warm tint: gold is a provenance signal
+ * in this product (see `grid-tile.tsx`), and a tinted folder would read as a
+ * warning. The shape does the work.
  *
  * Hover lifts the tile — the shell's own `whileHover`, and the one motion this
- * gesture gets. The glyph used to open on hover as well; see the comment on the
- * well below for why a mouse-only flourish is not one this product keeps.
+ * gesture gets. The glyph does not open on hover as well: a mouse-only flourish
+ * is not one this product keeps (see the comment on the well below).
  */
 export function FolderCard({
   folder,
@@ -519,23 +512,20 @@ export function FolderCard({
             {/*
               ONE GLYPH, AND NO SECOND MOTION FOR ONE GESTURE.
 
-              This used to swap `Folder` for `FolderOpen` on hover, driven by
-              `useState` through `onMouseEnter`/`onMouseLeave` — a render per
-              pointer crossing on every tile in the grid, and a hard cut in the
-              middle of a scale, so what a person saw was a flicker rather than
-              a folder opening.
+              Swapping `Folder` for `FolderOpen` on hover would need `useState`
+              driven by `onMouseEnter`/`onMouseLeave`: a render per pointer
+              crossing on every tile in the grid, and a hard cut in the middle of
+              a scale, so the person sees a flicker rather than a folder opening.
+              A CSS cross-fade fixes the flicker but not the real problem: the
+              affordance is reachable only by a MOUSE. `mobile-affordances.spec.ts`
+              names that — an `opacity-0` revealed by `group-hover` alone, on a
+              device that generates no hover — and showing both stacked glyphs on
+              a phone is not the answer.
 
-              Rebuilding it as a CSS cross-fade fixed the flicker and the
-              renders and left the real problem: it was an affordance only a
-              MOUSE could reach. `mobile-affordances.spec.ts` says so by name —
-              an `opacity-0` revealed by `group-hover` alone, on a device that
-              generates no hover — and the escapes it offers do not apply,
-              because showing both stacked glyphs on a phone is not the answer.
-
-              So the swap is gone. What says "this opens" is what already said
-              it on every input: the tile lifts under the pointer (the shell's
-              own `whileHover`), the cursor changes, and the label reads as a
-              folder because a folder is drawn in the well.
+              So there is no swap. What says "this opens" is what already says it
+              on every input: the tile lifts under the pointer (the shell's own
+              `whileHover`), the cursor changes, and the label reads as a folder
+              because a folder is drawn in the well.
             */}
             <Folder className="size-10 text-muted-foreground/60" strokeWidth={1.4} aria-hidden />
           </GridTileMedia>
@@ -626,12 +616,11 @@ export function FolderRow({
   }
 
   /*
-   * THE ROW THAT WAS YELLOW.
+   * THE ROW IS NEUTRAL, NOT AMBER.
    *
-   * It was `bg-amber-50/40` with an amber icon well, an amber count pill and an
-   * amber chevron — three tinted bands across the full width of a listing,
-   * stacked above a neutral table. Two things were wrong with it, and the
-   * second is the one that made it read as a warning:
+   * Amber tint on the icon well, the count pill and the chevron would draw three
+   * bands across the full width of a listing, which reads as a warning, for two
+   * reasons:
    *
    *   1. Chroma in this product is the source-signal system and nothing else
    *      (`grid-design-language.md`). A folder is not a provenance.
@@ -643,10 +632,9 @@ export function FolderRow({
    * affordance, and what says "folder" is the glyph and the chevron — shape and
    * contrast, which is what the design language reaches for instead of colour.
    *
-   * It also no longer animates itself in. It is rendered inside the level's own
-   * keyed transition, so the row slid −6px while its container slid +16px: two
-   * motions for one navigation, compounding into a wobble. The level owns the
-   * entrance; a row inside it is just content.
+   * It does not animate itself in. It is rendered inside the level's own keyed
+   * transition, and a second motion would compound with the container's into a
+   * wobble. The level owns the entrance; a row inside it is just content.
    */
   return (
     <div
@@ -705,10 +693,9 @@ export function FolderRow({
  *
  * A skeleton is a promise about the layout that is one frame away, and the only
  * way it keeps that promise is by being edited in the same breath as the thing
- * it stands for. The Files skeleton drifted precisely because it lived
- * somewhere else: it drew a full-width search bar the page had moved into its
- * header a release earlier, and no folder tiles at all, so the first paint
- * showed a shape that was never going to arrive.
+ * it stands for. A copy kept somewhere else drifts: a full-width search bar that
+ * now lives in the page header, or no folder tiles at all, makes the first paint
+ * show a shape that is never going to arrive.
  *
  * Each one reuses the REAL wrapper — the same shell, the same row chrome, the
  * same padding — so a change to the tile moves its placeholder with it and only

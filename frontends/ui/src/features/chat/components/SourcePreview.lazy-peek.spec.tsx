@@ -1,8 +1,9 @@
 /**
  * Source chips pay for their popover only once a reader engages one.
  *
- * An answer's "Belegt durch" row and a Herleitung full of source cards used to
- * mount a Radix Popover per chip up front. These cases pin the lazy mount per
+ * The Radix Popover mounts per chip only once a reader engages it: an answer's
+ * "Belegt durch" row and a Herleitung full of source cards would otherwise mount
+ * one per chip up front. These cases pin the lazy mount per
  * chip KIND (info, document, card) and, above all, that engagement does not
  * remount the button: the focus stays and the tap still clicks.
  */

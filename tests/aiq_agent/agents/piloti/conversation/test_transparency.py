@@ -1,4 +1,4 @@
-"""Tests for the transparency extras (WP-A) populated by the conversation graph.
+"""Tests for the transparency extras populated by the conversation graph.
 
 Covers the pure derivation helpers (observed routing, capped-confidence
 reason, citations-removed normalization, escalation reason) and their
@@ -9,7 +9,7 @@ end-to-end propagation through ``ConversationGraph.stream()`` — including the
 Every extra follows the same rule: present when applicable, absent (never
 null-spammed) otherwise.
 
-Since ADR-0052 the routing is an OBSERVATION: nothing decides a path before
+Per ADR-0052 the routing is an OBSERVATION: nothing decides a path before
 the answer, so every end-to-end case here seeds Piloti's result and reads
 ``routing_decision`` off what the graph did with it.
 """
@@ -134,7 +134,7 @@ class TestAnswerConfidenceCappedReason:
         assert answer_confidence_capped_reason("low", True, False) is None
 
     def test_quotes_verified_defaults_true(self):
-        # Two-arg legacy callers keep the pre-quote-verification behavior.
+        # Two-arg callers get quotes_verified=True by default.
         assert answer_confidence_capped_reason("high", True) is None
 
 
@@ -161,8 +161,7 @@ class TestSurfaceAnswerConfidenceQuotes:
 class TestAnswerLifts:
     """Both halves of every lift are real, on the model they name.
 
-    The table replaced eleven hand-written ``update[x] = result.y`` lines. A
-    table can go stale in one direction only — a field renamed on either side —
+    The lift is a table. A table can go stale in one direction only — a field renamed on either side —
     so that is what this checks, for both sides, by name.
     """
 
@@ -193,10 +192,8 @@ class TestAnswerLifts:
 class TestCitationsRemovedIsProducedInWireShape:
     """The summary crosses to the wire UNCHANGED, so the producer owes the shape.
 
-    The conversation node used to re-normalise this dict on the way past —
-    coercing the count, deduplicating the reasons, capping them at five — on
-    data that ``citations_removed_summary`` had already normalised. The
-    re-derivation is gone; these pin the one place that decides.
+    ``citations_removed_summary`` is the one place that decides the shape, and
+    the conversation node passes it through unchanged: these pin that place.
     """
 
     def test_none_when_nothing_was_removed(self):
@@ -431,7 +428,7 @@ class TestARefusedCommissionStillAnswers:
         check, exactly what the route just refused. So it ends the turn with the
         unavailability note instead. The gate itself is covered in
         `test_deep_research_gate.py`; this case exists because the fallback
-        above used to swallow it.
+        above must not swallow it.
         """
 
         async def forbidden(state):
@@ -500,12 +497,12 @@ class TestEscalationReasonEndToEnd:
 
     @pytest.mark.asyncio
     async def test_insufficiency_prose_without_marker_does_not_escalate(self):
-        """Regression: German legal hedging in a shallow answer must NOT trigger
+        """German legal hedging in a shallow answer must NOT trigger
         a deep-research escalation — only the explicit marker may."""
 
         async def hedged_research(state):
-            # No escalation marker — just prose that the removed keyword
-            # fallback would have false-positived on.
+            # No escalation marker — just prose that a keyword match would
+            # false-positive on.
             return _research_result(
                 state.messages,
                 "Teilantwort [1]. Weitere Recherche erforderlich, lässt sich nicht finden.",

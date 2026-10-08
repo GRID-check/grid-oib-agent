@@ -2,10 +2,10 @@
  * Platform maintenance: reconcile orphaned vectors (ADR-0016).
  *
  * Deleting a document is a two-step cleanup — drop the Chroma chunks, then the
- * Postgres row. When the chunk delete was skipped or missed (historically: a
- * filename that was persisted percent-encoded at ingest time never matched the
- * raw name sent at delete time), the row went away but the vectors stayed. Such
- * chunks are invisible to the UI yet still surface in retrieval.
+ * Postgres row. When the chunk delete is skipped or missed (a filename persisted
+ * percent-encoded at ingest never matches the raw name sent at delete time), the
+ * row goes away but the vectors stay. Such chunks are invisible to the UI yet
+ * still surface in retrieval.
  *
  * This sweep recovers them. Postgres `documents` is the source of truth for
  * what should exist; any chunk whose owning document no longer has a row is an
@@ -13,12 +13,11 @@
  *
  * The chunks have a mirror image: a summary row (the backend's
  * `document_metadata` table, which the agent's document inventory is built
- * from) whose chunks are gone. Deleting a file used to leave that row behind
- * when the chunk delete found nothing, so the agent kept listing a file it
- * could not read. The backend forgets both together now; the rows orphaned
- * before it did are swept here too, as the second half of the same run, by
- * the backend's own `reconcile-summaries` route — the summaries table is not
- * this tier's to read.
+ * from) whose chunks are gone. Deleting a file whose chunk delete finds nothing
+ * leaves that row behind, so the agent keeps listing a file it cannot read. The
+ * backend forgets both together; any such row already left behind is swept here
+ * too, as the second half of the same run, by the backend's own
+ * `reconcile-summaries` route — the summaries table is not this tier's to read.
  *
  * Cross-org and destructive — caller authorization (requirePlatformPermission)
  * happens in the route; this module is data-only and must never be exposed to a
@@ -73,7 +72,7 @@ interface BackendFileInfo {
 /**
  * URL-decode a stored chunk `file_name`, tolerating a name that is not encoded
  * (or is malformed). The vector store may hold names in either form: encoded
- * (documents ingested before the ingest-time decode fix) or already decoded.
+ * (persisted percent-encoded at ingest) or already decoded.
  */
 function safeDecode(name: string): string {
   try {
@@ -97,11 +96,11 @@ function safeDecode(name: string): string {
  *
  * It answers "is this collection still in use" — yes, the project exists, and a
  * collection dropping out of the map is how the sweep stops touching a purged
- * project. So the row keeps its collection scanned. Losing that would be a
- * REGRESSION in cleanup: a project whose human uploads were all deleted but
- * which still holds one of Piloti's reports would stop being swept entirely,
- * and the orphaned chunks of those deleted uploads — the exact thing this
- * module exists to recover — would survive forever.
+ * project. So the row keeps its collection scanned. Losing that would stop a
+ * project whose human uploads were all deleted, but which still holds one of
+ * Piloti's reports, from being swept at all, and the orphaned chunks of those
+ * deleted uploads — the exact thing this module exists to recover — would
+ * survive forever.
  *
  * It does NOT answer "which filenames legitimately own chunks here". Nothing
  * machine-authored is ever dispatched to `/v1/ingest` (see
@@ -115,13 +114,13 @@ function safeDecode(name: string): string {
  * `slug(title)-YYYY-MM-DD.ext` from a title the model itself wrote, so a report
  * about a Sicherheitskonzept lands on the filename of the Sicherheitskonzept it
  * was written from. The failure is quiet and it defeats deletion: somebody
- * deletes a document, the chunk delete misses (the historical bug in the header
- * comment), the recovery sweep is disarmed by a name collision, and the deleted
- * document keeps answering questions. For a file removed on legal instruction
- * that is the worst version of this bug.
+ * deletes a document, the chunk delete misses (as the header describes), the
+ * recovery sweep is disarmed by a name collision, and the deleted document keeps
+ * answering questions. For a file removed on legal instruction that is the worst
+ * version of this bug.
  *
- * The rule is the one three other call sites now hold: filename is not an
- * identity across authorship. Ask the row.
+ * The same rule holds at the other call sites: filename is not an identity
+ * across authorship. Ask the row.
  */
 async function liveFilenamesByCollection(): Promise<Map<string, Set<string>>> {
   const db = getDb()
@@ -231,7 +230,7 @@ async function reconcileOrphanedSummaries(
  * gone, then forget the summary rows those collections hold for files with no
  * chunks. Idempotent: a clean store deletes nothing. Compares the DECODED stored
  * name against live filenames, so a live document persisted under an encoded
- * name (the historical bug) is correctly recognised as live and its vectors are
+ * name is correctly recognised as live and its vectors are
  * never deleted.
  */
 export async function reconcileOrphanedVectors(): Promise<VectorReconcileResult> {
@@ -264,9 +263,9 @@ export async function reconcileOrphanedVectors(): Promise<VectorReconcileResult>
   }
 
   // Second half, AFTER the chunk pass: deleting a file's chunks above already
-  // forgets its summary on the backend, so what is left for this call is
-  // exactly the rows orphaned before the backend learned to do that. Its
-  // failure is recorded like any collection's and never undoes the chunk half.
+  // forgets its summary on the backend, so what is left for this call is the
+  // rows whose chunks went without that. Its failure is recorded like any
+  // collection's and never undoes the chunk half.
   try {
     const summaries = await reconcileOrphanedSummaries([...live.keys()])
     result.summariesForgotten = summaries.summariesForgotten

@@ -2,7 +2,7 @@
  * Archiv service — business logic for the org-wide document Archiv.
  *
  * The Archiv is a hierarchical add-on on top of the existing documents domain
- * and, since ADR-0078, has folders like a project's Dateien:
+ * and has folders like a project's Dateien (ADR-0078):
  * an Archiv document is a `documents` row with `scope = 'archiv'`, `projectId`
  * NULL, and `collectionName = archiv_<orgId>`. That lets this service REUSE the
  * document pipeline wholesale — the SeaweedFS upload, the model-vs-ingest
@@ -112,9 +112,9 @@ export async function searchArchivDocuments(
  * The Archiv documents NAMED `filenames` (case-insensitive, either Unicode
  * form), as listing rows — the by-name resolve
  * (`POST /api/archiv/documents/by-name`). For the readers that want particular
- * documents (citations, surfaced-document cards), which used to look them up in
- * the listing's first page and missed every one past it. Any org member may
- * read, as with `listArchiv`.
+ * documents (citations, surfaced-document cards): a lookup through the listing's
+ * first page would miss every document past it. Any org member may read, as
+ * with `listArchiv`.
  */
 export async function resolveArchivDocumentsByName(
   session: AuthorizedSession,
@@ -186,13 +186,13 @@ export async function deleteArchivDocument(
   // up in retrieval. A backend hiccup must not block the durable SeaweedFS + DB
   // cleanup below, so failures here are swallowed.
   //
-  // Through `collectionFileRef` like every other `(collection, filename)` call,
-  // and not because an Archiv row can be machine-authored today — it cannot,
-  // since `fileGeneratedDocument` sets no scope and the column defaults to
-  // `project`. That is a coincidence of a default, and this call is the exact
-  // shape of the leak that deleted a human document's chunks: purge by
-  // filename. `null` here means "not ours to purge", which is the right answer
-  // for a row that owns no chunks whatever put it in this scope.
+  // Through `collectionFileRef` like every other `(collection, filename)` call.
+  // An Archiv row cannot be machine-authored today (`fileGeneratedDocument`
+  // sets no scope and the column defaults to `project`), but that is only a
+  // coincidence of a default. Purging by filename can delete a human document's
+  // chunks, so the ref guards the call. `null` here means "not ours to purge",
+  // which is the right answer for a row that owns no chunks whatever put it in
+  // this scope.
   const purgeRef = collectionFileRef(doc)
   // `null`: nothing of its own to purge. `false`: the backend did not confirm,
   // and the audit row says so — the platform vector reconcile is the sweep.

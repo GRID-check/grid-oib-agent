@@ -14,13 +14,13 @@
  *     directory and the browser has neither them nor a route to file them (the
  *     component's header argues this).
  *  2. **Filed, and still the reader's to send.** After `file_draft`: the card
- *     names a project document, says so, and offers the two things that are now
+ *     names a project document, says so, and offers the two things that are
  *     real — opening it beside the conversation, and sending it for approval.
  *     „Zur Freigabe einreichen" is the interactive half and calls the same route
  *     the Files pane calls.
  *  3. **Already with a reviewer.** After `file_draft` with `submit`, or after the reader
  *     pressed the control in 2: the card reports the state and draws no control,
- *     because the version can no longer be replaced and the next move belongs to
+ *     because the version cannot be replaced and the next move belongs to
  *     a person.
  *  4. **The first write, and an empty one.** A stub the tool created with
  *     nothing in it yet: `v1`, `0 B`. It is here because a card that only looks

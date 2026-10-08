@@ -3,10 +3,10 @@
  * answer, the question's reasoning steps), writes a composer draft a moment
  * after the last keystroke, and writes everything else at once.
  *
- * Every delta flush is a store update, and each update used to prune,
- * serialize and write the whole history to localStorage on the main thread:
- * 74 writes of 1.3 MB for one twelve-second answer, measured on
- * `/dev/stream-chat`. Coalesced to one write per two seconds, it was still a
+ * Every delta flush is a store update, and a naive update would prune, serialize
+ * and write the whole history to localStorage on the main thread, on every
+ * flush: 74 writes of 1.3 MB for one twelve-second answer, measured on
+ * `/dev/stream-chat`. Even coalesced to one write per two seconds, that is a
  * regular hitch on a phone, for bytes a reload drops on read.
  */
 

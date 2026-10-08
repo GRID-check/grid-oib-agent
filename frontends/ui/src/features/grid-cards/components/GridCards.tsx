@@ -58,10 +58,9 @@ interface GridCardsProps {
   /**
    * Whether an interactive card here MUST be able to persist its decision.
    *
-   * Default (false) keeps the old behaviour: with no `messageId` the card still
-   * takes an answer and remembers it for this mount only — right for the
-   * `/dev/cards` gallery and previews, where nothing could be persisted and
-   * nothing is at stake.
+   * Default (false): with no `messageId` the card still takes an answer and
+   * remembers it for this mount only. That suits the `/dev/cards` gallery and
+   * previews, where nothing could be persisted and nothing is at stake.
    *
    * A surface that renders REAL cards passes true, and then an interactive card
    * with no owning message draws itself without its actions rather than taking
@@ -99,8 +98,8 @@ interface GridCardViewProps extends GridCardItemProps {
 /**
  * One card, drawn directly: the per-type dispatch.
  *
- * Since ADR-0065 this is what A2UI's catalog calls for each card component
- * (`GridCardItem` below hands it to `A2uiCard`), and what a card falls back to
+ * This is what A2UI's catalog calls for each card component (ADR-0065;
+ * `GridCardItem` below hands it to `A2uiCard`), and what a card falls back to
  * when A2UI will not draw it. Callers draw cards with `GridCardItem`. A
  * `surface` never reaches it: the catalog has no `surface` component and the
  * fallback never hands one down (`SURFACE_EXCLUDED_LEAVES`).
@@ -489,9 +488,9 @@ export const GridCardItem: FC<GridCardItemProps> = ({ card, index, projectId, me
 }
 
 /**
- * Renders a list of Grid cards in a vertical stack. Since ADR-0069 a card is
- * an action or commitment, a to-scale schematic, a calculation, a live model
- * binding or a `surface`; everything else is the answer's Markdown.
+ * Renders a list of Grid cards in a vertical stack. A card is an action or
+ * commitment, a to-scale schematic, a calculation, a live model binding or a
+ * `surface` (ADR-0069); everything else is the answer's Markdown.
  */
 export const GridCards: FC<GridCardsProps> = ({
   cards,

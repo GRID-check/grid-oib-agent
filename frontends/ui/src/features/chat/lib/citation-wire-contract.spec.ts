@@ -11,7 +11,7 @@
  *     origin tokens (`citation_verification.verify_citations`)
  *  2. the wire source payload (`citation_verification.source_entry_to_wire`)
  *
- * The Herleitung's lanes are no longer parsed from tool output: they arrive as
+ * The Herleitung's lanes are not parsed from tool output: they arrive as
  * typed `sources` steps (chat wire v2), held by `shared/wire/v2`.
  *
  * Both sides assert against the SAME checked-in fixtures, produced by one real
@@ -57,7 +57,7 @@ describe('verified report → its sources section (splitReportSources)', () => {
     ])
   })
 
-  test('the removed fabricated source left no orphan marker for the reader to click', () => {
+  test('a fabricated source leaves no orphan marker for the reader to click', () => {
     expect(split.body).not.toContain('[3]')
     expect(split.body).toContain('Fluchtwege im Obergeschoss [2]')
   })
@@ -86,7 +86,7 @@ describe('wire payload → citation chips', () => {
     ])
   })
 
-  test('a plan\u2019s region reaches the viewer\u2019s locus, box and label intact (#433)', () => {
+  test('a plan\u2019s region reaches the viewer\u2019s locus, box and label intact', () => {
     const [oib, plan] = WIRE_SOURCES.map((wire) => citationFromWire(wire))
     expect(oib!.regions).toBeUndefined()
     expect(plan!.regions).toEqual([{ box: [0.08, 0.12, 0.62, 0.71], label: 'Grundriss 1. OG' }])
@@ -100,7 +100,7 @@ describe('wire payload → citation chips', () => {
     }
   })
 
-  test('the chip number matches the [N] the report body now uses', () => {
+  test('the chip number matches the [N] the report body uses', () => {
     const numbers = splitReportSources(VERIFIED_REPORT).entries.map((entry) => entry.number)
     expect(WIRE_SOURCES.map((wire) => wire.number)).toEqual(numbers)
   })

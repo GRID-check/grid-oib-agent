@@ -37,7 +37,7 @@
  *
  * `EFFECT_REGISTRY` is a `Record<DocumentVersionEffect, …>`, so `tsc` fails
  * until every name in the tuple has a function, and a new consumer of the
- * lifecycle (a webhook, a task, the ingest of slice 4) is a registry entry plus
+ * lifecycle (a webhook, a task, an ingest) is a registry entry plus
  * a name in a row's `effects` — never an `if` inside `publish`.
  */
 
@@ -287,12 +287,9 @@ const EFFECT_REGISTRY: Record<DocumentVersionEffect, EffectRunner> = {
    * found — the transition put them in `input.reviewerUserIds` before the
    * compare-and-swap ran.
    *
-   * This effect used to do the resolving AND the refusing, and the refusal came
-   * one statement too late: the version was already `in_review`, durably, and
-   * the caller got a 422 saying nobody could review it. The document was then
-   * stuck in a state whose only exits are a person's decisions, with no inbox
-   * item pointing anybody at it. A guard that runs after the swap is not a
-   * guard.
+   * No refusal happens here. An effect runs after the state has moved, so a
+   * refusal raised in it would leave the version durably `in_review` with nobody
+   * to review it, and a guard that runs after the swap is not a guard.
    */
   openReviewInbox: async (context) => {
     const { reviewers } = await resolveReviewers(
@@ -323,8 +320,7 @@ const EFFECT_REGISTRY: Record<DocumentVersionEffect, EffectRunner> = {
         // reader had to open the link to find out which one was waiting.
         //
         // `excerpt` is the Auftragssatz (with the Frist appended): the row
-        // renders it under the title, which is what closes the ceremony that
-        // used to gate Einreichen on a sentence the request never carried.
+        // renders it under the title.
         // `previousVersionId` names the version a diff compares against — null
         // for a first version, when triage opens the file instead of comparing.
         payload: {
@@ -388,12 +384,10 @@ const EFFECT_REGISTRY: Record<DocumentVersionEffect, EffectRunner> = {
    * Index the version that was just published, with the provenance that says
    * who wrote it and who cleared it (ADR-0054 § Indexing).
    *
-   * The slot was named before it did anything, and that is why the door could
-   * be opened without moving a call site: "only a published version is ever
-   * dispatched" is a property of the transition table — this effect appears on
-   * the `publish` row and nowhere else — rather than of somebody remembering
-   * where to put the dispatch. Do not call `dispatchDocument` from anywhere
-   * else in this module.
+   * This effect appears on the `publish` row and nowhere else, so "only a
+   * published version is ever dispatched" is a property of the transition table,
+   * not of somebody remembering where to put the dispatch. Do not call
+   * `dispatchDocument` from anywhere else in this module.
    *
    * ## Purge first, then dispatch
    *
@@ -420,9 +414,10 @@ const EFFECT_REGISTRY: Record<DocumentVersionEffect, EffectRunner> = {
    * which.
    */
   ingestPublished: async ({ session, document, version, previous }) => {
-    // Human-authored items are dispatched by whatever wrote their bytes — the
-    // three upload shelves — and re-dispatching here would double-ingest every
-    // re-upload. This effect exists for the door ADR-0054 opened.
+    // Human-authored items are dispatched by whatever wrote their bytes (the
+    // three upload shelves), and re-dispatching here would double-ingest every
+    // re-upload. This effect is for the agent-authored documents the publish
+    // door (ADR-0054) produces.
     if (document.authoredBy === 'user') return
 
     // Both halves of `collectionFileRef`'s restated rule, asked before anything
@@ -430,7 +425,7 @@ const EFFECT_REGISTRY: Record<DocumentVersionEffect, EffectRunner> = {
     // name no purge can address, because every purge builds its ref from the
     // row and that constructor would answer `null`. Refusing to index it is the
     // safe direction and the only one that keeps "indexed" and "purgeable" the
-    // same set. Reachable for a document filed before the namespace existed.
+    // same set. It is reachable only for a row filed outside the namespace.
     if (!isAgentDocumentFilename(document.filename)) {
       console.warn(
         `[documents] published version ${version.id} is not under the piloti/ namespace; not indexed`,
@@ -635,12 +630,10 @@ function assertGuards(
     throw new UnprocessableError('This decision needs a comment', { op: transition.op })
   }
   // A version with NO stored digest has no `If-Match` to satisfy. The column is
-  // nullable — a row backfilled by migration 0082 from a document that predates
-  // `content_hash` (0078) carries null — and comparing against it made the
-  // guard unsatisfiable: no string equals null, so every caller got a 409 and
-  // the only way past was to send a literal `''`, which is what the task
-  // outcome path was reduced to doing. "Nothing to match" is the honest reading
-  // and it is the one a person editing such a document needs.
+  // nullable (a row backfilled from a document that predates `content_hash`
+  // carries null), and comparing against null would make the guard
+  // unsatisfiable: no string equals null. "Nothing to match" is the honest
+  // reading, and the one a person editing such a document needs.
   if (
     transition.requires.ifMatch &&
     version.contentHash !== null &&
@@ -669,9 +662,10 @@ function assertGuards(
  *
  *   * **the submission was a machine's** (`submitted_by_actor = 'agent'`,
  *     migration 0085). `submitted_by` on a version Piloti filed is the
- *     COMMISSIONING human, whose session the run acted in — not the author. The
- *     guard read that id and refused the one person who had asked for the
- *     report the right to release it. Approving it IS the first human reading.
+ *     COMMISSIONING human, whose session the run acted in — not the author.
+ *     Reading that id as the author would refuse the one person who asked for
+ *     the report the right to release it. Approving it IS the first human
+ *     reading.
  *   * **there is nobody else who could** — a one-person project. The waiver is
  *     recorded on the audit event (`selfReview`) rather than granted silently,
  *     so the trail distinguishes „freigegeben" from „freigegeben, weil es
@@ -680,14 +674,13 @@ function assertGuards(
  * ## Resolving the round BEFORE the swap
  *
  * A row whose `requires.reviewer` is set opens an actionable item for each
- * person it names, and who those people are used to be decided inside the
- * `openReviewInbox` effect — which runs AFTER the state has moved. When that
- * resolution came back empty it threw, and the version was left durably
- * `in_review` with nobody told about it and no exit that is not a decision one
- * of those people would have to make. The chain in `./reviewers` is now total
- * (its last link is the submitter, as a recorded waiver), so there is nothing
- * left to refuse — but the resolution still happens here, where a future link
- * that CAN refuse would refuse in time.
+ * person it names. Who those people are is decided here, before the
+ * compare-and-swap: resolved inside the `openReviewInbox` effect, which runs
+ * AFTER the state has moved, a refusal would leave the version durably
+ * `in_review` with nobody told. The chain in `./reviewers` is total (its last
+ * link is the submitter, as a recorded waiver), so there is nothing left to
+ * refuse today, but the resolution happens where a future link that CAN refuse
+ * would refuse in time.
  *
  * Returns what it resolved, so nothing downstream asks the same question twice.
  */
@@ -1010,19 +1003,19 @@ export async function forkDraftVersion(
  *
  * **Whole body, never a string replacement.** The API has no patch verb, and
  * that is a decision rather than an omission: exact-string editing happens in
- * the working directory (slice 1), where the model can read what it is editing;
- * filing is a whole document. An API that offered `old_string`/`new_string`
+ * the working directory, where the model can read what it is editing; filing is
+ * a whole document. An API that offered `old_string`/`new_string`
  * would re-derive the uniqueness check, the newline hints and six error strings
  * on the wrong side of the boundary.
  *
  * ## Two writers holding the same `If-Match`
  *
  * `If-Match` is checked against the row read at the start ({@link assertGuards}),
- * and that read is stale by the time anything is written. The swap used to
- * filter on `state = 'draft'` alone, and `update` goes draft → draft, so two
- * writers holding the same digest BOTH won, both wrote the same object key, and
- * an interleaving could leave the row's hash and size describing one writer's
- * bytes while the object held the other's.
+ * and that read is stale by the time anything is written. The swap must not
+ * filter on `state = 'draft'` alone: `update` goes draft → draft, so two writers
+ * holding the same digest would BOTH win, both would write the same object key,
+ * and an interleaving could leave the row's hash and size describing one
+ * writer's bytes while the object held the other's.
  *
  * Two changes close it, and they only work together:
  *
@@ -1033,9 +1026,8 @@ export async function forkDraftVersion(
  *     `writeVersionContent`), written BEFORE the swap. A loser's bytes land
  *     under a key no row will ever name and are deleted; the winner's row can
  *     only ever name bytes that are already stored in full. Writing to a shared
- *     key after the swap — the previous order — left a window in which the row
- *     named a hash the object did not yet hold, and a failed PUT left it that
- *     way.
+ *     key after the swap would leave a window in which the row names a hash the
+ *     object does not yet hold, and a failed PUT would leave it that way.
  *
  * The draft's previous object is deleted once nothing names it: a draft is not
  * history. A draft forked from the published version shares that version's key
@@ -1119,18 +1111,17 @@ export async function replaceVersionContent(
  * not charged again here: `admitOrDiscard` / `admitReplacementOrDiscard` is the
  * one admitting path and this is bookkeeping on top of it.
  *
- * `stored` is what THIS upload wrote. It used to be read back off the item row,
- * which is right only while nobody else writes that row: two overlapping
- * re-uploads of one filename each rewrite it, and the one that recorded its
- * version second could read the OTHER upload's key — two versions over one
- * object, and its own object named by nothing. Passing it in makes each version
- * describe the bytes its own request stored. Omitted only by callers that have
- * no bytes of their own in flight.
+ * `stored` is what THIS upload wrote. Reading it back off the item row would be
+ * right only while nobody else writes that row: two overlapping re-uploads of one
+ * filename each rewrite it, and the one that records its version second could
+ * read the OTHER upload's key, giving two versions over one object and its own
+ * object named by nothing. Passing it in makes each version describe the bytes
+ * its own request stored. Omitted only by callers that have no bytes of their
+ * own in flight.
  *
  * A re-upload's previous version is superseded by the same transaction and
- * KEEPS ITS OBJECT — which is why the callers no longer call
- * `discardSupersededObjects`. That was correct while a document had one set of
- * bytes; with a history it deletes the object a row still names.
+ * KEEPS ITS OBJECT: the callers do not call `discardSupersededObjects`, because
+ * with a history that deletes the object a row still names.
  *
  * ## A delete that lands after the upload's write
  *
@@ -1177,8 +1168,8 @@ type UploadedBytes = Pick<
  * {@link recordUploadedVersion}, for an upload that must stop when its document
  * is gone — the project and Archiv shelves.
  *
- * A `null` there used to be read by nobody: the upload dispatched the deleted
- * document for ingest, wrote „document.uploaded" and answered 200. Here it
+ * A `null` here must not be ignored: the upload would dispatch the deleted
+ * document for ingest, write „document.uploaded" and answer 200. Instead it
  * discards `stored`'s object and throws `DocumentDeletedError` (a 409,
  * `deleted_during_upload`), so nothing downstream runs (ADR-0054 correction
  * 17). The delete usually took the object already — it ran after this upload

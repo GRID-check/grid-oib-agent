@@ -22,8 +22,8 @@ import { ORGANIZATION_SETTING, PLATFORM_ROLE, USER_SETTING } from './tenant-cont
 
 /**
  * Every migration that touches the boundary, oldest first. A later migration may
- * REPLACE a table's policy (0031 moves `messages` and `conversation_reads` off
- * the parent subquery onto their own column), so "secured twice" must mean
+ * REPLACE a table's policy (a table can move off a parent subquery onto a column
+ * of its own), so "secured twice" must mean
  * "twice in the same migration", not "changed later".
  */
 const BOUNDARY_MIGRATIONS = [
@@ -42,82 +42,80 @@ const BOUNDARY_MIGRATIONS = [
   // the boundary, and the old names need the rename to be visible or they look
   // orphaned. See removedTables() below.
   '0043_jobs.sql',
-  // Adds curated_skill_activations — whether an organization switched a
+  // `curated_skill_activations`: whether an organization switched a
   // platform-curated skill on. Org-scoped data, so inside the boundary.
   '0046_curated_skill_activations.sql',
-  // Adds platform_skills — the fleet-wide curated catalogue. A PLATFORM table:
+  // `platform_skills`: the fleet-wide curated catalogue. A PLATFORM table:
   // every tenant reads it, only the platform role writes it.
   '0047_platform_skills.sql',
   '0051_file_native_ownership.sql',
-   // Adds document_roles — which document plays which part in a project's
+   // `document_roles`: which document plays which part in a project's
    // intake. Project-scoped data, so inside the boundary.
    '0067_document_roles.sql',
-  // Adds the three platform-lesson tables — anonymized lessons distilled from
+  // The three platform-lesson tables: anonymized lessons distilled from
   // answer feedback, their provenance-by-reference, and their append-only
   // event trail. No tenant data (provenance is a feedback uuid + an org hash),
   // so PLATFORM tables: every tenant reads, only the platform role writes.
   '0068_platform_lessons.sql',
-  // Adds tasks — the durable unit of delegated work (ADR-0051). Project-scoped
-  // tenant data, secured the way jobs is.
+  // `tasks`: the durable unit of delegated work (ADR-0051). Project-scoped
+  // tenant data.
   '0075_tasks.sql',
-  // Adds platform_pricing_versions — the platform's price list (ADR-0053). No
+  // `platform_pricing_versions`: the platform's price list (ADR-0053). No
   // tenant data, so a PLATFORM table: every tenant reads, only the platform
   // role writes.
   '0079_pricing_and_credits.sql',
-  // Adds document_versions — one history for every document plus the publish
-  // door (ADR-0054). Tenant data; the predicate widens `tasks`' shape by a NULL
-  // arm, because the Archiv and session shelves have no project.
+  // `document_versions`: one history for every document plus the publish
+  // door (ADR-0054). Tenant data; the predicate carries a NULL arm for the
+  // Archiv and session shelves, which have no project.
   '0082_document_versions.sql',
-  // Collapses jobs/job_runs/tasks into task_definitions + task_runs
-  // (follow-up to PR #659). Both tables are project-scoped tenant data; the
-  // old three keep their 0043/0075 entries until a later migration drops them.
+  // `task_definitions` and `task_runs`: project-scoped tenant data. The
+  // entries for the tables they replace stay until a migration drops them.
   '0086_task_definitions.sql',
-  // Adds organization_instructions — one standing instruction block per tenant,
+  // `organization_instructions`: one standing instruction block per tenant,
   // sent to the agent on every turn. Keyed directly by the organization, so it
   // is secured exactly as `organizations` and `curated_skill_activations` are.
   '0087_organization_instructions.sql',
-  // Adds skill_categories — the shelves skills stand on. Mixed ownership:
+  // `skill_categories`: the shelves skills stand on. Mixed ownership:
   // NULL organization_id is a platform shelf (readable by every tenant),
   // a set one is that org's own, so the predicate carries a NULL arm.
-  // Renumbered from 0087: develop took 0087 and 0088 first.
   '0089_skill_categories.sql',
-  // Adds product_feedback — bug reports and ideas a member sends to the
+  // `product_feedback`: bug reports and ideas a member sends to the
   // platform owners. Keyed directly by the organization it was written from,
   // secured exactly as `organization_instructions`.
   '0100_product_feedback.sql',
   // Re-secures project_folders on its own `organization_id` column instead of a
   // join through projects: an Archiv folder has no project to join. No table is
-  // added or removed, and the replaced policy is the single one — the shape the
-  // `messages` re-securing in 0032 has.
+  // added or removed, and the replaced policy is the single one — the shape
+  // `messages` has.
   '0102_archiv_folders.sql',
-  // Adds upload_batches — one upload gesture and when it was all read
+  // `upload_batches`: one upload gesture and when it was all read
   // (ADR-0079). Keyed directly by its organization.
   '0105_upload_batches.sql',
-  // Adds conversation_restricted_turns — a turn of this conversation ran with
+  // `conversation_restricted_turns`: a turn of this conversation ran with
   // a restricted folder in its scope (ADR-0080). Keyed directly by its
   // organization: the conversation row may not exist yet.
   '0107_conversation_restricted_turns.sql',
-  // Replaces it with conversation_restricted_folders — the restricted source
+  // `conversation_restricted_folders`: the restricted source
   // folders a conversation actually drew on, one row per folder id, judged
-  // against the current grants when read (ADR-0080, ADR-0081) — and drops the
-  // 0107 table.
+  // against the current grants when read (ADR-0080, ADR-0081). The table the
+  // 0107 entry names is dropped here.
   '0109_conversation_restricted_folders.sql',
-  // Adds project_folder_grants — a folder's own access list, one row per role
+  // `project_folder_grants`: a folder's own access list, one row per role
   // and level (ADR-0081). Keyed directly by its organization.
   '0110_project_folder_grants.sql',
-  // Adds document_access_log — the download log: who took a document's bytes,
+  // `document_access_log`: the download log: who took a document's bytes,
   // and who opened one under a folder with its own list. Keyed directly by its
   // organization; no foreign keys, so the row outlives what it names.
   '0112_document_access_log.sql',
-  // Adds project_people — the Steckbrief's people, with or without a Piloti
+  // `project_people`: the Steckbrief's people, with or without a Piloti
   // account (ADR-0083). Keyed directly by its organization, tied to its project
   // by a composite foreign key.
   '0115_project_steckbrief.sql',
-  // Adds conversation_source_projects — another project a chat drew on
+  // `conversation_source_projects`: another project a chat drew on
   // through a cross-project lookup (ADR-0085). Keyed directly by its
   // organization: the conversation row may not exist yet.
   '0116_conversation_source_projects.sql',
-  // Adds permit_records and permit_requirements — what a Bescheid says, kept
+  // `permit_records` and `permit_requirements`: what a Bescheid says, kept
   // as rows (ADR-0086). Keyed directly by their organization; the record is
   // tied to its project by a composite foreign key, the requirements to the
   // record.
@@ -128,7 +126,7 @@ const MIGRATION_SOURCES = BOUNDARY_MIGRATIONS.map((file) =>
   readFileSync(join(process.cwd(), 'drizzle', file), 'utf8')
 )
 
-/** The 0030 text, for the assertions that are specifically about it. */
+/** The row-level security migration's text, for the assertions that are specifically about it. */
 const MIGRATION = MIGRATION_SOURCES[0]
 
 /** Every table the application declares, from the schema barrel. */
@@ -167,18 +165,18 @@ function securedTables(): { tenant: string[]; platform: string[] } {
  * orphan check could only be satisfied by editing an already-applied migration,
  * which is the one thing a migration history must never do.
  *
- * A rename removes a name exactly as a drop does: `skill_schedules` stops
- * existing the moment 0043 renames it to `jobs`, so its 0041 `grid_secure_table`
- * line describes a table that is gone, and reading that as a disagreement is
+ * A rename removes a name exactly as a drop does: once a migration renames a
+ * table, the name stops existing, so an earlier `grid_secure_table` line for that
+ * name describes a table that is gone, and reading that as a disagreement is
  * wrong for the same reason it is wrong after a DROP.
  *
  * This does NOT weaken the check the way "ignore anything a migration mentions"
- * would. Only the OLD name is excused, and only when a migration says in SQL
+ * would. Only the retired name is excused, and only when a migration says in SQL
  * where it went. The NEW name gets no exemption at all: `jobs` has to be in the
  * schema or secured like any other table, so a rename that forgets to re-secure
  * still fails — on the new name, in the "secures every table" test above. The
- * one thing that stops being an error is the old name, which by then refers to
- * nothing.
+ * one thing that stops being an error is the retired name, which by then refers
+ * to nothing.
  */
 function removedTables(): Set<string> {
   const removed = new Set<string>()
@@ -224,7 +222,7 @@ describe('row-level security coverage', () => {
     ).toEqual([])
   })
 
-  it('secures no table that no longer exists', () => {
+  it('secures no table that does not exist', () => {
     const declared = new Set(declaredTables())
     const removed = removedTables()
     const { tenant, platform } = securedTables()
@@ -275,8 +273,8 @@ describe('row-level security coverage', () => {
 /**
  * The coverage tests above check THAT a table is secured. These check WHAT
  * predicate it got — the difference between a guard and a checklist. Mutating a
- * predicate to `true`, or dropping the organization half of one, was invisible
- * to every unit test before this: only the database job could see it, and that
+ * predicate to `true`, or dropping the organization half of one, is invisible
+ * to every unit test: only the database job could see it, and that
  * job is the one that can skip.
  */
 describe('policy predicates say what they should', () => {
@@ -344,7 +342,7 @@ describe('settings parity between the app and the policies', () => {
   })
 
   it('names the same bypass role the migration requires', () => {
-    // The migration no longer CREATES roles — creating a BYPASSRLS role needs
+    // The migration does not CREATE roles: creating a BYPASSRLS role needs
     // the creator to hold BYPASSRLS, which no migration credential should. It
     // asserts them instead, and the name it asserts must be the one the app
     // steps up to.
@@ -353,8 +351,8 @@ describe('settings parity between the app and the policies', () => {
   })
 
   it('is provisioned by every deployment that has to run the migration', () => {
-    // Roles moved out of the migration, so "who creates them" became a thing
-    // that can be forgotten per deployment — and forgetting it fails the whole
+    // Roles are created outside the migration, so "who creates them" is a thing
+    // that can be forgotten per deployment, and forgetting it fails the whole
     // deploy at migration time. Each place that migrates must also provision.
     const provisioners = [
       'deploy/compose/init-db.sql',

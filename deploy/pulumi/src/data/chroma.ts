@@ -13,12 +13,12 @@ export interface Chroma {
 }
 
 /**
- * Shared ChromaDB server (horizontal scaling — Stage A).
+ * Shared ChromaDB server (horizontal scaling).
  *
- * Replaces the per-pod embedded `PersistentClient` with ONE Chroma server that
- * every backend replica and research worker talks to over HTTP. The vector
- * store stops being pinned to a single pod's disk, which is the precondition
- * for running the agent web tier and workers as multiple replicas.
+ * ONE Chroma server that every backend replica and research worker talks to
+ * over HTTP, instead of an embedded `PersistentClient` per pod. The vector
+ * store is not pinned to a single pod's disk, which is the precondition for
+ * running the agent web tier and workers as multiple replicas.
  *
  * Chroma's open-source server is itself single-node (one process on a durable
  * Lightbits PVC); that is fine — it is the *shared* store, not a per-replica
@@ -51,7 +51,7 @@ export function installChroma(
               gracefulShutdown(ROLLOUT.dataPlane).terminationGracePeriodSeconds,
             // Legacy Docker-link env injection (CHROMA_PORT=tcp://…) collides
             // with Chroma's CHROMA_-prefixed config parsing and panics the server
-            // on any pod restart after the Service exists (found live). Nothing
+            // on any pod restart after the Service exists. Nothing
             // consumes service-link vars — disable them everywhere.
             enableServiceLinks: false,
             securityContext: { fsGroup: 1000 },

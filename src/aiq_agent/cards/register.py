@@ -60,14 +60,14 @@ def _build_tool_description() -> str:
     The index costs ~900 and ~23 per new type, which is what makes a growing
     vocabulary affordable on a cost-optimised model tier.
 
-    Learning a shape used to cost a charged ``describe_card`` round trip, which
-    this description then had to talk the model into paying — and the shape it
-    fetched was needed only when the first attempt would have been wrong. So the
-    RETRY carries it instead: a failed ``emit_card`` hands back the full shape,
-    the building blocks and the worked example for the type that failed, which
-    is exactly what ``describe_card`` returned. A card that would have been
-    filled in correctly pays nothing; one that would not pays the same one round
-    trip it used to pay in advance, and pays it knowing which field was wrong.
+    Learning a shape in advance would cost a charged ``describe_card`` round
+    trip, which this description would have to talk the model into paying, and
+    the shape is needed only when the first attempt is wrong. So the RETRY
+    carries it: a failed ``emit_card`` hands back the full shape, the building
+    blocks and the worked example for the type that failed, which is what
+    ``describe_card`` returns. A card that would have been filled in correctly
+    pays nothing; one that would not pays one round trip, knowing which field
+    was wrong.
     """
     return (
         "Render a rich UI card alongside your answer, in addition to your written reply — always "
@@ -140,10 +140,10 @@ async def emit_card(tool_config: EmitCardConfig, builder: Builder):
         element of an array, so an array never buys a card a softer standard
         than the one it would have met on its own call.
 
-        Every exit logs, including the refusals. A turn that came back with no
-        card used to be indistinguishable, after the fact, between "the model
+        Every exit logs, including the refusals. Otherwise a turn that came back
+        with no card is indistinguishable, after the fact, between "the model
         never called this" and "the model called it and we refused": only the
-        success below wrote a line, so both left the same silence. Those two
+        success below writes a line, so both leave the same silence. Those two
         call for opposite fixes, a doctrine that does not get the card named
         versus a shape the model cannot fill in, and a triage that cannot tell
         them apart picks by guess. Refusals are ``warning`` because each one is
@@ -166,9 +166,9 @@ async def emit_card(tool_config: EmitCardConfig, builder: Builder):
             return validated, None
         if refusal.kind == REFUSED_SHAPE:
             # The FULL shape, the building blocks, the field rules and the worked
-            # example — the whole of what `describe_card` used to be asked for in
-            # advance. The retry is the cheapest place to spend it: it is the one
-            # moment we know the model needs it and know which type it needs.
+            # example — the whole of what `describe_card` supplies on
+            # request. The retry is the cheapest place to spend it: it is the
+            # one moment we know the model needs it and know which type it needs.
             return None, (
                 f"Error: {refusal.message} Fix the fields and call emit_card again, or skip the card."
                 + (f"\n\n{refusal.hint}" if refusal.hint else "")
@@ -188,11 +188,11 @@ async def emit_card(tool_config: EmitCardConfig, builder: Builder):
     def _register(validated: dict) -> int | None:
         """Add the card to this turn's registry and return the marker's N.
 
-        The marker names the card by its POSITION in this turn's registry, which
-        is the same 1-based index the frontend counts with — the registry keeps
-        emission order, and the response carries the cards in that order. Cards
-        gained no id field for this: an id would have to survive validation,
-        persistence and the deep-research path that builds cards post-hoc.
+        The marker names the card by its POSITION in this turn's registry, which is the
+        same 1-based index the frontend counts with — the registry keeps emission order,
+        and the response carries the cards in that order. Cards carry no id field: an id
+        would have to survive validation, persistence and the deep-research path that
+        builds cards post-hoc.
 
         ``None`` means no conversation context is bound (e.g. an unusual
         entrypoint). The answer still stands; the card cannot be delivered.
@@ -255,8 +255,8 @@ async def emit_card(tool_config: EmitCardConfig, builder: Builder):
         try:
             # strict=False: a raw newline inside a JSON string is how a model
             # writes the ONE card whose payload is a multi-line mermaid source.
-            # Refusing it as "not valid JSON" rejected every diagram the field
-            # produced while every short-fielded card sailed through.
+            # Refusing it as "not valid JSON" would reject every diagram, while
+            # every short-fielded card gets through.
             payload = json.loads(card_json, strict=False) if isinstance(card_json, str) else card_json
         except (json.JSONDecodeError, TypeError) as exc:
             logger.warning("emit_card rejected a card: card_json is not valid JSON (%s)", exc)

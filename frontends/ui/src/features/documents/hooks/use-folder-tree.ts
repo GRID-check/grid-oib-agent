@@ -37,7 +37,7 @@ export interface FolderTreeOptions {
 /**
  * One shelf's folder tree: read it, and the four things a reader does to it.
  *
- * Every sentence is a `files` key. The Archiv has folders now, and a second set
+ * Every sentence is a `files` key. The Archiv has folders too, and a second set
  * of strings for „Ordner löschen" in another namespace would be the first thing
  * to drift.
  *

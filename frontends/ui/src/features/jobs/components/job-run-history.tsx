@@ -11,12 +11,10 @@
  * same list the History page uses) to show the live job status. The join is
  * best-effort — without it a row falls back to its submission badge.
  *
- * That status used to pick the row's DESTINATION as well: the report, the
- * thinking or the progress tab of the deep-research side panel, all of them
- * `?job=<backendJobId>`. There is one destination now, the run's message in
- * the thread that commissioned it (ADR-0062), and the status only picks the
- * words on the link. A run whose conversation this list cannot name gets no
- * link at all — see the row below for why that is the honest answer.
+ * The status picks only the words on the link, never the destination: every
+ * run opens its message in the thread that commissioned it (ADR-0062). A run
+ * whose conversation this list cannot name gets no link at all — see the row
+ * below for why that is the honest answer.
  */
 
 import type { JSX } from 'react'
@@ -187,15 +185,14 @@ export function JobRunHistory({
         const jobStatus = run.jobId ? jobStatuses[run.jobId] : undefined
         const isActive = jobStatus !== undefined && ACTIVE_JOB_STATUSES.has(jobStatus)
         // The thread, live run or finished one alike: progress, report and
-        // failure are all the run's own message now (ADR-0062), so there is
-        // nothing left for a status to choose between.
+        // failure are all the run's own message (ADR-0062), so there is nothing
+        // for a status to choose between.
         //
         // `?session=` selects the conversation and `?run=` names the run inside
         // it — the id this list already holds, which the chat page resolves
         // through `GET /api/projects/[id]/runs/[runId]`. No `#message-` anchor:
         // this wire shape carries no run message id, so the reader lands in the
-        // thread rather than ON the run. The `?job=` links that used to stand
-        // here are gone with the side panel that read them.
+        // thread rather than ON the run.
         const conversationId = conversationFor(run, conversationIds)
         // No conversation, no thread — and a run history that cannot say where
         // a run went says nothing rather than offering a link that goes

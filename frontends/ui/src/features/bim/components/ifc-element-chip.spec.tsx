@@ -28,10 +28,10 @@ describe('IfcElementChip', () => {
     )
   })
 
-  it('rewrites a link written against the old /model route', () => {
+  it('rewrites a /model link straight to the files view', () => {
     // Every answer in every existing conversation names `/model`. The route
     // redirects, but the chip rebuilds the href from the parsed view, so a
-    // legacy link arrives at the viewer without the extra hop.
+    // /model link arrives at the viewer without the extra hop.
     chip('/app/projects/p1/model?element=abc')
     expect(screen.getByRole('link')).toHaveAttribute('href', '/app/projects/p1/files?element=abc')
   })
@@ -43,9 +43,9 @@ describe('IfcElementChip', () => {
 
   it('says out loud that it opens the element in the model', () => {
     chip('/app/projects/p1/model?element=abc')
-    // No GlobalId in the name. It used to interpolate `view.element`, so a
-    // screen reader read out 22 characters of base64 before saying what the
-    // link does — and the chip's own text is already the element's name.
+    // No GlobalId in the name: a screen reader would read out 22 characters of
+    // base64 before saying what the link does, and the chip's own text is
+    // already the element's name.
     expect(screen.getByRole('link')).toHaveAccessibleName(/Open in the model/)
   })
 

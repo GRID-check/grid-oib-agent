@@ -3,20 +3,19 @@
 /**
  * The in-app PDF renderer, and the reason a citation can point at a SENTENCE.
  *
- * This replaced a plain `<iframe>` on the browser's built-in viewer. That frame
- * was opaque by construction — the app could hand it `#page=12` and nothing
- * else: it could not read where the reader was, could not scroll it, and above
- * all could not draw on it. So a citation that knew exactly which passage the
- * answer leaned on could only ever say "page 12", and the reader arrived at a
- * wall of text with the actual work — find the sentence — still to do. Every
- * click paid that tax, on every citation, in a product whose whole promise is
- * that its claims are checkable.
+ * A plain `<iframe>` on the browser's built-in viewer is opaque by construction:
+ * the app can hand it `#page=12` and nothing else. It cannot read where the
+ * reader is, cannot scroll it, and cannot draw on it. So a citation that knows
+ * exactly which passage the answer leans on could only say "page 12", and the
+ * reader arrives at a wall of text with the actual work — find the sentence —
+ * still to do. That tax is paid on every citation, in a product whose whole
+ * promise is that its claims are checkable.
  *
  * Rendering the page ourselves is what buys the text layer, and the text layer
  * is what turns the snippet the citation already carries into coordinates (see
  * `passage-highlight.ts` for the matching, `pdf-text-chunks.ts` for the
- * geometry). Nothing new is asked of the backend: the data was always there,
- * the iframe was simply the wrong instrument to spend it on.
+ * geometry). Nothing new is asked of the backend: the data is already there,
+ * and the iframe is simply the wrong instrument to spend it on.
  *
  * Pages rasterise only while near the viewport and drop their bitmap when they
  * leave, because a 200-page Einreichplan held at device resolution is gigabytes
@@ -68,7 +67,7 @@ export interface PdfDocumentViewProps {
   highlightColor?: string
   /**
    * Boxes on `page` to mark, for a passage read off a picture of the page — a
-   * plan's depiction — rather than out of its text (issue #433). Drawn in the
+   * plan's depiction — rather than out of its text. Drawn in the
    * same tint as a passage mark. The caller passes these OR a `highlight`: a
    * region's passage is the model's description of the drawing, and searching
    * the page's text for it would only search the neighbours next.
@@ -107,9 +106,9 @@ export interface PdfDocumentViewProps {
  * The page number is somebody else's arithmetic: retrieval counts sheets, and
  * a document whose own numbering starts after a cover page — which is most of
  * them — is off by one against it; a title sheet plus a table of contents make
- * it two. That mismatch used to cost the reader the entire feature, silently:
- * the viewer opened at the wrong page with nothing marked, indistinguishable
- * from a passage that could not be found at all.
+ * it two. Without looking beside the cited page, the viewer would open at the
+ * wrong page with nothing marked, indistinguishable from a passage that could
+ * not be found at all.
  *
  * The radius stays at 0 until the cited page itself comes up empty, widens to
  * one page either side then, and to two only once both neighbours have come up
@@ -335,8 +334,7 @@ export const PdfDocumentView: FC<PdfDocumentViewProps> = ({
    *
    * Scrolling to the PAGE and scrolling to the PASSAGE are different answers,
    * and only the second is what the click asked for — landing at the top of
-   * page 12 when the sentence sits at its foot leaves the reader searching
-   * exactly as the old iframe did.
+   * page 12 when the sentence sits at its foot leaves the reader searching.
    *
    * Split from the pulse because the two are wanted at different times: the
    * scroll has to be re-applied once the page stack settles (see below), and
@@ -373,14 +371,13 @@ export const PdfDocumentView: FC<PdfDocumentViewProps> = ({
     if (!frame || !pageNode || !bounds) return
     const scale = pageScales.current.get(target.page) ?? 1
     // Measured against the FRAME, not read off `offsetTop`. `offsetTop` counts
-    // from the nearest POSITIONED ancestor, and this scroller sets no position
-    // — so the number included the dialog's header, and on a phone the whole
-    // Fundstellen rail stacked above the document as well. The viewer then
-    // scrolled that much too far and left the passage it had just found off the
-    // top of the frame: the reader clicked a citation and arrived at blank
-    // paper. Rects plus the current `scrollTop` are the same measurement no
-    // matter what is above the frame, and stay correct mid-animation because
-    // both are read in the same instant. (A phone-viewport capture of the
+    // from the nearest POSITIONED ancestor, and this scroller sets no position,
+    // so the number would include the dialog's header, and on a phone the whole
+    // Fundstellen rail stacked above the document. Scrolling that far would leave
+    // the passage just found above the top of the frame, and the reader would
+    // arrive at blank paper. Rects plus the current `scrollTop` are the same
+    // measurement no matter what is above the frame, and stay correct
+    // mid-animation because both are read in the same instant. (A phone-viewport capture of the
     // citation viewer is the evidence; jsdom lays nothing out, so no unit test
     // can hold this.)
     const pageTop =
@@ -452,7 +449,7 @@ export const PdfDocumentView: FC<PdfDocumentViewProps> = ({
   // located passage supersedes it. Re-apply once `defaultAspect` lands: the
   // first scroll runs while unrendered pages still have no height, so it
   // leaves the reader at the top of a document that then grows underneath
-  // them (#430).
+  // them.
   // A cited region is the same answer one step finer: the box, not the top of
   // its page, re-applied on the same signal for the same reason.
   useEffect(() => {
@@ -569,8 +566,8 @@ export const PdfDocumentView: FC<PdfDocumentViewProps> = ({
 
   // The offer is placed in the page stack's coordinates, and a zoom step moves
   // every word under it. Re-measuring keeps it on the sentence; without this it
-  // stayed where the words used to be, which for a reader who zoomed in to read
-  // the passage before quoting it is exactly when it matters.
+  // would stay where the words were before the zoom, which for a reader who
+  // zoomed in to read the passage before quoting it is exactly when it matters.
   useEffect(() => {
     // The ref rather than the state, deliberately: this effect WRITES the
     // selection state, so reading it here would make the effect its own trigger.
@@ -630,10 +627,10 @@ export const PdfDocumentView: FC<PdfDocumentViewProps> = ({
       {/* `flex-wrap`: this row holds a page count, a "jump to the passage"
           button and the zoom group, and on a phone — where each of those grows
           to the 44px touch floor — they add up past the viewport. Unwrapped, the
-          row pushed the zoom control off the right edge and took the whole PAGE
-          horizontal with it (measured 445px inside 390), so reading a cited
-          passage on a phone meant scrolling the document sideways to find the
-          controls for it. Wrapping costs one line and only when it is needed. */}
+          row pushes the zoom control off the right edge and takes the whole PAGE
+          horizontal with it (measured 445px inside 390), so the reader would
+          have to scroll the document sideways to reach the controls. Wrapping
+          costs one line and only when it is needed. */}
       <div className="flex shrink-0 flex-wrap items-center gap-2">
         {/* Where the reader IS, not how long the document is. A page count is a
             fact about the file; "page 12 of 34" is the answer to the question a
@@ -646,11 +643,11 @@ export const PdfDocumentView: FC<PdfDocumentViewProps> = ({
         </span>
         <span className="flex-1" />
         {passageMissing && (
-          // The reader clicked a Fundstelle and nothing lit up. Before this the
-          // viewer let them conclude what they liked from that — that the
-          // passage was not in the document, that the feature was broken, that
-          // they had missed it. It is none of those: the page is right and the
-          // sentence could not be located on it.
+          // The reader clicked a Fundstelle and nothing lit up. The viewer must
+          // not let them conclude what they like from that — that the passage
+          // was not in the document, that the feature was broken, that they had
+          // missed it. It is none of those: the page is right and the sentence
+          // could not be located on it.
           <p className="flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground">
             <AlertTriangle aria-hidden className="size-3.5 shrink-0" />
             {t('viewer.passageNotFound')}
@@ -800,9 +797,9 @@ const QuoteBar: FC<{
         onClick={onCopy}
         // `bg-card` is load-bearing, not decoration: the outline variant is
         // transparent, and this bar floats over the rendered PAGE, which is
-        // paper-white in both themes. In dark mode that put near-white label
-        // text on white paper — a control that was, measurably, invisible
-        // exactly where it is offered.
+        // paper-white in both themes. Without it, dark mode puts near-white
+        // label text on white paper — a control that is invisible exactly where
+        // it is offered.
         className="bg-card shadow-sm"
       >
         {state === 'done' ? (
@@ -1089,8 +1086,8 @@ const PdfPageCanvas: FC<PdfPageCanvasProps> = ({
 /**
  * What the reader gets when pdf.js cannot run — a blocked worker, a corrupt
  * file, a browser we did not anticipate. The browser's own viewer still renders
- * the document and still honours `#page=N`, so the citation degrades to what it
- * did before this component existed rather than to a blank panel.
+ * the document and still honours `#page=N`, so the citation degrades to a plain
+ * frame rather than to a blank panel.
  *
  * The notice is shown only when something was actually lost. Opening a file
  * from the Files pane asks for no passage, so telling that reader their passage

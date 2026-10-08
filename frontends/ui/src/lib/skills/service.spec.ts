@@ -149,9 +149,8 @@ function platformRow(overrides: Partial<PlatformSkillRow> = {}): PlatformSkillRo
 }
 
 /**
- * A dashboard row the platform published — the one that used to carry
- * `delivery: 'standard'` and impose itself on every tenant. An ordinary offer
- * since migration 0088.
+ * A dashboard row the platform published: an ordinary offer, not a row imposed
+ * on every tenant.
  */
 const HOUSE_ROW = platformRow({
   id: 'ps-house',
@@ -254,11 +253,11 @@ describe('listSkills', () => {
   /**
    * The Skills tab is what an organization HAS, plus what it is offered.
    *
-   * The pipeline's machinery used to be merged in here as equal rows, each
-   * with a clone button — five instructions nobody installs, nobody can edit
-   * and nobody can invoke from chat, in front of an org with two skills of its
-   * own. It is gone from this list and still resolves for every run, which is
-   * the pair of facts the next two tests hold apart.
+   * The pipeline's machinery is kept off this list rather than merged in as
+   * equal rows, each with a clone button: instructions nobody installs, nobody
+   * can edit and nobody can invoke from chat, in front of an org with two skills
+   * of its own. It still resolves for every run, which is the pair of facts the
+   * next two tests hold apart.
    */
   it('lists org rows and the platform OFFERS, never the pipeline machinery', async () => {
     vi.mocked(repository.listSkillsInOrg).mockResolvedValue([
@@ -304,7 +303,7 @@ describe('listSkills', () => {
   /**
    * The delivery channel the platform dashboard writes into: a published
    * `platform_skills` row reaches every organization, with the body staying
-   * ours. This is what replaced clone.
+   * ours. This is the alternative to cloning.
    */
   it('offers a published platform_skills row to the organization', async () => {
     publishPlatformRows([platformRow({ metadata: { 'grid-agents': 'deep_researcher' } })])
@@ -327,7 +326,7 @@ describe('listSkills', () => {
     expect(forTheRun.find((s) => s.name === 'oib-fire-check')?.body).toBe(CURATED_SKILL.body)
   })
 
-  it('lets an org row shadow an offer of the same name, as it always has', async () => {
+  it('lets an org row shadow an offer of the same name', async () => {
     vi.mocked(repository.listSkillsInOrg).mockResolvedValue([
       makeSkill({ name: 'oib-fire-check', description: 'org shadow' }),
     ])
@@ -522,7 +521,7 @@ describe('resolveSkillsForAgent', () => {
   })
 
   /**
-   * `shallow_researcher` became `researcher`, and a stored row must keep meaning
+   * `shallow_researcher` is an alias of `researcher`, and a stored row must keep meaning
    * the restriction its author chose.
    *
    * This is the pair to the test above, and the reason the alias could not
@@ -531,7 +530,7 @@ describe('resolveSkillsForAgent', () => {
    * the widest possible direction. `0081_grid_agents_researcher_rename.sql`
    * rewrites the rows we can see; this covers the ones we cannot.
    */
-  it('reads the retired shallow_researcher name as the researcher, both ways', async () => {
+  it('reads the shallow_researcher name as the researcher, both ways', async () => {
     vi.mocked(repository.listSkillsInOrg).mockResolvedValue([
       makeSkill({ name: 'chat-only', metadata: { 'grid-agents': 'shallow_researcher' } }),
     ])
@@ -581,22 +580,16 @@ describe('resolveSkillsForAgent', () => {
 })
 
 /**
- * The platform's STANDARD tier, and the fact that it is gone (migration 0088).
- *
- * It was a skill every organization ran, nobody was offered, and nobody outside
- * the platform dashboard could see or change — and `SkillRuntime` FORCED it, so
- * its body was loaded whether or not the model judged it relevant. That is an
- * instruction wearing a capability's clothes, and instructions now live in the
- * platform prompt and in each organization's own instruction block.
- *
- * Five properties used to hold here, each enforced by its own line: invisible,
- * default-on, non-targetable, non-shadowable, platform-owned. Every one of them
- * is asserted below in the NEGATIVE, because each was a handle the platform held
- * over a tenant and the removal is only real if none of them survives. A
- * published row is an ordinary offer now: listed, switchable, off until the org
- * says otherwise, and shadowable by the org's own skill of the same name.
+ * The platform has no STANDARD tier: instructions live in the platform prompt
+ * and each organization's own instruction block, not in a skill every run is
+ * forced to load. The tests below assert that none of the
+ * tier's properties hold (invisible, default-on, non-targetable,
+ * non-shadowable, platform-owned), because each would be a handle the platform
+ * holds over a tenant. A published row is an ordinary offer: listed, switchable, off
+ * until the org says otherwise, and shadowable by the org's own skill of the
+ * same name.
  */
-describe('a published platform row, after the standard tier was retired', () => {
+describe('a published platform row is an ordinary offer', () => {
   beforeEach(() => {
     publishPlatformRows([HOUSE_ROW])
   })
@@ -635,7 +628,7 @@ describe('a published platform row, after the standard tier was retired', () => 
       origin: 'platform',
       body: 'Cite every normative claim with its OIB paragraph.',
     })
-    // The key `SkillRuntime` read to force a skill. Its absence is the tier's.
+    // The key that forced a skill onto every run (`standard`) must stay absent.
     expect(Object.keys(row ?? {})).not.toContain('standard')
   })
 
@@ -653,10 +646,9 @@ describe('a published platform row, after the standard tier was retired', () => 
     })
   })
 
-  it('no longer reserves its name against a tenant authoring one', async () => {
-    // The reservation existed because a standard row outranked an org row, so
-    // authoring the name produced a green save and an agent that never followed
-    // it. Nothing outranks the tenant now, so nothing is refused.
+  it('does not reserve its name against a tenant authoring one', async () => {
+    // Nothing outranks the tenant, so authoring a platform skill's name is
+    // allowed: the org's row is the one the agent follows.
     vi.mocked(repository.findSkillByName).mockResolvedValue(null)
     vi.mocked(repository.insertSkill).mockImplementation(async (values) => makeSkill(values))
     await expect(
@@ -664,7 +656,7 @@ describe('a published platform row, after the standard tier was retired', () => 
     ).resolves.toBeTruthy()
   })
 
-  it('no longer refuses an edit to a row wearing its name', async () => {
+  it('does not refuse an edit to a row wearing its name', async () => {
     vi.mocked(repository.findSkill).mockResolvedValue(makeSkill({ name: 'house-citation-style' }))
     vi.mocked(repository.updateSkill).mockResolvedValue(
       makeSkill({ name: 'house-citation-style', body: 'NEW ORG BODY' })
@@ -720,7 +712,7 @@ describe('a published platform row, after the standard tier was retired', () => 
     expect(chat.map((s) => s.name)).not.toContain('house-citation-style')
   })
 
-  it('is in the pickers a person reads, because it is theirs to pick now', async () => {
+  it('is in the pickers a person reads, because it is theirs to pick', async () => {
     vi.mocked(repository.listCuratedSkillActivations).mockResolvedValue([
       activation('house-citation-style', true),
     ])
@@ -932,8 +924,8 @@ describe('skill category CRUD', () => {
   })
 
   it('does not spend an org quota on the platform\u2019s categories', async () => {
-    // The regression this guards: counting the combined list meant a busy
-    // platform curation locked every tenant out of its own shelves forever.
+    // Guards against counting the combined list: a busy platform curation would
+    // lock every tenant out of its own shelves.
     vi.mocked(categoryRepository.findOrgCategoryByName).mockResolvedValue(null)
     vi.mocked(categoryRepository.listCategoriesForOrg).mockResolvedValue(
       Array.from({ length: 100 }, (_, index) =>

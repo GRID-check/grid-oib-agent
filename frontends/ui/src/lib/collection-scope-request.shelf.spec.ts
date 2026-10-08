@@ -4,11 +4,10 @@
 /**
  * ADR-0047 — a document's shelf travels as DATA on the scope header.
  *
- * `X-Grid-Collection-Scope` used to be `base64url(JSON.stringify(string[]))`:
- * a bare list of collection ids. The shelf each collection sits on was erased
- * at this boundary and guessed back downstream from an `archiv_`/`proj_`/`s_`
- * name prefix — which is why a file privately attached to a chat came back
- * cited as "Projektwissen".
+ * `X-Grid-Collection-Scope` carries `base64url(JSON.stringify({collection,
+ * shelf}[]))`: the shelf each collection sits on travels with it as data. A
+ * reader that had to guess the shelf back from an `archiv_`/`proj_`/`s_` name
+ * prefix would cite a file privately attached to a chat as "Projektwissen".
  *
  * These specs pin the emission half of the contract: the BFF, which BUILDS
  * every one of these collection names, states the shelf alongside each name,
@@ -107,8 +106,8 @@ describe('X-Grid-Collection-Scope carries the shelf (ADR-0047)', () => {
   })
 
   it('emits shelf `session` for a private chat attachment collection', async () => {
-    // The defect ADR-0047 names: this used to reach the citation layer as
-    // "Projektwissen", because ('s_', 'projekt') was the only guess available.
+    // Without the shelf this would reach the citation layer as "Projektwissen",
+    // because ('s_', 'projekt') would be the only guess available (ADR-0047).
     const { headerValue } = await buildCollectionScopeFromRequest(session, {
       conversationId: CONVERSATION_ID,
     })
@@ -138,7 +137,7 @@ describe('X-Grid-Collection-Scope carries the shelf (ADR-0047)', () => {
     // A collection the BFF did not build has no known shelf. Missing reads as
     // unknown downstream and renders unattributed; defaulting it to `base`
     // would let a stranger collection claim to be authoritative base law —
-    // exactly the fail-open this ADR removes.
+    // exactly the fail-open that ADR-0047 rules out.
     vi.mocked(computeCollectionScope).mockReturnValueOnce([
       'oib_knowledge',
       'some_custom_corpus',

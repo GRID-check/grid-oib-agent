@@ -1,11 +1,11 @@
 /**
  * A human-in-the-loop prompt, made visible to everyone in the thread (ADR-0037).
  *
- * A prompt card used to exist only in the browser whose socket received the
- * frame. In a shared conversation that means
- * an observer's server-authoritative load (ADR-0033 §2) shows **no card at all** —
- * the thread simply stops, and the "Piloti is answering …" banner ages out after
- * five minutes. A reader is left with a conversation that looks broken when in fact
+ * A prompt card that exists only in the browser whose socket received the frame
+ * is invisible to everyone else. In a shared conversation, an observer's
+ * server-authoritative load (ADR-0033 §2) shows **no card at all** — the thread
+ * simply stops, and the "Piloti is answering …" banner ages out after five
+ * minutes. A reader is left with a conversation that looks broken when in fact
  * the assistant is waiting on a colleague.
  *
  * Persisting it fixes three things at once:
@@ -16,7 +16,7 @@
  *   3. the answer becomes part of the record, so the transcript says what was
  *      decided rather than only that something was.
  *
- * **`promptFor` is the addressee, and it is not decoration.** The agent tier now
+ * **`promptFor` is the addressee, and it is not decoration.** The agent tier
  * refuses an answer from anybody but the person asked (`_may_answer_interaction`),
  * so a UI that offered a colleague the buttons would be offering a refusal. This is
  * what lets a reader be shown the question read-only.

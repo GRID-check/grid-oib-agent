@@ -301,7 +301,7 @@ describe('validateProfilePatchVocabulary', () => {
 })
 
 describe('pruneStaleConditionalAnswers', () => {
-  it('drops a conditional answer once its condition no longer holds', () => {
+  it('drops a conditional answer once its condition does not hold', () => {
     // CB1 (Baujahr) belongs to a Bestandsgebäude. Flip C2 to Neubau → prune it.
     const pruned = pruneStaleConditionalAnswers(
       { 'C2@bw1': 'neubau', 'CB1@bw1': 1962, [modeKeyFor('CB1@bw1')]: 'wert' },
@@ -551,7 +551,7 @@ describe('COUNTRY_TOKENS / isValidCountryToken', () => {
   })
 })
 
-describe('v1.0 → v1.2 legacy bridges (answersFromProfile)', () => {
+describe('legacy bridges (answersFromProfile)', () => {
   const fact = (value: ProjectPrimitiveValue) => ({
     value,
     confidence: 'confirmed' as const,
@@ -561,9 +561,9 @@ describe('v1.0 → v1.2 legacy bridges (answersFromProfile)', () => {
   const empty: ProjectProfile = { facts: {}, goals: {}, unknowns: [], assumptions: {} }
 
   it('inverts the stored ne_unter_400 into C8 instead of reusing its key', () => {
-    // v1.0 asked "alle Einheiten ≤ 400 m²?"; v1.2's C8 asks the inverse. A
-    // reused key would silently flip the meaning of every stored answer — and
-    // the GK derivation with it.
+    // v1.0 asked "alle Einheiten ≤ 400 m²?"; C8 asks the inverse. A reused key
+    // would silently flip the meaning of every stored answer — and the GK
+    // derivation with it.
     const allSmall = answersFromProfile(
       { ...empty, facts: { 'ne_unter_400@bw1': fact(true) } },
       definition
@@ -597,8 +597,8 @@ describe('v1.0 → v1.2 legacy bridges (answersFromProfile)', () => {
   })
 
   it('moves the project-scope Bestand block onto the single building', () => {
-    // v1.0's A6/A7 were one project-global statement; with exactly one
-    // building it is that building's, and C2 gates open so the block shows.
+    // v1.0's A6/A7 are one project-global statement; with exactly one building
+    // it is that building's, and C2 gates open so the block shows.
     const restored = answersFromProfile(
       { ...empty, facts: { baujahr_bestand: fact(1962), denkmalschutz: fact(true) } },
       definition
@@ -689,9 +689,8 @@ describe('v1.0 → v1.2 legacy bridges (answersFromProfile)', () => {
   })
 
   it('does not silently drop a legacy hybrid Bauweise', () => {
-    // This case previously asserted the deletion. That was pinning a data-loss
-    // bug: `bauweise` is intake-owned, so dropping the answer made
-    // `mergeIntakeProfile` remove the stored fact as well.
+    // Dropping the answer must not delete the stored fact: `bauweise` is
+    // intake-owned, so a naive merge would remove it as well.
     const restored = answersFromProfile(
       { ...empty, facts: { 'bauweise@bw1': fact('hybrid') } },
       definition
@@ -742,7 +741,7 @@ describe('v1.0 → v1.2 legacy bridges (answersFromProfile)', () => {
   })
 })
 
-describe('v1.2 catalog shape', () => {
+describe('catalog shape', () => {
   it('carries the Schnellstart core path', () => {
     const core = flattenIntakeQuestions(definition)
       .filter((q) => q.core)
@@ -783,7 +782,7 @@ describe('v1.2 catalog shape', () => {
     )
   })
 
-  it('dropped the v1.0-only questions', () => {
+  it('omits the questions that existed only in the legacy catalog', () => {
     const ids = new Set(flattenIntakeQuestions(definition).map((q) => q.id))
     for (const gone of [
       'A3',
@@ -803,7 +802,7 @@ describe('v1.2 catalog shape', () => {
   })
 })
 
-describe('v1.0 → v1.2 bridges — the second review pass', () => {
+describe('legacy bridges neither drop nor repeat a fact', () => {
   const fact = (value: ProjectPrimitiveValue) => ({
     value,
     confidence: 'confirmed' as const,
@@ -818,8 +817,9 @@ describe('v1.0 → v1.2 bridges — the second review pass', () => {
       definition
     )
 
-    // Deleting the answer lost a construction type the user had stated:
-    // `bauweise` is intake-owned, so the merge removed the stored fact too.
+    // Deleting the answer keeps the construction type the user stated:
+    // `bauweise` is intake-owned, so the merge would otherwise remove the stored
+    // fact too.
     expect(restored.answers['C10@bw1']).toEqual(['offen'])
     expect(String(restored.answers['C10_text@bw1'])).toContain('Hybrid')
   })
@@ -840,8 +840,8 @@ describe('v1.0 → v1.2 bridges — the second review pass', () => {
 
   it('appends a legacy G-text once, however often the profile is reopened', () => {
     // `kontext_grundstueck` is owned by no current question, so the merge keeps
-    // it — and the merged text is already in G1. Appending unconditionally grew
-    // the field on every save.
+    // it — and the merged text is already in G1. Appending unconditionally would
+    // grow the field on every save.
     const first = answersFromProfile(
       {
         ...empty,

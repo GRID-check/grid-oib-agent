@@ -1,9 +1,9 @@
-"""Live turn-shape eval for the two behaviours ADR-0052 moved from code into the prompt.
+"""Live turn-shape eval for the two behaviours ADR-0052 puts in the prompt.
 
-ADR-0052 deleted the intent classifier: every turn enters
+ADR-0052 removed the intent classifier: every turn enters
 Piloti with every tool bound, and what the turn IS is decided by the model
-with the tools in hand. Two things that used to be routing are now the model's
-judgment, pinned only by the ``<output_contract>`` block of
+with the tools in hand. Two behaviours are the model's judgment, pinned
+only by the ``<output_contract>`` block of
 ``src/aiq_agent/agents/piloti/prompts/piloti.j2``:
 
 1. a greeting or a question about the assistant is a direct reply, and calls
@@ -11,8 +11,8 @@ judgment, pinned only by the ``<output_contract>`` block of
 2. a commissioned report is handed to deep research (``escalate_to_deep`` in
    the envelope) BEFORE any retrieval of its own.
 
-Three more cases cover the shape the Piloti-writes work added and nothing
-measured (ledger row 5): a commissioned Aktenvermerk is WRITTEN rather than
+Three more cases cover drafting shapes that nothing else measures: a
+commissioned Aktenvermerk is WRITTEN rather than
 described, a revision edits the draft instead of writing a second one, and
 „leg das ins Projekt ab" files it. Their prompts and their one assertion live
 in ``tests/fixtures/drafting_turns.py``, shared with the scripted-LLM pair in
@@ -326,7 +326,7 @@ async def test_a_plain_domain_question_still_searches(agent):
     assert result.escalation_requested is False, result.answer_escalation_reason
 
 
-# --- The drafting turn shapes (ledger row 5) ---------------------------------
+# --- The drafting turn shapes ------------------------------------------------
 #
 # The retrieval stubs above stand in for a corpus. These do NOT stub the
 # working directory: `write_file`, `edit_file` and the `document_draft` card

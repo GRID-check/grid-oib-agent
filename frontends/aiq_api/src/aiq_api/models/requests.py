@@ -219,7 +219,7 @@ class GenerateSummaryResponse(BaseModel):
 
 
 class ConversationTitleMessage(BaseModel):
-    """One turn of the opening exchange used to name a conversation."""
+    """One turn of the opening exchange that names a conversation."""
 
     role: str = Field(..., description="'user' or 'assistant'")
     content: str = Field(..., description="Plain-text message content (no cards/markup)")
@@ -361,7 +361,7 @@ class FeedbackDigestResponse(BaseModel):
     ``strengths`` and ``concerns`` are separate REQUIRED fields rather than one
     list of observations, because that is the whole point of the endpoint: a
     summary free to return only problems will return only problems, and the
-    surface this backs was already too good at that.
+    surface this backs is already too good at that.
     """
 
     headline: str = Field("", description="Two or three plain sentences summarising the window")

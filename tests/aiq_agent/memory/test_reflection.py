@@ -89,8 +89,8 @@ def _sanitize(raw, **kwargs):
 
 
 class TestBuildUserPrompt:
-    """The reflection prompt must cap the (growing) memory digest, like it already
-    caps the query and answer, so the background LLM call's token cost stays
+    """The reflection prompt must cap the (growing) memory digest, like it caps
+    the query and answer, so the background LLM call's token cost stays
     bounded as project memory accumulates."""
 
     def test_large_digest_is_truncated(self):
@@ -147,8 +147,8 @@ class TestSanitizeFindings:
         assert _sanitize(raw)[0].confidence == "medium"
 
     def test_a_model_proposed_scope_is_ignored(self):
-        # The autonomous stage NEVER writes org-wide memory (audit finding S1),
-        # so it carries no scope at all — an extra key the model invents is not
+        # The autonomous stage NEVER writes org-wide memory, so it carries no
+        # scope at all — an extra key the model invents is not
         # a reason to drop an otherwise good finding either.
         raw = [{"kind": "preference", "content": "Client prefers metric drawings.", "scope": "organization"}]
         items = _sanitize(raw)
@@ -280,9 +280,9 @@ class TestSanitizeFindings:
         assert len(_sanitize(raw)) == R.MAX_NEW_ITEMS
 
     def test_the_cap_counts_what_survived_the_filters(self):
-        """A dropped finding must not cost a real one its slot: the cap used to be
-        applied to the raw list, so five PII entries in front of a good one meant
-        the good one was never even looked at."""
+        """A dropped finding must not cost a real one its slot: the cap applies
+        after the filters, so five PII entries in front of a good one do not hide
+        it."""
         raw = [{"kind": "derived_fact", "content": f"Reach owner{i}@example.com."} for i in range(R.MAX_NEW_ITEMS)]
         raw.append({"kind": "constraint", "content": "Budget capped at 2M."})
 
@@ -359,8 +359,8 @@ class TestReflectionSystemPrompt:
 
     def test_every_required_field_is_named_in_the_example(self):
         """The example is the whole contract on the fallback path, where nothing
-        enforces the schema. ``importance`` used to be missing from it, so every
-        finding on that path landed at the neutral midpoint."""
+        enforces the schema, so it must name every field, ``importance`` included.
+        Without it every finding on that path lands at the neutral midpoint."""
         required = R.ReflectionOutput.model_json_schema()["$defs"]["_ReflectionFinding"]["required"]
         example = R.REFLECTION_SYSTEM_PROMPT[R.REFLECTION_SYSTEM_PROMPT.index('{"findings"') :]
         for field in required:
@@ -374,7 +374,7 @@ class TestReflectionSystemPrompt:
 
 
 class TestSanitizeFindingsPii:
-    """Audit finding S4: reflection must not persist PII/secret-shaped content."""
+    """Reflection must not persist PII/secret-shaped content."""
 
     @pytest.mark.parametrize(
         "content",
@@ -661,9 +661,10 @@ class TestRunMemoryReflection:
 
     @pytest.mark.asyncio
     async def test_writes_run_concurrently_and_report_in_order(self, monkeypatch):
-        """Five sequential 5s-timeout round trips inside a 45s stage budget was the
-        whole batch riding on the slowest link. The frame's payload contract is
-        still "in write order", so ordering survives the gather."""
+        """Writes run concurrently: sequential 5s-timeout round trips inside a 45s
+        stage budget would let the slowest link decide the whole batch. The
+        frame's payload contract is still "in write order", so ordering survives
+        the gather."""
         # Every write must be in flight before any of them may finish; a
         # sequential loop deadlocks the barrier and fails with BrokenBarrierError.
         in_flight = threading.Barrier(3, timeout=10)
@@ -793,9 +794,8 @@ class TestRestrictedReflection:
 
 
 class TestMemoryReflectionAsAStage:
-    """The same behaviours the bespoke scheduler used to guarantee, now going
-    through the post-answer stage runner. This is the migration's own test: what
-    reflection does must be unchanged, only how it is wired and bounded."""
+    """What reflection does, run through the post-answer stage runner. The stage
+    runner owns only how it is wired and bounded."""
 
     def _facts(self, **overrides):
         base = TurnFacts(
@@ -843,7 +843,7 @@ class TestMemoryReflectionAsAStage:
     @pytest.mark.asyncio
     async def test_org_only_is_noop(self):
         # No project in scope -> the project-only autonomous stage has nothing to
-        # write, even when an organization is known (audit finding S1).
+        # write, even when an organization is known.
         outcomes = await self._run(self._facts(project_id=None, organization_id="org-1"), _FakeLLM("{}"))
         assert outcomes["memory_reflection"].status == "skipped"
         assert outcomes["memory_reflection"].reason == "no_project"
@@ -859,9 +859,9 @@ class TestMemoryReflectionAsAStage:
         assert outcomes["memory_reflection"].reason == "RuntimeError"
 
     @pytest.mark.asyncio
-    async def test_a_stalled_provider_no_longer_holds_the_slot_for_minutes(self, monkeypatch):
-        """The defect the primitive closes: reflection had no asyncio timeout, so
-        a stalled provider held one of four concurrency slots for ~6 minutes."""
+    async def test_a_stalled_provider_does_not_hold_the_slot_for_minutes(self, monkeypatch):
+        """A stalled provider must not hold one of the four concurrency slots for
+        ~6 minutes, so the stage runs under an asyncio timeout."""
 
         async def never_returns(**kwargs):
             await asyncio.sleep(30)

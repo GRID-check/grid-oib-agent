@@ -29,7 +29,7 @@ const oibSources = (hits: Array<{ name: string; detail: string }>) =>
   })
 
 /** Expand outer Herleitung, then technical intermediate-steps section. The raw
- *  technical steps are now a profile opt-in (default off), so enable the
+ *  technical steps are a profile opt-in (default off), so enable the
  *  preference before drilling into them. */
 const expandToSteps = async (user: ReturnType<typeof userEvent.setup>) => {
   useLayoutStore.setState({ showTechnicalReasoning: true })
@@ -66,8 +66,8 @@ describe('ChatThinking', () => {
   })
 
   describe('turn-driven autoOpen (live expands, done collapses)', () => {
-    // The expanded reasoning renders the "Attached files:" footer (moved inside
-    // the collapsible), so its presence is a proxy for "expanded".
+    // The expanded reasoning renders the "Attached files:" footer (inside the
+    // collapsible), so its presence is a proxy for "expanded".
     const files = [{ id: 'file-1', fileName: 'plan.pdf' }]
 
     test('autoOpen expands the reasoning without a click (live turn)', () => {
@@ -92,8 +92,8 @@ describe('ChatThinking', () => {
     // NB: the "a manual toggle in between is not stomped" guarantee (the
     // prevAutoOpen ref only re-drives `open` when autoOpen actually CHANGES) is
     // covered by the transition test above plus the ref-guard logic; a UI-level
-    // manual-collapse assertion proved flaky against the controlled Collapsible
-    // in jsdom, so it is intentionally not asserted here.
+    // manual-collapse assertion is flaky against the controlled Collapsible in
+    // jsdom, so it is intentionally not asserted here.
 })
 
   describe('empty state', () => {
@@ -288,9 +288,9 @@ describe('ChatThinking', () => {
   describe('source fan-out', () => {
     test('a still-running turn never reports a source as unused', async () => {
       // "abgerufen, nicht zitiert" is a claim about the FINISHED answer. While
-      // the turn streams nothing has been cited yet, so every retrieved
-      // document read as discarded — including the ones about to be cited a
-      // second later.
+      // the turn streams nothing has been cited yet, so every retrieved document
+      // would read as discarded, including the ones about to be cited a second
+      // later.
       const user = userEvent.setup()
       const steps = [
         oibSources([{ name: 'OIB-RL_2_Brandschutz.pdf', detail: 'p.12' }]),
@@ -390,8 +390,8 @@ describe('ChatThinking', () => {
 
   describe('attached-files footer (in expanded reasoning)', () => {
     // The basis footer (attached files as pills) lives INSIDE the expanded
-    // Herleitung so the collapsed turn stays compact and answer-first
-    // (P0/P2-4). It renders once the reasoning is open (`defaultOpen`).
+    // Herleitung so the collapsed turn stays compact and answer-first. It
+    // renders once the reasoning is open (`defaultOpen`).
     test('shows files as chips', () => {
       const steps = [createStep()]
       const messageFiles = [
@@ -419,11 +419,11 @@ describe('ChatThinking', () => {
    * The phantom web search.
    *
    * Every data source is enabled by default and `web_search` is first in the
-   * registry, so the old basis footer claimed "Websuche" inside the Herleitung
-   * on EVERY turn — a bare greeting included, where the backend drops all
-   * data-source tools before the model ever sees them. Availability is the
-   * constant, activation is the event: only the `Ran:` row, derived from the
-   * turn's `tool` and `skill` steps, may say what a turn did.
+   * registry, so a basis footer that listed availability would claim "Websuche"
+   * inside the Herleitung on EVERY turn — a bare greeting included, where the
+   * backend drops all data-source tools before the model ever sees them.
+   * Availability is the constant, activation is the event: only the `Ran:` row,
+   * derived from the turn's `tool` and `skill` steps, may say what a turn did.
    */
   describe('enabled data sources are never rendered as activity', () => {
     const enabled = ['web_search', 'knowledge_layer', 'ris']
@@ -560,7 +560,7 @@ describe('ChatThinking', () => {
       await expandChain(user)
 
       // The framing node restates the question (its "Framing" eyebrow labels it);
-      // the leaner node no longer shows a separate "Question understood" title.
+      // the leaner node shows no separate "Question understood" title.
       expect(screen.getByText('Framing')).toBeVisible()
       expect(
         screen.getByText(/Wie viele Rettungswege brauche ich\?/)
@@ -575,8 +575,8 @@ describe('ChatThinking', () => {
 
       await expandChain(user)
 
-      // The trust verdict (confidence) now lives once, on the answer card — it is
-      // no longer duplicated inside the Herleitung's assessment node (P1-2).
+      // The trust verdict (confidence) lives once, on the answer card, not inside
+      // the Herleitung's assessment node.
       expect(screen.queryByText('Confidence: high')).not.toBeInTheDocument()
     })
 
@@ -606,9 +606,9 @@ describe('ChatThinking', () => {
 
       await expandChain(user)
 
-      // The findings node ("Findings" eyebrow) now shows a reasoning-only
-      // hit-lane summary ("Hits in: <lane>"), deduped to a single lane — not a
-      // second copy of the answer's provenance chips.
+      // The findings node ("Findings" eyebrow) shows a reasoning-only hit-lane
+      // summary ("Hits in: <lane>"), deduped to a single lane, not a second copy
+      // of the answer's provenance chips.
       expect(screen.getByText('Findings')).toBeVisible()
       expect(screen.getByText('Hits in: OIB-Richtlinie')).toBeVisible()
     })

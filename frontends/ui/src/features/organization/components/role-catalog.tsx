@@ -3,12 +3,12 @@
 /**
  * What does "Billing Admin" actually mean?
  *
- * Until now that question had no answer inside the product. The role a person
- * holds was a slug on a WorkOS membership, and the only place its meaning was
- * written down was `lib/authz/catalog.ts` — a TypeScript file an admin cannot
- * open. So re-roling somebody was a guess, and the fine-grained personas we ship
- * (Auditor, Billing Admin, Compliance Officer, Knowledge Manager) were
- * indistinguishable from each other to the person choosing between them.
+ * The answer has to be inside the product. The role a person holds is a slug on
+ * a WorkOS membership, and its meaning is written down in `lib/authz/catalog.ts`,
+ * a TypeScript file an admin cannot open. Without a readable catalog, re-roling
+ * somebody is a guess, and the fine-grained personas (Auditor, Billing Admin,
+ * Compliance Officer, Knowledge Manager) cannot be told apart by the person
+ * choosing between them.
  *
  * This renders the catalog itself. Not a hand-written table of what the roles
  * are *believed* to grant — the same `ROLES` array the provisioning script
@@ -55,10 +55,9 @@ import { useTranslations } from '@/i18n'
 export const ACCESS_TIER_ORDER: readonly PermissionTier[] = [
   'org',
   'project',
-  // Skill schedules are per-resource, like the workflows they replaced. Their
-  // tier was added to the catalog without being added here, so every skill role
-  // and skill permission was silently dropped from this reference — the one
-  // screen whose whole job is to show an administrator what exists.
+  // Skill schedules are per-resource. Every tier in the catalog must be listed
+  // here: a tier missing from this list silently drops its roles and permissions
+  // from the reference, and this screen exists to show an administrator what exists.
   'skill',
   'platform',
 ]

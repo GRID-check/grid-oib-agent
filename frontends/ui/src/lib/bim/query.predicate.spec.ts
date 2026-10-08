@@ -2,9 +2,10 @@
  * The SQL a property filter actually compiles to.
  *
  * The integration suite proves the predicate returns the right ELEMENTS. It
- * cannot prove the predicate is fast, and the two are separable in a way that
- * bit once already: `search_keys IS NULL OR search_keys @> …` returns exactly
- * the right rows and is the slowest form there is, because `IS NULL` is not
+ * cannot prove the predicate is fast, and the two are separable: a shape can
+ * return the right rows and still be slow. `search_keys IS NULL OR search_keys
+ * @> …` returns exactly the right rows and is the slowest form there is,
+ * because `IS NULL` is not
  * GIN-indexable and the disjunction takes the index out of play. Measured on a
  * seeded 200 000-element model, a filter matching one element:
  *
@@ -132,7 +133,7 @@ describe('the query schema', () => {
 
   it('rejects a filter key it does not know instead of dropping it', () => {
     // Singular `storey` is a very natural slip; the real key is `storeys`.
-    // Stripped, this became "every wall in the building" and came back as
+    // Stripped, it would silently query every wall in the building and report
     // "412 Bauteile erfüllen die Abfrage".
     const result = filter({ ifcTypes: ['IfcWall'], storey: 'Erdgeschoss' })
     expect(result.success).toBe(false)
@@ -164,9 +165,9 @@ describe('the query schema', () => {
   })
 
   it('refuses to group by a property without saying which', () => {
-    // It used to run UNGROUPED and then render the grand total as one group
-    // called "(ohne Angabe)" — so "wie verteilen sich die
-    // Feuerwiderstandsklassen?" answered that 412 walls have none.
+    // Without a named property the query would run UNGROUPED and render the
+    // grand total as one group called "(ohne Angabe)", so "wie verteilen sich
+    // die Feuerwiderstandsklassen?" would answer that 412 walls have none.
     const result = bimQuerySchema.safeParse({ op: 'aggregate', metric: 'count', groupBy: 'property' })
     expect(result.success).toBe(false)
     expect(JSON.stringify(result.error?.issues)).toContain('groupProperty')
@@ -185,9 +186,9 @@ describe('the query schema', () => {
 
   it('rejects an invented key at the TOP level too, not only inside the filter', () => {
     // `filters` — plural, and the name of the agent's own tool parameter —
-    // was stripped, `filter` defaulted to `{}`, and the aggregate ran over
-    // the whole model. An unfiltered number reported as a filtered one, which
-    // is the failure the strictness one level down was added to prevent.
+    // must be refused, not stripped: stripped, `filter` defaults to `{}` and
+    // the aggregate runs over the whole model. An unfiltered number reported
+    // as a filtered one is the failure the strictness one level down prevents.
     const result = bimQuerySchema.safeParse({
       op: 'aggregate',
       metric: 'count',
@@ -206,10 +207,10 @@ describe('the query schema', () => {
 
   it('lets the viewer page past the extraction cap', () => {
     // The walk advances six pages of 1 000 per round while pages come back
-    // full. A ceiling of 100 000 — half the 200 000-element extraction cap —
-    // made one round 400, `Promise.all` reject, and the WHOLE element index
-    // fail rather than return a partial one, for every model between the two
-    // numbers. Selection, storey isolation and highlights die with it.
+    // full, so a ceiling below the 200 000-element extraction cap makes a
+    // round request an offset the schema refuses. `Promise.all` rejects, and
+    // the WHOLE element index fails rather than returning a partial one.
+    // Selection, storey isolation and highlights die with it.
     expect(bimQuerySchema.safeParse({ op: 'elements', offset: 150_000 }).success).toBe(true)
     // Still bounded: an unbounded OFFSET is a slow sequential scan on demand.
     expect(bimQuerySchema.safeParse({ op: 'elements', offset: 10_000_000 }).success).toBe(false)
@@ -218,20 +219,20 @@ describe('the query schema', () => {
 
 describe('what a property predicate compiles to', () => {
   it('escapes the ILIKE wildcards in a `contains` value', () => {
-    // `%` and `_` are wildcards. `WC_1` also matched `WC-1` and `WCx1`, and a
-    // value of `%` matched every element carrying the property at all — an
-    // inflated count reported as a fact. Three sibling predicates already
-    // route through `likeContains`; this one did not.
+    // `%` and `_` are ILIKE wildcards and must be escaped: an unescaped `WC_1`
+    // also matches `WC-1` and `WCx1`, and `%` matches every element carrying
+    // the property at all. Every sibling predicate routes through
+    // `likeContains`, and this one does too.
     const { params } = compile({ properties: [{ name: 'Raumnummer', operator: 'contains', value: 'WC_1', source: 'property' }] })
     expect(params).toContain('%WC\\_1%')
   })
 
   it('compares a numeric equality numerically, not as rendered text', () => {
-    // `#>> '{}'` against `String(value)` made the two sides disagree on
+    // A text comparison (`#>> '{}'` against `String(value)`) disagrees on
     // rendering: JavaScript writes `1e-7` where Postgres stores `0.0000001`,
-    // and a stored `2.50` never equals the string `2.5`. Nothing matched, and
-    // the answer was "Kein Bauteil erfüllt die Abfrage" — a fact about number
-    // formatting, reported as a fact about the building.
+    // and a stored `2.50` never equals the string `2.5`. Nothing matches, and
+    // "Kein Bauteil erfüllt die Abfrage" reports a fact about number
+    // formatting as a fact about the building.
     const { sql: text, params } = compile({
       properties: [{ name: 'Dicke', operator: 'eq', value: 0.0000001, source: 'property' }],
     })

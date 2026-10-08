@@ -82,7 +82,7 @@ class TestTrimMessageHistory:
 
     def test_counts_tokens_not_message_count(self):
         """The budget is tokens: one huge message can exceed a budget that many
-        tiny messages fit under — the old token_counter=len could not tell them
+        tiny messages fit under — a message-count counter (``len``) could not tell them
         apart."""
         tiny = [HumanMessage(content="hi"), AIMessage(content="ok"), HumanMessage(content="yo")]
         huge = [HumanMessage(content="word " * 500)]
@@ -97,7 +97,7 @@ class TestTrimMessageHistory:
             HumanMessage(content="short recent question"),
         ]
         result = trim_message_history(messages, max_tokens=200)
-        # Budget is real tokens now, so the giant early turns cannot all survive.
+        # Budget is real tokens, so the giant early turns cannot all survive.
         assert len(result) < len(messages)
 
     def test_injected_counter_is_used(self):

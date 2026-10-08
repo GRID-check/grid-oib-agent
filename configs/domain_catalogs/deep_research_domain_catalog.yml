@@ -20,9 +20,8 @@
 # one `domain_catalog_path:` line plus a parity test against the active
 # workflow config's data_source_registry; if it is no, delete the directory.
 #
-# The catalog used to route between news, prediction markets and academic
-# papers, which is what the upstream blueprint shipped. Those sources are gone;
-# these domains are the ones this product's fleet can actually serve.
+# These domains are the ones this product's fleet can actually serve, not the
+# upstream blueprint's news, prediction-market and academic routing.
 
 default_domain_id: general_research
 

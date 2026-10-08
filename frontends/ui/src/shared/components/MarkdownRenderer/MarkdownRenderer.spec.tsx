@@ -80,10 +80,10 @@ describe('MarkdownRenderer', () => {
     })
 
     /*
-      A report that assesses two variants writes „## Bewertung" twice. Both
-      headings used to get `id="bewertung"`, so `getElementById` found the first
-      and every link to the second — an outline row, an in-page citation anchor
-      — scrolled to the wrong section without ever failing.
+      A report that assesses two variants writes „## Bewertung" twice. The two
+      headings must not both get `id="bewertung"`: `getElementById` would find
+      the first, and every link to the second — an outline row, an in-page
+      citation anchor — would scroll to the wrong section without ever failing.
     */
     test('a repeated heading gets an id of its own', () => {
       const { container } = render(
@@ -280,9 +280,9 @@ Paragraph 2.`}
     /*
       German headings are the normal case here, not an edge case: the answers and
       OIB reports this renders are written in German. Stripping the umlaut
-      outright ("Gebäude" → "gebude") produced an id nothing links to, so every
-      in-page link into such a section silently did nothing — `scrollToAnchor`
-      returns quietly when `getElementById` misses.
+      outright ("Gebäude" → "gebude") would produce an id nothing links to, so
+      every in-page link into such a section would silently do nothing —
+      `scrollToAnchor` returns quietly when `getElementById` misses.
     */
     test('gives a German heading an id that survives its umlauts', () => {
       render(<MarkdownRenderer content={'## Brandschutz für Gebäude'} />)
@@ -300,7 +300,7 @@ Paragraph 2.`}
     })
 
     /*
-      An in-app link is not an external one. Answers now write links back into
+      An in-app link is not an external one. Answers write links back into
       the app — `/app/projects/:id/model?element=…` opens a wall in the viewer —
       and a new tab there means leaving the app to re-enter it with a cold store.
     */
@@ -420,7 +420,7 @@ Below`}
     /*
       The delimiter row's alignment (`|---:|`) is the author's statement about
       the column — the agent right-aligns number columns on purpose. The custom
-      th/td used to drop it, so every table came out left-aligned.
+      th/td must not drop it, or every table comes out left-aligned.
     */
     test('keeps the column alignment the delimiter row declared', () => {
       const tableMarkdown = '| Bauteil | REI |\n| :--- | ---: |\n| Wand | 90 |'
@@ -629,25 +629,22 @@ Visit [our site](https://example.com) for more.
 
   describe('the streaming stabilizer is linear in the length of a line', () => {
     /**
-     * The delimiter-row test used to read `/^\s*\|?\s*:?-{1,}/`, putting two
-     * `\s*` either side of an optional pipe. On a line of pure whitespace the
-     * engine can split that whitespace between them in quadratically many ways:
-     * 32k tabs took 1,034ms against 0.1ms for the fix. This runs on every token
-     * of every streaming answer, over text a model writes from retrieved
-     * documents, so the length of a line is not ours to bound.
+     * The delimiter-row test must not put two `\s*` either side of an optional
+     * pipe: on a line of pure whitespace the engine can split that whitespace
+     * between them in quadratically many ways. This runs on every token of every
+     * streaming answer, over text a model writes from retrieved documents, so the
+     * length of a line is not ours to bound.
      *
-     * Measured on the function directly rather than through `render`. A first
-     * version of this test wrapped a full React render around the clock and was
-     * flaky in CI at 737ms against a 400ms budget — on a loaded runner the
-     * render dominates, and the thing under test is microseconds. Calling the
-     * function alone puts four orders of magnitude between healthy and the
-     * defect, which no runner contention can close.
+     * Measured on the function directly rather than through `render`: on a loaded
+     * CI runner the render dominates, and the thing under test is microseconds.
+     * Calling the function alone puts four orders of magnitude between healthy
+     * and the defect, which no runner contention can close.
      */
     test('a long run of whitespace under a table does not stall the stabilizer', () => {
       // The whitespace must sit BEFORE the pipe. Only then can the two `\s*`
       // compete to split it; with the pipe first, one of them consumes the run
-      // and the scan is linear even with the defect in place — a first version
-      // of this test put it after and passed against the bug. The line still
+      // and the scan is linear even with the defect in place, so a test that put
+      // the run after the pipe would pass against the bug. The line still
       // reaches the check, because the surrounding code selects lines whose
       // `trim()` starts with a pipe, and this one's does.
       const content = `| Bauteil | REI |\n${'\t'.repeat(32_000)}|\n`
@@ -723,8 +720,9 @@ Visit [our site](https://example.com) for more.
 
 describe('a streamed answer', () => {
   test('is rendered in time linear in a long run of whitespace inside it', () => {
-    // Every token renders the answer again; a `/\s+$/` over it backtracked from
-    // every space in a run that text follows, quadratic in the run.
+    // Every token renders the answer again, so the trailing-whitespace handling
+    // must not backtrack from every space in a run that text follows, which is
+    // quadratic in the run.
     const content = (spaces: number) => `a${' '.repeat(spaces)}x`
     const renderTime = (spaces: number) => {
       let unmount = () => {}

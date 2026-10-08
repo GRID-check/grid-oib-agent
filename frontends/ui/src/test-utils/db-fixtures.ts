@@ -2,9 +2,9 @@
  * Complete database-row fixtures for specs that mock the repository layer.
  *
  * A repository mock has to resolve to a whole row — the service code under test
- * reads fields the assertion does not care about. Specs used to paper over that
- * with `{ collectionName: 'x' } as any`, which meant a schema change could not
- * break them. These factories return real rows, so a renamed or retyped column
+ * reads fields the assertion does not care about. A spec that papers over that
+ * with `{ collectionName: 'x' } as any` lets a schema change go unnoticed. These
+ * factories return real rows, so a renamed or retyped column
  * surfaces as a compile error, while `overrides` keeps each test's intent to
  * the one or two fields it is actually about.
  */
@@ -108,9 +108,9 @@ export const makeDocument = (overrides: Partial<Document> = {}): Document => ({
   // Not renamed — what every document is until somebody renames it.
   displayName: null,
   storageKey: 'org/org-1/project/proj-1/doc/doc-1/plan.pdf',
-  // NULL is what every row written before migration 0033 carries, and it means
-  // the shared bucket — so it is the right default for a fixture standing in
-  // for "an ordinary existing document".
+  // NULL means the shared bucket, which is what every legacy row carries, so it
+  // is the right default for a fixture standing in for "an ordinary existing
+  // document".
   storageBucket: null,
   collectionName: 'proj_abc',
   fileSize: 1024,
@@ -120,9 +120,8 @@ export const makeDocument = (overrides: Partial<Document> = {}): Document => ({
   originPath: null,
   contentHash: null,
   status: 'completed',
-  // Nothing published, and `active`, which is what a row written before
-  // migration 0082 means and what the backfill then gives it. A test that cares
-  // about the lifecycle sets both explicitly.
+  // Nothing published, and `active`, the lifecycle that migration 0082 gives
+  // every row. A test that cares about the lifecycle sets both explicitly.
   publishedVersionId: null,
   lifecycle: 'active',
   createdAt: new Date('2026-01-01T00:00:00Z'),

@@ -17,9 +17,10 @@
  *
  * `fieldsByPath` is the exception to that rule and is documented at its own
  * definition: a handful of names mean something DIFFERENT on one card than they
- * mean everywhere else, and one of them was printing a limit under the label of
- * a measured value. Do not fold those back into `fields` — the flat map is
- * still the default and still where a new name belongs.
+ * mean everywhere else. Printing a limit under the label of a measured value
+ * would be a wrong number, so those names are overridden by path. Do not fold
+ * them back into `fields` — the flat map is still the default and still where a
+ * new name belongs.
  */
 export const answerExport = {
   /** Heading of the whole document when the conversation carries no title. */
@@ -170,9 +171,9 @@ export const answerExport = {
    *
    * A card payload states `operation: 'sum'`, `shape: 'ramp'`. Those are wire
    * values: the app spells every one of them out on screen, and a document that
-   * printed the wire value instead would have dropped the part of the card that carried the finding.
-   * The card charter forbids exactly that (§D5, "no meaning that lives only in
-   * the pixels").
+   * printed the wire value instead would drop the part of the card that carries
+   * the finding. The card charter forbids exactly that (§D5, "no meaning that
+   * lives only in the pixels").
    *
    * Keyed by FIELD NAME, like `fields`, and for the same reason: `status` and
    * `provenance` recur across the catalogue. `label-coverage.spec.ts` derives
@@ -266,9 +267,10 @@ export const answerExport = {
    * The exceptions to the flat `fields` map, keyed by PAYLOAD PATH.
    *
    * A deliberate departure from the one-entry-per-name rule above, for the
-   * names that mean two things. `CalculationLimit`'s `value` is not a measured value at all but the bound it is held against, so
-   * the flat map's „Ist" printed the limit under the label of the measurement —
-   * a wrong number in a Bauakt, which is the worst artefact this product makes.
+   * names that mean two things. `CalculationLimit`'s `value` is not a measured
+   * value at all but the bound it is held against, so the flat map's „Ist"
+   * would print the limit under the label of the measurement — a wrong number
+   * in a Bauakt, which is the worst artefact this product makes.
    *
    * A key is the path the walker stands at: the card type, then every field
    * name descended through. A key may end in `?<sibling>=<member>` for a label

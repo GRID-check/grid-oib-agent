@@ -2,9 +2,9 @@
  * Uploading one file onto a shelf — the ONE pipeline behind a project's Dateien
  * and the org-wide Archiv (ADR-0078).
  *
- * The two used to be two copies of the same flow, written a year apart, and they
- * drifted: the Archiv had no folders, no origin path, no "same bytes, nothing to
- * do" short-circuit and a different audit shape. The flow is the same on both
+ * One flow for both shelves, because two copies of it drift apart: one shelf
+ * would lack folders, an origin path, the "same bytes, nothing to do"
+ * short-circuit or the same audit shape. The flow is the same on both
  * shelves — authorize, probe the name, store, admit under the quota, record a
  * version, dispatch the ingest, audit — and differs in exactly four places,
  * each of which is a function of the {@link DocumentShelf} below:
@@ -64,8 +64,8 @@ export interface ShelfUploadInput {
    */
   screeningRelease?: boolean
   /**
-   * The upload gesture this file belongs to (migration 0105), as the browser
-   * opened it. Recorded on the row when it is the uploader's own open batch
+   * The upload gesture this file belongs to, as the browser opened it.
+   * Recorded on the row when it is the uploader's own open batch
    * for this shelf; anything else is ignored rather than refused.
    */
   uploadBatchId?: string | null
@@ -126,7 +126,7 @@ async function uploadAuditEvent(
     targetId: event.documentId,
     // Filename is user-controlled — cap it before it reaches the trail.
     // `replaced` distinguishes a new document from new bytes under an existing
-    // id, which is the one thing the trail could no longer infer from the id.
+    // id, which is the one thing the trail cannot infer from the id.
     metadata: {
       ...located,
       filename: event.filename.slice(0, 200),
@@ -177,12 +177,11 @@ function placeUpload(session: AuthorizedSession, input: PlaceUploadInput): Promi
      * A re-upload writes NEW bytes, so it needs a NEW key (ADR-0054).
      *
      * The id is deliberately kept — that is what makes citations, chat subjects
-     * and folder assignments survive a corrected plan — but the key used to be
-     * derived from the id alone, so the new bytes landed on top of the old ones
-     * and `discardSupersededObjects` tidied up what was left. That is versioning
-     * without the history. Version 1 keeps today's key exactly, so nothing that
-     * predates this moves; a re-upload lands under `v<n>/<write id>/`, and the
-     * previous version's row still names an object a reader can open.
+     * and folder assignments survive a corrected plan — but the key is not derived
+     * from the id alone, or the new bytes would land on top of the old ones.
+     * Version 1 keeps the plain key, so existing keys do not move; a re-upload
+     * lands under `v<n>/<write id>/`, and the previous version's row still names
+     * an object a reader can open.
      *
      * A re-upload ALWAYS gets the write segment (`versionWriteKey`), never the
      * version-1 shortcut: the number is a hint, and it reads 1 whenever the
@@ -203,9 +202,9 @@ function placeUpload(session: AuthorizedSession, input: PlaceUploadInput): Promi
      * A folder re-sync is mostly this: a büro drops the directory again to bring
      * three corrected drawings in, and five hundred files that have not changed
      * come along with them. The planner already skips the ones it can prove are
-     * identical — but only where the row carries a digest, so a corpus that
-     * predates `content_hash`, a browser without `crypto.subtle`, and every
-     * non-secure context fall through to here.
+     * identical — but only where the row carries a digest, so rows without a
+     * `content_hash`, a browser without `crypto.subtle`, and every non-secure
+     * context fall through to here.
      *
      * This tier has the bytes and the row, so it can answer. Answering saves the
      * object write, the quota round trip, and — the expensive one — a full
@@ -263,7 +262,7 @@ async function admitRow(
   if (placed.superseded) {
     // The FULL size is charged: the previous bytes stay behind as the superseded
     // version, so the correction frees nothing — see `replaceDocumentWithinQuota`.
-    // NOTHING is discarded: the previous bytes are the previous VERSION's now
+    // NOTHING is discarded: the previous bytes belong to the previous VERSION
     // (ADR-0054), and they go when the document is deleted.
     await admitReplacementOrDiscard(storageBucket, storageKey, session.organizationId, documentId, {
       storageKey,
@@ -287,8 +286,8 @@ async function admitRow(
     createdBy: session.userId,
     filename: input.filename,
     storageKey,
-    // Recorded even when it IS the shared bucket, so only rows predating
-    // migration 0033 rely on the NULL-means-shared convention.
+    // Recorded even when it IS the shared bucket, so a new row never relies on
+    // the NULL-means-shared convention.
     storageBucket,
     collectionName: input.collectionName,
     fileSize: file.size,
@@ -370,7 +369,7 @@ async function prepareUpload(
      * identity hold for a büro that drags an Einreichung off a Mac: without it
      * the probe misses and a second row appears under a name nobody can tell
      * apart from the first. `findLiveDocumentByFilename` still looks for both
-     * forms, because rows written before this line exist. See `./name-match`.
+     * forms, because existing rows may carry the other one. See `./name-match`.
      */
     filename,
     folderId,

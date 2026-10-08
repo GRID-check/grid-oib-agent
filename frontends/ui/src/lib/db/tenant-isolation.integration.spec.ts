@@ -127,12 +127,12 @@ describe.skipIf(!url)('tenant isolation against live Postgres', () => {
   })
 
   /**
-   * The cheapest test here, and the one that would have caught the worst bug in
-   * this feature's history: a policy on `project_folders` that referenced
-   * `project_folders` is rejected by Postgres outright —
-   * "infinite recursion detected in policy" — and because `documents`' policy
-   * joined that table, BOTH were completely unreadable for the runtime role.
-   * Every other test passed, because none of them touched those two tables.
+   * The cheapest test here, and the one that catches the worst failure of this
+   * kind: a policy on `project_folders` that referenced `project_folders` is
+   * rejected by Postgres outright — "infinite recursion detected in policy" — and
+   * because `documents`' policy joined that table, BOTH were unreadable for the
+   * runtime role. Only a read of every table notices, since no other test touches
+   * those two.
    *
    * So: every secured table, selected as the role the app actually uses. Not a
    * sample.
@@ -152,8 +152,8 @@ describe.skipIf(!url)('tenant isolation against live Postgres', () => {
     expect(names.length).toBeGreaterThanOrEqual(28)
 
     // The one documented exception set: the lesson tables are secured AND
-    // deliberately unreadable for the tenant role (0068 revokes the platform
-    // helper's SELECT — see the migration's comment). Their posture has its
+    // deliberately unreadable for the tenant role (the migration revokes the platform
+    // helper's SELECT). Their posture has its
     // own test below ('hides the lesson tables from tenants entirely'), which
     // fails if the revoke disappears, so excluding them here does not leave
     // them untested — it leaves them tested for the OPPOSITE claim.
@@ -197,7 +197,7 @@ describe.skipIf(!url)('tenant isolation against live Postgres', () => {
   it('isolates rows keyed to a person, not an organization', async () => {
     // `user_preferences` is the only table whose rule is grid.user_id. Both the
     // policy and the app-side SET LOCAL for that setting could be deleted with
-    // a green suite before this existed.
+    // a green suite; this test refuses that.
     await withTenant({ organizationId: ORG_A, userId: 'user_one' }, () =>
       db.execute(
         sql`insert into user_preferences (workos_user_id, prefs) values ('user_one', '{"a":1}')
@@ -265,7 +265,7 @@ describe.skipIf(!url)('tenant isolation against live Postgres', () => {
   })
 
   /**
-   * Product feedback (0100): a tenant sees only the reports written from it,
+   * Product feedback: a tenant sees only the reports written from it,
    * the platform bypass sees all of them, and the CHECKs hold the bounds the
    * form counts against.
    */
@@ -338,10 +338,10 @@ describe.skipIf(!url)('tenant isolation against live Postgres', () => {
 
   /**
    * `SET LOCAL` is a UTILITY statement; `SELECT set_config(...)` is a query, and
-   * Postgres refuses `SET TRANSACTION ISOLATION LEVEL` after any query. So an
-   * earlier version of the context broke isolation levels for tenant scopes
-   * while leaving the platform path (already `SET LOCAL ROLE`) working — the
-   * kind of asymmetry that hides for a long time.
+   * Postgres refuses `SET TRANSACTION ISOLATION LEVEL` after any query. So the
+   * tenant context must be set with `SET LOCAL`: a `set_config` query would break
+   * isolation levels for tenant scopes only, and that asymmetry hides for a long
+   * time.
    */
   it('still allows an isolation level to be set on the transaction', async () => {
     const rows = await withTenant({ organizationId: ORG_A }, () =>
@@ -411,8 +411,8 @@ describe.skipIf(!url)('tenant isolation against live Postgres', () => {
   })
 
   /**
-   * The lesson tables are tighter than the platform-table norm: 0068 revokes
-   * even the tenant READ grant, because nothing tenant-facing queries them
+   * The lesson tables are tighter than the platform-table norm: even the tenant
+   * READ grant is revoked, because nothing tenant-facing queries them
    * (the injected digest is built under the platform role) and a CANDIDATE
    * lesson is exactly the text the auditor model flagged as possibly
    * identifying. This test is what keeps that revoke from being "simplified"
@@ -439,11 +439,11 @@ describe.skipIf(!url)('tenant isolation against live Postgres', () => {
   })
 
   /**
-   * A row's own organization_id is not the whole rule. Nothing stopped a tenant
-   * from REFERENCING another tenant's row, and the FKs cascade: org A could
-   * attach its conversation to org B's project, and org B deleting that project
-   * — an ordinary, authorised action — would destroy org A's data. The policies
-   * validate the referenced row's organization for exactly this reason.
+   * A row's own organization_id is not the whole rule. A tenant must not be able
+   * to REFERENCE another tenant's row: the FKs cascade, so org A attaching its
+   * conversation to org B's project would let org B deleting that project — an
+   * ordinary, authorised action — destroy org A's data. The policies validate the
+   * referenced row's organization for exactly this reason.
    */
   it('refuses to reference another tenant\'s row', async () => {
     const [projectOfB] = [
@@ -481,9 +481,8 @@ describe.skipIf(!url)('tenant isolation against live Postgres', () => {
       )
     })
 
-    // The UPDATE that used to be accepted: the row keeps its own organization,
-    // but the project underneath it becomes another tenant's. WITH CHECK now
-    // rejects it outright rather than letting it through.
+    // An UPDATE that keeps the row's own organization but points its project at
+    // another tenant's is refused: WITH CHECK rejects it.
     const cause = await rejectionCause(() =>
       withTenant({ organizationId: ORG_A }, () =>
         db.execute(
@@ -538,10 +537,10 @@ describe.skipIf(!url)('tenant isolation against live Postgres', () => {
         )
       )
     )
-    // Since 0031 this is refused by the composite foreign key rather than the
-    // policy: the row's organization defaults to the active tenant, and
-    // `(conv_of_A, ORG_B)` is not a pair that exists in `conversations`. A
-    // stronger refusal than the policy's, and it fires before it.
+    // This is refused by the composite foreign key rather than the policy: the
+    // row's organization defaults to the active tenant, and `(conv_of_A, ORG_B)`
+    // is not a pair that exists in `conversations`. A stronger refusal than the
+    // policy's, and it fires before it.
     expect(cause.message).toMatch(/row-level security|violates foreign key/i)
 
     await withPlatformAccess('test cleanup', async () => {
@@ -551,7 +550,7 @@ describe.skipIf(!url)('tenant isolation against live Postgres', () => {
   })
   /**
    * Folders belong to a SHELF and a TENANT, and the database holds both
-   * (migration 0102, ADR-0078). The Archiv has no project to carry "same project
+   * (ADR-0078). The Archiv has no project to carry "same project
    * implies same tenant", so the tenant is a column, the policy reads it, and
    * composite keys tie a parent and a document to the folder's own shelf.
    */

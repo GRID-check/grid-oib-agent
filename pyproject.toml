@@ -47,7 +47,7 @@ dependencies = [
     # Arrives through nvidia-nat-langchain[openai]; the floor is ours. Below 1.6.6 a
     # STREAMED Responses call drops the model's encrypted reasoning items, so
     # every tool round thinks from scratch and nothing fails
-    # (docs/contributing/gotchas.md, a0ec99d2).
+    # (docs/contributing/gotchas.md).
     "langchain-openai>=1.6.6",
 ]
 
@@ -88,12 +88,12 @@ viz = [
 workos = "aiq_agent.auth.workos_validator:get_validators"
 
 [project.entry-points."nat.plugins"]
-# `aiq_researcher*` and not `aiq_piloti*` although the package moved to
+# `aiq_researcher*` and not `aiq_piloti*`, though the package lives in
 # `agents/piloti`: a plugin entry-point name is what a deployment's
 # `NAT_PLUGIN_*` allow/deny lists and the installed dist-info carry, and a
 # stale `<pkg>.egg-info/entry_points.txt` from an older checkout is exactly the
 # ModuleNotFoundError-from-nowhere in `docs/contributing/gotchas.md`. Only the
-# module paths move.
+# module paths follow the package's location.
 aiq_researcher_conversation = "aiq_agent.agents.piloti.conversation_register"
 aiq_researcher = "aiq_agent.agents.piloti.register"
 aiq_deep_researcher = "aiq_agent.agents.deep_researcher.register"
@@ -124,11 +124,10 @@ aiq_tasks = "aiq_agent.tools.tasks.register"
 # deployment without the lookups must keep every other tool.
 aiq_cross_project = "aiq_agent.tools.cross_project.register"
 # Grid telemetry `_type`s named in the shipped YAML. They register at import
-# via NAT decorators and used to ride in on `chat_researcher.register`. After
-# that package dissolved, `load_config` in a clean interpreter (the container's
-# `start_web.py`) raised ValidationError and the pod CrashLoopBackOff'd.
-# Discovery loads `nat.plugins`; without these they do not exist at runtime.
-# The RIS chat surface (`ris_lookup`). The three older RIS tools ride in on
+# via NAT decorators, and discovery loads `nat.plugins`: without these entries
+# `load_config` in a clean interpreter (the container's `start_web.py`) raises
+# ValidationError, and the pod crash-loops.
+# The RIS chat surface (`ris_lookup`). The other three RIS tools ride in on
 # `ris-adapter`'s own entry point (`sources/ris_adapter/pyproject.toml`); this
 # one is separate because `ris_adapter.lookup` hard-imports the knowledge layer
 # for the passage bound and the lane fan-out, and a deployment without it must

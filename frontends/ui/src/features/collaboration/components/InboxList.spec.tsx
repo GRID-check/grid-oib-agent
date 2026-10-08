@@ -144,11 +144,11 @@ describe('InboxList — states', () => {
     expect(screen.getByText('Anna Weber asked for your input')).toBeInTheDocument()
   })
 
-  test('announces the count politely, without reading the list aloud (NF-3)', () => {
+  test('announces the count politely, without reading the list aloud', () => {
     useInboxListMock.mockReturnValue(result({ items: [ITEM], pending: 1 }))
     render(<InboxList />)
-    // The live region is a small status node. It used to be the list container,
-    // so every filter change and every archive re-announced all fifty rows.
+    // The live region is a small status node, not the list container: otherwise
+    // every filter change and every archive would re-announce all fifty rows.
     expect(screen.getByTestId('inbox-list')).not.toHaveAttribute('aria-live')
     const status = screen.getByRole('status')
     expect(status).toHaveAttribute('aria-live', 'polite')
@@ -158,7 +158,7 @@ describe('InboxList — states', () => {
 
   test('says nothing when nothing needs the reader', () => {
     // The region is re-read on every filter change and every archive, so an empty
-    // queue used to interrupt with "0 items need your attention" — an
+    // queue must not interrupt with "0 items need your attention" — an
     // announcement about nothing, repeated.
     useInboxListMock.mockReturnValue(result({ items: [], pending: 0 }))
     render(<InboxList />)
@@ -167,8 +167,8 @@ describe('InboxList — states', () => {
   })
 
   test('a refused action is reported beside the list, not instead of it', () => {
-    // Archiving a row a second tab already archived used to replace every row
-    // with "Your inbox could not be loaded." — which had not happened.
+    // Archiving a row a second tab already archived must not replace every row
+    // with "Your inbox could not be loaded.", which has not happened.
     useInboxListMock.mockReturnValue(result({ items: [ITEM], pending: 1, mutationError: true }))
     render(<InboxList />)
     expect(screen.getAllByTestId('inbox-item')).toHaveLength(1)

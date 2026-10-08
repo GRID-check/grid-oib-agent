@@ -29,8 +29,8 @@ from nat.plugin_api import register_function
 
 logger = logging.getLogger(__name__)
 
-# Chunk content truncation. OIB tables routinely exceed 1500 chars and were cut
-# mid-table, losing rows the LLM needs to quote. Set to 2500 to keep most table
+# Chunk content truncation. OIB tables routinely exceed 1500 chars, and cutting
+# them mid-table loses rows the LLM needs to quote. Set to 2500 to keep most table
 # rows intact within one chunk. Value chosen as a named constant (#no-magic).
 _CHUNK_TRUNCATE_CHARS = 2500
 
@@ -447,18 +447,17 @@ def _resolve_scoped_collections(
     Layers (in order): base corpus, per-session collection, project collections.
 
     - When the ``X-Grid-Collection-Scope`` header is present via NAT context,
-      it takes precedence and is returned directly regardless of legacy flags.
-      Its entries carry the shelf the BFF stated (ADR-0047); a legacy
+      it takes precedence and is returned directly regardless of the config flags.
+      Its entries carry the shelf the BFF stated (ADR-0047); a
       bare-string entry states none, and that is left UNKNOWN rather than
       guessed back from the collection id.
-    - Legacy: when ``use_fixed_collection`` is True, only the base collection is
-      searched (the session collection is ignored). This preserves
-      backward-compatible pinned behavior.
+    - Pinned: when ``use_fixed_collection`` is True, only the base collection is
+      searched (the session collection is ignored).
     - Otherwise the search set is assembled from the enabled layers and
       de-duplicated while preserving order. If nothing is selected, fall back to
       the base collection.
 
-    In the legacy path the shelf is not inferred either: this function BUILDS the
+    In the pinned path the shelf is not inferred either: this function BUILDS the
     layers, so it knows which is the base corpus, which is the session store and
     which are project stores, and simply states it.
 
@@ -494,7 +493,7 @@ def _resolve_scoped_collections(
     base = base_collection if base_collection is not None else config.collection_name
 
     if config.use_fixed_collection:
-        # Legacy pinned behavior: base only, never the session collection.
+        # Pinned behavior: base only, never the session collection.
         return [ScopedCollection(base, Shelf.BASE)]
 
     session_collection = _normalize_session_collection_name(session_id)
@@ -533,8 +532,8 @@ def _restrict_scope_to_turn(entries):
     The signed header is the authorization ceiling. Turn intent
     (``focus_shelf`` / ``source_preset``, mapped by ``shelves_for_turn``)
     may only drop entries from it, so a "summarize this upload" turn cannot
-    be padded with Archiv hits (#429) and a Projektunterlagen chip cannot
-    keep searching the Büroarchiv (#436).
+    be padded with Archiv hits, and a Projektunterlagen chip cannot keep
+    searching the Büroarchiv.
     """
     try:
         from aiq_agent.common.focus_file import get_turn_shelves
@@ -566,9 +565,9 @@ def _resolve_target_collections(
 #: emits everything outside that run -- the cover page and the Impressum -- as
 #: per-page Documents tagged ``chunking: "page"``. Neither is citable: pdfplumber
 #: returns the cover's display type as garble, and the Impressum is furniture. A
-#: title-shaped query ("OIB-Richtlinie 2 Ausgabe Mai 2023") matched exactly those
-#: two, so an overview question came back as four cover pages at page 1 and the
-#: model learned nothing.
+#: title-shaped query ("OIB-Richtlinie 2 Ausgabe Mai 2023") matches exactly those
+#: two, and an overview question comes back as four cover pages at page 1, which
+#: teaches the model nothing.
 #:
 #: The exclusion is a STORE filter rather than a post-retrieval drop because a
 #: dropped hit still costs its candidate slot. It is ``$ne`` rather than a
@@ -621,10 +620,9 @@ def _rank_channel(chunks) -> list:
     carries no ``chunk_id``: a collection whose rank 3 was dropped upstream keeps rank 4
     at rank 4 instead of silently promoting it.
 
-    Chunks with no stamped rank (SimpleNamespace test doubles, anything predating
-    the field) fall back to their position in the list, which
-    is the order the retriever returned them in — so an unstamped layer behaves exactly
-    as it did before the field existed.
+    Chunks with no stamped rank (SimpleNamespace test doubles, anything without the
+    field) fall back to their position in the list, which is the order the retriever
+    returned them in, so an unstamped layer keeps its own order.
     """
     by_rank: dict[int, object] = {}
     for position, chunk in enumerate(chunks):
@@ -644,22 +642,22 @@ def _rank_channel(chunks) -> list:
 def _apply_diversity_cap(ordered, top_k: int, max_per_document: int) -> list:
     """Select ``top_k`` chunks from a ranked list, spreading across distinct documents.
 
-    The cap is SOFT, which is what both the docstring it replaces and the LLM-facing tool
-    description have always promised: at most ``max_per_document`` chunks per distinct
-    document (keyed by collection + file_name) *where possible*, and the cap is exceeded
+    The cap is SOFT, which is what the LLM-facing tool description promises: at most
+    ``max_per_document`` chunks per distinct document (keyed by collection +
+    file_name) *where possible*, and the cap is exceeded
     rather than returning fewer than ``top_k`` chunks.
 
-    The first pass is bounded at ``top_k`` selections. The previous inline version scanned
-    the ENTIRE merged list, so ``selected`` was already longer than ``top_k`` under any
-    production config and ``(selected + leftovers)[:top_k]`` reduced to ``selected[:top_k]``
-    — the fill pass was unreachable and the quota was hard. Worse, appending the deferred
-    chunks after every selected one meant a downstream ``[:top_k]`` trim saw a list whose
-    head had been rebuilt out of low-ranked chunks: on a single-topic query it swapped
-    seven on-topic hits for seven off-topic ones from other documents.
+    The first pass is bounded at ``top_k`` selections. Scanning the ENTIRE merged list
+    would leave ``selected`` longer than ``top_k`` under any production config, and then
+    ``(selected + leftovers)[:top_k]`` reduces to ``selected[:top_k]``: the fill pass is
+    unreachable and the quota is hard. Appending the deferred chunks after every selected
+    one would also let a downstream ``[:top_k]`` trim see a list whose head is rebuilt out
+    of low-ranked chunks: on a single-topic query that swaps seven on-topic hits for seven
+    off-topic ones from other documents.
 
     The result is returned in rank order, i.e. as a subsequence of ``ordered``. Selection
-    order was not monotone in the ranking key it was selected by, which is what made the
-    downstream trim lossy.
+    order is not monotone in the ranking key, and that is what would make a downstream
+    trim lossy.
 
     Args:
         ordered: Chunks in final rank order, best first.
@@ -766,10 +764,10 @@ def _merge_results(results, query: str, top_k: int, backend_name: str, max_per_d
             # A missing collection is routine — every new conversation's session
             # collection does not exist until something is uploaded into it, so
             # logging that at WARNING would bury the signal under one line per turn.
-            # Everything else is not routine: a corpus that dropped out because Chroma
-            # was unreachable, a collection deleted and recreated, or a filter that
-            # failed to translate all produced a confident answer built on an empty
-            # knowledge layer with nothing above DEBUG to say so.
+            # Everything else is not routine: a corpus that drops out because Chroma
+            # is unreachable, a collection deleted and recreated, or a filter that
+            # fails to translate all produce a confident answer built on an empty
+            # knowledge layer, with nothing above DEBUG to say so.
             message = getattr(result, "error_message", None) or ""
             if _is_embedding_mismatch(message):
                 if message not in mismatch_errors:
@@ -815,7 +813,7 @@ def _merge_results(results, query: str, top_k: int, backend_name: str, max_per_d
 
         matching = [chunk for chunk in merged_chunks if _is_focus(chunk)]
         # Matches are the turn. Filling the rest from Archiv/project is how
-        # "summarize this PDF" grew a Büro plan (#429).
+        # "summarize this PDF" grows a Büro plan.
         merged_chunks = matching if matching else merged_chunks
 
     merged_top_k = _apply_diversity_cap(merged_chunks, top_k, max_per_document)
@@ -886,8 +884,8 @@ async def _draft_hyde_text(hyde_llm_obj, query: str, *, enabled: bool, timeout_s
 def _resolve_doc_classes(chunks) -> dict[tuple[str, str], str]:
     """Resolve the authoritative ``doc_class`` for each hit's document.
 
-    The summary store is the source of truth for ``doc_class`` at retrieval time
-    (see the Phase B design decision); chunk metadata is only a fallback for
+    The summary store is the source of truth for ``doc_class`` at retrieval time;
+    chunk metadata is only a fallback for
     standalone deployments that ship no summary DB. This builds a
     ``(collection, file_name) -> stored doc_class`` map by looking each distinct
     document up once via the factory. Fail-open: any store error (or missing
@@ -1194,9 +1192,9 @@ def _empty_search_message(
         "Retry once with a shorter topic query"
         + (", a different `file_name` from the inventory" if file_name else ", or `file_name=` an exact inventory name")
         + ", or `title_contains=` a fragment. "
-        # A name taken from the reader's open file filtered a norm question down
-        # to nothing (answer feedback, October 2026): say that the law is not in
-        # that file, so the retry can drop the filter instead of guessing names.
+        # A name taken from the reader's open file can filter a norm question down
+        # to nothing: say that the law is not in that file, so the retry can drop
+        # the filter instead of guessing names.
         + (
             "If the question is about the law (OIB, Bauordnung) rather than this file's own content, "
             "retry WITHOUT `file_name=`: the norms are not filed under the reader's documents. "
@@ -1407,7 +1405,7 @@ def _citation_key_for(file_name: str, shelf, page: int | None, ambiguous: set[st
     It keeps the REAL filename, which is the document identity preview
     resolution and source dedup use; only the human ``Source:`` label is
     prettified. When the same filename arrived from two different shelves in
-    this very result set the name alone no longer identifies a document, so it
+    this very result set the name alone does not identify a document, so it
     is qualified: ``Plan.pdf (Projektwissen), p.3``. The qualifier is
     rendering, not transport, and an unknown shelf gets none.
     """
@@ -1450,7 +1448,7 @@ _WHOLE_FRAME_AREA = 0.9
 
 
 def _hit_regions(chunk) -> tuple:
-    """Where on the page a visual chunk's depiction sits, as the viewer draws it (issue #433).
+    """Where on the page a visual chunk's depiction sits, as the viewer draws it.
 
     The visual analysis stores one ``bbox`` per segment inside the chunk's
     ``drawing_data`` (``visual_analysis.segment_payloads``), normalised 0-1 over
@@ -1464,8 +1462,7 @@ def _hit_regions(chunk) -> tuple:
       the wrong place with full confidence, so it gets none.
 
     Anything malformed yields nothing: a missing box leaves the viewer opening
-    at the page, which is what it did before, while a wrong one points the
-    reader at the wrong drawing.
+    at the page, while a wrong one would point the reader at the wrong drawing.
     """
     from aiq_agent.common.grounding_block import SourceRegion
 
@@ -1565,7 +1562,7 @@ async def _coverage_gap(query: str, merged, verdict, config, *, widened: bool):
     Asked only where the judge already ran and found the first pool
     insufficient, so the family overview, a pinned file, a skipped judge and a
     sufficient pool never reach it and render exactly as before. Only the
-    ``jev`` decider: the LLM judge's verdict was on the fused head before the
+    ``jev`` decider: the LLM judge's verdict is on the fused head before the
     reranker and the requery round, and asking it again costs a frontier call.
     A degraded pool claims nothing either: the layer that dropped out may hold
     the answer, and the block already says it is partial.
@@ -1609,7 +1606,7 @@ def _format_results(
 
     ``coverage_gap`` is why the passages do not answer the question, when the
     decider read them and said so (``requery.judge_coverage``). The block then
-    says „Abdeckung: unzureichend" under a preamble that no longer calls the
+    says „Abdeckung: unzureichend" under a preamble that does not call the
     hits relevant; the line itself says how many were judged, and the preamble
     claims nothing about the rest.
     """
@@ -1680,8 +1677,8 @@ class _FamilyBranch:
     """What the family branch produced: an overview, or the fact that it broke.
 
     "This query names no family the corpus holds" and "the overview raised"
-    both used to arrive as ``None``, so the tool result could not say which had
-    happened, and neither could a trace of it.
+    both would otherwise arrive as ``None``, so the tool result could not say which
+    had happened, and neither could a trace of it.
     """
 
     overview: Any = None
@@ -1694,7 +1691,7 @@ _NO_FAMILY_BRANCH = _FamilyBranch()
 #: Ranked passages kept BESIDE a family overview. The overview already opens
 #: every part at its Geltungsbereich and lists its Gliederung; the ranked
 #: search around it is context, not the answer. Measured on „Was weißt du über
-#: die OIB 2?" (2026-09-23, live): with the full sixteen, the block was 25.5k
+#: die OIB 2?": with the full sixteen, the block was 25.5k
 #: characters (~7.4k tokens), half of it Leitfaden and Erläuterungen excerpts
 #: that an overview answer never cites, re-sent on every later call of the turn.
 _FAMILY_RANKED_HITS = 4
@@ -1789,7 +1786,7 @@ async def knowledge_retrieval(config: KnowledgeRetrievalConfig, _builder: Builde
     Knowledge retrieval function for searching ingested documents.
 
     This function provides semantic search over documents that have been
-    previously ingested into the knowledge layer (the llamaindex backend) and
+    already ingested into the knowledge layer (the llamaindex backend) and
     returns formatted results suitable for LLM consumption.
 
     The retriever and ingestor are initialized once when the function is
@@ -1841,11 +1838,10 @@ async def knowledge_retrieval(config: KnowledgeRetrievalConfig, _builder: Builde
     # Cross-encoder reranking, when configured. Primary when present; the LLM judge
     # above stays as the fallback. Returns None (never raises) for 'none', an unknown
     # provider, or a key that does not resolve. Built once at startup with no
-    # organization in scope, which is why the KEY is no longer decided here: the
-    # handle resolves its credential per search from the turn's organization, so
-    # a BYOK org's reranks go out on its own key
-    # (``cross_encoder.CrossEncoderReranker._credential_for_search``). The
-    # platform key still has to resolve at startup, because a handle that could
+    # organization in scope, so the key is not decided here: the handle resolves its
+    # credential per search from the turn's organization, and a BYOK org's reranks go
+    # out on its own key (``cross_encoder.CrossEncoderReranker._credential_for_search``).
+    # The platform key still has to resolve at startup, because a handle that could
     # never authenticate anything is one this returns None for.
     cross_encoder = None
     try:
@@ -2171,12 +2167,11 @@ async def knowledge_retrieval(config: KnowledgeRetrievalConfig, _builder: Builde
             #
             # The per-document diversity cap is NOT applied here. This merge builds the
             # CANDIDATE pool (`candidate_k`, 60 under the reference config), and a cap
-            # measured against that budget decides nothing: with one collection in scope
-            # the pool is at most `candidate_k` long, the soft fill returns everything,
-            # and the final trim to `top_k` below applied no cap at all -- one PDF could
-            # fill all sixteen answer slots while the tool description promised five.
-            # The cap belongs on the ANSWER budget, after the reranker has had the whole
-            # pool to judge (rag-system-audit-2026-08 F16), so it is applied below.
+            # on that budget decides nothing: with one collection in scope the pool is
+            # at most `candidate_k` long, the soft fill returns everything, and the
+            # final trim to `top_k` would apply no cap at all. The cap belongs on the
+            # ANSWER budget, after the reranker has had the whole pool to judge, so it
+            # is applied below.
             # HyDE channels ride along EMPTY by default and appended after the
             # originals when the probe fired, so the baseline order is untouched
             # unless the experiment added a real channel.
@@ -2209,10 +2204,9 @@ async def knowledge_retrieval(config: KnowledgeRetrievalConfig, _builder: Builde
 
                 # Never trim below what the caller is about to ask for. `top_k` is
                 # admin-tunable at runtime (up to 50) while `rerank_candidates` is a
-                # build-time YAML value, so raising Platform -> Retrieval top_k above
-                # rerank_candidates used to cap every search at rerank_candidates with
-                # no error — the "must exceed top_k" invariant was documented in a
-                # comment and enforced nowhere.
+                # build-time YAML value, so the larger of the two is kept: a `top_k`
+                # raised above `rerank_candidates` would otherwise cap every search at
+                # `rerank_candidates`.
                 rerank_top_n = max(effective_top_k, config.rerank_candidates)
                 return await rerank_chunks(
                     rerank_llm_obj,
@@ -2222,7 +2216,7 @@ async def knowledge_retrieval(config: KnowledgeRetrievalConfig, _builder: Builde
                     cross_encoder=cross_encoder,
                 )
 
-            # The retrieval loop (rag-system-audit-2026-08 F13). The judge reads
+            # The retrieval loop. The judge reads
             # the head of the fused pool BESIDE the reranker rather than before
             # it, so a pool that is sufficient — the common case — pays nothing
             # for having been judged. Only an insufficient verdict costs a second
@@ -2256,9 +2250,9 @@ async def knowledge_retrieval(config: KnowledgeRetrievalConfig, _builder: Builde
                     if family_task is not None and (await family_task).overview is not None:
                         # An overview question is answered by the overview. The
                         # judge's own criterion counts a scope note and a
-                        # Gliederung as NOT answering, so on this shape it said
-                        # "insufficient" by construction and fanned out two more
-                        # retrievals into a block that already held every part.
+                        # Gliederung as NOT answering, so on this shape it says
+                        # "insufficient" by construction and fans out two more
+                        # retrievals into a block that already holds every part.
                         # Keyed on the overview PRODUCED, not on the query's
                         # shape: a corpus without the family, or an overview
                         # that failed open, leaves ranked passages only, and
@@ -2363,8 +2357,7 @@ async def knowledge_retrieval(config: KnowledgeRetrievalConfig, _builder: Builde
             # specific embedding model's cosine distribution, and this deployment's
             # model is a deploy-time choice -- the collection fingerprint records which
             # one wrote the vectors precisely because they are not interchangeable. A
-            # value calibrated against one model silently over-filters under another,
-            # which is exactly how MIN_SURFACE_SCORE spent its whole life as a no-op.
+            # value calibrated against one model silently over-filters under another.
             # Calibrate with the retrieval-eval harness against the deployed model, then
             # set knowledge.relevance_floor_pct.
             #
@@ -2400,7 +2393,7 @@ async def knowledge_retrieval(config: KnowledgeRetrievalConfig, _builder: Builde
                 merged = merged.model_copy(update={"chunks": kept})
 
             # Coverage: the judge found the first pool insufficient, and the
-            # decider now reads the pool the model will get, after the requery
+            # decider reads the pool the model will get, after the requery
             # round. A complete "no" is said in the block; the pool stays whole,
             # because a decision never withholds a passage (ADR-0064). Anything
             # short of a complete "no" claims nothing.
@@ -2540,7 +2533,7 @@ async def knowledge_retrieval(config: KnowledgeRetrievalConfig, _builder: Builde
                     folder=folder,
                 )
 
-            # Format for LLM. _format_results does the (now batched, 1-3 query)
+            # Format for LLM. _format_results does the (batched, 1-3 query)
             # doc_class resolution plus pure-CPU string building; run it off the
             # event loop so the synchronous DB round-trips never block the loop
             # (and stall other concurrent turns).

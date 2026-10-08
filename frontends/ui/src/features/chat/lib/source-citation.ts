@@ -57,8 +57,8 @@ export interface CslItem {
    * „OIB-Richtlinie 2, Pkt. 3.5.2" is what an architect writes into a Befund; a
    * page is where that Punkt happens to be printed in one edition's PDF. The
    * chunker establishes the Punkt, the knowledge layer states it, the wire
-   * carries it and the model holds it — and every export dropped it, so the
-   * copied citation named the page and not the requirement.
+   * carries it and the model holds it, so every export carries it: a copied
+   * citation names the requirement, not only the page.
    */
   section?: string
   number?: string
@@ -274,8 +274,8 @@ export const toFachtext = (ref: CitationRef, now: Date): string => {
   }
   // Punkt before page. „OIB-Richtlinie 2, Pkt. 3.5.2, S. 12" is the order the
   // profession writes: the requirement identifies itself, the page only says
-  // where this edition prints it. The Punkt was dropped entirely, so the copied
-  // citation named a page in a document architects cite by Punkt.
+  // where this edition prints it. A citation that names only the page does not
+  // name the requirement, and architects cite by Punkt.
   // A RIS locus already names its unit („§ 63 Abs 1"); only an OIB/ÖNORM
   // Punkt needs the „Pkt." that the profession writes before a bare number.
   // So does any other locus that is not a bare number: a project document's

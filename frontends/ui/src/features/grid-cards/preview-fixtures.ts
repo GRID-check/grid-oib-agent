@@ -215,8 +215,8 @@ const RAW_FIXTURES: CardInput[] = [
       status: 'warning',
       provenance: 'computed',
       tolerance: 0.5,
-      // Exactly on the limit with a 5 mm band: the honest state, and the one
-      // the old card drew as a clean pass.
+      // Exactly on the limit with a 5 mm band: the honest state, and not a
+      // clean pass.
     },
     width: { label: 'Nutzbare Laufbreite', value: 110, required: 120, unit: 'cm', comparator: '>=', status: 'fail' },
     comfort_note: 'Schrittmaß 2×17,6 + 28 = 63,2 cm — innerhalb der Komfortregel (59–65 cm).',
@@ -229,9 +229,9 @@ const RAW_FIXTURES: CardInput[] = [
     dimensions: [
       { label: 'Neigung', value: 7.2, required: 6, unit: '%', comparator: '<=', status: 'fail', provenance: 'computed', tolerance: 0.1 },
       { label: 'nutzbare Breite', value: 120, required: 120, unit: 'cm', comparator: '>=', status: 'pass', provenance: 'declared' },
-      // The third state, which the gallery had no example of at all: the export
-      // cannot answer, and the card says what to change rather than showing a
-      // blank the reader takes for a fact about the building.
+      // The third state: the export cannot answer, and the card says what to
+      // change rather than showing a blank the reader takes for a fact about
+      // the building.
       {
         label: 'Handlauf beidseitig',
         value: null,

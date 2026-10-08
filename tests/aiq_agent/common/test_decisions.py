@@ -207,7 +207,7 @@ class TestFailOpen:
         assert [c.args[0] for c in resolve.call_args_list] == ["org-ctx", "org-given"]
 
     async def test_a_zdr_organization_is_decided_for_not_skipped(self, records):
-        """Every decision is pinned, so a ZDR org no longer loses them to a skip."""
+        """Every decision is pinned, so a ZDR org does not lose them to a skip."""
         seen: list[httpx.Request] = []
 
         def handler(request: httpx.Request) -> httpx.Response:
@@ -277,7 +277,7 @@ class TestTheCostIsOnTheLedger:
         record.assert_called_once()
         kwargs = record.call_args.kwargs
         assert kwargs["role"] == "decision" and kwargs["prompt_tokens"] == 476
-        # A value outside the ledger's vocabulary, as "provider" was, has the
-        # internal endpoint refuse the whole batch. Read from the BFF schema.
+        # A value outside the ledger's vocabulary makes the internal endpoint refuse the whole
+        # batch, so the cost sources are checked against the BFF schema.
         assert kwargs["cost_source"] == "usage_field"
         assert kwargs["cost_source"] in _bff_cost_sources()

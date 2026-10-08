@@ -3,10 +3,10 @@
  *
  * ## Why a pre-pass and not a counter during render
  *
- * Heading ids have to be unique per document: a report with two „Bewertung"
- * sections gave both `id="bewertung"`, so `getElementById` found the first one
- * and every link to the second — an in-page citation anchor, a pasted `#` —
- * scrolled to the wrong section without ever failing.
+ * Heading ids have to be unique per document. Two „Bewertung" sections that
+ * both carry `id="bewertung"` make `getElementById` find the first one, and
+ * every link to the second — an in-page citation anchor, a pasted `#` — scrolls
+ * to the wrong section without ever failing.
  *
  * The renderer assigns its ids inside per-heading component callbacks, so the
  * obvious fix is to count occurrences as those callbacks fire. Every shape of
@@ -69,12 +69,10 @@ export interface MarkdownHeading {
  * text group requires one of those.
  *
  * The text is captured GREEDILY and its trailing whitespace trimmed in code,
- * rather than captured lazily against a trailing `[ \t]*$`. The lazy form made
- * the engine expand the capture one character at a time and re-scan to the end
- * of the line on each step, which is quadratic in the line's length: a heading
- * carrying 40k interior spaces took 1,311ms, and this runs over every line of
- * every report. Greedy capture cannot backtrack against a class it does not
- * overlap, so the same line is now microseconds.
+ * not captured lazily against a trailing `[ \t]*$`. A lazy capture re-scans to
+ * the end of the line for each character it adds, which is quadratic in the
+ * line's length, and this runs over every line of every report. Greedy capture
+ * cannot backtrack against a class it does not overlap, so it stays linear.
  */
 const HEADING_RE = /^ {0,3}(#{1,4})(?:[ \t]+(.*))?$/
 
@@ -93,17 +91,17 @@ const INLINE_LINK_RE = /!?\[([^\]]*)\]\([^)]*\)/g
  * tags. Deliberately narrower than `<[^>]*>`: an autolink (`<https://oib.at>`)
  * is not a tag, it renders as its own URL, and eating it would move that id.
  *
- * The attribute run is `(?:[\s/][^>]*)?` rather than `(?:\s[^>]*?)?\s*\/?`. That
- * earlier form let the lazy `[^>]*?` and the trailing `\s*` both match a space,
- * so an unterminated tag backtracked quadratically — `<a ` followed by 16k
- * spaces took 223ms, and this scans a whole report's markdown, which is written
- * from retrieved documents rather than from input we choose.
+ * The attribute run is `(?:[\s/][^>]*)?`, not a lazy `[^>]*?` followed by `\s*`:
+ * both of those can match the same space, so an unterminated tag such as `<a`
+ * followed by thousands of spaces backtracks quadratically. This scans a whole
+ * report's markdown, which is written from retrieved documents rather than from
+ * input we choose.
  *
  * The single leading `[\s/]` is what keeps the autolink exclusion above: a
  * tag's name is followed by whitespace, a slash or `>`, while `<https://oib.at>`
  * has a colon there, so the group cannot open and the match fails. A bare
- * `[^>]*` is linear too, and swallows every autolink — the regression
- * `headings.spec.ts` catches.
+ * `[^>]*` is linear too, but swallows every autolink; `headings.spec.ts` pins
+ * that.
  */
 const HTML_TAG_RE = /<\/?[A-Za-z][A-Za-z0-9-]*(?:[\s/][^>]*)?>/g
 
@@ -123,15 +121,6 @@ const CODE_SPAN_RE = /`+([^`]+)`+/g
 /** A backslash escape resolves to the character it protects. */
 const ESCAPE_RE = /\\([\\`*_{}[\]()#+\-.!~<>|])/g
 
-/**
- * The reader-visible text of a heading's inline markdown.
- *
- * Note what is deliberately NOT touched: a bare `[3]` and the `[2][3]` of a
- * claim carried by two sources. Both are literal text to the parser unless a
- * link definition exists for them, which a report does not write, and both are
- * shapes the citation numbering produces on purpose. Collapsing `[2][3]` to
- * "2" would print a number the report never wrote, and would move the id.
- */
 /**
  * How many times the tag pass may repeat before the text is forced clean.
  *
@@ -163,6 +152,15 @@ const stripHtmlTags = (text: string): string => {
   return current.replace(/</g, '')
 }
 
+/**
+ * The reader-visible text of a heading's inline markdown.
+ *
+ * Note what is deliberately NOT touched: a bare `[3]` and the `[2][3]` of a
+ * claim carried by two sources. Both are literal text to the parser unless a
+ * link definition exists for them, which a report does not write, and both are
+ * shapes the citation numbering produces on purpose. Collapsing `[2][3]` to
+ * "2" would print a number the report never wrote, and would move the id.
+ */
 const headingDisplayText = (raw: string): string =>
   stripHtmlTags(raw.replace(INLINE_LINK_RE, '$1'))
     .replace(CODE_SPAN_RE, '$1')
@@ -176,12 +174,12 @@ const headingDisplayText = (raw: string): string =>
 /**
  * Take the next free id for `base`, in document order.
  *
- * The FIRST heading of a given text keeps the bare id it has always had, so
- * every link already published against a first occurrence — a citation anchor
- * in a stored answer, a `#zusammenfassung` somebody pasted into a ticket — goes
- * on landing where it landed before. Only the second and later occurrences gain
- * a suffix, which is also what GitHub, MDN and every other anchored-heading
- * renderer does, so the shape is one readers have met.
+ * The FIRST heading of a given text keeps the bare id, so every link already
+ * published against a first occurrence — a citation anchor in a stored answer,
+ * a `#zusammenfassung` somebody pasted into a ticket — keeps landing where it
+ * does. Only the second and later occurrences gain a suffix, which is also what
+ * GitHub, MDN and every other anchored-heading renderer does, so the shape is
+ * one readers have met.
  *
  * `taken` is consulted as well as the per-text count, because the two spellings
  * can meet: a document with „Bewertung", „Bewertung" and „Bewertung 2" would
@@ -213,10 +211,9 @@ const claimHeadingId = (base: string, taken: Set<string>, counts: Map<string, nu
  * line as an ATX heading.
  *
  * Setext headings (`Bewertung` over `---`) are deliberately not scanned. They
- * fall through to the renderer's own text-derived id, which is what they had
- * before — nothing links to one by a pre-computed id, and teaching
- * this scan to recognise `---` would also have to tell it apart from a
- * thematic break and a table delimiter.
+ * fall through to the renderer's own text-derived id. Nothing links to one by a
+ * pre-computed id, and teaching this scan to recognise `---` would also have to
+ * tell it apart from a thematic break and a table delimiter.
  */
 export const markdownHeadings = (markdown: string): MarkdownHeading[] => {
   if (!markdown) return []

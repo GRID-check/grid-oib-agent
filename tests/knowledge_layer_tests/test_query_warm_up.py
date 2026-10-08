@@ -50,9 +50,8 @@ def _retriever() -> tuple[LlamaIndexRetriever, _SlowEmbedder]:
 def test_a_failed_embedding_fails_every_waiter_at_once():
     """A down embedding API fails every caller after ONE bounded call.
 
-    The old contract handed the key to one waiter at a time, so four callers
-    of a failing API paid four timeouts in a row (0.2/0.4/0.6/0.8 s here; about
-    10 s each against the real API).
+    Four callers of a failing API share one failed call instead of paying four
+    timeouts in a row (0.2/0.4/0.6/0.8 s here; about 10 s each against the real API).
     """
     retriever, embedder = _retriever()
     attempts: list[str] = []
@@ -140,8 +139,9 @@ def test_the_search_retriever_is_warmed_with_the_query_the_tool_will_send(monkey
 
 
 def test_the_warm_up_does_not_count_a_glossary_miss_the_search_will_count(monkeypatch, caplog):
-    """The miss line is a per-query coverage metric; the warm-up expands the
-    same query the search expands, so logging it there counted it twice."""
+    """The miss line is a per-query coverage metric, logged by the search alone: the
+    warm-up expands the same query the search expands, so logging it there would
+    count it twice."""
 
     class _Recorder:
         async def warm_query(self, query: str) -> None:
@@ -217,7 +217,7 @@ def test_the_retriever_hands_its_query_model_to_every_index_it_opens(monkeypatch
 
 
 def test_initialising_the_retriever_leaves_the_global_embed_model_alone(monkeypatch):
-    """The retriever's query model (3 s timeout) used to be installed as the
+    """The retriever's query model (3 s timeout) is not installed as the
     process-wide ``Settings.embed_model``; every index it builds is handed the
     model explicitly, so the global is not its to set."""
     from llama_index.core import Settings
@@ -240,8 +240,8 @@ def test_initialising_the_retriever_leaves_the_global_embed_model_alone(monkeypa
 
 
 def test_the_llamaindex_backend_registers_the_retriever():
-    # A class inserted between the decorator and the retriever once took the
-    # registration: every llamaindex deployment built the wrong class.
+    # A class inserted between the decorator and the retriever would take the
+    # registration, and every llamaindex deployment would build the wrong class.
     import sources.knowledge_layer.src.llamaindex.adapter  # noqa: F401  (registers)
 
     assert factory._RETRIEVER_REGISTRY["llamaindex"].__name__ == "LlamaIndexRetriever"

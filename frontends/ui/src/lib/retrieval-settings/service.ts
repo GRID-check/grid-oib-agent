@@ -1,13 +1,11 @@
 /**
  * Platform-controlled retrieval counts (Platform → Retrieval).
  *
- * The counts every retrieval tool fetches/caps used to be build-time facts —
- * YAML values in `configs/config_oib_openrouter.yml` or Python module
- * constants — so tuning them meant a commit plus a backend redeploy. They are
- * now rows in `platform_retrieval_settings`, written by the platform owner,
- * and the backend picks them up through `GET /api/internal/retrieval-settings`
- * (TTL-cached there, fail-open to the YAML/constant defaults when the BFF is
- * unreachable or a row is absent).
+ * The counts every retrieval tool fetches or caps are rows in
+ * `platform_retrieval_settings`, written by the platform owner, so tuning them
+ * needs neither a commit nor a backend redeploy. The backend picks them up
+ * through `GET /api/internal/retrieval-settings` (TTL-cached there, fail-open
+ * to the YAML/constant defaults when the BFF is unreachable or a row is absent).
  *
  * Platform-only by design — no org layer: retrieval depth is a fleet-wide
  * quality/cost trade-off, not a tenant preference.

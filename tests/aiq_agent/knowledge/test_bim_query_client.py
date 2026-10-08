@@ -36,8 +36,8 @@ def http_error(status: int, body: Any) -> urllib.error.HTTPError:
 class TestTheMessageAnAgentSeesWhenAQueryIsRefused:
     def test_reads_the_key_the_envelope_actually_carries(self):
         # `errorResponse` in lib/api/handler.ts emits {error, code, details}.
-        # This used to read `message`, a key the BFF has never sent, so every
-        # 4xx degraded to a bare status and the correctable text was lost.
+        # The client reads `error`, not `message`: the BFF never sends a `message` key, so every
+        # 4xx would degrade to a bare status and the correctable text would be lost.
         error = http_error(400, {"error": "gt/gte/lt/lte need a numeric value", "code": "BAD_REQUEST"})
         assert _rejection_message(error) == "gt/gte/lt/lte need a numeric value"
 

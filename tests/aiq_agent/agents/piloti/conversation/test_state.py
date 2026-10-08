@@ -50,9 +50,9 @@ class TestConversationState:
     def test_state_carries_the_escalation_ask_as_two_plain_fields(self):
         """The whole of what the escalation edge reads: a bool and its reason.
 
-        It used to be a nested ``ShallowResult`` model carrying the answer text
-        as well, which nothing read — and being a custom pydantic type it also
-        needed a row in the checkpointer's msgpack allow-list.
+        The answer text is not carried here: nothing reads it, and a nested
+        pydantic model would also need a row in the checkpointer's msgpack
+        allow-list.
         """
         state = ConversationState(
             messages=[HumanMessage(content="Test")],
@@ -65,7 +65,7 @@ class TestConversationState:
         assert "shallow_result" not in ConversationState.model_fields
 
     def test_state_carries_no_field_nothing_reads(self):
-        """``final_report`` and ``cards`` were never read or written by the graph;
+        """``final_report`` and ``cards`` are not read or written by the graph;
         cards come from the registry, the report is the deep message."""
         for gone in ("final_report", "cards"):
             assert gone not in ConversationState.model_fields

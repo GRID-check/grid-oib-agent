@@ -1,4 +1,4 @@
-"""Tests for the internal skills submit route (Agent Skills; successor of ADR-0023).
+"""Tests for the internal skills submit route (Agent Skills; ADR-0023).
 
 ``POST /v1/internal/skills/submit`` wraps ``submit_agent_job`` for scheduled
 and manual skill runs. It must:
@@ -10,11 +10,11 @@ and manual skill runs. It must:
 - select the agent type DETERMINISTICALLY from the JOB's chosen output kind:
   ``chat`` -> researcher, ``deep-research`` -> deep_researcher, with an
   explicit ``agent_type`` as the only override;
-- accept the pre-rename ``execution`` spelling for one release, with ``output``
+- accept the ``execution`` spelling as well as ``output``, with ``output``
   winning when both arrive (the BFF and this service deploy separately);
 - accept the attached skill NAMES and forward none of them: the skill's body
   is already inside the composed ``input``, and no agent state carries a forced
-  skill any more;
+  skill;
 - reconstitute the skill owner's identity into the Principal, owner, and
   usage_context handed to ``submit_agent_job`` (org-scoped admission + cost
   attribution);
@@ -135,11 +135,11 @@ def test_oversized_input_422(client, prod_token):
 
 
 def test_composed_input_above_the_old_skill_body_limit_is_accepted(client, prod_token, submit_mock):
-    """The input is a COMPOSED prompt now: job prompt + the attached skill body.
+    """The input is a composed prompt: job prompt + the attached skill body.
 
     Each half fits inside MAX_SKILL_BODY_LENGTH (32000) on its own, so the sum
-    routinely will not. 32001 chars used to be a 422; the ceiling is 48000, and
-    the prompt arrives whole rather than truncated.
+    routinely will not. The ceiling is 48000, and the prompt arrives whole rather
+    than truncated.
     """
     composed = "j" * 16000 + "s" * 16001
     assert len(composed) == 32001
@@ -210,11 +210,11 @@ def test_explicit_agent_type_overrides_the_output_default(client, prod_token, su
     assert submit_mock.await_args.kwargs["agent_type"] == "deep_researcher"
 
 
-# --- the output/execution rename window ------------------------------------
+# --- the output/execution field names --------------------------------------
 #
-# `execution` became `output` on both sides, but the BFF and this service
-# deploy separately. For one release the route accepts either spelling, so a
-# scheduled run fired by the not-yet-deployed half of the system still lands.
+# The BFF and this service deploy separately, so the route accepts either
+# spelling of the field (`output`, or `execution`). A scheduled run fired by
+# the not-yet-deployed half of the system still lands.
 # These four cases are the whole tolerance: output only, execution only, both,
 # neither.
 
@@ -299,7 +299,7 @@ def test_successful_submit_forwards_identity_and_scope(client, prod_token, submi
     assert kwargs["input_text"] == "Act as a building-physics advisor: check the OIB thermal requirements."
     # The skill names are NOT forwarded: the attached skill's body is already
     # composed into `input` above, and nothing on the worker can be told to
-    # load a skill any more.
+    # load a skill.
     assert "force_skills" not in kwargs
     # Owner is the owner's email (principal.email or principal.sub).
     assert kwargs["owner"] == "creator@example.com"

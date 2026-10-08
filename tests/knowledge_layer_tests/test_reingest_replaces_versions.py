@@ -1,18 +1,18 @@
 """Re-ingesting a file name REPLACES its earlier chunks, once the new version is in.
 
 Law does not go stale, it gets replaced — the OIB sync enforces that through
-its hash registry, but uploaded office/project documents had no replacement
-semantics at all: re-uploading ``statik-standard.pdf`` appended a second full
-set of chunks next to the first, and both versions then competed in retrieval
-on similarity alone.
+its hash registry. Uploaded office and project documents need the same
+semantics: without them, re-uploading ``statik-standard.pdf`` appends a second full
+set of chunks next to the first, and both versions compete in retrieval on
+similarity alone.
 
 Replacement is two steps. ``_find_previous_versions`` runs before the job and
 only reads: which chunk ids answer to each incoming name, under which stored
 spellings, and what a person set on their metadata row.
 ``_retire_previous_version`` runs per file once that file is in the vector
-store. It used to be one step that deleted first, and a re-upload that then
-failed (an encrypted PDF, nothing extracted, no VLM key) left the document with
-no chunks at all. The end-to-end tests at the bottom pin exactly that.
+store. It runs after the new version is in, not before: a re-upload that fails
+(an encrypted PDF, nothing extracted, no VLM key) must leave the old version whole,
+not the document with no chunks at all. The end-to-end tests at the bottom pin exactly that.
 
 - exact-name predecessors are found; tmp-prefixed and percent-encoded stored
   names (the two forms ``delete_file`` already normalizes) match their plain

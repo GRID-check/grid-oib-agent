@@ -24,14 +24,14 @@ export interface ProjectChatClientProps {
   canChatInProject?: boolean
   /** Whether shallow answers show the confidence chip (WorkOS `chat-confidence-chip`). */
   showConfidenceChip: boolean
-  /** Whether answers show the per-answer thumbs row (WorkOS `answer-feedback`, WS-7). */
+  /** Whether answers show the per-answer thumbs row (WorkOS `answer-feedback`). */
   showAnswerFeedback: boolean
   /**
    * Whether the sessions panel shows the Deep Research section and per-session
-   * research labels (WorkOS `research-in-chat-history`, FB-10).
+   * research labels (WorkOS `research-in-chat-history`).
    */
   showResearchInHistory: boolean
-  /** Qdrant collection scoping the Deep Research section's job fetch (FB-10). */
+  /** Qdrant collection scoping the Deep Research section's job fetch. */
   projectCollection: string | null
   /** Project name for the thread-header breadcrumb + composer scope chip. */
   projectName: string | null
@@ -61,9 +61,8 @@ const ProjectChatContent = ({
 
   // The deep links this route answers are `?session=`, `?run=`, `?ask=`,
   // `?doc=`, `?file=` and `?new=` — every one of them lands the reader in the
-  // thread. `?job=<jobId>&tab=` used to open the legacy research panel instead;
-  // a run is read in the thread that commissioned it now (ADR-0062), so the
-  // params resolve to nothing and the panel has no door left.
+  // thread. A run is read in the thread that commissioned it (ADR-0062), so
+  // `?job=<jobId>&tab=` resolves to nothing.
   const searchParams = useSearchParams()
   const router = useRouter()
   const pathname = usePathname()
@@ -90,8 +89,8 @@ const ProjectChatContent = ({
     if (!newParam || !isAuthenticated || consumedNewRef.current) return
     consumedNewRef.current = true
     startNewSessionDraft()
-    // Sidebar Frag Piloti (`?new=1` alone) is an empty draft — drop the
-    // previous peek (#441). `?new=1&doc=` is "new chat ABOUT this file"
+    // Sidebar Frag Piloti (`?new=1` alone) is an empty draft, so the previous
+    // peek is dropped. `?new=1&doc=` is "new chat ABOUT this file"
     // from Piloti dazu fragen; closing the peek there leaves no visual
     // of the subject.
     if (newChatDropsFilePreview(searchParams?.get('doc'))) {
@@ -124,7 +123,7 @@ const ProjectChatContent = ({
   // first: the lookup deliberately includes job conversations
   // (`lib/project-scope.ts` promises `?session=<id>` selects one), while the
   // switch itself stays with `selectConversation`, whose ownership and
-  // project-context guards remain authoritative (UX-8).
+  // project-context guards remain authoritative.
   const sessionParam = searchParams?.get('session') ?? null
   const sessionHydratedRef = useRef<string | null>(null)
 
@@ -180,8 +179,8 @@ const ProjectChatContent = ({
   // `#message-<id>` anchor — `useMessageAnchor` captured that at mount, so the
   // scroll still lands once the thread renders.
   //
-  // `?job=` keeps working underneath: rows older than run messages have nothing
-  // to resolve here and open the research panel exactly as before.
+  // A conversation without a run message has nothing to resolve here, and the
+  // URL is left unchanged.
   const runParam = searchParams?.get('run') ?? null
   const resolvedRunRef = useRef<string | null>(null)
 
@@ -245,8 +244,8 @@ const ProjectChatContent = ({
   useCitationPeek({ projectId, projectName, canCollaborate })
 
   useEffect(() => {
-    // `?doc=` is a documents.id. A filename here used to hit
-    // GET /api/documents/<filename>/status and 500 (#572).
+    // `?doc=` is a documents.id, never a filename: a filename would 500 on
+    // GET /api/documents/<filename>/status.
     if (!subjectId || !isUuid(subjectId)) return
     const preview = useFilePreviewStore.getState()
     if (preview.file?.id === subjectId) {

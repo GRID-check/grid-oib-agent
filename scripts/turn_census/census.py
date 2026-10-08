@@ -2,9 +2,8 @@
 
 Every model call the turn makes — research rounds, the turn decision, passage
 verdicts, the requery judge, reranks, embeddings — as the provider billed it:
-input tokens, cached tokens, output, seconds. The number the turns audit
-(`docs/architecture/turns-per-answer-audit-2026-09.md`) reconstructed by
-hand, measured.
+input tokens, cached tokens, output, seconds. These are the per-turn numbers
+the turns audit (`docs/architecture/turns-per-answer-audit-2026-09.md`) reports.
 
 Needs what a local turn needs: OPENROUTER_API_KEY, and the corpus ingested
 into AIQ_CHROMA_DIR (`python -c "from aiq_agent import oib_sync; oib_sync.sync()"`
@@ -115,9 +114,9 @@ def run_stamp() -> str:
 
 # The NAT plugins a run loads from ``frontends/``: installed editable from ONE
 # checkout like the sources, and loaded by every ``nat run`` through their entry
-# points. From a worktree of another commit the main checkout's ``aiq_api`` met
-# the worktree's ``aiq_agent`` and every turn died (``Unknown field name
-# front_end``), reported as a 0.0 s run.
+# points. A run that mixes a worktree's ``aiq_agent`` with another checkout's
+# ``aiq_api`` dies on every turn (``Unknown field name front_end``), so the
+# run's PYTHONPATH pins this checkout (see below).
 FRONTEND_PACKAGES = {"aiq_api": "frontends/aiq_api/src/aiq_api", "aiq_debug": "frontends/debug/src/aiq_debug"}
 
 
@@ -143,11 +142,12 @@ def tree_pythonpath(out: Path) -> str:
     """A PYTHONPATH that imports THIS checkout's code, whatever the venv installed.
 
     The venv installs ``aiq_agent``, the ``sources/`` packages and the
-    ``frontends/`` NAT plugins editable from ONE checkout. From a ``git worktree`` without its own venv, a run used to
-    import the main checkout's code while the report named the worktree's
-    commit. So ``src/`` goes first, and each ``sources/<pkg>`` is linked under
-    its import name (their package dirs are called ``src``), ahead of the
-    inherited path. The recorder's directory stays first.
+    ``frontends/`` NAT plugins editable from ONE checkout. Without this, a run
+    from a ``git worktree`` with no venv of its own imports the main checkout's
+    code under the worktree's commit. So ``src/`` goes first, and each
+    ``sources/<pkg>`` is linked under its import name (their package dirs are
+    called ``src``), ahead of the inherited path. The recorder's directory stays
+    first.
     """
     import hashlib
 

@@ -4,17 +4,14 @@
  * Who may look at a model, per shelf.
  *
  * A model is derived data; the DOCUMENT it was read from is the thing the
- * sharing rules are written about. `getAccessibleModel` and
- * `getModelForDocument` used to encode that as "a document with no project is
- * the org-wide Archiv, and any member may read it", which was an exact
- * statement of the rules until a second project-less shelf existed.
- *
- * ADR-0047 Phase 2 built one: a file dropped into a chat is `scope = 'session'`
- * with a NULL project, and it reaches the same extraction dispatcher — so a
- * private chat attachment became a model that every member of the organization
- * could read the building out of, and mint a presigned URL for. The documents
- * domain closed the same hole in `getAccessibleDocument`; these two entry
- * points had not.
+ * sharing rules are written about. A document with no project is not necessarily
+ * the org-wide Archiv: a file dropped into a chat is `scope = 'session'` with a
+ * NULL project (ADR-0047 Phase 2), and it reaches the same extraction
+ * dispatcher. Read as "no project means the Archiv", a private chat attachment
+ * would become a model that every member of the organization could read the
+ * building out of, and mint a presigned URL for. The documents domain guards the
+ * same case in `getAccessibleDocument`; `getAccessibleModel` and
+ * `getModelForDocument` must too.
  */
 
 import { beforeEach, describe, expect, it, vi } from 'vitest'
@@ -146,9 +143,9 @@ describe('getModelForDocument', () => {
   })
 
   it('refuses a chat attachment to somebody outside that chat', async () => {
-    // The regression. A `session` document also has a NULL project, so the old
-    // "no project means the Archiv" test handed a private attachment to the
-    // whole organization.
+    // The regression this guards: a `session` document also has a NULL project,
+    // so a "no project means the Archiv" test would hand a private attachment to
+    // the whole organization.
     await expect(getModelForDocument(SESSION, 'doc-other-chat')).rejects.toThrow()
   })
 

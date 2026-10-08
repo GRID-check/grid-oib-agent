@@ -234,7 +234,7 @@ describe('chat storage, one key per conversation', () => {
   })
 })
 
-describe('an older stored shape: the index is kept, the cached messages are dropped', () => {
+describe('a single-key stored shape: the index is kept, the cached messages are dropped', () => {
   beforeEach(() => {
     vi.useFakeTimers()
     localStorage.clear()
@@ -265,13 +265,13 @@ describe('an older stored shape: the index is kept, the cached messages are drop
     expect(JSON.parse(localStorage.getItem(chatIndexKey(KEY))!).shape).toBe(CHAT_MESSAGES_SHAPE)
   }
 
-  test('the single key the history lived in before the index', async () => {
+  test('reads the history from a single key with no index', async () => {
     const a: Conversation = { ...conv('a', 2), enabledDataSourceIds: ['web_search'] }
     localStorage.setItem(KEY, legacy([a, conv('b', 1)], 'b'))
     await expectIndexKeptAndMessagesDropped()
   })
 
-  test('an index written before the Herleitung was the wire v2 step', async () => {
+  test('reads an index with no shape marker as the wire v2 step', async () => {
     const a: Conversation = { ...conv('a', 2), enabledDataSourceIds: ['web_search'] }
     const storage = createResilientStorage()!
     storage.setItem(KEY, value([a, conv('b', 1)], null, { b: 'halb geschrieben' }))
@@ -284,7 +284,7 @@ describe('an older stored shape: the index is kept, the cached messages are drop
     await expectIndexKeptAndMessagesDropped()
   })
 
-  test('an old key that cannot be read is removed rather than read again on every load', async () => {
+  test('a key that cannot be read is removed rather than read again on every load', async () => {
     localStorage.setItem(KEY, '{not json')
     expect(await createResilientStorage()!.getItem(KEY)).toBeNull()
     expect(localStorage.getItem(KEY)).toBeNull()

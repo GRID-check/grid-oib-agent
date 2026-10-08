@@ -132,10 +132,10 @@ export interface BimModelSummary {
   /**
    * Property-set names present in the STORED elements, sorted.
    *
-   * Not "anywhere in the model", which is what this said: they are collected
-   * while building the element rows, so on a model past the extraction cap a
-   * set that occurs only in the dropped tail is absent from this list — and
-   * from the filter vocabularies built on it.
+   * Not "anywhere in the model": they are collected while building the element
+   * rows, so on a model past the extraction cap a set that occurs only in the
+   * dropped tail is absent from this list — and from the filter vocabularies
+   * built on it.
    */
   propertySetNames: string[]
   /** Quantity-set names present anywhere in the model, sorted. */
@@ -168,7 +168,7 @@ export interface BimModelSummary {
    * They run over the element list as EXTRACTED, which on a model past the
    * cap is the stored part and not the building: "43 Bauteile keinem Geschoß
    * zugeordnet" is 43 out of the stored rows. The `health` op carries the cap
-   * caveat for exactly this reason. This used to claim the opposite.
+   * caveat for exactly this reason.
    */
   health: BimHealth | null
   /** Parse wall-clock in ms and the source size, for the ingestion report. */
@@ -185,11 +185,11 @@ export interface BimModelIndex extends BimModelSummary {
    * Ids the file's entity index lists that the parser could not produce —
    * forward or dangling references.
    *
-   * They used to be counted into `totals` and `typeCounts` and then dropped,
-   * so the overview said "19 Bauteile" while 17 rows were queryable and
-   * nothing recorded the difference. They are counted out of the totals now
-   * and reported here instead, because a file whose index disagrees with its
-   * contents is a finding about the export, not a silent shortfall.
+   * They are counted out of `totals` and `typeCounts` and reported here: counted
+   * in, they would make the overview say "19 Bauteile" while 17 rows are
+   * queryable, with nothing recording the difference. A file whose index
+   * disagrees with its contents is a finding about the export, not a silent
+   * shortfall.
    */
   unreadableEntities: number
 }
@@ -229,8 +229,8 @@ export { DEFAULT_MAX_IFC_BYTES, maxIfcBytesFrom } from '@/shared/config/request-
  * size the viewer's full-model walk uses — one constant so the client cannot
  * ask for a size the schema refuses, and so the walk's request count is a
  * number a spec can reason about. At the 200 000-element extraction cap the
- * walk is 200 requests; at the old 200-row cap it was 1 000, which is how a
- * viewer load could drain a rate-limit budget by itself.
+ * walk is 200 requests; at a 200-row page it would be 1 000, enough by itself to
+ * drain a rate-limit budget on one viewer load.
  */
 export const BIM_ELEMENTS_PAGE_LIMIT = 1_000
 
@@ -247,8 +247,8 @@ export const BIM_ELEMENTS_PAGE_LIMIT = 1_000
  *
  * Not derived from `BIM_ELEMENT_LIMIT` directly because that constant lives in
  * the server-only service module, and this file is read by the browser. The
- * headroom is deliberate: raising the extraction cap must not silently
- * reintroduce the bug.
+ * headroom is deliberate: raising the extraction cap must not silently break
+ * the walk.
  */
 export const BIM_ELEMENT_OFFSET_LIMIT = 1_000_000
 

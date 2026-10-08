@@ -22,8 +22,8 @@ export interface MarkdownRendererProps {
    * top-level block (`markdown-blocks.ts`); a plugin that acts on the
    * document's END must check `documentContinues(file)`. Memoize the renderer a
    * caller hands `MarkdownSlotProvider` too: a new function re-renders every
-   * slot in the answer. It no longer remounts them, since the overrides read
-   * it from context (`stable-overrides.spec.tsx`).
+   * slot in the answer. The slots are not remounted by it, because the overrides
+   * read the renderer from context (`stable-overrides.spec.tsx`).
    */
   remarkPlugins?: PluggableList
 }

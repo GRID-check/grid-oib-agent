@@ -60,8 +60,8 @@ interface ProjectMembersFormProps {
    * {@link Member.organizationMembershipId}), so the roster can tell which
    * row is "you". Used to guard against an admin silently stripping their
    * own project access. `null`/omitted when unknown — the guard then simply
-   * never matches, i.e. it fails open to the pre-existing (unguarded)
-   * behavior rather than blocking legitimate changes.
+   * never matches, i.e. it fails open to the unguarded behavior rather than
+   * blocking legitimate changes.
    */
   currentMembershipId?: string | null
 }
@@ -431,8 +431,8 @@ export function ProjectMembersForm({
   /**
    * Roster row role change. Guards the current user's own row: an admin
    * changing their own role/access on this Select otherwise commits
-   * instantly (lockout footgun — see project-members-form ticket), so a
-   * self-edit is routed through an explicit confirmation instead of
+   * instantly (a lockout footgun), so a self-edit is routed through an
+   * explicit confirmation instead of
    * `assignRole` directly.
    */
   const handleRosterRoleChange = (member: Member, nextRole: ProjectRole | ''): void => {

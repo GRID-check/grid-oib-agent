@@ -25,9 +25,9 @@ export interface SeaweedFS extends SeaweedTopology {
  * set and the bucket bootstrap — and dispatches the layout itself to one of two
  * topologies (ADR-0043):
  *
- * - `seaweedfs-single.ts` — one `weed server -s3` process on one PVC. What
- *   every deployment ran before ADR-0043, kept intact so an existing stack sees
- *   no change until its operator chooses one.
+ * - `seaweedfs-single.ts` — one `weed server -s3` process on one PVC. Existing
+ *   stacks stay on it, so they see no change until their operator chooses the
+ *   split topology.
  * - `seaweedfs-split.ts` — master / volume / filer as separate workloads, with
  *   the filer namespace on Postgres. Volume capacity becomes a replica count,
  *   and the per-chunk encryption keys stop sharing a disk with the ciphertext.
@@ -111,7 +111,7 @@ export function installSeaweedFS(
   // reliable contract is POSITIVE VERIFICATION: run the create, then require
   // the bucket to appear in `s3.bucket.list` — that catches auth errors, filer
   // errors, and races identically. `timeout 120` bounds weed shell's silent
-  // connect-block if a gRPC port regresses (also found live). The listing lines
+  // connect-block if a gRPC port regresses. The listing lines
   // arrive prefixed with the shell prompt (`>   <name>\tsize:…`), so the grep
   // accepts the bucket name after either line start or the `>` prompt, with a
   // non-name delimiter after it — a plain `^ *name` anchor never matches.
@@ -125,7 +125,7 @@ export function installSeaweedFS(
         `echo "bucket ${b} verified"`,
     )
     // "; " — a bare space would butt commands together and produce
-    // `/bin/sh: syntax error` (caught by the live smoke deploy).
+    // `/bin/sh: syntax error`.
     .join("; ");
 
   const bucketInitJob = new k8s.batch.v1.Job(

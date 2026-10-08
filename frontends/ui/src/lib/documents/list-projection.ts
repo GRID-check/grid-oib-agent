@@ -2,14 +2,12 @@
  * The wire projection of a document listing — the one place a `listDocuments`
  * row becomes JSON.
  *
- * `GET /api/documents` used to hand its rows straight to the response and let
- * `JSON.stringify` decide what a `Date` looks like. That was invisible and
- * correct exactly once: the Files page now reads the same listing on the SERVER
- * and passes it to a client component as a prop, and the RSC boundary does NOT
- * stringify a `Date` — it rebuilds one. The first paint would have carried
- * `createdAt` as a `Date` where every consumer types it as an ISO string, and
- * `toISOString is not a function` would have arrived on whichever surface
- * touched it first.
+ * A listing row must not reach the wire as whatever `JSON.stringify` makes of a
+ * `Date`. The Files page reads the same listing on the SERVER and passes it to a
+ * client component as a prop, and the RSC boundary does NOT stringify a `Date` —
+ * it rebuilds one. Every consumer types `createdAt` as an ISO string, so an
+ * unprojected `Date` fails with `toISOString is not a function` on whichever
+ * surface touches it first.
  *
  * So the projection is stated rather than implied, and both readers go through
  * it. The return type is the CLIENT's wire type (`@/features/documents/lib`),
@@ -51,9 +49,9 @@ export function toDocumentWireRow(
   return {
     versionState: summary?.state ?? null,
     versionCount: summary?.versionCount ?? null,
-    // The item's own state, beside the version's. A listing that asked for
-    // archived rows and could not say which they are would put „archiviert"
-    // out of sight again one layer further in.
+    // The item's own state, beside the version's. A listing that asks for
+    // archived rows has to say which they are, or „archiviert" disappears one
+    // layer further in.
     lifecycle: row.lifecycle,
     id: row.id,
     filename: row.filename,

@@ -2,10 +2,10 @@
  * Typed plumbing for the zustand store mocks that specs set up.
  *
  * A spec almost never wants to build a whole store: it fixtures the handful of
- * fields the component under test actually selects. Historically that was
- * expressed as `(selector: (s: any) => any)`, which switched off type checking
- * for the fixture as well as the selector — a renamed store field left the test
- * green while the component broke.
+ * fields the component under test actually selects. A loose selector type,
+ * `(selector: (s: any) => any)`, would switch off type checking for the fixture
+ * as well as the selector: a renamed store field would leave the test green
+ * while the component broke.
  *
  * `StoreSelector` keeps the mock's signature identical to the real hook, and
  * `asStoreState` is the single audited place where a partial fixture widens to

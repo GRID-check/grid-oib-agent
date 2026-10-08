@@ -126,7 +126,8 @@ class LLMProvider:
             return self
 
         # Observability: this per-group override path (used by the async deep
-        # research worker) was previously silent, unlike apply_model_override.
+        # research worker) logs which groups take an override, as
+        # apply_model_override does.
         # Log which groups actually take an override so a run can be diagnosed.
         logger.info(
             "Applying model overrides: %s",

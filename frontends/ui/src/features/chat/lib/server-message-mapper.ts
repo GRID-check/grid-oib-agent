@@ -12,10 +12,10 @@
  *
  * The **provenance** IS restored (ADR-0037): the Herleitung in its compact form,
  * the confidence self-assessment, the routing transparency and the deep-research
- * job pointer. Without it a shared thread showed a colleague a bare answer — they
- * hold no agent socket by design (ADR-0033 §7), so the intermediate frames never
- * reach them and this row is the only place the reasoning could come from. It also
- * fixes the same loss for the ASKER on a second device, which predates sharing.
+ * job pointer. Without it a shared thread would show a colleague a bare answer:
+ * they hold no agent socket by design (ADR-0033 §7), so the intermediate frames
+ * never reach them, and this row is the only place the reasoning can come from.
+ * The asker on a second device gets the same content from the same row.
  *
  * Citations ARE restored, and are not optional in the way the rest of that
  * payload is: an answer that comes back without its provenance is an answer
@@ -141,11 +141,11 @@ export const mapServerMessageToChatMessage = (message: Message): ChatMessage | n
     ...(readSources ? { readSources } : {}),
     ...(metadata.errorData ? { errorData: metadata.errorData as ErrorCardData } : {}),
     ...(metadata.fileData ? { fileData: metadata.fileData as FileCardData } : {}),
-    // Validated, not cast. The live websocket path runs `validateGridCards`;
-    // this one — every card read back out of the database — did not, so a
-    // single row written under a different schema version reached a renderer
-    // that indexes a lookup table by an unvalidated field, threw during
-    // render, and blanked the WHOLE conversation rather than that one card.
+    // Validated, not cast. The live websocket path runs `validateGridCards`; this
+    // read path must too. A row written under a different schema version would
+    // otherwise reach a renderer that indexes a lookup table by an unvalidated
+    // field, throw during render, and blank the WHOLE conversation rather than that
+    // one card.
     ...(Array.isArray(metadata.cards) ? { cards: validateGridCards(metadata.cards) } : {}),
     // Re-sanitized on read like `cards`: a stored row is client-written jsonb,
     // and the renderer must never meet an unbounded shape.
@@ -285,8 +285,8 @@ const restoreProvenance = (value: unknown): Partial<ChatMessage> => {
   const out: Partial<ChatMessage> = {}
 
   // The same gate the write ran (`sanitizeProvenance`): the v2 step shape only,
-  // bounded. Migration 0097 rewrote the rows written before it, so a step
-  // without a known `kind` is dropped here rather than interpreted.
+  // bounded. Stored rows are in this shape (migration 0097), so a step without a
+  // known `kind` is dropped here rather than interpreted.
   const steps = sanitizeThinkingSteps(provenance.thinkingSteps)
   if (steps) out.thinkingSteps = steps
 

@@ -15,14 +15,12 @@
  *
  * ## A document has more than one set of bytes (ADR-0054)
  *
- * Since migration 0082 the item row describes the LIVE bytes and every other
- * version keeps its own object: a re-upload supersedes rather than deletes, and
- * a draft that has been written to has a `v<n>/` key of its own. Migration
- * 0082's header states the consequence out loud — "superseded versions stay
- * charged against the organization's storage quota" — and for a while that was
- * a claim the code did not honour, because usage summed `documents.file_size`
- * alone. An office that re-uploads a plan set weekly accumulated invisible,
- * unbilled bytes with no listing that showed them.
+ * The item row describes the LIVE bytes and every other version keeps its own
+ * object: a re-upload supersedes rather than deletes, and a draft that has been
+ * written to has a `v<n>/` key of its own. Superseded versions stay charged
+ * against the organization's storage quota, so usage is the item bytes plus the
+ * version overhead. Summing `documents.file_size` alone would leave every
+ * re-upload uncounted, and no listing would show those bytes.
  *
  * {@link versionOverheadBytes} is the second half of the ledger, and its
  * predicate is what makes it exact rather than approximately right: a version
@@ -104,13 +102,12 @@ export async function aggregateStorageUsage(
   for (const row of rows) {
     const bytes = (Number(row.bytes) || 0) + (overhead.get(row.scope) ?? 0)
     const count = Number(row.documents) || 0
-    // Always counted toward the total, whatever the scope reads. It used to
-    // FOLD an unrecognised scope into `project` — which for `session` would
-    // have reported a chat attachment as project storage, and for a genuinely
-    // unknown value would attribute bytes to a shelf that does not hold them.
-    // The quota itself never had this problem (`sumStorageBytes` and the
-    // admitting insert sum every row regardless of scope), so this is about the
-    // breakdown telling the truth, not about the ceiling.
+    // Always counted toward the total, whatever the scope reads. An unrecognised
+    // scope is not folded into a shelf: for `session` that would report a chat
+    // attachment as project storage, and for an unknown value it would attribute
+    // bytes to a shelf that does not hold them. The quota sums every row
+    // regardless of scope (`sumStorageBytes` and the admitting insert), so this
+    // is about the breakdown telling the truth, not about the ceiling.
     usage.total = {
       bytes: usage.total.bytes + bytes,
       documents: usage.total.documents + count,
@@ -243,15 +240,14 @@ export async function aggregateStorageUsageByOrganization(): Promise<
  * Insert a document row only if it keeps the organization within its quota,
  * atomically.
  *
- * ## What was wrong with checking first
+ * ## Why checking first is not enough
  *
  * `assertWithinStorageQuota` reads the sum, compares, and returns; the bytes go
  * to SeaweedFS afterwards and the row that carries `file_size` is inserted after
  * that. Two uploads that start together read the same sum, both pass, and the
  * organization ends up over its quota by up to the per-file limit times the
- * concurrency. Nothing reserved the capacity the check had approved, so the
- * approval was stale the moment it was given — which makes "quota" the wrong word
- * for what was implemented.
+ * concurrency. Nothing reserves the capacity the check approved, so the approval
+ * is stale the moment it is given, and a check alone does not make "quota" true.
  *
  * ## How this is atomic
  *
@@ -347,17 +343,15 @@ export async function readStorageUsage(tx: DbTransaction, organizationId: string
  *
  * ## The full size is charged, because the old bytes stay
  *
- * This used to exclude the row being replaced from the usage and charge the new
- * size in its place, on the argument that the correction frees the space of
- * what it corrects. Since ADR-0054 it does not: the previous bytes are kept as
- * the superseded version, under their own key. Excluding the row meant the old
- * size was counted NOWHERE during the admission — the item row was left out,
- * and the version overhead compares against the item's CURRENT key, which is
- * still the old one until this update — so every re-upload was admitted as if
- * it were free of the bytes it left behind. The usage after the commit is
- * `before + next.fileSize` exactly (the item now carries the new size, the old
- * version's key no longer matches the item's and joins the overhead), so that
- * is what is compared.
+ * The previous bytes are kept as the superseded version, under their own key
+ * (ADR-0054), so a replacement frees nothing. Excluding the row being replaced
+ * would count its old size NOWHERE during admission: the item row would be left
+ * out, and the version overhead compares against the item's CURRENT key, which
+ * is still the old one until this update. Every re-upload would be admitted as
+ * if it were free of the bytes it leaves behind. The usage after the commit is
+ * `before + next.fileSize` exactly (the item now carries the new size, and the
+ * old version's key no longer matches the item's and joins the overhead), so
+ * that is what is compared.
  *
  * Same advisory lock as the insert path, and deliberately so: a replace and an
  * insert racing for the last megabyte must serialize against each other, not

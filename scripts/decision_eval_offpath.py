@@ -35,9 +35,9 @@ USAGE
 -----
     python scripts/decision_eval_offpath.py
 
-THE LAST RUN
-------------
-2026-09-26: tags 12/12 types, disciplines 4 of 8 labelled with none false at
+THE REFERENCE RUN
+-----------------
+Tags 12/12 types, disciplines 4 of 8 labelled with none false at
 0.8 (clear disciplines 0.96-0.98, the highest false one 0.47); Dokumentart
 10/10 offered, none wrong; feedback causes 16/16.
 """

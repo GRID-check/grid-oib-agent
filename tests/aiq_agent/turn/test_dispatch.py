@@ -1,18 +1,18 @@
 """Which deployments hand an escalated question to a RUN.
 
-The gate used to read ``NAT_DASK_SCHEDULER_ADDRESS`` and nothing else, so every
-deployment running DB-claimed workers (``GRID_JOB_EXECUTION=db``, ADR-0021 —
-what staging and production run, and where no scheduler address is ever set)
-fell back to synchronous in-process research. That fallback returns no job id,
-and everything keyed off one — the report route, the filing seam the BFF jobs
-proxy hangs off it — was therefore unreachable on exactly the deployments that
-run the feature.
+A deployment running DB-claimed workers (``GRID_JOB_EXECUTION=db``, ADR-0021 —
+what staging and production run, where no scheduler address is ever set) must
+hand the question to a run too. Gating on ``NAT_DASK_SCHEDULER_ADDRESS`` alone
+would fall back to synchronous in-process research, which returns no job id;
+everything keyed off one — the report route, the filing seam the BFF jobs proxy
+hangs off it — would then be unreachable on exactly the deployments that run the
+feature.
 
 The contract under test is the one ``aiq_api.jobs.submit.submit_agent_job``
 already enforces: a submission is accepted unless *neither* backend is
-configured. These tests hold the chat gate to the same line — the turn now
-commissions a run through the BFF instead of submitting the job itself
-(ADR-0062), but the deployment question it asks first is unchanged.
+configured. These tests hold the chat gate to the same line — the turn
+commissions a run through the BFF rather than submitting the job itself
+(ADR-0062), and the deployment question it asks first is the same.
 """
 
 from unittest.mock import AsyncMock
@@ -37,7 +37,7 @@ def _state():
 
 
 class TestDispatchGate:
-    """Whether a commissioner is built at all — the decision the bug got wrong."""
+    """Whether a commissioner is built at all — the decision the gate must get right."""
 
     def test_db_execution_without_a_scheduler_still_submits(self, monkeypatch):
         # Staging exactly: db-claimed workers, no Dask anywhere.

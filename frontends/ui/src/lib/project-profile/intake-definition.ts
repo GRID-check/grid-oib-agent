@@ -203,12 +203,12 @@ export const projectIntakeDefinitionV1: ProjectIntakeDefinition = {
           why: 'Aus der Gemeinde folgen örtliche Vorschriften wie Fernwärme-Anschlussgebiete oder Schutzzonen.',
           writesTo: '/facts/standort_adresse/value',
         },
-        // Spec id A2_staat with AT/DE only. Kept as the shipped superset: the
+        // Spec id A2_staat lists AT and DE only; this superset is deliberate. The
         // storage key `country` and its token set are load-bearing (mirrored by
-        // the backend jurisdiction pipeline), and CH/other already exist in
-        // stored projects. The German Bundesland list rides with the German
-        // question catalog (v2, per README Länder-Scope) — until then non-AT
-        // locations describe themselves in `standort_details`.
+        // the backend jurisdiction pipeline), and CH/other exist in stored
+        // projects. The German Bundesland list belongs with the German question
+        // catalog (v2, per README Länder-Scope); until then non-AT locations
+        // describe themselves in `standort_details`.
         {
           id: 'A2_country',
           core: true,
@@ -322,8 +322,7 @@ export const projectIntakeDefinitionV1: ProjectIntakeDefinition = {
           writesTo: '/facts/flaechenwidmung/value',
         },
         {
-          // v1.0's B1_orig, now unconditionally visible: the original wording
-          // OR the user's own words both land here.
+          // The original wording OR the user's own words both land here.
           id: 'B1_text',
           core: true,
           label: 'Widmung im Originalwortlaut oder eigenen Worten',
@@ -395,8 +394,8 @@ export const projectIntakeDefinitionV1: ProjectIntakeDefinition = {
           writesTo: '/facts/baufluchtlinien/value',
         },
         {
-          // Absorbs v1.0's A8 (Schutzzone / Altstadterhaltung) — part of the
-          // B-Plan-Kernset now.
+          // Covers the Schutzzone / Altstadterhaltung question (legacy v1.0 A8),
+          // part of the B-Plan Kernset.
           id: 'B3_bes',
           label: 'Besondere Bestimmungen inkl. Schutzzone',
           type: 'text',
@@ -417,10 +416,10 @@ export const projectIntakeDefinitionV1: ProjectIntakeDefinition = {
           writesTo: '/facts/stellplatzregulativ/value',
         },
         {
-          // v1.0's B4 + B5 (Altlast) + B9 (Baumbestand) + B10 (Schutzgebiet)
-          // as ONE multi-select. The storage key stays `gefahrenzonen`: the old
-          // values are a strict subset of the new vocabulary, so every stored
-          // answer remains valid, and a key rename would strand them.
+          // One multi-select for legacy v1.0's B4 + B5 (Altlast) + B9 (Baumbestand)
+          // + B10 (Schutzgebiet). The storage key stays `gefahrenzonen`: the legacy
+          // values are a strict subset of this vocabulary, so every stored answer
+          // remains valid, and a key rename would strand them.
           id: 'B4',
           label: 'Standortrisiken & Schutzgüter',
           type: 'multi_select',
@@ -532,11 +531,10 @@ export const projectIntakeDefinitionV1: ProjectIntakeDefinition = {
           writesTo: '/facts/errichtungsstatus/value',
         },
         // -------------------------------------------------- Bestandsblock
-        // v1.0 asked these once per PROJECT (A6/A7/A9/A10); since v1.1 they
-        // belong to the building whose Bestand they describe. The storage keys
-        // are unchanged — only the scope suffix is new — and
-        // `answersFromProfile` bridges legacy project-scope values into the
-        // single-building case.
+        // These belong to the building whose Bestand they describe. Legacy v1.0
+        // profiles asked them once per PROJECT (A6/A7/A9/A10); the storage keys
+        // are unchanged apart from the scope suffix, and `answersFromProfile`
+        // bridges legacy project-scope values into the single-building case.
         {
           id: 'CB1',
           group: 'Bestand heute',
@@ -680,9 +678,9 @@ export const projectIntakeDefinitionV1: ProjectIntakeDefinition = {
           writesTo: '/facts/nutzungseinheiten/value',
         },
         {
-          // v1.0's C7 with INVERTED polarity, so it writes a NEW key:
+          // Legacy v1.0 C7 with INVERTED polarity, so it writes a NEW key:
           // `ne_unter_400` (ja = alle Einheiten bis 400 m²) stays untouched in
-          // stored profiles and `answersFromProfile` bridges it, inverted, into
+          // stored profiles, and `answersFromProfile` bridges it, inverted, into
           // this question. Reusing the old key would silently flip the meaning
           // of every stored answer — and the GK derivation with it.
           id: 'C8',
@@ -709,9 +707,9 @@ export const projectIntakeDefinitionV1: ProjectIntakeDefinition = {
           writesTo: '/facts/gebaeudestellung/value',
         },
         {
-          // Multi-select since v1.1 (a building can combine structures); the
-          // storage key stays `bauweise` — legacy single values are mapped by
-          // the `answersFromProfile` bridge.
+          // Multi-select: a building can combine structures. The storage key stays
+          // `bauweise`; legacy single values are mapped by the `answersFromProfile`
+          // bridge.
           id: 'C10',
           label: 'Tragstruktur / Bauweise (Mehrfachauswahl bei Kombination)',
           type: 'multi_select',
@@ -1030,8 +1028,8 @@ export const projectIntakeDefinitionV1: ProjectIntakeDefinition = {
           writesTo: '/facts/waermeversorgung/value',
         },
         {
-          // v1.0's E2 (PV) + E3 (Lüftung) + E4 (Kühlung) + E6 (Versickerung)
-          // as one multi-select; the four boolean keys are bridged in
+          // One multi-select for legacy v1.0's E2 (PV), E3 (Lüftung), E4 (Kühlung)
+          // and E6 (Versickerung); the four boolean keys are bridged in
           // `answersFromProfile`.
           id: 'E2',
           label: 'Weitere Technik angedacht',
@@ -1112,8 +1110,8 @@ export const projectIntakeDefinitionV1: ProjectIntakeDefinition = {
           writesTo: '/facts/wasserrecht/value',
         },
         {
-          // v1.0's F4 (Förderung) + F5 (Zertifizierung) as one multi-select.
-          // The storage key stays `foerderung`: old values are a subset, and
+          // One multi-select for legacy v1.0's F4 (Förderung) + F5 (Zertifizierung).
+          // The storage key stays `foerderung`: the old values are a subset, and
           // the legacy `zertifizierung` single-select is bridged in.
           id: 'F4',
           label: 'Förderung oder Zertifizierung angestrebt?',
@@ -1150,8 +1148,8 @@ export const projectIntakeDefinitionV1: ProjectIntakeDefinition = {
         'Geführter Freitext: alles, was der Assistent über die Zahlen hinaus wissen sollte. Alle Felder optional — je mehr Kontext, desto besser.',
       questions: [
         {
-          // v1.0's G1 + G2; the legacy `kontext_grundstueck` text is bridged
-          // into this field. G5 + G6 merged into G4 the same way.
+          // Covers legacy v1.0's G1 + G2; the legacy `kontext_grundstueck` text is
+          // bridged into this field. G5 + G6 are merged into G4 the same way.
           id: 'G1',
           core: true,
           label: 'Projektbeschreibung, Entwurfsidee & Umfeld',
@@ -1191,8 +1189,8 @@ export const projectIntakeDefinitionV1: ProjectIntakeDefinition = {
     },
     // ------------------------------------------------------------------ I
     //
-    // Placed BEFORE the summary, which is where the handover concept puts it
-    // last. Deliberate: Bestandspläne and the Bebauungsplan are INPUTS to the
+    // Placed before the summary, which the handover concept puts last.
+    // Deliberate: Bestandspläne and the Bebauungsplan are INPUTS to the
     // Modul B and C answers. Asking for geometry from memory and only then
     // asking for the plan that contains it gets the order backwards. The
     // module letter follows the concept so the two can be read side by side.
@@ -1279,7 +1277,7 @@ function scopeOfQuestion(questionId: string): ProjectIntakeScope | null {
 /**
  * The validated `bundesland` token vocabulary, read straight off the A2_land
  * question's own options so it can never drift from what the wizard offers.
- * (Backlog T3-9: mirrored, not shared, by the Python backend's
+ * (Mirrored, not shared, by the Python backend's
  * `project_context._BUNDESLAND_TOKENS`.)
  */
 export const BUNDESLAND_TOKENS: readonly string[] = (() => {
@@ -1320,7 +1318,7 @@ export function evaluateIntakeCondition(
 /**
  * The same evaluation, given the conditions directly rather than a question.
  *
- * Exported because conditions are no longer only a question's: document roles
+ * Exported because conditions are not only a question's: document roles
  * (`document-roles.ts`) carry a `recommendedWhen` list in this language so the
  * Modul I checklist is data rather than bespoke UI code. Sharing the evaluator
  * is what stops the checklist and the questions ever disagreeing about what a
@@ -1658,7 +1656,7 @@ export function buildIntakeProfile(
       ? (value as { value: unknown }).value
       : value
 
-  // Derive country from bundesland for legacy profiles.
+  // Derive country from bundesland when the profile has no country fact.
   const hasCountry = ctx.patch.some((p) => p.path === '/facts/country')
   const bundeslandPatch = ctx.patch.find((p) => p.path === bundeslandPath)
   if (!hasCountry && bundeslandPatch) {
@@ -1908,9 +1906,9 @@ export function answersFromProfile(
 }
 
 // ---------------------------------------------------------------------------
-// Legacy bridges: v1.0-catalog profiles opened by the v1.2 catalog.
+// Legacy bridges: v1.0-catalog profiles opened by the current catalog.
 //
-// Storage keys are id-independent, so the v1.1 renumbering costs nothing. What
+// Storage keys are id-independent, so question renumbering costs nothing. What
 // remains are the places where a MEANING moved: merged questions, the
 // project→bauwerk scope move of the Bestand block, and the one inversion.
 // Bridges only PREFILL wizard answers — the stored profile is untouched until
@@ -1918,10 +1916,10 @@ export function answersFromProfile(
 // `mergeIntakeProfile` retires the intake-owned legacy keys.
 // ---------------------------------------------------------------------------
 
-/** The four v1.0 booleans that v1.2's `E2` multi-select absorbed. */
+/** The four v1.0 booleans that `E2`'s multi-select absorbs. */
 const LEGACY_TECHNIK_KEYS = ['pv', 'lueftung', 'kuehlung', 'versickerung'] as const
 
-/** v1.0 `vorhabensart` → the v1.2 `CB4` measure it corresponds to. */
+/** v1.0 `vorhabensart` → the `CB4` measure it corresponds to. */
 const LEGACY_VORHABEN_TO_MASSNAHME: Record<string, string> = {
   sanierung: 'huelle_sanierung',
   umbau: 'umbau_innen',
@@ -1941,9 +1939,9 @@ function applyLegacyAnswerBridges(
   bauwerke: BauwerkInstance[]
 ): void {
   // --- Bestand block (v1.0 A6/A7/A9/A10 → CB1/CB3/CB5/CB6, project → bauwerk).
-  // Only bridged into a single-building project: the legacy answer was one
+  // Only bridged into a single-building project: the legacy answer is one
   // project-global statement, and guessing WHICH of several buildings it
-  // described would plant a wrong fact. Multi-building projects re-answer per
+  // describes would plant a wrong fact. Multi-building projects re-answer per
   // building; the completion checklist surfaces the gap.
   if (bauwerke.length === 1) {
     const bw = bauwerke[0].id
@@ -1976,9 +1974,8 @@ function applyLegacyAnswerBridges(
         answers[answerKey] = bool ? 'ja' : 'nein'
         bridgedAny = true
       } else if (profile.unknowns.includes(key)) {
-        // An explicitly-open legacy answer is an answer. Dropping it left
-        // `bridgedAny` false, so the C2 gate never opened and the whole
-        // Bestand block stayed hidden for a project that had described one.
+        // An explicitly-open legacy answer is still an answer: it counts toward
+        // `bridgedAny`, so the C2 gate opens and the Bestand block is shown.
         answers[answerKey] = 'offen'
         bridgedAny = true
       }
@@ -1992,8 +1989,8 @@ function applyLegacyAnswerBridges(
     // CB6 sits behind a CB4 measure as well, and legacy profiles have no CB4.
     // Without one the bridged answer renders nowhere and `buildIntakeProfile`
     // drops it on save. The measures are read off the project's own
-    // `vorhabensart` rather than invented: v1.0 only ever ASKED A10 when A5
-    // included `sanierung`, so the mapping restates what the old catalog
+    // `vorhabensart` rather than invented: v1.0 only asked A10 when A5
+    // included `sanierung`, so the mapping restates what the legacy catalog
     // already implied.
     const cb4Key = answerKeyFor('CB4', bw)
     const cb6Key = answerKeyFor('CB6', bw)
@@ -2036,12 +2033,12 @@ function applyLegacyAnswerBridges(
       if (replacement) {
         answers[c10Key] = replacement
       } else if (c10 === 'hybrid') {
-        // v1.0's `hybrid` named a combination without naming its members, and
-        // v1.2 expresses a combination as the multi-select PLUS `C10_text`.
-        // Deleting the answer dropped a construction type the user had actually
-        // stated: `bauweise` is intake-owned, so `mergeIntakeProfile` removed
-        // the stored fact too. It moves into the field built to hold exactly
-        // this, and the user refines it when they next open the module.
+        // Legacy v1.0's `hybrid` names a combination without naming its members,
+        // and the current catalog expresses a combination as the multi-select PLUS
+        // `C10_text`. The answer moves into the field built to hold exactly this,
+        // rather than being dropped: `bauweise` is intake-owned, so dropping it
+        // would make `mergeIntakeProfile` remove the stored construction type too.
+        // The user refines it when they next open the module.
         answers[c10Key] = ['offen']
         const c10TextKey = answerKeyFor('C10_text', bw.id)
         if (!isIntakeAnswerProvided(answers[c10TextKey])) {
@@ -2116,14 +2113,14 @@ function applyLegacyAnswerBridges(
     }
   }
 
-  // v1.0's A8 (Schutzzone) is deliberately NOT bridged into `B3_bes`.
+  // Legacy v1.0 A8 (Schutzzone) is deliberately NOT bridged into `B3_bes`.
   //
   // `B3_bes` only renders behind `B2 = ja`, so a bridged value would be
   // invisible for a project with no Bebauungsplan — and then dropped on save,
   // because `buildIntakeProfile` skips a question whose condition is false.
   // Left alone, `schutzzone_altstadt` is owned by no current question, so
   // `mergeIntakeProfile` preserves it as an agent-visible fact. Not bridging
-  // keeps it; bridging lost it.
+  // keeps it there.
 
   // --- F4 fusion: legacy Zertifizierung tokens are valid F4 values.
   const zert = profile.facts['zertifizierung']?.value
@@ -2144,8 +2141,8 @@ function applyLegacyAnswerBridges(
     }
     // Idempotent. The legacy key is owned by no current question, so
     // `mergeIntakeProfile` preserves it — and the merged text is already in the
-    // answer. Appending unconditionally added another copy on every reopen and
-    // save, growing the field without bound.
+    // answer. Appending unconditionally would add another copy on every reopen
+    // and save, growing the field without bound.
     if (current.includes(legacy.trim())) return
     answers[answerKey] = `${current}\n\n${legacy}`
   }

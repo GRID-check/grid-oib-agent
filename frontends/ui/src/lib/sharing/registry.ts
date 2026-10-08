@@ -61,8 +61,8 @@ import { documentDisplayName } from '@/lib/documents/display-name'
  * per check.
  *
  * `projectId: null` means the resource hangs directly off the organization —
- * legitimate for legacy conversations created before project stamping, which no
- * project membership could describe.
+ * legitimate for a conversation with no project stamp, which no project
+ * membership could describe.
  */
 export interface ResourceContainer {
   kind: 'project' | 'organization'
@@ -240,11 +240,10 @@ const conversationDescriptor: ShareableDescriptor = {
     peopleWhoMayRead(organizationId, resourceId, userIds, undefined, asker),
   deepLink: (resourceId, options) => {
     const anchor = options?.anchorId ? `#message-${encodeURIComponent(options.anchorId)}` : ''
-    // `?session=` — the parameter the chat surface ALREADY reads (`useSessionUrl`).
-    // This used to invent `?conversation=`, which nothing anywhere parsed, so every
-    // inbox notification landed the recipient on whatever session happened to be
-    // active while marking the row read. If this name ever changes, it changes in
-    // `useSessionUrl` and here together.
+    // `?session=` — the parameter the chat surface already reads (`useSessionUrl`).
+    // Any other name lands the recipient on whatever session happened to be
+    // active, since nothing else is parsed. If this name ever changes, it changes
+    // in `useSessionUrl` and here together.
     //
     // A conversation is always reached through its project's chat surface when
     // we know the project; otherwise the chat route resolves it from history.
@@ -344,13 +343,11 @@ export function roleSatisfies(role: ResourceRole | null, minimum: ResourceRole):
  * resource the caller may not see, and telling them so is not a disclosure —
  * the set of shareable types is public API surface.
  *
- * This was deliberately duplicated across the four sharing routes, on the
- * grounds that a Next.js route module may only export HTTP handlers so a shared
- * helper "would need a module of its own for five lines". That module is this
- * one: the check asks the registry's own question — is this a type I know? —
- * against the registry's own union, alongside `describeResource` and the role
- * ladder. Nothing new was needed, and the four copies were four places to
- * update the day a type is added or the error contract changes.
+ * The four sharing routes all use this one check rather than a copy each. It
+ * lives here, not in a route module, because a Next.js route module may only
+ * export HTTP handlers: it asks the registry's own question — is this a type I
+ * know? — against the registry's own union, alongside `describeResource` and
+ * the role ladder.
  */
 export function requireShareableType(raw: string): ShareableResourceType {
   const resourceType = SHAREABLE_RESOURCE_TYPES.find((candidate) => candidate === raw)

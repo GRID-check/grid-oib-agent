@@ -492,7 +492,7 @@
       "type": "object"
     },
     "DimensionCheck": {
-      "description": "One measured dimension drawn on a schematic and checked against a limit.\n\n`value` is the project's actual measurement (drawn to scale); `required` is\nthe OIB limit. If `value` is unknown, leave it null and set status\n'needs_input'.\n\n## Why a number here carries where it came from\n\nThis block used to be `label / value / required / unit / comparator /\nstatus` and nothing else, and that made the card the least honest surface in\nthe product. `ifc_measure` answers \u201egemessen: 2.47 m (\u00b15 mm) \u2014 aus der\nGeometrie berechnet, nicht deklariert\", the assistant repeats that in the\nprose, and the card beside it drew **2.47 m \u2713** \u2014 indistinguishable from a\nfigure the architect had stated in their own file. The card is the part a\nreviewer screenshots into a submission, so the surface that dropped the\nqualifier was the surface most likely to be forwarded without it.\n\nThree fields close that, and all three are OPTIONAL: a card built from the\nBestimmung alone (a limit with no model behind it) has nothing to put in\nthem, and a null here means \"not stated\", never \"declared\".",
+      "description": "One measured dimension drawn on a schematic and checked against a limit.\n\n`value` is the project's actual measurement (drawn to scale); `required` is\nthe OIB limit. If `value` is unknown, leave it null and set status\n'needs_input'.\n\n## Why a number here carries where it came from\n\nA card that draws the number alone is the least honest surface in the\nproduct. `ifc_measure` answers \u201egemessen: 2.47 m (\u00b15 mm) \u2014 aus der\nGeometrie berechnet, nicht deklariert\", the assistant repeats that in the\nprose, and the card beside it drew **2.47 m \u2713** \u2014 indistinguishable from a\nfigure the architect had stated in their own file. The card is the part a\nreviewer screenshots into a submission, so it is the surface most likely to\nbe forwarded without the qualifier that made the figure true.\n\nThree fields close that, and all three are OPTIONAL: a card built from the\nBestimmung alone (a limit with no model behind it) has nothing to put in\nthem, and a null here means \"not stated\", never \"declared\".",
       "properties": {
         "comparator": {
           "anyOf": [
@@ -614,7 +614,7 @@
       "type": "object"
     },
     "DimensionDiagramCard": {
-      "description": "A parametric accessibility/geometry schematic with dimension arrows.\n\nEmit for clearance questions (door width, ramp gradient, turning circle,\ncorridor width, threshold, a barrier-free lift cabin). The renderer picks a\nprebuilt template for `shape` and draws each dimension arrow where it is\nmeasured, coloured by status \u2014 preventing the Stocklichte-vs-Durchgangslichte\nmisread. `lift_cabin` took over the cabin half of the retired\n`elevator_requirement` card: Kabinenbreite, Kabinentiefe and lichte\nT\u00fcrbreite, drawn on a cabin plan.",
+      "description": "A parametric accessibility/geometry schematic with dimension arrows.\n\nEmit for clearance questions (door width, ramp gradient, turning circle,\ncorridor width, threshold, a barrier-free lift cabin). The renderer picks a\nprebuilt template for `shape` and draws each dimension arrow where it is\nmeasured, coloured by status \u2014 preventing the Stocklichte-vs-Durchgangslichte\nmisread. `lift_cabin` covers the cabin half of the\nretired `elevator_requirement` card: Kabinenbreite, Kabinentiefe and lichte\nT\u00fcrbreite, drawn on a cabin plan.",
       "properties": {
         "dimensions": {
           "description": "The measured dimensions to annotate on the schematic",
@@ -1030,7 +1030,7 @@
       "type": "object"
     },
     "FileOperationProposalCard": {
-      "description": "A workspace change the agent PROPOSES and the reader executes.\n\nSystem-emitted by ``propose_file_change`` (``src/aiq_agent/tools/files/``),\none card per ``operation``. Every operation is a write, none of them writes: the card is the proposal, the\nreader's Accept runs it through the existing document/folder/assignment\nroutes in their own session, and the tool's own result text says plainly\nthat nothing has changed yet.",
+      "description": "A workspace change the agent PROPOSES and the reader executes.\n\nSystem-emitted by ``propose_file_change`` (``src/aiq_agent/tools/files/``),\none card per ``operation``. Every operation is a write, none of them writes:\nthe card is the proposal, the reader's Accept runs it through the existing document/folder/assignment\nroutes in their own session, and the tool's own result text says plainly\nthat nothing has changed yet.",
       "properties": {
         "note": {
           "anyOf": [
@@ -1456,7 +1456,7 @@
       "type": "object"
     },
     "IfcElementMatch": {
-      "description": "The SET of elements to highlight, as a filter rather than a list of ids.\n\nExactly the ``filters`` object passed to ``ifc_query`` \u2014 the browser re-runs\nit against the model, so the highlight covers every matching element and\nnothing has to survive the model's context window.\n\n``ifc_query`` spells its filter keys in camelCase (``ifcTypes``,\n``nameContains``) and this card is authored in snake_case like every other\ncard field. The agent is told to reuse the filter it already wrote, so BOTH\nspellings are accepted and normalise to the snake_case field: without the\naliases a copied filter validated cleanly with every key silently dropped,\nleaving an empty match, and a highlight group that selects nothing.",
+      "description": "The SET of elements to highlight, as a filter rather than a list of ids.\n\nExactly the ``filters`` object passed to ``ifc_query`` \u2014 the browser re-runs\nit against the model, so the highlight covers every matching element and\nnothing has to survive the model's context window.\n\n``ifc_query`` spells its filter keys in camelCase (``ifcTypes``,\n``nameContains``) and this card is authored in snake_case like every other\ncard field. The agent is told to reuse the filter it already wrote, so BOTH\nspellings are accepted and normalise to the snake_case field: without the\naliases, a copied filter would validate cleanly with every key silently\ndropped, leaving an empty match and a highlight group that selects nothing.",
       "properties": {
         "classification": {
           "anyOf": [
@@ -1607,7 +1607,7 @@
       "type": "object"
     },
     "IfcModelPickerCard": {
-      "description": "A clickable list of the project's IFC models \u2014 pick one to open in the viewer.\n\nEmit for \"zeig mir das Modell\" / \"welches Modell\" when the user wants to SEE\nor OPEN the building and the project may hold several models. The old answer\nto that was a prose bullet list of file names the user had to read and retype;\nthis card renders each model as a tile that opens the BIM viewer on click,\nclient-side, with no second turn.\n\nIt carries only WHICH view to offer \u2014 never a list of file names. The renderer\nreads the project's actual models from the live model list (the same source\nthe viewer resolves against), so the model here cannot name a file that does\nnot exist: there is nothing to invent. An empty project renders nothing and\nthe written answer stands on its own, which is the fail-open the prose gave.",
+      "description": "A clickable list of the project's IFC models \u2014 pick one to open in the viewer.\n\nEmit for \"zeig mir das Modell\" / \"welches Modell\" when the user wants to SEE\nor OPEN the building and the project may hold several models. Otherwise the\nanswer is a prose bullet list of file names the user has to read and retype;\nthis card renders each model as a tile that opens the BIM viewer on click,\nclient-side, with no second turn.\n\nIt carries only WHICH view to offer \u2014 never a list of file names. The renderer\nreads the project's actual models from the live model list (the same source\nthe viewer resolves against), so the model here cannot name a file that does\nnot exist: there is nothing to invent. An empty project renders nothing and\nthe written answer stands on its own, which is the fail-open the prose gave.",
       "properties": {
         "note": {
           "anyOf": [
@@ -2149,7 +2149,7 @@
       "type": "object"
     },
     "SetbackPlanCard": {
-      "description": "A top-down site plan (schematic): parcel, footprint, setbacks, coverage and GFZ.\n\nEmit for Abstandsfl\u00e4chen/Bauwich questions ('does the building keep the\nrequired Abst\u00e4nde?') and for Bebauungsdichte/Bebauungsgrad/GFZ questions.\nDraws the parcel, the required-setback envelope, and the building\nfootprint, with a distance arrow per side coloured by status, and \u2014 where\n`coverage` or `density` is given \u2014 a readout of Bebauungsgrad (built area /\nparcel) and GFZ (BGF / parcel) against the Bebauungsplan's limits. The\nrenderer computes the ratios from the areas; the model supplies areas and\nlimits only. The readout took over the retired `density_check` card.",
+      "description": "A top-down site plan (schematic): parcel, footprint, setbacks, coverage and GFZ.\n\nEmit for Abstandsfl\u00e4chen/Bauwich questions ('does the building keep the\nrequired Abst\u00e4nde?') and for Bebauungsdichte/Bebauungsgrad/GFZ questions.\nDraws the parcel, the required-setback envelope, and the building\nfootprint, with a distance arrow per side coloured by status, and \u2014 where\n`coverage` or `density` is given \u2014 a readout of Bebauungsgrad (built area /\nparcel) and GFZ (BGF / parcel) against the Bebauungsplan's limits. The\nrenderer computes the ratios from the areas; the model supplies areas and\nlimits only. The readout covers what the retired `density_check` card did.",
       "properties": {
         "building_depth_m": {
           "anyOf": [
@@ -2421,7 +2421,7 @@
       "type": "object"
     },
     "SurfaceCard": {
-      "description": "Several cards composed into one A2UI surface: variants as tabs, related cards side by side.\n\n`components` is an A2UI v0.9 component list (a2ui.org): flat, each entry\n`{\"id\", \"component\", \u2026props}`, children referenced by id, exactly one\n`\"id\": \"root\"`. Containers are `Row` and `Column` (`children`: ids) and\n`Tabs` (`tabs`: `[{title, child}]`); `Text` (`text`: Markdown) holds what\nthe answer would write in prose, a table or a list; every other component\nis a card, named by its type, with that card's own fields as props. Validated twice: the\nstructure by `a2ui-core` (unique ids, a root, no dangling reference, no\ncycle, no orphan), each card by its own model.",
+      "description": "Several cards composed into one A2UI surface: variants as tabs, related cards side by side.\n\n`components` is an A2UI v0.9 component list (a2ui.org): flat, each entry\n`{\"id\", \"component\", \u2026props}`, children referenced by id, exactly one\n`\"id\": \"root\"`. Containers are `Row` and `Column` (`children`: ids) and\n`Tabs` (`tabs`: `[{title, child}]`); `Text` (`text`: Markdown) holds what\nthe answer would write in prose, a table or a list; every other component\nis a card, named by its type, with that card's own fields as props.\nValidated twice: the structure by `a2ui-core` (unique ids, a root, no\ndangling reference, no cycle, no orphan), each card by its own model.",
       "properties": {
         "components": {
           "description": "The A2UI component list: one container with id 'root' (Row, Column or Tabs) and what it holds: cards, each `{\"id\", \"component\": <card type>, \u2026that card's fields}`, and `{\"id\", \"component\": \"Text\", \"text\": <Markdown>}` for a table, a list or prose.",
@@ -2545,7 +2545,7 @@
       "type": "object"
     },
     "TaskCreatedCard": {
-      "description": "Work Piloti has taken on, as a row somebody can come back to.\n\nSystem-emitted by ``create_task``. What it exists to prevent is the answer\n\u201eich mache den Einreichcheck bis Freitag\" with nothing behind it: the card is\nproof there is a row, and the row is what carries the requester's permission,\nthe deadline and \u2014 when a person judges the result \u2014 the decision that reaches\nthe next attempt (ADR-0051).\n\nInformational, not interactive. The task is already queued when this renders,\nso there is no Accept: a control would either repeat the delegation or cancel\nit, and cancelling delegated work is a Files-and-tasks surface decision, not\na chat one.\n\n``conversation_id`` is the thread the run writes into, so the card can link a\nreader to the work rather than only announce it. Absent when the run's\nconversation could not be created, which is the same degraded shape a\nscheduled job has had since jobs got conversations at all.",
+      "description": "Work Piloti has taken on, as a row somebody can come back to.\n\nSystem-emitted by ``create_task``. What it exists to prevent is the answer\n\u201eich mache den Einreichcheck bis Freitag\" with nothing behind it: the card is\nproof there is a row, and the row is what carries the requester's permission,\nthe deadline and \u2014 when a person judges the result \u2014 the decision that reaches\nthe next attempt (ADR-0051).\n\nInformational, not interactive. The task is already queued when this renders,\nso there is no Accept: a control would either repeat the delegation or cancel\nit, and cancelling delegated work is a Files-and-tasks surface decision, not\na chat one.\n\n``conversation_id`` is the thread the run writes into, so the card can link a\nreader to the work rather than only announce it. Absent when the run's\nconversation could not be created: the same degraded shape a scheduled job\nhas when it has no conversation.",
       "properties": {
         "conversation_id": {
           "anyOf": [

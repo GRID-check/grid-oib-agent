@@ -76,7 +76,7 @@ describe('insertMention', () => {
   })
 })
 
-describe('reconcileMentions — structured, never re-derived (MN-3)', () => {
+describe('reconcileMentions — structured, never re-derived', () => {
   test('keeps a mention whose token still stands in the text', () => {
     expect(reconcileMentions('@Anna passt das?', [anna])).toEqual([anna])
   })
@@ -166,8 +166,8 @@ describe('splitMentionSegments — rendering', () => {
 
 describe('boundaries', () => {
   test('a recorded display does not match inside a longer name', () => {
-    // `@Tom` used to pill the first four letters of `@Tommy` and keep Tom
-    // addressed by a message that no longer mentions him.
+    // `@Tom` must not pill the first four letters of `@Tommy` or keep Tom
+    // addressed by a message that does not mention him.
     const segments = splitMentionSegments('Frage an @Tommy Berger', [
       { targetId: 'u-tom', display: 'Tom' },
     ])
@@ -176,8 +176,8 @@ describe('boundaries', () => {
 
   test('a mention still stands inside brackets and quotes', () => {
     // German prose puts names in brackets and quotation marks. Requiring
-    // whitespace before the `@` silently dropped the mention: no request, no
-    // inbox item, and the agent answered instead.
+    // whitespace before the `@` would silently drop the mention: no request, no
+    // inbox item, and the agent answers instead.
     for (const text of ['(@Anna Berger)', '„@Anna Berger“', '[@Anna Berger]']) {
       const segments = splitMentionSegments(text, [
         { targetId: 'u-anna', display: 'Anna Berger' },
@@ -195,7 +195,7 @@ describe('boundaries', () => {
 
   test('a quoted email local part is not a mention candidate', () => {
     // `"` opens a quoted local part, so treating it as an opening mark would
-    // have made `"Berger"@example.com` a boundary the scanner accepts.
+    // make `"Berger"@example.com` a boundary the scanner accepts.
     const segments = splitMentionSegments('schreib an "Berger"@example.com', [
       { targetId: 'u-b', display: 'example.com' },
     ])

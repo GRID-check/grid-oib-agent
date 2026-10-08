@@ -6,7 +6,7 @@ to the render is fixed for the life of one turn, so ``agent_node`` caches the
 rendered string on the state and the tool loop never renders twice.
 
 THE PROMPT IS TWO HALVES, AND ONLY ONE OF THEM IS IN THIS FILE'S GIFT.
-``piloti.j2`` now holds the DYNAMIC half alone — everything below the
+``piloti.j2`` holds the DYNAMIC half alone — everything below the
 ``KV CACHE BOUNDARY`` marker, which varies per turn — and opens with
 ``{{ static_block }}``. The STATIC half is the platform prompt: the same bytes
 for every tenant and every turn, authored and versioned in **Langfuse**, and
@@ -17,8 +17,7 @@ pulled from there by :func:`resolve_static_block` through
 rendered when prompt management is off (the default), when the credentials are
 absent, when Langfuse is unreachable or when it holds no such prompt. It is
 allowed to lag the live version; ``task prompts:pull`` refreshes it. With the
-store disabled the render is byte-identical to the one-file template it
-replaced.
+store disabled the render is the bundled file's text, byte for byte.
 """
 
 from __future__ import annotations
@@ -197,9 +196,8 @@ def render_static_block(static_text: str) -> str:
 
     Cached on the text, so a re-render costs a hash of ~33 KB rather than a
     Jinja pass, and a new Langfuse version re-renders exactly once. The
-    trailing newlines come off because the boundary marker in ``piloti.j2``
-    owned that joint before the split: the file's mandatory final newline and a
-    Langfuse-stored text that has none must produce the same bytes.
+    trailing newlines come off so that the file's mandatory final newline and
+    a Langfuse-stored text without one produce the same bytes.
     """
     return render_prompt_template(static_text, document_inventory="").rstrip("\n")
 
@@ -221,10 +219,10 @@ def shelf_label(shelf: str | None) -> str | None:
 def oib_applicability(project_context: str | None) -> str | None:
     """Which OIB-Richtlinien this project's own facts make applicable, or None.
 
-    The one part of the old ``## Normenregister`` block that survives the cut:
-    the catalog itself was a list of RIS addresses ``ris_lookup`` resolves from
-    a free-text question (ADR-0060 (d)), while this section is derived from the
-    project's `confirmed:` facts and no tool can produce it from the question.
+    Applicability comes from the project's `confirmed:` facts. No tool can
+    derive it from a free-text question: ``ris_lookup`` resolves RIS addresses
+    from such a question, not the rules that apply to this project
+    (ADR-0060 (d)).
     Fail-open, because a verdict list is never worth a turn.
     """
     try:
@@ -271,8 +269,8 @@ def render_system_prompt(
         # write a document would be describing a tool it cannot call. What the
         # block still carries is the two sentences no tool description can: the
         # anaphora („mach daraus ein File") and what happens without a project.
-        # Everything else it used to say is in `write_file`, `edit_file` and
-        # `file_draft` (ADR-0060 (d)).
+        # The rest of the file-handling guidance lives in `write_file`,
+        # `edit_file` and `file_draft` (ADR-0060 (d)).
         drafting_enabled=any(tool.get("name") == "write_file" for tool in tools_info),
         # Per TENANT, so it renders below the KV-cache boundary with the other
         # per-tenant blocks rather than narrowing the static contract. The

@@ -37,8 +37,8 @@ def write(path: Path = SCHEMA_PATH) -> Path:
 def main(argv: Sequence[str] | None = None) -> None:
     """Write the schema. Takes no arguments: ``--help`` prints this, and anything else is refused.
 
-    It used to ignore its arguments, so ``--help`` (or a typo) rewrote the
-    tracked file instead of explaining itself.
+        Any argument is refused, so ``--help`` (or a typo) explains itself instead
+    of rewriting the tracked file.
     """
     parser = argparse.ArgumentParser(
         description=f"Regenerate {SCHEMA_PATH.relative_to(SCHEMA_PATH.parents[2])} from the Pydantic card models.",

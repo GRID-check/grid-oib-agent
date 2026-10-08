@@ -99,7 +99,7 @@ class TestByteIdentity:
 
     def test_the_seam_carries_no_whitespace_of_its_own(self):
         """
-        The KV-cache boundary marker used to eat the blank lines between the
+        The KV-cache boundary marker eats the blank lines between the
         halves; `{{ static_block }}` plus the marker has to eat exactly the same
         ones. A test on the joint alone, so a failure says WHERE rather than
         just that 46 KB differ.
@@ -125,8 +125,8 @@ class TestByteIdentity:
 class TestTheRulesThePolishMustNotInvert:
     """Wordings whose meaning flips on one verb, asserted on the rendered text.
 
-    `angenommen` closes a point. A polish pass once turned "do not propose it
-    again" into "and propose something else", which reads as an instruction to
+    `angenommen` closes a point. Polishing "do not propose it
+    again" into "and propose something else" reads as an instruction to
     make a further proposal on the very point the user just settled.
     """
 
@@ -217,7 +217,7 @@ class TestPromptLink:
         A fleet running on its bundled prompt must still be visible in the
         trace list rather than indistinguishable from one serving the live
         version — otherwise a Langfuse outage reads as "the new version did
-        nothing". The metadata is what carries that now.
+        nothing". The metadata is what carries that.
         """
         monkeypatch.setattr(prompt_module, "prompt_store", lambda: PromptStore(enabled=False))
 
@@ -348,9 +348,9 @@ class TestServedTextThatDoesNotRender:
 class TestTheRoundCostIsStatedAsAFact:
     """
     The budget counts rounds, and a round costs one however many calls it holds.
-    Nothing but the prompt can tell the model that, and a rewrite once cut it as
-    procedure: the model then opened one document per round and ran the budget
-    out before the family was read.
+    Nothing but the prompt can tell the model that. Stated as procedure instead,
+    the model opens one document per round and runs the budget out before the
+    family is read.
     """
 
     def test_the_prompt_says_a_round_costs_one_whatever_it_holds(self):
@@ -363,8 +363,8 @@ class TestTheRoundCostIsStatedAsAFact:
         The family branch returns each member's scope passage AND its
         Gliederung, which is what `read_passage(document=…)` returns for one of
         them. Told only that an overview needs every member opened, the model
-        spent the round after the family result re-opening the same three
-        documents and read back what it was already holding.
+        spends the round after the family result re-opening the same three
+        documents and reads back what it is already holding.
         """
         rendered = FIXTURE.read_text(encoding="utf-8")
 

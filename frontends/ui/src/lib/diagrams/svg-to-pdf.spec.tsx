@@ -196,11 +196,10 @@ describe('the depth the validator admits is a depth this renderer survives', () 
  * against the real thing in Node, with no browser, which is the only place this
  * repository has one.
  *
- * It is also the regression that would have caught the bug a screenshot found:
- * an early `flattenComputedStyles` stripped `class` in the same pass that read
- * the cascade, so mermaid's `#id .node rect { fill }` stopped matching and every
- * node came back black. A fixture with real fills is what makes that visible
- * without opening a browser.
+ * It also catches a cascade that loses its classes: `flattenComputedStyles`
+ * must read the cascade before it strips `class`, or mermaid's
+ * `#id .node rect { fill }` stops matching and every node comes back black.
+ * A fixture with real fills makes that visible without opening a browser.
  */
 const REAL_MERMAID = readFileSync(join(__dirname, '__fixtures__/mermaid-flowchart.svg'), 'utf8')
 
@@ -236,8 +235,8 @@ describe('real mermaid output', () => {
     //
     // A stroked, unfilled edge produces NO fill operator, so counting `f` on a
     // page holding nothing else is exactly a count of arrowheads. The pair is
-    // the assertion: an earlier version of this test counted fills on the whole
-    // fixture and passed with the heads removed, because the nodes are filled.
+    // the assertion: counting fills on the whole fixture would pass with the
+    // heads removed, because the nodes are filled.
     const fills = (pdf: Uint8Array) => contentStreams(pdf).join('\n').match(/\bf\b/g)?.length ?? 0
     const directed = await pdfFor(
       '<path d="M 10 10 L 10 90" stroke="#000" fill="none" marker-end="url(#a)"/>'
@@ -271,11 +270,11 @@ describe('real mermaid output', () => {
     const streams = contentStreams(pdf).join('\n')
     // Every shape is a subpath: 23 rects, 13 paths and eight arrowheads.
     expect(streams.match(/\bm\b/g)?.length ?? 0).toBeGreaterThanOrEqual(20)
-    // The LABELS, which is the assertion that matters and the one that caught a
-    // real bug: mermaid writes a node label as a `<text>` with no `x`/`y` inside
-    // a translated `<g>`, and requiring those attributes dropped every label —
-    // producing a PDF that looked like a diagram and said nothing. `TJ` is the
-    // text-showing operator, so counting it counts labels that actually print.
+    // The LABELS are the assertion that matters: mermaid writes a node label as
+    // a `<text>` with no `x`/`y` inside a translated `<g>`, and requiring those
+    // attributes would drop every label, leaving a PDF that looks like a diagram
+    // and says nothing. `TJ` is the text-showing operator, so counting it counts
+    // labels that actually print.
     expect(streams.match(/\bTJ\b/g)?.length ?? 0).toBeGreaterThanOrEqual(10)
     expect(pdf.byteLength).toBeGreaterThan(3000)
   })
@@ -285,11 +284,11 @@ describe('real mermaid output', () => {
  * Every grammar the prompt teaches, as Chromium drew it on `/dev/answer-blocks`
  * (captured through `flattenComputedStyles` and this validator, light theme).
  *
- * The prompt used to teach four grammars because only four had been verified
- * through THIS converter, and "previews, then prints blank" is the failure that
- * matters: the PDF is what gets attached. A grammar joins the prompt's list by
- * joining this table, and `minLabels` is a floor on the text that actually
- * prints, counted the way the flowchart test above counts it.
+ * The prompt teaches only the grammars verified through THIS converter, because
+ * "previews, then prints blank" is the failure that matters: the PDF is what
+ * gets attached. A grammar joins the prompt's list by joining this table, and
+ * `minLabels` is a floor on the text that actually prints, counted the way the
+ * flowchart test above counts it.
  */
 // `timeline` draws and prints too, and is still not
 // taught: it lays out sideways, wider than the answer column.
@@ -323,10 +322,10 @@ describe.each(TAUGHT_GRAMMARS)('real mermaid $grammar', ({ grammar, minLabels })
 
 describe('where a label prints', () => {
   // The PDF renderer reads `x`/`y` as numbers and ignores `dx`/`dy`, while
-  // mermaid's newer grammars place labels with exactly those. Before these
-  // were resolved, a gantt axis tick (`y="3" dy="1em"`) printed on the axis
-  // line, a gantt section label (`<tspan x="10">`, no y) printed at y = 0 over
-  // the title, and every mindmap and flowchart label rode up out of its box.
+  // mermaid's newer grammars place labels with exactly those. Without resolving
+  // them, a gantt axis tick (`y="3" dy="1em"`) prints on the axis line, a gantt
+  // section label (`<tspan x="10">`, no y) prints at y = 0 over the title, and
+  // every mindmap and flowchart label rides up out of its box.
   const element = (name: string, attributes: Record<string, string>): SvgElement => ({
     kind: 'element',
     name,

@@ -11,12 +11,12 @@
  * module is called on a live path: it is the contract a sender is written
  * against, tested now so the contract is real before anything depends on it.
  *
- * ## How a sender plugs in (the follow-up, not this change)
+ * ## How a sender plugs in
  *
  *   1. Implement {@link InboxEmailSender} over the chosen provider.
  *   2. Add an `emailed_at` column to `inbox_items` in the same migration as the
- *      sender, NOT before: a column added today would read "due, never sent"
- *      for every row until then, and the first sweep would mail the backlog.
+ *      sender, NOT before: a column added without its sender would read "due,
+ *      never sent" for every row, and the first sweep would mail the backlog.
  *   3. A scheduled sweep (the storage-alert sweep is the shape: discover under
  *      the platform bypass, act per tenant under `withTenant`) selects rows with
  *      `emailed_at IS NULL` whose {@link emailDueAt} has passed, re-checks

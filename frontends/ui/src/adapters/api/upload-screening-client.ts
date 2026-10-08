@@ -10,7 +10,7 @@
  * The queue's server type lives in `lib/upload-screening/review.ts`, which is
  * server-only, so its wire shape is declared here. The verdict is NOT
  * re-declared: it is read back through `parseQuarantine`, the one schema the
- * server used to build it, so the two cannot drift.
+ * server builds it with, so the two cannot drift.
  */
 
 import { z } from 'zod'

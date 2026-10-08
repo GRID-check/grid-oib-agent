@@ -29,8 +29,7 @@ general:
       # endpoint into a no-op exporter. That keeps the backend on the same
       # "availability = flag AND capability" rule as the rest of the tier —
       # Compose and local dev export nothing instead of retrying forever
-      # against a collector that was never deployed. A previous localhost
-      # fallback here did exactly that.
+      # against a collector that was never deployed.
       #
       # Set it to run against a local collector; the value must include the
       # full /v1/traces path, because explicit config endpoints are used as-is
@@ -117,8 +116,8 @@ llms:
   # (the system is LLM-agnostic — see docs/architecture/llm-providers.md).
   #
   # request_timeout (seconds) bounds every HTTP call — NAT's default is None
-  # (UNBOUNDED), which let one stalled provider call hang a whole deep-research
-  # run indefinitely. max_retries is the OpenAI-client retry count; kept low
+  # (UNBOUNDED), which would let one stalled provider call hang a whole
+  # deep-research run indefinitely. max_retries is the OpenAI-client retry count; kept low
   # because the middleware layers (ModelRetryMiddleware,
   # SelectiveToolRetryMiddleware) add their own retries on top.
   # ───────────────────────────────────────────────────────────────────────────
@@ -137,7 +136,6 @@ llms:
     # medium, like every other role in this file. This is the role that decides
     # WHAT TO RETRIEVE — with no results in hand, which of four corpora holds the
     # answer — and the whole round budget is then spent executing that decision.
-    # It was the only role denied deliberation.
     #
     # The traces price the trade, and it is not close. Output is 0.4-1.4 % of a
     # turn's tokens and ~2 % of its cost; one wasted retrieval round costs
@@ -145,9 +143,9 @@ llms:
     # truncates. Tripling output tokens at medium is single-digit percent of a
     # turn; one round saved pays for it many times over.
     #
-    # The previous note argued LATENCY, not cost: "medium spent a large
+    # The counter-argument is LATENCY, not cost: medium spends a large
     # hidden-token think budget before emitting the first answer token (final
-    # synth ≈29s on a simple meta-ish query)". That is a real effect measured on
+    # synth ≈29s on a simple meta-ish query). That is a real effect, measured on
     # the case where deliberation is worth least. Re-measure it on the loop eval,
     # which is the question set this role is for, not on a meta query — and
     # weigh it knowing that a truncated answer at 27 s is worse than a complete
@@ -157,10 +155,9 @@ llms:
     # below: that feature needs it and fails the workflow build without it,
     # deliberately, rather than sending the tool schemas anyway (ADR-0048).
     # Nothing else in this file needs it; the default (chat_completion) is what
-    # every other role runs on. Deferral is off since 2026-09-25 (see below);
-    # this stays on until the answer suite has measured Chat Completions for
-    # this role, because the transport of every research call is not a change
-    # to make as a side effect.
+    # every other role runs on. Deferral is off (see below); this stays on until
+    # the answer suite has measured Chat Completions for this role, because the
+    # transport of every research call is not a change to make as a side effect.
     api_type: responses
     # ── PROMPT CACHING: nothing to configure here, and that is the point ──
     # This role re-sends ~35 KB of identical prefix (system prompt + tool
@@ -210,9 +207,10 @@ llms:
     top_p: 0.95
     max_tokens: 128000
     # The writer runs on this model and a long German report at this output
-    # size takes minutes to stream. A 180 s bound inside a 2400 s run budget
-    # ended exactly those runs with a generic provider error — and one retry
-    # of a ten-minute call is the most a run can afford before its own clock.
+    # size takes minutes to stream, so the bound has to sit well above that: a
+    # 180 s bound inside a 2400 s run budget would end exactly those runs with a
+    # generic provider error. One retry of a ten-minute call is the most a run
+    # can afford before its own clock.
     max_retries: 1
     request_timeout: 600
     reasoning_effort: medium
@@ -325,19 +323,19 @@ llms:
   # too small for the JSON scores reply. Greedy decoding (0) pins the judgment;
   # pure JSON extraction needs no reasoning effort.
   #
-  # max_tokens must fit ONE SCORE PER CANDIDATE. At ~12 tokens per entry, the old
-  # 256 sat 12 tokens above a 20-candidate reply — and a model emitting one decimal
-  # score ("8.5") overran it, truncating the JSON mid-object and silently disabling
-  # reranking for that turn. 2048 covers a ~150-candidate pool with headroom.
+  # max_tokens must fit ONE SCORE PER CANDIDATE, with headroom. At ~12 tokens per
+  # entry, a cap sized to the pool exactly is overrun by one decimal score
+  # ("8.5"), which truncates the JSON mid-object and silently disables reranking
+  # for that turn. 2048 covers a ~150-candidate pool.
   #
   # request_timeout x (max_retries + 1) must stay UNDER rerank_chunks' own 30s
   # asyncio timeout, or the outer bound fires first and both knobs are dead letters.
   # It must ALSO exceed the time the reply itself takes to decode. A 60-candidate
   # pool is ~16k input tokens and ~720 output tokens; at a routine 50 tok/s that is
-  # ~14s of decoding alone, so the 12s this briefly carried would have timed out on
-  # every turn -- and because reranking fails open, the only symptom would have been
-  # one warning line and silently unranked results. 25s single-shot leaves headroom
-  # without letting a hung provider hold a turn open to the outer bound.
+  # ~14s of decoding alone, so a shorter timeout would fire on every turn — and
+  # because reranking fails open, the only symptom would be one warning line and
+  # silently unranked results. 25s single-shot leaves headroom without letting a
+  # hung provider hold a turn open to the outer bound.
   #
   # NOTE: rerank_llm has NO agent group, so no platform default or org override
   # can re-point it — this literal is what every request uses, always. OpenRouter
@@ -381,8 +379,8 @@ functions:
           - list_files
           # Other projects' uploaded documents (ADR-0085). Without this line
           # nothing the lookup returns is captured as a citable source, and a
-          # turn whose only finding was a precedent was replaced by the canned
-          # "search unavailable" reply (found by the precedent eval).
+          # turn whose only finding is a precedent gets the canned "search
+          # unavailable" reply.
           - project_lookup
       - id: ris
         name: "RIS – Österreichisches Recht"
@@ -473,14 +471,10 @@ functions:
 
   # LET THE MODEL SEE A PLAN, NOT ONLY ITS CAPTION.
   #
-  # Built, registered and documented as default-on since it was written, and
-  # declared in no config until 2026-09 — `git log -S view_knowledge_image --
-  # configs/` was empty, so it had never been bound to an agent at all. NAT can
-  # only bind a function that appears under `functions:`, so the tool existed
-  # and could not be called: retrieval returned VLM captions OF drawings and
-  # the model never saw a drawing. That is the honest half of "der Agent
-  # bezieht die visuellen Planunterlagen kaum ein" — the chunks are in the
-  # index and reachable, the picture was not.
+  # NAT binds only a function that appears under `functions:`. Without this
+  # entry the tool is registered and documented but cannot be called, so
+  # retrieval reaches a drawing only as its VLM caption and the model never sees
+  # the picture: the chunks are in the index and reachable, the picture is not.
   #
   # It fails closed on its own: no vision key, or `AIQ_VIEW_IMAGES_ENABLED`
   # off, and it returns a sentence saying so rather than an image.
@@ -493,9 +487,9 @@ functions:
     include_base_collection: true
     include_session_collection: true
     project_collections: []
-    # Phase-0 default exclusion (norm-registry spec §8): diff documents and the
+    # Default exclusion (norm-registry spec §8): diff documents and the
     # superseded non-rev.1 zitierte_normen duplicate never surface in default
-    # retrieval. Replaced by role/edition metadata filters in Phase 2.
+    # retrieval. Role/edition metadata filters are the intended replacement.
     exclude_file_names:
       - aenderungen_oib-rl_1_ausgabe_mai_2023.pdf
       - aenderungen_oib-rl_1_leitfaden_ausgabe_mai_2023.pdf
@@ -534,8 +528,8 @@ functions:
     # supposed to convert recall into precision had four chunks of headroom. 60 gives
     # it a real pool; the cost is one batched call either way (the extra candidates
     # come from a Chroma n_results bump, not extra round-trips), plus the judge's
-    # input tokens. The trim is now max(top_k, rerank_candidates), so raising
-    # Platform -> Retrieval top_k above this can no longer silently cap a search.
+    # input tokens. The trim is max(top_k, rerank_candidates), so raising
+    # Platform -> Retrieval top_k above this cannot silently cap a search.
     rerank_llm: rerank_llm
     rerank_candidates: 60
     # Cross-encoder reranking, PRIMARY; the LLM judge above is the fallback.
@@ -550,7 +544,7 @@ functions:
     # (answers 401 without a key, so it exists). The default model is
     # `qwen/qwen3-reranker-8b`, multilingual, which a German corpus needs, and
     # served from a zero-data-retention endpoint, which every rerank is pinned to
-    # (`cohere/rerank-v3.5`, the default until 2026-09, has none).
+    # (`cohere/rerank-v3.5` has none).
     # `AIQ_RERANKER_MODEL` / `AIQ_RERANKER_BASE_URL` override per deployment.
     #
     # Fail-open: a key that does not resolve or any provider error falls back to
@@ -563,7 +557,7 @@ functions:
     # oib_retrieval` stops upstream of it); the golden compliance eval and the
     # profiler's `tool` spans for `knowledge_search` are the before/after.
     reranker_provider: openrouter
-    # The retrieval loop (rag-system-audit-2026-08 F13): the same judge model
+    # The retrieval loop: the same judge model
     # reads the head of the fused pool BESIDE the reranker and says whether it
     # can answer the question. A sufficient pool — the common case — costs no
     # extra latency. An insufficient one gets up to two alternative
@@ -573,7 +567,7 @@ functions:
     requery_llm: rerank_llm
     requery_max_queries: 2
     # The prefetch requeries like any search. Skipping it was measured 3.4 s
-    # slower on the turns it applied to, and the switch was removed
+    # slower on the turns it applies to, so it has no off switch
     # (docs/architecture/turn-latency-measured-2026-09.md §3.5).
     # Who answers the judge's yes/no (ADR-0064). `jev` asks the decision model
     # one noul per passage of the fused head — ~300 ms in parallel, a fraction
@@ -656,8 +650,8 @@ functions:
     _type: surface_documents
 
   # The WRITE-side workspace tool (src/aiq_agent/tools/files): move, rename,
-  # create_folder and assign as one `operation` argument — four tools until
-  # they were merged (docs/architecture/agent-tool-surface.md). It proposes: it
+  # create_folder and assign as one `operation` argument
+  # (docs/architecture/agent-tool-surface.md). It proposes: it
   # resolves the file or the folder against what the turn can already see,
   # renders ONE `file_operation_proposal` card, and changes nothing. Accepting the card runs the operation through the routes
   # the Files pane already uses, in the reader's own session — the BFF stays
@@ -673,13 +667,12 @@ functions:
 
   # The working directory's door into the project (src/aiq_agent/tools/
   # documents). `file_draft` puts a draft the turn WROTE into the project as a
-  # draft version, and with `submit: true` sends that version for review (it was
-  # a second tool, `submit_draft`, until the two merged). Unlike the proposal
-  # tool above this one DOES change the project — and it does it through
-  # `POST /api/internal/document-versions`, echoing the BFF-signed request
-  # envelope, so the write happens in the requesting person's pinned session
-  # under their permissions and their audit actor (ADR-0054 §4). The BFF stays
-  # the single writer of `grid_app`.
+  # draft version, and with `submit: true` sends that version for review.
+  # Unlike the proposal tool above, this one DOES change the project, and it
+  # does so through `POST /api/internal/document-versions`, echoing the
+  # BFF-signed request envelope, so the write happens in the requesting
+  # person's pinned session under their permissions and their audit actor
+  # (ADR-0054 §4). The BFF stays the single writer of `grid_app`.
   #
   # Bound on Piloti only, for the same reason as the proposal
   # tool and one more: the envelope is minted per chat turn, so an unattended
@@ -730,7 +723,7 @@ functions:
     _type: ifc_measure
     default_limit: 50
 
-  # The FUNCTION NAME here is deliberately still `shallow_research_agent` while
+  # The FUNCTION NAME here is deliberately `shallow_research_agent` while
   # the `_type` is `research_agent`. NAT puts the function name — not the type —
   # on the wire as `Function Start: <name>`, and the frontend persists that
   # string as `functionName` in every stored turn's metadata
@@ -742,7 +735,7 @@ functions:
   shallow_research_agent:
     _type: research_agent
     llm: research_llm
-    # Explicit list (replaces registry inheritance) so the non-data-source
+    # Explicit list, not registry inheritance, so the non-data-source
     # `remember` and `ask_user` tools are included alongside search/knowledge.
     tools:
       - web_search_tool
@@ -750,20 +743,20 @@ functions:
       - read_passage
       - list_files
       - view_knowledge_image
-      # ONE RIS tool on the chat surface. Search → pick → fetch → find the
-      # paragraph was three charged calls and a 40 000-character blob that
-      # carried no Citation key, so nothing downstream could treat it as
-      # evidence; `ris_lookup` runs that path inside itself and returns passages
-      # in the knowledge layer's own grounding grammar. The other three stay
-      # registered and stay bound to deep research below, which has its own
-      # budget shape.
+      # ONE RIS tool on the chat surface. Running search, pick, fetch and
+      # find-the-paragraph as separate calls costs three charged calls and
+      # leaves a 40 000-character blob with no Citation key, so nothing
+      # downstream could treat it as evidence. `ris_lookup` runs that path
+      # inside itself and returns passages in the knowledge layer's own
+      # grounding grammar. The other three stay registered and stay bound to
+      # deep research below, which has its own budget shape.
       - ris_lookup_tool
       - remember
       # No `emit_card`: every chat card travels in the answer envelope's
       # `cards` field (cards/envelope.py), at no extra call. Bound, the tool
-      # was 2 676 tokens of schema on every call, repeating the contract the
-      # envelope schema already teaches, and a model at low effort spent a
-      # whole round on it (September 2026 census). Deep research binds its own.
+      # would add 2 676 tokens of schema to every call, repeating the contract
+      # the envelope schema already teaches, and a model at low effort spends a
+      # whole round on it. Deep research binds its own.
       - surface_documents
       - propose_file_change
       - file_draft
@@ -783,29 +776,26 @@ functions:
     #   * PARALLEL calls inside one round cost ONE between them. That is the
     #     point: a model that opens all five members of a Richtlinien-Familie in
     #     one batch is using its round well, and „was weißt du über die OIB 2"
-    #     — one `knowledge_search` plus five parallel `read_passage` — used to
+    #     — one `knowledge_search` plus five parallel `read_passage` — would
     #     exhaust a budget of seven on the single most ordinary question the
-    #     product answers. The prompt asks for that fan-out; the budget used to
+    #     product answers. The prompt asks for that fan-out; the budget must not
     #     forbid it;
     #   * `use_skill` is a real round when the model spends one on it, and is
     #     charged like any other. Nothing is reserved on top of this number: no
     #     skill is forced on a turn, so every `use_skill` round is one the
     #     QUESTION spent on a skill the model chose to open — which is what the
-    #     floors below already count. A standing instruction that used to arrive
-    #     as a forced skill is prompt text now (the platform prompt, and the
-    #     office's own `X-Grid-Org-Instructions` block), and prompt text costs
-    #     no round.
+    #     floors below already count. A standing instruction is prompt text (the
+    #     platform prompt, and the office's own `X-Grid-Org-Instructions` block),
+    #     and prompt text costs no round.
     #
-    # There is no second currency beside this one. The interaction allowance
-    # that used to hold `emit_card` / `remember` / the working directory's file
-    # verbs out of the budget existed only because the budget counted CALLS; a
-    # round of three cards is one round, so nothing has to be exempted and
-    # nothing has to be kept in step.
+    # There is no second currency beside this one. The budget counts rounds, not
+    # calls, so a round of three cards is one round: `emit_card`, `remember` and
+    # the working directory's file verbs need no exemption, and nothing has to be
+    # kept in step.
     #
-    # Floors traced against the tool surface as it now stands, IN ROUNDS. The
-    # chains are the same; what changed is that a step needing two or three
-    # parallel calls is one round, so each floor is the number of think-act
-    # cycles rather than the number of calls:
+    # Floors, IN ROUNDS. A step needing two or three parallel calls is one
+    # round, so each floor is the number of think-act cycles rather than the
+    # number of calls:
     #   „wie hoch ist der Keller"  use_skill, survey                        = 2
     #     ...plus a storey-name miss repaired by briefing                    = 3
     #   OIB 3 Lichteinfall         use_skill, knowledge_search (the clause
@@ -817,7 +807,7 @@ functions:
     #   „was weißt du über die OIB 2"  knowledge_search, then the family
     #     opened in one parallel batch of read_passage                      = 2
     #
-    # Truncation is still silent TO THE READER — the synthesis anchor says
+    # Truncation is silent TO THE READER — the synthesis anchor says
     # „exhausted your research budget" to the MODEL and asks for no disclosure,
     # and `[CONFIDENCE:…]` grades SOURCE grounding, not whether
     # evidence-gathering was cut off — but it is not invisible to US: it emits a
@@ -828,11 +818,11 @@ functions:
     #
     # 5 is the bare floor with no repair budget, and a storey-name miss is the
     # commonest repair on this surface. 7 = floor + two repairs. The number is
-    # kept at 7 rather than lowered with the unit: the floors moved because
-    # parallel calls stopped costing, and reading that as headroom to take back
-    # would re-introduce the failure this change removes. Every round is a full
-    # round trip carrying ~9 000 tokens of tool schema plus the grown history,
-    # and what bounds THAT is `max_input_tokens_per_turn` below, not this.
+    # kept at 7 rather than lowered with the unit: parallel calls cost one round,
+    # and reading the lower floors as headroom to take back would bring back the
+    # truncation that counting rounds avoids. Every round is a full round trip
+    # carrying ~9 000 tokens of tool schema plus the grown history, and what
+    # bounds THAT is `max_input_tokens_per_turn` below, not this.
     #
     # Raising a ceiling costs nothing on a query that never reaches it — the
     # short shapes above still stop at 2. The only new cost is a confused model
@@ -841,9 +831,7 @@ functions:
     #
     # 7 rounds = 14 node visits + forced synthesis, under the graph's
     # `recursion_limit`, which is derived from this number alone and is
-    # `(max_tool_iterations * 2) + 10` = 24. Nothing else bounds the loop, and
-    # there is no `max_llm_turns` to move with it — that key was dead for
-    # releases and is gone.
+    # `(max_tool_iterations * 2) + 10` = 24. Nothing else bounds the loop.
     max_tool_iterations: 7
     # The bound that protects the person paying, and the reason the round
     # ceiling is free to be generous. Rounds say how far the investigation goes;
@@ -882,13 +870,13 @@ functions:
     # A card the answer envelope carried and the validator refused is fixed
     # ONCE on the card model — the failed object, the refusal and the type's
     # shape in a few thousand tokens — instead of costing the full-context
-    # round the `emit_card` retry used to. Unset = drop it and record it.
+    # round. Unset = drop it and record it.
     card_repair_llm: card_llm
     # Agent skills (progressive-disclosure `use_skill` tool) active on research
     # turns. Empty allowlist = every resolved skill (builtin + org) is offered.
     skills_enabled: true
-    # No skill body rides the prompt by size (ADR-0063, amended): all nine
-    # chat methods together were ~4 600 tokens on every call, for methods most
+    # No skill body rides the prompt by size (ADR-0063): all nine chat methods
+    # together cost ~4 600 tokens on every call, for methods most
     # turns never use. The turn-start decision below picks the ONE method the
     # question is the subject of and reads that body in (~400 tokens, or the
     # IFC method on a model question); the rest stay a catalog line behind
@@ -914,7 +902,7 @@ functions:
     # every call here, so narrowing to four tools saves ~24 % of that payload on
     # average and 81 % on a pure-Normen question. But tokens are not what this
     # agent runs out of — TURNS are, and narrowing does not buy one back. What it
-    # can spend is an answer: measured against the eleven tools it had then, a lexical rank
+    # can spend is an answer: measured against the eleven tools here, a lexical rank
     # over the user's turn alone keeps the answering tool for only 71 % of a
     # realistic German question set. The pins below carry that to 100 %, because
     # they cover the two shapes a query-time ranking structurally cannot see —
@@ -935,9 +923,8 @@ functions:
     #     - surface_documents
     #     - ris_fetch_tool
     #
-    # OpenRouter server-side tool search (ADR-0048). ON, but as of 2026-09-23
-    # NO model we measured honours it, so today it binds full schemas
-    # everywhere (see below). Orthogonal to `tool_search` above: that one decides
+    # OpenRouter server-side tool search (ADR-0048). Off: no model measured
+    # honours it, so every model binds full schemas (see below). Orthogonal to `tool_search` above: that one decides
     # WHICH tools are bound, this one decides whether their schemas travel with
     # the request. Requires `api_type: responses` on research_llm — enabling it
     # without that fails the workflow build instead of quietly sending the
@@ -948,11 +935,10 @@ functions:
     # full schemas and the build logs a WARNING naming the growth; it never
     # fails the build.
     #
-    # Measured 2026-09-23. A replayed Piloti research call to
+    # The measurement behind that: a replayed Piloti research call to
     # openai/gpt-5.6-luna (19 functions, all defer_loading: true, echoed back
     # on every one) billed 40 154 input tokens with defer_loading true AND
-    # false; dropping three large tools from the namespace cut 10 012. The
-    # earlier "14 023 -> 437" saving recorded here no longer holds. The probe:
+    # false; dropping three large tools from the namespace cut 10 012. The probe:
     #
     #                                  canary   + deferred ballast    growth
     #   openai/gpt-5.6-luna              187          4 100           +3 913
@@ -963,7 +949,7 @@ functions:
     # Where a provider does honour it, deferral still saves nothing on the turn
     # that loads a schema (it adds the ~620-token tool-search apparatus); it
     # saves the other turns. Where it does not, it would cost that apparatus on
-    # every turn, which is why the probe now turns it off.
+    # every turn, which is why deferral stays off (see below).
     #
     # Deferral is gated PER MODEL as well as per endpoint, because the per-org
     # override seam (ADR-0014) can hand a single research turn a model this
@@ -979,7 +965,7 @@ functions:
     #
     # A "no" from either condition means BIND THE FULL SCHEMAS. It is never a
     # refused request or a failed build, so a sub-floor model runs exactly as it
-    # did before this existed.
+    # would without deferral.
     #
     # The defaults ship the measured lists (see `deferred_tool_loading.py`), so
     # `enabled: true` alone turns it on. The `allow` list means the provider
@@ -989,11 +975,11 @@ functions:
     # verdict cached; until a probe has measured the saving, an unlisted or
     # allowlisted model gets full schemas. So a new model costs one background
     # request, never a wasted round trip on a live turn.
-    # OFF since 2026-09-25. Every model measured on 2026-09-23 echoed
+    # Off, because every model measured echoed
     # `defer_loading` and billed the deferred schemas in full, and the boot
     # model measured +3,913 input tokens with it on; no model has been shown
-    # to save. What it did send was the `tool_search` payload, which NAT's
-    # trace callback cannot parse (one ERROR per call, #635). Turn it back on
+    # to save. It also sends the `tool_search` payload, which NAT's trace
+    # callback cannot parse (one ERROR per call). Turn it on
     # when a model's probe measures a saving: from then on only such a model
     # defers, an allowlisted one included.
     deferred_tool_loading:
@@ -1052,10 +1038,10 @@ functions:
     # data_source_registry inheritance in the async job-worker build path.
     tools:
       - knowledge_search
-      # The locator, now on both surfaces. A researcher worker that has read a
-      # Gliederung and knows the Punkt it needs was sending the corpus to find
-      # that passage again by similarity, paying a fan-out and a reranker pass
-      # for an address it already held — and every batch it spent that way is a
+      # The locator is on both surfaces. A researcher worker that has read a
+      # Gliederung and knows the Punkt it needs would otherwise send the corpus
+      # to find that passage again by similarity, paying a fan-out and a reranker
+      # pass for an address it already held. Every batch spent that way is a
       # round the run does not get back.
       - read_passage
       - list_files
@@ -1070,14 +1056,14 @@ functions:
       - ifc_query
       - ifc_measure
     verbose: true
-    # Durable checkpointing for async deep-research jobs (T3-8), mirroring
+    # Durable checkpointing for async deep-research jobs, mirroring
     # workflow.checkpoint_db below: re-invoking the same job_id resumes from
     # the last persisted checkpoint instead of starting over. STRICTLY OPT-IN:
-    # empty/unset AIQ_DEEP_CHECKPOINT_DB means no durability (in-memory graph,
-    # today's behavior). Do NOT default to a relative sqlite path here — the
-    # container's working directory is not guaranteed writable, and a default-on
-    # value took application startup down (post-#72 incident). Point the env var
-    # at a writable volume path or a Postgres DSN to enable resume-by-job_id.
+    # empty/unset AIQ_DEEP_CHECKPOINT_DB means no durability (in-memory graph).
+    # Do NOT default to a relative sqlite path here — the container's working
+    # directory is not guaranteed writable, and a default-on value would take
+    # application startup down. Point the env var at a writable volume path or
+    # a Postgres DSN to enable resume-by-job_id.
     checkpoint_db: ${AIQ_DEEP_CHECKPOINT_DB:-}
 
 workflow:
@@ -1087,8 +1073,9 @@ workflow:
   # explicitly rather than left to the default, because this is the number the
   # deployment is choosing: it is the one part of the context nobody can
   # reconstruct. A single call on this surface carries 37-84k input tokens and
-  # the static prompt alone is ~14k, so 8 000 trimmed the user's own words and
-  # their corrections while re-sending everything else. See the field docstring
+  # the static prompt alone is ~14k, so a window much smaller than that trims
+  # the user's own words and their corrections while re-sending everything
+  # else. See the field docstring
   # in `piloti/conversation_register.py`.
   max_history_tokens: 40000
   enable_clarifier: true
@@ -1110,9 +1097,7 @@ workflow:
   # decided per TURN by the BFF (`GET /api/internal/stages`): the
   # `memory-reflection` WorkOS flag when GRID_ENFORCE_FEATURE_FLAGS is on,
   # otherwise GRID_MEMORY_REFLECTION_ENABLED, which defaults ON — so a
-  # non-WorkOS deployment DOES get the stage. (The previous claim here, "solely
-  # the WorkOS feature flag, no env-var fallback", contradicted
-  # `feature-flags.ts` and has been wrong since that fallback was added.)
+  # non-WorkOS deployment gets the stage.
   memory_reflection_llm: card_llm
   # Enables the async post-answer follow-up-questions stage. As above, this only
   # makes the capability AVAILABLE; whether it runs is decided per TURN by the
@@ -1120,9 +1105,8 @@ workflow:
   # when GRID_ENFORCE_FEATURE_FLAGS is on, otherwise
   # GRID_STAGE_FOLLOW_UPS_ENABLED, which defaults ON.
   # The stage delivers a `grid_stage_message` frame, rendered as a rail below
-  # the answer card. It ran `silent` for one slice first, so its skip rate,
-  # empty rate and true per-turn cost were measured before any reader saw a chip
-  # (post-answer-stages.md §10, slices 1 and 3). The in-answer `follow_ups` CARD
-  # it replaces is retired (slice 4), so removing `follow_ups_llm` here no longer
-  # falls back to the card — it leaves the product with no follow-up questions.
+  # the answer card. Its skip rate, empty rate and true per-turn cost are
+  # measured silently before any reader sees a chip (post-answer-stages.md §10).
+  # The in-answer `follow_ups` CARD is retired, so removing `follow_ups_llm`
+  # here leaves the product with no follow-up questions.
   follow_ups_llm: follow_ups_llm

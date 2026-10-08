@@ -3,8 +3,7 @@
 /**
  * FollowUpsRail — the questions this answer made askable, BELOW the answer.
  *
- * The product owner's ruling, in their words: the chips „should live below the
- * actual message and not in the message"
+ * The chips „should live below the actual message and not in the message"
  * (`docs/architecture/post-answer-stages.md` §6). So this is not a card: it is
  * a sibling of the answer in the message column, outside the white answer
  * surface, sharing its edges and its full column width.
@@ -13,8 +12,8 @@
  *
  * A stage computes this AFTER the answer is delivered, so it lands two to six
  * seconds later, under a reader who is already reading. A block that appears
- * under someone's eyes and pushes the page is its own defect, and there were
- * three candidate answers (§8):
+ * under someone's eyes and pushes the page is its own defect. Three candidate
+ * answers (§8):
  *
  *   • Reserve the space — leaves a visible hole under every answer for the
  *     turns the gate skips, and reserving the minimum still jumps.
@@ -29,7 +28,7 @@
  *
  * That claim is load-bearing, so it is not left to this component to honour.
  * The conditions under which it is TRUE — nothing below the answer in the
- * thread, the answer no longer streaming, the reader not already typing — are
+ * thread, the answer not streaming, the reader not already typing — are
  * checked at arrival, where the turn's view is drawn into the thread
  * (`lib/turn-projection.ts`), and a stage that would break them is not drawn. A rail that were admitted and then hidden here would pop
  * in later, which is the defect itself.
@@ -60,7 +59,7 @@ import type { StoredFollowUp } from '@/lib/conversations/message-stages'
 interface FollowUpsRailProps {
   items: StoredFollowUp[]
   /**
-   * Offer „Als Aktenvermerk schreiben" beside the questions (ledger 23). The
+   * Offer „Als Aktenvermerk schreiben" beside the questions. The
    * CONDITION is decided by the caller through
    * `features/chat/lib/aktenvermerk-chip`, because it depends on the turn (its
    * answer kind, its project, the length of its body) and this component is

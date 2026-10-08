@@ -1,9 +1,9 @@
 """Treppen und Rampen — the geometry OIB 4 and OIB 2 actually turn on.
 
 The engine could measure a window sill to the millimetre and could not say how
-high one step of a staircase is. That is an accident of history: the first
-failing example this package chased happened to be a daylight question, so the
-daylight side grew and the circulation side did not. The repository's own golden
+high one step of a staircase is. The daylight questions were the ones chased
+first, so the daylight side grew and the circulation side did not. The
+repository's own golden
 benchmark asks *„Welche Anforderungen stellt OIB-RL 4 an Treppenlauf-Nutzbreiten
 in Bürogebäuden?"* and the answer layer had nothing to measure against — no
 riser, no tread, no Nutzbreite, no Durchgangshöhe.
@@ -55,29 +55,29 @@ spacings between consecutive clusters ARE the risers; the plan distance between
 consecutive cluster centroids is the going; the width of the tread surfaces is
 the Nutzbreite. No stair-specific kernel call is needed and none exists.
 
-Two things that reading assumes are not true of real exports, and both cost this
-module a confident wrong number on the first third-party file it met:
+Two things that reading assumes are not true of real exports, and each one gives
+a confident wrong number:
 
 **One body is not one flight.** ArchiCAD writes the Institute's „Treppe-EG" as a
 single ``IfcStair`` — no ``IfcStairFlight``, no landing slab, no
 ``PredefinedType`` — and it is a three-flight dogleg. Taking the chord from its
 first tread centre to its last gives a diagonal across the stairwell, and every
-number measured against that axis is a number about the stairwell: the reported
-„Nutzbreite" of **0.318 m** is one tread measured across that diagonal — the
+number measured against that axis is a number about the stairwell: a Nutzbreite
+would come out at **0.318 m**, one tread measured across that diagonal — the
 depth of a step, not the width of a flight — on flights that are **1.500 m**
 wide. So the levels are split into runs at the turns and at the Podeste, and each
 run is measured on its own axis (:func:`_read_body`).
 
 **One step is not one face.** The same export writes each step twice — the
-structural step and its tread finish 60 mm above it — so every riser was counted
-twice and halved: **45 risers of 0.065 m** for 21 of 0.137 m. A face with another
-face directly above it is not a walking surface, and :func:`_walking_surfaces`
-drops it.
+structural step and its tread finish 60 mm above it — so a reader that counts
+both halves every riser: **45 risers of 0.065 m** for 21 of 0.137 m. A face with
+another face directly above it is not a walking surface, and
+:func:`_walking_surfaces` drops it.
 
 What cannot be read as a straight run is REFUSED, with the measurement that
 decided it: a winder whose tread centres bow off their own chord, a "riser" of
-0.065 m that no leg climbs. The refusal is a true statement about the file; the
-number it replaces was a false statement about the building.
+0.065 m that no leg climbs. The refusal is a true statement about the file; a
+number would be a false statement about the building.
 
 ## Why the Durchgangshöhe is measured perpendicular
 
@@ -104,13 +104,10 @@ be able to get it without a second call.
 The exclusion discipline is :func:`~ifc_spatial.operators.clear_height`'s, not a
 new one: :data:`~ifc_spatial.model.AIR_TYPES` and
 :data:`~ifc_spatial.operators.FURNISHING` are skipped and everything else counts.
-Unfiltered rays have already cost this repository three wrong answers, and a
-chair is not a Durchgangshöhe. ``IfcRailing`` was proposed for that list and is
-deliberately not in it — every stair in the corpus was reporting its own
-balustrade as the thing a head hits (0.415 m on the FZK Wendeltreppe, 0.117 m on
-each of the four Institute stairs, which measure 1.745 m), and the cause was the
-rake and not the filter. See :data:`HEADROOM_TRANSPARENT` for the measurement
-that settled it.
+Unfiltered rays give wrong answers, and a chair is not a Durchgangshöhe.
+``IfcRailing`` is deliberately not on that list: a balustrade reached by a rake
+across a dogleg is the rake's doing, not the filter's (see
+:data:`HEADROOM_TRANSPARENT`).
 
 ## What this module refuses to do
 
@@ -172,11 +169,10 @@ TREAD_NORMAL_DOT = 0.99
 
 #: How much a tread triangle may fall across itself, in metres.
 #:
-#: The normal alone cannot tell a tread from a shallow ramp, and this was
-#: measured here rather than reasoned about: the fixture's 6 % entrance ramp has
-#: a running surface at 3.4°, well inside :data:`TREAD_NORMAL_DOT`'s 8° of slack,
-#: and the tread reader clustered its two triangles into "steps" 0.100 m apart —
-#: a riser invented out of a ramp. A tread is not merely near-horizontal, it is
+#: The normal alone cannot tell a tread from a shallow ramp: the fixture's 6 %
+#: entrance ramp has a running surface at 3.4°, well inside :data:`TREAD_NORMAL_DOT`'s
+#: 8° of slack, and a normal-only reader would cluster its two triangles into
+#: "steps" 0.100 m apart — a riser invented out of a ramp. A tread is not merely near-horizontal, it is
 #: LEVEL WITHIN ITSELF: an external stair's drainage fall of 1.5 % drops 4 mm
 #: over a 0.27 m going, while a ramp face drops the whole rise. 20 mm separates
 #: the two by an order of magnitude in either direction.
@@ -207,30 +203,23 @@ HEADROOM_LATERAL = (0.25, 0.5, 0.75)
 #: Types that never stop a :func:`headroom` ray. ``clear_height``'s list, and
 #: ``clear_height``'s reason: a chair is not a Durchgangshöhe.
 #:
-#: ``IfcRailing`` was proposed for this list and is deliberately NOT in it, and
-#: the reason is worth keeping because the evidence pointed the other way at
-#: first. Every stair in the corpus reported its own balustrade as the tight
-#: point over the flight — 0.415 m on the FZK Wendeltreppe (``IfcRailing
-#: 0o5vgCKyTBzO5$QJcI2YDP``), 0.117 m on each of the four Institute stairs —
-#: which reads exactly like a missing type filter, and ArchiCAD does contain the
-#: balustrade in the STOREY rather than in the stair, so no ``IfcRelAggregates``
-#: exclusion could have reached it.
-#:
-#: It was not the filter. Those rays were cast from the rake that
-#: :func:`_read_body` replaces: one plane fitted across a three-flight dogleg,
+#: ``IfcRailing`` is deliberately NOT in this list. A balustrade can look like
+#: the tight point over a flight — 0.415 m on the FZK Wendeltreppe (``IfcRailing
+#: 0o5vgCKyTBzO5$QJcI2YDP``), 0.117 m on each of the four Institute stairs — and
+#: that reads exactly like a missing type filter. It is not the filter's doing:
+#: those rays were cast from one plane fitted across a three-flight dogleg,
 #: 0.318 m wide and tilted along the diagonal of the stairwell, which passes
-#: through everything standing in the well — the balustrade included. Measured
-#: with the flights read correctly and railings still counted, **no railing is a
-#: ray candidate on any of the twelve flights of the four Institute stairs**, and
-#: the tight point is the slab it always was (1.745 m under „Decke-001").
+#: through everything standing in the well — the balustrade included. With the
+#: flights read correctly and railings still counted, **no railing is a ray
+#: candidate on any of the twelve flights of the four Institute stairs**, and the
+#: tight point is the slab it always is (1.745 m under „Decke-001").
 #:
-#: So the type ban would have been a bandage over a fault that no longer exists,
-#: and it would cost something real: a balustrade that genuinely stands over a
-#: walking line — a gallery edge above the flight below, a handrail that leans
-#: into the middle of a narrow stair — is something a head meets, and this
-#: operator has to be able to say so. The lateral sampling at
-#: :data:`HEADROOM_LATERAL` already keeps a railing standing at the EDGE of its
-#: own flight out of the measurement, which is the case that was feared.
+#: A type ban would cover a fault the rake caused, not one the filter has, and it
+#: would cost something real: a balustrade that genuinely stands over a walking
+#: line — a gallery edge above the flight below, a handrail that leans into the
+#: middle of a narrow stair — is something a head meets, and this operator has to
+#: be able to say so. The lateral sampling at :data:`HEADROOM_LATERAL` already
+#: keeps a railing standing at the EDGE of its own flight out of the measurement.
 HEADROOM_TRANSPARENT = FURNISHING
 
 #: How much of a horizontal face may lie under another horizontal face of the
@@ -239,8 +228,9 @@ HEADROOM_TRANSPARENT = FURNISHING
 #:
 #: ArchiCAD writes every step of ``AC20-Institute-Var-2.ifc`` twice: the
 #: structural step and, 60 mm above it, the tread finish. Both are up-facing,
-#: both are level within themselves and both clear the sliver filter, so the
-#: reader counted **45 risers of 0.065 m** where the stair has 21 of 0.137 m.
+#: both are level within themselves and both clear the sliver filter, so a reader
+#: without this rule counts **45 risers of 0.065 m** where the stair has 21 of
+#: 0.137 m.
 #: The rule that separates them is physical rather than statistical: you cannot
 #: walk on a surface that has another surface directly above it. Two consecutive
 #: treads of a real flight are offset by their going and do not overlap in plan
@@ -293,7 +283,7 @@ LANDING_AREA_FACTOR = 2.0
 #: This is NOT OIB 4's maximum — that number belongs to the Bestimmung and this
 #: layer must not know it. It is the band outside which the number cannot be a
 #: step of any kind: below 0.08 m it is a finish layer, a chamfer or a drainage
-#: fall (the Institute's doubled faces measured 0.065 m and were reported as a
+#: fall (the Institute's doubled faces would measure 0.065 m and read as a
 #: stair), above 0.40 m nobody climbs it in one movement. Inside the band every
 #: value is reported without comment, including ones OIB 4 would reject.
 PLAUSIBLE_RISER = (0.08, 0.40)
@@ -478,10 +468,10 @@ def _walking_surfaces(
     A horizontal face with another horizontal face of the same body directly
     above it is not a step; it is under one. ArchiCAD writes each step of
     ``AC20-Institute-Var-2.ifc`` as a structural step and a tread finish 60 mm
-    above it, both up-facing and both level, and every step was therefore counted
-    twice: **45 risers of 0.065 m** on a stair with 21 of 0.137 m, with the
-    doubled count and the halved riser both reported as measurements. The same
-    rule removes the four faces that sit 0.20 m under that stair's landings.
+    above it, both up-facing and both level. Without this rule every step is
+    counted twice: **45 risers of 0.065 m** on a stair with 21 of 0.137 m, both
+    reported as measurements. The same rule removes the four faces that sit
+    0.20 m under that stair's landings.
 
     The test is the physical one and not a spacing heuristic: overlap in plan by
     more than :data:`BURIED_OVERLAP_FRACTION` of the lower face's own area, with
@@ -517,7 +507,7 @@ def _landing_levels(clusters: list[tuple[float, float, np.ndarray, np.ndarray]])
 
     A landing is not a step and must not be measured as one: on the Institute
     stair the two landings are 2.518 m² and 2.783 m² against a median tread of
-    0.598 m², and taking them as treads is what produced „Auftritte 0.023 m bis
+    0.598 m², and taking them as treads would produce „Auftritte 0.023 m bis
     1.053 m" there. The median is the tread, because a flight has many more
     treads than landings; :data:`LANDING_AREA_FACTOR` is the factor between them.
     """
@@ -588,10 +578,10 @@ def _measure_run(
     """One straight run → a ``_Flight``, or ``None`` and the reason in German.
 
     The refusals are the point of this function. A stair that cannot be measured
-    has to say so: the reader has already shipped „Nutzbreite 0.318 m" for a
-    1.500 m flight and „16 Steigungen von 0.177 m bis 0.850 m" for a
-    Wendeltreppe, and both were `decidable=True` with a confident number in them.
-    Nothing here reports a value it could not derive.
+    has to say so: a reader that takes the chord of a dogleg reports „Nutzbreite
+    0.318 m" for a 1.500 m flight, or „16 Steigungen von 0.177 m bis 0.850 m" for a
+    Wendeltreppe, both `decidable=True` with a confident number in them. Nothing
+    here reports a value it could not derive.
 
     ``alone`` says this run is the whole body. A body that shows exactly one
     tread is a Blockstufe and is measured; a run of one tread cut out of a longer
@@ -744,16 +734,15 @@ def _short_axis(vertices: np.ndarray) -> np.ndarray | None:
 def _read_body(model: SpatialModel, element: Any) -> _Body:
     """One solid → every flight in it, its landings, and what it refused.
 
-    The reader used to assume that one body is one flight, and took the chord
-    from the first tread centre to the last as the direction of travel. On the
-    Institute's „Treppe-EG" — a three-flight dogleg written as ONE ``IfcStair``
-    with no parts and no ``PredefinedType``, so nothing in the file announces the
-    flights — that chord runs diagonally across the stairwell. Everything
-    measured against it was measured against the wrong axis: the „Nutzbreite"
-    it reported, **0.318 m**, is the depth of one tread across that diagonal —
-    a step's going, near enough — on a flight that is **1.500 m** wide. A 4.7×
-    understatement of the one number OIB 4's Nutzbreite question turns on, and
-    in the direction that fails a stair which complies.
+    A body is not one flight, so the chord from the first tread centre to the
+    last is not the direction of travel. On the Institute's „Treppe-EG" — a
+    three-flight dogleg written as ONE ``IfcStair`` with no parts and no
+    ``PredefinedType``, so nothing in the file announces the flights — that chord
+    runs diagonally across the stairwell. Everything measured against it is
+    measured against the wrong axis: the „Nutzbreite" would be **0.318 m**, the
+    depth of one tread across that diagonal, on a flight that is **1.500 m** wide.
+    A 4.7× understatement of the one number OIB 4's Nutzbreite question turns on,
+    and in the direction that fails a stair which complies.
 
     So the levels are split into runs first — at the landings and at the turns —
     and each run is measured on its own axis. Whatever cannot be split into a
@@ -987,15 +976,14 @@ def stair_geometry(model: SpatialModel, global_id: str) -> Answer[dict[str, Any]
 
     ## …and the assemblies that are not declared as one
 
-    A body with no parts is not the same thing as a body with one flight, and
-    treating it as one is what this operator got wrong. ArchiCAD writes the
-    Institute's „Treppe-EG" as a single ``IfcStair`` with no ``IfcStairFlight``,
-    no landing slab and no ``PredefinedType`` — nothing in the file says it is a
-    three-flight dogleg — and the reader took the chord from its first tread to
-    its last, which runs diagonally across the stairwell. It reported
-    ``riserCount 45``, ``riserHeight 0.065``, ``clearWidth 0.318``, ``landings 0``
-    with ``decidable=True``, for a stair with 21 risers of 0.137 m, a going of
-    0.348 m, a **1.500 m** Nutzbreite and two Podeste. So the flights are found
+    A body with no parts is not the same thing as a body with one flight. ArchiCAD
+    writes the Institute's „Treppe-EG" as a single ``IfcStair`` with no
+    ``IfcStairFlight``, no landing slab and no ``PredefinedType`` — nothing in the
+    file says it is a three-flight dogleg — so a reader that takes the chord from
+    its first tread to its last reports ``riserCount 45``, ``riserHeight 0.065``,
+    ``clearWidth 0.318``, ``landings 0`` with ``decidable=True``, for a stair with
+    21 risers of 0.137 m, a going of 0.348 m, a **1.500 m** Nutzbreite and two
+    Podeste. So the flights are found
     at the body — at the turns and at the landings — and each is measured on its
     own axis (:func:`_read_body`). What cannot be read as a straight flight is
     refused with the measurement that decided it rather than averaged.
@@ -1211,7 +1199,7 @@ def stair_geometry(model: SpatialModel, global_id: str) -> Answer[dict[str, Any]
         # Landings from BOTH routes, because a file states them in either. The
         # synthetic assembly declares its Podest as an IfcSlab/LANDING part; the
         # Institute's dogleg declares nothing at all and its two Podeste are only
-        # in the solid, where `landings 0` used to be reported over them.
+        # in the solid, where `landings 0` would otherwise be reported over them.
         "landings": len(landings) + measured_landings,
         "declaredLandings": len(landings),
         "measuredLandings": measured_landings,
@@ -1234,7 +1222,7 @@ def stair_geometry(model: SpatialModel, global_id: str) -> Answer[dict[str, Any]
         # „Auch" only when the risers were the previous sentence's finding. On a
         # stair with equal risers and a 25 mm spread in the goings — the
         # Institute's dogleg, where the top tread is the floor slab's own face —
-        # it made the answer read as if the risers had been unequal too.
+        # the word would make the answer read as if the risers were unequal too.
         uneven_risers = riser_stats is not None and riser_stats["spread"] > COORDINATE_TOLERANCE
         caveats.append(
             f"{'Auch die' if uneven_risers else 'Die'} Auftritte sind ungleich "
@@ -1255,10 +1243,8 @@ def stair_geometry(model: SpatialModel, global_id: str) -> Answer[dict[str, Any]
             "zwischen zwei sichtbaren Trittflächen."
         )
     if len(per_flight) > 1:
-        # Which flights, and where they came from. „landings 0" over a body with
-        # two Podeste in it was the previous answer on the Institute's dogleg,
-        # and a reader had no way to see that the three flights had been averaged
-        # into one.
+        # Which flights, and where they came from: a single averaged flight over a
+        # body with three flights in it would otherwise look like an ordinary stair.
         from_body = sum(1 for f in per_flight if f["fromBody"])
         caveats.append(
             f"Gemessen sind {len(per_flight)} Läufe"
@@ -1712,13 +1698,12 @@ def _overhead_hits(
     stops a ray (a space is air and an opening is a subtraction), and every entry
     of :data:`HEADROOM_TRANSPARENT` is tested with ``is_a`` because
     ``IfcFurniture`` is only a SUBTYPE of ``IfcFurnishingElement`` in IFC4 — in
-    IFC2X3 it is not, and a chair once stopped a clear-height ray for that reason.
+    IFC2X3 it is not, and a chair would stop a clear-height ray for that reason.
 
-    ``IfcRailing`` is NOT in that list, and :data:`HEADROOM_TRANSPARENT` records
-    the measurement that decided it: the balustrades this pass used to report
-    were reached by the old single-plane rake across a whole dogleg, not by the
-    filter, and with the flights read one at a time no railing is a candidate at
-    all.
+    ``IfcRailing`` is NOT in that list: a balustrade that a single plane across a
+    whole dogleg reaches is the rake's doing, not the filter's, and with the
+    flights read one at a time no railing is a candidate at all (see
+    :data:`HEADROOM_TRANSPARENT`).
     """
     shortest: float | None = None
     hit_by: dict[str, float] = {}
@@ -1858,16 +1843,15 @@ def headroom(model: SpatialModel, global_id: str) -> Answer[dict[str, Any]]:
         )
 
     # The subject only. The flight being measured excludes ITSELF below, because
-    # a body cannot stop a ray leaving its own surface; its SIBLINGS must stay
+    # a body cannot stop a ray leaving its own surface; its SIBLINGS stay
     # candidates, because the other flight of the same stair is the commonest
-    # ceiling a staircase has. This set used to hold every body in `rakes`, which
-    # made the exclusion identical for all flights and blinded each one to the
-    # rest of its own assembly — on the two-flight „Treppe Turm" of
-    # tests/test_stairs.py, whose Lauf OG stands 1.280 m over the top nosing of
-    # Lauf UG, `headroom` on the assembly reported „kein Bauteil … begrenzt
-    # nichts die Durchgangshöhe" while the same question asked about Lauf UG
-    # alone answered 1.280 m. „Nichts darüber" is read as a gap in the export;
-    # here it was a stair, and the direction of the error is the dangerous one.
+    # ceiling a staircase has. Excluding every body in `rakes` would make the
+    # exclusion identical for all flights and blind each one to the rest of its
+    # own assembly: on the two-flight „Treppe Turm" of tests/test_stairs.py, whose
+    # Lauf OG stands 1.280 m over the top nosing of Lauf UG, `headroom` on the
+    # assembly must reach that 1.280 m. „Nichts darüber" is read as a gap in the
+    # export; here it would be a stair, and the direction of the error is the
+    # dangerous one.
     #
     # The exclusion is still per BODY and not per flight, and it has to be: the
     # ray tree knows elements, not the runs this module reads out of one. So on a
@@ -2023,11 +2007,10 @@ def steps_of(model: SpatialModel, global_id: str) -> Answer[dict[str, Any]]:
     ``IfcRelAggregates`` at all, and ``{"flights": [], "landings": []}`` with
     ``decidable=True`` says „diese Treppe hat keine Läufe und keine Podeste" —
     a statement about the building, and one that is false for every building ever
-    built. The Institute's „Treppe-EG" answered exactly that while carrying three
-    flights and two Podeste in its solid, and a caller reading
-    ``value["landings"] == []`` had no way to know. The caveat that used to sit
-    beside the empty lists already said the statement could not be made; it is
-    now where it belongs, in ``missing.what`` and ``missing.remedy``.
+    built. The Institute's „Treppe-EG" would answer exactly that while carrying
+    three flights and two Podeste in its solid, and a caller reading
+    ``value["landings"] == []`` would have no way to know. The statement cannot
+    be made, so it belongs in ``missing.what`` and ``missing.remedy``.
     """
     method = f"stepsOf({global_id})"
     subject = _require(model, global_id, method)
@@ -2066,12 +2049,11 @@ def steps_of(model: SpatialModel, global_id: str) -> Answer[dict[str, Any]]:
     }
 
     if not flights:
-        # The empty list is not an answer, and this operator used to return one
-        # with `decidable=True` beside a caveat that said the statement could not
-        # be made. A caller reading `value["landings"] == []` concluded that the
-        # stair has no Podest; the Institute's „Treppe-EG" has two, and its parts
-        # list is empty only because ArchiCAD wrote no IfcRelAggregates at all.
-        # An empty list that would be false for every building ever built is an
+        # The empty list is not an answer: with `decidable=True` it would say the
+        # stair has no Podest, and a caller reading `value["landings"] == []` would
+        # conclude exactly that. The Institute's „Treppe-EG" has two, and its parts
+        # list is empty only because ArchiCAD wrote no IfcRelAggregates at all. An
+        # empty list that is false for every building ever built is an
         # `undecidable` — the rule `relations.connects` states in its own module
         # docstring, applied here to the same shape of absence.
         return undecidable(

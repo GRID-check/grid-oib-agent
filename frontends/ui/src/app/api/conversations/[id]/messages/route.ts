@@ -5,8 +5,8 @@
  *
  * The POST response carries the server's addressee ruling on each persisted
  * message (`addressees`, `createdRequests`) alongside the row, so the client can
- * decide whether to open an agent turn (ADR-0034). Extra fields only — the array
- * shape existing callers expect is unchanged.
+ * decide whether to open an agent turn (ADR-0034). Extra fields only: the array
+ * shape callers depend on is kept.
  */
 
 import { z } from 'zod'
@@ -45,11 +45,11 @@ const createMessageSchema = z.object({
   // addressee set is resolved from these server-side (spec MN-2).
   //
   // Bounded by the SAME constant the service enforces (`@/lib/sharing/rate-limit`
-  // owns the product bound MN-13 asks for) so the two cannot drift: this schema
-  // used to cap the array at 20 while the service refused anything over 10, which
-  // meant an 11-mention message passed validation and then hit a 403. The two are
-  // still both needed — this bounds the PAYLOAD, the service bounds the
-  // DEDUPLICATED target count, which is the number the abuse bound is about.
+  // owns the product bound MN-13 asks for) so the two cannot drift: a bound set
+  // only here would let a message pass validation and then fail with a 403 in
+  // the service. The two are both needed — this bounds the PAYLOAD, the service
+  // bounds the DEDUPLICATED target count, which is the number the abuse bound is
+  // about.
   mentions: z.array(mentionSchema).max(MAX_MENTIONS_PER_MESSAGE).optional(),
   // The asker's question, carried into the recipient's inbox item (spec MN-12).
   mentionNote: z.string().max(500).nullable().optional(),

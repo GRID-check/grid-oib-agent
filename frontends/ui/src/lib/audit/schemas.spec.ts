@@ -2,12 +2,10 @@
  * @vitest-environment node
  */
 /**
- * The coverage gate for issues #255/#256: an action the app emits without a
- * registered WorkOS schema is a runtime 400 on every privileged mutation
- * ("event 'resource.shared', version '1' has not been configured in this
- * environment"), swallowed by the non-throwing emitter and visible only as an
- * ERROR log. Nine actions drifted that way while two hand-maintained lists
- * pretended to be one.
+ * The coverage gate: an action the app emits without a registered WorkOS schema
+ * is a runtime 400 on every privileged mutation ("event 'resource.shared',
+ * version '1' has not been configured in this environment"), swallowed by the
+ * non-throwing emitter and visible only as an ERROR log.
  *
  * Deriving `AUDIT_ACTIONS` from the schema keys already makes the gap
  * unrepresentable; this file is the belt to that suspenders, and it runs
@@ -20,8 +18,9 @@
  * The relationship has two sides and they fail differently:
  *
  *   - **union ⊆ schemas** — an action the app emits with no registered schema.
- *     That is #255/#256: WorkOS rejects the event, the non-throwing emitter
- *     swallows it, and one ERROR log per privileged mutation is the only sign.
+ *     That is the unregistered-action failure: WorkOS rejects the event, the
+ *     non-throwing emitter swallows it, and one ERROR log per privileged mutation
+ *     is the only sign.
  *     This side is CLOSED BY CONSTRUCTION — `AUDIT_ACTIONS` is
  *     `Object.keys(AUDIT_SCHEMAS)` and `tsc` confines every `recordAuditEvent`
  *     call site to that union — so an emit with no schema does not compile.
@@ -30,12 +29,11 @@
  *     more thing the next reader has to decide is deliberate, and the entries
  *     around it are the only documentation of what a call site really sends.
  *
- * The second side was NOT actually checked. The test that claimed to check it
- * compared `Object.keys(AUDIT_SCHEMAS)` against `AUDIT_ACTIONS`, which IS
- * `Object.keys(AUDIT_SCHEMAS)` — a set against itself, green for any registry
- * including one full of actions nobody emits. So the emitted side is now read
- * off the CALL SITES: the files that call `recordAuditEvent` (or the throwing
- * variant), and the action literals in them.
+ * The second side is checked against the call sites, not the registry: comparing
+ * `Object.keys(AUDIT_SCHEMAS)` with `AUDIT_ACTIONS` would be a set against itself,
+ * green for any registry including one full of actions nobody emits. So the
+ * emitted side is read off the CALL SITES: the files that call
+ * `recordAuditEvent` (or the throwing variant), and the action literals in them.
  *
  * That scan deliberately OVER-collects — it takes every quoted string in an
  * `action:` expression, so a ternary picking between two actions contributes
@@ -45,10 +43,10 @@
  * belongs: with the compiler.
  *
  * The expression is read to the end of the STATEMENT rather than the end of the
- * line, because the line-scoped version was breakable by formatting alone:
- * running Prettier over a call site wrapped a long ternary, `action:` and its
- * two literals landed on different lines, and both actions were reported as
- * orphans by a gate that is supposed to be about the registry.
+ * line, because a line-scoped read is breakable by formatting alone: Prettier
+ * wrapping a long ternary puts `action:` and its two literals on different
+ * lines, and both actions would be reported as orphans by a gate that is
+ * supposed to be about the registry.
  */
 import { readFileSync, readdirSync } from 'node:fs'
 import { join } from 'node:path'
@@ -85,7 +83,7 @@ function sourceFiles(directory: string): string[] {
  *
  * Read from the files that CALL it, so this set is evidence about the app
  * rather than a second reading of the registry — which is the whole point, and
- * the reason the test below is no longer a set compared with itself.
+ * the reason the test below does not compare the registry with itself.
  */
 const EMITTED_ACTIONS: ReadonlySet<string> = new Set([
   /*
@@ -95,9 +93,9 @@ const EMITTED_ACTIONS: ReadonlySet<string> = new Set([
    * sites, so those six actions would look like orphans.
    *
    * Reading the table is still evidence about the app rather than a second
-   * reading of the registry — which is the distinction this file's history is
-   * about. `tsc` confines every row's `auditAction` to the same union
-   * `recordAuditEvent` accepts, and the effects registry hands exactly that
+   * reading of the registry — the distinction this file exists to draw. `tsc`
+   * confines every row's `auditAction` to the same union `recordAuditEvent`
+   * accepts, and the effects registry hands exactly that
    * field to the emitter, so a row here IS a call site's argument. Adding a
    * transition with an unregistered action still fails, on the line above.
    */
@@ -139,10 +137,8 @@ describe('audit schema coverage', () => {
   })
 
   it('emits every action it registers a schema for — no orphan schemas', () => {
-    // The OTHER direction, and the one that was never really tested: this used
-    // to compare `Object.keys(AUDIT_SCHEMAS)` with `AUDIT_ACTIONS`, which is the
-    // same array, so it was green for a registry containing an action no call
-    // site has ever passed. `EMITTED_ACTIONS` comes from the call sites.
+    // The OTHER direction: `EMITTED_ACTIONS` comes from the call sites, so a
+    // registry entry that no call site passes is an orphan here.
     const orphans = Object.keys(REGISTRY).filter((action) => !EMITTED_ACTIONS.has(action))
     expect(orphans).toEqual([])
   })
@@ -165,9 +161,8 @@ describe('audit schema coverage', () => {
     expect(new Set(AUDIT_ACTIONS).size).toBe(AUDIT_ACTIONS.length)
   })
 
-  it('covers the actions reported by issues #255 and #256', () => {
-    // The two that reached production unregistered. Named explicitly so a
-    // future refactor that drops them fails with the issue number attached.
+  it('names resource.shared and resource.ownership.escalated among the audit actions', () => {
+    // Named explicitly, so a refactor that drops either one fails here by name.
     expect(AUDIT_ACTIONS).toContain('resource.shared')
     expect(AUDIT_ACTIONS).toContain('resource.ownership.escalated')
   })
@@ -184,7 +179,7 @@ describe('audit schema coverage', () => {
       'answer_artifact',
     ])
     // The reference rides as a target, so it must NOT also be a metadata key —
-    // two carriers for one fact is how the two lists behind #255/#256 drifted.
+    // two carriers for one fact invite the two to drift apart.
     expect(Object.keys(generated.metadata ?? {})).not.toContain('runId')
   })
 
@@ -194,13 +189,12 @@ describe('audit schema coverage', () => {
     // added there and missing here is not a lost audit line: `document.generated`
     // uses the THROWING emitter, so WorkOS rejecting the event unfiles the
     // document the event was about, and the user sees a report with no file and
-    // no error. That exact failure has shipped once already, from a single
-    // unregistered metadata key.
+    // no error.
     const registered = REGISTRY['document.generated'].targets.map((target) => target.type)
     for (const kind of AUTHORED_REF_KINDS) expect(registered, kind).toContain(kind)
 
-    // And back the other way, for the same reason the action guard now runs in
-    // both directions: a target type registered here that no reference kind can
+    // And back the other way, for the same reason the action guard runs in both
+    // directions: a target type registered here that no reference kind can
     // produce is a dead entry in the one list a reader consults to find out what
     // this event really carries. `document` is the event's own subject and is
     // not a reference kind, so it is the one member named here.

@@ -8,12 +8,10 @@ import { getTranslations } from '@/i18n/server'
  * component reading the WorkOS session, so without this the navigation from the
  * user menu gives no feedback.
  *
- * It no longer draws a topbar. The one it used to draw was `h-14` where the
- * real one was `h-16`, so every arrival on this page moved the entire column up
- * by 8px — a live jump, shipped by a fallback whose whole purpose was to
- * prevent one. There is nothing left to get wrong: the chrome is persistent and
- * already on screen, and the column below comes from the same `ShellContent`
- * the page itself uses.
+ * It draws no topbar. The chrome is persistent and already on screen, and a copy
+ * of the topbar here would drift from the real one and move the whole column on
+ * arrival. The column below comes from the same `ShellContent` the page itself
+ * uses.
  */
 export default async function ProfileLoading(): Promise<JSX.Element> {
   const t = await getTranslations('profile')

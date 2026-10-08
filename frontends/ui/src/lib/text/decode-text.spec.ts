@@ -1,7 +1,7 @@
 /**
  * The preview reads a text file's bytes the way the knowledge layer does
  * (`text_formats.py`, `decode_text`): a BOM decides, else strict UTF-8, else
- * Windows-1252. The cases are the ones that used to preview as „�".
+ * Windows-1252. The cases are the ones that would otherwise preview as „�".
  */
 
 import { describe, expect, it } from 'vitest'

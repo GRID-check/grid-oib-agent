@@ -199,12 +199,12 @@ _HAUPTNUTZUNGEN = frozenset(
 def _valid_hauptnutzung(value: str) -> str:
     """The Hauptnutzung if the catalogue knows it, else "" — see below.
 
-    The tool description says an unrecognised value makes the rules that need
-    it "stand down as not applicable". It did not: the value went into a
-    `.strict()` object whose field is an enum, so `"wohngebäude"` produced a
-    400 and the whole compliance run failed — on a value the description
-    presents as merely imprecise. Its sibling `_valid_gebaeudeklasse` is
-    sanitised here for exactly this reason; this one was not.
+    The tool description promises that an unrecognised value makes the rules
+    that need it "stand down as not applicable". The value must therefore never
+    reach the endpoint: it goes into a `.strict()` object whose field is an
+    enum, so `"wohngebäude"` would produce a 400 and fail the whole compliance
+    run, on a value the description presents as merely imprecise. Its sibling
+    `_valid_gebaeudeklasse` is sanitised here for exactly this reason.
     """
     lowered = value.strip().lower()
     return lowered if lowered in _HAUPTNUTZUNGEN else ""
@@ -217,9 +217,9 @@ def _valid_gebaeudeklasse(value: int | None) -> int:
     supply one, and the two consumers of this value MUST agree on what to do
     with it: the catalogue omits an invalid fact so the rules stand down with
     their reason, and the BCF link has to omit it for the same reason. Deciding
-    that twice is how they came to disagree — the run happened at "no
-    Gebäudeklasse given" while the download link said `gebaeudeklasse=9`, so the
-    archive an architect opened was built against thresholds nobody chose.
+    it twice is how the two drift apart: a run at "no Gebäudeklasse given" beside
+    a download link that says `gebaeudeklasse=9` builds an archive against
+    thresholds nobody chose.
     """
     return value if value and 1 <= value <= 5 else 0
 
@@ -241,12 +241,11 @@ def _element_link(
     compose a URL from a pattern will eventually compose a wrong one, and a
     link to the wrong wall is worse than no link.
 
-    `status` colours the highlight. Every link this tool emitted was `info`
-    (blue) regardless of what the row said, so a wall that FAILS a requirement
-    opened in the same neutral colour as one the user merely asked to look at —
-    the viewer supports `pass|fail|warning|info` and the whole set was
-    collapsed to one. An unknown status falls back to `info` rather than
-    reaching the URL: the frontend parser drops a highlight it cannot read, and
+    `status` colours the highlight, so a wall that FAILS a requirement opens in
+    a different colour from one the user merely asked to look at: the viewer
+    supports `pass|fail|warning|info`. An unknown status falls back to `info`
+    rather than reaching the URL: the frontend parser drops a highlight it cannot
+    read, and
     a dropped highlight means the element does not light up at all.
     """
     if not project_id or not global_id:
@@ -314,10 +313,10 @@ class IfcQueryInput(BaseModel):
 _BARE_OPS = frozenset({"overview", "types", "health", "schedule", "profile"})
 
 #: Operations that read the WHOLE model and take no element filter — with what
-#: each returns, for the refusal. A filter on these used to be dropped, so
-#: ``schedule`` with a storey filter returned the whole building's Raumbuch and
-#: the agent presented it as one floor's. Saying no is the only answer that does
-#: not put a wrong number in front of someone.
+#: each returns, for the refusal. A filter on these would be silently dropped, so
+#: ``schedule`` with a storey filter would return the whole building's Raumbuch
+#: as one floor's. Saying no is the only answer that does not put a wrong number
+#: in front of someone.
 _WHOLE_MODEL_OPS = {
     "overview": "eine Zusammenfassung des ganzen Modells",
     "types": "die Typenverteilung des ganzen Modells",

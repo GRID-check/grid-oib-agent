@@ -185,11 +185,10 @@ describe('IfcFilePreview', () => {
   /*
     The org-wide Archiv, which has no project.
 
-    Every model surface used to be reached through a project's model list, so
-    an `.ifc` uploaded into the Archiv — parsed, indexed, listed as ready —
-    previewed as the grey "no inline preview" placeholder every unknown format
-    gets. The file the feature is about was the one file the Archiv could do
-    nothing with.
+    The model must resolve by its document, not through a project's model list:
+    otherwise an `.ifc` uploaded into the Archiv — parsed, indexed, listed as
+    ready — previews as the grey "no inline preview" placeholder every unknown
+    format gets.
   */
   describe('without a project (the org Archiv)', () => {
     it('shows the building, resolved by its document rather than a project list', async () => {
@@ -218,13 +217,9 @@ describe('IfcFilePreview', () => {
     })
 
     /**
-     * This used to assert the opposite, and the assertion was right about the
-     * code and wrong about the product: the Archiv's preview offered no way out
-     * because the stage required a project, so the same `.ifc` opened as a
-     * full-screen building in Dateien and as a dead-end viewport here.
-     *
-     * The stage takes `projectId: null` now, so the offer is the same on both
-     * surfaces — only the path differs, because the Archiv is not under a
+     * The stage takes `projectId: null`, so the offer is the same on both
+     * surfaces: the Archiv's preview must not be a dead end because the stage
+     * needs a project. Only the path differs, because the Archiv is not under a
      * project.
      */
     it('offers the workspace on the Archiv’s own route, not a project’s', async () => {

@@ -13,13 +13,8 @@
  * this spec proves the BFF still emits it, and
  * `tests/aiq_agent/knowledge/test_scope_header_contract.py` proves the agent
  * still reads it. Change the payload on one end and exactly one of the two
- * fails, which is the point — every defect this phase produced was invisible to
- * one side's own tests:
- *
- *  - the shelf rode the raw header while `scoping.py` reads the signed
- *    envelope, so it was correct in every header test and inert in production;
- *  - the citation-key reader knew three qualifiers while the writer had grown
- *    a fourth, and both halves passed their own suites.
+ * fails, which is the point. Each side's suite can pass while the seam between
+ * them is broken, which is the case this fixture exists for.
  *
  * A seam is not covered by testing each side of it.
  */
@@ -37,7 +32,7 @@ const FIXTURE = resolve(HERE, '../../../../tests/fixtures/collection_scope/scope
 
 interface ScopeCase {
   name: string
-  /** False for shapes the BFF no longer writes but the agent must still read. */
+  /** False for legacy shapes the agent must still read but the BFF does not write. */
   emittedByBff: boolean
   entries: Array<ScopedCollection | string>
   parsed: Array<{ collection: string; shelf: string | null }>
@@ -78,9 +73,9 @@ describe('X-Grid-Collection-Scope — the shape the agent decodes', () => {
   })
 
   test('a session collection is its own shelf, not project', () => {
-    // The defect this phase exists to remove: `('s_', 'projekt')` was the only
-    // guess available once the shelf had been dropped at the wire, so a file
-    // attached privately to a chat was cited as "Projektwissen".
+    // Without the shelf on the wire, a guess such as `('s_', 'projekt')` is the
+    // only option, and a file attached privately to a chat would be cited as
+    // "Projektwissen".
     const encoded = encodeCollectionScopeHeader([{ collection: 's_conv_abc', shelf: 'session' }])
     const [entry] = JSON.parse(Buffer.from(encoded, 'base64url').toString('utf-8')) as Array<
       Record<string, unknown>

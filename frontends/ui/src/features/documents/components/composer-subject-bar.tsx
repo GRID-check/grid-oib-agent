@@ -73,15 +73,14 @@ export function ComposerSubjectBar({
     also have to be kept in step with a rename, and the row is the authority
     either way.
 
-    There is no "already complete" guard any more, and there cannot be one.
-    The lookup now also recovers the subject's OPEN VERSION, which no caller
+    There is no "already complete" guard, and there cannot be one.
+    The lookup also recovers the subject's OPEN VERSION, which no caller
     carries and whose ABSENCE is itself an answer ("the live bytes are
     published"), so "the fields I can see are filled" can never mean "there is
-    nothing left to ask". The earlier guard was already widening for the same
-    reason: a subject restored with a title but no filename used to skip the
-    fetch entirely and send the title as the filename.
+    nothing left to ask". A subject restored with a title but no filename must
+    still be fetched, or the title goes out as the filename.
 
-    What bounds the requests is `attemptedRef`, not the guard: it is keyed on
+    What bounds the requests is `attemptedRef`: it is keyed on
     the SUBJECT and nothing else, so a composer that re-renders on every
     keystroke still asks once per resource — and a document that 404s (deleted,
     or no longer readable) is asked about once rather than once per keystroke.
@@ -143,10 +142,9 @@ export function ComposerSubjectBar({
           style={sourceTint('project')}
         >
           <span
-            // Plain classes standing in for `StatCardIcon` (dense + bordered):
-            // that atom has not landed on this branch yet, and this well
-            // already carries its spec — size-7, rounded-lg, bordered card
-            // ground with the shelf tint as ink.
+            // Plain classes in place of `StatCardIcon` (dense + bordered); the well
+            // carries its own spec — size-7, rounded-lg, bordered card ground with the
+            // shelf tint as ink.
             className="mt-0.5 flex size-7 shrink-0 items-center justify-center rounded-lg border bg-card"
             aria-hidden
           >

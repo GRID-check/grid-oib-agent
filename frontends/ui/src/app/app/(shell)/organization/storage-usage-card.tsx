@@ -132,14 +132,12 @@ interface StorageUsageCardProps {
    * Where to read usage from. Defaults to the real endpoint.
    *
    * Exists so the dev preview can render the within-quota and over-quota states
-   * side by side and have each card ask for a DISTINCT url. It previously varied
-   * the fixture by call ORDER through a `window` counter, which strict mode's
-   * double-invocation and any remount made non-deterministic — the screenshot
-   * captured whichever state the counter happened to reach, in the artifact whose
-   * only job is to show both.
+   * side by side and have each card ask for a DISTINCT url. The fixture is picked
+   * by url, never by call order: strict mode's double-invocation and any remount
+   * would make call order non-deterministic.
    *
    * A defaulted endpoint is an ordinary component parameter, not a preview-only
-   * hatch: production passes nothing and behaves exactly as before.
+   * hatch: production passes nothing and uses the real endpoint.
    */
   endpoint?: string
 }

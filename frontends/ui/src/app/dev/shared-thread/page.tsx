@@ -30,8 +30,8 @@
  *   - `handback`  — the resolution point of a hand-off (ADR-0034 addendum): the
  *                   reader asked Anna, Anna has answered, the wait is closed, and
  *                   the thread offers to let Piloti carry on. The one transition
- *                   that used to have no affordance at all, because the awaiting
- *                   banner disappears the moment it becomes relevant. Its action
+ *                   with no affordance of its own: the awaiting banner disappears
+ *                   the moment it becomes relevant. Its action
  *                   pre-fills the composer — which this preview does not mount — so
  *                   here it only steps aside; the composer end is at
  *                   `/dev/composer-addressee`.
@@ -355,9 +355,9 @@ if (typeof window !== 'undefined' && process.env.NODE_ENV === 'development') {
           // realism (a colleague starts typing during a turn, not in the same
           // millisecond): the indicator resolves its names against the roster, so a
           // claim that lands before `GET /api/sharing/...` has answered is held
-          // until it does. Firing both in one tick made the capture race that
-          // fetch, which is a flaky screenshot rather than a product defect —
-          // but a flaky screenshot is not evidence.
+          // until it does. Firing both in one tick would make the capture race that
+          // fetch — a flaky screenshot rather than a product defect, and a flaky
+          // screenshot is not evidence.
           if (isLiveVariant()) {
             setTimeout(
               () =>

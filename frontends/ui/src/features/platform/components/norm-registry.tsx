@@ -76,10 +76,9 @@ function sourceHost(url: string): string {
 const hasReview = (entry: NormEntry): boolean => (entry.review_note ?? '').trim().length > 0
 
 /**
- * Legal lane of an entry, as a sort key. The old surface rendered one section
- * per lane; the table keeps that reading order (federal law, then the states
- * alphabetically, then authority information, then external norms) while the
- * rank and scope columns carry the label that the section heading used to.
+ * Legal lane of an entry, as a sort key. The table reads federal law first, then
+ * the states alphabetically, then authority information, then external norms;
+ * the rank and scope columns carry the label for each lane.
  */
 function laneOrder(entry: NormEntry): number {
   if (entry.rank === 'behoerdliche_info') return 2
@@ -374,9 +373,9 @@ export function NormRegistry(): JSX.Element {
                   </SelectContent>
                 </Select>
                 {openReviewCount > 0 && (
-                  // The old surface kept a separate "open reviews" queue card.
-                  // As a filter it stays one click away without duplicating the
-                  // list — and the count is still visible without opening it.
+                  // Open reviews are a filter, not a separate queue card: one click
+                  // away without duplicating the list, and the count is visible
+                  // without opening it.
                   <Button
                     variant={onlyReviews ? 'secondary' : 'outline'}
                     size="sm"

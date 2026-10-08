@@ -17,9 +17,9 @@ import { errorResponse, resolveParams, successResponse, type NextRouteContext } 
 
 /**
  * How a platform route is authorized. Required, for the same reason `apiRoute`'s
- * `authz` is (ADR-0038): the factory used to ask one binary question —
- * "is this platform staff?" — which cannot express a read-only role. It said yes
- * to `org-platform-support` on eleven mutating routes.
+ * `authz` is (ADR-0038): a binary "is this platform staff?" check cannot express
+ * a read-only role, so it would let `org-platform-support` through every
+ * mutating route.
  */
 export interface PlatformRouteOptions {
   /**
@@ -43,12 +43,10 @@ export interface PlatformApiContext<TParams = Record<string, never>> {
 /**
  * Declare a platform-owner route (ADR-0016).
  *
- * Eighteen routes used to open with the same twelve lines: resolve the session,
- * a platform gate, then a bespoke try/catch translating
- * `PlatformAccessDeniedError` into a 403 and delegating everything else to
- * `authzErrorResponse`. Every copy was a chance to get the translation subtly
- * wrong, and none of them went through the shared factory, so none of them
- * benefited from its error mapping.
+ * Resolves the session, applies the platform gate, translates
+ * `PlatformAccessDeniedError` into a 403 and delegates everything else to
+ * `authzErrorResponse`. The translation lives here once, so every platform route
+ * gets the same error mapping.
  *
  * The gate runs BEFORE the handler, so it cannot be lost by editing the body.
  */

@@ -102,7 +102,7 @@ const lookup = (collection: unknown, key: string): unknown =>
  *
  * Every node graph here runs dagre in the reader's tab, and dagre is not
  * linear: measured at ~200 ms for 100 nodes and ~520 ms for 300, per layout,
- * on the main thread. A diagram that large is also no longer one a reader
+ * on the main thread. A diagram that large is also not one a reader
  * follows node by node, which is what these views are for.
  */
 export const MAX_GRAPH_NODES = 80
@@ -120,7 +120,7 @@ const NAMED_ENTITY: Record<string, string> = { quot: '"', amp: '&', lt: '<', gt:
  *
  * The parser hands a label over the way its SVG renderer wants it: its own
  * `#quot;` entity syntax swapped for placeholders (`ﬂ°quot¶ß`), `<br>` for a
- * line break, and whatever other HTML the sanitiser kept. Printed raw, that was
+ * line break, and whatever other HTML the sanitiser kept. Printed raw, that would be
  * placeholder junk and visible tags inside a node. Anything left that looks like
  * markup after the known forms are read means the label is not plain text, and
  * the caller falls back to mermaid's own drawing rather than guess.
@@ -202,7 +202,7 @@ export function flowFromState(db: Record<string, unknown>): FlowModel | null {
   const relations = entries(call(db, 'getRelations')).map(record)
   if (relations.length === 0) return null
   const states = call(db, 'getStates')
-  // A composite state holds a diagram of its own (`doc`); flattening it lost
+  // A composite state holds a diagram of its own (`doc`); flattening it would lose
   // every state inside, and a note is text beside a state these views have no
   // place for. Either way the diagram is mermaid's to draw.
   if (entries(states).some((state) => Array.isArray(record(state).doc) || record(state).note !== undefined)) return null
@@ -270,7 +270,7 @@ function stateLabel(state: Record<string, unknown>): string | null {
  * A mindmap label without the quotes it was written in. Mermaid strips them
  * inside a shape (`root(("OIB-RL 2"))`) and keeps them on a bare line
  * (`"Grundrichtlinie"`), which is how the model writes every branch; drawn
- * as written, each branch read `"Grundrichtlinie"`, quotes and all.
+ * as written, each branch would read `"Grundrichtlinie"`, quotes and all.
  */
 const unquoted = (label: string): string => {
   const quoted = /^"([^"]*)"$/.exec(label.trim())
@@ -322,7 +322,7 @@ export function handoffFromSequence(db: Record<string, unknown>): HandoffModel |
   const steps: HandoffModel['steps'] = []
   for (const m of entries(call(db, 'getMessages')).map(record)) {
     // A note (`Note over A,B: Frist 6 Wochen`) sits in the message list with a
-    // `from` and a `to`; drawn as a step it was a hand-over nobody made. It is
+    // `from` and a `to`; drawn as a step it would be a hand-over nobody made. It is
     // text beside the parties that this view has no place for, so the diagram
     // is mermaid's to draw rather than lose it.
     if (Number(m.type) === NOTE_LINE_TYPE) return null
@@ -346,7 +346,7 @@ const atMidnight = (date: Date): boolean =>
 /**
  * Mermaid parses `2026-10-01` as LOCAL midnight. `toISOString` reads that back
  * in UTC, which east of Greenwich is the evening before: every date a reader in
- * Vienna saw was a day early. The calendar date is the local one.
+ * Vienna would see is a day early. The calendar date is the local one.
  */
 const calendarDate = (date: Date): string => {
   const pad = (n: number) => String(n).padStart(2, '0')
@@ -360,7 +360,7 @@ export function scheduleFromGantt(db: Record<string, unknown>): ScheduleModel | 
     const end = asDate(task.endTime) ?? start
     if (!start || !end) continue
     // This view draws whole days. A task of hours (`4h`, `36h`) or at a time
-    // of day read as days was a milestone or a span one day off; mermaid
+    // of day read as days would be a milestone or a span one day off; mermaid
     // draws it to the hour.
     if (!atMidnight(start) || !atMidnight(end)) return null
     const section = plainLabel(text(task.section))

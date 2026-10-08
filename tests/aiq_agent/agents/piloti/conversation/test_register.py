@@ -108,8 +108,8 @@ class TestRun:
         assert facts.answer_confidence == "high"
 
     async def test_the_request_envelope_is_parsed_once_per_turn(self, harness):
-        """The organization for admission used to be re-parsed (base64 + HMAC +
-        JSON) after the context load had parsed the same envelope."""
+        """The organization for admission comes from the context load's parse of the
+        envelope (base64 + HMAC + JSON), not a second decode."""
         await harness["turn"](_ask("Was gilt?"))
         assert harness["from_context"] == 1
 

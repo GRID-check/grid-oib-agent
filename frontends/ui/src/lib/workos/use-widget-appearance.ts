@@ -11,9 +11,9 @@ import type { WorkOsWidgetsProps } from '@workos-inc/widgets'
 import { useLayoutStore } from '@/features/layout/store'
 
 /**
- * The one theme every embedded WorkOS widget mounts with. It was previously
- * written out at each `<WorkOsWidgets>` call site, which is how the four of them
- * came to be maintained as four separate objects that happened to agree.
+ * The one theme every embedded WorkOS widget mounts with. Declared once here
+ * rather than at each `<WorkOsWidgets>` call site, because written out per site
+ * the copies drift apart as separate objects that happen to agree.
  *
  * Two settings make an embedded widget look like part of the page rather than
  * a hole punched in it, and both matter most in dark mode:

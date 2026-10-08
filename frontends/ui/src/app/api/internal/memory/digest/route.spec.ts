@@ -143,10 +143,10 @@ describe('GET /api/internal/memory/digest', () => {
   })
 
   /**
-   * A project-only request used to read under platform scope — RLS bypassed —
-   * with the query filtered by project id alone, so ANY project id returned
-   * that project's memory to any holder of the internal token. The tenant is
-   * now resolved from the project row and the read happens inside it.
+   * A project-only request has no tenant of its own, so the tenant is resolved
+   * from the project row and the read happens inside it. Filtering by project id
+   * alone under platform scope (RLS bypassed) would return that project's memory
+   * to any holder of the internal token.
    */
   describe('a request that names only a project', () => {
     it('resolves the tenant from the project row and reads the digest inside it', async () => {
@@ -227,8 +227,8 @@ describe('what a person decided about the drafts this conversation filed', () =>
   })
 
   it('is not asked for at all when the caller has no conversation', async () => {
-    // The WS handshake and a background run: the digest and the proposal
-    // decisions are exactly what they were before this block existed.
+    // The WS handshake and a background run get the digest and the proposal
+    // decisions alone.
     vi.stubEnv('GRID_INTERNAL_API_TOKEN', REAL_TOKEN)
     vi.mocked(resolveProjectOrganization).mockResolvedValue(ORG_ID)
     vi.mocked(buildProjectMemoryDigest).mockResolvedValue(null)

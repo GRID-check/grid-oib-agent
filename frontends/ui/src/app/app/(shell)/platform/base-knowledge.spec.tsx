@@ -6,11 +6,10 @@ import { BaseKnowledge } from './base-knowledge'
 import type { KnowledgeBaseStatus } from '@/lib/knowledge/service'
 
 /**
- * The manager was rebuilt on the shared admin primitives (SectionCard +
+ * The manager is built on the shared admin primitives (SectionCard +
  * DataToolbar + Table + Sheet + Pagination). These tests pin the CAPABILITIES,
- * not the old layout: every edit a row used to carry inline is still reachable
- * (now from the detail sheet or as a bulk action), and the list survives more
- * documents than fit on one screen.
+ * not the layout: every edit is reachable from the detail sheet or as a bulk
+ * action, and the list survives more documents than fit on one screen.
  */
 
 vi.mock('sonner', () => ({
@@ -96,8 +95,8 @@ describe('BaseKnowledge', () => {
 
     render(<BaseKnowledge />)
 
-    // The corpus summary — documents / indexed / pending / chunks — was
-    // invisible before the rebuild.
+    // The corpus summary (documents / indexed / pending / chunks) is shown above
+    // the list.
     const summary = await screen.findByTestId('knowledge-summary')
     expect(within(summary).getByText('Documents')).toBeInTheDocument()
     expect(within(summary).getByText('Indexed sections')).toBeInTheDocument()

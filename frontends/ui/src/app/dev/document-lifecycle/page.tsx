@@ -10,9 +10,7 @@
  *     not provenance.
  *  2. AT REST. A person's upload, which is the great majority of every project:
  *     the section is SHUT, and what it says shut is the word, the track and one
- *     sentence. This block is the whole redesign in one shot — the same document
- *     used to draw an open heading, a version list and a single unexplained
- *     „Archivieren" at the top of the rail.
+ *     sentence; the versions and the archive control sit behind one click.
  *  3. `Entwurf`: what Piloti's freshly filed report looks like, with the one
  *     control that state allows (Zur Freigabe einreichen). It is OPEN without
  *     anybody having clicked, because a decision is outstanding for this reader
@@ -32,8 +30,7 @@
  *
  * `?variant=archive` is a page of its own for the archive confirm, because a
  * dialog is a portal over the whole document and would cover every block above
- * it. It is the shot that answers the report this redesign came from: „no idea
- * what archiving does".
+ * it. It is the shot for the reader who asks „no idea what archiving does".
  *
  * The panel takes its client as a PROP, so this page hands each block a
  * different fixture client and needs no backend and no fetch shim. Pinned to
@@ -264,7 +261,7 @@ const opened = new Set<string>()
 /**
  * What each block presses, and the DOM it presses until.
  *
- * A step at a time: the panel is a disclosure now, so two of these have to open
+ * A step at a time: the panel is a disclosure, so two of these have to open
  * the section before the control they want exists. Each step is „click this
  * until that appears", and a block is done when its last step has settled —
  * which is also what keeps this honest, because a step whose control never

@@ -1,11 +1,11 @@
 /**
  * Platform-controlled default model per agent group.
  *
- * The default a group runs on used to be a literal in the workflow YAML
- * (`llms:` → `model_name`), which made "move everyone to the new model" a code
- * change plus a backend redeploy. It is now a row in `platform_model_defaults`,
- * written by the platform owner, and it applies to every organization that has
- * not made its own choice for that group — no restart, no per-tenant action.
+ * The default a group runs on is a row in `platform_model_defaults`, not a
+ * literal in the workflow YAML (`llms:` → `model_name`), so "move everyone to the
+ * new model" is a save rather than a code change plus a backend redeploy. The
+ * platform owner writes it, and it applies to every organization that has not
+ * made its own choice for that group — no restart, no per-tenant action.
  *
  * Resolution order at runtime (see `getEffectiveModelOverrides` in ./service):
  *

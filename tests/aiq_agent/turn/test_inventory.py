@@ -61,9 +61,9 @@ def _sequential_reference(collections, per_collection):
 
 
 class TestAggregateDocumentsAcrossCollections:
-    """The concurrent per-collection loader must return the same merged/deduped
-    data as the old sequential loop, plus a stable file_name sort and a top-N
-    cap for prompt-cost control — with the same per-collection fail-open."""
+    """The concurrent per-collection loader returns merged, deduped data, plus a
+    stable file_name sort and a top-N cap for prompt-cost control — with a
+    per-collection fail-open."""
 
     def _run(self, collections, per_collection):
         """Drive the concurrent helper against a mock async fetch_one."""
@@ -408,9 +408,9 @@ class TestTheFamiliesLeaveTheGather:
 class TestTheToolsSeeEveryRow:
     """The prompt cap bounds what the model READS, never what a tool can RESOLVE.
 
-    A project's 51st file used to be „und N weitere" in the prompt AND unknown
-    to every tool that resolves a name against the turn's rows, so renaming or
-    moving it was refused on exactly the projects with the most files.
+    A file past the cap is „und N weitere" in the prompt, and it must still be
+    known to every tool that resolves a name against the turn's rows: otherwise
+    renaming or moving it is refused on exactly the projects with the most files.
     """
 
     SCOPE = [ScopedCollection("proj_1", Shelf.PROJECT)]

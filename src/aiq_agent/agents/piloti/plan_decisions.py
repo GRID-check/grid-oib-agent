@@ -1,7 +1,7 @@
 """The decision model's pre-selection for a research plan: genre and depth.
 
 A commissioned Prüfung and a commissioned Gutachten are different documents
-with different lengths, and the planner used to guess the shape from prose
+with different lengths, and the planner would otherwise guess the shape from prose
 alone. The decision model (ADR-0064) reads the request and the project facts
 once and proposes a genre and a depth; the planner is told, and may still
 follow the request where it disagrees. Additive, like every decision: it

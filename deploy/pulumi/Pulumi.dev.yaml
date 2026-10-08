@@ -52,7 +52,7 @@ config:
   # from baseDomain (per-host appDomain/s3Domain/otelDomain keys remain as overrides).
   grid-oib:baseDomain: dev.piloti.at
   grid-oib:letsEncryptEmail: matthias@bigls.net
-  grid-oib:useStagingIssuer: "false" # staging CA verified; prod LE certs now issue
+  grid-oib:useStagingIssuer: "false" # staging CA verified; prod LE certs issue
   # Provider ships an unremovable metrics stack — don't install a second one.
   grid-oib:installMetricsServer: "false"
   # ── Postgres ──
@@ -63,7 +63,7 @@ config:
   grid-oib:pgRuntimePassword:
     secure: AAABAP+0FzCMfjSbTI4yV5tfwQm7hUmPVKhdCgc0z5GaOc37WV51A2FHivbTrBWNpLHmMg4AsX4=
   # ── SeaweedFS ──
-  # STILL PINNED to the pre-ADR-0043 layout, because this stack already holds
+  # Pinned to the pre-ADR-0043 layout, because this stack already holds
   # objects. The split topology uses different PVCs, so flipping this on its own
   # brings up an EMPTY object store while the data sits on a claim nothing
   # mounts — no error, no alert, just an app that reports every tenant has no
@@ -151,15 +151,15 @@ config:
   # ── Auth / platform ──
   grid-oib:requireAuth: "true"
   grid-oib:workosClientId: client_01KEF0YGNPX7S4SF952ZX46V1K # pragma: allowlist secret (public OAuth client id)
-  # ON since 2026-09-18, and it follows prod deliberately. Staging is where a
-  # prod change is rehearsed, and with enforcement off it rehearsed a DIFFERENT
-  # code path: `isFeatureEnabled` fell open here and read real flags there, so
-  # the per-turn capability resolution never ran in staging and a registry flag
-  # missing from WorkOS was invisible until prod failed it closed.
+  # ON, and it follows prod deliberately. Staging is where a prod change is
+  # rehearsed, and with enforcement off it rehearses a DIFFERENT code path:
+  # `isFeatureEnabled` fails open here and reads real flags there, so the
+  # per-turn capability resolution never runs in staging and a registry flag
+  # missing from WorkOS stays invisible until prod fails it closed.
   #
   # Every one of the 20 registry flags is ON for ALL organizations in the
   # Staging WorkOS environment, so this is behaviour-preserving with one
-  # deliberate exception: `project-knowledge-page` had no env opt-in here and
+  # deliberate exception: `project-knowledge-page` has no env opt-in here and
   # its flag is on, so the Knowledge page appears in staging. That is wanted —
   # it is the environment the page is meant to be exercised in.
   grid-oib:enforceFeatureFlags: "true"
@@ -198,10 +198,10 @@ config:
   grid-oib:otelOidcClientId: client_01KYM02G6F117E239KNRP5FJSV # pragma: allowlist secret (public OAuth client id)
   grid-oib:loadBalancerIp: 45.144.209.191
   # ── Public DNS (Cloudflare) ──
-  # Replaces the manual "read the LoadBalancer IP, retype it per host" step that
-  # used to end every deploy. The records for dev./app.dev./s3.dev./otel.dev.
+  # Replaces the manual "read the LoadBalancer IP, retype it per host" step.
+  # The records for dev./app.dev./s3.dev./otel.dev.
   # are derived from the SAME config the Gateway listeners are, so they cannot
-  # drift from each other; `loadBalancerIp` above is now the one place the
+  # drift from each other; `loadBalancerIp` above is the one place the
   # address is written.
   #
   # Cloudflare OPERATES the zone; piloti.at stays registered at GoDaddy with its
@@ -229,8 +229,8 @@ config:
   #   5. Verify against Cloudflare directly: dig @<assigned-cf-ns> <host>.
   #   6. Only then change the nameservers at GoDaddy.
   #
-  # DEV STACK IS LIVE: the delegation already moved to Cloudflare before this
-  # feature merged, so dnsEnabled is "true" here with the real zone id and token.
+  # DEV STACK IS LIVE: the delegation has moved to Cloudflare, so dnsEnabled is
+  # "true" here with the real zone id and token.
   grid-oib:dnsEnabled: "true"
   grid-oib:dnsZoneName: piloti.at
   grid-oib:dnsZoneId: 66de14f8d07a729634f5d230418bb907 # pragma: allowlist secret (public zone id, Cloudflare zone Overview page)

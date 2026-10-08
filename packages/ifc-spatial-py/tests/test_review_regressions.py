@@ -1,11 +1,8 @@
-"""Defects an adversarial review reproduced, each pinned so it cannot return.
+"""Regression pins for defects that the rest of the suite cannot see.
 
-None of these failed a test when they were found. That is the point of the file:
-the suite was green and the operators were wrong, because every test had been
-written by whoever wrote the code and asked it the questions it was built to
-answer. These ask the questions it was not.
-
-Ordered as the review ordered them — by whether they would change a number an
+Every other test was written by whoever wrote the code, and asks it the questions
+it was built to answer, so a wrong operator can stay green. These ask the
+questions it was not. Ordered by whether a defect would change a number an
 architect signs.
 """
 
@@ -83,9 +80,8 @@ def handle(tools: list) -> str:
 class TestAdjacencyIsNotStacking:
     """Two rooms on either side of the same floor slab are not neighbours.
 
-    `geschossdecke-und-fenster.ifc` was authored to pin exactly this — its header
-    records a real export in which one slab produced 4 278 false pairs — and no
-    test had ever run `adjacentSpaces` against it.
+    `geschossdecke-und-fenster.ifc` pins exactly this: its header records a real
+    export in which one slab produced 4 278 false pairs.
     """
 
     def test_a_shared_floor_does_not_make_two_rooms_adjacent(self) -> None:
@@ -97,12 +93,11 @@ class TestAdjacencyIsNotStacking:
 
     def test_the_conclusion_is_never_declared_however_declared_its_inputs(self) -> None:
         """The file states which elements bound each room. It nowhere states
-        that two rooms are neighbours — that is our set-intersection over two
-        declared lists, and stamping it `declared` hands the reader our
+        that two rooms are neighbours: that is our set-intersection over two
+        declared lists, and stamping it `declared` would hand the reader our
         inference as the architect's own statement.
 
-        It also silently dropped the caveat, because only the computed branch
-        carried one.
+        The caveat is written on the declared branch as well as the computed one.
         """
         model = SpatialModel(str(STACKED))
         answer = op.adjacent_spaces(model, "4Decke00000Space00001")
@@ -121,9 +116,10 @@ class TestLightEntryAreaCountsEachOpeningOnce:
     def test_a_doubled_space_boundary_does_not_double_the_ratio(self, house: SpatialModel) -> None:
         """A 2nd-level export publishes one IfcRelSpaceBoundary PER FACE.
 
-        `bounds` therefore returns the same window twice and the sum doubled —
-        the bedroom reported 28.41 % against a true 14.21 %, listing one
-        GlobalId in two lines. The better the export, the more reliably it hit.
+        `bounds` therefore returns the same window twice unless it deduplicates:
+        the sum doubles, and the bedroom reads 28.41 % against a true 14.21 %,
+        with one GlobalId listed in two lines. The better the export, the more
+        reliably it hits.
         """
         answer = op.light_entry_area(house, BEDROOM)
         value = answer.value
@@ -135,8 +131,9 @@ class TestLightEntryAreaCountsEachOpeningOnce:
         """A curtain wall runs past a floor.
 
         The 31.09 m² facade spans z 0–3.36 and was credited IN FULL to the
-        living room (z 0–2.5) and IN FULL to the 1.00 m loft above it, which
-        came out at 40.65 %. Two rooms cannot each own all of the same glass.
+        living room (z 0–2.5) and IN FULL to the 1.00 m loft above it. Credited
+        in full to both, the loft would read 40.65 %. Two rooms cannot each own
+        all of the same glass.
         """
         living = op.light_entry_area(house, LIVING).value
         loft = op.light_entry_area(house, LOFT).value
@@ -152,21 +149,16 @@ class TestTheDoorHeuristicOnlyJudgesDoors:
     """`_faces_outside`'s fallback is „touches two rooms, therefore interior".
 
     That is a DOOR rule. A curtain-wall pane runs past a floor and touches two
-    rooms, so on an export without `IsExternal` six panes of a glass facade were
-    labelled „Innentür" and the living room fell from 72.42 % to 12.64 %.
+    rooms too. Without the `IsExternal` flag, the fallback labels the panes of a
+    glass facade „Innentür" and drops the living room from 72.42 % to 12.64 %.
 
-    ## Why this class is written the hard way
+    ## Why `opens_to` is patched
 
-    Its first version stubbed `opens_to` out of existence: the stub model
-    declared no boundaries, so the plate never entered the two-space branch and
-    landed on the same `return None` that every unjudgeable element lands on.
-    It passed against the BROKEN code and against the fixed code alike, which is
-    worse than no test — a commit message cited it as proof of a fix that was
-    never in the tree.
-
-    So `opens_to` is patched to report two spaces, which is the condition the
-    defect actually needs. Verify by reverting the `is_a("IfcDoor")` guard: the
-    plate assertion must go red.
+    A model that declares no boundaries never enters the two-space branch, so the
+    plate lands on the same `return None` that every unjudgeable element lands on,
+    and the test passes against broken and fixed code alike. So `opens_to` is
+    patched to report two spaces, which is the condition the defect needs. Verify
+    by reverting the `is_a("IfcDoor")` guard: the plate assertion must go red.
     """
 
     class _Stub(SpatialModel):
@@ -198,8 +190,8 @@ class TestTheDoorHeuristicOnlyJudgesDoors:
         assert "weder IsExternal" in why
 
     def test_a_door_touching_two_rooms_still_is_interior(self, monkeypatch) -> None:
-        """The heuristic is not deleted — for a DOOR it is exactly right, and an
-        interior door counted as daylight is the bug the split came from."""
+        """The heuristic stays for doors, where it is exactly right: an interior door
+        counted as daylight is what the split exists to prevent."""
         model = ifcopenshell.file(schema="IFC4")
         door = model.create_entity("IfcDoor", GlobalId=ifcopenshell.guid.new())
         self._two_spaces(monkeypatch)
@@ -226,9 +218,9 @@ class TestAnSiPrefixOnAnAreaIsSquared:
     """A centimetre is a hundredth of a metre; a SQUARE centimetre is a
     ten-thousandth of a square metre.
 
-    Applied linearly, a correct declared area came out 100x wrong and
-    `triangulate` published the gap as a 99 % „WIDERSPRUCH zwischen zwei Wegen
-    zu dieser Zahl" — a fabricated finding against a file that was right.
+    Applied linearly, a correct declared area comes out 100x wrong, and
+    `triangulate` would publish the gap as a 99 % „WIDERSPRUCH zwischen zwei Wegen
+    zu dieser Zahl" — a fabricated finding against a file that is right.
     """
 
     @pytest.mark.parametrize(
@@ -250,7 +242,7 @@ class TestAnSiPrefixOnAnAreaIsSquared:
 
 
 # ════════════════════════════════════════════════════════════════════════════
-# The second pass — the ENGINE-side findings the first commit left standing.
+# Engine-side findings: refusals, provenance and derived answers
 # ════════════════════════════════════════════════════════════════════════════
 
 
@@ -259,10 +251,10 @@ class TestACallerMistakeIsNotAFindingAboutTheExport:
     an architect performs in their CAD. Aiming an operator at the wrong element
     is neither of those things.
 
-    The review's sweep put a number on it: **316 of 1 850** `measure`/`relations`
-    calls over the five fixtures came back rendered as „NICHT ENTSCHEIDBAR:
-    dieser Export liefert … nicht. Das ist ein Befund über den EXPORT" — for
-    files with nothing wrong with them.
+    A sweep over the five fixtures measured **316 of 1 850** `measure`/`relations`
+    calls rendered as „NICHT ENTSCHEIDBAR: dieser Export liefert … nicht. Das ist
+    ein Befund über den EXPORT" — a finding about the export, for files with
+    nothing wrong with them.
     """
 
     def test_asking_a_window_for_a_room_height_raises_instead_of_answering(self, house: SpatialModel) -> None:
@@ -276,8 +268,8 @@ class TestACallerMistakeIsNotAFindingAboutTheExport:
         assert "extent()" in message
 
     def test_no_operator_publishes_a_wrong_kind_as_an_undecidable(self, house: SpatialModel) -> None:
-        """A sweep in the review's own shape, on the operators reachable through
-        `measure` and `relations`, aimed at three deliberately wrong subjects.
+        """A sweep over the operators reachable through `measure` and `relations`,
+        aimed at three deliberately wrong subjects.
 
         Every refusal must be an exception. Not one may be an `Answer` — because
         an `Answer` with `decidable: false` is a statement about the export.
@@ -302,10 +294,10 @@ class TestACallerMistakeIsNotAFindingAboutTheExport:
         assert seen_refusals > 0, "the sweep never hit a wrong kind — it is not testing anything"
 
     def test_the_tool_layer_turns_it_into_a_readable_refusal(self, tools: list, handle: str) -> None:
-        """`clearWidth` on a curtain-wall pane — the review's own reproduction.
+        """`clearWidth` on a curtain-wall pane.
 
-        It rendered as „dieser Export liefert clearOpeningWidth() erwartet eine
-        Öffnung … bekam IfcPlate nicht" — ungrammatical, and an accusation.
+        A wrong kind is a question about the subject, not a statement about the
+        export, so the message must not read as an accusation against the file.
         """
         with pytest.raises(ToolError) as raised:
             call(tools, "measure", {"model": handle, "globalId": CURTAIN_PANE, "measure": "clearWidth"})
@@ -321,8 +313,7 @@ class TestACallerMistakeIsNotAFindingAboutTheExport:
         """
         out = call(tools, "element", {"model": handle, "globalId": BEDROOM})
         # `contains` applies to a space and answers; `hosts` and `fillerOf` do
-        # not apply to one and used to be skipped on `decidable is False`. They
-        # now raise inside the loop and must still be skipped.
+        # not apply to one. They raise inside the loop, and the loop skips them.
         assert out["available"] == ["contains"]
         assert out["element"]["ifcType"] == "IfcSpace"
 
@@ -359,10 +350,10 @@ class TestTheNoGeometryRefusalIsNotDoublyNegated:
 
 
 class TestTheBriefingDoesNotPromiseGeometryAFileHasNot:
-    """„sie sind aber berechenbar, dieser Export trägt Geometrie" was
-    unconditional. Four of the five fixtures carry a `Representation` on ZERO
-    products, and every one of them was told the geometric answers were one call
-    away — costing the agent a geometry pass and a turn, and propagating into the
+    """The hint „sie sind aber berechenbar, dieser Export trägt Geometrie" is
+    conditional. Four of the five fixtures carry a `Representation` on ZERO
+    products, and for them the geometric answers are not one call away. Offering
+    that call costs the agent a geometry pass and a turn, and propagates into the
     IDS summary.
     """
 
@@ -384,7 +375,7 @@ class TestTheBriefingDoesNotPromiseGeometryAFileHasNot:
         assert len(spots) == 1
         assert "berechenbar" in spots[0].consequence
         assert "measure/distance aufrufen" in spots[0].remedy
-        # The claim is now backed by a count rather than asserted.
+        # The claim is backed by a count, not asserted.
         assert "Bauteil(e) in diesem Export tragen Geometrie" in spots[0].consequence
 
     def test_the_rendered_briefing_says_it_too(self) -> None:
@@ -395,8 +386,8 @@ class TestTheBriefingDoesNotPromiseGeometryAFileHasNot:
 
 class TestStoreyHeightsAreDeclaredNotMeasured:
     """`elevation` is `IfcBuildingStorey.Elevation` verbatim and `height` is one
-    declared number minus the next. It came back `computed`, which renders as
-    „aus der Geometrie berechnet, nicht deklariert" — contradicting this
+    declared number minus the next. It must not come back `computed`, which renders
+    as „aus der Geometrie berechnet, nicht deklariert" and would contradict this
     answer's own caveat („gebildet aus den deklarierten Höhenlagen") two lines
     further down.
     """
@@ -408,8 +399,8 @@ class TestStoreyHeightsAreDeclaredNotMeasured:
         assert "deklarierten Höhenlagen" in answer.caveat
 
     def test_no_geometry_is_touched_on_the_way_there(self) -> None:
-        """The reviewer's own instrument: a fresh model, and the geometry clock
-        has to still read 0.000 afterwards. A `computed` answer from a call that
+        """The instrument: a fresh model, and the geometry clock has to still read
+        0.000 afterwards. A `computed` answer from a call that
         never shapes anything is a provenance claim with nothing behind it."""
         model = SpatialModel(str(HOUSE))
         assert model.geometry_seconds == 0.0
@@ -424,17 +415,17 @@ class TestStoreyHeightsAreDeclaredNotMeasured:
 
 
 class TestAgreementIsSaidOutLoud:
-    """`triangulate` wrote a caveat only on `disagree`. An agreeing pair came
-    back a bare `computed` and rendered as „aus der Geometrie berechnet, **nicht
-    deklariert**" — for the sample house's Bedroom, which declares
-    `BaseQuantities.NetFloorArea = 15.41678125`.
+    """`triangulate` writes a caveat on `disagree` and on `agree` alike. An agreeing
+    pair must not come back as a bare `computed`, which renders as „aus der
+    Geometrie berechnet, **nicht deklariert**" — for the sample house's Bedroom,
+    which does declare `BaseQuantities.NetFloorArea = 15.41678125`.
     """
 
     def test_a_declared_area_that_agrees_is_not_reported_as_undeclared(self, house: SpatialModel) -> None:
         answer = op.floor_area(house, BEDROOM)
         assert answer.agreement == "agree"
         assert answer.value == pytest.approx(15.41678125, abs=1e-6)
-        # The file DOES declare it, and the answer now says so.
+        # The file does declare it, and the answer says so.
         assert "DEKLARIERT" in answer.caveat
         assert "bestätigen diese Zahl" in answer.caveat
         assert "(declared)" in answer.caveat
@@ -473,10 +464,10 @@ class TestAgreementIsSaidOutLoud:
 
 class TestAFlatElementHasNoCompassBearing:
     """A slab has a rim, and the rim is vertical. `dominant_vertical_plane`
-    found the biggest sliver of it and `azimuth` reported **0.0° / „N"** for the
-    sample house's ground slab off 7.9 m² of edge faces — a facade bearing for a
-    floor plate, which went into an orientation table as though it meant
-    something.
+    finds the biggest sliver of it, so `azimuth` must not report **0.0° / „N"**
+    for the sample house's ground slab off its 7.9 m² of edge faces. That is a
+    facade bearing for a floor plate, and it would go into an orientation table
+    as though it meant something.
     """
 
     @pytest.mark.parametrize("slab", [GROUND_SLAB, SIMPLE_FLOOR])
@@ -506,13 +497,13 @@ class TestAFlatElementHasNoCompassBearing:
 class TestASeatingWeightIsNotAFaceArea:
     """`outermost_parallel_face` sums the triangle areas in the merged outermost
     bin. Coincident and opposite-facing triangles are added together, so the
-    sample house's south wall reported **23.527 m²** where the union of those
+    sample house's south wall would report **23.527 m²** where the union of those
     same triangles — the real outer face — is **17.776 m²**, a 32 % overstatement
     of a facade.
 
-    The number is right for what it does — choosing among candidate planes — and
-    wrong for anything a reader would call an area, so it is named `support` and
-    `facadePlaneOf` no longer publishes it.
+    The sum is right for what it does, choosing among candidate planes, and wrong
+    for anything a reader would call an area. It is therefore named `support`,
+    and `facadePlaneOf` does not publish it.
     """
 
     def test_the_plane_carries_no_field_a_caller_can_read_as_an_area(self, house: SpatialModel) -> None:
@@ -555,11 +546,11 @@ class TestASeatingWeightIsNotAFaceArea:
 
 
 class TestAHandedOutTriangulationOutlivesTheNextGeometryCall:
-    """`geometry()` shaped the element again and overwrote `self._shapes[gid]`.
-    `util.shape`'s readers hand back NumPy views over the shape's C++ buffer, so
-    dropping the last reference freed the triangulation a caller was already
-    holding — which is the exact failure the „shapes we own, kept alive on
-    purpose" comment in `SpatialModel.__init__` is about.
+    """`geometry()` must not shape an element a second time: it would overwrite
+    `self._shapes[gid]`. `util.shape`'s readers hand back NumPy views over the
+    shape's C++ buffer, so dropping the last reference frees the triangulation a
+    caller is still holding. That is the failure the „shapes we own, kept alive
+    on purpose" comment in `SpatialModel.__init__` guards against.
     """
 
     def test_the_volume_readable_before_is_readable_after(self) -> None:
@@ -568,8 +559,8 @@ class TestAHandedOutTriangulationOutlivesTheNextGeometryCall:
         before = us.get_volume(triangulation)
         assert before == pytest.approx(38.54195, abs=1e-4)
 
-        # This used to raise `IndexError: list index out of range` on the line
-        # below, because `geometry()` had rebuilt the shape underneath it.
+        # Without the guard, the line below raises `IndexError: list index out of
+        # range`, because `geometry()` has rebuilt the shape underneath it.
         assert model.geometry(BEDROOM) is not None
         assert us.get_volume(triangulation) == pytest.approx(before, abs=1e-9)
 
@@ -580,8 +571,8 @@ class TestAHandedOutTriangulationOutlivesTheNextGeometryCall:
         assert us.get_volume(triangulation) == pytest.approx(38.54195, abs=1e-4)
 
     def test_the_shape_is_built_once_and_only_once(self) -> None:
-        """The mechanism, not only the symptom: a second `create_shape` for an
-        id we already hold is what freed the first one."""
+        """The mechanism: a second `create_shape` for an id we already hold frees the
+        first one."""
         model = SpatialModel(str(HOUSE))
         model.triangulation(BEDROOM)
         first = model._shapes[BEDROOM]
@@ -590,11 +581,12 @@ class TestAHandedOutTriangulationOutlivesTheNextGeometryCall:
 
 
 class TestAnInvalidRoomKindIsARefusalAndNotATraceback:
-    """`tools.room_inventory` passed `kind` straight through and
-    `briefing.inventory` indexed `GERMAN_KIND` with it — `KeyError: ''` out of
-    `briefing.py`. Every other enum in `tools.py` answers with a German sentence
-    naming the allowed values; `mcp_server` hands arguments here unfiltered, so
-    the JSON Schema's `required` is not a guard.
+    """`tools.room_inventory` must validate `kind` before it reaches
+    `briefing.inventory`, which indexes `GERMAN_KIND` with it: an empty string
+    would raise `KeyError: ''` out of `briefing.py`. Every other enum in `tools.py`
+    answers with a German sentence naming the allowed values, and `mcp_server`
+    hands arguments here unfiltered, so the JSON Schema's `required` is not a
+    guard.
     """
 
     def test_a_missing_kind_names_the_three_that_exist(self, tools: list, handle: str) -> None:
@@ -617,9 +609,9 @@ class TestAnInvalidRoomKindIsARefusalAndNotATraceback:
 
 class TestACaptionMayNotDescribeADrawingThatIsNotThere:
     """`render.plan` returns `None` only when there is neither structure NOR a
-    room, so a storey with a room outline and nothing crossing the 1.2 m cut
-    came back as a page with `elementsDrawn: 0` — captioned „auf dieser Höhe
-    erscheinen Tür- und Fensteröffnungen als Lücken in der Wand". An agent
+    room. A storey with a room outline and nothing crossing the 1.2 m cut is a
+    page with `elementsDrawn: 0`, and it must not carry the caption „auf dieser
+    Höhe erscheinen Tür- und Fensteröffnungen als Lücken in der Wand": an agent
     reading that in front of the picture concludes the loft has no walls.
     """
 
@@ -630,10 +622,10 @@ class TestACaptionMayNotDescribeADrawingThatIsNotThere:
         note = out["note"]
         assert "KEIN Bauteil gezeichnet" in note
         assert "elementsDrawn = 0" in note
-        # And it says what the absence does NOT mean.
+        # The page says what the absence does NOT mean.
         assert "keine Aussage über das Gebäude" in note
-        # The sentence about window openings is gone — there are no walls to
-        # have openings in.
+        # With no walls drawn there are no window openings to describe, so the
+        # caption omits that sentence.
         assert "Lücken in der Wand" not in note
 
     def test_a_plan_that_did_draw_something_keeps_its_caption(self, tools: list, handle: str) -> None:
@@ -673,12 +665,12 @@ def _second_level_export(path: Path) -> SpatialModel:
 
 
 class TestBoundsReturnsEachElementOnce:
-    """One element, one entry — deduplicated in `bounds` and not in the callers.
+    """One element, one entry — deduplicated in `bounds`, not in the callers.
 
-    `light_entry_area` had already been patched against this (28.41 % against a
-    true 14.21 % on the bedroom), and the same duplicate row was still reaching
-    `daylight.room_depth` and `fire.separating_elements`, which were written
-    afterwards. Six operators call `bounds`; the seventh would have inherited it.
+    Six operators call `bounds`, and a seventh inherits its rows, so the
+    deduplication lives there and nowhere else. `light_entry_area`,
+    `daylight.room_depth` and `fire.separating_elements` all receive the same
+    rows.
     """
 
     def test_a_boundary_written_per_face_yields_one_reference(self, tmp_path: Path) -> None:
@@ -694,7 +686,7 @@ class TestBoundsReturnsEachElementOnce:
     def test_the_facade_ranking_does_not_double_its_aperture(self, tmp_path: Path) -> None:
         """The bedroom's north wall carries ONE 2.1901 m² window.
 
-        Summed per boundary row it came back as 4.3802 m² „aus 2 Öffnung(en)" —
+        Summed per boundary row it would come back as 4.3802 m² „aus 2 Öffnung(en)" —
         enough to outrank a genuinely larger facade and measure the depth
         perpendicular to the wrong wall, which on a rectangular room is its
         width.
@@ -708,13 +700,11 @@ class TestBoundsReturnsEachElementOnce:
         assert dl.room_depth(model, BEDROOM).value["facade"]["why"].count("1 Öffnung(en)") == 1
 
     def test_a_separating_wall_is_listed_once_and_both_ways_round(self, tmp_path: Path) -> None:
-        """`separatingElements(a, b)` and `(b, a)` are the same question.
-
-        `shared` was built by walking `bounds(b)` against a dict of `bounds(a)`,
-        so the duplicates on whichever side was passed second survived: the
-        entrance hall against the bedroom answered „6 Bauteile" with one wall
-        twice under `trennend` and twice under `ohneFeuerwiderstand`, and the
-        bedroom against the entrance hall answered „4 Bauteile".
+        """`separatingElements(a, b)` and `(b, a)` are the same question, so they must
+        give the same answer. Duplicates on either side count once: otherwise the
+        entrance hall against the bedroom answers „6 Bauteile" with one wall twice
+        under `trennend` and twice under `ohneFeuerwiderstand`, and the reverse
+        call answers „4 Bauteile".
         """
         model = _second_level_export(tmp_path / "zweite-ebene.ifc")
         forward = fire.separating_elements(model, HALL, BEDROOM).value
@@ -729,12 +719,13 @@ class TestBoundsReturnsEachElementOnce:
 
 
 class TestOnlyFacadesWithAnOpeningAreCountedAsSuch:
-    """„Dieser Raum hat N Außenwände mit Öffnungen" counted the blank ones too.
+    """„Dieser Raum hat N Außenwände mit Öffnungen" counts only the walls that carry
+    an opening.
 
     `_facade_candidates` enters every external wall bounding the room, giving
     the ones that carry nothing `apertureArea = 0.0` so a caller may still name
-    them. The caveat then reported `len(candidates)` under the words „mit
-    Öffnungen", and the ranking printed in the same sentence contradicts it.
+    them. The caveat therefore must not report `len(candidates)` under the words
+    „mit Öffnungen": the ranking printed in the same sentence would contradict it.
     """
 
     @staticmethod
@@ -786,8 +777,8 @@ class TestOnlyFacadesWithAnOpeningAreCountedAsSuch:
 class TestTheDeclaredVolumeSumCoversTheMeasuredSpaces:
     """A space with no body must leave BOTH sums, or the file is called a liar.
 
-    `declared_total` accumulated before the `continue` that skips an unmeasurable
-    space, so Σ(declared over N) was reconciled against Σ(measured over N−1).
+    Both sums skip an unmeasurable space, so Σ(declared) and Σ(measured) cover
+    the same spaces.
     """
 
     @staticmethod
@@ -813,8 +804,8 @@ class TestTheDeclaredVolumeSumCoversTheMeasuredSpaces:
         assert "widerspricht sich" not in answer.caveat
 
     def test_the_space_that_left_the_sum_is_named(self, tmp_path: Path) -> None:
-        """V is a subtotal now, and a subtotal published as a total is the
-        defect this package exists to prevent.
+        """V is a subtotal, and a subtotal published as a total is the defect this
+        package exists to prevent.
         """
         model = self._hall_without_a_body(tmp_path / "raum-ohne-koerper.ifc")
         caveat = eg.compactness(model).caveat
@@ -833,10 +824,10 @@ class TestAWindowsDeclaredAreaIsNotAnOpeningArea:
     """A window's `Area` may never reach `triangulate`, whatever it turns out to be.
 
     Nothing in either engine reads `Qto_WindowBaseQuantities` or
-    `OverallWidth`/`OverallHeight` today, so this is not a fix — it is the guard
-    that keeps it that way, and the guard is one tuple wide: `floor_area` narrows
-    its declared-quantity search to `("NetFloorArea", "GrossFloorArea")` for
-    anything that is not an `IfcSpace`, and a window publishes neither.
+    `OverallWidth`/`OverallHeight` into `triangulate`. The guard that keeps it
+    that way is one tuple wide: `floor_area` narrows its declared-quantity search
+    to `("NetFloorArea", "GrossFloorArea")` for anything that is not an
+    `IfcSpace`, and a window publishes neither.
 
     Widen that tuple by one entry and the sample house convicts itself. Its
     bedroom window declares `BaseQuantities.Area = 3.53486 m²` — a Revit *surface*
@@ -913,15 +904,15 @@ class TestAWindowsDeclaredAreaIsNotAnOpeningArea:
 
 class TestATriangleWithNoDirectionDoesNotVoteOnThePlane:
     """`triangle_normals_areas` zeroes a normal at |cross| ≤ 1e-12 and still
-    reports `area = |cross| / 2`, so `dominant_plane`'s `areas > 0` filter let
-    triangles through that carry no direction at all. They fold to the sign
+    reports `area = |cross| / 2`, so `dominant_plane`'s `areas > 0` filter lets
+    through triangles that carry no direction at all. They fold to the sign
     fallback 1.0, land in the (0, 0, 0) bin and vote with a zero vector.
 
-    For a mesh whose triangles are ALL in that band the function returned
-    `array([0., 0., 0.])` instead of `None`, and that is not a harmless zero:
+    For a mesh whose triangles are ALL in that band the function must return
+    `None`, not `array([0., 0., 0.])`, and that is not a harmless zero:
     `azimuth` gates on `|face[2]| >= VERTICAL_TOLERANCE`, reads 0.0 as vertical
-    and reports a compass bearing for a body with no measurable face — the exact
-    failure `dominant_plane` was added to prevent for the ground slab.
+    and reports a compass bearing for a body with no measurable face. That is the
+    exact failure `dominant_plane` exists to prevent for the ground slab.
     """
 
     #: One triangle 1 µm on a side: |cross| = 1e-12, area = 5e-13 > 0.
@@ -963,7 +954,7 @@ class TestATriangleWithNoDirectionDoesNotVoteOnThePlane:
         assert "senkrechte Hauptfläche" in answer.missing.what
 
     def test_the_house_is_nowhere_near_the_band(self, house: SpatialModel) -> None:
-        """The measurement behind the claim that this fix moves no number.
+        """The measurement behind the claim that the gate moves no number.
 
         All 25 312 triangles of the sample house, and the smallest doubled area
         among them is 2.63e-07 — five orders of magnitude above the 1e-12 the
@@ -1008,27 +999,29 @@ class TestAnUnwrappedHandlerStillCannotLeakATraceback:
 
 
 class TestARoomWhoseBodyIsAShellIsStillMeasurable:
-    """`clearHeight` answered nothing at all on an ArchiCAD export.
+    """`clearHeight` must not answer nothing on an ArchiCAD export, nor fall back to
+    the storey pitch.
 
-    Reported from production. „In dem Institut wie hoch ist der Keller?" came
-    back with the DECLARED storey height of 3.00 m and the note that the lichte
-    Höhe „war in diesem Export nicht entscheidbar (Raumkörper zu schmal/
+    The question „In dem Institut wie hoch ist der Keller?" must not come back
+    with the DECLARED storey height of 3.00 m and the note that the lichte Höhe
+    „war in diesem Export nicht entscheidbar (Raumkörper zu schmal/
     zerklüftet für das Standardraster)".
 
-    Neither half of that was true. The room is an 11.6 × 11.4 m seminar room,
-    and it was not the grid: on `AC20-Institute-Var-2.ifc` **all 82 spaces**
-    were undecidable, while all 82 build in the triangulated pass.
+    Neither half of that is true. The room is an 11.6 × 11.4 m seminar room, and
+    the grid is not the cause: on `AC20-Institute-Var-2.ifc` every one of the
+    **82 spaces** is reported undecidable, although all 82 build in the
+    triangulated pass.
 
     The cause is `geom.tree.select(point)`, which needs a closed orientable
     SOLID to classify against. ArchiCAD writes `IfcSpace` bodies as `Brep`
     shells; OCCT accepts them into the tree — `select_box` finds them — and
     will not classify them, so the containment test that decides which grid
-    points count returned nothing for every room in the file.
+    points count returns nothing for every room in the file.
 
-    The answer the user got was the storey pitch, 3.00 m, for a room whose
-    modelled body is 2.70 m. A structural height reported where a clear height
-    was asked for is wrong in the unsafe direction, and it was dressed in a
-    sentence blaming the architect's room shape.
+    The storey pitch, 3.00 m, is what a room with a modelled body of 2.70 m would
+    get. A structural height reported where a clear height was asked for is wrong
+    in the unsafe direction, and the sentence must not blame the architect's room
+    shape.
 
     The fixture is that seminar room and the slab above it, extracted from
     `AC20-Institute-Var-2.ifc` (KIT/IFC Wiki example, free use) — 6.8 KB, and
@@ -1068,15 +1061,15 @@ class TestARoomWhoseBodyIsAShellIsStillMeasurable:
         assert answer.unit == "m"
 
     def test_every_grid_point_is_used_because_the_room_is_large(self, model: SpatialModel) -> None:
-        """„Zu schmal oder zu zerklüftet" was the diagnosis the operator printed.
-        The room is 132 m²; all 25 points land in it."""
+        """„Zu schmal oder zu zerklüftet" must not be the diagnosis for a 132 m² room
+        whose 25 points all land in it."""
         space = model.file.by_type("IfcSpace")[0]
         answer = op.clear_height(model, space.GlobalId)
         assert "aus 25 von 25 Rasterpunkten" in (answer.caveat or "")
 
     def test_the_footprint_is_the_room_not_its_bounding_box(self) -> None:
         """The containment test must still reject a point outside an L-shaped
-        room, which is the whole reason the old code asked the classifier."""
+        room, which is the whole reason the test exists."""
         from ifc_spatial.geometry import plan_footprint
         from shapely.geometry import Point
 
@@ -1095,18 +1088,17 @@ class TestARoomWhoseBodyIsAShellIsStillMeasurable:
         assert footprint.area == pytest.approx(75.0, abs=1e-6)
         assert footprint.covers(Point(2.0, 2.0))
         assert footprint.covers(Point(8.0, 2.0))
-        # Inside the bounding box, outside the room — the point the old
-        # classifier existed to reject.
+        # Inside the bounding box, outside the room: the point the containment test
+        # must reject.
         assert not footprint.covers(Point(8.0, 8.0))
 
     def test_the_remedy_no_longer_names_an_argument_no_tool_exposes(self) -> None:
-        """The refusal used to tell the caller to „clearHeight() mit einem
+        """The refusal must not tell the caller to „clearHeight() mit einem
         höheren samples-Wert aufrufen".
 
         No tool surface takes `samples` — not `MEASURE_FN`, not the agent's
-        `ifc_measure`. So the one instruction the agent was given on this path
-        was one it could not carry out, which is how the production turn ended
-        up reporting the storey height instead.
+        `ifc_measure`. So that instruction is one the agent cannot carry out, and
+        an agent that follows it ends up reporting the storey height instead.
         """
         import inspect
 
@@ -1117,7 +1109,7 @@ class TestARoomWhoseBodyIsAShellIsStillMeasurable:
         remedy = remedy[: remedy.index("elements=")]
         assert "samples" not in remedy
         assert "extent()" in remedy
-        # And the reason it is unreachable, pinned: no tool takes the argument.
+        # No tool takes the argument, so no refusal may name it.
         assert "samples" not in inspect.getsource(tools.create_tools)
 
 
@@ -1125,22 +1117,23 @@ class TestAnExternalWallBoundsMoreThanOneRoom:
     """„Bounds two rooms, therefore a partition" is wrong for the ordinary case.
 
     An external wall runs along a whole side of a building, so it bounds every
-    room on that side. The count called that a Trennbauteil, and on
-    `AC20-FZK-Haus.ifc` — which declares `IsExternal` on NONE of its 26 walls,
-    so this rung decided all of them — it put `Wand-Ext-ERDG-1` (3 rooms), `-2`
-    (3), `-3` (2) and `-4` (2) outside the thermal envelope. Four external
-    ground-floor walls missing from an OIB 6 envelope, described as partitions.
+    room on that side. The count calls that a Trennbauteil. On
+    `AC20-FZK-Haus.ifc`, which declares `IsExternal` on NONE of its 26 walls,
+    this rung decides all of them, and the count would put `Wand-Ext-ERDG-1`
+    (3 rooms), `-2` (3), `-3` (2) and `-4` (2) outside the thermal envelope: four
+    external ground-floor walls missing from an OIB 6 envelope, described as
+    partitions.
 
     What separates inside from outside is having rooms on ONE SIDE only, so the
     test is the side and not the count. Measured against the exporter's own
     naming on that house (every wall is `Wand-Ext-*` or `Wand-Int-*`): **26 of
     26 correct, against 22 of 26 for the count.**
 
-    The knock-on was larger than the envelope. A window is external when its
-    wall is, and `_faces_outside` could only read a DECLARED flag off the host
-    wall — so every window in that house was undetermined and
-    `light_entry_area` reported **0.00 %** for the Schlafzimmer, the Bad, the
-    Büro, the Küche and the Galerie. A house with a window in every room.
+    The knock-on is larger than the envelope. A window is external when its wall
+    is, and `_faces_outside` reads only a DECLARED flag off the host wall. Without
+    the side test, every window in that house is undetermined, and
+    `light_entry_area` reports **0.00 %** for the Schlafzimmer, the Bad, the Büro,
+    the Küche and the Galerie: a house with a window in every room.
 
     The fixture is `Wand-Ext-ERDG-1`, the three rooms it bounds, its two
     openings and their windows, extracted from that file.
@@ -1164,7 +1157,7 @@ class TestAnExternalWallBoundsMoreThanOneRoom:
         assert model.declared_property(self._wall(model), ("IsExternal",)) is None
 
     def test_it_really_does_bound_more_than_one_room(self, model: SpatialModel) -> None:
-        """…which is what made the count call it a partition."""
+        """…which is what the count would have called a partition."""
         rooms = op.enclosed_by(model, self._wall(model).GlobalId)
         assert rooms.decidable and len(rooms.value or []) >= 2
 
@@ -1178,8 +1171,8 @@ class TestAnExternalWallBoundsMoreThanOneRoom:
         assert "alle auf derselben Seite" in why
 
     def test_a_window_in_an_undeclared_wall_faces_outside(self, model: SpatialModel) -> None:
-        """The rung that turned five rooms of daylight from 0.00 % into a
-        measurement. Without it the window is undetermined — honest, and still a
+        """The rung that turns five rooms of daylight from 0.00 % into a
+        measurement. Without it the window is undetermined: honest, and still a
         0 % headline on an OIB 3 check."""
         windows = list(model.file.by_type("IfcWindow")) + list(model.file.by_type("IfcWindowStandardCase"))
         assert windows, "the fixture carries the windows the defect was about"
@@ -1189,7 +1182,7 @@ class TestAnExternalWallBoundsMoreThanOneRoom:
             assert "tragende Wand" in why and "Geometrie" in why
 
     def test_a_partition_is_still_a_partition(self, house: SpatialModel) -> None:
-        """The fix must not simply call everything external. The sample house's
+        """The side test must not simply call everything external. The sample house's
         interior partition has rooms on both sides and stays out of the
         envelope — checked on the fixture that DOES declare its flags, so the
         first rung is what answers here."""
@@ -1206,7 +1199,7 @@ class TestAGalleryVoidIsMeasuredDownwardAndNotSideways:
     7.44…11.70 × 0.30…4.01 × 2.50…2.70 — and both of the model's railings
     standing at its rim.
 
-    The measured answer was:
+    The answer this must not give:
 
         openings: [('OG-Fenster-2', 'IfcWindow',          2.7, 0.8, 0 railings),
                    ('OG-Fenster-1', 'IfcWindow',          2.7, 0.8, 0 railings),
@@ -1214,17 +1207,17 @@ class TestAGalleryVoidIsMeasuredDownwardAndNotSideways:
         kanten:   [('OG-Fenster-2', 2.7), ('OG-Fenster-1', 2.7)]
 
     The two windows are right — a first-floor window with a 0.800 m parapet over
-    a 2.700 m drop is a fall, and it is measured as one. The void is wrong in
-    both halves: **fall 0.000 m** at the one edge in the house that has railings,
-    and **parapet 2.500 m**, which is not a physical quantity. A hole in a floor
-    has no Brüstung; 2.500 m is the distance from the room below's floor up to
-    the underside of its own ceiling.
+    a 2.700 m drop is a fall, and it is measured as one. The void's answer must
+    not be wrong in both halves: a **fall of 0.000 m** at the one edge in the
+    house that has railings, and a **parapet of 2.500 m**, which is not a physical
+    quantity. A hole in a floor has no Brüstung; 2.500 m is the distance from the
+    room below's floor up to the underside of its own ceiling.
 
-    The cause is `dominant_vertical_plane` answering at all. The void is a
-    4.26 × 3.71 × 0.20 m prism, so its four SIDES are vertical faces and one of
-    them was returned as the „opening plane". `_levels_both_sides` then probed
-    0.30 m to either side IN PLAN — both probes landed on ground-floor level,
-    one on the room below and one on the terrain, both at z = 0.000 — and the
+    The hazard is `dominant_vertical_plane` answering at all for a void. The void
+    is a 4.26 × 3.71 × 0.20 m prism, so its four SIDES are vertical faces, and
+    one of them can be returned as the „opening plane". `_levels_both_sides` then
+    probes 0.30 m to either side IN PLAN. Both probes land on ground-floor level,
+    one on the room below and one on the terrain, both at z = 0.000, and the
     difference of two equal numbers is a zero that looks like a measurement.
 
     The fixture is those elements out of that file: the two rooms, one further
@@ -1232,7 +1225,7 @@ class TestAGalleryVoidIsMeasuredDownwardAndNotSideways:
     the ground slab the fall lands on, the two railings, and one window with its
     opening and host wall — the last three only so that the file carries an
     `IfcRelFillsElement`, without which `hostedIn` refuses model-wide and the
-    host of the void could not be read at all.
+    host of the void cannot be read at all.
 
     Their bodies are replaced by a box of their own measured extent (the two
     balustrades alone are 5 062 entities EACH, balusters and handrail), because
@@ -1241,13 +1234,12 @@ class TestAGalleryVoidIsMeasuredDownwardAndNotSideways:
     geometry, because those ARE measured — and every number below is what the
     full 2.5 MB export gives.
 
-    The site's TERRAIN is in the extract for one reason: it is what the broken
-    measurement found 0.30 m beyond the void's supposed „opening plane", at
-    x = 12.000. Without it the defect would show up here as an unmeasurable
-    opening rather than as a wrong number. Reverted, this fixture answers
-    „lage senkrecht, fall 2.700 m, parapet −0.200 m, 0 Geländer" for BOTH
-    rooms — a negative Brüstung, and an Absturzkante in the ceiling of the room
-    below.
+    The site's TERRAIN is in the extract for one reason: a broken measurement finds
+    it 0.30 m beyond the void's supposed „opening plane", at x = 12.000. Without
+    it the defect would show up here as an unmeasurable opening rather than as a
+    wrong number. With the defect in place, this fixture answers „lage senkrecht,
+    fall 2.700 m, parapet −0.200 m, 0 Geländer" for BOTH rooms: a negative
+    Brüstung, and an Absturzkante in the ceiling of the room below.
     """
 
     FIXTURE = FIXTURES / "galerie-deckendurchbruch.ifc"
@@ -1265,7 +1257,7 @@ class TestAGalleryVoidIsMeasuredDownwardAndNotSideways:
 
     def test_the_fixture_carries_the_geometry_the_defect_was_about(self, model: SpatialModel) -> None:
         """The anti-vacuity guard, and the trap named: the void HAS vertical
-        faces, which is exactly why the old code was confident."""
+        faces, which is exactly why a naive check is confident."""
         void = model.geometry(self.VOID)
         assert [round(float(v), 3) for v in void.box[0]] == [7.44, 0.30, 2.50]
         assert [round(float(v), 3) for v in void.box[1]] == [11.70, 4.01, 2.70]
@@ -1277,7 +1269,7 @@ class TestAGalleryVoidIsMeasuredDownwardAndNotSideways:
 
     def test_it_is_a_hole_in_a_floor_and_gets_no_wall_frame(self, model: SpatialModel) -> None:
         """15.805 m² of plan against 1.704 m² of face. Every operator that needs
-        a vertical opening plane now refuses instead of building one out of the
+        a vertical opening plane refuses instead of building one out of the
         prism's side — a threshold height and a clear approach at a gallery void
         are not defined either."""
         void = model.file.by_guid(self.VOID)
@@ -1360,9 +1352,9 @@ class TestAGalleryVoidIsMeasuredDownwardAndNotSideways:
 
 
 class TestConnectsRefusesForATypeTheExportNeverConnects:
-    """`connects()` answered „joined to nothing" for every element that is not a wall.
+    """`connects()` must not answer „joined to nothing" for elements that are not walls.
 
-    The guard was MODEL-WIDE: one `IfcRelConnectsElements` anywhere in the file
+    The guard is MODEL-WIDE: one `IfcRelConnectsElements` anywhere in the file
     and every element in it was answered from the traversal. Both ArchiCAD files
     in the corpus write those relations for walls and for nothing else —
     `AC20-Institute-Var-2.ifc` has 216 `IfcRelConnectsPathElements`, all
@@ -1371,8 +1363,8 @@ class TestConnectsRefusesForATypeTheExportNeverConnects:
 
         connects(3qloCPnZDEQBom1ZjBlwJP, IfcDoor) -> []   decidable: True
 
-    came back for all 77 doors, all 206 windows, all 26 slabs, all 12 railings,
-    both columns and all 4 stairs of that file: 867 of its 988 elements. This
+    is what comes back for all 77 doors, all 206 windows, all 26 slabs, all 12
+    railings, both columns and all 4 stairs of that file: 867 of its 988 elements. This
     module's own docstring calls that sentence „a claim about a building that
     would be false for every building ever built".
 
@@ -1394,8 +1386,8 @@ class TestConnectsRefusesForATypeTheExportNeverConnects:
 
     def test_the_file_really_connects_and_really_only_walls(self, model: SpatialModel) -> None:
         """Anti-vacuity: the model-wide guard PASSES here. If this file ever
-        loses its connections the refusal below would be the old one and nothing
-        new would be under test."""
+        loses its connections, the refusal below would be the model-wide one and
+        nothing new would be under test."""
         assert model.file.by_type("IfcRelConnectsElements")
         assert rel._connected_types(model) == frozenset({"IfcWallStandardCase"})
 
@@ -1421,7 +1413,7 @@ class TestConnectsRefusesForATypeTheExportNeverConnects:
     def test_the_sample_house_says_the_same_thing(self, house: SpatialModel) -> None:
         """A second export, a different vendor, the same shape: `Ifc4_SampleHouse`
         connects `IfcWall`, `IfcWallStandardCase` and `IfcCurtainWall` and
-        nothing else, so its 3 doors and 4 windows were „joined to nothing" too.
+        nothing else, so its 3 doors and 4 windows would be „joined to nothing" too.
         The three wall types keep answering, including the subtype that is only
         covered because `IfcWall` is in the set."""
         assert rel._connected_types(house) == frozenset({"IfcWall", "IfcWallStandardCase", "IfcCurtainWall"})
@@ -1507,9 +1499,9 @@ def _walls_connected_by_type(path: Path) -> SpatialModel:
 class TestASideIsNotDecidedByTheRoomsWeCouldPlace:
     """A room without a body is not a room on the other side.
 
-    `_rooms_on_one_side` skipped a room whose geometry was unavailable, so a
-    wall between two rooms — one of them bodiless — came back with a single
-    side and was called EXTERNAL. Every consumer then adds something that is
+    `_rooms_on_one_side` must not treat a room whose geometry is unavailable as
+    nothing: a wall between two rooms, one of them bodiless, would come back with
+    a single side and be called EXTERNAL. Every consumer then adds something that is
     not there: `_external_route` puts it in the thermal envelope,
     `_faces_outside` calls its windows daylight, `_facade_candidates` ranks it
     as the room's facade.

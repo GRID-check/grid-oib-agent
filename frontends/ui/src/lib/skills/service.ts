@@ -72,7 +72,7 @@ export type SkillListItem = {
   updatedAt: Date | null
 }
 
-/** A skill the platform publishes to organizations, whichever tier it came from. */
+/** A skill the platform publishes to organizations. */
 type CuratedSkill = Pick<PlatformSkill, 'name' | 'description' | 'body' | 'metadata'> & {
   /** A dashboard row's stored category; null for rows and as the file default. */
   categoryId: string | null
@@ -83,10 +83,9 @@ type CuratedSkill = Pick<PlatformSkill, 'name' | 'description' | 'body' | 'metad
 /**
  * The live platform catalogue: everything published TO organizations.
  *
- * One audience since migration 0088 retired the `standard` tier, which was the
- * half nobody decided about. What the platform wants applied to every turn is a
- * standing instruction now — the platform prompt — and a skill is a capability
- * the model may reach for.
+ * One audience. Nothing is forced onto every turn: what the platform wants
+ * applied to every turn is a standing instruction, the platform prompt, and a
+ * skill is a capability the model may reach for.
  */
 type LivePlatformSkills = {
   /** Published `delivery: 'offer'` rows, plus `grid-catalog: curated` files. */
@@ -125,11 +124,9 @@ function toCurated(row: {
  * and is nobody's decision. Machinery is the DEFAULT there, so a builtin
  * becomes org-facing only by saying so (see METADATA_CATALOG).
  *
- * There is no third category. `delivery: 'standard'` — published rows every
- * organization ran, unlisted and unswitchable, FORCED onto each run — was
- * retired by migration 0088 along with the composer's `skills` array, because
- * an instruction that always applies is not a capability and should not be
- * shaped like one. The two homes for those are the platform prompt and
+ * There is no third category: nothing is forced onto each run. An instruction
+ * that always applies is not a capability and should not be shaped like one.
+ * The two homes for those are the platform prompt and
  * `organization_instructions`.
  */
 async function livePlatformSkills(): Promise<LivePlatformSkills> {
@@ -265,26 +262,24 @@ function fileOfferCategoryId(
  * What this organization has: its own skills, plus the platform skills offered
  * to it. Any member may read.
  *
- * The pipeline's MACHINERY is deliberately not here, though it used to be —
- * every builtin was merged in as an equal row, each with a "clone" button.
- * Nobody installs one, nobody can edit one, and none of them is an
- * organization's decision. Genre methods (Brandschutz, Gebäudeklasse) still
- * resolve for every chat turn; they are not listed because they load on their
- * own. Listing them in front of an org with two skills of its own made the
- * page look mostly like ours, and the only action they offered produced a
- * frozen copy of an instruction the org never wrote and would never maintain.
+ * The pipeline's MACHINERY is deliberately not here: every builtin would be an
+ * equal row with a "clone" button, and nobody installs one, nobody can edit
+ * one, and none of them is an organization's decision. Genre methods
+ * (Brandschutz, Gebäudeklasse) still resolve for every chat turn; they are not
+ * listed because they load on their own. Listing them in front of an org with
+ * two skills of its own would make the page look mostly like ours, and the only
+ * action they offer produces a frozen copy of an instruction the org never wrote
+ * and would never maintain.
  *
  * What IS here is anything the platform OFFERS organizations, carrying the org's
  * own on/off decision. A chat-usable FILE offer starts on; a dashboard offer
- * or a deep-research-only file starts off. That is what replaces clone — no
- * copy, no drift, and an improvement we ship reaches every org that wants it.
+ * or a deep-research-only file starts off. That is the alternative to cloning:
+ * no copy, no drift, and an improvement we ship reaches every org that wants it.
  *
- * The platform's STANDARD skills are not here either, and that is the point of
- * them. They resolve for every organization on every run
- * (`resolveSkillsForAgent`), but they are not a tenant's decision, so putting
- * them on a page whose every row carries a switch would be showing somebody a
- * control they do not have. They are the platform's own instruction, and the
- * platform is where they are read, written and withdrawn.
+ * Machinery resolves for every organization on every run
+ * (`resolveSkillsForAgent`), but it is not a tenant's decision, so it is not on
+ * a page whose every row carries a switch. It is read, written and withdrawn on
+ * the platform.
  */
 export async function listSkills(
   session: AuthorizedSession,
@@ -306,7 +301,7 @@ export async function listSkills(
       offer.categoryId ?? fileOfferCategoryId(offer.collection, platformCategories)
     byName.set(offer.name, platformToListItem(offer, isActivated(activations, offer.name), categoryId))
   }
-  // An org row of the same name still shadows the offer, as it always has.
+  // An org row of the same name shadows the offer.
   for (const row of rows) {
     byName.set(row.name, orgToListItem(row))
   }
@@ -392,8 +387,7 @@ export type InvocableSkill = {
  *
  * Picking from this menu writes `/name ` into the composer and does nothing
  * else: the name travels as TEXT and the model chooses the skill out of the
- * same catalogue it always reads. Nothing here forces a skill onto a turn any
- * more (migration 0088).
+ * same catalogue it always reads. Nothing here forces a skill onto a turn.
  */
 export async function listInvocableSkills(
   session: AuthorizedSession,
@@ -413,16 +407,10 @@ export async function listInvocableSkills(
  * `clonedFrom` hint records a platform clone.
  */
 /*
- * The org write boundary used to refuse a name the platform had STANDARDISED
- * fleet-wide (`assertNameNotStandardised`). That guard existed because a
- * standard skill outranked an org row of the same name, so authoring one
- * produced a green save and an agent that never once followed it.
- *
- * Migration 0088 removed the tier, and with it the collision. Every platform
- * skill is an offer now, and an org row deliberately SHADOWS an offer of the
- * same name — the tenant's version wins, ADR-0022's "explicit org value beats
- * deployment default". So there is nothing left to refuse: a row named
- * `piloti-voice` is the organization's own skill and it is the one that runs.
+ * An org row named like a platform offer is not refused: it shadows the offer,
+ * and the tenant's version wins (ADR-0022's "explicit org value beats deployment
+ * default"). A row named `piloti-voice` is the organization's own skill, and it
+ * is the one that runs.
  */
 
 /**
@@ -634,12 +622,8 @@ export async function deleteSkillCategory(
 /**
  * Org row first, builtin platform fallback; unknown names 404.
  *
- * There used to be a guard ahead of all of it: a name the platform had
- * STANDARDISED was not resolvable at all, because `resolveAll` merged the
- * standard row last and a job pinned to the org's body would have been pinned
- * to instructions the agent was told to ignore. Migration 0088 removed the
- * tier, so the two resolvers agree again on the ordinary rule — the org's own
- * row wins, and every platform skill is an offer.
+ * The org's own row wins, and every platform skill is an offer: the two
+ * resolvers agree on that rule.
  */
 export async function resolveSkillSnapshot(
   name: string,
@@ -664,8 +648,8 @@ export async function resolveSkillSnapshot(
   // row today, so this is defence in depth; the two paths agreeing is the
   // point, because only one of them is exercised on the job-fire path.
   //
-  // Cost: this lookup is in-memory. Reaching it AFTER `curatedOffers()` meant
-  // every machinery snapshot paid a `platform_skills` query to learn nothing.
+  // Cost: this lookup is in-memory. Reaching it after `curatedOffers()` would
+  // make every machinery snapshot pay a `platform_skills` query to learn nothing.
   const platform = findPlatformSkill(name)
   if (platform && !isCuratedPlatformSkill(platform.metadata)) {
     return {
@@ -709,11 +693,8 @@ export type ResolvedSkill = {
   body: string
   metadata: Record<string, string>
   origin: SkillOrigin | 'platform'
-  // There is deliberately no `standard` flag. It marked a published
-  // `delivery: 'standard'` row so the backend would FORCE the skill for the
-  // run rather than leave it in the catalog for the model to choose; migration
-  // 0088 retired the tier, and the backend no longer reads the key. Every skill
-  // in this set is one the model may reach for.
+  // There is deliberately no `standard` flag: every skill in this set is one
+  // the model may reach for, and none is forced onto the run.
 }
 
 /**
@@ -736,11 +717,11 @@ async function resolveAll(
   ])
   const byName = new Map<string, ResolvedSkill>()
   const put = (skill: CuratedSkill, origin: SkillOrigin | 'platform') => {
-    // Platform metadata rides along VERBATIM. Sending `{}` here dropped the
+    // Platform metadata rides along VERBATIM. Sending `{}` would drop the
     // reserved `grid-*` keys, and because the backend resolver merges this
     // payload OVER its own filesystem copy, the shipped
-    // `grid-execution: deep-research` targeting was erased on arrival — the
-    // chat agent was then offered writer/sandbox skills it cannot execute.
+    // `grid-execution: deep-research` targeting would be erased on arrival: the
+    // chat agent would be offered writer/sandbox skills it cannot execute.
     if (agent && !skillTargetsAgent(skill.metadata, agent)) return
     byName.set(skill.name, {
       name: skill.name,
@@ -753,9 +734,8 @@ async function resolveAll(
 
   // The offers this org took up, then the machinery. Machinery before the org's
   // own rows but after the offers, so an offer can never replace how deep
-  // research writes its report. Nothing is merged after the org's rows any
-  // more: the one thing that used to be (a `delivery: 'standard'` row, which
-  // had to outrank them) is gone with the tier.
+  // research writes its report. Nothing is merged after the org's rows, so no
+  // tier can outrank them.
   //
   // Machinery is uncategorized BY CONSTRUCTION: a category is something a
   // person files a curated offer under, and this is the pipeline's own
@@ -793,8 +773,7 @@ async function resolveAll(
  * serves the backend's /v1/chat/skills.
  *
  * Every entry is a skill the model MAY load, never one it must: nothing in this
- * payload forces a skill onto the run since migration 0088 retired the
- * `standard` tier.
+ * payload forces a skill onto the run.
  */
 export async function resolveSkillsForAgent(
   organizationId: string,
@@ -843,11 +822,11 @@ export async function resolveSelectableSkills(
  * Names that match no known agent are ignored rather than obeyed, so a typo
  * cannot silently delete a skill from every agent at once.
  *
- * `grid-execution` is deliberately NOT a gate here, though it once was. It says
+ * `grid-execution` is deliberately NOT a gate here. It says
  * what a SCHEDULED run of the skill produces — a chat turn or a deep-research
- * report — and reading that as an availability rule let a skill's output format
- * decide where the skill existed. A skill whose scheduled runs write a report
- * is still an ordinary skill to invoke in chat.
+ * report — and reading that as an availability rule would let a skill's output
+ * format decide where the skill exists. A skill whose scheduled runs write a
+ * report is still an ordinary skill to invoke in chat.
  *
  * The builtins that truly cannot run in a chat turn declare
  * `grid-agents: deep_researcher`, which is the mechanism for precisely that.

@@ -23,17 +23,16 @@ logger = logging.getLogger(__name__)
 OIB_DIR = Path(os.environ.get("OIB_DOCUMENTS_DIR", "data/oib"))
 # Writable home for PDFs uploaded through the platform-admin UI. Kept separate
 # from OIB_DIR because deployments bind-mount that directory read-only; this one
-# lives on the persistent data volume instead. Since the corpus left the
-# repository this is the path a running deployment actually fills.
+# lives on the persistent data volume instead, and it is the path a running
+# deployment fills.
 OIB_UPLOADS_DIR = Path(os.environ.get("OIB_UPLOADS_DIR", "data/oib_uploads"))
 REGISTRY_PATH = Path(os.environ.get("OIB_REGISTRY_PATH", "data/oib_registry.json"))
 # Persistent set of corpus basenames removed from the active corpus. A file under
 # OIB_DIR is bind-mounted read-only, so "delete" for it means excluding it here:
 # its chunks are dropped and discover_pdfs()/sync() skip it forever, so a sync
-# never re-ingests a document an admin removed. (This began as a workaround for
-# a corpus committed to git, which could not be deleted at all. That corpus is
-# gone; the mechanism stays, because a read-only mount has the same problem and
-# existing deployments carry exclusion state.)
+# never re-ingests a document an admin removed. A read-only mount has the same
+# problem as a corpus committed to git, and existing deployments carry exclusion
+# state, so the mechanism stays.
 EXCLUDED_PATH = Path(os.environ.get("OIB_EXCLUDED_PATH", "data/oib_excluded.json"))
 COLLECTION_NAME = os.environ.get("OIB_COLLECTION_NAME") or os.environ.get("COLLECTION_NAME") or "oib_knowledge"
 CHROMA_DIR = os.environ.get("AIQ_CHROMA_DIR", "/tmp/chroma_data")
@@ -70,30 +69,19 @@ def _file_hash(path: Path) -> str:
 # embedding-relevant preprocessing, or chunk metadata changes shape: the next
 # sync() then discards all stored hashes ONCE and re-ingests the full corpus,
 # so stale-format chunks self-heal automatically instead of persisting until
-# a PDF happens to change. Stored under a reserved key in the sync registry.
-# 2: chunk metadata is no longer embedded wholesale. `file_size`, the ingest temp
-#    path and render geometry are excluded from the embed rendering, so the literal
-#    text sent to the embedding model changed for every chunk. Without this bump the
-#    corpus would keep its diluted vectors indefinitely — sync() gates on the sha256
-#    of the PDF bytes, and a preprocessing change alters no file hash — while newly
-#    uploaded documents got clean ones, leaving two embedding conventions in one index.
-# 3: Punkt-aware chunking. A document with a usable outline is now cut on its own
-#    numbering rather than per page, so chunk boundaries, chunk count and the
-#    metadata every chunk carries all change. Without this bump the corpus would
-#    keep its page-cut chunks forever, for the same reason as 2.
-#    Version 3 also covers the later correction to how the outline is chosen (a
-#    best-chain search over all heading candidates, anchored on the document's own
-#    contents page, in place of a greedy left-to-right scan). No separate version is
-#    needed: 3 has not been ingested anywhere yet, and both changes land in the same
-#    unreleased pass. Corpus effect, measured against the 946 Punkte the contents
-#    pages of the twelve Punkt-structured Richtlinien list: 903 chunks with 44
-#    missing, 1 spurious and 4 carrying another heading's title, becomes 946 with
-#    none of the three.
+# a PDF happens to change. sync() gates on the sha256 of the PDF bytes, and a
+# preprocessing change alters no file hash, so this version is what carries such
+# a change into the corpus. Stored under a reserved key in the sync registry.
+#
+# The format changes, by version:
+# 2: chunk metadata is not embedded wholesale. `file_size`, the ingest temp path
+#    and render geometry are excluded from the embed rendering, so the text sent
+#    to the embedding model is the content alone.
+# 3: Punkt-aware chunking. A document with a usable outline is cut on its own
+#    numbering rather than per page. The outline is chosen by a best-chain search
+#    over all heading candidates, anchored on the document's contents page.
 # 4: captioned tables (``captioned_tables``) are read as tables: cut out of the
-#    page text, which read them across their columns, and indexed as Markdown
-#    chunks addressed ``punkt_id = "Tabelle N"``. Removing them also drops the 12
-#    table rows version 3 accepted as Punkte (OIB-RL 2 13-15, OIB-RL 2.1 6.1-6.3,
-#    and their Änderungen twins): 1645 Punkt ids become 1633, plus 104 table chunks.
+#    page text and indexed as Markdown chunks addressed ``punkt_id = "Tabelle N"``.
 CHUNK_FORMAT_VERSION = 4
 _FORMAT_KEY = "__chunk_format_version__"
 
@@ -238,8 +226,8 @@ def _get_oib_ingestor():
     import knowledge_layer.llamaindex.adapter  # noqa: F401
 
     # The extraction switches are the adapter's own (AIQ_EXTRACT_*, on unless
-    # set to false): restating them here gave the corpus a second, off-by-default
-    # reading of the same flags.
+    # set to false); restating them here would give the corpus a second reading
+    # of the same flags.
     return get_ingestor("llamaindex", {"persist_dir": CHROMA_DIR})
 
 
@@ -254,8 +242,7 @@ def discover_pdfs() -> list[Path]:
     so a repo-shipped file an admin removed is never re-ingested. A physically
     present admin UPLOAD, however, always wins: it is an explicit re-add, so it
     overrides a stale exclusion left over from a prior delete of the same
-    basename. (This also self-heals corpora uploaded before the upload path
-    learned to lift the exclusion itself — the files simply reappear.)
+    basename.
     """
     excluded = _load_excluded()
     by_name: dict[str, Path] = {}
@@ -281,10 +268,10 @@ def ingest_single(pdf: Path) -> "FileStatus | None":
     chunks once the new one is indexed, and keeps them when it is not, taking
     back out whatever part of the new version a failure had already inserted.
     Finding the previous version reads only this file's chunks, not the
-    collection. There is deliberately no ``delete_file`` first. That deleted the chunks AND the
-    metadata row before the new file was read, so a re-ingest that then failed
-    left the document with nothing, and one that succeeded lost the Dokumentart
-    the platform owner had set on the row.
+    collection. There is deliberately no ``delete_file`` first: it would delete
+    the chunks AND the metadata row before the new file is read, so a re-ingest
+    that failed would leave the document with nothing, and one that succeeded
+    would lose the Dokumentart the platform owner set on the row.
 
     Holds the document's per-basename lock for the whole upload → poll cycle,
     so a concurrent removal or sync of the same filename cannot interleave with
@@ -559,8 +546,7 @@ def _sync_locked() -> tuple[int, int]:
     # It must not make that re-ingest additive: the collection would hold both formats
     # of the whole corpus, both retrievable and both rendering as a valid citation.
     # It does not, because the ingestor replaces every file by name once the new
-    # version is indexed, whatever the registry says (a pre-ingest delete guarded by
-    # `str(pdf) in registry` once had to be forced here for exactly that reason).
+    # version is indexed, whatever the registry says.
     with _REGISTRY_LOCK:
         registry = _load_registry()
         if registry and registry.get(_FORMAT_KEY) != CHUNK_FORMAT_VERSION:

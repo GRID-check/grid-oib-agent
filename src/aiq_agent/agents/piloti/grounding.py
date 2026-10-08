@@ -1,6 +1,6 @@
 """The SECOND kind of grounding, and the guard that keeps it in its lane.
 
-The overconfidence gate in :mod:`.markers` was written against one kind of
+The overconfidence gate in :mod:`.markers` is written against one kind of
 evidence: a citation the verifier could resolve to a retrieved passage. That is
 the right gate for a claim about the Bauordnung, and it is the wrong gate for a
 claim about a building — because an IFC measurement has no passage to cite. It
@@ -10,7 +10,7 @@ carries something else instead, and arguably something stronger: a
 derived from (``ifc_spatial.envelope.Answer``). It is REPRODUCIBLE, which no
 quotation is.
 
-So a measured answer used to be capped to "low" for lacking evidence it
+So a measured answer would be capped to "low" for lacking evidence it
 structurally cannot have. This module supplies the missing signal — and, much
 more importantly, the guard that stops that signal from laundering anything.
 
@@ -58,8 +58,8 @@ Feuerwiderstand tragender Bauteile"). Both are the deliberate trade: no context
 disarms „muss"/„darf" or a named instrument, so a refusal gets hedged rather
 than a verdict slipping out. What is NOT accepted is a residue with a shape of
 its own — see „Brandschutz"/„Brandabschnitt" below, where 5 of these were one
-recurring sentence type and the stems moved tier because of it, and „soll…",
-where the first live run showed the residue was a recommendation about the BIM
+recurring sentence type, and „soll…",
+where a live run showed the residue was a recommendation about the BIM
 MODEL rather than about the building.
 
 The carve-out that keeps the other direction honest is scoped to the CLAUSE, and
@@ -101,7 +101,7 @@ from .tool_search import tool_basename
 #: cannot tell a published quantity from an inferred one by reading the result —
 #: which is the whole basis on which measurement grounding is granted here.
 #:
-#: AUDITED — do not re-derive this from the tool's name. „Carries no provenance
+#: Do not re-derive this from the tool's name. „Carries no provenance
 #: contract" is right, but the tempting shorter reason („it returns no numbers")
 #: is FALSE and would not survive contact with the renderer. ``ifc_query``
 #: returns quantities routinely, several of them with an explicit unit:
@@ -157,8 +157,8 @@ def tool_result_is_measurement(tool_name: str, content: str) -> bool:
     It reads the renderer's stated COUNT rather than searching the result for
     „gemessen"/„deklariert", because the renderer uses those verbs in prose that
     explains why nothing could be measured — „gemessen: raumhoehe an 0 von 3
-    Bauteilen", „…dessen Höhe gemessen werden könnte". Under the old vocabulary
-    match every one of those refusals granted grounding.
+    Bauteilen", „…dessen Höhe gemessen werden könnte". A match on those verbs
+    would grant grounding to every one of those refusals.
     """
     if tool_basename(tool_name) not in MEASUREMENT_TOOL_NAMES:
         return False
@@ -187,13 +187,14 @@ def tool_result_is_measurement(tool_name: str, content: str) -> bool:
 #    Austria actually names its law — need the LEFT one gone too. A stem that
 #    keeps a left `\b` for safety (`\bnorm`, so „Normalerweise" stays out) is
 #    the exception, not the rule, and each one below says why.
-# 2. **An ordinary verb is not a verdict.** `entspr(icht|echen)` was the single
-#    biggest source of false fires — „das entspricht rund 14 % der Geschoßfläche"
-#    is a measurement, and flooring it to "low" both re-hedged the answers this
-#    module exists to un-hedge and filled the `confidence_capped` ledger with
-#    cases nobody should act on. It is gone: every genuinely normative use of it
-#    („entspricht der OIB-Richtlinie 3", „entspricht der Anforderung") names the
-#    instrument it conforms to, and the instrument is already in this list.
+# 2. **An ordinary verb is not a verdict.** `entspr(icht|echen)` would be the
+#    single biggest source of false fires — „das entspricht rund 14 % der
+#    Geschoßfläche" is a measurement, and flooring it to "low" would re-hedge the
+#    answers this module exists to un-hedge and fill the `confidence_capped`
+#    ledger with cases nobody should act on. So the verb is not a stem: every
+#    genuinely normative use of it („entspricht der OIB-Richtlinie 3", „entspricht
+#    der Anforderung") names the instrument it conforms to, and the instrument is
+#    already in this list.
 # 3. **Some stems are verdicts only outside the measurement's own prose.** „für
 #    eine Messung geeignet", „für die Ermittlung … erforderlich", „der Sollwert
 #    aus dem Pset" — a stem this list wants, used about the APPARATUS rather
@@ -201,9 +202,9 @@ def tool_result_is_measurement(tool_name: str, content: str) -> bool:
 #    :data:`_WEAK_NORMATIVE_PATTERNS` and are suppressed inside a CLAUSE that
 #    names the apparatus; everything else fires unconditionally.
 #
-#    The membership test is measurement, not plausibility. An earlier round put
-#    fourteen stems here on the grounds that they are „near verbatim
-#    ``ifc_measure`` output"; grep `src/` and „geeignet", „erforderlich",
+#    The membership test is measurement, not plausibility. Stems that only sound
+#    like ``ifc_measure`` output do not qualify: grep `src/` and „geeignet",
+#    „erforderlich",
 #    „Sollwert" and „Ermittlung" do not occur in a single emitted string, and
 #    „Fluchtweg"/„Brandschutz" occur only in tool DESCRIPTIONS, which this
 #    module never sees. The one real renderer line — „das Modell … ist zu groß"
@@ -266,18 +267,17 @@ _STRONG_NORMATIVE_PATTERNS: tuple[str, ...] = (
     r"\bhaft(et|en|ung|bar)\b",
     r"statthaft",
     # --- Deontic modals ------------------------------------------------------
-    # The commonest way either language states an obligation, and the widest gap
-    # this list ever had: „muss" outranks every other verdict word in OIB prose
-    # and used to match nothing at all.
+    # The commonest way either language states an obligation: „muss" outranks
+    # every other verdict word in OIB prose.
     r"\bmu(ss|ß|ess)",
     r"\bmü(ss|ß)",
     r"\bdarf\b",
     r"\bdürf",
     r"\bduerf",
-    # „soll…" left the strong tier — see :data:`_WEAK_NORMATIVE_PATTERNS`. This
-    # line stays STRONG and is the reason the demotion is affordable: bare „soll"
-    # in front of a threshold word is a requirement whatever else its clause
-    # names, so „das Modell soll nicht unter 2,50 m liegen" is never disarmed.
+    # „soll…" is weak unless its clause names the apparatus (see
+    # :data:`_WEAK_NORMATIVE_PATTERNS`). This line stays STRONG: bare „soll" in
+    # front of a threshold word is a requirement whatever else its clause names,
+    # so „das Modell soll nicht unter 2,50 m liegen" is never disarmed.
     r"\bsoll\s+(mindestens|maximal|höchstens|hoechstens|nicht)\b",
     r"\bmust\b",
     r"\bshall\b",
@@ -312,9 +312,9 @@ _STRONG_NORMATIVE_PATTERNS: tuple[str, ...] = (
     r"\bverlangt",
     r"\bgrenzwert",
     r"konform",
-    # „Verstoß" is o + ß; „Verstöße" is ö + ß; „Verstoss" is o + ss. Two
-    # patterns spelling only the first and last of those left the CANONICAL
-    # singular — the form a verdict is actually written in — matching neither.
+    # „Verstoß" is o + ß; „Verstöße" is ö + ß; „Verstoss" is o + ss. The pattern
+    # covers all three, and the canonical singular — the form a verdict is
+    # actually written in — is one of them.
     r"\bverst(o|ö)(ß|ss)",
     r"\bwiderspr",  # „widerspricht der OIB-Richtlinie", „widersprechen"
     r"\buntersag",  # „untersagt" — the Behörde's word for „darf nicht"
@@ -368,22 +368,19 @@ _STRONG_NORMATIVE_PATTERNS: tuple[str, ...] = (
     r"\bapprov(e|ed|al)\b",
     r"\bfails?\b[^.!?\n]{0,40}?\b(requirement|target|test|criterion|criteria)\b",
     # --- Fire safety and escape routes ---------------------------------------
-    # These spent one release in the weak tier on the stated grounds that
-    # ``measure_register``'s renderers emit them about the apparatus. They do
-    # not: grep `src/` and „Fluchtniveau", „Feuerwiderstand", „Brandschutz" and
-    # „Brandabschnitt" appear only in TOOL DESCRIPTIONS and prompt templates,
-    # which this function never reads — it reads the model's finished answer.
-    # Suppressing them there cost real verdicts („die Auswertung zeigt, dass der
-    # Feuerwiderstand zu gering ist").
+    # Renderer prose does not carry these: grep `src/` and „Fluchtniveau",
+    # „Feuerwiderstand", „Brandschutz" and „Brandabschnitt" appear only in TOOL
+    # DESCRIPTIONS and prompt templates, which this function never reads — it
+    # reads the model's finished answer. Suppressing them there would disarm real
+    # verdicts („die Auswertung zeigt, dass der Feuerwiderstand zu gering ist").
     #
-    # Only TWO of the four survived that promotion. „Adds zero false fires" was
-    # measured on the 294 sentences available WHEN THEY WERE PROMOTED —
-    # in-sample, and it did not hold out: on the round-5 blind corpus the four
-    # cost 9 false fires, every one of them a MODEL-GAP REPORT, which is the
-    # commonest real shape a fire-safety answer takes („im Modell sind keine
-    # Brandabschnitte hinterlegt", „ein Brandschutzkonzept liegt der Auswertung
-    # nicht bei"). „Brandschutz" and „Brandabschnitt" are therefore weak now;
-    # see the note in :data:`_WEAK_NORMATIVE_PATTERNS`.
+    # Only TWO of the four are strong. Measured in-sample on the 294 sentences
+    # available at the time, all four looked free of false fires; on the round-5
+    # blind corpus they cost 9, every one of them a MODEL-GAP REPORT, the commonest
+    # real shape a fire-safety answer takes („im Modell sind keine Brandabschnitte
+    # hinterlegt", „ein Brandschutzkonzept liegt der Auswertung nicht bei").
+    # „Brandschutz" and „Brandabschnitt" are therefore weak; see the note in
+    # :data:`_WEAK_NORMATIVE_PATTERNS`.
     #
     # These two stay strong because they name a PROPERTY of a building element
     # rather than a document or a subdivision of the plan — there is no
@@ -392,11 +389,9 @@ _STRONG_NORMATIVE_PATTERNS: tuple[str, ...] = (
     # clears 2 further false fires but neither is the shape above.
     r"\bfluchtniveau",
     r"\bfeuerwiderstand",
-    # Same finding for „reicht": the renderer says „erreicht", never „reicht",
-    # so the weak tier was protecting prose that does not exist. The lookahead
-    # is what does the actual work — „reicht" is „suffices" only when nothing
-    # extends: „reicht von … bis", „reicht vom Rohfußboden", „reicht 1,20 m
-    # über … hinaus" are all geometry.
+    # „reicht" is strong because the lookahead does the actual work: it is
+    # „suffices" only when nothing extends it. „reicht von … bis", „reicht vom
+    # Rohfußboden", „reicht 1,20 m über … hinaus" are all geometry.
     r"\breicht\b(?![^.!?\n]*\b(von|vom|bis|über|ueber|hinaus|hinein|herab|herauf|hinunter)\b)",
 )
 
@@ -404,18 +399,16 @@ _STRONG_NORMATIVE_PATTERNS: tuple[str, ...] = (
 #: MEASUREMENT, depending on what the CLAUSE is about.
 #:
 #: Membership here is expensive — a suppressed stem is a verdict that ships at
-#: "medium" — so it is now held to measured evidence rather than to a plausible
-#: story about renderer prose. Each stem below was individually promoted to the
-#: strong tier and measured across 294 sentences from four corpora written by
-#: three other authors; the first seven are the ones that cost false fires when
-#: promoted. ``fluchtniveau``, ``feuerwiderstand`` and ``reicht`` cost nothing
-#: in that sample and are strong.
+#: "medium" — so each stem is held to measured evidence rather than to a
+#: plausible story about renderer prose. The stems were measured one at a time
+#: across 294 sentences from four corpora written by three other authors. The
+#: first seven each cost false fires when treated as strong; ``fluchtniveau``,
+#: ``feuerwiderstand`` and ``reicht`` cost nothing in that sample and are strong.
 #:
-#: The last three arrived the other way — demoted from the strong tier on
-#: measurement, ``brandschutz``/``brandabschnitt`` on the blind corpora and
-#: ``soll…`` on the first live run. A corpus can only show a stem that fires too
-#: often on prose someone IMAGINED a model writing; the live run shows one
-#: firing on prose the model actually wrote.
+#: The last three are weak on measurement: ``brandschutz``/``brandabschnitt`` on
+#: the blind corpora and ``soll…`` on a live run. A corpus can only show
+#: a stem that fires too often on prose someone IMAGINED a model writing; the
+#: live run shows one firing on prose the model actually wrote.
 _WEAK_NORMATIVE_PATTERNS: tuple[str, ...] = (
     r"\bgeeignet",  # „als Aufenthaltsraum geeignet" vs „für eine Messung geeignet"
     r"\berforderlich",  # a legal requirement vs a tool prerequisite
@@ -427,28 +420,26 @@ _WEAK_NORMATIVE_PATTERNS: tuple[str, ...] = (
     # Türverknüpfung erforderlich" is a gap report. The verdict about one still
     # fires — „dass der Fluchtweg zu schmal ist" is its own clause.
     r"\bfluchtweg",
-    # Demoted from the strong tier on measurement, reversing the promotion the
-    # note above describes. Both name something a model either CONTAINS or does
+    # Weak on measurement. Both name something a model either CONTAINS or does
     # not — a concept document, a subdivision of the plan — so the commonest
     # sentence either appears in is a report that it is missing:
     #
     #     „Die Messung ergibt, dass im Modell keine Brandabschnitte hinterlegt sind."
     #     „Ein Brandschutzkonzept liegt der Auswertung nicht bei."
     #
-    # Re-measured across all 376 sentences of the four blind corpora, demoting
-    # these two clears 5 false fires and adds NO miss (0 → 0 misses, 30 → 25
-    # false fires). Demotion is not free in principle — a weak stem can be
-    # disarmed by any apparatus word in its clause, against this module's
-    # hedge-is-cheap asymmetry — and it is taken here on that measurement and
-    # on nothing else. What makes it affordable is the CLAUSE scoping below: a
+    # Across all 376 sentences of the four blind corpora, keeping these two weak
+    # clears 5 false fires and adds NO miss (0 → 0 misses, 30 → 25 false fires).
+    # A weak stem can be disarmed by any apparatus word in its clause, against
+    # this module's hedge-is-cheap asymmetry, and it is taken here on that
+    # measurement and on nothing else. What makes it affordable is the CLAUSE
+    # scoping below: a
     # verdict about a Brandabschnitt („die Auswertung zeigt, dass das
     # Brandschutzkonzept unzureichend ist", „laut Messung ist der Brandabschnitt
     # zu groß") lives in its own clause with no apparatus word in it, and the
     # strong tier still covers every verdict that names its own instrument.
     r"\bbrandschutz",
     r"\bbrandabschnitt",
-    # Demoted from the deontic modals on the first LIVE run of this branch, and
-    # the ONLY member of that group that moves. „muss" and „darf" state an
+    # „soll…" is weak, unlike the other deontic modals: „muss" and „darf" state an
     # obligation about the world and stay strong unconditionally; „soll…" is
     # also the ordinary German for a SUGGESTION, and a measurement answer's
     # suggestions are about the export:
@@ -461,17 +452,17 @@ _WEAK_NORMATIVE_PATTERNS: tuple[str, ...] = (
     # „Modell", the second fires.
     #
     # THE NUMBERS, and they point two ways, so both are recorded. On the four
-    # blind corpora the demotion is exactly NEUTRAL — 0 → 0 misses, 25 → 25
-    # false fires over 376 sentences — because only 2 of those sentences carry
+    # blind corpora this stem is exactly NEUTRAL: 0 misses and 25 false fires
+    # over 376 sentences, strong or weak — because only 2 of those sentences carry
     # „soll" at all and neither is decided by this stem („Sollte der Wert
     # unterschritten werden, ist eine Ausnahmegenehmigung erforderlich" fires on
     # `unterschr` and `genehmig` either way). So the corpora prove no collateral
-    # damage; they do not supply the case FOR the move.
+    # damage; they do not supply the case for weakening it.
     #
     # That case is the live run: over 18 descriptive answers from the real model
     # against a real 10.9 MB IFC, the brake fired 5 times, and this stem is 1 of
     # them — a recommendation about the BIM model that re-floored a correct
-    # measured answer to „low" as `normative_claim_uncited`. After the demotion
+    # measured answer to „low" as `normative_claim_uncited`. With this stem weak,
     # 4 remain and the 4 adequacy answers, which are genuine normative material,
     # all still fire.
     #
@@ -479,7 +470,7 @@ _WEAK_NORMATIVE_PATTERNS: tuple[str, ...] = (
     # gesondert geprüft werden") is NOT cleared: its clause names no apparatus,
     # so it keeps firing. That is the demotion working as designed rather than a
     # gap — a weak stem with nothing to disarm it behaves exactly like a strong
-    # one, which is what bounds the cost of this move.
+    # one, which is what bounds the cost of weakening it.
     r"\bsoll(en|te|ten)\b",  # not bare „Soll", which is „Soll-Ist-Vergleich"
 )
 
@@ -516,21 +507,20 @@ _MEASUREMENT_APPARATUS_RE = re.compile("|".join(_MEASUREMENT_APPARATUS_PATTERNS)
 #: verdict to the word „Auswertung". A semicolon, a colon, a dash and a „, dass"
 #: all separate a statement about the apparatus from the verdict drawn out of it.
 #:
-#: Two gaps closed after the fact, both found by varying only the CONNECTIVE in
-#: the module's own headline verdict („Die Messung ergibt 0,95 m … der Fluchtweg
-#: ist zu schmal") — a shape that split on „;" and on an EN DASH but not on the
-#: two spellings a model actually reaches for most:
+#: The split covers „;" and the EN DASH, and two spellings a model reaches for
+#: most were missing. Found by varying only the CONNECTIVE in the module's own
+#: headline verdict („Die Messung ergibt 0,95 m … der Fluchtweg ist zu schmal"):
 #:
-#: 1. **The ASCII hyphen.** „–" and „—" were listed, „-" was not, so the same
-#:    sentence typed on an ordinary keyboard kept apparatus and verdict in one
-#:    clause and shipped a fire-escape-width verdict as ``measurement_only``.
+#: 1. **The ASCII hyphen.** A spaced „-" splits like „–" and „—": the same
+#:    sentence typed on an ordinary keyboard must not keep apparatus and verdict
+#:    in one clause and ship a fire-escape-width verdict as ``measurement_only``.
 #:    It is matched ONLY with whitespace on both sides, because unspaced it is
 #:    not punctuation at all: „2,20-2,50 m" is one range, „OIB-RL 4" one
 #:    citation, „Modell-ID" one compound, and cutting any of them apart moves a
 #:    weak stem out of reach of its own apparatus word and invents a false fire.
-#: 2. **Consecutive „, sodass"-type connectives.** „dass|wie|was|damit" covered
-#:    the complement clauses and missed the consequence clauses, which is the
-#:    half a verdict is actually drawn in.
+#: 2. **Consecutive „, sodass"-type connectives.** „dass|wie|was|damit" covers
+#:    the complement clauses; the consequence clauses („sodass", „so dass"), which
+#:    is the half a verdict is actually drawn in, need their own.
 #: 3. **The mid-clause sentence adverb.** „Die Messung ergibt 0,95 m, der
 #:    Fluchtweg ist somit zu schmal." „sodass" and „weshalb" INTRODUCE their
 #:    clause, so a lookahead pinned to the comma finds them; „somit" is not a
@@ -551,7 +541,7 @@ _MEASUREMENT_APPARATUS_RE = re.compile("|".join(_MEASUREMENT_APPARATUS_PATTERNS)
 #: The whitespace after the comma is load-bearing for the same reason the
 #: hyphen's is: „2,48" is a decimal comma, not punctuation. Without it the
 #: forward scan in „…von 2,48 m ist somit…" splits INSIDE the number and can
-#: strand a weak stem in a clause its own apparatus word no longer reaches.
+#: strand a weak stem in a clause its own apparatus word does not reach.
 #:
 #: Bare „," and „ und " are deliberately NOT split on. Both genuinely coordinate
 #: as often as they subordinate, and both were measured: the bare comma added a
@@ -563,9 +553,9 @@ _MEASUREMENT_APPARATUS_RE = re.compile("|".join(_MEASUREMENT_APPARATUS_PATTERNS)
 #: BETWEEN DIGITS is a decimal point, not a sentence end. German prose writes
 #: „2,50 m" and the comma rule covers that, but a model answering in English —
 #: or quoting an engine value — writes „2.50 m", and splitting there strands the
-#: first half of the sentence. „The minimum is 2.50 m for the series." became
-#: „The minimum is 2" | „50 m for the series.", and `minimum` without `series`
-#: reads as a threshold: a measured answer floored by its own decimal point.
+#: first half of the sentence. Split, „The minimum is 2.50 m for the series."
+#: gives „The minimum is 2" and „50 m for the series.", and `minimum` without
+#: `series` reads as a threshold: a measured answer floored by its own decimal point.
 _SENTENCE_SPLIT_RE = re.compile(
     r"(?<!\d)\.(?!\d)|[!?\n;:–—]+|\.{2,}"
     r"|\s-{1,2}\s"
@@ -599,8 +589,7 @@ def answer_mentions_normative_claim(content: str) -> bool:
     names the measurement apparatus, which is how the renderer's „für eine
     Messung geeignet" stops reading as a habitability verdict.
 
-    Two rules keep that carve-out off real verdicts, and both were learned the
-    expensive way — by suppressing some:
+    Two rules keep that carve-out off real verdicts:
 
     1. **The clause, not the sentence.** This function reads the model's
        finished ANSWER, never renderer output, and „Die Auswertung zeigt, dass

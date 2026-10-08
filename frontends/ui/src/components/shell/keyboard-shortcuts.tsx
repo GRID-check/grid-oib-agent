@@ -16,7 +16,7 @@
  *                 registry (`shortcuts.ts`), which derives it from the same
  *                 IA the rail and the ⌘K palette render, so a new section
  *                 arrives with its hotkey and its cheatsheet row already
- *                 correct. This used to be a single hard-coded `g p`.
+ *                 correct.
  *
  * Plain-key shortcuts never fire while the user is typing (input, textarea,
  * select, contenteditable) and never when a modifier is held, so nothing

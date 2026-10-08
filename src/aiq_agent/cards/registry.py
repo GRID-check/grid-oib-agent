@@ -2,7 +2,7 @@
 
 Cards are a first-class agent output, and every path that makes one lands
 here: on chat, the answer envelope's ``cards`` field
-(``cards/envelope.py``, registered after the answer; Piloti no longer binds
+(``cards/envelope.py``, registered after the answer; Piloti does not bind
 ``emit_card``); in deep research, the ``emit_card`` tool; and a system card
 (``document_draft``, ``document_grid``) is pushed by the tool that did the
 work. The chat entrypoint reads the registry after the turn and attaches the
@@ -88,7 +88,7 @@ def set_card_registry(registry: CardRegistry | None) -> contextvars.Token:
 
 
 def reset_card_registry(token: contextvars.Token) -> None:
-    """Restore the previously bound card registry."""
+    """Restore the card registry bound before this one."""
     _session_card_registry.reset(token)
 
 

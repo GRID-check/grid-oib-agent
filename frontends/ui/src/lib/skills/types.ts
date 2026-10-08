@@ -15,11 +15,11 @@
  *     recommends namespaced keys; the reserved `grid-*` keys below are ours.
  *     Every other key is opaque.
  *
- * `grid-execution` and `grid-schedulable` used to live here too. Both are gone:
- * a skill says nothing about WHEN a JOB runs or WHAT a run produces. Scheduling
- * is a property of the JOB that attaches the skill, and the output kind is the
- * user's choice on that job (`jobs.output`). `grid-auto-invoke` joined them
- * below: retired, still tolerated, read by nobody.
+ * `grid-execution` and `grid-schedulable` are not reserved keys: a skill says
+ * nothing about WHEN a JOB runs or WHAT a run produces. Scheduling is a property
+ * of the JOB that attaches the skill, and the output kind is the user's choice
+ * on that job (`jobs.output`). `grid-auto-invoke` is retired: still tolerated,
+ * read by nobody (see below).
  */
 
 import { z } from 'zod'
@@ -127,16 +127,16 @@ export function isHiddenSkill(metadata: Record<string, string>): boolean {
 /**
  * `grid-auto-invoke` — RETIRED, and deliberately not replaced.
  *
- * It said whether the model might pick a skill from the L1 catalog: a bit an
- * author set that deleted a line from the model's own inventory. That is a
- * person deciding which skill runs, which is the thing ADR-0060 removed
- * everywhere else, so the switch is gone from the editor and the agent tier
- * lists every resolved skill (`skills/runtime.py` — `prompt_block`).
+ * It decides whether the model may pick a skill from the L1 catalog: a bit an
+ * author sets, which deletes a line from the model's own inventory. That is a
+ * person deciding which skill runs, which ADR-0060 removes everywhere else, so
+ * the switch is gone from the editor and the agent tier lists every resolved
+ * skill (`skills/runtime.py` — `prompt_block`).
  *
- * The KEY is still tolerated on a stored document, like `grid-execution`: an
- * old row keeps parsing and keeps its value verbatim. Nothing reads it, here or
- * in Python, and nothing writes it. It is named here only so the next person to
- * meet one in a SKILL.md knows what it was and that it does nothing.
+ * The KEY is still tolerated on a stored document: an existing row keeps parsing
+ * and keeps its value verbatim. Nothing reads it, here or in Python, and nothing
+ * writes it. It is named here so the next person to meet one in a SKILL.md knows
+ * what it was and that it does nothing.
  */
 export const METADATA_AUTO_INVOKE = 'grid-auto-invoke'
 
@@ -160,11 +160,11 @@ export const CHAT_SKILL_AGENT: KnownSkillAgent = 'researcher'
 /**
  * Retired `grid-agents` names, and the agent each one now means.
  *
- * `shallow_researcher` became `researcher`. The name is author-written and was
- * seeded by ten past migrations, so stored rows outlive the rename:
- * `0081_grid_agents_researcher_rename.sql` rewrites what we can see, this map
- * covers a row an older BFF wrote mid-deploy, a restored backup, or a skill
- * somebody re-imports from an export taken before the rename.
+ * `shallow_researcher` is now `researcher`. The name is author-written and was
+ * seeded by past migrations, so stored rows outlive the rename:
+ * `0081_grid_agents_researcher_rename.sql` rewrites what we can see, and this
+ * map covers what it cannot: a row an older BFF wrote mid-deploy, a restored
+ * backup, or a skill somebody re-imports from an export.
  *
  * An alias and not a third `KNOWN_SKILL_AGENTS` entry, because both other
  * readings fail in silence: ignored, an allowlist of only unknown names reads
@@ -188,8 +188,8 @@ export function canonicalSkillAgent(name: string): string {
  * The card types a skill prefers, in author order; `[]` when unset.
  *
  * Filtered against the live catalogue on READ as well as on write, so a row
- * stored before a card type was retired cannot put a name in front of the model
- * (or in front of the editor's chips) that no longer exists. A stale entry is
+ * holding a retired card type cannot put a name in front of the model (or in
+ * front of the editor's chips) that no longer exists. A stale entry is
  * not worth throwing over: the preference degrades to the remaining cards,
  * which is exactly what the author meant.
  */

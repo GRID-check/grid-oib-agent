@@ -72,7 +72,7 @@ const storedState = {
   profileUpdatedAt: new Date('2026-01-01T00:00:00.000Z'),
 } as never
 
-describe('checkProjectConsistency authorization (FB-13)', () => {
+describe('checkProjectConsistency authorization', () => {
   const mockFetch = vi.fn()
 
   beforeEach(() => {
@@ -184,7 +184,7 @@ describe('saveProjectProfile optimistic concurrency (If-Match)', () => {
     expect((values as { profileDisplay: { summary: string } }).profileDisplay.summary).toBe('')
   })
 
-  it('keeps the legacy in-request check when no version is supplied', async () => {
+  it('keeps the in-request check when no version is supplied', async () => {
     await saveProjectProfile(session, 'proj-1', storedProfile)
     expect(updateProjectProfileIfVersion).toHaveBeenCalledTimes(1)
   })
@@ -220,7 +220,7 @@ describe('saveProjectProfile optimistic concurrency (If-Match)', () => {
  * the EXACT keys handed to `invalidateCached`. (prompt-view.spec.ts additionally
  * proves the same wiring against a real in-memory cache.)
  */
-describe('profile writes invalidate both profile-derived cache keys (Fix 1)', () => {
+describe('profile writes invalidate both profile-derived cache keys', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     vi.mocked(findProjectProfileInOrg).mockResolvedValue(storedState)

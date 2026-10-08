@@ -133,9 +133,8 @@ const FOLDER = {
  * A producer that does what every producer must: write the marking it was
  * handed INTO the bytes, and hand the same string back.
  *
- * The fixture cannot be five arbitrary bytes any more, and that is the point of
- * the change it is a fixture for — `fileGeneratedDocument` refuses to store a
- * rendering whose marking it cannot find in the file. A fixture that returned
+ * The fixture is not arbitrary bytes: `fileGeneratedDocument` refuses to store a
+ * rendering whose marking it cannot find in the file, so a fixture that returned
  * unmarked bytes would be a fixture for a producer this service no longer files.
  */
 const renderedBytes = (marking: string) => new TextEncoder().encode(`report ${marking}`)
@@ -167,7 +166,7 @@ const admittedRow = (): NewDocument => admitOrDiscard.mock.calls[0][2] as NewDoc
  *
  * The single widening in this file, and it widens rather than narrows: `unknown`
  * plus a real `instanceof` test, so the compiler learns the type from the same
- * check the assertion makes. A cast to `PutObjectCommand` would have let the
+ * check the assertion makes. A cast to `PutObjectCommand` would let the
  * mutation these helpers exist to catch — a PUT that never happens — read its
  * `.input` off `undefined` and fail with a TypeError instead of an assertion.
  */
@@ -266,8 +265,8 @@ describe('fileGeneratedDocument', () => {
    * PUT, the location admission was told about, and the location the row records
    * are one file, described identically in all three places.
    *
-   * It is asserted here because the suite passed under three separate mutations
-   * of this function, each of which ships a report nobody can open:
+   * It is asserted here because each of three mutations of this function ships a
+   * report nobody can open:
    *
    *   1. `Body: body` → `Body: Buffer.alloc(0)` — every filed report is a 0-byte
    *      `.docx` while its row advertises the real size, so the Files pane shows
@@ -444,12 +443,10 @@ describe('fileGeneratedDocument', () => {
   /**
    * THE MARKING, ENFORCED WHERE THE BYTES ARE MADE.
    *
-   * It used to be a convention kept at each producer, and two of the three did
-   * not keep it: `diagram_pdf` set no PDF keywords and `diagram_svg` wrote no
-   * marking anywhere in its bytes. Nothing noticed, because every check
-   * available was on the object that DESCRIBED the file rather than on the
-   * file. So the check moved to the one seam all three pass through, and it
-   * asks the bytes.
+   * A convention kept at each producer goes unkept, and nothing notices, because
+   * every check available is on the object that DESCRIBES the file rather than
+   * on the file. So the check sits at the one seam all producers pass through,
+   * and it asks the bytes.
    */
   describe('a machine-authored file says so in its own bytes', () => {
     it('hands the producer the marking rather than letting it choose one', async () => {
@@ -478,11 +475,11 @@ describe('fileGeneratedDocument', () => {
     })
 
     it('refuses bytes that do not carry the marking, and stores nothing', async () => {
-      // The failure that shipped, reproduced: a producer that renders a
-      // perfectly good file and never writes the marking into it. Refused here
-      // rather than filed, because an unmarked artifact in `Berichte` is
-      // indistinguishable from a document a person wrote — and the person who
-      // attaches it to an Einreichung has no way to find out.
+      // A producer that renders a perfectly good file and never writes the
+      // marking into it is refused here rather than filed, because an unmarked
+      // artifact in `Berichte` is indistinguishable from a document a person
+      // wrote, and the person who attaches it to an Einreichung has no way to
+      // find out.
       render.mockImplementationOnce((context) => ({
         bytes: new TextEncoder().encode('a report with nothing in it about who wrote it'),
         contentType: 'application/pdf',
@@ -563,9 +560,9 @@ describe('fileGeneratedDocument', () => {
    * MACHINE AUTHORSHIP IS ITS OWN CAPABILITY.
    *
    * `project:documents:write` also authorizes a human upload, a delete and a
-   * re-ingest (`lib/documents/service.ts`), so an organization that wanted
-   * Piloti to answer without writing into its file system had one lever, and
-   * pulling it stopped its own architects uploading plans. These assertions are
+   * re-ingest (`lib/documents/service.ts`), so an organization that wants Piloti
+   * to answer without writing into its file system would have one lever, and
+   * pulling it would stop its own architects uploading plans. These assertions are
    * what make `project:documents:generate` a second, separable question rather
    * than a slug in a catalog nothing reads.
    */
@@ -832,9 +829,8 @@ describe('fileGeneratedDocument', () => {
         // object is untouched.
         await s3Send(new DeleteObjectCommand({ Bucket: bucket, Key: key }))
         // The shape drizzle really throws: a `Failed query` wrapper with NO code
-        // of its own, the driver's error on `cause`. A flat `{ code }` here is
-        // how the catch's `error.code` check passed its spec and never matched
-        // in production.
+        // of its own, the driver's error on `cause`. A flat `{ code }` here would
+        // pass the catch's `error.code` check and never match in production.
         throw new Error('Failed query: insert into "documents" …', {
           cause: Object.assign(
             new Error(
@@ -908,11 +904,11 @@ describe('fileGeneratedDocument', () => {
 
     it('looks the run up by its own id, scoped to the organization AND the project', async () => {
       // The project scope is the load-bearing half. The filing target comes
-      // from the report request's own projectId, so an org-wide probe answered
-      // "already filed" for a run whose report went to a DIFFERENT project —
-      // handing back that project's document id and folder, so this project
-      // silently never received the report and the caller's Öffnen/Zuweisen
-      // pointed somewhere the reader may not even be.
+      // from the report request's own projectId, so a probe without the project
+      // would answer "already filed" for a run whose report went to a DIFFERENT
+      // project, handing back that project's document id and folder: this project
+      // would silently never receive the report, and the caller's Öffnen/Zuweisen
+      // would point somewhere the reader may not even be.
       await file()
       expect(findDocumentAuthoredByRef).toHaveBeenCalledWith('run_7', 'org-1', 'proj-1', 'deep_research')
     })
@@ -944,10 +940,10 @@ describe('fileGeneratedDocument', () => {
       const event = recordAuditEventOrThrow.mock.calls[0][0]
       expect(event.action).toBe('document.generated')
       // The kind travels with the id, and `eventTargets` turns it into the
-      // WorkOS target TYPE. Before migration 0066 every agent-authored event was
-      // emitted as `agent_run` whatever the id named, so an auditor resolving a
-      // filed diagram looked up a job that does not exist — a dead end that
-      // looks exactly like a target nobody has opened yet.
+      // WorkOS target TYPE. Emitting every agent-authored event as `agent_run`
+      // whatever the id names sends an auditor to a job that does not exist
+      // (migration 0066): a dead end that looks exactly like a target nobody has
+      // opened yet.
       expect(event.actor).toEqual({
         type: 'agent',
         userId: 'user-1',
@@ -960,17 +956,15 @@ describe('fileGeneratedDocument', () => {
     })
 
     it('does not tell an auditor a diagram\u2019s reference is a job id', async () => {
-      // THE REGRESSION THIS PINS, in full: `authored_by_run_id` held a backend
-      // job id for `deep_research` and `{chat answer}-{hash of the source}` for
-      // the two diagram producers, and the emit hard-coded `{type: 'agent_run'}`
-      // for all of them. So `document.generated` asserted, in a structured field
-      // the audit-log export filters on, that `msg_42-1a2b3c4d` was a run id.
-      // Following it resolves to nothing — and a target that resolves to nothing
-      // is indistinguishable from one nobody has looked up yet, which is why it
-      // stayed invisible.
+      // THE REGRESSION THIS PINS: an identifier that is not a run must not be
+      // emitted as one. A hard-coded `{type: 'agent_run'}` for every producer
+      // would assert, in a structured field the audit-log export filters on, that
+      // `msg_42-1a2b3c4d` was a run id. Following it resolves to nothing, and a
+      // target that resolves to nothing is indistinguishable from one nobody has
+      // looked up yet.
       //
-      // The kind now comes off the producer, so this cannot be got wrong at a
-      // call site: `fileGeneratedDocument` takes an identifier and never a kind.
+      // The kind comes off the producer, so this cannot be got wrong at a call
+      // site: `fileGeneratedDocument` takes an identifier and never a kind.
       await fileGeneratedDocument({
         session: SESSION,
         projectId: 'proj-1',
@@ -1270,16 +1264,15 @@ describe('generatedFilename', () => {
   const day = new Date('2026-08-20T11:00:00Z')
 
   it('spells the umlauts rather than stripping them, and keeps a foreign name whole', () => {
-    // The defect this replaces: a hand-rolled NFKD that spelled only `ß`, so
-    // „Fluchtweglängen Gebäudeklasse 4" filed as
-    // `fluchtweglangen-gebaudeklasse-4-…`. Two misspelt words, and a stem
-    // matching neither spelling anyone would search for.
+    // A hand-rolled NFKD that spells only `ß` files „Fluchtweglängen
+    // Gebäudeklasse 4" as `fluchtweglangen-gebaudeklasse-4-…`: two misspelt
+    // words, and a stem matching neither spelling anyone would search for.
     expect(generatedFilename('Fluchtweglängen Gebäudeklasse 4', 'application/pdf', day)).toBe(
       'fluchtweglaengen-gebaeudeklasse-4-2026-08-20.pdf',
     )
-    // And the generic fold behind it, which the hand-rolled version also lost:
-    // a stroked letter has no decomposition, so `Łódź` became `odz` and the
-    // client's name was eaten. Austrian offices do work abroad.
+    // And the generic fold behind it: a stroked letter has no decomposition, so
+    // `Łódź` must become `lodz`, not `odz`, or the client's name is eaten.
+    // Austrian offices do work abroad.
     expect(generatedFilename('Gutachten Łódź', 'application/pdf', day)).toBe(
       'gutachten-lodz-2026-08-20.pdf',
     )
@@ -1318,13 +1311,11 @@ describe('generatedFilename', () => {
 
 describe('the audit event this feature depends on', () => {
   /**
-   * The bug this pins was silent and total: `fileGeneratedDocument` emitted a
-   * `producer` metadata key that `schemas.mjs` did not register. schemas.mjs's
-   * own header says a schema with the wrong keys rejects events exactly like a
-   * missing one — and because THIS action uses the throwing emitter, a
-   * rejection does not lose an audit line, it unfiles the document the line was
-   * about. Every commissioned report was filed and immediately deleted, and the
-   * user saw a report with no file and no error.
+   * An undeclared metadata key fails silently and totally. `schemas.mjs`'s own
+   * header says a schema with the wrong keys rejects events exactly like a
+   * missing one, and because THIS action uses the throwing emitter, a rejection
+   * does not lose an audit line: it unfiles the document the line was about, and
+   * the user sees a report with no file and no error.
    *
    * A unit test that mocks the emitter cannot see that. This asserts the emit
    * against the REGISTRY, which is the only place the two facts meet.
@@ -1353,22 +1344,17 @@ describe('the audit event this feature depends on', () => {
 describe('taking a document back when its audit write fails', () => {
   /**
    * Compensation can fail too, so the only thing this code chooses is WHICH
-   * leftover it produces. This test pins that choice, and it reverses an
-   * earlier one.
+   * leftover it produces. This test pins that choice.
    *
-   * The earlier arrangement ran both deletes independently, so a failed row
-   * delete still removed the object. It was reasoned from a real bug — an even
-   * earlier version shared one `try`, so a failed row delete skipped the object
-   * — and its stated objection to the fix was that coupling leaves BOTH behind:
-   * a filed, quota-charged „Von Piloti erstellt" row with no audit record.
-   *
-   * That is the wrong thing to be most afraid of. Leaving both behind is
-   * recoverable: the document opens, and deleting it through the application
-   * releases the row, the object and the quota together. Deleting the object
-   * while the row survives is not: the reader gets a document in their Files
-   * pane whose preview and download 404 forever, and its idempotency key stays
-   * occupied, so the report it stood for can never be filed again under that
-   * (project, reference, producer).
+   * The row goes first, and the object only once the row is known to be gone.
+   * If the row delete fails, the object is left, and what remains is a filed,
+   * quota-charged row with no audit record and its bytes intact. That is the
+   * recoverable outcome: the document opens, and deleting it through the
+   * application releases the row, the object and the quota together. Deleting
+   * the object while the row survives is not recoverable: the reader gets a
+   * document whose preview and download 404 forever, and its idempotency key
+   * stays occupied, so the report it stood for can never be filed again under
+   * that (project, reference, producer).
    */
   it('leaves the object alone when the ROW delete fails, so the document still opens', async () => {
     recordAuditEventOrThrow.mockRejectedValueOnce(new Error('audit rejected'))

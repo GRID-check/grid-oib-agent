@@ -1,12 +1,12 @@
 /**
  * Context chips for the Herleitung — the files attached to THIS message.
  *
- * Files only, on purpose. This module used to also render the data sources that
- * were toggled on in the composer at send time, labelled "Ausgewählte
- * Datenquellen" and sitting inside the Herleitung, which reads as "these are
- * what the turn used". They are not. Every source is enabled on load, so that
- * row claimed `Websuche` on every turn — including a bare greeting, where the
- * backend drops all data-source tools before the model sees them. The protocol
+ * Files only, on purpose. The data sources toggled on in the composer at send
+ * time are not rendered here, labelled "Ausgewählte Datenquellen": that row
+ * would read as "these are what the turn used". They are not. Every source is
+ * enabled on load, so such a row would claim `Websuche` on every turn —
+ * including a bare greeting, where the backend drops all data-source tools
+ * before the model sees them. The protocol
  * rule is "availability is the constant, activation is the event", and a
  * per-turn record must carry events. What actually ran is derived from the
  * turn's `tool` and `skill` steps by `deriveExecutedSteps` and shown as the

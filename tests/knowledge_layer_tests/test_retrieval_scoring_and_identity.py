@@ -1,15 +1,14 @@
-"""Regression tests for the retrieval score scale, chunk identity, and embed metadata.
+"""Tests for the retrieval score scale, chunk identity, and embed metadata.
 
-Each test here pins a defect that the suite passed straight through before, because
-none of the three seams had any coverage at all:
+Each test here pins a defect in a seam that had no coverage at all:
 
-- ``_chunks_from_raw_query`` fabricated a fresh ``uuid4`` for every lexical-channel
+- ``_chunks_from_raw_query`` must not fabricate a fresh ``uuid4`` for every lexical-channel
   chunk (``TextNode(node_id=...)`` is a read-only property, silently dropped by
   pydantic), so reciprocal rank fusion could never match a chunk across channels.
-- ``normalize`` reported the store's ``exp(-distance)`` as if it were a cosine
-  similarity, putting an *orthogonal* chunk at 0.37 and making the one threshold in
+- ``normalize`` must not report the store's ``exp(-distance)`` as a cosine
+  similarity: that would put an *orthogonal* chunk at 0.37 and make the one threshold in
   the codebase a no-op.
-- No document set ``excluded_embed_metadata_keys``, so LlamaIndex prepended the whole
+- Documents must set ``excluded_embed_metadata_keys``, or LlamaIndex prepends the whole
   metadata dict -- ``file_size`` included -- to every chunk before embedding.
 
 All offline: no ChromaDB, no embeddings, no network.
@@ -36,7 +35,7 @@ from sources.knowledge_layer.src.llamaindex.adapter import cosine_similarity_fro
 def test_orthogonal_chunk_scores_zero_not_zero_point_three_seven() -> None:
     """The store reports exp(-distance); at cosine 0 that is 0.37, not 0.
 
-    This is the whole defect: a chunk with no relationship to the query was printed
+    This is the whole defect: left unconverted, a chunk with no relationship to the query is printed
     into the grounding block as ``Relevance Score: 0.37`` and read by the answering
     model as a moderate match.
     """
@@ -91,7 +90,7 @@ def test_lexical_channel_preserves_the_stored_chunk_id() -> None:
 
 
 def test_lexical_chunk_id_is_stable_across_calls() -> None:
-    """The old code returned a new uuid4 every call, so even the same query never agreed."""
+    """A new uuid4 per call would mean even the same query never agrees."""
     retriever = LlamaIndexRetriever(config={"persist_dir": "/tmp/unused"})
     first = retriever._chunks_from_raw_query(_raw_query("stored-id-42"))
     second = retriever._chunks_from_raw_query(_raw_query("stored-id-42"))
@@ -99,7 +98,7 @@ def test_lexical_chunk_id_is_stable_across_calls() -> None:
 
 
 def test_lexical_and_vector_channels_agree_on_identity_so_rrf_can_fuse() -> None:
-    """The end-to-end property the id fix exists for: one passage, one identity."""
+    """The end-to-end property that stable chunk ids exist for: one passage, one identity."""
     from sources.knowledge_layer.src.llamaindex.hybrid import reciprocal_rank_fusion
 
     retriever = LlamaIndexRetriever(config={"persist_dir": "/tmp/unused"})
@@ -121,7 +120,7 @@ def test_multi_key_filter_is_translated_rather_than_passed_raw() -> None:
     """Chroma requires exactly one operator per expression; siblings are an implicit AND.
 
     The base collection always carries the ``exclude_file_names`` clause, so a caller
-    filter with two keys used to make the lexical pass raise and silently disable
+    filter with two keys would make the lexical pass raise and silently disable
     hybrid retrieval for exactly the filtered queries.
     """
     where = _to_chroma_where({"content_type": "text", "doc_class": "gesetz"})
@@ -166,7 +165,7 @@ def test_noise_metadata_is_excluded_from_the_embedded_text() -> None:
     assert "1975942" not in embedded, "a byte count carries no retrieval signal"
     assert "oib-rl_2.pdf" in embedded, "the filename is what users actually query by"
     assert "oib_richtlinie" in embedded
-    # The metadata still exists for filtering and citation — only its embedding changed.
+    # The metadata still exists for filtering and citation — only its embedding is excluded.
     assert doc.metadata["file_size"] == 1975942
 
 
@@ -200,7 +199,7 @@ def test_exclusions_are_idempotent() -> None:
 
 
 def test_a_malformed_reranker_env_var_does_not_break_the_import() -> None:
-    """Module-scope ``float(os.environ[...])`` made a typo an unimportable module."""
+    """Module-scope ``float(os.environ[...])`` would make a typo an unimportable module."""
     import importlib
     import os
 
@@ -247,10 +246,10 @@ def test_the_local_chroma_where_fallback_matches_the_vendor_normalisations() -> 
 
 
 def test_a_collection_with_no_fingerprint_is_adopted_not_rejected() -> None:
-    """Every collection deployed before this existed has no fingerprint.
+    """A collection written before fingerprints existed has none.
 
     "No fingerprint" carries no claim, so it can only be wrong in the case that is
-    already wrong today. Failing on absence would brick every live corpus.
+    already wrong. Failing on absence would brick every live corpus.
     """
     from sources.knowledge_layer.src.llamaindex.adapter import embed_fingerprint_mismatch
 

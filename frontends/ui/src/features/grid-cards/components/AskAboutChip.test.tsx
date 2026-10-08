@@ -165,12 +165,12 @@ describe('a schematic legend offers the question next to the remedy', () => {
 
   describe('trailing-mark stripping is linear in the length of the label', () => {
     /**
-     * `tidy` used to strip the trailing run with `/[.,;:!?…]+$/`. That pattern is
-     * anchored at the end but may begin at any position, so on a label of many
-     * marks the engine retries from each one and the scan is quadratic — 32k
-     * colons took 1,007ms against 0.2ms for the loop that replaced it. The label
-     * is written by the model into a card row, so its length and shape are not
-     * ours to bound.
+     * `tidy` strips the trailing run with a loop, not with `/[.,;:!?…]+$/`. That
+     * pattern is anchored at the end but may begin at any position, so on a label
+     * of many marks the engine retries from each one and the scan is quadratic:
+     * 32k colons take about a second that way, against well under a millisecond
+     * for the loop. The label is written by the model into a card row, so its
+     * length and shape are not ours to bound.
      *
      * An absolute budget, not a ratio between two sizes: healthy timings here
      * are microseconds and a ratio of two of those is noise rather than signal.

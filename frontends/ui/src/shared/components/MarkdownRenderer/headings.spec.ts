@@ -56,8 +56,8 @@ describe('markdownHeadings', () => {
   })
 
   test('a repeated heading gets its own id, and the first one keeps the id it had', () => {
-    // Unsuffixed, so every link already published against the first
-    // occurrence still lands where it landed.
+    // Unsuffixed, so a link published against the first occurrence still lands
+    // on it.
     expect(ids(['## Bewertung', 'Text.', '## Bewertung', '## Bewertung'].join('\n'))).toEqual([
       'bewertung',
       'bewertung-2',
@@ -195,13 +195,13 @@ describe('the ids markdownHeadings assigns exist in the rendered document', () =
 
 describe('heading extraction is linear in the length of the markdown', () => {
   /**
-   * `HTML_TAG_RE` used to spell its attribute run as `(?:\s[^>]*?)?\s*\/?`,
-   * where the lazy class and the trailing `\s*` could both match a space. An
-   * unterminated tag then backtracked quadratically over markdown written from
-   * retrieved documents. The payload sits INSIDE the heading (tag stripping
-   * only runs over heading text) and carries a trailing character (the heading
-   * pattern trims trailing whitespace first). At this size the defect takes
-   * ~1,280ms and the fix ~0.1ms; 400ms is loose for CI and tight for the bug.
+   * An unterminated tag must not backtrack quadratically over markdown written
+   * from retrieved documents. `HTML_TAG_RE` keeps its attribute run free of a
+   * lazy class and a trailing `\s*` that could both match a space. The payload
+   * sits INSIDE the heading (tag stripping only runs over heading text) and
+   * carries a trailing character (the heading pattern trims trailing whitespace
+   * first). The 400ms budget is loose for CI and far above linear time, yet
+   * tight enough to fail a quadratic scan.
    */
   test('an unterminated inline tag in a heading does not blow up the scan', () => {
     const markdown = `## Kennwerte <a ${' '.repeat(40_000)}x\n`

@@ -28,8 +28,8 @@ export const s3Client = new S3Client({
  * back to SEAWEED_ENDPOINT when no public endpoint is configured (single-host
  * setups).
  *
- * This is the fix for broken PDF preview/download: both were signed with the
- * internal endpoint and produced URLs the browser could never fetch.
+ * Previews and downloads are signed here, because the internal endpoint would
+ * yield URLs the browser cannot fetch.
  */
 export const signingS3Client = new S3Client({
   endpoint: process.env.SEAWEED_PUBLIC_ENDPOINT || process.env.SEAWEED_ENDPOINT,
@@ -80,8 +80,8 @@ export const bucketName = process.env.SEAWEED_BUCKET || "grid-documents";
  * One safe segment of an object key, from a name a person chose.
  *
  * The upload's own filename and the folder names above it are the only parts
- * of a key that are not machine-generated ids, and both went in verbatim. A
- * part named
+ * of a key that are not machine-generated ids, so they are the parts that
+ * need sanitising. Left as-is, a part named
  * `../../../../org/<other-org>/project/<p>/doc/<d>/model.ifc` passes the
  * upload-type check — that only looks at the substring after the last dot —
  * and lands in `Key` unchanged. Per-org buckets are off by default, so the
@@ -114,20 +114,20 @@ export function storageKeySegment(raw: string): string {
  * directory: the `_thumb.jpg` and `_render.pdf` siblings and the `_img/` and
  * `_bim/` prefixes (`lib/bim/service.ts`). An uploaded file may not take one.
  *
- * A file named `_render.pdf` was stored at `<dir>/_render.pdf`, which is
+ * A file named `_render.pdf` would sit at `<dir>/_render.pdf`, which is
  * exactly the key {@link buildRenditionStorageKey} derives from it, so the raw
- * upload was served as its own "rendition" with none of the checks a
- * conversion's output passes. A file named `_thumb.jpg` was worse: the ingest
- * pipeline's thumbnail PUT landed on the original and replaced the person's
- * bytes. `_img` and `_bim` would make one path both an object and a directory,
- * which a filer-backed gateway such as SeaweedFS cannot hold, and put the
- * original inside the prefix a delete sweeps. Prefixed with `_` (`__render.pdf`)
+ * upload would be served as its own "rendition" without the checks a
+ * conversion's output passes. A file named `_thumb.jpg` would be overwritten by
+ * the ingest pipeline's thumbnail PUT, replacing the person's bytes. `_img` and
+ * `_bim` would make one path both an object and a directory, which a
+ * filer-backed gateway such as SeaweedFS cannot hold, and put the original
+ * inside the prefix a delete sweeps. Prefixed with `_` (`__render.pdf`)
  * like a dot-only name, rather than refused, for the same reason: the uploader
  * did nothing wrong. Compared without case, so no case-insensitive store or
  * gateway can fold one onto the other.
  *
- * Keys written before this rule keep their names; the derived-key builders
- * below refuse to return a key equal to the input, which covers them.
+ * Keys already stored keep their names; the derived-key builders below refuse
+ * to return a key equal to the input, which covers them.
  */
 const RESERVED_DERIVED_SEGMENTS: ReadonlySet<string> = new Set(['_thumb.jpg', '_render.pdf', '_img', '_bim'])
 
@@ -208,23 +208,20 @@ export function buildSessionStorageKey(
  * segment of its key with `_thumb.jpg`.
  *
  * Lives here with the other two builders rather than privately in
- * `documents/service.ts`, because both delete paths and both read paths need
- * it and the derivation had already been re-implemented — differently — in a
- * spec (`image-tenant-scope.spec.ts` used `${key}.thumb.jpg`, which production
- * has never produced). One definition, one place, one behaviour to test.
+ * `documents/service.ts`, because the delete and read paths all need it. One
+ * definition, one place, one behaviour to test.
  *
  * A key with no filename segment to replace has no thumbnail, and there are two
- * such shapes, not one: no `/` at all, and a TRAILING `/`. Both used to be
- * handled differently — `a/b/` has its last slash at a positive index, so the
- * old check passed it and produced `a/b/_thumb.jpg`, a real write target derived
- * from a row that names no file. Rather than fabricate a key for a malformed
- * row, both return null and the callers treat that as "no thumbnail".
- * Unreachable from `buildStorageKey` output; reachable from a hand-edited or
- * legacy row.
+ * such shapes, not one: no `/` at all, and a TRAILING `/`. The slash position
+ * alone misses the second: `a/b/` has its last slash at a positive index, so it
+ * would produce `a/b/_thumb.jpg`, a real write target derived from a row that
+ * names no file. Rather than fabricate a key for a malformed row, both return
+ * null and the callers treat that as "no thumbnail". Unreachable from
+ * `buildStorageKey` output; reachable from a hand-edited row.
  *
  * Null too when the file IS `_thumb.jpg`: the sibling would be the original,
- * and the ingest pipeline's PUT would overwrite it. `storageKeySegment` no
- * longer produces that name; a row stored before it did still exists.
+ * and the ingest pipeline's PUT would overwrite it. `storageKeySegment` never
+ * produces that name, but existing rows may carry it.
  */
 export function buildThumbnailStorageKey(storageKey: string): string | null {
   return derivedSiblingKey(storageKey, '_thumb.jpg')
@@ -246,7 +243,7 @@ function derivedSiblingKey(storageKey: string, name: string): string | null {
  * the filename segment of its key with `_render.pdf`.
  *
  * A sibling like `_thumb.jpg` and for the same reasons: it is keyed off the
- * file's own directory, which since ADR-0054 is per version (`v<n>/`), so a new
+ * file's own directory, which ADR-0054 makes per version (`v<n>/`), so a new
  * version gets a fresh rendition and the old one stays with its version; and the
  * project and document prefix sweeps reach it without being told its name.
  * Same null rules as {@link buildThumbnailStorageKey} — a key with no filename
@@ -262,9 +259,9 @@ export function buildRenditionStorageKey(storageKey: string): string | null {
  * The most embedded rasters one document may keep beside it.
  *
  * The ingest pipeline extracts every image XObject a PDF carries, captions
- * each with the VLM, and — since the `_img/` derivatives landed — asks this
- * tier for one PUT slot per raster so the agent can later look at the image
- * itself rather than at a whole-page render. A plan set can embed thousands
+ * each with the VLM, and asks this tier for one PUT slot per raster (the
+ * `_img/` derivatives) so the agent can later look at the image itself rather
+ * than at a whole-page render. A plan set can embed thousands
  * of small rasters (hatch tiles, logos, scanned stamps), and each slot is an
  * object the tenant pays storage for and a prefix sweep has to visit on
  * delete. This is the ceiling per document; the presign route refuses an

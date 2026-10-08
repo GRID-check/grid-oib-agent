@@ -158,7 +158,7 @@ describe('identity', () => {
     expect(vi.mocked(delegateTask).mock.calls[0][0]).toBe(session)
   })
 
-  it('refuses a requester who is no longer a member', async () => {
+  it('refuses a requester who is not a member', async () => {
     vi.mocked(resolvePinnedRequesterSession).mockResolvedValue(null)
     expect((await call(CREATE)).status).toBe(403)
     expect(delegateTask).not.toHaveBeenCalled()

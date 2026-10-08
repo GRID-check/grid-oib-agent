@@ -115,7 +115,7 @@ describe('ArchivWorkspace — library listing', () => {
     expect(await screen.findByTestId('archiv-document-count')).toHaveTextContent('2')
   })
 
-  // The category chips are the shared filter menu's „Kategorie" now, over the
+  // The category chips are the shared filter menu's „Kategorie", over the
   // tags the loaded documents really carry — on every shelf.
   it('filters the grid by a tag the documents carry', async () => {
     const user = userEvent.setup()
@@ -269,10 +269,10 @@ describe('ArchivWorkspace — a settling document settles on screen', () => {
     await waitFor(() => expect(statusCalls).toBe(1))
     // The badge the user is actually looking at flips, without a reload.
     await waitFor(() => expect(screen.getByText('Citable')).toBeInTheDocument())
-    // The poll never drained the listing again.
+    // The listing is not fetched again by the poll.
     expect(documentCalls).toBe(1)
 
-    // Everything is terminal now, so the polling stops.
+    // Once everything is terminal, the polling stops.
     await vi.advanceTimersByTimeAsync(12_000)
     expect(statusCalls).toBe(1)
     expect(documentCalls).toBe(1)
@@ -395,7 +395,7 @@ describe('ArchivWorkspace — a settling document settles on screen', () => {
  * flight — but nothing coordinated that poll with a FOREGROUND load. A slow
  * status read carrying `processing` could land after a newer load had already
  * brought back `ready`, putting the "Wird gelesen…" badge back on a document
- * the user had just been told was citable — and, because the row read as
+ * the user has just been told is citable — and, because the row reads as
  * unsettled again, restarting the poll that was supposed to have stopped.
  */
 describe('ArchivWorkspace — only the newest answer may win', () => {
@@ -578,7 +578,7 @@ describe('ArchivWorkspace — file operations', () => {
 })
 
 /**
- * The Archiv answers a same-name file the way a project's Dateien does (U1):
+ * The Archiv answers a same-name file the way a project's Dateien does:
  * it asks for a new version, from the shelf itself — asked of the server by
  * name (`POST /api/archiv/documents/name-matches`), since the listing on screen
  * is paged — and never refuses or replaces on one browser's memory.

@@ -461,12 +461,10 @@ def _bind(llm, settings=None):
 
 
 def test_an_allowlisted_model_binds_full_schemas_until_its_saving_is_measured():
-    # The allowlist records an echo, not a saving: on 2026-09-23 every model
-    # measured echoed `defer_loading` and billed the schemas in full. Deferring
-    # on the echo alone sent the tool_search payload to production for nothing
-    # (and filed #635 forty times from NAT's trace callback, which cannot parse
-    # it). Until the probe measures a saving, the allowed model binds full
-    # schemas, which is always correct.
+    # The allowlist records an echo, not a saving: a model can echo `defer_loading` and bill
+    # the schemas in full. Deferring on the echo alone sends the tool_search payload for
+    # nothing (and NAT's trace callback cannot parse it). Until the probe measures a saving,
+    # the allowed model binds full schemas, which is always correct.
     llm = FakeOpenRouterLLM(model_name="openai/gpt-5.6-luna")
     bound = _bind(llm)
     assert not isinstance(bound, DeferredToolBinding)
@@ -627,7 +625,7 @@ def test_a_score_the_operator_supplies_overrides_the_pinned_table():
 
 def test_a_floor_miss_binds_full_schemas_and_never_fails_the_request():
     # The floor decides "should this agent defer", never "may this model be
-    # used". A sub-floor model must run exactly as it did before this existed.
+    # used". A sub-floor model must run exactly as it would without this feature.
     llm = FakeOpenRouterLLM(model_name="anthropic/claude-sonnet-4.6")
     bound = _bind(llm)
     assert bound.kind == "plain_binding"
@@ -658,9 +656,9 @@ def test_a_provisional_model_is_deferred_to_before_anyone_has_verified_it():
 
 
 def test_both_listed_tiers_yield_to_a_negative_verdict():
-    # `allow` records an echo, which is not a measurement of the saving, so it
-    # no longer outranks one. The tiers differ before any verdict: a
-    # `provisional` model is tried live, an `allow` one waits for the probe.
+    # `allow` records an echo, which is not a measurement of the saving, so it does not
+    # outrank one. The tiers differ before any verdict: a `provisional` model is tried
+    # live, an `allow` one waits for the probe.
     record_model_verdict("meta/muse-spark-1.1", False, source="test")
     record_model_verdict("openai/gpt-5.6-luna", False, source="test")
     assert model_supports_deferred_tool_loading(FakeOpenRouterLLM(model_name="meta/muse-spark-1.1"), ON) is False
@@ -899,8 +897,8 @@ def _openrouter_over_httpx(*, base_tokens: int | None, ballast_tokens: int | Non
 
 
 async def test_an_echoed_deferral_that_is_still_billed_binds_full_schemas_without_failing_the_build(caplog):
-    # Measured 2026-09-23: luna echoed defer_loading and billed 187 -> 4 100 for
-    # the deferred ballast. That is the silent failure; it must not pass.
+    # luna echoes defer_loading and bills 187 -> 4 100 for the deferred ballast.
+    # That is the silent failure; it must not pass.
     llm = FakeOpenRouterLLM(model_name="openai/gpt-5.6-luna")
     llm.root_async_client, seen = _openrouter_over_httpx(base_tokens=187, ballast_tokens=4100)
     with caplog.at_level(logging.WARNING):
@@ -908,7 +906,7 @@ async def test_an_echoed_deferral_that_is_still_billed_binds_full_schemas_withou
     assert len(seen) == 2
     assert all(f["defer_loading"] is True for f in seen[1]["tools"][1]["tools"])
     assert "+3913" in caplog.text and "does NOT honour" in caplog.text
-    # ...and it outranks the allowlist, which was measured on the echo.
+    # ...and it outranks the allowlist, which measures the echo and not the saving.
     assert model_supports_deferred_tool_loading(llm, ON) is False
     assert not isinstance(_bind(llm), DeferredToolBinding)
 

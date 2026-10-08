@@ -26,9 +26,8 @@ vi.mock('@/lib/model-config/service', () => ({
   getEffectiveModelOverrides: vi.fn(),
 }))
 
-// Structured bundesland fact lookup (backlog T3-9 follow-up, 2026-07-16,
-// user-mandated) — avoids pulling in the real @/lib/db chain; controlled
-// per-test below like getEffectiveModelOverrides.
+// Structured bundesland fact lookup — avoids pulling in the real @/lib/db
+// chain; controlled per-test below like getEffectiveModelOverrides.
 vi.mock('@/lib/project-profile/prompt-view', () => ({
   loadProjectBundesland: vi.fn().mockResolvedValue(null),
 }))
@@ -361,7 +360,7 @@ describe('/api/jobs/async/[...path] proxy — signed X-Grid-Request-Context enve
     expect(headers['X-Grid-Request-Context']).toBeDefined()
   })
 
-  it('carries the resolved bundesland fact structurally on the envelope (backlog T3-9 follow-up, 2026-07-16)', async () => {
+  it('carries the resolved bundesland fact structurally on the envelope', async () => {
     vi.mocked(loadProjectBundesland).mockResolvedValue('tirol')
 
     const res = await POST(
@@ -416,10 +415,10 @@ describe('/api/jobs/async/[...path] proxy — signed X-Grid-Request-Context enve
 })
 
 /**
- * A finished run's report used to be read once, rendered into a chat message
- * and discarded with the run's whole file system. This is the point at which
- * the BFF observes that completion, so it is where the report becomes a
- * document the project can find, assign, preview and delete.
+ * A finished run's report would otherwise be rendered into a chat message and
+ * discarded with the run's file system. The BFF observes that completion here,
+ * so this is where the report becomes a document the project can find, assign,
+ * preview and delete.
  */
 describe('/api/jobs/async/[...path] proxy — filing a commissioned report', () => {
   let fetchSpy: ReturnType<typeof vi.spyOn>
@@ -537,9 +536,8 @@ describe('/api/jobs/async/[...path] proxy — filing a commissioned report', () 
 
   it('files nothing for a run that was never commissioned in a project', async () => {
     // A run started from a chat outside any project. Its banner promised no
-    // filing, and the old behaviour filed it into whatever project the reader's
-    // stored `active_project_id` happened to name — silently, with no
-    // disclosure ever having been shown.
+    // filing, so the report must not be filed into whatever project the reader's
+    // stored `active_project_id` names, silently and with no disclosure shown.
     fetchSpy.mockResolvedValue(
       reportResponse({ job_id: 'job-1', has_report: true, report: '# Bericht' })
     )
@@ -557,8 +555,9 @@ describe('/api/jobs/async/[...path] proxy — filing a commissioned report', () 
   })
 
   it('files nothing when the run\u2019s collection belongs to no project in this organization', async () => {
-    // The cross-tenant version of the same bug: a real collection name that
-    // this organization does not own must not fall back to anywhere.
+    // A real collection name that this organization does not own must not fall
+    // back to anywhere: that is the cross-tenant form of filing into the wrong
+    // project.
     vi.mocked(findProjectIdByCollectionName).mockResolvedValue(null)
 
     const res = await GET(
@@ -685,13 +684,11 @@ describe('/api/jobs/async/[...path] proxy — filing a commissioned report', () 
   })
 
   it('files the run\u2019s report even when the reader\u2019s own context resolves no project', async () => {
-    // The precondition used to be `!session?.organizationId || !projectId`, and
-    // `projectId` there is the READER's — the request's, or their stored
-    // `active_project_id`. It survived the change that moved the destination
-    // onto the run, so a commissioned run opened from a context with no project
-    // of its own was silently never filed, and the response carried neither
-    // `filed` nor `filingFailed`: a reader who had been promised „wird abgelegt"
-    // was told nothing at all.
+    // The filing does not depend on the reader's project. Gating on the reader's
+    // `projectId` (the request's, or their stored `active_project_id`) would
+    // silently skip a commissioned run opened from a context with no project of
+    // its own, and the response would carry neither `filed` nor `filingFailed`:
+    // a reader promised „wird abgelegt" would be told nothing at all.
     vi.mocked(buildCollectionScopeFromRequest).mockResolvedValue({
       headerValue: 'scope',
       scope: [],
@@ -712,11 +709,11 @@ describe('/api/jobs/async/[...path] proxy — filing a commissioned report', () 
   })
 
   /**
-   * Interactive runs only (design decision 10). A scheduled run has no live
-   * session, and the write is authorized by the commissioning human's
-   * `project:documents:write` — resolving the scheduler's `triggered_by`
-   * permission at fire time is v1.1. Anonymous mode reaches this handler with
-   * no session too, and the answer is the same one: file nothing.
+   * Interactive runs only. A scheduled run has no live session, and the write is
+   * authorized by the commissioning human's `project:documents:write`; resolving
+   * the scheduler's `triggered_by` permission at fire time is deferred. Anonymous
+   * mode reaches this handler with no session too, and the answer is the same
+   * one: file nothing.
    */
   it('files nothing when there is no live session to authorize the write', async () => {
     delete process.env.REQUIRE_AUTH
@@ -730,10 +727,10 @@ describe('/api/jobs/async/[...path] proxy — filing a commissioned report', () 
   })
 })
 
-describe('/api/jobs/async/[...path] proxy — a cancel the backend refuses because the run ended (#632)', () => {
-  // The Sessions panel's stop goes out as POST /job/{id}/cancel. The first
-  // fix for #632 guarded GET and DELETE only, so this path kept filing an
-  // ERROR per refused cancel. Both terminal statuses the backend names.
+describe('/api/jobs/async/[...path] proxy — a cancel the backend refuses because the run ended', () => {
+  // The Sessions panel's stop goes out as POST /job/{id}/cancel. A refused cancel
+  // of a run that has already ended is a race, not an error, for both terminal
+  // statuses the backend names.
   beforeEach(() => {
     delete process.env.REQUIRE_AUTH
     vi.spyOn(console, 'log').mockImplementation(() => undefined)

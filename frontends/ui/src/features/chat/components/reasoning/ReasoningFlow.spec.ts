@@ -112,10 +112,10 @@ describe('planFan — sources pack into columns, never a forced single column', 
     }
   })
 
-  test('REGRESSION: more sources than fit widen into stacked columns — not one vertical chain', () => {
-    // The old layout compared a fixed natural width against the container and
-    // dropped to a SINGLE grouped column as soon as it did not fit, which is
-    // what made real turns render as one long vertical list on desktop.
+  test('more sources than fit widen into stacked columns — not one vertical chain', () => {
+    // A fixed natural width compared against the container drops to a SINGLE
+    // grouped column as soon as it does not fit, which makes real turns render
+    // as one long vertical list on desktop.
     const fan = planFan(DESKTOP_W, 8)
     expect(fan.columns.length).toBeGreaterThan(1)
     expect(fan.grouped).toBe(false)
@@ -163,7 +163,7 @@ describe('planFan — sources pack into columns, never a forced single column', 
   })
 })
 
-describe('buildGraph — parallel wiring (P1-4)', () => {
+describe('buildGraph — parallel wiring', () => {
   test('framing fans out to every column, each column converges — never a chain', () => {
     const cards = [card('a'), card('b'), card('c')]
     const g = buildGraph({ ...base, answerConfidence: 'high' }, t, planFan(DESKTOP_W, 3), cards)
@@ -175,11 +175,11 @@ describe('buildGraph — parallel wiring (P1-4)', () => {
       expect(g.edges).toContainEqual(expect.objectContaining({ source: 'framing', target: cid }))
       expect(g.edges).toContainEqual(expect.objectContaining({ source: cid, target: 'findings' }))
     }
-    // The bug was framing→src1→src2→…: there must be NO column→column edge.
+    // A framing→src1→src2→… chain is the bug: there must be NO column→column edge.
     expect(columnToColumnEdges(g)).toHaveLength(0)
   })
 
-  test('one retrieval round keeps the old fan — no round nodes', () => {
+  test('one retrieval round draws the plain fan — no round nodes', () => {
     const steps = [retrievalStep(0, 'Fluchtweg GK4')]
     const cards = [card('a'), card('b')]
     const g = buildGraph(
@@ -276,7 +276,7 @@ describe('buildGraph — parallel wiring (P1-4)', () => {
     expect(columnCards(g)).toEqual([['a'], ['b']])
   })
 
-  test('the spine speaks the checkpoint, never the search query (PF-12)', () => {
+  test('the spine speaks the checkpoint, never the search query', () => {
     const steps = [
       retrievalStep(0, 'OIB 3 Pkt. 3.4.2'),
       retrievalStep(
@@ -303,8 +303,8 @@ describe('buildGraph — parallel wiring (P1-4)', () => {
     }
     expect(round0.text).toBe('')
     // ONE numbering language: every layer counts the same 1-based execution
-    // order, whatever it did. The old two-noun sequence (`Suche 1`, then
-    // `Folgerung 2…`) read as one run while counting tool calls and
+    // order, whatever it did. A two-noun sequence (`Suche 1`, then
+    // `Folgerung 2…`) reads as one run while counting tool calls and
     // inferences apart.
     expect(round0.label).toBe('thinking.node.stepTab')
     expect(round1.label).toBe('thinking.node.stepTab')
@@ -428,7 +428,7 @@ describe('buildGraph — the fan splits from one line and merges back into one',
   })
 })
 
-describe('buildGraph — the fan-in shares one centred anchor (P1-5)', () => {
+describe('buildGraph — the fan-in shares one centred anchor', () => {
   test('choice prompt without findings: every column merges into the branches node centre handle', () => {
     const g = buildGraph(
       {
@@ -471,7 +471,7 @@ describe('buildGraph — the fan-in shares one centred anchor (P1-5)', () => {
   })
 })
 
-describe('buildGraph — only the handles a layout needs (P2-8)', () => {
+describe('buildGraph — only the handles a layout needs', () => {
   test('no sources: framing feeds the converge node from a single centre handle', () => {
     const g = buildGraph({ ...base, answerConfidence: 'low' }, t, planFan(DESKTOP_W, 0), [])
     expect(framingHandles(g)).toEqual(['c-bottom'])
@@ -482,14 +482,12 @@ describe('buildGraph — only the handles a layout needs (P2-8)', () => {
   })
 
   test('every node declares its full handle set, whatever the turn is missing', () => {
-    // REGRESSION: handles used to be conditional — the framing card of a turn
-    // with nothing streamed yet had NO source handle, and the assessment grew
-    // its bottom handle only once a branches prompt existed. React Flow measures
-    // handle bounds when the node element is measured and re-measures only on a
-    // RESIZE, so a handle added to a node already on screen never gets bounds
-    // and `getEdgePosition` drops every edge on it: the connectors vanished
-    // unless some other change happened to resize the node in the same tick.
-    // The anchors are 1x1 and invisible, so carrying them always costs nothing.
+    // Handles are never conditional: React Flow measures handle bounds when the
+    // node element is measured and re-measures only on a RESIZE, so a handle
+    // added to a node already on screen never gets bounds and `getEdgePosition`
+    // drops every edge on it. The connectors vanish unless some other change
+    // happens to resize the node in the same tick. The anchors are 1x1 and
+    // invisible, so carrying them always costs nothing.
     const bare = buildGraph({ ...base, live: true }, t, planFan(DESKTOP_W, 0), [])
     expect(framingHandles(bare)).toEqual(['c-bottom'])
 
@@ -673,8 +671,8 @@ describe('a turn that was CUT OFF says so where the fan converges', () => {
  * A deep run that ran out of clock, and an answer that shipped ungrounded.
  *
  * Both arrive as technical-channel records the reader would otherwise never
- * meet: before this the answer of a run cut off after two of ten planned
- * searches was indistinguishable from a complete one. The assessment node is
+ * meet: without them, a run cut off after two of ten planned searches is
+ * indistinguishable from a complete one. The assessment node is
  * where they belong, because it is the node that already answers "what was this
  * built on?" — and "less than it looks like" is an answer to that question.
  */
@@ -817,7 +815,7 @@ describe('a deep run that was cut off or degraded says so under the assessment',
   })
 })
 
-describe('a checkpoint layer folds its own fan (ledger 19)', () => {
+describe('a checkpoint layer folds its own fan', () => {
   /** n rounds, each returning one file, wired to n cards. */
   const spine = (n: number, folding?: SpineFolding) => {
     const steps: StoredThinkingStep[] = []
@@ -892,7 +890,7 @@ describe('a checkpoint layer folds its own fan (ledger 19)', () => {
     expect(g.edges).toContainEqual(expect.objectContaining({ source: 'round-1', target: 'round-2' }))
     expect(g.edges).toContainEqual(expect.objectContaining({ source: 'round-2', target: 'r2-col-0' }))
     expect(g.edges).toContainEqual(expect.objectContaining({ source: 'r2-col-0', target: 'findings' }))
-    // Nothing may point at a column that is no longer in the graph.
+    // Nothing may point at a column that is not in the graph.
     const ids = new Set(g.nodes.map((n) => n.id))
     for (const e of g.edges) {
       expect(ids.has(e.source)).toBe(true)
@@ -924,7 +922,7 @@ describe('a checkpoint layer folds its own fan (ledger 19)', () => {
       expect(folded.foldSummary).toContain('3')
       expect(folded.foldSummary).toContain('OIB-RL_2')
       expect(folded.foldSummary).toContain(dictionary === de ? 'u.a.' : 'and others')
-      // …and never the query that produced them (PF-12).
+      // …and never the query that produced them.
       expect(folded.foldSummary).not.toContain('Fluchtweg')
     }
     const g = buildGraph(
@@ -1054,16 +1052,17 @@ describe('a checkpoint layer folds its own fan (ledger 19)', () => {
 })
 
 /**
- * The ledger draws the fan (PR #665 phase b).
+ * The ledger draws the fan.
  *
- * Before this, every round drew the TURN-LEVEL card of each file whose name it
- * returned, so a second round that re-opened the same four files at different
- * pages drew four identical cards a second time — the same aggregate count, the
- * same cited page — and a genuine re-fetch was indistinguishable from a new
- * page of a file already read. The backend's `retrieval_ledger` states what
- * each round returned and at which passages; these assert the spine draws THAT
- * when it has it — one slot per DOCUMENT, carrying every locus that round read
- * of it — and today's filename match when it does not.
+ * A round draws its own slot per file. The turn-level card of a file would draw
+ * the same aggregate count and the same cited page for every round that
+ * returned it, so a second round that re-opened the same four files at
+ * different pages would draw four identical cards, and a genuine re-fetch would
+ * be indistinguishable from a new page of a file already read. The backend's
+ * `retrieval_ledger` states what each round returned and at which passages;
+ * these assert the spine draws THAT when it has it — one slot per DOCUMENT,
+ * carrying every locus that round read of it — and the filename match when it
+ * does not.
  */
 describe('a ledger round draws its own fan', () => {
   /** Three rounds: a search, the opens it led to, then a pass back over one file. */
@@ -1080,7 +1079,7 @@ describe('a ledger round draws its own fan', () => {
 
   /**
    * A ledger entry whose docs carry no per-passage `repeat` — the shape of a
-   * turn stored before the backend stamped it, which Postgres still replays.
+   * stored turn the backend never stamped, which Postgres still replays.
    * The fan then reads the document-level `newDocs`, and these tests pin that
    * fallback. The stamped path is pinned in `retrieval-rounds.spec.ts`.
    */
@@ -1173,7 +1172,7 @@ describe('a ledger round draws its own fan', () => {
     expect(slots[1]!.loci).toEqual([{ detail: 'S. 1', repeat: true }])
   })
 
-  test('no ledger: the fan is the filename match, exactly as before', () => {
+  test('no ledger: the fan is the filename match', () => {
     const g = build()
     expect(columnCards(g)).toEqual([['a'], ['b'], ['a'], ['b'], ['a']])
     // No round speaks for a slot, so every card keeps its turn aggregate.
@@ -1200,9 +1199,9 @@ describe('a ledger round draws its own fan', () => {
 
   test('a ledger round that returned nothing is a miss, not a search', () => {
     // Round 0 searched and the backend's own account says it came back
-    // empty. Before the ledger the same layer read `Suche` — the word for a
-    // bare fetch — which is also what a hit the old wire never stamped looked
-    // like, so the reader could not tell a miss from a stamping gap.
+    // empty. Without the ledger the same layer would read `Suche` — the word for
+    // a bare fetch — which is also what an unstamped hit looks like, so the
+    // reader could not tell a miss from a stamping gap.
     const empty: RetrievalLedger = [entry(0, [], [], ['knowledge_search']), ledger[1]!, ledger[2]!]
     const g = build(empty)
     const sub = (i: number) => (g.nodes.find((n) => n.id === `round-${i}`)!.data as { sub: string }).sub
@@ -1224,8 +1223,8 @@ describe('a ledger round draws its own fan', () => {
     expect((withThought.nodes.find((n) => n.id === 'round-0')!.data as { sub: string }).sub).toBe(
       'thinking.node.stepKindNoHits'
     )
-    // A turn stored before the ledger existed keeps `Suche`: without the
-    // backend's account an empty layer is not known to be a miss.
+    // A stored turn with no ledger keeps `Suche`: without the backend's account
+    // an empty layer is not known to be a miss.
     const legacy = build(undefined)
     expect(
       (legacy.nodes.find((n) => n.id === 'round-0')!.data as { sub: string }).sub

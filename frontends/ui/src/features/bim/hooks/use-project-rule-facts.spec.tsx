@@ -51,10 +51,11 @@ describe('useProjectRuleFacts', () => {
 
   it('reads the canonical GK form the brief actually stores', async () => {
     // `GK1`…`GK5` is the vocabulary the card schema publishes and the chat
-    // writes. `Number('GK4')` is NaN, so a CORRECTLY filled brief read as "no
-    // Gebäudeklasse" — every rule depending on it stood down as "nicht
-    // einschlägig" here while the agent, which passes the number, returned
-    // real verdicts. The card and the answer above it disagreed on screen.
+    // writes, and `Number('GK4')` is NaN. Reading only numbers would show a
+    // correctly filled brief as "no Gebäudeklasse": every rule depending on it
+    // would stand down as "nicht einschlägig" while the agent, which passes the
+    // number, returned real verdicts, and the card and the answer would disagree
+    // on screen.
     stubProfile({ facts: { gebaeudeklasse: { value: 'GK4' } } })
     const { result } = renderHook(() => useProjectRuleFacts('p1'))
     await waitFor(() => expect(result.current.gebaeudeklasse).toBe(4))
@@ -70,8 +71,7 @@ describe('useProjectRuleFacts', () => {
   it('refuses a Gebäudeklasse it cannot read', async () => {
     // Asserted on `ready`, not on `missing`: `missing` contains everything
     // before the fetch resolves, so a `waitFor` on it passes at mount whatever
-    // the answer turns out to be. This test used to do exactly that, and
-    // therefore pinned nothing.
+    // the answer turns out to be.
     stubProfile({ facts: { gebaeudeklasse: { value: 'Klasse vier' } } })
     const { result } = renderHook(() => useProjectRuleFacts('p1'))
     await waitFor(() => expect(result.current.ready).toBe(true))
@@ -94,11 +94,11 @@ describe('useProjectRuleFacts', () => {
 
   it('names no gap at all until the brief has actually been read', async () => {
     /*
-      `facts` starts `{null, null}`, so `missing` used to name both facts from
+      `facts` starts `{null, null}`, so `missing` would name both facts from
       the first frame. That is not a frame nobody sees: a compliance card's
       "im Modell zeigen" link carries `?tab=compliance`, so the drawer is open
-      at mount and the panel tells the reader that the Gebäudeklasse and the
-      Hauptnutzung are missing from the brief — on a project where both are
+      at mount and the panel would tell the reader that the Gebäudeklasse and
+      the Hauptnutzung are missing from the brief — on a project where both are
       set, with a call to go and set them, and coming back changes nothing.
     */
     stubProfile({ facts: { gebaeudeklasse: { value: 'GK4' }, hauptnutzung: { value: 'wohnen' } } })
@@ -124,10 +124,6 @@ describe('useProjectRuleFacts', () => {
     // default that quietly picks thresholds. But "diese Angaben fehlen im
     // Briefing", with a link to go and set them, sends the reader to re-enter
     // values that are already there, and coming back changes nothing.
-    //
-    // This test used to assert the OPPOSITE of what the hook does, and passed
-    // because `missing` holds both strings at mount: `waitFor` resolved on its
-    // first poll, before the rejection had landed.
     stubProfile({}, false)
     const { result } = renderHook(() => useProjectRuleFacts('p1'))
     await waitFor(() => expect(result.current.ready).toBe(true))

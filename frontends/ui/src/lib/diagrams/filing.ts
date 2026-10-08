@@ -26,29 +26,24 @@
  *   - the **SVG** previews in the Files pane today (`image/svg+xml` is already
  *     in `PREVIEW_TYPES`), is what a reader opens, and carries the diagram's
  *     own source in its `<metadata>` so the drawing can be regenerated or
- *     hand-edited a year later by whoever has the file — plus, since the marking
- *     stopped being a per-producer convention, the statement that a machine drew
- *     it, in its `<title>` and `<desc>` (`withDiagramMarking`);
+ *     hand-edited a year later by whoever has the file — plus the statement that a
+ *     machine drew it, in its `<title>` and `<desc>` (`withDiagramMarking`);
  *   - the **PDF** is what gets attached to an Einreichung. A Behörde receives a
  *     bundle of PDFs, and an architect who has to convert a file first will
  *     convert it in whatever tool is open — which is where the marking line
  *     stops travelling with the drawing.
  *
  * One row cannot be both: a row has one storage key and one content type.
- * Storing the second artifact as a sibling object under the first row's prefix
- * was the version that needed no second row, and it is exactly what ADR-0042
- * forbids — bytes written outside the document service have no row and are
- * invisible to the quota ledger. So: two rows, two producers, one call each,
- * through the one admitting path.
+ * A sibling object under the first row's prefix would need no second row, and it
+ * is exactly what ADR-0042 forbids: bytes written outside the document service
+ * have no row and are invisible to the quota ledger. So: two rows, two producers,
+ * one call each, through the one admitting path. Each half is its own row keyed
+ * by its producer, so the two rows share the answer's reference.
  *
- * That collided with migration 0064, which allowed one machine-authored
- * document per (organization, project, run). Migration **0065** widens that key
- * and `findDocumentAuthoredByRef` with it, in the same commit and derived from
- * each other, which is the move 0064's own header prescribes for exactly this
- * case. The alternative — two synthetic ids, `{ref}:svg` and `{ref}:pdf` —
- * needed no migration and was rejected: `authored_by_ref` exists so somebody
- * can later ask what wrote a file and where it came from, and a key that joins
- * back to nothing is what the schema calls "an audit trail in appearance only".
+ * Synthetic ids such as `{ref}:svg` would join back to nothing. `authored_by_ref`
+ * exists so somebody can later ask what wrote a file and where it came from, and
+ * a key that joins to nothing is what the schema calls "an audit trail in
+ * appearance only".
  *
  * ## Partial filing, and why retry is the compensation
  *
@@ -61,14 +56,8 @@
  * of a report that quietly vanished.
  *
  * **So a PDF failure is a RESULT here, not a throw**, and `pdf: null` is what
- * says so. This paragraph used to describe a design the code did not have:
- * `FiledDiagram` required both halves and this function simply awaited the PDF,
- * so the one case the paragraph is about — the SVG landed, the PDF did not —
- * threw. The route turned that into `Internal server error`, the client into a
- * red line, and the reader was told nothing had happened while a quota-charged
- * SVG sat in Berichte with their diagram in it. Being told "it failed" about a
- * file that exists is worse than being told nothing: it is the one answer that
- * makes the reader stop looking.
+ * says so. Telling the reader "it failed" about a file that exists is the one
+ * answer that makes them stop looking, so a partial success is reported as one.
  *
  * The failure is swallowed only in the direction where a partial result is
  * TRUE. The SVG's own failure still throws, because there is no half to report:
@@ -101,14 +90,10 @@ export interface FileDiagramInput extends DiagramSubmission {
    * that already has its files is a no-op that answers with the ids it already
    * had.
    *
-   * **Not a run id, and no longer called one.** Until migration 0066 this field
-   * was `runId` and landed in a column called `authored_by_run_id` whose comment
-   * said "the backend async job id of the run" — a sentence that was true of the
-   * research producer and of nothing here. The kind of identity this is now
-   * travels with it, declared once against the producer in
-   * `GENERATED_DOCUMENT_PRODUCER_REF_KINDS`, so the row and the
-   * `document.generated` audit target both say `answer_artifact` rather than
-   * pointing an auditor at a job store this value was never in.
+   * **Not a run id.** The kind of identity this is travels with it, declared
+   * once against the producer in `GENERATED_DOCUMENT_PRODUCER_REF_KINDS`, so the
+   * row and the `document.generated` audit target both say `answer_artifact`
+   * rather than pointing an auditor at a job store this value was never in.
    */
   answerRef: string
   /** What a reader should see in the Files pane. */
@@ -236,9 +221,8 @@ export async function fileDiagramDocuments(input: FileDiagramInput): Promise<Fil
       answerRef: input.answerRef,
       svgDocumentId: svg.documentId,
       cause: error instanceof Error ? `${error.name}: ${error.message}` : 'unknown',
-      // The drawing's shape, not its content: the one PDF crash so far (#589,
-      // React minified #31) named no construct, and a bare cause repeats that
-      // opacity on the next one.
+      // The drawing's shape, not its content: a bare cause names no construct, so
+      // the shape of the drawing is logged alongside it.
       svgBytes: accepted.svg.length,
       viewport: { ...accepted.viewport },
       census: censusSvg(accepted.root),

@@ -104,7 +104,7 @@ async function lookUp({ collection, filename, imageIndex }: DocumentFileQuery, o
   return {
     storageKey: document.storageKey,
     // The bucket, not just the key (ADR-0043). Per-organization buckets
-    // mean the key alone no longer locates an object, and the agent tier
+    // mean the key alone does not locate an object, and the agent tier
     // calls get_object directly rather than through a presigned URL — so
     // it must be TOLD where the object is. Deriving it there would put a
     // second implementation of the naming rule in a third language, in

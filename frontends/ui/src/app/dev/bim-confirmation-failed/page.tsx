@@ -8,11 +8,11 @@
  * form itself and the registry waits on the alert, so the capture is
  * deterministic rather than a race with an effect.
  *
- * The state is worth pinning because of what the failure used to look like —
- * nothing. The request rejected, the form stayed open, and an architect who
- * had just signed off a requirement had every reason to believe it was
- * recorded. On the one surface whose whole purpose is to be a record, a
- * silent write failure is the worst thing it can do.
+ * The state is worth pinning because a failure that shows nothing is the worst
+ * outcome: the request rejects, the form stays open, and an architect who has
+ * just signed off a requirement has every reason to believe it was recorded.
+ * On the one surface whose whole purpose is to be a record, a silent write
+ * failure is the worst thing it can do.
  *
  * Not linked from anywhere and 404s outside development.
  */
@@ -79,8 +79,7 @@ function Driver(): JSX.Element {
     let stopped = false
     // By test id, not by label: the preview renders in whichever locale the
     // harness picks, and a driver keyed on German copy silently does nothing
-    // in an English run — which is exactly how this capture first came back
-    // showing the untouched form.
+    // in an English run, leaving the untouched form in the capture.
     const press = (testId: string): boolean => {
       const button = root.querySelector<HTMLButtonElement>(`[data-testid="${testId}"]`)
       button?.click()

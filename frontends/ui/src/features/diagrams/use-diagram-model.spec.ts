@@ -1,8 +1,8 @@
 /**
  * A source is parsed once, not once per mount.
  *
- * A remount of a fence already drawn used to start from `undefined` (the
- * skeleton) and queue another parse behind the mermaid lock.
+ * A remount of a fence already drawn reads its model from the cache, so it
+ * queues no parse behind the mermaid lock.
  */
 import { renderHook, waitFor } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'

@@ -1,10 +1,10 @@
 """Telling the user what the turn is actually doing, while it does it.
 
-Everything a Grid turn currently reports about itself is an accident of
-observability. NAT's ``StepAdaptor`` watches the LangChain instrumentation and
-turns LLM/tool/function spans into ``system_intermediate_message`` frames; the
+Everything a Grid turn reports about itself is an accident of observability.
+NAT's ``StepAdaptor`` watches the LangChain instrumentation and turns
+LLM/tool/function spans into ``system_intermediate_message`` frames; the
 frontend then guesses an activity label by regex-matching the raw NAT function
-name. Nothing in this repo ever *said* anything. The holes that leaves are not
+name. Nothing in this repo states what the turn is doing. The holes that leaves are not
 edge cases — they are the longest stretches of the turn: context loading before
 the graph starts, and the whole answer phase behind a generic label.
 
@@ -15,10 +15,9 @@ Keys, not sentences
 -------------------
 
 It states it as a **stable key plus interpolation values**, never as a finished
-sentence. The first cut of this module emitted German prose in a ``text``
-field and the frontend rendered it verbatim, so an English-locale reader got
-German — a regression the whole product rule exists to prevent: **nothing in
-emitted data is language-specific**. What travels now is
+sentence. A sentence in a ``text`` field would be rendered verbatim, so an
+English-locale reader would get German: **nothing in emitted data is
+language-specific**. What travels is
 
 ``key``
     a stable dotted id (``status.retrieval.withQuery``, ``status.escalation``)
@@ -48,8 +47,8 @@ English sentence. Three rules, applied per value:
    DECISION, from a fixed enum, phrased entirely by the frontend. The reason
    still travels — as the ``reason`` FIELD, which the Herleitung already renders
    as the model's own words, attributed and secondary. (Because it is still
-   read by a user there, ``intent_classification.j2`` no longer pins it to
-   German: it asks for the language of the user's own query.)
+   read by a user there, ``intent_classification.j2`` asks for the language of
+   the user's own query rather than for German.)
 
 The user query quoted in a retrieval line is the reader's own words echoed
 back, so it is neither prose we wrote nor a name we chose — it goes back out
@@ -161,8 +160,9 @@ def emit_step(step: Step, *, started: bool = False) -> None:
 #: that call happens in Piloti's *agent* node, and LangGraph runs every
 #: node in its own task built with ``copy_context()``: the tools node inherits
 #: the context the RUN started with, never the one the previous node mutated.
-#: For a release every hit was therefore unstamped and the Herleitung fell back
-#: to stream order, which puts both fetches on the first checkpoint. The
+#: Set only in the agent node, every hit would be unstamped and the Herleitung
+#: would fall back to stream order, which puts both fetches on the first
+#: checkpoint. The
 #: authoritative set is ``PilotiAgent._tools_node`` via
 #: :func:`retrieval_round_scope`, immediately around the ToolNode invocation —
 #: parallel tool calls copy the context when their sibling tasks are created,
@@ -308,9 +308,8 @@ STATUS_STEP_PREFIX = "status:"
 #: ``channel`` on the step. ``live`` may be shown as the single running
 #: one-liner; ``technical`` is for the opt-in details panel ONLY. The
 #: distinction is the difference between what the reader is told and what an
-#: operator can go look up, and the frontend must not blur it: this product
-#: already shipped a phantom "web search" line because an availability signal
-#: was rendered as activity.
+#: operator can go look up, and the frontend must not blur it: an availability
+#: signal rendered as activity would show a phantom "web search" line.
 CHANNEL_LIVE: Channel = "live"
 CHANNEL_TECHNICAL: Channel = "technical"
 
@@ -405,8 +404,8 @@ KEY_REPAIR = "status.repair"
 KEY_ESCALATION = "status.escalation"
 #: The model stopped calling tools and is writing the answer. Without this the
 #: live line keeps showing the last retrieval event through the whole synthesis
-#: call — the same stale-label fault the legacy path fixed by never letting a
-#: finished step drive the phrase. Value-less: the sentence is the dictionary's.
+#: call, and a finished step must not drive the phrase. Value-less: the sentence
+#: is the dictionary's.
 KEY_SYNTHESIS = "status.synthesis"
 
 #: EVERY key this module can emit, exhaustively. Two tests hang off it: the
@@ -534,7 +533,7 @@ class ToolStepCallback(AsyncCallbackHandler):
 
 # --- What each moment is called ---------------------------------------------
 #
-# Ids only. No copy lives in this file any more: the German and the English
+# Ids only. No copy lives in this file: the German and the English
 # sentences sit side by side in the frontend dictionary, which is the only
 # place that knows who is reading.
 
@@ -587,7 +586,7 @@ _ACTION_KEYS = {
     "edit_file": KEY_ACTION_DRAFT_EDIT,
     "propose_file_change": KEY_ACTION_FILE_PROPOSAL,
     # With `submit=true` the line is KEY_ACTION_DRAFT_SUBMITTED instead; see
-    # :func:`_action_key`. (`submit_draft` was merged into that argument.)
+    # :func:`_action_key`.
     "file_draft": KEY_ACTION_DRAFT_FILED,
     "create_task": KEY_ACTION_TASK_CREATED,
 }
@@ -614,10 +613,10 @@ _QUERY_KEYS = ("query", "search_query", "question", "q", "text", "name_contains"
 #: now knows and what it still needs, written as part of the CALL rather than as
 #: prose beside it.
 #:
-#: Prose was the only channel, and a tool-calling model routinely writes none —
-#: which is why ``hasConclusion`` was worth counting at all. An argument the
-#: schema declares is a slot the model fills the way it fills every other slot,
-#: so the checkpoint stops depending on a habit the API discourages.
+#: Prose is an unreliable channel: a tool-calling model routinely writes none.
+#: An argument the schema declares is a slot the model fills the way it fills
+#: every other slot, so the checkpoint does not depend on a habit the API
+#: discourages.
 CONCLUSION_ARG = "conclusion"
 
 #: Where a round's checkpoint sentence came from. Stable tokens, because they
@@ -753,7 +752,7 @@ def _search_signature(args: dict[str, Any]) -> str:
     # The literal mode is a different question over the same words: „BA-03"
     # ranked and „BA-03" everywhere are two answers, so it may not be withheld
     # as a repeat of the other. Appended only when set, so every meaning-mode
-    # signature is what it always was.
+    # signature carries no such part.
     if str(args.get("match") or "").strip().lower() == "exact":
         parts.append("exact")
     return _SIGNATURE_SEPARATOR.join(parts)
@@ -783,8 +782,9 @@ def _passage_signature(args: dict[str, Any]) -> str:
 #: The duplicate-fetch guard withholds a call whose signature already ran this
 #: turn and tells the model the result is already above. That is only true when
 #: something was fetched. Both retrieval tools answer a dead store with a string
-#: that asks the model to retry the identical call — so the guard was answering
-#: "retry once" with "you already did", and the passage was never read at all.
+#: that asks the model to retry the identical call. Without the marker the guard
+#: would answer "retry once" with "you already did", and the passage would never
+#: be read at all.
 #:
 #: A marker rather than an exception because the tools deliberately return
 #: PROSE: a raised error kills the turn, while a sentence lets the model say it
@@ -894,7 +894,7 @@ def _conclusion_argument(calls: list[dict[str, Any]]) -> str | None:
 def _resolve_conclusion(calls: list[dict[str, Any]], prose: str | None) -> tuple[str, str]:
     """This round's checkpoint sentence and where it came from.
 
-    The ARGUMENT wins. It is the one the prompt now asks for and the one a
+    The ARGUMENT wins. It is the one the prompt asks for and the one a
     tool-calling model reliably produces; prose beside the calls stays as the
     fallback because a model that narrates anyway should not lose its
     checkpoint, and because a deployment pinned to an older prompt still has
@@ -929,14 +929,13 @@ def documents_loading_step(shelves: list[str] | None = None) -> StatusStep | Non
     Returned, not emitted: it runs in the setup phase, before any graph, and
     ``_run`` yields it.
 
-    The first hole in the turn, and until now a total one: no frame of any kind
-    existed before the intent classifier's LLM call, so the user watched a
-    generic label through every one of these round-trips.
+    A hole in the turn: no frame of any kind precedes the intent classifier's
+    LLM call, so the reader would watch a generic label through these
+    round-trips.
 
     Gated on the turn actually being scoped to a shelf of theirs, which is what
     makes this an event rather than a constant. "Unterlagen werden geladen" on
-    every turn is the availability-as-activity mistake this product has already
-    paid for once.
+    every turn would be availability presented as activity.
     """
     named: list[str] = []
     for shelf in shelves or ():
@@ -1019,10 +1018,9 @@ def subject_document_step(
     )
 
 
-#: (A `purpose` field once sat here and was removed before release: it was
-#: inferred, not observed, and mislabelled a first locator round. The facts a
-#: renderer needs — corpora, query, key, new_docs — are recorded without a
-#: guessed enum.)
+#: (No `purpose` field: it would be inferred, not observed, and would mislabel a
+#: first locator round. The facts a renderer needs — corpora, query, key — are
+#: recorded without a guessed enum.)
 def _describe_calls(calls: list[dict[str, Any]]) -> dict[str, Any]:
     """What one batch of tool calls SAYS: corpora, tools, query, key, values.
 
@@ -1146,12 +1144,12 @@ def emit_retrieval(
     ``reason``: it travels as a field, never as a live-line value, because it
     has a language. The Herleitung renders it as the spine node's body. Absent
     when the model wrote none; the graph then keeps the layer without
-    inventing a conclusion, and without falling back to the query (PF-12).
+    inventing a conclusion, and without falling back to the query.
 
     It has TWO channels and this function is where they are ranked. The
     retrieval tools declare a ``conclusion`` ARGUMENT, which is what the prompt
-    now asks the model to fill; the parameter here is the prose written beside
-    the tool calls, which is what it used to be asked for. The argument wins,
+    asks the model to fill; the parameter here is the prose written beside the
+    tool calls, still honoured as the fallback. The argument wins,
     prose is the fallback, and :func:`emit_checkpoint` records which one it
     was — ranking them anywhere else would let the sentence the spine renders
     and the source it is counted under disagree.
@@ -1195,8 +1193,8 @@ def emit_retrieval(
         # produced it.
         emit_checkpoint(round_index=round_index, has_conclusion=reason is not None, source=conclusion_source)
         return True
-    # An action round is not a retrieval round. Putting one on
-    # ``status:retrieval:N`` stole the next search's row.
+    # An action round is not a retrieval round: a row on ``status:retrieval:N``
+    # would take the next search's row.
     # The slot is derived from the KEY rather than from the tool name, so the
     # two verbs that share :data:`KEY_ACTION_FILE_PROPOSAL` share one slot as
     # well: one key, one line, one step — which is what that key was for.
@@ -1221,9 +1219,9 @@ def emit_checkpoint(*, round_index: int, has_conclusion: bool, source: str = CHE
     a layer is the model's own Thought, which exists only when the model wrote
     prose beside its tool calls — with tool-calling models, often it did not.
     That rate decides whether the Herleitung reads as reasoning or as a list of
-    empty headers, and nothing could answer it: the conclusion travels as
-    ``reason`` on a LIVE event, so counting its absence meant reading the
-    reader's own text out of traces.
+    empty headers. The conclusion travels as ``reason`` on a LIVE event, so
+    counting its absence would otherwise mean reading the reader's own text out
+    of traces.
 
     What is counted here is therefore the BOOLEAN and never the sentence:
     ``round`` says which layer, ``hasConclusion`` whether it has a body, and
@@ -1351,7 +1349,7 @@ def emit_family_coverage(*, family: str, listed: int, opened: int) -> None:
     one that opened all four: the prose is fluent, every citation resolves, and
     the missing part is missing in the one way nothing checks. The inventory
     knows the family; the source registry knows what was read; the difference
-    is the miss rate, and it was not countable before this event existed.
+    is the miss rate, and this event is what makes it countable.
 
     Counts only, never filenames: which parts exist is a property of the corpus
     and which were read is a number, and neither needs anybody's document names
@@ -1448,24 +1446,19 @@ def emit_research_truncated(
     Technical channel, and therefore no ``key``: whether the reader should be
     told "this answer stopped early" is a product decision, and shipping a live
     key would make it silently. What this is for is the operator question the
-    config comment has been asking in prose for a release — *how often does
-    truncation happen, and on which question shapes* — which needs the event to
-    exist at all before it can be counted.
+    config comment asks in prose — *how often does truncation happen, and on
+    which question shapes* — and the event has to exist before it can be counted.
 
     Args:
         ceiling: The ROUND count that triggered forced synthesis.
-        research_budget: ``max_tool_iterations``. The same number as ``ceiling``
-            now that nothing is reserved on top of it; both are recorded so a
-            counted record stays readable across the change.
-        spent: Rounds charged when the ceiling was hit. Equal to ``rounds``
-            since the budget became one unit per ROUND rather than per emitted
-            call; both stay on the record so a record counted before and after
-            the change reads the same way, and a reader never has to know which
-            release wrote it.
-        rounds: LLM turns that asked for tools. Was the pair with ``spent``
-            that told one greedy batch from a long walk into the wall — a
-            distinction the round budget removes, because a greedy batch is now
-            one round and costs one.
+        research_budget: ``max_tool_iterations``. Currently the same number as
+            ``ceiling``, since nothing is reserved on top of it; both are recorded
+            so the record stays readable if that changes.
+        spent: Rounds charged when the ceiling was hit. Equal to ``rounds``,
+            because the budget is one unit per ROUND, not per emitted call; both
+            are recorded so a record reads the same whichever release wrote it.
+        rounds: LLM turns that asked for tools. Paired with ``spent``, it tells
+            one greedy batch from a long walk into the wall.
         shape: Ordered tool basenames of the run. Names only; a query string is
             the reader's own words and does not belong in telemetry.
     """
@@ -1548,7 +1541,7 @@ DEGRADED_UNVERIFIED_QUOTES = "unverified_quotes"
 #: The report is whole, but the proposals the job derives from it post-hoc
 #: (Grid cards) could not be produced. Job path only: the chat path emits its
 #: cards mid-turn as a tool step, so it has nothing to derive and nothing to
-#: fail silently. Without this token a run whose card model timed out looked
+#: fail silently. Without this token a run whose card model timed out would look
 #: exactly like a run whose report warranted no proposals.
 DEGRADED_CARDS_GENERATION_FAILED = "cards_generation_failed"
 #: A document the reader named as Grundlage was never reached: the run has no
@@ -1569,9 +1562,9 @@ def emit_deep_research_cutoff(
 
     Technical channel, like :func:`emit_research_truncated`, and for the same
     operator question: *how often does a deep run run out of clock or steps, and
-    when it does, do we still ship something?* Before this existed a cutoff was
-    an exception in a log and the run's whole output was discarded, so neither
-    half of that question could be answered.
+    when it does, do we still ship something?* A cutoff otherwise lives as an
+    exception in a log, with the run's whole output discarded, and neither half
+    of that question can be answered from it.
 
     Args:
         reason: :data:`CUTOFF_WALL_CLOCK` or :data:`CUTOFF_STEP_LIMIT`.
@@ -1596,11 +1589,12 @@ def emit_deep_research_cutoff(
 def emit_answer_degraded(*, agent: str, reasons: list[str]) -> None:
     """Record that an answer shipped in a known-weaker form than a clean run.
 
-    The two deep-research cases this exists for both used to be a bare
-    ``logger.warning`` beside a ``return``: the writer never persisted a report
-    (so the answer is a chat message wearing a report's clothes), and citation
-    verification found no valid citations at all (so nothing in the answer is
-    provably grounded). Both shipped looking exactly like a good answer.
+    The two deep-research cases this covers are easy to miss in a log, where
+    each is a bare ``logger.warning`` beside a ``return``: the writer never
+    persisted a report (so the answer is a chat message wearing a report's
+    clothes), and citation verification found no valid citations at all (so
+    nothing in the answer is provably grounded). Each would ship looking exactly
+    like a good answer.
 
     Args:
         agent: Which researcher degraded (``deep`` / ``shallow``).
@@ -1643,11 +1637,10 @@ def emit_card_invalid(*, card_type: str, index: int, outcome: str) -> None:
     """Record that an envelope card failed validation, and what became of it.
 
     Technical channel, no ``key``: the reader keeps the answer, and a missing
-    card is not a sentence for the live line. The operator question is the
-    one ``emit_card``'s log line used to answer — WHICH type the model reached
-    for and could not fill — plus whether the small model's repair put it
-    back. A turn whose card was silently dropped would be indistinguishable
-    from one that never earned a card.
+    card is not a sentence for the live line. The operator question is WHICH
+    type the model reached for and could not fill, plus whether the small
+    model's repair put it back. A turn whose card was silently dropped would be
+    indistinguishable from one that never earned a card.
 
     Args:
         card_type: The ``type`` the model declared, ``"?"`` when it declared none.
@@ -1682,7 +1675,7 @@ def emit_verdict_dropped(*, reason: str) -> None:
     Technical channel and no ``key``, like :func:`emit_research_truncated`: the
     reader keeps the whole answer either way — only the masthead is gone — so
     there is nothing to tell them, while the operator question is real and
-    currently unanswerable. *How often does an answer try to rest a normative
+    needs a count. *How often does an answer try to rest a normative
     value on a document we wrote ourselves?* is the rate that decides whether
     the prompt-side wording is working, and a gate that drops silently makes it
     uncountable.

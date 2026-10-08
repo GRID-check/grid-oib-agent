@@ -1,7 +1,7 @@
 """A withheld repeat is answered with the first execution's own result.
 
 The duplicate-fetch guard stops the turn PAYING for the same fetch twice. It
-used to answer the second call with a sentence — „das Ergebnis oben ist die
+must not answer the second call with a sentence — „das Ergebnis oben ist die
 Antwort" — which is a scolding and a pointer, not an answer: it asks the model
 to go and find something further up its own transcript, and a model that cannot
 find it asks a third time. A tool delivers an answer, so the guard delivers

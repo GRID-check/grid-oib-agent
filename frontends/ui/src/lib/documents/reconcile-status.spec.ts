@@ -201,7 +201,7 @@ describe('reconcileDocumentStatuses', () => {
     expect(result.queueAhead).toBe(3)
   })
 
-  it('says null once the job is no longer waiting, so a count shown before clears', async () => {
+  it('says null once the job has left the queue, so a count shown earlier clears', async () => {
     makeDbMock()
     mockFetch.mockResolvedValue(
       batchResponse({ 'job-1': { status: 'processing', file_details: [], metadata: { queue_ahead: null } } })
@@ -236,7 +236,7 @@ describe('reconcileDocumentStatuses', () => {
     expect(db.update).toHaveBeenCalledTimes(1)
   })
 
-  it('uses the collection file list for legacy rows without a job id', async () => {
+  it('uses the collection file list for a row without a job id', async () => {
     makeDbMock()
     mockFetch.mockResolvedValue({
       ok: true,
@@ -312,7 +312,7 @@ describe('reconcileDocumentStatuses', () => {
     expect((batchCall?.[1] as RequestInit).signal).toBeInstanceOf(AbortSignal)
   })
 
-  it('leaves a legacy row pending when its file is not in the collection yet', async () => {
+  it('leaves a row without a job id pending when its file is not in the collection yet', async () => {
     const db = makeDbMock()
     mockFetch.mockResolvedValue({
       ok: true,

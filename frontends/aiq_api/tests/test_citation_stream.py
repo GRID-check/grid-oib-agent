@@ -1,14 +1,15 @@
 """The live citation stream must be true at the end of a job.
 
-Two failure modes are pinned here, both of them about the SSE ``citation_use``
-artifact — the one that tells a reader "the answer actually cites this":
+Two properties are pinned here, both about the SSE ``citation_use`` artifact,
+the one that tells a reader "the answer actually cites this":
 
-1. Inside a Dask worker the callback had nothing to validate a knowledge-base
-   citation against, so an OIB Richtlinie could never be marked cited.
-2. The cited claim was made from raw streamed model output, i.e. BEFORE
-   ``verify_citations`` stripped the fabricated and unverifiable citations —
-   and the frontend's merge is monotonic, so the claim could never be taken
-   back.
+1. Inside a Dask worker the callback has nothing to validate a knowledge-base
+   citation against unless the run binds its registry, so an OIB Richtlinie must
+   still be markable as cited.
+2. The cited claim is made from the verified report, never from raw streamed
+   model output: that output is produced BEFORE ``verify_citations`` strips the
+   fabricated and unverifiable citations, and the frontend's merge is monotonic,
+   so an early claim could never be taken back.
 """
 
 from __future__ import annotations
@@ -240,7 +241,7 @@ class TestADocumentCitationIsMarkableInsideAJob:
 class TestCitedIsClaimedOnlyForTheVerifiedReport:
     """ "Cited" is announced for the FINAL report, never for raw model output.
 
-    ``_emit_cited_sources`` used to run on ``on_llm_end`` content, which is
+    ``_emit_cited_sources`` never runs on ``on_llm_end`` content, which is
     produced before ``verify_citations`` runs in ``DeepResearcherAgent._finalize``
     and before the writer decides which of an intermediate agent's sources reach
     the answer at all. The frontend merge is monotonic — ``isCited`` is sticky
@@ -266,7 +267,7 @@ class TestCitedIsClaimedOnlyForTheVerifiedReport:
         ``verify_citations`` drops the whole line, so the finished report no
         longer claims that document at all — while the draft's source section
         still names it, and a cited-set built from the draft would announce it.
-        (A link off a line that names a RETRIEVED document no longer strips it:
+        (A link off a line that names a RETRIEVED document does not strip it:
         the key decides, since a key-cited source verifies by its key.)
         """
         never_retrieved = "oib-rl_3_ausgabe_mai_2023.pdf, p.4"

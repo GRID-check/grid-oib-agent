@@ -5,8 +5,8 @@
  * the LOCUS as a parameter (which page to open at) — so it takes a
  * {@link CitedDocument} and an optional {@link CitationLocus} rather than a
  * flat citation. That split is what makes "open OIB-Richtlinie 2.1 at p.18"
- * expressible at all; the flat shape could only ever open a document at
- * whichever page happened to be attached to the chip.
+ * expressible at all: a flat citation can only open a document at whichever
+ * page happens to be attached to the chip.
  *
  * Pure: every index it consults is passed in. Without them (lists not loaded,
  * or the caller cannot fetch) resolution honestly degrades to `info` rather
@@ -75,12 +75,11 @@ export type CitationTarget =
       /**
        * A document in the Austrian RIS — read INSIDE Piloti.
        *
-       * RIS is the only source the answer grounds on that Piloti fetched, read
-       * and then could not show: the citation carries an `ris.bka.gv.at` URL,
-       * so the chip opened a browser tab and the Fundstelle rail, the passage
-       * mark and the copy-as-Zitat actions all stayed behind (#622). It is kept
-       * apart from `url` because the difference is not cosmetic — this one has
-       * a reader; a `url` target has only a link.
+       * RIS is a source the answer grounds on, and Piloti fetches and reads it. The
+       * Fundstelle rail, the passage mark and the copy-as-Zitat actions only exist in
+       * the in-app reader, so the chip opens it rather than a browser tab. It is kept
+       * apart from `url` because the difference is not cosmetic — this one has a
+       * reader; a `url` target has only a link.
        *
        * The URL travels with it and is still offered: RIS is the authoritative
        * publication, the in-app text is a reading copy, and a legal citation
@@ -109,11 +108,11 @@ export type CitationTarget =
   | {
       /**
        * A RESOLVED document with no inline viewer — a DWG, an IFC, a ZIP.
-       * (Office files left this list with ADR-0070: they open on their PDF
-       * rendition.) It used to be indistinguishable from a citation
-       * that resolved to nothing: both became `info`, the popover offered no
-       * way in and said nothing about why, and the reader was left to conclude
-       * the product had lost their file. It had not; it cannot DRAW it.
+       * (Office files open on their PDF rendition, ADR-0070, so they are not here.)
+       * It is a different answer from `info`: the citation resolved, and the app
+       * cannot draw it. Were both to look alike, the popover would offer no way in and
+       * say nothing about why, and the reader would conclude the product had lost
+       * their file.
        *
        * Kept apart from `document` rather than flagged inside it, because the
        * two carry different promises: `document` opens a viewer, this one hands
@@ -134,11 +133,9 @@ export type CitationTarget =
 /**
  * Whether a stored document opens in the viewer, from the ONE list.
  *
- * This used to be a third private copy, and it had already lost BMP and TIFF —
- * so a cited image the product renders perfectly well resolved to "this format
- * cannot be shown inside Piloti", which is the false half of the answer #623
- * added. `file-preview-pane.tsx` carries a written record of the same drift, on
- * the same two types, from the time before.
+ * Read from the shared inline-previewable list, not a private copy: a copy
+ * drifts, and one that lacks BMP and TIFF would report a cited image the product
+ * renders well as "this format cannot be shown inside Piloti".
  */
 const isPreviewableContentType = isInlinePreviewable
 
@@ -150,8 +147,8 @@ const isPreviewableContentType = isInlinePreviewable
  * a locus page IS a rendition page. An `.xlsx` or `.xlsm` is still read from the
  * original: its locus names a SHEET, which can span many printed pages or share
  * one, so it opens at page 1 and the viewer finds the passage from there (it
- * looks next door on a miss). A Word file indexed before ADR-0071 carries the
- * constant "1", which opens at page 1 and is correct anyway.
+ * looks next door on a miss). A Word file indexed without a rendition carries
+ * the constant "1", which opens at page 1 and is correct anyway.
  */
 const renditionPage = (filename: string, locus: CitationLocus | undefined): number => {
   const page = locus?.page
@@ -191,7 +188,7 @@ export const citedFileName = (doc: CitedDocument): string | null => documentLoca
  *
  * Stated here as well so a chip commits to the reader only for a URL the
  * backend will accept: promising an in-app open and then answering 404 is worse
- * than the outbound link it replaced. The backend list is the authority; this
+ * than a plain outbound link. The backend list is the authority; this
  * one is the promise, and the two are pinned together by
  * `ris-hosts-contract.spec.ts`.
  */
@@ -223,20 +220,20 @@ export const isRisUrl = (url: string | undefined | null): boolean => {
  * Fundstelle — the viewer opens at page 1 and the reader does the search the
  * citation exists to spare them.
  *
- * And such a locus is routine, because the `[N]` in the prose is bound from the
+ * Such a locus is routine, because the `[N]` in the prose is bound from the
  * answer's WRITTEN source list, which names the document and frequently neither
  * page nor passage, while the retrieval payload for the same document carries
- * both exactly. One document, two loci, and the click used to land on whichever
- * one carried the number (#621).
+ * both exactly. One document, two loci: the click must open at the actionable
+ * one, whichever of them carries the number.
  *
- * THE PASSAGE IS NEVER BORROWED, only the place. An earlier draft of this rule
- * treated "has a page" as the test, which discarded a locus that carried the
- * quoted passage and no page — and then handed the reader ANOTHER locus's
- * sentence, marked in the document under the `[N]` they clicked. Opening at the
- * wrong page is a nuisance; marking the wrong sentence as the cited one, in a
- * product whose answers are checked by architects against building law, is a
- * false claim about the source. So the caller's own passage always wins (see
- * {@link resolveCitationTarget}), and this only ever supplies a PLACE.
+ * THE PASSAGE IS NEVER BORROWED, only the place. Treating "has a page" as the
+ * test would discard a locus that carries the quoted passage and no page, and
+ * then hand the reader ANOTHER locus's sentence, marked in the document under
+ * the `[N]` they clicked. Opening at the wrong page is a nuisance; marking the
+ * wrong sentence as the cited one, in a product whose answers are checked by
+ * architects against building law, is a false claim about the source. So the
+ * caller's own passage always wins (see {@link resolveCitationTarget}), and this
+ * only ever supplies a PLACE.
  */
 const isActionable = (locus: CitationLocus | undefined): locus is CitationLocus =>
   locus != null &&
@@ -253,8 +250,8 @@ const openAt = (doc: CitedDocument, locus?: CitationLocus): CitationLocus | unde
  * for the surfaces that track an ACTIVE locus rather than a resolved target.
  *
  * Exported so the dialog's active-Fundstelle state cannot drift from the page
- * the target resolved to: the two disagreeing is how a header said "S. 18" over
- * a document showing page 1.
+ * the target resolved to: if the two disagree, a header says "S. 18" over a
+ * document showing page 1.
  */
 export const openAtLocus = (doc: CitedDocument, locus?: CitationLocus): CitationLocus | undefined =>
   openAt(doc, locus)
@@ -357,10 +354,9 @@ export const resolveCitationTarget = (
       }
     }
     // The document is there and the reader is entitled to it — this app simply
-    // has no viewer for its format. That is a different answer from `info`, and
-    // the difference is the whole of what an architect asked for when a cited
-    // file offered no way in and no reason (then a Raumprogramm.docx, which now
-    // opens on its rendition; today a .dwg).
+    // has no viewer for its format. That is a different answer from `info`: a
+    // cited file must never offer no way in and no reason. Office files open on
+    // their rendition; a `.dwg` has no viewer, so it is offered as a download.
     if (storedDoc) {
       return {
         kind: 'download',

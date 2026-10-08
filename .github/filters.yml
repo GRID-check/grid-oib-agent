@@ -1,13 +1,10 @@
 # Which paths belong to which part of the system — the ONE definition, read by
 # every workflow that decides what to run.
 #
-# `dorny/paths-filter` takes a file path as well as an inline block, and that is
-# the whole reason this file exists: the list used to live inside ci.yml, so a
-# second workflow wanting the same answer had to copy it. Docker Build did not
-# copy it, and ran with no filter at all — a README-only PR built the backend,
-# frontend and web images for four minutes (run 1008). The alternative to no
-# filter was a second copy, and a copy of a rule like this drifts silently,
-# because each copy stays locally correct while they disagree.
+# `dorny/paths-filter` takes a file path as well as an inline block, so the
+# list lives here once. A workflow that skips the filter rebuilds everything on
+# every PR, even a README-only one, and a second copy of a rule like this drifts
+# silently: each copy stays locally correct while they disagree.
 #
 # Two families, because "what to TEST" and "what to BUILD INTO AN IMAGE" are
 # different questions about the same change:
@@ -25,8 +22,7 @@
 #       that both watch this file.
 #
 # Adding a path: put it in the family it belongs to, and say why if the reason
-# is not obvious from the path. Every line below that carries a comment was
-# somebody's merged-and-untested change.
+# is not obvious from the path. Each comment below says why its path is watched.
 
 # Every filter also watches the shared tooling each job depends on:
 # the root Taskfile (which defines the commands the jobs run) and the
@@ -37,8 +33,6 @@ backend:
   - 'frontends/aiq_api/**'
   # The offline eval harnesses. `be:test:ci` runs `tests/benchmarks/`, which
   # imports them, so a harness-only change must still run the backend suite.
-  # It used to arrive here via the `retrieval` filter; that filter is gone
-  # (see below) and this line is what replaces it.
   - 'frontends/benchmarks/**'
   - 'sources/**'
   - 'tests/**'
@@ -54,16 +48,9 @@ backend:
   - '.github/workflows/ci.yml'
   - '.github/filters.yml'
   - '.github/actions/**'
-# There was a `retrieval:` family here, feeding the `retrieval-eval` job. Both
-# are gone: the gate measured the real OIB Richtlinien, and those became
-# operator-provided and gitignored (data/oib/README.md), so no CI checkout can
-# hold a corpus to measure. The paths it watched
-# (sources/knowledge_layer, common/german_text.py, common/legal_terms.py,
-# frontends/benchmarks/oib_retrieval) are all inside `backend:` — the last of
-# them only since the `frontends/benchmarks/**` line above, added here so
-# removing the filter did not leave the harness watched by nothing. So nothing
-# lost a filter; only the job went. See ci.yml's `ci-ok` comment and ADR-0058's
-# "Update (2026-09-09)".
+# No retrieval family: its eval corpus is operator-provided and gitignored
+# (data/oib/README.md), so no CI checkout can hold a corpus to measure
+# (ADR-0058). The paths that gate watched are all inside `backend:`.
 frontend:
   - 'frontends/ui/**'
   # The BFF's model-config tests read the workflow config (the agent

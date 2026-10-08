@@ -8,7 +8,7 @@
  * no price at all. The platform's purchase price never reaches this card,
  * because the endpoint never sends it.
  *
- * **Three questions, three forms — chosen before any color was picked.**
+ * **Three questions, three forms, and the form is picked before the color.**
  *
  * 1. *Am I about to be cut off?* is a single ratio against a limit, and the
  *    form for a ratio against a limit is a **meter**, not a chart. Two of them
@@ -20,16 +20,15 @@
  *    column chart (`SpendTrendChart`) — admins only, because only they are
  *    served the series.
  *
- * **The meter is no longer painted by model, and that is the point.** It used
- * to be a single stacked bar doing both job 1 and job 2 at once: eight
- * categorical hues on a bar whose whole story is one number. Two things broke.
- * The reader could not tell a healthy meter from an exhausted one, because the
- * fill color was carrying model identity and had nothing left to say about
- * state; and the segment for the model that mattered was, at 4% of a 300px
- * bar, twelve pixels of hue with no room for a label. Splitting them lets the
- * meter fill carry *severity* — accent under the limit, the critical status
- * step at or over it — and gives composition its own full-width bar where a
- * small share is still a visible slice.
+ * **The meter is not painted by model, and that is the point.** A single
+ * stacked bar would do job 1 and job 2 at once: eight categorical hues on a bar
+ * whose whole story is one number. The reader could not tell a healthy meter
+ * from an exhausted one, because the fill color would carry model identity and
+ * have nothing left to say about state; and a model at 4% of a 300px bar is
+ * twelve pixels of hue with no room for a label. Splitting them lets the meter
+ * fill carry *severity* — accent under the limit, the critical status step at
+ * or over it — and gives composition its own full-width bar where a small share
+ * is still a visible slice.
  *
  * **No number is reachable only by hovering.** The per-model table under the
  * composition bar is always open, not behind a toggle. It is doing three jobs

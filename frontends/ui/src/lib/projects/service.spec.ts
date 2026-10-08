@@ -61,10 +61,9 @@ const BETA = makeProject({ id: 'proj_beta', name: 'Beta', organizationId: 'org_1
 const GAMMA = makeProject({ id: 'proj_gamma', name: 'Gamma', organizationId: 'org_1' })
 
 /**
- * The listing used to return every project in the organization while the detail
- * route gated on per-project FGA — so `project-viewer`/`editor`/`admin` decided
- * who could OPEN a project but not who could SEE that it exists. These tests
- * would have failed against that behaviour.
+ * The listing applies the same per-project FGA as the detail route:
+ * `project-viewer`/`editor`/`admin` decide who can SEE that a project exists,
+ * not only who can OPEN it.
  */
 describe('listProjects', () => {
   beforeEach(() => {
@@ -122,8 +121,8 @@ describe('listProjects', () => {
   })
 
   it('org admins still see every project in their organization (named bypass)', async () => {
-    // A legacy admin session: role slug, no claims. `hasPermission`'s bounded
-    // catalog implication carries it, so nobody re-logs-in for the fix.
+    // A role-slug session with no claims: `hasPermission`'s bounded catalog
+    // implication still grants the bypass.
     const visible = await listProjects(session({ role: 'admin' }))
 
     expect(visible).toHaveLength(3)
@@ -131,9 +130,9 @@ describe('listProjects', () => {
   })
 
   it('the bypass is the PERMISSION, not the role slug', async () => {
-    // This pair is what fails if `hasPermission(...)` is reverted to
-    // `session.role === 'admin'`. The old test above passes under BOTH rules,
-    // so on its own it pinned nothing.
+    // This pair fails if the check becomes `session.role === 'admin'`. The
+    // role-slug test above passes under both rules, so on its own it pins
+    // nothing.
     const custom = await listProjects(
       session({ role: 'acme-owner', permissions: ['org:projects:administer'] })
     )

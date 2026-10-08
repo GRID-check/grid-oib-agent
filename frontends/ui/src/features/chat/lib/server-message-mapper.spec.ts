@@ -34,7 +34,7 @@ describe('mapServerMessageToChatMessage', () => {
     expect(mapped!.messageType).toBe('agent_response')
   })
 
-  it('infers messageType from role when metadata has none (legacy rows)', () => {
+  it('infers messageType from role when metadata has none', () => {
     expect(mapServerMessageToChatMessage(serverMessage({ role: 'user' }))!.messageType).toBe('user')
     expect(
       mapServerMessageToChatMessage(serverMessage({ role: 'assistant' }))!.messageType
@@ -78,16 +78,15 @@ describe('mapServerMessageToChatMessage', () => {
   })
 
   it('holes a stored card the current schema does not know, keeping the rest in place', () => {
-    // This path - every card read back out of the database - used to CAST
-    // rather than validate, while the live websocket path validated. One row
-    // written under a different schema version then reached a renderer that
-    // indexes a lookup table by an unvalidated field, threw during render, and
-    // blanked the whole conversation instead of that one card.
-    //
-    // The rejected card leaves a HOLE rather than being filtered out:
-    // positions are card identity (`[[card:N]]` markers address them, persisted
-    // decisions key on them), so closing the gap would rebind every marker and
-    // decision after it onto the wrong card on reload.
+        // This path must validate, not cast, as the live websocket path does: a row
+        // written under a different schema version would otherwise reach a renderer
+        // that indexes a lookup table by an unvalidated field, throw during render,
+        // and blank the whole conversation instead of that one card.
+        //
+        // The rejected card leaves a HOLE rather than being filtered out:
+        // positions are card identity (`[[card:N]]` markers address them, persisted
+        // decisions key on them), so closing the gap would rebind every marker and
+        // decision after it onto the wrong card on reload.
     const mapped = mapServerMessageToChatMessage(
       serverMessage({
         role: 'assistant',
@@ -102,9 +101,10 @@ describe('mapServerMessageToChatMessage', () => {
   })
 
   it('restores interactive-card decisions so a settled card cannot be re-answered', () => {
-    // Regression: when a history rehydrates from the server (localStorage wiped,
-    // other device) an already-applied project_profile_patch used to come back
-    // pending, re-offering an Accept that writes the same patch again.
+        // When a history rehydrates from the server (localStorage wiped, other
+        // device), an already-applied project_profile_patch must come back settled,
+        // not pending: a pending one would re-offer an Accept that writes the same
+        // patch again.
     const mapped = mapServerMessageToChatMessage(
       serverMessage({
         role: 'assistant',
@@ -133,7 +133,7 @@ describe('mapServerMessageToChatMessage', () => {
     expect(mapped!.cardInteractions).toBeUndefined()
   })
 
-  it('carries the author through, so a colleague’s message stays attributable (spec CC-3)', () => {
+  it('carries the author through, so a colleague’s message stays attributable', () => {
     const mapped = mapServerMessageToChatMessage(
       serverMessage({ role: 'user', authorUserId: 'user_anna' })
     )
@@ -236,9 +236,10 @@ describe('mapServerMessagesToChatMessages', () => {
   })
 
   it('keeps every human author in a multi-author history', () => {
-    // The regression this guards: the role filter above drops anything that is not
-    // user/assistant, and a colleague's message arrives as `user`. If that ever
-    // narrowed to "the session owner", a shared thread would render half of itself.
+        // This guards the role filter above, which drops anything that is not
+        // user/assistant; a colleague's message arrives as `user`. If the filter
+        // ever narrowed to "the session owner", a shared thread would render half of
+        // itself.
     const mapped = mapServerMessagesToChatMessages([
       serverMessage({ id: 'm1', role: 'user', authorUserId: 'user_me' }),
       serverMessage({ id: 'm2', role: 'user', authorUserId: 'user_anna' }),
@@ -297,8 +298,8 @@ describe('mapServerMessageToChatMessage — the answer’s provenance', () => {
     expect(step).toEqual(provenance.thinkingSteps[0])
   })
 
-  it('drops a step in the pre-v2 shape rather than interpreting it', () => {
-    // Migration 0097 rewrote every stored row; there is no second reader.
+  it('drops a step in an unrecognised shape rather than interpreting it', () => {
+    // Stored rows are all in this shape (migration 0097); there is no second reader.
     const mapped = mapServerMessageToChatMessage(
       serverMessage({
         metadata: {
@@ -491,9 +492,9 @@ describe('mapServerMessageToChatMessage — the answer’s provenance', () => {
     expect(bad!.runTitle).toBeUndefined()
   })
 
-  it('ignores a provenance blob written by some other build', () => {
-    // Narrowed, not cast: the server bounds this on write, but a row written
-    // earlier is whatever it was, and a bad value must not reach a renderer.
+  it('ignores a provenance blob whose values are out of range or the wrong type', () => {
+    // Narrowed, not cast: the server bounds this on write, but a stored row is
+    // whatever it holds, and a bad value must not reach a renderer.
     const mapped = mapServerMessageToChatMessage(
       serverMessage({
         metadata: {
@@ -513,7 +514,7 @@ describe('mapServerMessageToChatMessage — the answer’s provenance', () => {
     expect(mapped!.citationsRemoved).toBeUndefined()
   })
 
-  it('adds nothing when the row has no provenance — the pre-ADR-0037 case', () => {
+  it('adds nothing when the row has no provenance', () => {
     const mapped = mapServerMessageToChatMessage(serverMessage())
 
     expect(mapped!.thinkingSteps).toBeUndefined()
@@ -567,10 +568,10 @@ describe('mapServerMessageToChatMessage — the answer’s provenance', () => {
 /**
  * A human-in-the-loop prompt, restored (ADR-0037).
  *
- * `addAgentPrompt` used to persist nothing, so a clarification card existed only in
- * the browser whose socket received the frame. An observer's server-authoritative
- * load showed NO card — the thread simply stopped mid-question and looked broken —
- * and the asker's own reload lost it too.
+ * `addAgentPrompt` must persist the prompt. Otherwise a clarification card exists
+ * only in the browser whose socket received the frame: an observer's
+ * server-authoritative load would show NO card — the thread simply stops
+ * mid-question and looks broken — and the asker's own reload would lose it too.
  */
 /**
  * A post-answer stage's output is restored the same way `cards` is: through the
@@ -602,7 +603,7 @@ describe('mapServerMessageToChatMessage — a post-answer stage', () => {
     ])
   })
 
-  it('re-applies the bound to a row an older build wrote', () => {
+  it('re-applies the bound to a stored row with too many follow-ups', () => {
     const mapped = mapServerMessageToChatMessage(
       serverMessage({
         role: 'assistant',

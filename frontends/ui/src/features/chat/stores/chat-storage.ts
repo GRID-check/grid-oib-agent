@@ -9,14 +9,13 @@
  * <name>:messages:<id>   that conversation's messages, pruned (`pruneMessageForStorage`)
  * ```
  *
- * Why this shape (2026-09, React performance audit, 390 px at 4× CPU throttle):
- * the whole history used to be ONE key. Every write pruned, serialized and
- * wrote all of it (250–700 ms a send, a settle or a switch with 20–40
- * conversations), and past the quota (40 conversations with real cards and
- * citations were about 5 MB) `setItem` threw and the recovery wiped every
- * stored session. Now a write costs the conversation that changed plus the
- * index, and the quota costs the oldest conversations' messages, never the
- * list.
+ * Why this shape (measured at 390 px with 4× CPU throttle): one key for the whole
+ * history makes every write prune, serialize and write all of it (250–700 ms a
+ * send, a settle or a switch with 20–40 conversations), and past the quota (40
+ * conversations with real cards and citations are about 5 MB) `setItem` throws,
+ * and the recovery would wipe every stored session. A write here costs the
+ * conversation that changed plus the index, and the quota costs the oldest
+ * conversations' messages, never the list.
  *
  * Evicting messages is safe because localStorage is a cache of the server
  * here: every message is posted as it is created (`_appendMessage`), the
@@ -27,7 +26,7 @@
  * here lives in the index, which is never evicted: the drafts, and the
  * conversation list with each one's title and data-source choice.
  *
- * The rules a write follows, kept from the single-key storage:
+ * The rules a write follows:
  * - a live turn's growth (the streaming answer, the question's reasoning
  *   steps) is never written: `getItem` drops an answer still marked streaming,
  *   so it would read back as the last write does;
@@ -116,14 +115,14 @@ export const CHAT_STORAGE_BUDGET_CHARS = 3_000_000
  * Conversations known to have messages this page has not loaded: evicted from
  * storage, or listed by the server without them. An empty message list means
  * "not here", not "none", and nothing may act on it as if it were the thread:
- * the upload-only cleanup used to delete such a conversation on the server
- * when it was opened and left before its messages arrived.
+ * the upload-only cleanup deletes such a conversation on the server when it is
+ * opened and left before its messages arrive.
  *
  * The set outlives a reload: the index names its members, an awaiting
  * conversation's empty list is never written as `[]`, and a read takes a
- * missing, unreadable or empty message key as awaiting too. Held only in
- * memory, a reload after any write turned "not loaded" into a stored `[]`, and
- * the cleanup deleted the conversation on the server again (2026-09).
+ * missing, unreadable or empty message key as awaiting too. Held only in memory,
+ * a reload after any write would turn "not loaded" into a stored `[]`, and the
+ * cleanup would delete the conversation on the server again.
  */
 const awaitingServerMessages = new Set<string>()
 
@@ -188,12 +187,11 @@ const lastUserMessageIndex = (messages: readonly ChatMessage[]): number => {
  * same object: a card decision while a turn works is written at once. The
  * store keeps an untouched message as the same object on every flush.
  *
- * The steps count as growth because each one wrote the whole history: 5–6
- * writes of 250–1000 ms per turn on a 4× throttled phone with 40
- * conversations stored (React performance audit, 2026-09). The turn's user
- * message was written when it was sent, and the settled turn is written with
- * its steps; a page that dies between gets the turn back from the replay
- * stream or the server.
+ * The steps count as growth because each one would write the whole history: 5–6
+ * writes of 250–1000 ms per turn on a 4× throttled phone with 40 conversations
+ * stored. The turn's user message is written when it is sent, and the settled
+ * turn is written with its steps; a page that dies between gets the turn back
+ * from the replay stream or the server.
  */
 export const onlyTheLiveTurnGrewIn = (
   was: readonly ChatMessage[],
@@ -228,12 +226,12 @@ const onlyTheLiveTurnGrew = (
 /**
  * Nothing streams in a page that is only now loading, so an answer stored
  * mid-stream was interrupted by the reload. Its text is a fragment this page
- * cannot finish: the reattached turn opens a bubble of its own, and the
- * fragment used to stay beside it with a caret forever. It also hid the turn
- * from the recovery that fetches a finished answer (`restoreSessionState`
- * looks for an unanswered question), so the reload is handed to that path,
- * the one a reload before the first word already takes. A connection error is
- * about a socket that no longer exists.
+ * cannot finish: the reattached turn opens a bubble of its own, and the fragment
+ * would otherwise stay beside it with a caret forever. It also hides the turn
+ * from the recovery that fetches a finished answer (`restoreSessionState` looks
+ * for an unanswered question), so the reload is handed to that path, the one a
+ * reload before the first word already takes. A connection error is about a
+ * socket that no longer exists.
  */
 const restorableMessages = (messages: ChatMessage[]): ChatMessage[] =>
   messages.filter(
@@ -260,7 +258,7 @@ const asStoredIndex = (value: unknown): StoredIndex | null => {
 }
 
 /**
- * The stored chat as the old single key, `<name>`, held it: the whole state
+ * The stored chat in the single-key shape, `<name>`: the whole state
  * with the open conversation as its id. Assembled from the index and the
  * message keys; a conversation whose messages are not stored has none.
  * `getItem` builds on this, and specs read storage through it.
@@ -549,11 +547,11 @@ const removeOrphanedMessageKeys = (name: string, ids: ReadonlySet<string>): void
 
 /**
  * Keep the index, drop every cached message: storage holds an older shape.
- * `from` is the old index, or the single key the whole history lived in before
- * the index existed (its entries still carry their messages, and its open
- * conversation may be the whole object). The message keys go first, which also
- * frees the room the index needs; every conversation is then awaiting its
- * messages from the server.
+ * `from` is the old index, or the single key an older build wrote the whole
+ * history to (its entries still carry their messages, and its open conversation
+ * may be the whole object). The message keys go first, which also frees the room
+ * the index needs; every conversation is then awaiting its messages from the
+ * server.
  */
 const dropCachedMessages = (name: string, from: StoredIndex): void => {
   const open = from.state.currentConversation as unknown
@@ -619,9 +617,9 @@ export const createResilientStorage = (): PersistStorage<PersistedChatState> | u
   }
 
   // A draft is written this long after the last keystroke, and when the page
-  // is hidden. Written with every key it serialised the whole history inside
-  // the input event: 264 ms a keystroke on a 4× throttled phone with 20
-  // conversations stored (React performance audit, 2026-09).
+  // is hidden. Written with every key, it would serialised the whole history
+  // inside the input event: 264 ms a keystroke on a 4× throttled phone with 20
+  // conversations stored.
   let heldDraft: { name: string; state: PersistedChatState } | null = null
   let heldDraftTimer: ReturnType<typeof setTimeout> | undefined
   const writeHeldDraft = (): void => {
@@ -644,9 +642,9 @@ export const createResilientStorage = (): PersistStorage<PersistedChatState> | u
 
   const read = (name: string): PersistedChatStorageValue | null => {
     const area = areaFor(name)
-    // The single key the history lived in before the index (a tab on old code
-    // may still write it), or an index of an older shape: keep what only it
-    // holds, drop the cached messages.
+    // The single key an older build wrote the whole history to (a tab on old code
+    // may still write it), or an index of an older shape: keep what only it holds,
+    // drop the cached messages.
     const legacy = asStoredIndex(parseJson(localStorage.getItem(name)))
     const stored = legacy ?? asStoredIndex(parseJson(localStorage.getItem(chatIndexKey(name))))
     if (stored && (legacy || stored.shape !== CHAT_MESSAGES_SHAPE)) dropCachedMessages(name, stored)
@@ -716,10 +714,10 @@ export const createResilientStorage = (): PersistStorage<PersistedChatState> | u
       if (area.unchangedSinceLastCall(value)) return
       area.lastState = value.state
       area.lastVersion = value.version
-      // A streaming answer's growth is never written, nor the reasoning steps
-      // of the question it answers. Writing it cost a prune, a serialize and a
-      // write of the WHOLE history every couple of seconds while the answer
-      // streamed. The answer is written once, when it settles.
+      // A streaming answer's growth is never written, nor the reasoning steps of the
+      // question it answers. Writing it would cost a prune, a serialize and a write of
+      // the WHOLE history every couple of seconds while the answer streams. The answer
+      // is written once, when it settles.
       if (area.onlyTheOpenTurnOrDraftsChanged(value.state)) {
         if (value.state.composerDrafts !== area.lastWritten?.composerDrafts) holdDraft(name, value.state)
         return

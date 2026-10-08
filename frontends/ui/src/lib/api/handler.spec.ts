@@ -11,7 +11,7 @@ vi.mock('server-only', () => ({}))
 import { errorResponse } from './handler'
 
 describe('errorResponse', () => {
-  it('turns a postgres invalid-uuid failure into a 404, not a 500 (#572)', () => {
+  it('turns a postgres invalid-uuid failure into a 404, not a 500', () => {
     const error = Object.assign(new Error('Failed query: select ... from "documents"'), {
       cause: Object.assign(new Error('invalid input syntax for type uuid: "HdB-Hamm.jpg"'), {
         code: '22P02',
@@ -42,7 +42,7 @@ describe('errorResponse', () => {
   })
 
   it('answers a write into a deleted folder (GFD01) as the folder being gone', async () => {
-    // Migration 0113: a folder went to the Papierkorb between the write check and the insert.
+    // Migration 0113: a folder can go to the Papierkorb between the write check and the insert.
     const error = Object.assign(new Error('Failed query: insert into "documents"'), {
       cause: Object.assign(new Error('folder f1 is deleted; nothing may be filed into it'), { code: 'GFD01' }),
     })
@@ -53,7 +53,7 @@ describe('errorResponse', () => {
     expect(await response.json()).toMatchObject({ code: 'NOT_FOUND', details: { reason: 'folder_deleted' } })
   })
 
-  it('logs the postgres code beside an unhandled database failure (#581)', () => {
+  it('logs the postgres code beside an unhandled database failure', () => {
     const spy = vi.spyOn(console, 'error').mockImplementation(() => {})
     try {
       const error = Object.assign(new Error('Failed query: update "messages" set "metadata" = $1'), {
@@ -82,8 +82,8 @@ describe('errorResponse', () => {
     }
   })
 
-  // The two shapes the 2026-09-25 restart produced (#733-#741), exactly as
-  // Drizzle wrapped them: a socket errno, and Postgres refusing new sessions.
+  // The two shapes a database restart produces, exactly as Drizzle wraps them:
+  // a socket errno, and Postgres refusing new sessions.
   it.each([
     ['EHOSTUNREACH', Object.assign(new Error('connect EHOSTUNREACH 10.111.223.83:5432'), { code: 'EHOSTUNREACH', errno: -113 })],
     ['57P03', Object.assign(new Error('the database system is shutting down'), { code: '57P03', severity: 'FATAL' })],
@@ -101,7 +101,7 @@ describe('errorResponse', () => {
       expect(spy).toHaveBeenCalledOnce()
       const line = String(spy.mock.calls[0][0])
       expect(line).toMatch(new RegExp(`^\\[db\\] database unavailable \\(${code}\\) requestId=`))
-      // The path is what split one outage into nine issues; it stays out.
+      // The path would split one outage into many log issues, so it stays out.
       expect(line).not.toContain('/api/user/preferences')
     } finally {
       spy.mockRestore()

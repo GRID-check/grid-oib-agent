@@ -43,15 +43,15 @@ const OVER_QUOTA = {
 /**
  * One endpoint per fixture, so each card asks for the state it is labelled with.
  *
- * This used to vary by CALL ORDER through a `window` counter — first mount got
- * the within-quota fixture, second got the over-quota one. React strict mode
- * double-invokes effects and the counter persisted across remounts, so both cards
- * frequently ended on the same fixture and the screenshot captured whichever
- * state the counter reached. In the artifact whose only job is to show both
- * states, that made it evidence of nothing.
+ * Keyed on the url, not on call order. A `window` counter (first mount gets the
+ * within-quota fixture, second the over-quota one) is defeated by React strict
+ * mode, which double-invokes effects while the counter persists across remounts:
+ * both cards could end on the same fixture, and the screenshot would capture
+ * whichever state the counter reached. In the artifact whose only job is to show
+ * both states, that makes it evidence of nothing.
  *
- * Keying on the url instead is order-independent: mount them twice, in any
- * sequence, and each still resolves to its own fixture.
+ * Keying on the url is order-independent: mount them twice, in any sequence, and
+ * each still resolves to its own fixture.
  */
 const FIXTURES: Record<string, typeof STORAGE> = {
   '/api/organization/storage?fixture=within': STORAGE,

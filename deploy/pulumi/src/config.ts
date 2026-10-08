@@ -220,7 +220,7 @@ export interface GridConfig {
     /**
      * Install the rate limit service + counter store and attach the per-route
      * rules. When false, nothing edge-side is created and the app-layer limiters
-     * remain the only ones — which is the pre-ADR-0040 behaviour.
+     * remain the only ones.
      */
     enabled: boolean;
     /**
@@ -295,12 +295,10 @@ export interface GridConfig {
      * connects as under row-level security (ADR-0041). REQUIRED, and
      * deliberately without a fallback to `pgAppPassword`.
      *
-     * It used to default to the app password, on the reasoning that what bounds
-     * this role is its PRIVILEGES — DML only, RLS enforced, no DDL — rather than
-     * password distinctness. That reasoning is wrong: Postgres authenticates by
-     * (role, password), so anyone holding the runtime DSN could present the same
-     * password as `appUser`, the schema owner, who is exempt from every policy.
-     * The privilege split is only worth what the credential split is worth.
+     * Distinct credentials, not just distinct privileges: Postgres authenticates
+     * by (role, password), so a runtime DSN holding the app password could present
+     * it as `appUser`, the schema owner, who is exempt from every policy. The
+     * privilege split is only worth what the credential split is worth.
      *
      * `pulumi config set --secret pgRuntimePassword <value>` on each stack; an
      * existing stack must set it (and rotate) before the next deploy.
@@ -390,12 +388,12 @@ export interface GridConfig {
      * `requirepass` for the ADR-0020 shared cache. REQUIRED unless
      * `allowUnauthenticatedRedis` is set — see the check in `loadConfig`.
      *
-     * Undefined ONLY in the explicit opt-out case, where the instance keeps its
-     * historical behaviour: no password, no TLS, reachable at
+     * Undefined ONLY in the explicit opt-out case, where the instance runs with
+     * no password and no TLS, reachable at
      * `redis://dragonfly:6379/0` by any pod in the namespace (the
      * intra-namespace NetworkPolicy allows it).
      *
-     * That default was not a small hole. This instance carries the ADR-0028
+     * Unauthenticated access is not a small hole. This instance carries the ADR-0028
      * conversation bus — every WebSocket frame of every chat, with a replayable
      * 500-event backlog per conversation — plus the cached WorkOS directory
      * (`directory:<orgId>`: email, display name, avatar), authorization
@@ -471,7 +469,7 @@ export interface GridConfig {
      * How SeaweedFS is laid out (ADR-0043).
      *
      * `single` — one `weed server -s3` process running master + volume + filer
-     * + gateway against one PVC. What every deployment ran before ADR-0043.
+     * + gateway against one PVC.
      *
      * `split` — three workloads: a master StatefulSet, a horizontally scalable
      * volume StatefulSet, and a filer StatefulSet carrying the S3 gateway. This
@@ -499,12 +497,10 @@ export interface GridConfig {
     /**
      * PVC size for the filer's `-defaultStoreDir` (split only).
      *
-     * Its own knob rather than the master's, which it used to borrow. The two
-     * disks hold nothing alike: the master's is a raft log and a volume-id
-     * sequence and is genuinely tiny, while under `filerStore: "leveldb"` the
-     * filer's holds the metadata entry AND the per-chunk AES key for every
-     * object in the deployment. Sharing the knob meant an operator whose filer
-     * store was filling had nothing to raise but the master's claim, and a full
+     * Its own knob, not the master's. The two disks hold nothing alike: the
+     * master's is a raft log and a volume-id sequence and is genuinely tiny,
+     * while under `filerStore: "leveldb"` the filer's holds the metadata entry
+     * AND the per-chunk AES key for every object in the deployment, and a full
      * filer store stops every write.
      *
      * The default is deliberately larger than the master's for that reason. Under
@@ -518,8 +514,8 @@ export interface GridConfig {
      * SeaweedFS's own default is 30000 (≈30 GB), which is sized for bare-metal
      * disks and is a trap on a PVC: the volume server derives its writable-slot
      * count from `free / volumeSizeLimit`, so a 20 Gi PVC with a 30 GB limit
-     * computes ONE slot, and a 10 Gi PVC computed zero — which surfaced live as
-     * "No writable volumes and no free volumes left" on every upload. 1 GiB
+     * computes ONE slot, and a 10 Gi PVC computes zero, and every upload fails
+     * with "No writable volumes and no free volumes left". 1 GiB
      * volumes keep that arithmetic sane at PVC sizes and cost nothing:
      * SeaweedFS grows volumes lazily, so slots are not preallocated.
      */
@@ -749,7 +745,7 @@ export interface GridConfig {
    * The ingestion tier (ADR-0076): dedicated replicas that claim jobs from the
    * durable, fair ingest queue (`ingest_job_queue`), scaled by KEDA on its
    * depth. When enabled the web tier stops claiming (`GRID_INGEST_QUEUE_CLAIM
-   * =false`), so ingestion no longer shares the chat pods' CPU and GIL.
+   * =false`), so ingestion does not share the chat pods' CPU and GIL.
    */
   ingestWorker: {
     enabled: boolean;
@@ -848,10 +844,7 @@ export interface GridConfig {
      * This is the ONLY switch that makes the Skills and Jobs tabs appear on a
      * deployment carrying their code: with it off, every `/api/skills` and
      * `/api/projects/[id]/jobs` route answers 403 `feature-disabled` and the
-     * scheduler container exits 0 as a no-op. It replaced `workflowsEnabled`,
-     * which kept being emitted as `GRID_WORKFLOWS_ENABLED` after the code that
-     * read that name was deleted — so the feature shipped with no way to turn
-     * it on.
+     * scheduler container exits 0 as a no-op.
      */
     enabled: boolean;
     /**
@@ -1015,8 +1008,8 @@ export interface GridConfig {
      * `/user_management/*` endpoints are not, and cannot serve this flow at all
      * (see the capability check in `loadConfig`).
      *
-     * Required for the observability tier. As a side benefit the dashboard no
-     * longer shares the app's AuthKit client, so an ordinary app sign-in does
+     * Required for the observability tier. As a side benefit the dashboard does
+     * not share the app's AuthKit client, so an ordinary app sign-in does
      * not mint a dashboard credential, dashboard access is separately
      * revocable, and the client secret is purpose-scoped instead of being the
      * WorkOS management API key.
@@ -1089,9 +1082,9 @@ export interface GridConfig {
      * resource: retention policies are an Enterprise feature, so observations
      * grow for as long as the deployment runs - size for the history you
      * intend to keep by hand, and watch it. The SERVER's own system logs are
-     * the exception: `installClickHouse` gives them a 14-day TTL, so they can
-     * no longer fill the disk the way `system.trace_log` did on dev in August
-     * 2026. The 50 Gi default covers both with headroom.
+     * the exception: `installClickHouse` gives them a 14-day TTL, so they cannot
+     * fill the disk the way `system.trace_log` would. The 50 Gi default covers
+     * both with headroom.
      */
     clickhouseStorageSize: string;
     /** Ingestion-queue dataset cap and pod memory limit (see `LANGFUSE.queue`). */
@@ -1268,20 +1261,18 @@ function bool(cfg: pulumi.Config, key: string, fallback: boolean): boolean {
  *
  * Credentials arrive in pairs — an access key and a secret key — and a guard
  * written from the error message rather than from the requirement tests one of
- * them. That is not a hypothetical: the documents-backup guard named both keys
- * and checked only the access key, so a stack that set one and omitted the other
- * planned clean, substituted `pulumi.secret("")`, and `weed filer.backup` signed
- * every request with an empty secret — `SignatureDoesNotMatch`, i.e. exactly the
- * silent backup-to-nowhere the guard existed to refuse.
+ * them. That is a real failure: a stack that set only the access key planned
+ * clean, substituted `pulumi.secret("")`, and `weed filer.backup` signed every
+ * request with an empty secret — `SignatureDoesNotMatch`, the silent
+ * backup-to-nowhere this guard refuses.
  *
  * Reporting ALL the missing keys rather than the first also matters: a plan that
  * fails once per missing key is three plans.
  *
  * Read with `cfg.get`, and an EMPTY value counts as missing. `getSecret("")`
  * returns a defined output, so an unset-vs-set check would pass for
- * `pulumi config set --secret grid-oib:… ""` — which is not a hypothetical
- * either, it is what the failure this guard was written for actually looked
- * like: a signing key that exists, is empty, and turns every request into
+ * `pulumi config set --secret grid-oib:… ""` — which is what an empty signing
+ * key looks like: it exists, and turns every request into
  * `SignatureDoesNotMatch`. A credential that cannot sign is not a credential,
  * so the guard measures usability rather than presence. `cfg.get` is safe here
  * because nothing is returned — only the KEY NAMES reach the message.
@@ -1596,8 +1587,7 @@ export function loadConfig(): GridConfig {
     }
     // Plaintext offsite is worse than no offsite: every document, and the
     // long-lived S3 secret key that signs for them, would cross the open
-    // internet in the clear. The previous check only refused an in-CLUSTER
-    // endpoint, so `http://backup.example.com` sailed through.
+    // internet in the clear.
     if (!backupEndpoint.startsWith("https://")) {
       throw new Error(
         `grid-oib:seaweedfsBackupEndpoint must be https:// (got ${backupEndpoint}). ` +
@@ -1709,8 +1699,9 @@ export function loadConfig(): GridConfig {
   }
 
   // ── Dragonfly authentication ──────────────────────────────────────────────
-  // Both instances shipped with NO password and NO TLS while the intra-namespace
-  // NetworkPolicy lets any pod open 6379. The cache is the serious one: it
+  // The intra-namespace NetworkPolicy lets any pod open 6379, so an instance
+  // without a password is open to the whole namespace. The cache is the
+  // serious one: it
   // carries the ADR-0028 conversation bus (every chat frame, replayable), the
   // cached WorkOS directory (email/name/avatar), authz decisions and budget
   // state. Fail closed like `jobPayloadKek` does — a password must be a
@@ -1736,7 +1727,7 @@ export function loadConfig(): GridConfig {
         "  pulumi config set grid-oib:allowUnauthenticatedRedis true",
     );
   }
-  // Distinctness, for the same reason pgRuntimePassword stopped falling back to
+  // Distinctness, for the same reason pgRuntimePassword does not fall back to
   // pgAppPassword: every app pod holds the cache credential in its own
   // REDIS_URL, so reusing it for the counter store hands the app tier the
   // ability to flush the edge rate limits. Compared, never printed.
@@ -1864,7 +1855,7 @@ export function loadConfig(): GridConfig {
 
   // ── Langfuse (ADR-0044): same availability = flag AND capability rule ──────
   // Default ON, like `observabilityEnabled`: durable traces are the expected
-  // shape of a stack now, not an extra. Nothing is provisioned by the flag
+  // shape of a stack, not an extra. Nothing is provisioned by the flag
   // alone — the capability half of the rule still requires every credential the
   // tier cannot boot without, so a stack that has not set them gets the warning
   // below and no workloads, never a half-deployed tier. Set the flag to false
@@ -2109,9 +2100,8 @@ export function loadConfig(): GridConfig {
     }
     // The apex is a zone-level record, so the stack that serves it owns the
     // baseline. Anything else splits the zone: this stack writes the apex while
-    // another writes www — and that other stack's www either still redirects
-    // away from the site (how piloti.at kept bouncing to dev after prod shipped)
-    // or points unproxied at a Gateway with no listener for it.
+    // another writes www — and that other stack's www either redirects away from
+    // the site or points unproxied at a Gateway with no listener for it.
     if (webDomain === dnsZoneName && !dnsZoneBaseline) {
       throw new Error(
         `grid-oib:dnsZoneBaseline must be true on the stack that serves the apex ` +
@@ -2217,8 +2207,7 @@ export function loadConfig(): GridConfig {
       apiToken: cloudflareApiToken ?? pulumi.secret(""),
       targetIp: loadBalancerIp ?? "",
       hosts: dnsHosts,
-      // 600s, matching what these records already carried at the previous
-      // operator. Low enough that a LoadBalancer IP change is a ten-minute
+      // 600s. Low enough that a LoadBalancer IP change is a ten-minute
       // event rather than an hour-long one, high enough not to matter.
       ttl: num(cfg, "dnsTtl", 600),
       zoneBaseline: dnsZoneBaseline,
@@ -2375,14 +2364,14 @@ export function loadConfig(): GridConfig {
        * number: roughly what a pod actually consumes at steady state.
        *
        *   1. **The HPA divides by it.** `averageUtilization` is a percentage of
-       *      REQUESTS, not of limits. At the previous `100m`, the 70% target
-       *      meant 70 millicores — 7% of the pod's own 1-core limit — which a
-       *      Next.js SSR pod clears the moment it serves anything. The HPA
-       *      therefore had no proportional range: idle sat at `minReplicas` and
-       *      any traffic at all pinned it to `maxReplicas`. At `500m` the target
-       *      is 350m, i.e. scale out at ~35% of the limit, leaving burst room.
-       *   2. **The scheduler bin-packs on it.** `100m` told the scheduler each
-       *      pod was tiny, so all `maxReplicas` could land on one node — and
+       *      REQUESTS, not of limits. At `100m`, a 70% target means 70 millicores —
+       *      7% of the pod's own 1-core limit — which a Next.js SSR pod clears the
+       *      moment it serves anything. The HPA would then have no proportional
+       *      range: idle sits at `minReplicas` and any traffic at all pins it to
+       *      `maxReplicas`. At `500m` the target is 350m, i.e. scale out at ~35% of
+       *      the limit, leaving burst room.
+       *   2. **The scheduler bin-packs on it.** `100m` tells the scheduler each
+       *      pod is tiny, so all `maxReplicas` can land on one node — and
        *      `topologySpreadConstraints` is `ScheduleAnyway` (soft, by design),
        *      so it would not prevent that. The PDB and the spread policy both
        *      assume replicas are actually spread.
@@ -2570,9 +2559,8 @@ export function loadConfig(): GridConfig {
       v4WriteMode: langfuseV4WriteMode(cfg.get("langfuseV4WriteMode")),
       v4HistoricBackfill: bool(cfg, "langfuseV4HistoricBackfill", false),
       // 50 Gi: fourteen days of TTL-bounded system logs plus headroom for the
-      // trace store itself, which still grows without bound (OSS has no
-      // retention policies) - see the interface comment. Raised from 20 Gi
-      // after system.trace_log alone filled that on dev in August 2026.
+      // trace store itself, which grows without bound (OSS has no retention
+      // policies) - see the interface comment.
       clickhouseStorageSize: cfg.get("clickhouseStorageSize") ?? "50Gi",
       // The queue holds references to events already durable in S3, not the
       // events themselves, so it stays small — but eviction is OFF (see
@@ -2613,11 +2601,10 @@ export function loadConfig(): GridConfig {
       routeMap: cfg.get("err2issueRouteMap") ?? "",
       anthropicApiKey: cfg.getSecret("err2issueAnthropicApiKey") ?? pulumi.output(""),
       suppressWindowSeconds: num(cfg, "err2issueSuppressWindowSeconds", 600),
-      // Deliberately below the upstream default of 50. This is the first
-      // deployment of an error sink against a repo that has never had one: the
-      // realistic failure is a long tail of pre-existing, never-noticed errors
-      // arriving at once and burying the issue tracker on day one. Raise it
-      // once the steady-state volume is known.
+      // Deliberately below the upstream default of 50. A new sink pointed at a
+      // repo that has never had one would otherwise see a long tail of
+      // pre-existing, never-noticed errors arrive at once and bury the issue
+      // tracker. Raise it once the steady-state volume is known.
       maxNewFingerprintsPerDay: num(cfg, "err2issueMaxNewFingerprintsPerDay", 20),
       dropUnrouted: bool(cfg, "err2issueDropUnrouted", true),
       // The Aspire dashboard's trace view. It holds traces in memory, so a link

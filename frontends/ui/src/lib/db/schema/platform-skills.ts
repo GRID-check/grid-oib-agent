@@ -2,21 +2,13 @@ import { boolean, jsonb, pgTable, text, timestamp, uniqueIndex, uuid } from 'dri
 import { skillCategories } from './skill-categories'
 
 /**
- * How a curated skill reaches organizations. One answer since migration 0088:
- * it is OFFERED.
+ * How a curated skill reaches organizations: it is OFFERED.
  *
- * There used to be a second, `standard` — fleet standard equipment, resolved
- * for every organization with no decision in it, and FORCED onto every run so
- * its body loaded whether or not the model judged it relevant. It is gone,
- * together with the other way a skill could be forced onto a turn (the
- * composer's `skills` array on the WS envelope). Both answered "how should
- * Piloti behave by default?" with the wrong mechanism: a skill is a capability
- * the model may reach for, and a skill that is always forced is an instruction
- * wearing a capability's clothes.
- *
- * Standing instructions have two homes now, and neither is this table: the
- * PLATFORM PROMPT for what the platform says, and `organization_instructions`
- * (migration 0087) for what a tenant says.
+ * A skill is a capability the model may reach for, never one forced onto every
+ * turn: a skill that is always forced is an instruction wearing a capability's
+ * clothes. Standing instructions live elsewhere, and neither home is this table:
+ * the PLATFORM PROMPT for what the platform says, and `organization_instructions`
+ * for what a tenant says.
  *
  * The tuple survives with one member rather than the column being dropped,
  * because the column still states something true — a curated skill is offered —
@@ -38,16 +30,15 @@ export type PlatformSkillDelivery = (typeof PLATFORM_SKILL_DELIVERIES)[number]
  * `curated_skill_activations`. Chat-usable FILE offers are a different source
  * and start on.
  *
- * Distinct from the two skill sources that already existed:
+ * Distinct from the two other skill sources:
  *
  *   builtin files   `src/aiq_agent/skills/builtin/**`. The deep-research
  *                   pipeline's own machinery — never listed, never switchable,
  *                   always resolved. Not an offer and not curation.
  *   `skills`        Org-authored rows, one tenant each.
  *
- * The body lives here and ONLY here. That is the difference from the "clone a
- * platform skill" flow this replaces, which copied the instruction into each
- * tenant and left every copy frozen at the moment it was taken.
+ * The body lives here and ONLY here: a copy in each tenant would be frozen at
+ * the moment it was taken.
  */
 export const platformSkills = pgTable(
   'platform_skills',
@@ -78,8 +69,8 @@ export const platformSkills = pgTable(
      */
     published: boolean('published').notNull().default(false),
     /**
-     * How the skill reaches organizations. `offer`, and only `offer`, since
-     * 0088 retired the `standard` tier — see {@link PLATFORM_SKILL_DELIVERIES}.
+     * How the skill reaches organizations: `offer`, and only `offer`. See
+     * {@link PLATFORM_SKILL_DELIVERIES}.
      *
      * A tenant can never write this column: `platform_skills` is secured with
      * `grid_secure_platform_table`, so SELECT is all the tenant role has.

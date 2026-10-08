@@ -1,9 +1,8 @@
 """Platform-tunable reasoning effort ("thinking level") per agent group.
 
-How hard a role thinks used to be a build-time fact: ``reasoning_effort`` in
-``configs/config_oib_openrouter.yml``, so retuning the cost/quality trade-off
-meant a commit and a redeploy. The platform owner now sets it per agent group
-in Platform → Models; the values live in the BFF's
+How hard a role thinks is set per agent group by the platform owner in
+Platform → Models, so retuning the cost/quality trade-off needs no commit and
+no redeploy. The values live in the BFF's
 ``platform_reasoning_efforts`` table and reach the backend through the same
 token-guarded internal channel as the retrieval settings
 (``GET /api/internal/reasoning-efforts``), TTL-cached and fail-open.

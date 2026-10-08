@@ -120,14 +120,14 @@ async def get_job_project_collection(job_id: str, db_url: str) -> str | None:
     statement without it is not checkable: it says which Bauordnung the report
     was checked against.
 
-    The BFF used to take that project from the report REQUEST — and where the
-    request named none, from the caller's stored ``active_project_id``. Both are
-    properties of the reader at the moment they open a tab, not of the run. So a
-    run started in a project-less chat could be filed into whatever project the
-    reader last had open, and a run reopened from history while a different
-    project was active could be filed there: in both cases a report researched
-    under one Bauordnung, carrying a cover sheet asserting another, marked
-    „KI-generiert" and shaped for an Einreichung.
+    The report request must not decide the project: where it names none, the BFF
+    takes the caller's stored ``active_project_id``. Both are properties of the
+    reader at the moment they open a tab, not of the run. So a run started in a
+    project-less chat could be filed into whatever project the reader last had open,
+    and a run reopened from history while a different project was active could be
+    filed there: in both cases a report researched under one Bauordnung, carrying a
+    cover sheet asserting another, marked „KI-generiert" and shaped for an
+    Einreichung.
 
     Returning it here lets the destination be DERIVED from the run instead of
     checked against a request, which is what makes the wrong pairing
@@ -142,8 +142,8 @@ async def get_job_project_collection(job_id: str, db_url: str) -> str | None:
     there. So this is its own read, on a path that runs once per report view
     rather than per poll.
 
-    None is a truthful answer, not a failure: a run submitted before the column
-    existed, or from a chat with no project, has no commissioning project, and
+    None is a truthful answer, not a failure: a row with no value in the column,
+    or a run from a chat with no project, has no commissioning project, and
     the caller must treat that as "do not file" rather than as "file anywhere".
     """
     loop = asyncio.get_running_loop()
@@ -359,7 +359,7 @@ async def authorize_job_access(job_store: Any, db_url: str, job_id: str, princip
     """Load a job, enforcing ownership when auth is enabled.
 
     When REQUIRE_AUTH=false, ownership is not enforced — any caller may access
-    any existing job.  Ownership records are still written at submit time for
+    any existing job.  Ownership records are written at submit time for
     audit purposes and to support future auth enablement without data migration.
     """
     job = await job_store.get_job(job_id)

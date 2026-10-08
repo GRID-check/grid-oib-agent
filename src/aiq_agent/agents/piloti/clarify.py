@@ -2,19 +2,19 @@
 
 One step of the conversation graph, not an agent. It has exactly one caller
 (``conversation.ConversationGraph._clarifier_node``), it is handed a state that
-caller builds, and it returns a result only that caller can act on — so its
-former NAT registration (``_type: clarifier_agent``) bought a YAML block and
-nothing else. The block moved onto ``chat_deepresearcher_agent`` as
-:class:`ClarifierSettings`; ``AgentGroup.CLARIFIER`` did NOT move, because an
-org can re-point this step's model (Platform → Models) and that value is
+caller builds, and it returns a result only that caller can act on — so a NAT
+registration (``_type: clarifier_agent``) would buy a YAML block and nothing
+else. Its config lives on ``chat_deepresearcher_agent`` as
+:class:`ClarifierSettings`; ``AgentGroup.CLARIFIER`` stays where it is, because
+an org can re-point this step's model (Platform → Models) and that value is
 persisted in ``platform_models.agent_group``.
 
 Shape of the step, in one paragraph: ask at most ``max_turns`` focused
 questions (the model may search first, and may offer pickable options), then —
 when plan approval is on — show a research plan and take the user's verdict,
 revising it while the reply is feedback. The dialog is a loop rather than a
-LangGraph because that is all it ever was: no checkpoint, no persistence, no
-node name that reaches a reader. What the reader DOES see is one trace row, a
+LangGraph because it needs no checkpoint, no persistence, and no node name that
+reaches a reader. What the reader DOES see is one trace row, a
 ``clarification`` step.
 
 Nothing is rebuilt to serve a request. The models, tools and limits are
@@ -134,10 +134,9 @@ MAX_TOOL_ROUNDS = 4
 """How many times one clarification decision may search before it must decide.
 
 The prompt asks for "at most 1-2 searches" and no transcript has ever needed a
-third, so this is a ceiling and not a budget. It exists because the loop that
-replaced the LangGraph has to state its own bound: the graph's was LangGraph's
-``recursion_limit`` (25 super-steps for the whole dialog), which is not a
-number anybody chose for this.
+third, so this is a ceiling and not a budget. It exists because the loop has
+to state its own bound: LangGraph's ``recursion_limit`` (25 super-steps for the
+whole dialog) is not a number anybody chose for this.
 """
 
 JSON_REMINDER_AFTER_TOOLS = (
@@ -165,9 +164,7 @@ ModelT = TypeVar("ModelT", bound=BaseModel)
 class ClarifierSettings(BaseModel):
     """The clarification step's configuration, nested under the workflow config.
 
-    These fields were the ``clarifier_agent`` NAT function's own config block;
-    they read identically in YAML, one level deeper. ``enable_clarifier`` on the
-    workflow decides whether the step exists at all and stays where it is.
+    ``enable_clarifier`` on the workflow decides whether the step exists at all.
     """
 
     llm: LLMRef = Field(..., description="LLM to use for generating questions")
@@ -246,7 +243,7 @@ def unwrap_query(reply: str) -> str:
     transports put around it.
 
     A non-string ``query`` (number, null, object) is ignored rather than
-    coerced: it used to abort the whole turn on the caller's ``.strip()``.
+    coerced: it would abort the whole turn on the caller's ``.strip()``.
     """
     try:
         data = json.loads(reply)

@@ -78,7 +78,7 @@ describe('SpectatedTurn', () => {
     expect(screen.getByTestId('spectated-turn')).toHaveAttribute('aria-live', 'off')
   })
 
-  it('draws a card that acts without anything to press (ADR-0039 §5)', () => {
+  it('draws a card that acts without anything to press', () => {
     // The second wall: even a memory proposal that reached the view offers the
     // observer no button — pressing one wrote into the OBSERVER's organization.
     // It is withheld outright, so there is nothing to press and nothing to read.

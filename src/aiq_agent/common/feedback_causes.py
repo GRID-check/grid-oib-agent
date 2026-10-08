@@ -47,10 +47,10 @@ CAUSES: dict[str, str] = {
 }
 
 #: A label counts at this probability; below it the vote is unlabelled. Measured
-#: 2026-09-26 on sixteen down-votes (``tests/fixtures/decisions/feedback_causes.yaml``):
-#: 16/16 right, the lowest 0.89 once `slow` covers a bare 'too_slow' chip
-#: with no comment (0.75-0.79 before). Held-out (24 down-votes written blind):
-#: 20 right, 1 wrong, 3 left unlabelled, with or without that change.
+#: on sixteen down-votes (``tests/fixtures/decisions/feedback_causes.yaml``):
+#: 16/16 right, the lowest 0.89 with `slow` covering a bare 'too_slow' chip with
+#: no comment (0.75-0.79 without that). Held-out (24 down-votes written blind):
+#: 20 right, 1 wrong, 3 left unlabelled, with or without that rule.
 CAUSE_THRESHOLD = 0.8
 SLOT = "feedback_causes"
 CAUSE_QUESTION = (

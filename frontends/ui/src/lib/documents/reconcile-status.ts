@@ -8,8 +8,8 @@
  * closes the loop lazily: whenever document rows are read, in-flight rows are
  * checked against the backend ingestion job status (primary) or the
  * collection's file list (fallback for rows without a recorded job id, e.g.
- * uploads from before the job id was persisted, or after a backend restart
- * wiped the in-memory job registry) and terminal states are written back.
+ * after a backend restart wiped the in-memory job registry) and terminal states
+ * are written back.
  */
 
 import { onDocumentsSettled } from '@/lib/upload-batches/settle'
@@ -24,10 +24,10 @@ import { setDocumentReconciledStatus } from './repository'
  * DB statuses that mean "ingestion outcome not yet known".
  *
  * Derived from the one declaration of the status vocabulary rather than listed
- * again here. The set used to be a literal, and it drifted from the badge's own
- * table by two values without anything failing — which is exactly how `stored`
- * could have been added to the column and quietly polled forever. A row that is
- * in this set is asked about on EVERY read, so a value that does not belong in
+ * again here: a second list drifts from the badge's own table without anything
+ * failing, and that is how `stored` could be added to the column and quietly
+ * polled forever. A row in this set is asked about on EVERY read, so a value
+ * that does not belong in
  * it (`stored`: no job was ever dispatched, so nothing will ever report on it)
  * costs a backend round trip per read and then overwrites the status from a
  * collection file list the document is not in — and, worse, MIGHT be in under
@@ -92,8 +92,8 @@ export interface ReconcilableDocument {
    * `(collectionName, filename)` joins: both address the backend's collection
    * file list, and a machine-authored row owns nothing in it (never dispatched
    * to `/v1/ingest`), so on a filename collision both would resolve to a human
-   * document's state. `DocumentListRow` and `Document` have both carried the
-   * column since migration 0063, so every existing caller already supplies it;
+   * document's state. `DocumentListRow` and `Document` both carry the
+   * column, so every existing caller already supplies it;
    * requiring it means a future row type that omits the `select` fails to
    * compile rather than silently reconciling as if a person had uploaded it.
    */
@@ -101,11 +101,11 @@ export interface ReconcilableDocument {
   /**
    * The version the item's storage columns mirror, or `null` (ADR-0054).
    *
-   * REQUIRED for the same reason `authoredBy` is, and it became necessary the
-   * day a machine-authored row could own backend state after all: a published
-   * Piloti document HAS a file in the collection list and must be enriched from
-   * it, while a draft of the same document still owns nothing. Authorship alone
-   * can no longer tell those apart, so `collectionFileRef` asks both — and a row
+   * REQUIRED for the same reason `authoredBy` is: a machine-authored row can
+   * own backend state too. A published Piloti document HAS a file in the
+   * collection list and must be enriched from it, while a draft of the same
+   * document still owns nothing. Authorship alone cannot tell those apart, so
+   * `collectionFileRef` asks both — and a row
    * type that cannot answer fails to compile rather than reconciling as if it
    * had.
    */
@@ -299,7 +299,7 @@ const loadCollectionFiles = async (collectionName: string): Promise<CollectionFi
   for (const file of result.body as RawBackendFile[]) {
     if (!file.file_name) continue
     if (byName.has(file.file_name)) {
-      // Duplicate filename in the collection — the join is no longer 1:1.
+      // Duplicate filename in the collection — the join is not 1:1.
       ambiguousNames.add(file.file_name)
       continue
     }
@@ -320,11 +320,11 @@ const loadCollectionFiles = async (collectionName: string): Promise<CollectionFi
 // Short-TTL collection-file-list cache
 //
 // Metadata enrichment runs on EVERY document read. Without a cache, a read of a
-// fully-terminal list still fetched every collection's file list from the
-// backend — turning an otherwise zero-backend-call steady state into one fetch
-// per collection per read. This module-level cache serves the enrichment of
-// terminal rows: repeated reads within the TTL reuse a single fetch. In-flight
-// status reconciliation deliberately bypasses it (status freshness cannot lag).
+// fully-terminal list would fetch every collection's file list from the backend
+// — one fetch per collection per read, where the steady state should make none.
+// This module-level cache serves the enrichment of terminal rows: repeated reads
+// within the TTL reuse a single fetch. In-flight status reconciliation
+// deliberately bypasses it (status freshness cannot lag).
 // ---------------------------------------------------------------------------
 
 const COLLECTION_FILES_TTL_MS = 15_000
@@ -511,9 +511,9 @@ const resolveInterruptedRow = (job: BackendJobStatus | null | undefined): RowRes
  * Takes a {@link CollectionFileRef}, so a machine-authored row cannot reach it.
  * That row has no entry in this list of its own — it was never ingested — so
  * every field it could pick up here belongs to a HUMAN document whose filename
- * it happens to share, and `FileCard` renders `summary` with no gate. The result
- * was a real Gutachten's AI summary, page count and OIB tags displayed under a
- * „Von Piloti erstellt“ byline, and returned by
+ * it happens to share, and `FileCard` renders `summary` with no gate. Without
+ * the type, a real Gutachten's AI summary, page count and OIB tags would show
+ * under a „Von Piloti erstellt“ byline, and be returned by
  * `GET /api/documents/{id}/status` to the chat peek pane.
  */
 const toEpochMs = (value: Date | string | null | undefined): number | null => {
@@ -553,11 +553,11 @@ const extractMetadata = (files: CollectionFiles | null, ref: CollectionFileRef):
  *
  * BOTH passes join on `(collectionName, filename)`, and both go through
  * {@link collectionFileRef} first: a row a machine wrote owns nothing under that
- * pair, so it gets neither a status nor metadata from it. The status pass used
- * to be safe only by accident — filing writes `stored`, which is not in
- * {@link IN_FLIGHT_STATUSES} — which is a fact about the STATUS column, not
- * about authorship; the enrichment pass had no gate at all and leaked a human
- * document's summary onto an agent row's card on every read.
+ * pair, so it gets neither a status nor metadata from it. The status pass is
+ * safe only by accident: filing writes `stored`, which is not in
+ * {@link IN_FLIGHT_STATUSES}, and that is a fact about the STATUS column, not
+ * about authorship. The enrichment pass must gate on authorship itself, or it
+ * leaks a human document's summary onto an agent row's card on every read.
  */
 export async function reconcileDocumentStatuses<T extends ReconcilableDocument>(
   rows: T[],
@@ -587,7 +587,7 @@ export async function reconcileDocumentStatuses<T extends ReconcilableDocument>(
   const now = Date.now()
   const interrupted = rows.filter((row) => isRecheckableInterruption(row, now))
   if (inFlight.length > 0 || interrupted.length > 0) {
-    // One batch call for every job id asked about (previously one GET per row).
+    // One batch call for every job id asked about.
     const jobIds = [
       ...new Set(
         [...inFlight, ...interrupted]
@@ -664,8 +664,8 @@ export async function reconcileDocumentStatuses<T extends ReconcilableDocument>(
   //  - a row this read moved to a terminal status. The job batch said
   //    `completed`, but the listing in the cache may be from before the file
   //    or its summary existed, and this is the read that tells every client to
-  //    stop polling. Enriching it from that listing meant the first (and last)
-  //    `completed` a client saw carried no summary, counts or tags.
+  //    stop polling. Enriching it from that listing would make the first (and
+  //    last) `completed` a client sees carry no summary, counts or tags.
   //  - a row written after the cached listing was fetched (`updatedAt`). A
   //    transition written by ANOTHER read, or by the re-ingest heal, lands here
   //    once and then not again: the fresh fetch is newer than the write.

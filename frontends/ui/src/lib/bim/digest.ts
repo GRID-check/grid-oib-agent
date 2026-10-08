@@ -101,13 +101,12 @@ export function storeyBreakdownKey(storey: {
 /**
  * Per-storey rollup, keyed rather than ordered.
  *
- * It used to return an array and the digest read it back with
- * `breakdown[index]` against `summary.storeys` — which holds only while the
- * two are the same length. They are not: the map collapses two storeys that
- * share a GlobalId (a real export defect — `validate.ts` has a rule for it) or
- * two same-named storeys with no GlobalId, so the array came back SHORT and
- * every storey after the collision was rendered with the next storey's element
- * count, room count and floor area, with the last one showing zeros.
+ * The result is looked up by key, never by position against `summary.storeys`:
+ * the two are not the same length. The map collapses two storeys that share a
+ * GlobalId (a real export defect — `validate.ts` has a rule for it) or two
+ * same-named storeys with no GlobalId, and a positional array would come back
+ * SHORT, rendering every storey after the collision with the next storey's
+ * element count, room count and floor area.
  */
 export function buildStoreyBreakdown(
   summary: BimModelSummary,
@@ -242,13 +241,12 @@ export function buildModelDigest(
   /*
     One row per KEY, not per storey entry.
 
-    Keying the map fixed the misalignment this table used to have; it did not
-    fix the doubling underneath it. Two storeys written with the same GlobalId
-    — the export defect `validate.ts:identity` reports — collapse to one map
-    entry, and both rows then rendered THAT entry: `EG | 2 Bauteile | 2 Räume |
-    100 m²` and `1.OG | 2 | 2 | 100 m²` for a building with one room of 40 m²
-    on each. The Bauteile and Netto-Grundfläche columns summed to double the
-    building. This digest is indexed for retrieval, so the agent can quote it.
+    Two storeys written with the same GlobalId — the export defect
+    `validate.ts:identity` reports — collapse to one map entry. A row per storey
+    entry would render that entry twice, e.g. `EG | 2 Bauteile | 2 Räume | 100 m²`
+    and `1.OG | 2 | 2 | 100 m²` for a building with one room of 40 m² on each, so
+    the columns would sum to double the building. This digest is indexed for
+    retrieval, so the agent can quote it.
   */
   const renderedStoreys = new Set<string>()
   const storeyRows = summary.storeys.flatMap((storey) => {

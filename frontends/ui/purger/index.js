@@ -159,7 +159,7 @@ function createPurger({ sql, deps, streak }) {
       //
       // A claim that throws (the database is down, or a migration this image
       // needs — 0093's `grid_legal_hold_blocks` — has not run yet) is logged and
-      // retried on the next tick. Unhandled, it was a rejected `void tick()`,
+      // retried on the next tick. Unhandled, it would be a rejected `void tick()`,
       // which ends the Node process instead of waiting for the database.
       while (await processOne()) {
         /* keep going */

@@ -6,8 +6,8 @@
  * Sent once per document typed `Bescheid`, after it is indexed. `record: null`
  * removes the document's record (it is no longer a Bescheid, or nothing was
  * extracted). A document the BFF does not know answers 200 `{ stored: false }`,
- * like `document-exists`: the pipeline treats the call as best effort and a
- * 404 is also what a BFF that predates this route answers.
+ * like `document-exists`: the pipeline treats the call as best effort, and a
+ * 404 (a BFF without this route) is handled the same way.
  *
  * `documentId` is optional: the backfill knows only a collection and a file
  * name, and a live file name is unique per collection, so it finds the row.

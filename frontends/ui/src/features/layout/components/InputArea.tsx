@@ -124,8 +124,7 @@ interface ScreeningHold {
  *
  * The fast path answers synchronously with a boolean (and legacy/mocked callers
  * answer with nothing at all), the mention path with the server's ruling. Only an
- * explicit `false` or `ok: false` counts as "not sent" — exactly the contract the
- * composer had before mentions existed.
+ * explicit `false` or `ok: false` counts as "not sent".
  */
 function normalizeSendResult(result: unknown): { ok: boolean; outcome?: SendMessageOutcome } {
   if (result === false) return { ok: false }
@@ -244,15 +243,15 @@ const FileChip: FC<{
         // A finger has to be able to hit the remove-x, and that button can only
         // grow inside a taller chip — the strip scrolls horizontally, so the
         // extra height costs nothing but a slightly shorter filename.
-        // `max-w` grows with it: the buttons inside are 44px square now, so at
-        // 200px a failed chip (retry AND remove) had ~90px left for a filename.
+        // `max-w` grows with it: the buttons inside are 44px square on touch, so
+        // at 200px a failed chip (retry AND remove) would leave ~90px for a filename.
         // The strip already scrolls sideways, so width here is free.
         'pointer-coarse:h-11 pointer-coarse:max-w-[260px]',
         // `border-error` is a static `@utility` in globals.css with no
-        // `--modifier()`, so the slash form (`border-error/50`) matched nothing
-        // and this chip kept the neutral default border — a failed upload was
-        // signalled by the glyph alone. The token itself already carries ~55%
-        // alpha, so the solid class is the soft edge the author was after.
+        // `--modifier()`, so the slash form (`border-error/50`) matches nothing:
+        // the chip would keep the neutral border and signal failure by the glyph
+        // alone. The token itself already carries ~55% alpha, so the solid class
+        // is the soft edge.
         isFailed && 'border-error'
       )}
       title={`${file.fileName} — ${statusTitle}`}
@@ -279,9 +278,8 @@ const FileChip: FC<{
           onClick={() => onRetry(file.id)}
           aria-label={t('inputArea.retryUpload')}
           title={t('inputArea.retryUpload')}
-          // The chip above is already `pointer-coarse:h-11` precisely so this
-          // button could grow inside it — and then the button stopped at 36.
-          // `size-11` fills the height the chip is already paying for.
+          // The chip above is `pointer-coarse:h-11` so that this button can grow
+          // inside it; `size-11` fills the height the chip already pays for.
           className="text-muted-foreground hover:text-foreground focus-visible:ring-ring/50 pointer-coarse:size-11 inline-flex shrink-0 items-center justify-center rounded-sm focus-visible:outline-none focus-visible:ring-2"
         >
           <RotateCw className="size-3" aria-hidden="true" />
@@ -293,9 +291,8 @@ const FileChip: FC<{
           onClick={() => onRemove(file.id)}
           aria-label={t('inputArea.removeFile', { name: file.fileName })}
           title={t('inputArea.removeFile', { name: file.fileName })}
-          // The chip above is already `pointer-coarse:h-11` precisely so this
-          // button could grow inside it — and then the button stopped at 36.
-          // `size-11` fills the height the chip is already paying for.
+          // The chip above is `pointer-coarse:h-11` so that this button can grow
+          // inside it; `size-11` fills the height the chip already pays for.
           className="text-muted-foreground hover:text-foreground focus-visible:ring-ring/50 pointer-coarse:size-11 inline-flex shrink-0 items-center justify-center rounded-sm focus-visible:outline-none focus-visible:ring-2"
         >
           <X className="size-3" aria-hidden="true" />
@@ -316,10 +313,10 @@ interface InputAreaProps {
   projectName?: string
   /**
    * Whether the collaboration surfaces are reachable for this org (ADR-0032…0035,
-   * dark-launched behind the per-org `collaboration` flag).
+   * behind the per-org `collaboration` flag).
    *
-   * **Defaults to false, and false means "exactly today"** (spec NF-8): no
-   * addressee statement, no hand-off read, no extra request. The `@` picker is
+   * **Defaults to false, and false leaves the composer as it is**: no addressee
+   * statement, no hand-off read, no extra request. The `@` picker is
    * gated differently — by whether the candidates endpoint answers at all — so a
    * gated org cannot notice either of them.
    */
@@ -354,7 +351,7 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
   const tFiles = useTranslations('files')
   const [message, setMessage] = useState('')
 
-  // ——— @-mentions (spec MN-3, MN-4) ————————————————————————————————————————
+  // ——— @-mentions————————————————————————————————————————
   // The mentions the user actually PICKED, as structured references. Never derived
   // from the text; reconciled against it right before sending.
   const [mentions, setMentions] = useState<DraftMention[]>([])
@@ -428,7 +425,7 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
    * server row is written by `_appendMessage` at send time. That is fine for
    * everything except the mention picker, which asks the server about a
    * conversation the server has never heard of — see the block above
-   * `mentionRetryRef` for why that 404 was terminal.
+   * `mentionRetryRef` for why that 404 is terminal.
    */
   const ensureConversationExists = useChatStore((state) => state._ensureConversationExists)
 
@@ -442,9 +439,9 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
   // The store's `mode`/`hidden` pair says what the reader asked for; it does
   // not know about the research panel, the phone breakpoint or the Files route,
   // each of which takes the pane off screen without touching either field. Read
-  // from the store alone, this said "visible" while nothing was — and since it
-  // is what hides `Show file`, the one control that could bring the document
-  // back was withheld exactly when it was needed. `expanded` counts on its own:
+  // from the store alone, it would say "visible" while nothing was on screen,
+  // and since it hides `Show file`, the one control that could bring the document
+  // back would be withheld exactly when it is needed. `expanded` counts on its own:
   // that is the file over the whole page, which is certainly on screen.
   const previewExpanded = useFilePreviewStore((state) => state.mode === 'expanded' && !state.hidden)
   const peekBesideChat = useFilePeekBesideChat()
@@ -470,7 +467,7 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
   // File upload hook - provides session files and handles validation internally.
   // Attachments go through `/api/session/documents` (type gate, quota, a row).
   const chatProjectId = useChatStore((state) => state.projectId)
-  // The other projects that restrict this chat now (ADR-0085), as the server judges it, for the notice.
+  // The other projects that restrict this chat (ADR-0085), as the server judges it, for the notice.
   const otherProjects = useRestrictingOtherProjects(currentConversationId)
   const {
     uploadFiles,
@@ -496,22 +493,20 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
   /**
    * A message the composer accepted while its file was still being read.
    *
-   * THE FILE IS THE QUESTION, AND IT WAS NOT THERE YET. Attaching a plan and
-   * asking about it in the same breath is the normal way to use this product,
-   * and it did not work: nothing about a session upload is inline — ingestion
-   * runs asynchronously behind a small worker pool with a per-page vision
-   * budget — so the turn was answered against a collection that was still
-   * empty. The agent is not told a file is in flight either (the per-turn
-   * inventory reads the summaries table, which is written only when the job
-   * finishes), so it answered confidently from everything except the document
-   * the question was about.
+   * THE FILE IS THE QUESTION, AND IT MAY NOT BE THERE YET. Attaching a plan and
+   * asking about it in the same breath is the normal way to use this product.
+   * Nothing about a session upload is inline: ingestion runs asynchronously behind
+   * a small worker pool with a per-page vision budget, so a turn sent now would be
+   * answered against a collection that is still empty. The agent is not told a
+   * file is in flight either (the per-turn inventory reads the summaries table,
+   * which is written only when the job finishes), so it would answer from
+   * everything except the document the question is about.
    *
-   * Blocking the send was considered and rejected once already, for good
-   * reason: it makes the composer refuse a person who has something to say.
-   * Holding is the third option. The message leaves the composer exactly as if
-   * it had been sent, a line says what it is waiting for, and it goes the
-   * moment the file is readable — so the common case costs the user nothing
-   * and reads as Piloti being careful rather than as Piloti being slow.
+   * Blocking the send refuses a person who has something to say, so holding is
+   * the option. The message leaves the composer exactly as if it had been sent, a
+   * line says what it is waiting for, and it goes the moment the file is readable.
+   * The common case costs the user nothing and reads as Piloti being careful
+   * rather than as Piloti being slow.
    */
   const [heldForUpload, setHeldForUpload] = useState<string | null>(null)
   // A message that matched the office's „Sensible Daten" (ADR-0079): shown,
@@ -521,8 +516,8 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
 
   // An upload into this chat IS the thing the next send is about. Without a
   // subject the agent never receives focus_file_name and walks project +
-  // Archiv instead (#429). Bind the latest ready file; do not re-bind after
-  // the user clears the bar.
+  // Archiv instead. Bind the latest ready file; do not re-bind after the user
+  // clears the bar.
   useEffect(() => {
     const ready = sessionFiles.filter(
       (file) => file.status === 'success' || file.status === 'ingesting'
@@ -547,8 +542,8 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
   }, [sessionFiles, setComposerSubject])
 
   // Stable across renders: this composer re-renders on every keystroke, and the
-  // subject bar holds this in an effect. An inline arrow here made the bar's
-  // document lookup a function of how often the user typed.
+  // subject bar holds this in an effect. An inline arrow here would make the
+  // bar's document lookup a function of how often the user typed.
   const handleSubjectResolved = useCallback(
     ({ title, filename, shelf, versionId, versionState }: ResolvedSubjectIdentity) => {
       // Read from the store, not a closure: the lookup is async and the user
@@ -581,20 +576,20 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
       - **The send itself** is the latest possible moment and the cheapest for a
         reader, but it puts a full WebSocket handshake in front of the first
         message of every shared thread — the user waits for it, and it is the one
-        latency this fix must not add.
+        latency that must not be added.
       - **The first keystroke** is nearly as good and strictly worse: it connects
         no earlier than focus and only saves a socket for the user who focuses the
         composer and then types nothing at all, which is rare and harmless.
       - **Focus** connects on the click or Tab that precedes the typing. By the
         time a sentence has been written the socket is warm, so the send is as fast
         as it is today, while a participant who is only READING never focuses the
-        composer and never connects. That is the case the defect is about.
+        composer and never connects. That is the case this trigger is for.
 
     Focus is not proof of intent to send, so the cost of being wrong matters: a
     reader who idly clicks the composer opens a socket they will not use. That
     costs one connection slot and, in a shared thread, can still displace the
-    asker's registration — which is why the frontend fix mitigates rather than
-    closes the collision (the registry has to become per-socket to close it).
+    asker's registration — which is why the frontend mitigates rather than closes
+    the collision (the registry would have to become per-socket to close it).
 
     `handleSubmit` calls it again as a backstop, for the paths that send without a
     focus event ever reaching the textarea (composer prefill, deep links).
@@ -624,7 +619,7 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
   useEffect(() => {
     if (!composerSubject) return
     // A session/Archiv subject is not "Projektunterlagen" — applying that
-    // preset only switched RIS off and still mixed every knowledge shelf.
+    // preset would only switch RIS off and still mix every knowledge shelf.
     if (composerSubject.shelf && composerSubject.shelf !== 'project') return
     const sources = useLayoutStore.getState().availableDataSources ?? []
     applySourcePreset('project', computePresetSourceIds('project', sources))
@@ -633,9 +628,9 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [composerSubject?.resourceId, composerSubject?.shelf, applySourcePreset])
 
-  // Streaming state + cancel action for the composer stop button (C1).
-  // stopStreaming is added by the STREAMING agent in messages-store; selecting
-  // it defensively means the button no-ops until that half of the contract lands.
+  // Streaming state + cancel action for the composer stop button.
+  // stopStreaming comes from the streaming half of the messages store; selecting
+  // it defensively means the button no-ops when that half is absent.
   const isStreaming = useChatStore((s) => s.isStreaming)
   const stopStreaming = useChatStore((s) => s.stopStreaming)
 
@@ -665,19 +660,19 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
     One gate for "may this person change anything about this conversation", and
     one for "may they type right now".
 
-    `disabled` used to reach only the textarea and the send button, so a viewer
-    in a shared thread — whose whole point is that they may read and not write —
-    still had a live paperclip, a live drop zone, and a live *Datengrundlage*
-    popover whose toggles persist onto the conversation. They could not send a
-    message but they could rewrite which sources the next person's turn would
-    use, and upload files into the thread. Hence two capabilities, not one flag.
+    `disabled` reaches only the textarea and the send button. Without the
+    capabilities a viewer in a shared thread — whose whole point is that they may
+    read and not write — would still have a live paperclip, a live drop zone, and
+    a live *Datengrundlage* popover whose toggles persist onto the conversation.
+    They could not send a message, but they could rewrite which sources the next
+    person's turn would use, and upload files into the thread. Hence two
+    capabilities, not one flag.
 
-    The decision moved to `collaboration/lib/composer-capabilities` because it
-    was a role-NAME comparison (`myThreadRole === 'viewer'`) where the rest of
-    the codebase ranks a ladder, and because every denial was anonymous. Both
-    are ADR-0038 requirements. Behaviour is unchanged, including the
-    allow-while-the-role-is-unknown window, which is now a named field with a
-    test on it instead of a consequence of `null !== 'viewer'`.
+    The decision lives in `collaboration/lib/composer-capabilities`, not in a
+    role-NAME comparison (`myThreadRole === 'viewer'`) where the rest of the
+    codebase ranks a ladder, and not in anonymous denials. Both are ADR-0038
+    requirements. The allow-while-the-role-is-unknown window is a named field with
+    a test on it, not a consequence of `null !== 'viewer'`.
   */
   const capabilities = composerCapabilities({
     isAuthenticated,
@@ -694,7 +689,7 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
   // thread, collaboration on, and a role that may contribute — a viewer's draft
   // will never become a message, so announcing it would be a claim about
   // something that cannot happen. The server enforces all three regardless; this
-  // is what keeps a private thread from issuing the request at all (spec NF-8).
+  // is what keeps a private thread from issuing the request at all.
   const { onTyping, onStoppedTyping } = useTypingBroadcast({
     conversationId: currentSessionId ?? null,
     enabled: capabilities.canBroadcastTyping,
@@ -754,7 +749,7 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
     // A prefill that renders `@…` tokens carries the structured mentions with
     // it (e.g. the hand-off banner's "ask Piloti instead") — without seeding
     // them here the tokens would send as dead plain text and route to the
-    // wrong addressee (spec MN-3).
+    // wrong addressee.
     if (prefill.mentions && prefill.mentions.length > 0) setMentions(prefill.mentions)
     // Persist the prefill as the session's draft too, so it survives a reload
     // just like typed text (only possible once a session exists).
@@ -794,13 +789,13 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
   }
 
   // Mention candidates for this conversation — the agent, the participants, and the
-  // colleagues who would have to be invited (spec MN-4/MN-5).
+  // colleagues who would have to be invited.
   // `canCollaborate` gates the REQUEST, not just the picker. Without it, typing
-  // `@` with the feature off still fired this fetch at a route that answers 403,
-  // and `mentionsLoading` alone was enough to open the picker (below) — so the
-  // panel flashed open and vanished, advertising a feature this deployment does
-  // not have (spec NF-8). The gate has to sit on the fetch: any other placement
-  // leaves the round-trip, and the flicker is the round-trip.
+  // `@` with the feature off would still fire this fetch at a route that answers
+  // 403, and `mentionsLoading` alone would be enough to open the picker (below) —
+  // so the panel would flash open and vanish, advertising a feature this deployment
+  // does not have. The gate has to sit on the fetch: any other placement leaves the
+  // round-trip, and the flicker is the round-trip.
   const {
     data: mentionData,
     loading: mentionsLoading,
@@ -813,23 +808,22 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
    * A conversation row reaches the server only with its first persisted
    * message, so a `@` typed before anything was sent reads candidates that
    * 404. The retry ladder in the hook covers a few seconds of that; past its
-   * last rung it gives up, and nothing re-armed it — `refresh` is keyed on the
+   * last rung it gives up, and nothing re-arms it: `refresh` is keyed on the
    * conversation id, which does not change when the row finally appears, and
    * `mentionRequested` latches true on the first `@` so the enable flag never
-   * flips either. The result was a picker that stayed dead for the rest of that
-   * thread unless the reader happened to blur and refocus the tab.
+   * flips either. Without a re-arm, the picker stays dead for the rest of that
+   * thread unless the reader happens to blur and refocus the tab.
    *
    * Held in a ref rather than a dependency because `syncMentionQuery` runs on
    * every keystroke and every caret move; a changing identity there would make
    * the mention trigger a function of how fast someone types.
    */
   const mentionRetryRef = useRef<(() => void) | null>(null)
-  // `mentionRequested` is NOT part of this condition, and that omission is half
-  // the fix. It latches true only in `syncMentionQuery`'s own edge branch, i.e.
-  // in the same event that reads this ref — so on the FIRST `@` of a window it
-  // was still false from the previous render, the ref was null, and the re-arm
-  // could not fire on the one interaction that needed it. It could only ever
-  // help from the second fragment onward.
+  // `mentionRequested` is NOT part of this condition, and that omission matters.
+  // It latches true only in `syncMentionQuery`'s own edge branch, i.e. in the
+  // same event that reads this ref. Were it a condition, on the FIRST `@` of a
+  // window it would still be false from the previous render, the ref would be
+  // null, and the re-arm could not fire on the one interaction that needs it.
   mentionRetryRef.current = mentionData === null && !mentionsLoading ? restartMentionCandidates : null
   /**
    * Make the conversation real before the picker asks about it.
@@ -866,13 +860,12 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
         // The row FIRST, then the retry.
         //
         // In a new window there is no conversation: the logo, the new-chat path
-        // and `?new` all null it, and typing `@` only ever created a
-        // CLIENT-SIDE session. So the picker asked
-        // `/api/conversations/<clientId>/mention-candidates` about a row that
-        // does not exist, got 404 through every rung of the retry ladder, and
-        // the hook cleared its data — which renders NO picker at all, not an
-        // empty one. Re-arming that ladder against the same missing row could
-        // only 404 again, which is why the previous fix did not help here.
+        // and `?new` all null it, and typing `@` only ever creates a CLIENT-SIDE
+        // session. The picker would ask `/api/conversations/<clientId>/mention-candidates`
+        // about a row that does not exist, get 404 through every rung of the retry
+        // ladder, and the hook would clear its data — which renders NO picker at
+        // all, not an empty one. Re-arming that ladder against the same missing row
+        // could only 404 again, so the row has to exist first.
         //
         // Scoped to this edge rather than to every first keystroke, so only
         // readers who actually reached for the picker pay the round trip.
@@ -935,7 +928,7 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
 
   /**
    * Start a mention from the composer's addressee line — the only affordance that
-   * teaches `@` exists (spec MN-3 had no discovery story at all).
+   * teaches `@` exists.
    *
    * Types the character rather than opening the picker directly: `syncMentionQuery`
    * already owns "the caret sits in an `@…` fragment", so going through the text is
@@ -978,7 +971,7 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
     The ref indirection exists because `handleValueChange` (defined above, and a
     dependency of half this component) has to feed the hook, while the hook needs
     `handleValueChange` to write text back. Rather than reorder a 2000-line
-    component around a new feature, the sync function is published into a ref the
+    component around this feature, the sync function is published into a ref the
     earlier callbacks read — the one edge where this feature touches existing
     code paths, and it is inert until the user types a slash.
   */
@@ -1021,13 +1014,12 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
     turns the silent default into "Geht an den Chat": while a named person is
     awaited, a plain message is a remark and the agent stays out.
 
-    Off entirely without the flag, so a gated org opens no request (spec NF-8) —
-    and off on a PRIVATE thread too. Gating on the flag alone was not enough:
-    `useAwaitingState` subscribes to the shared event channel, so a solo user in a
-    flag-on org opened a permanent `/api/stream` connection and polled
-    `/awaiting` for a conversation that can never be waiting on anybody. NF-8 is
-    the stricter promise — a user who never shares must not notice this exists —
-    and `ChatArea` already reads the same state under exactly this predicate.
+    Off entirely without the flag, so a gated org opens no request — and off on a
+    PRIVATE thread too. The flag alone is not enough: `useAwaitingState` subscribes
+    to the shared event channel, so a solo user in a flag-on org would hold a
+    permanent `/api/stream` connection and poll `/awaiting` for a conversation that
+    can never be waiting on anybody. A user who never shares must not notice this
+    exists, and `ChatArea` reads the same state under exactly this predicate.
   */
   const { awaiting } = useAwaitingState(
     canCollaborate && threadSharing === 'shared' ? (currentSessionId ?? null) : null,
@@ -1037,7 +1029,7 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
 
   // ONE resolution, shared with the send below: `resolveAddressee` is the only
   // place the three-way decision is written. `@Piloti` alongside a person
-  // addresses BOTH (spec MN-1), so the "Piloti stays quiet" hint would be a false
+  // addresses BOTH, so the "Piloti stays quiet" hint would be a false
   // statement there; the addressee line names them both instead.
   //
   // Memoised so `activeMentions` keeps a stable identity across keystrokes —
@@ -1064,8 +1056,7 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
    * redundantly: the two answer different questions ("may this deployment mention
    * anyone?" vs. "has the list arrived?"), and stating the first one here is what
    * keeps a stale `mentionsLoading` from ever opening a panel the feature gate
-   * has closed. With the feature off, typing `@` behaves exactly as it did before
-   * this feature existed (spec NF-8).
+   * has closed. With the feature off, typing `@` is ordinary text.
    */
   const mentionPickerOpen =
     canCollaborate &&
@@ -1116,8 +1107,7 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
     }
 
     // Mentions are structured, and reconciled against the text at the last
-    // possible moment: whatever token the user deleted while editing is not sent
-    // (spec MN-3).
+    // possible moment: whatever token the user deleted while editing is not sent.
     // The SAME function the addressee line used, over the same inputs — so what
     // the user was told and what happens cannot disagree by construction, rather
     // than by two expressions being kept in step by tests.
@@ -1151,23 +1141,23 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
       // to the server's addressee ruling instead, and may be refused outright.
       const { ok, outcome } = normalizeSendResult(
         // Called with ONE argument when there is nothing to mention AND the thread
-        // is in its normal state — the fast path stays exactly the call it always
-        // was, free of the feature.
+        // is in its normal state — the fast path stays the single-argument call,
+        // free of the feature.
         //
         // `awaitingHuman` is what makes a plain message go through the server's
         // ruling too: while a named person is awaited it is a remark to the thread,
         // not a question for Piloti (ADR-0034 addendum), and the agent must be given
         // it as context rather than as a turn.
         //
-        // The shape comes from `sendMessageArgs`, so the fast path stays the
-        // literal one-argument call it always was — an explicit `undefined` would
-        // push plain messages down the server's ruling path.
+        // The shape comes from `sendMessageOptions`, so the fast path stays the
+        // literal one-argument call — an explicit `undefined` would push plain
+        // messages down the server's ruling path.
         await (() => {
           // One ternary, not a re-derivation: `sendMessageOptions` already chose
           // the case. Omitting the argument entirely is what keeps the fast path
-          // the literal single-argument call it has always been.
+          // the literal single-argument call.
           //
-          // A `/name` invocation adds NOTHING here any more. The picker writes
+          // A `/name` invocation adds nothing here. The picker writes
           // the skill's name into the message text and that is the whole of it:
           // the model reads the name and picks the skill out of its catalog,
           // rather than the turn being handed a skill it must apply. What the
@@ -1198,8 +1188,8 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
         and opens the request as part of storing the message. The seam that reads
         sharedness only reads it when the conversation changes, and every live
         subscription that would carry the news is gated on the very flag that is
-        now stale, so without this the asker sent their first `@` and the product
-        did nothing at all: no waiting banner, no explanation for Piloti's
+        now stale, so without this the asker's first `@` would leave the product
+        doing nothing at all: no waiting banner, no explanation for Piloti's
         silence, no way back short of reloading the page.
       */
       if (sent.mentions.length > 0 && submittingSessionId) {
@@ -1243,7 +1233,7 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
    * failed leave the pending set the same way. That is deliberate. A message
    * must not be swallowed by a broken upload; if the file did not make it, the
    * question is still the user's to ask, and the answer will simply be the one
-   * they would have got before this existed.
+   * they would have got without the file.
    */
   useEffect(() => {
     if (heldForUpload === null || pendingCount > 0) return
@@ -1339,7 +1329,7 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
   /**
    * Insert the picked candidate: the `@fragment` becomes `@Display `, and the
    * STRUCTURED reference is recorded alongside it. The text is a rendering of the
-   * mention, never its definition (spec MN-3).
+   * mention, never its definition.
    */
   const handleMentionSelect = useCallback(
     (candidate: MentionCandidate) => {
@@ -1374,7 +1364,7 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
         return
       }
 
-      // Attached files now surface as inline chips above the composer, so there
+      // Attached files surface as inline chips above the composer, so there
       // is no panel to auto-open — the chips give instant feedback in place.
       // The server row BEFORE the bytes, with the chat's title, project and
       // subject, which the send path would write (`ensureServerConversation`,
@@ -1424,15 +1414,14 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
   ).length
 
   // Scope chip label: the active project (display-only scope; cross-project
-  // search does not exist yet — spec §2.3, honest disabled option).
+  // search does not exist yet — an honest disabled option).
   const scopeLabel = projectName || tChat('composer.scopeFallback')
 
   // Single composer hint slot: exactly one helper line below the control row —
   // the first applicable in priority order (viewer > no-project-chat > busy >
-  // mention > awaiting > research lock). Same strings and conditions as the
-  // stacked lines this replaces. The Deep-Research intent echo is gone from
-  // here on purpose: the pill's own title already says it, so a line would
-  // state the preference twice.
+  // mention > awaiting > research lock). There is no Deep-Research intent echo
+  // here: the pill's own title already says it, so a line would state the
+  // preference twice.
   let composerHint: ReactNode = null
   if (canCollaborate && isViewerInSharedThread) {
     // Read-only participant: the composer is disabled on the same fact, and
@@ -1463,7 +1452,7 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
       </p>
     )
   } else if (canCollaborate && otherPersonsTurnName) {
-    // Piloti is mid-answer for SOMEBODY ELSE (spec CC-13). The composer is
+    // Piloti is mid-answer for SOMEBODY ELSE. The composer is
     // locked on the same fact (`otherPersonsTurnName` disables it above), and
     // without a line here that lock is unexplained — a colleague sees a dead
     // input and no reason for it. Only when the turn belongs to someone else:
@@ -1479,11 +1468,11 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
       </p>
     )
   } else if (taggedHumans.length > 0 && !agentTagged) {
-    // The hand-off, said out loud BEFORE sending (spec MN-7/MN-8): once a
-    // person is tagged the agent will stay quiet, and the user has to know
-    // that while they can still change their mind. Suppressed when `@Piloti`
-    // is tagged too — then the agent DOES answer (MN-1) and this sentence
-    // would be false; the addressee line above names both.
+    // The hand-off, said out loud BEFORE sending: once a person is tagged the
+    // agent will stay quiet, and the user has to know that while they can still
+    // change their mind. Suppressed when `@Piloti` is tagged too — then the agent
+    // DOES answer and this sentence would be false; the addressee line above names
+    // both.
     composerHint = (
       <p
         data-testid="composer-mention-hint"
@@ -1493,7 +1482,7 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
         <AtSign className="mt-0.5 size-3 shrink-0 opacity-70" aria-hidden="true" />
         <span>
           {/* German inflects the verb, so joining names into the singular
-              string produced "Anna Berger, Tobias Kern WIRD gefragt" — wrong
+              string would produce "Anna Berger, Tobias Kern WIRD gefragt": wrong
               grammar in the primary product language. This i18n layer has no
               plural rules, hence two keys. */}
           {taggedHumans.length === 1
@@ -1608,11 +1597,10 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
                     </span>
                   ) : (
                     /* WHERE the drop lands, in the sources panel's own words. The
-                   overlay used to state the accepted types and nothing else, so
-                   the one moment the user is deciding to hand over a file was
-                   also the one moment the app said nothing about which shelf it
-                   would go on — while the panel, one click away, both asked and
-                   answered that question. */
+                   overlay states the accepted types and nothing else, so the one
+                   moment the user is deciding to hand over a file is also the one
+                   moment the app says nothing about which shelf it goes on — while
+                   the panel, one click away, both asks and answers that question. */
                     <UploadDestinationNote target="session" />
                   )}
                 </div>
@@ -1692,8 +1680,8 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
             {/* Not for a viewer, for the same reason the desktop button beside the
             paperclip is disabled for them: what it opens is the browse / upload /
             per-file delete surface. This entry is `sm:hidden`, so leaving it out
-            of the gate left the whole write surface reachable on a phone while
-            the user guide said it was closed. */}
+            of the gate would leave the whole write surface reachable on a phone
+            while the user guide says it is closed. */}
             {attachedFilesCount > 0 && !cannotContribute && (
               <button
                 type="button"
@@ -1733,12 +1721,11 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
               rows={1}
               // The action key on a phone keyboard, told what it actually does.
               // `handleKeyDown` above sends on a plain Enter and only inserts a
-              // newline on Shift+Enter — but a `<textarea>` defaults its soft-key
-              // to the return glyph, so the most consequential key in the product
-              // was drawn as "start a new line" and wired to "send this to the
-              // agent". `enterKeyHint="send"` makes the label agree with the
-              // handler. It changes no behaviour on any device; it stops the
-              // phone from misdescribing the behaviour there already is.
+              // newline on Shift+Enter, but a `<textarea>` defaults its soft-key to
+              // the return glyph. Without this, the most consequential key in the
+              // product would be drawn as "start a new line" while wired to "send
+              // this to the agent". `enterKeyHint="send"` makes the label agree with
+              // the handler.
               //
               // Deliberately NOT paired with autocorrect/autocapitalize off the
               // way the search fields are: this field takes German prose, and
@@ -1904,7 +1891,7 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
               </Popover>
 
               {/* Datenbasis — the one control for WHERE Piloti may look.
-              WITHHELD for now (product decision, 2026-08): the picker is
+              WITHHELD (product decision): the picker is
               commented out rather than deleted so it can return. While it is
               hidden, every turn goes out with the fetch default — every
               available source enabled (`fetchDataSources`) — so nothing
@@ -1914,8 +1901,8 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
               SourceBasisTrigger` import above.
 
               The trigger names the mix (a preset, a set of strata, "Alle
-              Quellen"); it never renders a bare count, because the count it
-              used to render was wrong in both directions — see
+              Quellen"); it never renders a bare count, because a count is wrong
+              in both directions — see
               components/source-basis. Open state is lifted so the trigger can
               tell "the reader is watching the picker" from "a preset click
               landed off-screen".
@@ -1943,7 +1930,7 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
                   as a dropped send, the one impression a held message must not
                   give. The way out is offered beside it: a reader who does not
                   want to wait for the file can ask now and get the answer they
-                  would have got before this existed. */}
+                  would have got without the wait. */}
               {heldForUpload !== null && (
                 <span
                   className="text-muted-foreground flex items-center gap-1.5 text-xs"
@@ -1967,17 +1954,16 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
                   mentions={activeMentions}
                   awaitingHuman={threadAwaitsHuman}
                   // Only where there is somebody to mention: a solo thread grows no
-                  // collaboration furniture (spec NF-8).
+                  // collaboration furniture.
                   // Offered wherever collaboration is available — including a PRIVATE
                   // thread, because mentioning somebody is how a thread starts being
                   // shared (the picker offers "Wird eingeladen"). This is the discovery
                   // path into the feature, not a reward for already having used it.
                   //
-                  // But NOT to someone who may not write here. A screenshot of the
-                  // read-only composer caught this: the whole control row was dimmed
-                  // and this one link sat above "Sie können hier mitlesen", live and
-                  // underlined, offering to type an `@` into a disabled textarea.
-                  // Same class as the paperclip and the Datengrundlage popover.
+                  // But NOT to someone who may not write here. The read-only composer
+                  // dims the whole control row, so this one link must not sit above it
+                  // live and underlined, offering to type an `@` into a disabled
+                  // textarea. Same class as the paperclip and the Datengrundlage popover.
                   onMentionSomeone={cannotContribute ? undefined : handleMentionSomeone}
                 />
               )}
@@ -1985,8 +1971,8 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
               {/* Right Actions: manage-files, attach, submit — pushed right */}
               <div className="ml-auto flex items-center gap-1">
                 {/* Manage files — opens a Dialog hosting the full FileSourcesTab
-                (browse, upload zone, per-file delete). Replaces the old
-                right-panel toggle. Shown only when files exist. */}
+                (browse, upload zone, per-file delete). Shown only when files
+                exist. */}
                 {attachedFilesCount > 0 && (
                   <Button
                     variant="ghost"
@@ -2051,7 +2037,7 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
                 {/* Send button. isResponseMode always shows the normal send button so
                 users can submit HITL responses (approve/reject) mid-turn. */}
                 {isStreaming && !isResponseMode ? (
-                  // Stop button (C1): while a shallow-thinking turn streams, replace
+                  // Stop button: while a shallow-thinking turn streams, replace
                   // the disabled send button with a stop control that cancels the
                   // in-flight turn via the chat store's stopStreaming action.
                   <motion.div
@@ -2066,8 +2052,8 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
                       // `isStreaming` is the LOCAL store's turn flag and a viewer
                       // never starts a local turn, so this is belt and braces rather
                       // than a demonstrated hole — but cancelling somebody else's
-                      // turn is the most consequential thing on this row, and it was
-                      // the one control here with no gate at all.
+                      // turn is the most consequential thing on this row, so it is
+                      // gated like the rest.
                       disabled={cannotContribute}
                       onClick={() => stopStreaming?.()}
                       aria-label={t('inputArea.stopStreaming')}
@@ -2088,13 +2074,11 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
                     <Button
                       size="icon"
                       className={cn(
-                        // Ink, in both states. The armed button used to fill
-                        // with `accent-pop`, to mark readiness — but the
-                        // disabled/armed pair already reads as readiness
-                        // (the control goes from muted to solid and becomes
-                        // pressable), so the colour was carrying a distinction
-                        // the contrast had already made, in a hue this product
-                        // uses elsewhere to mean provenance.
+                        // Ink, in both states. The disabled/armed pair already
+                        // reads as readiness (the control goes from muted to solid
+                        // and becomes pressable), so no colour is needed for that
+                        // distinction, and the hue is one this product uses
+                        // elsewhere to mean provenance.
                         'size-9 rounded-lg shadow-md'
                       )}
                       onClick={() => handleSubmit()}
@@ -2137,8 +2121,8 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
             </div>
 
             {/* Single hint slot: the first applicable helper line, announced
-                politely. The Deep-Research intent echo was deleted — the pill's
-                title carries it — so an armed pill shows no line at all. */}
+                politely. There is no Deep-Research intent echo: the pill's title
+                carries it, so an armed pill shows no line at all. */}
             <div aria-live="polite">{composerHint}</div>
           </div>
         </PopoverAnchor>
@@ -2190,9 +2174,8 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
           and desktop, while staying persistently visible, legible and not
           hidden behind a click, per the Art. 50(5) "clear and distinguishable"
           standard. That standard is carried by the SENTENCE, which is
-          unabridged, always rendered and never collapsed; it used to be led by
-          a spark glyph as well, and the glyph was reinforcement rather than the
-          disclosure. The composer floats over the scrolling chat, so a light
+          unabridged, always rendered and never collapsed; a glyph in front of it
+          would be reinforcement rather than the disclosure. The composer floats over the scrolling chat, so a light
           blurred pill keeps it readable over messages behind it. */}
       <div className="mt-1.5 flex justify-center">
         {/* Frosted, not hand-derived: this hint sits ON the transcript, and the

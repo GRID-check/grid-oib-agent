@@ -7,11 +7,11 @@ import * as pulumi from "@pulumi/pulumi";
  * ## Why this file exists
  *
  * `tsc --noEmit` proves the program is well-typed. It proves nothing about the
- * manifests, which is where every SeaweedFS bug in this repo's history has
- * lived: a flag renamed between versions, a Service missing the gRPC port that
- * `weed shell` needs, a probe pointed at an endpoint that answers 423. Those
- * are all string-valued and all invisible to the type checker, and until now
- * the only way to find one was a live deploy.
+ * manifests, which is where SeaweedFS bugs tend to live: a flag renamed between
+ * versions, a Service missing the gRPC port that `weed shell` needs, a probe
+ * pointed at an endpoint that answers 423. Those are all string-valued and all
+ * invisible to the type checker, and without this file the only way to find one
+ * is a live deploy.
  *
  * `pulumi.runtime.setMocks` runs the program without a cluster or a backend, so
  * the resource inputs can be asserted directly. What follows is deliberately
@@ -178,8 +178,7 @@ function makeConfig(overrides: Record<string, unknown> = {}) {
  *
  * Module scope rather than inside a `describe`, because one of the rules below
  * ("never probe a non-self-scoped endpoint") has to hold across BOTH topologies
- * — and a helper scoped to one describe is how that rule came to be asserted for
- * the split topology only while the single-node one broke it.
+ * — a helper scoped to one describe would let it hold for one topology only.
  *
  * Each provider gets a distinct name: Pulumi rejects two resources with the same
  * URN, so a shared one would make the second install in any test throw.
@@ -232,9 +231,9 @@ describe("split topology", () => {
   it("addresses the master separately from the S3 endpoint", async () => {
     const t = await install();
     // `weed shell` and the metadata snapshot dial the MASTER, not the gateway.
-    // Under `single` these were the same host; a caller that kept assuming so
-    // would connect-BLOCK rather than fail, because nothing listens on 9333 at
-    // the filer Service.
+    // Under `single` they are the same host; a caller that assumes so would
+    // connect-BLOCK rather than fail, because nothing listens on 9333 at the
+    // filer Service.
     expect(t.masterAddress).toBe("seaweedfs-master:9333");
     expect(t.filerAddress).toBe("seaweedfs:8888");
   });
@@ -254,7 +253,7 @@ describe("split topology", () => {
     const svc = (await value(t.service.spec)) as { ports?: Array<{ port: number }> };
     const master = (await value(t.masterService.spec)) as { ports?: Array<{ port: number }> };
     // 18888 is what `weed shell` and `filer.backup` use; a Service that omits
-    // it makes them hang rather than error (found on a live deploy).
+    // it makes them hang rather than error.
     expect(svc.ports?.map((p) => p.port).sort((a, b) => a - b)).toEqual([8333, 8888, 18888]);
     expect(master.ports?.map((p) => p.port).sort((a, b) => a - b)).toEqual([9333, 19333]);
   });
@@ -449,22 +448,21 @@ describe("split topology", () => {
       (await statefulSetSpec(t.workloads[i])).volumeClaimTemplates?.[0]?.spec?.resources?.requests
         ?.storage;
 
-    // The filer's claim used to request `masterStorageSize` — a key documented
-    // and defaulted (1Gi) for a raft log — while under `filerStore: "leveldb"`
-    // it holds the metadata entry and the per-chunk AES key for every object in
-    // the deployment. An operator whose filer store was filling had nothing to
-    // raise but the master's claim, and a full filer store stops every write.
+    // The filer's claim must not follow `masterStorageSize` (1Gi, a raft log):
+    // under `filerStore: "leveldb"` it holds the metadata entry and the per-chunk
+    // AES key for every object in the deployment, and a full filer store stops
+    // every write.
     expect(await size(0)).toBe("1Gi");
     expect(await size(1)).toBe("500Gi");
     expect(await size(2)).toBe("40Gi");
   });
 
-  // The defect this pins killed the whole filer process, not just the S3 API:
+  // A missing `s3.json` kills the whole filer process, not just the S3 API:
   // `NewIdentityAccessManagement` calls `glog.Fatalf` when `-s3.config` names a
-  // file it cannot read. The split rewrite mounted only `filer.toml`, so every
-  // fresh `split` stack would have crash-looped from first boot — and the
-  // bucket-init Job waits on the filer's /healthz, so `pulumi up` would never
-  // converge and every downstream workload would block behind it.
+  // file it cannot read. Without the file a `split` stack would crash-loop from
+  // first boot, and the bucket-init Job waits on the filer's /healthz, so
+  // `pulumi up` would never converge and every downstream workload would block
+  // behind it.
   it("mounts BOTH config Secrets at the path the filer reads", async () => {
     const t = await install();
     const spec = await statefulSetSpec(t.workloads[2]);
@@ -551,20 +549,18 @@ describe("split topology", () => {
 
 describe("single-node topology", () => {
   /**
-   * The rule that was written down and broken anyway.
+   * A probe must not use `/cluster/healthz`.
    *
-   * `/cluster/healthz` answers `423 Locked` while a master holds a topology
-   * child lock — an ordinary admin or volume operation — and a kubelet reads 423
-   * as a failed probe. The single-node comment explained exactly this, three
-   * lines above a READINESS probe that used it. Readiness is the worse place for
-   * it: this pod is the only endpoint of the `seaweedfs` Service, so a lock
-   * removes the last endpoint and object storage goes offline for the app tier,
-   * the purger, the edge and bucket-init at once, with nothing restarting and no
-   * failing container to point at.
+   * That endpoint answers `423 Locked` while a master holds a topology child
+   * lock — an ordinary admin or volume operation — and a kubelet reads 423 as a
+   * failed probe. Readiness is the worst place for it: this pod is the only
+   * endpoint of the `seaweedfs` Service, so a lock removes the last endpoint and
+   * object storage goes offline for the app tier, the purger, the edge and
+   * bucket-init at once, with nothing restarting and no failing container to
+   * point at.
    *
-   * Asserted as a rule over EVERY workload in BOTH topologies rather than as
-   * three per-container assertions, because the defect was not a missing check —
-   * it was a paragraph where a test belonged.
+   * Asserted as a rule over every workload in both topologies, not as
+   * per-container assertions, so a new workload cannot skip it.
    */
   it("never probes /cluster/healthz outside a master quorum, in either topology", async () => {
     const solo = await installSingle();
@@ -624,12 +620,12 @@ describe("single-node topology", () => {
     expect(container(spec, "seaweedfs").args!.join(" ")).toContain("-volume.max=128");
   });
 
-  it("gives per-org buckets far more slots than the old cap of 8", async () => {
-    // The staging outage: a bucket is a SeaweedFS COLLECTION and each one needs
-    // a writable volume, so the slot count caps how many tenants can ever be
-    // onboarded. At 8 the ninth organization's first write failed with a bare
-    // S3 `InternalError` while 9.6 GB of a 9.7 GB disk sat free — the cap, not
-    // the disk. Anything at or below 8 puts that ceiling back.
+  it("gives per-org buckets more than 8 volume slots", async () => {
+    // A bucket is a SeaweedFS COLLECTION and each one needs a writable volume, so
+    // the slot count caps how many tenants can ever be onboarded. At 8, the ninth
+    // organization's first write fails with a bare S3 `InternalError` while the
+    // disk has room: the cap, not the disk. Anything at or below 8 puts that
+    // ceiling back.
     const t = await installSingle({ perOrgBuckets: true });
     const spec = await statefulSetSpec(t.workloads[0]);
     const args = container(spec, "seaweedfs").args!.join(" ");
@@ -666,9 +662,9 @@ describe("s3 identities", () => {
     const cfg = await render({});
     for (const identity of cfg.identities) {
       for (const action of identity.actions) {
-        // `canDo` compares a bare action with `a == action` BEFORE it looks at
-        // the bucket. `"Read"` on its own is a grant on everything — which is
-        // how the agent tier came to be able to read the Postgres PITR archive.
+        // `canDo` compares a bare action with `a == action` BEFORE it looks at the
+        // bucket. `"Read"` on its own is a grant on everything, including the
+        // Postgres PITR archive that the agent tier must not read.
         expect(action).toContain(":");
       }
     }
@@ -678,8 +674,8 @@ describe("s3 identities", () => {
     const cfg = await render({});
     const backendRead = cfg.identities.find((i) => i.name === "grid-backend-read")!;
     // Document buckets only: the shared one and the tenant prefix. NOT the
-    // PITR archive, which a bare `Read` used to cover — i.e. every row of
-    // every database, readable by the agent tier.
+    // PITR archive: a bare `Read` would cover it, i.e. every row of every
+    // database, readable by the agent tier.
     expect(backendRead.actions).toEqual(["Read:grid-documents", "Read:grid-org-*"]);
     expect(backendRead.actions.join(" ")).not.toContain("grid-pg-backups");
   });
@@ -772,14 +768,9 @@ describe("config checksum", () => {
 
 /**
  * The compose stacks build `s3.json` with a shell `printf`, which is a SECOND
- * definition of the authorization model — and it had drifted. It declared two
- * identities where the catalogue declares three, so `grid-backend-read` did not
- * exist there and the agent tier ran on the write-capable `grid` credential: a
- * strictly weaker model than production, in the environment people develop
- * against.
- *
- * The old defence was a comment claiming the two were "the same shape, so a
- * developer can diff the two". Nothing made that true. These tests do: the
+ * definition of the authorization model. A divergence there would give the
+ * agent tier a weaker model than production, in the environment people develop
+ * against, so these tests hold the compose files to the catalogue: the
  * catalogue is the source, and a divergence fails the build.
  */
 describe("compose stacks match the identity catalogue", () => {
@@ -848,10 +839,9 @@ describe("compose stacks match the identity catalogue", () => {
     // of them different. Reusing a variable would make two identities the same
     // credential, which silently collapses the split this whole model rests on.
     //
-    // Counted from the identity list in the same file rather than hardcoded:
-    // the previous fixed `6` meant that adding a fourth identity failed here
-    // with "expected 8 to be 6", which says nothing about credentials and
-    // invites someone to bump the number without checking distinctness.
+    // Counted from the identity list in the same file rather than hardcoded: a
+    // fixed count fails on any new identity for a reason that says nothing about
+    // credentials, and invites someone to bump it without checking distinctness.
     const identities = await composeIdentities(file);
     const expectedVars = identities.length * 2;
 

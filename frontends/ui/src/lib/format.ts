@@ -48,12 +48,9 @@ export const formatCredits = (value: number, locale?: string): string => {
 /**
  * Byte sizes for humans ("1.4 GB" / "1,4 GB").
  *
- * **The one byte formatter.** There used to be two — this, and a
- * `formatFileSize` in `lib/utils/` that counted in 1024s — so the same
- * 1,048,576-byte document read as "1.0 MB" on its card and contributed
- * "1 MB" to a storage figure, and an administrator's 1 GB quota rendered as
- * 0.93 of itself. Two functions computing the same quantity differently is a
- * fork whose copies each look locally correct; there is now one.
+ * **The one byte formatter.** A second one that counted in 1024s would show the
+ * same file under two sizes, and two copies that each look locally correct are
+ * a fork. So there is one.
  *
  * Decimal units (1000-based), not binary, because that is what the numbers
  * beside them mean: a quota is entered in GB (`BYTES_PER_GB = 1e9`), an upload

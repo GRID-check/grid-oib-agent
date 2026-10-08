@@ -16,13 +16,13 @@
  * `RunBlock`: the same phases, rounds, documents and status line the thread
  * shows, off the same ledger.
  *
- * It used to restate the card instead — a kind chip, a status chip, the goal,
- * the review reason and the error, all of which the card the reader had just
- * clicked already showed, in a second grammar assembled from `SheetTitle` and
+ * The drawer does not restate the card. A kind chip, a status chip, the goal,
+ * the review reason and the error are all things the card the reader just
+ * clicked already shows, in a second grammar assembled from `SheetTitle` and
  * `SectionLabel`. That is the lookalike `frontends/ui/AGENTS.md` forbids
- * („show something a surface already shows → reuse the organism"), and it made
- * the bigger, more deliberate surface say strictly LESS about the run than the
- * row that opened it: the card at least carried the run line.
+ * („show something a surface already shows → reuse the organism"), and it would
+ * make the bigger, more deliberate surface say strictly less about the run than
+ * the row that opened it.
  *
  * What survives around the block, in this order:
  *
@@ -34,19 +34,15 @@
  *      drawer must never become the only door to it.
  *   3. **„Als Zeitplan speichern".** The moment a person has just read a result
  *      they liked is the moment they are most willing to commit to getting it
- *      every week — and it used to cost them a walk to another tab and a
- *      retyped prompt. Offered only on work that is not already on a schedule:
- *      on a scheduled run it would propose duplicating the thing that produced
- *      it.
+ *      every week, so the drawer offers it there rather than sending them to
+ *      another tab and a retyped prompt. Offered only on work that is not
+ *      already on a schedule: on a scheduled run it would propose duplicating
+ *      the thing that produced it.
  *
  * The goal, the review reason and the error are NOT repeated here: the block's
  * title carries the ask, its status line carries the failure, and its review
- * quote carries the reviewer's words. A task with no ledger at all — a run from
- * before run messages existed — falls back to exactly those paragraphs, because
- * then they are the only account there is.
- *
- * The template half of this drawer moved to `features/jobs/schedule-detail`
- * with the schedules themselves.
+ * quote carries the reviewer's words. A task with no ledger at all falls back to
+ * those paragraphs, because then they are the only account there is.
  */
 
 import type { JSX } from 'react'
@@ -67,10 +63,9 @@ import { useTaskRun } from '../hooks/use-task-run'
 import { isActiveTask, taskResultTarget, taskThreadHref, type TaskWireRow } from '../lib/task-view'
 
 /**
- * One icon per place a result can live. Two of them, because a run's report and
- * its thinking are no longer destinations of their own: both lived behind
- * `?job=` in the side panel, and both are the run's own message in its thread
- * now (ADR-0062) — which the block above this button already renders.
+ * One icon per place a result can live. A run's report and its thinking are not
+ * destinations of their own: both are the run's own message in its thread
+ * (ADR-0062), which the block above this button already renders.
  */
 const RESULT_ICON: Record<'document' | 'conversation', LucideIcon> = {
   document: FileText,
@@ -215,8 +210,8 @@ function TaskDetailBody({
           title={task.title}
           // No `projectId`, which is what enables the block's own „Im Projekt
           // anzeigen". The drawer's primary button is already that door, and
-          // two controls opening one document is the duplication this rewrite
-          // came to remove. In a thread the block has no result button beside
+          // two controls opening one document is the duplication to avoid. In a
+          // thread the block has no result button beside
           // it and keeps the link; here it yields.
           projectId={null}
           // The drawer body is the scroller, so the block keeps its own
@@ -305,12 +300,11 @@ function TaskDetailBody({
 /**
  * What the drawer says when there is no block to show.
  *
- * Two different silences, said differently. A run from before run messages
- * existed HAS no account — the drawer falls back to the facts the row carries,
- * which is exactly what the old drawer always showed and is the right answer
- * for a legacy row. A read that was refused has an account the reader simply
- * could not be given, and saying „Auftrag" over the goal would quietly imply
- * that is all there ever was.
+ * Two different silences, said differently. A run with no ledger has no account,
+ * and the drawer falls back to the facts the row carries, which is the right
+ * answer when there is no account to show. A read that was refused has an
+ * account the reader simply could not be given, and saying „Auftrag" over the
+ * goal would quietly imply that is all there ever was.
  */
 function TaskDetailFallback({ task, failed }: { task: TaskWireRow; failed: boolean }): JSX.Element {
   const t = useTranslations('tasks')

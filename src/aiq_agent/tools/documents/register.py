@@ -4,14 +4,12 @@ Everything else under ``tools/documents/`` stays inside the conversation. This
 tool is the seam: it files a draft as a draft version, and with ``submit=True``
 it then submits that version for review.
 
-**It was two tools, and the reason it is one is the sequence.** Filing and
-submitting were ``file_draft`` and ``submit_draft``, and a submit was always
-preceded by a filing of the same path — the second tool refused an unfiled
-draft and named the first. A pair that is always called in that order is one
-operation with a parameter, and every turn that carried both schemas paid for
-the second on every call.
+**One tool, because the sequence is one operation.** A submit is always preceded
+by a filing of the same path, and a pair that is always called in that order is
+one operation with a parameter: two schemas would be paid for on every call of
+every turn that carries them.
 
-What the split protected is kept, in the parameter's shape rather than in a
+What a separate submit step would protect is kept, in the parameter's shape rather than in a
 second verb. **Filing and submitting are different promises to the reader.**
 Filing produces a draft nobody has to look at; submitting opens an inbox item
 on a named reviewer and asks a person to spend attention — and once it is
@@ -28,7 +26,7 @@ store remembers which draft version was filed
 (``draft_store.FILED_AT_DRAFT_VERSION_KEY``); when that is still the current
 one there is nothing to file, and an ``update`` of the same bytes would only
 write a second object and trip If-Match over a person's edit in the Files pane.
-Every refusal the old ``submit_draft`` gave on that path is given unchanged.
+The refusals a standalone submit would give on that path are given unchanged.
 
 There is deliberately no ``note``. The wire carries the version,
 ``reviewerUserIds`` and a ``reviewer`` NAME

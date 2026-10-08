@@ -7,11 +7,11 @@ import type { GridConfig } from "../config";
 /**
  * Public DNS for the stack's hosts, in Cloudflare.
  *
- * This exists to delete a manual step. Every deploy used to end with an
- * operator reading the Envoy LoadBalancer's external IP and retyping it into a
- * registrar's web UI for each host — `docs/deployment/kubernetes.md` said so in
- * as many words. That step has no failure mode that looks like a failure: a
- * typo'd or forgotten record produces a healthy cluster serving nobody, and a
+ * This exists to delete a manual step: an operator reading the Envoy
+ * LoadBalancer's external IP and retyping it into a registrar's web UI for each
+ * host (`docs/deployment/kubernetes.md`). That step has no failure mode that
+ * looks like a failure: a typo'd or forgotten record produces a healthy cluster
+ * serving nobody, and a
  * cert-manager HTTP-01 challenge that never solves because the CA cannot reach
  * the name it is validating.
  *

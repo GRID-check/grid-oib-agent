@@ -2,8 +2,8 @@
  * ReasoningFlow — the Herleitung rendered as a real node graph (@xyflow/react).
  *
  * Framing → (for two or more fetches: each checkpoint, then the files THAT
- * fetch returned) → findings → (live HITL) branches. One retrieval stays the
- * old fan. A second search is a new layer: conclusion, tools, then its own
+ * fetch returned) → findings → (live HITL) branches. One retrieval is a single
+ * fan. A second search is a new layer: conclusion, tools, then its own
  * fan. Each layer speaks the model's thought when it wrote one, never the
  * search query. Every layer is numbered in execution order (`Schritt N`) with
  * a typed sublabel for what it did — tool-call ids are never shown as numbers.
@@ -14,8 +14,7 @@
  * evidence, so there is no auto-fold; see `defaultFoldedRounds`. A folded
  * layer contributes no column nodes at all, so the measured stacking pass
  * reclaims the row rather than leaving a gap where the fan was.
- * derived from the SAME streamed props the old ReasoningChain used, so the graph
- * grows as a turn streams in. The canvas is non-interactive (no pan/zoom/drag)
+ * derived from the streamed props of the turn, so the graph grows as it streams in. The canvas is non-interactive (no pan/zoom/drag)
  * and renders at 1:1 — its height comes from MEASURED node heights (no fitView,
  * no hardcoded guesses), so it sits inline in the chat like any other block.
  *
@@ -27,10 +26,10 @@
  * turn-level cards, so the chip, the preview and the markers are untouched, but
  * each card names the locus that round read and a file an earlier round already
  * showed says so instead of repeating the turn's hit count. Without a ledger —
- * or for a round it does not cover — the fan is the filename match it always
- * was. Before this, a round that re-opened four files at new pages drew four
- * identical cards a second time, and a re-read was indistinguishable from a
- * second fetch. See `roundFan`.
+ * or for a round it does not cover — the fan is the filename match. A round
+ * that re-opens four files at new pages would otherwise draw four identical
+ * cards, and a re-read would be indistinguishable from a second fetch. See
+ * `roundFan`.
  *
  * ## Layout: columns, not an orientation flip
  *
@@ -43,16 +42,16 @@
  * to the one-column grouped "Quellen" container.
  *
  * The banners span the full content width, so every handle sits INSIDE its node
- * (the old fixed 460px banner left the outer columns' edges dangling in empty
+ * (a fixed 460px banner would leave the outer columns' edges dangling in empty
  * space beside it).
  *
  * ## Wiring: one trunk that splits and merges
  *
  * Both banners expose a SINGLE centred handle, so the connectors share their
  * first and last segment: one line leaves the framing card, splits across the
- * columns, and merges back into one line entering the assessment. The old
- * per-column handles landed N separate drops side by side on the banner edges,
- * which read as parallel arrows rather than a fan.
+ * columns, and merges back into one line entering the assessment. Per-column
+ * handles would land N separate drops side by side on the banner edges, which
+ * read as parallel arrows rather than a fan.
  *
  * Getting the bar to be one line rather than a staircase is entirely
  * @xyflow/react's own `getSmoothStepPath` — it takes `centerX`/`centerY` (the
@@ -73,12 +72,12 @@
  * `getEdgePosition` returns null and every edge on that handle silently fails
  * to render.
  *
- * That is what a conditional handle used to do here. A live turn starts with no
- * sources and no verdict, so the framing card was measured with an EMPTY handle
- * list; the first streamed source then added its bottom anchor without changing
- * the card's height, and the fan-out drew no connectors at all — unless another
- * framing line happened to land in the same tick and resize the card into a
- * re-measure. Hence "sometimes the connectors are mangled".
+ * A conditional handle does exactly this. A live turn starts with no sources and
+ * no verdict, so the framing card is measured with an EMPTY handle list; the
+ * first streamed source then adds its bottom anchor without changing the card's
+ * height, and the fan-out draws no connectors at all — unless another framing
+ * line happens to land in the same tick and resize the card into a re-measure.
+ * So the connectors are sometimes mangled.
  *
  * So every node declares its FULL handle set for its whole lifetime, whether or
  * not an edge is currently attached: the anchors are 1×1 and invisible, and one
@@ -94,18 +93,18 @@
  *     is seeded at its row's last known y instead of on top of the framing card.
  *  2. Both the re-seed and the measure→place pass are LAYOUT effects, so a
  *     streamed update lands its data, its x and its measured y in one pre-paint
- *     commit. As a passive effect the re-seed painted a frame of the previous
+ *     commit. As a passive effect the re-seed would paint a frame of the previous
  *     tick's data at the new tick's layout, every tick.
  *  3. The pass measures the node ELEMENTS, and re-runs on every width the fan is
  *     planned against. React Flow's own `measured` is a frame behind across a
  *     reflow, and it emits no dimension change for a node that ends a reflow at
  *     the size it started — a viewport that widens and snaps back (a rotation, a
- *     devtools pane, a full-page screenshot) therefore left the graph placed
- *     from the widths it had MID-reflow, with every row overlapping the next and
+ *     devtools pane, a full-page screenshot) would leave the graph placed from
+ *     the widths it had MID-reflow, with every row overlapping the next and
  *     nothing left to trigger a correction.
  *  4. The opacity gate lifts once, after the FIRST layout. Reflows (resize,
- *     streaming, column re-packing) keep the graph visible — the old gate was
- *     keyed on orientation and fired a full fade-out/in on every flip.
+ *     streaming, column re-packing) keep the graph visible; a gate keyed on
+ *     orientation would fire a full fade-out/in on every flip.
  *
  * ## What moves
  *
@@ -167,10 +166,9 @@ const H = { opacity: 0, width: 1, height: 1, minWidth: 0, minHeight: 0, border: 
  * The edge ink: foreground at 18%, mixed rather than a token so it sits on any
  * surface (muted, card, popover) in both themes without a second variable.
  *
- * It lived in `components/ui/timeline.tsx` while the run block drew a connected
- * phase list with the same mix. That list is now hairline-separated rows
- * (`ItemList`), so the graph is the only surface left that strokes an edge, and
- * the constant lives where it is used.
+ * The graph is the only surface that strokes an edge (the run block's phase list
+ * uses hairline-separated rows, `ItemList`), so the constant lives where it is
+ * used.
  */
 const EDGE_STROKE = 'color-mix(in oklch, var(--foreground) 18%, transparent)'
 
@@ -310,7 +308,7 @@ type RoundData = {
    * file is document + its cited locus (bare name when uncited), two are
    * both names, three or more are count + first name + "u.a."
    * (see `foldSummary`). Never a bare count, and never
-   * the query — the same PF-12 rule as the body.
+   * the query — the same rule as the body.
    */
   foldSummary: string
   /** Accessible name of the fold control; the card's own text is the context. */
@@ -391,7 +389,7 @@ const RoundFlowNode: FC<NodeProps<Node<RoundData>>> = ({ data }) => (
       </ul>
     ) : null}
     {/* Folded: the fan collapses to its scent — the count plus the top
-        filename(s). Not the query (PF-12), and never a bare count: evidence
+        filename(s). Not the query, and never a bare count: evidence
         hidden behind a number reads as no evidence. */}
     {data.foldable && data.folded ? (
       <p className="mt-1.5 border-t border-base pt-1.5 text-xs leading-relaxed text-muted-foreground">
@@ -566,7 +564,7 @@ export interface ReasoningFlowProps {
    * in it (matched by `index`), the fan under that round is the LEDGER's docs
    * — each at the page THAT round read, and marked when an earlier round had
    * already shown the file. A round the ledger does not have keeps the
-   * filename match, which is what every turn before the ledger had.
+   * filename match.
    */
   retrievalLedger?: RetrievalLedger
   /** Turn is still streaming — the connectors into the newest row march and the graph keeps growing. */
@@ -716,7 +714,7 @@ function trunkEdge(anchor: 'source' | 'target'): FC<EdgeProps> {
       // `offset` is the minimum straight run out of a handle, and it OVERRIDES
       // centerY when the two disagree. The default (20) is the full elbow
       // distance, so the tallest column — which ends exactly ROW_GAP above the
-      // assessment — got pushed off the shared bar by a pixel or two, drawing
+      // assessment — is pushed off the shared bar by a pixel or two, drawing
       // the trunk as two near-parallel lines. Keep it well under TRUNK_ELBOW.
       offset: TRUNK_ELBOW / 2,
     })
@@ -880,9 +878,9 @@ const onlyOpened = (tools: string[]): boolean =>
  * `accounted` is whether the backend's retrieval ledger holds this round. A
  * ledger round with no documents is a fetch the backend SAW return nothing —
  * a miss, and the layer says so, whatever the model concluded beside it. A
- * turn stored before the ledger existed has no such record: there an empty
- * layer may be a miss or a hit the old wire never stamped, and `Suche` stays
- * the honest word for not knowing which.
+ * stored turn with no ledger record has no such fact: there an empty layer may
+ * be a miss or an unstamped hit, and `Suche` is the honest word for not knowing
+ * which.
  */
 function roundKind(
   hasThought: boolean,
@@ -1049,10 +1047,10 @@ export function buildGraph(
   // sources and MERGES back out of them — the connectors share their first and
   // last segment instead of arriving as N separate parallel drops.
   //
-  // Unconditional on purpose: gating these on `hasSources || convergeId` meant
-  // the framing card of a just-started turn was measured with no handles, and
-  // the anchor the first streamed source needs was then added to a node already
-  // on screen — which React Flow never re-measures, so the fan drew no
+  // Unconditional on purpose: gating these on `hasSources || convergeId` would
+  // measure the framing card of a just-started turn with no handles, and
+  // the anchor the first streamed source needs would then be added to a node already
+  // on screen — which React Flow never re-measures, so the fan would draw no
   // connectors. See the module header.
   const framingSources: HandleSpec[] = [CENTRE_BOTTOM]
   const convergeTargets: HandleSpec[] = [CENTRE_TOP]
@@ -1138,9 +1136,9 @@ export function buildGraph(
   const nodes: Node[] = []
   const edges: Edge[] = []
 
-  // One retrieval stays the old fan. Two or more are a spine: each checkpoint
+  // One retrieval is a single fan. Two or more are a spine: each checkpoint
   // hangs the files THAT fetch returned, then the next conclusion. The body
-  // is the thought, never the query (PF-12). A missing Thought is an empty
+  // is the thought, never the query. A missing Thought is an empty
   // body, not a caption we invent. Tools sit on the checkpoint as the
   // architect-facing names of what that round actually did.
   const spine = rounds.length >= 2
@@ -1211,7 +1209,7 @@ export function buildGraph(
       const fan = fans[i]!
       // DOCUMENTS, not hits: a slot is one file with every passage this round
       // read of it, so a round that opened five Punkte of one Richtlinie is
-      // one document — which is what „3 Dateien" has always claimed to count.
+      // one document — which is what „3 Dateien" claims to count.
       const documentCount = fan.roundCards.length
       const accounted = props.retrievalLedger?.some((entry) => entry.index === round.index) ?? false
       const roundData: RoundData = {
@@ -1351,8 +1349,8 @@ export function sameNodeData(a: unknown, b: unknown): boolean {
 }
 
 // Module constants, not literals in the JSX: React Flow compares these by
-// identity, and a new object on every ReasoningFlow render re-rendered its
-// GraphView, FlowRenderer and ZoomPane each time (React performance audit, 2026-09).
+// identity, and a new object on every ReasoningFlow render would re-render its
+// GraphView, FlowRenderer and ZoomPane each time.
 const DEFAULT_VIEWPORT = { x: 0, y: 0, zoom: 1 }
 const PRO_OPTIONS = { hideAttribution: true }
 
@@ -1394,7 +1392,7 @@ const FlowInner: FC<{ built: BuiltGraph; layout: FanLayout; live: boolean }> = (
   const [height, setHeight] = useState<number | null>(null)
   // Lifts once, after the first measured layout. Reflows afterwards (resize,
   // streaming, column re-packing) keep the graph visible — fading on every
-  // relayout is exactly the flicker this replaced.
+  // relayout is the flicker to avoid.
   const [laidOut, setLaidOut] = useState(false)
   /** Last measured y per row index — seeds nodes that appear mid-stream. */
   const rowYRef = useRef<number[]>([])
@@ -1414,8 +1412,8 @@ const FlowInner: FC<{ built: BuiltGraph; layout: FanLayout; live: boolean }> = (
   // resets the layout to the provisional y=0 stack.
   //
   // A LAYOUT effect, not a passive one: the measure→place pass below is one, so
-  // as a passive effect this landed a frame later and every stream tick painted
-  // the previous tick's node data sitting at the new tick's layout.
+  // as a passive effect this would land a frame later, and every stream tick would paint
+  // the previous tick's node data at the new tick's layout.
   useLayoutEffect(() => {
     setRfNodes((prev) => {
       const prevById = new Map(prev.map((n) => [n.id, n]))
@@ -1430,10 +1428,9 @@ const FlowInner: FC<{ built: BuiltGraph; layout: FanLayout; live: boolean }> = (
           return { ...n, position: { x: n.position.x, y: rowY ?? rowYRef.current.at(-1) ?? 0 } }
         }
         // Nothing about the node changed: keep the very object, so React Flow
-        // neither re-renders nor re-measures it. Every node used to be a new
-        // object on every step, and each arriving round re-rendered and
-        // re-measured the whole graph: a 65–70 ms task per round on a 4×
-        // throttled phone (Herleitung audit, 2026-09).
+        // neither re-renders nor re-measures it. A new object per node would
+        // re-render and re-measure the whole graph on each arriving round: a 65–70
+        // ms task per round on a 4× throttled phone.
         if (old.position.x === n.position.x && old.type === n.type && sameNodeData(old.data, n.data)) {
           return old
         }
@@ -1475,9 +1472,9 @@ const FlowInner: FC<{ built: BuiltGraph; layout: FanLayout; live: boolean }> = (
   // The connectors are solid. While the turn streams, the ones into the newest
   // row are React Flow's own `animated` edges, and nothing else in the graph
   // moves. That dash loop repaints on the main thread (a marching connector
-  // measured ~245 ms of main thread per second on a 4x throttled phone,
-  // Herleitung audit, 2026-09), so it is held to the frontier and to a live
-  // turn: a settled graph draws no animated edge at all.
+  // costs ~245 ms of main thread per second on a 4x throttled phone, so it is
+  // held to the frontier and to a live turn: a settled graph draws no animated
+  // edge at all.
   const frontierKey = live ? (rows.at(-1) ?? []).join('|') : ''
   // The last edges handed to React Flow, so an unchanged edge keeps its object
   // (`keepEdgeIdentity`). Rewritten only when the memo recomputes, and the
@@ -1503,7 +1500,7 @@ const FlowInner: FC<{ built: BuiltGraph; layout: FanLayout; live: boolean }> = (
   // behind — and for a node that ends a reflow at the size it started at, React
   // Flow emits no dimension change at all. A viewport that widens and snaps back
   // (an orientation change, a devtools pane, a full-page screenshot) therefore
-  // used to strand this graph in the heights it had MID-reflow: rows overlapping
+  // strands this graph in the heights it had MID-reflow: rows overlap
   // the next, and nothing left that would ever trigger a correction. Reading the
   // DOM in a layout effect is always current, and `contentW`/`colW` in the deps
   // guarantee a pass on both edges of the reflow, so the second one lands on the
@@ -1544,9 +1541,9 @@ const FlowInner: FC<{ built: BuiltGraph; layout: FanLayout; live: boolean }> = (
       return moved ? next : prev
     })
     // A live graph only grows. At the second round the fan's nodes are replaced
-    // by the spine's, and until those are measured the rows came out short: the
-    // graph shrank 697 → 408 px and grew to 1009 px, and the page jumped with it
-    // (Herleitung audit, 2026-09). Once the turn ends it takes its real height.
+    // by the spine's, and until those are measured the rows come out short: the
+    // graph shrinks and grows again, and the page jumps with it. Once the turn
+    // ends it takes its real height.
     const measuredHeight = Math.max(120, Math.ceil(Math.max(0, y - ROW_GAP)) + PAD)
     setHeight((previous) => (live && previous !== null ? Math.max(previous, measuredHeight) : measuredHeight))
     setLaidOut(true)
@@ -1641,8 +1638,8 @@ export const ReasoningFlow: FC<ReasoningFlowProps> = (props) => {
   /**
    * The turn's documents — retrieval fan-out AND the answer's own citations,
    * folded into one model. Feeding both in is what lets a card in this fan say
-   * which `[N]` it became; before, the trace was built from the retrieval half
-   * alone and had no way to reach the other.
+   * which `[N]` it became; without that, the trace is built from the retrieval half
+   * alone and has no way to reach the other.
    */
   const cards = useMemo(
     () => sourceCards ?? buildCitationModel({ traceLanes: deriveTraceLanes(steps), citations }),

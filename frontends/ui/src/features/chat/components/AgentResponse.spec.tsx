@@ -15,9 +15,9 @@ const calculationCard = (title: string): GridCard => ({ ...CARD_PREVIEW_FIXTURES
 
 /**
  * A turn the post-answer reflection stage recorded something for. No hook is
- * stubbed: what the „Piloti noted" chip shows is now a property of the MESSAGE,
- * delivered by the stage's frame, rather than a poll of the project's memory
- * that every rendered answer fired for itself.
+ * stubbed: what the „Piloti noted" chip shows is a property of the MESSAGE,
+ * delivered by the stage's frame, not a poll of the project's memory that every
+ * rendered answer would fire for itself.
  */
 const NOTED: MessageStages = {
   memoryReflection: {
@@ -243,9 +243,9 @@ describe('AgentResponse', () => {
     expect(screen.getByText('Answer')).toBeInTheDocument()
   })
 
-  // Cards used to open the answer, which is the one place they cannot help: two
-  // of them push the written answer — the thing that was asked for — below the
-  // fold. A card the answer did not place itself now follows the prose.
+  // Cards must not open the answer, which is the one place they cannot help: two
+  // of them would push the written answer — the thing that was asked for — below
+  // the fold. A card the answer did not place itself follows the prose.
   // (`MarkdownRenderer` is stubbed above, so nothing is placed inline here.)
   test('renders unplaced cards after the answer body, not before it', () => {
     const cards = [
@@ -346,8 +346,8 @@ describe('AgentResponse', () => {
     ]
 
     test('keeps the memory chip behind the details disclosure', async () => {
-      // Memory is no longer in the visible row — it mounts when the reader
-      // opens the disclosure.
+      // Memory is not in the visible row: it mounts when the reader opens the
+      // disclosure.
       const user = userEvent.setup()
       render(
         <AgentResponse
@@ -446,12 +446,12 @@ describe('AgentResponse', () => {
     })
 
     test("a down-vote opens its disclosure as the meta row's own next line", async () => {
-      // The layout defect this holds: the row is `items-center`, so one box
-      // holding both the thumbs and their open form made the row as tall as the
-      // form and centred the copy actions against it — two icons floating in
-      // the middle of an otherwise empty left half, with the reason chips and
-      // the note hanging off the row's right end. The row and the disclosure are
-      // therefore two ITEMS of the meta row, not one nested block.
+      // A layout guard: the row is `items-center`, so one box holding both the
+      // thumbs and their open form would make the row as tall as the form and
+      // centre the copy actions against it — two icons floating in the middle of
+      // an otherwise empty left half, with the reason chips and the note hanging
+      // off the row's right end. The row and the disclosure are therefore two
+      // ITEMS of the meta row, not one nested block.
       const user = userEvent.setup()
       // The vote is persisted optimistically and reverted when the write fails,
       // so the disclosure only stays open if the POST resolves.
@@ -805,8 +805,8 @@ describe('AgentResponse', () => {
     })
 
     test('a streaming answer takes its lede once it has earned it (ADR-0066)', () => {
-      // Decided at the end, the lede reflowed the top of an answer the reader
-      // was already halfway down; decided as it streams, it only ever grows.
+      // Decided at the end, the lede would reflow the top of an answer the reader
+      // is already halfway down; decided as it streams, it only ever grows.
       const { container, rerender } = render(
         <AgentResponse content={longAnswer.slice(0, 200)} isStreaming />
       )
@@ -1086,10 +1086,9 @@ describe('AgentResponse', () => {
   })
 
   describe('a streaming answer', () => {
-    // The client-side typewriter was removed: the full text paints as soon as
-    // it arrives, and `isStreaming` — the real socket window — is the only
-    // "still arriving" state left. Affordances that act on a whole answer
-    // still have to wait for it.
+    // The full text paints as soon as it arrives, and `isStreaming` — the real
+    // socket window — is the only "still arriving" state. Affordances that act
+    // on a whole answer still have to wait for it.
     test('an answer still streaming cannot be copied', () => {
       render(<AgentResponse content="Die Antwort ist ja, ab GK4." isStreaming />)
 
@@ -1100,7 +1099,7 @@ describe('AgentResponse', () => {
       // A live frame carries cards only once the envelope's `answer` string
       // closed (ADR-0066), so a streaming answer that holds cards has all of
       // its prose: nothing can claim the card any more, and waiting for the
-      // terminal held it back until verification and the pipeline were done.
+      // terminal would hold it back until verification and the pipeline are done.
       const cards = [
         calculationCard('Nachgestellte Karte'),
       ]

@@ -120,8 +120,8 @@ describe('composerCapabilities', () => {
       expect(caps.roleUnknown).toBe(true)
     })
 
-    test('CURRENTLY still permits contribution — see the module header', () => {
-      // Pins today's behaviour rather than endorsing it. useThreadRole is
+    test('permits contribution while the role is unpublished', () => {
+      // Pins the current behaviour rather than endorsing it. useThreadRole is
       // published by a sibling component, so this window lasts for the access
       // round-trip and forever if that sibling never mounts. Flipping this to a
       // denial is a deliberate product change; when it happens, this assertion
@@ -145,11 +145,11 @@ describe('composerCapabilities', () => {
       expect(withInput({ sharing: 'shared', myRole: 'viewer' }).canBroadcastTyping).toBe(false)
     })
 
-    test('a private thread issues no presence request at all (NF-8)', () => {
+    test('a private thread issues no presence request at all', () => {
       expect(withInput({ sharing: 'private' }).canBroadcastTyping).toBe(false)
     })
 
-    test('collaboration off issues no presence request at all (NF-8)', () => {
+    test('collaboration off issues no presence request at all', () => {
       expect(
         withInput({ canCollaborate: false, sharing: 'shared', myRole: 'collaborator' })
           .canBroadcastTyping

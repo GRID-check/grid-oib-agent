@@ -1,12 +1,11 @@
 /**
  * Re-file a document into another folder — or out of every folder.
  *
- * Folders could be created, renamed, moved and deleted, and a document could be
- * filed into one AT UPLOAD and never again: `documents.folder_id` was written
- * once and had no other writer. A file dropped into the wrong folder, or
- * uploaded before the folder existed, stayed where it landed for good. That is
- * the one dead end left in the filing model, and it gets worse the more the
- * folder tree can be reorganised.
+ * Folders can be created, renamed, moved and deleted, so a document filed at
+ * upload can end up in the wrong place. Without a move, a file dropped into the
+ * wrong folder, or uploaded before the folder existed, would stay there for
+ * good. That is the dead end in the filing model this module closes, and it
+ * gets worse the more the folder tree is reorganised.
  *
  * One path for both shelves that have folders (ADR-0078): a project's Dateien
  * and the org-wide Archiv. The document's own row says which shelf it is on, the

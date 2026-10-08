@@ -14,9 +14,9 @@ header parse, an inventory load, a registry bind, a refusal — is a unit here.
 edge, a clarify hop, an answer — is a graph node in `agents/piloti/`.
 
 Each unit is a plain function with an explicit signature, so it can be tested
-without standing up a NAT workflow. That is the point of the package: the
-harness used to be one closure, and a field could be written, declared by the
-frontend and reach nobody without a single test noticing.
+without standing up a NAT workflow. That is the point of the package: a
+field that is written and declared by the frontend but reaches nobody fails a
+test.
 
 **The dependency runs one way.** `aiq_api` hosts this workflow; `api_seam.py`
 is the only file under `aiq_agent` that may import back into it, so undoing the

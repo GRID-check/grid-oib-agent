@@ -4,13 +4,12 @@
 /**
  * `findPreviousVersion` — the diff base for a review round.
  *
- * The predecessor used to be found by scanning the asc-limited-200 page in
- * memory. Past 200 versions that page no longer contains the predecessor at
- * all, and the scan then named the wrong row (the highest inside the window)
- * as the diff base. These tests pin the statement instead: a direct
- * `version_number < $n ORDER BY version_number DESC LIMIT 1` inside the tenant
- * boundary, so Postgres answers the predecessor no matter how long the history
- * is.
+ * The predecessor is found by a statement, not by scanning a page in memory:
+ * past 200 versions a page no longer contains the predecessor, and a scan would
+ * name the highest row inside the window as the diff base. These tests pin the
+ * statement: a direct `version_number < $n ORDER BY version_number DESC LIMIT 1`
+ * inside the tenant boundary, so Postgres answers the predecessor no matter how
+ * long the history is.
  *
  * Same pg-proxy harness as `lib/inbox/repository.spec.ts`: a real query
  * builder over a callback driver that records the SQL instead of connecting.
@@ -126,8 +125,8 @@ const NEW_VERSION = {
 }
 
 /**
- * The version number, allocated inside the inserting transaction (migration
- * 0092). `max + 1` read in one statement and inserted in another let two
+ * The version number, allocated inside the inserting transaction. `max + 1`
+ * read in one statement and inserted in another let two
  * overlapping re-uploads both record „Version N"; the per-document lock makes
  * the read and the insert one step for every writer of that document.
  */
@@ -367,11 +366,12 @@ describe('swapVersionContent — the swap asserts what was read', () => {
 /**
  * The draft rewrite on the LOCKED admission path (the undercharge defect).
  *
- * The rewrite used to be admitted outside any lock as `incoming − fileSize`.
- * For a draft freshly forked from the published version that is the published
- * file's size, so ≈ 0 — fork, write, reject, fork again grew the bucket without
- * a check. Now the usage is read under the quota lock before and after the
- * swap, inside one transaction, and a crossing after-state rolls it back.
+ * The rewrite is admitted under the quota lock, not outside it as
+ * `incoming − fileSize`: for a draft freshly forked from the published version
+ * that is the published file's size, so ≈ 0, and fork, write, reject, fork again
+ * would grow the bucket without a check. The usage is read under the lock before
+ * and after the swap, inside one transaction, and a crossing after-state rolls
+ * it back.
  */
 describe('swapVersionContent — the quota is measured on the state it commits', () => {
   const dialect = new PgDialect()
@@ -433,8 +433,8 @@ describe('swapVersionContent — the quota is measured on the state it commits',
 
   it('refuses a forked draft’s rewrite at its FULL size, because the published bytes stay', async () => {
     // Before: 8_000 (the published file, shared by the fresh fork). After the
-    // swap the draft owns 4_000 more of its own: 12_000 > 10_000. The old delta
-    // (4_000 − the published file's 4_000 = 0) admitted this without a check.
+    // swap the draft owns 4_000 more of its own: 12_000 > 10_000. The delta
+    // (4_000 − the published file's 4_000 = 0) would admit this without a check.
     currentDb = fakeQuotaDb([8_000, 12_000]).db
     await expect(swapVersionContent({ ...base, quotaBytes: 10_000 })).resolves.toEqual({
       ok: false,
@@ -466,9 +466,9 @@ describe('swapVersionContent — the quota is measured on the state it commits',
 /**
  * The delete cascade's object list reads EVERY version, not the first page.
  *
- * It used to stop at `DOCUMENT_VERSION_LIST_LIMIT` (500), so deleting a
- * document with a longer history left every later version's object in the
- * bucket: invisible, still charged, still presignable.
+ * It must not stop at `DOCUMENT_VERSION_LIST_LIMIT` (500): a document with a
+ * longer history would leave every later version's object in the bucket —
+ * invisible, still charged, still presignable.
  */
 describe('listDocumentVersionObjects — past the first page', () => {
   it('pages by version number until a short page, and returns a shared object once', async () => {

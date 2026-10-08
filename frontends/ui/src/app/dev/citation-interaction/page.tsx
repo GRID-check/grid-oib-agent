@@ -4,7 +4,7 @@
  * Citation-interaction dev preview: what happens when you actually USE a
  * citation, rendered through the real `AgentResponse`.
  *
- * The three things this surface exists to show, all of which were missing:
+ * The three things this surface exists to show:
  *
  *   1. AN INLINE `[N]` IS A CITATION, NOT A SCROLL LINK. It is tinted by the
  *      provenance family of the source it names, so a claim backed by binding
@@ -14,11 +14,10 @@
  *      they landed.
  *   2. THE CHIP ANSWERS BACK. Activating a marker marks its chip, so the link
  *      between the claim in the prose and the source under it is something you
- *      SEE. Previously eight near-identical chips and a silent scroll.
+ *      SEE.
  *   3. THE PASSAGES ARE REACHABLE. A document read at four pages opens with a
  *      Fundstellen rail; each page is a button, and the one you are reading is
- *      marked. Before, the viewer opened at whichever page happened to be first
- *      and there was no way to reach the other three.
+ *      marked.
  *
  * Not linked anywhere; the `/dev` server layout 404s it outside development.
  */
@@ -77,12 +76,12 @@ const citations: CitationSource[] = [
 
 /**
  * An answer whose prose cites the SAME Richtlinie at three pages plus a legal
- * source — the shape that made the old interaction impossible to follow.
+ * source — the shape where the interaction matters most.
  *
  * It also carries one claim backed by TWO sources, written `[2][3]` as the
- * report writers are instructed to write it. That pair used to reach the reader
- * as the literal characters "[2][3]" beside neighbours that got their pill, so
- * it is on film here: two pills, side by side, each its own citation.
+ * report writers are instructed to write it. It is on film here, so the reader
+ * can check it: two pills, side by side, each its own citation, not the literal
+ * characters "[2][3]" beside neighbours that got their pill.
  */
 const answer = [
   'Für eine Garage dieser Größe sind zwei Fluchtwege erforderlich [1]. Der zweite',
@@ -115,9 +114,9 @@ const Block: FC<{ title: string; note: string; children: ReactNode }> = ({
 /**
  * Drives a marker to the state the harness should capture.
  *
- * The harness captures a page at rest, so the two surfaces this work actually
- * adds — the peek and the document dialog behind it — appeared in no committed
- * screenshot. `?open=peek` clicks the first marker once the answer has
+ * The harness captures a page at rest, so the peek and the document dialog
+ * behind it need a driver to appear on film. `?open=peek` clicks the first
+ * marker once the answer has
  * rendered; `?open=dialog` goes one step further and presses the peek's "open
  * at this passage", which is the only way to get the passage rail on film.
  */
@@ -132,12 +131,11 @@ const OpenOnLoad: FC = () => {
     /**
      * Press a control as soon as it exists.
      *
-     * A fixed delay was the first attempt and it was quietly wrong: the marker
-     * appears only once the markdown body and the citation scope have both
-     * rendered, and how long that takes depends on whether the dev server
-     * compiled this route already. When it lost that race the harness captured
-     * the page at rest and committed it as the "open" baseline — a screenshot
-     * that silently stops showing what it is named for.
+     * A fixed delay is not enough: the marker appears only once the markdown
+     * body and the citation scope have both rendered, and how long that takes
+     * depends on whether the dev server compiled this route already. Losing that
+     * race captures the page at rest under the "open" name, a screenshot that
+     * silently stops showing what it is named for.
      *
      * Focus, then click: the click alone is what a reader does, but focusing
      * first is what keeps the panel up while the capture flips themes.

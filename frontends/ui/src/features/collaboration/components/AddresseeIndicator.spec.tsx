@@ -15,9 +15,9 @@ const line = () => screen.getByTestId('composer-addressee')
 describe('AddresseeIndicator — the composer says where the message goes', () => {
   test('says nothing in the default case — silence is what makes the rest legible', () => {
     render(<AddresseeIndicator mentions={[]} awaitingHuman={false} />)
-    // The routing is unchanged and still reported as `agent`; what went is the
-    // sentence about it. A statement made on every thread forever is furniture,
-    // and it sat under a composer that has none left.
+    // The routing is reported as `agent`, and the default state says nothing about
+    // it: a statement made on every thread forever is furniture under a composer
+    // that has none to spare.
     expect(line()).toHaveAttribute('data-mode', 'agent')
     // Nothing at all here: this render passes no `onMentionSomeone`, so not even
     // the `@` offer is on the line (a solo thread grows no furniture, NF-8).
@@ -47,13 +47,13 @@ describe('AddresseeIndicator — the composer says where the message goes', () =
   test('an explicit @Piloti overrides the wait — that is the documented way back', () => {
     render(<AddresseeIndicator mentions={[PILOTI]} awaitingHuman />)
     // The routing still changes out of `thread`, which is the load-bearing part
-    // (MN-9.3). It simply no longer says so: the user typed the mention, so the
+    // (MN-9.3). It simply does not say so: the user typed the mention, so the
     // line would be reading their own keystroke back to them.
     expect(line()).toHaveAttribute('data-mode', 'agent')
     expect(line()).not.toHaveTextContent('everyone in the chat')
   })
 
-  test('tagging a person AND the agent names both, because both are addressed (MN-1)', () => {
+  test('tagging a person AND the agent names both, because both are addressed', () => {
     render(<AddresseeIndicator mentions={[ANNA, PILOTI]} awaitingHuman={false} />)
     expect(line()).toHaveTextContent('Goes to Anna Weber, Piloti')
   })
@@ -72,13 +72,13 @@ describe('AddresseeIndicator — the composer says where the message goes', () =
 })
 
 /**
- * The `@` affordance (spec MN-3's missing discovery story).
+ * The `@` affordance (spec MN-3's discovery story).
  *
- * Nothing in the product taught that you can tag a colleague — no button, no icon,
- * no tooltip, no onboarding. A user had to already know to type `@`, which means the
- * feature this whole slice is built around was reachable only by people who had been
- * told about it. It sits on the line that already states the routing, because "this
- * goes to Piloti" is exactly the moment somebody might want it to go to a person.
+ * It is the only thing in the product that teaches a user a colleague can be tagged.
+ * With no button, icon, tooltip or onboarding, typing `@` would be reachable only by
+ * people who already knew about it. It sits on the line that already states the
+ * routing, because "this goes to Piloti" is exactly the moment somebody might want it
+ * to go to a person.
  */
 describe('AddresseeIndicator — teaching that @ exists', () => {
   test('offers it in the default state', async () => {
@@ -95,7 +95,7 @@ describe('AddresseeIndicator — teaching that @ exists', () => {
     expect(onMentionSomeone).toHaveBeenCalled()
   })
 
-  test('is absent without the callback — a solo thread grows no furniture (NF-8)', () => {
+  test('is absent without the callback — a solo thread grows no furniture', () => {
     render(<AddresseeIndicator mentions={[]} awaitingHuman={false} />)
     expect(screen.queryByTestId('composer-mention-offer')).not.toBeInTheDocument()
   })

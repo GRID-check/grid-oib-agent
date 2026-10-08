@@ -8,7 +8,7 @@ lists every one of them with its summary on request. Memory outlives the turn an
 whole project, so a memory written in such a turn carries the restricted
 collections it depends on, and the BFF serves and shows it only to a session
 cleared for all of them. "Restricted shouldn't feel like amnesia, it should
-feel like a first thought" (product owner, 2026-10-02): the memory is kept, for
+feel like a first thought" (product owner): the memory is kept, for
 the people allowed to know it.
 
 This module is the ONE place that decides. The ``remember`` tool and the

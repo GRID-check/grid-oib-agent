@@ -73,8 +73,8 @@ _SHARED_TTL_SECONDS = 60.0
 # One in-flight resolution per org per replica. The negative TTL above is
 # deliberately ~1s so a transient BFF outage never pins the fleet to the YAML
 # models and ZDR routing -- but a TTL that short is nearly no negative cache at
-# all under load: every concurrent turn for the org raced past the expired
-# entry and opened its own request, and each one costs the full request
+# all under load: every concurrent turn for the org would race past the
+# expired entry and open its own request, each costing the full request
 # timeout while the BFF is down. Coalescing them is what makes the fast
 # recovery affordable; the alternative, a longer TTL, buys it by pinning a
 # stale configuration, which is the wrong currency.
@@ -126,12 +126,13 @@ class AgentGroup(StrEnum):
     """
 
     CLARIFIER = "clarifier"
-    # The member is RESEARCH because the agent is no longer "the shallow one";
+    # The member is RESEARCH because it names the agent's role, not its depth;
     # the VALUE stays "shallow_research" because it is a PERSISTED KEY. Every
     # org that re-pointed this agent's model has that exact string in
     # `platform_models.agent_group`, and the group already carries a separate
-    # display label (`agent-groups.ts`), so the rename costs the value nothing.
-    # Do not "finish" the rename by changing the string: it would orphan every
+    # display label (`agent-groups.ts`), so the member's name can differ from the
+    # value at no cost. Do not change the string to match the member: it would
+    # orphan every
     # live override silently, since an unknown group id is dropped by
     # `sanitize_model_overrides` rather than reported.
     RESEARCH = "shallow_research"
@@ -343,8 +344,8 @@ def _resolve_org_config_locked(organization_id: str) -> _OverridesCacheEntry:
             ttl = _POSITIVE_TTL_SECONDS
             # The BFF answered, so even ({}, False) is authoritative: an
             # unconfigured org is the DEFAULT state of most orgs, and refusing
-            # to cache it sent every replica back to the BFF every L1 TTL for
-            # the majority case.
+            # to cache it would send every replica back to the BFF every L1 TTL for the
+            # majority case.
             _write_shared(organization_id, overrides, zdr_only)
             annotate_current_span(cache_model_config="miss")
         except _NoTrustChannel:
@@ -538,7 +539,7 @@ def apply_zdr_routing(llm: object) -> object:
 
     No-op for non-OpenRouter models or when the routing is already present.
     Raises ``openrouter.ZdrRoutingError`` when an OpenRouter model cannot carry
-    it, where this used to return the unpinned model and send the request
+    it, rather than return the unpinned model and send the request
     anyway. See ``openrouter.pin_chat_model``.
     """
     from aiq_agent.common.openrouter import ZERO_DATA_RETENTION

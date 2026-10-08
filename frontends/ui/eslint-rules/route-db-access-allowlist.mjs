@@ -1,7 +1,7 @@
 /**
- * Files under `src/app` that still import `@/lib/db` for values, from before the
- * rule existed. Transport code (route handlers, server components) calls a
- * service; the query lives there (ADR-0017, `bff-service-architecture.md`).
+ * Files under `src/app` that still import `@/lib/db` for values. Transport code (route handlers,
+ * server components) calls a service; the query lives there (ADR-0017,
+ * `bff-service-architecture.md`).
  *
  * One list, read by the `@typescript-eslint/no-restricted-imports` block in `eslint.config.mjs`
  * (so an editor and `eslint <file>` flag a new offender at once) and by

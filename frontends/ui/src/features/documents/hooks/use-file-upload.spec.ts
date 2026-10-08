@@ -132,8 +132,7 @@ vi.mock('../validation', () => ({
 // Unique per call, like the real thing — the tracked-file id is the key the
 // per-file abort handles are stored under, so a mock that returns one constant
 // would make every file in a batch share a cancel handle and hide the bug that
-// would be. The first id keeps the historical value so single-file assertions
-// still read `mock-uuid`.
+// would be. The first id is `mock-uuid`, which single-file assertions read.
 const uuidState = vi.hoisted(() => ({ count: 0 }))
 vi.mock('uuid', () => ({
   v4: () => {
@@ -481,10 +480,9 @@ describe('useFileUpload', () => {
 /**
  * The durable-document path (project corpus and org Archiv).
  *
- * This is where the upload actually happens for a working architect, and it is
- * the code that changed most: a serial `fetch` loop with no progress and no way
- * out became a bounded-concurrency XHR fan-out with per-file bytes, per-file
- * cancellation and per-file failure.
+ * This is where the upload actually happens for a working architect: a
+ * bounded-concurrency XHR fan-out with per-file bytes, per-file cancellation and
+ * per-file failure.
  */
 describe('useFileUpload — durable document uploads', () => {
   /** Comfortably past the 64 KB progress-coalescing floor. */
@@ -856,11 +854,11 @@ describe('useFileUpload — durable document uploads', () => {
   })
 
   /**
-   * The project delete used to go through the proxy's chunk-only file delete,
-   * which takes FILENAMES. A durable upload's tracked row carries the document
-   * id, so the delete named a file that does not exist and removed nothing:
-   * the row, the object and the chunks all stayed, and the file came back on
-   * the next listing.
+   * The project delete goes through the first-party route, not the proxy's
+   * chunk-only file delete, which takes FILENAMES. A durable upload's tracked row
+   * carries the document id, and a delete by filename would name a file that does
+   * not exist: the row, the object and the chunks would all stay, and the file
+   * would come back on the next listing.
    */
   test('deletes a project document through the first-party route, by document id', async () => {
     const fetchMock = vi.fn().mockResolvedValue({ ok: true, status: 204 })
@@ -946,11 +944,10 @@ describe('useFileUpload — durable document uploads', () => {
 })
 
 /**
- * Chat attachments (ADR-0047 Phase 2). They used to go straight at the ingestor
- * through the `/api/v1` proxy, in one multipart request, and so skipped the
- * file-type gate, the storage quota and the document row. They now take the
- * same per-file path as the other shelves, to `/api/session/documents/upload`,
- * and are listed, polled and deleted through `/api/session/documents`.
+ * Chat attachments (ADR-0047 Phase 2). They take the same per-file path as the
+ * other shelves, to `/api/session/documents/upload`, so they pass the file-type
+ * gate, the storage quota and the document row. They are listed, polled and
+ * deleted through `/api/session/documents`.
  */
 describe('useFileUpload — chat attachments', () => {
   const CHAT = 's_11111111_2222_4333_8444_555555555555'

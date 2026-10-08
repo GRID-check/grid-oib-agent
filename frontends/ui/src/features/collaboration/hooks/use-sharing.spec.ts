@@ -1,14 +1,13 @@
 /**
- * The first turn of a brand-new thread, which is the one case `useSharing` used
- * to get wrong.
+ * The first turn of a brand-new thread, where the sharing read loses a race.
  *
  * A conversation is created on the server lazily — `ensureServerConversation`
  * runs when its first message is persisted, and that is a list plus a create —
  * while the thread header starts asking who can read the thread the instant that
  * message appears locally. The sharing read loses that race and is answered with
- * a 404, and a single-attempt read then stayed 404 for the whole session: the
- * Share entry was missing from the menu of the chat you were actually in until
- * you refocused the tab or reloaded.
+ * a 404, and a single-attempt read would stay 404 for the whole session, leaving
+ * the Share entry missing from the menu of the chat you are in until you refocus
+ * the tab or reload.
  *
  * So the property under test is convergence WITHOUT an external trigger: no
  * focus event, no live frame, no second mount. Everything here drives real
@@ -103,7 +102,7 @@ describe('useSharing — a resource the server does not have yet', () => {
 
     const { result } = renderHook(() => useSharing('conversation', RESOURCE_ID, true))
 
-    // The first read is the one that used to be the only read.
+    // The first read is the one a single-attempt read would stop at.
     await tick(0)
     expect(result.current.state).toBeNull()
 
@@ -211,17 +210,16 @@ describe('useSharing — the ordinary path', () => {
 })
 
 /**
- * The mention picker's own read, which had NO test at all — and that absence is
- * why a fix that could not work shipped looking green.
+ * The mention picker's own read. It is covered here because a fix that cannot work
+ * would otherwise pass every other test.
  *
- * The reported symptom was "@ still does not work in a new window". A new window
- * nulls the conversation; typing `@` creates a CLIENT-SIDE session only, since
+ * A new window nulls the conversation; typing `@` creates a CLIENT-SIDE session only, since
  * the server row is written by `_appendMessage` at send time. So every rung of
- * this ladder 404s, the hook clears its data, and the composer renders no picker
+ * this ladder 404s, the hook clears its data, and  the composer renders no picker
  * at all — not an empty one. Re-arming the ladder against the same missing row
- * could only 404 again, which is what the previous attempt did.
+ * could only 404 again.
  *
- * The composer's fix is to create the row before asking. These pin the hook's
+ * The composer creates the row before asking. These pin the hook's
  * half of the contract: what it does with no id, and what a `restart()` against
  * a row that is still missing actually buys.
  */

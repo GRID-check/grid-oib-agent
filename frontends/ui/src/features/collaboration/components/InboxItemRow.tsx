@@ -26,7 +26,7 @@
  *   - An **inert** item (its target was unshared, deleted or purged — IB-13/IB-14)
  *     renders as plain text, never as an anchor. `href` is null for those rows and
  *     an anchor with an empty or `#` href would be a working-looking link to
- *     content the user may no longer reach.
+ *     content the user may not reach.
  *   - The **archive** control is a sibling of the row link, not a child of it.
  *     Nesting a button inside an anchor is an accessibility defect and makes the
  *     link's accessible name include the button's.
@@ -148,8 +148,8 @@ export const InboxItemRow = forwardRef<HTMLLIElement, InboxItemRowProps>(functio
     `INBOX_TYPE_PRESENTATION` is exhaustive over `InboxItemType` at COMPILE time,
     and rows come from a `text` column. A row written by a newer deploy — or read
     across a rollback — therefore has a type this map does not know, and indexing
-    it produced `undefined.icon`: a TypeError that took down the whole /app/inbox
-    route, not just its own row. One unknown row must cost one unremarkable row.
+    it yields `undefined.icon`: a TypeError that takes down the whole /app/inbox
+    route rather than its own row. One unknown row must cost one unremarkable row.
   */
   const presentation = INBOX_TYPE_PRESENTATION[item.type] ?? UNKNOWN_TYPE_PRESENTATION
   const Icon = ICONS[presentation.icon]
@@ -160,10 +160,10 @@ export const InboxItemRow = forwardRef<HTMLLIElement, InboxItemRowProps>(functio
     Still no `switch (item.type)`: the condition is the row's own
     `resourceType`, which every row carries, exactly like `href` and `state`. A
     reviewer reading „Anna bittet um Freigabe von Brandschutzkonzept" has two
-    next moves — open the file, or ask about it — and only the first had a
-    control. The second used to be impossible anyway: a submitted draft has no
-    chunks, so Piloti could not answer about it; the turn now reads the subject
-    version's bytes instead.
+    next moves — open the file, or ask about it — and only the first has a
+    control. The second is impossible otherwise: a submitted draft has no chunks,
+    so the turn reads the subject version's bytes instead, which is what lets
+    Piloti answer about it.
 
     The project comes back out of the link the row already holds. The inbox
     payload is deliberately type-agnostic and carries no project field, and
@@ -186,11 +186,11 @@ export const InboxItemRow = forwardRef<HTMLLIElement, InboxItemRowProps>(functio
   const isWarning = presentation.tone === 'warning' && !inert
   const needsAttention = isRequest || isWarning
 
-  // A REDACTED row — inert, or its target no longer reachable — carries no href
+  // A REDACTED row — inert, or its target not reachable — carries no href
   // and no payload, because the server withholds the conversation title exactly
   // as it withholds the quoted snippet (IB-13). Falling back to "Untitled
   // conversation" there would misstate WHY the row is nameless: the thread has a
-  // title, this reader is simply no longer entitled to it.
+  // title, this reader is simply not entitled to it.
   const redacted = !item.href
 
   const vars = {
@@ -204,8 +204,8 @@ export const InboxItemRow = forwardRef<HTMLLIElement, InboxItemRowProps>(functio
       dictionary,
       presentation.i18nKey,
       // `count` is occurrences SINCE THE ROW WAS LAST READ, so 0 is the ordinary
-      // state of a read row — and picking `titleOne` for it made a group of
-      // twenty that had been read claim "1 new message". Three cases, not two.
+      // state of a read row, and picking `titleOne` for it would make a group of
+      // twenty that has been read claim "1 new message". Three cases, not two.
       item.count > 1 ? ['titleMany', 'title'] : item.count === 1 ? ['titleOne', 'title'] : ['titleNone', 'titleOne', 'title'],
     ) ??
     'title'
@@ -218,12 +218,12 @@ export const InboxItemRow = forwardRef<HTMLLIElement, InboxItemRowProps>(functio
     "in {subject}".
 
     The template needs a real title to read as a phrase, and interpolating the
-    withheld-target placeholder into it produced German nonsense — "2 neue
-    Nachrichten in Nicht mehr verfügbar" — because one string was being asked to
+    withheld-target placeholder into it gives German nonsense — "2 neue
+    Nachrichten in Nicht mehr verfügbar" — because one string has to
     work in two grammatical positions: standalone (`conversationShared`'s body is a
     bare `{subject}`) and inside a preposition. The distinction the placeholder
-    exists to make is still made, and now it is a sentence: the thread HAS a name,
-    this reader is simply no longer entitled to it (IB-13).
+    exists to make is still made, and it is a sentence: the thread HAS a name,
+    this reader is simply not entitled to it (IB-13).
   */
   const body = redacted
     ? t('inbox.bodyUnavailable')
@@ -267,7 +267,7 @@ export const InboxItemRow = forwardRef<HTMLLIElement, InboxItemRowProps>(functio
   // refusal must already carry the expected bytes when it is sent — waiting
   // for the read inside the confirm would race the send. One attempt per
   // version anchor; a failed read falls back to deciding on state alone,
-  // exactly as before, rather than stranding the row.
+  // rather than stranding the row.
   //
   // Deliberately NO loading flag: setting one before the `await` would re-run
   // this effect (it is in the deps) and its cleanup would flip `live` to false
@@ -321,8 +321,8 @@ export const InboxItemRow = forwardRef<HTMLLIElement, InboxItemRowProps>(functio
     setReviewStale(false)
     // The expected bytes, when the STAND above could be read. Absent when the
     // read never ran (old callers, a version without a digest): the server
-    // then decides on state alone, exactly as before, and a provided-but-stale
-    // digest 409s with the current STAND.
+    // then decides on state alone, and a provided-but-stale digest 409s with the
+    // current STAND.
     const ifMatch = reviewVersion?.contentHash ?? undefined
     try {
       if (reviewing === 'approve') {
@@ -417,9 +417,9 @@ export const InboxItemRow = forwardRef<HTMLLIElement, InboxItemRowProps>(functio
                 href={item.href}
                 // Only a plain primary click counts as "opened". Cmd/ctrl/middle
                 // click is the natural triage gesture — open three rows in
-                // background tabs — and it used to spend the read state of all
-                // three and, under the "needs me" filter, delete them from under
-                // the cursor while the user was still clicking.
+                // background tabs — and it must not spend the read state of all
+                // three or, under the "needs me" filter, delete them from under
+                // the cursor while the user is still clicking.
                 onClick={(event) => {
                   if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return
                   if (event.button !== 0) return
@@ -689,7 +689,7 @@ export const InboxItemRow = forwardRef<HTMLLIElement, InboxItemRowProps>(functio
           <div className="mt-1.5 flex flex-wrap items-center gap-2">
             {/* `updatedAt`, which is what the list is ORDERED by. A grouped row
                 that just absorbed a new message sorts to the top, and showing its
-                `createdAt` put "5 days ago" at the head of the list. The title
+                `createdAt` would put "5 days ago" at the head of the list. The title
                 carries the absolute moment for both. */}
             <time
               className="text-xs text-muted-foreground"

@@ -15,10 +15,9 @@ const MAX_CITATION_CONTENT = 300
 /**
  * Max characters of the retrieved PASSAGE kept in storage.
  *
- * This bound is the reason the function exists and it nearly went missing: the
- * passage used to arrive inside `content`, so capping `content` capped it. It
- * has its own wire field now, and until this line the cap was silently defeated
- * — a forty-source deep-research turn went from roughly 12 KB of stored
+ * The passage has its own wire field, separate from `content`, so it has to be
+ * capped on its own: capping `content` alone leaves it unbounded. A
+ * forty-source deep-research turn would grow from roughly 12 KB of stored
  * citations to 60 KB, per conversation, against one origin's localStorage
  * budget.
  *

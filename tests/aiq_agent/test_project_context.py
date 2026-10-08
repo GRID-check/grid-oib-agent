@@ -84,11 +84,11 @@ class TestMemoryReflectionFlag:
         assert pc.get_memory_reflection_enabled_from_context() is False
 
     def test_reads_the_expected_header(self, monkeypatch):
-        # get_memory_reflection_enabled_from_context() now delegates to
+        # get_memory_reflection_enabled_from_context() delegates to
         # GridRequestContext.from_context(), which reads every X-Grid-*
-        # header in one pass (backlog T3-9) — so _read_header is called
-        # several times per invocation, not just once. Record every name
-        # seen instead of asserting on a single overwritten value.
+        # header in one pass — so _read_header is called several times per
+        # invocation, not once. Record every name seen rather than asserting
+        # on a single overwritten value.
         seen = []
 
         def fake(name):
@@ -219,7 +219,7 @@ class TestGridRequestContextFromContext:
 
 
 class TestGridRequestContextContractFixture:
-    """Cross-language wire contract (backlog T3-9): parsing the fixture's
+    """Cross-language wire contract: parsing the fixture's
     `headers` must reproduce the fixture's `input`-equivalent values. The TS
     side (`frontends/ui/src/lib/request-context.spec.ts`) asserts the
     opposite direction — building `input` reproduces `headers` — against a
@@ -250,8 +250,8 @@ class TestGridRequestContextContractFixture:
 
 
 class TestGridRequestContextEnvelopeContractFixture:
-    """Cross-language wire contract for the signed envelope (T3-9 follow-up,
-    2026-07-16). `envelopeCases` in the fixture carries {secret, input,
+    """Cross-language wire contract for the signed envelope. `envelopeCases` in
+    the fixture carries {secret, input,
     envelopeJson, header, signature}; the TS side
     (`buildGridRequestContextEnvelope`) asserts building `input` with
     `secret` reproduces `header`/`signature`. This asserts the opposite
@@ -506,8 +506,7 @@ class TestGridRequestContextEnvelopePrecedence:
 
 
 class TestBundeslandField:
-    """`bundesland` (backlog T3-9 follow-up, 2026-07-16, user-mandated):
-    ENVELOPE-ONLY structured jurisdiction field — no individual
+    """`bundesland`: ENVELOPE-ONLY structured jurisdiction field — no individual
     `X-Grid-Bundesland` header exists, so it can only ever come from
     `from_envelope`/the fixture's `envelopeCases`, never from the individual
     header parsing path.
@@ -578,8 +577,7 @@ class TestBundeslandField:
 class TestOrgInstructions:
     """The office's standing instructions: one header, bounded at the door.
 
-    They replaced the two ways a skill could be FORCED onto a turn. A standing
-    instruction is prompt text — always present, costing no tool call, and
+    A standing instruction is prompt text — always present, costing no tool call, and
     impossible to half-apply — so what arrives here lands in every turn's
     system prompt for this organization, which is exactly why the cap is
     enforced on this side rather than trusted from the sender.

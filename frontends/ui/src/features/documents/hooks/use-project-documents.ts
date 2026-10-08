@@ -7,13 +7,11 @@ interface UseProjectDocumentsOptions {
   /**
    * The project's RAG collection.
    *
-   * Passed in, not looked up. This hook used to `GET /api/projects/{id}` on
-   * mount for this one string — a fourth round trip on the Files page, whose
-   * server render has the project row in hand and already threads
-   * `collectionName` to the workspace as a prop. Until that request came back
-   * the upload button was wired to `undefined` and a drop was answered with
-   * "Collection name required for upload", which is the wrong sentence for
-   * "the page has not finished loading".
+   * Passed in, not looked up. The Files page's server render has the project row
+   * in hand and threads `collectionName` to the workspace as a prop, so there is
+   * no request to wait for. A missing name would answer a drop with "Collection
+   * name required for upload", which is the wrong sentence for "the page has not
+   * finished loading".
    */
   collectionName?: string
   folderId?: string

@@ -2,7 +2,7 @@
  * A preview you can hover, tap, or pin.
  *
  * Shared rather than feature-local: this is the product's answer to "let me look
- * at that thing in passing" and it now serves citations, source chips and
+ * at that thing in passing" and it serves citations, source chips and
  * @-mentions. Three surfaces with the same behaviour is a UI-system behaviour, and
  * three copies of this timing would drift.
  *
@@ -28,8 +28,8 @@
  *
  * The panel is mounted LAZILY. An answer carries dozens of these triggers and
  * almost none is ever looked at, but a Radix `Popover` wrapped around each one
- * (Popper, Presence, the anchor's measuring effects) made a twenty-message
- * conversation mount some 1,500 fibers nobody would use. So `engaged` stays
+ * (Popper, Presence, the anchor's measuring effects) would mount some 1,500
+ * fibers in a twenty-message conversation that nobody uses. So `engaged` stays
  * false until the first sign of interest (pointer enter, pointer down, focus,
  * click), and {@link HoverPeekPanel} renders nothing before it. It renders the
  * popover BESIDE the trigger, anchored through `anchorRef`, never around it:

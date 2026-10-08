@@ -157,7 +157,7 @@ def _ingest_and_classify(target: Path, doc_class: str) -> None:
     corpus sync; oib_sync's per-basename lock keeps same-file work serialized.
     Ingestion creates the summary row, so the ``doc_class`` UPDATE is
     applied only after a SUCCESS terminal state. Fully self-contained: it owns
-    the same failed-file cleanup guarantee the blocking route had — a source that
+    the failed-file cleanup guarantee: a source that
     raises before reaching a terminal state is unlinked so no half-ingested file
     lingers (a terminal FAILED is left on disk for the next sync to retry).
     """
@@ -546,7 +546,7 @@ def add_oib_routes(router: APIRouter) -> None:
         for a document whose file has not changed. That is the right default and the wrong
         behaviour after anything that changes how chunks are BUILT rather than what they
         are built from — a chunking change, an embedding-model change, a partially failed
-        ingest. Until now the only remedy was a corpus-wide re-ingest of all 39 PDFs
+        ingest. The only remedy is a corpus-wide re-ingest of all 39 PDFs
         including VLM captioning.
 
         Queued, not awaited, exactly like an upload: each document takes up to ten minutes

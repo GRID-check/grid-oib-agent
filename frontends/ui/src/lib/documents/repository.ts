@@ -40,13 +40,13 @@ export const DOCUMENT_LIST_LIMIT = 500
 export interface DocumentListRow {
   id: string
   filename: string
-  /** The rename, when there is one; NULL means "show `filename`" (0048). */
+  /** The rename, when there is one; NULL means "show `filename`". */
   displayName: string | null
   fileSize: number | null
   contentType: string | null
   status: string
   /**
-   * Whose hand wrote the bytes (migration 0063).
+   * Whose hand wrote the bytes.
    *
    * On the LIST row and not only on the full document, because "Von Piloti
    * erstellt" is a line in the Files pane and the pane never loads the full
@@ -80,7 +80,7 @@ export interface DocumentListRow {
   collectionName: string
   folderId: string | null
   /**
-   * Where the file came from, when a folder upload recorded one (0071).
+   * Where the file came from, when a folder upload recorded one.
    * On the list row because the Files pane shows it in the detail rail without
    * a second fetch — and because "go back to the original" is the one thing a
    * reader wants from it, which is a per-file question.
@@ -114,7 +114,7 @@ export interface DocumentListRow {
  * FILED and how it is FOUND are different questions, and tying the second to the
  * first is what turns a folder convention into a load-bearing one — moving,
  * renaming or abandoning `Berichte` later has to cost nothing. The partial index
- * `documents_agent_authored_idx` (migration 0063) is on
+ * `documents_agent_authored_idx` is on
  * `(project_id, created_at DESC) WHERE authored_by = 'agent'`, so the `'agent'`
  * case — the one any surface actually asks for — is a point query in the
  * listing's own sort order.
@@ -133,10 +133,9 @@ export interface ListProjectDocumentsOptions {
    *
    * Default false, and that default is the point of the column: „archiviert"
    * is a statement that the file has left the working set, and a file that is
-   * still in every listing has not left it. The archive gesture already purges
-   * the chunks so the agent stops citing it; the listing was the other half and
-   * it was missing, which made the whole act read as a no-op with an audit
-   * event.
+   * still in every listing has not left it. The archive gesture purges the
+   * chunks so the agent stops citing it; the listing is the other half, and
+   * without it the whole act would read as a no-op with an audit event.
    *
    * An OPTION rather than a second query, because the surface that shows them
    * (the Files filter's „Archiviert" chip) needs the same projection, the same
@@ -364,8 +363,8 @@ export function filenameLookupWhere(filenames: readonly string[]): SQL | undefin
  *
  * For the readers that need SPECIFIC documents: the semantic search's join and
  * the by-name resolve behind citations and surfaced-document cards. Reading the
- * first listing page for them dropped every hit past the newest 500 as if it
- * did not exist. Bounded by its input and by `DOCUMENT_LIST_LIMIT`.
+ * first listing page for them would drop every hit past the newest 500 as if
+ * it did not exist. Bounded by its input and by `DOCUMENT_LIST_LIMIT`.
  *
  * Folders do not enter into it: a document is unique per filename per
  * collection, so a name finds it wherever it is filed.
@@ -590,34 +589,31 @@ export async function findDocumentInOrg(documentId: string, organizationId: stri
  * office cannot untangle later.
  *
  * `authored_by_ref` is the key because it is the one identifier the producer
- * and the row already share — a backend job id for a research run, the answer
- * an artifact was drawn in for a diagram (migration 0066, which renamed the
- * column off the first of those two after it had stopped being the only one).
+ * and the row already share — a backend job id for a research run, or the
+ * answer an artifact was drawn in for a diagram.
  * Scoped by organization like every other read here, so a reference guessed from
  * another tenant finds nothing.
  *
  * `authored_by_ref_kind` is deliberately NOT filtered on, and the index does not
  * carry it either. The kind is a function of the producer — the filing path
  * derives one from the other — and the producer is already in the key, so asking
- * for it as well would be a column in the index that this probe does not filter
- * by, which is the index-wider-than-the-probe failure 0064 names.
+ * for it as well would add a column to the probe that the index does not need.
  *
- * Scoped by PRODUCER since migration 0065, because a run can owe more than one
- * FILE. A diagram is two artifacts that are not substitutes — an SVG that
- * previews and carries its own source, and a PDF that is what gets attached to
- * an Einreichung — and under 0064's key the second call found the first row and
- * answered "already filed", so a diagram could be one or the other and never
- * both. The producer is the right discriminator because that is what a producer
- * has meant since 0063: a KIND OF DELIVERABLE, not a piece of software. A run
- * owes at most one of each kind, which is the rule 0065's index states. The
- * alternative — two synthetic run ids, `{run}:svg` and `{run}:pdf` — needed no
- * migration and was rejected: the column exists so somebody can later ask what
- * wrote a file and in which run, and a key that joins back to no real run is
- * what the schema calls "an audit trail in appearance only".
+ * Scoped by PRODUCER as well, because a run can owe more than one FILE. A
+ * diagram is two artifacts that are not substitutes — an SVG that previews and
+ * carries its own source, and a PDF that is what gets attached to an
+ * Einreichung — and a key on the reference alone would answer "already filed"
+ * for the second with the first's row, so a diagram could be one or the other
+ * and never both. The producer is the right discriminator because it is a KIND
+ * OF DELIVERABLE, not a piece of software. A run owes at most one of each kind,
+ * which is the rule the index states. The alternative — two synthetic run ids,
+ * `{run}:svg` and `{run}:pdf` — was rejected: the column exists so somebody can
+ * later ask what wrote a file and in which run, and a key that joins back to no
+ * real run is what the schema calls "an audit trail in appearance only".
  *
  * This is the CHEAP half of "once per run", never the guarantee. A lookup cannot
  * see a concurrent caller that has not inserted yet: two report tabs both probe,
- * both miss, and both file. Migration 0065's partial unique index
+ * both miss, and both file. The partial unique index
  * `uniq_documents_authored_ref_producer_per_project` is the half that holds under
  * concurrency, and it is keyed on exactly the four columns this function filters
  * by — `(organization_id, project_id, authored_by_ref, authored_by_producer)`
@@ -627,14 +623,14 @@ export async function findDocumentInOrg(documentId: string, organizationId: stri
  * to prevent. Changing the columns here means changing the index in the same
  * commit.
  *
- * Scoped by PROJECT as well, and that is not symmetry for its own sake. The
- * filing target comes from the report request's own `projectId`, so an
- * org-wide probe answered "already filed" for a run whose report went to a
- * DIFFERENT project — handing back the other project's document id and folder,
- * so the second project silently never received the report and the client's
- * Öffnen/Zuweisen actions pointed somewhere the reader may not even be. The
- * probe has to ask the question the caller is actually asking: has this run
- * filed into THIS project.
+ * Scoped by PROJECT as well, and not for symmetry's sake. The filing target
+ * comes from the report request's own `projectId`, so an org-wide probe would
+ * answer "already filed" for a run whose report went to a DIFFERENT project:
+ * it would hand back the other project's document id and folder, the second
+ * project would never receive the report, and the client's Öffnen/Zuweisen
+ * actions would point somewhere the reader may not even be. The probe has to
+ * ask the question the caller is actually asking: has this run filed into THIS
+ * project.
  */
 export async function findDocumentAuthoredByRef(
   ref: string,
@@ -657,15 +653,13 @@ export async function findDocumentAuthoredByRef(
           eq(documents.organizationId, organizationId),
           eq(documents.projectId, projectId),
           eq(documents.authoredByProducer, producer),
-          // The index's own predicate, restated. 0064 argues the probe and the
-          // index must be the same clause, and until now that agreement held
-          // over the KEY COLUMNS only: the index is partial on
-          // `authored_by <> 'user'` and the probe filtered on all four columns
-          // and no authorship at all — so the probe was WIDER than the rule the
-          // index enforces, which is the direction 0064 names as dangerous.
+          // The index's own predicate, restated. The probe and the index must be
+          // the same clause: the index is partial on `authored_by <> 'user'`, so
+          // a probe on the key columns alone is WIDER than the rule the index
+          // enforces, and admits rows the index would not.
           //
-          // What that admits is not hypothetical: 0063's CHECK is one-
-          // directional on purpose, so a `user` row MAY carry a producer and a
+          // What that admits is not hypothetical: the CHECK on the column is
+          // one-directional on purpose, so a `user` row MAY carry a producer and a
           // reference (a person saving an artefact a run showed them), and the
           // index is partial precisely so two colleagues doing that do not
           // collide. Such a row would answer this probe. The caller would be
@@ -694,26 +688,25 @@ export async function findDocumentAuthoredByRef(
  * ## Machine-authored rows are never resolved here, and that is the invariant
  *
  * `authored_by = 'user'` is not belt-and-braces. This is the second path by
- * which a document's BYTES reach the agent tier, and until it was added it was
- * the open one.
+ * which a document's BYTES reach the agent tier.
  *
  * The design's safety argument is that a document Piloti wrote is never
  * retrievable by Piloti, enforced by never creating chunks for it —
  * `dispatchDocument` refuses a non-`user` row, and `fileGeneratedDocument`
  * notes that "the safety comes from the dispatch that does not happen, never
  * from this string" about the project collection name it writes. This function
- * is what made that string load-bearing after all: it resolves any
+ * is what makes that string load-bearing: it resolves any
  * `(collection, filename)` pair, and `view_knowledge_image` in the knowledge
  * layer calls the internal route with a file name and collection the MODEL
  * supplies, fetches the object, renders a page with pdfium and hands it back
  * as "the actual page the retrieved chunk describes".
  *
- * Two changes turned that from theory into a path. Filing the report as a PDF
- * made it a format that tool renders — a `.docx` was excluded by extension and
- * unrenderable by pdfium — and `generatedFilename` is deterministic
+ * Two properties make that a path, not a theory. The report is filed as a PDF,
+ * a format that tool renders (a `.docx` is excluded by extension and
+ * unrenderable by pdfium), and `generatedFilename` is deterministic
  * (`slug(title)-YYYY-MM-DD.pdf`) from a title that IS the H1 the writer agent
  * wrote. So the model does not have to guess the name of its own filed report;
- * it derived it.
+ * it derives it.
  *
  * Chunk-free was only ever half of "unrepresentable". This is the other half,
  * and it is enforced the same way the dispatcher is: by reading the row, not by
@@ -722,12 +715,12 @@ export async function findDocumentAuthoredByRef(
 /**
  * The live document a re-upload of this filename would collide with, if any.
  *
- * A RE-UPLOAD USED TO LEAVE A GHOST. `uploadDocument` minted a fresh id and
- * inserted unconditionally — there is no unique index on (collection, filename)
- * — while the ingest pipeline's `_replace_previous_versions` deletes chunks by
- * filename. So the SECOND upload's chunks replaced the FIRST's, and the first
- * row survived: listed, downloadable, cited by nothing, findable by nothing,
- * and charged to the organization's quota twice.
+ * The probe is what stops a re-upload from leaving a GHOST. `uploadDocument`
+ * mints a fresh id and inserts, while the ingest pipeline's
+ * `_replace_previous_versions` deletes chunks by filename: the SECOND upload's
+ * chunks replace the FIRST's, and the first row would survive — listed,
+ * downloadable, cited by nothing, findable by nothing, and charged to the
+ * organization's quota twice.
  *
  * Scoped to one collection — a project's, the Archiv's or a conversation's,
  * all three shelves replace the same way. The comparison is exact, matching `_replace_previous_versions`'
@@ -741,10 +734,9 @@ export async function findDocumentAuthoredByRef(
  * agent's row at their bytes would leave a human file wearing the agent's
  * authorship. The two coexist; only human uploads replace human uploads.
  *
- * `uniq_documents_live_name_per_collection` (migration 0074, restated by 0077
- * without the never-written `deleted_at`) is this probe's WHERE clause as a
- * constraint, so a concurrent first upload of one name cannot
- * slip past it and recreate the ghost this exists to stop.
+ * `uniq_documents_live_name_per_collection` is this probe's WHERE clause as a
+ * constraint, so a concurrent first upload of one name cannot slip past it and
+ * recreate the ghost this exists to stop.
  */
 export async function findLiveDocumentByFilename(
   organizationId: string,
@@ -781,10 +773,10 @@ export async function findLiveDocumentByFilename(
            *
            * A name off a Mac is decomposed and the same name typed here is
            * composed; they render identically, and `= $1` matches one of them.
-           * Rows written since `documentNameKey` reached the upload path are all
-           * composed, but the ones written before it are whatever arrived — and
-           * a miss here is not a null result, it is a SECOND document under a
-           * name a person cannot tell apart from the first.
+           * The upload path writes new names composed (`documentNameKey`), but
+           * rows stored earlier hold whatever arrived — and a miss here is not a
+           * null result, it is a SECOND document under a name a person cannot
+           * tell apart from the first.
            *
            * Two exact candidates rather than `normalize(filename, NFC) = $1`,
            * which no index can serve.
@@ -994,10 +986,9 @@ export async function documentExistsInCollection(
  * Recording a document goes through `insertDocumentWithinQuota`
  * (`@/lib/storage/repository`), not through a plain insert here.
  *
- * There used to be an `insertDocument` in this module. It is gone on purpose: an
- * organization's storage quota is only a ceiling if EVERY insert of a `documents`
- * row is gated by it, and a second, ungated way in is how a ceiling stops being
- * one. Anything that needs to create a document row calls the admitting insert
+ * There is no plain insert here, on purpose: an organization's storage quota is
+ * only a ceiling if EVERY insert of a `documents` row is gated by it, and a
+ * second, ungated way in is how a ceiling stops being one. Anything that needs to create a document row calls the admitting insert
  * and handles its refusal.
  */
 
@@ -1031,7 +1022,7 @@ export async function deleteProjectDocument(
  *
  * Writes `display_name` and nothing else — `filename` is the join key to the
  * stored object and to the document's chunks in the retrieval index, so a
- * rename must not touch it (migration 0048 has the full reasoning). `null`
+ * rename must not touch it. `null`
  * clears the rename, restoring the file's own name.
  *
  * Scoped by organization alone, deliberately: this serves both a project
@@ -1082,11 +1073,11 @@ export async function setDocumentIngestJob(
  * leaves a `processing` row alone, so the status survives until extraction
  * sets a real one.
  *
- * The previous ingest job id is dropped here. A retried or re-ingested document
- * still carried it, and every reader that consults the job (the reconcile and
- * the re-ingest heal) then answered with the OLD job's outcome — a retry of a
- * failed file flipped back to failed while its new conversion was running.
- * Clearing it at the one writer of `processing` fixes both readers at once.
+ * The previous ingest job id is dropped here: a retried or re-ingested document
+ * would otherwise carry it, and every reader that consults the job (the
+ * reconcile and the re-ingest heal) would answer with the OLD job's outcome,
+ * flipping a retry back to failed while its new conversion runs. Clearing it at
+ * the one writer of `processing` covers both readers.
  */
 export async function markDocumentProcessing(
   documentId: string,

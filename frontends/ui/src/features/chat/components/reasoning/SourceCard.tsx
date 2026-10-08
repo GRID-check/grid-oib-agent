@@ -2,18 +2,18 @@
  * SourceCard — one document in the Herleitung's source fan-out.
  *
  * It renders a {@link CitedDocument}, which is the same object the answer's
- * "Belegt durch" chips render. That is the point: this card and that chip used
- * to be built from two disconnected pipelines (the trace-lane text block here,
- * the structured citation wire there) with no shared identity, so the trace
- * could show what was searched but never say which document became `[3]`, and
- * the two could disagree about a document's name and colour without anything
- * noticing.
+ * "Belegt durch" chips render. That is the point: this card and that chip are
+ * built from one object, not from two disconnected pipelines (the trace-lane
+ * text block here, the structured citation wire there) with no shared identity.
+ * Otherwise the trace could show what was searched but never say which document
+ * became `[3]`, and the two could disagree about a document's name and colour
+ * without anything noticing.
  *
- * Now the card can state both halves of the derivation honestly:
+ * The card states both halves of the derivation honestly:
  *  - the markers it carries in the answer (`[2] [7]`), or
  *  - "abgerufen, nicht zitiert" when retrieval returned it and the answer
- *    did not use it — a real research outcome that was previously not
- *    expressible at all.
+ *    did not use it — a real research outcome the trace cannot otherwise
+ *    express.
  *
  * Shape is unchanged: a tinted uppercase folder tab (icon + provenance label)
  * seated on the top-left of a card holding name · detail · "N Treffer".
@@ -171,7 +171,7 @@ export const SourceCard: FC<{
       >
         {/* The card IS the citation — clicking it opens the document at the
             page the answer used, exactly as the chip under the answer does.
-            It used to be inert markup, which made the surface that claims to
+            It is not inert markup: that would make the surface that claims to
             prove the derivation the one place a source could not be checked. */}
         <SourcePreviewChip
           citation={{ document: doc }}
@@ -179,7 +179,7 @@ export const SourceCard: FC<{
           // The folder tab above already carries the icon, the badge and the
           // lane, and the meta line below carries the markers and pages — so
           // the card itself needs only the NAME. Printing the full chrome here
-          // squeezed the one thing this card exists to say into an ellipsis.
+          // would squeeze the one thing this card exists to say into an ellipsis.
           detail="name-only"
           // `p-0` is what strips the row down to the name — and it strips the
           // TARGET down with it: the card's own `py-2.5` stays on the card, so
@@ -201,7 +201,7 @@ export const SourceCard: FC<{
           {/* A round that only re-fetched what it already had states THAT,
               muted, where the count would be: the turn aggregate ("4 Treffer")
               is identical on every repeat of the same file, which is exactly
-              what made a re-read indistinguishable from a new fetch. */}
+              what makes a re-read indistinguishable from a new fetch. */}
           <span
             className={cn(
               'inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium',
@@ -230,7 +230,7 @@ export const SourceCard: FC<{
               <span className="text-muted-foreground text-xs tabular-nums">
                 {/* Singular and plural are two keys, as every other page line in
                       the product already knows. German „S." is number-agnostic, so
-                      always taking the plural was invisible here and read „pp. 9"
+                      always taking the plural is invisible here and would read „pp. 9"
                       in English. */}
                 {pages.length === 1
                   ? t('answerSources.page', { page: pages[0]! })
@@ -240,7 +240,7 @@ export const SourceCard: FC<{
           )}
           {/* Which markers in the answer this document carries — the link
               between "what was read" and "what was used" that the trace could
-              not express before. A document the answer used but whose [N] the
+              not express. A document the answer used but whose [N] the
               backend never resolved shows neither: claiming "not used" there
               would be a statement about the ANSWER made from a missing number. */}
           {numbers.length > 0 && (

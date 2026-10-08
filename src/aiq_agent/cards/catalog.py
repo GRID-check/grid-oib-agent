@@ -45,17 +45,17 @@ SYSTEM_CARD_TYPES = frozenset(
         "document_draft",
         # `task_created` from `create_task`: the card is proof that a task ROW
         # exists, and a model that could fabricate one could announce delegated
-        # work nobody queued — which is exactly the sentence the tool was added
+        # work nobody queued — which is exactly the sentence the tool exists
         # to stop the model writing on its own.
         "task_created",
         "file_operation_proposal",
     }
 )
 
-#: Card types that no longer exist, each with what carries its content now. They
-#: were deleted from the `GridCard` union (an answer is Markdown prose; a card
-#: must carry an interaction, geometry drawn to scale, a computed number or a
-#: live model binding that Markdown cannot), so no channel can register one.
+#: Retired card types, each with what carries its content now. They are not
+#: members of the `GridCard` union (an answer is Markdown prose; a card must
+#: carry an interaction, geometry drawn to scale, a computed number or a live
+#: model binding that Markdown cannot), so no channel can register one.
 #: This map only makes the refusal useful: a model that reaches for one by name
 #: is told the Markdown (or the card) that replaced it, instead of a validator's
 #: "unknown discriminator" that would send it to the repair model.
@@ -209,14 +209,12 @@ def retired_card_markdown(payload: object) -> str | None:
 # (a memory write, a profile patch). If the action is idempotent and cheap,
 # prefer a presentational card — there is then nothing to remember.
 #
-# `diagram` was briefly a member for a filing button the release review cut; the
-# card is gone now (RETIRED_CARD_TYPES), and a ```mermaid fence in the prose
-# carries what it drew. There is no second set here (a `CONSENT_CARD_TYPES`
-# briefly existed and left with the button): two constants equal by
-# construction are two things to keep in sync.
+# `diagram` is not a card: a ```mermaid fence in the prose carries what it
+# draws (RETIRED_CARD_TYPES). There is no second set here: two constants equal
+# by construction are two things to keep in sync.
 #
-# `document_draft` joined when `file_draft` gave it something to act on. It is a
-# borderline case worth stating: the card is emitted by a WRITE that already
+# `document_draft` is a member because `file_draft` gives it something to act
+# on. It is a borderline case worth stating: the card is emitted by a WRITE that already
 # happened (the draft exists), so emitting it costs the reader no decision — but
 # a FILED card offers „Zur Freigabe einreichen", and that is a non-idempotent
 # write which opens an inbox item on a colleague. The rule above is about the
@@ -624,9 +622,9 @@ def _is_discriminator(field_name: str, field_info: Any) -> bool:
     A card's ``type`` is a single-value ``Literal`` that the union switches on;
     the shape already names it. A building block may have a field CALLED
     ``type`` that is a choice (``TypedColumn.type``: mass, norm, verdict, …),
-    and that one is the model's to fill — the renderer once hid such a field
-    while the validator required it, so every card written from the shape
-    failed on its first attempt.
+    and that one is the model's to fill — the renderer must not hide such a
+    field while the validator requires it, or every card written from the shape
+    fails on its first attempt.
     """
     if field_name != "type":
         return False
@@ -728,15 +726,12 @@ def describe_card_catalog() -> dict[str, Any]:
 def shape_hint_for(card_type: str) -> str | None:
     """The FULL L2 entry for one card type — what a failed ``emit_card`` hands back.
 
-    This used to be a one-line abbreviation of :func:`render_card_details`: the
-    shape and its building blocks joined with "where", and the worked example
-    appended after a full stop. The abbreviation was the problem. A model that
-    had just got a field wrong was handed a denser rendering of the same
-    information and no field rules at all, so its second attempt was a guess
-    too, and the only way to actually learn a shape was a charged
-    ``describe_card`` round trip the tool description had to talk it into paying
-    in advance — on every turn, for every card, including the ones it would have
-    filled in correctly.
+    A one-line abbreviation of :func:`render_card_details` is not enough
+    here: a denser rendering of the same information, with no field rules,
+    leaves a model that just got a field wrong guessing again. Learning a shape
+    in advance would cost a charged ``describe_card`` round trip on every turn,
+    for every card, including the ones the model would have filled in
+    correctly.
 
     So the retry carries the whole thing instead: the same shapes, blocks,
     field rules and worked example ``describe_card`` returns, for the one type
@@ -874,10 +869,9 @@ def _plain_text_note() -> str:
     #
     # The validator in `cards.models.CardModel` strips these delimiters anyway,
     # so nothing here is load-bearing for correctness — it is here so the field
-    # holds what the model meant instead of the wreckage of a link the model
-    # should never have written. A card once shipped
-    # „[OIB-Richtlinie ansehen](https://www.oib.or.at/de/oib-richtlinien)“ into a
-    # field beside the card's OWN working link to that same page.
+    # holds what the model meant instead of a link the model should never have
+    # written, such as „[OIB-Richtlinie ansehen](https://www.oib.or.at/de/oib-richtlinien)“
+    # beside the card's OWN working link to that same page.
     return (
         "\n\nEvery text field is PLAIN TEXT:\n"
         "  No card renders markdown. Write the words, not the markup — no [text](url) links, no\n"

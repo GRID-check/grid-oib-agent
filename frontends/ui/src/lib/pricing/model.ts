@@ -21,10 +21,10 @@
  * the credits of a month are the sum of the credits of its requests, a per-model
  * breakdown adds up to the total, and a limit of N credits means N credits'
  * worth of price, whatever mix of models produced it. A compressive transform
- * (points = A · cost^p, p < 1) was proposed to blur the margin and rejected
- * here: it breaks additivity, so a budget, a breakdown or an invoice in such
- * points would say nothing about the money behind it — and it hides nothing
- * from a reader who knows the model ids, whose list prices are public.
+ * (points = A · cost^p, p < 1) would blur the margin, but it breaks additivity,
+ * so a budget, a breakdown or an invoice in such points would say nothing about
+ * the money behind it — and it hides nothing from a reader who knows the model
+ * ids, whose list prices are public.
  */
 
 /** The numbers a pricing version carries, as the arithmetic needs them. */

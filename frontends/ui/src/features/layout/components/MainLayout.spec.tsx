@@ -129,7 +129,7 @@ describe('MainLayout', () => {
     expect(screen.getByTestId('input-area')).toBeInTheDocument()
   })
 
-  test('a chat the reader may no longer read shows the state instead of the transcript and the composer (ADR-0081)', () => {
+  test('a chat the reader may not read shows the state instead of the transcript and the composer (ADR-0081)', () => {
     chatStoreOverrides = {
       currentConversation: { id: 'session-1', title: '', messages: [], contentLocked: true },
     }
@@ -217,7 +217,7 @@ describe('MainLayout', () => {
     expect(screen.getByRole('button', { name: /header new session/i })).toBeDisabled()
   })
 
-  test('sessions panel only lists the active project\'s sessions (legacy unscoped fail open)', () => {
+  test('sessions panel only lists the active project\'s sessions (unscoped sessions fail open)', () => {
     const makeConv = (id: string, projectId?: string | null) => ({
       id,
       userId: 'user-1',
@@ -253,20 +253,19 @@ describe('MainLayout', () => {
 
     render(<MainLayout isAuthenticated={true} />)
 
-    // Cross-project bleed guard (UX-8): project B's session must NOT appear
-    // in project A's panel; unscoped legacy sessions stay visible.
+    // Cross-project bleed guard: project B's session must NOT appear in
+    // project A's panel; unscoped legacy sessions stay visible.
     expect(screen.getByTestId('session-item-in-project')).toBeInTheDocument()
     expect(screen.getByTestId('session-item-legacy')).toBeInTheDocument()
     expect(screen.queryByTestId('session-item-other-project')).not.toBeInTheDocument()
     expect(screen.queryByTestId('session-item-other-user')).not.toBeInTheDocument()
   })
 
-  // The regression the file-ask split shipped with: `FilePreviewSplit` puts the
-  // peeked file in its own resizable panel BESIDE this whole subtree, so the
-  // room is already made one level up. This column used to subtract the peek
-  // width again — out of a panel that had already shrunk — which at 1440px left
-  // the chat 539px inside an 883px panel and a 344px dead band between the
-  // conversation and the file it is about. Visual proof: `/dev/file-ask-split`.
+  // Regression guard for the file-ask split: `FilePreviewSplit` puts the peeked
+  // file in its own resizable panel BESIDE this whole subtree, so the room is
+  // already made one level up. Subtracting the peek width again here would leave
+  // a dead band between the conversation and the file it is about. Visual check:
+  // `/dev/file-ask-split`.
   test('keeps full width while a file is peeked — the split already made the room', () => {
     useFilePreviewStore.setState({
       file: { id: 'doc-1', filename: 'Brandschutzplan_EG.pdf' } as never,

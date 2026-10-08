@@ -2,9 +2,9 @@
 
 The refusal is the point of this file. A status event may not carry a finished
 sentence in any language — it carries a stable KEY and the values to
-interpolate into it, and the frontend owns every word. The first cut shipped
-German prose in a ``text`` field, the live line rendered it verbatim, and an
-English-locale reader read German. :class:`TestNothingEmittedIsLanguageSpecific`
+interpolate into it, and the frontend owns every word. Prose in a ``text`` field would be
+rendered verbatim by the live line, and an English-locale reader would read German.
+:class:`TestNothingEmittedIsLanguageSpecific`
 is the test that regression cannot get past.
 
 Each emitter is exercised at LangGraph's writer seam (the ``emitted`` fixture
@@ -299,7 +299,7 @@ class TestRetrieval:
         assert payload.values == {}
 
     def test_remember_does_not_steal_the_next_search_slot(self, steps) -> None:
-        """``status:retrieval:N`` is the spine. remember used to occupy it."""
+        """``status:retrieval:N`` is the spine; ``remember`` does not occupy it."""
         assert turn_status.emit_retrieval([{"name": "remember", "args": {"text": "x"}}], round_index=0) is False
         assert (
             turn_status.emit_retrieval(
@@ -356,10 +356,10 @@ class TestCheckpointIsCountable:
     """The Herleitung layer is drawn per round; its BODY only sometimes exists.
 
     The body is the model's own Thought, and tool-calling models often write
-    none. Whether the spine reads as reasoning or as a list of empty headers is
-    therefore a RATE, and before this event nothing could measure it: the
-    conclusion travels as ``reason`` on a live event, so counting its absence
-    meant reading the reader's text out of traces.
+    none. Whether the spine reads as reasoning or as a list of empty headers is therefore a
+    RATE, and it needs an event of its own to be measured: the conclusion travels as
+    ``reason`` on a live event, so counting its absence would mean reading the reader's text
+    out of traces.
     """
 
     def test_a_search_round_records_that_its_checkpoint_has_a_body(self, steps) -> None:
@@ -557,7 +557,7 @@ class TestChannels:
             assert payload.key in turn_status.ALL_STATUS_KEYS
 
 
-# --- The point of the change ------------------------------------------------
+# --- The language rule --------------------------------------------------------
 
 #: A key or an enum id: ASCII, no spaces, dot/underscore/comma separated. Every
 #: product-authored string on the wire has to look like this, because anything
@@ -573,7 +573,7 @@ _ECHOED_BACK = {"query", "skill", "document", "punkt", "page"}
 
 #: Words that would betray German copy having leaked back into emitted data.
 #: Crude on purpose: it is a tripwire, not a language detector, and it is the
-#: exact vocabulary the old ``text`` field used.
+#: vocabulary a finished sentence in a ``text`` field would carry.
 _GERMAN_WORDS = (
     "wird",
     "werden",
@@ -660,7 +660,7 @@ class TestNothingEmittedIsLanguageSpecific:
     """
 
     def test_the_text_field_is_gone(self, steps) -> None:
-        """``text`` was the vehicle. There is no field to put a sentence in."""
+        """No field carries a finished sentence; ``text`` is not one of them."""
         for payload in _every_live_payload(steps):
             assert "text" not in payload, payload
 
@@ -716,7 +716,7 @@ class TestTheRepairRecordCarriesItsCounts:
     def test_the_count_is_the_camel_case_the_detail_panel_reads(self, steps) -> None:
         turn_status.emit_answer_repair(quotes=1)
         payload = _live(steps)[0]
-        # A removed citation is no longer repaired, so it is no longer counted here.
+        # A removed citation is not repaired, so it is not counted here.
         assert payload.detail == {"quotesFailed": 1}
 
     def test_the_line_still_resolves_for_the_reader(self, steps) -> None:

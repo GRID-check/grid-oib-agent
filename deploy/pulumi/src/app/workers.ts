@@ -199,9 +199,8 @@ export function installWorkers(
     { provider: w.provider, dependsOn: [secrets.secret, ...dependsOn] },
   );
 
-  // Created whatever `skillsEnabled` says. The container used to exit 0 when
-  // Agent Skills were off, which under a Deployment is a permanent
-  // CrashLoopBackOff, so it was only created with the feature on. It now also
+  // Created whatever `skillsEnabled` says. Exiting 0 when Agent Skills are off
+  // would be a permanent CrashLoopBackOff under a Deployment. The worker also
   // drives the run reconciler (`frontends/ui/src/lib/runs/reconcile.ts`), and
   // runs exist without Agent Skills (an escalated chat question), so with the
   // feature off it stays up as a reconcile-only worker and fires no schedules.

@@ -10,9 +10,9 @@
  *  | written `## Quellen` list    | `[N]` ↔ locator binding, as prose       |
  *  | `sources` step lanes         | what was RETRIEVED (cited or not)       |
  *
- * They used to be consumed by three different surfaces with three different
- * matching rules, which is why a document could be complete in one place and
- * degraded in another. Here they are folded into ONE model in a fixed order —
+ * Surfaces that each matched them by their own rule let a document be complete
+ * in one place and degraded in another. Here they are folded into ONE model in
+ * a fixed order —
  * richest producer first, so every later contribution can only ADD facts, never
  * replace better ones. What each surface then renders is a projection, and two
  * projections of the same model cannot disagree.
@@ -112,7 +112,7 @@ const addWireCitations = (
       // German qualifier is a separate, weaker channel — for messages persisted
       // before the wire carried the field. They are handed over as two fields,
       // never collapsed with `??`: one document is assembled from many wire
-      // sources, and collapsing here made whichever arrived first the winner, so
+      // sources, and collapsing here would make whichever arrived first the winner, so
       // a qualifier on source #1 could beat the real shelf on source #2.
       shelf: citation.shelf,
       shelfFallback: parsed?.shelf,
@@ -155,9 +155,9 @@ const addWireCitations = (
  * `[N]` the wire already numbers is therefore that binding restated in prose,
  * and it joins the wire's document by number alone, whatever it says — the
  * spelling of the filename, a title in front of it, a page the model
- * misremembered. The line used to be matched by FILENAME, so a spelling the
- * matcher could not read minted a second document for a `[N]` the wire had
- * already bound, and the row showed the same source twice, once dead.
+ * misremembered. Matching by FILENAME would let a spelling the matcher could
+ * not read mint a second document for a `[N]` the wire has already bound, and
+ * the row would show the same source twice, once dead.
  *
  * The written list matters only where the wire has no number for `[N]`: a
  * message persisted before the wire numbered sources, or a sparse number map
@@ -198,9 +198,9 @@ const TITLE_SEPARATOR_RE = /\s+[-–—]\s+|:\s+/g
 /**
  * Every filename a written name could mean, the literal reading first.
  *
- * The prompt asks for `filename.pdf, p.X` and its examples once showed
+ * The prompt asks for `filename.pdf, p.X` and its examples may show
  * `Title – filename.pdf, p.X`; the model copies examples, and the locator's
- * filename test (`anything.ext`) accepted the decorated string whole. That
+ * filename test (`anything.ext`) accepts the decorated string whole. That
  * reading meets no wire document. The tails after each separator are the
  * other readings; which one is the document is decided against the wire
  * (`findByFile`), never by the shape of the string, so a filename that
@@ -271,7 +271,7 @@ const addWrittenEntries = (
         label: locator ? locator.filename : title || url || text,
       },
       // Never pass the locator line as a title: `resolveTitle` would keep the
-      // raw filename, which is the exact regression this list used to cause.
+      // raw filename, which is the regression this list guards against.
       title: locator ? undefined : title || undefined,
       fileName: locator?.filename,
       // A written entry is prose the model wrote, so it can never STATE a shelf:
@@ -297,7 +297,7 @@ const addWrittenEntries = (
  * source or a written entry says so, and the accumulator's sticky `isCited`
  * means contributing them can never downgrade a document. This is what finally
  * lets one surface answer both "what did you read?" and "what did you use?" —
- * the two questions that used to live in two disconnected pipelines.
+ * the two questions that would otherwise live in two disconnected pipelines.
  */
 const addTraceLanes = (
   accumulator: CitationAccumulator,
@@ -346,7 +346,7 @@ const MAX_SNIPPET_LENGTH = 600
  * Cited-passage text carried by a citation's `content` line, if any.
  *
  * A LAST RESORT, not the source of truth: the wire states the passage on its own
- * `snippet` field now, and this only reads messages persisted before it did.
+ * `snippet` field, and this only reads messages persisted before it did.
  *
  * `content` is a locator — `origin_token + (citation_key or title or url)` — so
  * for a live citation it holds a reference and never a quotation. Every shape it
@@ -354,8 +354,8 @@ const MAX_SNIPPET_LENGTH = 600
  * „Zitierte Stelle" and, worse, handed to the passage matcher as the sentence to
  * mark: a RIS source's `content` is its TITLE, and a title occurs throughout the
  * document it titles, so the first match is marked with full confidence in the
- * wrong place. The audit's own rule is that over a legal quotation a
- * confidently wrong mark is worse than none.
+ * wrong place. Over a legal quotation a confidently wrong mark is worse than
+ * none.
  */
 export const citationSnippet = (
   citation: Pick<CitationSource, 'url' | 'content' | 'title' | 'citationKey'>

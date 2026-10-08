@@ -225,7 +225,7 @@ describe('recovering and re-crossing alerts again', () => {
     expect(emitInboxItems).not.toHaveBeenCalled()
   })
 
-  it('alerts again after a recovery, because the retired row is no longer live', async () => {
+  it('alerts again after a recovery, because the retired row is not live', async () => {
     // Tick 1: crosses.
     await evaluateStorageAlert('org_1', gb(82), { thresholdPercent: 80 })
     expect(emitInboxItems).toHaveBeenCalledTimes(1)

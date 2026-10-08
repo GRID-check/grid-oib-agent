@@ -7,8 +7,7 @@
  * once the BFF has written the row, the same way the working directory pushes
  * `document_draft`. The model cannot fabricate one — which is the whole point,
  * because the sentence this card exists beside is „ich mache den Einreichcheck
- * bis Freitag", and until there was a row that sentence was a promise nothing
- * kept.
+ * bis Freitag", and without a row that sentence is a promise nothing keeps.
  *
  * ## Why it offers nothing
  *
@@ -19,24 +18,23 @@
  * the conversation the run writes into — a real `<a>`, so middle-click and „copy
  * link address" work, exactly as the draft card's „Im Projekt öffnen" does.
  *
- * ## Why there is no „Unterhaltung öffnen" any more
+ * ## Why there is no „Unterhaltung öffnen"
  *
  * A run is one message in the thread that commissioned it (ADR-0062), and it
- * appears right under this card as the run block. The link used to open the
- * run's own conversation; that conversation no longer exists, and a link to
- * the thread the reader is already in is a control that does nothing. The
- * `conversationId` still arrives on the wire (the tool result names the
- * thread) and is accepted so an older backend's payload stays valid; it is
- * not rendered.
+ * appears right under this card as the run block. There is no conversation of
+ * its own to link to, and a link to the thread the reader is already in is a
+ * control that does nothing. The `conversationId` still arrives on the wire
+ * (the tool result names the thread) and is accepted so an older backend's
+ * payload stays valid; it is not rendered.
  *
- * ## Why it no longer says „läuft"
+ * ## Why it does not say „läuft"
  *
- * It used to, so that the answer beside it could not quietly overstate the
- * work. The run block directly beneath it now says the state — and keeps
- * saying it, which a card frozen at „läuft" cannot — so this card is the
- * COMMISSIONING RECEIPT and nothing more: what was handed over, of what kind,
- * and by when it is wanted. Two adjacent claims about one run's state are
- * how a thread starts disagreeing with itself the moment the run moves on.
+ * The answer beside it must not quietly overstate the work, but this card is
+ * not the place to state it: the run block directly beneath says the state,
+ * and keeps saying it, which a card frozen at „läuft" cannot. So this card is
+ * the COMMISSIONING RECEIPT and nothing more: what was handed over, of what
+ * kind, and by when it is wanted. Two adjacent claims about one run's state
+ * are how a thread starts disagreeing with itself the moment the run moves on.
  */
 
 import type { FC } from 'react'

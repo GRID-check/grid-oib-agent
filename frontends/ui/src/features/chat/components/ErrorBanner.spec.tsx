@@ -226,9 +226,9 @@ describe('ErrorBanner', () => {
       )
 
       const button = screen.getByText('Show details').closest('button')!
-      // The id is generated per banner (useId): two error cards in one thread
-      // used to share the literal `error-details`, so both disclosure buttons
-      // pointed at the first card's <pre>. The contract is the LINKAGE.
+      // The id is generated per banner (useId): a literal id would be shared by
+      // every card in a thread, and each disclosure button would point at the
+      // first card's <pre>. The contract is the LINKAGE.
       const controlsId = button.getAttribute('aria-controls')
       expect(controlsId).toBeTruthy()
 
@@ -239,7 +239,7 @@ describe('ErrorBanner', () => {
 })
 
 /**
- * The support reference (ledger item 11).
+ * The support reference.
  *
  * The property that matters is not that an id is drawn — it is that the id
  * drawn is a PREFIX of the id copied, and that both are the id the BFF logged.

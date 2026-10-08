@@ -136,11 +136,11 @@ describe('documentsForRound', () => {
  * The fan under a round, once the backend states what that round returned.
  *
  * `documentsForRound` matches filenames, so every round that touched a file
- * drew the same turn-level card: the same aggregate count, the same cited
- * page. A second round re-opening four files at new pages was four identical
- * cards a second time. The ledger says which documents a round returned and at
- * which passages; `roundFan` folds them to ONE slot per document carrying its
- * loci, and falls back to the filename match for any round it does not cover.
+ * would draw the same turn-level card: the same aggregate count, the same cited
+ * page. A second round re-opening four files at new pages would be four
+ * identical cards. The ledger says which documents a round returned and at which
+ * passages; `roundFan` folds them to ONE slot per document carrying its loci, and
+ * falls back to the filename match for any round it does not cover.
  */
 describe('roundFan', () => {
   const doc = (id: string, fileName: string): CitedDocument => ({
@@ -197,8 +197,8 @@ describe('roundFan', () => {
   })
 
   test('five opens of one document are ONE card listing its five loci', () => {
-    // The shape this fold exists for: five Punkte of one Richtlinie used to be
-    // five identical cards, which reads as five fetches of the same file.
+    // Five Punkte of one Richtlinie are one card, not five identical ones: five
+    // cards would read as five fetches of the same file.
     const punkte = ['Pkt. 3.1', 'Pkt. 3.2', 'Pkt. 3.3', 'Pkt. 3.4', 'Pkt. 3.5']
     const entry = {
       ...ledger[2]!,
@@ -249,8 +249,8 @@ describe('roundFan', () => {
     ])
   })
 
-  test('a turn stored before the backend stamped passages falls back to newDocs', () => {
-    // Old rows are replayed from Postgres and must still say something true:
+  test('a turn without passage stamps falls back to newDocs', () => {
+    // Rows stored without the stamp are replayed from Postgres and must still say something true:
     // the document-level verdict, applied to every locus of that document.
     const entry = {
       ...ledger[1]!,

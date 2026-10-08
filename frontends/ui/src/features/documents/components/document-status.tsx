@@ -4,11 +4,10 @@
  * "did it fail", "will it change on its own").
  *
  * The vocabulary itself is NOT here. It lives in `@/lib/documents/document-status`
- * as data, because the server writes those values and the badge only reads them;
- * this module used to restate the whole set twice (a variant map and a label
- * map) and the server's poller restated it a third time. Everything below
- * DERIVES from that one declaration, so a new status is one entry there rather
- * than four edits nobody can find.
+ * as data, because the server writes those values and the badge only reads
+ * them. Everything below DERIVES from that one declaration, so a new status is
+ * one entry there rather than a variant map, a label map and the server's
+ * poller each restating it.
  */
 
 'use client'
@@ -103,12 +102,11 @@ export function failedWithPreviousVersion(file: {
 /**
  * This document is not, and will never become, Projektwissen.
  *
- * Asks BOTH questions, and that is the whole point. Every not-citable
- * affordance used to derive from `status` alone, which was correct only while
- * `stored` implied "written by a machine" — a coincidence, not a rule. The
- * design's own lesson from this feature is that *provenance is the durable
- * fact*: `status` describes where a document is in a pipeline and can move,
- * while `authored_by` is what it IS and cannot.
+ * Asks BOTH questions, and that is the whole point. Deriving every
+ * not-citable affordance from `status` alone is right only while `stored`
+ * implies "written by a machine" — a coincidence, not a rule. Provenance is
+ * the durable fact: `status` describes where a document is in a pipeline and
+ * can move, while `authored_by` is what it IS and cannot.
  *
  * So a machine-authored row is never-indexed whatever its status says, and a
  * human row still answers on status alone, which is what keeps a genuinely

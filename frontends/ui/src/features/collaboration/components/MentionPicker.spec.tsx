@@ -77,7 +77,7 @@ describe('filterMentionCandidates — order and grouping', () => {
     ])
   })
 
-  test('a row the caller cannot invite stays visible but is not selectable (MN-5)', () => {
+  test('a row the caller cannot invite stays visible but is not selectable', () => {
     const groups = filterMentionCandidates(CANDIDATES, '', false, 'Piloti')
     expect(groups.visible).toContain(SABINE)
     expect(groups.selectable).not.toContain(SABINE)
@@ -119,7 +119,7 @@ describe('MentionPicker — the rows', () => {
     expect(row).toHaveAttribute('aria-disabled', 'false')
   })
 
-  test('without invite rights that row is disabled and says why — never hidden (MN-5, SH-19)', () => {
+  test('without invite rights that row is disabled and says why — never hidden', () => {
     renderPicker({ canInvite: false })
     const row = screen.getByText('Sabine Gruber').closest('[role="option"]') as HTMLElement
     expect(row).toHaveAttribute('aria-disabled', 'true')

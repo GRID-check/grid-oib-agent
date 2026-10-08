@@ -1,12 +1,12 @@
 /**
  * The viewer's full-model walk, counted.
  *
- * The walk is the reason the BIM query route needed its own rate-limit bucket:
+ * The walk is the reason the BIM query route has its own rate-limit bucket:
  * it is the one client action that issues hundreds of requests from a single
- * user gesture. Its page size therefore is not a detail — at 200 rows a model
- * at the extraction cap took 1 000 requests, enough to drain a budget by
+ * user gesture. Its page size is therefore not a detail. At 200 rows a model
+ * at the extraction cap would take 1 000 requests, enough to drain a budget by
  * opening a viewer. This pins the page it asks for to the maximum the API will
- * serve, so the two cannot drift apart again.
+ * serve, so the two cannot drift apart.
  */
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -43,8 +43,8 @@ describe('useBimElements', () => {
   })
 
   it('walks a whole model in pages, stopping on a short one', async () => {
-    // `total` is on every real response and the fixture used to omit it, which
-    // is why it could not distinguish "walk the pages that exist" from "keep
+    // `total` is on every real response, so the fixture carries it: without it
+    // the walk could not distinguish "walk the pages that exist" from "keep
     // asking until one comes back short".
     const total = BIM_ELEMENTS_PAGE_LIMIT * 2 + 1
     const full = Array.from({ length: BIM_ELEMENTS_PAGE_LIMIT }, (_, i) => ({ expressId: i }))
@@ -61,7 +61,7 @@ describe('useBimElements', () => {
 
     const pages = requestedPages(fetchMock)
     // Exactly the pages that exist — no speculative over-fetch — even though
-    // the last two now go out together rather than one after the other.
+    // the last two go out together rather than one after the other.
     expect(pages).toHaveLength(3)
     expect(pages.map((page) => page.offset).sort((a, b) => a - b)).toEqual([
       0,
@@ -105,8 +105,8 @@ describe('useBimElements', () => {
   })
 
   it('keeps a full walk inside the route’s own rate-limit budget', async () => {
-    // The staging failure in one assertion: a model at the extraction cap must
-    // be walkable without the route refusing partway through.
+    // A model at the extraction cap must be walkable without the route refusing
+    // partway through.
     const { BIM_ELEMENT_LIMIT } = await import('@/lib/bim/service')
     const { BIM_QUERY_LIMIT } = await import('@/lib/limits')
 

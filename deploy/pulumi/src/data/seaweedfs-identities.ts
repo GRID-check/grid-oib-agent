@@ -76,15 +76,8 @@ export interface S3IdentityShape {
 /**
  * THE authorization model for object storage, as data.
  *
- * Extracted from `renderS3Config` because this file was not the only definition
- * of it. The compose stacks build `s3.json` with a shell `printf`, and that copy
- * had drifted: it declared two identities where this declares three, so
- * `grid-backend-read` did not exist there at all and the agent tier ran on the
- * write-capable `grid` credential — a strictly weaker authorization model than
- * production, in the environment where people develop against it.
- *
- * The header comment used to say the two were "the same shape, so a developer
- * can diff the two". Nothing made that true. Now this function is the source and
+ * The compose stacks build `s3.json` with a shell `printf`, so a second copy of
+ * this model exists there and can drift. This function is the source, and
  * `seaweedfs.spec.ts` asserts the compose files against it, so a divergence is a
  * failing test rather than something a reader has to notice.
  *
@@ -142,13 +135,11 @@ export function s3IdentityCatalog({
     },
     {
       name: "grid-backend-read",
-      // This used to be a bare `["Read"]` with a separate `buckets` field.
-      // The `buckets` field is not consulted by `canDo` — only `actions` is
-      // — so the bare `Read` matched every bucket in the deployment,
-      // including `grid-pg-backups`: the aiq-agent tier could read the
-      // Postgres PITR archive, i.e. every row of every database. ADR-0039
-      // described this identity as scoped to the documents bucket; it now
-      // actually is.
+      // Scoped by the action itself: `canDo` consults only `actions`, never a
+      // separate `buckets` field, and a bare `Read` matches every bucket in the
+      // deployment, including `grid-pg-backups`. That would let the aiq-agent
+      // tier read the Postgres PITR archive, i.e. every row of every database.
+      // ADR-0039 scopes this identity to the documents bucket.
       //
       // `List` is deliberately absent. `view_knowledge_image` fetches an object
       // by the key its caller already holds (ADR-0039); enumerating a bucket is
@@ -179,9 +170,8 @@ export function s3IdentityCatalog({
       // DeleteBucket on the trace archive), and not bucket-unscoped — a bare
       // `"Write"` here would match EVERY bucket in the deployment, including
       // the Postgres PITR archive. That is not a hypothetical failure mode:
-      // it is the exact bug this catalogue's `grid-backend-read` entry was
-      // written to fix, and the shape that caused it is one word shorter than
-      // the shape that does not.
+      // it is the bug the `grid-backend-read` entry guards against, and the
+      // shape that causes it is one word shorter than the shape that does not.
       actions: OBJECT_ACTIONS.map((action) => `${action}:${langfuseBucket}`),
     });
   }

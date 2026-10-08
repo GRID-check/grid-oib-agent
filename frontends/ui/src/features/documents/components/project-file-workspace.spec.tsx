@@ -41,7 +41,7 @@ function resetPreviewStore() {
 const mockUploadFiles = vi.fn()
 
 /**
- * The workspace reads the URL now: `?model=` is what turns Dateien into the
+ * The workspace reads the URL: `?model=` is what turns Dateien into the
  * model viewer, so the page needs a router the way every other URL-backed
  * surface in the app does.
  */
@@ -274,14 +274,12 @@ describe('ProjectFileWorkspace', () => {
 })
 
 /**
- * A FOLDER IS NOT A LONGER LIST OF FILES.
+ * A FOLDER IS NOT A LIST OF FILES.
  *
- * It used to be treated as one: every file landed in whichever folder the
- * reader stood in, the tree survived only as a string on the row, and two files
- * of the same name inside one drop both uploaded — one silently overwriting the
- * other, because a project holds one document per filename (0074). These pin
- * the plan that replaced that: what it says, what the reader decides, and where
- * the files actually go.
+ * Each file lands in the folder its path names, and two files of the same name
+ * inside one drop cannot both upload, because a project holds one document per
+ * filename (0074). These pin the plan: what it says, what the reader decides,
+ * and where the files actually go.
  */
 describe('ProjectFileWorkspace — a dropped folder', () => {
   const existing: DocumentWireRow = {
@@ -429,7 +427,7 @@ describe('ProjectFileWorkspace — a dropped folder', () => {
     await dropFolder([pathed('W/A/Deckblatt.pdf'), pathed('W/B/Deckblatt.pdf')])
 
     const dialog = await screen.findByTestId('folder-upload-dialog')
-    // Before this, both uploaded and one overwrote the other with nothing said.
+    // Otherwise both would upload and one would overwrite the other with nothing said.
     expect(within(dialog).getByTestId('folder-upload-collisions')).toBeInTheDocument()
     expect(screen.getByTestId('folder-upload-confirm')).toBeDisabled()
   })
@@ -499,12 +497,13 @@ describe('ProjectFileWorkspace — a dropped folder', () => {
 })
 
 /**
- * A REVISED FILE UNDER THE SAME NAME (U1).
+ * A REVISED FILE UNDER THE SAME NAME.
  *
- * The same drop used to do two different things depending on the browser: one
- * that had uploaded to the project before refused it as „bereits hinzugefügt"
- * (its localStorage remembered the name), a fresh one replaced the live
- * document without a word. Both now ask, and both ask from the listing.
+ * The same drop must not do different things depending on the browser: one that
+ * had uploaded to the project before must not refuse it as „bereits
+ * hinzugefügt" (its localStorage remembers the name), and a fresh one must not
+ * replace the live document without a word. Both ask, and both ask from the
+ * listing.
  */
 describe('ProjectFileWorkspace — a picked file the project already holds', () => {
   const existing: DocumentWireRow = {
@@ -580,7 +579,7 @@ describe('ProjectFileWorkspace — a picked file the project already holds', () 
       File[],
       { folderIdFor: (file: File) => string | null },
     ]
-    // The same upload path a replacement always took — the server keeps the
+    // The same upload path a replacement takes — the server keeps the
     // document's id and records the bytes as its next version.
     expect(sent).toEqual([revised])
     expect(options.folderIdFor(revised)).toBeNull()
@@ -681,13 +680,11 @@ describe('ProjectFileWorkspace — a picked file the project already holds', () 
 /**
  * The listing the SERVER already read.
  *
- * Dateien used to paint a skeleton, boot its bundle and only then ask for the
- * folders and the documents — three round trips stacked behind the JavaScript,
- * on a page whose whole job is to show a list the page request could already
- * have had. The page reads both now and hands them down; what these pin is that
- * the seed is a first paint and not a second source of truth: the corpus is on
- * screen in the first frame, and nothing goes back out to fetch what it was
- * just given.
+ * The page reads the folders and the documents on the server and hands them
+ * down, so the corpus is on screen in the first paint: no skeleton, and no round
+ * trips stacked behind the JavaScript. What these pin is that the seed is a
+ * first paint and not a second source of truth: nothing goes back out to fetch
+ * what it was just given.
  */
 describe('ProjectFileWorkspace — server-seeded first paint', () => {
   const seededFile = {
@@ -804,7 +801,7 @@ describe('ProjectFileWorkspace — server-seeded first paint', () => {
 /**
  * „Bisher keine Möglichkeit, Dateien per Drag & Drop in Ordner zu verschieben."
  *
- * The move itself already existed — `PATCH /api/documents/[id]/folder`, offered
+ * The move itself exists — `PATCH /api/documents/[id]/folder`, offered
  * as „Verschieben" in the overflow menu — so what was missing was the gesture
  * people try first, and whose absence reads as the capability being absent.
  *
@@ -818,11 +815,10 @@ describe('ProjectFileWorkspace — dragging a file into a folder', () => {
    * A drag started inside the page.
    *
    * `items` is here because a real browser puts it there — every entry set with
-   * `setData` is an item — and its absence is what let the upload overlay's
-   * defect hide. The overlay used to raise itself for any drag with items at
-   * all; this fixture had none, so the assertion below passed while the product
-   * covered the folder in „Dateien hier ablegen" the moment a document moved
-   * over it.
+   * `setData` is an item. The overlay must not raise itself for any drag with
+   * items at all: without items in this fixture the assertion below would pass
+   * while the product covered the folder in „Dateien hier ablegen" the moment a
+   * document moved over it.
    */
   const dragTransfer = (documentId: string) => {
     const store: Record<string, string> = { 'application/x-grid-document-id': documentId }
@@ -941,10 +937,8 @@ describe('ProjectFileWorkspace — dragging a file into a folder', () => {
 /**
  * MOVING A FOLDER, by the same gesture that moves a document.
  *
- * `PATCH .../folders/[folderId]` with a `parentId` already re-parented a
- * folder — it is what the tree needed to be nestable at all — and nothing in
- * the UI reached it. A folder could be created inside another one and never
- * moved afterwards.
+ * `PATCH .../folders/[folderId]` with a `parentId` re-parents a folder — it is
+ * what the tree needs to be nestable at all — and the gesture below reaches it.
  */
 describe('ProjectFileWorkspace — dragging a folder into a folder', () => {
   const folders = [
@@ -1100,7 +1094,7 @@ describe('ProjectFileWorkspace — mobile preview overlay', () => {
     fireEvent.click(fileRow)
 
     // Dialog semantics with an accessible name. Asserted by NAME rather than by
-    // `aria-label`: the shell is Radix now, which labels the content via
+    // `aria-label`: the shell is Radix, which labels the content via
     // `aria-labelledby` pointing at a visually-hidden DialogTitle. Querying the
     // computed accessible name tests what a screen reader announces instead of
     // pinning the attribute the implementation happens to use.
@@ -1259,10 +1253,10 @@ describe('ProjectFileWorkspace — renaming and deleting a document', () => {
 /**
  * A file that is still being read has to stop being one on screen.
  *
- * The list was fetched once and never again, so a document that finished
- * indexing after the page loaded kept its "processing" badge until a reload —
- * and an `.ifc` never gets a second chance from the upload path at all, because
- * extraction is detached and has no ingest job for the orchestrator to poll.
+ * A document that finishes indexing after the page loaded must lose its
+ * "processing" badge without a reload. An `.ifc` gets no second chance from the
+ * upload path at all, because extraction is detached and has no ingest job for
+ * the orchestrator to poll.
  */
 describe('ProjectFileWorkspace — a settling document settles on screen', () => {
   /** How many times the whole corpus has been asked for. */
@@ -1323,20 +1317,20 @@ describe('ProjectFileWorkspace — a settling document settles on screen', () =>
     await vi.advanceTimersByTimeAsync(4_100)
     await waitFor(() => expect(statusCalls).toBe(1))
     await waitFor(() => expect(screen.getByText('Citable')).toBeInTheDocument())
-    // Twenty pages of listing every four seconds was the cost of one PDF being
-    // read; the poll never drains the listing again.
+    // Twenty pages of listing every four seconds would be the cost of one PDF
+    // being read; the poll never drains the listing again.
     expect(documentCalls).toBe(1)
 
-    // Everything is terminal now, so the polling stops.
+    // Everything is terminal, so the polling stops.
     await vi.advanceTimersByTimeAsync(12_000)
     expect(statusCalls).toBe(1)
     expect(documentCalls).toBe(1)
   })
 
   it('keeps at most one poll in flight, however slow the endpoint is', async () => {
-    // `setInterval` fired again whether or not the previous refresh had come
-    // back, so a slow endpoint accumulated requests and let an older response
-    // land after a newer one.
+    // The poll must not run on `setInterval`, which fires again whether or not
+    // the previous refresh has come back: a slow endpoint would accumulate
+    // requests and let an older response land after a newer one.
     let inFlight = 0
     let peak = 0
     const gate: { release: (() => void) | null } = { release: null }
@@ -1543,9 +1537,9 @@ describe('ProjectFileWorkspace — only the newest answer may win', () => {
 /**
  * A model is a file, and the file grid is where it opens.
  *
- * The `/model` page is gone. What replaced it is this: an `.ifc` in the grid
- * opens the building full screen, and every other file opens the preview
- * dialog exactly as before. The branch is the whole integration.
+ * An `.ifc` in the grid opens the building full screen, and every other file
+ * opens the preview dialog exactly as before. The branch is the whole
+ * integration.
  */
 describe('ProjectFileWorkspace — an .ifc opens as a building', () => {
   beforeEach(() => {
@@ -1585,10 +1579,10 @@ describe('ProjectFileWorkspace — an .ifc opens as a building', () => {
   })
 
   /**
-   * This used to assert the opposite — a click went straight to the stage —
-   * and that is what made the model the ONE file type with no preview, and
-   * what made the same `.ifc` behave differently here and in the Archiv, which
-   * had no stage to jump to.
+   * An `.ifc` opens the preview first, like every other file. Going straight to
+   * the stage would make the model the one file type with no preview, and the
+   * same `.ifc` would behave differently here and in the Archiv, which has no
+   * stage to jump to.
    */
   it('opens the preview first, like every other file', async () => {
     renderWorkspace(
@@ -1628,9 +1622,9 @@ describe('ProjectFileWorkspace — an .ifc opens as a building', () => {
     // The name, not the id: `?model=` is resolved by file name so the link
     // survives a re-ingestion and stays readable in a chat message.
     //
-    // And PUSHED, not replaced: with `replace` the stage added no history
-    // entry, so the back button left the Files page entirely — discarding the
-    // camera, the cut, the selection, the hidden set and every measurement.
+    // And PUSHED, not replaced: with `replace` the stage adds no history
+    // entry, so the back button would leave the Files page entirely, discarding
+    // the camera, the cut, the selection, the hidden set and every measurement.
     // On a phone, back is how anyone dismisses a full-screen overlay.
     const href = routerPush.mock.calls.at(-1)?.[0] as string
     expect(new URLSearchParams(href.split('?')[1]).get('model')).toBe('Haus-A.ifc')
@@ -1692,9 +1686,9 @@ describe('ProjectFileWorkspace — the Von Piloti filter', () => {
     await waitFor(() => expect(searches.length).toBeGreaterThan(0))
     expect(searches[0]).not.toContain('authoredBy')
 
-    // „Von Piloti" is inside the filter menu now, not an open chip in the
-    // header. The rule it tests is unchanged: the filter is a QUERY, not a
-    // client-side pass over rows already fetched.
+    // „Von Piloti" lives in the filter menu, not as a chip in the header. The
+    // rule it tests is that the filter is a QUERY, not a client-side pass over
+    // rows already fetched.
     await userEvent.click(screen.getByTestId('file-filter-menu-trigger'))
     await userEvent.click(await screen.findByLabelText('By Piloti'))
 
@@ -1731,10 +1725,9 @@ describe('ProjectFileWorkspace — the Von Piloti filter', () => {
  * AN ACTIVE FILTER MUST NOT BLANK THE FILES IT MATCHED.
  *
  * `filterEmptyNotice` is rendered by `FileBrowserPane` before every other
- * branch, so the workspace may only hand one over when the level is actually
- * empty: the memo used to answer filter state alone, and turning on any filter
- * — even one matching everything on screen — replaced the whole listing with
- * the "filter emptied it" panel.
+ * branch, so the workspace hands one over only when the level is actually
+ * empty. A filter that matches what is on screen must not replace the whole
+ * listing with the "filter emptied it" panel.
  */
 describe('ProjectFileWorkspace — a filter keeps what it matches', () => {
   const DOCUMENTS = [
@@ -1807,12 +1800,11 @@ describe('ProjectFileWorkspace — a filter keeps what it matches', () => {
 /**
  * THE FOLDER IS PART OF THE ADDRESS.
  *
- * It was `useState`, which made the folder tree the one part of this page the
- * browser did not know about: three folders deep, back left Dateien entirely
- * instead of going up one level, a reload dropped the reader at the root, and a
- * folder could not be sent to a colleague at all. Every other view on this page
- * — which model, which storey, which element — has lived in the URL for exactly
- * those reasons.
+ * It lives in the URL, not in `useState`, so the browser knows where the reader
+ * is: three folders deep, back goes up one level rather than leaving Dateien, a
+ * reload keeps the folder, and a folder can be sent to a colleague. Every other
+ * view on this page — which model, which storey, which element — lives in the
+ * URL for exactly those reasons.
  */
 describe('ProjectFileWorkspace — folders are addressable', () => {
   const FOLDERS = [
@@ -1858,7 +1850,7 @@ describe('ProjectFileWorkspace — folders are addressable', () => {
     const href = String(routerPush.mock.calls.at(-1)?.[0])
     expect(new URLSearchParams(href.split('?')[1]).get('folder')).toBe('f-1')
     // `push`, not `replace`. With `replace` there is no history entry, and back
-    // leaves the page instead of leaving the folder — which is the defect.
+    // would leave the page instead of leaving the folder.
     expect(routerReplace).not.toHaveBeenCalled()
   })
 
@@ -1866,8 +1858,8 @@ describe('ProjectFileWorkspace — folders are addressable', () => {
     searchParams = new URLSearchParams('folder=f-2')
     render()
 
-    // The document filed in `f-2` — not visible at the root, where this page
-    // used to land whatever the link said.
+    // The document filed in `f-2` — not visible at the root, which is where a
+    // link without the folder would land.
     expect(await screen.findByText(/Statikbericht/)).toBeInTheDocument()
   })
 
@@ -1896,11 +1888,10 @@ describe('ProjectFileWorkspace — folders are addressable', () => {
 /**
  * `?doc=` and the open preview, in both directions.
  *
- * The regression these exist for: the URL and the preview each had an effect
- * pulling ONE way — one only ever opened, the other only ever dropped the
- * parameter — so the transition nobody owned was the reader pressing Back. The
- * parameter went and the file stayed open, which is precisely the gesture the
- * parameter was added to serve.
+ * The URL and the preview must not each pull one way — one only opening, the
+ * other only dropping the parameter — because then the transition nobody owns is
+ * the reader pressing Back: the parameter goes and the file stays open, which is
+ * precisely the gesture the parameter exists to serve.
  */
 describe('ProjectFileWorkspace — the open file is on the URL', () => {
   const doc: DocumentWireRow = {
@@ -2084,11 +2075,10 @@ describe('ProjectFileWorkspace — the open file is on the URL', () => {
 /**
  * A project larger than one page of the listing.
  *
- * `GET /api/documents` used to answer the newest 500 and stop, silently: the
- * oldest plans of a big project were not on screen, search and filters could
- * not find them, and a dropped folder labelled them „Neu". The listing is paged
- * now, and the workspace reads it to the end — or says, visibly, where it
- * stopped.
+ * The listing is paged, and the workspace reads it to the end — or says, visibly,
+ * where it stopped. Stopping silently at the newest 500 would keep the oldest
+ * plans of a big project off the screen and out of search and filters, and a
+ * dropped folder would label them „Neu".
  */
 describe('ProjectFileWorkspace — a corpus larger than one page', () => {
   const row = (id: string, filename: string): DocumentWireRow => ({
@@ -2140,7 +2130,7 @@ describe('ProjectFileWorkspace — a corpus larger than one page', () => {
     expect(screen.queryByText(/showing the newest/i)).not.toBeInTheDocument()
   })
 
-  it('reads the rest after a first-page seed, and a dropped folder then knows the old file', async () => {
+  it('reads the rest after a first-page seed, and a dropped folder then knows the oldest file', async () => {
     probeShelf = [newest, oldest]
     renderWorkspace(
       <ProjectFileWorkspace
@@ -2164,8 +2154,8 @@ describe('ProjectFileWorkspace — a corpus larger than one page', () => {
     Object.defineProperty(input, 'files', { value: [file], configurable: true })
     fireEvent.change(input)
 
-    // The U2 symptom: compared against the newest page alone, this said „Neu".
-    // The plan asks the server by name now; the shelf holds both.
+    // Compared against the newest page alone, this would say „Neu". The plan
+    // asks the server by name, and the shelf holds both.
     const dialog = await screen.findByTestId('folder-upload-dialog')
     await waitFor(() => expect(within(dialog).getByTestId('folder-upload-count-update')).toHaveTextContent('1'))
     expect(within(dialog).getByTestId('folder-upload-count-new')).toHaveTextContent('0')

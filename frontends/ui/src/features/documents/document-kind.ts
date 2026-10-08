@@ -1,8 +1,8 @@
 /**
- * Content-aware document-kind inference for the Files card grid (WS-4).
+ * Content-aware document-kind inference for the Files card grid.
  *
  * Pure helpers — no React, no I/O — that map a document's real metadata onto
- * one visual kind used to pick a skeleton thumbnail: floor plan (Grundriss),
+ * one visual kind that picks a skeleton thumbnail: floor plan (Grundriss),
  * section (Schnitt), site plan (Lageplan), official notice (Bescheid), photo,
  * building model, spreadsheet, notes/Markdown, or generic document.
  *
@@ -56,8 +56,8 @@ const IFC_EXT = /\.(ifc|ifczip)$/
  * Formats whose BYTES settle the question, so no name and no tag can overrule
  * them. Nothing in a `.md` or a `.csv` can be a drawing, and the filename
  * heuristics below are happy to claim otherwise: `plan` matches anywhere in a
- * name, so `Projektplan.md`, `Zeitplan.csv` and `Sanierungsplanung.txt` all
- * drew a floor-plan card — walls and a door swing over a file that is prose.
+ * name, so `Projektplan.md`, `Zeitplan.csv` and `Sanierungsplanung.txt` would all
+ * draw a floor-plan card — walls and a door swing over a file that is prose.
  * Same shape as the `.ifc` rule, and for the same reason.
  */
 const SHEET_EXT = /\.(csv|tsv|xlsx?|xlsm|ods|numbers)$/
@@ -124,9 +124,9 @@ export function fileExtensionLabel(filename: string): string {
  * Tint (background + text CSS values) for a file-extension chip.
  *
  * There is no dedicated file-type token family yet, so the chips lean on the
- * provenance/source token family from the overhaul spec (§4) with graceful
- * fallbacks to today's semantic feedback tokens — never raw hex — so they
- * render correctly both before and after the WS-1 token retune lands:
+ * provenance/source token family, with fallbacks to the semantic feedback
+ * tokens — never raw hex — so they render correctly whichever of the two is
+ * defined:
  *   documents (pdf/doc/txt) → project-knowledge green,
  *   plans (dwg/dxf/ifc)     → law blue,
  *   photos                  → office gold,

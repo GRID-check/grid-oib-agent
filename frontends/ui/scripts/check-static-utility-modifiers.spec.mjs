@@ -120,7 +120,7 @@ describe('run', () => {
     expect(run()).toEqual({ unexpected: [], stale: [] })
   })
 
-  it('flags a baseline entry that no longer matches, so the list cannot rot', () => {
+  it('flags a baseline entry that does not match, so the list cannot rot', () => {
     const { stale } = run({
       knownViolations: [{ file: 'src/nowhere.tsx', className: 'bg-info/15' }],
     })

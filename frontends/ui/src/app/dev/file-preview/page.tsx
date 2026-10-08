@@ -13,10 +13,9 @@
  * the pane renders fully backend-free. Not linked from anywhere and 404s outside
  * development.
  *
- * `?variant=review` is the one that answers "has anybody opened the review rail
- * on a phone?" (ledger 40): it passes the `lifecyclePermissions` the pane needs
- * before it mounts „Freigabe und Fassungen", which no preview had ever done, so
- * the section shipped unphotographed at every width.
+ * `?variant=review` photographs the review rail at both widths. It passes the
+ * `lifecyclePermissions` the pane needs before it mounts „Freigabe und
+ * Fassungen", which no other preview does.
  */
 
 import type { JSX } from 'react'
@@ -88,8 +87,7 @@ const FIXTURE: FileItem = {
 }
 
 /**
- * The same pane holding a document PILOTI wrote, which is the state nothing had
- * ever photographed.
+ * The same pane holding a document PILOTI wrote.
  *
  * Every difference from `FIXTURE` above is a consequence of one decision — a
  * machine-authored document is deliberately never dispatched to `/v1/ingest`
@@ -109,9 +107,9 @@ const FIXTURE: FileItem = {
  *     The slugger NFKD-normalises and strips combining marks, so `ä` becomes
  *     `a` — NOT `ae`; only `ß` is transliterated, because it decomposes to
  *     nothing and would otherwise vanish mid-word. Hence `fluchtweglangen`,
- *     `gebaudeklasse`. Writing the German transliteration here would have made
- *     this preview disagree with every real filed report, which is the one
- *     thing a fixture must not do.
+ *     `gebaudeklasse`. Writing the German transliteration here would make this
+ *     preview disagree with every real filed report, which is the one thing a
+ *     fixture must not do.
  */
 const GENERATED_FIXTURE: FileItem = {
   id: 'dev-doc-generated',
@@ -132,11 +130,11 @@ const GENERATED_FIXTURE: FileItem = {
 }
 
 /**
- * The three text-shaped documents, which are the formats that had no viewer at
- * all: they drew the same grey "download it to read it" page mock as a `.dwg`,
- * although the bytes ARE the content. Three fixtures rather than one, because
- * the whole argument for rendering them separately is that a Markdown checklist
- * read as headings and boxes is a checklist and read as asterisks is a diff.
+ * The three text-shaped documents. The bytes ARE the content, so they render as
+ * text rather than as the grey "download it to read it" page a `.dwg` gets.
+ * Three fixtures rather than one, because the whole argument for rendering them
+ * separately is that a Markdown checklist read as headings and boxes is a
+ * checklist and read as asterisks is a diff.
  */
 const TEXT_FIXTURES: Record<'markdown' | 'csv' | 'text', FileItem> = {
   markdown: {
@@ -386,7 +384,6 @@ Ergebnis
   binnen vier Wochen nach.
 `
 
-// Install the fetch shim at module scope (before any component effect fires) so
 /**
  * A structured analysis exactly as the BFF hands it over (already normalized
  * to the display shape, snake_case only inside `segment`/`sheet` because that
@@ -495,17 +492,13 @@ const REVIEW_FIXTURE: FileItem = {
  * Scroll the review section into view before the shot — at every viewport.
  *
  * The harness captures a page at rest, and „Freigabe und Fassungen" is not at
- * rest's top any more: it is LAST in the rail, under the summary and the facts,
- * because a review apparatus is not what a reader opens a file for. At 390px
- * the rail also stacks under the document. Either way the panel is a scroll
- * away, and a shot of the top of the rail is evidence of the identity block
- * rather than of the thing this target exists to show.
- *
- * It used to run only under 640px, on the reasoning that the desktop rail is
- * its own column and the controls are therefore already visible. That was true
- * while the section led the rail and stopped being true when it moved; the
- * width check went with it rather than being adjusted, because the panel's
- * position in the rail is the thing that decides this and the viewport is not.
+ * rest's top: it is LAST in the rail, under the summary and the facts, because a
+ * review apparatus is not what a reader opens a file for. At 390px the rail also
+ * stacks under the document. Either way the panel is a scroll away, and a shot
+ * of the top of the rail is evidence of the identity block rather than of the
+ * thing this target exists to show. The scroll runs at every viewport because
+ * the panel's position in the rail decides whether it is in view, not the width
+ * of the screen.
  *
  * Idempotent through a module-scope flag and a poll that stops once the panel
  * is in view, because `reactStrictMode` mounts every effect twice — the
@@ -567,6 +560,7 @@ const REVIEW_VERSIONS = {
   ],
 }
 
+// Install the fetch shim at module scope (before any component effect fires), so
 // the pane's preview / visual-details fetches always resolve. Idempotent +
 // dev/browser-guarded.
 if (typeof window !== 'undefined' && process.env.NODE_ENV === 'development') {
@@ -623,8 +617,7 @@ if (typeof window !== 'undefined' && process.env.NODE_ENV === 'development') {
       }
       // ── the review rail ─────────────────────────────────────────────────
       // `?variant=review` mounts `DocumentLifecyclePanel` INSIDE the pane's
-      // rail, which is the only place it actually ships and the one place it
-      // had never been photographed (ledger 40). The panel reaches the network
+      // rail, which is the only place it actually ships. The panel reaches the network
       // through the typed client, so the fixture goes here rather than through
       // a prop: `FilePreviewPane` deliberately does not forward a client.
       if (/\/api\/documents\/.+\/versions\/reviewers$/.test(url)) {
@@ -713,7 +706,7 @@ export default function FilePreviewDevPage({
       : null
 
   // `?variant=review` mounts the pane the way the surface that OWNS the review
-  // rail mounts it (ledger 40).
+  // rail mounts it.
   //
   // Not through `FilePreviewDialog`: that mount forwards neither
   // `lifecyclePermissions` nor `viewerUserId`, so „Freigabe und Fassungen" can
@@ -764,7 +757,7 @@ export default function FilePreviewDevPage({
       canManage
       // The rail's identity block holds „Verantwortlich" — the faces plus the
       // Zuweisen popover — and it renders only for a collaborating viewer, so
-      // without this the one shot of the pane never photographed the row.
+      // without this, the shot of the pane would never photograph the row.
       canCollaborate
       // Keep the modal open for the screenshot (fixture state is constant).
       onClose={() => {}}

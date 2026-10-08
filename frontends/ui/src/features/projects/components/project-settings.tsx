@@ -1,9 +1,8 @@
 'use client'
 
 /**
- * Project Settings page body (spec §5, FB-9) — the consolidated home for what
- * used to be the Overview and Members pages, in the click-dummy's warm two-column
- * language:
+ * Project Settings page body: the home for the project's profile, members and
+ * lifecycle, in the warm two-column language:
  *
  *   the project profile card (the single "Projektparameter" surface) + honest
  *   Insights card (top grid) → applicable standards → members → memory →
@@ -12,12 +11,10 @@
  * ONE profile surface, ONE editor. The profile is shown once — as the
  * {@link ProjectBrief} (facts, summary, Piloti's assumptions and the open
  * gaps) — and edited in one place, the guided intake wizard (its "Briefing
- * bearbeiten" link). An earlier revision also rendered a separate
- * "Projektparameter" field card here; it duplicated the same facts and pointed
- * at the same wizard, so it was removed. The project's *facts* are
- * interdependent (building class / use / floors drive which OIB standards
- * apply), which is exactly why editing runs through the wizard's guided,
- * consistency-checked flow rather than loose inline fields.
+ * bearbeiten" link). The project's *facts* are interdependent (building class /
+ * use / floors drive which OIB standards apply), which is exactly why editing
+ * runs through the wizard's guided, consistency-checked flow rather than loose
+ * inline fields.
  *
  * Every feature the page consolidated is kept below, unchanged — the sections
  * reuse the existing components so their own permission checks and data flows
@@ -75,7 +72,7 @@ interface ProjectSettingsProps {
   canChangeStatus?: boolean
   /** Whether the user may write project memory (project:memory:write): the closing debrief's confirm and lesson. */
   canWriteMemory?: boolean
-  /** Whether the flagged project knowledge page is linked from here (spec §5). */
+  /** Whether the flagged project knowledge page is linked from here. */
   showKnowledgeLink?: boolean
   /**
    * The signed-in user's own organization membership id, threaded down to
@@ -159,8 +156,8 @@ export function ProjectSettings({
         </StaggerItem>
       )}
 
-      {/* Top grid, the dummy's card chrome: the single project-profile card
-          (left) beside the honest Insights card (right). The profile is the
+      {/* Top grid: the single project-profile card (left) beside the honest
+          Insights card (right). The profile is the
           ProjectBrief — facts, summary, Piloti's assumptions and the open gaps,
           with its one "Briefing bearbeiten" link into the guided wizard. */}
       <StaggerItem>
@@ -176,10 +173,10 @@ export function ProjectSettings({
             canEdit={canManageProject}
           />
 
-          {/* Insights — honest empty state only: per-project telemetry
-              aggregation does not exist yet (spec §2.3), so this promises
-              nothing and shows nothing fake. The card chrome + heading match the
-              dummy, ready for the source-mix layout once telemetry exists. */}
+          {/* Insights: an honest empty state only. Per-project telemetry
+              aggregation does not exist yet, so this promises nothing and shows
+              nothing fake. The card chrome and heading are ready for the
+              source-mix layout once telemetry exists. */}
           <RaisedCard aria-label={t('project.sections.insights')}>
             <RaisedCardBody className="p-6">
               <h2 className="text-foreground text-sm font-semibold">
@@ -213,8 +210,8 @@ export function ProjectSettings({
         />
       </StaggerItem>
 
-      {/* Members — the exact roster form the old Members page rendered;
-          management controls stay gated inside the reused component. */}
+      {/* Members: the roster form; management controls stay gated inside the
+          reused component. */}
       <StaggerItem>
         <section aria-label={t('project.sections.members')} className="space-y-4">
           <div className="space-y-1">
@@ -235,9 +232,9 @@ export function ProjectSettings({
         </section>
       </StaggerItem>
 
-      {/* Uploads — who brought how many files in when, and how they ended
-          (ADR-0079, ticket „Verlauf/Protokoll"). Read-only reference beside
-          the roster; each uploader's own rows open their summary. */}
+      {/* Uploads: who brought how many files in when, and how they ended
+          (ADR-0079). Read-only reference beside the roster; each uploader's own
+          rows open their summary. */}
       <StaggerItem>
         <section aria-label={tUploads('history.title')} className="space-y-4">
           <div className="space-y-1">

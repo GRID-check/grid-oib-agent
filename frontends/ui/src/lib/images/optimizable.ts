@@ -1,9 +1,8 @@
 /**
  * Which same-origin paths `/_next/image` is allowed to serve.
  *
- * ## The belief this module used to encode, and why it was wrong
+ * ## Local images are checked too
  *
- * "Local images need no allow-list" was true up to Next 15 and is false in 16.
  * When `images.localPatterns` is left unset, Next does not skip the check — it
  * fills in a default of `[{ pathname: '**', search: '' }]` (see
  * `next/dist/server/config.js`), so every local path is allowed *as long as it
@@ -13,8 +12,8 @@
  * happily optimize (and cache) every `?id=1`, `?id=2`, … a stranger asks for.
  *
  * Our signed document images are exactly that shape — the authorization rides
- * in the query (`?org=&v=&exp=&sig=`, see `signed-image-url.ts`) — so every
- * preview and thumbnail in the app went blank on the Next 16 upgrade.
+ * in the query (`?org=&v=&exp=&sig=`, see `signed-image-url.ts`) — so they need
+ * an entry of their own, or every preview and thumbnail is blank.
  *
  * ## Why the patterns live here rather than in `next.config.ts`
  *

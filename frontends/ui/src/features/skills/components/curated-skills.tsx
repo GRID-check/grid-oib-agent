@@ -8,14 +8,12 @@
  * and they are the point of the page rather than an appendix to it — an
  * organization gets more out of switching one of ours on than out of writing
  * its first one from a blank editor. So they lead, as cards, above the org's
- * own; the first draft of this buried them behind a chevron, which was the same
- * misjudgement in the other direction as the one that put the pipeline's
- * machinery in the main grid.
+ * own; hiding them behind a chevron would misjudge what they are.
  *
- * The action is a switch, not a copy. Cloning a platform skill produced a
- * second skill frozen at the moment it was copied: an org ended up maintaining
- * an instruction it never wrote, and every improvement we shipped afterwards
- * went to a skill it was no longer using. Switching one on keeps a single
+ * The action is a switch, not a copy. Cloning a platform skill would produce a
+ * second skill frozen at the moment it was copied: an org would maintain an
+ * instruction it never wrote, and every improvement we shipped afterwards would
+ * go to a skill it was no longer using. Switching one on keeps a single
  * living copy — ours — and an org that turns it off is back where it started.
  *
  * The pipeline's own machinery never reaches this component. It is not curated,

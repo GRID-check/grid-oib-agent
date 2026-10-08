@@ -2,9 +2,9 @@
  * @vitest-environment node
  */
 /**
- * Characterization of the manual "Run now" contract (slice 01 of the
- * task-model follow-up, PR #659): fire with the caller's identity and return
- * the run row bare; a disabled job is the service's 409, not the route's.
+ * Characterization of the manual "Run now" contract: fire with the caller's
+ * identity and return the run row bare; a disabled job is the service's 409,
+ * not the route's.
  */
 
 import { beforeEach, describe, expect, it, vi } from 'vitest'

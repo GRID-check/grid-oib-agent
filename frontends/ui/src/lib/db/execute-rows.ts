@@ -4,12 +4,11 @@
  *
  * drizzle over postgres-js resolves `execute()` to postgres-js's `RowList`: an
  * ARRAY of row objects with `count`/`command` hung off it. node-postgres, the
- * other driver drizzle's docs show, resolves to `{ rows: [...] }`. Every raw
- * query in this codebase used to read `.rows`, which is `undefined` on an
- * array, and the `?? []` beside it turned that into "no rows" — so the
- * semantic duplicate gate in the memory service, which is raw SQL, never
- * matched a row in production while every mocked unit test passed
- * (`memory-service.integration.spec.ts` is the run that caught it).
+ * other driver drizzle's docs show, resolves to `{ rows: [...] }`. A raw query
+ * must not read `.rows`: that is `undefined` on an array, and a `?? []` beside
+ * it turns the miss into "no rows" without an error. The semantic duplicate gate
+ * in the memory service is raw SQL, so a stub written in the `{ rows }` shape
+ * passes every unit test while production never sees a match.
  *
  * Deliberately NOT tolerant of `{ rows }`: accepting both shapes would let the
  * next mock encode the wrong one again with a green suite. A spec that stubs

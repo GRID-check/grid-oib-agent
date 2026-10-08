@@ -1,8 +1,8 @@
 """Every extraction capability is on unless switched off, and its cost is bounded.
 
-Production once set only ``AIQ_EXTRACT_IMAGES``: uncaptioned tables stayed
-garbled page text, and every raster the VLM typed ``chart`` was analysed, paid
-for, and then dropped at indexing. Four layers are pinned here: the env switch
+Uncaptioned tables must not stay garbled page text, and a raster the VLM types
+``chart`` is indexed, not analysed, paid for and dropped. Four layers are pinned
+here: the env switch
 (no env means on), the typing rule that decides what an analysed raster is
 indexed as, the per-document image cap, and ``_run_ingestion`` wiring them
 together (a chart is indexed, a rendered page's rasters are not analysed again,
@@ -62,8 +62,8 @@ def test_an_ingestor_built_without_config_extracts_everything(tmp_path, monkeypa
 
 
 def test_the_corpus_sync_leaves_the_switches_to_the_adapter(monkeypatch):
-    """oib_sync used to pass its own off-by-default reading of the flags, which
-    overrode the adapter's defaults for the whole corpus."""
+    """oib_sync must not pass its own off-by-default reading of the flags, which
+    would override the adapter's defaults for the whole corpus."""
     from aiq_agent import oib_sync
 
     for name in _SWITCHES:

@@ -5,8 +5,8 @@
  * Three claims carry the file. The first is the one this drawer exists for:
  * a task with a run shows the REAL block, off the run's own ledger, rather
  * than a second description of the run assembled from the row — and a task
- * WITHOUT one falls back to exactly the paragraphs the drawer used to show,
- * because for a legacy run those are the only account there is. The second is
+ * WITHOUT one falls back to the paragraphs that carry the row's own facts,
+ * because a run with no ledger has no other account. The second is
  * that the drawer always points at SOMEWHERE: whichever of document,
  * conversation, report or thinking this task actually has. The third is „Als
  * Zeitplan speichern", offered on work a person wrote and withheld on work a
@@ -101,12 +101,11 @@ describe('what the drawer says a task became', () => {
   })
 
   /**
-   * The report used to be its own destination, `?job=<backendJobId>`, read by
-   * the deep-research side panel. With the panel gone that URL lands on the
-   * chat page and does nothing, so a run that filed no document and has no
-   * thread offers no button rather than a link that goes nowhere.
+   * The report is not a destination of its own. A `?job=<backendJobId>` link
+   * lands on the chat page and does nothing, so a run that filed no document
+   * and has no thread offers no button rather than a link that goes nowhere.
    */
-  test('a backend job id alone is not a destination any more', () => {
+  test('a backend job id alone is not a destination', () => {
     drawer({ task: task({ kind: 'deep-research', backendJobId: 'bj-1' }) })
     expect(screen.queryByTestId('task-detail-result')).not.toBeInTheDocument()
   })
@@ -175,7 +174,7 @@ describe('the run itself, which is what the drawer is for', () => {
     drawer({ task: withRun })
     expect(await screen.findByTestId('run-stand')).toBeInTheDocument()
     expect(fetchRunView).toHaveBeenCalledWith('p1', 'task-1')
-    // The row's paragraphs are the block's job now: the title is the ask, the
+    // The row's paragraphs are the block's job: the title is the ask, the
     // status line is the outcome. Repeating them beside it is the lookalike.
     expect(screen.queryByTestId('task-detail-goal')).not.toBeInTheDocument()
     expect(screen.queryByTestId('task-detail-status')).not.toBeInTheDocument()
@@ -224,7 +223,7 @@ describe('the run itself, which is what the drawer is for', () => {
     expect(screen.getByTestId('task-detail-result')).toBeInTheDocument()
   })
 
-  test('a run from before run messages is never fetched, and keeps its paragraphs', () => {
+  test('a run without run messages is never fetched, and keeps its paragraphs', () => {
     drawer()
     expect(fetchRunView).not.toHaveBeenCalled()
     expect(screen.getByTestId('task-detail-goal')).toBeInTheDocument()

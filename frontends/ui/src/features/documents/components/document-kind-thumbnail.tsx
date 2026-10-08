@@ -11,7 +11,7 @@
  *   - `variant="icon"` (default): a compact centred glyph, sized by the caller's
  *     `className` (used by the Archiv library cards).
  *   - `variant="fill"`: a full-bleed content-aware sketch that fills the card's
- *     thumbnail header, mirroring the click-dummy's Dateien cards.
+ *     thumbnail header.
  */
 
 import type { JSX } from 'react'
@@ -33,7 +33,7 @@ const OFFICE_TINT = {
 type SvgProps = Omit<SVGProps<SVGSVGElement>, 'viewBox' | 'children'>
 
 /* --------------------------------------------------------------------------
- * Compact icon glyphs (Archiv library cards) — unchanged.
+ * Compact icon glyphs (Archiv library cards).
  * ------------------------------------------------------------------------ */
 
 function Frame({ children, ...props }: SVGProps<SVGSVGElement>) {
@@ -153,10 +153,9 @@ function ModelSketch(props: SvgProps) {
 /**
  * Spreadsheet / CSV: a ruled table with its header band.
  *
- * A `.csv` used to draw the generic document — six paragraph bars, which is a
- * picture of prose over a file that has no prose in it — or, if it happened to
- * be called `Zeitplan.csv`, a floor plan. A grid is the one shape that says
- * "rows and columns" at 24px.
+ * A grid is the one shape that says "rows and columns" at 24px, so a `.csv`
+ * is drawn as one: never as the generic document (a picture of prose over a
+ * file with no prose in it), and never as a floor plan because its name says so.
  */
 function SheetSketch(props: SvgProps) {
   return (
@@ -204,8 +203,8 @@ const SKETCHES: Record<DocumentKind, (props: SvgProps) => JSX.Element> = {
 }
 
 /* --------------------------------------------------------------------------
- * Full-bleed sketches (Dateien cards) — fill the thumbnail header, matching
- * the click-dummy. Line drawings use a 200×96 viewBox with `currentColor`;
+ * Full-bleed sketches (Dateien cards) — fill the thumbnail header. Line
+ * drawings use a 200×96 viewBox with `currentColor`;
  * document/notice/photo lean on token-tinted fills (never a literal color).
  * ------------------------------------------------------------------------ */
 

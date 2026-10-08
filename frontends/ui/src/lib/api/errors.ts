@@ -47,7 +47,7 @@ export class ForbiddenError extends ApiError {
  * 403 — agent org-scoped memory writes are disabled by deployment policy.
  * A DISTINCT code from the generic ForbiddenError('FORBIDDEN') the internal
  * token guard emits, so the Python backend can tell an intentional org-memory
- * default-deny apart from a service-token mismatch (audit finding S1).
+ * default-deny apart from a service-token mismatch.
  */
 export class OrgMemoryDisabledError extends ApiError {
   constructor(message = 'Agent organization-scoped memory is disabled') {

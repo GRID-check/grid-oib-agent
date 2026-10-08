@@ -62,9 +62,9 @@ afterEach(() => {
 
 describe('AnswerFeedbackHealth', () => {
   /**
-   * The headline used to be the negative rate, which made the card a scoreboard
-   * you could only lose on. Same arithmetic, opposite reading — and this is the
-   * number that gets quoted, so which one it is matters more than it looks.
+   * The headline is the helpful rate, not the failure rate: a card that leads
+   * with failures is a scoreboard you can only lose on. Same arithmetic, opposite
+   * reading, and this is the number that gets quoted, so which one leads matters.
    */
   it('leads with the helpful rate, not the failure rate', async () => {
     stubFetch(health())
@@ -152,9 +152,8 @@ describe('AnswerFeedbackHealth', () => {
 })
 
 /**
- * The half the surface used not to have. Feedback that only ever surfaces
- * failures cannot tell anybody which of last month's changes to keep, and that
- * was the complaint that produced these.
+ * The praised half of the surface. Feedback that only surfaces failures cannot
+ * tell anybody which changes to keep.
  */
 describe('AnswerFeedbackHealth — the answers that landed', () => {
   it('offers the praised answers as a peer of the failed ones', async () => {
@@ -246,7 +245,7 @@ describe('AnswerFeedbackHealth — the answers that landed', () => {
 /**
  * The rate is the number that will get quoted, and on its own it is misleading in
  * three specific ways. These are the guards, and each one is a number the rate
- * cannot contain. They matter MORE now the headline is the flattering half: a
+ * cannot contain. They matter most when the headline is the flattering half: a
  * 94% helpful rate over 4% of answers is exactly as misquotable as its inverse.
  */
 describe('AnswerFeedbackHealth — what the rate does not say', () => {

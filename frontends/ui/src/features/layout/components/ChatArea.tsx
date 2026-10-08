@@ -92,25 +92,24 @@ interface ChatAreaProps {
   onSignIn?: () => void
   /**
    * Whether the AgentResponse confidence chip renders (WorkOS
-   * `chat-confidence-chip` flag, FB-6). Defaults to true (fail-open) so
-   * existing callers/specs are unaffected.
+   * `chat-confidence-chip` flag). Defaults to true (fail-open) so callers that do
+   * not pass it are unaffected.
    */
   showConfidenceChip?: boolean
   /**
    * Whether answers show the per-answer thumbs feedback row (WorkOS
-   * `answer-feedback` flag, WS-7). Defaults to true (fail-open) so existing
-   * callers/specs are unaffected.
+   * `answer-feedback` flag). Defaults to true (fail-open) so callers that do not
+   * pass it are unaffected.
    */
   showAnswerFeedback?: boolean
   /**
    * Whether the collaboration surfaces are reachable for this org (ADR-0032…0035,
-   * dark-launched behind the per-org `collaboration` flag).
+   * behind the per-org `collaboration` flag).
    *
-   * **Defaults to false, and false means "exactly today"** (spec NF-8): no
-   * conversation read, no live subscription, no authorship, no banners — the
-   * local-first chat path is untouched. Even with the flag on, a conversation the
-   * server reports as private keeps that path; only a shared one switches to the
-   * server-authoritative one (ADR-0033).
+   * **Defaults to false, and false keeps the local-first chat path untouched**:
+   * no conversation read, no live subscription, no authorship, no banners. Even
+   * with the flag on, a conversation the server reports as private keeps that
+   * path; only a shared one switches to the server-authoritative one (ADR-0033).
    */
   canCollaborate?: boolean
 }
@@ -151,7 +150,7 @@ export const ChatArea: FC<ChatAreaProps> = memo(function ChatArea({
   const respondToInteractionFn = useChatStore((s) => s.respondToInteractionFn)
   // The project this thread is scoped to. Read here for one reason: the
   // „Als Aktenvermerk schreiben" chip is only offered where a draft has
-  // somewhere to be filed (ledger 23).
+  // somewhere to be filed.
   const activeProjectId = useChatStore((s) => s.projectId)
   const setComposerPrefill = useChatStore((s) => s.setComposerPrefill)
   const stableStepsRef = useRef(new Map<string, StoredThinkingStep[]>())
@@ -170,7 +169,7 @@ export const ChatArea: FC<ChatAreaProps> = memo(function ChatArea({
   // ── The ADR-0033 seam ───────────────────────────────────────────────────────
   // One hook owns "is this thread shared, load it from the server, keep it
   // reconciled". With `canCollaborate` false — the default — it does nothing at
-  // all, so the local-first path below is byte-identical to today's.
+  // all, so the local-first path below is unchanged.
   const {
     shared,
     myRole,
@@ -204,11 +203,11 @@ export const ChatArea: FC<ChatAreaProps> = memo(function ChatArea({
   const { turn: spectatedTurn, live: spectatingLive } = useSpectatedTurn({
     conversationId: currentConversation?.id ?? null,
     enabled: isForeignTurn,
-    // Every frame restarts the staleness clock. This used to be derived from
-    // `answer.length` + `steps.length`, which stand still for the whole of a
-    // single long tool call (the reducer merges repeats into the step it
-    // already has) — so a six-minute `ris_search` looked like silence and the
-    // banner was torn down mid-turn.
+    // Every frame restarts the staleness clock. Counting `answer.length` +
+    // `steps.length` would not do: both stand still for the whole of a single
+    // long tool call (the reducer merges repeats into the step it already has),
+    // so a six-minute `ris_search` would look like silence and tear the banner
+    // down mid-turn.
     onFrame: noteTurnActivity,
   })
 
@@ -221,13 +220,13 @@ export const ChatArea: FC<ChatAreaProps> = memo(function ChatArea({
     otherwise sit behind a locked composer until the staleness clock ran out.
 
     DONE deliberately does NOT clear it. `done` is the terminal frame, which
-    strictly precedes persistence — and the whole live view is gated on
-    `turnInFlight`, so clearing on `done` unmounted the finished answer the
-    observer was reading and left them blank until the persisted message landed a
-    round trip later. On the very case this was written for (no persist at all)
-    it threw away a completed answer and replaced it with nothing. The persisted
-    message's own `ended` event is what clears it; until then the completed
-    spectated answer stays on screen, which is the truthful thing to show.
+    strictly precedes persistence, and the whole live view is gated on
+    `turnInFlight`: clearing on `done` would unmount the finished answer the
+    observer is reading and leave them blank until the persisted message lands a
+    round trip later. Where no persist happens at all, clearing on `done` would
+    throw away a completed answer and replace it with nothing. The persisted
+    message's own `ended` event clears it; until then the completed spectated
+    answer stays on screen, which is the truthful thing to show.
 
     Any frame at all is evidence the turn is alive, which restarts the clock —
     that is what lets the timeout be short without cutting off a long turn. That
@@ -250,8 +249,8 @@ export const ChatArea: FC<ChatAreaProps> = memo(function ChatArea({
     })
   }, [turnInFlight, currentUserId, authorOf, tCollaboration])
 
-  // Stick-to-bottom scroll controller refs/state (replaces the old count-based
-  // scrollIntoView). `scrollContainerRef` is the scroll viewport; `contentRef`
+  // Stick-to-bottom scroll controller refs/state. `scrollContainerRef` is the
+  // scroll viewport; `contentRef`
   // is the growing message list we observe for height changes. It excludes
   // the anchor spacer, which the observer itself resizes.
   const scrollContainerRef = useRef<HTMLDivElement>(null)
@@ -264,8 +263,8 @@ export const ChatArea: FC<ChatAreaProps> = memo(function ChatArea({
   // ── New-question top-anchor bookkeeping (ChatGPT/Claude pattern) ────────────
   // When a NEW user message is sent we pin THAT message near the top of the
   // viewport and let the answer stream fill downward, instead of the stick-to-
-  // bottom controller chasing the growing answer (which scrolled the question
-  // off-screen). The anchored question's turn carries `data-chat-anchor` so the
+  // bottom controller chasing the growing answer, which would scroll the question
+  // off-screen. The anchored question's turn carries `data-chat-anchor` so the
   // effect can find it in the committed DOM (motion.div doesn't attach a
   // forwarded ref synchronously); `anchorSpacerRef` is an invisible min-height
   // block below the list that guarantees there is always enough scroll room to
@@ -309,7 +308,7 @@ export const ChatArea: FC<ChatAreaProps> = memo(function ChatArea({
   )
 
   // Filter to only show displayable message types in the chat area
-  // Assistant text messages (full reports) are displayed in the Details Panel instead
+  // Assistant text messages (full reports) are not part of the chat area
   const displayableMessages = useMemo(
     () =>
       (messages ?? []).filter((msg) => {
@@ -378,7 +377,7 @@ export const ChatArea: FC<ChatAreaProps> = memo(function ChatArea({
     return byMessageId
   }, [shared, displayableMessages, authorOf, currentUserId])
 
-  // Where the reader left off (spec CC-19). Anchored on the server-held read mark,
+  // Where the reader left off. Anchored on the server-held read mark,
   // then advanced past the reader's OWN messages — a separator whose first item is
   // your own message would be telling you that you have not read yourself.
   //
@@ -402,7 +401,7 @@ export const ChatArea: FC<ChatAreaProps> = memo(function ChatArea({
 
   // ── The hand-back offer (ADR-0034 addendum, the last transition) ────────────
   // The state machine is: asking Piloti → tag a human → waiting → they answer →
-  // **hand back?** → asking Piloti. Every transition but the last one had a visible
+  // **hand back?** → asking Piloti. Every transition but the last one has a visible
   // affordance; this is the last one. The wait itself is read from the server, never
   // computed here, so this offer and the banner cannot disagree.
   const { awaiting, release } = useAwaitingState(
@@ -429,8 +428,8 @@ export const ChatArea: FC<ChatAreaProps> = memo(function ChatArea({
     if (!shared || threadAwaitsHuman) return null
 
     // Who this thread has actually ASKED. A message whose server-computed addressee
-    // set names people and NOT the agent is the hand-off (MN-1/MN-2); the structured
-    // mentions are the fallback for a message stored before that ruling was kept.
+    // set names people and NOT the agent is the hand-off; the structured mentions
+    // are the fallback for a message that carries no addressees.
     const asked = new Set<string>()
     for (const message of displayableMessages) {
       if (message.addressees) {
@@ -478,7 +477,7 @@ export const ChatArea: FC<ChatAreaProps> = memo(function ChatArea({
    *
    * The `@Piloti` token rides along as a STRUCTURED mention: without it the
    * prefill would send as plain text and route by the engagement mode instead of
-   * to the agent (MN-3 — a mention is never re-derived from text).
+   * to the agent (a mention is never re-derived from text).
    */
   const handleHandback = useCallback(() => {
     if (!handback) return
@@ -490,7 +489,7 @@ export const ChatArea: FC<ChatAreaProps> = memo(function ChatArea({
   }, [handback, setComposerPrefill, tCollaboration])
 
   /**
-   * "Stattdessen Piloti fragen" from inside the wait (spec MN-9.3).
+   * "Stattdessen Piloti fragen" from inside the wait.
    *
    * Pre-fills rather than sending, for the same reason the hand-back offer does:
    * the message stays honestly authored, and a turn with no user-authored question
@@ -557,7 +556,7 @@ export const ChatArea: FC<ChatAreaProps> = memo(function ChatArea({
   }
 
   // ── Stick-to-bottom scroll controller ──────────────────────────────────────
-  // Replaces the old "scroll on message count grew" effect. It keeps the view
+  // It keeps the view
   // pinned to the newest content ONLY when the user is already near the bottom,
   // so streaming token growth follows smoothly but a user who scrolled up to
   // read is never yanked back down.
@@ -585,7 +584,7 @@ export const ChatArea: FC<ChatAreaProps> = memo(function ChatArea({
   // As the answer grows the spacer shrinks by the same amount, so the list's
   // scroll height never changes and nothing is ever clamped. A fixed viewport
   // released at the end of the stream did change it: the browser clamped the
-  // scroll position and a short answer dropped by the room it had not used,
+  // scroll position and a short answer would drop by the room it had not used,
   // hundreds of pixels, the moment it finished (ADR-0066). So the spacer is
   // never released when the answer lands: what is left below a short answer
   // is the space that keeps its question at the top, and the next question or
@@ -647,9 +646,8 @@ export const ChatArea: FC<ChatAreaProps> = memo(function ChatArea({
   // Not when the conversation is the one this send just created. The first
   // question of a new chat brings the conversation id in the same commit that
   // anchors the question (the layout effect below runs first), and a reset
-  // here undid the anchor: the view chased the bottom of the growing
-  // Herleitung, the question 2,900 px above it on a phone (Herleitung audit,
-  // 2026-09).
+  // here would undo the anchor: the view would chase the bottom of the growing
+  // Herleitung and leave the question 2,900 px above it on a phone.
   const shownConversationIdRef = useRef<string | undefined>(undefined)
   useEffect(() => {
     const id = currentConversation?.id
@@ -753,7 +751,7 @@ export const ChatArea: FC<ChatAreaProps> = memo(function ChatArea({
   return (
     // Mentions in message text resolve to a person through this, so a pill can
     // answer "who is that?" without the reader leaving the thread. Disabled in a
-    // solo conversation, where it resolves nothing and pills stay plain (NF-8).
+    // solo conversation, where it resolves nothing and pills stay plain.
     <MentionPeopleProvider
       participants={participants}
       currentUserId={currentUserId}
@@ -826,7 +824,8 @@ export const ChatArea: FC<ChatAreaProps> = memo(function ChatArea({
                 // Bottom padding tracks the floating composer's REAL height (published
                 // as --composer-h by MainLayout's ResizeObserver) plus a breathing gap,
                 // so the last message/Herleitung never renders behind the composer no
-                // matter how tall it grows. The 11rem fallback matches the old pb-44.
+                // matter how tall it grows. The 11rem fallback covers the frame before
+                // the composer is measured.
                 <div
                   // Top padding reserves clearance for the floating toolbar pills that
                   // overlay the top of this scroll plane, so the first message never
@@ -844,9 +843,8 @@ export const ChatArea: FC<ChatAreaProps> = memo(function ChatArea({
                         layout animation, and with the default each row got a new
                         PresenceContext on every render, which re-rendered every
                         `motion.*` inside every earlier answer through context,
-                        past MessageRenderer's memo: 920 fibers and 69 ms per delta
-                        flush in a 40-message thread on a 4× throttled phone
-                        (React performance audit, 2026-09). */}
+                        past MessageRenderer's memo, which costs 920 fibers and 69 ms
+                        per delta flush in a 40-message thread on a 4× throttled phone. */}
                     <AnimatePresence initial={false} presenceAffectsLayout={false}>
                       {displayableMessages.map((message, index) => {
                         const isUserMessage =
@@ -956,7 +954,7 @@ export const ChatArea: FC<ChatAreaProps> = memo(function ChatArea({
                             exit={{ opacity: 0, transition: motionQuick }}
                             transition={motionQuick}
                           >
-                            {/* Where the reader left off, in a shared thread (spec CC-19). */}
+                            {/* Where the reader left off, in a shared thread. */}
                             {unreadDividerBeforeId === message.id && (
                               <UnreadDivider label={tCollaboration('thread.unreadDivider')} />
                             )}
@@ -1018,8 +1016,8 @@ export const ChatArea: FC<ChatAreaProps> = memo(function ChatArea({
                             )}
 
                             {/* The questions this answer made askable, BELOW the
-                        answer and outside its surface — the product owner's
-                        ruling, and §6 of docs/architecture/post-answer-stages.md.
+                        answer and outside its surface — the design in §6 of
+                        docs/architecture/post-answer-stages.md.
                         Same column, same edges, same full width as the answer and
                         the Herleitung; no new layout concept.
 
@@ -1069,13 +1067,12 @@ export const ChatArea: FC<ChatAreaProps> = memo(function ChatArea({
                       />
                     )}
 
-                    {/* The thread is WAITING on a named person (spec MN-8). Without this
+                    {/* The thread is WAITING on a named person. Without this
                 mounted, the agent's silence has no explanation on screen, and
                 "Ohne Antwort weitermachen" — the release that ADR-0034 names as the
                 mitigation for its own worst risk, a wait nobody ever answers — has no
-                affordance at all. The component existed, was tested and was
-                screenshotted for a while before anything rendered it; unit-green is
-                not reachable.
+                affordance at all. A component can be tested and still be unreachable
+                when nothing renders it; unit-green is not reachable.
 
                 Mutually exclusive with the hand-back offer by construction: this
                 returns null once `pending` is empty, which is exactly when the offer
@@ -1090,8 +1087,8 @@ export const ChatArea: FC<ChatAreaProps> = memo(function ChatArea({
                     )}
 
                     {/* The colleague has answered and Piloti is out of the loop — the one
-                moment the thread is worth handing on, and until now the only
-                transition with no affordance on screen (see HandbackOffer). Anchored
+                moment the thread is worth handing on. It is the transition that would
+                otherwise have no affordance on screen (see HandbackOffer). Anchored
                 here, directly under the answer it is about. */}
                     {showHandback && handback && (
                       <HandbackOffer
@@ -1104,7 +1101,7 @@ export const ChatArea: FC<ChatAreaProps> = memo(function ChatArea({
                     {/* Latency-gap typing indicator (before the first token arrives) */}
                     {showTypingPlaceholder && <TypingIndicator />}
 
-                    {/* The agent is working for SOMEONE in this thread (spec CC-13). Without
+                    {/* The agent is working for SOMEONE in this thread. Without
                 this an observer sees a thread where nothing appears to be happening
                 and a composer that will not take their question. Suppressed while
                 this client is itself streaming — the asker already has the typing
@@ -1214,8 +1211,8 @@ interface MessageRendererProps {
   /** The reader's showReasoningSkills preference (fetched once by ChatArea). */
   showReasoning?: boolean
   /**
-   * Who wrote this message. Present ONLY in a shared thread — absent means "render
-   * exactly as before", which is what keeps a solo thread unchanged.
+   * Who wrote this message. Present ONLY in a shared thread — absent means the
+   * solo rendering, which is what keeps a solo thread unchanged.
    */
   author?: UserMessageAuthor
   /** This message continues a run by the same author (no repeated header). */
@@ -1298,8 +1295,8 @@ const MessageRendererComponent: FC<MessageRendererProps> = ({
             cards={message.cards}
             citations={message.citations}
             conversationId={conversationId}
-            // Both feed the „Piloti hat sich gemerkt" chip, which is now a fact
-            // about THIS TURN rather than a poll of the conversation's memory:
+            // Both feed the „Piloti hat sich gemerkt" chip, which is a fact
+            // about THIS TURN, not a poll of the conversation's memory:
             // the reflection stage's frame lands on `stages`, and a
             // `memory_proposal` counts only once `cardInteractions` says the
             // reader said yes.
@@ -1338,12 +1335,11 @@ const MessageRendererComponent: FC<MessageRendererProps> = ({
       // beneath it once the run has one. Nothing else about the message
       // changes — same row, same id, same deep-link target.
       //
-      // The answer card is now the whole of it. The Python worker still stamps
-      // `deep_research_job_id` into every run message's metadata, and that used
-      // to reach `AgentResponse` as `jobId` and grow a "Bericht anzeigen"
-      // button on the finished block — a door that opened the legacy research
-      // panel OVER the run it belongs to. `AgentResponse` no longer takes those
-      // props, so the report is read where the reader already is.
+      // The answer card is the whole of the run's surface. The Python worker still
+      // stamps `deep_research_job_id` into every run message's metadata, and it is
+      // not passed on: `AgentResponse` takes no job props, because a "Bericht
+      // anzeigen" door would open a research panel OVER the run it belongs to. The
+      // report is read where the reader already is.
       if (message.runLedger) {
         return (
           <RunBlockMessage
@@ -1365,8 +1361,8 @@ const MessageRendererComponent: FC<MessageRendererProps> = ({
       if (!message.fileData) {
         return null
       }
-      // FileCard was removed in an earlier refactor — file display is handled
-      // by FileSourceCard in the panel; the thread keeps this status line.
+      // File display is handled by FileSourceCard in the panel; the thread keeps
+      // this status line.
       const fileStatus = message.fileData.fileStatus
       const fileStatusLabel =
         fileStatus === 'uploading'
@@ -1407,8 +1403,7 @@ const MessageRendererComponent: FC<MessageRendererProps> = ({
       )
 
     case 'assistant':
-      // Assistant messages (full reports) are not shown in chat area
-      // They are displayed in the Details Panel instead
+      // Assistant messages (full reports) are not shown in the chat area
       return null
 
     default:
@@ -1460,14 +1455,14 @@ const MessageRenderer = memo(MessageRendererComponent, areMessageRendererPropsEq
 MessageRenderer.displayName = 'MessageRenderer'
 
 /**
- * "New" separator marking where the reader left off in a shared thread (spec
- * CC-19). A rule with a centred label rather than a coloured band: it has to be
- * findable when scrolling a long thread without competing with the messages, and
- * it must not read as an error state.
+ * "New" separator marking where the reader left off in a shared thread. A rule
+ * with a centred label rather than a coloured band: it has to be findable when
+ * scrolling a long thread without competing with the messages, and it must not
+ * read as an error state.
  *
  * Deliberately the house eyebrow (hairline border + uppercase muted label), not
- * full-strength ink: this is a *reading-position* marker, and at ink weight it was
- * the loudest thing in the column — out-shouting the agent's answer, which is the
+ * full-strength ink: this is a *reading-position* marker, and at ink weight it
+ * would be the loudest thing in the column — out-shouting the agent's answer, which is the
  * one element that must stay dominant. The two full-width rules are what make it
  * findable; the label does not have to shout to be one.
  */
@@ -1486,9 +1481,9 @@ const UnreadDivider: FC<{ label: string }> = ({ label }) => (
 
 /**
  * "Piloti is answering <name>'s question" — the observer's view of a turn that is
- * not theirs (spec CC-13).
+ * not theirs.
  *
- * This is now the FALLBACK rather than the whole story: with the frame relay in
+ * This is the FALLBACK rather than the whole story: with the frame relay in
  * place (ADR-0039) an observer watches the answer being written, and `SpectatedTurn`
  * renders it. The banner is what remains when the frames cannot reach them — no
  * shared cache tier, a dropped stream, or simply the first moments before the first
@@ -1557,7 +1552,7 @@ const TypingIndicator: FC = () => {
 }
 
 /**
- * Hydration skeleton (C5): a few grey bubbles sized to the message area, shown
+ * Hydration skeleton: a few grey bubbles sized to the message area, shown
  * only while the persisted chat store rehydrates so a returning user never sees
  * a WelcomeState flash before their thread loads in.
  */
@@ -1597,12 +1592,11 @@ const MessageListSkeleton: FC = () => {
  *
  * Signed in: a time-of-day greeting (with the user's first name when known),
  * hero-sized per the click dummy, and nothing else unless the thread is about a
- * named file. It used to carry a subtitle and a row of example questions too;
- * both were addressed to a first-timer and were paid for by every user on every
- * new thread forever. What replaces them is the composer itself, lifted off the
- * floor to sit with the greeting as one group in the middle of the screen (see
- * `useComposerMetrics`) — an empty canvas that offers the one thing there is to
- * do, rather than explaining it.
+ * named file. There is no subtitle and no example questions: both would be
+ * addressed to a first-timer and paid for by every user on every new thread. The
+ * composer itself is lifted off the floor to sit with the greeting as one group
+ * in the middle of the screen (see `useComposerMetrics`), an empty canvas that
+ * offers the one thing there is to do rather than explaining it.
  *
  * Signed out: a compact sign-in prompt. Bottom padding in both keeps the
  * centered content clear of the floating composer, and is what the lift is
@@ -1667,18 +1661,17 @@ const WelcomeState: FC<WelcomeStateProps> = ({
       // however far it has been lifted off the floor, plus a gap, all published
       // as one measured number (`--welcome-offset`). That leaves the greeting
       // exactly one gap above the input by construction, whatever the lift
-      // turns out to be and whatever this column's own top padding is. Both of
-      // those defeated an earlier version that centred here and worked the
-      // clearance out arithmetically: it omitted the `pt-20`, and the composer
-      // landed on the greeting on a phone.
+      // turns out to be and whatever this column's own top padding is. Centring
+      // here and working the clearance out arithmetically would fail on both
+      // counts: a sum can omit the `pt-20`, and the composer would land on the
+      // greeting on a phone.
       className="flex flex-1 flex-col items-center justify-end px-6 pt-20 sm:pt-16"
       style={{ paddingBottom: `var(--welcome-offset, ${WELCOME_OFFSET_FALLBACK})` }}
     >
       {/* Hero greeting — the one larger moment in the app, and the only place
-          the ramp's 23px step is used (design language, "Type ramp"). The
-          project-grounded starters live in their own plan (categorized,
-          backend-driven) — until they land, the canvas stays quiet rather
-          than showing static examples. */}
+          the ramp's 23px step is used (design language, "Type ramp"). Project-
+          grounded starters are a separate, backend-driven feature; until that
+          exists the canvas stays quiet rather than showing static examples. */}
       <h1 className="text-foreground text-center text-[23px] font-semibold tracking-tight">
         {heading}
       </h1>
@@ -1695,10 +1688,10 @@ const WelcomeState: FC<WelcomeStateProps> = ({
       )}
 
       {/* One sentence, and only in a project: that Piloti WRITES. The canvas is
-          otherwise deliberately quiet (the starters were cut for costing every
-          user on every new thread), and this earns its place because it is the
-          product's least discoverable capability — today it is found only by
-          someone who happens to phrase a request as a commission (ledger 23).
+          otherwise deliberately quiet (starter suggestions would cost every user
+          on every new thread), and this earns its place because it is the
+          product's least discoverable capability — it is found only by someone
+          who happens to phrase a request as a commission.
           Below the file line, because a named subject is the state of THIS
           canvas and this is a standing fact about the project.
 

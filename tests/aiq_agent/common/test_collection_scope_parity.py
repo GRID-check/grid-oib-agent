@@ -5,9 +5,8 @@ messages. The backend writes them and the frontend parses them back, so a change
 on one side alone silently stops every qualified citation from resolving — the
 exact class of drift this identity model exists to remove.
 
-The collection-PREFIX parity test that used to live here is gone with
-``_COLLECTION_SCOPE_PREFIXES`` (ADR-0047): it policed the agreement of two
-guesses rather than removing the guess. The shelf now travels as data, and the
+No prefix table is compared here: the shelf travels as data (ADR-0047), so a parity
+check would police the agreement of two guesses rather than remove the guess. The
 round-trip contract test (``tests/knowledge_layer_tests/test_citation_key_scope.py``
 plus ``tests/aiq_agent/knowledge/test_scoping.py``) drives that seam instead.
 
@@ -67,12 +66,11 @@ def test_the_legacy_qualifier_strings_resolve_to_the_same_shelf(mirror_source: s
 # The taxonomy itself
 # ---------------------------------------------------------------------------
 #
-# The two tests above guard the strings DERIVED from the source-kind model. The
-# model itself — the set of kinds, and the lane→kind table that assigns one to
-# every retrieval hit — was mirrored in the same file with nothing checking it,
-# even though ADR-0026 makes it the taxonomy that drives ALL rendering (chips,
-# Herleitung fan-out, report sources). Adding a fifth kind, or a lane family, on
-# one side alone would leave the other silently falling open to `web`: sources
+# The two tests above guard the strings DERIVED from the source-kind model. The model
+# itself — the set of kinds, and the lane→kind table that assigns one to every retrieval
+# hit — is checked here as well, because ADR-0026 makes it the taxonomy that drives ALL
+# rendering (chips, Herleitung fan-out, report sources). Adding a fifth kind, or a lane
+# family, on one side alone would leave the other silently falling open to `web`: sources
 # keep rendering, in the wrong family, with no error anywhere.
 
 

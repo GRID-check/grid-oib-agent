@@ -54,7 +54,7 @@ describe('useBimComplianceDiff', () => {
     expect(result.current.data?.changes).toEqual([change('oib-2-1')])
   })
 
-  it('discards a result when the revision it compared is no longer the one selected', async () => {
+  it('discards a result when the revision it compared is not the one selected', async () => {
     // The panel captions this result with the base from its CURRENT props
     // ("verglichen mit Haus-A_v2.ifc"). Leaving the numbers standing after the
     // reader switched revisions presents a diff of one pair of files as a diff

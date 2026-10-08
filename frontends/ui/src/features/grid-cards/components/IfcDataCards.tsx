@@ -59,10 +59,10 @@ function useResolvedModel(
     () => (data ?? []).filter((candidate) => candidate.status === 'ready'),
     [data]
   )
-  // AMBIGUOUS is not resolved — see `resolveModelByFilename`. `ifc_query`
-  // declines to answer when a name hits more than one ready model, and this
-  // took the first hit: for a project holding `haus-a.ifc` and `haus-a-alt.ifc`
-  // the tool correctly refused while the card beside that same answer drew a
+  // AMBIGUOUS is refused, not resolved to the first hit — see
+  // `resolveModelByFilename`. `ifc_query` declines to answer when a name hits
+  // more than one ready model, and the card must agree with it: for a project
+  // holding `haus-a.ifc` and `haus-a-alt.ifc`, a first-hit card would draw a
   // DIFFERENT building's geometry under the agent's title.
   const { model, ambiguous } = useMemo(
     () => resolveModelByFilename(models, modelFile),
@@ -159,10 +159,10 @@ function CardShell({
  * Three situations, not one.
  *
  * "Das referenzierte Modell ist in diesem Projekt nicht verfügbar" is the
- * sentence that tells an architect their upload vanished, and it was rendered
- * for a list that had not arrived yet AND for a list whose request failed —
- * the second one permanently. The sibling file preview refuses to conflate
- * these and says so in a comment; these five cards did it on every mount.
+ * sentence that tells an architect their upload vanished, so it is shown only
+ * when the list has arrived and the name is really absent. A list still
+ * loading, or a failed request, gets its own state. The sibling file preview
+ * keeps these apart too.
  */
 function NoModel({
   isLoading = false,
@@ -210,9 +210,9 @@ function NoModel({
 /**
  * The Raumbuch AND whether it covers the whole model.
  *
- * `truncated` was dropped here, so the chat card printed a
- * Netto-Grundfläche computed over part of a building with none of the
- * warning the model page refuses to show the same number without.
+ * `truncated` travels with the schedule: a Netto-Grundfläche computed over
+ * part of a building must carry the warning the model page shows beside the
+ * same number.
  */
 const pickSchedule = (payload: Record<string, unknown>) =>
   payload.schedule
@@ -266,26 +266,16 @@ export function IfcScheduleCard({
   const download = () => {
     if (!schedule) return
     /*
-      `roomScheduleToCsv`, not a second hand-rolled writer.
-
-      This one hard-coded German headers, so an English-locale reader
-      downloaded a German file; it abbreviated them differently —
-      `NGF`/`BGF` against the model page's `Netto-Grundfläche` /
-      `Brutto-Grundfläche` — and left out the Kategorie column and the
-      per-storey subtotals entirely. Two files both called "Raumbuch", of the
-      same rooms, with different columns and different names for the columns
-      they shared. It also wrote `24.5` where the shared writer writes `24,5`,
-      which the German-locale Excel this export targets reads as TEXT: the
-      downloaded Raumbuch would not sum, which is the one thing anyone
-      downloads it for.
+      `roomScheduleToCsv`, not a second writer: the file has the same columns
+      and names as the model page's Raumbuch, and the decimal separator is a
+      comma (`24,5`), so German-locale Excel reads the numbers as numbers and
+      the file sums.
 
       The storey filter is applied to the schedule, so the file is still
-      exactly the table on screen — INCLUDING its footer. `totals` came through
-      the spread untouched, so a file called "Raumbuch Erdgeschoss" ended in a
-      row labelled `Gesamt` carrying the whole building's Netto-Grundfläche.
-      The writer computes the footer from the storeys it is given and names the
-      scope; `truncated` travels with it so the caveat on screen is in the file
-      as well.
+      exactly the table on screen — INCLUDING its footer. The writer computes
+      the footer from the storeys it is given, not from `schedule.totals`,
+      which covers the whole model; `truncated` travels with it so the caveat
+      on screen is in the file as well.
     */
     const csv = roomScheduleToCsv(
       { ...schedule, storeys },
@@ -294,10 +284,8 @@ export function IfcScheduleCard({
     const url = URL.createObjectURL(new Blob([`\ufeff${csv}`], { type: 'text/csv;charset=utf-8' }))
     const anchor = document.createElement('a')
     anchor.href = url
-    // `haus-a-raumbuch.csv`, matching the model page. This wrote
-    // `raumbuch-haus-a.ifc.csv` — the extension of the source file left in the
-    // middle of a CSV's name, and the two exports of the same table sorting
-    // apart in a downloads folder.
+    // `haus-a-raumbuch.csv`, matching the model page: the model's stem leads,
+    // so the two exports of the same table sort together in a downloads folder.
     anchor.download = `${(model?.filename ?? 'modell').replace(/\.(ifc|ifczip)$/i, '')}-raumbuch.csv`
     anchor.click()
     URL.revokeObjectURL(url)
@@ -327,8 +315,7 @@ export function IfcScheduleCard({
         <p className="text-sm text-destructive">{t('schedule.failed')}</p>
       ) : !schedule || schedule.totals.rooms === 0 ? (
         // "The query failed" and "this model has no rooms" are different
-        // answers, and the model page has always distinguished them. The card
-        // rendered the failure sentence for both.
+        // answers, and the model page distinguishes them, so the card does too.
         <EmptyState title={t('schedule.empty')} />
       ) : storeys.length === 0 ? (
         // A storey the card named that this model does not have. Saying so
@@ -511,11 +498,10 @@ export function IfcElementCard({
             <p className="text-muted-foreground">{element.materials.join(' · ')}</p>
           )}
           {Object.entries(element.properties).map(([setName, properties]) => (
-            // The set name is a heading over the list, not a term IN it. It
-            // used to be the `<dt>` and every property name was a second
-            // `<dd>`, so each row arrived as two definitions with no term
-            // between them: "Feuerwiderstand" and "REI 90" were read out as an
-            // unlabelled pair, which is the whole content of the card.
+            // The set name is a heading over the list, not a term IN it: as a
+            // `<dt>`, each property name would be a second `<dd>`, and
+            // "Feuerwiderstand" and "REI 90" would be read out as an unlabelled
+            // pair.
             <div key={setName} className="space-y-0.5">
               <p className="text-xs font-semibold uppercase text-muted-foreground">{setName}</p>
               <dl className="space-y-0.5">
@@ -542,10 +528,10 @@ export function IfcElementCard({
 /**
  * The rule run AND whether it saw the whole model.
  *
- * `truncated` was discarded, so "9 erfüllt · 0 nicht erfüllt" over a capped
- * model was presented in chat as a fact about the building. The model page
- * refuses to print the same counts without `compliance.truncatedModel` above
- * them; the counts do not become safer for being in a card.
+ * Counts over a capped model are not a fact about the building, so `truncated`
+ * is carried with them: the model page refuses to print the same counts
+ * without `compliance.truncatedModel` above them, and a card in a chat thread
+ * is no safer.
  */
 const pickCompliance = (payload: Record<string, unknown>) =>
   payload.compliance
@@ -588,8 +574,8 @@ export function IfcComplianceCard({
     notReady,
   } = useResolvedModel(projectId, modelFile)
   // The SAME facts the model page runs the catalogue with. Without them the
-  // fire-resistance rules stand down here and produce a verdict on the model
-  // page, so the chat and the page disagreed about the same building.
+  // fire-resistance rules stand down, and the chat would disagree with the
+  // model page about the same building.
   const facts = useProjectRuleFacts(projectId)
   const request = useMemo(
     () => ({
@@ -841,11 +827,9 @@ export function IfcDiffCard({
     ambiguous,
     notReady,
   } = useResolvedModel(projectId, modelFile)
-  // The base revision resolves by the SAME rule as the current one. It used to
-  // take the first substring hit, which is the bug the sibling resolver exists
-  // to prevent — and worse here, because a diff names two buildings: `haus-a`
-  // against a project holding `haus-a.ifc` and `haus-a-alt.ifc` reported the
-  // additions and deletions of an arbitrary one of them as a revision history.
+  // The base revision resolves by the SAME rule as the current one: a name that
+  // matches two buildings must not pick one, because a diff against an arbitrary
+  // one reports its additions and deletions as a revision history.
   const { model: baseModel, ambiguous: baseAmbiguous } = useMemo(
     () => resolveModelByFilename(models, baseModelFile),
     [models, baseModelFile]
@@ -906,11 +890,10 @@ export function IfcDiffCard({
             </Badge>
           </div>
           {comparison.truncated && <p className="text-xs text-warning">{t('compare.truncated')}</p>}
-          {/* Added and removed used to be counts and nothing else — the card
-              said "Added 1" and gave no way to find out what. A delta you
-              cannot open is a number, not an answer. Removed elements link
-              into the BASE revision: they have no GlobalId in the new one, so
-              a link into it would select nothing. */}
+          {/* Added and removed are links, not only counts: a delta you cannot
+              open is a number, not an answer. Removed elements link into the
+              BASE revision: they have no GlobalId in the new one, so a link
+              into it would select nothing. */}
           <DiffGroup
             label={t('compare.added')}
             entries={comparison.added}

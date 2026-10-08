@@ -14,7 +14,7 @@ import {
 // Sharing data hooks are stubbed: this spec is about what the toolbar shows and
 // gates, not about the (separately tested) fetching. The default state is "nothing
 // loaded", which is exactly what a collaboration-disabled org looks like — so the
-// pre-existing tests below are unaffected by the sharing surfaces.
+// tests below are unaffected by the sharing surfaces.
 let mockSharingState: ResourceSharingState | null = null
 const mockUseSharing = vi.fn()
 
@@ -49,8 +49,8 @@ vi.mock('@/features/collaboration/hooks/use-inbox', () => ({
 }))
 
 // Mock the layout store. The toolbar reads exactly two things off it — the
-// sessions overlay and the mobile nav drawer. It held a third, the research
-// panel, until a run became a message in its own thread (ADR-0062).
+// sessions overlay and the mobile nav drawer. A run is a message in its own
+// thread (ADR-0062), so there is no research panel on the store.
 const mockToggleSessionsPanel = vi.fn()
 const mockSetMobileNavOpen = vi.fn()
 
@@ -183,7 +183,7 @@ describe('ChatToolbar', () => {
       render(<ChatToolbar />)
 
       // With no rename and no sharing there is nothing occasional to disclose,
-      // so the trigger itself is gone. Research used to keep it alive on its own.
+      // so the trigger itself is gone.
       expect(screen.queryByTestId('thread-menu')).not.toBeInTheDocument()
     })
   })
@@ -248,9 +248,8 @@ describe('ChatToolbar', () => {
     })
   })
 
-  // The data-sources toggle was removed from the toolbar: the composer's
-  // Datengrundlage chip already owns opening that panel, so the navbar no
-  // longer duplicates it.
+  // The composer's Datengrundlage chip owns opening the data-sources panel, so
+  // the toolbar has no toggle for it.
   describe('sessions toggle', () => {
     test('toggles the sessions panel', async () => {
       const user = userEvent.setup()
@@ -381,8 +380,8 @@ describe('ChatToolbar', () => {
 })
 
 // ---------------------------------------------------------------------------
-// Sharing surfaces (spec SH-17/SH-18). Everything here is gated twice: the org's
-// collaboration flag AND a reachable, started conversation.
+// Sharing surfaces. Everything here is gated twice: the org's collaboration flag
+// AND a reachable, started conversation.
 // ---------------------------------------------------------------------------
 
 const SHARED_STATE: ResourceSharingState = {
@@ -411,9 +410,8 @@ const SHARED_STATE: ResourceSharingState = {
 }
 
 describe('ChatToolbar — sharing surfaces', () => {
-  // This block used to inherit whatever the previous test happened to leave in the
-  // module-level mocks — the reset lives in the other describe's beforeEach, which
-  // does not reach here. Reset explicitly so each case states its own preconditions.
+  // The reset in the other describe's beforeEach does not reach this block, so it
+  // resets explicitly and each case states its own preconditions.
   beforeEach(() => {
     vi.clearAllMocks()
     mockIsAuthenticated = true
@@ -448,7 +446,7 @@ describe('ChatToolbar — sharing surfaces', () => {
 
   test('a chat minted here is not asked about until the server has created it', () => {
     // The header appears with the first message, and the server row with that
-    // message's store: asking in between was a 404 on every new chat.
+    // message's store: asking in between would be a 404 on every new chat.
     resetConversationsOnServer()
     markConversationMinted('session-new')
     const { rerender } = render(
@@ -491,8 +489,8 @@ describe('ChatToolbar — sharing surfaces', () => {
     )
 
     // The header's rule: information is not clickable, controls look like
-    // controls. An avatar stack that silently opened a dialog was the clearest
-    // case of the two being mixed — and it made sharing's ONE door into three.
+    // controls. An avatar stack that opened a dialog would mix the two kinds and
+    // turn sharing's ONE door into three.
     expect(screen.getByTestId('participant-strip').tagName).not.toBe('BUTTON')
   })
 
@@ -536,7 +534,7 @@ describe('ChatToolbar — sharing surfaces', () => {
     expect(screen.getByTestId('share-button')).toBeInTheDocument()
   })
 
-  test('sharing has exactly ONE door in the header (SH-17), and it is the menu', async () => {
+  test('sharing has exactly ONE door in the header, and it is the menu', async () => {
     mockSharingState = SHARED_STATE
     const user = userEvent.setup()
     render(

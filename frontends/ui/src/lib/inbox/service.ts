@@ -116,7 +116,7 @@ export async function emitInboxItems(emissions: InboxEmission[]): Promise<number
   // One upsert per wave of distinct (recipient, group) keys. Postgres refuses
   // an INSERT … ON CONFLICT DO UPDATE that touches the same row twice, so two
   // emissions that fold into one row — two files quarantined in one settle —
-  // used to fail the whole call. Successive waves fold them one at a time, so
+  // would fail the whole call. Successive waves fold them one at a time, so
   // the row's count still says two.
   const inserted = []
   for (const wave of upsertWaves(rows)) inserted.push(...(await upsertInboxItems(wave)))
@@ -134,8 +134,7 @@ export async function emitInboxItems(emissions: InboxEmission[]): Promise<number
       // This is not a shortcut. The emitter has no session, so it cannot know
       // which item types the RECIPIENT may see: a count taken here would include
       // collaboration rows that a collaboration-disabled recipient will never be
-      // shown, and the badge would disagree with the list. The previous code
-      // computed an untyped count and published it as fact.
+      // shown, and the badge would disagree with the list.
       //
       // The alternative — resolve each recipient's feature flags here — means a
       // WorkOS lookup per recipient on the emit path, to produce a number the
@@ -233,8 +232,8 @@ function targetKey(resourceType: InboxTargetType, resourceId: string): string {
  *
  * Applied to the list AND to the badge count, so the two can never disagree
  * about what is in the inbox. A tenant without collaboration gets its
- * operational alerts and nothing else — not a 403, which is what used to make an
- * operational alert unreachable for precisely the deployments that need it.
+ * operational alerts and nothing else — not a 403, which would make an operational
+ * alert unreachable for precisely the deployments that need it.
  */
 function typesVisibleTo(session: Pick<GridSession, 'featureFlags'>): InboxItemType[] {
   return visibleInboxTypes(isCollaborationEnabled(session))
@@ -500,7 +499,7 @@ export async function listInbox(
     ),
   )
   // Each lane is already newest-first and bounded, so the merged page is the
-  // newest INBOX_LIST_LIMIT across them — the same bound one lane had.
+  // newest INBOX_LIST_LIMIT across them — the same bound a single lane applies.
   const rows = perLane
     .flat()
     .sort((a, b) => b.updatedAt.getTime() - a.updatedAt.getTime())

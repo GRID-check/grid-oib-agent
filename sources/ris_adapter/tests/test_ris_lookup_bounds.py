@@ -1,6 +1,6 @@
 """The pipeline's own bounds, asserted where they are enforced.
 
-Every one of them is what the caller no longer pays in charged research calls:
+Every one of them is what keeps the caller from paying for charged research calls:
 three candidates, two fetches, six passages across two documents. A bound that
 is only a constant is a bound that drifts, so each is measured through the tool
 rather than read off the module.
@@ -113,8 +113,8 @@ async def test_passages_come_from_at_most_two_documents(lookup, catalog, monkeyp
 async def test_a_nine_hundred_kilobyte_law_does_not_reach_the_transcript(lookup, catalog):
     """The bound that protects the turn: a consolidated law is megabytes.
 
-    `ris_fetch_document` answered this with a 40 000-character cut, which is
-    still 40 000 characters of prose with no citation key in it. Here the
+    A 40 000-character cut would still be 40 000 characters of prose with no
+    citation key in it. Here the
     document is read in full (and ingested in full) and what the model SEES is
     one paragraph.
     """

@@ -1,11 +1,11 @@
 /**
  * An answer's provenance, made durable (ADR-0037).
  *
- * The Herleitung, the confidence self-assessment and the routing transparency were
- * **browser-local**. Only seven fields ever reached the server with a message —
+ * The Herleitung, the confidence self-assessment and the routing transparency are
+ * **browser-local**. Only seven fields reach the server with a message —
  * `errorData`, `fileData`, `cards`, `cardInteractions`, `enabledDataSources`,
- * `messageFiles` and (since the citations fix) `citations`. Everything that
- * explains HOW an answer was reached lived in the tab that produced it.
+ * `messageFiles` and `citations`. Everything that explains HOW an answer was
+ * reached lives only in the tab that produced it.
  *
  * That has two consequences, and in a building-regulation product the provenance
  * is not decoration — it is most of the value:
@@ -15,10 +15,10 @@
  *      the server row they load instead never carried them. Anna reads "1,20 m"
  *      with nothing to say what it rests on.
  *   2. **The asker loses it too**, on any other device, after a storage prune, or
- *      in any browser that was not the one that asked. This one predates sharing.
+ *      in any browser that was not the one that asked.
  *
- * The fix is the same one the citations fix already made, extended: keep the
- * COMPACT form on the message row. For the Herleitung that is {@link StoredThinkingStep}:
+ * The fix is the one citations already use, extended: keep the COMPACT form on
+ * the message row. For the Herleitung that is {@link StoredThinkingStep}:
  * the typed step the turn fold writes (chat wire v2), which carries no tool
  * input or output, so the server keeps exactly what localStorage keeps, and the
  * two cannot disagree about what a restored thread looks like.
@@ -92,8 +92,8 @@ export interface TraceLaneCard {
 /**
  * The compact stored form of one Herleitung step: exactly what the turn fold
  * writes (docs/design/chat-wire-v2.md §e.4), and the ONLY shape this column
- * holds. Rows written before the wire v2 cut were rewritten by migration 0097;
- * nothing here reads the older `functionName` shape.
+ * holds. Migration 0097 rewrote the older rows; nothing here reads the older
+ * `functionName` shape.
  *
  * Which fields a step carries follows its `kind`: `retrieval` has `round` and
  * the `turnEvent`, `status` its `slot` (and the `turnEvent` when it speaks),

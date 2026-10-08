@@ -79,11 +79,11 @@ const CONTAINER_KIND: Record<string, NodeKind> = {
   // `IfcFacilityPart` is what `IfcBuildingStorey` is — both are
   // IfcSpatialStructureElement, neither is a physical component.
   //
-  // Left out, they fell through to `element`, and an infrastructure model came
-  // back as a pile of building components: `KIT-Simple-Road-Test-Web-IFC4x3.ifc`
-  // reported 118 elements of which 52 were `IfcFacilityPart` and one was the
-  // `IfcRoad` itself — 45 % of the "inventory" was the spatial structure. On
-  // `Infra-Road.ifc` (buildingSMART PCERT, IFC4X3_ADD2) it was 31 of 86.
+  // Left out, they would fall through to `element`, and an infrastructure model
+  // would come back as a pile of building components: `KIT-Simple-Road-Test-Web-IFC4x3.ifc`
+  // would report 118 elements, 52 of them `IfcFacilityPart` and one the `IfcRoad`
+  // itself — 45 % of the "inventory" would be the spatial structure. On
+  // `Infra-Road.ifc` (buildingSMART PCERT, IFC4X3_ADD2) it would be 31 of 86.
   //
   // They map to `building`/`storey` rather than to new kinds because that is
   // what they ARE structurally, and because every operator that asks "which
@@ -286,7 +286,7 @@ export async function buildGraph(bytes: Uint8Array, options: BuildOptions = {}):
       } else if (node.kind === 'space' && other.kind === 'space' && expressId < otherExpressId) {
         // A boundary with a space on BOTH sides is two rooms meeting through a
         // virtual element. `interfaceOf` cannot express it — it points at a
-        // bounding ELEMENT — and dropping it lost the adjacency entirely, which
+        // bounding ELEMENT — and dropping it would lose the adjacency entirely, which
         // is the one fact such a boundary exists to state. It is the same claim
         // `adjacentZone` makes, so it is recorded there, and as `declared`
         // rather than `computed` because here the file says so outright.
@@ -320,12 +320,12 @@ export async function buildGraph(bytes: Uint8Array, options: BuildOptions = {}):
     // container kind on either side, so "whole" and "part" are distinguishable
     // only by which side of the relation each sat on. Reading both directions
     // here — correct everywhere else, because everywhere else the endpoints
-    // carry the answer — produced `hasSubElement: Wohnzimmer → Erdgeschoss`,
+    // carry the answer — would produce `hasSubElement: Wohnzimmer → Erdgeschoss`,
     // i.e. the storey as a part of the room.
     //
     // So this block, alone, trusts `forward`, which the parser orients
-    // RelatingObject → RelatedObjects. Verified against a fixture rather than
-    // assumed: a storey's forward edges are its spaces, a space's are empty.
+    // RelatingObject → RelatedObjects. Checked against a fixture: a storey's
+    // forward edges are its spaces, a space's are empty.
     for (const otherExpressId of relatedForward(store, expressId, RelationshipType.Aggregates)) {
       const otherId = idOf.get(otherExpressId)
       if (!otherId || otherId === globalId || !nodes.get(otherId)) continue
@@ -336,7 +336,7 @@ export async function buildGraph(bytes: Uint8Array, options: BuildOptions = {}):
       // CONTAINER_KIND: the parser's `spatialHierarchy` is built for the
       // building spine, and an IFC4X3 `IfcRoad`/`IfcFacilityPart` reaches its
       // children only through IfcRelAggregates. Skipping those here on the
-      // grounds that they are containers would have deleted the containment
+      // grounds that they are containers would delete the containment
       // structure of every infrastructure model. Where both routes DO produce
       // the edge, `dedupe` collapses it.
       if (SPATIAL_SPINE.has(nodes.get(globalId)!.ifcType)) continue
@@ -349,9 +349,9 @@ export async function buildGraph(bytes: Uint8Array, options: BuildOptions = {}):
   // Deduplicate BEFORE indexing. `related()` reads a relation from both ends by
   // design, so every declared edge is pushed twice — once while visiting each
   // endpoint — and the duplicates are harmless in the edge list only because
-  // `dedupe` runs later. Indexing the raw array made them visible to the
-  // derivations: `interfaceOf` came back as `[Wohnzimmer, Wohnzimmer]` for a
-  // wall bounding one room, which passed the `length < 2` guard and produced
+  // `dedupe` runs later. Indexing the raw array would make them visible to the
+  // derivations: `interfaceOf` would come back as `[Wohnzimmer, Wohnzimmer]` for
+  // a wall bounding one room, pass the `length < 2` guard, and produce
   // `adjacentZone: Wohnzimmer → Wohnzimmer`. A room adjacent to itself, from a
   // correct file.
   options.onProgress?.('derive')
@@ -382,14 +382,14 @@ export async function buildGraph(bytes: Uint8Array, options: BuildOptions = {}):
   // provided the element is something you could walk THROUGH, not something you
   // stand on.
   //
-  // The unrestricted rule is what this used to do, and a real corpus destroys
-  // it. One `IfcSlab` in `Trapelo_Design_Intent.ifc` (Revit) carries declared
-  // boundaries to 93 of the file's 139 spaces, because it is the floor of a
-  // whole storey; pairing them all produced 4 278 "adjacencies" from that one
-  // slab. Across the file the rule reported 6 876 neighbour pairs out of 9 591
-  // possible — 72 % of every pair of rooms in the building — and 4 014 of them
-  // joined rooms on DIFFERENT storeys. On `AC20-FZK-Haus.ifc` all 21 of the 21
-  // possible pairs came back adjacent, i.e. the operator said nothing at all.
+  // The unrestricted rule fails on a real corpus. One `IfcSlab` in
+  // `Trapelo_Design_Intent.ifc` (Revit) carries declared boundaries to 93 of the
+  // file's 139 spaces, because it is the floor of a whole storey; pairing them all
+  // would produce 4 278 "adjacencies" from that one slab. Across the file the rule
+  // would report 6 876 neighbour pairs out of 9 591 possible — 72 % of every pair
+  // of rooms in the building — and 4 014 of them would join rooms on DIFFERENT
+  // storeys. On `AC20-FZK-Haus.ifc` all 21 of the 21 possible pairs would come
+  // back adjacent, i.e. the operator would say nothing at all.
   //
   // `deriveBoundaries` in geometry/boundaries.ts already refuses this: it drops
   // any pair whose only shared element is a contact across Z. That test needs
@@ -426,19 +426,18 @@ export async function buildGraph(bytes: Uint8Array, options: BuildOptions = {}):
   //
   // ## The element's OWN boundary wins over its host's
   //
-  // This used to UNION the spaces bounded by the host wall with the spaces
+  // This must not UNION the spaces bounded by the host wall with the spaces
   // bounding the element itself. A window's own 2nd-level boundary names the
-  // one room it serves; its host wall bounds every room along that wall. The
-  // union therefore drowned the precise answer in the coarse one, and the
-  // damage is not marginal:
+  // one room it serves; its host wall bounds every room along that wall. A union
+  // would drown the precise answer in the coarse one, and the damage is not
+  // marginal:
   //
   //   - `C20-Institute-Var-2.ifc` (ArchiCAD 20): all 283 windows and doors
   //     carry their own `IfcRelSpaceBoundary`, naming exactly one room each.
-  //     The union reported a mean of 5.7 rooms per opening and up to 10 — the
-  //     window of `Labor K5` was reported as opening into `Labor K1`…`K4` and
-  //     `WC Damen` as well.
+  //     A union would report a mean of 5.7 rooms per opening and up to 10: the
+  //     window of `Labor K5` would open into `Labor K1`…`K4` and `WC Damen` as well.
   //   - `Trapelo_Design_Intent.ifc` (Revit): 182 of 190 fillers carry their own
-  //     boundary; the union reported up to 11 rooms per window.
+  //     boundary; a union would report up to 11 rooms per window.
   //
   // geometry/boundaries.ts states the same rule for the measured path — "a
   // window's OWN box beats its host wall's boundaries" — and applies it. This
@@ -573,7 +572,7 @@ function kindOf(ifcType: string): NodeKind {
  * is the last attribute on an `IfcWall` and the second-to-last on an `IfcSpace`
  * — whose actual last attribute is `ElevationWithFlooring`, and whose
  * second-to-last, when `PredefinedType` is unset, is the `CompositionType`
- * enum. A positional read therefore reported every room's PredefinedType as
+ * enum. A positional read would therefore report every room's PredefinedType as
  * `ELEMENT`: a real-looking enum, from the right file, off by one attribute.
  *
  * The registry knows the true index per type and per schema, so nothing here
@@ -685,30 +684,28 @@ const SI_PREFIX: Record<string, number> = {
  *
  * ## Why it walks the unit assignment instead of scanning
  *
- * This used to scan every `IfcSIUnit` in the file and return the first
- * `LENGTHUNIT`/`METRE` it found. That is wrong in two ways that a real corpus
- * produces immediately, and both produce a plausible unit rather than an error:
+ * Scanning every `IfcSIUnit` in the file and returning the first
+ * `LENGTHUNIT`/`METRE` it finds is wrong in two ways that a real corpus produces
+ * immediately, and both produce a plausible unit rather than an error:
  *
  *   - **A stray unit shadows the assigned one.** `ifcbridge-model01.ifc`
  *     (IFC Java Toolbox) declares `#40917 = IFCSIUNIT(*,.LENGTHUNIT.,.DECI.,
  *     .METRE.)` for a property somewhere in the file, while its
  *     `IfcUnitAssignment` names `#283069 = IFCSIUNIT(*,.LENGTHUNIT.,$,.METRE.)`.
- *     The scan returned decimetres for a metre file: a factor of ten, stated as
- *     fact.
+ *          The scan would return decimetres for a metre file: a factor of ten, stated
+ *     as fact.
  *   - **A conversion-based unit is shadowed by its own SI base.** A file drawn
  *     in feet declares `IFCCONVERSIONBASEDUNIT(…,.LENGTHUNIT.,'FOOT',#44)` and
  *     `#44 = IFCMEASUREWITHUNIT(IFCRATIOMEASURE(0.3048), #42)` where `#42` is
- *     the metre it is defined against. The scan found `#42` first and reported
- *     metres for a foot file (`Trapelo`, Revit 2015); the same shape reported
- *     millimetres for an inch file (`AISC_Sculpture_param`, SDS/2). The old doc
- *     comment claimed such files yielded `null`. They did not.
+ *     the metre it is defined against. The scan finds `#42` first and reports
+ *     metres for a foot file (`Trapelo`, Revit 2015); the same shape reports
+ *     millimetres for an inch file (`AISC_Sculpture_param`, SDS/2).
  *
  * So the assignment is walked: `IfcProject.UnitsInContext` → `IfcUnitAssignment`
  * → the member whose UnitType is `LENGTHUNIT`. A conversion-based unit is
  * resolved through its `IfcMeasureWithUnit` to a real factor and reported under
- * its own name (`ft`, `in`), which is strictly better than the `null` the old
- * comment promised: an architect recognises "ft" and a downstream check can use
- * `toMetres`.
+ * its own name (`ft`, `in`), which is better than a `null`: an architect
+ * recognises "ft", and a downstream check can use `toMetres`.
  *
  * `null` remains the answer when the file names no length unit at all, or names
  * one this code cannot resolve to a factor. Saying nothing is recoverable;
@@ -941,25 +938,23 @@ export interface GeometryStatus {
 /**
  * The geometry-related blind spots, which depend on whether geometry ran.
  *
- * ## The bug this shape exists to kill
+ * ## Geometry blind spots depend on whether geometry ran
  *
- * `findBlindSpots` used to append, unconditionally,
+ * The list is assembled in `buildGraph`, which by construction runs before the
+ * geometry pass, so it cannot assume that geometry ran. A sentence appended
+ * unconditionally would read
  *
  *     keine Geometrie in dieser Ausbaustufe → Abstände, lichte Maße,
  *     Auskragungen, Flächen aus Geometrie und der freie Lichteinfall sind noch
  *     nicht berechenbar
  *
- * because the list is assembled in `buildGraph`, which by construction runs
- * before the geometry pass. It was written when there WAS no geometry pass, and
- * it survived the one that arrived. Every model this library has ever opened
- * therefore carries a sentence telling the reader that the geometric answers are
- * impossible — printed by `renderBriefing` under `BLIND`, in front of an agent
- * whose whole job is to decide what it can and cannot answer. On
- * `Snowdon_IFC2x3.ifc` it appeared beside a geometry pass that had just
+ * and `renderBriefing` would print it under `BLIND` on every model, in front of
+ * an agent whose whole job is to decide what it can and cannot answer. On
+ * `Snowdon_IFC2x3.ifc` it would sit beside a geometry pass that had just
  * tessellated 6 436 elements into 2 452 915 triangles.
  *
- * A false "undecidable" is the exact failure this library was built to end, and
- * the library was emitting one about itself on every file.
+ * A false "undecidable" is the exact failure this library exists to end, so the
+ * blind spots are derived from what the pass actually produced.
  *
  * ## What replaces it
  *

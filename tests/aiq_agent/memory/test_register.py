@@ -103,7 +103,7 @@ async def test_org_deny_with_card_registry_emits_confirmation(monkeypatch):
     # The tool result makes clear nothing was saved and the user decides.
     assert "NOT been saved yet" in result
     assert "org-wide" in result
-    # Exactly one memory_proposal card was added to the registry.
+    # Exactly one memory_proposal card is in the registry.
     cards = reg.snapshot()
     assert len(cards) == 1
     assert cards[0]["type"] == "memory_proposal"
@@ -197,7 +197,7 @@ async def test_content_is_truncated_to_the_configured_cap(monkeypatch):
 @pytest.mark.asyncio
 async def test_a_project_call_without_a_project_escalates_to_the_organization(monkeypatch):
     # The finding is still worth keeping; the org path then hits the frontend's
-    # default deny and comes back as a confirmation card (audit finding S1).
+    # default deny and comes back as a confirmation card.
     _patch_context(monkeypatch, project_id=None)
     insert = MagicMock(return_value="item-1")
     monkeypatch.setattr(pm, "insert_memory_item", insert)
@@ -296,8 +296,8 @@ class TestToolVocabulary:
 
     @pytest.mark.asyncio
     async def test_a_value_outside_the_vocabulary_is_a_correctable_validation_error(self):
-        """It used to be rewritten in silence for ``scope`` and ``confidence``,
-        which moved a finding into a scope nobody asked for. The tool loop hands
+        """``scope`` and ``confidence`` are never rewritten in silence, since that
+        would move a finding into a scope nobody asked for. The tool loop hands
         the validation error back for the model to correct instead."""
         async with project_memory_remember(ProjectMemoryRememberConfig(), MagicMock()) as info:
             with pytest.raises(ValidationError):

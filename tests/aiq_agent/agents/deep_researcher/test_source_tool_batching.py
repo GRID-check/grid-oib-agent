@@ -308,15 +308,15 @@ async def test_limiter_releases_after_cancellation():
 
 @pytest.mark.asyncio
 async def test_slot_timeout_reaches_the_model_as_a_tool_error_not_a_run_failure():
-    """A throttled source tool represents a slot timeout the way the batch one does.
+    """A throttled source tool reports a slot timeout the way the batch wrapper does.
 
-    Two wrappers share one limiter. The batch wrapper already turned a slot
-    timeout into a per-item ``ERROR:`` line; the throttled wrapper let it escape
-    into the graph, where the agent catches ``TimeoutError`` and treats the
-    whole deep-research run as cut off by an upstream timeout. Early in a run
-    there is nothing above ``MIN_SALVAGE_REPORT_CHARS`` to salvage, so the
-    reader got a failed report because OUR OWN semaphore was busy — for a source
-    that was never asked anything.
+    Two wrappers share one limiter, and the batch wrapper turns a slot timeout
+    into a per-item ``ERROR:`` line. The throttled wrapper must do the same: a
+    timeout escaping into the graph is read by the agent as the whole
+    deep-research run being cut off by an upstream timeout. Early in a run there
+    is nothing above ``MIN_SALVAGE_REPORT_CHARS`` to salvage, so the reader would
+    get a failed report because OUR OWN semaphore was busy — for a source that
+    was never asked anything.
     """
 
     class _TwoFieldInput(BaseModel):
@@ -371,11 +371,10 @@ async def test_slot_timeout_is_distinguishable_from_an_upstream_timeout():
 async def test_an_upstream_timeout_from_the_tool_itself_is_a_tool_error_not_a_run_failure():
     """A source that does not answer is that source's failure, reported to the model.
 
-    This used to propagate on purpose ("real evidence about a source"), and the
-    evidence cost the whole run: the agent's run-level catch treated it as a
-    cutoff, early runs had nothing to salvage, and the banner blamed a time
-    limit nobody reached. The evidence is still delivered — as an ERROR line
-    the model can route around, which is what evidence about one source is for.
+    It is not a run-level timeout: the agent's run-level catch would treat a
+    propagated timeout as a cutoff, and the banner would blame a time limit
+    nobody reached. The model receives an ERROR line it can route around, which
+    is what evidence about one source is for.
     """
 
     class _TwoFieldInput(BaseModel):

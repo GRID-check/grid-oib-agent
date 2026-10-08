@@ -1,12 +1,12 @@
 /**
  * The inline `[3]` in an answer, as a first-class citation.
  *
- * It used to be a scroll link: click it and the page moved, leaving the reader
- * to work out which of the chips below they had just been sent to. That is the
- * wrong division of labour — the marker knows exactly which citation it is, and
- * should say so.
+ * It is not a scroll link. A click that only moved the page would leave the
+ * reader to work out which of the chips below they had just been sent to. That
+ * is the wrong division of labour: the marker knows exactly which citation it
+ * is, and should say so.
  *
- * Now it:
+ * It:
  *  - previews on hover / focus / tap ({@link CitationPeek}) — what document,
  *    how authoritative, which page, and the passage itself;
  *  - marks its chip when activated, so the connection between the claim in the
@@ -64,7 +64,7 @@ export const CitationMarker: FC<{ href: string; fallback: ReactNode }> = ({ href
         {...peek.triggerProps}
         onClick={() => {
           peek.triggerProps.onClick()
-          // Still goes where it always went — but the chip now says so.
+          // Still goes to the source, and the chip says so.
           scope.focus(number)
           scrollToAnchor(`${scope.anchorPrefix}${number}`)
         }}
@@ -73,25 +73,19 @@ export const CitationMarker: FC<{ href: string; fallback: ReactNode }> = ({ href
           label: ref.document.title,
         })}
         // A tinted pill carrying the bare NUMBER, not the literal "[1]".
-        // The pill shape already says "this is a reference", so the
-        // brackets only widened it — enough that the sentence's own
-        // punctuation was pushed off ("erforderlich [1] ."). The number
-        // alone also matches how the chip below lists its markers ("1, 2,
-        // 3"), so the same citation reads the same in both places.
+        // The pill shape already says "this is a reference", so brackets
+        // would widen it enough to push the sentence's own punctuation off
+        // ("erforderlich [1] ."). The number alone also matches how the chip
+        // below lists its markers ("1, 2, 3"), so the same citation reads the
+        // same in both places.
         //
-        // Dropping the brackets did not close that gap; it only changed
-        // what held it open. A `min-w-[1.05rem]` floor (16.8px) sat here
-        // for a uniform pill width, and measured against the answer's own
-        // type — 17px prose, so 11.56px here — a digit advances 7.22px and
-        // the padding is 3px a side, which makes a one-digit pill 13.22px.
-        // The floor added 3.58px of nothing and `justify-center` split it,
-        // parking 1.8px of tinted pill between the digit and the period
-        // ("REI 90 1 ."). It bought nothing back either: `tabular-nums`
-        // already gives every digit the same advance, so 1 and 9 are the
-        // same width unaided, and from [10] the pill (20.42px) clears the
-        // floor anyway — it never applied where a width could differ. So
-        // the pill is now exactly its digits plus its padding, and with no
-        // slack left to distribute there is nothing to justify.
+        // The pill is exactly its digits plus its padding, with no `min-w`
+        // floor: at 11.56px (17px prose) a digit advances 7.22px and the
+        // padding is 3px a side, so a one-digit pill is 13.22px. A floor would
+        // be slack that `justify-center` splits between the digit and the
+        // period. `tabular-nums` already gives every digit the same advance, so
+        // 1 and 9 are the same width unaided, and with no slack left to
+        // distribute there is nothing to justify.
         className={cn(
           'inline-flex items-center rounded-sm px-[3px]',
           // em-relative, not a ramp step: the marker rides inside a running
@@ -120,9 +114,9 @@ export const CitationMarker: FC<{ href: string; fallback: ReactNode }> = ({ href
           'pointer-coarse:min-h-[26px] pointer-coarse:justify-center pointer-coarse:px-[7px] pointer-coarse:text-[0.78em]',
           // `transform` joins the transition list and `active:scale-95` matches
           // the Button primitive exactly. A citation marker is one of the most
-          // pressed things in a read answer, and it was one of the raw
-          // `<button>`s that gave no press response at all — so half the chat's
-          // controls acknowledged a tap and half sat inert.
+          // pressed things in a read answer, and a raw `<button>` gives no press
+          // response at all, so the chat's controls would split between those
+          // that acknowledge a tap and those that sit inert.
           'transition-[filter,box-shadow,transform] duration-quick ease-out active:scale-95 motion-reduce:transition-none motion-reduce:active:scale-100',
           'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50',
           'hover:brightness-95 dark:hover:brightness-125'
@@ -189,7 +183,7 @@ const PendingCitationMarker: FC<{ number: number }> = ({ number }) => {
  * The peek, with the open control offered only when there is something to open.
  *
  * A CONTROL THAT DOES NOTHING IS WORSE THAN NO CONTROL. „An dieser Stelle
- * öffnen" used to be rendered for every citation without an outbound URL — no
+ * öffnen" must not be rendered for every citation without an outbound URL — no
  * resolution attempted — and clicking it on a source the viewer cannot render
  * (a plan, a `.docx`, a citation whose shelf holds no such file) mounted
  * `SourceDocumentDialog`, which resolved to `info`, called `onClose()` and
@@ -214,7 +208,7 @@ const ResolvedCitationPeek: FC<{
   const conversationId = useChatStore((s) => s.currentConversation?.id ?? null)
   const url = citation.document.url
   // A URL source needs no stored-document index — but it still needs RESOLVING,
-  // because a RIS URL now opens in the app rather than only linking out (#622).
+  // because a RIS URL opens in the app rather than only linking out.
   const previewIndex = useSourcePreviewIndex(projectId, conversationId, !url, citedFileName(citation.document))
 
   const target = resolveCitationTarget(citation.document, {

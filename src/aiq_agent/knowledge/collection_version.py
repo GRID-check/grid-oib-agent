@@ -15,8 +15,8 @@ cannot treat this as ``int``; that is deliberate.
 
 The retriever caches retrieval results for static collections for
 ``STATIC_RESULT_CACHE_TTL_SECONDS`` (1 hour) and keys them on the collection's
-write version, so a write invalidates them immediately. That worked only while
-"the process" and "the deployment" were the same thing. They are not: Chroma is
+write version, so a write invalidates them immediately. That holds only when one
+process serves every read, and "the process" is not the deployment: Chroma is
 a shared server (``AIQ_CHROMA_URL``), the backend runs at ``backendReplicas: 2``
 in production, and the deep-research worker tier runs 2-8 more — all reading and
 writing ONE store. A version counter held in a module global is invisible to
@@ -64,7 +64,7 @@ outage take effect once the store returns, instead of being lost.
 trip per query. That memo is the entire cross-replica staleness window: a write
 on any replica becomes visible to every other replica's cache key within
 MEMO_TTL_SECONDS (plus one round trip), after which entries keyed on the old
-version can no longer be hit. Worst case 3 seconds, against 3600 before.
+version can no longer be hit. Worst case 3 seconds, where the result TTL alone would allow an hour.
 
 Writes are never memo-delayed on the writing replica: ``bump`` refreshes the
 memo with the value it just wrote.
@@ -74,8 +74,8 @@ memo with the value it just wrote.
 With ``REDIS_URL`` unset there is no shared store and, by that same
 configuration, no second replica — the in-process counter IS the authority, and
 ``current`` returns it exactly (staleness 0). This keeps local dev, the
-single-node compose stack and the test suite behaving exactly as the old
-module-global counter did. ``REDIS_URL`` set but unreachable is a different
+single-node compose stack and the test suite on a plain in-process counter.
+``REDIS_URL`` set but unreachable is a different
 situation entirely — other replicas are presumed to exist — and returns
 ``None``.
 """

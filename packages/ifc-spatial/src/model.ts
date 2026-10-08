@@ -86,12 +86,12 @@ export async function openModel(bytes: Uint8Array, options: OpenOptions = {}): P
   // Blind spots are recomputed HERE and not left as `buildGraph` wrote them.
   //
   // `buildGraph` runs before the geometry pass by construction, so the list it
-  // produces has to assume the worst about geometry — and the assumption it
-  // used to bake in ("keine Geometrie in dieser Ausbaustufe") was then reported
-  // verbatim on models whose every element had just been tessellated. An agent
-  // reading that stops asking exactly the questions this library exists to
-  // answer. What replaces it is what the pass actually found: whether it ran,
-  // whether retention was capped, and which rooms came back without a solid.
+  // produces has to assume the worst about geometry. Reported as it stands, that
+  // assumption ("keine Geometrie in dieser Ausbaustufe") would sit verbatim on
+  // models whose every element has just been tessellated, and an agent reading it
+  // stops asking exactly the questions this library exists to answer. What
+  // replaces it is what the pass actually found: whether it ran, whether retention
+  // was capped, and which rooms came back without a solid.
   const spaces = countSpaces(bounded)
   let spacesWithGeometry = 0
   for (const node of bounded.nodes.values()) {

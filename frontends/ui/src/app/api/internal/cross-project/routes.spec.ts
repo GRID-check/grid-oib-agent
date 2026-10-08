@@ -103,7 +103,7 @@ describe('the lookups act as the envelope’s person, in the envelope’s conver
     expect(vi.mocked(searchAcrossProjects)).not.toHaveBeenCalled()
   })
 
-  it('refuses a person who is no longer a member', async () => {
+  it('refuses a person who is not a member', async () => {
     vi.mocked(resolvePinnedRequesterSession).mockResolvedValue(null)
 
     expect((await projects(request('/api/internal/cross-project/projects', {}))).status).toBe(403)

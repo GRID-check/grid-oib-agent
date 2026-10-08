@@ -129,7 +129,7 @@ describe('a conversation the server listed without its messages', () => {
     await flush()
   })
 
-  it('reads a stored empty list as not loaded (storage the regression already wrote)', async () => {
+  it('reads a stored empty list as not loaded when the index does not name it', async () => {
     await useChatStore.getState().loadServerConversations()
     useChatStore.getState().updateConversationTitle('s_open', 'renamed')
     // What the bug left behind: `[]` for it, and an index that does not name it.

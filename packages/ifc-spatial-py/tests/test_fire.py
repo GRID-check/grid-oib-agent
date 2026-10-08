@@ -65,8 +65,8 @@ BOUNDARIES_ONLY = FIXTURES / "geschossdecke-und-fenster.ifc"
 #: Two storeys and seven rooms out of ``AC20-FZK-Haus.ifc`` (KIT/IFC Wiki
 #: example, free use), with the terrain body that makes the ground reference
 #: −1.00 m and without a single wall, slab or pset — 24 KB. Its „Dachgeschoss"
-#: at 2.70 m holds the Galerie, and it reproduces the storey-name veto exactly:
-#: 1.000 m where the answer is 3.700 m.
+#: at 2.70 m holds the Galerie, and it pins the storey-name veto: the answer is
+#: 3.700 m, not the 1.000 m that a veto on „Dachgeschoss" would give.
 DACHGESCHOSS_GALERIE = FIXTURES / "dachgeschoss-galerie.ifc"
 #: Its two storeys and the one room that decides the answer.
 FZK_DACHGESCHOSS = "273g3wqLzDtfYIl7qqkgcO"
@@ -620,13 +620,13 @@ def test_fluchtniveau_never_names_a_gebaeudeklasse(office: SpatialModel, house: 
 def test_a_room_name_containing_dach_does_not_veto_the_lexicon(tmp_path: Path) -> None:
     """A „Dachzimmer" on a storey called „1. Obergeschoss" is an Aufenthaltsraum.
 
-    `NOT_OCCUPIED_TERMS` is STOREY vocabulary and matches on substrings, and it
-    was applied to ROOM names as well: „dach" struck the Dachzimmer out of
-    `habitable`, the storey then read as all-Nebenflächen, and the Fluchtniveau
-    came back **0.000 m** for a house whose upper floor sits at 3.500 m. The
-    module's own rule is that a storey goes only on POSITIVE evidence and that
-    too LOW is the dangerous direction; the lexicon's `aufenthaltsraum` is that
-    evidence and a substring on a room name is not.
+    `NOT_OCCUPIED_TERMS` is STOREY vocabulary and matches on substrings, so it
+    must not be applied to ROOM names: „dach" would strike the Dachzimmer out of
+    `habitable`, the storey would then read as all-Nebenflächen, and the
+    Fluchtniveau would come back **0.000 m** for a house whose upper floor sits at
+    3.500 m. The module's own rule is that a storey goes only on POSITIVE evidence
+    and that too LOW is the dangerous direction; the lexicon's `aufenthaltsraum` is
+    that evidence and a substring on a room name is not.
     """
     w = _Writer("Dachzimmer")
     building = w.product("IfcBuilding", "Building", "Haus", CompositionType="ELEMENT")
@@ -640,15 +640,15 @@ def test_a_room_name_containing_dach_does_not_veto_the_lexicon(tmp_path: Path) -
     w.rel("IfcRelAggregates", "Aggr4", RelatingObject=og, RelatedObjects=[oben])
     model = w.write(tmp_path / "dachzimmer.ifc")
 
-    # The lexicon places it, which is the premise the veto contradicted.
+    # The lexicon places it, so the storey name must not veto it.
     assert {room.name: room.kind for room in classify_rooms(model)}["Dachzimmer"] == "aufenthaltsraum"
 
     answer = fire.fluchtniveau(model)
     assert answer.value["fluchtniveau"] == pytest.approx(3.5, abs=1e-9)
     top = {entry["globalId"]: entry for entry in answer.value["storeys"]}[og.GlobalId]
     assert top["gezaehlt"] is True
-    # And the reason is the true one. „Alle Räume … Neben- oder
-    # Erschließungsflächen" was published over a room the lexicon had just
+    # And the reason is the true one: „Alle Räume … Neben- oder
+    # Erschließungsflächen" must not be published over a room the lexicon has just
     # called an Aufenthaltsraum.
     assert "Aufenthaltsräume" in top["warum"]
     assert "Dachzimmer" in top["warum"]
@@ -663,10 +663,9 @@ def test_the_storeys_own_name_still_removes_it_when_its_rooms_agree(tmp_path: Pa
     Fluchtniveau is 0.000 m. This is the shape of ``Ifc4_SampleHouse.ifc``,
     whose storey „Roof" holds one space also called „Roof".
 
-    This test used to hold the same storey with a lexicon-placed ``Dachzimmer``
-    and assert the level dropped anyway. That is the defect the test below
-    pins: the name was tested FIRST and vetoed unconditionally, so it outranked
-    the room evidence it is supposed to stand in for.
+    A lexicon-placed ``Dachzimmer`` on the same storey does not drop the level:
+    the name is only a tie-breaker, and it must not outrank the room evidence it
+    stands in for.
     """
     w = _Writer("Dachgeschoss")
     building = w.product("IfcBuilding", "Building", "Haus", CompositionType="ELEMENT")
@@ -690,7 +689,7 @@ def test_the_storeys_own_name_still_removes_it_when_its_rooms_agree(tmp_path: Pa
     dropped = {entry["globalId"]: entry for entry in answer.value["storeys"]}[og.GlobalId]
     assert dropped["gezaehlt"] is False
     assert "Geschoßname" in dropped["warum"]
-    # And it says the rooms corroborate, because that is now part of the reason.
+    # And it says the rooms corroborate, because the rooms are part of the reason.
     assert "Dachraum" in dropped["warum"]
 
 
@@ -725,20 +724,18 @@ def test_a_habitable_room_outranks_the_storeys_name(tmp_path: Path) -> None:
 
 
 class TestTheStoreyNameIsATieBreakerAndNotAVeto:
-    """1.000 m for a house whose top floor sits at 3.700 m.
+    """A storey name must not decide the Fluchtniveau against the rooms.
 
-    Reproduced on ``AC20-FZK-Haus.ifc``. The storey name was matched against
-    :data:`fire.NOT_OCCUPIED_TERMS` BEFORE the rooms were looked at and vetoed
-    unconditionally, so „Dachgeschoss" — the ordinary German word for an attic
-    storey — removed the level at 2.70 m that holds the 107 m² **Galerie**: two
-    windows, a stair up to it, a 2.70 m drop into the living room, occupied by
-    any reading. The Fluchtniveau came back **1.000 m** instead of **3.700 m**,
-    on the one number the Gebäudeklasse hangs on and in the direction that
-    under-reports it.
+    On ``AC20-FZK-Haus.ifc``, „Dachgeschoss" — the ordinary German word for an
+    attic storey — would otherwise remove the level at 2.70 m that holds the
+    107 m² **Galerie**: two windows, a stair up to it, a 2.70 m drop into the
+    living room, occupied by any reading. The Fluchtniveau would come back
+    **1.000 m** instead of **3.700 m**, on the one number the Gebäudeklasse hangs
+    on and in the direction that under-reports it.
 
-    The same veto had already been removed once, from ROOM names, for the same
-    reason: a substring is not the positive evidence the rule demands. It
-    survived on the STOREY name and outranked all room evidence.
+    A substring is not the positive evidence the rule demands, whether it sits on
+    a room name or a storey name, and the storey name must not outrank the room
+    evidence.
 
     The fixture is those two storeys and their seven rooms, extracted with the
     terrain body that makes the ground reference −1.00 m, so the number here is
@@ -770,7 +767,7 @@ class TestTheStoreyNameIsATieBreakerAndNotAVeto:
         assert answer.value["groundReference"]["z"] == pytest.approx(-1.0, abs=1e-9)
 
     def test_the_reason_is_the_open_use_and_not_the_storeys_name(self, model: SpatialModel) -> None:
-        """„Geschoßname enthält „dach"" was published over a 107 m² Galerie.
+        """„Geschoßname enthält „dach"" must not be published over a 107 m² Galerie.
 
         The reason has to be the true one — the lexicon has no entry for
         „Galerie", so the use of this storey is open and it is counted in doubt.
@@ -1045,21 +1042,22 @@ def test_a_gap_in_a_file_that_declares_elsewhere_reads_differently(bodyless: Spa
 
 
 class TestAnEmptyFireRatingIsNotADeclaration:
-    """The answer blamed the architect for a defect that belongs to the export.
+    """An empty property belongs to the export, not to the design.
 
-    Reproduced on ``AC20-FZK-Haus.ifc``: four ArchiCAD placeholder properties
-    carry ``FireRating`` as the EMPTY STRING (``IfcDoor``
-    ``2jTRqchjf7oB0yhQ6462T0`` and ``1M$gxUrX1Fiwe3P64ww7U5``, ``IfcWindow``
-    ``1zOBw0Gej5Wf0QAJfHnOc0`` and ``2ACmFFQhT1Ouf0x4YRUh9m``), and the file
-    declares a fire resistance nowhere at all. ``''`` is not ``None``, so
-    ``_declares_fire_rating`` answered ``True`` and the caveat took the branch
-    that reads „eine Lücke in GENAU DIESEN BAUTEILEN" — a finding about the
-    DESIGN, telling an architect to fix walls — instead of the branch that names
-    the gap as a finding about the EXPORT and hands over the CAD remedy. Two
-    opposite instructions to two different people.
+    The answer must not blame the architect for it. On ``AC20-FZK-Haus.ifc``,
+    four ArchiCAD placeholder properties carry ``FireRating`` as the EMPTY STRING
+    (``IfcDoor`` ``2jTRqchjf7oB0yhQ6462T0`` and ``1M$gxUrX1Fiwe3P64ww7U5``,
+    ``IfcWindow`` ``1zOBw0Gej5Wf0QAJfHnOc0`` and ``2ACmFFQhT1Ouf0x4YRUh9m``), and
+    the file declares a fire resistance nowhere at all. ``''`` is not ``None``,
+    so ``_declares_fire_rating`` must not answer ``True`` for it, and the caveat
+    must not take the branch that reads „eine Lücke in GENAU DIESEN BAUTEILEN" —
+    a finding about the DESIGN, telling an architect to fix walls. It takes the
+    branch that names the gap as a finding about the EXPORT and hands over the CAD
+    remedy. Two opposite instructions to two different people, and only one is
+    true.
 
-    ``_opening_entry`` published the same thing element by element:
-    ``{'fireRating': '', 'fireRatingDeklariert': True}`` — a declared fire
+    ``_opening_entry`` must not publish the same thing element by element:
+    ``{'fireRating': '', 'fireRatingDeklariert': True}`` is a declared fire
     resistance class that is blank.
 
     The fixture is synthetic because the shape of the defect is one property
@@ -1095,7 +1093,7 @@ class TestAnEmptyFireRatingIsNotADeclaration:
                 PhysicalOrVirtualBoundary="PHYSICAL",
                 InternalOrExternalBoundary="INTERNAL",
             )
-        # The defect itself: the property is there, and it says nothing.
+        # The property is there, and it says nothing.
         w.pset("E1", "Pset_WallCommon", [("FireRating", "IfcLabel", "")], [wall])
         w.pset("E2", "Pset_DoorCommon", [("FireRating", "IfcLabel", "")], [door])
         return w.write(tmp_path_factory.mktemp("leer") / "leere-firerating.ifc")
@@ -1178,9 +1176,9 @@ def test_a_shared_slab_is_never_reported_as_proof_the_rooms_are_neighbours() -> 
 
     That fixture's header states its own invariant: ``Wohnen`` and ``Bad`` share
     ONLY the floor slab, so they are stacked or side by side and NOT neighbours.
-    The same unrestricted intersection made 4 278 false pairs out of one slab in
-    a real export, which is why ``adjacent_spaces`` now filters purely
-    horizontal separators.
+    An unrestricted intersection makes 4 278 false pairs out of one slab in a
+    real export, which is why ``adjacent_spaces`` filters purely horizontal
+    separators.
 
     This operator asks a narrower question — *what lies between these two* — and
     so may legitimately report the slab: if the rooms are stacked, the slab is
@@ -1364,10 +1362,11 @@ def test_an_annotation_is_the_second_route_to_a_boundary(tmp_path: Path) -> None
 
 
 def test_a_truncated_element_list_is_never_called_complete(tmp_path: Path) -> None:
-    """`elemente` holds the ten nearest; the caveat claimed the whole list.
+    """`elemente` holds the ten nearest; the caveat must not claim the whole list.
 
-    Twelve retaining walls, ten in the payload, and the sentence „Die
-    vollständige, nach Abstand sortierte Liste steht unter „elemente““ over it.
+    Twelve retaining walls, ten in the payload: the caveat must not carry the
+    sentence „Die vollständige, nach Abstand sortierte Liste steht unter
+    „elemente““.
     A reader who counts twelve checked elements and finds ten listed concludes
     the two missing ones do not exist — which is the reading `Answer.caveat`
     calls "reporting a subset as a total".

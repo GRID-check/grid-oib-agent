@@ -1,4 +1,4 @@
-# Held-out set, written blind to the classifier wording (2026-09-26). Do not tune on it.
+# Held-out set, written blind to the classifier wording. Do not tune on it.
 - file_name: EA_Wohnhausanlage_Gumpendorfer_Str_2026-03.pdf
   text: |
     ENERGIEAUSWEIS für Wohngebäude

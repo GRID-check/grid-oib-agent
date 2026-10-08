@@ -1,9 +1,9 @@
 """Prompt wiring: the norm registry block reaches the deep-research prompt.
 
-Piloti no longer renders the catalog. Its entries are RIS addresses, and
+Piloti does not render the catalog. Its entries are RIS addresses, and
 ``ris_lookup`` resolves one out of the question itself (ADR-0060 (d)), so a
-per-turn copy of the list below the KV-cache boundary bought the turn nothing
-and cost it ~1,500 tokens. Deep research, whose researcher orchestrates RIS by
+per-turn copy of the list below the KV-cache boundary would buy the turn nothing
+and would cost it ~1,500 tokens. Deep research, whose researcher orchestrates RIS by
 hand, still gets it — which is why the wiring is still pinned here.
 """
 
@@ -86,7 +86,7 @@ def test_the_deep_template_omits_the_registry_block_when_absent():
 
 
 def test_piloti_carries_no_catalog_variable_at_all():
-    """Not "renders empty": the variable is gone from the template, so a
+    """Not "renders empty": the variable is not in the template, so a
     caller cannot reintroduce 1,500 tokens by passing one."""
     source = PILOTI_TEMPLATE.read_text(encoding="utf-8")
 

@@ -19,7 +19,7 @@
  * CSS-side motion is collapsed by the `prefers-reduced-motion` block in
  * app/globals.css.
  *
- * ── On springs, and why there are now real ones ──────────────────────────────
+ * ── On springs ───────────────────────────────────────────────────────────────
  *
  * A spring's character is one number: the damping ratio
  *
@@ -30,14 +30,12 @@
  *
  *     overshoot = e^(−πζ / √(1 − ζ²))
  *
- * of the distance travelled. The two springs this module used to ship were
- * `springSnappy` (ζ = 1.107 — overdamped, 0% overshoot) and `springGentle`
- * (ζ = 0.868 → 0.41%, which on an 8px rise is 0.03px). Both were springs in
- * name only: they paid the spring's cost (an unpredictable, longer settle) and
- * bought none of its character.
+ * of the distance travelled. A spring whose overshoot is a fraction of a pixel
+ * pays the spring's cost (an unpredictable, longer settle) and buys none of its
+ * character.
  *
- * The design language now permits overshoot where it is purposeful — and
- * budgets it IN PIXELS, not percent, because pixels are what the eye sees.
+ * The design language permits overshoot where it is purposeful — and budgets it
+ * IN PIXELS, not percent, because pixels are what the eye sees.
  * The target is 1–2px of visible overshoot: below ~1px it is invisible and you
  * are paying for nothing, above ~2px it reads as wobble and dense compliance UI
  * cannot afford wobble. That budget is why each spring below carries a TRAVEL
@@ -63,9 +61,8 @@ const EASE_OUT: Bezier = [0, 0, 0.2, 1]
  * For things ARRIVING — a longer, softer tail than EASE_OUT.
  * Mirrors `--ease-entrance`.
  *
- * Note the shape: this is an ease-OUT. The curve it replaces, `easeQuiet`, was
- * cubic-bezier(0.25, 0.1, 0.25, 1) — which is CSS's default `ease`, an ease-IN
- * ramp — and it was being used for entrances. An arriving element that starts
+ * Note the shape: this is an ease-OUT, not CSS's default `ease` (an ease-IN
+ * ramp, cubic-bezier(0.25, 0.1, 0.25, 1)). An arriving element that starts
  * slowly reads as hesitant; the decision belongs at the beginning of the move.
  */
 const EASE_ENTRANCE: Bezier = [0.16, 1, 0.3, 1]
@@ -266,12 +263,10 @@ export const motionInstant: Transition = { duration: 0, delay: 0 }
 
 /**
  * The sheet pair — `--motion-deliberate` on `--ease-entrance`, and the exit one
- * step shorter on `--ease-exit`. These are the JS half of the numbers
- * `PageSheet` used to write as `duration-deliberate ease-entrance` /
- * `OVERLAY_EXIT` classes; the sheet now animates through motion.dev so its
- * entrance, its exit and the drag-to-dismiss gesture share one transform
- * pipeline (a CSS keyframe and a drag both writing `transform` fight, and the
- * loser jumps).
+ * step shorter on `--ease-exit`. These are the JS half of those CSS tokens. The
+ * sheet animates through motion.dev, so its entrance, its exit and the
+ * drag-to-dismiss gesture share one transform pipeline (a CSS keyframe and a
+ * drag both writing `transform` fight, and the loser jumps).
  *
  * Why a tween and not a spring: past ~300px of travel there is no spring left
  * to pick — see the design language's Motion vocabulary. The sheet's travel is
@@ -283,23 +278,22 @@ export const motionSheetEnter: Transition = { duration: 0.32, ease: EASE_ENTRANC
 export const motionSheetExit: Transition = { duration: 0.24, ease: EASE_EXIT }
 
 /**
- * @deprecated Use `springPress`. Kept so existing call sites keep compiling.
- * The old value (380/32/0.55) was ζ = 1.107 — overdamped, so it was already a
- * tween; `springPress` is the same intent with the settle actually tuned.
+ * @deprecated Use `springPress`. Kept so existing call sites keep compiling; at
+ * ζ = 1.107 it is overdamped, so it behaves as a tween.
  */
 export const springSnappy: SpringTransition = springPress
 
 /**
  * @deprecated Use `springDrawer` for large surfaces, or `motionBase` for small
- * ones. The old value (260/28) was ζ = 0.868 → 0.41% overshoot, which on this
- * kit's 8px rise is 0.03px: a spring nobody could see.
+ * ones. At ζ = 0.868 its overshoot is 0.41%, which on this kit's 8px rise is
+ * 0.03px: a spring nobody could see.
  */
 export const springGentle: SpringTransition = springDrawer
 
 /**
- * @deprecated Use `motionBase` (or `motionEntrance` for arrivals). The old
- * value was cubic-bezier(0.25, 0.1, 0.25, 1) — CSS's default `ease`, an ease-IN
- * ramp — and it was being used for entrances.
+ * @deprecated Use `motionBase` (or `motionEntrance` for arrivals). It is
+ * cubic-bezier(0.25, 0.1, 0.25, 1) — CSS's default `ease`, an ease-IN ramp,
+ * which reads as hesitant on an entrance.
  */
 export const easeQuiet: Transition = motionBase
 
@@ -317,10 +311,9 @@ export const staggerStepSeconds = 0.04
  *
  * A stagger is a reading cue — "these arrived together, in this order" — and
  * the cue is spent within the first handful of items. Uncapped, it turns into a
- * queue: this container previously ran 50ms apart with a 50ms lead, so a
- * seven-item list (project settings has one) held its last section back by
- * 350ms. That is a third of a second of a page looking half-loaded, to
- * communicate an ordering nobody was counting.
+ * queue: at 50ms per item, a seven-item list (project settings has one) holds
+ * its last section back by 350ms. That is a third of a second of a page looking
+ * half-loaded, to communicate an ordering nobody was counting.
  *
  * Capping at 5 steps × 40ms puts the whole cascade inside 200ms — under the
  * 240ms base duration, so the stagger finishes arriving before a single item's

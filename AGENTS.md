@@ -151,9 +151,8 @@ Two gates sit outside `task verify` and are still required: `task db:test:rls`
 whenever you touch the tenant boundary, and `task pkg:test` whenever you touch
 `packages/`. Both are now CI jobs, so a PR cannot merge without them; they stay
 out of `verify` because each needs something a per-commit gate should not pay
-for — PostgreSQL server binaries, and four minutes of IfcOpenShell. (`sources/`
-and `packages/` both used to be in this sentence as covered by *nothing*;
-`sources/` is `task be:test:sources`, `packages/` is CI's `packages` job.)
+for — PostgreSQL server binaries, and four minutes of IfcOpenShell. `sources/`
+is covered by `task be:test:sources`.
 
 ## Two rules that span services
 

@@ -6,9 +6,8 @@
  * briefly routes the scheduler's POST to a frontend pod that has not got the
  * route yet, every tick fails the same way and the next tick after the cause
  * clears succeeds with nothing lost. That is the design working. Logged at
- * ERROR, each tick became a GitHub issue: err2issue files every ERROR record
- * (ADR-0031), and a 12-minute Postgres restart on 2026-09-28 filed #799-#805.
- * A rollout's HTML 404 filed #785 and #793, and would have filed one more per
+ * ERROR, each failed tick would become its own GitHub issue: err2issue files
+ * every ERROR record (ADR-0031). A rollout's HTML 404 would file one more per
  * deploy, because the page carries per-build CSS hashes and so a new
  * fingerprint every time.
  *
@@ -16,7 +15,7 @@
  * the tick that makes it {@link escalationTicks} in a row logs ONE fixed ERROR
  * line (one issue, the same fingerprint every time), and the first success
  * after any failure logs one recovery line. A failure that is not transient (a
- * 401 from a wrong token, a 500) is the caller's to log at ERROR, as before.
+ * 401 from a wrong token, a 500) is the caller's to log at ERROR.
  *
  * Lives in `workers/` beside `database-unavailable.js`, whose code set decides
  * what counts as a database outage.
@@ -112,8 +111,8 @@ const BODY_SNIPPET = 200
  * type, and a short snippet of the body only when it is not HTML.
  *
  * An HTML body is never logged. It says nothing a status does not, and a
- * Next.js error page carries per-build asset hashes, so logging it gave every
- * deploy a new issue fingerprint (#785, #793).
+ * Next.js error page carries per-build asset hashes, so logging it would give
+ * every deploy a new issue fingerprint.
  *
  * @param {ResponseLike} res
  * @returns {Promise<{ kind: string, detail: string }>}

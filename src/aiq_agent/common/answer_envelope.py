@@ -10,12 +10,11 @@ operating on one string); the other fields are the answer's own RHETORICAL
 anatomy, every one optional: the headline verdict, the nominal topic, the
 one-line context scope, the takeaways, the single callout.
 
-They used to be ordinary card types the model emitted through ``emit_card``,
-which was wrong twice over — emission was optional twice (the model had to
-recognise the trigger AND spend a tool call), and the domain model was muddy: a
-verdict is not an exhibit attached BESIDE the answer the way a stair diagram
-is, it is the answer's own headline. So they are NATIVE answer fields,
-structured from generation onwards: parsed and validated here, gated
+They are not cards. Emitted through ``emit_card`` they would be optional twice
+(the model has to recognise the trigger AND spend a tool call), and a verdict
+is not an exhibit attached BESIDE the answer the way a stair diagram is, it is
+the answer's own headline. So they are NATIVE answer fields, structured from
+generation onwards: parsed and validated here, gated
 deterministically, and carried on the answer itself — ``answer_meta`` beside
 ``answer_confidence`` on the wire — where the frontend renders them in a FIXED
 layout (verdict above the prose, callout and takeaways after it). The model
@@ -50,8 +49,8 @@ The gates are the point, not an accident (see ``docs/architecture/cards.md``):
 - a verdict must be a short VALUE the reader can copy — a number, a class,
   „Nicht geregelt" — so anything longer than :data:`VERDICT_VALUE_MAX_CHARS`
   is a heading claiming too much, and is dropped. It is also exclusive to
-  ``kind=ruling``; an absent kind is the legacy envelope and keeps today's
-  behaviour (the verdict may survive);
+  ``kind=ruling``; an absent kind is the legacy envelope (the verdict may
+  survive);
 - a takeaway block is earned by an answer long enough to need one
   (:data:`TAKEAWAYS_MIN_PROSE_CHARS`, mirroring the frontend's lede threshold)
   and holds two to five items, never more;
@@ -193,11 +192,11 @@ class AnswerMetaVerdict(_EnvelopeModel):
 class AnswerMetaTakeaway(_EnvelopeModel):
     """One row of „Das Wichtigste" — the claim, and the footnote folded behind it.
 
-    Both descriptions are long on purpose: they are the only guidance that
-    reaches BOTH the taught schema and the provider-enforced one, and the two
-    failures they name are the two this block actually shipped — a row that is
-    a topic („Rechtsgrundlage") instead of a claim, and a `detail` so thin that
-    opening it repaid nothing.
+    Both descriptions are long on purpose: they are the only guidance that reaches BOTH
+    the taught schema and the provider-enforced one, and the two failures they name are
+    the two this block is most likely to produce: a row that is a topic
+    („Rechtsgrundlage") instead of a claim, and a `detail` so thin that opening it
+    repays nothing.
     """
 
     text: str = Field(
@@ -233,7 +232,7 @@ class AnswerMetaCallout(_EnvelopeModel):
 class AnswerMetaConfidence(_EnvelopeModel):
     """The self-assessment, as a field instead of a bracket grammar.
 
-    The canonical carrier of what the ``[CONFIDENCE:…]`` marker used to say;
+    The canonical carrier of what the ``[CONFIDENCE:…]`` marker says;
     the marker stays UNDERSTOOD as a fallback (and the deep writer still uses
     it), so the two never race — the envelope wins when both appear. The value
     surfaced to the reader is still decided by the server-side overconfidence
@@ -253,10 +252,10 @@ class AnswerMeta(_EnvelopeModel):
     topic, context, takeaways, callout — rendered content, gated through :data:`ANATOMY_FIELDS`
     onto the wire) and CONTROL (confidence, escalate_to_deep — signals the
     platform consumes, which never ride the ``answer_meta`` wire payload;
-    confidence travels as ``answer_confidence`` exactly as it always has).
+    confidence travels as ``answer_confidence``).
 
     ``kind`` is exclusive: a verdict is kept only for ``ruling``. An absent
-    kind is the legacy envelope and keeps today's behaviour. Unknown values
+    kind is the legacy envelope and keeps the verdict. Unknown values
     are coerced to ``walkthrough`` (no verdict) rather than failing open
     to a ruling. ``topic`` and ``context`` render in the masthead and have no
     gate interaction with ``kind`` — the frontend prefers the verdict masthead
@@ -272,10 +271,9 @@ class AnswerMeta(_EnvelopeModel):
     )
     summary: str | None = Field(
         default=None,
-        # Was "the whole answer in 1-2 sentences: outcome plus the decisive
-        # qualifier", which is a restatement by definition: every live summary
-        # in the September 2026 census restated the prose's opening and was
-        # gated out (`_summary_redundant`). The prompt's rule is the consequence.
+        # A summary that restates the prose's opening is a restatement by
+        # definition, and the gate drops it (`_summary_redundant`). The prompt asks for
+        # the consequence for this reader instead.
         description=(
             "omit unless the answer has a consequence for this reader that its opening does not state: "
             "what to do next or what it means for their project, 1-2 sentences, in the answer's language"
@@ -346,8 +344,8 @@ class AnswerMeta(_EnvelopeModel):
         kind = value.strip()
         if not kind:
             return None
-        # Unknown is not legacy. Legacy is ABSENT kind. Garbage that kept the
-        # gavel made exclusive kinds fail open to a ruling.
+        # Unknown is not legacy. Legacy is ABSENT kind. An unknown value must not
+        # fail open to a ruling.
         return kind if kind in ANSWER_KINDS else "walkthrough"
 
     @property
@@ -403,7 +401,7 @@ class GateContext:
 
 #: Share of a summary's content words its prose's opening paragraph may also
 #: carry before the summary counts as that paragraph said again. Calibrated on
-#: live answers (September 2026 census): three restating summaries scored 0.46
+#: live answers: three restating summaries scored 0.46
 #: to 0.53; the prompt's own consequence-summary („Danach ausschreiben …")
 #: scores 0 against its opening.
 SUMMARY_RESTATES_OVERLAP = 0.4
@@ -544,7 +542,7 @@ def _verdict_drop_reason(verdict: AnswerMetaVerdict, ctx: GateContext) -> str | 
     So the absent reference is refused too, and only on such a turn. When
     nothing agent-authored was retrieved there is nothing for the headline to
     launder, and a verdict the model chose not to attribute — „Nicht geregelt"
-    is the common one — keeps standing exactly as before.
+    is the common one — keeps standing.
     """
     if _names_agent_authored_document(verdict.reference, ctx):
         return VERDICT_DROP_AGENT_AUTHORED
@@ -803,7 +801,7 @@ def _recover_answer_string(raw: str) -> str | None:
     broke the object AFTER its prose (a stray brace in a card, a cut trailer)
     loses the anatomy and keeps the answer. A broken string itself (a bad
     escape, no closing quote) recovers nothing, so no JSON fragment is ever
-    shipped as prose; the caller then leaves the reply untouched as before.
+    shipped as prose; the caller then leaves the reply untouched.
     """
     match = _ANSWER_KEY_RE.search(raw)
     if match is None:
@@ -852,9 +850,8 @@ def extract_answer_envelope(content: object) -> tuple[object, AnswerMeta | None]
             if answer:
                 # The prose closed whole and the break came after it, in the
                 # cards or the trailer: the reader already has this prose
-                # settled on screen, and replacing it with the raw fence put
-                # 4 774 characters of JSON where 1 120 of answer had been
-                # (answer suite, 2026-09-27). The anatomy goes, the answer stays.
+                # settled on screen, and replacing it with the raw fence would
+                # put JSON where the answer is. The anatomy goes, the answer stays.
                 logger.warning(
                     "answer_json envelope is not parseable JSON; recovered its answer string, dropped the rest"
                 )
@@ -867,8 +864,8 @@ def extract_answer_envelope(content: object) -> tuple[object, AnswerMeta | None]
             if len(outside) > _PROSE_OUTSIDE_WARN_CHARS:
                 # The reply wrote its answer twice: once loose, once in the
                 # fence. The fence wins and the reader sees it once, but every
-                # token of the loose copy was generated and paid for; the
-                # September 2026 census caught one in three doing it.
+                # token of the loose copy was generated and paid for, and a census of live
+                # answers found one in three doing it.
                 logger.warning(
                     "answer_prose_outside_envelope: %d chars of prose outside the answer_json fence discarded",
                     len(outside),
@@ -908,16 +905,15 @@ _HEADLESS_TAIL_RE = re.compile(r'"\s*,\s*(?="(?:' + "|".join(sorted(map(re.escap
 def _salvage_headless(content: str) -> tuple[str, AnswerMeta | None] | None:
     """An envelope whose opening (the fence and `{"answer": "`) is missing.
 
-    Seen live (September 2026 suite, 1 reply in 27): the model began with the
-    prose itself and switched into JSON half way, `…p.5", "kind":"ruling",
-    "confidence":{…}}` plus the closing fence. Read as plain prose, the reader
-    got that JSON tail under the answer and the turn lost its verdict, its
-    confidence and its cards. The tail need not open with ``kind``: answer
-    feedback (October 2026) caught one that opened `…p.1", "confidence":{…}}`
-    and shipped as prose. Whatever stands before the first `", "<key>":` is
-    the answer when the rest, opened with `{`, parses whole as one envelope
-    object. The top-level keys come before any nested card's, so a nested
-    `", "kind":` is never the cut, and prose quoting JSON is untouched.
+    Seen live (1 reply in 27 in the answer suite): the model began with the prose itself
+    and switched into JSON half way, `…p.5", "kind":"ruling", "confidence":{…}}` plus
+    the closing fence. Read as plain prose, the reader got that JSON tail under the
+    answer and the turn lost its verdict, its confidence and its cards. The tail need
+    not open with ``kind``: answer feedback caught one that opened `…p.1",
+    "confidence":{…}}` and shipped as prose. Whatever stands before the first `",
+    "<key>":` is the answer when the rest, opened with `{`, parses whole as one envelope
+    object. The top-level keys come before any nested card's, so a nested `", "kind":`
+    is never the cut, and prose quoting JSON is untouched.
 
     A reply that opens with `{` or the ``answer_json`` fence HAS its head: it is
     an object that did not parse, and a nested `", "kind":` (a callout's) would
@@ -993,8 +989,8 @@ def gate_answer_meta(
     Fundstelle resolves into it is dropped, and so is a verdict that names no
     Fundstelle at all — see :func:`_verdict_drop_reason` for why the second
     refusal is not the first one being over-eager. Defaulted so a caller with no
-    registry — the deep writer's report path, a test — behaves exactly as
-    before.
+    registry — the deep writer's report path, a test — gets no registry-dependent
+    checks.
 
     ``record=False`` gates without recording a drop as a turn event: the live
     stream gates the same masthead provisionally, twice, and the finished
@@ -1148,8 +1144,9 @@ def _strict_object(model_cls: type[BaseModel]) -> dict:
 
 #: The fields the reader sees ABOVE the prose (the masthead, and the kind that
 #: names the answer), written before ``answer`` in this order. The reply
-#: streams as it is written (ADR-0066): a masthead written after the prose was
-#: inserted above text the reader was already reading, and moved it 80-230 px.
+#: streams as it is written (ADR-0066), so a masthead written after the prose
+#: would be inserted above text the reader is already reading and move it
+#: 80-230 px.
 MASTHEAD_FIELDS = ("kind", "topic", "context", "verdict", "summary")
 
 

@@ -1,17 +1,12 @@
 /**
  * Inline `[N]` citation markers, resolved on the PARSED document.
  *
- * The markers used to be linked by rewriting the markdown source with a regex
- * before it reached the parser, and that is why `[2][3]` — the shape the
- * backend is instructed to write for a claim carried by two sources — rendered
- * as dead text next to the pills its neighbours got. The rewrite had to
- * recognise, in raw text, everything markdown means by a bracket: it split
- * fenced blocks and code spans off by hand, refused a `[N]` that followed a
- * `]`, and abandoned the whole document if any `[1]: url` definition appeared.
- * Two of those guards fire on `[2][3]` — a lookahead for the `[` that opens the
- * next marker, and the check for the `]` that closed the previous one — because
- * to a regex over source text, adjacent markers are indistinguishable from the
- * `[label][ref]` of a reference link.
+ * Markers are resolved on the parsed document, not on the markdown source. A
+ * regex over source text cannot tell adjacent markers — the `[2][3]` shape the
+ * backend writes for a claim carried by two sources — from the `[label][ref]`
+ * of a reference link. It would also need hand-written guards for fenced blocks,
+ * code spans, a `[N]` after a `]`, and `[1]: url` definitions, and the guards
+ * for adjacent markers break exactly the shape above.
  *
  * They are perfectly distinguishable to a PARSER, which is the point: by the
  * time remark hands us an mdast `text` node, it has already decided what is
@@ -19,7 +14,7 @@
  * surviving in a text node is literal prose, so the only thing left to do is
  * find it — a scan for `[`, digits, `]`, with no context to guess at.
  *
- * What the parser now decides, and we no longer approximate:
+ * What the parser decides, so this code does not approximate it:
  *  - code blocks and inline code — never `text` nodes, so never touched;
  *  - real links, images and resolved references — their own node types, whose
  *    subtrees we skip (a link inside a link is not expressible anyway);

@@ -46,7 +46,7 @@ class TestSkillCollections:
         with pytest.raises(ValueError, match="Unknown deep research skill collection"):
             resolve_skill_collections(("typo",))
 
-    def test_skills_config_forbids_old_fields(self) -> None:
+    def test_skills_config_forbids_extra_fields(self) -> None:
         with pytest.raises(ValidationError, match="Extra inputs are not permitted"):
             DeepResearchSkillsConfig(enabled=True)
 
@@ -64,9 +64,9 @@ class TestDeepAgentsRuntimeRouting:
     def test_curated_offers_are_absent_from_the_skills_mount(self) -> None:
         """An offer the org never switched on must not be readable from /skills/.
 
-        Chat already drops ``grid-catalog: curated`` from always_on. The mount
-        used to serve the whole builtin tree, so a researcher could still
-        ``read_file`` forecast-analysis. Same gate on both agents.
+        Chat already drops ``grid-catalog: curated`` from always_on. Without this
+        gate the mount would serve the whole builtin tree, so a researcher could
+        still ``read_file`` forecast-analysis. Same gate on both agents.
         """
         runtime = DeepAgentsRuntime(
             skills=DeepResearchSkillsConfig(agents={"writer-agent": ("synthesis",)}),

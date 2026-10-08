@@ -2,12 +2,12 @@
  * Collaboration: sharing a resource, @-mentions with the agent hand-off, and the
  * inbox (ADR-0032…0035).
  *
- * Anything counted here carries explicit `…One` / `…Many` keys and the renderer
- * picks between them. That predates the plural blocks `src/i18n/translate.ts`
- * now understands (`{count, plural, one {…} other {…}}`), and these pairs are
- * left as they are because they are already correct — but a NEW counted string
- * belongs in one key with a plural block rather than in a new pair. What has not
- * changed is the reason both forms have to be written out: German and English
+ * Counted strings carry explicit `…One` / `…Many` keys, and the renderer picks
+ * between them. `src/i18n/translate.ts` also understands plural blocks
+ * (`{count, plural, one {…} other {…}}`); the existing pairs stay as they are
+ * because they are correct, but a NEW counted string belongs in one key with a
+ * plural block rather than in a new pair. The reason both forms have to be
+ * written out is that German and English
  * disagree about where the noun inflects, so a bare `{count}` in front of a noun
  * is a defect in one locale or both.
  */
@@ -76,7 +76,7 @@ export const collaboration = {
       /** A typed search that matched nobody — distinct from an exhausted list. */
       noResults: 'No match for “{query}”',
       submit: 'Invite',
-      /** Shown on org members who are not in the project (spec SH-19). */
+      /** Shown on org members who are not in the project. */
       needsProjectAccess: 'Not in this project yet',
       needsProjectAccessHint:
         'Add them to the project first. Sharing a chat never grants access to the project itself.',
@@ -180,9 +180,9 @@ export const collaboration = {
       needsInviteHint: '{name} is not in this conversation yet and will be invited.',
       /**
        * The same fact WITHOUT the name, for the picker row — which prints the
-       * person's name on the line directly above, so interpolating it again read
-       * "Sabine Gruber / Sabine Gruber ist noch nicht in diesem Chat…". Keep the
-       * named variant for surfaces that mention someone out of context.
+       * person's name on the line directly above, so interpolating it again would
+       * read "Sabine Gruber / Sabine Gruber ist noch nicht in diesem Chat…". Keep
+       * the named variant for surfaces that mention someone out of context.
        */
       needsInviteHintShort: 'Not in this conversation yet — will be invited.',
       cannotInvite: 'Only an owner can bring new people into this conversation.',
@@ -197,15 +197,15 @@ export const collaboration = {
      * The composer's state once a human is tagged. Two keys because this i18n
      * layer has interpolation but NO plural rules: German inflects the verb
      * ("wird gefragt" / "werden gefragt"), so joining names into the singular
-     * string produced "Anna Berger, Tobias Kern wird gefragt" — wrong grammar in
-     * the primary product language.
+     * string would produce "Anna Berger, Tobias Kern wird gefragt" — wrong
+     * grammar in the primary product language.
      */
     composerHint: 'Piloti will stay quiet — {name} is being asked.',
     composerHintMany: 'Piloti will stay quiet — {names} are being asked.',
     /**
      * The composer's always-visible statement of WHO receives this message.
      *
-     * This exists because the routing was not guessable from the UI: after a
+     * This exists because the routing is not guessable from the UI: after a
      * colleague answers, is the next message a question for Piloti or a remark to
      * them? Rather than teach a rule, the composer says it. Present in every
      * state, so "Piloti is next" is never an inference.
@@ -265,7 +265,7 @@ export const collaboration = {
       switchToMention: 'Answer only when mentioned',
       failed: 'That could not be changed.',
     },
-    /** The banner every participant sees while the thread waits (spec MN-8). */
+    /** The banner every participant sees while the thread waits. */
     awaiting: {
       one: 'Waiting for {name}',
       many: 'Waiting for {names}',
@@ -298,12 +298,13 @@ export const collaboration = {
     /**
      * The hand-BACK offer, shown in the thread at the moment a wait resolves.
      *
-     * `awaiting.askAgent` above lives inside the banner, which vanishes the instant
-     * the colleague answers — so exactly when the thread holds its most valuable
-     * context there was no affordance at all, and the user had to already know that
-     * typing `@Piloti` is the way on. This is that affordance, and it PRE-FILLS the
-     * composer rather than firing a turn: every message in a shared thread stays
-     * honestly authored, and a turn with no question of its own produces mush.
+     * `awaiting.askAgent` lives inside the banner, which vanishes the instant the
+     * colleague answers, and that is exactly when the thread holds its most
+     * valuable context. Without an affordance there, the user has to already know
+     * that typing `@Piloti` is the way on. This offer is that affordance, and it
+     * PRE-FILLS the composer rather than firing a turn: every message in a shared
+     * thread stays honestly authored, and a turn with no question of its own
+     * produces mush.
      */
     handback: {
       offer: '{name} replied — let Piloti carry on?',
@@ -340,12 +341,13 @@ export const collaboration = {
     archived: 'Archived',
     /** Item states. */
     resolved: 'Answered',
-    /** An item whose target the recipient can no longer reach (spec IB-13). */
+    /** An item whose target the recipient can no longer reach. */
     inert: 'No longer available',
     /**
      * The BODY of a redacted row — a complete sentence, because the templated
-     * "in {subject}" needs a real title and the placeholder read as nonsense inside
-     * it. Says the same thing the chip does, in the position the body occupies.
+     * "in {subject}" needs a real title and the placeholder would read as
+     * nonsense inside it. Says the same thing the chip does, in the position the
+     * body occupies.
      */
     bodyUnavailable: 'This conversation is no longer available to you.',
     inertHint: 'You no longer have access to this.',
@@ -372,7 +374,7 @@ export const collaboration = {
     },
     /**
      * One entry per registered item type. Adding a type means adding a `title`
-     * and `body` here — that plus a registry entry is the whole cost (spec IB-6).
+     * and `body` here — that plus a registry entry is the whole cost.
      */
     types: {
       mentionRequested: {
@@ -383,7 +385,7 @@ export const collaboration = {
        * "Replied", not "answered". Even with `asked_back` split out, a
        * contribution can be "I'll look at it tomorrow" — true of every one of
        * them is that the person replied. German already says exactly this
-       * ("hat geantwortet"); English "answered" was the one over-claim.
+       * ("hat geantwortet"); English "answered" would be the one over-claim.
        */
       mentionAnswered: {
         title: '{actor} replied',
@@ -399,7 +401,7 @@ export const collaboration = {
         /**
          * Read, with nothing new since — the counter has been spent. So it must
          * not say "new": this row is history, and a group of twenty the reader
-         * has just been through was announcing fresh mail at them.
+         * has just been through would be announcing fresh mail at them.
          */
         titleNone: 'Messages',
         body: 'in {subject}',
@@ -521,15 +523,15 @@ export const collaboration = {
     mentionedYouAria: 'You were mentioned',
     /** Consecutive messages from one author collapse under a single header. */
     groupedAria: 'Continued from {name}',
-    /** Observers see who the agent is working for (spec CC-13). */
+    /** Observers see who the agent is working for. */
     turnInFlight: 'Piloti is answering {name}’s question…',
     turnInFlightYou: 'Piloti is answering…',
     /** A colleague is composing. Human vocabulary, not the agent's (TypingPresence). */
     typing: '{names} is writing…',
     /**
-     * Exactly two named typists. Without this the renderer picked `typing` — the
-     * commonest multi-typist case read "Anna Berger, Tobias Kern is writing…" in
-     * English and "… schreibt…" in German.
+     * Exactly two named typists. Without this the renderer would pick `typing`,
+     * and the commonest multi-typist case would read "Anna Berger, Tobias Kern is
+     * writing…" in English and "… schreibt…" in German.
      */
     typingPair: '{names} are writing…',
     typingMany: '{names} and {count} others are writing…',
@@ -554,9 +556,8 @@ export const collaboration = {
     /**
      * Deliberately says "no longer available" rather than "you no longer have
      * access": the server refuses a revoked thread and a DELETED one with the
-     * same answer, on purpose (spec SH-6, denial indistinguishable from
-     * non-existence), so this string has to be true of both. It used to tell
-     * somebody they had been shut out of a conversation that no longer existed.
+     * same answer, on purpose (denial is indistinguishable from non-existence),
+     * so this string has to be true of both.
      */
     accessLost:
       'This conversation is no longer available to you. What you see is a local copy and will not update.',

@@ -2,12 +2,11 @@
 #
 # Why this file exists
 # -------------------
-# The same commands were previously written down in three places that drifted
-# independently: `.github/workflows/ci.yml`, the verification table in
-# AGENTS.md, and the `ci:*` scripts in `frontends/ui/package.json` (which
-# pointed at a `scripts/ci-check.sh` that did not exist). Documented commands
-# also assumed a Windows venv layout (`.venv/Scripts/python.exe`) and so did not
-# run in CI, the devcontainer, or an agent session.
+# The commands live here once. Copies in `.github/workflows/ci.yml`, the
+# verification table in AGENTS.md and the `ci:*` scripts in
+# `frontends/ui/package.json` drift independently, and a command that assumes a
+# Windows venv layout (`.venv/Scripts/python.exe`) runs in none of CI, the
+# devcontainer or an agent session.
 #
 # Everything below is defined once and consumed by humans, agents and CI alike.
 # `task verify` IS the merge gate — if it passes locally it passes in CI, and if
@@ -47,9 +46,9 @@ vars:
   RELNOTES: uv run --no-project --with reno==4.1.0 python scripts/release_notes.py
 
 env:
-  # The documented footgun, removed. Without this pytest resolves `aiq_agent`
-  # from whatever is installed in the venv rather than from this worktree, and
-  # validates the wrong code while appearing to pass.
+  # Without this pytest resolves `aiq_agent` from whatever is installed in the
+  # venv rather than from this worktree, and validates the wrong code while
+  # appearing to pass.
   PYTHONPATH: src
 
 tasks:
@@ -69,7 +68,7 @@ tasks:
       # drift from the workflow (that drift is exactly what this file removes).
       #
       # `pkg:test` is deliberately NOT here, and the number is the reason:
-      # packages/ifc-spatial-py is 636 tests in 3m55s (measured 2026-09-10)
+      # packages/ifc-spatial-py is 636 tests in 3m55s (measured locally)
       # against its own uv.lock and its own IfcOpenShell/shapely toolchain, on a
       # directory most changes never touch. CI runs it behind a `packages/**`
       # paths filter (ci.yml's `packages` job), which pays that cost only on the
@@ -114,12 +113,12 @@ tasks:
       # Two Node programs under deploy/pulumi, each with its own lockfile: the
       # Pulumi program itself (which `infra:types` typechecks and `infra:test`
       # runs) and the policy pack beside it. Installing only the policy pack
-      # left a fresh clone failing `task verify` at `infra:types`, because the
-      # program's own TypeScript and Vitest were never fetched.
+      # leaves a fresh clone failing `task verify` at `infra:types`, since the
+      # program's own TypeScript and Vitest are never fetched.
       - npm --prefix deploy/pulumi ci
       - npm --prefix deploy/pulumi/policy ci
-      # packages/ used to be skipped here too, so `task pkg:test` on a fresh
-      # clone failed at "vitest: not found" rather than at an assertion.
+      # packages/ is installed here too: without it a fresh clone's `task pkg:test`
+      # fails at "vitest: not found" rather than at an assertion.
       - task: pkg:install
       - task: agents:setup
 
@@ -147,10 +146,7 @@ tasks:
     cmds:
       # THE GATE for `skills/`. Nothing else can be: `skills/` is the source and
       # `.claude/`/`.agents/` are generated and gitignored, so a diff shows the
-      # edited skill and never the lockfile it invalidated. That is how
-      # apm.lock.yaml went stale against seven files while a perfectly good
-      # `apm audit` sat one command away — the same shape as the `sources/`
-      # suites before this branch: a check that exists, and no gate that runs it.
+      # edited skill and never the lockfile it invalidated.
       #
       # Two different failures, so two checks:
       #
@@ -256,12 +252,11 @@ tasks:
       # time, because each shard only ever loaded its own slice of the app.
       #
       # `--outputFile` is EXPLICIT rather than left to the reporter's default,
-      # and `test:merge` pins the same directory. Vitest moved that default
-      # from `.vitest-reports/` to `.vitest/blob/` in v5, which broke the
-      # round-trip silently: the shard wrote one place, ci.yml uploaded another,
-      # and `Frontend coverage` failed at the far end with an ENOENT naming a
-      # directory nothing in this repo mentions. Pinned here, a future move of
-      # the default cannot reach the workflow. The name carries the shard
+      # and `test:merge` pins the same directory. The default moves between
+      # Vitest majors, and a shard and an upload that disagree about it fail at
+      # the far end with an ENOENT naming a directory nothing in this repo
+      # mentions. Pinned here, a future move of the default cannot reach the
+      # workflow. The name carries the shard
       # (`blob-1-6.json`) because all six artifacts are downloaded into one
       # directory with `merge-multiple: true`, where a fixed name would
       # overwrite five of them.
@@ -414,7 +409,7 @@ tasks:
       - '{{.PY}} -X faulthandler -m pytest tests/ -q'
 
   be:test:sources:
-    desc: The sources/ package suites, which no CI job used to run
+    desc: The sources/ package suites, one pytest per package
     cmds:
       # One pytest per package, not `pytest sources`, and the glob rather than a
       # list so a new package is covered the day it lands.
@@ -462,12 +457,11 @@ tasks:
       # README; the threshold sits a few points under it so a measurement
       # wobble is not a failure while a real regression is.
       #
-      # NOT A CI GATE ANY MORE. It was one until 2026-09-09, when the corpus
-      # became operator-provided and gitignored (data/oib/README.md) and no CI
-      # checkout could hold the PDFs to measure. This is now an opt-in local
-      # tool: run it yourself before a chunker or German-analyzer change, and
-      # quote the number in the PR. Without a corpus it exits 1 saying so.
-      # What was lost and what would restore it: ADR-0058, "Update (2026-09-09)".
+      # NOT A CI GATE. The corpus is operator-provided and gitignored
+      # (data/oib/README.md), so no CI checkout can hold the PDFs to measure
+      # (ADR-0058). This is an opt-in local tool: run it yourself before a
+      # chunker or German-analyzer change, and quote the number in the PR.
+      # Without a corpus it exits 1 saying so.
       - '{{.PY}} -m oib_retrieval_eval.runner --structure-only --fail-below {{.RETRIEVAL_GATE_PCT | default "95"}}'
 
   be:eval:overview:
@@ -552,7 +546,7 @@ tasks:
   be:eval:turn-shapes:
     desc: ADR-0052 turn-shape eval against Piloti's live model (needs OPENROUTER_API_KEY; skips without it)
     cmds:
-      # The two behaviours ADR-0052 moved from the router into the prompt — a
+      # The two behaviours ADR-0052 puts in the prompt, not the router — a
       # greeting does not search, a commissioned report escalates before it
       # retrieves — plus a control question that must still search. Real
       # prompt, real model, stub tools that record the trace. `-rs` prints the
@@ -588,9 +582,9 @@ tasks:
       - task: be:lint
       - task: be:test:ci
       - task: be:test:api:ci
-      # sources/ used to be covered only by the push-stage pre-commit hook,
-      # which CI's repo-lint job skips — a stale test there stayed green
-      # through every gate. Now it is part of the tier.
+      # sources/ is part of the tier: the push-stage pre-commit hook alone would
+      # leave a stale test there green through every gate, because CI's
+      # repo-lint job skips that hook.
       - task: be:test:sources
 
   # ── infra (deploy/pulumi) ───────────────────────────────────────────────────
@@ -604,11 +598,11 @@ tasks:
   infra:test:
     desc: Manifest tests for the Pulumi program (no cluster, no stack credentials)
     # `typecheck` proves the program is well-typed; it proves nothing about the
-    # manifests, which is where every SeaweedFS bug in this repo's history has
-    # lived — a renamed flag, a Service missing the gRPC port `weed shell`
-    # needs, a liveness probe pointed at an endpoint that answers 423. All
-    # string-valued, all invisible to tsc. These run the program under
-    # `pulumi.runtime.setMocks` and assert the resource inputs directly.
+    # manifests, which is where SeaweedFS bugs tend to live — a renamed flag, a
+    # Service missing the gRPC port `weed shell` needs, a liveness probe pointed
+    # at an endpoint that answers 423. All string-valued, all invisible to tsc.
+    # These run the program under `pulumi.runtime.setMocks` and assert the
+    # resource inputs directly.
     cmds:
       - npm --prefix deploy/pulumi test
 
@@ -627,10 +621,9 @@ tasks:
   # their own tasks instead of riding `fe:*` or `be:*` — neither toolchain can
   # see them.
   #
-  # Until now nothing ran either suite: no Taskfile target, no CI job, no
-  # pre-commit hook. 830 tests behind a default-ON feature that renders OIB
-  # compliance verdicts, and the only thing standing between a broken assertion
-  # and a customer was somebody remembering to run pytest by hand.
+  # Both suites run from here and from CI's `packages` job. They render OIB
+  # compliance verdicts behind a default-ON feature, so a broken assertion must
+  # not reach a customer unseen.
 
   pkg:install:
     desc: Install the standalone packages' own toolchains (own lockfiles, outside every workspace)

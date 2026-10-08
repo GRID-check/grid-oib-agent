@@ -1,7 +1,7 @@
 /**
- * The documents a role can be bound to. The plan that is the Bebauungsplan is
- * as often the oldest upload as not, and the first listing page used to be
- * all the picker offered.
+ * The documents a role can be bound to span every listing page. The plan that is
+ * the Bebauungsplan is as often the oldest upload as not, so the first page alone
+ * is not enough.
  */
 
 import { afterEach, describe, expect, it } from 'vitest'

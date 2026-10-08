@@ -11,7 +11,7 @@ Two jobs, both keyed by extension:
   text (``PK\\x03…``), which the binary-content guard rejects.
 - **Rendition companions**: a Word or presentation file is indexed from its PDF
   rendition and nothing else (ADR-0071; ``knowledge_layer.renditions``), so
-  there is no Word or slide-text reader here any more. What the PDF export
+  there is no Word or slide-text reader here. What the PDF export
   drops is read from the original beside it: pptx speaker notes.
 
 Plain-text formats (``.csv``, ``.txt``, ``.md``) have their own module,
@@ -37,8 +37,7 @@ logger = logging.getLogger(__name__)
 # indexed as row groups that repeat its header, so a long sheet costs chunks, not
 # legibility. The row cap only bounds embedding cost on a pathological workbook; what
 # it cuts is stated in the last group's text AND counted (``rows_over_cap``) so the
-# ingest can put it on the file's result instead of dropping it silently. It used to
-# be 1000 rows, cut without a count.
+# ingest can put it on the file's result instead of dropping it silently.
 MAX_TABLE_ROWS = 10_000
 MAX_TABLE_COLS = 60
 MAX_CELL_CHARS = 500
@@ -218,7 +217,7 @@ def content_cut(documents: list[Any]) -> int:
 
 
 def extract_rendition_companions(file_path: str, file_name: str, file_size: int) -> list[Any]:
-    """What the original adds to its PDF rendition's extraction: today, pptx speaker notes.
+    """What the original adds to its PDF rendition's extraction: pptx speaker notes.
 
     ``file_path`` is the ORIGINAL (the rendition is read by the PDF pipeline),
     ``file_name`` its identity, which every unit carries. Empty for a format

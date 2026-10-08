@@ -4,8 +4,7 @@ import type { CSSProperties } from 'react'
  * The provenance signal color family (spec §4, the `--source-*` tokens): law
  * (blue, Baurecht & Richtlinien), project (green, Projektwissen), office (gold,
  * Büroarchiv). One source of truth for the tint so cards, chips and badges never
- * re-derive the same `var(--source-*)` strings inline (they used to, in four
- * places, each with its own stale pre-token fallback chain).
+ * re-derive the same `var(--source-*)` strings inline.
  */
 export type SourceSignal = 'law' | 'project' | 'office'
 

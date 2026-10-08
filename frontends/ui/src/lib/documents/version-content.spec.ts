@@ -190,7 +190,7 @@ describe('versionWriteKey', () => {
     )
   })
 
-  it('still gives a key that predates the shelf layout a directory of its own', () => {
+  it('gives a key outside the shelf layout a directory of its own', () => {
     expect(versionWriteKey('legacy/plan.md', 2, 'ffffffffffff')).toBe(
       'legacy/v2/ffffffffffff/plan.md',
     )
@@ -201,9 +201,9 @@ describe('versionWriteKey', () => {
 describe('renderVersionBytes — the marking survives an update', () => {
   it('re-renders an agent document through its producer, marking and all', async () => {
     // The Python tool sends the model's raw Markdown; the branding line, the
-    // disclaimer and the marking belong to the FILING seam and were added when
-    // the first draft was written. Writing the body verbatim over them left the
-    // product saying nothing about its own authorship — the one failure
+    // disclaimer and the marking belong to the FILING seam and are added when
+    // the first draft is written. Writing the body verbatim over them would leave
+    // the product saying nothing about its own authorship — the one failure
     // `markingIsInBytes` exists to make impossible.
     const rendered = await renderVersionBytes(agentDocument, version(), '# Aktenvermerk\n\nGK 4.')
     const text = rendered.bytes.toString('utf8')
@@ -237,8 +237,8 @@ describe('admitVersionBytes', () => {
 
   it('charges a freshly forked draft the FULL size, because the published bytes stay', async () => {
     // The fork shares the published object, so its `fileSize` IS the published
-    // file's. `1_600 − 1_000` charged 600 for 1_600 new bytes; the loop of fork,
-    // write, reject, fork again was never checked at all when sizes matched.
+    // file's. `1_600 − 1_000` would charge 600 for 1_600 new bytes, and the loop
+    // of fork, write, reject, fork again would go unchecked whenever sizes match.
     const fork = version({ id: 'ver_draft', storageKey: published.storageKey, fileSize: 1_000 })
     await admitVersionBytes('org_1', published, fork, 1_600)
     expect(assertWithinStorageQuota).toHaveBeenCalledWith('org_1', 1_600)
@@ -286,11 +286,11 @@ describe('admitVersionBytes', () => {
 /**
  * Two writers holding the same `If-Match` (the defect this block pins).
  *
- * `If-Match` is checked against a row read at the start, and the swap used to
- * filter on `state = 'draft'` alone — draft → draft — so both writers won and
- * both wrote ONE key, in either order. Now each write has its own object,
- * stored before the swap, and the swap asserts the state, key and hash that
- * were read.
+ * `If-Match` is checked against a row read at the start, so the swap must assert
+ * more than `state = 'draft'`: filtering on state alone lets both writers win
+ * (draft → draft) and both write ONE key, in either order. Each write has its
+ * own object, stored before the swap, and the swap asserts the state, key and
+ * hash that were read.
  */
 describe('writeVersionContent — one object per write, swapped only if unchanged', () => {
   const rendered = {
@@ -501,8 +501,8 @@ describe('readVersionForService — the conversation is part of the predicate', 
 
   it('answers 404 for a conversation about a DIFFERENT document', async () => {
     // The organization is something the caller STATES, and a version id is a
-    // uuid the caller supplies — so the organization alone let anything holding
-    // the internal token read any version's bytes.
+    // uuid the caller supplies, so the organization alone would let anything
+    // holding the internal token read any version's bytes.
     vi.mocked(findConversationInOrg).mockResolvedValue({
       subjectResourceType: 'document',
       subjectResourceId: 'doc_other',

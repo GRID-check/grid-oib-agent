@@ -1,17 +1,15 @@
 /**
  * „Stilllegen" says what it does before it does it.
  *
- * It is also no longer called „Archivieren", and that is the other half of the
- * report: this product's Archiv is the office archive a document is put INTO to
- * become cross-project Bürowissen, while this act takes it out of the working
- * set and purges its knowledge-base entries. One verb for a thing and its
- * inverse.
+ * It is not called „Archivieren", because this product's Archiv is the office
+ * archive a document is put INTO to become cross-project Bürowissen, while this
+ * act takes it out of the working set and purges its knowledge-base entries.
+ * One verb for a thing and its inverse would mislead, so the word is
+ * „Stilllegen".
  *
- * The reported failure, in the reporter's words: no idea what archiving a
- * document does. It fired on one click from a row of review verbs, and the two
- * consequences nobody guesses from the word — Piloti stops citing the file, and
- * nothing in the product brings it back — were written down only in a service
- * docstring.
+ * The two consequences nobody guesses from the word — Piloti stops citing the
+ * file, and nothing in the product brings it back — are stated on screen, not
+ * only in a service docstring.
  *
  * So what is asserted here is the ceremony: the act cannot reach the server
  * without the reader having been shown all four consequences.

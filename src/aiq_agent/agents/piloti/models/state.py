@@ -94,14 +94,14 @@ class ResearchAgentState(BaseModel):
     #: calls — against ``max_tool_iterations``. The NAME says iterations and is
     #: kept deliberately: it is what the config key, the agent kwarg and the
     #: suite all call this number, and renaming it would buy nothing but churn.
-    #: What changed is the UNIT. It used to be emitted CALLS, so a round of five
+    #: The UNIT is the round, not the call. Counting calls, a round of five
     #: parallel ``read_passage`` opens — the family overview the prompt asks for
-    #: — cost five of seven and the commonest question the product answers ran
-    #: out of budget. A round is one decision; how many calls the model fans it
-    #: into is the model using the round well or badly, and that is not
+    #: — would cost five of seven, and the commonest question the product answers
+    #: would run out of budget. A round is one decision; how many calls the model
+    #: fans it into is the model using the round well or badly, and that is not
     #: something a budget should price. An interaction-only round (`emit_card`,
     #: `remember`, the working directory's file verbs) costs one like every
-    #: other, which is why there is no second counter beside this one any more.
+    #: other, which is why there is no second counter beside this one.
     tool_iterations: int = 0
     #: How many SEARCH rounds this turn has already announced. Distinct from
     #: ``tool_iterations`` so ``emit_card`` / ``remember`` cannot steal the
@@ -165,7 +165,7 @@ class ResearchAgentState(BaseModel):
     # ``piloti.grounding``). An IFC measurement carries a provenance,
     # a tolerance, a readable method and the GlobalIds it was derived from, and
     # has no passage to quote — so it can never satisfy the citation gate, and a
-    # correctly measured number used to be capped to "low" for lacking evidence
+    # correctly measured number would be capped to "low" for lacking evidence
     # it structurally cannot have. Set by the tools node as a sticky OR across
     # the tool loop (never un-set by a later refusal); per-turn by construction,
     # because the chat node builds a fresh state each turn. Lifts the surfaced
@@ -240,7 +240,7 @@ class ResearchAgentState(BaseModel):
     # The backend's own account of this turn's retrieval rounds (see
     # ``common.retrieval_ledger.build_retrieval_ledger`` for the shape): one entry per
     # announced round with query, tools, returned docs and which of them were
-    # new. Carried for the Herleitung — no renderer reads it yet (phase b).
+    # new. Carried for the Herleitung.
     # None when no round was announced — a direct reply has no retrieval to
     # account for, and the wire field stays absent rather than null.
     retrieval_ledger: list[dict[str, Any]] | None = None
@@ -304,7 +304,7 @@ class ResearchAgentState(BaseModel):
     # tool-loop iterations. ``agent_node`` renders it once, returns it here, and
     # LangGraph persists it across the loop; state is per-invocation, so
     # concurrent runs of the shared compiled graph never collide. Defaults to
-    # None (first call / graph-direct path renders inline as before).
+    # None: the first call and the graph-direct path render inline.
     cached_system_prompt: str | None = None
 
     # -- derived signals --------------------------------------------------------

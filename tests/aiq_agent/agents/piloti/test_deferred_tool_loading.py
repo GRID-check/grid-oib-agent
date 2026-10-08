@@ -4,7 +4,7 @@ The unit rules live in ``tests/aiq_agent/common/test_deferred_tool_loading.py``.
 These tests are about the SEAM: that the agent's research bindings — the
 construction-time full one and the narrowed ones tool search builds — both go
 through it, that meta turns deliberately do not, and that the whole thing is
-byte-identical to the old code path when nobody asked for it.
+byte-identical to an undeferred binding when nobody asks for it.
 """
 
 from types import SimpleNamespace

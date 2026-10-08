@@ -120,7 +120,7 @@ MIN_OBSTACLE_AREA = 1e-4
 #: slightly too generous. 16 segments per quadrant is a 64-gon, whose error is
 #: ``1 − cos(π/64) = 0.12 %`` of r: 0.9 mm on a 0.75 m radius, an order below
 #: `DIMENSION_TOLERANCE`. The default of 8 would be 3.6 mm, which is still
-#: inside the tolerance but no longer negligible against it.
+#: inside the tolerance but not negligible against it.
 BUFFER_QUAD_SEGS = 16
 
 #: Bisection steps for the largest inscribed circle. Over a bracket no wider
@@ -533,14 +533,14 @@ def _facing_area(triangles: np.ndarray, normal: np.ndarray) -> float:
 def _is_floor_void(model: SpatialModel, element: Any, geo: Any) -> bool:
     """Is this aperture a hole in a FLOOR rather than a hole in a wall?
 
-    The failure this decides: ``AC20-FZK-Haus``'s gallery void
+    The case this decides: ``AC20-FZK-Haus``'s gallery void
     ``16PF6khT5_p$Z03P73inyv`` („Slab Opening", 4.26 × 3.71 m in plan, 0.20 m
     thick, hosted in the ``IfcSlab`` „Slab-033"). It has vertical faces — the
     four sides of the prism — so ``dominant_vertical_plane`` happily returns one
     of them and the wall measurement then probes 0.30 m to either side IN PLAN,
     lands on the room below on one side and the terrain on the other, both at
-    z = 0.0, and reports „fall 0.000 m, parapet 2.500 m" at the one edge in the
-    house that carries both of the model's railings. A parapet of 2.5 m at a
+    z = 0.0, and would report „fall 0.000 m, parapet 2.500 m" at the one edge in
+    the house that carries both of the model's railings. A parapet of 2.5 m at a
     floor void is not a physical quantity.
 
     Two independent signals, and the geometric one decides:
@@ -1264,12 +1264,11 @@ def balustrade_check(
       fall runs straight DOWN through it (:func:`_fall_through`) and ``parapet``
       is ``null``, because a hole in a floor has no Brüstung.
 
-    Measuring the second as if it were the first is what this operator used to
-    do, and on ``AC20-FZK-Haus``'s gallery void it produced „fall 0.000 m,
-    parapet 2.500 m" at the one edge in the house where both of the model's
-    railings stand — while the real drop from „Galerie" (floor z = 2.700) to
-    „Wohnen" (floor z = 0.000) is 2.700 m. It now reads 2.700 m with both
-    railings at 1.000 m over the gallery floor.
+    Measuring the second as if it were the first would report „fall 0.000 m,
+    parapet 2.500 m" at ``AC20-FZK-Haus``'s gallery void, the one edge in the
+    house where both of the model's railings stand, while the real drop from
+    „Galerie" (floor z = 2.700) to „Wohnen" (floor z = 0.000) is 2.700 m. The
+    railings stand at 1.000 m over the gallery floor, and the fall reads 2.700 m.
 
     A „waagrecht" entry with ``fall = null`` is not a failed measurement: it is
     a floor void that reaches this room's list without being an edge OF this
@@ -1561,7 +1560,7 @@ def _fall_through(model: SpatialModel, opening: Any, railings: list[Any], space:
     on the far side of the building. Measured on ``AC20-Institute-Var-2``: its
     two „Slab Opening" voids (18.30…23.70 × 11.70…15.70) are listed at all 82
     spaces, „Buero" ``3zaEFaiGrF1ftyFPQrOe_i`` among them — **13.370 m** away in
-    plan. Left alone, this function would have handed that office a 2.591 m
+    plan. Left alone, this function would hand that office a 2.591 m
     Absturzkante and 64 other rooms one with it.
 
     So the void's plan rectangle has to come within ``CONTACT`` of the room's

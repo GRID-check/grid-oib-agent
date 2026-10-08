@@ -18,11 +18,11 @@ installed NAT, not assumed:
   because that is the attribute Langfuse checks *first* and pinning it makes
   the mapping explicit rather than dependent on an upstream detail — but it
   only ever sets it when there is a value, so it can never blank out NAT's.
-* ``user.id`` — NAT 1.9 sets it from ``Context.user_id`` at span creation
-  (#2152), and Langfuse maps ``user.id`` to the trace's user. The chat socket
-  opens every turn's session with ``user_id`` = the VERIFIED subject
+* ``user.id`` — NAT sets it from ``Context.user_id`` at span creation
+  and Langfuse maps ``user.id`` to the trace's user. The chat socket opens every
+  turn's session with ``user_id`` = the VERIFIED subject
   (``aiq_api.chat_socket``), the same WorkOS user id the envelope carries, so
-  this module no longer writes ``langfuse.user.id``
+  this module does not write ``langfuse.user.id``
   (``test_nat_puts_the_session_user_on_every_span`` pins NAT's half). NAT sets
   it, and ``<prefix>.user.id``, on every span whatever
   ``GRID_TRACE_IDENTITY_ATTRIBUTES`` says, so with the flag off
@@ -33,7 +33,7 @@ installed NAT, not assumed:
 
 WHAT IS MISSING WITHOUT THIS MODULE: the tenant. NAT has no concept of it; it
 arrives on the Grid ``X-Grid-*`` request headers (``project_context.py``),
-which nothing was projecting onto spans.
+which nothing else projects onto spans.
 
 ## Why a Processor and not a resource attribute
 
@@ -199,8 +199,8 @@ def reset_contributions() -> None:
 # Usage attribution: input/output/total (+cost) onto generation observations
 # ---------------------------------------------------------------------------
 #
-# Production showed empty ``usageDetails``/``costDetails`` on every
-# generation observation. The provider numbers DO enter the process:
+# Without this, generation observations carry empty ``usageDetails`` and
+# ``costDetails``. The provider numbers DO enter the process:
 # OpenRouter's ``usage`` object (prompt/completion/total + ``cost`` +
 # cached/reasoning details) arrives on every chat completion and
 # ``GridCostTracker`` records it to ``llm_usage_events``. It never reaches
@@ -216,9 +216,10 @@ def reset_contributions() -> None:
 #    leaves LangChain's normalized ``usage_metadata`` there, whose
 #    ``input_token_details.cache_read`` is the cached bucket under another
 #    name (the ``cost``/``is_byok`` that ``cost_tracking``'s carrier keeps
-#    beside it is for the ledger; this reader does not use it). Reading only the provider shape is what rendered every
-#    Piloti research generation with bare input/output/total and no cache
-#    bucket, however well the provider was caching.
+#    beside it is for the ledger; this reader does not use it). Reading only
+#    the provider shape leaves every Piloti research generation with bare
+#    input/output/total and no cache bucket, however well the provider is
+#    caching.
 # 2. The turn's result carries no usage at all (a chat turn ends with a
 #    ``TurnResult``, an eval wrapper with plain text), so nothing above the
 #    LLM span holds the totals.
@@ -355,10 +356,11 @@ def prompt_observation_attributes(*, name: str | None, version: str | None) -> d
     a version with no name belongs to nothing.
 
     The version is an INT because Langfuse's ingestion schema declares
-    ``promptVersion`` as one. While a string went out here, no GENERATION
-    observation reached production and the rest of every trace arrived intact. A version that is not a number is the
-    bundled fallback's git blob hash, which names no prompt Langfuse holds, so
-    it yields no link at all; Langfuse's own SDK links no fallback either.
+    ``promptVersion`` as one; a string version makes it drop the GENERATION
+    observation while the rest of the trace arrives intact. A version that is
+    not a number is the bundled fallback's git blob hash, which names no prompt
+    Langfuse holds, so it yields no link at all; Langfuse's own SDK links no
+    fallback either.
     """
     if not name or not version or not isinstance(version, int | str):
         return {}
@@ -422,8 +424,9 @@ def _is_langchain_usage(node: dict[str, Any]) -> bool:
     The only usage a Responses-API call leaves in the span: langchain-openai
     builds no ``llm_output`` there and keeps ``usage`` out of
     ``response_metadata``, so the provider object never reaches the span and
-    the scan above found nothing — which is why every ``api_type: responses``
-    generation rendered with bare input/output/total and no cache bucket.
+    the scan above finds nothing. Without this shape, a generation on
+    ``api_type: responses`` would carry bare input/output/total and no cache
+    bucket.
     """
     return isinstance(node.get("input_tokens"), int | float) and isinstance(node.get("output_tokens"), int | float)
 
@@ -736,13 +739,12 @@ try:
             return item
 
     class UserIdentityStripProcessor(Processor[Span, Span]):
-        """Remove the user identity NAT 1.9 stamps on every span, while identity attributes are off.
+        """Remove the user identity NAT stamps on every span, while identity attributes are off.
 
-        NAT sets ``user.id`` and ``<prefix>.user.id`` from the session's user
-        (#2152), and the chat socket opens each session with the verified
-        subject. Attributing spans to a person is the step
-        ``GRID_TRACE_IDENTITY_ATTRIBUTES`` gates, so without the flag this
-        processor takes both back out.
+        NAT sets ``user.id`` and ``<prefix>.user.id`` from the session's user,
+        and the chat socket opens each session with the verified subject.
+        Attributing spans to a person is the step ``GRID_TRACE_IDENTITY_ATTRIBUTES``
+        gates, so without the flag this processor takes both back out.
         """
 
         async def process(self, item: Span) -> Span:
@@ -756,9 +758,9 @@ try:
         NAT's exporter sets only ``llm.token_count.*`` (token-only, and zero
         whenever ``usage_metadata`` was absent), while Langfuse's OTel
         ingestion maps ``gen_ai.usage.*`` / ``langfuse.observation.*`` to
-        ``usageDetails``/``costDetails`` — hence empty usage on every
-        generation. This processor runs ahead of redaction and adds the
-        missing namespaces from what the span already carries, preferring the
+        ``usageDetails``/``costDetails``, so without the mirror usage renders
+        empty on every generation. This processor runs ahead of redaction and adds
+        the missing namespaces from what the span already carries, preferring the
         provider object in ``nat.metadata`` (has cost + cached/reasoning)
         over the bare ``llm.token_count.*`` counts.
 

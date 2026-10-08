@@ -55,10 +55,10 @@ export const research = {
   /**
    * Datenbasis — the composer control for WHERE Piloti may look.
    *
-   * One name for one thing: this object retires the four competing labels the
-   * same surface used to carry. Tense is meaning here — the control speaks only
-   * in the present/permissive ("may search"); what was actually used is the
-   * Herleitung's job to report, never this control's.
+   * One name for one thing: this object is the only label for the control, so
+   * the surface never carries four competing ones. Tense is meaning here — the
+   * control speaks only in the present/permissive ("may search"); what was
+   * actually used is the Herleitung's job to report, never this control's.
    */
   sourceBasis: {
     label: 'Data basis',
@@ -285,8 +285,8 @@ export const research = {
     sessionLabel: 'Chat: {title}',
     /** Same row, plus the state its leading icon depicts. */
     sessionLabelWithStatus: 'Chat: {title} — {status}',
-    // FB-10: Deep Research section folded into the sessions panel. The count
-    // rides in a CountPill beside the heading, not in the string.
+    // The Deep Research section sits in the sessions panel. The count rides in a
+    // CountPill beside the heading, not in the string.
     deepResearchHeading: 'Deep Research',
     deepResearchChip: 'Deep Research',
     deepResearchRunLabel: 'Open deep research run: {label} — {status}',

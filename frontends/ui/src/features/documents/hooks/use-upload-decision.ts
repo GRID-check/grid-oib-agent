@@ -62,14 +62,12 @@ export interface UploadDecision {
  * One answer to "a document of this name is already here", for every durable
  * shelf.
  *
- * A same-name upload replaces the live document with a new version (ADR-0054),
- * and whether it asked first used to depend on what THIS browser remembered:
- * a tab that had uploaded to the project before refused the file as „bereits
- * hinzugefügt", a fresh one replaced the document without a word. The shelf
- * itself is the one fact both browsers share, so the decision is made from it
- * — asked of the server by name (`name-probe-client.ts`), because the listing
- * on screen is paged, filtered and leaves archived documents out, and a match
- * it did not carry used to be versioned without a word.
+ * A same-name upload replaces the live document with a new version (ADR-0054).
+ * The decision must not depend on what THIS browser remembers, so it is made
+ * from the shelf itself, the one fact every browser shares. It is asked of the
+ * server by name (`name-probe-client.ts`), because the listing on screen is
+ * paged, filtered and leaves archived documents out, and a match it did not
+ * carry would be versioned without a word.
  *
  * Files that match nothing go out at once; anything that would touch an
  * existing document opens the plan dialog first. A folder always opens it.

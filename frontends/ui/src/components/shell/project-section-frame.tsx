@@ -3,8 +3,8 @@
 /**
  * Shared chrome for every project section except Ask Piloti.
  *
- * Chat owns its own header. Every other project page used to invent one
- * (PageHeader vs a hand-rolled h1 vs a compact bar). The title, subtitle,
+ * Chat owns its own header. Every other project page would otherwise invent one
+ * (PageHeader, a hand-rolled h1, a compact bar). The title, subtitle,
  * breadcrumb and action slot live here so the pages only supply content —
  * and, via {@link ProjectSectionActions}, the controls that belong in this
  * header rather than a second one.

@@ -295,10 +295,9 @@ export const skills = {
     // The chip shown under the composer once a skill is invoked.
     invoked: {
       label: 'Skill',
-      // Never „its instructions load". That was true when a named skill was
-      // FORCED onto the turn; since ADR-0060 the name is just text Piloti
-      // reads, and it decides. A chip that promises loading is the UI
-      // asserting an affordance the product no longer has.
+      // Never „its instructions load": the name is just text Piloti reads, and
+      // Piloti decides whether to use the skill (ADR-0060). A chip that promises
+      // loading would assert an affordance the product does not have.
       hint: 'Piloti sees this name and decides whether to load the skill.',
       remove: 'Remove the {name} skill from this message',
     },

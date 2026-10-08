@@ -322,13 +322,12 @@ export function project(
       (d) => ({ ...d, beyond: true })
     )
     drawn = [...background, ...sectionElements(drawable, frame, sliceDepth, extent)]
-    // Both halves of the cut count. This read `d.lines` alone, which was right
-    // while a section could only ever produce open polylines and became wrong
-    // the moment closed rings started going to `d.polys` instead: a section
-    // consisting entirely of closed profiles — which is to say, a good one
-    // through solid material — reported that the plane met nothing at all. An
-    // emptiness check that looks at one of two output channels turns a correct
-    // answer into a confident "impossible", which is the failure this whole
+    // Both halves of the cut count. An emptiness check that looks at `d.lines`
+    // alone is right only while a section produces open polylines: once closed
+    // rings go to `d.polys`, a section made entirely of closed profiles — a good
+    // one through solid material — would report that the plane meets nothing at
+    // all. An emptiness check that looks at one of two output channels turns a
+    // correct answer into a confident "impossible", which is the failure this whole
     // library is built to prevent.
     const segments = drawn.reduce((sum, d) => sum + d.lines.length + d.polys.length, 0)
     if (segments === 0) {
@@ -365,11 +364,10 @@ export function project(
   }
 
   // Labels are wider than the thing they label, and the drawing has to hold
-  // them. Feeding only the annotation ENDPOINTS to the extent was enough to
-  // keep a dimension's line on the sheet and not its text: on the first
-  // section this produced, "Dachüberstand 0.65 m" — twenty characters over a
-  // 0.65 m dimension — ran off the top edge, and a 45° ray's label was cut to
-  // "45° L" at the right.
+  // them. Reserving space from the annotation ENDPOINTS alone keeps a dimension's
+  // line on the sheet and not its text: "Dachüberstand 0.65 m" — twenty characters
+  // over a 0.65 m dimension — runs off the top edge, and a 45° ray's label is cut
+  // to "45° L" at the right.
   //
   // The width is estimated rather than measured because there is no font
   // metric here and there will not be one: this must stay a string-producing
@@ -393,13 +391,13 @@ export function project(
       // is centred on its midpoint and needs half the width each side; a ray or
       // a free label is left-anchored at its tip and needs the whole width to
       // the right. Reserving symmetrically for both under-reserves the right
-      // side of every left-anchored label by half its width, which is precisely
-      // how "45° Prismengrenze" came back off the edge as "45° Prismen".
+      // side of every left-anchored label by half its width, which is how
+      // "45° Prismengrenze" would come off the edge as "45° Prismen".
       // 0.6 em per character, not 0.5: the usual rule of thumb is an average
       // over lowercase English, and these labels carry capitals, digits, units
-      // and German compounds. The last character of "45° Prismengrenze" was
-      // still shaving the edge at 0.5. Plus the offset the label itself is
-      // drawn at, which is part of where it ends up and was not counted.
+      // and German compounds; at 0.5 the last character of "45° Prismengrenze"
+      // still shaves the edge. Plus the offset the label itself is drawn at,
+      // which is part of where it ends up.
       const width = annotation.text.length * ANNOTATION_FONT_PX * 0.6 * provisional + ANNOTATION_FONT_PX * 0.5 * provisional
       const centred = annotation.kind === 'dimension'
       extent.add(u - (centred ? width / 2 : 0), v - lineHeight)
@@ -665,13 +663,13 @@ interface DrawnElement {
    * Silhouette edges of a filled projection: the edges belonging to exactly ONE
    * projected triangle.
    *
-   * Filled views used to stroke every triangle, so the tessellation showed
-   * through — a wall in elevation came out as a cat's cradle of diagonals and a
-   * room in plan as a rectangle with an X through it. Nothing about the
-   * building; entirely about how the kernel happened to triangulate it. Filling
-   * without a stroke and outlining only the edges that bound the shape draws
-   * the element instead of its mesh, and keeps the holes (a window opening's
-   * edges are shared by no second triangle either).
+   * Stroking every triangle of a filled view shows the tessellation: a wall in
+ * elevation comes out as a cat's cradle of diagonals and a room in plan as a
+ * rectangle with an X through it. Nothing about the building; entirely about how
+ * the kernel happened to triangulate it. Filling without a stroke and outlining
+ * only the edges that bound the shape draws the element instead of its mesh, and
+ * keeps the holes (a window opening's edges are shared by no second triangle
+ * either).
    */
   outline?: number[][]
   /** Open polylines, flat `[u, v, u, v, …]` — sections only. */
@@ -730,9 +728,8 @@ function fillElements(
         if (++total > budget) return null
         // Wound consistently, so the non-zero fill below UNIONS the triangles
         // instead of cancelling them. Under `evenodd` a closed solid's front
-        // and back faces overlap exactly and annihilate — the fill came out
-        // empty and only the per-triangle strokes made the element visible,
-        // which is why removing those strokes appeared to delete the wall.
+        // and back faces overlap exactly and annihilate: the fill would come out
+        // empty, and only the per-triangle strokes would make the element visible.
         // Winding out of the kernel is unreliable, so it is imposed here rather
         // than trusted.
         ordered.push({
@@ -748,23 +745,23 @@ function fillElements(
       // Which edges bound the projected shape, given what can actually be
       // trusted about this mesh.
       //
-      // Two rules were tried and both are wrong here, for reasons worth keeping:
+      // Two rules are wrong here, for reasons worth keeping:
       //
       //   - **Parity** ("an edge shared by two triangles is interior") fails
       //     under projection. A closed solid projects its front and back faces
       //     onto the same area, so every edge pairs up and cancels — applying
-      //     it erased a wall entirely and left three lines where a window was.
+      //     it erases a wall entirely and leaves three lines where a window is.
       //   - **Facing** (the classic silhouette test: an edge between a
       //     front-facing and a back-facing triangle) needs reliable winding, and
       //     `pass.ts` states in its own contract that this kernel's winding is
-      //     unreliable because its meshes are double-sided by design. It left
+      //     unreliable because its meshes are double-sided by design. It leaves
       //     long diagonals across the wall, because which of a face's two
       //     triangles counts as "front" is a coin toss.
       //
       // What is left that is TRUE: an edge used exactly once belongs to an open
       // boundary. For a closed solid that yields no outline at all, and the
       // fill alone defines the shape — which is correct, and is why the fill is
-      // no longer stroked per triangle. A crisp outline for closed solids needs
+      // not stroked per triangle. A crisp outline for closed solids needs
       // a real union of the projected polygons; that is a polygon-clipping
       // problem and deliberately not solved here rather than approximated with
       // a rule that is wrong in ways a reader cannot see.
@@ -913,10 +910,9 @@ function sectionElements(
 
     // A CLOSED loop is the outline of solid material the plane passed through,
     // and filling it is what makes a section a section rather than a wireframe
-    // of fragments. The reason this used to draw lines only was that a greedy
-    // walk cannot say which side of an OPEN profile is solid — true, and it
-    // does not apply once the walk returns to where it started: a closed ring's
-    // interior is the same region whichever way round you walk it.
+    // of fragments. A greedy walk cannot say which side of an OPEN profile is
+    // solid, but that does not apply once the walk returns to where it started: a
+    // closed ring's interior is the same region whichever way round you walk it.
     //
     // Rings are emitted together under `fill-rule: evenodd`, so a wall cut
     // through a window reads as a hole rather than as a second slab of
@@ -1346,7 +1342,7 @@ function pathFor(element: DrawnElement, layout: Layout): string {
   const rings = element.polys.map((ring) => ringPath(ring, true)).join('')
   if (rings) {
     // A filled projection is stroked ONLY where it has a silhouette. Stroking
-    // every triangle drew the tessellation instead of the element; leaving the
+    // every triangle draws the tessellation instead of the element; leaving the
     // fill unstroked and outlining the boundary separately draws the shape the
     // mesh represents. A section keeps its stroke on the rings themselves,
     // because there the ring IS the cut line and there is no interior edge to
@@ -1372,16 +1368,16 @@ function pathFor(element: DrawnElement, layout: Layout): string {
     out.push(
       `<path d="${d}" fill="none" stroke="${style.colour}" ` +
         `stroke-width="${n(style.strokePx * 1.6 * layout.unitsPerPx)}" ` +
-        // The role's own opacity, not a floor. A floor of 0.75 here drew a
-        // context element's outline as strongly as the subject's and flattened
-        // the whole hierarchy — the thing `context` exists to avoid.
+        // The role's own opacity, not a floor. A floor of 0.75 here would draw a
+        // context element's outline as strongly as the subject's and flatten the
+        // whole hierarchy — the thing `context` exists to avoid.
         `stroke-opacity="${style.strokeOpacity}"/>`
     )
   }
 
-  // Open profiles keep the old treatment, and for the old reason: where the
-  // mesh did not close, nothing here knows which side is solid, so it stays a
-  // line rather than becoming a guess with a fill behind it.
+  // Open profiles stay lines: where the mesh does not close, nothing here knows
+  // which side is solid, so a profile stays a line rather than becoming a guess
+  // with a fill behind it.
   const lines = element.lines.map((line) => ringPath(line, false)).join('')
   if (lines) {
     out.push(
@@ -1473,14 +1469,13 @@ function annotationSvg(annotation: Annotation, frame: Frame, layout: Layout): st
     // Offset off the line rather than haloed with a white outline: a halo is a
     // background assumption, and this drawing does not get to make one.
     //
-    // The offset used to be half a font size along the perpendicular, applied
-    // the same way whatever the line's direction, and both cases came out
-    // struck through. SVG's `y` is the BASELINE, so half a font size below a
-    // horizontal line puts the glyph bodies across it; and a vertical dimension
+    // A half-font-size offset along the perpendicular, applied the same way
+    // whatever the line's direction, strikes both orientations through. SVG's
+    // `y` is the BASELINE, so half a font size below a horizontal line puts the
+    // glyph bodies across it; and a vertical dimension
     // with `text-anchor="middle"` centres the label on the line no matter what
-    // the perpendicular offset is. On the first sections this produced, both
-    // "Überstand 0.65 m" and "Fenster 1,21 m" read as struck out, which is
-    // exactly how a drawing marks a dimension as WRONG.
+    // the perpendicular offset is. "Überstand 0.65 m" and "Fenster 1,21 m" would
+    // read as struck out, which is exactly how a drawing marks a dimension as WRONG.
     //
     // So the two orientations are handled as a draughtsman handles them: above
     // the line when it runs horizontally, beside it when it runs vertically.
@@ -1526,11 +1521,11 @@ function scaleBarSvg(layout: Layout): string[] {
   const height = layout.fontSize * 0.42
 
   // A bare line with "2 m" under one end does not say what it means — it reads
-  // as a label on something, and the first person shown one asked what the 2 m
-  // referred to. A chequered bar is the convention every map and drawing uses
-  // precisely because it needs no caption: alternating segments make it obvious
-  // that the LENGTH is the quantity, "0" fixes where the measurement starts,
-  // and the ratio spells out the same fact in the other notation.
+  // as a label on something, and a reader asks what the 2 m refers to. A
+  // chequered bar is the convention every map and drawing uses precisely because
+  // it needs no caption: alternating segments make it obvious that the LENGTH is
+  // the quantity, "0" fixes where the measurement starts, and the ratio spells
+  // out the same fact in the other notation.
   const segments = 4
   const step = total / segments
   const bars: string[] = []

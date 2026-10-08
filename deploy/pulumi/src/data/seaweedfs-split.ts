@@ -22,8 +22,8 @@ import type { SeaweedTopology } from "./seaweedfs-types";
  * things follow from that, and all three are why this module exists:
  *
  * 1. **Capacity is a PVC resize, not a replica count.** Object storage is the
- *    one tier that grows without bound, and it was the one tier that could only
- *    grow by editing a volume claim and hoping the CSI driver supported online
+ *    one tier that grows without bound, and on a single process it can only grow
+ *    by editing a volume claim and hoping the CSI driver supports online
  *    expansion.
  * 2. **The chunk encryption keys share a disk with the ciphertext.** Chunk
  *    encryption generates a per-chunk AES-256-GCM key and stores it in the
@@ -585,12 +585,10 @@ export function installSplitSeaweedFS(
             spec: {
               accessModes: ["ReadWriteOnce"],
               storageClassName: cfg.storage.className,
-              // The filer's OWN knob, not the master's. This claim used to
-              // request `masterStorageSize` — a key documented and defaulted
-              // (1Gi) for a raft log — while under `filerStore: "leveldb"` it
-              // holds the metadata entry and the per-chunk AES key for every
-              // object in the deployment. An operator whose filer store was
-              // filling had nothing to raise but the master's claim, and a full
+              // The filer's OWN knob, not the master's. Under
+              // `filerStore: "leveldb"` this claim holds the metadata entry and
+              // the per-chunk AES key for every object in the deployment, so it
+              // must not follow `masterStorageSize` (1Gi, a raft log). A full
               // filer store stops every write.
               resources: { requests: { storage: cfg.seaweedfs.filerStorageSize } },
             },

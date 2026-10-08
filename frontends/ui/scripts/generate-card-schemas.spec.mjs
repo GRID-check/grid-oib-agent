@@ -6,8 +6,8 @@
  * one asks whether the generator would still do the right thing for shapes the
  * card models do not currently contain: a cycle, an unsupported sibling
  * keyword, a def shared by several parents. Those are the cases that will
- * arrive one day via `models.py`, and each of them used to be answered with a
- * silent `z.any()`.
+ * arrive one day via `models.py`, and none of them may be answered with a silent
+ * `z.any()`.
  *
  * The second half asks a different question — whether the module in the repo is
  * still the module this generator emits — and it is at the bottom of the file
@@ -123,9 +123,9 @@ describe('$ref resolution', () => {
  * The committed artifact is what this generator produces from the committed
  * input — the frontend half of `tests/aiq_agent/cards/test_schema_sync.py`.
  *
- * That test holds `models.py -> schemas.json`. Nothing held
- * `schemas.json -> generated.ts`, and the two guards that looked as though they
- * did only cover their own corner: `src/shared/cards/type-coverage.spec.ts`
+ * That test holds `models.py -> schemas.json`. Only this spec holds
+ * `schemas.json -> generated.ts`; the two guards that look as though they do
+ * only cover their own corner: `src/shared/cards/type-coverage.spec.ts`
  * asks whether the union has a MEMBER for every card type, and
  * `nested-fields.spec.ts` asks whether the fields it does have bottom out in
  * something other than `z.any()`. Neither notices a card type that is present

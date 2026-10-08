@@ -235,7 +235,7 @@ def build_lookup_source_catalog_tool(
     """Build the router-only source catalog lookup tool.
 
     The catalog is rendered ONCE, here: the tool set and the domain file are
-    fixed for the run, and the tool used to re-read and re-parse the YAML on
+    fixed for the run, and the tool would otherwise re-read and re-parse the YAML on
     every call inside a synchronous tool.
     """
     catalog = json.dumps(

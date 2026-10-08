@@ -9,10 +9,9 @@
  * live inside swept solids, boolean subtractions and nested placements that
  * only a geometry kernel can resolve.
  *
- * Running one server-side was long treated as off-limits here on the grounds
- * that geometry is the renderer's job. That is true of *pictures*. It is not
- * true of *reasoning*: the overhang an architect asks about is a number, not an
- * image, and no amount of metadata substitutes for it. What this module
+ * Geometry on the server is not off-limits. The renderer owns *pictures*; a
+ * *reasoning* answer needs numbers: the overhang an architect asks about is a
+ * number, not an image, and no amount of metadata substitutes for it. What this module
  * produces is a few hundred bytes per element — a box, a centroid, a floor
  * area, a plane — not a mesh cache to keep in step with the file.
  *
@@ -23,38 +22,34 @@
  *
  *     ifc.x = k.x     ifc.y = -k.z     ifc.z = k.y
  *
- * Verified rather than assumed: on a sample house whose storeys are declared at
- * 0.00 and 2.50, the ground-floor walls come back spanning ifc.z 0.00–2.47. A
+ * Checked on the sample house, whose storeys are declared at 0.00 and 2.50: the
+ * ground-floor walls span ifc.z 0.00–2.47. A
  * frame error would put them somewhere plausible and wrong, and every answer
  * downstream would inherit it with full confidence.
  *
- * ## The RTC shift, which used to be read from the wrong field and applied in
- * the wrong frame
+ * ## The RTC shift: which field, and in which frame
  *
  * For a model authored in survey coordinates the kernel re-bases geometry near
  * the origin — float32 has ~7 significant digits and an easting of 417 596 m
- * leaves nothing for millimetres. It reports what it subtracted, and this
- * module used to add back `coordinateInfo.originShift` **before** the axis swap:
+ * leaves nothing for millimetres. It reports what it subtracted, in the IFC
+ * frame, and that offset is recorded rather than added to the vertices, so it is
+ * never added before the axis swap.
  *
- *     ifc.x = k.x + shift.x   ifc.y = -(k.z + shift.z)   ifc.z = k.y + shift.y
+ * Two traps, neither visible on the sample house, because its shift is zero:
  *
- * Two defects, neither of which the sample house could show, because its shift
- * is zero:
- *
- *  1. `originShift` is the field the kernel's JS batch path uses and it is `0`
+ *  1. `originShift` is the field the kernel's JS batch path uses, and it is `0`
  *     whenever the WASM path did the re-basing — which is the case for every
- *     real far-from-origin file. The offset actually applied is reported
- *     separately as `wasmRtcOffset`, which this never read.
+ *     real far-from-origin file. The offset actually applied is reported as
+ *     `wasmRtcOffset`, and that is the field read.
  *     `Trapelo_Design_Intent.ifc` (Revit, feet) carries
  *     `wasmRtcOffset = (219 917.23, 907 157.92, 59.13)` m and
  *     `Snowdon_IFC2x3.ifc` (Revit 2024) `(417 596.05, 78 709.95, 235.86)` m.
- *     Both were read as zero.
+ *     Read as zero, both would be wrong.
  *  2. Both fields are documented by the kernel as **IFC coordinates (Z-up)**,
- *     and the code added them in the kernel's **Y-up** frame. Had defect 1 been
- *     fixed alone, Trapelo's 907 157 m northing would have been added to the
- *     vertical axis.
+ *     so adding them in the kernel's **Y-up** frame would put Trapelo's
+ *     907 157 m northing on the vertical axis.
  *
- * The offset is now read from `wasmRtcOffset` (falling back to `originShift`)
+ * The offset is read from `wasmRtcOffset` (falling back to `originShift`)
  * and **recorded rather than baked in** — see {@link GeometryIndex.frameOffset}.
  * Baking it in would be the arithmetically obvious move and the wrong one:
  * `IfcBuildingStorey.Elevation` is measured from the building's own datum, which
@@ -62,7 +57,7 @@
  * the one storey elevations are comparable with. On `Snowdon_IFC2x3.ifc` the
  * kernel's offset (235.8644 m) IS the building datum — its storeys run
  * −5.16…21.59 m and its geometry −4.34…23.62 m in the re-based frame, and adding
- * the offset would have put the building 236 m above its own ground floor.
+ * the offset would put the building 236 m above its own ground floor.
  *
  * Every measurement this library makes is a difference between two points in one
  * frame, so a rigid translation cannot affect any of them. What the offset IS
@@ -95,7 +90,7 @@ export interface Box {
  * on it rather than as a polygon, because every operator that uses it wants a
  * signed distance and none wants an outline.
  *
- * Two things it is NOT, both of which cost a defect to learn:
+ * Two things it is NOT:
  *
  * - **The normal is not an outward direction.** The kernel's faces point into
  *   the solid as often as out of it (winding is unreliable by design), so a
@@ -114,8 +109,8 @@ export interface Plane {
    * The summed area of the co-planar triangle bin that produced this plane, m²
    * — a ranking key, NOT the area of a face.
    *
-   * Same reasoning as `OrientedPlane.seatedArea` in `operators/constructive.ts`
-   * and the same rename for the same reason: this is a bin total over every
+   * Same reasoning as `OrientedPlane.seatedArea` in `operators/constructive.ts`:
+   * this is a bin total over every
    * triangle sharing a quantised normal, so it spans faces that are parallel
    * but not contiguous and never subtracts the openings cut out of them. It is
    * read in exactly one place — picking the largest bin as `dominant`/`facade`
@@ -157,7 +152,7 @@ export interface ElementGeometry {
    * wall's triangles by orientation AND offset, where the two large bins are
    * its two leaves at different offsets rather than one face counted twice.
    *
-   * It is still NOT the area of the face, and this comment used to say it was.
+   * It is still NOT the area of the face.
    * The bin spans every co-planar triangle within the quantisation, contiguous
    * or not, and nothing subtracts the openings cut out of it: on the sample
    * house's south wall it reports 20.652 m² against ≈19.25 m² of real face.
@@ -238,17 +233,16 @@ export interface GeometryOptions {
    *
    * 2 million is roughly 150 MB of float64 and covers a large single building.
    *
-   * Past it, elements are dropped WHOLE. This used to be a per-mesh decision
-   * while the derived measures were per element, so an element whose first mesh
-   * was kept and whose second was dropped reported a floor area computed from
-   * half a solid — as a plain number, with `triangleCount` still reporting the
-   * full count and nothing on the element saying anything was missing. A
-   * confidently wrong area is the exact failure this library exists to prevent,
-   * and it would have appeared only on models large enough that nobody checks
-   * by hand.
+   * Past it, elements are dropped WHOLE. A per-mesh decision would let an element
+   * keep its first mesh and lose its second, and its derived measures would then
+   * report a floor area computed from half a solid, as a plain number, with
+   * `triangleCount` still reporting the full count and nothing on the element
+   * saying anything was missing. A confidently wrong area is the exact failure
+   * this library exists to prevent, and it would appear only on models large
+   * enough that nobody checks by hand.
    *
-   * Now an element either has all its triangles or none, and one that has none
-   * carries `complete: false` with its areas and planes withheld rather than
+   * An element therefore either has all its triangles or none, and one that has
+   * none carries `complete: false` with its areas and planes withheld rather than
    * approximated.
    */
   maxRetainedTriangles?: number
@@ -261,13 +255,13 @@ const PLANE_TOLERANCE = 0.05
  * How far apart two parallel faces must be to count as different planes, in
  * metres.
  *
- * Binning on the normal ALONE merged them, which is wrong in the one case that
- * matters most: a wall has two faces with the same orientation, roughly 0.3 m
- * apart, and a multi-layer wall sliced by its export has several more. Merging
- * them produced a "plane" whose point was the weighted blend of faces at
- * y = 4.409 and y = 4.521 — a plane passing through no surface of the building,
- * offered as the facade to measure an overhang from. On the sample house that
- * blend sat 0.28 m inside the real outer face, which is a quarter of the
+ * Binning on the normal ALONE would merge them, which is wrong in the one case
+ * that matters most: a wall has two faces with the same orientation, roughly
+ * 0.3 m apart, and a multi-layer wall sliced by its export has several more.
+ * Merged, they would produce a "plane" whose point is the weighted blend of
+ * faces at y = 4.409 and y = 4.521: a plane passing through no surface of the
+ * building, offered as the facade to measure an overhang from. On the sample
+ * house that blend would sit 0.28 m inside the real outer face, a quarter of the
  * overhang being measured.
  *
  * 20 mm is below any real wall leaf and above the tessellation noise of a
@@ -279,12 +273,11 @@ const VERTICAL_TOLERANCE = 0.15
 /**
  * How horizontal a face must be to count toward the floor area, as |n·z|.
  *
- * Named for what it tests. It was called `DOWNWARD` and documented as "a face
- * is downward when its normal points below this", which described neither its
- * value nor its use: winding is unreliable in this kernel, so a floor triangle
- * may report either an up or a down normal and the test has to be on the
- * magnitude. The behaviour was right and the name sent the next reader looking
- * for a sign convention that is not there.
+ * Named for what it tests. A face counts toward the floor area by the magnitude
+ * of its normal, not its sign: winding is unreliable in this kernel, so a floor
+ * triangle may report either an up or a down normal, and a sign test would miss
+ * half of them. A name that suggests a sign convention would send the next
+ * reader looking for one that is not there.
  */
 const HORIZONTAL = 0.5
 
@@ -554,9 +547,9 @@ function measureTriangles(triangles: Float64Array): {
     bin.area += area
     // Accumulated and area-weighted rather than taken from whichever triangle
     // opened the bin. `quantize` admits a spread of one PLANE_TOLERANCE (~2.9°)
-    // into a single bin, so keeping the first normal inherited that spread as
-    // bias — which showed up as a facade bearing off by up to three degrees,
-    // and a compass answer is not worth much at that resolution.
+    // into a single bin, so keeping the first normal would inherit that spread
+    // as bias: a facade bearing off by up to three degrees, and a compass answer
+    // is not worth much at that resolution.
     bin.normal[0] += nx * area
     bin.normal[1] += ny * area
     bin.normal[2] += nz * area
@@ -606,11 +599,10 @@ function quantize(value: number): number {
 /**
  * Signed distance from a point to a plane, positive along the normal.
  *
- * Takes only the two fields it reads. It used to take a whole `Plane`, which
- * forced every caller that had a normal and a point to invent an `area` — and
- * the callers duly did, one passing a literal `0` and one passing the seated
- * bin's total. Neither number was used, and the second one quietly implied
- * that a face area belonged in a distance calculation.
+ * Takes only the two fields it reads. A whole `Plane` would force every caller
+ * that has a normal and a point to invent an `area`: one would pass a literal
+ * `0` and another the seated bin's total, a number that is not used, and one
+ * that implies a face area belongs in a distance calculation.
  */
 export function signedDistance(point: Vec3, plane: Pick<Plane, 'normal' | 'point'>): number {
   return (

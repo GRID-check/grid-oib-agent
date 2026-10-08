@@ -126,8 +126,8 @@ def test_the_core_set_needs_no_project():
 
 
 def test_a_value_inside_a_tab_counts(tmp_path):
-    # Seen in the first baseline: REI 60 stood in the variant tab's table, and a
-    # check that read only the prose called the answer wrong.
+    # A value in a tab's table counts: a check that read only the prose would call
+    # the answer wrong.
     run = suite.observe(QUESTION, 1, *_recorded_turn(tmp_path))
     run.answer = "Die Nachweise unterscheiden sich je Variante: [[card:1]]"
     envelope = {
@@ -137,8 +137,8 @@ def test_a_value_inside_a_tab_counts(tmp_path):
 
 
 def test_the_answer_is_the_last_envelope_not_the_repair_after_it(tmp_path):
-    # Seen in the full sweep: every repaired turn read as "no envelope",
-    # because the repair's plain rewrite was the last reply.
+    # A repair's plain rewrite can be the last reply, so the answer is the last
+    # envelope, not the reply after it.
     record, log = _recorded_turn(tmp_path)
     repair = _call(30.0, 4.0, reasoning=100, output=[{"type": "message", "content": [{"text": "Überarbeitet [1]."}]}])
     record.write_text(record.read_text() + "\n" + json.dumps(repair))
@@ -175,8 +175,8 @@ def test_a_question_about_a_richtlinie_the_corpus_lacks_is_skipped_by_name(tmp_p
 
 
 def test_an_answer_without_its_fence_still_has_its_envelope(tmp_path):
-    # Seen live: the pipeline accepted a bare-JSON answer and the reader got it
-    # whole, while a fence-only reading called the turn envelope-less.
+    # The pipeline accepts a bare-JSON answer and the reader takes it whole, so a
+    # fence-only reading must not call the turn envelope-less.
     record, log = _recorded_turn(tmp_path)
     bare = {"type": "message", "content": [{"text": json.dumps({**ENVELOPE, "answer": "Antwort [1]."})}]}
     rows = [json.loads(line) for line in record.read_text().splitlines()]
@@ -221,8 +221,8 @@ def _streamed(tmp_path: Path, events: list[dict]) -> dict:
 
 
 def test_a_streamed_call_records_its_response_and_when_text_began(tmp_path):
-    # A streamed answer (ADR-0066) has no JSON body: the first core run after
-    # prose streamed recorded every envelope as missing.
+    # A streamed answer (ADR-0066) has no JSON body, so the recorder takes the
+    # response from the completed event.
     completed = {
         "type": "response.completed",
         "response": {"output": [{"type": "message"}], "usage": {"output_tokens": 3}},
@@ -238,8 +238,8 @@ def test_a_streamed_call_records_its_response_and_when_text_began(tmp_path):
 
 
 def test_a_model_call_that_raises_is_recorded_with_its_seconds(tmp_path):
-    # A timed-out attempt the SDK retries raised out of send, so it was never
-    # written and its seconds vanished from the turn.
+    # A call that raises, such as a timed-out attempt the SDK retries, is still
+    # written with its seconds, or the turn loses them.
     import subprocess
     import textwrap
 
@@ -292,9 +292,8 @@ def test_the_first_text_column_reads_the_final_call(tmp_path):
 
 
 def test_an_empty_inventory_refuses_to_measure(tmp_path):
-    # A suite started outside the ingest's directory read ./summaries.db as an
-    # empty file and measured an agent with no inventory, no family overviews
-    # and no quote checks, 7 s per turn slower, without an error.
+    # An empty inventory would measure an agent with no inventory, no family
+    # overviews and no quote checks, without an error, so it is refused.
     import sqlite3
 
     empty = tmp_path / "empty.db"
@@ -332,7 +331,8 @@ def test_the_runs_import_this_checkout(tmp_path):
 
 
 def test_the_workers_can_ask_for_the_path_at_once(tmp_path):
-    # Four workers built the links at once and one died on FileExistsError.
+    # Several workers may ask at once; the link must be built once, not raced on
+    # FileExistsError.
     from concurrent.futures import ThreadPoolExecutor
 
     import census
@@ -354,8 +354,8 @@ def test_a_record_line_the_kill_cut_short_is_skipped(tmp_path):
 
 
 def test_a_run_that_recorded_nothing_summarizes_as_empty(tmp_path):
-    # A `nat run` that died before its first model call wrote no record, and
-    # the census crashed on the missing file instead of reporting.
+    # A `nat run` that dies before its first model call writes no record, so a
+    # missing file summarizes as empty rather than crashing the census.
     import census
 
     assert census.summarize(tmp_path / "never-written.jsonl") == {"kinds": {}, "research": [], "wall_seconds": 0.0}
@@ -379,7 +379,7 @@ def test_the_frontend_plugins_a_run_loads_come_from_this_checkout():
 
 
 def test_one_failing_run_does_not_sink_the_suite(tmp_path, monkeypatch):
-    # A raise in one worker used to discard every result after the paid runs.
+    # A failing run is recorded as its error; the other runs' results are kept.
     def boom(*args, **kwargs):
         raise RuntimeError("nat died")
 
@@ -390,8 +390,7 @@ def test_one_failing_run_does_not_sink_the_suite(tmp_path, monkeypatch):
 
 
 def test_a_table_or_a_drawing_in_a_card_counts(tmp_path):
-    # A table the reader saw in a card was reported as missing, because the
-    # shape check read only the prose.
+    # A table in a card counts: the shape check reads the cards as well as the prose.
     run = suite.Run(question_id="q", run=1, answer="Siehe Tabelle: [[card:1]]")
     table = {"expect": {"shape": "table"}}
     in_text = {"cards": [{"type": "surface", "components": [{"component": "Text", "text": "| Wand | REI 60 |"}]}]}
@@ -427,8 +426,8 @@ def test_a_repair_after_the_answer_is_neither_the_final_call_nor_a_research_roun
 
 
 def test_the_import_check_asks_the_interpreter_the_runs_use(tmp_path, monkeypatch):
-    # The runs used .venv/bin/nat while the check asked sys.executable, so it
-    # answered for an interpreter no run used.
+    # The check asks the interpreter the runs use (.venv/bin/nat), not
+    # sys.executable.
     import subprocess
 
     import census
@@ -524,8 +523,8 @@ def test_only_a_question_that_needs_a_project_says_why(capsys):
 
 
 def test_the_startup_probe_reexecutes_into_this_checkout(monkeypatch, tmp_path):
-    # From a worktree the in-process probe timed the main checkout's
-    # knowledge layer, and the fix was a symlink built by hand.
+    # The probe must re-execute into this checkout: from a worktree the in-process
+    # probe would time the main checkout's knowledge layer.
     import census
     import startup_probe
 
@@ -569,7 +568,7 @@ def test_a_landed_quote_patch_explains_the_settled_replacement():
 
 
 def test_the_startup_probe_takes_the_key_some_environments_carry(monkeypatch, capsys):
-    # With only OPENROUTER_KEY set the probe failed at its first model call.
+    # Some environments carry only OPENROUTER_KEY, and the probe must take it.
     import startup_probe
 
     monkeypatch.setenv(startup_probe._IN_TREE, "1")
@@ -593,15 +592,15 @@ def test_the_startup_probe_takes_the_key_some_environments_carry(monkeypatch, ca
 
 
 def test_a_bad_only_id_is_refused_before_anything_is_ingested(monkeypatch):
-    # The ids were checked after the preflight, which with --ingest had
-    # already run a full sync.
+    # A bad id is refused before the preflight, which with --ingest runs a full
+    # sync.
     monkeypatch.setattr(suite, "_preflight", lambda out, ingest: pytest.fail("preflight ran for a bad id"))
     assert suite.main(["--only", "no-such-id", "--ingest"]) == 2
 
 
 def test_a_foreign_checkout_is_refused_before_the_ingest(monkeypatch, tmp_path):
-    # From a worktree the ingest ran another checkout's knowledge layer in
-    # this process, and only then did the import check refuse.
+    # The import check runs before the ingest: from a worktree the ingest would
+    # run another checkout's knowledge layer in this process.
     import types
 
     import aiq_agent
@@ -637,7 +636,8 @@ def test_wall_time_ends_with_the_call_that_ends_last(tmp_path):
 
 
 def test_a_summary_db_given_as_a_path_is_refused_before_any_run(monkeypatch, tmp_path, capsys):
-    # A bare path started every run, and every run died parsing it as a URL.
+    # A bare path is refused: every run would start with it and die parsing it
+    # as a URL.
     monkeypatch.setattr(suite, "ensure_key", lambda: True)
     monkeypatch.setattr(suite, "foreign_imports", lambda out: [])
     monkeypatch.setattr(suite, "_corpus_ready", lambda: True)
@@ -654,8 +654,8 @@ def test_the_suite_reads_the_dialect_the_validator_holds():
 
 
 def test_a_corpus_ingested_in_this_process_reads_as_ready(monkeypatch, tmp_path):
-    """The ingest's client and the check's client share one path in one process:
-    with different settings Chroma refused the check, which read as "not ingested"."""
+    """The ingest's client and the check's client share one path in one process;
+    with different settings Chroma refuses the check, which would read as "not ingested"."""
     from knowledge_layer.llamaindex.adapter import _make_chroma_client
 
     from aiq_agent import oib_sync

@@ -16,12 +16,10 @@ vi.mock('@/lib/authz/projects', () => ({
   requireProjectAccess: vi.fn(),
 }))
 
-// Partial mock, not a replacement. This used to hand-reimplement
-// `computeCollectionScope` — including its own copy of the `s_` prefix rule —
-// which made it a fourth copy of the rule that has since been centralised as
-// `sessionCollectionName`, and left the module's other exports undefined the
-// moment one was added. Spying the real implementations keeps the call
-// assertions while making the double impossible to drift from the module.
+// Partial mock, not a replacement: the real `computeCollectionScope` and
+// `sessionCollectionName` are spied on, so the double cannot drift from the
+// module (the `s_` prefix rule lives in one place) and the module's other
+// exports stay real.
 vi.mock('@/lib/collection-scope', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@/lib/collection-scope')>()
   return {

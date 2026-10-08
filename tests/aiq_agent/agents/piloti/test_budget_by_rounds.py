@@ -4,17 +4,16 @@ A round is one LLM decision that emitted tool calls. It costs one, whatever it
 asked for: five parallel ``read_passage`` opens, three ``emit_card`` calls, one
 ``use_skill``, or a batch the guards withheld in full.
 
-The failure this replaces is measured, not imagined. The budget used to be
-charged per emitted CALL, so „was weißt du über die OIB 2" — one
+Charging per emitted CALL fails on a measured case: „was weißt du über die OIB 2" — one
 ``knowledge_search`` plus the family opened in one parallel batch, which is the
-shape the prompt asks for — exhausted a budget of seven on the single most
-ordinary question the product answers, and the answer came back written from
+shape the prompt asks for — would exhaust a budget of seven on the single most
+ordinary question the product answers, and the answer would come back written from
 whatever had been read by then. Parallel calls inside one round are the model
-using its round well; pricing them is what made the prompt and the budget
+using its round well; pricing them would make the prompt and the budget
 contradict each other.
 
-What a round ceiling does NOT bound is money, because it stopped being a proxy
-for it the moment a round stopped being one call. So there is a second bound —
+What a round ceiling does NOT bound is money: a round stops being a proxy for
+it once one round can carry many calls. So there is a second bound —
 cumulative INPUT tokens, read off the cost tracker that already meters every
 call — and it is checked in the same place and answered the same way.
 
@@ -153,7 +152,7 @@ async def _run(agent: PilotiAgent, question: str = "Was weißt du über die OIB 
 
 class TestAParallelRoundCostsOne:
     async def test_the_family_overview_costs_two_rounds_not_six(self):
-        """The question that used to exhaust a budget of seven.
+        """The family question, which a per-call budget of seven would exhaust.
 
         One search, then every member of the Richtlinien-Familie opened in ONE
         parallel batch — which is what the research rules ask for. Six calls,
@@ -228,7 +227,7 @@ class TestTheCeilingIsRounds:
 
 
 class TestTheInputTokenStop:
-    """What bounds the BILL, now that rounds do not."""
+    """What bounds the BILL, which a round ceiling does not."""
 
     @pytest.fixture
     def spent_tracker(self):
@@ -297,7 +296,7 @@ class TestTheInputTokenStop:
         assert result.research_truncated is None
 
     async def test_zero_disables_the_stop(self, spent_tracker):
-        """A deployment that does not want the bound gets the old behaviour,
+        """A deployment that does not want the bound gets no bound,
         not a bound of zero that ends every turn before it starts."""
         agent = _agent(
             _batch(_call("knowledge_search", "k", query="OIB 2")),

@@ -8,10 +8,10 @@
  * boundary relation, `bounds()`, `adjacentSpaces()` and `opensTo()` are all
  * undecidable, and the chain every daylight rule walks —
  * *window → the room it lights → that room's floor area* — has no middle link.
- * The user's own `Ifc4_SampleHouse.ifc` (Revit, 4 rooms, 3 external walls, 2
+ * The sample `Ifc4_SampleHouse.ifc` (Revit, 4 rooms, 3 external walls, 2
  * partitions, 4 windows, 3 doors) contains exactly zero of them. So the most
  * common real model cannot answer the most common real question, and the reason
- * is a checkbox in someone's export dialog months ago.
+ * is a checkbox in someone's export dialog.
  *
  * The geometry is right there. A wall standing against the face of a room is
  * measurably against the face of that room, whatever the file forgot to say. So
@@ -74,16 +74,16 @@
  * papered over it would be the library telling a user their file is fine
  * because we compensated.
  *
- * ## The operators that read these edges do carry the provenance through
+ * ## The operators that read these edges carry the provenance through
  *
- * This section used to warn that `bounds()` and `enclosedBy()` stamped every
- * `interfaceOf` edge as `declared`, so a measured boundary would be presented as
- * one the file states. They no longer do: `fromEdges` in `operators/topology.ts`
- * reads each edge's own provenance and `via`, returns `computed` when any of
- * them is measured, and writes the mixed-origin caveat when only some are.
- * Verified on `Building-Architecture.ifc` (buildingSMART PCERT, SketchUp), whose
- * 10 `interfaceOf` edges are all derived here — `bounds()` on its living room
- * answers `computed` and names `geometry: box adjacency ±0.30 m (z, 18.81 m²)`.
+ * `bounds()` and `enclosedBy()` do not stamp every `interfaceOf` edge as
+ * `declared`, so a measured boundary is never presented as one the file states.
+ * `fromEdges` in `operators/topology.ts` reads each edge's own provenance and
+ * `via`, returns `computed` when any of them is measured, and writes the
+ * mixed-origin caveat when only some are. Checked on `Building-Architecture.ifc`
+ * (buildingSMART PCERT, SketchUp), whose 10 `interfaceOf` edges are all derived
+ * here: `bounds()` on its living room answers `computed` and names
+ * `geometry: box adjacency ±0.30 m (z, 18.81 m²)`.
  */
 
 import type { BuildingGraph, EdgeKind, GraphEdge } from '../graph/types.js'
@@ -279,7 +279,7 @@ export function deriveBoundaries(
   // Two spaces sharing a bounding element are neighbours — but only through a
   // VERTICAL separator, and only where they coexist in height. Both restrictions
   // are corrections to the purely topological rule build.ts applies to declared
-  // boundaries, and both were forced by this fixture:
+  // boundaries, and this fixture is what requires both:
   //
   //   - Without the vertical-separator test, every room on a storey shares the
   //     one floor slab and every room becomes adjacent to every other. On the
@@ -320,7 +320,7 @@ export function deriveBoundaries(
   // the whole content of this block. The sample house's north wall runs the full
   // 14 m width of the building and bounds both the living room and the bedroom;
   // the window in it sits at x 2.96–4.82 and opens into the bedroom alone.
-  // Deriving from the host would have said "both rooms" — a confident wrong
+  // Deriving from the host would say "both rooms" — a confident wrong
   // answer to the question the daylight rules are built on.
   //
   // The host route survives as a fallback for the case it is genuinely the only
@@ -449,9 +449,9 @@ function faceContact(space: Box, element: Box, tolerance: number, minSharedArea:
       // opposite faces, which equals the overlap only while the boxes cross —
       // where one box CONTAINS the other on that axis it returns the far larger
       // distance to the enclosing box's faces instead. On the sample house that
-      // difference reported the bedroom/hall partition, which meets the living
+      // difference would report the bedroom/hall partition, which meets the living
       // room end-on across its 0.10 m thickness, as sharing 5.15 m² of face with
-      // it instead of 0.23 m², and the minimum-area guard passed it through.
+      // it instead of 0.23 m², and the minimum-area guard would pass it through.
       const overlap = overlapOn(space, element, j as 0 | 1 | 2)
       if (overlap <= 0) {
         overlapping = false
@@ -477,8 +477,8 @@ function overlapOn(a: Box, b: Box, axis: 0 | 1 | 2): number {
  * The fallback exists for one shape of export that is far too common to treat as
  * an edge case: Revit writes an `IfcCurtainWall` with NO geometry of its own and
  * hangs every panel and mullion off it through `IfcRelAggregates`. Without this,
- * the sample house's living room loses both of its glazed walls and comes back
- * bounded on three sides — a wrong answer that looks exactly like a right one,
+ * the sample house's living room would lose both of its glazed walls and come
+ * back bounded on three sides — a wrong answer that looks exactly like a right one,
  * since nothing about "6 bounding elements" announces that two are missing.
  *
  * Recursive, because an assembly can nest, and depth-limited because a cyclic

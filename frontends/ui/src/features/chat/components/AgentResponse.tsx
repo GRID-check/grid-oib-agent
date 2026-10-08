@@ -93,8 +93,8 @@ import { isNotRegulated, searchedSources } from '../lib/answer-data'
  *
  * The agent is asked to lead with the ruling or the number. That rule is the
  * `<stimme>` section of the researcher's system prompt („Der erste Satz ist die
- * Antwort"), unconditional on every answering turn since the `piloti-voice`
- * platform skill was folded into it. The answer arrives with its conclusion first —
+ * Antwort"), and it applies unconditionally to every answering turn. The answer
+ * arrives with its conclusion first —
  * but a conclusion set at exactly the weight of the reasoning beneath it is a
  * conclusion the reader still has to go looking for.
  * One notch of size and air is enough to make the answer legible before the
@@ -138,8 +138,8 @@ const NON_PROSE_OPENER = /^(#{1,6}\s|[-*+]\s|\d+[.)]\s|>|\||```|\[\[card:)/
 
 /**
  * The lede is decided while the answer streams, the moment it has earned one,
- * not flipped on at the end: decided only once the answer was complete, it
- * reflowed the top of an answer the reader was already halfway down, in the
+ * not flipped on at the end. Decided only once the answer is complete, it would
+ * reflow the top of an answer the reader is already halfway down, in the
  * same frame as everything else the terminal frame changes (ADR-0066). Not
  * eased: font size is a layout property, and the motion vocabulary animates
  * none (`grid/motion-vocabulary`).
@@ -211,9 +211,9 @@ export interface AgentResponseProps {
   /** The assistant's guarded self-assessed answer confidence (shallow answers only) */
   answerConfidence?: 'low' | 'medium' | 'high'
   /**
-   * Why the self-assessed confidence was capped (WP-A transparency extra) —
+   * Why the self-assessed confidence was capped —
    * `'ungrounded'` or `'quote_unverified'` add the matching cap explanation to
-   * the ConfidenceChip tooltip (PB-9).
+   * the ConfidenceChip tooltip.
    */
   answerConfidenceCappedReason?: AnswerConfidenceCappedReason
   /**
@@ -286,15 +286,15 @@ export interface AgentResponseProps {
   showReasoning?: boolean
   /**
    * Whether the self-assessment ConfidenceChip renders (WorkOS
-   * `chat-confidence-chip` flag, FB-6). Defaults to true so the feature stays
+   * `chat-confidence-chip` flag). Defaults to true so the feature stays
    * visible with flag enforcement off (fail-open) and existing callers/specs
    * are unaffected.
    */
   showConfidenceChip?: boolean
   /**
    * Client-side message identifier of this answer — keys the per-answer
-   * thumbs feedback row (WS-7). No feedback row renders when absent (e.g.
-   * legacy callers), so existing usages are unaffected.
+   * thumbs feedback row. No feedback row renders when absent (e.g. legacy
+   * callers), so existing usages are unaffected.
    */
   messageId?: string
   /**
@@ -304,19 +304,19 @@ export interface AgentResponseProps {
    */
   showAnswerFeedback?: boolean
   /**
-   * Whether this answer is still streaming (C6). Drives the blinking caret at
+   * Whether this answer is still streaming. Drives the blinking caret at
    * the end of the answer body and the partial-markdown stabilizer in the
    * MarkdownRenderer. Threaded from `message.isStreaming` by ChatArea.
    */
   isStreaming?: boolean
   /**
-   * Which path the turn turned out to take, observed after the answer (WP-A
-   * transparency extra). `'meta'` marks a conversational / clarifying reply (greetings,
+   * Which path the turn turned out to take, observed after the answer. `'meta'`
+   * marks a conversational / clarifying reply (greetings,
    * capability questions, Rückfragen) — rendered with a quiet neutral "Hinweis"
    * role tab when the envelope has no `kind`. Envelope `kind` wins when present:
    * `direct` → Hinweis, `walkthrough` → Antwort, `ruling` (or a legacy
-   * no-kind verdict) → Ergebnis. Absent/`'error'` fall back to the "Ergebnis"
-   * treatment, so existing callers render exactly as before.
+   * no-kind verdict) → Ergebnis. Absent or `'error'` falls back to the
+   * "Ergebnis" treatment.
    */
   routingDecision?: 'meta' | 'shallow' | 'deep' | 'error'
   /**
@@ -358,7 +358,7 @@ function answerRoleTab(
 }
 
 /**
- * Blinking caret shown at the tail of a still-streaming answer (C6). It fades
+ * Blinking caret shown at the tail of a still-streaming answer. It fades
  * out while the finish reveals the last words (`fading`), so by the time the
  * answer settles and it is removed there is nothing left to disappear. The
  * fade is on a wrapper: the blink already animates the caret's own opacity,
@@ -368,9 +368,9 @@ function answerRoleTab(
  * drawn in the card's colour, so each word the reveal adds starts faint and
  * darkens as the next ones push it out, like ink settling. It moves with the
  * caret and animates nothing, so it costs no more than the caret does. A
- * fade per word (a span per word, each with its own entrance) cost a 4×
+ * fade per word (a span per word, each with its own entrance) would cost a 4×
  * throttled phone 10 fps and 200 ms of main thread a second on a prose-heavy
- * answer, the long tasks included (docs/design/streaming-chat-answer.md).
+ * answer, long tasks included (docs/design/streaming-chat-answer.md).
  * Only on the card, whose colour it is drawn in.
  */
 const StreamingCaret: FC<{ fading?: boolean; veil?: boolean }> = ({ fading = false, veil = false }) => (
@@ -448,7 +448,7 @@ function localizeTokens(
 
 /**
  * Muted note under the "Belegt durch" row: citation verification removed one or
- * more citations from this answer as unverifiable (WP-A `citations_removed`).
+ * more citations from this answer as unverifiable (`citations_removed`).
  * The de-duplicated reasons hang off a tooltip so the row stays quiet by
  * default. Renders nothing when nothing was removed.
  */
@@ -460,9 +460,9 @@ const CitationsRemovedNote: FC<{ citationsRemoved?: { count: number; reasons: st
 
   const label = t('answerSources.citationsRemoved', { count: citationsRemoved.count })
   // Localized, not passed through. These are verification TOKENS
-  // (`url_not_in_registry`), and the tooltip used to print them verbatim — which
-  // nobody outside this repository can read. A token with no sentence here is
-  // left out; the count above is the fact and it is unaffected.
+  // (`url_not_in_registry`), which nobody outside this repository can read
+  // verbatim. A token with no sentence here is left out; the count above is the
+  // fact and it is unaffected.
   const reasons = localizeTokens(
     t,
     'answerSources.citationsRemovedReason',
@@ -536,8 +536,8 @@ const ResearchTruncatedNote: FC<{
   )
   // The cause rides the same line as a parenthetical rather than claiming one of
   // its own: "it ran out of time" is not a second statement, it is the first one
-  // finished. Absent (or unknown) leaves the sentence exactly as it was before
-  // this field existed, which is what every turn before today's backend has.
+  // finished. Absent (or unknown) leaves the sentence as it is, which is what
+  // turns from an older backend carry.
   const cause = truncationReason
     ? localizeToken(t, 'answerSources.truncationReason', truncationReason, TRUNCATION_REASONS)
     : null
@@ -563,7 +563,7 @@ const ResearchTruncatedNote: FC<{
  * Still `role="note"`, still no icon, tint or border. A salvaged answer can be
  * perfectly well-grounded in what it did reach, and this must not turn a good
  * one into an alarm — but it must also never be silent about the way the answer
- * is weaker, which is precisely what it was before this rendered at all.
+ * is weaker.
  */
 const AnswerDegradedNote: FC<{ degradedReasons?: string[] }> = ({ degradedReasons }) => {
   const t = useTranslations('chat')
@@ -687,7 +687,7 @@ const ReadSourcesSection: FC<{ readSources?: CitationSource[] }> = ({ readSource
  * trigger line. The disclosure opens ITSELF when the turn carries something
  * the reader must not miss — a cut-off, a salvaged run, stripped citations,
  * low confidence — because a warning behind a closed trigger is a warning
- * nobody read. `SkillsUsedDisclosure` is MOVED here, not duplicated: it
+ * nobody read. `SkillsUsedDisclosure` renders here, once, not in a second place: it
  * renders null on a turn that activated nothing, like every other item
  * inside. Feedback stays out on purpose: rating the answer must not cost a
  * click first.
@@ -881,7 +881,7 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
     }),
     [projectFacts, readOnly, setComposerPrefill, retrievalLedger, quoteStamps, answerMeta]
   )
-  // An answer that ends in a written "## Quellen" list used to state its sources
+  // An answer that ends in a written "## Quellen" list would state its sources
   // TWICE — that list AND the "Belegt durch" chips, each holding half the truth
   // (numbers/titles/pages vs. provenance color, authority and click-through).
   // Lift the list out of the body and hand its entries to AnswerSourcesRow,
@@ -939,7 +939,7 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
   // (`anatomy` is declared below; the class is derived after it.)
   // The markers are linked while the body is PARSED, not before: `[2][3]` — two
   // sources behind one claim, the shape the backend is told to write — is
-  // indistinguishable from reference-link syntax in raw text, and used to reach
+  // indistinguishable from reference-link syntax in raw text, and would reach
   // the reader as literal "[2][3]" beside neighbours that got their pill.
   //
   // Cards are placed the same way and for the same reason: the agent writes
@@ -969,7 +969,7 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
   const ledeClass = opensWithLede(body) && !effectiveSummary && !anatomy?.topic ? LEDE_CLASS : ''
   // The files this answer NAMES, as opposed to the ones it cites. A sentence
   // like „Beginnen Sie mit pd8280-2.pdf" is pointing at a document the reader
-  // owns, and until the index below resolved that name it was dead text. The
+  // owns, and until the index below resolves that name it is dead text. The
   // hook is inert for an answer with no filename in it, which is most of them.
   const fileReferences = useAnswerFileReferences({
     body,
@@ -1011,8 +1011,7 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
   // closed (the backend reads them after it, ADR-0066), so a streaming answer
   // that holds cards has all of its prose; once the pace has shown all of it,
   // no marker is still to come. Waiting for the terminal instead held every
-  // unplaced card back until verification and the pipeline were done: 22 s
-  // after the card was written on the recorded `oib2` turn.
+  // unplaced card back until verification and the pipeline are done.
   const unplacedIsFinal = !live || ((cards?.length ?? 0) > 0 && shownContent === content)
   // The after-prose anatomy: the callout leaves this block the moment the
   // prose claims it with a marker — same pre-render reading as the card
@@ -1084,14 +1083,13 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
   // things — a memory-only turn (both chip flags off, no timestamp) must still
   // show it rather than have the row unmount around it.
   //
-  // Read off THIS MESSAGE. It used to be `useConversationMemory(projectId,
-  // conversationId)`, a three-shot poll of the project's memory endpoint fired
-  // by every rendered answer: thirty GETs in a ten-answer thread, on a fixed
-  // `[0, 1500, 4000]` ms schedule that was a guess about how long an LLM takes,
-  // and scoped to the CONVERSATION, so every answer in the thread showed every
-  // item — turn one's answer read „Piloti hat sich 5 gemerkt" after turn five.
-  // The reflection stage now delivers a frame addressed to the turn it belongs
-  // to, so the chip can finally be what it always claimed to be.
+  // Read off THIS MESSAGE, not off the conversation. A poll of the project's
+  // memory endpoint fired by every rendered answer would cost thirty GETs in a
+  // ten-answer thread, on a fixed `[0, 1500, 4000]` ms schedule that is a guess
+  // about how long an LLM takes, and every answer would show every item: turn
+  // one's answer would read „Piloti hat sich 5 gemerkt" after turn five. The
+  // reflection stage delivers a frame addressed to the turn it belongs to, so
+  // the chip is what it claims to be.
   const memoryItems = useMemo(
     () => turnMemoryItems({ stages, cards, cardInteractions }),
     [stages, cards, cardInteractions]
@@ -1165,9 +1163,8 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
   )
 
   // Memoised elements: the footer's `AnswerDetails` is memoised, and a new
-  // element on every reveal tick re-rendered it and the feedback buttons with
-  // it, about 3 ms of each 16 ms tick on a 4× throttled phone (React
-  // performance audit, 2026-09).
+  // element on every reveal tick would re-render it and the feedback buttons
+  // with it, about 3 ms of each 16 ms tick on a 4× throttled phone.
   const answerActions = useMemo(
     () =>
       hasAnswerActions ? (
@@ -1258,8 +1255,8 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
             off the body SO FAR, and a card whose `[[card:N]]` has not been
             shown yet would render here and then jump up the answer.
             `mt-1` because this column's `gap-2` is 8px and the markdown body's
-            paragraph rhythm is 12px, so without it an UNPLACED card hugged the
-            prose 4px tighter than a placed one — visible the moment an answer
+            paragraph rhythm is 12px, so without it an UNPLACED card would hug the
+            prose 4px tighter than a placed one, visible the moment an answer
             carries both. */}
               {/* The anatomy below the prose: the callout (unless its marker placed
             it inline), then the takeaways. */}
@@ -1342,7 +1339,7 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
     )
   }
 
-  // Default variant — the click-dummy "Ergebnis" card: a role tab over a
+  // Default variant — the "Ergebnis" card: a role tab over a
   // tinted shell whose white inner block carries the composed answer, then a
   // "Belegt durch" provenance row and the feedback row, hairline-separated.
   //

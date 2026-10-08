@@ -123,7 +123,7 @@ export const UploadScreeningForm: FC<{ initial: UploadScreeningState; canEdit: b
 
   const dirty = !samePolicy(draft, baseline)
   // Saving the suggestion unchanged is a real act: it becomes the office's own
-  // list, which a later change to Piloti's suggestion no longer moves.
+  // list, which a later change to Piloti's suggestion does not move.
   const canSave = canEdit && !saving && (dirty || suggested)
   const atSuggestion = samePolicy(draft, initial.suggestion)
 

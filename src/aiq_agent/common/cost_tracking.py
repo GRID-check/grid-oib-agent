@@ -18,8 +18,8 @@ surfaces that object verbatim as ``llm_output["token_usage"]`` — on the
 ``cost`` and ``is_byok`` on ``response.usage``, but langchain-openai builds a
 ``ChatResult`` with no ``llm_output`` and a ``response_metadata`` that omits
 ``usage``, keeping only the normalized token counts. Recording those rows at
-``cost: 0`` made the main answer role (``research_llm``) free on the ledger
-and in every budget, so :func:`install_responses_cost_carrier` copies the
+``cost: 0`` would make the main answer role (``research_llm``) free on the
+ledger and in every budget, so :func:`install_responses_cost_carrier` copies the
 provider's accounting onto ``response_metadata`` under
 :data:`RESPONSES_ACCOUNTING_KEY`, and :func:`extract_usage_event` reads it
 back beside ``usage_metadata``. A row still says ``costSource: missing`` when
@@ -155,7 +155,7 @@ class BudgetSnapshot:
 #: ``role`` for the calls that are not chat completions and therefore never
 #: reach the LangChain callback path. The reranker is the first: one
 #: frontier-model call per ``knowledge_search``, on the answer's critical path,
-#: which until now appeared on no ledger at all (ledger row 25).
+#: which otherwise appears on no ledger at all.
 USAGE_ROLE_RERANK = "rerank"
 
 #: Roles for the model calls a document ingestion job makes (``activity`` =
@@ -226,8 +226,8 @@ def _usage_from_langchain_metadata(usage_metadata: Any, accounting: Any = None) 
     ``response_metadata`` that excludes ``usage``; what survives is this
     normalized view, in which OpenRouter's ``input_tokens_details.cached_tokens``
     has become ``input_token_details.cache_read``. Reading only the three
-    scalars, as this did before, is what silently zeroed ``cachedTokens`` on
-    every row written by an ``api_type: responses`` role.
+    scalars is what would silently zero ``cachedTokens`` on every row written by
+    an ``api_type: responses`` role.
 
     ``accounting`` is the provider's ``cost`` and ``is_byok``, which
     :func:`install_responses_cost_carrier` keeps on ``response_metadata``.
@@ -627,10 +627,10 @@ def install_responses_cost_carrier() -> bool:
     OpenRouter sends ``usage.cost`` and ``usage.is_byok`` on every Responses
     reply, streamed or not. langchain-openai builds both paths' message in
     ``_construct_lc_result_from_responses_api`` and keeps only the token counts
-    from ``usage``. That dropped cost is what the ledger prices credits from,
-    so every ``research_llm`` call (the main answer) was recorded at zero: an
-    answer's details showed only its post-answer stages (~0.1 credits), and the
-    budget was never charged for the answer itself.
+    from ``usage``. That dropped cost is what the ledger prices credits from.
+    Without it every ``research_llm`` call (the main answer) is recorded at
+    zero: an answer's details would show only its post-answer stages, and the
+    budget would never be charged for the answer itself.
 
     The wrapper copies the two fields onto each message's ``response_metadata``
     under :data:`RESPONSES_ACCOUNTING_KEY`. The streaming path copies that
@@ -685,11 +685,11 @@ def record_usage_event(
     """Record a model call that does NOT go through LangChain. ``True`` if it landed.
 
     The tracker is installed for every chat completion by a hook on LangChain's
-    callback manager, which is exactly why the calls that are not chat
-    completions were free: the cross-encoder rerank is one frontier-model call
-    per ``knowledge_search``, made with `httpx` against a `/rerank` endpoint,
-    and it appeared on no ledger, in no budget, and under no org's own key
-    (ledger row 25).
+    callback manager, so a call that is not a chat completion never reaches it.
+    The cross-encoder rerank is one such call: one frontier-model call per
+    ``knowledge_search``, made with `httpx` against a `/rerank` endpoint, which
+    would otherwise appear on no ledger, in no budget, and under no org's own
+    key.
 
     Attribution is the ambient tracker's: organization, user, project and
     conversation are the turn's, resolved once by :func:`track_llm_costs`. A
@@ -781,8 +781,8 @@ def meter_openai_client(client: Any, *, role: str) -> Any:
 
     The calls that never pass LangChain (ingestion's vision and transcription
     calls, the embeddings llama-index makes through its own ``openai`` client)
-    reached no ledger: the response's ``usage``, with OpenRouter's ``cost`` in
-    it, was read for nothing and dropped. This wraps the client's two create
+    would reach no ledger: the response's ``usage``, with OpenRouter's ``cost``
+    in it, would be read for nothing and dropped. This wraps the client's two create
     methods in place. Attribution is the ambient tracker's, as for
     :func:`record_usage_event`: inside an ingestion job that is the job's
     organization, project and uploader under ``activity = ingest``; inside a
@@ -807,8 +807,8 @@ def submit_in_context(executor: Any, fn: Any, /, *args: Any, **kwargs: Any) -> F
     """``executor.submit`` that runs ``fn`` in a copy of the caller's context.
 
     A pool thread starts with an empty context, so the cost tracker (a
-    ContextVar) did not reach the work handed to it: every vision call an
-    ingestion job fans out to its pool ran with no ledger. One copy per call,
+    ContextVar) does not reach the work handed to it: without the copy, every
+    vision call an ingestion job fans out to its pool would run with no ledger. One copy per call,
     because a single ``Context`` cannot be entered by two threads at once.
     """
     return executor.submit(copy_context().run, fn, *args, **kwargs)
@@ -888,8 +888,8 @@ def track_llm_costs(
 
     ``inline_flush=False`` leaves the final batch pending for the caller to
     post once the answer is on the wire (``profiler.flush_after_answer``);
-    the chat turn uses it so the ledger POST no longer sits on the event loop
-    between the finished answer and its first delta. Every other caller keeps
+    the chat turn uses it so the ledger POST stays off the event loop between the
+    finished answer and its first delta. Every other caller keeps
     the inline post, which is what a worker about to exit needs.
     """
     tracker: GridCostTracker | None = None

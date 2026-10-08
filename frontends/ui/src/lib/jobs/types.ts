@@ -7,15 +7,14 @@
  *
  * The write boundary therefore validates:
  *
- *   - `prompt`: REQUIRED, 1–8000 chars, trimmed. It is what the job IS; the old
- *     shape derived it from the pinned skill, which made "ask this question
- *     every Monday" unexpressible without first inventing a skill for it.
+ *   - `prompt`: REQUIRED, 1–8000 chars, trimmed. It is what the job IS, and it
+ *     is not derived from a pinned skill, so "ask this question every Monday"
+ *     needs no skill invented for it first.
  *   - `skillName`: OPTIONAL/nullable. Absent means no skill, and then
  *     `skillSnapshot` is NULL as well — the pair is enforced in the database by
  *     `jobs_skill_pair_check`, so no writer may produce one without the other.
  *   - `output`: a plain enum over `JOB_OUTPUTS`. It is the USER's choice on the
- *     job, not something derived from skill metadata: `grid-execution` (and
- *     `grid-schedulable`) no longer exist.
+ *     job, not something derived from skill metadata.
  *   - cron/timezone: 5-field cron in an IANA timezone, min-interval enforced at
  *     save time (`./schedule`).
  */
@@ -69,16 +68,16 @@ export const AGENT_FOR_OUTPUT: Record<JobOutput, KnownSkillAgent> = {
  * stays `null`; an array comes back as a COPY with the missing always-on ids
  * prepended in their canonical order (an empty array becomes exactly them).
  *
- * Applied on read as well as on write, so a job STORED before RIS became
- * always-on starts including it on its next fire rather than keeping a narrower
- * world nobody can see or fix from the wizard.
+ * Applied on read as well as on write, so a stored job picks up an always-on
+ * source on its next fire rather than keeping a narrower world nobody can see or
+ * fix from the wizard.
  */
 export function withAlwaysOnSources(dataSources: string[] | null): string[] | null {
   if (dataSources === null) return null
-  // A COPY, always. Returning the caller's own array when nothing was missing
-  // made the result alias its input, so a later push on either one silently
-  // mutated the other — and the one path that applies this to a stored row's
-  // `dataSources` would then edit the row object in place.
+  // A COPY, always. Returning the caller's own array when nothing is missing
+  // would make the result alias its input, so a later push on either one
+  // silently mutates the other — and the one path that applies this to a stored
+  // row's `dataSources` would edit the row object in place.
   const missing = ALWAYS_ON_SOURCE_IDS.filter((id) => !dataSources.includes(id))
   return [...missing, ...dataSources]
 }
@@ -114,7 +113,7 @@ export const jobPromptSchema = z
 
 /**
  * What the run produces. A plain enum over the schema's domain — it is a user
- * choice validated at the write boundary, no longer a value derived from a
+ * choice validated at the write boundary, not a value derived from a
  * skill's metadata.
  */
 export const jobOutputSchema = z.enum(JOB_OUTPUTS)
@@ -134,7 +133,7 @@ const dataSourcesSchema = z.array(z.string().trim().min(1)).max(MAX_DATA_SOURCES
  * When a one-shot is wanted, as an ISO instant.
  *
  * `nullish` for the same reason `skillName` is: absent on create means no due
- * date, an explicit `null` on patch means "this is not a one-shot any more".
+ * date, an explicit `null` on patch means "this is no longer a one-shot".
  * The value is coerced to a `Date` here so every reader downstream — the
  * service, the CHECK constraint, the scheduler's scan — sees an instant rather
  * than a string somebody still has to parse.
@@ -217,11 +216,10 @@ export type ListRunsQuery = z.infer<typeof listRunsQuerySchema>
 /**
  * Body of the internal fire endpoint the scheduler POSTs.
  *
- * Still `scheduleId`, and deliberately: the scheduler container and the BFF
- * deploy separately, so renaming the wire field would break every scheduled run
- * in the window between the two deploys — the same hazard the `execution` ->
- * `output` rename is carrying a compatibility shim for. It names a
- * `task_definitions.id` since migration 0086.
+ * `scheduleId` is kept on purpose: the scheduler container and the BFF deploy
+ * separately, so renaming the wire field would break every scheduled run in the
+ * window between the two deploys — the same hazard the backend's `execution`
+ * fallback covers. It names a `task_definitions.id` (migration 0086).
  */
 export const internalFireSchema = z.object({
   scheduleId: z.string().uuid(),

@@ -1,12 +1,12 @@
 """Tell the BFF how a background run ended.
 
-A job is fired by the BFF and runs here, and until this module existed the
-BFF never learned that it finished: `job_runs.status` records how the
-SUBMISSION went, the browser polls the job store for the run's fate, and the
-server side observed nothing. So a scheduled run produced a report that
-expired with the job store and notified nobody. This is the one call that
-closes that: the worker reports the outcome by the backend job id, the only
-id it holds, and the BFF turns it into an inbox item for the job's creator.
+A job is fired by the BFF and runs here, but the BFF does not learn that it finished
+from the job store alone: `job_runs.status` records how the SUBMISSION went, the
+browser polls the job store for the run's fate, and the server side observes
+nothing. Without a call from here a scheduled run produces a report that expires
+with the job store and notifies nobody. This is the call that closes that: the
+worker reports the outcome by the backend job id, the only id it holds, and the
+BFF turns it into an inbox item for the job's creator.
 
 Best-effort by contract, like ``conversation_output``: the run is already
 final in the job store when this is called, and a missed notification must
@@ -14,7 +14,7 @@ never unmake a good run. Idempotent on the BFF side (one inbox row per run),
 so reporting twice is harmless.
 
 Retried briefly (``internal_retry``): a BFF restart or a blip at the moment a
-run ends used to leave its ``task_runs`` row ``running`` for good. What the
+run ends would leave its ``task_runs`` row ``running`` for good. What the
 retry does not heal, the BFF's run reconciler does, from the job store.
 """
 

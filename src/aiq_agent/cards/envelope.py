@@ -1,28 +1,27 @@
 """Cards as a field of the answer envelope — the model's own cards, without a round.
 
 ``emit_card`` is a tool call, and a tool call ends a message: a model that
-emitted its cards had to be called AGAIN to write the prose, re-sending the
-whole context (40-80k tokens on a researched turn) for text it could have
-written in the same breath, and a third time when a shape was wrong. That was
-the one round on every card-bearing answer that bought the reader no evidence,
-and it was structural — no prompt sentence removes it.
+emits its cards must be called AGAIN to write the prose, re-sending the whole
+context (40-80k tokens on a researched turn) for text it could have written in
+the same breath, and a third time when a shape is wrong. That round buys the
+reader no evidence, and no prompt sentence removes it.
 
-The envelope already made the same move for the verdict, the takeaways and
-the callout (``common/answer_envelope.py``, header): emission through a tool
-was "optional twice — the model had to recognise the trigger AND spend a tool
-call". Cards are the last of the model's own output on the tool channel. So the
-envelope carries ``cards``: the same card objects ``emit_card`` takes, in the
+The envelope already carries the verdict, the takeaways and the callout
+(``common/answer_envelope.py``, header), for the same reason: emission through
+a tool is optional twice — the model has to recognise the trigger AND spend a
+tool call. Cards are the last of the model's own output on the tool channel, so
+the envelope carries ``cards``: the same card objects ``emit_card`` takes, in the
 same message as the answer, validated here by the same adapter and the same two
 closed channels, and registered in the same per-turn ``CardRegistry`` the
 frontend already reads. Nothing on the wire changes.
 
 Two things stay on the tool channel, on purpose. SYSTEM cards are pushed by
 the tool that did the work (``document_draft`` by ``write_file``,
-``document_grid`` by ``surface_documents``, …) and were never the model's to
-compose; and ``emit_card`` stays bound for deep research. Piloti (chat) no
-longer binds it: its cards travel in the envelope's ``cards`` field only.
+``document_grid`` by ``surface_documents``, …) and are never the model's to
+compose; and ``emit_card`` stays bound for deep research. Piloti (chat) does
+not bind it: its cards travel in the envelope's ``cards`` field only.
 
-A shape the model got wrong is not a round any more either: the pipeline hands
+A shape the model gets wrong is not a round either: the pipeline hands
 the failed object, the validator's clauses and the type's full shape to a
 bounded call on the small card model (``cards/repair.py``) — a few thousand
 tokens instead of a full-context round — and registers what comes back, or
@@ -58,9 +57,9 @@ logger = logging.getLogger(__name__)
 #: The whole catalog's shapes are far too much for a prefix re-sent on every
 #: call. `calculation` is the one content card an answer earns that Markdown
 #: cannot carry and whose shape is easy to get wrong (operands, a `factor`, a
-#: limit, no result field). The cards that stood here before they were
-#: deleted (`legal_basis`, `condition_tree`, `process_map`) are written in the
-#: answer's Markdown now (``catalog.RETIRED_CARD_TYPES``). Every other type
+#: limit, no result field). The retired cards (`legal_basis`,
+#: `condition_tree`, `process_map`) are written in the answer's Markdown instead
+#: (``catalog.RETIRED_CARD_TYPES``). Every other type
 #: keeps its index line, and a miss on one of those is repaired by the small
 #: model rather than by a round.
 ENVELOPE_SHAPE_TYPES: tuple[str, ...] = ("calculation",)
@@ -113,8 +112,7 @@ def render_envelope_cards_contract() -> str:
     the ceiling), the index of every type the model may emit, the full shapes
     of :data:`ENVELOPE_SHAPE_TYPES`, and the placement rule. One home: the
     ``emit_card`` description points here rather than carrying a second copy,
-    which is the register's row-8 rule (a trigger table that exists twice
-    disagrees with itself) applied to the move that made the tool secondary.
+    which applies the rule that a trigger table kept twice disagrees with itself.
     """
     shapes = render_card_details(ENVELOPE_SHAPE_TYPES)
     return "\n\n".join(
@@ -233,8 +231,8 @@ def validate_model_card(payload: object) -> tuple[dict[str, Any] | None, CardRef
         return None, CardRefusal(REFUSED_NOT_AN_OBJECT, type(payload).__name__)
 
     card_type = str(payload.get("type", "?"))
-    # The closed channels first: a system card, or a type that no longer
-    # exists, is refused by its declared type, before a shape miss could send
+    # The closed channels first: a system card, or a type that does not
+    # exist, is refused by its declared type, before a shape miss could send
     # it to the repair model with nothing to repair it into.
     if card_type in SYSTEM_CARD_TYPES:
         logger.warning("card rejected: '%s' is system-emitted", card_type)

@@ -73,7 +73,7 @@ def test_a_bescheid_is_extracted_over_its_pages_and_stored_for_its_document(call
 
 
 @pytest.mark.parametrize("tags", [["Gutachten"], ["Grundriss", "Brandschutz"]])
-def test_a_document_the_tags_type_as_something_else_is_not_read_and_its_old_record_is_dropped(calls, forgotten, tags):
+def test_a_document_the_tags_type_as_something_else_is_not_read_and_its_record_is_dropped(calls, forgotten, tags):
     # A re-typed document must stop answering as a permit: its record goes, without a model call.
     _ingestor(enabled=False, llm=None)._remember_permit(CONFIG, "proj_1", "f.pdf", tags, [_page("1", "x")])
     assert calls == []

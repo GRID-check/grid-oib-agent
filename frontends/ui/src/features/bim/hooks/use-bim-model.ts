@@ -68,11 +68,11 @@ const EXTRACTION_POLL_MS = 4_000
  * The model list request currently in flight per project, shared by everything
  * that asks for it at the same moment.
  *
- * The list stopped being one page's data: the chat welcome asks whether this
- * project has a readable model, the file preview asks which model belongs to a
+ * The list is not one page's data: the chat welcome asks whether this project
+ * has a readable model, the file preview asks which model belongs to a
  * document, its metadata rail asks what the model contains, and every
  * `ifc_viewer` card in a thread asks again. Mounting an answer with two model
- * cards used to fire four identical requests, each spending a point of the
+ * cards would fire four identical requests, each spending a point of the
  * `bim-query` budget on the same rows.
  *
  * Deliberately in-flight only — no TTL. A cache with a lifetime would have to
@@ -105,14 +105,14 @@ export function useProjectBimModels(projectId: string | null): AsyncState<BimMod
   /**
    * Whether the last SUCCESSFUL answer had a model still being read.
    *
-   * Separate from `state.data` because a failed poll tick nulls that, and the
-   * poll below was keyed on it: one 502 in the minute after an upload — the
-   * exact minute this poll exists for — took `extracting` to false, tore the
-   * interval down, and left nothing to start it again. The card then sat on
+   * Kept apart from `state.data`, because a failed poll tick nulls that and the
+   * poll below is keyed on it. One 502 in the minute after an upload, the exact
+   * minute this poll exists for, would take `extracting` to false, tear the
+   * interval down and leave nothing to start it again: the card would sit on
    * "Die Modelle dieses Projekts sind gerade nicht abrufbar" until the reader
-   * reloaded the whole page, for a model that finished extracting seconds
-   * later. A failed tick is a missing answer, not the answer "nothing is
-   * extracting", so it leaves this latch alone and the next tick recovers.
+   * reloaded the page, for a model that finished extracting seconds later. A
+   * failed tick is a missing answer, not the answer "nothing is extracting", so
+   * it leaves this latch alone and the next tick recovers.
    */
   const [extracting, setExtracting] = useState(false)
 
@@ -131,13 +131,13 @@ export function useProjectBimModels(projectId: string | null): AsyncState<BimMod
     if (shownFor.current !== projectId) setExtracting(false)
     // Keep what is on screen while the next answer is in flight.
     //
-    // This effect also runs on every poll tick below, and it used to blank
-    // `data` each time. On a project with one model still extracting — i.e.
-    // for the whole minute after somebody uploads — that emptied the model
-    // list every four seconds, which took `modelId` to null, which unmounted
-    // the canvas, which destroyed the WebGPU device and the WASM kernel. Four
-    // seconds later a fresh presigned URL was minted and the entire model, up
-    // to 149 MB, was downloaded and re-triangulated. On a loop.
+    // This effect also runs on every poll tick below, so it must not blank
+    // `data` each time. Blanking it would, on a project with one model still
+    // extracting (the whole minute after somebody uploads), empty the model list
+    // every four seconds: `modelId` would go to null, the canvas would unmount,
+    // the WebGPU device and the WASM kernel would be destroyed, and four seconds
+    // later a fresh presigned URL would be minted and the entire model, up to
+    // 149 MB, downloaded and re-triangulated. On a loop.
     //
     // A refetch is not a reset: the previous list is the best answer available
     // until a better one arrives, and a stale row is a far smaller lie than a
@@ -168,10 +168,11 @@ export function useProjectBimModels(projectId: string | null): AsyncState<BimMod
   }, [projectId, tick])
 
   // A model the user just uploaded arrives `pending`/`extracting`, and nothing
-  // told the page when that finished — the upload appeared to hang until
-  // somebody reloaded, on exactly the surface whose whole promise is "drop an
-  // IFC in and ask it questions". Polling stops the moment nothing is in
-  // flight, so a page showing only `ready` models makes no requests at all.
+  // tells the page when that finishes, so without polling the upload would
+  // appear to hang until somebody reloaded, on exactly the surface whose whole
+  // promise is "drop an IFC in and ask it questions". Polling stops the moment
+  // nothing is in flight, so a page showing only `ready` models makes no
+  // requests at all.
   useEffect(() => {
     if (!extracting) return
     const timer = setInterval(() => setTick((value) => value + 1), EXTRACTION_POLL_MS)
@@ -204,12 +205,12 @@ function fetchDocumentModel(documentId: string): Promise<{ model: BimModelHeader
 /**
  * The model read from ONE document, wherever that document lives.
  *
- * `useProjectBimModels` answers "which models may this project see", and every
- * model surface used to be built on it — which quietly made a project a
- * prerequisite for looking at a model at all. The org-wide Archiv has no
- * project, so a model uploaded there could not be resolved by any surface in
- * the Archiv: the file was parsed, indexed and listed as ready, and the preview
- * beside it said there was no model.
+ * `useProjectBimModels` answers "which models may this project see". Building
+ * the model surfaces on it would quietly make a project a prerequisite for
+ * looking at a model at all. The org-wide Archiv has no project, so a model
+ * uploaded there could not be resolved by any surface in the Archiv: the file
+ * would be parsed, indexed and listed as ready, and the preview beside it would
+ * say there was no model.
  *
  * Same polling contract as the project list, because the wait is the same one:
  * a freshly uploaded model arrives `extracting` and nothing else would tell the
@@ -283,13 +284,13 @@ export async function walkBimElements(
   signal: AbortSignal
 ): Promise<BimViewerElement[]> {
   const PAGE = BIM_ELEMENTS_PAGE_LIMIT
-  // Pages fetched at once. The walk was strictly sequential, so its wall
-  // clock was `pages × round trip` — on a real model, 200 round trips of
-  // latency spent one at a time, and the element table sat empty for all of
-  // it. Six is chosen against the server, not the client: it is comfortably
-  // inside `bim-query`'s burst clause, and the pool that serves these
-  // queries has ten connections, so a wider fan-out would just queue in
-  // Postgres while starving every other request on the page.
+  // Pages fetched at once. A strictly sequential walk would take `pages × round
+  // trip` of wall clock: on a real model, 200 round trips of latency spent one
+  // at a time, with the element table empty for all of it. Six is chosen against
+  // the server, not the client: it is comfortably inside `bim-query`'s burst
+  // clause, and the pool that serves these queries has ten connections, so a
+  // wider fan-out would just queue in Postgres while starving every other
+  // request on the page.
   const CONCURRENCY = 6
 
   const fetchPage = (offset: number) =>
@@ -366,8 +367,7 @@ export function useBimElements(
    * be clicked (a pick resolves an expressId against this list and finds
    * nothing), no storey filters, no highlight resolves, and the stage says the
    * agent's answer names elements this model does not have. Every one of those
-   * is silent. The source hook has had a retry since the day it learned to
-   * report its own failures; this one never did.
+   * is silent, so `reload` is the way out.
    */
   const [tick, setTick] = useState(0)
 
@@ -377,9 +377,9 @@ export function useBimElements(
       return
     }
     let cancelled = false
-    // Navigating away mid-walk left every outstanding page in flight, each one
-    // still costing a query and a rate-limit point for a component that no
-    // longer exists.
+    // Navigating away mid-walk would leave every outstanding page in flight,
+    // each one still costing a query and a rate-limit point for a component
+    // that no longer exists.
     const controller = new AbortController()
     setState({ data: null, isLoading: true, error: null })
 
@@ -407,7 +407,7 @@ export function useBimElements(
  * `globalIds` is what the agent can write when the answer is about a handful of
  * elements it named. It stops being usable the moment the answer is about a
  * set: "the 420 external walls" cannot travel as 420 ids through an LLM's
- * context, so the card highlighted whatever fitted and quietly under-reported
+ * context, so a card would highlight whatever fitted and quietly under-report
  * the rest.
  *
  * `match` is the same filter grammar the agent already passed to `ifc_query` to
@@ -481,7 +481,7 @@ export function useBimHighlightGroups(
           })
         } catch {
           // Per group, not per card. `Promise.all` rejects on the first
-          // failure, so one bad filter used to discard every group that had
+          // failure, so one bad filter would discard every group that had
           // already resolved — the opposite of what this fallback promises.
           failed = true
           next.push(literal[index])
@@ -564,19 +564,18 @@ export function useBimElementDetail(
  *
  * ## Why this returns a state and not a string
  *
- * It used to return `string | null`, mapping every failure to `null`. Both
- * consumers then rendered that as something it was not: the stage showed an
- * indeterminate progress bar forever, and the file preview said "Der Viewer
+ * A `string | null` would map every failure to `null`, and both consumers would
+ * then render that as something it was not: the stage would show an
+ * indeterminate progress bar forever, and the file preview would say "Der Viewer
  * benötigt WebGPU" — on a branch where WebGPU had already been ruled out one
- * line earlier, so the sentence was provably false. A 403 from a withdrawn
- * feature flag, a 500 and a dropped connection all looked like loading.
+ * line earlier, so the sentence would be provably false. A 403 from a withdrawn
+ * feature flag, a 500 and a dropped connection would all look like loading.
  *
  * `reload` is the other half. The URL has a ten-minute TTL and is minted
- * exactly once, so a viewport left open past it — or one whose GPU device was
- * taken away by a driver reset — had no way back except closing the whole
- * stage, which nobody would think to try. Re-signing produces a NEW url, and a
- * new url is what resets the viewport's stored status and remounts the canvas;
- * the machinery was already there with nothing to trigger it.
+ * exactly once, so a viewport left open past it, or one whose GPU device was
+ * taken away by a driver reset, needs a way back. Re-signing produces a NEW url,
+ * and a new url is what resets the viewport's stored status and remounts the
+ * canvas, so `reload` re-signs and that is the way back.
  */
 export function useBimModelSource(
   modelId: string | null,
@@ -629,12 +628,10 @@ function useModelQuery<T>(
   /**
    * Bumped by `reload`.
    *
-   * Every panel built on this hook rendered one red sentence and stopped. The
-   * drawer's tab state is sticky by design, so switching away and back does
-   * not refetch, and the request key is unchanged — the only recovery was
-   * closing the whole stage and reopening it, which nothing suggested. The
-   * stage's own comment states the rule these four panels broke: "Every error
-   * state in this viewer used to be terminal."
+   * A panel built on this hook must not end in one red sentence. The drawer's
+   * tab state is sticky by design, so switching away and back does not refetch,
+   * and the request key is unchanged. Without `reload` the only recovery would
+   * be closing the whole stage and reopening it.
    */
   const [tick, setTick] = useState(0)
   const body = request ? JSON.stringify(request) : null
@@ -688,13 +685,13 @@ const PROFILE_REQUEST = { op: 'profile' } as const
 /**
  * The tables, WITH the flag saying whether they cover the whole building.
  *
- * The query layer computes `truncated` for every one of these — its own
- * comment calls the banner "the only thing stopping 'was hat sich
- * verschlechtert' being answered from half a building" — and the selectors
- * dropped it on the floor. A Raumbuch's `Gesamt` row was then printed as a
- * building total over however many rooms fitted under the cap, and
- * "Keine Anforderung hat ihren Status geändert" read identically for "nothing
- * regressed" and "we compared half of each revision".
+ * The query layer computes `truncated` for every one of these, and the
+ * selectors must carry it through: the banner is the only thing stopping "was
+ * hat sich verschlechtert" being answered from half a building. Without the
+ * flag a Raumbuch's `Gesamt` row would print as a building total over however
+ * many rooms fitted under the cap, and "Keine Anforderung hat ihren Status
+ * geändert" would read identically for "nothing regressed" and "we compared
+ * half of each revision".
  */
 const selectSchedule = (
   body: BimQueryResponse
@@ -812,10 +809,9 @@ export function useBimCompliance(
   /**
    * The ledger could not be read.
    *
-   * This used to be swallowed on the grounds that "no confirmations readable
-   * is the same as none recorded: the catalogue's verdict is never wrong, only
-   * less complete". That is true of the VERDICTS and false of the record: a
-   * rule somebody signed off renders with no signature and offers "Manuell
+   * A failure to read the ledger is reported, not swallowed. Treating it as
+   * "none recorded" would be true of the VERDICTS and false of the record: a
+   * rule somebody signed off would render with no signature and offer "Manuell
    * bestätigen" again, on the one surface whose whole job is to say who has
    * already answered what. "Nobody has signed this" and "we could not check"
    * are different sentences.
@@ -1052,11 +1048,11 @@ export function useProjectRuleFacts(projectId: string | null): {
         const raw = profile.facts ?? {}
         // The brief stores the canonical `GK1`…`GK5` — that is the vocabulary
         // the card schema publishes and the one the chat writes. `Number()`
-        // over it is NaN, so a CORRECTLY filled brief read as "no
-        // Gebäudeklasse": every rule that depends on it stood down as "nicht
-        // einschlägig" on this side, while the agent — which passes the number
-        // — returned real verdicts. The compliance card and the answer above
-        // it contradicted each other on the same screen.
+        // over it is NaN, and a CORRECTLY filled brief would read as "no
+        // Gebäudeklasse": every rule that depends on it would stand down as
+        // "nicht einschlägig" on this side, while the agent — which passes the
+        // number — returned real verdicts. The compliance card and the answer
+        // above it would contradict each other on the same screen.
         //
         // A bare number is still accepted: nothing forbids one, and refusing
         // it would trade one silent stand-down for another.
@@ -1070,8 +1066,8 @@ export function useProjectRuleFacts(projectId: string | null): {
       .catch(() => {
         // The previous project's facts are not this one's, and they are not a
         // reading of a brief nobody could load. Left in place, the catalogue
-        // ran against another project's Gebäudeklasse while the panel said the
-        // rules had stood down for want of one.
+        // would run against another project's Gebäudeklasse while the panel
+        // said the rules had stood down for want of one.
         if (!cancelled) setFacts({ gebaeudeklasse: null, hauptnutzung: null })
         // For the RULES this is the same situation as a profile that does not
         // carry the fact: they stand down, which is correct either way.
@@ -1098,8 +1094,8 @@ export function useProjectRuleFacts(projectId: string | null): {
       Nothing is "missing" from a brief nobody managed to read — and nothing is
       missing from one nobody has read YET.
 
-      `facts` starts `{null, null}`, so before the request settles this said
-      both facts were absent. That is not a hypothetical frame: a compliance
+      `facts` starts `{null, null}`, so before the request settles this would
+      say both facts are absent. That is not a hypothetical frame: a compliance
       card's "im Modell zeigen" link carries `?tab=compliance`, so the drawer is
       open at mount and the panel states "Einige Regeln hängen an
       Projektangaben, die im Projekt-Briefing fehlen: Gebäudeklasse,
@@ -1109,10 +1105,10 @@ export function useProjectRuleFacts(projectId: string | null): {
     */
     if (failed || !ready) return []
     // KEYS, not German literals. Interpolated into the English sentence they
-    // produced "Some rules depend on project data this brief does not carry:
-    // Gebäudeklasse, Hauptnutzung." on a screen whose own dictionary
-    // translates the second of those as "Main use" — one English sentence,
-    // two names for one fact. The panel resolves them.
+    // would produce "Some rules depend on project data this brief does not
+    // carry: Gebäudeklasse, Hauptnutzung." on a screen whose own dictionary
+    // translates the second as "Main use": one English sentence, two names for
+    // one fact. The panel resolves them.
     const gaps: BimRuleFactKey[] = []
     if (facts.gebaeudeklasse === null) gaps.push('gebaeudeklasse')
     if (facts.hauptnutzung === null) gaps.push('hauptnutzung')
@@ -1146,14 +1142,13 @@ export function pickDefaultModel(models: readonly BimModelHeaderView[]): BimMode
  * difference between "you have this twice" and "your upload is gone".
  *
  * `notReady` is the third such distinction. Callers pass only READY models,
- * because a model still being read has no rows to answer with — so a name that
- * matches a `pending`, `extracting` or `failed` model resolved to nothing and
- * the card said "Das referenzierte Modell ist in diesem Projekt nicht
- * verfügbar". For an upload that is thirty seconds from finishing that is
- * needlessly alarming, and for one whose extraction FAILED it is simply false
- * and hides the only thing the reader could act on. The file preview separates
- * all three and its comment says they must not be conflated; the chat cards
- * did not.
+ * because a model still being read has no rows to answer with. A name that
+ * matches a `pending`, `extracting` or `failed` model must not resolve to
+ * nothing, because the card would then say "Das referenzierte Modell ist in
+ * diesem Projekt nicht verfügbar". For an upload thirty seconds from finishing
+ * that is needlessly alarming, and for one whose extraction FAILED it is simply
+ * false and hides the only thing the reader could act on. The file preview
+ * keeps all three apart, and the chat cards must too.
  */
 export function resolveModelByFilename(
   models: readonly BimModelHeaderView[],

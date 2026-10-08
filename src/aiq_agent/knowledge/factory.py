@@ -169,28 +169,25 @@ def get_retriever(
     Factory function to get a configured retriever adapter (cached per identity).
 
     Lifetime: ONE instance per resolved ``(backend, config)`` identity, for the
-    life of the process. This function used to construct a fresh adapter on
-    every call, which quietly defeated everything the adapter caches: its index
-    cache, its query-embedding LRU and its static-result cache are instance
-    state, and ``_get_retriever`` runs once per ``WorkflowBuilder`` build — that
-    is, once per agent run. Every run therefore started with empty caches and
-    dropped them at the end, so the 1-hour result-cache TTL was unreachable and
-    the cross-conversation hit rate was exactly zero.
+    life of the process. The adapter's caches (its index cache, its
+    query-embedding LRU and its static-result cache) are instance state, and
+    ``_get_retriever`` runs once per ``WorkflowBuilder`` build, that is once per
+    agent run. A fresh adapter per call would start every run with empty caches
+    and make the 1-hour result-cache TTL unreachable.
 
-    Memory: the instance is now long-lived, so its caches are too. The
+    Memory: the instance is long-lived, so its caches are too. The
     query-embedding LRU dominates — at 3072 dimensions one cached embedding is
     ~97 KiB, so a full ``AIQ_QUERY_EMBED_CACHE_SIZE`` (512) is ~49 MiB. That
-    ~49 MiB is now per distinct configuration (in practice one, sometimes two)
-    instead of per concurrent agent run, which is a reduction, not a new cost —
-    but it is resident rather than transient, and ``AIQ_QUERY_EMBED_CACHE_SIZE``
-    is the knob if a replica's footprint needs trimming.
+    ~49 MiB is per distinct configuration (in practice one, sometimes two) and
+    resident for the life of the process; ``AIQ_QUERY_EMBED_CACHE_SIZE`` is the
+    knob if a replica's footprint needs trimming.
 
     Correctness: a long-lived result cache is only safe because cache entries
     are keyed on the collection write-version from
     ``aiq_agent.knowledge.collection_version``, which is shared across replicas.
     Without that, caching an adapter here would extend a same-process
     invalidation window into a fleet-wide staleness window bounded only by the
-    TTL. The two changes are one change; do not revert either alone.
+    TTL. Both halves are needed: do not drop either alone.
 
     Thread-safe: retrieval runs under ``asyncio.to_thread``, so several worker
     threads can reach a cold factory at once. Construction is double-checked
@@ -432,11 +429,11 @@ def get_active_retriever() -> BaseRetriever:
 def clear_active_retriever() -> None:
     """Drop every cached retriever — the active one AND the per-identity cache (for testing).
 
-    Both, deliberately. ``get_retriever`` now caches an instance per
+    Both, deliberately. ``get_retriever`` caches an instance per
     ``(backend, config)`` for the life of the process, so clearing only
     ``_ACTIVE_RETRIEVER`` would leave the next lazy build handing back the very
-    instance (and the very warm caches) the previous test had populated. This is
-    the single reset hook tests already call; it has to actually reset.
+    instance (and its warm caches) the previous test populated. This is the
+    single reset hook tests call, so it resets both.
     """
     global _ACTIVE_RETRIEVER
     _ACTIVE_RETRIEVER = None
@@ -451,22 +448,21 @@ def clear_active_retriever() -> None:
 # using configurable SQLite/PostgreSQL. Backends call register_summary() after
 # ingestion; agents call get_available_documents() for prompt context.
 #
-# Back-compat: the DB *file* (default ``summaries.db``), the ``AIQ_SUMMARY_DB``
-# env var, and the NAT ``summary_db`` config field keep their names so existing
-# databases/deployments are not orphaned — only the misnamed TABLE and store
-# CLASS were renamed to ``document_metadata`` (see document_metadata_store.py).
+# Names kept for compatibility: the DB *file* (default ``summaries.db``), the
+# ``AIQ_SUMMARY_DB`` env var and the NAT ``summary_db`` config field, so existing
+# databases and deployments still resolve. The table and store class are
+# ``document_metadata`` (see document_metadata_store.py).
 
 _document_metadata_store: "DocumentMetadataStore | None" = None
-# Guards lazy init of _document_metadata_store. The default-init path is now
-# reachable from thread-pool workers (knowledge_search formats results via
+# Guards lazy init of _document_metadata_store. The default-init path is reached
+# from thread-pool workers (knowledge_search formats results via
 # asyncio.to_thread), so double-check under this lock to prevent two concurrent
 # cold-start callers each constructing a store/engine and one clobbering the
 # other. Steady state re-checks without contention.
 _document_metadata_store_lock = threading.Lock()
 
-# Default DB URL (used if configure_summary_db not called). The file keeps its
-# historical name so a default-path deployment's existing rows are migrated in
-# place, not orphaned.
+# Default DB URL (used if configure_summary_db not called). The file keeps the
+# name ``summaries.db`` so a default-path deployment's existing rows are found.
 _DEFAULT_METADATA_DB = "sqlite+aiosqlite:///./summaries.db"
 
 

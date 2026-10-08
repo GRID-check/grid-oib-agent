@@ -45,7 +45,7 @@ describe.skipIf(!url)('BIM queries against live Postgres', () => {
   /**
    * A DIFFERENT building in the same project — not a revision of the first.
    *
-   * The ordinary case, and the one the confirmation key got wrong: `Haus-A`
+   * The ordinary case, and the one a confirmation key must keep apart: `Haus-A`
    * and `Nebengebäude` side by side.
    */
   let otherBuildingId: string
@@ -144,10 +144,10 @@ describe.skipIf(!url)('BIM queries against live Postgres', () => {
     }
 
     const { elements: extracted, ...summary } = index
-    // A null-valued property, which the two `search_keys` writers used to
-    // disagree about: SQL emitted `[null]`, TypeScript omitted the key, and a
-    // `{operator: 'exists'}` filter therefore matched or did not depending on
-    // which one had written the row.
+    // A null-valued property. The two `search_keys` writers must agree on it:
+    // if SQL emits `[null]` while TypeScript omits the key, a
+    // `{operator: 'exists'}` filter matches or not depending on which one wrote
+    // the row.
     const elements = extracted.map((element, position) =>
       position === 0
         ? {
@@ -321,11 +321,11 @@ describe.skipIf(!url)('BIM queries against live Postgres', () => {
         UPDATE bim_models SET element_count = ${BIG_MODEL_ELEMENTS} WHERE id = ${bigModelId}::uuid
       `)
     )
-    // `completeBimModel` ran with an empty element list, so it stored a
-    // rule-input projection describing ZERO elements, and the raw insert above
-    // did not update it. A `compliance` query would take the fast path and
-    // report a catalogue run over nothing as complete and untruncated. No test
-    // does that today; clearing the column means none can start to.
+    // Clear the stored rule-input projection. Left in place it would describe
+    // ZERO elements (the empty list `completeBimModel` ran with), and a
+    // `compliance` query would take the fast path and report a catalogue run
+    // over nothing as complete and untruncated. Cleared, the query computes from
+    // the stored elements instead.
     await withPlatformAccess('drop the empty rule-input projection', () =>
       db.execute(sql`UPDATE bim_models SET rule_inputs = NULL WHERE id = ${bigModelId}::uuid`)
     )
@@ -524,7 +524,7 @@ describe.skipIf(!url)('BIM queries against live Postgres', () => {
       { properties: [{ set: 'Qto_WallBaseQuantities', name: 'NetSideArea', operator: 'exists', source: 'quantity' }] },
       // The null-valued property. `exists` asks only about the NAME, so this
       // has to match the wall carrying `AcousticRating: null` — and it is the
-      // filter the two `search_keys` writers used to answer differently.
+      // filter the two `search_keys` writers must answer identically.
       { properties: [{ name: 'AcousticRating', operator: 'exists', source: 'property' }] },
       { storeys: ['Erdgeschoss'] },
       { storeys: ['ERDGESCHOSS'], properties: [{ name: 'FireRating', operator: 'exists', source: 'property' }] },
@@ -624,9 +624,9 @@ describe.skipIf(!url)('BIM queries against live Postgres', () => {
   })
 
   it('samples the property catalog of a large model, and says it sampled', async () => {
-    // The old query unnested every element: 11.6 M rows on a 400 000-element
-    // model, two sorts over a 4 MB `work_mem`, past the 30 s statement timeout
-    // and out as HTTP 500. This is the bound that replaced it.
+    // Unnesting every element would be 11.6 M rows on a 400 000-element model:
+    // two sorts over a 4 MB `work_mem`, past the 30 s statement timeout, out as
+    // HTTP 500. The bound below is what prevents that.
     const result = await runBimQuery(
       { op: 'properties', maxValues: 10 },
       { modelId: bigModelId, organizationId: ORG }
@@ -793,10 +793,10 @@ describe.skipIf(!url)('BIM queries against live Postgres', () => {
       metric: 'count',
       limit: 50,
     })
-    // `measured` and `truncated` ride on every group now: a `sum` skips nulls,
-    // so "250 über 100 Bauteile" was a sum of ten values asserted over a
-    // hundred elements, and a group list cut at the limit reads as the whole
-    // Flächenaufstellung. For a plain count `measured` equals `elements`.
+    // `measured` and `truncated` ride on every group: a `sum` skips nulls, so a
+    // total over ten values would read as a sum over a hundred elements, and a
+    // group list cut at the limit reads as the whole Flächenaufstellung. For a
+    // plain count `measured` equals `elements`.
     expect(result.groups).toEqual([
       { key: null, elements: 5, metric: null, measured: 5, truncated: false },
     ])
@@ -920,16 +920,13 @@ describe.skipIf(!url)('BIM queries against live Postgres', () => {
     /*
       The conservation law, actually checked.
 
-      This used to read `missing + (value === null ? 0 : 1) > 0`, which is `≥ 1`
-      for any row that exists at all — the fixture's walls do publish
-      `NetSideArea`, so the right-hand term was always 1 and no implementation
-      could fail it. The invariant it claimed to test — that a row accounts for
-      every element in it, a sum plus its blind spot — was never checked, and
-      this is the only place it runs against real SQL.
+      A row accounts for every element in it, a sum plus its blind spot, so
+      `missing` cannot exceed `elements`. This is the only place it runs against
+      real SQL.
     */
     expect(walls?.missing).toBeLessThanOrEqual(walls?.elements ?? 0)
     // Three of the fixture's five walls publish no `NetSideArea` — a figure
-    // the old assertion could not have caught either way, and exactly the
+    // an assertion on the sum alone could not catch either way, and exactly the
     // "sum plus its blind spot" the comment above is about.
     expect(walls?.missing).toBe(3)
     expect(walls?.value).toBeGreaterThan(0)
@@ -1103,11 +1100,10 @@ describe.skipIf(!url)('BIM queries against live Postgres', () => {
   })
 
   it('keeps one building’s signature when another building is confirmed', async () => {
-    // The failure 0045 exists for. The key used to be (org, project, rule), so
-    // a project holding two BUILDINGS — the ordinary case — shared one row:
-    // confirming a rule on the second updated the first's in place, and the
-    // architect who signed it off last month opened it again to find no record
-    // that they ever had.
+    // The failure 0045 exists for: keyed by (org, project, rule), a project
+    // holding two BUILDINGS — the ordinary case — shares one row. Confirming a
+    // rule on the second would update the first's in place, and an architect who
+    // signed the first off would find no record of it.
     const repository = await import('./repository')
     await repository.upsertBimCheckConfirmation({
       organizationId: ORG,
@@ -1224,10 +1220,10 @@ describe.skipIf(!url)('BIM queries against live Postgres', () => {
   })
 
   it('reports a model that is not ready as a retryable 409, not a crash', async () => {
-    // `BimModelNotReadyError` was a bare `Error`, so `isAuthzError` did not
-    // match it and the handler returned HTTP 500 "Internal server error" with
-    // a stack per request. A 250 MB upload spends its first minute extracting;
-    // every poll in that window read to the user as a crashed server.
+    // A model still extracting is a normal state, not a failure:
+    // `BimModelNotReadyError` must map to a status the handler understands. As a
+    // bare `Error` it would not match `isAuthzError`, and every poll during a
+    // multi-minute extraction would return HTTP 500 and read as a crashed server.
     const { BimModelNotReadyError: Err } = await import('./query')
     const extracting = new Err('extracting', 'Model is still being extracted')
     const missing = new Err('failed', 'Model not found')

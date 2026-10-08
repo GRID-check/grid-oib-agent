@@ -39,7 +39,7 @@ class TestTheRecord:
     def test_nothing_is_recorded_without_a_restricted_scope(self):
         assert merged(ShownNotes(), ["Honorar 48.000"], ["proj_1"]) == ShownNotes()
 
-    def test_a_note_that_no_longer_fits_restricts_every_later_memory(self, monkeypatch):
+    def test_a_note_evicted_by_the_cap_restricts_every_later_memory(self, monkeypatch):
         monkeypatch.setattr(S, "MAX_NOTES", 2)
         shown = merged(ShownNotes(), ["eins", "zwei"], [A])
         shown = merged(shown, ["drei"], [B])

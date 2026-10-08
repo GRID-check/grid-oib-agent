@@ -14,7 +14,7 @@ libffi behind it to serve one call. So the plan is drawn here directly, from the
 same triangles every operator measures, with Pillow (already a dependency, pure
 wheels).
 
-That turned out to be the better trade for a second reason. `draw` renders the
+That is also the better trade, for a second reason. `draw` renders the
 whole storey and nothing else; what an agent actually needs is usually *this
 window in that wall* — the ability to **isolate**, which is what a person does
 in a viewer before they answer. `highlight` does that, and it is the parameter
@@ -136,8 +136,8 @@ def _font(size: int) -> Any:
 def _shorten(label: str, limit: int = 34) -> str:
     """A type name trimmed to something that fits beside a marker.
 
-    `Windows_Sgl_Plain:1810x1210mm:286105` ran off the right edge and across the
-    plan. The tail is the part worth keeping — it carries the size and the
+    `Windows_Sgl_Plain:1810x1210mm:286105` would run off the right edge and across
+    the plan. The tail is the part worth keeping — it carries the size and the
     instance number — so the head is what gets dropped.
     """
     label = (label or "").strip()
@@ -222,9 +222,8 @@ def _segments_at_z(triangles: np.ndarray, z: float) -> list[tuple[float, float, 
 
     Triangles lying exactly IN the plane are skipped rather than drawn. They are
     the top face of a slab whose surface happens to coincide with the cut, and
-    drawing them fills the entire storey with ink — which is what a first
-    implementation did to the sample house, producing a solid black page that
-    looked like a rendering failure rather than a bad cut height.
+    drawing them fills the entire storey with ink: a solid black page that looks
+    like a rendering failure rather than a bad cut height.
     """
     if triangles is None or len(triangles) == 0:
         return []
@@ -363,15 +362,14 @@ def plan(
             continue
         ifc_type = element.is_a()
         own_storey = model.storey_of(element)
-        # The storey filter holds in restricted mode too. `only` used to skip it,
-        # so `plan(storey="Ground Floor", only=[<id on Roof>])` drew that element
-        # at its own world coordinates onto a page captioned „Ground Floor,
-        # Schnitt 1.20 m" — on the sample house the Roof storey's room outline
-        # 09J5N7xMHBfQZeQGAEMota came back as rooms=['Roof'] on the Ground Floor
-        # plan, a room that is 2.5 m above the cut. A drawing is ONE storey at ONE
-        # cut height; an element from another storey drawn on it is a false
-        # statement about where that element is, and `only` selects within the
-        # drawing rather than overriding what the drawing is of.
+        # The storey filter holds in restricted mode too: `only` selects within
+        # the drawing and must not skip the storey filter, or
+        # `plan(storey="Ground Floor", only=[<id on Roof>])` would draw that
+        # element at its own world coordinates onto a page captioned „Ground
+        # Floor, Schnitt 1.20 m". A drawing is ONE storey at ONE cut height; an
+        # element from another storey drawn on it is a false statement about
+        # where that element is, and `only` selects within the drawing rather
+        # than overriding what the drawing is of.
         if own_storey is not None and own_storey.GlobalId != target.GlobalId:
             continue
 
@@ -471,9 +469,9 @@ def plan(
         px, py = to_px(float(centre[0]), float(centre[1]))
         canvas.ellipse([px - 7, py - 7, px + 7, py + 7], outline=_HIGHLIGHT, width=3)
 
-        # OFF the element, not beside it. Placed to the right it ran off the
-        # page; flipped left it printed straight across the red bar it was
-        # labelling — a marker that hides what it marks. So it goes above or
+        # OFF the element, not beside it. Placed to the right it runs off the
+        # page; flipped left it prints straight across the red bar it labels —
+        # a marker that hides what it marks. So it goes above or
         # below, whichever is further from the edge, with x clamped so a long
         # type name cannot leave the canvas either way.
         text = _shorten(model.label(element) or global_id)

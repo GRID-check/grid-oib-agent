@@ -64,7 +64,7 @@ describe('grid-cards value round-trip', () => {
     expect(parsePreferredCardTypes('calculation,calculation')).toEqual(['calculation'])
   })
 
-  test('drops names the catalogue no longer offers', () => {
+  test('drops names the catalogue does not offer', () => {
     expect(parsePreferredCardTypes('calculation,memory_proposal,gibt_es_nicht')).toEqual([
       'calculation',
     ])

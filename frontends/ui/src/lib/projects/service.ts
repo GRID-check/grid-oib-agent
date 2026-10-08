@@ -60,11 +60,11 @@ import {
 /**
  * Projects the caller can actually reach, not merely the ones their tenant owns.
  *
- * The listing used to return every non-deleted project in the organization while
- * `getProject` gated on per-project FGA — so the detail view was protected and
- * the list that fed it was not. Any member enumerated every project name and id
- * in the tenant, which is exactly the distinction `project-viewer` /
- * `project-editor` / `project-admin` exist to draw (ADR-0038).
+ * The listing applies the same per-project FGA as `getProject`: a member who
+ * cannot open a project does not see it in the list either. Otherwise any member
+ * could enumerate every project name and id in the tenant, which is exactly the
+ * distinction `project-viewer` / `project-editor` / `project-admin` exist to
+ * draw (ADR-0038).
  *
  * Callers holding `org:projects:administer` keep seeing everything (the same
  * named bypass `requireProjectAccess` applies), and the checks run concurrently so the page costs one round of
@@ -133,10 +133,10 @@ async function listProjectsHolding(
  * counts, and when the caller themselves last worked in each of them.
  *
  * Exists so the page has a service call for its whole view instead of a reason
- * to open the database itself. The page previously ran its own
- * `select().from(projects)` filtered only by organization, which bypassed the
- * FGA filtering in {@link listProjects} and put every project in the tenant on
- * screen for every member — the precise regression ADR-0038 closed. Counting is
+ * to open the database itself. The page must not run its own
+ * `select().from(projects)` filtered only by organization: that bypasses the
+ * FGA filtering in {@link listProjects} and puts every project in the tenant on
+ * screen for every member (ADR-0038). Counting is
  * derived from the filtered list for the same reason.
  *
  * `viewerActivity` is per-CALLER by construction (see
@@ -174,11 +174,11 @@ export async function getProjectsGridData(
  *
  * Four steps across two systems that share no transaction: insert the row,
  * create the FGA resource, store its id, grant the creator `project-admin`. A
- * failure after the first one used to leave a project row with no FGA resource
+ * failure after the first one would leave a project row with no FGA resource
  * and no admin — which, because per-project access is FGA, is a project its own
- * creator cannot open. The only way back in was the org-wide bypass, and there
- * is no repair path in the product, so the project was simply lost while still
- * counting against the tenant.
+ * creator cannot open. The only way back in would be the org-wide bypass, and
+ * there is no repair path in the product, so the project would be lost while
+ * still counting against the tenant.
  *
  * Postgres is the side that can be undone cleanly, so it is: on any failure the
  * row is removed and the caller sees the error. A leaked WorkOS resource with no
@@ -190,8 +190,8 @@ export async function createProject(
   input: { name: string },
   // Optional because the projects-page server action has no `Request` to pass.
   // `recordAuditEvent` already treats it as optional (it only enriches the event
-  // context with IP + user agent), so requiring it here was the sole reason that
-  // action re-implemented this whole function instead of calling it.
+  // context with IP + user agent), so the action can call this function rather
+  // than re-implement it.
   request?: Request
 ): Promise<Project> {
   const workos = getWorkOS()

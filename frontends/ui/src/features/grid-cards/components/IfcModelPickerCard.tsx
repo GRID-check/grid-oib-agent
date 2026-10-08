@@ -3,10 +3,8 @@
 /**
  * The `ifc_model_picker` card: the project's models as tiles you click to open.
  *
- * "Zeig mir das Modell" used to be answered with a prose bullet list of file
- * names the user had to read and retype — a round-trip through the model for
- * something that is just navigation. This card replaces that: it lists the
- * project's models and each tile is a `<Link>` into the viewer
+ * "Zeig mir das Modell" is navigation, so it gets tiles, not a prose list of
+ * file names to read and retype. Each tile is a `<Link>` into the viewer
  * (`buildModelHref`), so a click opens the building directly, client-side, with
  * no second turn.
  *

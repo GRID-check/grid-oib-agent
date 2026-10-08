@@ -1,9 +1,9 @@
 """Unit tests for visual/vector PDF-page rendering + drawing captioning.
 
-Covers the fix for image-only / vector CAD PDFs (e.g. an architectural
+Covers image-only / vector CAD PDFs (e.g. an architectural
 "Perspektivischer Schnitt") whose pages carry thousands of vector paths but
 almost no extractable text — often only a licence watermark. The text and
-embedded-image extractors both miss such pages, so the document summary used to
+embedded-image extractors both miss such pages, so the document summary would
 describe the watermark ("VECTORWORKS EDUCATIONAL VERSION ...") instead of the
 drawing.
 
@@ -126,7 +126,7 @@ class TestScrubWatermarkPhrases:
 class TestGenericVlmPromptWatermarkExclusion:
     """The generic image-caption prompt (used for standalone JPG/PNG and
     PDF-embedded rasters) must instruct the model to exclude watermark/licence
-    text — the drawing path already does, the generic path did not."""
+    text, as the drawing path does."""
 
     def _capture_prompt(self, monkeypatch, *, extract_charts):
         captured = {}
@@ -160,7 +160,6 @@ class TestGenericVlmPromptWatermarkExclusion:
         assert "VECTORWORKS EDUCATIONAL VERSION" in prompt
         # Shifts toward content/meaning rather than transcribing all visible text.
         assert "content" in prompt.lower() or "CONTENT" in prompt
-        # The old "any text visible" transcription instruction is gone.
         assert "any text visible" not in prompt.lower()
 
 
@@ -359,8 +358,8 @@ class TestRenderVisualPagesNoVlm:
         assert len(out) == 2
 
     def test_render_cap_says_which_pages_it_drops(self, monkeypatch, caplog):
-        # Issue #437: a plan set past the cap indexed its later sheets as
-        # text only while reporting nothing. The cap stays; the silence goes.
+        # Sheets past the cap are reported, not silently indexed as text only.
+        # The cap stays; the silence does not.
         import logging
 
         from knowledge_layer.llamaindex import processing as _processing
@@ -435,7 +434,7 @@ def _wait_terminal(ing, job_id, timeout=30):
 
 class TestRunIngestionDrawingBranch:
     def test_summary_comes_from_drawing_not_watermark(self, tmp_path, monkeypatch, ingestor, summary_db):
-        """The user-reported bug: a watermark-only vector PDF must be summarised
+        """A watermark-only vector PDF must be summarised
         from its rendered-page drawing description, never from the watermark."""
         from aiq_agent.knowledge import get_available_documents
 
@@ -563,9 +562,9 @@ class TestRunIngestionDrawingBranch:
         assert ingestor.get_document_visual_details("coll", "plan.pdf") == []
 
     def test_visual_details_carries_how_many_depictions_share_the_sheet(self, monkeypatch, ingestor):
-        """Issue #440: the backend knows `segment_count` per chunk but dropped
-        it, so the preview could not say which of a sheet's depictions a row
-        is. Rows without the key (pre-segment chunks) read as a single one."""
+        """The backend knows `segment_count` per chunk and must pass it on, so the
+        preview can say which of a sheet's depictions a row is. Rows without the key
+        (pre-segment chunks) read as a single one."""
 
         class _FakeCollection:
             def get(self, where, include):
@@ -690,8 +689,8 @@ class TestRunIngestionEmbedsAndChecksWithTheWholePage:
         assert _wait_terminal(ingestor, job_id).is_success
 
     def test_a_table_page_is_judged_by_its_table_text_too(self, tmp_path, monkeypatch, ingestor, summary_db):
-        """The heuristic got the text with its captioned tables cut out, so a
-        table page read as text-sparse and was captioned as a drawing."""
+        """The heuristic gets the text with its captioned tables cut out: otherwise a
+        table page reads as text-sparse and is captioned as a drawing."""
         render = MagicMock(return_value=[])
 
         self._ingest_table_page(tmp_path, monkeypatch, ingestor, render)
@@ -701,8 +700,8 @@ class TestRunIngestionEmbedsAndChecksWithTheWholePage:
         assert len(page_texts[1]) >= adapter.VISUAL_PAGE_MIN_TEXT_CHARS
 
     def test_the_index_is_built_with_the_ingestors_own_embed_model(self, tmp_path, monkeypatch, ingestor, summary_db):
-        """Passed explicitly, never read off the global ``Settings``, which the
-        retriever once set to its 3 s query model."""
+        """Passed explicitly, never read off the global ``Settings``, and the retriever's
+        3 s query model must never be installed there."""
         from llama_index.core import VectorStoreIndex
 
         self._ingest_table_page(tmp_path, monkeypatch, ingestor, MagicMock(return_value=[]))

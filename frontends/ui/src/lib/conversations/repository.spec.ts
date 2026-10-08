@@ -55,9 +55,9 @@ function onlyQuery(): CapturedQuery {
 }
 
 /** One `messages` row as the driver hands it over: column values in declaration order. */
-// Positional, in schema declaration order — `organization_id` sits right after
-// `conversation_id` since migration 0031 gave `messages` its own tenant column,
-// and `run_id` right after `content` since 0091 gave a run its message.
+// Positional, in schema declaration order: `organization_id` follows
+// `conversation_id` (migration 0031 gave `messages` its own tenant column), and
+// `run_id` follows `content` (migration 0091).
 function messageRow(id: string, createdAt: string): unknown[] {
   return [id, 'conv_1', 'org_1', 'user', 'user_me', 'text', null, null, createdAt]
 }
@@ -96,9 +96,9 @@ describe('listVisibleConversations — scoped to a project', () => {
 
     const { sql, params } = onlyQuery()
     expect(sql).toContain('"conversations"."organization_id" = $1')
-    // Two disjuncts, each carrying its own visibility rule. The old shape put
-    // `project_id is null` and `visibility <> 'private'` in INDEPENDENT clauses,
-    // which is the leak: a row satisfying one from each was returned.
+    // Two disjuncts, each carrying its own visibility rule. Independent clauses
+    // would leak: a row satisfying `project_id is null` from one and
+    // `visibility <> 'private'` from the other would be returned.
     expect(sql).toContain('("conversations"."project_id" = $2 and (')
     expect(sql).toContain('or ("conversations"."project_id" is null and (')
     expect(params.slice(0, 2)).toEqual(['org_1', PROJECT_ID])
@@ -116,17 +116,17 @@ describe('listVisibleConversations — scoped to a project', () => {
     expect(params).toContain('private')
   })
 
-  it('does NOT hand an unstamped row out on `project` visibility alone (F5)', async () => {
+  it('does NOT hand an unstamped row out on `project` visibility alone', async () => {
     await listVisibleConversations('org_1', 'user_me', { projectId: PROJECT_ID })
 
     const { sql, params } = onlyQuery()
     // A conversation with no `project_id` is not inside the project the caller
     // proved they reach, so that proof says nothing about it. Its own grounds are
     // exactly the ones `resolveResourceAccess` uses when there is no container:
-    // creator, explicit grantee, or `organization` visibility. Before this, an
-    // unstamped conversation whose owner set `project` visibility was listed —
-    // with its title, tags and author — to every member of every project, and then
-    // 404'd the moment they opened it.
+    // creator, explicit grantee, or `organization` visibility. Otherwise an
+    // unstamped conversation whose owner set `project` visibility would be listed
+    // — with its title, tags and author — to every member of every project, and
+    // then 404 the moment they opened it.
     expect(sql).toContain(
       '("conversations"."project_id" is null and ("conversations"."created_by" = $8 or exists (',
     )
@@ -166,8 +166,8 @@ describe('listVisibleConversations — no project scope', () => {
     await listVisibleConversations('org_1', 'user_me')
 
     const { sql, params } = onlyQuery()
-    // The deliberate tightening (spec MG-1): this list used to return the whole
-    // organization, which is the defect ADR-0032 closes.
+    // The list is deliberately tighter than the organization (spec MG-1):
+    // returning the whole organization is the defect ADR-0032 closes.
     expect(sql).toContain('"conversations"."organization_id" = $1')
     expect(sql).toContain('"conversations"."created_by" = $2')
     expect(sql).toContain('exists (select 1 from "resource_shares"')
@@ -176,7 +176,7 @@ describe('listVisibleConversations — no project scope', () => {
     // No project claim is made, so no project predicate is applied either.
     expect(sql).not.toContain('"conversations"."project_id"')
     // And crucially: `project` visibility alone does NOT make the cut here — the
-    // same rule the scoped branch now applies to its unstamped rows.
+    // same rule the scoped branch applies to its unstamped rows.
     expect(params).not.toContain('project')
   })
 })
@@ -222,8 +222,8 @@ describe('deleteConversationInOrg', () => {
     expect(captured[2].sql).toContain('"conversation_source_projects"')
     expect(captured[2].params).toEqual(['org_1', 'conv_1'])
     const { sql, params } = captured[0]
-    // Regression: deleting by id alone let any signed-in user delete another
-    // org's conversation by guessing ids.
+    // Deleting by id alone would let any signed-in user delete another org's
+    // conversation by guessing ids.
     expect(sql).toContain('"conversations"."id" = $1')
     expect(sql).toContain('"conversations"."organization_id" = $2')
     expect(params).toEqual(['conv_1', 'org_1'])
@@ -247,11 +247,11 @@ describe('listMessagesForConversation', () => {
 
     const { sql, params } = onlyQuery()
     expect(sql).toContain('"messages"."conversation_id" = $1')
-    // Ascending + limit took the OLDEST rows. On a private thread that is a
-    // rehydration fallback and merely odd; on a shared thread this is *the* load
-    // path (ADR-0033), so past the cap a reader was pinned to ancient history and
-    // never saw a new message again — with the read receipt and the unread
-    // divider following the same stale window down.
+    // Ascending order with a limit would take the OLDEST rows. On a private thread
+    // that is a rehydration fallback and merely odd; on a shared thread this is
+    // *the* load path (ADR-0033), so past the cap a reader would be pinned to
+    // ancient history and never see a new message again — with the read receipt
+    // and the unread divider following the same stale window down.
     expect(sql).toContain('order by "messages"."created_at" desc, "messages"."id" desc')
     expect(sql).toContain('limit $2')
     expect(params).toEqual(['conv_1', MESSAGE_LIST_LIMIT])
@@ -287,7 +287,7 @@ describe('listMessagesForConversation', () => {
     ])
   })
 
-  it('breaks a created_at tie by id, so a tie straddling the cap is not a coin toss (CC-11)', async () => {
+  it('breaks a created_at tie by id, so a tie straddling the cap is not a coin toss', async () => {
     const sameInstant = '2026-07-31T10:00:01.000Z'
     // What Postgres returns for the statement below when the tied pair is exactly
     // what the cap admits: higher id first, the older third message cut.
@@ -328,7 +328,7 @@ describe('findMessageInConversation', () => {
 describe('lastProjectActivityByUser', () => {
   const OTHER_PROJECT = '3f2504e0-4f89-11d3-9a0c-0305e82c3302'
 
-  it('counts only messages this user wrote, plus their own legacy unauthored ones', async () => {
+  it('counts only messages this user wrote, plus unauthored user messages in their own threads', async () => {
     await lastProjectActivityByUser('org_1', 'user_me', [PROJECT_ID])
 
     const { sql, params } = onlyQuery()
@@ -382,8 +382,9 @@ describe('lastProjectActivityByUser', () => {
 describe('findConversationTenancy — the probe sharing and the WebSocket gate stand on', () => {
   it('queries an app-minted `s_` id: the column is text, so no uuid guard may answer null for it', async () => {
     // The ids the app mints (`messages-store.ts`, `task-thread.ts`) are not
-    // uuids. A uuid guard here answered null for every real conversation: every
-    // share 404'd and the upgrade gate waved every conversation id through.
+    // uuids. A uuid guard here would answer null for every real conversation:
+    // every share would 404 and the upgrade gate would wave every conversation
+    // id through.
     nextRows = [['org_1', null, 'private', 'user_me', null]]
 
     const row = await findConversationTenancy('s_7d1e2c3b_0000_4000_8000_00000000000c')

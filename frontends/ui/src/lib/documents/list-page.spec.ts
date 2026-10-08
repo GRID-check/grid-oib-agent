@@ -4,11 +4,11 @@
 /**
  * The keyset page behind `GET /api/documents` and `GET /api/archiv/documents`.
  *
- * The listing used to be one page of 500, newest first, with nothing saying it
- * had stopped: the oldest plans of a big project were not in it, so search,
- * filters and the folder-upload planner worked on a corpus that was not the
- * project's. These pin the statement that replaced it: every query is still
- * bounded, one probe row answers "is there more", and the next page starts
+ * A listing is a keyset page, not a fixed window. A plain page of 500, newest
+ * first, silently drops the oldest plans of a big project, and then search,
+ * filters and the folder-upload planner work on a corpus that is not the
+ * project's. These pin the statement: every query is bounded, one probe row
+ * answers "is there more", and the next page starts
  * strictly after the last row in `created_at DESC, id ASC` — compared at
  * MICROSECOND precision, which a JS `Date` cannot carry.
  *

@@ -136,9 +136,9 @@ describe('MemoryProposalCard', () => {
   })
 
   // ── Decision persistence ──────────────────────────────────────────────────
-  // Regression: the outcome used to live in component-local state, so after a
-  // reload the card re-mounted as pending with a live "Yes" that would write
-  // the same memory row a second time.
+  // The outcome is recorded on the message, so after a reload the card does
+  // not re-mount as pending with a live "Yes" that would write the same memory
+  // row a second time.
 
   it('records the decision on the owning message after a successful org save', async () => {
     stubFetch()

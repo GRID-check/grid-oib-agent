@@ -48,9 +48,9 @@ type FileSearchBarProps = Omit<FileSearchFieldProps, 'runButton'> &
  * button that commits the query to the semantic search.
  *
  * Separate from {@link FileSearchBar} because the field and its result banner
- * no longer always sit together — the Files browser puts the field in the page
- * header, beside the view toggles and Upload, and leaves the banner over the
- * listing the hits belong to.
+ * need not sit together: the Files browser puts the field in the page header,
+ * beside the view toggles and Upload, and leaves the banner over the listing the
+ * hits belong to.
  */
 export function FileSearchField({
   value,
@@ -147,16 +147,16 @@ export function FileSearchBanner({
 
 /**
  * The sticky search band above a listing — field and banner in one strip. The
- * Archiv library uses it; the Files browser does not any more (its field is in
- * the page header, so a band would be a second search on the same screen).
+ * Archiv library uses it. The Files browser does not: its field is in the page
+ * header, so a band would be a second search on the same screen.
  */
 export function FileSearchBar({ semanticActive, canSearch, runLabel, ...props }: FileSearchBarProps) {
   return (
     <>
       {/* 95% + `backdrop-blur` is a frosted sticky band, not a hand-derived
           surface: the list has to stay faintly visible scrolling under it.
-          `shrink-0` on both bands says the same thing the chip row now says:
-          chrome above a listing never absorbs the listing's overflow. */}
+          `shrink-0` on both bands means chrome above a listing never absorbs the
+          listing's overflow. */}
       <div className="sticky top-0 z-10 shrink-0 border-b bg-background/95 px-4 py-2.5 backdrop-blur">
         <FileSearchField
           {...props}

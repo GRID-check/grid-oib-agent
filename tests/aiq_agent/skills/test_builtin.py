@@ -61,9 +61,9 @@ def test_builtin_frontmatter_declares_only_its_audience() -> None:
 
     ``grid-agents: deep_researcher`` is the single reason these stay out of a
     chat turn — their instructions call ``execute`` and write ``/shared/``, which
-    only exist inside a deep-research job. The scheduling keys that used to sit
-    beside it (``grid-execution``, ``grid-schedulable``) are gone from the model,
-    so a builtin file must not reintroduce them.
+    only exist inside a deep-research job. The scheduling keys (``grid-execution``,
+    ``grid-schedulable``) are not part of the model, so a builtin file must not
+    reintroduce them.
     """
     for skill in discover_builtin_skills():
         assert set(skill.metadata) <= {

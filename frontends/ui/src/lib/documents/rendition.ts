@@ -10,8 +10,8 @@
  * erased with it by `object-cleanup.ts`.
  *
  * There is no column for it. Whether the object exists IS the state, which is
- * what lets the lazy path in the preview and file routes cover every office
- * file uploaded before this module existed without a backfill.
+ * what lets the lazy path in the preview and file routes cover existing office
+ * files without a backfill.
  *
  * Which files qualify is `isOfficeRenditionSource` in `./preview-types`; this
  * module does not decide that, it only converts what it is handed.
@@ -55,20 +55,19 @@ const GOTENBERG_TIMEOUT_MS = 120_000
  *
  * Gotenberg runs LibreOffice one document at a time, and its own API timeout
  * counts the time a request queues there. A project reindex or a folder upload
- * of three hundred office files used to start three hundred conversions at
- * once: each held the original in memory while it waited, and all but the
- * first few ran out of time in Gotenberg's queue and failed their documents as
- * unconvertible. Two keeps the next request ready behind the running one
- * without queueing anything there that could time out; the rest wait here,
- * where waiting costs neither memory nor a timeout.
+ * of three hundred office files would otherwise start three hundred conversions
+ * at once: each holds the original in memory while it waits, and most run out of
+ * time in Gotenberg's queue and fail as unconvertible. Two keeps the next request
+ * ready behind the running one without queueing anything there that could time
+ * out; the rest wait here, where waiting costs neither memory nor a timeout.
  */
 const DEFAULT_MAX_CONCURRENCY = 2
 
 /**
  * How long a failed conversion is remembered for readers ({@link
- * EnsureRenditionOptions.readerWaitMs}). A file LibreOffice cannot convert was
- * converted again, in full, on every open of the viewer; for this long a reader
- * is told at once instead. The background ingest and its retry ("Erneut
+ * EnsureRenditionOptions.readerWaitMs}). A file LibreOffice cannot convert would
+ * otherwise be converted again, in full, on every open of the viewer; for this
+ * long a reader is told at once instead. The background ingest and its retry ("Erneut
  * lesen") never consult it, so a retry always really tries.
  */
 const FAILURE_MEMORY_MS = 5 * 60_000
@@ -102,7 +101,7 @@ function gotenbergUrl(): string | null {
   return raw ? raw.replace(/\/+$/, '') : null
 }
 
-/** Whether office documents can be converted in this deployment. Unset means exactly today's behaviour. */
+/** Whether office documents can be converted in this deployment. Unset means no conversion. */
 export function isRenditionEnabled(): boolean {
   return gotenbergUrl() !== null
 }

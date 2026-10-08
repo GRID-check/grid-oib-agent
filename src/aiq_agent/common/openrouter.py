@@ -4,9 +4,9 @@ Every call this process makes to OpenRouter carries tenant content: a question,
 a document chunk, a drawing, a transcript. Zero Data Retention (ZDR,
 Organization → Models, ADR-0014) is on for every organization unless its admin
 switched it off, and it is owed on EVERY such call, not only the chat answer.
-It used to be applied call site by call site, and most call sites never learned
-about it: embeddings, reranking, drawing captions, titles, summaries and the
-whole async job worker went out unpinned. This module is the one place that
+Applied call site by call site, the pin is missed by most of them: embeddings,
+reranking, drawing captions, titles, summaries and the whole async job worker
+would go out unpinned. This module is the one place that
 knows
 
 - whether a URL is OpenRouter (:func:`targets_openrouter`),

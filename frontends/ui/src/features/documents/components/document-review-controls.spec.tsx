@@ -7,12 +7,11 @@
  * states its order before the button opens, that approving signs its stand
  * with a checkbox, and that publishing stands apart.
  *
- * Two things this strip used to do are now somebody else's, and the last block
- * pins that it really stopped doing them: the WAITING LINE belongs to
- * `DocumentLifecycleStand` (it has to be said whether or not there are controls,
- * and it used to be said only when there were none), and „Archivieren" belongs
- * to `DocumentArchiveAction` (it is item-level, it is a one-way door, and as a
- * fifth button in this row it was the whole of what a published upload offered).
+ * Two things are not this strip's to do, and the last block pins that it does
+ * not: the WAITING LINE belongs to `DocumentLifecycleStand` (it is said whether
+ * or not there are controls), and the archive act belongs to
+ * `DocumentArchiveAction` (it is item-level and a one-way door, and it is not a
+ * fifth button in this row).
  */
 
 import { describe, expect, it, vi } from 'vitest'
@@ -227,8 +226,8 @@ describe('DocumentReviewControls — publishing is its own act', () => {
     // Its own section, visually cut off from the row above it.
     expect(section.className).toContain('border-t')
     // …and never a button in the row beside the other gestures. On `approved`
-    // there is now no row at all: publish owns its section, and „Archivieren"
-    // — which used to be the row's sole occupant here — has its own block.
+    // there is no row at all: publish owns its section, and the archive act has
+    // its own block.
     const row = container.querySelector('[data-testid="document-review-controls"] > div.flex')
     expect(row).toBeNull()
   })
@@ -258,9 +257,8 @@ describe('DocumentReviewControls — it draws review decisions and nothing else'
   })
 
   it('does not draw Archivieren in the decision row', () => {
-    // The reported case: a published upload. The only gesture the old row could
-    // offer was „Archivieren", so every ordinary file in the project showed one
-    // unexplained verb under a heading about approvals.
+    // A published upload: its only gesture is the archive act, which must not
+    // show up as one unexplained verb under a heading about approvals.
     const { container } = render(
       <DocumentReviewControls
         version={version('published')}

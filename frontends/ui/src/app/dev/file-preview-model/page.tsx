@@ -9,8 +9,8 @@
  * org-wide Archiv, which is what the Archiv's own preview dialog passes. The
  * building and its figures are identical; only "Im Modellbereich öffnen" is
  * gone, because the model workspace is a project surface. Worth pinning
- * because this shelf used to show the grey "no inline preview" placeholder for
- * a model that had been parsed and indexed.
+ * because this shelf must not show the grey "no inline preview" placeholder for
+ * a model that has been parsed and indexed.
  *
  * A module-scope fetch shim (browser + dev only) serves the project's model
  * list, the document-scoped model lookup the Archiv resolves through, the
@@ -121,10 +121,9 @@ if (typeof window !== 'undefined' && process.env.NODE_ENV === 'development') {
     window.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url
       // Scoped to THIS fixture's ids. The shim is installed at module scope
-      // and survives client-side navigation, so a broad pattern went on
-      // answering for every project and model in the dev session — a real dev
-      // page opened afterwards would be served this fixture instead of its own
-      // data.
+      // and survives client-side navigation, so a broad pattern would answer for
+      // every project and model in the dev session, and a dev page opened
+      // afterwards would be served this fixture instead of its own data.
       if (url.includes(`/api/projects/${PROJECT_ID}/bim/models`)) {
         return Response.json({ models: [MODEL] })
       }

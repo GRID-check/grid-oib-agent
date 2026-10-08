@@ -4,12 +4,10 @@
 /**
  * The authorization coverage gate (ADR-0038).
  *
- * The audit that produced ADR-0038 found 117 route files enforcing access four
- * different ways, and no mechanism that noticed when one of them enforced
- * nothing at all. `tsc` now blocks the common case — `apiRoute` will not compile
- * without an `authz` declaration — but a type cannot see a route that skips the
- * factories entirely, which is exactly what the eighteen platform routes used to
- * do. This spec closes that gap.
+ * Route files enforce access in four different ways, and nothing otherwise
+ * notices a route that enforces nothing at all. `tsc` blocks the common case —
+ * `apiRoute` will not compile without an `authz` declaration — but a type cannot
+ * see a route that skips the factories entirely. This spec closes that gap.
  *
  * It asserts three things about EVERY `app/api/**\/route.ts`:
  *
@@ -45,9 +43,9 @@ function findRouteFiles(dir: string): string[] {
 const HTTP_METHODS = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD', 'OPTIONS'] as const
 
 /**
- * Routes that legitimately predate or sit outside the factories, each with the
- * gate it actually applies. Every entry was read and verified when ADR-0038
- * landed; the reason is the record of that reading.
+ * Routes that legitimately sit outside the factories, each with the gate it
+ * actually applies. Each entry records a reading of its route and of the gate
+ * it applies.
  *
  * Shrinking this map is the goal. Growing it should require the same argument
  * these four entries carry — a genuine reason the factory contract cannot hold.
@@ -63,11 +61,6 @@ const HAND_ROLLED: Record<string, string> = {
     'the AuthKit OAuth callback. It runs BEFORE a session exists — that is what it creates — so no session-based posture can apply.',
   'auth/signin/route.ts':
     'the sign-in entry point behind /?sign-in (the landing site’s Anmelden target). It runs BEFORE a session exists — it mints the AuthKit authorization redirect and its PKCE cookie, which only a Route Handler may write — so no session-based posture can apply.',
-  // The three platform routes that used to sit here — model-defaults,
-  // model-defaults/models and audit-portal — now go through `platformApiRoute`,
-  // which already does the owner gate, the tenant slot, the platform scope and
-  // the 403 mapping. There was never a reason the factory contract could not
-  // hold for them; only three copies of it written out by hand.
 }
 
 interface RouteFacts {
@@ -161,7 +154,7 @@ describe('API authorization coverage', () => {
 
   it('platform routes go through platformApiRoute, never a bare session read', () => {
     // The gate must run before the handler. A platform route that resolves its
-    // own session is the pattern ADR-0038 removed.
+    // own session is the pattern ADR-0038 forbids.
     const offenders = ROUTES.filter(
       (route) =>
         route.file.startsWith('platform/') &&

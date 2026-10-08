@@ -1,47 +1,39 @@
 /**
- * `task_definitions` and `task_runs` — the collapsed model of jobs, job_runs
- * and tasks (follow-up to PR #659).
+ * `task_definitions` and `task_runs` — the model of jobs and delegated tasks:
+ * the standing intent, and the attempts it produces.
  *
  * ## Why one entity and not three
  *
- * A recurring check and a one-off handover were never different species of
- * work. `jobs` + `job_runs` described a timer and its fires; `tasks` described
- * the thing a person delegated, including the ones a timer produced. Two rows
- * already described one execution: a scheduled fire wrote a `job_runs` row
- * (`status: submitted`) AND a `tasks` row, both keyed on the same backend job
- * id. The seam was historical, not modelled.
+ * A recurring check and a one-off handover are the same kind of work. A timer
+ * and the thing a person delegated describe one execution from two sides, so
+ * each attempt is one row, not a timer row and a task row keyed on the same job
+ * id.
  *
  * The model is two nouns:
  *
  *   - {@link taskDefinitions} — the STANDING INTENT: what was asked, by whom,
  *     and what makes it run. A chat handover is that same row with a degenerate
- *     trigger (`once`, no due date), which is why chat can now say „jeden
- *     Montag".
+ *     trigger (`once`, no due date), which is why chat can say „jeden Montag".
  *   - {@link taskRuns} — one ATTEMPT, including the attempts that never
- *     reached the agent. `trigger`/`triggered_by` come from `job_runs`,
- *     `status`/`error`/timestamps from `tasks`, and filing/review live here
- *     because they are properties of a RESULT, not of the arrangement.
+ *     reached the agent. Filing and review live here because they are
+ *     properties of a RESULT, not of the arrangement.
  *
  * ## What the run carries
  *
  * A run is self-describing: kind, title, plan (the prompt with its skill body,
  * the frozen data sources, the requester's goal) and the requester are copied
- * at fire time, exactly as `tasks` copied them. `definition_id` is nullable
- * with `ON DELETE SET NULL`, mirroring `tasks.job_id`'s promise that deleting
- * the arrangement never destroys the record of what it did — and unlike the old
- * `tasks.job_run_id`, which was SET NULL and lost only the LINK while the
- * schedule's runs were pruned around it.
+ * at fire time. `definition_id` is nullable with `ON DELETE SET NULL`: deleting
+ * the arrangement never destroys the record of what it did.
  *
- * Ids are deliberately REUSED in the 0086 backfill: a job's definition id is
- * the job's own id, and a job-spawned run keeps the `job_runs` id. Nothing a
- * person can open (a conversation, a filed document, an inbox anchor) has to be
- * remapped.
+ * A definition's id is its job's id, and a job-spawned run keeps the job run's
+ * id. Nothing a person can open (a conversation, a filed document, an inbox
+ * anchor) has to be remapped.
  *
  * ## Status vocabulary
  *
  * The merged lifecycle lives in `task-vocabulary.ts` (`TASK_RUN_STATUSES`).
  * `skipped` and `error` are first-class: a fire that never reached the agent is
- * a visible row in Aufgaben, not a hidden `job_runs` line.
+ * a visible row in Aufgaben.
  */
 
 import { relations, sql } from 'drizzle-orm'
@@ -73,11 +65,9 @@ import { projects } from './projects'
 import type { TaskFilingStatus, TaskPlan } from './tasks'
 
 /**
- * What the task was asked to do, frozen at definition time — the SAME shape
- * the old `tasks.plan` carried, so the wire projection and the filing paths
- * read one contract. Declared in `./tasks` (the table being replaced owns it
- * until 0087 drops it) and re-exported there for the callers that already
- * import it from `@/lib/db/schema`.
+ * What the task was asked to do, frozen at definition time. The type is
+ * declared in `./tasks`; the wire projection and the filing paths read this one
+ * shape.
  */
 
 export const taskDefinitions = pgTable(
@@ -114,8 +104,8 @@ export const taskDefinitions = pgTable(
     scheduleTimezone: text('schedule_timezone').notNull().default('UTC'),
     /**
      * When the due scan should next look at this row — the one column the
-     * scheduler's claim reads, for every trigger (`idx_task_definitions_due`,
-     * migration 0090). The cron's next occurrence on a `schedule`, the `due_at`
+     * scheduler's claim reads, for every trigger (`idx_task_definitions_due`).
+     * The cron's next occurrence on a `schedule`, the `due_at`
      * on a pending `once`, and NULL on a `manual` one, on anything paused, and
      * on a one-shot the scheduler has already claimed.
      */
@@ -141,7 +131,7 @@ export const taskDefinitions = pgTable(
      * Redundant on its own — `id` is already the primary key — and required all
      * the same: `task_runs`' composite FK references exactly this column set,
      * and a composite foreign key can only reference a uniquely-constrained
-     * one. The `conversations_id_organization_id_key` pattern (0032).
+     * one. The same pattern as `conversations_id_organization_id_key`.
      */
     idOrganizationProjectKey: unique('task_definitions_id_organization_id_project_id_key').on(
       table.id,
@@ -150,9 +140,9 @@ export const taskDefinitions = pgTable(
     ),
     // NOTE: the partial due-scan index `idx_task_definitions_due` on
     // (next_run_at) WHERE enabled AND next_run_at IS NOT NULL is a PARTIAL
-    // index the drizzle builder cannot express; it lives in migration 0086 and
-    // was widened in 0090, the way `idx_jobs_due` lives in 0043. It backs the
-    // scheduler's claim, for recurring tasks and one-shots alike.
+    // index the drizzle builder cannot express; it lives in migration 0086, the
+    // way `idx_jobs_due` does. It backs the scheduler's claim, for recurring
+    // tasks and one-shots alike.
     triggerKnown: check(
       'task_definitions_trigger_known',
       sql`${table.trigger} IN ('manual', 'once', 'schedule')`
@@ -167,8 +157,7 @@ export const taskDefinitions = pgTable(
       'task_definitions_due_only_when_once',
       sql`${table.dueAt} IS NULL OR ${table.trigger} = 'once'`
     ),
-    // No kind CHECK, deliberately, exactly as 0075 left `tasks.kind`: the
-    // vocabulary lives in ONE place (`lib/tasks/task-vocabulary.ts`) rather
+    // No kind CHECK, deliberately: the vocabulary lives in ONE place (`lib/tasks/task-vocabulary.ts`) rather
     // than in a column and a tuple that can disagree.
   })
 )
@@ -183,8 +172,7 @@ export const taskRuns = pgTable(
       .references(() => projects.id, { onDelete: 'cascade' }),
     /**
      * The arrangement this attempt belongs to, when it still exists. Nullable
-     * and SET NULL for the reason `tasks.job_id` was: history outlives the
-     * thing that scheduled it.
+     * and SET NULL: history outlives the thing that scheduled it.
      *
      * NOTE: the FK is COMPOSITE — `(definition_id, organization_id,
      * project_id)` -> `task_definitions (id, organization_id, project_id)`
@@ -216,14 +204,13 @@ export const taskRuns = pgTable(
     conversationId: text('conversation_id'),
     /**
      * The assistant message this run writes its ledger — and its report — into,
-     * in the conversation the work was commissioned in (migration 0091,
-     * ADR-0062).
+     * in the conversation the work was commissioned in (ADR-0062).
      *
      * Minted deterministically from the run id (uuid5, `createRunMessage` in
      * `lib/runs/service.ts`), so a retried submit finds the same message instead
-     * of writing a second one. Nullable and no foreign key: every run that
-     * predates 0091 has none, and a run whose conversation was deleted keeps its
-     * own history rather than cascading away with it.
+     * of writing a second one. Nullable, since not every run has one, and no
+     * foreign key: a run whose conversation was deleted keeps its own history
+     * rather than cascading away with it.
      */
     runMessageId: uuid('run_message_id'),
     /** The document the result was filed as, when it was. */
@@ -242,7 +229,7 @@ export const taskRuns = pgTable(
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
     /**
      * When the run reconciler last asked the job store about this still-active
-     * run (migration 0096, `lib/runs/reconcile.ts`). Set by the claim itself,
+     * run (`lib/runs/reconcile.ts`). Set by the claim itself,
      * which is what keeps two replicas off one run. NULL until the first check.
      * The partial index behind the claim (`idx_task_runs_reconcile_due`) is on
      * an expression, so it lives only in the migration.

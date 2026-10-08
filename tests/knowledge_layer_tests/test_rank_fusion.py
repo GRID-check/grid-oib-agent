@@ -1,16 +1,15 @@
 """Tests for rank fusion actually reaching the answer.
 
-Reciprocal rank fusion used to be computed and then thrown away: the retriever
-returned a fused ORDER while every chunk kept its raw similarity, and the
-cross-collection merge re-sorted by that similarity. The fusion could therefore
-only ever lose — a lexical-only hit is by construction outside the vector top-k,
-so its cosine is at most every vector hit's, and a score sort demotes it right
-back out of the slate it had just earned.
+Reciprocal rank fusion must reach the answer. When the retriever returns a fused
+ORDER but every chunk keeps its raw similarity, a cross-collection merge that
+re-sorts by that similarity leaves the fusion only able to lose: a lexical-only hit
+is by construction outside the vector top-k, so its cosine is at most every vector
+hit's, and a score sort demotes it right back out of the slate it had just earned.
 
 The same theorem sinks layered retrieval: session and project collections sit in
 a systematically worse distance band than the professionally chunked base corpus,
 so a user's own uploaded PDF can never win on raw score. Rank is scale-free,
-which is exactly why fusing on rank fixes both.
+which is exactly why fusing on rank handles both.
 
 All tests are offline: no ChromaDB, no embeddings, no network.
 """
@@ -63,13 +62,13 @@ def test_a_chunk_found_by_both_channels_outranks_a_single_channel_one() -> None:
 
 
 # =============================================================================
-# What the merge must no longer undo
+# What the merge must not undo
 # =============================================================================
 
 
 def test_a_lexical_only_hit_with_a_poor_cosine_survives_the_merge_into_the_top_k() -> None:
-    # This is the measured regression, verbatim: the retriever's fused order was
-    # [lex-hit 0.21, vec-1 0.62, vec-2 0.58] and the merge returned it re-sorted as
+    # The measured failure this pins, verbatim: the retriever's fused order was
+    # [lex-hit 0.21, vec-1 0.62, vec-2 0.58] and a merge that re-sorts it returns it as
     # [vec-1, vec-2, lex-hit]. A lexical-only hit is never in the vector top-k, so its
     # cosine is at most every vector hit's — under a score sort the boost is unreachable
     # by construction, not by accident.
@@ -115,7 +114,7 @@ def test_a_rank_gap_left_by_a_dropped_hit_does_not_promote_the_survivors() -> No
 
 def test_the_merge_never_raises_on_the_results_gather_hands_it() -> None:
     # Called on asyncio.gather(..., return_exceptions=True) output: exceptions, layers
-    # whose collection does not exist yet, and objects with no `.success` at all.
+    # whose collection does not exist, and objects with no `.success` at all.
     ok = _result([_chunk("corpus-0", 0.70, rank=0)])
     failed = RetrievalResult(chunks=[], query="q", backend="llamaindex", success=False, error_message="not found")
     merged = _merge_results(
@@ -134,9 +133,9 @@ def test_the_merge_never_raises_on_the_results_gather_hands_it() -> None:
 
 
 def test_the_diversity_cap_fill_pass_is_reachable() -> None:
-    # The old cap scanned the whole merged list before truncating, so `selected` alone
-    # already exceeded top_k and `(selected + leftovers)[:top_k]` never reached the
-    # leftovers: the promised soft quota was a hard one. Two documents, cap 2, five
+    # The cap must not scan the whole merged list before truncating: `selected` alone
+    # would exceed top_k, and `(selected + leftovers)[:top_k]` would never reach the
+    # leftovers, turning the promised soft quota into a hard one. Two documents, cap 2, five
     # slots — the cap can fill only 4, so the fill pass must supply the fifth.
     ordered = [
         _chunk("a-0", 0.90, 0, "a.pdf"),
@@ -152,9 +151,9 @@ def test_the_diversity_cap_fill_pass_is_reachable() -> None:
 
 
 def test_the_diversity_cap_output_is_monotone_in_the_rank_it_selected_by() -> None:
-    # The old version returned the cap survivors first and the deferred chunks after
-    # them, so the output was not ordered by its own ranking key — and a downstream
-    # `[:top_k]` trim then saw a slate whose head had been rebuilt out of deep hits.
+    # Survivors must not come back ahead of the deferred chunks: the output would not be
+    # ordered by its own ranking key, and a downstream `[:top_k]` trim would see a
+    # slate whose head is rebuilt out of deep hits.
     ordered = [_chunk(f"a-{rank}", 0.90 - rank / 100, rank, "a.pdf") for rank in range(4)]
     ordered += [_chunk(f"b-{rank}", 0.40 - rank / 100, 4 + rank, "b.pdf") for rank in range(4)]
     capped = _apply_diversity_cap(ordered, top_k=6, max_per_document=2)
@@ -163,9 +162,9 @@ def test_the_diversity_cap_output_is_monotone_in_the_rank_it_selected_by() -> No
 
 
 def test_the_diversity_cap_never_returns_a_worse_slate_than_plain_top_k_when_documents_are_scarce() -> None:
-    # The measured loss: on a single-topic query the cap swapped on-topic hits for
-    # off-topic ones and then, because the deferred hits were appended at the very end,
-    # the downstream trim could not get them back. With the fill pass reachable and the
+    # The loss this guards against: on a single-topic query the cap swaps on-topic hits for
+    # off-topic ones, and because the deferred hits are appended at the very end,
+    # the downstream trim cannot get them back. With the fill pass reachable and the
     # output in rank order, the on-topic hits keep the head of the list.
     on_topic = [_chunk(f"a-{rank}", 0.82, rank, "a.pdf") for rank in range(8)]
     off_topic = [

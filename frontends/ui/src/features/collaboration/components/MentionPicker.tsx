@@ -172,7 +172,7 @@ export function filterMentionCandidates(
 function HighlightedName({ name, query }: { name: string; query: string }): JSX.Element {
   // Folding can change a string's LENGTH (a decomposed umlaut loses its mark, ß
   // and ﬁ do not map one-to-one), so an offset found in the folded string cannot
-  // be used to slice the original — that emphasised the wrong characters. Fold
+  // be used to slice the original, or the emphasis lands on the wrong characters. Fold
   // character by character and keep a map back to the source offsets.
   const { folded, offsets } = foldWithOffsets(name)
   const needle = fold(query)
@@ -294,11 +294,11 @@ export const MentionPicker = forwardRef<MentionPickerHandle, MentionPickerProps>
     /*
       Keep the highlighted row on screen.
 
-      The panel is bounded (`max-h-[320px]`) and the list scrolls, but nothing
-      scrolled it: arrowing past the fifth candidate moved the highlight onto a
-      row the user could not see, and `↵` then inserted somebody they had never
-      laid eyes on. The bottom fade said "more below" and the keyboard could not
-      reach it — the worst combination, because `@` is a keyboard surface first.
+      The panel is bounded (`max-h-[320px]`) and the list scrolls, so the highlight
+      has to follow the keyboard. Without that, arrowing past the fifth candidate
+      would land the highlight on a row the user cannot see, and `↵` would insert
+      somebody they have never laid eyes on. The bottom fade says "more below",
+      and the keyboard is the way to reach it: `@` is a keyboard surface first.
 
       `block: 'nearest'` so a row already visible is left exactly where it is;
       only a row past an edge moves, and only by as much as it must. Layout
@@ -383,24 +383,23 @@ export const MentionPicker = forwardRef<MentionPickerHandle, MentionPickerProps>
                 {t('mentions.picker.badgeAgent')}
               </Badge>
             ) : candidate.needsInvite && !blocked ? (
-              // Only when the caller CAN invite. On a blocked row the badge said
-              // "Wird eingeladen" while the subtitle directly beneath it said only an
-              // owner may bring people in — two statements about one row that
-              // contradict each other. The subtitle is the true one, so the badge
-              // steps aside.
+              // Only when the caller CAN invite. On a blocked row the badge would say
+              // "Wird eingeladen" while the subtitle beneath it says only an owner may
+              // bring people in: two statements about one row that contradict each other.
+              // The subtitle is the true one, so the badge steps aside.
               <Badge variant="warning" className="shrink-0 gap-1">
                 <UserPlus aria-hidden />
                 {t('mentions.picker.needsInvite')}
               </Badge>
             ) : null}
-            {/* No badge for an ordinary participant. `badgeInChat` said "In diesem
-                Chat" on every row of the group headed "IN DIESEM CHAT" — the
-                participants group is the only place those rows are ever rendered,
-                so the badge restated its own heading once per row and could never
-                say anything else. Worse, it competed for attention with the two
-                badges that DO carry information: "Assistent", and "Wird
-                eingeladen", which warns that picking this row also invites someone.
-                A badge now means the row is not ordinary. */}
+            {/* No badge for an ordinary participant. A badge reading "In diesem
+                Chat" would sit on every row of the group headed "IN DIESEM CHAT":
+                the participants group is the only place those rows are rendered, so
+                the badge would restate its heading once per row and could never say
+                anything else. It would also compete for attention with the two
+                badges that carry information: "Assistent", and "Wird eingeladen",
+                which warns that picking this row also invites someone. A badge here
+                means the row is not ordinary. */}
           </div>
         </CommandItem>
       )
@@ -424,8 +423,8 @@ export const MentionPicker = forwardRef<MentionPickerHandle, MentionPickerProps>
           onValueChange={handleValueChange}
           className="min-h-0 flex-1 bg-transparent"
         >
-          {/* `scroll-fade-bottom`: with more candidates than fit, the panel used to
-              cut the next row through its own text, which reads as a rendering bug
+          {/* `scroll-fade-bottom`: with more candidates than fit, the panel cuts
+              the next row through its own text, which reads as a rendering bug
               rather than as an invitation to scroll. The footer below stays sharp —
               it is outside this scroll region. */}
           <CommandList

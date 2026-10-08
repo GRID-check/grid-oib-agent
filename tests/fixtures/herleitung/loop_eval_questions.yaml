@@ -3,7 +3,7 @@
 # WHAT THIS SET IS FOR
 # --------------------
 # The agentic-loop work (docs/roadmap/architect-workspace-voice-and-agentic-loop.md,
-# "Second landing") changed how a turn spends its retrieval: a locator instead of
+# "Second landing") governs how a turn spends its retrieval: a locator instead of
 # a second search, a checkpoint the model cannot skip, and a first round capped at
 # two searches. Every one of those is a claim about behaviour, and a claim about
 # behaviour that nobody measured is a preference. `scripts/loop_eval.py` runs this
@@ -36,7 +36,7 @@
 #           Same discipline as `punkt` and for the same reason: a § number read
 #           off a fetched consolidated text and committed beside the question,
 #           never one somebody remembered. There is no committed RIS fixture in
-#           this repo yet, so every one of them is `null` today and
+#           this repo, so every one of them is `null` and
 #           `paragraph_match` falls back to the §§ the turn itself retrieved
 #           (scripts/loop_eval.py). Filling one in is what turns that column
 #           from "did the answer cite something it read" into "did the answer
@@ -243,13 +243,12 @@ questions:
     punkt: null
     kind: walkthrough
     expect:
-      # Five runs, 2026-09-24: three ruled on § 63 as a list of what it
+      # Five runs: three ruled on § 63 as a list of what it
       # requires, two walked through it. Both carry the same §§ and items.
       kind_also: [ruling]
 
-  # Four more Bauordnung rows. One row out of twenty-three could not measure a
-  # retrieval path, and RIS is the half of the corpus the punkt_index cannot
-  # check — so this family is where a RIS change shows up or does not. Each
+  # Four Bauordnung rows. RIS is the half of the corpus the punkt_index cannot
+  # check, so this family is where a RIS change shows up or does not. Each
   # names a Land whose Bauordnung the norm registry actually points at, and
   # `stellplatz-tirol` is the row that catches a Viennese answer to a Tyrolean
   # question (`focus_entries` drops other states' law silently).
@@ -271,7 +270,7 @@ questions:
     paragraph: null
     kind: ruling
     expect:
-      # Four answered runs, 2026-09-24: all walked through § 8 TBO to the
+      # Four answered runs: all walked through § 8 TBO to the
       # count, because Innsbruck's own figures are a municipal Verordnung.
       kind_also: [walkthrough]
 
@@ -293,7 +292,7 @@ questions:
     paragraph: null
     kind: walkthrough
     expect:
-      # Three answered runs, 2026-09-24: all ruled on § 2 and § 3 BauPolG,
+      # Three answered runs: all ruled on § 2 and § 3 BauPolG,
       # the two lists the question asks for.
       kind_also: [ruling]
 
@@ -341,7 +340,7 @@ questions:
       shape: [tabs, table]
 
   # Down-voted answers, each the question as a user typed it. Source: answer
-  # feedback export 2026-10-06. Not in `core` (every core run is paid model
+  # feedback export. Not in `core` (every core run is paid model
   # calls); run them with `--only`. Not run for `web` answers: a question
   # whose answer rests on a web page ("Anschlussdetails ... Alucobond") has
   # no `family`, and the suite skips a family-less question as one that needs
@@ -352,8 +351,8 @@ questions:
     punkt: "4.2.1"
     kind: ruling
     expect:
-      # Source: answer feedback 2026-10-06 (the answer was the canned "nichts
-      # gefunden"). OIB-RL 4 (Ausgabe Mai 2023) Pkt. 4.2.1, p. 12: Höhe der
+      # Source: answer feedback. The failure it guards is the canned "nichts
+      # gefunden" answer. OIB-RL 4 (Ausgabe Mai 2023) Pkt. 4.2.1, p. 12: Höhe der
       # Absturzsicherung mindestens 1,00 m, ab mehr als 12 m Absturzhöhe 1,10 m
       # (read off the PDF for the retrieval golden set, `de-absturzsicherung-hoehe`).
       mentions: ["1,10", ["1,00", "100 cm"]]
@@ -367,11 +366,11 @@ questions:
     paragraph: null
     kind: walkthrough
     expect:
-      # Source: answer feedback 2026-10-06. The right answer is that no general
+      # Source: answer feedback. The right answer is that no general
       # building-law obligation is established. The schema cannot say "must not
       # rest the verdict on OIB-RL 5": `not_mentions` is a substring test, so it
-      # bans any mention, including "OIB-RL 5 regelt das nicht". The bad answer
-      # leaned on Schallschutz, so that word and the Richtlinie's name are the
+      # bans any mention, including "OIB-RL 5 regelt das nicht". A wrong answer
+      # leans on Schallschutz, so that word and the Richtlinie's name are the
       # proxy. A positive "no obligation" check would be a phrase guessed, not
       # read off the corpus, so there is none.
       not_mentions: ["OIB-RL 5", "Schallschutz"]

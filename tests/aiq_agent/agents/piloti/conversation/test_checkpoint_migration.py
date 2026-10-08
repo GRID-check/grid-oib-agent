@@ -89,7 +89,7 @@ async def checkpointer():
 
 
 @pytest.mark.asyncio
-async def test_the_next_turn_after_the_deploy_answers_on_the_old_history(checkpointer):
+async def test_the_next_turn_answers_on_the_checkpointed_history(checkpointer):
     """The history is the point of the checkpoint, and it crosses intact."""
     await _legacy_graph(checkpointer).ainvoke(
         {"messages": [HumanMessage(content="Was gilt für Brüstungen?")]},
@@ -111,10 +111,10 @@ async def test_the_next_turn_after_the_deploy_answers_on_the_old_history(checkpo
 
 
 @pytest.mark.asyncio
-async def test_a_refusal_recorded_by_the_old_graph_is_still_honoured(checkpointer):
+async def test_a_refusal_recorded_by_another_graph_is_honoured(checkpointer):
     """``deep_research_declined`` is the conversation's memory of a "no", and it
-    is a plain bool on both sides: a reader who declined a plan before the
-    deploy is not asked again after it."""
+    is a plain bool on both sides: a reader who declined a plan under another
+    graph is not asked again under this one."""
     await _legacy_graph(checkpointer).ainvoke(
         {"messages": [HumanMessage(content="Vergleich über drei Bundesländer?")]},
         config={"configurable": {"thread_id": THREAD}},

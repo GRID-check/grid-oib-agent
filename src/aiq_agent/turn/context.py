@@ -225,16 +225,15 @@ async def _turn_flags(request: GridRequestContext, resolve_stages: bool) -> Turn
     """What this turn may do, decided per TURN, not per socket.
 
     The feature header is written once at the WS upgrade and frozen, so an
-    operator switching something off never reached an already-open tab — the
+    operator switching something off would not reach an already-open tab — the
     opposite of what a kill switch is for.
 
-    The round-trip is now skipped only when there is NO ORGANIZATION to evaluate
-    against. It used to be skipped whenever no stage had a model to run on,
-    because the answer could then change nothing; that stopped being true when
-    the same call started carrying whether deep research may be offered, which
-    is per-org and decides something on every turn. Without an organization both
-    answers are the permissive defaults anyway — the BFF resolves an absent
-    tenant the same way — so nothing is bought by asking.
+    The round-trip is skipped only when there is NO ORGANIZATION to evaluate
+    against. Not having a stage model is no reason to skip it: the same call
+    carries whether deep research may be offered, which is per-org and decides
+    something on every turn. Without an organization both answers are the
+    permissive defaults anyway — the BFF resolves an absent tenant the same
+    way — so nothing is bought by asking.
     """
     if not request.organization_id:
         return TurnFlags(enabled_stages=frozenset())

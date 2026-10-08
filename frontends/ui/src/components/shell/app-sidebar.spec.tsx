@@ -8,7 +8,7 @@ import { I18nProvider } from '@/i18n'
 import { AppSidebar, railActivePillId } from './app-sidebar'
 
 // Isolate the nav-filtering logic from routing and the shell's sibling widgets.
-// The pathname is mutable because the rail now reads its own scope from it —
+// The pathname is mutable because the rail reads its own scope from it —
 // project scope inside `/app/projects/<id>/…`, org scope everywhere above.
 let pathname = '/app/projects/p1/chat'
 vi.mock('next/navigation', () => ({
@@ -50,24 +50,22 @@ const baseProps = {
   projects: [{ id: 'p1', name: 'Project One' }],
   authRequired: false,
   // Explicit, and `true`, because these tests are about the nav a real user sees.
-  // This prop used to default to `false` and this fixture omitted it, so every
-  // test below silently asserted the rail with the Inbox entry HIDDEN — the state
-  // no signed-in member of an org is in.
+  // Omitting it would silently assert the rail with the Inbox entry HIDDEN, a
+  // state no signed-in member of an org is in.
   canAccessInbox: true,
 }
 
 afterEach(() => {
   pathname = '/app/projects/p1/chat'
   // The primitive persists collapse in localStorage, so a test that collapses
-  // the rail used to hand the icon rail to every test that ran after it.
+  // the rail would hand the icon rail to every test that runs after it.
   window.localStorage.removeItem('grid.sidebar.collapsed')
   vi.mocked(useIsMobile).mockReturnValue(false)
   useLayoutStore.setState({ isMobileNavOpen: false })
 })
 
 describe('the Inbox entry follows canAccessInbox, in both directions', () => {
-  // Both states, because the prop was optional and defaulting to `false` meant
-  // the disabled state was the only one this file ever covered.
+  // Both states, so the file covers the enabled rail and not only the disabled one.
   test('shows the entry when the reader may reach the inbox', () => {
     render(<AppSidebar {...baseProps} canAccessInbox />)
     expect(screen.getAllByText('Inbox').length).toBeGreaterThan(0)
@@ -79,14 +77,14 @@ describe('the Inbox entry follows canAccessInbox, in both directions', () => {
   })
 })
 
-describe('AppSidebar - click-dummy IA (FB-9/FB-10)', () => {
+describe('AppSidebar - click-dummy IA', () => {
   test('renders the core nav set: Ask Piloti, Files', () => {
     render(<AppSidebar {...baseProps} />)
     expect(screen.getAllByText('Ask Piloti').length).toBeGreaterThan(0)
     expect(screen.getAllByText('Files').length).toBeGreaterThan(0)
   })
 
-  test('Overview, Members, Research, Knowledge and History no longer appear in the nav', () => {
+  test('Overview, Members, Research, Knowledge and History do not appear in the nav', () => {
     render(<AppSidebar {...baseProps} canAccessArchiv />)
     expect(screen.queryByText('Overview')).not.toBeInTheDocument()
     expect(screen.queryByText('Members')).not.toBeInTheDocument()
@@ -204,8 +202,7 @@ describe('AppSidebar - the resize edge', () => {
   //
   // Asserted in GERMAN on purpose: in English the dictionary's strings and the
   // primitive's own defaults are the same words, so an English assertion passes
-  // just as happily with the props removed. It was written that way first, and
-  // that version survived deleting the very wiring it was written to pin.
+  // just as happily with the props removed.
   const renderGerman = (): void => {
     render(
       <I18nProvider initialLocale="de" fixedLocale>
@@ -255,7 +252,7 @@ describe('AppSidebar - active state', () => {
   })
 
   test('draws the shared-layout pill on the active entry, and nowhere else', () => {
-    // The pill is what the active state IS now — the button no longer carries
+    // The pill is what the active state IS — the button carries no
     // `bg-card`/`border`, so "exactly one pill, inside the current link" is the
     // assertion that the active surface still exists at all.
     const { container } = render(<AppSidebar {...baseProps} />)

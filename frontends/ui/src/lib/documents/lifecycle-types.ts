@@ -124,11 +124,11 @@ export const DOCUMENT_VERSION_EFFECTS = [
   /**
    * Dispatch the published bytes to `/v1/ingest` with provenance.
    *
-   * A NO-OP in this slice, and deliberately present anyway. Slice 4 is the one
-   * that may turn it on, and it may do so only together with the labelled-
-   * citation work — the build spec's own condition on this seam. Naming the slot
-   * now is what makes that a registry entry rather than a new call site inside
-   * `publish`, which is where the no-ingest rule would quietly stop being true.
+   * A NO-OP for now, and deliberately present. Turning it on is conditional on
+   * the labelled-citation work, the build spec's own condition on this seam.
+   * Naming the slot is what makes that a registry entry rather than a new call
+   * site inside `publish`, which is where the no-ingest rule would quietly stop
+   * being true.
    */
   'ingestPublished',
   /**
@@ -182,12 +182,10 @@ export interface DocumentVersionTransition {
    *
    * The umbrella `project:edit` rides along wherever the narrow permission is a
    * post-ADR-0038 split of it, so a custom role provisioned before the split
-   * keeps working. The reverse does NOT hold, and the three review decisions
-   * are where it was written backwards: `approve`, `request_changes` and
-   * `reject` listed `project:documents:write` beside `project:edit`, which
-   * handed the office's assertion about a Brandschutzkonzept to any role that
-   * may upload a file. „Darf Dateien ablegen" is not „darf freigeben"; those
-   * rows name `project:edit` alone.
+   * keeps working. The reverse does NOT hold: a review decision names
+   * `project:edit` alone. Listing `project:documents:write` beside it would hand
+   * the office's assertion about a Brandschutzkonzept to any role that may upload
+   * a file. „Darf Dateien ablegen" is not „darf freigeben".
    */
   readonly permission: readonly DocumentLifecyclePermission[]
   /**
@@ -207,13 +205,13 @@ export interface DocumentVersionTransition {
     /**
      * This transition opens a review round, so it must reach somebody.
      *
-     * Resolved BEFORE the compare-and-swap (`assertReviewGuards`), not inside
-     * the `openReviewInbox` effect where it used to live: an effect runs after
-     * the state has moved, so the refusal it raised on an empty result left the
-     * version durably `in_review` with nobody told about it and no exit that is
-     * not a decision one of those untold people would have to make. The chain
-     * in `./reviewers` is total now, so nothing is refused — but the resolution
-     * happens where a future link that CAN refuse would refuse in time.
+     * Resolved BEFORE the compare-and-swap (`assertReviewGuards`), never inside
+     * the `openReviewInbox` effect: an effect runs after the state has moved, so
+     * a refusal raised there would leave the version durably `in_review` with
+     * nobody told and no exit that is not a decision one of those untold people
+     * would have to make. The chain in `./reviewers` is total, so nothing is
+     * refused today, but the resolution happens where a link that CAN refuse
+     * would refuse in time.
      */
     readonly reviewer?: true
   }
@@ -255,11 +253,10 @@ export const DOCUMENT_VERSION_TRANSITIONS = [
      * same name.
      *
      * This row is why `document_versions` is the version table for every
-     * document rather than an agent-only structure. Re-uploading under a name
-     * that already exists has replaced the document in place since migration
-     * 0074, keeping the id so citations and subjects survive, and threw the old
-     * bytes away. That was versioning without the history. The same gesture now
-     * writes version N+1 and leaves N standing as `superseded`.
+     * document, not an agent-only structure. Re-uploading under an existing name
+     * writes version N+1 and leaves N standing as `superseded`; the document
+     * keeps its id, so citations and subjects survive, and the old bytes stay as
+     * history.
      *
      * `from: null` because the row being acted on is the NEW version; the
      * previous one is superseded by the same transaction (see `promotes`). Born
@@ -443,7 +440,7 @@ export const replaceContentRequestSchema = z
   .object({
     /**
      * The whole body, as text. Never a string replacement: editing happens in
-     * the working directory (slice 1) and filing is a whole document, so the
+     * the working directory, and filing is a whole document, so the
      * API has no patch verb to get wrong.
      */
     content: z.string().max(2_000_000),
@@ -461,9 +458,7 @@ export const replaceContentRequestSchema = z
  *
  * Optional on the wire so the agent's `file_draft` submit and every caller that
  * predates the Auftragssatz keep working; when present it is non-empty and
- * bounded so an order stays an order. The inbox excerpt renders it, which is
- * what closes the ceremony that used to gate the button on a sentence the
- * request never carried.
+ * bounded so an order stays an order. The inbox excerpt renders it.
  */
 export const MAX_SUBMIT_ORDER_LENGTH = 500
 

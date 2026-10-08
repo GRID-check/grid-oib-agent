@@ -3,9 +3,9 @@
  * (`/api/v1/[...path]`, `/api/jobs/async/[...path]`).
  *
  * Complements `@/lib/backend-proxy` (error envelopes, base URL, session
- * resolution) with the pieces those routes previously duplicated: building
- * the upstream URL from a catch-all path, and resolving the session + bearer
- * header including the `?token=` fallback used by EventSource streams.
+ * resolution) with the pieces the routes share: building the upstream URL from
+ * a catch-all path, and resolving the session + bearer header including the
+ * `?token=` fallback used by EventSource streams.
  */
 
 import { requireAuthorizedSession } from '@/lib/auth/require-auth'

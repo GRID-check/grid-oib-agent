@@ -54,10 +54,9 @@ export interface PlatformStorageOverview {
  */
 export async function getPlatformStorageOverview(): Promise<PlatformStorageOverview> {
   // Exactly two queries, both grouped or bounded, regardless of fleet size.
-  // This used to be two queries plus one `getStorageQuotaBytes` per row — a
-  // settings read per tenant for a value `findOrganizations` had already
-  // returned. The quota rule is a pure function of the settings bag
-  // (`effectiveQuotaFromSettings`), so it is applied in memory here.
+  // The quota rule is a pure function of the settings bag
+  // (`effectiveQuotaFromSettings`), so it is applied in memory here: a settings
+  // read per row would repeat a value `findOrganizations` has already returned.
   const [usageByOrg, page] = await Promise.all([
     aggregateStorageUsageByOrganization(),
     findOrganizations(ORGANIZATION_PAGE_MAX),

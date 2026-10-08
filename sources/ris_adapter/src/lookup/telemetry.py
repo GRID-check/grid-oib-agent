@@ -1,12 +1,11 @@
 """What the turn records about a lookup: the ledger and the span.
 
-Two consumers, both of which already exist for ``knowledge_search`` and
-neither of which could see RIS before:
+Two consumers, both already served for ``knowledge_search``; a RIS lookup
+feeds them the same way:
 
 * the per-round LEDGER (``turn_status.record_lane_hit``) — one entry per
-  RETURNED passage, not per hit scanned. A RIS search used to capture twenty
-  documents it never read, so the Herleitung drew twenty for a round that
-  produced one;
+  RETURNED passage, not per hit scanned, so the Herleitung draws what a round
+  produced rather than every document its search touched;
 * the ``retrieve.ris_lookup`` SPAN — the same fields ``knowledge_search``
   emits, because the loop eval's columns read the same spans for both tools.
 

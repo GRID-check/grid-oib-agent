@@ -23,14 +23,13 @@ export async function generateMetadata(): Promise<Metadata> {
 }
 
 /**
- * Project Settings (spec §5, FB-9) — consolidates what used to live on the
- * Overview and Members pages: project parameters (intake brief + applicable
+ * Project Settings (spec §5): project parameters (intake brief + applicable
  * standards), the member roster, project memory, an insights placeholder, and
  * the danger zone.
  *
  * View access gates the page (same guard the layout applies); manager-only
  * affordances (member management, rename, danger zone) are gated by the
- * derived role, matching the old pages exactly.
+ * derived role.
  */
 export default async function ProjectSettingsPage({ params }: ProjectSettingsPageProps): Promise<JSX.Element> {
   return withPageSession(async (session) => {
@@ -49,7 +48,7 @@ export default async function ProjectSettingsPage({ params }: ProjectSettingsPag
     // open (ADR-0082): only closing and reopening, and the members.
     const managesProject = role === 'project-admin'
     const canManageProject = managesProject && !closed
-    // Folders whose roles were deleted since (ADR-0081). Asked only of a
+    // Folders whose role has been deleted (ADR-0081). Asked only of a
     // project manager, who is the one who can set a role again.
     const foldersWithoutRole = canManageProject ? await listFoldersWithoutValidRole(session, id) : []
     const steckbrief = await getSteckbrief(session, id)
@@ -75,7 +74,7 @@ export default async function ProjectSettingsPage({ params }: ProjectSettingsPag
         canManageMembers={managesProject}
         canChangeStatus={managesProject}
         canWriteMemory={canWriteMemory}
-        // Knowledge left the top-level nav (spec §5) but stays reachable from
+        // Knowledge is not in the top-level nav (spec §5) but stays reachable from
         // Settings while its feature flag is on.
         showKnowledgeLink={isProjectKnowledgePageEnabled(session)}
         // Same id space as the roster's `organizationMembershipId` (see

@@ -39,7 +39,7 @@ logger = logging.getLogger(__name__)
 
 T = TypeVar("T")
 
-# Builtin skills moved to the shared substrate layout (src/aiq_agent/skills/builtin):
+# Built-in skills live in the shared substrate layout (src/aiq_agent/skills/builtin):
 # collection = mid-level dir name, skill = leaf dir name. Only the collections
 # NAMED in `deep_research_skills.agents` are mounted for a subagent — today
 # `research` and `synthesis`. The chat-side collections (`bim`, `oib`,
@@ -175,12 +175,12 @@ def _build_backend(
 def _curated_skill_dir_names() -> frozenset[str]:
     """Skill directory names that are offers, not machinery.
 
-    The chat resolver already drops these from ``always_on``. The DeepAgents
-    filesystem used to mount the whole ``builtin/`` tree, so a researcher could
-    ``read_file`` an offer the org never switched on. Same gate, both agents.
+    The chat resolver already drops these from ``always_on``. Without this gate,
+    the DeepAgents filesystem would mount the whole ``builtin/`` tree, and a
+    researcher could ``read_file`` an offer the org never switched on. Same gate, both agents.
 
     Cached per process: ``discover_builtin_skills`` walks the skills tree on
-    disk, the tree is immutable at runtime, and this ran on every run that
+    disk, the tree is immutable at runtime, and this runs on every run that
     mounted skills (every production run). ``cache_clear()`` resets it.
     """
     return frozenset(skill.name for skill in discover_builtin_skills() if _is_curated(skill))

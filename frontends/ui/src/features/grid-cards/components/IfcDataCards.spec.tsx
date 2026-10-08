@@ -109,7 +109,7 @@ const COMPARISON = {
     changed: [],
     // The badges read `counts`, not the array lengths: `compare.ts` slices
     // each list at 500 and keeps the real figures here, so a revision that
-    // added 1 300 elements used to be reported as "Neu 500".
+    // added 1 300 elements shows 1 300, not 500.
     counts: { added: 1, removed: 0, changed: 0 },
     unchangedCount: 99,
     totals: { base: 100, revision: 100 },
@@ -320,8 +320,7 @@ describe('IfcDiffCard', () => {
   })
 
   it('names what was added, not only how many', async () => {
-    // The card used to render `changed` alone: "Added 1" with no way to find
-    // out what. A delta you cannot open is a number, not an answer.
+    // A delta you cannot open is a number, not an answer.
     stubFetch({ models: MODELS, query: COMPARISON })
     render(
       <IfcDiffCard
@@ -440,10 +439,9 @@ describe('IfcDiffCard', () => {
   })
 
   it('refuses an ambiguous BASE revision instead of diffing against an arbitrary one', async () => {
-    // The base used to take the first substring hit. A diff names two
-    // buildings, so that produced a full revision history — additions,
-    // deletions, the lot — computed against whichever model happened to sort
-    // first, under a title claiming it was the Voreinreichung.
+    // A base name that matches two models is refused, not resolved to the
+    // first hit: a diff against whichever model sorts first would be a full
+    // revision history, under a title claiming it was the Voreinreichung.
     const fetchMock = stubFetch({ models: MODELS, query: COMPARISON })
     render(
       <IfcDiffCard

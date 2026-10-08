@@ -62,10 +62,9 @@ class BimQueryRejectedError(ValueError):
     Distinct from :class:`BimQueryUnavailableError`, and the distinction is the
     whole point: an unavailable service is nothing the agent can do anything
     about, while a rejected query is a mistake it can correct and retry. Every
-    4xx used to be reported as "the model service is unavailable", so a
-    `group_by` typo, an invented filter key, or the deliberate "gt/gte/lt/lte
-    need a numeric value" message dead-ended the turn — with the agent
-    instructed to state nothing about the building, on a correctable slip.
+    4xx goes here, not to "the model service is unavailable": a `group_by` typo,
+    an invented filter key or the "gt/gte/lt/lte need a numeric value" message is
+    a correctable slip, and reporting it as an outage would dead-end the turn.
     """
 
 
@@ -101,11 +100,10 @@ def _rejection_message(exc: urllib.error.HTTPError) -> str:
     """The endpoint's own explanation of why it refused, or a bare status.
 
     The envelope is ``{error, code, details}`` — see `errorResponse` in
-    `lib/api/handler.ts`. It was read as ``message``, a key the BFF has never
-    emitted, so every 4xx degraded to the bare status and the whole point of
-    :class:`BimQueryRejectedError` was lost: the deliberate, correctable texts
-    ("gt/gte/lt/lte need a numeric value", the unrecognised filter key named
-    by `.strict()`) reached the agent as "the query was refused (400)".
+    `lib/api/handler.ts`. The headline is read from ``error``: the deliberate,
+    correctable texts ("gt/gte/lt/lte need a numeric value", the unrecognised
+    filter key named by `.strict()`) are what the agent needs to see, and a bare
+    status would hide them.
     """
     try:
         body = json.loads(exc.read().decode("utf-8", errors="replace"))

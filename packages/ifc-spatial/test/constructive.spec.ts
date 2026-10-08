@@ -1,5 +1,5 @@
 /**
- * The constructive operators, on the file the failed turn was about.
+ * The constructive operators, on the sample house.
  *
  * Every expectation here is a number measured from `Ifc4_SampleHouse.ifc`, not a
  * number invented for a fixture: a flat-roofed house whose roof is in fact a
@@ -22,7 +22,7 @@ const NORTH_WALL = '3cUkl32yn9qRSPvBJVyWw5'
 const EAST_WALL = '3cUkl32yn9qRSPvBJVyWx4'
 const SOUTH_WALL = '3cUkl32yn9qRSPvBJVyWy4'
 const ROOF = '3cUkl32yn9qRSPvBJVyWh4'
-/** The window of the failed question, in the north wall. */
+/** The bedroom window, in the north wall. */
 const WINDOW = '3cUkl32yn9qRSPvBJVyWcE'
 const OPENING = '3cUkl32yn9qRSPvAVVyWcE'
 /** Exports geometry through its panels and mullions, never as a solid of its own. */
@@ -99,11 +99,10 @@ describe('overhang', () => {
   it('measures from a real face, never from the binned plane inside the masonry', () => {
     const passPlane = geometry.elements.get(NORTH_WALL)!.facade!
     const seated = facadePlaneOf(graph, geometry, NORTH_WALL).value!
-    // The geometry pass bins parallel faces by normal alone, so its plane can
-    // land anywhere between the wall's leaves and never outside the outer one.
-    // Today it reports y 4.4221 against the outer face's 4.6986: 0.28 m of
-    // masonry, on a question whose answer is of the order of a metre. Asserted
-    // as the inequality rather than as that difference, because a fix in
+    // The geometry pass's plane may land anywhere between the wall's leaves, and
+    // never outside the outer one: on the sample house the inner leaf is 0.28 m
+    // inside the outer face, on a question whose answer is of the order of a metre.
+    // Asserted as the inequality rather than as that difference, because a fix in
     // pass.ts must not read as a regression here.
     expect(passPlane.point[1]).toBeLessThanOrEqual(seated.point[1] + 1e-6)
     expect(seated.point[1]).toBeCloseTo(geometry.elements.get(NORTH_WALL)!.box.max[1], 3)
@@ -301,19 +300,16 @@ describe('freeLightIncidence', () => {
 
 describe('the seated area is a ranking key, not a face area', () => {
   /**
-   * The rename this suite exists to hold in place.
+   * The two areas on a plane are not face areas, and their names say so.
    *
-   * `OrientedPlane.seatedArea` and `Plane.binArea` were both called `area`, and
-   * `OrientedPlane.area` was documented as "Area of the face the plane was
-   * seated on". It is not one: `outermostParallelFace` bins triangles by offset
-   * along the normal and sums both facings, so the total spans every co-planar
-   * sliver within FACE_MERGE and never subtracts the openings cut out of the
-   * face.
+   * `OrientedPlane.seatedArea` and `Plane.binArea` are sums over triangles:
+   * `outermostParallelFace` bins triangles by offset along the normal and sums
+   * both facings, so the total spans every co-planar sliver within FACE_MERGE and
+   * never subtracts the openings cut out of the face.
    *
    * Both types are re-exported wholesale by `index.ts`, so the name is the only
    * thing standing between a consumer and a Fassadenfläche overstated by a
-   * third — and nothing was stopping the rename from being reverted, which is
-   * what this file is for.
+   * third. This file holds the names in place.
    */
   it('disagrees with the other bin total about the same wall', () => {
     /**
@@ -324,10 +320,8 @@ describe('the seated area is a ranking key, not a face area', () => {
      *
      * Asserted as a RELATIONSHIP rather than as two magic numbers, so a change
      * to the binning fails here with the two values in the message instead of
-     * being absorbed by a loosened bound. The first draft of this test asserted
-     * `> 20` on a figure carried over from a report rather than measured, and
-     * it failed on the real value of 17.958 — which is how the numbers in the
-     * docstrings above came to be re-measured.
+     * being absorbed by a loosened bound. Every number in this file is measured,
+     * not carried over from a report.
      */
     const seated = facadePlaneOf(graph, geometry, SOUTH_WALL).value!.seatedArea
     const binned = geometry.elements.get(SOUTH_WALL)!.facade!.binArea
@@ -348,11 +342,9 @@ describe('the seated area is a ranking key, not a face area', () => {
 
   it('never reaches a distance calculation, which does not take it', () => {
     /**
-     * `signedDistance` used to require a whole `Plane`, so callers with a
-     * normal and a point had to invent an area — one passed 0, one passed the
-     * seated bin's total. Neither was read. It now takes only what it reads,
-     * so there is no field to invent and no implication that a face area
-     * belongs in a distance.
+     * `signedDistance` takes only what it reads, a normal and a point, so there
+     * is no field to invent and no implication that a face area belongs in a
+     * distance.
      */
     const plane = facadePlaneOf(graph, geometry, SOUTH_WALL).value!
     const distance = signedDistance([0, 0, 0], { normal: plane.normal, point: plane.point })

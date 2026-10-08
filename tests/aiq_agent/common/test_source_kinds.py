@@ -179,9 +179,8 @@ class TestShelf:
     def test_every_shelf_renders_a_qualifier(self):
         assert {shelf: shelf_qualifier(shelf) for shelf in Shelf} == SHELF_QUALIFIERS
 
-    def test_a_session_file_is_no_longer_projektwissen(self):
-        # The headline bug: a file the user attached privately to a chat was
-        # cited as "Projektwissen" because `('s_', 'projekt')` was the only guess.
+    def test_a_session_file_is_not_projektwissen(self):
+        # A private chat file is cited under its own shelf, never as Projektwissen.
         assert shelf_qualifier(Shelf.SESSION) == "Private Sitzung"
         assert shelf_qualifier(Shelf.SESSION) != shelf_qualifier(Shelf.PROJECT)
 
@@ -206,7 +205,7 @@ class TestShelf:
         assert shelf_for_qualifier(None) is None
         assert shelf_for_qualifier("Internal") is None
 
-    def test_legacy_qualifier_keys_still_parse_to_the_old_vocabulary(self):
+    def test_stored_qualifier_keys_parse_to_their_scope(self):
         # Those strings are persisted inside citation keys in existing messages;
         # a reader that stops understanding them silently unresolves them.
         assert scope_for_qualifier("Projektwissen") == "projekt"

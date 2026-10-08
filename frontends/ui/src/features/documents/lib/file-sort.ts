@@ -76,9 +76,9 @@ export const RELEVANCE_SORT: FileSort = { key: 'relevance', direction: 'desc' }
 /**
  * What an unsorted listing is actually sorted by: newest first.
  *
- * Lives here rather than in the detail view because the ORDER is no longer that
- * view's property — the workspace holds it and both views read it, so the
- * default has to be reachable from outside the component that used to own it.
+ * Lives here rather than in the detail view: the ORDER belongs to the workspace,
+ * and both views read it, so the default must be reachable from outside any one
+ * component.
  */
 export const DEFAULT_FILE_SORT: FileSort = { key: 'added', direction: 'desc' }
 

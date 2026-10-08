@@ -79,11 +79,11 @@ describe('the Grundriss cut', () => {
  * The one conversion between the height a reader chooses and the plane the GPU
  * clips against.
  *
- * These assertions exist because the two disagreed silently for a whole
- * release: `position` was fed metres, the renderer reads it as a percentage of
- * the model's extent, and the only symptom was a slider whose travel all
- * happened inside the ground floor. A wrong number here cannot be seen in a
- * screenshot — it has to be pinned.
+ * These assertions exist because the two can disagree silently: `position` is
+ * fed metres, the renderer reads it as a percentage of the model's extent, and
+ * the only symptom of a mismatch is a slider whose travel all happens inside the
+ * ground floor. A wrong number here cannot be seen in a screenshot — it has to
+ * be pinned.
  */
 describe('the section plane the renderer is given', () => {
   const bounds = { minMetres: 0, maxMetres: 12 }
@@ -97,16 +97,16 @@ describe('the section plane the renderer is given', () => {
   })
 
   it('states the position as a PERCENTAGE of the model, not as metres', () => {
-    // The bug this replaces: `position: 3` on a 12 m building resolved to
-    // 3% = 0.36 m, so "cut at 3 m" sliced the floor slab.
+    // `position: 3` on a 12 m building must not resolve to 3% = 0.36 m, which
+    // would make "cut at 3 m" slice the floor slab.
     expect(rendererSectionPlane({ atMetres: 3, flipped: false }, bounds).position).toBe(25)
     expect(rendererSectionPlane({ atMetres: 0, flipped: false }, bounds).position).toBe(0)
     expect(rendererSectionPlane({ atMetres: 12, flipped: false }, bounds).position).toBe(100)
   })
 
   it('agrees with itself: the percentage resolves back to the same plane', () => {
-    // This is the renderer's own formula. If the two ever drift apart the cap
-    // floats off the cut, which is exactly how the last defect presented.
+    // This is the renderer's own formula. If the two drift apart the cap
+    // floats off the cut.
     const plane = rendererSectionPlane({ atMetres: 7.5, flipped: false }, bounds)
     const resolved =
       (plane.min ?? 0) + (plane.position / 100) * ((plane.max ?? 0) - (plane.min ?? 0))
@@ -183,11 +183,10 @@ describe('the camera state in a link', () => {
   })
 
   it('round-trips a cut BELOW the origin, which a basement has', () => {
-    // The old encoding put the direction in the sign, so it ran every height
-    // through `Math.abs` — and a model with a basement reports bounds like
-    // -3.00 m to +9.00 m. Every cut in the bottom quarter of that building
-    // came back as its positive mirror, and the plane jumped to the other
-    // side of the ground floor.
+    // The legacy encoding put the direction in the sign, so a parser that ran
+    // every height through `Math.abs` would turn a cut in the bottom quarter of
+    // a model with a basement (bounds like -3.00 m to +9.00 m) into its positive
+    // mirror, and the plane would jump to the other side of the ground floor.
     const state: BimViewerCameraState = {
       view: 'north',
       section: { atMetres: -1.4, flipped: false },
@@ -201,8 +200,8 @@ describe('the camera state in a link', () => {
   })
 
   it('round-trips a cut below the origin seen from below', () => {
-    // The one combination the old encoding could not even approximate: a
-    // negative height AND a flipped direction both wanted the same sign.
+    // The one combination the legacy encoding cannot represent: a negative
+    // height AND a flipped direction both want the same sign.
     const state: BimViewerCameraState = {
       view: 'iso',
       section: { atMetres: -2.75, flipped: true },
@@ -231,26 +230,26 @@ describe('the camera state in a link', () => {
 })
 
 /**
- * Links written before the direction got its own parameter.
+ * Links with no direction parameter.
  *
  * "A view is a link" is only true if a link keeps working. These are the exact
- * strings the previous encoding produced, and each must still resolve to the
- * view it was copied from.
+ * strings such links carry, and each must still resolve to the view it was
+ * copied from.
  */
-describe('a link written by the old encoding', () => {
+describe('a link without the direction parameter', () => {
   const read = (query: string) => parseCameraState(new URLSearchParams(query))
 
   it('reads a downward cut the same way', () => {
     expect(read('cut=2.6')).toMatchObject({ section: { atMetres: 2.6, flipped: false } })
   })
 
-  it('still reads a negative cut as the upward cut it meant', () => {
-    // Under the new encoding this string would mean "cut at -2.6 m looking
-    // down". The absent `cutup` is what says it came from the old one.
+  it('reads a negative cut as the upward cut it meant', () => {
+    // With a `cutup` parameter this string would mean "cut at -2.6 m looking
+    // down". Without one it is the upward cut it meant.
     expect(read('cut=-2.6')).toMatchObject({ section: { atMetres: 2.6, flipped: true } })
   })
 
-  it('reads the flipped-at-zero case both encodings agree on', () => {
+  it('reads a cut at zero flipped when cutup is set', () => {
     expect(read('cut=0&cutup=1')).toMatchObject({ section: { atMetres: 0, flipped: true } })
   })
 
@@ -297,8 +296,8 @@ describe('a link written by the old encoding', () => {
  * `Camera.zoom` computes `min(|delta| × 0.001, 0.1)`, so a delta of 100 is the
  * 10 % ceiling and a delta of 1 is a tenth of a percent. Every assertion here
  * is really about that: the numbers this function produces have to land in a
- * range the camera can act on, and the old scale put them three orders of
- * magnitude below it.
+ * range the camera can act on, and a scale that is too small puts them orders
+ * of magnitude below it.
  */
 describe('wheelZoomDelta', () => {
   /** What the camera will actually do with a delta — its own arithmetic. */
@@ -306,10 +305,10 @@ describe('wheelZoomDelta', () => {
     1 + Math.sign(delta) * Math.min(Math.abs(delta) * 0.001, 0.1)
 
   it('turns one wheel notch into a step a person can see', () => {
-    // 100 px is one notch on a mouse. At the old scale this produced `1`, i.e.
-    // a 0.1 % change in camera distance — about seven hundred notches to halve
-    // it, and below the velocity floor that carries inertia, so nothing
-    // coasted either. The wheel did not read as slow; it read as broken.
+    // 100 px is one notch on a mouse. A scale that makes a notch come out as
+    // `1` is a 0.1 % change in camera distance: about seven hundred notches to
+    // halve it, and below the velocity floor that carries inertia, so nothing
+    // would coast either. The wheel would read as broken rather than slow.
     expect(wheelZoomDelta(100, 0, 800)).toBeCloseTo(50)
     expect(cameraFactor(wheelZoomDelta(100, 0, 800))).toBeCloseTo(1.05)
     expect(wheelZoomDelta(-100, 0, 800)).toBeCloseTo(-50)
@@ -357,22 +356,23 @@ describe('pointerDragged', () => {
   })
 
   it('sees a slow drag that never moved more than a pixel at a time', () => {
-    // The bug. The threshold used to be applied to the delta between
-    // CONSECUTIVE pointer events, and events are coalesced — so a deliberate,
-    // careful orbit arrives as a hundred one-pixel moves and never trips it,
-    // however far the camera turns. Releasing then selected whatever was
-    // under the cursor and opened the inspector on an element nobody clicked.
+    // The threshold applies to the travel since the press, not to the delta
+    // between CONSECUTIVE pointer events: events are coalesced, so a deliberate,
+    // careful orbit arrives as a hundred one-pixel moves and never trips a
+    // per-event check, however far the camera turns. Releasing would then select
+    // whatever was under the cursor and open the inspector on an element nobody
+    // clicked.
     const origin = { x: 400, y: 300 }
     let current = { ...origin }
     let trippedPerEvent = false
     for (let step = 0; step < 120; step += 1) {
       const next = { x: current.x + 1, y: current.y }
-      // What the old code asked: did THIS event move more than the slop?
+      // The per-event check, which must not trip: did THIS event exceed the slop?
       trippedPerEvent ||= pointerDragged(current, next)
       current = next
     }
     expect(trippedPerEvent).toBe(false)
-    // What it asks now.
+    // The check that holds: how far has the pointer travelled since the press?
     expect(pointerDragged(origin, current)).toBe(true)
   })
 
@@ -454,7 +454,7 @@ describe('downloadWithProgress', () => {
 
   it('never exceeds 100 when the declared length disagrees with the bytes', async () => {
     // A proxy that recompresses can leave Content-Length smaller than the
-    // decoded body, which used to drive a progress bar past its own end.
+    // decoded body, which would drive a progress bar past its own end.
     const seen: Array<number | null> = []
     const bytes = await downloadWithProgress(streamed([[1, 2, 3, 4]], { 'Content-Length': '2' }), (p) =>
       seen.push(p)
@@ -469,10 +469,10 @@ describe('downloadWithProgress', () => {
   })
 
   it('writes into one buffer when the length is known, rather than copying twice', async () => {
-    // The reason this matters is memory, which no assertion here can see: the
-    // old path kept every chunk AND allocated a second full-size array, so a
-    // 149 MB model peaked at 300 MB of JS heap and took phones with it. What
-    // is observable is that the single-buffer path returns exactly the bytes.
+    // The reason this matters is memory, which no assertion here can see: keeping
+    // every chunk AND allocating a second full-size array would peak a 149 MB
+    // model at 300 MB of JS heap, which takes phones with it. What is observable
+    // is that the single-buffer path returns exactly the bytes.
     const bytes = await downloadWithProgress(
       streamed([[1, 2], [3], [4, 5, 6]], { 'Content-Length': '6' }),
       () => {}
@@ -521,8 +521,9 @@ describe('downloadWithProgress over a gzipped response', () => {
   })
 
   it('measures against the UNCOMPRESSED length, not the wire length', async () => {
-    // The bug this guards: the reader sees inflated bytes, so dividing by the
-    // compressed Content-Length pins the bar at 100% almost immediately.
+    // This guards against dividing by the wrong length: the reader sees inflated
+    // bytes, so dividing by the compressed Content-Length would pin the bar at
+    // 100% almost immediately.
     const seen: Array<number | null> = []
     await downloadWithProgress(
       respond(
@@ -575,9 +576,9 @@ describe('keyboardCameraStep', () => {
     expect((zoomIn as { amount: number }).amount).toBeLessThan(0)
     expect((zoomOut as { amount: number }).amount).toBeGreaterThan(0)
     // And by an amount the camera can act on. `Camera.zoom` multiplies by
-    // 0.001, so the step has to be tens of units, not fractions of one — at
-    // `0.6` a keypress changed the distance by six hundredths of a percent,
-    // which is the keyboard's only zoom doing visibly nothing.
+    // 0.001, so the step has to be tens of units, not fractions of one: at
+    // `0.6` a keypress would change the distance by six hundredths of a percent,
+    // the keyboard's zoom doing visibly nothing.
     expect(Math.abs((zoomIn as { amount: number }).amount) * 0.001).toBeGreaterThan(0.01)
   })
 

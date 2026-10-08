@@ -80,11 +80,9 @@ async function reachTheSave(): Promise<void> {
 /**
  * Open the last step's „Erweitert".
  *
- * Agents, cards, category and the two switches live behind it. That is the
- * stripping-down the rebuild was for: they used to sit in a rail at the same
- * weight as the description, which is the one field that decides whether the
- * skill is ever picked. A test that reaches them takes the same two gestures
- * an author does.
+ * Agents, cards, category and the two switches live behind it, out of the way of
+ * the description: the one field that decides whether the skill is ever picked.
+ * A test that reaches them takes the same two gestures an author does.
  */
 function openAdvanced(): void {
   goToStep(3)
@@ -98,7 +96,7 @@ const orgSkill: client.SkillListItem = {
   body: 'Draft a report on sound insulation per OIB Richtlinie 5.',
   // Two leftovers, both of which must simply SURVIVE a save. 'voice-ana' is
   // not an agent, so the scope reads as "both agents"; 'grid-execution' is not
-  // a reserved key any more (scheduling belongs to a job), so it is ordinary
+  // a reserved key (scheduling belongs to a job), so it is ordinary
   // free-form metadata the editor must carry through untouched rather than
   // tidy away on the author's behalf.
   metadata: { 'grid-execution': 'deep-research', 'grid-agents': 'voice-ana' },
@@ -180,9 +178,9 @@ describe('SkillEditorDialog — create', () => {
     expect(toast.success).toHaveBeenCalledWith('Skill created.')
   })
 
-  // Which skills the model may pick is the model's business (ADR-0060). The
-  // switch that took one out of the catalog is gone, and the editor must not
-  // grow another way to write the key.
+  // Which skills the model may pick is the model's business (ADR-0060). There is
+  // no switch that takes one out of the catalog, and the editor must not grow
+  // another way to write the key.
   test('offers nothing that decides whether the model may pick the skill', () => {
     render(<SkillEditorDialog {...dialogProps} skill={null} />)
     expect(screen.queryByRole('switch', { name: /may pick/i })).not.toBeInTheDocument()
@@ -219,9 +217,9 @@ describe('SkillEditorDialog — create', () => {
   test('offers nothing about time or output — that belongs to a job', async () => {
     render(<SkillEditorDialog {...dialogProps} skill={null} />)
 
-    // These three controls moved to the Jobs builder with the concepts they
+    // These three controls belong to the Jobs builder with the concepts they
     // configure. A skill that could still declare them would be declaring
-    // something no longer read.
+    // something nothing reads.
     expect(screen.queryByRole('combobox', { name: 'Output' })).not.toBeInTheDocument()
     expect(screen.queryByRole('switch', { name: 'Schedulable' })).not.toBeInTheDocument()
     expect(screen.queryByText(/Deep-research report/)).not.toBeInTheDocument()
@@ -335,13 +333,13 @@ describe('SkillEditorDialog — create', () => {
   })
 
   /**
-   * There is no clone any more, and this dialog no longer writes `clonedFrom`.
+   * This dialog never writes `clonedFrom`.
    *
-   * Copying a platform skill produced a second skill frozen at the moment it
-   * was copied — an org maintaining an instruction it never wrote, missing
-   * every improvement shipped afterwards. What replaced it is a switch on the
-   * offer itself (`curated-skills.tsx`), so nothing authored here is a copy of
-   * anything: a skill written in this dialog is the org's own.
+   * Copying a platform skill would produce a second skill frozen at the moment
+   * it was copied — an org maintaining an instruction it never wrote, missing
+   * every improvement shipped afterwards. A switch on the offer itself
+   * (`curated-skills.tsx`) replaces the copy, so nothing authored here is a copy
+   * of anything: a skill written in this dialog is the org's own.
    */
   test('authoring never marks a skill as a copy of something else', async () => {
     createSkillMock.mockResolvedValue(orgSkill)

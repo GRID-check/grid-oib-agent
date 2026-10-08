@@ -77,13 +77,13 @@ describe('backoffWithJitter', () => {
 })
 
 /**
- * The ladder exists because the function above is pure, so four call sites
- * hand-rolled the state around it — an attempt counter, a timer, a cancel, and a
- * rule for when the count goes back to zero. Every one of those four got the
- * RESET wrong at least once: a healthy tab resuming at the ceiling, a budget
- * spent by failures an hour apart, a timer outliving the effect that made it.
- * Those three are what is pinned hardest here. As a primitive they are
- * invariants, and an invariant is only worth the name if something checks it.
+ * The ladder wraps the pure function above with the state every caller needs:
+ * an attempt counter, a timer, a cancel, and a rule for when the count goes
+ * back to zero. Each of those is easy to get wrong. The three pinned hardest
+ * here are the reset rules: a healthy connection resuming at the ceiling, a
+ * budget spent by failures an hour apart, and a timer outliving the effect that
+ * made it. As a primitive they are invariants, and an invariant is only worth
+ * the name if something checks it.
  */
 describe('createRetryLadder', () => {
   beforeEach(() => vi.useFakeTimers())

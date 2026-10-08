@@ -2,10 +2,9 @@
 
 An overview question — "Was weißt du über die OIB 2?", "worum geht es im
 Brandschutzkonzept?" — names a document and nothing else. There is no Punkt and
-no page to pass, so the locator used to refuse and send the model to
-``knowledge_search``, which returns cover pages; the model then GUESSED a Punkt
-("Anwendungsbereich", which OIB 2 does not have), was refused again, and
-searched again.
+no page to pass. A locator that refuses sends the model to ``knowledge_search``,
+which returns cover pages; the model then guesses a Punkt ("Anwendungsbereich",
+which OIB 2 does not have), is refused again, and searches again.
 
 These tests pin the primitive that answers that question deterministically: one
 filtered fetch for the document's top two heading levels, the scope passage
@@ -254,10 +253,10 @@ class TestThePunktOutline:
         ]
 
     async def test_a_chapter_line_carries_its_opening_sentence_and_a_sub_punkt_does_not(self, store):
-        """What a chapter is ABOUT beside what it is called. A heading list told
-        an overview question nothing it did not know, so the model opened every
+        """What a chapter is ABOUT beside what it is called. A heading list tells
+        an overview question nothing it does not know, so the model opens every
         chapter to find out: one round of eight parallel opens per member of a
-        family, three once the fan-out crossed the per-round width cap. The
+        family, three once the fan-out crosses the per-round width cap. The
         sentence is bounded, quoted from the body after the heading line, and
         depth 2 stays a bare index — four members at 120 characters per chapter
         is the whole budget."""
@@ -492,9 +491,9 @@ class TestWhatTheStoreIsAsked:
         assert store.calls[0]["query"] == OIB
 
     async def test_the_fallback_asks_for_the_document_and_nothing_narrower(self, store):
-        """It used to add `page_label $in ("1", "2", "3")`, which no workbook can
-        match: `page_label` holds the WORKSHEET NAME for .xlsx/.xlsm. The file
-        clause and `_MAX_OUTLINE_CHUNKS` bound the set on their own."""
+        """The fallback may not add `page_label $in ("1", "2", "3")`, which no
+        workbook can match: `page_label` holds the WORKSHEET NAME for .xlsx/.xlsm.
+        The file clause and `_MAX_OUTLINE_CHUNKS` bound the set on their own."""
         store.page_chunks = [_page_chunk(1, "Seite 1")]
 
         await _read(document=PLAN)
@@ -521,9 +520,9 @@ class TestWhatTheStoreIsAsked:
 
 class TestADocumentWhosePageLabelIsNotAPage:
     """`page_label` is whatever the extractor wrote: the WORKSHEET NAME for
-    .xlsx/.xlsm (`llamaindex/office_extractors`). The fallback used to filter
-    `page_label $in ("1", "2", "3")`, so an indexed spreadsheet matched nothing
-    and the outline told the model the store held no chunk of it."""
+    .xlsx/.xlsm (`llamaindex/office_extractors`). The fallback must not filter
+    `page_label $in ("1", "2", "3")`: an indexed spreadsheet would match nothing,
+    and the outline would tell the model the store holds no chunk of it."""
 
     async def test_a_workbook_outlines_with_its_sheets_as_passages(self, store):
         store.page_chunks = [
@@ -610,9 +609,8 @@ class TestTheContract:
         assert "not evidence" in returns
 
 
-#: The bytes this tool returned before the Gliederung moved inside the block.
-#: Captured from the code that appended it, so the move cannot change what the
-#: model reads (ADR-0061: the text may not move by a byte).
+#: The golden bytes of an outline result. Pinned because the model reads these
+#: bytes exactly (ADR-0061: the text may not move by a byte).
 OUTLINE_FIXTURE = Path(__file__).resolve().parent / "fixtures" / "read_passage_outline.txt"
 
 
@@ -627,11 +625,11 @@ def capturing():
 class TestTheOutlineIsReadAsRecords:
     """An outline result must be findable by its own bytes.
 
-    ``read_passage(document=…)`` is the most common call this tool takes, and
-    its output used to be concatenated after the renderer had already filed the
-    block under the hash of what it returned. Every one of those results missed
-    the structured reader and fell to the regex parser, which recovers less than
-    the producer stated. The Gliederung travels as the block's trailer now.
+    ``read_passage(document=…)`` is the most common call this tool takes. The
+    Gliederung travels as the block's trailer, inside the renderer's hash: a byte
+    concatenated after the renderer has filed the block under the hash of what it
+    returned makes the result miss the structured reader and fall to the regex
+    parser, which recovers less than the producer stated.
     """
 
     async def test_an_outline_result_is_filed_under_its_own_bytes(self, store, capturing):
@@ -640,7 +638,7 @@ class TestTheOutlineIsReadAsRecords:
         assert get_grounding_block(await _read(document=OIB)) is not None
 
     async def test_a_document_without_punkte_is_filed_too(self, store, capturing):
-        """The no-Punkte line is the same decoration, and was the same miss."""
+        """The no-Punkte line is the same decoration, and would be the same miss."""
         store.page_chunks = [_page_chunk(1, "Seite 1 des Konzepts")]
 
         assert get_grounding_block(await _read(document=PLAN)) is not None
@@ -668,8 +666,8 @@ class TestANumericPunkt:
     """A whole-numbered Punkt arrives as a number, and must open that Punkt.
 
     Providers answer the schema's type, so `punkt=3` is what a top-level Punkt
-    looks like on the wire. Typed `str` only, the call died in argument
-    validation before the tool ran, and the model was handed pydantic's own
+    looks like on the wire. Typed `str` only, the call would die in argument
+    validation before the tool ran, and the model would be handed pydantic's own
     message instead of a passage.
     """
 

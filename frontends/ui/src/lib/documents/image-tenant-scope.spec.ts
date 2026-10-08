@@ -14,8 +14,8 @@
  * That makes this the one path where the entry-point fix cannot help, and where
  * the repository stating its own scope is load-bearing rather than
  * belt-and-braces: with an unscoped `findDocumentInOrg`, every image request
- * threw `MissingTenantContextError` once row-level security was enforced, which
- * is why previews and thumbnails went blank across the app.
+ * would throw `MissingTenantContextError` under row-level security, and previews
+ * and thumbnails would go blank across the app.
  *
  * So this test asserts the thing that actually matters: the query runs inside a
  * scope, and that scope is the organization the SIGNATURE claims — not one
@@ -65,7 +65,7 @@ vi.mock('@/lib/db', () => ({
   },
 }))
 
-// `bim_models` / `bim_elements` are here only because the documents service now
+// `bim_models` / `bim_elements` are here only because the documents service
 // reaches the BIM subsystem (IFC uploads are parsed rather than ingested), and
 // its repository reads the table objects at module scope.
 vi.mock('@/lib/db/schema', () => ({
@@ -110,11 +110,10 @@ vi.mock('./reconcile-status', () => ({ reconcileDocumentStatuses: vi.fn() }))
 // the document-role tables the narrow schema double above does not provide.
 vi.mock('@/lib/project-profile/prompt-view', () => ({ invalidateProjectPromptViewCache: vi.fn() }))
 
-// Clients doubled, key builders real. The thumbnail rule was previously
-// re-implemented here as `${key}.thumb.jpg` — a shape production has never
-// written, since the real builder REPLACES the filename segment with
-// `_thumb.jpg`. A spec that invents its own key cannot notice the day the
-// production one changes.
+// Clients doubled, key builders real. A spec that re-implements the thumbnail
+// rule (`${key}.thumb.jpg`) would invent a shape production has never written:
+// the real builder REPLACES the filename segment with `_thumb.jpg`, and an
+// invented key cannot notice the day the production one changes.
 vi.mock('@/lib/s3', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/lib/s3')>()),
   // ContentLength is always present on a real GetObject response; the

@@ -1,4 +1,4 @@
-# PAUSED (2026-09-30): the answer suite no longer runs in CI.
+# PAUSED: the answer suite does not run in CI.
 #
 # Everything below the stub is the full workflow, commented out line by line.
 # To restore it, delete the stub (from `name:` to the end of the `paused` job)
@@ -36,8 +36,8 @@ jobs:
 # # suite") on a PR: the core reference questions through the real agent, once on
 # # the base and once on the head, and the head's report with its baseline deltas
 # # as one sticky PR comment. AGENTS.md asks for exactly this before and after on
-# # any change that shapes an answer; until this workflow it needed a developer
-# # with the corpus on their machine.
+# # any change that shapes an answer, and CI runs it so that the corpus need not
+# # sit on a developer's machine.
 # #
 # # OPT-IN, by the `answer-suite` label, and re-run on every push while the label
 # # is on. Not on every PR: each run is live model calls on both sides (the core
@@ -99,8 +99,8 @@ jobs:
 #       max-parallel: 1
 #       # The two sides are independent measurements. With the default
 #       # fail-fast, a base that cannot run (a harness bug the head fixes, a
-#       # corpus the base cannot ingest) cancelled the head before it started,
-#       # and the report said "the head side produced no results".
+#       # corpus the base cannot ingest) would cancel the head before it starts,
+#       # and the report would say "the head side produced no results".
 #       fail-fast: false
 #       matrix:
 #         side: [before, after]
@@ -203,10 +203,10 @@ jobs:
 #         with:
 #           python-version: "3.14"
 #       - uses: ./.github/actions/setup-task
-#       # One download per side, by name, into its own directory. With a
-#       # pattern, a run that uploaded only ONE side (a base that could not run)
-#       # was extracted straight into runner.temp, and the head's results were
-#       # reported as missing. Either side may be absent; the render step says which.
+#       # One download per side, by name, into its own directory: a pattern would
+#       # extract a run that uploaded only ONE side (a base that could not run)
+#       # straight into runner.temp, and the head's results would look missing.
+#       # Either side may be absent; the render step says which.
 #       - uses: actions/download-artifact@v8
 #         continue-on-error: true
 #         with:

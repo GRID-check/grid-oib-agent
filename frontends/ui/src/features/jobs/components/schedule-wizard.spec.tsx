@@ -1,9 +1,9 @@
 /**
  * The three-step wizard — the rules it was rebuilt to, asserted.
  *
- * The page this replaced held sixteen controls with no stated order, and the
- * thing that made it hard was not any one field: it was having to hold all of
- * them at once. So what is pinned here is the shape, not the fields —
+ * Sixteen controls with no stated order are hard because of having to hold all
+ * of them at once, not because of any one field. So what is pinned here is the
+ * shape, not the fields —
  *
  *   - one required answer, on step 1, and it is the request;
  *   - the name proposes itself and is never overwritten;
@@ -13,9 +13,9 @@
  *   - and the payload is composed from the answers, once, at the end.
  *
  * There is no step asking what should come out. A task is always a researched
- * report filed into the project, so the question had one honest answer and the
- * other one — „Chat", i.e. leaves no deliverable — was the one thing a standing
- * task is not for.
+ * report filed into the project, so there is no question about it; the other
+ * answer — „Chat", i.e. no deliverable — is the one thing a standing task is
+ * not for.
  */
 
 import { render, screen, waitFor, within } from '@/test-utils'
@@ -135,9 +135,9 @@ describe('progressive disclosure', () => {
     expect(screen.getByText(/always included in every run/i)).toBeInTheDocument()
   })
 
-  // The step that asked it decided two facts under one label — which agent runs
-  // the task, and whether its result is filed — and only one of them was ever a
-  // real choice. Both answers now hold: deep research, filed.
+  // A step that asks it decides two facts under one label — which agent runs
+  // the task, and whether its result is filed — and only one of them is a real
+  // choice, so both are fixed: deep research, filed.
   test('never asks what should come out of it', async () => {
     const { user } = wizard()
     await user.type(screen.getByLabelText(/The request/), 'Brandschutz prüfen')
@@ -147,10 +147,10 @@ describe('progressive disclosure', () => {
   })
 
   // A task names a playbook in its PROMPT, with the same `/` the chat composer
-  // has — the model reads the name and decides. The `<Select>` that used to be
-  // folded away here attached one skill and `buildFirePrompt` pasted its whole
-  // body in front of the model: the last thing in the product that could put a
-  // skill on a turn without the model choosing it.
+  // has — the model reads the name and decides. A `<Select>` attaching one skill
+  // would have `buildFirePrompt` paste its whole body in front of the model: the
+  // one place in the product that could put a skill on a turn without the model
+  // choosing it.
   test('offers no way to attach a skill to the job', async () => {
     const { user } = wizard()
     await user.type(screen.getByLabelText(/The request/), 'Brandschutz prüfen')
@@ -204,8 +204,8 @@ describe('step 2 — the cadence, made checkable', () => {
   })
 
   test('offers once, recurring and manual as one choice of three', async () => {
-    // The question used to be a switch, which made "once, on Friday" — the
-    // shape a planning office asks for most — impossible to express.
+    // A switch would make "once, on Friday" — the shape a planning office asks
+    // for most — impossible to express.
     await toSchedule()
     const group = screen.getByTestId('cadence-choice')
     expect(within(group).getAllByRole('radio')).toHaveLength(3)
@@ -216,8 +216,8 @@ describe('step 2 — the cadence, made checkable', () => {
     const { user } = await toSchedule()
     await user.click(screen.getByTestId('cadence-once'))
 
-    // The cron composer is gone — there is no rhythm to pick — and the date
-    // field has taken its place, pre-filled so the step is never empty.
+    // No cron composer: there is no rhythm to pick, and the date field takes its
+    // place, pre-filled so the step is never empty.
     expect(screen.queryByTestId('wizard-frequency-daily')).not.toBeInTheDocument()
     const due = screen.getByLabelText(/Due date/)
     expect(due).toHaveValue()
@@ -283,8 +283,8 @@ describe('step 3 — what will happen, then one button', () => {
   })
 
   test('save and run now fires the task once, after it exists', async () => {
-    // The gap this closes: a weekly task saved on Monday afternoon offers its
-    // author no evidence it works until the following Monday.
+    // Without it, a weekly task saved on Monday afternoon offers its author no
+    // evidence it works until the following Monday.
     const { user } = wizard()
     await toReview(user)
     await user.click(screen.getByTestId('wizard-save-and-run'))
@@ -303,11 +303,10 @@ describe('step 3 — what will happen, then one button', () => {
   })
 
   // The step that owns the error is where the reader is put, and it is found by
-  // NAME rather than counted. It used to be the literal index 2, which was the
-  // schedule step while there were four of them; dropping the output step moved
-  // the schedule to 1 and left 2 pointing at the review, which renders no
-  // schedule error at all — so a refused interval sent the reader to a screen
-  // that said nothing and offered nothing to change.
+  // NAME rather than counted: a literal index breaks as soon as a step is
+  // dropped, and then points at the review, which renders no schedule error at
+  // all — so a refused interval would send the reader to a screen that said
+  // nothing and offered nothing to change.
   test('a refused schedule sends the reader back to the schedule, with the reason', async () => {
     const { JobApiError } = await import('@/adapters/api/jobs-client')
     createJob.mockRejectedValueOnce(

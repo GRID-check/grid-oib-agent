@@ -1,12 +1,13 @@
 /**
  * A streamed token re-renders what is already on screen; it must not replace it.
  *
- * Since ADR-0066 a closed diagram and an arrived card are drawn while the
- * answer after them is still arriving. The element overrides used to be
- * rebuilt on every token (they closed over the heading ids, the open fence and
- * the slot renderer), so React saw a new component each time and remounted the
- * whole answer: the drawn diagram went back to `drawing` and queued another
- * parse behind the mermaid lock, and the card played its arrival again.
+ * A closed diagram and an arrived card are drawn while the answer after them is
+ * still arriving (ADR-0066). The element overrides must keep their identity
+ * across tokens: they close over the heading ids, the open fence and the slot
+ * renderer, and rebuilding them per token makes React see a new component each
+ * time and remount the whole answer. The drawn diagram would go back to
+ * `drawing` and queue another parse behind the mermaid lock, and the card would
+ * play its arrival again.
  */
 import { useEffect, type ReactNode } from 'react'
 import { render, screen, waitFor } from '@/test-utils'

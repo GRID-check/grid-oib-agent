@@ -317,8 +317,9 @@ class TestSubmitting:
         message = await filing_tools.run_file_draft(DRAFT, submit=True)
 
         assert "Ich kenne keine Person" not in message
-        # The draft was filed in the call before, so the failure says it lies in
-        # the project; the old „nur im Arbeitsordner" wording was false here.
+        # The draft was filed in the call before, so the failure must say it lies
+        # in the project, never only in the working folder: „nur im Arbeitsordner"
+        # would be false here.
         assert "als ENTWURF im Projekt" in message
 
     async def test_a_filed_unchanged_draft_is_only_submitted(self, _one_store, monkeypatch, calls) -> None:
@@ -491,8 +492,8 @@ class TestTheFilingReferenceMirrorsTheBrowser:
 class TestFilingAndSubmittingInOneCall:
     """``submit=True`` files what the working directory holds, then submits that version.
 
-    The case ``submit_draft`` used to refuse („zuerst `file_draft`") is the one
-    this merge exists for; every other refusal it gave is asserted in
+    The case a bare submit refuses („zuerst `file_draft`") is the one this merge
+    exists for; every other refusal it gives is asserted in
     :class:`TestSubmitting` through the same argument.
     """
 

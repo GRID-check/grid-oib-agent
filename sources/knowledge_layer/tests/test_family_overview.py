@@ -201,12 +201,12 @@ class TestTheFamilyIsTheAnswer:
     async def test_the_preamble_says_the_parts_are_open(self, corpus):
         """The fact that stops the second round.
 
-        The block already carried each part's scope passage and Gliederung,
-        which is what `read_passage(document=…)` returns for one of them, and
-        said nothing about that: the model read the preamble as a search
-        result, announced it would now open the Richtlinie properly, and spent
-        a whole round re-reading the passages it was holding. The Punkt is
-        where the next open pays, and `_OUTLINE_INSTRUCTION` below says how.
+        The block carries each part's scope passage and Gliederung, which is
+        what `read_passage(document=…)` returns for one of them. The preamble has
+        to say so, or the model reads it as a search result, announces it will
+        open the Richtlinie properly, and spends a whole round re-reading the
+        passages it already holds. The Punkt is where the next open pays, and
+        `_OUTLINE_INSTRUCTION` below says how.
         """
         corpus(MEMBERS)
 
@@ -422,9 +422,9 @@ class TestTheOrdinarySearchIsUntouched:
 class TestAnOverviewThatFailsSaysSo:
     """Fail-open kept the answer and lost the fact that the family branch ran.
 
-    A production trace showed a family question coming back as two ranked
-    documents with nothing marking the overview as attempted and lost, so the
-    turn read exactly like an ordinary search and could not be explained.
+    Fail-open keeps the answer, and it must keep the fact that the family branch
+    ran: otherwise a family question that lost its overview reads exactly like an
+    ordinary search and cannot be explained.
     """
 
     @staticmethod
@@ -595,9 +595,9 @@ class TestAnOverviewQuestionIsNotJudged:
         return calls
 
     async def test_a_corpus_without_the_family_keeps_the_judge(self, corpus, monkeypatch):
-        """The skip used to key on the query's shape: with no member of the
-        family indexed there is no overview, only ranked passages, and those
-        lost their requery."""
+        """The skip keys on the overview, not the query's shape: with no member
+        of the family indexed there is no overview, only ranked passages, and
+        those keep their requery."""
         corpus({"3": "oib-rl_3_ausgabe_mai_2023.pdf"})
         calls = self._judge(monkeypatch)
 
