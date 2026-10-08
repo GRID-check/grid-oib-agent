@@ -622,8 +622,8 @@ class TestTheFixtureOfficeIsLargeEnoughToTestRanking:
 
         assert missed == []
 
-    def test_an_inverted_ranking_loses_nearly_all_of_it(self, monkeypatch):
-        """The revert-check of the whole fixture: a search that ranks badly must fail where the real one passes."""
+    def test_inverted_scores_lose_nearly_all_of_it(self, monkeypatch):
+        """The revert-check of the scores: passages merge by score, so a search that scores badly must fail here."""
         monkeypatch.setattr(FixtureOffice, "_rank", _inverted(FixtureOffice._rank))
 
         kept = [q["id"] for q in _with_evidence() if set(q["expect"]["evidence"]) & set(_searched(q))]
