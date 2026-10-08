@@ -30,6 +30,7 @@ type FolderAccessModule = Pick<
   | 'requireFolderWrite'
   | 'canWriteFolder'
   | 'projectMayWriteDocuments'
+  | 'customFolderNames'
 >
 
 /** The open answer `getProjectFolderAccess` gives for a project that restricts nothing. */
@@ -68,5 +69,6 @@ export function openFolderAccessModule(): FolderAccessModule & typeof rule {
     requireFolderWrite: vi.fn(async () => undefined),
     canWriteFolder: vi.fn(async () => true),
     projectMayWriteDocuments: vi.fn(async () => true),
+    customFolderNames: vi.fn(async () => new Map<string, string>()),
   }
 }

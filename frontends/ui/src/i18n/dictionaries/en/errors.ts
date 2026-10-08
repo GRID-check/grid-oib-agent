@@ -37,4 +37,19 @@ export const errors = {
       Default: 'An error occurred during authentication.',
     },
   },
+  /**
+   * A conversation that drew on a folder with restricted access, refusing to
+   * carry its content where others read it (ADR-0084,
+   * `lib/conversations/restricted-egress.ts`). One sentence per door, relayed
+   * as the API error: the agent quotes the German one to the reader.
+   */
+  confinement: {
+    deepResearch:
+      'This conversation draws on a folder with restricted access, so it cannot start a deep research run: the run, its title and its report would be visible to everyone in the project, including people not cleared for that folder.',
+    task: 'This conversation draws on a folder with restricted access, so it cannot create a task: tasks are visible to everyone in the project, including people not cleared for that folder.',
+    profilePatch:
+      'This conversation draws on a folder with restricted access, so it cannot change the project context: the project context is visible to everyone in the project, including people not cleared for that folder.',
+    filing:
+      'This conversation draws on a folder with restricted access, so nothing from it can be filed there: that place is visible to people not cleared for the restricted folder. Filing works only into a folder restricted at least as narrowly.',
+  },
 }

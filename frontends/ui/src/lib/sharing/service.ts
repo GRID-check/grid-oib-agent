@@ -19,7 +19,9 @@ import 'server-only'
 import { BadRequestError, ConflictError, ForbiddenError, NotFoundError } from '@/lib/api/errors'
 import { recordAuditEvent } from '@/lib/audit/service'
 import type { AuthorizedSession } from '@/lib/auth/types'
+import type { DbExecutor } from '@/lib/db/executor'
 import type { ResourceRole, ResourceVisibility, ShareableResourceType } from '@/lib/db/schema'
+import type { AudienceWidening } from '@/lib/conversations/restricted-use'
 import { publishToUsers } from '@/lib/events/bus'
 import { resolveResourceAccess, requireResourceAccess } from './access'
 import { loadOrganizationDirectory, unknownPerson } from './directory'
@@ -35,6 +37,41 @@ import {
 import { SHARING_ERROR_REASONS, type ResourceAccessEntry, type ResourceSharingState } from './types'
 
 export type { ResourceAccessEntry, ResourceSharingState }
+
+/**
+ * Refuse a widening the resource's content forbids (ADR-0084): letting a person
+ * into a conversation that drew on a restricted folder they are not cleared
+ * for, or making such a conversation visible to the whole project. Asked before
+ * every path that lets someone else in — a wider visibility, a grant (and so a
+ * mention's invite), an escalation — and before any write or rate-limit spend.
+ * Not the guarantee: {@link widen} checks again with the write.
+ */
+async function assertMayWiden(
+  session: AuthorizedSession,
+  resourceType: ShareableResourceType,
+  resourceId: string,
+  widening: AudienceWidening,
+): Promise<void> {
+  const guard = describeResource(resourceType).assertMayWiden
+  if (guard) await guard(session, resourceId, widening)
+}
+
+/**
+ * Run a widening's write under the type's guard, which checks the content
+ * again and writes in one step, so nothing the guard reads can change between
+ * its check and the write (`widenConversationAudience`). A type with no guard
+ * writes as it always did.
+ */
+async function widen<T>(
+  session: AuthorizedSession,
+  resourceType: ShareableResourceType,
+  resourceId: string,
+  widening: AudienceWidening,
+  write: (executor?: DbExecutor) => Promise<T>,
+): Promise<T> {
+  const guard = describeResource(resourceType).widenAudience
+  return guard ? guard(session, resourceId, widening, write) : write()
+}
 
 /**
  * Read a resource's sharing state. Requires `viewer` — a participant is entitled
@@ -116,11 +153,21 @@ export async function setResourceVisibility(
     return getSharingState(session, resourceType, resourceId)
   }
 
+  // Narrowing back to `private` is always allowed; anything wider is a share.
+  if (visibility !== 'private') {
+    await assertMayWiden(session, resourceType, resourceId, { kind: 'visibility' })
+  }
+
   // Capture who could see it BEFORE the change, so a narrowing can tell the
   // people who are about to lose it.
   const previousAudience = await resolveParticipants(session.organizationId, resourceType, resourceId)
 
-  const written = await descriptor.setVisibility(resourceId, session.organizationId, visibility)
+  const write = (executor?: DbExecutor) =>
+    descriptor.setVisibility(resourceId, session.organizationId, visibility, executor)
+  const written =
+    visibility === 'private'
+      ? await write()
+      : await widen(session, resourceType, resourceId, { kind: 'visibility' }, write)
   if (!written) throw new NotFoundError()
 
   await recordAuditEvent({
@@ -174,6 +221,9 @@ export async function grantResourceAccess(
     throw new BadRequestError(`Role "${input.role}" is not available for this resource`)
   }
 
+  const widening: AudienceWidening = { kind: 'person', userId: input.subjectUserId, self: false }
+  await assertMayWiden(session, resourceType, resourceId, widening)
+
   // Rate limit BEFORE any write (spec SH-16, NF-5).
   const limit = await consumeLimit(SHARE_LIMIT, memberSubject(session))
   if (!limit.allowed) {
@@ -192,14 +242,19 @@ export async function grantResourceAccess(
 
   await assertInviteeCanReachContainer(session, resourceType, resourceId, input.subjectUserId)
 
-  await upsertGrant({
-    organizationId: session.organizationId,
-    resourceType,
-    resourceId,
-    subjectUserId: input.subjectUserId,
-    role: input.role,
-    grantedBy: session.userId,
-  })
+  await widen(session, resourceType, resourceId, widening, (executor) =>
+    upsertGrant(
+      {
+        organizationId: session.organizationId,
+        resourceType,
+        resourceId,
+        subjectUserId: input.subjectUserId,
+        role: input.role,
+        grantedBy: session.userId,
+      },
+      executor,
+    ),
+  )
 
   await recordAuditEvent({
     organizationId: session.organizationId,
@@ -474,15 +529,23 @@ export async function escalateToOwner(
   if (!access.canEscalate) {
     throw new NotFoundError()
   }
+  // A project admin is not necessarily cleared for the folders the conversation drew on.
+  const widening: AudienceWidening = { kind: 'person', userId: session.userId, self: true }
+  await assertMayWiden(session, resourceType, resourceId, widening)
 
-  await upsertGrant({
-    organizationId: session.organizationId,
-    resourceType,
-    resourceId,
-    subjectUserId: session.userId,
-    role: 'owner',
-    grantedBy: session.userId,
-  })
+  await widen(session, resourceType, resourceId, widening, (executor) =>
+    upsertGrant(
+      {
+        organizationId: session.organizationId,
+        resourceType,
+        resourceId,
+        subjectUserId: session.userId,
+        role: 'owner',
+        grantedBy: session.userId,
+      },
+      executor,
+    ),
+  )
 
   await recordAuditEvent({
     organizationId: session.organizationId,

@@ -771,6 +771,13 @@
       "when": 1791331200007,
       "tag": "0109_project_folder_grants",
       "breakpoints": true
+    },
+    {
+      "idx": 110,
+      "version": "7",
+      "when": 1791417600007,
+      "tag": "0110_conversation_restricted_folders",
+      "breakpoints": true
     }
   ]
 }

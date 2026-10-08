@@ -164,6 +164,16 @@ function isAlreadySubmitted(error: unknown): boolean {
   return (details as { reason?: unknown }).reason === 'already-submitted'
 }
 
+/**
+ * The server's own sentence when the thread drew on a restricted folder and the
+ * destination is open to people not cleared for it (ADR-0084). It already says
+ * why, in the reader's language; a generic „could not file" would read as a
+ * fault worth retrying.
+ */
+function confinementRefusal(error: unknown): string | null {
+  return error instanceof DraftFileError && error.code === 'CONVERSATION_CONFINED' ? error.message : null
+}
+
 export const DocumentDraftCard: FC<DocumentDraftCardProps> = ({
   title,
   path,
@@ -315,6 +325,8 @@ export const DocumentDraftCard: FC<DocumentDraftCardProps> = ({
         // Nothing to retry and nothing to confirm: the reference filed and a
         // person moved it on. The Files pane owns it from here.
         setError(t('cards.documentDraft.fileSubmitted'))
+      } else if (confinementRefusal(fileError)) {
+        setError(confinementRefusal(fileError))
       } else {
         setError(t('cards.documentDraft.fileError'))
       }

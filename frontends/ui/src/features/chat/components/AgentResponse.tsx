@@ -1157,8 +1157,11 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
    * action is worse than silence.
    */
   const diagramFilingTarget = useMemo(
-    () => (projectId && messageId ? { projectId, answerId: messageId } : null),
-    [projectId, messageId]
+    () =>
+      projectId && messageId
+        ? { projectId, answerId: messageId, ...(conversationId ? { conversationId } : {}) }
+        : null,
+    [projectId, messageId, conversationId]
   )
 
   // Memoised elements: the footer's `AnswerDetails` is memoised, and a new

@@ -531,7 +531,7 @@ describe('changing visibility (matrix B8–B10, spec SH-2, SH-13, SH-14)', () =>
 
     const state = await setResourceVisibility(session, 'conversation', CONVERSATION_ID, 'private')
 
-    expect(updateConversationVisibilityInOrg).toHaveBeenCalledWith(CONVERSATION_ID, 'org_1', 'private')
+    expect(updateConversationVisibilityInOrg).toHaveBeenCalledWith(CONVERSATION_ID, 'org_1', 'private', undefined)
     expect(deleteGrant).not.toHaveBeenCalled()
     expect(deleteAllGrantsForResource).not.toHaveBeenCalled()
     expect(state.entries.map((entry) => entry.person.userId)).toContain(ANNA)

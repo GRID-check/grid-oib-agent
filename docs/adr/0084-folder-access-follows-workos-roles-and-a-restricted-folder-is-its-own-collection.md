@@ -12,8 +12,8 @@ informed: everyone working in this repo
 > who may see a folder (a role list on `restricted_roles`, replaced by per-role read/write
 > grants that only narrow when nested), the per-conversation mark and the per-socket
 > confinement check (replaced by a per-person record of source folders, judged at read time).
-> The retrieval collection per restricted folder, the memory rule and the IFC rule below
-> still hold. Paragraphs marked
+> The retrieval collection per restricted folder, the egress refusals, the memory rule and the
+> IFC rule below still hold. Paragraphs marked
 > „Superseded" below say which.
 
 ## Context and Problem Statement
@@ -120,6 +120,31 @@ scope carries a restricted collection gets an uncached context built for its
 session. A generated document filed into a restricted folder is indexed into
 that folder's collection.
 
+**Escalated** means every door that writes something the whole project reads,
+and each refuses at the BFF service a client cannot route around, with a typed
+403 (`CONVERSATION_CONFINED`, `details.action`) whose sentence says why
+(`lib/conversations/restricted-egress.ts`, German and English in
+`errors.confinement`). A conversation counts as confined when the share refusal
+would say so (`isConversationConfined`: the mark, or a stored answer that cites
+or read a restricted collection), and a call carrying the turn's verified
+envelope is also refused on the envelope's own restricted collections:
+
+- a deep-research run (`commissionResearchRun`, from the agent's
+  `POST /api/internal/tasks` and the UI's `POST /api/projects/[id]/runs`): its
+  question and context are model-written with restricted content in front of
+  the model, its job gets an open scope and digest, and its title, plan and
+  report are listed to every member;
+- a task (`delegateTask`), for the same reason;
+- a `project_profile_patch` accepted from such a thread
+  (`POST /api/projects/[id]/profile/patches` with the card's `conversationId`):
+  the profile is read by every member and every chat;
+- a filing (`fileGeneratedDocument` for drafts and diagrams, and the agent
+  rewriting a draft's content): allowed only into a folder whose path carries
+  every current restricted collection of the project, so that whoever can open
+  the document is cleared for everything the thread could have drawn on.
+  Generated documents go to the root folder „Berichte", so in practice this
+  refuses unless „Berichte" is itself the project's one restricted folder.
+
 The agent does not offer what will be refused: a turn whose signed scope holds a
 restricted collection withdraws deep research and tasks for the turn, its
 prompt names the shut doors and the reason, the one validator of model-composed
@@ -158,6 +183,19 @@ to them. They now ask WorkOS for the organization's roles first.
 * Bad, because a conversation that can read a restricted folder remembers nothing. Every chat
   of a cleared member in a project with a restricted folder is such a conversation, so for
   them Piloti's memory is off in chat in that project: the safe direction, but a loss.
+* Bad, because nothing a whole project reads can come out of a restricted conversation: no
+  deep-research run, task or profile patch, and no filing except into a folder restricted as
+  narrowly as every restricted folder of the project. The scope builder gives a cleared member's
+  private chat every restricted collection they are cleared for, from its first turn, so EVERY
+  chat of a cleared member (an organization admin is cleared for every folder) in a project with
+  a restricted folder is such a conversation: for them, deep research, tasks and profile patches
+  are unavailable from chat in that project. A per-chat choice to leave restricted folders out of
+  the scope would give them back; that is a product decision this change does not take. The
+  person can still edit the brief, or upload a file themselves: a deliberate human act, which
+  the product does not try to prevent.
+* Bad, because a `project_profile_patch` card and a diagram name their conversation in the
+  request body. A client that leaves it out writes what it sends as a person would by hand; the
+  refusal holds for the card and the diagram button, not for a caller writing its own request.
 * Bad, because a move whose purge fails (backend unreachable), a document whose ingest is
   still running, and a restriction over more documents than one call moves (100) leave
   documents in the open collection until a later call or the scheduler's placement sweep
@@ -199,6 +237,14 @@ to them. They now ask WorkOS for the organization's roles first.
   pins the `project:manage` rule for folder deletes and moves.
 * `test_chat_socket.py` and `test_internal_api_confinement.py` prove the per-turn confinement
   check closes a socket whose thread was shared, and fails closed.
+* `restricted-egress.spec.ts` pins which conversations are confined and each refusal;
+  `delegation.spec.ts` proves a run and a task are refused before any row exists (mark, cited
+  restricted answer, signed scope); `generated.spec.ts` and `diagrams/filing.spec.ts` prove a
+  filing into an open folder is refused before anything is rendered or written and one into a
+  folder restricted as narrowly goes through; the profile-patch route spec proves a confined
+  card's patch is refused with a typed 403 and writes nothing; `lifecycle.spec.ts` and the
+  internal document-versions and tasks route specs pin the joins; `folder-access.spec.ts` pins
+  `restrictedCollectionsOnPath` against the clearance rule.
 * `tests/aiq_agent/turn/test_context.py` and `test_confined_turn.py` prove a confined turn
   withdraws deep research and tasks, renders the shut-doors block and refuses a
   `project_profile_patch` card; `test_commission.py` and `test_deep_research_gate.py` prove a

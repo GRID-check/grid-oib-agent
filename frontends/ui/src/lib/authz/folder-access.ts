@@ -37,7 +37,7 @@ import { hasPermission, ORG_PERMISSIONS } from './permissions'
 import { orgRoleHoldsPermission } from './org-role-permissions'
 import { resolveMembershipRoles } from '@/lib/auth/membership-roles'
 import { requireProjectAccess } from './projects'
-import { listProjectFolderTree, projectHasCustomFolders } from './folder-access-repository'
+import { listCustomFolderNames, listProjectFolderTree, projectHasCustomFolders } from './folder-access-repository'
 import {
   ANY_MEMBER,
   computeFolderAccess,
@@ -241,6 +241,17 @@ export async function placementCollectionFor(
   const folders = await loadCustomFolderTree(organizationId, projectId)
   if (!folders) return projectCollection
   return computeFolderAccess(folders, { roles: [], seesEverything: true }, projectCollection).collectionFor(folderId)
+}
+
+/**
+ * The name of each folder with its own access list, keyed by its id,
+ * tombstones included: how a surface names a restriction to someone who may
+ * read it (a sharing refusal names the folders the sharer may read). Never
+ * call it to decide access.
+ */
+export async function customFolderNames(organizationId: string, projectId: string): Promise<Map<string, string>> {
+  const folders = await listCustomFolderNames(organizationId, projectId)
+  return new Map(folders.map((folder) => [folder.id, folder.name]))
 }
 
 /**

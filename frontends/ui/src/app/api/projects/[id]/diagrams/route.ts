@@ -26,6 +26,7 @@ import {
 } from '@/lib/diagrams/diagram-sources'
 import { DiagramSvgError } from '@/lib/diagrams/svg'
 import { fileDiagramDocuments } from '@/lib/diagrams/filing'
+import { requireResourceAccess } from '@/lib/sharing/access'
 
 type Params = { id: string }
 
@@ -81,6 +82,12 @@ const fileDiagramSchema = z.object({
    */
   source: z.string().min(1).max(MAX_DIAGRAM_SOURCE_BYTES),
   svg: z.string().min(1).max(MAX_DIAGRAM_SVG_BYTES),
+  /**
+   * The conversation the diagram was drawn in. A thread that drew on a
+   * restricted folder files only into a folder restricted at least as narrowly
+   * (ADR-0084). Authorized as a read of that thread before it is used.
+   */
+  conversationId: z.string().min(1).max(128).optional(),
 })
 
 /**
@@ -103,7 +110,11 @@ export const POST = apiRoute<Params>(
   async ({ session, params, request }) => {
     refuseOversizedBody(request)
     const body = await parseJsonBody(request, fileDiagramSchema)
-    const dictionary = getDictionary(await getLocale())
+    const locale = await getLocale()
+    const dictionary = getDictionary(locale)
+    if (body.conversationId) {
+      await requireResourceAccess(session, 'conversation', body.conversationId, 'viewer')
+    }
 
     try {
       const filed = await fileDiagramDocuments({
@@ -116,6 +127,7 @@ export const POST = apiRoute<Params>(
         svg: body.svg,
         marking: dictionary.diagrams.marking,
         request,
+        origin: body.conversationId ? { conversationId: body.conversationId, locale } : undefined,
       })
       // `pdf` is null when only the SVG landed, and the status stays 201: a
       // document WAS created, is quota-charged and is visible in Berichte, so
@@ -138,7 +150,7 @@ export const POST = apiRoute<Params>(
     status: 201,
     authz: {
       enforcedBy:
-        'fileDiagramDocuments → fileGeneratedDocument (requireProjectAccess project:documents:write AND project:documents:generate, plus the agent-authored-documents flag)',
+        'fileDiagramDocuments → fileGeneratedDocument (requireProjectAccess project:documents:write AND project:documents:generate, plus the agent-authored-documents flag); with a conversationId, requireResourceAccess conversation viewer and the restricted-folder filing refusal',
     },
   }
 )

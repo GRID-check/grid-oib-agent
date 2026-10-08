@@ -65,6 +65,11 @@ vi.mock('@/lib/projects/folder-service', () => ({
   findRootProjectFolderByName: vi.fn(async () => null),
 }))
 
+// The conversation's record of restricted source folders (ADR-0084, ADR-0085).
+const recordedRestrictedFolders = vi.fn(async (): Promise<string[]> => [])
+vi.mock('@/lib/conversations/restricted-use', () => ({
+  recordedRestrictedFolders: (...args: unknown[]) => recordedRestrictedFolders(...(args as [])),
+}))
 vi.mock('@/lib/authz/folder-access-repository', () => ({ listProjectFolderTree: vi.fn(async () => []) }))
 
 const findDocumentAuthoredByRef = vi.fn()
@@ -442,5 +447,19 @@ describe('a partial filing is recoverable rather than rolled back', () => {
     expect(filed.svg.alreadyFiled).toBe(true)
     expect(pdf.alreadyFiled).toBe(false)
     expect(admitted().map((row) => row.authoredByProducer)).toEqual(['diagram_pdf'])
+  })
+})
+
+describe('a diagram drawn in a conversation that drew on a restricted folder (ADR-0084, ADR-0085)', () => {
+  it('files neither half into an open folder', async () => {
+    const { ConversationConfinedError } = await import('@/lib/api/errors')
+    recordedRestrictedFolders.mockResolvedValue(['folder-vertraege'])
+
+    await expect(file({ origin: { conversationId: 's_conv_1', locale: 'de' } })).rejects.toBeInstanceOf(
+      ConversationConfinedError,
+    )
+    expect(recordedRestrictedFolders).toHaveBeenCalledWith('s_conv_1', 'org-1')
+    expect(admitOrDiscard).not.toHaveBeenCalled()
+    expect(s3Send).not.toHaveBeenCalled()
   })
 })

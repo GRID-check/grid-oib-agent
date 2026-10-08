@@ -247,6 +247,30 @@ describe('DocumentDraftCard — the draft, before it is filed', () => {
     expect(setCardDecision).not.toHaveBeenCalled()
   })
 
+  it('says why a thread that drew on a restricted folder cannot file here (ADR-0084)', async () => {
+    const refusal =
+      'This conversation draws on a folder with restricted access, so nothing from it can be filed there.'
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(() =>
+        Promise.resolve({
+          ok: false,
+          status: 403,
+          json: async () => ({ error: refusal, code: 'CONVERSATION_CONFINED', details: { action: 'filing' } }),
+        }),
+      ),
+    )
+    const user = userEvent.setup()
+    render(<DocumentDraftCard {...DRAFT} />)
+
+    await user.click(screen.getByRole('button', { name: 'File into the project' }))
+
+    await waitFor(() => expect(screen.getByTestId('document-draft-error')).toBeInTheDocument())
+    expect(screen.getByText(refusal)).toBeInTheDocument()
+    expect(screen.queryByText('Filing failed. Please try again.')).not.toBeInTheDocument()
+    expect(setCardDecision).not.toHaveBeenCalled()
+  })
+
   it('keeps the card pending when filing fails, with the retry still offered', async () => {    vi.stubGlobal(
       'fetch',
       vi.fn(() =>

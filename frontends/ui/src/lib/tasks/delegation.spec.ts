@@ -17,8 +17,13 @@ vi.mock('@/lib/jobs/service', () => ({
   createTaskThread: vi.fn(async () => 's_definition_thread'),
 }))
 vi.mock('@/lib/skills/service', () => ({ resolveSkillSnapshot: vi.fn() }))
+// What the conversation recorded it drew on (ADR-0084): the real refusal runs against it.
+vi.mock('@/lib/conversations/restricted-use', () => ({
+  recordedRestrictedFolders: vi.fn(async () => []),
+}))
 
-import { NotFoundError, UnprocessableError } from '@/lib/api/errors'
+import { ConversationConfinedError, NotFoundError, UnprocessableError } from '@/lib/api/errors'
+import { recordedRestrictedFolders } from '@/lib/conversations/restricted-use'
 import { recordAuditEvent } from '@/lib/audit/service'
 import type { AuthorizedSession } from '@/lib/auth/types'
 import { requireProjectAccess } from '@/lib/authz/projects'
@@ -83,6 +88,7 @@ beforeEach(() => {
     queued: false,
   }))
   vi.spyOn(console, 'error').mockImplementation(() => undefined)
+  vi.mocked(recordedRestrictedFolders).mockResolvedValue([])
 })
 
 describe('delegateTask', () => {
@@ -564,5 +570,55 @@ describe('commissionResearchRun — an escalated question becomes a run', () => 
       commissionResearchRun(session, { projectId: PROJECT, conversationId: THREAD, question: QUESTION }),
     ).rejects.toBeInstanceOf(NotFoundError)
     expect(repository.insertRun).not.toHaveBeenCalled()
+  })
+})
+
+describe('nothing is handed over from a conversation that drew on a restricted folder (ADR-0084)', () => {
+  const THREAD = 's_confined'
+  const RESTRICTED = '01234567-89ab-4cde-8f01-23456789abcd'
+  const QUESTION = 'Welches Honorar ist für LP 5 vereinbart?'
+
+  it('refuses a research run from a thread that recorded a restricted folder, in German, before any row exists', async () => {
+    vi.mocked(recordedRestrictedFolders).mockResolvedValue([RESTRICTED])
+    const error = await commissionResearchRun(session, {
+      projectId: PROJECT,
+      conversationId: THREAD,
+      question: QUESTION,
+    }).catch((caught: unknown) => caught)
+
+    expect(error).toBeInstanceOf(ConversationConfinedError)
+    expect((error as ConversationConfinedError).action).toBe('deepResearch')
+    expect((error as ConversationConfinedError).message).toContain('keine Tiefenrecherche')
+    expect(recordedRestrictedFolders).toHaveBeenCalledWith(THREAD, 'org_1')
+    expect(repository.insertRun).not.toHaveBeenCalled()
+    expect(submitAgentRun).not.toHaveBeenCalled()
+  })
+
+  it('commissions a research run from a thread that recorded nothing, whatever its socket could search', async () => {
+    await commissionResearchRun(session, { projectId: PROJECT, conversationId: THREAD, question: QUESTION })
+    expect(repository.insertRun).toHaveBeenCalled()
+  })
+
+  it('refuses a task from a thread that recorded a restricted folder, in the reader’s language when one is given', async () => {
+    vi.mocked(recordedRestrictedFolders).mockResolvedValue([RESTRICTED])
+    const error = await delegateTask(session, {
+      projectId: PROJECT,
+      kind: 'compliance_check',
+      goal: 'Prüf das Haus A',
+      conversationId: THREAD,
+      locale: 'en',
+    }).catch((caught: unknown) => caught)
+
+    expect(error).toBeInstanceOf(ConversationConfinedError)
+    expect((error as ConversationConfinedError).action).toBe('task')
+    expect((error as ConversationConfinedError).message).toContain('cannot create a task')
+    expect(repository.insertDefinition).not.toHaveBeenCalled()
+    expect(repository.insertDefinitionWithRun).not.toHaveBeenCalled()
+  })
+
+  it('still delegates a task nobody typed (a reviewer’s send-back) without asking about a thread', async () => {
+    await delegateTask(session, { projectId: PROJECT, kind: 'compliance_check', goal: 'Prüf das Haus A' })
+    expect(recordedRestrictedFolders).not.toHaveBeenCalled()
+    expect(repository.insertDefinitionWithRun).toHaveBeenCalled()
   })
 })
