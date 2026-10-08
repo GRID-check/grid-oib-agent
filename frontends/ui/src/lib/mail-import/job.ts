@@ -17,8 +17,9 @@
  * them would end a twenty-gigabyte import on its third blip, hours and
  * thousands of mails apart. `failure_streak` counts failures since a mail was
  * last filed, and only a streak that runs through every backoff ends the
- * import `failed`. Each ending deletes the staged archive and tells the person
- * in their inbox.
+ * import `failed`. Each ending seals the import's upload batch
+ * (`./upload-batch`), deletes the staged archive and tells the person in their
+ * inbox; the batch's own summary follows once everything filed has been read.
  */
 
 import 'server-only'
@@ -28,6 +29,8 @@ import { withPlatformAccess, withTenant } from '@/lib/db/tenant-context'
 import { ApiError } from '@/lib/api/errors'
 import { resolvePinnedRequesterSession } from '@/lib/auth/pinned-session'
 import { isAuthzError } from '@/lib/auth-utils'
+import { requireFolderWrite } from '@/lib/authz/folder-access'
+import { resolveShelfFolderPath } from '@/lib/documents/folder-path'
 import { requireShelfWrite } from '@/lib/documents/shelf-authz'
 import { projectShelf } from '@/lib/documents/shelf'
 import { inboxGroupKey } from '@/lib/inbox/registry'
@@ -35,7 +38,7 @@ import { emitInboxItems } from '@/lib/inbox/service'
 import { enqueueJob } from '@/lib/jobs-queue/enqueue'
 import { findOpenJobId } from '@/lib/jobs-queue/repository'
 import { BFF_JOB_PRIORITY, requesterOf, type JobSliceResult, type MailImportPayload } from '@/lib/jobs-queue/types'
-import { getOrCreateProjectFolderByName } from '@/lib/projects/folder-service'
+import { findRootProjectFolderByName, getOrCreateProjectFolderByName } from '@/lib/projects/folder-service'
 import { readArchivePage, UnreadableArchiveError, type ArchiveItem, type ArchiveRef } from './archive-client'
 import {
   MAIL_IMPORT_PAGE_SIZE,
@@ -59,6 +62,7 @@ import { archiveFolderName } from './naming'
 import * as repository from './repository'
 import { discardStaging } from './service'
 import { archiveUrlForBackend } from './staging'
+import { openImportBatch, sealImportBatch } from './upload-batch'
 
 /** A reason no retry changes; the import ends `failed` with it. */
 class PermanentImportFailure extends Error {
@@ -77,6 +81,8 @@ interface Failure {
 }
 
 const OPEN: MailImportStatus[] = ['queued', 'importing']
+
+const ARCHIVE_FOLDER_DELETED = 'The import’s folder was deleted (Papierkorb); nothing more is filed into it.'
 
 /**
  * One slice. `session` is the requester's today, or null when they are no
@@ -152,6 +158,9 @@ async function fileUntilBudget(session: AuthorizedSession, initial: MailImport):
     if (error instanceof SliceBudgetSpentError) return false
     // Cancelled, or taken over: nothing more for this slice to do.
     if (error instanceof ImportMovedOnError) return true
+    // A write into a binned folder is refused (GFD01, or "not found" before the
+    // insert); when the archive folder is what went to the bin, no retry helps.
+    if (!(await archiveFolderLive(context.mailImport))) throw new PermanentImportFailure('stopped', ARCHIVE_FOLDER_DELETED)
     throw error
   }
 }
@@ -172,7 +181,10 @@ async function fileFrom(context: FilingContext, deadline: number): Promise<boole
   return false
 }
 
-/** Mark the import running, check the person may still write, and build the filing context. */
+/**
+ * Mark the import running, check the person may still write where it files,
+ * and build the filing context.
+ */
 async function startSlice(
   session: AuthorizedSession,
   initial: MailImport,
@@ -183,17 +195,18 @@ async function startSlice(
       ? initial
       : await repository.updateMailImport(initial.organizationId, initial.id, ['queued'], { status: 'importing' })
   if (!running) return null
+  let archiveFolderId: string
   try {
     await requireShelfWrite(session, projectShelf(running.projectId))
+    archiveFolderId = await ensureArchiveFolder(session, running)
   } catch (error) {
     // Only a refusal is lost access. A database or FGA outage is a passing failure.
     if (!isRefusal(error)) throw error
     throw new PermanentImportFailure(
       'access',
-      'The person who started the import may no longer add documents to this project.',
+      `The person who started the import may no longer add documents to this project or its ${MAIL_IMPORT_ROOT_FOLDER} folder.`,
     )
   }
-  const archiveFolderId = await ensureArchiveFolder(session, running)
   const archive: ArchiveRef = {
     key: running.stagingKey,
     url: await archiveUrlForBackend({ bucket: running.stagingBucket, key: running.stagingKey }),
@@ -208,16 +221,52 @@ async function startSlice(
     archiveFolderId,
     request,
     deadline,
+    uploadBatch: await openImportBatch(session, running),
   })
 }
 
-/** `E-Mail-Import/<archive name>`, made once per import and remembered on the row. */
+/**
+ * `E-Mail-Import/<archive name>`, made once per import and remembered on the
+ * row, after a write check on it every slice (ADR-0088).
+ *
+ * The root folder is found by name whoever may see it, so an existing one with
+ * its own access list (read-only for this person, or hidden from them) would
+ * otherwise be reused, and every folder created under it refused, a slice at a
+ * time, until the streak ran out as `stopped`. The check refuses it once, as
+ * lost access. A root that does not exist yet is created at the project root,
+ * inheriting the project, and is judged as such; one a concurrent writer made
+ * meanwhile is checked again, as `generated.ts` does for its destination.
+ *
+ * A remembered folder someone has since put in the Papierkorb (itself or a
+ * folder above it) ends the import, checked before the write check so the
+ * reason is the bin and not lost access: it is not made again, because the
+ * mails before the cursor are in the bin and a new folder would hold only the
+ * rest, and because deleting the import's folder is a person's word on it.
+ */
 async function ensureArchiveFolder(session: AuthorizedSession, row: MailImport): Promise<string> {
-  if (row.rootFolderId) return row.rootFolderId
+  if (row.rootFolderId) {
+    if (!(await archiveFolderLive(row))) throw new PermanentImportFailure('stopped', ARCHIVE_FOLDER_DELETED)
+    await requireFolderWrite(session, row.projectId, [row.rootFolderId])
+    return row.rootFolderId
+  }
+  const existing = await findRootProjectFolderByName(row.projectId, MAIL_IMPORT_ROOT_FOLDER, row.organizationId)
+  await requireFolderWrite(session, row.projectId, [existing?.id ?? null])
   const root = await getOrCreateProjectFolderByName(row.projectId, MAIL_IMPORT_ROOT_FOLDER, row.organizationId)
+  if (root.id !== existing?.id) await requireFolderWrite(session, row.projectId, [root.id])
   const folder = await createFolderWithFreeName({ session, mailImport: row }, root.id, archiveFolderName(row.filename))
   await repository.updateMailImport(row.organizationId, row.id, ['importing'], { rootFolderId: folder.id })
   return folder.id
+}
+
+/**
+ * Whether the remembered archive folder is still a folder of the project. The
+ * bin marks a deleted folder's whole subtree, so a binned ancestor is seen here
+ * too.
+ */
+async function archiveFolderLive(row: MailImport): Promise<boolean> {
+  if (!row.rootFolderId) return true
+  const path = await resolveShelfFolderPath(projectShelf(row.projectId), row.rootFolderId, row.organizationId)
+  return path !== null
 }
 
 async function recordTotal(context: FilingContext, total: number): Promise<void> {
@@ -275,6 +324,7 @@ async function finish(row: MailImport, status: 'completed' | 'failed', failure: 
     inflightFolderId: null,
   })
   if (!ended) return
+  await sealImportBatch(ended)
   try {
     await discardStaging(ended)
   } catch (cause) {
