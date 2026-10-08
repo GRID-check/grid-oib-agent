@@ -852,7 +852,8 @@ LLM budgets and the usage ledger (ADR-0015).
   policy per (org, scope, subject).
 - `llm_usage_events`: one row per LLM generation — org/user/project/
   conversation/job attribution, `agent_group` (the call's role, NULL for an
-  agent turn), `activity` (0101: `'ingest'` or NULL), `requested_model`
+  agent turn), `activity` (0101: `'ingest'`; 0107: `'dictation'`; else NULL),
+  `audio_seconds` (0107: seconds a transcription call processed), `requested_model`
   vs served `model`, OpenRouter `generation_id`, token counts (incl. cached +
   reasoning), `cost_usd numeric(14,8)` exactly as OpenRouter reported,
   `cost_source`, `is_byok`, and `message_id` (migration 0098): the chat
@@ -868,6 +869,9 @@ LLM budgets and the usage ledger (ADR-0015).
   `cost_usd`, `events`. Incremented in the same transaction as every ledger
   insert; budget enforcement reads these rows instead of aggregating the
   ledger per WebSocket upgrade. Backfilled from the ledger by the migration.
+  Rows of an unbilled activity (`dictation`) are never added to it, and
+  migration 0107's `llm_usage_events_dictation_unbilled_check` refuses a
+  dictation row with a non-zero `price_usd` or `credits`.
 
 ## skills / jobs / job_runs (migrations 0041, 0043, 0044) — jobs and job_runs LEGACY since 0086
 

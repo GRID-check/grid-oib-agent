@@ -169,6 +169,13 @@ USAGE_ROLE_EMBEDDING = "embedding"
 #: ``activity`` of a document ingestion job's spend (the ledger's CHECK lists it).
 USAGE_ACTIVITY_INGEST = "ingest"
 
+#: Voice dictation in the chat composer, as both ``role`` and ``activity``. The
+#: BFF books these rows at no price and keeps them out of the rollup the budgets
+#: read (migration 0107): a member is never billed for dictating and never
+#: blocked by a budget because of it, while the platform still sees the cost.
+USAGE_ROLE_DICTATION = "dictation"
+USAGE_ACTIVITY_DICTATION = "dictation"
+
 
 @dataclass
 class UsageEvent:
@@ -189,6 +196,8 @@ class UsageEvent:
     #: an agent. ``None`` for those, which is every event the callback path
     #: produces: their role is the agent group the turn already carries.
     role: str | None = None
+    #: Seconds of audio the call transcribed, for the calls priced by duration.
+    audio_seconds: float | None = None
 
     def to_payload(self) -> dict[str, Any]:
         return {
@@ -208,6 +217,7 @@ class UsageEvent:
             # `test_payload_shape_matches_internal_endpoint` reads that file, so
             # a key here the route would silently drop fails the test instead.
             "role": self.role,
+            "audioSeconds": self.audio_seconds,
         }
 
 

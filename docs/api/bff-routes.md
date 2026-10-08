@@ -62,6 +62,7 @@ Source: `frontends/ui/src/app/api/auth/callback/route.ts`, `frontends/ui/src/app
 | Method | Path | Auth | Description | Request Body | Response |
 |--------|------|------|-------------|-------------|----------|
 | `POST` | `/api/chat` | Varies | Proxy to `POST /chat/stream` on Python backend. SSE stream of text chunks. | `{ messages, projectId?, conversationId?, data_sources? }` | SSE stream (`text/event-stream`) |
+| `POST` | `/api/dictation` | Required | Voice dictation from the composer: one recording (≤45 s, ≤4 MB, WebM, Ogg or MP4) in, the cleaned transcript out. Rate-limited per member by `DICTATION_LIMIT` (120/hour, 6/minute); never billed and never budget-checked. Proxies to Python `POST /v1/dictation`. **413** too large, **429** rate-limited, **502** transcription failed, **503** not configured. Empty `text` means nothing was said. See [`voice-dictation.md`](../architecture/voice-dictation.md). | multipart: `audio`, `durationMs`, `locale` | `{ text }` |
 
 Proxies to: `{BACKEND_URL}/chat/stream`. Forwards `Authorization`, `X-Grid-Collection-Scope` headers.
 

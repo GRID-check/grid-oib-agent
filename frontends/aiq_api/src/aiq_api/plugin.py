@@ -72,6 +72,7 @@ from .routes.chat_occupancy import add_chat_occupancy_routes
 from .routes.collections import add_collection_routes
 from .routes.config_info import add_config_info_routes
 from .routes.consistency_check import add_consistency_check_routes
+from .routes.dictation import add_dictation_routes
 from .routes.document_search import add_document_search_routes
 from .routes.documents import add_document_routes
 from .routes.drafts import add_draft_routes
@@ -282,6 +283,7 @@ def api_routers(llm_configs: Mapping[str, Any]) -> tuple[Callable[[APIRouter], N
         add_document_search_routes,
         add_generate_summary_routes,
         add_generate_conversation_title_routes,
+        add_dictation_routes,
         add_consistency_check_routes,
         add_feedback_digest_routes,
         add_lesson_distill_routes,

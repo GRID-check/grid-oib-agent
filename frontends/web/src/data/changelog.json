@@ -55,6 +55,10 @@
               "de": "Organisationsadmins können unter Organisation, Enterprise jetzt alle fehlgeschlagenen Einlesevorgänge auf einmal erneut scannen: Jede Datei, die nicht gelesen werden konnte, wird unter ihrem eigenen Namen erneut eingelesen."
             },
             {
+              "en": "You can now dictate a question: press the microphone in the message field and speak, and the text appears where your cursor was, with German and English kept as you said them and hesitations such as „äh“ left out. Dictation is free and never counts against your organization's budget.",
+              "de": "Sie können jetzt Fragen diktieren: Tippen Sie im Nachrichtenfeld auf das Mikrofon und sprechen Sie. Der Text erscheint an der Cursorposition; Deutsch und Englisch bleiben so erhalten, wie Sie es gesagt haben, während Zögerlaute wie „äh“ weggelassen werden. Das Diktieren ist kostenlos und wird nie auf das Budget Ihrer Organisation angerechnet."
+            },
+            {
               "en": "You can now upload a ZIP file to a project's files or to the Archiv. Piloti unpacks it and files everything into the folders it contains, asking first about files that are already there, just as it does when you drop a folder.",
               "de": "Sie können jetzt eine ZIP-Datei in die Projektdateien oder ins Archiv hochladen. Piloti entpackt sie und legt die Dateien in den darin enthaltenen Ordnern ab. Bei Dateien, die bereits vorhanden sind, fragt Piloti zuerst nach – genau wie beim Ablegen eines Ordners."
             }
