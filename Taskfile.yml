@@ -33,6 +33,12 @@ vars:
   EXE: '{{if eq OS "windows"}}.exe{{end}}'
   PY: '{{.VENV_BIN}}/python{{.EXE}}'
   RUFF: '{{.VENV_BIN}}/ruff{{.EXE}}'
+  # pytest-xdist, one worker per logical CPU, for the core and aiq_api suites.
+  # Much of their wall clock is asyncio waits, so a serial run left the runner
+  # idle: on two workers aiq_api went 67s -> 44s, the core suite ~3m20s -> 2m27s.
+  # A test that only passes after another one ran will fail under it; fix the
+  # test, do not drop the flag.
+  XDIST: -n logical
   # Release-note tooling runs OUTSIDE the project environment on purpose. reno is
   # needed by two tasks and one workflow, never by the product, so putting it in
   # `[dependency-groups]` would add a resolver constraint (and uv.lock churn) to
@@ -408,7 +414,7 @@ tasks:
   be:test:
     desc: Backend core suite
     cmds:
-      - '{{.PY}} -X faulthandler -m pytest tests/ -q'
+      - '{{.PY}} -X faulthandler -m pytest tests/ -q {{.XDIST}}'
 
   be:test:sources:
     desc: The sources/ package suites
@@ -554,7 +560,7 @@ tasks:
     desc: Backend core suite with the coverage gate CI enforces
     cmds:
       - >-
-        {{.PY}} -X faulthandler -m pytest tests/ -v
+        {{.PY}} -X faulthandler -m pytest tests/ -q {{.XDIST}}
         --junitxml=report-core.xml
         --cov=src/aiq_agent --cov-report=xml:coverage.xml --cov-report=term
         --cov-fail-under=65
@@ -562,13 +568,13 @@ tasks:
   be:test:api:
     desc: aiq_api plugin suite
     cmds:
-      - '{{.PY}} -X faulthandler -m pytest frontends/aiq_api/tests/ -q'
+      - '{{.PY}} -X faulthandler -m pytest frontends/aiq_api/tests/ -q {{.XDIST}}'
 
   be:test:api:ci:
     desc: aiq_api plugin suite with coverage reporting
     cmds:
       - >-
-        {{.PY}} -X faulthandler -m pytest frontends/aiq_api/tests/ -v
+        {{.PY}} -X faulthandler -m pytest frontends/aiq_api/tests/ -q {{.XDIST}}
         --junitxml=report-aiqapi.xml
         --cov=frontends/aiq_api/src/aiq_api --cov-report=xml:coverage-aiqapi.xml
         --cov-report=term

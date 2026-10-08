@@ -38,8 +38,8 @@ security or review rules.
   mirrors.
 - `.github/workflows/ci.yml`: jobs `changes`, `backend-lint` (`task be:lint`),
   `repo-lint` (`pre-commit run --all-files`, then `task agents:audit`),
-  `backend-test` (the coverage-gated core suite, the aiq_api suite and the
-  `sources/` suites), `frontend`, `frontend-test`, `frontend-coverage`,
+  `backend-test` (the coverage-gated core suite), `backend-test-plugins` (the
+  aiq_api suite and the `sources/` suites), `frontend`, `frontend-test`, `frontend-coverage`,
   `tenant-isolation`, `web`, `infra`, `packages` and `release-note`. `ci-ok` is
   the required check.
 - `.github/workflows/security.yml`: Semgrep, OSV-Scanner, gitleaks and trivy,
@@ -76,8 +76,9 @@ actionlint .github/workflows/<file>.yml               # if actionlint is install
 ```
 
 Expected: hooks pass (or only auto-fix) and any edited workflow is valid YAML.
-Backend tests are not a hook: CI's `backend-test` job runs the core, aiq_api and
-`sources/` suites, and `task be:verify` runs all three (plus `be:lint`) locally.
+Backend tests are not a hook: CI's `backend-test` job runs the core suite and
+`backend-test-plugins` the aiq_api and `sources/` suites; `task be:verify` runs
+all three (plus `be:lint`) locally.
 
 ## Common Mistakes
 
@@ -87,7 +88,7 @@ Backend tests are not a hook: CI's `backend-test` job runs the core, aiq_api and
   a push that reuses its PR's green result.
   `tests/test_ci_change_detection.py` fails on it.
 - Assuming `pre-commit run --all-files` reproduces the whole gate. Backend tests
-  run in CI's `backend-test` job, not in a hook; run `task be:verify` yourself.
+  run in CI's `backend-test` jobs, not in a hook; run `task be:verify` yourself.
 - Editing `.github/CODEOWNERS` without updating the paths it routes, so reviews
   go to the wrong owners.
 

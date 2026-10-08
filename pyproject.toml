@@ -280,6 +280,7 @@ dev = [
     "aiq-api",
     "aiq-research-cli",
     "aiq-debug",
+    "pytest-xdist>=3.8.0",
 ]
 
 [tool.uv]
