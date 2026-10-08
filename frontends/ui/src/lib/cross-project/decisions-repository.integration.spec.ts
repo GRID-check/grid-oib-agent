@@ -17,7 +17,9 @@
  *     about come back: no open question, no superseded item, no other
  *     project's, no organization-wide note;
  *   - a restricted item comes back only for a reader cleared for all of its
- *     folders, as in the project's own memory panel;
+ *     folders, as in the project's own memory panel, by meaning as by words:
+ *     a query vector pointing straight at it does not reach an uncleared
+ *     reader, nor one cleared for only one of its folders;
  *   - another organization's decisions are invisible.
  *
  * `task db:test:rls` (scripts/rls-test-db.sh) runs it with the other suites.
@@ -59,7 +61,7 @@ describe.skipIf(!url)('recorded decisions against live Postgres', () => {
   let withTenant: typeof import('@/lib/db/tenant-context').withTenant
   let withPlatformAccess: typeof import('@/lib/db/tenant-context').withPlatformAccess
   let repo: typeof import('./decisions-repository')
-  const ids = { baden: '', moedling: '', other: '', folder: '' }
+  const ids = { baden: '', moedling: '', other: '', folder: '', secondFolder: '' }
 
   const inOrg = <T>(organizationId: string, run: () => PromiseLike<T>) => withTenant({ organizationId, userId: USER }, run)
   const first = (rows: Iterable<{ id: unknown }>) => String(Array.from(rows)[0]?.id)
@@ -125,6 +127,20 @@ describe.skipIf(!url)('recorded decisions against live Postgres', () => {
           select id from folder`)
       )
     )
+    ids.secondFolder = first(
+      await inOrg(ORG, () =>
+        db.execute<{ id: string }>(sql`
+          with folder as (
+            insert into project_folders (organization_id, project_id, name, path, access_mode, access_changed_by, access_changed_at)
+            values (${ORG}, ${ids.baden}::uuid, 'Personal', 'Personal', 'custom', ${USER}, now())
+            returning id, project_id
+          ), grants as (
+            insert into project_folder_grants (organization_id, project_id, folder_id, role_slug, level)
+            select ${ORG}, project_id, id, 'org-gf', 'read' from folder
+          )
+          select id from folder`)
+      )
+    )
     await note(ORG, ids.baden, 'decision', 'Das Stiegenhaus wird in Stahlbeton ausgeführt, weil das Brandschutzgutachten nur so die Abweichung zulässt.', { vector: STAIRS })
     await note(ORG, ids.moedling, 'constraint', 'Die Baubehörde Mödling verlangt die Fluchtwegbreite in allen Grundrissen bemaßt.', { vector: WIDTHS })
     // The same meaning from another embedder: noise of the right shape, never compared.
@@ -135,6 +151,11 @@ describe.skipIf(!url)('recorded decisions against live Postgres', () => {
     await note(ORG, null, 'decision', 'Stiegenhäuser plant das Büro immer in Stahlbeton.', { scope: 'organization', vector: STAIRS })
     await note(ORG, ids.baden, 'decision', 'Das Honorar für das Stiegenhaus wurde pauschal vereinbart.', {
       restricted: [ids.folder],
+      vector: FEES,
+    })
+    // Drawn on both restricted folders (a judged note from a turn that read them): closer to FEES than anything open.
+    await note(ORG, ids.baden, 'constraint', 'Nachtragsangebote nur mit Freigabe der Geschäftsführung.', {
+      restricted: [ids.folder, ids.secondFolder],
       vector: FEES,
     })
     await note(OTHER_ORG, await project(OTHER_ORG, 'Fremd'), 'decision', 'Stiegenhaus in Stahlbeton, fremdes Büro.', { vector: STAIRS })
@@ -197,6 +218,25 @@ describe.skipIf(!url)('recorded decisions against live Postgres', () => {
       content: 'Das Honorar für das Stiegenhaus wurde pauschal vereinbart.',
       restrictedFolderIds: [ids.folder],
     })
+  })
+
+  it('by meaning, a query vector aimed at a restricted decision does not reach a reader not cleared for all its folders', async () => {
+    queryVector = FEES
+    // No word in common with either restricted note: only the dense channel could find them.
+    const question = 'What did we agree on payment?'
+    const uncleared = await search(ORG, question)
+    const half = await search(ORG, question, { [ids.baden]: [ids.folder] })
+    const cleared = await search(ORG, question, { [ids.baden]: [ids.folder, ids.secondFolder] })
+    queryVector = null
+
+    expect(uncleared.filter((decision) => decision.restrictedFolderIds !== null)).toEqual([])
+    expect(uncleared.map((decision) => decision.content).join(' ')).not.toMatch(/Honorar|Nachtrag/)
+    expect(half.map((decision) => decision.content)).toContain('Das Honorar für das Stiegenhaus wurde pauschal vereinbart.')
+    expect(half.map((decision) => decision.content)).not.toContain('Nachtragsangebote nur mit Freigabe der Geschäftsführung.')
+    expect(cleared.slice(0, 2).map((decision) => decision.content).sort()).toEqual([
+      'Das Honorar für das Stiegenhaus wurde pauschal vereinbart.',
+      'Nachtragsangebote nur mit Freigabe der Geschäftsführung.',
+    ])
   })
 
   it('is blind to another organization, and finds nothing there for this one', async () => {
