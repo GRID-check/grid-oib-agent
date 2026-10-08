@@ -71,6 +71,7 @@ interface ProjectFileWorkspaceProps {
   /**
    * What the reader may do at the project root, as the server read it for the
    * first paint (ADR-0088). Absent means `write`; the folder listing refreshes it.
+   * The mail import files its folder at the root, so only `write` offers it.
    */
   initialRootAccess?: 'read' | 'write'
   /** Whether the Outlook archive import is offered (`isMailImportEnabled`, ADR-0085). Off by default. */
@@ -138,7 +139,7 @@ export function ProjectFileWorkspace({
       renderHeader={(controls) => (
         <ProjectSectionActions>
           {controls}
-          {mailImportEnabled && <MailImportAction projectId={projectId} />}
+          {mailImportEnabled && initialRootAccess === 'write' && <MailImportAction projectId={projectId} />}
         </ProjectSectionActions>
       )}
       initialFolders={initialFolders}
