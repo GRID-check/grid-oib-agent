@@ -112,9 +112,6 @@ function party(caller: CrossProjectCaller): HandOutParty {
   }
 }
 
-/** The project status as the lookups report it; kept on the wire so an agent built before ticket 1 still parses. */
-export const PROJECT_STATUS_KNOWN = true
-
 /** A project's status (ADR-0089). */
 export function projectStatusOf(project: Pick<Project, 'status'>): ProjectStatus {
   return project.status === 'closed' ? 'closed' : 'active'
@@ -210,7 +207,7 @@ export async function listLookupProjects(
     { projectIds: projects.filter((project) => !project.current).map((project) => project.id), folderIds: [] },
     reach.key
   )
-  return { projects, total: matching.length, statusKnown: PROJECT_STATUS_KNOWN }
+  return { projects, total: matching.length }
 }
 
 /** One project's brief: its confirmed facts and its summary, for a project in reach. Recorded. */
@@ -450,6 +447,5 @@ export async function searchAcrossProjects(
     projectsInScope: scope.length,
     projectsSearched: page.length,
     nextOffset: next < scope.length ? next : null,
-    statusKnown: PROJECT_STATUS_KNOWN,
   }
 }

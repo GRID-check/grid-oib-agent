@@ -18,8 +18,8 @@ vi.mock('@/lib/db/tenant-context', async (importOriginal) => ({
 }))
 vi.mock('@/lib/cross-project/service', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/lib/cross-project/service')>()),
-  searchAcrossProjects: vi.fn(async () => ({ hits: [], projectsInScope: 0, projectsSearched: 0, nextOffset: null, statusKnown: false })),
-  listLookupProjects: vi.fn(async () => ({ projects: [], total: 0, statusKnown: false })),
+  searchAcrossProjects: vi.fn(async () => ({ hits: [], projectsInScope: 0, projectsSearched: 0, nextOffset: null })),
+  listLookupProjects: vi.fn(async () => ({ projects: [], total: 0 })),
   readProjectBrief: vi.fn(async () => ({ summary: null, facts: '' })),
 }))
 

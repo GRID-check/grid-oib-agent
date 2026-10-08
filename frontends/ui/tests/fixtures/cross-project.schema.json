@@ -462,9 +462,6 @@
               "type": "null"
             }
           ]
-        },
-        "statusKnown": {
-          "type": "boolean"
         }
       },
       "required": [
@@ -473,8 +470,7 @@
         "hits",
         "projectsInScope",
         "projectsSearched",
-        "nextOffset",
-        "statusKnown"
+        "nextOffset"
       ],
       "additionalProperties": true
     },
@@ -770,15 +766,11 @@
         },
         "total": {
           "type": "integer"
-        },
-        "statusKnown": {
-          "type": "boolean"
         }
       },
       "required": [
         "projects",
-        "total",
-        "statusKnown"
+        "total"
       ],
       "additionalProperties": true
     },

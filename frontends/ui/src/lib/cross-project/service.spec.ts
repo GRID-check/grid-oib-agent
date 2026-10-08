@@ -205,7 +205,7 @@ describe('searchAcrossProjects', () => {
       ['Projekt 1', 'active', 'a.pdf'],
     ])
     expect(result.hits[0]).toMatchObject({ title: 'Dachdetail Traufe', collection: 'proj_3', page: 2 })
-    expect(result).toMatchObject({ projectsInScope: 2, projectsSearched: 2, nextOffset: null, statusKnown: true })
+    expect(result).toMatchObject({ projectsInScope: 2, projectsSearched: 2, nextOffset: null })
   })
 
   it('records the projects of the hits it hands out, and only those, before it answers', async () => {
@@ -442,7 +442,7 @@ describe('searchAcrossProjects', () => {
 
     const result = await searchAcrossProjects(caller(), search({ scope: 'closed' }))
 
-    expect(result).toMatchObject({ projectsInScope: 1, statusKnown: true })
+    expect(result).toMatchObject({ projectsInScope: 1 })
     expect(state.searched.map((call) => call.projectId)).toEqual([state.reachable[1].id])
   })
 
@@ -648,7 +648,7 @@ describe('listLookupProjects', () => {
     expect(state.recorded).toEqual([{ projectIds: [one.id], folderIds: [] }])
 
     const graz = await listLookupProjects(caller(), crossProjectListRequestSchema.parse({ query: 'graz' }))
-    expect(graz).toMatchObject({ total: 1, statusKnown: true })
+    expect(graz).toMatchObject({ total: 1 })
   })
 
   it('filters by period and status, cuts to the limit while counting the rest, and records only what it lists', async () => {
