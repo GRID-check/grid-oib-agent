@@ -58,7 +58,7 @@ DEFAULT_TIMEOUT_SECONDS = 8.0
 #: by number and needs no hypothetical rendering of it.
 _DIGIT_RE = re.compile(r"\d")
 
-#: A filename-shaped token ("…​.pdf", "…​.docx"). The query names a document
+#: A filename-shaped token ("….pdf", "….docx"). The query names a document
 #: and needs no hypothetical rendering of its content. Suffix classes only —
 #: no filename vocabulary.
 _FILENAME_SUFFIX_RE = re.compile(r"\.[A-Za-z0-9]{2,5}\b")

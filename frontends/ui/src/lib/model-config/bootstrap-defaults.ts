@@ -29,9 +29,11 @@
  *      deployment's own config decides.
  *   2. **Validate.** The same live-catalog capability check the admin PUT
  *      refuses to skip, rather than a claim in a SQL comment.
- *   3. **Record `model_snapshot`.** Including `_zdr.safe`, so ZDR tenants
- *      inheriting this default can be warned — the control 0026 built and a
- *      migration would have left NULL.
+ *   3. **Refuse a default without zero data retention.** Every organization is
+ *      ZDR unless it opted out, so a default whose model has no ZDR endpoint
+ *      serving the group would have every such organization's requests in
+ *      that group refused. Checked against the live ZDR list; an unreadable
+ *      list skips the bootstrap rather than writing an unchecked default.
  *   4. **Invalidate the cache and write an audit event**, so the change reaches
  *      traffic at once and appears in the trail like any other fleet-wide model
  *      decision.
@@ -59,7 +61,7 @@ import { recordAuditEvent } from '@/lib/audit/service'
 import { getPlatformOrganizationId } from '@/lib/authz/platform'
 import { AGENT_GROUPS } from './agent-groups'
 import { getWorkflowLlmBaseUrls, type LlmBaseUrls } from './backend-defaults'
-import { baseModelId, fetchModelCatalog, fetchZdrModelIds, validateOverrides } from './openrouter'
+import { fetchModelCatalog, fetchZdrEndpoints, validateOverrides, type ZdrIndex } from './openrouter'
 import { getPlatformModelDefaults, savePlatformModelDefaults } from './platform-defaults'
 
 /**
@@ -185,39 +187,33 @@ async function runBootstrap(): Promise<string[]> {
 
   const defaults = Object.fromEntries(eligible.map((id) => [id, BOOTSTRAP_DEFAULT_MODEL]))
 
-  // Same validation the admin PUT refuses to skip. A catalog outage must not
-  // pin the fleet to an unvalidated id, so it aborts rather than writing.
+  // Same validation the admin PUT refuses to skip, ZDR included. A catalog or
+  // ZDR-list outage must not pin the fleet to an unchecked id, so it aborts
+  // rather than writing.
   let catalog
+  let zdr: ZdrIndex
   try {
-    catalog = await fetchModelCatalog()
+    ;[catalog, zdr] = await Promise.all([fetchModelCatalog(), fetchZdrEndpoints()])
   } catch (error) {
-    console.warn('[Model Config] Skipping default bootstrap: model catalog unavailable:', error)
+    console.warn(
+      '[Model Config] Skipping default bootstrap: the model catalog or the zero-data-retention list is unavailable:',
+      error
+    )
     return []
   }
-  const validation = validateOverrides(catalog, defaults, true)
+  const validation = validateOverrides(catalog, defaults, true, zdr)
   if (!validation.ok) {
+    const zdrRefused = Object.values(validation.errors)
+      .flat()
+      .some((rejection) => rejection.code === 'not_zdr' || rejection.code === 'zdr_endpoint_lacks_capability')
     console.error(
-      `[Model Config] Skipping default bootstrap: ${BOOTSTRAP_DEFAULT_MODEL} failed validation:`,
+      zdrRefused
+        ? `[Model Config] Skipping default bootstrap: ${BOOTSTRAP_DEFAULT_MODEL} has no zero-data-retention endpoint that serves every group; organizations are ZDR by default, so it cannot be the fleet default. Pick a ZDR model under Platform → Models.`
+        : `[Model Config] Skipping default bootstrap: ${BOOTSTRAP_DEFAULT_MODEL} failed validation:`,
       validation.errors
     )
     return []
   }
-
-  // Best-effort, like the admin path: a missing ZDR listing records `null`
-  // ("unknown") rather than blocking, but is never silently recorded as safe.
-  let zdrModelIds: Set<string> | null = null
-  try {
-    zdrModelIds = await fetchZdrModelIds()
-  } catch (error) {
-    console.warn('[Model Config] Could not resolve the ZDR model listing during bootstrap:', error)
-  }
-  const modelSnapshot = Object.fromEntries(
-    Object.entries(validation.snapshot).map(([group, model]) => [
-      group,
-      { ...model, _zdr: { safe: zdrModelIds ? zdrModelIds.has(baseModelId(model.id)) : null } },
-    ])
-  )
-
   // One transaction, one connection: take the lock, re-check that the table is
   // still empty, and write — so a second replica cannot slip between the check
   // and the write, and the lock is released by COMMIT/ROLLBACK either way.
@@ -246,7 +242,7 @@ async function runBootstrap(): Promise<string[]> {
     await savePlatformModelDefaults(
       {
         defaults,
-        modelSnapshot,
+        modelSnapshot: validation.snapshot,
         note: BOOTSTRAP_NOTE,
         actorUserId: BOOTSTRAP_ACTOR,
         actorEmail: null,

@@ -52,7 +52,6 @@ import sys
 from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from unittest.mock import patch
 
 import yaml
 
@@ -60,7 +59,6 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
 from aiq_agent.agents.piloti import held_evidence  # noqa: E402
-from aiq_agent.common import decisions  # noqa: E402
 
 FIXTURE = ROOT / "tests" / "fixtures" / "decisions" / "held_coverage.yaml"
 RECALL_FLOOR = 0.6
@@ -119,9 +117,7 @@ async def _score(rows: Sequence[dict]) -> list[Scored]:
 def main() -> int:
     os.environ.setdefault("OPENROUTER_API_KEY", os.environ.get("OPENROUTER_KEY", ""))
     rows = yaml.safe_load(FIXTURE.read_text(encoding="utf-8"))["rows"]
-    # Not a request: no organization, so no ZDR policy to look up over HTTP.
-    with patch.object(decisions, "_zdr_only_blocking", return_value=False):
-        scored = asyncio.run(_score(rows))
+    scored = asyncio.run(_score(rows))
     for row, s in zip(rows, scored):
         p = "  -  " if s.p is None else f"{s.p:.2f}"
         print(f"  {s.id} want={'yes' if s.held else 'no ':3s} p={p}  {row['message']}")

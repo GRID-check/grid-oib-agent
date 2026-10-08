@@ -1,0 +1,5 @@
+---
+fixes:
+  - >
+    Previews of spreadsheets and text files saved on Windows show euro signs,
+    dashes and curly quotes again instead of leaving them blank.

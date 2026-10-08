@@ -131,6 +131,13 @@ export interface DocumentMetadata {
   contentTypes?: string[]
   /** Controlled ingestion-generated tags (document type + OIB discipline). */
   tags?: string[]
+  /**
+   * How many of this organisation's uploads wait in the ingest queue ahead of
+   * this one (ADR-0076), or null when the row is not waiting there. The lane's
+   * own order is the only one the queue promises, so no other office's backlog
+   * is in the count. Set on every reconciled row, so a count shown once clears.
+   */
+  queueAhead?: number | null
 }
 
 interface TerminalResolution {
@@ -149,7 +156,7 @@ type RowResolution = TerminalResolution | { status: 'pending'; errorMessage: nul
 
 type JobResolution =
   | { kind: 'terminal'; resolution: TerminalResolution }
-  | { kind: 'in_progress' }
+  | { kind: 'in_progress'; queueAhead: number | null }
   // Job unknown to the backend — fall back to the collection file list.
   | { kind: 'unknown' }
 
@@ -175,6 +182,8 @@ const fetchJson = async (url: string, init?: RequestInit): Promise<{ status: num
 interface BackendJobStatus {
   status?: string
   error_message?: string | null
+  /** `queue_ahead`: the backend's count for a job still in the durable queue. */
+  metadata?: { queue_ahead?: unknown } | null
   file_details?: Array<{ status?: string; error_message?: string | null }>
 }
 
@@ -216,7 +225,8 @@ const resolveFromJobStatus = (job: BackendJobStatus | null | undefined): JobReso
     const errorMessage = job.error_message ?? job.file_details?.find((f) => f.error_message)?.error_message ?? null
     return { kind: 'terminal', resolution: { status: 'failed', errorMessage } }
   }
-  return { kind: 'in_progress' }
+  const ahead = job.metadata?.queue_ahead
+  return { kind: 'in_progress', queueAhead: typeof ahead === 'number' && ahead >= 0 ? ahead : null }
 }
 
 /** One backend file entry, flattened to the fields the BFF forwards. */
@@ -543,6 +553,7 @@ export async function reconcileDocumentStatuses<T extends ReconcilableDocument>(
 
   // --- Status reconciliation (in-flight rows, and recent interrupted failures) ---
   const resolutions = new Map<string, RowResolution>()
+  const queueAheadByRow = new Map<string, number>()
   const inFlight = rows.filter(
     (row) => IN_FLIGHT_STATUSES.has(row.status) && row.status !== LOCALLY_OWNED_STATUS
   )
@@ -584,8 +595,9 @@ export async function reconcileDocumentStatuses<T extends ReconcilableDocument>(
           const jobResult = resolveFromJobStatus(jobStatuses.get(jobId))
           if (jobResult.kind === 'terminal') {
             resolution = jobResult.resolution
-          } else if (jobResult.kind !== 'unknown') {
-            // in_progress — nothing to write this round.
+          } else if (jobResult.kind === 'in_progress') {
+            // Nothing to write this round; only the place in the queue to show.
+            if (jobResult.queueAhead !== null) queueAheadByRow.set(row.id, jobResult.queueAhead)
             return
           }
         }
@@ -662,6 +674,6 @@ export async function reconcileDocumentStatuses<T extends ReconcilableDocument>(
     const base = resolution
       ? { ...row, status: resolution.status, errorMessage: resolution.errorMessage }
       : row
-    return { ...base, ...meta }
+    return { ...base, ...meta, queueAhead: queueAheadByRow.get(row.id) ?? null }
   })
 }

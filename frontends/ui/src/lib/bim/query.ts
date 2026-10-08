@@ -20,6 +20,7 @@
 
 import 'server-only'
 import { and, ilike, inArray, or, sql, type SQL } from 'drizzle-orm'
+import { likeContains } from '@/lib/text/like-pattern'
 import { z } from 'zod'
 import { ApiError } from '@/lib/api/errors'
 import { bimElements } from '@/lib/db/schema'
@@ -654,21 +655,6 @@ export function buildBimPredicate(
  * Lowercased forms included, because the storey filter compares lowercased.
  */
 const IFC_GLOBAL_ID = /^[0-9A-Za-z_$]{22}$/
-
-/**
- * A user string as a literal `ILIKE` substring pattern.
- *
- * `%` and `_` are wildcards to Postgres and ordinary characters to the person
- * who typed them. Unescaped, `nameContains: "WC_1"` also matches `WC-1`,
- * `WC 1` and `WCx1` — and room and component names in an IFC export are full
- * of underscores, so this is the common case rather than the adversarial one.
- * The agent then reports a count over rooms the reader did not ask about.
- *
- * The backslash must be escaped first, or it would escape the escapes.
- */
-function likeContains(value: string): string {
-  return `%${value.replace(/[\\%_]/g, (char) => `\\${char}`)}%`
-}
 
 /** Conditions that are the same however the query is planned. */
 function sharedConditions(filter: BimFilter): SQL[] {

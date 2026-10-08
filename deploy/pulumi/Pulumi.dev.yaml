@@ -48,6 +48,10 @@ config:
   # `lightbits` is the VolumeSnapshotClass, not a StorageClass. All reclaim
   # `Delete` (PVC delete = data gone). Staging can use the cheaper single-replica.
   grid-oib:storageClass: single-replica
+  # The pre-A2 backend's data volume, which still holds the base corpus. The
+  # one-shot legacy-corpus-import Job carries it into SeaweedFS and the corpus
+  # table (ADR-0082 A2). Remove this key with the importer once it has run here.
+  grid-oib:legacyCorpusClaim: data-aiq-agent-0
   # ── Ingress / TLS ── One key moves every public host: app./s3./otel. derive
   # from baseDomain (per-host appDomain/s3Domain/otelDomain keys remain as overrides).
   grid-oib:baseDomain: dev.piloti.at
@@ -121,20 +125,21 @@ config:
   grid-oib:backendRequestsMemory: 1Gi
   grid-oib:backendLimitsCpu: "2"
   grid-oib:backendLimitsMemory: 4Gi
-  grid-oib:backendDaskWorkers: "1"
-  grid-oib:backendDaskThreads: "2"
-  grid-oib:backendMaxActiveJobs: "4"
   grid-oib:backendMaxActiveJobsPerOrg: "2"
   grid-oib:backendIngestMaxWorkers: "2"
-  grid-oib:backendDataStorageSize: 10Gi
   # ── Research execution ──
-  grid-oib:jobExecution: db
-  grid-oib:agentWorkerMinReplicas: "1"
+  # KEDA scales the tier on research_job_queue (ADR-0079): zero while no job waits.
+  grid-oib:agentWorkerMinReplicas: "0"
   grid-oib:agentWorkerMaxReplicas: "3"
   grid-oib:agentWorkerConcurrency: "1"
   # Drain budget for in-flight research jobs on shutdown (see Pulumi.prod.yaml).
   # Shorter on staging: faster deploys matter more than saving a staging job.
   grid-oib:agentWorkerDrainSeconds: "180"
+  # ── Ingestion tier (ADR-0076) ── scales to zero while nothing is queued.
+  grid-oib:ingestWorkerMinReplicas: "0"
+  grid-oib:ingestWorkerMaxReplicas: "3"
+  grid-oib:ingestWorkerConcurrency: "2"
+  grid-oib:ingestWorkerDrainSeconds: "180"
   # Staging is meant to be re-creatable, so the data resources are NOT protected
   # here — `pulumi destroy` must work without a manual unprotect. Prod keeps the
   # default (true).
@@ -258,3 +263,16 @@ config:
   # Bug reports from the in-app feedback form are filed as issues by the BFF,
   # with the err2issue PAT and repo above (feedbackIssuesEnabled defaults on).
   # To send them elsewhere: grid-oib:feedbackIssuesRepo owner/repo.
+  # ── BFF background pool (ADR-0079) ── scales to zero while nothing is queued.
+  grid-oib:bffJobsMinReplicas: "0"
+  grid-oib:bffJobsMaxReplicas: "2"
+  grid-oib:bffJobsConcurrency: "2"
+  grid-oib:bffJobsDrainSeconds: "60"
+  # ── Postgres pooler (ADR-0083) ──
+  # One PgBouncer on the one-instance dev cluster: no replica to fail over to and
+  # no second node to spread across. pgPoolerPoolSize stays at its default (12).
+  grid-oib:pgPoolerInstances: "1"
+  # ── The api tier (ADR-0082 step B) ── every backend HTTP route but the chat
+  # socket, behind the aiq-api Service (BACKEND_URL). Sized like the frontend.
+  grid-oib:apiMinReplicas: "1"
+  grid-oib:apiMaxReplicas: "2"

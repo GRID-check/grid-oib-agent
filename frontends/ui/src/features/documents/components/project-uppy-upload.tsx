@@ -10,9 +10,11 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import { Spinner } from '@/components/ui/spinner'
-import { useTranslations } from '@/i18n'
+import { useLocale, useTranslations } from '@/i18n'
+import { formatBytes } from '@/lib/format'
 import { useAppConfig } from '@/shared/context'
 import { DEFAULT_ACCEPTED_FILE_TYPES, DEFAULT_MAX_FILE_SIZE } from '../constants'
+import { withZipAccepted } from '../lib/zip-types'
 
 interface ProjectUppyUploadProps {
   /** Present for project corpus uploads; omitted for the org-wide Archiv. */
@@ -60,6 +62,7 @@ export function ProjectUppyUpload({
   pickFolderRef,
 }: ProjectUppyUploadProps) {
   const t = useTranslations('files')
+  const { locale } = useLocale()
   const inputRef = useRef<HTMLInputElement>(null)
   const folderInputRef = useRef<HTMLInputElement>(null)
   useEffect(() => {
@@ -75,7 +78,10 @@ export function ProjectUppyUpload({
   // when the `image-upload` flag allows). Falls back to the static defaults if
   // the AppConfig provider is somehow absent (e.g. isolated tests).
   const fileUpload = useAppConfig().fileUpload
-  const acceptedTypes = fileUpload?.acceptedTypes ?? DEFAULT_ACCEPTED_FILE_TYPES
+  // A zip is unpacked before it is uploaded, on every durable shelf, so the
+  // picker offers it although the accept-list (which the server enforces on the
+  // files inside) does not name it.
+  const acceptedTypes = withZipAccepted(fileUpload?.acceptedTypes ?? DEFAULT_ACCEPTED_FILE_TYPES)
   const maxFileSize = fileUpload?.maxFileSize ?? DEFAULT_MAX_FILE_SIZE
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -147,7 +153,7 @@ export function ProjectUppyUpload({
             {isUploading ? t('upload.uploading') : t('uploadZone.dragOrBrowse')}
           </span>
           <span className="text-xs text-muted-foreground">
-            {typesLabel} · {t('uploadZone.maxSizeShort', { size: Math.round(maxFileSize / (1024 * 1024)) })}
+            {typesLabel} · {t('uploadZone.maxSizeShort', { size: formatBytes(maxFileSize, locale) })}
           </span>
         </button>
       </>

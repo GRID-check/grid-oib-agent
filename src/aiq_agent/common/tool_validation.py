@@ -5,6 +5,8 @@ import os
 import re
 from typing import Any
 
+from aiq_agent.common.canned_replies import NO_SOURCES_MESSAGE
+from aiq_agent.common.canned_replies import SCOPED_NO_SOURCES_MESSAGE
 from aiq_agent.common.canned_replies import TOOLS_UNAVAILABLE_MESSAGE
 
 logger = logging.getLogger(__name__)
@@ -147,3 +149,22 @@ def format_user_facing_tool_error(
     # Detailed diagnostics (tool names, missing keys) are only shown when
     # AIQ_DEV_ENV is "cli" — set automatically by scripts/start_cli.sh.
     return TOOLS_UNAVAILABLE_MESSAGE
+
+
+def format_no_sources_message(
+    research_type: str,
+    unavailable_tools: list[str],
+    available_count: int = 0,
+    *,
+    scoped: bool = False,
+) -> str:
+    """The reply to a turn whose searches left nothing citable.
+
+    A tool that failed its pre-flight check is the cause the reader cannot fix,
+    so it is named first. Otherwise the advice depends on whether the user set
+    a scope: "don't narrow it to one file" told a user who had narrowed nothing
+    to do something they could not (answer feedback, October 2026).
+    """
+    if unavailable_tools:
+        return format_user_facing_tool_error(research_type, unavailable_tools, available_count)
+    return SCOPED_NO_SOURCES_MESSAGE if scoped else NO_SOURCES_MESSAGE

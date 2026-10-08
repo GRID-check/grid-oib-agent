@@ -14,9 +14,45 @@ export const formatEur = (value: number, locale?: string): string =>
  * There is deliberately no conversion anywhere (ADR-0053): a hand-set rate is
  * neither the bank's nor OpenRouter's, and a figure nobody is charged is not a
  * figure worth showing.
+ *
+ * A positive amount below the smallest unit shown reads "< $0.01", never
+ * "$0.00": a model call costs fractions of a cent, and "$0.00" says it was
+ * free. `maximumFractionDigits` widens the unit for rates (a credit priced at
+ * $0.0001), and the floor moves with it.
  */
-export const formatUsd = (value: number, locale?: string): string =>
-  new Intl.NumberFormat(locale, { style: 'currency', currency: 'USD' }).format(value)
+export const formatUsd = (
+  value: number,
+  locale?: string,
+  options: { maximumFractionDigits?: number } = {}
+): string => {
+  const maximumFractionDigits = Math.max(2, options.maximumFractionDigits ?? 2)
+  const format = new Intl.NumberFormat(locale, {
+    style: 'currency',
+    currency: 'USD',
+    minimumFractionDigits: 2,
+    maximumFractionDigits,
+  })
+  const smallest = 10 ** -maximumFractionDigits
+  if (value > 0 && value < smallest) return `< ${format.format(smallest)}`
+  return format.format(value)
+}
+
+/** A plain count ("1,720" / "1.720"), grouped for the locale, never compacted. */
+export const formatCount = (value: number, locale?: string): string =>
+  new Intl.NumberFormat(locale, { maximumFractionDigits: 0 }).format(
+    Number.isFinite(value) ? value : 0
+  )
+
+/**
+ * A calendar date without a time ("14 Jul 2026" / "14.07.2026"), for columns
+ * where the day is the fact: when an organization was created, when a price
+ * list took effect. Falls back to the raw string for unparseable input.
+ */
+export const formatDate = (isoDate: string, locale?: string): string => {
+  const date = new Date(isoDate)
+  if (Number.isNaN(date.getTime())) return isoDate
+  return new Intl.DateTimeFormat(locale, { dateStyle: 'medium' }).format(date)
+}
 
 /**
  * Tokens — the usage unit of an organization on its own key (ADR-0053). Big

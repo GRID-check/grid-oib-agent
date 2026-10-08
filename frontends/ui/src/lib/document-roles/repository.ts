@@ -7,9 +7,10 @@
  * plan (ADR-0041).
  */
 
-import { and, eq, inArray, isNull } from 'drizzle-orm'
+import { and, eq, inArray, isNotNull, isNull, notInArray } from 'drizzle-orm'
 import { getDb } from '@/lib/db'
 import { documentRoles, documents } from '@/lib/db/schema'
+import type { DbTransaction } from '@/lib/storage/repository'
 import type { DocumentRole, RoleConfidence, RoleSource } from '@/lib/project-profile/document-roles'
 
 export interface DocumentRoleBinding {
@@ -154,13 +155,19 @@ export async function insertBinding(input: InsertBindingInput): Promise<string> 
  *
  * One transaction fixes the first; `FOR UPDATE` on the slot's existing rows
  * serialises the second, so the loser observes the winner's state.
+ *
+ * `guard` runs first in the same transaction and may throw to refuse: it is
+ * where a building binding locks the project and checks the building still
+ * exists, so a profile save removing it cannot interleave with the insert.
  */
 export async function replaceSlotBinding(
   input: InsertBindingInput,
-  displacedIds: readonly string[]
+  displacedIds: readonly string[],
+  guard?: (tx: DbTransaction) => Promise<void>
 ): Promise<string> {
   const db = getDb()
   return db.transaction(async (tx) => {
+    if (guard) await guard(tx)
     if (displacedIds.length > 0) {
       await tx
         .delete(documentRoles)
@@ -205,6 +212,28 @@ export async function deleteBindings(projectId: string, ids: readonly string[]):
   const removed = await db
     .delete(documentRoles)
     .where(and(eq(documentRoles.projectId, projectId), inArray(documentRoles.id, ids)))
+    .returning({ id: documentRoles.id })
+  return removed.length
+}
+
+/**
+ * Remove the building-scoped bindings of every building not in `keep`; how many.
+ *
+ * A non-null scope instance is always a Bauwerk id: no other scope takes one
+ * (`roleRequiresScopeInstance`).
+ */
+export async function deleteBindingsOutsideBauwerke(
+  projectId: string,
+  keep: readonly string[],
+  tx: DbTransaction
+): Promise<number> {
+  const outside =
+    keep.length > 0
+      ? and(isNotNull(documentRoles.scopeInstanceId), notInArray(documentRoles.scopeInstanceId, [...keep]))
+      : isNotNull(documentRoles.scopeInstanceId)
+  const removed = await tx
+    .delete(documentRoles)
+    .where(and(eq(documentRoles.projectId, projectId), outside))
     .returning({ id: documentRoles.id })
   return removed.length
 }

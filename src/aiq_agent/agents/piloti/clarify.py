@@ -74,6 +74,7 @@ from aiq_agent.common.agent_tools import load_agent_tools
 from aiq_agent.common.plan_documents import MAX_PLAN_DOCUMENTS
 from aiq_agent.common.plan_documents import PlanDocuments
 from aiq_agent.common.plan_documents import documents_from_plan
+from aiq_agent.common.request_llm_context import RequestLLMContext
 from aiq_agent.common.request_llm_context import read_request_llm_context
 from aiq_agent.common.turn_status import emit_step
 from aiq_agent.common.wire_v2 import ClarificationStep
@@ -740,18 +741,24 @@ def build_deps(
     )
 
 
-def _request_planner(
-    planner_llm: BaseChatModel | None, model_overrides: Any, org_credential: Any
-) -> BaseChatModel | None:
-    """This request's planner: the boot one under the org's override and credential.
+def _request_planner(planner_llm: BaseChatModel | None, context: RequestLLMContext) -> BaseChatModel | None:
+    """This request's planner: the boot one under the org's credential, override and ZDR policy.
 
-    ``None`` stays ``None`` — no configured planner means :func:`build_deps`
-    falls back to the (already overridden) clarifier LLM.
+    Every dial comes from ``context``, already read off the loop; passing each
+    explicitly keeps ``apply_model_override`` from calling its blocking getters
+    here. The credential goes first so the ZDR pin lands only on a model that
+    still points at OpenRouter. ``None`` stays ``None`` — no configured planner
+    means :func:`build_deps` falls back to the (already overridden) clarifier LLM.
     """
     if planner_llm is None:
         return None
-    overridden = apply_model_override(planner_llm, AgentGroup.CLARIFIER, model_overrides)
-    return apply_org_credential(overridden, org_credential)
+    return apply_model_override(
+        apply_org_credential(planner_llm, context.credential),
+        AgentGroup.CLARIFIER,
+        context.model_overrides,
+        zdr_only=context.zdr_only,
+        reasoning_effort=context.reasoning_efforts.get(AgentGroup.CLARIFIER.value, ""),
+    )
 
 
 @dataclass(frozen=True)
@@ -811,7 +818,7 @@ class Clarifier:
         active = context.apply(self.provider)
         if active is self.provider and selected == list(self.tools):
             return self.boot
-        planner = _request_planner(self.planner_llm, context.model_overrides, context.credential)
+        planner = _request_planner(self.planner_llm, context)
         return build_deps(active, selected, planner, self.settings, self.ask_user, self.callbacks)
 
     async def __call__(self, request: ClarifyRequest) -> ClarifyResult:

@@ -3,6 +3,7 @@ import { type ReactElement, type ReactNode } from 'react'
 import { render, screen, fireEvent, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { http, HttpResponse } from 'msw'
+import { strToU8, zipSync } from 'fflate'
 import { server } from '@/mocks/server'
 import { ProjectFileWorkspace } from './project-file-workspace'
 import { FilePreviewHost } from './file-preview-host'
@@ -10,6 +11,7 @@ import { SETTLING_POLL_MS } from '../hooks/use-settling-refresh'
 import { useFilePreviewStore } from '../stores/file-preview-store'
 import { useProjectDocuments } from '../hooks/use-project-documents'
 import type { DocumentWireRow } from '../lib/file-item'
+import { handOverDroppedFiles, takeDroppedFiles } from '../lib/dropped-file-handover'
 
 function renderWorkspace(ui: ReactElement) {
   return render(
@@ -72,6 +74,9 @@ vi.mock('sonner', () => ({
   toast: {
     success: (...args: unknown[]) => toastSuccess(...args),
     error: (...args: unknown[]) => toastError(...args),
+    // The "reading the ZIP…" toast, which stays up while an archive is unpacked.
+    loading: vi.fn(() => 'reading'),
+    dismiss: vi.fn(),
   },
 }))
 
@@ -224,6 +229,36 @@ describe('ProjectFileWorkspace', () => {
     // Same contract as the button: files still flow to uploadFiles, which validates.
     await waitFor(() => expect(mockUploadFiles).toHaveBeenCalledWith([badFile]))
   })
+
+  it('uploads a drop made elsewhere in the project once it arrives, and only once', async () => {
+    server.use(http.get('/api/projects/:projectId/folders', () => HttpResponse.json({ folders: [] })))
+    takeDroppedFiles('proj-1')
+    const file = new File(['x'], 'plan.pdf', { type: 'application/pdf' })
+    handOverDroppedFiles('proj-1', [file])
+
+    const { unmount } = renderWorkspace(
+      <ProjectFileWorkspace projectId="proj-1" projectName="Test" collectionName="test-coll" />
+    )
+
+    await waitFor(() => expect(mockUploadFiles).toHaveBeenCalledWith([file]))
+    unmount()
+    renderWorkspace(<ProjectFileWorkspace projectId="proj-1" projectName="Test" collectionName="test-coll" />)
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    expect(mockUploadFiles).toHaveBeenCalledTimes(1)
+  })
+
+  it('holds a handed-over drop while the folders it is planned against failed to load', async () => {
+    server.use(http.get('/api/projects/:projectId/folders', () => new HttpResponse(null, { status: 500 })))
+    takeDroppedFiles('proj-1')
+    const file = new File(['x'], 'plan.pdf', { type: 'application/pdf' })
+    handOverDroppedFiles('proj-1', [file])
+
+    renderWorkspace(<ProjectFileWorkspace projectId="proj-1" projectName="Test" collectionName="test-coll" />)
+
+    await waitFor(() => expect(screen.getByText(/folders/i)).toBeInTheDocument())
+    expect(mockUploadFiles).not.toHaveBeenCalled()
+    expect(takeDroppedFiles('proj-1')).toEqual([file])
+  })
 })
 
 /**
@@ -362,6 +397,33 @@ describe('ProjectFileWorkspace — a dropped folder', () => {
     expect(new Set(targets)).toEqual(
       new Set(['folder-for-Wohnbau/Plaene', 'folder-for-Wohnbau/Statik']),
     )
+  })
+
+  it('unpacks a picked zip into the same plan a dropped folder gets', async () => {
+    renderWithCorpus()
+    const zip = new File(
+      [zipSync({ 'Statik/Bericht.pdf': strToU8('%PDF'), 'Statik/Plaene/EG.pdf': strToU8('%PDF') }) as BlobPart],
+      'Statik.zip',
+      { type: 'application/zip' }
+    )
+    const input = screen.getByTestId('project-upload-input') as HTMLInputElement
+    Object.defineProperty(input, 'files', { value: [zip], configurable: true })
+    fireEvent.change(input)
+
+    await userEvent.click(await screen.findByTestId('folder-upload-confirm'))
+
+    await waitFor(() => expect(ensureRequests).toHaveLength(1))
+    expect(ensureRequests[0]).toEqual({ parentId: null, paths: ['Statik', 'Statik/Plaene'] })
+    await waitFor(() => expect(mockUploadFiles).toHaveBeenCalledTimes(1))
+    const [sent, options] = mockUploadFiles.mock.calls[0] as [
+      File[],
+      { folderIdFor: (file: File) => string | null },
+    ]
+    expect(sent.map((file) => file.name).sort()).toEqual(['Bericht.pdf', 'EG.pdf'])
+    expect(sent.map((file) => options.folderIdFor(file)).sort()).toEqual([
+      'folder-for-Statik',
+      'folder-for-Statik/Plaene',
+    ])
   })
 
   it('leaves the existing documents alone when the reader unticks the update', async () => {

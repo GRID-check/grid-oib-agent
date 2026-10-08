@@ -13,6 +13,7 @@ Schema Rules (enforced by all adapters):
 5. Link Rot: image_url MUST be presigned URL, not internal S3 path
 """
 
+import uuid
 from datetime import datetime
 from enum import StrEnum
 from typing import Any
@@ -155,6 +156,22 @@ class FileStatus(StrEnum):
     INGESTING = "ingesting"
     SUCCESS = "success"
     FAILED = "failed"
+
+
+#: Namespace of ``stable_file_id``. Fixed for good: changing it renames every file.
+_FILE_ID_NAMESPACE = uuid.UUID("6f1c0a52-3b7e-4d8a-9c41-5e2d7a90b3f6")
+
+
+def stable_file_id(collection_name: str, file_name: str) -> str:
+    """The id of a file: a function of where it lives and what it is called, nothing else.
+
+    A file is identified by ``(collection, file name)`` everywhere else (its
+    chunks, its summary row, a delete), so its id is too. Any process derives
+    the same id without asking another, which is what lets the ``api`` process
+    list a file the ``ingest-worker`` indexed, and delete it by the id it listed.
+    A random id per call, or per ingest, could not be handed from one to the other.
+    """
+    return str(uuid.uuid5(_FILE_ID_NAMESPACE, f"{collection_name}\x00{file_name}"))
 
 
 class CollectionInfo(BaseModel):

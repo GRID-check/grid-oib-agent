@@ -1,0 +1,23 @@
+---
+operators:
+  - >
+    The Platform area is redesigned. Sections are grouped on the left rail, and
+    Answer quality is one page with three views, Ratings, Citation checks and
+    Runtime, sharing one time window that is kept in the link.
+  - >
+    Answer ratings show organization names, and each rated answer opens with
+    the full question and answer, the member's comment and the answer they
+    expected. When Langfuse is connected, every rating also lands on the
+    turn's Langfuse trace as a score, and the answer links straight to it.
+  - >
+    Rated answers whose turn was never saved no longer show an unrelated
+    question from the same chat, and lessons are no longer distilled from that
+    wrong pairing. The CSV export is no longer cut at 50 rows.
+  - >
+    Citation checks no longer offer to upload a document the platform already
+    holds when its inventory could not be read, and the share of invented
+    citations is no longer diluted by confidence notes.
+  - >
+    Platform staff with read-only access see every section without buttons
+    they cannot use. A blank or mistyped allowance in the price list no longer
+    saves as unlimited, and a failed model save keeps your selection.

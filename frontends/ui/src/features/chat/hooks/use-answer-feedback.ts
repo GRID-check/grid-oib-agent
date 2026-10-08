@@ -8,6 +8,8 @@ export interface AnswerFeedbackState {
   verdict: AnswerFeedbackVerdict
   reason: AnswerFeedbackReason | null
   comment: string | null
+  /** What the voter says a good answer would have contained. */
+  expectedAnswer: string | null
 }
 
 type ConversationFeedbackMap = Map<string, AnswerFeedbackState>
@@ -20,6 +22,25 @@ type ConversationFeedbackMap = Map<string, AnswerFeedbackState>
  * latest local state without refetching.
  */
 const conversationCache = new Map<string, Promise<ConversationFeedbackMap>>()
+
+/**
+ * Confirmed writes, announced to every other reader of the same answer. Each
+ * `useAnswerFeedback` keeps its own optimistic state, so a second component
+ * that follows the verdict (the retry action under a down-vote) would
+ * otherwise see only what was hydrated, never the vote cast beside it.
+ */
+type VerdictListener = (next: AnswerFeedbackState | null) => void
+const listeners = new Map<string, Set<VerdictListener>>()
+
+function subscribeToVerdict(messageId: string, listener: VerdictListener): () => void {
+  const set = listeners.get(messageId) ?? new Set<VerdictListener>()
+  set.add(listener)
+  listeners.set(messageId, set)
+  return () => {
+    set.delete(listener)
+    if (set.size === 0) listeners.delete(messageId)
+  }
+}
 
 /** Test hook: reset the module-level hydration cache between specs. */
 export function __clearAnswerFeedbackCache(): void {
@@ -39,12 +60,18 @@ async function loadConversationFeedback(conversationId: string): Promise<Convers
         verdict: AnswerFeedbackVerdict
         reason: AnswerFeedbackReason | null
         comment?: string | null
+        expectedAnswer?: string | null
       }[]
     }
     return new Map(
       (data.feedback ?? []).map((f) => [
         f.messageId,
-        { verdict: f.verdict, reason: f.reason ?? null, comment: f.comment ?? null },
+        {
+          verdict: f.verdict,
+          reason: f.reason ?? null,
+          comment: f.comment ?? null,
+          expectedAnswer: f.expectedAnswer ?? null,
+        },
       ]),
     )
   } catch {
@@ -55,6 +82,7 @@ async function loadConversationFeedback(conversationId: string): Promise<Convers
 
 /** Keep the shared hydration map in sync with a confirmed server write. */
 function updateCache(conversationId: string | null | undefined, messageId: string, next: AnswerFeedbackState | null): void {
+  listeners.get(messageId)?.forEach((listener) => listener(next))
   if (!conversationId) return
   void conversationCache.get(conversationId)?.then((map) => {
     if (next) map.set(messageId, next)
@@ -102,6 +130,8 @@ export function useAnswerFeedback(
     }
   }, [conversationId, messageId])
 
+  useEffect(() => subscribeToVerdict(messageId, setState), [messageId])
+
   const setFeedback = useCallback(
     (next: AnswerFeedbackState | null): void => {
       setState((previous) => {
@@ -117,6 +147,7 @@ export function useAnswerFeedback(
                     verdict: next.verdict,
                     reason: next.reason,
                     comment: next.comment,
+                    expectedAnswer: next.expectedAnswer,
                     conversationId: conversationId ?? null,
                     projectId: projectId ?? null,
                   }),

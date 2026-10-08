@@ -1,4 +1,5 @@
 import { describe, test, expect } from 'vitest'
+import { checkDraggedFilesSupported } from './validation'
 import {
   validateFileUpload,
   isValidFileExtension,
@@ -683,5 +684,27 @@ describe('the batch caps are the session\'s, not the corpus\'s', () => {
     const result = validateFileUpload([bigFile('huge.pdf', 5000)], context(true))
 
     expect(result.validFiles).toHaveLength(0)
+  })
+})
+
+describe('a dragged zip', () => {
+  const dragOf = (type: string): DataTransfer =>
+    ({ items: [{ kind: 'file', type }] }) as unknown as DataTransfer
+
+  test('is unsupported in a chat, where an archive is not a document', () => {
+    expect(checkDraggedFilesSupported(dragOf('application/zip'))).toBe(false)
+  })
+
+  test.each(['application/zip', 'application/x-zip-compressed', 'APPLICATION/ZIP'])(
+    'is welcome on a shelf that unpacks it (%s)',
+    (type) => {
+      expect(checkDraggedFilesSupported(dragOf(type), undefined, { allowZip: true })).toBe(true)
+    }
+  )
+
+  test('does not make everything else welcome', () => {
+    expect(
+      checkDraggedFilesSupported(dragOf('application/x-msdownload'), undefined, { allowZip: true })
+    ).toBe(false)
   })
 })

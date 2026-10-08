@@ -31,6 +31,25 @@ const SECRETS_NAME = "langfuse-secrets"; // pragma: allowlist secret (Kubernetes
  */
 const LANGFUSE_IMAGE_UID = 1001;
 
+/** The `LANGFUSE_*MIGRATION_V4*` env for a write mode (upstream's v3 -> v4 guide). */
+export function langfuseV4MigrationEnv(
+  writeMode: "legacy" | "dual" | "events_only",
+  historicBackfill: boolean,
+): k8s.types.input.core.v1.EnvVar[] {
+  return [
+    { name: "LANGFUSE_MIGRATION_V4_WRITE_MODE", value: writeMode },
+    {
+      name: "LANGFUSE_MIGRATION_V4_NATIVE_OTEL_BEHAVIOUR",
+      value: writeMode === "events_only" ? "direct" : "dual_write",
+    },
+    { name: "LANGFUSE_MIGRATION_V4_ALLOW_PREVIEW_OPT_IN", value: String(writeMode !== "legacy") },
+    {
+      name: "LANGFUSE_BACKGROUND_MIGRATION_V4_ENABLE_HISTORIC_BACKFILL",
+      value: String(historicBackfill),
+    },
+  ];
+}
+
 /**
  * startupProbe geometry for the web tier, in one place because two things read
  * it: the probe itself, and the plan-time assertion that it fits inside the
@@ -86,7 +105,53 @@ export const LANGFUSE_SECRET_KEYS = {
  * inside the exporter, which surfaces only as "no traces in Langfuse".
  */
 export function langfuseOtlpTracesEndpoint(): string {
-  return `http://${LANGFUSE.web}:${PORT.langfuseWeb}${LANGFUSE.otlpTracesPath}`;
+  return `${langfuseInClusterUrl()}${LANGFUSE.otlpTracesPath}`;
+}
+
+/** The web tier's in-cluster base URL: what the collector and the BFF call. */
+export function langfuseInClusterUrl(): string {
+  return `http://${LANGFUSE.web}:${PORT.langfuseWeb}`;
+}
+
+/**
+ * What the BFF needs to write answer feedback into Langfuse as scores and to
+ * link a rated turn to its trace (ADR-0044, Amendment 3;
+ * `frontends/ui/src/lib/langfuse/config.ts` reads exactly these names).
+ *
+ * Empty unless the tier is deployed, so a stack without Langfuse renders the
+ * frontend exactly as before and the BFF's scoring stays a no-op.
+ *
+ * - `LANGFUSE_HOST` is the in-cluster web Service, never the public host: the
+ *   public route sits behind the edge's OIDC gate, which a server-side API call
+ *   cannot pass. `allow-frontend-to-langfuse` is the NetworkPolicy that makes
+ *   the Service reachable at all.
+ * - `LANGFUSE_PUBLIC_URL` + `LANGFUSE_PROJECT_ID` build the browser links.
+ * - The keys come from the Langfuse Secret by reference, never as literals. A
+ *   non-optional reference: a pod started before the Secret exists waits for it
+ *   rather than starting with scoring silently off until its next restart.
+ */
+export function frontendLangfuseEnv(cfg: GridConfig): k8s.types.input.core.v1.EnvVar[] {
+  if (!cfg.langfuse.enabled) return [];
+  const fromSecret = (name: string, key: string): k8s.types.input.core.v1.EnvVar => ({
+    name,
+    valueFrom: { secretKeyRef: { name: SECRETS_NAME, key } },
+  });
+  return [
+    { name: "LANGFUSE_HOST", value: langfuseInClusterUrl() },
+    { name: "LANGFUSE_PUBLIC_URL", value: `https://${cfg.langfuse.domain}` },
+    { name: "LANGFUSE_PROJECT_ID", value: cfg.langfuse.projectId },
+    fromSecret("LANGFUSE_PUBLIC_KEY", LANGFUSE_SECRET_KEYS.publicKey),
+    fromSecret("LANGFUSE_SECRET_KEY", LANGFUSE_SECRET_KEYS.secretKey),
+  ];
+}
+
+/**
+ * The part of the frontend's rollout checksum that the Langfuse keys own, or
+ * undefined without the tier. `secretKeyRef` is read once at container start, so
+ * without this a key rotation would leave the BFF scoring with a retired key.
+ */
+export function frontendLangfuseChecksumInput(cfg: GridConfig): pulumi.Output<string> | undefined {
+  return cfg.langfuse.enabled ? langfuseOtlpBasicAuth(cfg) : undefined;
 }
 
 /**
@@ -299,6 +364,13 @@ export function installLangfuse(
 
     { name: "TELEMETRY_ENABLED", value: "false" },
     { name: "LANGFUSE_LOG_LEVEL", value: "info" },
+
+    // The v3 -> v4 data migration (kubernetes.md §9b, "Upgrading to Langfuse
+    // v4"). Until `events_only`, spans go to v3's tables as well, which is what
+    // keeps a rollback to v3 possible; the OTLP spans the collector sends are
+    // propagated server-side in the same mode. Users may opt into the v4 views
+    // once something writes v4's tables, so not under `legacy`.
+    ...langfuseV4MigrationEnv(lf.v4WriteMode, lf.v4HistoricBackfill),
   ];
 
   /** Headless initialization (`LANGFUSE_INIT_*`) — see the config doc comment. */

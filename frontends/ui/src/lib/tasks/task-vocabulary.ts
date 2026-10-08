@@ -82,6 +82,23 @@ export function isActiveTaskRunStatus(status: TaskRunStatus): boolean {
   return status === 'queued' || status === 'running'
 }
 
+/**
+ * The status a run is recorded with once the backend took its job.
+ *
+ * A job that waits for a worker is a QUEUED run, not a running one: the reader's
+ * list says what is true. The worker's first ledger flush moves it to running
+ * (`applyRunLedgerOp`, then `markRunStarted`), so it is queued only where there
+ * is a message for that flush to reach. A run without one would stay queued
+ * until it ended, which is a lie of the other kind, so it is recorded running
+ * as it always was.
+ */
+export function submittedRunStatus(submitted: {
+  queued: boolean
+  runMessageId: string | null
+}): 'queued' | 'running' {
+  return submitted.queued && submitted.runMessageId ? 'queued' : 'running'
+}
+
 /** How a person judged the result. Null until somebody did. */
 export const TASK_REVIEWS = ['accepted', 'rejected'] as const
 export type TaskReview = (typeof TASK_REVIEWS)[number]

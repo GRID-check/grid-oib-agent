@@ -7,10 +7,19 @@
  * real deployment. It has to be "TLS, or provably not leaving this network".
  */
 
-import { describe, expect, it, vi } from 'vitest'
-import { isTokenSafeDestination } from './backend-defaults'
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import {
+  _clearDefaultsCache,
+  getGroupDefaultSources,
+  getGroupDefaults,
+  isTokenSafeDestination,
+  splitGroupDefault,
+} from './backend-defaults'
 
 vi.mock('server-only', () => ({}))
+
+const getPlatformModelDefaults = vi.fn()
+vi.mock('./platform-defaults', () => ({ getPlatformModelDefaults: () => getPlatformModelDefaults() }))
 
 describe('isTokenSafeDestination', () => {
   it('allows the deployment shapes that actually ship', () => {
@@ -47,5 +56,37 @@ describe('isTokenSafeDestination', () => {
     // reasoned about.
     expect(isTokenSafeDestination('ftp://backend:8000')).toBe(false)
     expect(isTokenSafeDestination('file:///etc/passwd')).toBe(false)
+  })
+})
+
+describe('getGroupDefaultSources — the inherited-default merge', () => {
+  afterEach(() => {
+    _clearDefaultsCache()
+    vi.unstubAllGlobals()
+  })
+
+  const backendReports = (llms: Record<string, string>) =>
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, json: async () => ({ llms }) }))
+
+  it('takes the platform default where one is pinned, the workflow model otherwise, and says which', async () => {
+    backendReports({ clarifier_llm: 'yaml/clarifier', research_llm: 'yaml/research' })
+    getPlatformModelDefaults.mockResolvedValue({ shallow_research: 'platform/research' })
+    const sources = await getGroupDefaultSources()
+    expect(sources.clarifier).toEqual({ model: 'yaml/clarifier', source: 'workflow' })
+    expect(sources.shallow_research).toEqual({ model: 'platform/research', source: 'platform' })
+    expect(sources.memory_reflection).toEqual({ model: null, source: null })
+    // `getGroupDefaults` is the same merge without the source.
+    expect((await getGroupDefaults()).shallow_research).toBe('platform/research')
+  })
+
+  it('falls back to the workflow layer when the platform table cannot be read', async () => {
+    backendReports({ research_llm: 'yaml/research' })
+    getPlatformModelDefaults.mockRejectedValue(new Error('db down'))
+    expect((await getGroupDefaultSources()).shallow_research).toEqual({ model: 'yaml/research', source: 'workflow' })
+  })
+
+  it('splits a multi-LLM group default into its ids', () => {
+    expect(splitGroupDefault('a/x, b/y')).toEqual(['a/x', 'b/y'])
+    expect(splitGroupDefault(null)).toEqual([])
   })
 })

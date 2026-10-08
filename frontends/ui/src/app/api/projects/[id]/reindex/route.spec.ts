@@ -1,10 +1,10 @@
 /**
  * Project re-index route.
  *
- * The behaviour worth pinning is not the happy path — it is that a document whose
- * old chunks could not be deleted is NOT re-dispatched. Dispatching it anyway is
- * how a re-index becomes a second copy of the project, retrievable and citable,
- * which is the exact defect this endpoint was written to avoid.
+ * The route is a thin adapter: it names the project from the path, and answers
+ * 202 with the job the service queued. What is worth pinning is that it asks
+ * for nothing else and that "accepted" is what it says: the walk runs later,
+ * on a `bff-jobs` pod, and the response must not read as a finished one.
  */
 
 import { describe, expect, test, vi, beforeEach } from 'vitest'
@@ -14,11 +14,14 @@ const reindexProject = vi.fn()
 vi.mock('@/lib/documents/service', () => ({ reindexProject }))
 vi.mock('@/lib/api/handler', () => ({
   apiRoute:
-    (handler: (ctx: { session: unknown; params: { id: string } }) => Promise<unknown>) =>
+    (
+      handler: (ctx: { session: unknown; params: { id: string } }) => Promise<unknown>,
+      options: { status?: number }
+    ) =>
     async (_request: Request, ctx: { params: Promise<{ id: string }> }) => {
       const params = await ctx.params
       const body = await handler({ session: { organizationId: 'org-1' }, params })
-      return Response.json(body)
+      return Response.json(body, { status: options.status ?? 200 })
     },
 }))
 
@@ -28,39 +31,26 @@ describe('POST /api/projects/[id]/reindex', () => {
   })
 
   test('re-indexes the project named in the path and nothing else', async () => {
-    reindexProject.mockResolvedValue({ projectId: 'p-1', queued: 3, skipped: 0, failed: [] })
+    reindexProject.mockResolvedValue({ projectId: 'p-1', jobId: 'job-1' })
     const { POST } = await import('./route')
 
-    const response = await POST(
-      new Request('http://t/api/projects/p-1/reindex', { method: 'POST' }),
-      {
-        params: Promise.resolve({ id: 'p-1' }),
-      }
-    )
+    const response = await POST(new Request('http://t/api/projects/p-1/reindex', { method: 'POST' }), {
+      params: Promise.resolve({ id: 'p-1' }),
+    })
 
     expect(reindexProject).toHaveBeenCalledTimes(1)
     expect(reindexProject.mock.calls[0][1]).toBe('p-1')
-    await expect(response.json()).resolves.toMatchObject({ queued: 3 })
+    await expect(response.json()).resolves.toEqual({ projectId: 'p-1', jobId: 'job-1' })
   })
 
-  test('reports documents left unchanged rather than folding them into the success count', async () => {
-    reindexProject.mockResolvedValue({
-      projectId: 'p-1',
-      queued: 2,
-      skipped: 1,
-      failed: ['plan.pdf'],
-    })
+  test('answers 202 Accepted: the job is queued, not done', async () => {
+    reindexProject.mockResolvedValue({ projectId: 'p-1', jobId: 'job-1' })
     const { POST } = await import('./route')
 
-    const response = await POST(
-      new Request('http://t/api/projects/p-1/reindex', { method: 'POST' }),
-      {
-        params: Promise.resolve({ id: 'p-1' }),
-      }
-    )
+    const response = await POST(new Request('http://t/api/projects/p-1/reindex', { method: 'POST' }), {
+      params: Promise.resolve({ id: 'p-1' }),
+    })
 
-    const body = (await response.json()) as { queued: number; failed: string[] }
-    expect(body.queued).toBe(2)
-    expect(body.failed).toEqual(['plan.pdf'])
+    expect(response.status).toBe(202)
   })
 })

@@ -12,6 +12,8 @@ reconciled via GET /api/v1/generation?id=.
 
 import base64
 import json
+import re
+from pathlib import Path
 from unittest.mock import patch
 
 import pytest
@@ -26,6 +28,17 @@ from aiq_agent.common.cost_tracking import UsageEvent
 from aiq_agent.common.cost_tracking import extract_usage_event
 from aiq_agent.common.cost_tracking import grid_cost_tracker_var
 from aiq_agent.common.cost_tracking import track_llm_costs
+
+_ROUTE = Path(__file__).resolve().parents[3] / "frontends/ui/src/app/api/internal/usage/route.ts"
+
+
+def _route_keys(schema_name: str) -> set[str]:
+    """The top-level keys one zod object in the internal usage route declares."""
+    source = _ROUTE.read_text()
+    body = re.search(rf"const {schema_name} = z\.object\(\{{(.*?)\n\}}\)", source, re.S)
+    assert body is not None, schema_name
+    return set(re.findall(r"^  (\w+):", body.group(1), re.M))
+
 
 # The usage object exactly as OpenRouter documents it (usage accounting is
 # always on; langchain-openai passes it through as llm_output["token_usage"]).
@@ -119,21 +132,19 @@ class TestExtractUsageEvent:
         assert extract_usage_event(_openrouter_result(usage=None)) is None
 
     def test_payload_shape_matches_internal_endpoint(self):
+        # Read from the route itself: a key it does not declare is dropped by
+        # zod without an error, so the two must be equal, not merely overlap.
         event = extract_usage_event(_openrouter_result())
-        payload = event.to_payload()
-        assert set(payload) == {
-            "model",
-            "requestedModel",
-            "generationId",
-            "promptTokens",
-            "completionTokens",
-            "totalTokens",
-            "cachedTokens",
-            "reasoningTokens",
-            "costUsd",
-            "costSource",
-            "isByok",
-        }
+        assert set(event.to_payload()) == _route_keys("usageEventSchema")
+
+    def test_batch_shape_matches_internal_endpoint(self, monkeypatch):
+        posted = []
+        monkeypatch.setattr("aiq_agent.common.cost_tracking._post_usage_events", posted.append)
+        tracker = GridCostTracker(organization_id="org_1", activity="ingest")
+        tracker.record(extract_usage_event(_openrouter_result()))
+        tracker.flush(wait=True)
+        assert set(posted[0]) == _route_keys("usageBatchSchema")
+        assert posted[0]["activity"] == "ingest"
 
 
 class TestBudgetSnapshot:
@@ -262,17 +273,10 @@ class TestGridCostTracker:
             with track_llm_costs(identity=identity, budget=BudgetSnapshot()) as tracker:
                 tracker.on_llm_end(_openrouter_result())
         payload = post.call_args.args[0]
-        # The batch keys the internal endpoint declares (`app/api/internal/usage/route.ts`).
-        assert set(payload) == {
-            "organizationId",
-            "userId",
-            "projectId",
-            "conversationId",
-            "jobId",
-            "messageId",
-            "events",
-        }
+        # The batch keys the internal endpoint declares, read from the route.
+        assert set(payload) == _route_keys("usageBatchSchema")
         assert payload["messageId"] == "answer_1"
+        assert payload["activity"] is None
 
     def test_a_tracker_off_the_chat_path_names_no_answer(self):
         tracker = self._tracker()
@@ -573,3 +577,87 @@ class TestResponsesApiCost:
         llm.invoke("Frage", config={"callbacks": [tracker]})
         with pytest.raises(BudgetExceededError):
             llm.invoke("Noch eine", config={"callbacks": [tracker]})
+
+
+class TestCallsOutsideLangChain:
+    """Ingestion's vision, transcription and embedding calls use the raw SDK: no callback sees them."""
+
+    @staticmethod
+    def _client(response):
+        from types import SimpleNamespace
+
+        completions = SimpleNamespace(create=lambda **_kwargs: response)
+        embeddings = SimpleNamespace(create=lambda **_kwargs: response)
+        return SimpleNamespace(chat=SimpleNamespace(completions=completions), embeddings=embeddings)
+
+    @staticmethod
+    def _response(**usage):
+        from types import SimpleNamespace
+
+        return SimpleNamespace(id="gen-1", model="vendor/vision-1", usage=usage)
+
+    def test_a_metered_client_books_each_call_with_its_role_and_reported_cost(self):
+        from aiq_agent.common.cost_tracking import meter_openai_client
+
+        response = self._response(prompt_tokens=1200, completion_tokens=80, total_tokens=1280, cost=0.0031)
+        client = meter_openai_client(self._client(response), role="ingest_vision")
+        with patch("aiq_agent.common.cost_tracking._post_usage_events") as post:
+            with track_llm_costs(identity={"organization_id": "org_1"}, budget=BudgetSnapshot(), activity="ingest"):
+                assert client.chat.completions.create(model="vendor/vision-1", messages=[]) is response
+                client.embeddings.create(model="vendor/vision-1", input=["x"])
+        payload = post.call_args.args[0]
+        assert payload["activity"] == "ingest"
+        first = payload["events"][0]
+        assert (first["role"], first["promptTokens"], first["costUsd"], first["costSource"]) == (
+            "ingest_vision",
+            1200,
+            0.0031,
+            "usage_field",
+        )
+        assert len(payload["events"]) == 2
+
+    def test_a_call_without_a_reported_cost_is_booked_as_missing_not_free(self):
+        from aiq_agent.common.cost_tracking import meter_openai_client
+
+        client = meter_openai_client(self._client(self._response(prompt_tokens=10, total_tokens=10)), role="embedding")
+        with patch("aiq_agent.common.cost_tracking._post_usage_events") as post:
+            with track_llm_costs(identity={"organization_id": "org_1"}, budget=BudgetSnapshot()):
+                client.embeddings.create(model="m", input=["x"])
+        assert post.call_args.args[0]["events"][0]["costSource"] == "missing"
+
+    def test_without_a_tracker_a_metered_call_books_nothing_and_still_answers(self):
+        from aiq_agent.common.cost_tracking import meter_openai_client
+
+        response = self._response(prompt_tokens=10, total_tokens=10, cost=0.1)
+        client = meter_openai_client(self._client(response), role="embedding")
+        with patch("aiq_agent.common.cost_tracking._post_usage_events") as post:
+            assert client.embeddings.create(model="m", input=["x"]) is response
+        post.assert_not_called()
+
+    def test_metering_twice_books_a_call_once(self):
+        from aiq_agent.common.cost_tracking import meter_openai_client
+
+        client = self._client(self._response(prompt_tokens=10, total_tokens=10, cost=0.1))
+        meter_openai_client(meter_openai_client(client, role="embedding"), role="embedding")
+        with patch("aiq_agent.common.cost_tracking._post_usage_events") as post:
+            with track_llm_costs(identity={"organization_id": "org_1"}, budget=BudgetSnapshot()):
+                client.embeddings.create(model="m", input=["x"])
+        assert len(post.call_args.args[0]["events"]) == 1
+
+    def test_work_handed_to_a_pool_lands_on_the_callers_ledger(self):
+        # A pool thread starts with an empty context: without the copy, every
+        # vision call an ingestion job fanned out ran with no tracker at all.
+        from concurrent.futures import ThreadPoolExecutor
+
+        from aiq_agent.common.cost_tracking import record_usage_event
+        from aiq_agent.common.cost_tracking import submit_in_context
+
+        def call() -> bool:
+            return record_usage_event(model="m", role="ingest_vision", prompt_tokens=5, cost_usd=0.01)
+
+        with patch("aiq_agent.common.cost_tracking._post_usage_events") as post:
+            with track_llm_costs(identity={"organization_id": "org_1"}, budget=BudgetSnapshot()):
+                with ThreadPoolExecutor(max_workers=2) as pool:
+                    assert pool.submit(call).result() is False
+                    assert [f.result() for f in [submit_in_context(pool, call) for _ in range(3)]] == [True] * 3
+        assert len(post.call_args.args[0]["events"]) == 3

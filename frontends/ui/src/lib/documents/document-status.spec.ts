@@ -152,7 +152,6 @@ const OPAQUE_STATUS_WRITES: Readonly<Record<string, string>> = {
   'src/lib/documents/reconcile-status.ts: resolution.status':
     'the value this module just decided, on its way to the repository',
   // Service return values: what the CALLER is told, not what the row holds.
-  'src/lib/documents/service.ts: ingestStatus': "the dispatcher's job status, returned to the caller",
   'src/lib/documents/service.ts: doc.status': 'the row being read back, returned to the caller',
   'src/lib/documents/service.ts: reconciled.status': 'a reconciled status, returned to the caller',
   // The heal-and-refuse 409: the healed resolution echoed in the error payload,
@@ -170,7 +169,9 @@ const OPAQUE_STATUS_WRITES: Readonly<Record<string, string>> = {
   'src/lib/documents/service.ts: status': "the dispatcher's job status, returned to the caller",
   'src/lib/session-documents/service.ts: status':
     "the dispatcher's job status, returned to the caller",
-  'src/lib/archiv/service.ts: status': "the dispatcher's job status, returned to the caller",
+  // The one upload pipeline both shelves share (ADR-0078) — it replaced the
+  // `ingestStatus` return in service.ts and the `status` return in archiv/service.ts.
+  'src/lib/documents/shelf-upload.ts: status': "the dispatcher's job status, returned to the caller",
 }
 
 /** `status` as a property name, in either spelling an object literal allows. */

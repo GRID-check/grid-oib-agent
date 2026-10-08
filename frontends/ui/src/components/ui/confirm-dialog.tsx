@@ -61,6 +61,12 @@ export interface ConfirmDialogProps {
   children?: ReactNode
   /** Optional test id forwarded to the confirm button. */
   confirmTestId?: string
+  /**
+   * Hold the confirm button disabled, e.g. until an "I understand" checkbox in
+   * `children` is ticked. For a confirmation that must be read, not clicked
+   * through; the name-typing variant is `TypeToConfirmDialog`.
+   */
+  confirmDisabled?: boolean
 }
 
 export const ConfirmDialog: FC<ConfirmDialogProps> = ({
@@ -76,6 +82,7 @@ export const ConfirmDialog: FC<ConfirmDialogProps> = ({
   pending: pendingProp,
   children,
   confirmTestId,
+  confirmDisabled = false,
 }) => {
   const [internalPending, setInternalPending] = useState(false)
   const pending = pendingProp ?? internalPending
@@ -146,6 +153,7 @@ export const ConfirmDialog: FC<ConfirmDialogProps> = ({
             variant={confirmVariant}
             onClick={() => void handleConfirm()}
             loading={pending}
+            disabled={confirmDisabled}
             data-testid={confirmTestId}
           >
             {confirmLabel}

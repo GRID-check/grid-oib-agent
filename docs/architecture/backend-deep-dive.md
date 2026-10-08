@@ -12,7 +12,7 @@ Docker Compose (`deploy/compose/docker-compose.yaml`):
 - **postgres** — 3 logical DBs: `aiq_jobs`, `aiq_checkpoints`, `grid_app`.
 - **seaweedfs** — object storage, bucket `grid-documents`. Published to the host at
   `localhost:8333`; internal DNS name `seaweedfs:8333`.
-- **aiq-agent** — FastAPI + NeMo Agent Toolkit (NAT) + embedded Dask
+- **aiq-agent** — FastAPI + NeMo Agent Toolkit (NAT)
   scheduler/worker + in-process ChromaDB. Runs the LangGraph workflow and the
   async deep-research jobs.
 - **frontend** — Next.js 16 BFF + a Node WebSocket proxy (`frontends/ui/server.js`).
@@ -221,11 +221,20 @@ is now the single builder: `buildGridRequestContextWireHeaders` returns every
 individual header PLUS one consolidated, signed `X-Grid-Request-Context`
 header (base64url JSON of the same fields, plus the structured `bundesland`
 fact — §6b) and `X-Grid-Request-Context-Sig` (hex HMAC-SHA256 of the raw
-JSON, keyed on `GRID_INTERNAL_API_TOKEN`). This is a **dual-write
-transition**: the individual headers are still sent unchanged; the envelope
-rides alongside them, and removing the legacy headers is a later cleanup.
+JSON, keyed on `GRID_INTERNAL_API_TOKEN`). Legacy HTTP/job producers retain
+this **dual-write transition**. Authenticated WebSocket handshakes instead
+carry compact claims with `contextTransport: "bff"` and omit project context,
+memory and office instructions from both the individual headers and the
+signed envelope (ADR-0077).
 `server.js` duplicates the same builder logic (with a pinning comment) since
 it is plain CommonJS and cannot import the TS module.
+
+Compact mode loads those three prompt blocks from
+`POST /api/internal/turn-context` on every turn. The request echoes the
+original signed capsule, so the BFF resolves and authorizes that requester
+rather than accepting identity in a body. The JSON response body carries
+growing data; a context-read failure is an explicit turn error. This keeps
+the agent stateless without coupling connection availability to profile size.
 
 On the backend, `aiq_agent.project_context.GridRequestContext.from_context()`
 /`from_envelope()` verifies the signature with `hmac.compare_digest` and
@@ -328,7 +337,26 @@ backend pieces live in `chat_socket.py` and `conversation_bus.py`; the design is
   lives); a resent question that lands on another replica, or arrives after its
   turn finished, is `rejected{duplicate_turn}` and the client attaches. A newer
   question supersedes a stale turn on whichever replica runs it (`SUPERSEDE` on
-  the input channel). With the bus down both fail open to the local registry.
+  the input channel), and runs only once the stale turn's `conv:<id>:running`
+  marker is gone (ADR-0080): the owner renews it while the turn runs and deletes
+  it when the turn ends, a dead owner's expires on its TTL, and a turn that
+  cannot get it in time is refused, never run beside the stale one. With the
+  bus down the claim fails open to the local registry, and so does the marker
+  while `GRID_CHAT_AFFINITY` is on; with it off the question is refused.
+- **The owner fences itself** (`aiq_api/turn_fence.py`, `aiq_agent/common/write_fence.py`;
+  only with `GRID_CHAT_AFFINITY` off). The marker's TTL can run out under a
+  turn that is still running (a renewal task starved or late, Dragonfly
+  unreachable from this replica), and a newer turn on another replica may then
+  take it. So the turn keeps a deadline of its own: the start of its last
+  successful renewal plus the TTL minus a margin (one guarded write, 3 s, plus
+  1 s). Every write the turn makes to the conversation asks that deadline first
+  and reads `time.monotonic()` itself, so no task has to have run: the checkpoint
+  writes (`FencedCheckpointer`, which also ends each by 3 s past the deadline, raising
+  `TurnFenced`, so the margin holds), the turn's frames (a fenced turn sends its terminal and nothing else)
+  and the persist of its outcome. The renewal task also cancels the turn through
+  the Stop path when the deadline passes or a renewal finds the marker gone, so
+  it ends with a `cancelled` terminal. A tool's own side effects are stopped by
+  that cancel, not by the fence.
 - **Every turn ends.** `run_turn`'s `finally` guarantees one terminal whatever
   escaped; the turn has a deadline (`GRID_CHAT_TURN_DEADLINE_SECONDS`) on its
   own clock, which stops while it waits on a person; a Stop waits at most
@@ -401,8 +429,8 @@ deep research returns the stub `"Deep research job submitted. Job ID: …"`. The
 report artifact with cards attached over the job SSE stream, and stores
 `{"report", "cards"}` as the job output. Deep research cannot use the
 `emit_card` tool directly: the conversation-scoped `CardRegistry` is bound
-only in the chat request path, not inside a Dask worker. The remaining gap is
-the **synchronous inline** deep-research path (no Dask scheduler configured):
+only in the chat request path, not inside a research worker. The remaining gap is
+the **synchronous inline** deep-research path (`use_async_deep_research` off):
 those answers carry no cards, since the deep agent has no `emit_card` tool
 and no post-hoc generation runs in `deep_research_node`.
 
@@ -425,10 +453,11 @@ Intake wizard answers
   → PUT /api/projects/{id}/profile
       buildProfileUpdate → buildProjectPromptView(profile)
       → stored in projects.profile_prompt_view  (a compact "PROJECT_CONTEXT v1" block)
-  → /api/websocket-scope reads profile_prompt_view → returns projectContext
-  → server.js sets header  x-grid-project-context  on the WS upgrade
-  → src/aiq_agent/project_context.py reads the header (truncated to 4000 chars)
-  → piloti/conversation_register.py sets state.project_context
+  → server.js signs compact project/conversation scope on the WS upgrade
+  → Python calls POST /api/internal/turn-context at the start of each turn
+  → the BFF authorizes the requester and returns the prompt view in JSON
+  → Python normalizes the prompt view to its existing 4000-character budget
+  → the turn's context sets state.project_context
   → injected into every prompt: all *.j2 have {% if project_context %}{{ project_context }}
 ```
 
@@ -449,10 +478,12 @@ header was never sent → the agent had no project knowledge for that session.
   atomic swap used for auth rotation) only when the value actually changes, so
   the handshake re-sends the project scope.
 
-Note: the profile is intentionally **not** embedded into the `proj_*` RAG
-collection — project knowledge reaches the agent only via header text-injection:
-this profile header plus the project-memory digest header (`x-grid-project-memory`,
-see §8).
+The profile is intentionally **not** embedded into the `proj_*` RAG collection.
+It reaches the prompt through the authorized per-turn context read, alongside
+the query-specific memory digest. Legacy HTTP/job and anonymous callers still
+use inline context. Transport byte limits and prompt character budgets are
+separate; a prompt limit applied after header decoding cannot protect a
+WebSocket handshake.
 
 ## 5. Project summary / fact-sheet
 
@@ -524,7 +555,9 @@ internal client (its URL is backend-consumed). Compose sets `SEAWEED_PUBLIC_ENDP
 ### Folders
 
 Nested folders are fully supported (self-referential `project_folders.parent_id`,
-`folder-service.ts` builds the nested path, the API accepts `parentId`, and the
+`folder-service.ts` builds the nested path — since ADR-0078 on both shelves that
+have folders, a project's Dateien and the org-wide Archiv, through one
+shelf-parameterised core in `lib/documents/shelf-folders.ts`, the API accepts `parentId`, and the
 tree renders recursively). The prior "can't nest" symptom was **UX only** — there
 was no per-folder affordance. **Fix**: `folder-tree-pane.tsx` now shows an "add
 subfolder" `+` on each folder row and makes root creation explicit.
@@ -761,7 +794,7 @@ together:
    chunk) so a sparse first chunk can't starve it.
 2. **Reconciliation backfill (`42a4fa3`)**: `reconcile_collection_summaries()`
    (knowledge-layer factory) runs at the end of every `LlamaIndexIngestor`
-   ingestion job — the Knowledge API, `scripts/ingest_oib.py`'s `oib_sync`,
+   ingestion job — the Knowledge API, the base-corpus sync (`oib_sync`),
    and any future caller get it for free. It diffs a collection's indexed,
    successfully-ingested files (`BaseIngestor.list_files`) against the
    `document_metadata` table and registers a deterministic fallback summary for any
@@ -1264,7 +1297,9 @@ Five retrieval-quality improvements sit in the knowledge layer's `register.py`
    knowledge image to the VLM **as an image block during a research turn** —
    not just at ingestion. Three source shapes: **PDF pages** are re-rendered on
    demand with pypdfium2 (long edge `AIQ_PAGE_RENDER_MAX_DIM`, default 2048) —
-   base-corpus PDFs from disk (`OIB_UPLOADS_DIR` / repo corpus), project/Archiv
+   base-corpus PDFs from this replica's cache of the corpus, which
+   `corpus_store.ensure_local` fills from SeaweedFS on demand (the
+   `oib_corpus_files` table says what a base-corpus file is), project/Archiv
    PDFs from SeaweedFS bytes; **standalone image uploads** (PNG/JPG
    project/Archiv documents) are fetched from SeaweedFS and re-encoded to JPEG
    directly; and **stored embedded rasters** — the images
@@ -1353,8 +1388,8 @@ Austria's). The org-Archiv stratum (ADR-0024) sits beside these unchanged.
   the pointer, downloads the law and returns the answering §§ as citable
   passages: `sources/ris_adapter/src/lookup/`), and by `ris_fetch_document` in
   deep research, which still drives the three older RIS tools itself.
-- **The OIB corpus is not in the catalog.** `data/oib/` → `oib_knowledge` is
-  its own source of truth; what a corpus file *is* (Richtlinie / Leitfaden /
+- **The OIB corpus is not in the catalog.** The `oib_corpus_files` table and its
+  objects → `oib_knowledge` are its own source of truth; what a corpus file *is* (Richtlinie / Leitfaden /
   Erläuterung / Begriffsbestimmungen / Zitierte Normen / Änderungsdokument)
   derives from the filename (`norm_registry.oib_doc_class`). The 15
   `aenderungen_*` diff files and the superseded `zitierte_normen` revision are
@@ -1452,9 +1487,9 @@ the way in (`lib/bim/ifc-archive.ts`), and everything downstream sees STEP.
 That module also enforces the extraction ceiling on the archive's DECLARED
 uncompressed size, read from the zip directory before a byte is inflated: the
 limit exists to keep a 1 GiB pod alive, and measuring it on the compressed
-object let a 40 MB upload become a 300 MB allocation. Extraction is detached from
-the request (a 60 MB model takes tens of seconds) and every terminal outcome
-writes the document row: success → the digest dispatch sets `pending` + a job
+object let a 40 MB upload become a 300 MB allocation. Extraction is a `bim_extract` job on the
+`bff-jobs` pool, not part of the request (a 60 MB model takes tens of seconds;
+ADR-0079) and every terminal outcome writes the document row: success → the digest dispatch sets `pending` + a job
 id, failure → `failed` with the reason, plus a `bim_models` row recording the
 same thing.
 
@@ -1706,14 +1741,14 @@ same three BFF functions. A run whose job the store cannot find is closed as
 failed after two hours. The transactional outbox the backlog item describes is
 still deferred; this is pull-based reconciliation instead.
 
-**Open items**: synchronous inline deep-research answers (no Dask) do not
+**Open items**: synchronous inline deep-research answers (`use_async_deep_research` off) do not
 carry Grid cards (§3; the async job path generates them post-hoc in the
 runner). And the research tab can 403 — see §9.
 
 **Collection-scope re-injection gap — now diagnosable (fixed 2026-07-16,
 `f8093a0`)**: the `X-Grid-Collection-Scope` header is captured once at submit
 time (`piloti/conversation_register.py`) and threaded into the async job payload
-as `collection_scope`. The Dask worker only re-injects it into its own
+as `collection_scope`. The research worker only re-injects it into its own
 request context conditionally — `frontends/aiq_api/src/aiq_api/jobs/runner.py:641`
 does `if collection_scope is not None:` before base64url-encoding it back
 onto the header. When the scope is absent, `knowledge_retrieval` inside the
@@ -1929,7 +1964,7 @@ full specs in `org-model-configuration.md` (ADR-0014) and
   `GridCostTracker` through LangChain's `register_configure_hook` ContextVar
   seam — every callback manager configured inside the request picks it up,
   so agents contain no metering code. Activated in exactly three places:
-  the chat workflow `_run`, the Dask job runner, and the reflection task.
+  the chat workflow `_run`, the research job runner, and the reflection task.
   Events (model, tokens, OpenRouter `usage.cost`, generation id) POST to
   the token-guarded `POST /api/internal/usage` (single-writer rule).
 - **Budgets**: `x-grid-budget` carries the remaining budget per scope — USD of cost for an organization the platform bills, tokens for one on its own key (ADR-0053)
@@ -2017,7 +2052,7 @@ loads house voice, offers and org skills through `use_skill`
   non-empty (§6) — only the *listing* still is, which is cosmetic once the
   list itself is reliable.
 - **Async job collection-scope fallback — fixed 2026-07-16 (`f8093a0`)** —
-  `collection_scope` is still only re-injected into the Dask worker context
+  `collection_scope` is still only re-injected into the research worker context
   when present (behavior unchanged: absent scope still drops
   project-collection search for that job, §7), but the degradation is no
   longer silent: `runner.py` logs a one-time WARNING (job id, whether the
@@ -2142,7 +2177,7 @@ loads house voice, offers and org skills through `use_skill`
   from `store`) passed through to `create_deep_agent`. When
   `deep_research_agent.checkpoint_db` is configured (env
   `AIQ_DEEP_CHECKPOINT_DB`; unset by default, opt-in since jobs run in
-  ephemeral Dask worker processes — the reference config sets it to
+  ephemeral research worker processes — the reference config sets it to
   `./deep_research_checkpoints.db`), `DeepResearcherAgent.run()` wires
   `configurable.thread_id = job_id` and `durability="async"` (LangGraph's
   canonical durable-execution mode for long batch-style runs), so a worker

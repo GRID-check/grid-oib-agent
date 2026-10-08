@@ -73,7 +73,7 @@ export function useUploadDecision(): UploadDecision {
 
   const propose = useCallback<UploadDecision['propose']>(async (input, sendDirect) => {
     const current = ++generation.current
-    const isFolder = !input.flat && isFolderUpload(input.files)
+    const isFolder = isFolderUpload(input.files)
     const documents =
       typeof input.documents === 'function'
         ? await input.documents([...new Set(input.files.map((file) => file.name))])

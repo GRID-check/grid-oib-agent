@@ -181,6 +181,14 @@ class SkillSubmitPayload(BaseModel):
             "ausgeschlossen: [...]}. Sanitised in the worker; absent when none were named."
         ),
     )
+    priority: Literal["interactive", "bulk"] = Field(
+        "interactive",
+        description=(
+            "Where the run goes inside its organization's queue (ADR-0079): `interactive` for a run a "
+            "person is waiting on (an escalated question, a manual 'run now'), `bulk` for a scheduled "
+            "fire. Never ahead of another organization either way."
+        ),
+    )
     owner_email: str | None = Field(None, description="Skill owner's email (job ownership)")
     budget_header: str | None = Field(
         None,
@@ -227,6 +235,13 @@ class SkillSubmitPayload(BaseModel):
 
 class SkillSubmitResponse(BaseModel):
     job_id: str = Field(..., description="The submitted async job id")
+    queued: bool = Field(
+        False,
+        description=(
+            "Always true: the job waits in the research queue for a free worker, so the run is "
+            "`queued` until the worker starts it."
+        ),
+    )
 
 
 def add_skill_routes(router: APIRouter) -> None:
@@ -247,18 +262,20 @@ def add_skill_routes(router: APIRouter) -> None:
             403: {"description": "Missing or invalid internal token"},
             409: {"description": "A job with the supplied job_id already exists"},
             422: {"description": "Invalid payload, or unknown/agent-unavailable data source IDs"},
-            429: {"description": "Admission control: active-job cap reached"},
-            503: {"description": "Internal API disabled, or Dask scheduler not configured"},
+            429: {
+                "description": (
+                    "Abuse bound: the organization already has too many jobs waiting (`GRID_MAX_QUEUED_JOBS_PER_ORG`)"
+                )
+            },
         },
     )
     async def submit_skill(body: SkillSubmitPayload, request: Request) -> SkillSubmitResponse:
         _require_internal_token(request)
 
-        # Import the async-job layer lazily (it pulls NAT/Dask) so this module
+        # Import the async-job layer lazily (it pulls NAT) so this module
         # stays cheap to import next to the maintenance routes.
         from ..jobs.submit import DuplicateJobIdError
         from ..jobs.submit import MissingPrincipalError
-        from ..jobs.submit import SchedulerNotConfiguredError
         from ..jobs.submit import submit_agent_job as submit_authorized_job
         from .builder_state import get_active_builder
 
@@ -351,13 +368,12 @@ def add_skill_routes(router: APIRouter) -> None:
                 run_id=body.run_id,
                 clarifier_result=body.clarifier_result,
                 documents=body.documents,
+                priority=body.priority,
             )
         except JobAdmissionError as exc:
             raise HTTPException(429, str(exc), headers={"Retry-After": str(exc.retry_after_seconds)})
         except DuplicateJobIdError as exc:
             raise HTTPException(409, str(exc))
-        except SchedulerNotConfiguredError as exc:
-            raise HTTPException(503, str(exc))
         except MissingPrincipalError as exc:
             raise HTTPException(403, str(exc))
         except RuntimeError:
@@ -376,4 +392,4 @@ def add_skill_routes(router: APIRouter) -> None:
             output,
             len(body.skills),
         )
-        return SkillSubmitResponse(job_id=job_id)
+        return SkillSubmitResponse(job_id=job_id, queued=True)

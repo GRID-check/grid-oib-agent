@@ -38,6 +38,13 @@ somehow were.
 The owner is exempt deliberately: with `FORCE ROW LEVEL SECURITY` a migration
 that backfills data would silently update zero rows and report success.
 
+A fourth login exists on clusters deployed by Pulumi and is not an application
+role: `grid_keda_scaler`, which KEDA's `postgresql` scaler counts the queue
+tables with. It has no `BYPASSRLS`; its one read of a tenant table
+(`bff_job_queue`) is an extra `FOR SELECT` policy written for that role alone
+(`deploy/pulumi/src/app/queue-scaler-grants.ts`), and its rights are SELECT on
+three queue tables.
+
 `grid_app_platform` is `NOLOGIN`. It is reached only by `SET LOCAL ROLE`, which
 means a cross-tenant read shows up as `current_user` in `pg_stat_activity` and
 the query log. Role attributes are not inherited, so `grid_app_rw`'s membership

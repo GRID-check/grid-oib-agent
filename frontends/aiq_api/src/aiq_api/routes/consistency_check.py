@@ -13,12 +13,17 @@ always-200, best-effort shape. Any failure returns HTTP 200 with an ``error``
 code and ``findings: None`` so a check outage never blocks the user from saving.
 """
 
+import asyncio
 import logging
 import os
 
 import httpx
 from fastapi import APIRouter
 from fastapi import Header
+
+from aiq_agent.common import provider_limiter
+from aiq_agent.common.credential_resolution import ResolvedCredential
+from aiq_agent.common.openrouter import limited_async_http_client
 
 from ..models.requests import ConsistencyCheckRequest
 from ..models.requests import ConsistencyCheckResponse
@@ -54,8 +59,8 @@ SYSTEM_PROMPT = (
 )
 
 
-def _llm_settings(organization_id: str | None = None) -> tuple[str, str, str]:
-    """Resolve the model/api_key/base_url for the consistency-check LLM call.
+def _llm_settings(organization_id: str | None = None) -> ResolvedCredential:
+    """Resolve the endpoint (model, key, base URL, data policy) for the consistency-check LLM call.
 
     Goes through the shared credential resolver so this route reaches the org's
     BYOK credential like every other LLM call, then the same env chain as before:
@@ -95,7 +100,7 @@ def _llm_settings(organization_id: str | None = None) -> tuple[str, str, str]:
         logger.warning(
             "No API key for consistency-check LLM (BYOK / CONSISTENCY_LLM_API_KEY / LLM_API_KEY / OPENROUTER_API_KEY)"
         )
-    return cred.model, cred.api_key, cred.base_url
+    return cred
 
 
 def _render_fields(fields: list) -> str:
@@ -168,8 +173,8 @@ def add_consistency_check_routes(router: APIRouter) -> None:
             # normally short-circuits before calling; this guards direct callers.
             return ConsistencyCheckResponse(findings=[])
 
-        model, api_key, base_url = _llm_settings(x_grid_organization_id)
-        if not api_key:
+        cred = await asyncio.to_thread(_llm_settings, x_grid_organization_id)
+        if not cred.api_key:
             # No credentials — surface a diagnosable code instead of a guaranteed 401.
             return ConsistencyCheckResponse(findings=None, error="llm_not_configured")
 
@@ -187,21 +192,23 @@ def add_consistency_check_routes(router: APIRouter) -> None:
             f"{_render_fields(request.free_text)}"
         )
 
-        headers = {"Content-Type": "application/json", "Authorization": f"Bearer {api_key}"}
-        payload = {
-            "model": model,
-            "temperature": 0.1,
-            "max_tokens": 800,
-            "response_format": {"type": "json_object"},
-            "messages": [
-                {"role": "system", "content": SYSTEM_PROMPT},
-                {"role": "user", "content": user_content},
-            ],
-        }
+        headers = {"Content-Type": "application/json", "Authorization": f"Bearer {cred.api_key}"}
+        payload = cred.request_body(
+            {
+                "model": cred.model,
+                "temperature": 0.1,
+                "max_tokens": 800,
+                "response_format": {"type": "json_object"},
+                "messages": [
+                    {"role": "system", "content": SYSTEM_PROMPT},
+                    {"role": "user", "content": user_content},
+                ],
+            }
+        )
 
         try:
-            async with httpx.AsyncClient(timeout=30.0) as client:
-                response = await client.post(f"{base_url}/chat/completions", json=payload, headers=headers)
+            async with limited_async_http_client(cls=provider_limiter.INTERACTIVE, timeout=30.0) as client:
+                response = await client.post(f"{cred.base_url}/chat/completions", json=payload, headers=headers)
                 response.raise_for_status()
                 data = response.json()
         except httpx.HTTPStatusError as exc:

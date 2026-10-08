@@ -55,6 +55,7 @@ import { minIntervalMinutesFromEnv, nextOccurrence, validateCron } from '@/lib/j
 import { emptySkillSnapshot } from '@/lib/jobs/types'
 import { isEmptyPlanDocuments, type PlanDocuments } from '@/lib/runs/plan-documents'
 import * as repository from './repository'
+import { submittedRunStatus } from './task-vocabulary'
 import { TASK_GOAL_MAX_CHARS } from './wire'
 
 // Re-exported so a caller reaching for the bound has one place to look, while
@@ -433,7 +434,12 @@ export interface CommissionedResearchRun {
   /** The run's message in the thread, or null when it could not be minted. */
   runMessageId: string | null
   conversationId: string
-  /** `queued` never survives this call: `running` when the worker took it, `failed` when it refused. */
+  /**
+   * What the run is when this returns: `queued` when the backend took the job and it waits for a
+   * research worker with a message for the worker's first flush to reach (the queue is claimed
+   * fairly and a busy fleet leaves it waiting, ADR-0079; `submittedRunStatus`), `running` otherwise,
+   * `failed` when the submission was refused. A caller must not read `queued` as "not submitted".
+   */
   status: TaskRun['status']
 }
 
@@ -622,7 +628,15 @@ async function submitQueuedRun(run: TaskRun, target: DispatchTarget): Promise<Ta
   // threw as well. The worker's run ledger addresses the run by its id, so the
   // row catches up when the database is back.
   const { backendJobId, conversationId, runMessageId } = submitted
-  return recordRun(run, { status: 'running', backendJobId, conversationId, runMessageId, startedAt: new Date() })
+  const status = submittedRunStatus(submitted)
+  return recordRun(run, {
+    status,
+    backendJobId,
+    conversationId,
+    runMessageId,
+    // A queued run has not started: the worker's first flush stamps it (`applyRunLedgerOp`).
+    startedAt: status === 'running' ? new Date() : null,
+  })
 }
 
 /**

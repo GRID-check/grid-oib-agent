@@ -7,9 +7,11 @@ turn. Conversation state lives in Postgres and reaches this process in headers
 
 ## The trap
 
-`pytest` run directly needs `PYTHONPATH=src`, which `Taskfile.yml` sets. Without
-it you validate whatever the venv installed, possibly another worktree, while
-everything passes.
+`pytest` run directly tests this checkout's `src/`, because `pyproject.toml` puts
+it first on the path. Before that setting, a bare `pytest` in a worktree without
+its own venv validated whatever the venv installed, possibly the main checkout,
+while everything passed. `PYTHONPATH=src` is still what `nat run` and ad-hoc
+scripts need.
 
 ## Obligations
 
@@ -25,6 +27,7 @@ everything passes.
 | Change `cards/models.py` | Re-run both generators: `uv run python scripts/generate_card_schema.py`, then `npm run generate:cards` in `frontends/ui` | The `card-schemas` pre-commit hook. Without it the frontend validates the old schema, and it type-checks |
 | Change a builtin skill's `SKILL.md` | Re-run the generator: `node frontends/ui/scripts/sync-platform-skills.mjs` | `sync-platform-skills` pre-commit hook. A stale generated module type-checks perfectly, which is why it has broken the build from behind three times |
 | Change a prompt or a model name | Remember `configs/*.yml` model names are the **boot fallback only**; the live default is admin-controlled | Editing YAML to move the fleet does nothing. See ADR-0014 |
+| Make a model call anywhere (a new route, an ingest step, a script) | Go through `common/openrouter.py`: `pin_chat_model`, `ResolvedCredential.request_body`, `PLATFORM_FIXED.apply`, `openai_client`, `pinned_http_client`, or `limited_async_http_client` for a body that already carries the policy. A model no organization chooses is always pinned; one it chooses follows `data_policy_for`. Name a platform-fixed model only if it has a zero-data-retention endpoint | `tests/aiq_agent/common/test_openrouter_call_sites.py` and `test_provider_limiter_call_sites.py`. Zero data retention is on by default (ADR-0074), and a call that skips the seam sends a tenant's text to a provider that may keep it; a raw `httpx` client to OpenRouter also skips the provider limiter (ADR-0081) |
 
 ## Rules that need more than a row
 

@@ -2,6 +2,11 @@
 
 from __future__ import annotations
 
+import base64
+import hashlib
+import hmac
+import json
+import time
 from datetime import UTC
 from datetime import datetime
 from datetime import timedelta
@@ -14,6 +19,8 @@ from fastapi.testclient import TestClient
 
 from aiq_agent.auth import Principal
 from aiq_api.jobs import access as job_access
+from aiq_api.jobs.access import JobCaller
+from aiq_api.jobs.access import SignedJobScope
 from aiq_api.jobs.event_store import EventStore
 from aiq_api.routes.jobs import _find_research_runs
 
@@ -81,6 +88,7 @@ def _seed_job(
     created_at: datetime | None = None,
     conversation_id: str | None = None,
     project_collection: str | None = None,
+    organization_id: str | None = None,
 ) -> None:
     job_access.create_job_access(
         job_id,
@@ -88,6 +96,7 @@ def _seed_job(
         db_url,
         conversation_id=conversation_id,
         project_collection=project_collection,
+        organization_id=organization_id,
     )
     _insert_job_info(db_url, job_id, status=status, created_at=created_at)
 
@@ -100,7 +109,7 @@ class TestFindResearchRuns:
         _seed_job(db_url, "job-a", principal, project_collection="proj-alpha")
         _seed_job(db_url, "job-b", principal, project_collection="proj-beta")
 
-        rows, total = _find_research_runs(db_url, False, None, None, "proj-alpha", None, None, 50, 0)
+        rows, total = _find_research_runs(db_url, None, "proj-alpha", None, None, 50, 0)
 
         assert total == 1
         assert [row["job_id"] for row in rows] == ["job-a"]
@@ -111,7 +120,7 @@ class TestFindResearchRuns:
         _seed_job(db_url, "job-a", principal, conversation_id="conv-1")
         _seed_job(db_url, "job-b", principal, conversation_id="conv-2")
 
-        rows, total = _find_research_runs(db_url, False, None, None, None, "conv-2", None, 50, 0)
+        rows, total = _find_research_runs(db_url, None, None, "conv-2", None, 50, 0)
 
         assert total == 1
         assert [row["job_id"] for row in rows] == ["job-b"]
@@ -121,7 +130,7 @@ class TestFindResearchRuns:
         _seed_job(db_url, "job-a", principal, status="success")
         _seed_job(db_url, "job-b", principal, status="failure")
 
-        rows, total = _find_research_runs(db_url, False, None, None, None, None, "failure", 50, 0)
+        rows, total = _find_research_runs(db_url, None, None, None, "failure", 50, 0)
 
         assert total == 1
         assert [row["job_id"] for row in rows] == ["job-b"]
@@ -132,7 +141,7 @@ class TestFindResearchRuns:
         _seed_job(db_url, "job-a", owner_a)
         _seed_job(db_url, "job-b", owner_b)
 
-        rows, total = _find_research_runs(db_url, True, "jwt", "user-1", None, None, None, 50, 0)
+        rows, total = _find_research_runs(db_url, JobCaller(principal=owner_a), None, None, None, 50, 0)
 
         assert total == 1
         assert [row["job_id"] for row in rows] == ["job-a"]
@@ -143,7 +152,7 @@ class TestFindResearchRuns:
         _seed_job(db_url, "job-a", owner_a)
         _seed_job(db_url, "job-b", owner_b)
 
-        rows, total = _find_research_runs(db_url, False, None, None, None, None, None, 50, 0)
+        rows, total = _find_research_runs(db_url, None, None, None, None, 50, 0)
 
         assert total == 2
         assert {row["job_id"] for row in rows} == {"job-a", "job-b"}
@@ -154,7 +163,7 @@ class TestFindResearchRuns:
         _seed_job(db_url, "job-old", principal, created_at=now - timedelta(minutes=10))
         _seed_job(db_url, "job-new", principal, created_at=now)
 
-        rows, total = _find_research_runs(db_url, False, None, None, None, None, None, 1, 0)
+        rows, total = _find_research_runs(db_url, None, None, None, None, 1, 0)
 
         assert total == 2
         assert [row["job_id"] for row in rows] == ["job-new"]
@@ -166,13 +175,56 @@ class TestFindResearchRuns:
         for job_id in ("job-a", "job-b", "job-c"):
             _seed_job(db_url, job_id, principal, created_at=ts)
 
-        pages = [
-            _find_research_runs(db_url, False, None, None, None, None, None, 1, offset)[0][0]["job_id"]
-            for offset in (0, 1, 2)
-        ]
+        pages = [_find_research_runs(db_url, None, None, None, None, 1, offset)[0][0]["job_id"] for offset in (0, 1, 2)]
 
         # Deterministic order (created_at DESC, job_id DESC) and full coverage.
         assert pages == ["job-c", "job-b", "job-a"]
+
+
+class TestListingFollowsTheSignedScope:
+    """ADR-0084: the listing shows the runs a single-job read would open, no more."""
+
+    OWNER = Principal(type="jwt", sub="user-owner")
+    TEAMMATE = Principal(type="jwt", sub="user-teammate")
+
+    def _seed_tenants(self, db_url: str) -> None:
+        _seed_job(db_url, "own-elsewhere", self.TEAMMATE, organization_id="org-1", project_collection="proj_beta")
+        _seed_job(db_url, "project-run", self.OWNER, organization_id="org-1", project_collection="proj_alpha")
+        _seed_job(db_url, "other-project", self.OWNER, organization_id="org-1", project_collection="proj_beta")
+        _seed_job(db_url, "other-org", self.OWNER, organization_id="org-2", project_collection="proj_alpha")
+        _seed_job(db_url, "no-org", self.OWNER, project_collection="proj_alpha", conversation_id="conv-1")
+        _seed_job(db_url, "conversation-run", self.OWNER, organization_id="org-1", conversation_id="conv-1")
+
+    def _ids(self, db_url: str, scope: SignedJobScope | None, project_collection: str | None = None) -> set[str]:
+        caller = JobCaller(principal=self.TEAMMATE, scope=scope)
+        rows, total = _find_research_runs(db_url, caller, project_collection, None, None, 50, 0)
+        assert total == len(rows)
+        return {row["job_id"] for row in rows}
+
+    def test_own_runs_plus_the_signed_projects_runs_and_never_another_organizations(self, db_url):
+        self._seed_tenants(db_url)
+        scope = SignedJobScope(organization_id="org-1", project_collection="proj_alpha", conversation_id=None)
+
+        assert self._ids(db_url, scope) == {"own-elsewhere", "project-run"}
+
+    def test_the_project_filter_narrows_and_does_not_widen(self, db_url):
+        self._seed_tenants(db_url)
+        scope = SignedJobScope(organization_id="org-1", project_collection="proj_alpha", conversation_id=None)
+
+        assert self._ids(db_url, scope, "proj_alpha") == {"project-run"}
+        # Naming a project the envelope did not sign shows only what the caller owns there.
+        assert self._ids(db_url, scope, "proj_beta") == {"own-elsewhere"}
+
+    def test_the_signed_conversations_runs_are_listed(self, db_url):
+        self._seed_tenants(db_url)
+        scope = SignedJobScope(organization_id="org-1", project_collection=None, conversation_id="conv-1")
+
+        assert self._ids(db_url, scope) == {"own-elsewhere", "conversation-run"}
+
+    def test_without_a_scope_only_own_runs(self, db_url):
+        self._seed_tenants(db_url)
+
+        assert self._ids(db_url, None) == {"own-elsewhere"}
 
 
 @pytest.fixture
@@ -180,21 +232,10 @@ async def research_runs_app(db_url, monkeypatch):
     """Build a minimal app with the async job routes, including the new list endpoint."""
     import aiq_api.routes.jobs as jobs_routes
 
-    monkeypatch.setattr(jobs_routes, "_start_periodic_cleanup", MagicMock())
-
-    async def _no_op_reaper(*_args, **_kwargs):
-        return None
-
-    monkeypatch.setattr(jobs_routes, "_reap_ghost_jobs", _no_op_reaper)
-
     worker = SimpleNamespace(
-        _dask_available=True,
-        _job_store=MagicMock(),
-        _scheduler_address="tcp://localhost:8786",
         _db_url=db_url,
         _config_file_path="config.yml",
         _log_level=20,
-        _use_dask_threads=False,
         _front_end_config=SimpleNamespace(expiry_seconds=86400),
     )
 
@@ -258,3 +299,42 @@ async def test_list_research_runs_clamps_limit(research_runs_app, db_url, monkey
         response = client.get("/v1/jobs/async/jobs", params={"limit": 10000})
 
     assert response.status_code == 200
+
+
+@pytest.mark.asyncio
+async def test_list_research_runs_honours_the_signed_project(research_runs_app, db_url, monkeypatch):
+    """The route reads the envelope off the request: a teammate sees the project's runs, not another org's."""
+    import aiq_api.routes.jobs as jobs_routes
+
+    secret = "listing-test-secret"  # noqa: S105  # pragma: allowlist secret
+    monkeypatch.setenv("REQUIRE_AUTH", "true")
+    monkeypatch.setenv("GRID_INTERNAL_API_TOKEN", secret)
+    monkeypatch.setenv("OIB_COLLECTION_NAME", "oib_knowledge")
+    owner = Principal(type="jwt", sub="user-owner")
+    teammate = Principal(type="jwt", sub="user-teammate")
+    _seed_job(db_url, "project-run", owner, organization_id="org-1", project_collection="proj_alpha")
+    _seed_job(db_url, "other-org", owner, organization_id="org-2", project_collection="proj_alpha")
+    monkeypatch.setattr(jobs_routes, "require_verified_principal", lambda: teammate)
+
+    raw = json.dumps(
+        {
+            "organizationId": "org-1",
+            "userId": teammate.sub,
+            "collectionScope": [
+                {"collection": "oib_knowledge", "shelf": "base"},
+                {"collection": "proj_alpha", "shelf": "project"},
+            ],
+            "issuedAt": int(time.time() * 1000),
+        }
+    )
+    headers = {
+        "x-grid-request-context": base64.urlsafe_b64encode(raw.encode()).decode().rstrip("="),
+        "x-grid-request-context-sig": hmac.new(secret.encode(), raw.encode(), hashlib.sha256).hexdigest(),
+    }
+
+    with TestClient(research_runs_app) as client:
+        signed = client.get("/v1/jobs/async/jobs", headers=headers)
+        unsigned = client.get("/v1/jobs/async/jobs")
+
+    assert [job["job_id"] for job in signed.json()["jobs"]] == ["project-run"]
+    assert unsigned.json()["jobs"] == []

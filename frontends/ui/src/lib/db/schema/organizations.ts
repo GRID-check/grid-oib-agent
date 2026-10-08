@@ -51,8 +51,26 @@ export type NewOrganization = typeof organizations.$inferInsert
  *
  * A key belongs here when the tenant is the party the value CONSTRAINS. A
  * setting the tenant chooses for itself (`zdrOnly`, `webSearchEnabled`,
- * `providerMode`) does not, however sensitive.
+ * `providerMode`) does not, however sensitive. Today: the storage quota, and
+ * the per-file upload limit (`maxUploadFileBytes`, `@/lib/storage/upload-limit`).
  */
-export const PLATFORM_OWNED_SETTINGS = ['storageQuotaBytes'] as const
+export const PLATFORM_OWNED_SETTINGS = ['storageQuotaBytes', 'maxUploadFileBytes'] as const
 
 export type PlatformOwnedSetting = (typeof PLATFORM_OWNED_SETTINGS)[number]
+
+/**
+ * Keys in the same bag that the TENANT owns but only one route may write,
+ * because that route carries a stronger gate than the generic settings save.
+ * Maps each key to where it is changed, which is also the refusal message.
+ *
+ * `zdrOnly` is the reason this exists: `PUT /api/organization/settings` merges
+ * the bag under `org:settings:manage`, so `{"settings":{"zdrOnly":false}}`
+ * switched zero data retention off without `org:models:manage`, without the
+ * model-configuration flag, without the confirmation, and could store a
+ * non-boolean. Enforced in `updateOrgSettings`, like the list above, so a new
+ * endpoint inherits the refusal.
+ */
+export const DEDICATED_ROUTE_SETTINGS = {
+  zdrOnly:
+    'zero data retention is switched through PUT /api/organization/model-config/zdr, which requires org:models:manage',
+} as const

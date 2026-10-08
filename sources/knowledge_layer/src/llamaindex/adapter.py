@@ -35,6 +35,7 @@ import json
 import logging
 import math
 import os
+import random
 import re
 import threading
 import time
@@ -43,17 +44,23 @@ from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from dataclasses import field
-from datetime import UTC
 from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+from aiq_agent.common.cost_tracking import USAGE_ROLE_EMBEDDING
+from aiq_agent.common.cost_tracking import USAGE_ROLE_INGEST_VISION
+from aiq_agent.common.cost_tracking import meter_openai_client
 from aiq_agent.knowledge import ingest_status_store
 from aiq_agent.knowledge.base import BaseIngestor
 from aiq_agent.knowledge.base import BaseRetriever
+from aiq_agent.knowledge.base import PreparedIngestJob
 from aiq_agent.knowledge.base import TTLCleanupMixin
 from aiq_agent.knowledge.factory import register_ingestor
 from aiq_agent.knowledge.factory import register_retriever
+from aiq_agent.knowledge.ingest_scheduler import FairIngestScheduler
+from aiq_agent.knowledge.ingest_scheduler import JobSource
+from aiq_agent.knowledge.ingest_scheduler import per_org_cap_from_env
 from aiq_agent.knowledge.schema import Chunk
 from aiq_agent.knowledge.schema import CollectionInfo
 from aiq_agent.knowledge.schema import ContentType
@@ -63,6 +70,7 @@ from aiq_agent.knowledge.schema import FileStatus
 from aiq_agent.knowledge.schema import IngestionJobStatus
 from aiq_agent.knowledge.schema import JobState
 from aiq_agent.knowledge.schema import RetrievalResult
+from aiq_agent.knowledge.schema import stable_file_id
 
 from .pdfium_lock import detached_pil
 from .pdfium_lock import pdfium_lock
@@ -399,6 +407,32 @@ MAX_OCR_PAGES = _env_int("AIQ_MAX_OCR_PAGES", 500, minimum=0)
 # silently disable captioning altogether.
 VLM_REQUEST_TIMEOUT_SECONDS = max(1, _env_int("AIQ_VLM_TIMEOUT_SECONDS", 180))
 
+# @environment_variable AIQ_VLM_FLEET_CONCURRENCY
+# @category Knowledge Layer
+# @type int
+# @default 32
+# @required false
+# Vision-model calls in flight across EVERY ingest process at once (a lease pool
+# on the shared cache, `common.lease_slots`); a call waits for a slot. This, not
+# the number of ingest workers, is what the provider sees, so scaling the ingest
+# tier out queues calls here instead of turning into upstream 429s. 0 disables.
+# Every vision call also holds a slot in its model's own provider-limiter pool
+# (`GRID_PROVIDER_MODEL_LIMIT_CEILING`, 32), so a pool above that never fills:
+# keep the two together.
+VLM_FLEET_CONCURRENCY = _env_int("AIQ_VLM_FLEET_CONCURRENCY", 32)
+
+# @environment_variable AIQ_VLM_RATE_LIMIT_RETRIES
+# @category Knowledge Layer
+# @type int
+# @default 4
+# @required false
+# Retries of a vision-model call the provider rate-limited (HTTP 429), with
+# exponential backoff or the provider's Retry-After, before the caption fails.
+VLM_RATE_LIMIT_RETRIES = max(0, _env_int("AIQ_VLM_RATE_LIMIT_RETRIES", 4))
+
+_VLM_SLOT_KEY = "ingest:vlm:inflight"
+_VLM_BACKOFF_CAP_SECONDS = 60.0
+
 # @environment_variable AIQ_EMBED_BATCH_SIZE
 # @category Knowledge Layer
 # @type int
@@ -497,12 +531,20 @@ JOB_RETENTION_SECONDS = 3600  # 1 hour
 # never writes one for a document that no longer exists.
 DOCUMENT_DELETED_DURING_INGEST = "document_deleted: the document was deleted while it was being ingested"
 
-# Terminal per-file tracking entries (self._files) are retained this long, then
-# pruned. SUCCESS files are still listable afterwards (list_files rebuilds them
-# from Chroma chunks — with a fresh id, exactly as for any never-tracked file);
-# FAILED rows drop off the listing once this window passes. Bounds self._files,
-# which otherwise grew for the life of the process (scaling review phase-2, #13).
+
+class _ClaimLost(Exception):  # noqa: N818 - a signal, not an error
+    """The durable queue gave this job to another worker; this run must write nothing more."""
+
+
+# A finished job's row in the shared status store is retained this long, then
+# pruned (`ingest_status_store.prune_expired`, on the heartbeat). It is the only
+# record of a file that failed, so the file drops off the listing with it.
+# SUCCESS files stay listed: `list_files` reads them from the Chroma chunks.
+# Bounds the `ingest_jobs` table (scaling review phase-2, #13).
 FILE_TRACKING_RETENTION_SECONDS = _env_int("AIQ_FILE_TRACKING_RETENTION_SECONDS", 86400)  # 24h
+
+# The heartbeat prunes expired job rows every this many beats (hourly).
+_PRUNE_EVERY_BEATS = 120
 
 # Document summarization + tag-classification input limits live in the shared
 # aiq_agent.knowledge.document_classification module (CLASSIFY_MAX_INPUT_CHARS).
@@ -933,6 +975,34 @@ def _resolve_embed_api_key(base_url: str, model: str) -> str:
         default_model=model,
         organization_id=None,
     ).api_key
+
+
+def make_embed_model(*, base_url: str, model: str, api_key: str, **kwargs: Any):
+    """The embedding client. Every one in the process is built here.
+
+    Its HTTP clients pin every OpenRouter request to zero-data-retention
+    endpoints (``openrouter.PLATFORM_FIXED``): the embedding model is the
+    platform's, not an organization's choice, and document chunks and queries
+    of every tenant pass through it. ``NVIDIAEmbedding`` hard-codes its own
+    ``extra_body``, so the pin rides on the transport instead.
+    """
+    from llama_index.embeddings.nvidia import NVIDIAEmbedding
+
+    from aiq_agent.common.openrouter import pinned_async_http_client
+    from aiq_agent.common.openrouter import pinned_http_client
+
+    embed_model = NVIDIAEmbedding(
+        base_url=base_url,
+        model=model,
+        api_key=api_key,
+        http_client=pinned_http_client(),
+        async_http_client=pinned_async_http_client(),
+        **kwargs,
+    )
+    # Metered: llama-index calls the OpenAI SDK itself, so no callback sees an
+    # embedding; its usage lands in whatever tracker is active (ingest job or turn).
+    meter_openai_client(getattr(embed_model, "_client", None), role=USAGE_ROLE_EMBEDDING)
+    return embed_model
 
 
 def resolve_vlm_credential(organization_id: str | None = None):
@@ -1845,6 +1915,97 @@ def _table_to_markdown(table: list[list[str]]) -> str:
     return "\n".join(lines)
 
 
+def _ingest_cost_scope(job_id: str, config: dict[str, Any]):
+    """The cost tracker an ingestion job's model calls are recorded under (``activity = ingest``)."""
+    from aiq_agent.common.cost_tracking import USAGE_ACTIVITY_INGEST
+    from aiq_agent.common.cost_tracking import BudgetSnapshot
+    from aiq_agent.common.cost_tracking import track_llm_costs
+
+    return track_llm_costs(
+        job_id=job_id,
+        identity={
+            "organization_id": config.get("organization_id"),
+            "user_id": config.get("user_id"),
+            "project_id": config.get("project_id"),
+            "conversation_id": None,
+            "message_id": None,
+        },
+        # Unlimited, deliberately: see `_run_ingestion`.
+        budget=BudgetSnapshot(),
+        activity=USAGE_ACTIVITY_INGEST,
+    )
+
+
+def _vlm_slot():
+    """One of the fleet's ``VLM_FLEET_CONCURRENCY`` vision-call slots, for as long as the call may last."""
+    from aiq_agent.common import lease_slots
+
+    return lease_slots.hold(
+        _VLM_SLOT_KEY,
+        VLM_FLEET_CONCURRENCY,
+        lease_seconds=VLM_REQUEST_TIMEOUT_SECONDS + 30,
+        max_wait_seconds=VLM_REQUEST_TIMEOUT_SECONDS * 3,
+    )
+
+
+def _rate_limited_for(error: Exception) -> float | None:
+    """Seconds to wait before retrying a call the provider rate-limited; None when it was not a 429."""
+    if getattr(error, "status_code", None) != 429 and "rate_limit" not in str(error).lower():
+        return None
+    headers = getattr(getattr(error, "response", None), "headers", None) or {}
+    try:
+        stated = float(headers.get("retry-after", ""))
+    except (TypeError, ValueError):
+        return 0.0
+    return min(max(stated, 0.0), _VLM_BACKOFF_CAP_SECONDS)
+
+
+def _vlm_create_fairly(client, **request):
+    """``client.chat.completions.create`` inside a fleet slot, waiting out the provider's 429s.
+
+    The OpenAI SDK retries a 429 once on its own (``max_retries=1``); a burst of
+    ingest workers outlasts that. Each further attempt waits OUTSIDE the slot
+    (Retry-After when the provider states it, else 2, 4, 8 … s with jitter), so
+    a rate-limited call never holds capacity another call could use once the
+    limit lifts.
+    """
+    for attempt in range(VLM_RATE_LIMIT_RETRIES + 1):
+        try:
+            with _vlm_slot():
+                return client.chat.completions.create(**request)
+        except Exception as error:
+            wait = _rate_limited_for(error)
+            if wait is None or attempt == VLM_RATE_LIMIT_RETRIES:
+                raise
+            wait = wait or min(_VLM_BACKOFF_CAP_SECONDS, 2.0 ** (attempt + 1))
+            logger.info("VLM call rate-limited; retrying in %.1fs (attempt %d)", wait, attempt + 1)
+            time.sleep(wait * (0.8 + 0.4 * random.random()))
+    raise AssertionError("unreachable")  # pragma: no cover
+
+
+def _vlm_client(base_url: str, api_key: str, *, role: str = USAGE_ROLE_INGEST_VISION):
+    """The vision client for one ingest call, under the ingest job's data policy and on its cost ledger.
+
+    The ingest job enters ``openrouter.data_policy_scope`` for its organization;
+    anything that reaches here without one (the base corpus sync, a thread that
+    lost the context) is pinned to zero-data-retention endpoints. Each call's
+    usage is recorded under ``role`` in the job's tracker (``_ingest_cost_scope``).
+    """
+    from aiq_agent.common.openrouter import openai_client
+    from aiq_agent.common.openrouter import scoped_data_policy
+
+    return meter_openai_client(
+        openai_client(
+            base_url=base_url,
+            api_key=api_key,
+            policy=scoped_data_policy(),
+            timeout=VLM_REQUEST_TIMEOUT_SECONDS,
+            max_retries=1,
+        ),
+        role=role,
+    )
+
+
 def _vlm_chat_create(client, *, model: str, messages: list, max_tokens: int, temperature: float = 0.2) -> str:
     """One VLM chat completion with a single truncation retry.
 
@@ -1866,7 +2027,8 @@ def _vlm_chat_create(client, *, model: str, messages: list, max_tokens: int, tem
       Raising here would discard usable content and — since failure placeholders
       are no longer indexed — drop the chunk entirely over a partial success.
     """
-    response = client.chat.completions.create(
+    response = _vlm_create_fairly(
+        client,
         model=model,
         messages=messages,
         max_tokens=max_tokens,
@@ -1888,12 +2050,13 @@ def _vlm_chat_create(client, *, model: str, messages: list, max_tokens: int, tem
         except Exception:  # pragma: no cover - defensive, SDK-shape dependent
             retry_client = client
     try:
-        response = retry_client.chat.completions.create(
-            model=model,
-            messages=messages,
-            max_tokens=max_tokens * 2,
-            temperature=temperature,
-        )
+        with _vlm_slot():
+            response = retry_client.chat.completions.create(
+                model=model,
+                messages=messages,
+                max_tokens=max_tokens * 2,
+                temperature=temperature,
+            )
     except Exception as exc:
         logger.warning("VLM truncation retry failed (%s); keeping the truncated caption", exc)
         return partial
@@ -1928,7 +2091,7 @@ def _analyze_image_with_vlm(
         Tuple of (content_type, caption) where content_type is "chart" or "image".
     """
     try:
-        from openai import OpenAI
+        import openai  # noqa: F401 - availability check; the client comes from _vlm_client
     except ImportError:
         logger.warning("openai package not installed. Install with: pip install openai")
         return ("image", "[Image - captioning unavailable]")
@@ -1972,12 +2135,7 @@ Provide a detailed, structured response."""
         # Encode image to base64
         image_b64 = base64.b64encode(image_bytes).decode("utf-8")
 
-        client = OpenAI(
-            base_url=vlm_base_url,
-            api_key=api_key,
-            timeout=VLM_REQUEST_TIMEOUT_SECONDS,
-            max_retries=1,
-        )
+        client = _vlm_client(vlm_base_url, api_key)
 
         caption = _vlm_chat_create(
             client,
@@ -2120,7 +2278,7 @@ def _analyze_drawing_page_with_vlm(
     registry = visual_domains.resolve_registry()
 
     try:
-        from openai import OpenAI
+        import openai  # noqa: F401 - availability check; the client comes from _vlm_client
     except ImportError:
         logger.warning("openai package not installed. Install with: pip install openai")
         return ("[Drawing - captioning unavailable]", {})
@@ -2131,12 +2289,7 @@ def _analyze_drawing_page_with_vlm(
 
     try:
         image_b64 = base64.b64encode(image_bytes).decode("utf-8")
-        client = OpenAI(
-            base_url=vlm_base_url,
-            api_key=api_key,
-            timeout=VLM_REQUEST_TIMEOUT_SECONDS,
-            max_retries=1,
-        )
+        client = _vlm_client(vlm_base_url, api_key)
         reply = _vlm_chat_create(
             client,
             model=vlm_model,
@@ -2317,6 +2470,54 @@ def _read_human_set_fields(collection_name: str, found: dict[str, _PreviousVersi
         logger.warning("Could not read the previous versions' metadata; re-deriving it", exc_info=True)
 
 
+def _file_info_from_job(job: IngestionJobStatus, detail: FileProgress) -> FileInfo:
+    """A job's account of one of its files, as the listing states it.
+
+    The id is derived from the collection and the name, not read from the
+    detail: a row written before ids were derived carries a random one, and the
+    listing, a lookup and a delete must agree whichever process wrote the row.
+    A file the job never finished when the job itself failed is FAILED, with the
+    job's reason: nothing will finish it.
+    """
+    status, error = detail.status, detail.error_message
+    if status not in (FileStatus.SUCCESS, FileStatus.FAILED) and job.status == JobState.FAILED:
+        status, error = FileStatus.FAILED, error or job.error_message
+    return FileInfo(
+        file_id=stable_file_id(job.collection_name, detail.file_name),
+        file_name=detail.file_name,
+        collection_name=job.collection_name,
+        status=status,
+        chunk_count=detail.chunks_created,
+        uploaded_at=job.submitted_at,
+        ingested_at=job.completed_at if status == FileStatus.SUCCESS else None,
+        error_message=error,
+        metadata={"job_id": job.job_id},
+    )
+
+
+def _merge_file_records(indexed: FileInfo | None, recorded: FileInfo | None) -> FileInfo | None:
+    """One file from its two records: the chunks Chroma holds, and the newest job's account of it.
+
+    The chunks say what is indexed; the job says what is happening to the file
+    or why it failed. A re-upload that failed leaves the version it replaced
+    indexed, and is FAILED all the same. A job alone lists a file only until it
+    finishes: a finished one with no chunks was deleted, or never indexed.
+    """
+    if recorded is None:
+        return indexed
+    if indexed is None:
+        return None if recorded.status == FileStatus.SUCCESS else recorded
+    return recorded.model_copy(
+        update={
+            "chunk_count": indexed.chunk_count,
+            "file_size": recorded.file_size or indexed.file_size,
+            "uploaded_at": recorded.uploaded_at or indexed.uploaded_at,
+            "ingested_at": recorded.ingested_at or indexed.ingested_at,
+            "metadata": {**indexed.metadata, **recorded.metadata},
+        }
+    )
+
+
 @register_ingestor("llamaindex")
 class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
     """
@@ -2394,6 +2595,12 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
     # (job status stays PENDING) instead of each spawning a thread.
     INGEST_MAX_WORKERS = max(1, _env_int("AIQ_INGEST_MAX_WORKERS", 2))
 
+    # Most ingestion jobs one organisation may run at once in this process's
+    # own pool; 0 for no cap. `GRID_INGEST_MAX_PER_ORG`, the one name of the
+    # setting the durable queue also reads (`per_org_cap_from_env`, which
+    # accepts the deprecated `AIQ_INGEST_MAX_PER_ORG`).
+    INGEST_MAX_PER_ORG = per_org_cap_from_env()
+
     # @environment_variable AIQ_EXTRACT_IMAGES
     # @category Knowledge Layer
     # @type bool
@@ -2413,6 +2620,7 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
     DEFAULT_EXTRACT_CHARTS = _env_switch("AIQ_EXTRACT_CHARTS")
 
     backend_name = "llamaindex"
+    supports_durable_jobs = True
 
     def __init__(self, config: dict[str, Any] | None = None):
         super().__init__(config)
@@ -2436,22 +2644,33 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
         self.generate_summary_enabled = self.config.get("generate_summary", False)
         self.summary_llm = self.config.get("summary_llm")  # Resolved LangChain LLM (or None)
 
-        # Job and file tracking (in-memory)
+        # The jobs this process runs, as its working copy. Not what answers a
+        # question about a file: that is the shared status store and Chroma,
+        # because the process that asks is not the one that ran the job.
         self._jobs: dict[str, IngestionJobStatus] = {}
-        self._files: dict[str, FileInfo] = {}
         self._lock = threading.RLock()  # RLock allows same thread to acquire multiple times
         # Shared-store writes, one at a time (`_persist`), and the jobs whose
         # latest write did not land, which the heartbeat writes again.
         self._persist_lock = threading.Lock()
         self._unpersisted: set[str] = set()
+        # Jobs this process prepared whose PENDING write did not land. Handed to
+        # `_unpersisted` when this process runs the job; a job the durable queue
+        # carries elsewhere is written by its worker's first status change.
+        self._unstored_at_prepare: set[str] = set()
+        # Jobs claimed from the durable queue, and how to ask whether this
+        # process still holds each claim (`run_prepared`).
+        self._claim_guards: dict[str, Callable[[], bool]] = {}
 
         # Bounded ingestion pool: a thread per upload gave N concurrent
         # uploads N threads all embedding against the remote API and writing
         # into the same embedded Chroma store. Excess jobs queue (status stays
         # PENDING until a worker picks them up) instead of piling on threads.
-        self._ingest_pool = ThreadPoolExecutor(
-            max_workers=self.INGEST_MAX_WORKERS,
-            thread_name_prefix="llamaindex-ingest",
+        # Shared FAIRLY between organisations: a FIFO here queued every office
+        # behind one office's folder upload (`ingest_scheduler`).
+        self._ingest_pool = FairIngestScheduler(
+            self.INGEST_MAX_WORKERS,
+            name="llamaindex-ingest",
+            per_org_cap=self.INGEST_MAX_PER_ORG,
         )
 
         # Lazy-loaded components
@@ -2487,9 +2706,14 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
 
     def _heartbeat_loop(self) -> None:
         self._settle_stranded_jobs()
+        ingest_status_store.prune_expired(FILE_TRACKING_RETENTION_SECONDS)
+        beats = 0
         while True:
             time.sleep(ingest_status_store.HEARTBEAT_INTERVAL_SECONDS)
             self._beat()
+            beats += 1
+            if beats % _PRUNE_EVERY_BEATS == 0:
+                ingest_status_store.prune_expired(FILE_TRACKING_RETENTION_SECONDS)
 
     @staticmethod
     def _settle_stranded_jobs() -> None:
@@ -2578,8 +2802,6 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
         ensure_retrieval_dependencies()
 
         try:
-            from llama_index.embeddings.nvidia import NVIDIAEmbedding
-
             embed_api_key = _resolve_embed_api_key(self.embed_base_url, self.embed_model_name)
             if not embed_api_key:
                 logger.error(
@@ -2587,7 +2809,7 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
                     "the provider key for AIQ_EMBED_BASE_URL) - ingestion/retrieval will fail."
                 )
 
-            self._embed_model = NVIDIAEmbedding(
+            self._embed_model = make_embed_model(
                 base_url=self.embed_base_url,
                 model=self.embed_model_name,
                 api_key=embed_api_key,
@@ -2628,7 +2850,12 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
         chunks_created: int | None = None,
         error: str | None = None,
     ) -> None:
-        """Update file status in both job.file_details and _files tracking dict."""
+        """Record a file's outcome on the job, then in the shared store.
+
+        The job's ``file_details`` is the file's record: ``list_files`` and
+        ``get_file_status`` in any process read it from the store, so a FAILED
+        file's reason is written there with the status, not kept here.
+        """
         with self._lock:
             if file_index < len(job.file_details):
                 file_detail = job.file_details[file_index]
@@ -2639,16 +2866,6 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
                     file_detail.chunks_created = chunks_created
                 elif status == FileStatus.FAILED and error:
                     file_detail.error_message = error
-
-                # Sync to _files tracking dict for list_files consistency
-                tracked_file = self._files.get(file_detail.file_id)
-                if tracked_file:
-                    tracked_file.status = status
-                    if status == FileStatus.SUCCESS and chunks_created is not None:
-                        tracked_file.chunk_count = chunks_created
-                        tracked_file.ingested_at = datetime.now(tz=UTC)
-                    elif status == FileStatus.FAILED and error:
-                        tracked_file.error_message = error
 
             job.processed_files = file_index + 1
 
@@ -2676,27 +2893,53 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
         collection_name: str,
         config: dict[str, Any] | None = None,
     ) -> str:
-        """Submit an ingestion job (non-blocking).
+        """Submit an ingestion job (non-blocking) to this process's fair pool.
 
         An entry is a local path, or a deferred download the job runs when it
         reaches the file (``knowledge_layer.deferred_files``); the latter is
         kept here unchecked, since there is nothing on disk yet to check.
         """
+        prepared = self.prepare_job(file_paths, collection_name, config)
+        if prepared.status.status == JobState.PENDING:
+            self.submit_prepared(prepared)
+        return prepared.job_id
+
+    def prepare_job(
+        self,
+        file_paths: list[str | Callable[[], str]],
+        collection_name: str,
+        config: dict[str, Any] | None = None,
+        job_id: str | None = None,
+    ) -> PreparedIngestJob:
+        """Validate a job and record it PENDING in the shared store, without running it.
+
+        ``job_id`` is the id the caller chose for this work (the base corpus derives
+        one from the file's name, hash and chunk-format version, so asking twice is
+        asking once); a fresh uuid otherwise. Re-using an id overwrites that job's
+        status, so a caller that chooses ids looks the status up first.
+
+        What runs it is the caller's choice: ``submit_prepared`` queues it in
+        this process, and the durable queue (``aiq_api.jobs.ingest_queue``)
+        stores it for whichever worker claims it, on any replica. So a pending
+        job is NOT registered in this process here: the process that runs it
+        is the one that vouches for it (``_beat``). A job that fails validation
+        is final at once, and is registered and stored as failed.
+        """
         from knowledge_layer.deferred_files import is_deferred
 
-        job_id = str(uuid.uuid4())
-        job_config = {**self.config, **(config or {})}
+        job_id = job_id or str(uuid.uuid4())
+        # The REQUEST's config only: it travels with the job (the durable queue
+        # stores it), and this ingestor's own config holds live objects, the
+        # summary LLM among them. `_job_config` merges the two where it runs.
+        job_config = dict(config or {})
 
-        # Validate file paths. The caller-supplied per-file lists
-        # (original_filenames / file_ids) are positional, so they must be
-        # filtered in lockstep — otherwise a single skipped path shifts every
-        # later file onto the wrong name/id (poisoning citations and
-        # delete-by-filename).
+        # Validate file paths. The caller-supplied per-file list
+        # (original_filenames) is positional, so it must be filtered in
+        # lockstep — otherwise a single skipped path shifts every later file
+        # onto the wrong name (poisoning citations and delete-by-filename).
         original_filenames = job_config.get("original_filenames", [])
-        provided_file_ids = job_config.get("file_ids") or []
         validated_paths = []
         aligned_filenames = []
-        aligned_file_ids = []
         kept_indices: list[int] = []
         for idx, path in enumerate(file_paths):
             if is_deferred(path) or os.path.exists(path):
@@ -2704,15 +2947,11 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
                 kept_indices.append(idx)
                 if idx < len(original_filenames):
                     aligned_filenames.append(original_filenames[idx])
-                if idx < len(provided_file_ids):
-                    aligned_file_ids.append(provided_file_ids[idx])
             else:
                 logger.warning(f"File not found, skipping: {path}")
         original_filenames = aligned_filenames
-        provided_file_ids = aligned_file_ids
-        # _run_ingestion re-reads these from the config; keep it aligned too.
+        # _run_ingestion re-reads this from the config; keep it aligned too.
         job_config["original_filenames"] = aligned_filenames
-        job_config["file_ids"] = aligned_file_ids
         if "extraction_paths" in job_config:
             from knowledge_layer.renditions import align_extraction_paths
 
@@ -2734,11 +2973,10 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
             with self._lock:
                 self._jobs[job_id] = job
             self._persist(job)
-            return job_id
+            return PreparedIngestJob(job_id, job, [], collection_name, job_config)
 
         # Create pending job with file details
         # Use original filenames if provided, otherwise extract from path
-        single_file_id = job_config.get("file_id")
         file_details = []
         for i, p in enumerate(validated_paths):
             # Use original filename if available, otherwise fall back to path name
@@ -2746,34 +2984,14 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
                 file_name = original_filenames[i]
             else:
                 file_name = "document" if is_deferred(p) else Path(p).name
-            if i < len(provided_file_ids):
-                file_id = provided_file_ids[i]
-            elif single_file_id and len(validated_paths) == 1:
-                file_id = single_file_id
-            else:
-                file_id = str(uuid.uuid4())
             file_details.append(
                 FileProgress(
-                    file_id=file_id,
+                    file_id=stable_file_id(collection_name, file_name),
                     file_name=file_name,
                     status=FileStatus.UPLOADING,
                     progress_percent=0.0,
                 )
             )
-            # Store file_id → file_name mapping for delete operations
-            with self._lock:
-                existing_file = self._files.get(file_id)
-                if existing_file:
-                    existing_file.file_name = file_name
-                    existing_file.collection_name = collection_name
-                    existing_file.status = FileStatus.UPLOADING
-                else:
-                    self._files[file_id] = FileInfo(
-                        file_id=file_id,
-                        file_name=file_name,
-                        collection_name=collection_name,
-                        status=FileStatus.UPLOADING,
-                    )
 
         job = IngestionJobStatus(
             job_id=job_id,
@@ -2791,18 +3009,100 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
             },
         )
 
-        with self._lock:
-            self._jobs[job_id] = job
-
         # Persist the initial PENDING status so a poll to any replica resolves it
-        # immediately, even before this replica's pool starts processing.
-        self._persist(job)
+        # immediately, before any worker picks it up. Straight to the store,
+        # not `_persist`: this process may never run the job, and a failed
+        # write is retried only for the jobs a process runs.
+        if not ingest_status_store.put(job):
+            # Whichever process adopts it retries the write on its heartbeat.
+            with self._persist_lock:
+                self._unstored_at_prepare.add(job_id)
+        return PreparedIngestJob(job_id, job, validated_paths, collection_name, job_config)
 
-        # Run ingestion on the bounded pool; the job stays PENDING while queued.
-        self._ingest_pool.submit(self._run_ingestion, job_id, validated_paths, collection_name, job_config)
+    def _adopt(self, prepared: PreparedIngestJob) -> None:
+        """Register a prepared job as this process's: the status it runs and vouches for."""
+        with self._persist_lock:
+            if prepared.job_id in self._unstored_at_prepare:
+                self._unstored_at_prepare.discard(prepared.job_id)
+                self._unpersisted.add(prepared.job_id)
+        with self._lock:
+            self._jobs[prepared.job_id] = prepared.status
 
-        logger.info(f"LlamaIndex ingestion job submitted: {job_id}")
-        return job_id
+    def submit_prepared(self, prepared: PreparedIngestJob) -> None:
+        """Queue a prepared job in this process's fair pool; it stays PENDING while it waits."""
+        self._adopt(prepared)
+        try:
+            self._ingest_pool.submit(
+                prepared.organization_id,
+                self._run_ingestion,
+                prepared.job_id,
+                prepared.file_paths,
+                prepared.collection_name,
+                self._job_config(prepared),
+            )
+        except RuntimeError as error:
+            # The pool is shutting down. Adopted and never run, the job would
+            # read PENDING for as long as this process beats for it.
+            with self._lock:
+                job = self._jobs[prepared.job_id]
+                job.status = JobState.FAILED
+                job.error_message = f"{ingest_status_store.INTERRUPTED}: {error}; retry to index this file"
+                job.completed_at = datetime.utcnow().isoformat()
+            self._persist(job)
+            raise
+        logger.info("LlamaIndex ingestion job submitted: %s", prepared.job_id)
+
+    def run_prepared(self, prepared: PreparedIngestJob, still_owner: Callable[[], bool] | None = None) -> None:
+        """Run a prepared job here and now, on the calling thread: a job claimed from the durable queue.
+
+        Adopting it makes this process the one that vouches for it; the first
+        status write (`_run_ingestion`'s PROCESSING) takes the row over from
+        the process that prepared it. ``still_owner`` answers whether this
+        worker still holds the job's claim; it is asked before each file is
+        read and again before its chunks are written, and a "no" ends the run
+        without another write (``_ClaimLost``): the worker that holds the claim
+        now indexes the file, once.
+        """
+        self._adopt(prepared)
+        if still_owner is not None:
+            self._claim_guards[prepared.job_id] = still_owner
+        try:
+            self._run_ingestion(
+                prepared.job_id, prepared.file_paths, prepared.collection_name, self._job_config(prepared)
+            )
+        finally:
+            self._claim_guards.pop(prepared.job_id, None)
+
+    def _assert_still_owner(self, job_id: str) -> None:
+        """Raise ``_ClaimLost`` when the durable queue gave this job to another worker."""
+        guard = self._claim_guards.get(job_id)
+        if guard is not None and not guard():
+            raise _ClaimLost(job_id)
+
+    def _abandon(self, job_id: str) -> None:
+        """Forget a job whose claim was lost: no status write, no heartbeat; the new owner has the row."""
+        with self._lock:
+            self._jobs.pop(job_id, None)
+        with self._persist_lock:
+            self._unpersisted.discard(job_id)
+        logger.warning("Ingestion job %s was claimed by another worker; this run stops without writing", job_id)
+
+    def _job_config(self, prepared: PreparedIngestJob) -> dict[str, Any]:
+        """This ingestor's config under the job's own, as ``_run_ingestion`` reads it."""
+        return {**self.config, **prepared.config}
+
+    def attach_job_source(self, source: JobSource) -> None:
+        """Let this process's free workers claim jobs from ``source`` (the durable queue)."""
+        self._ingest_pool.attach_source(source)
+
+    def detach_job_source(self) -> None:
+        """Stop claiming; claimed jobs run to the end."""
+        self._ingest_pool.detach_source()
+
+    @property
+    def busy_workers(self) -> int:
+        """Workers running a job now: what a draining worker process waits for."""
+        return self._ingest_pool.busy
 
     def _prune_completed_jobs(self) -> None:
         """Remove terminal jobs older than the retention window.
@@ -2825,62 +3125,14 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
             for jid in stale:
                 del self._jobs[jid]
         if stale:
-            # Also drop the durable cross-replica status row so the ingest_jobs
-            # table is bounded by the same retention window. Previously this grew
-            # forever: ingest_status_store.delete() existed but had zero callers.
-            # Best-effort (delete() swallows its own errors) and done outside the
-            # lock since it does DB I/O.
-            for jid in stale:
-                ingest_status_store.delete(jid)
-            logger.debug("Pruned %d completed job(s) from tracking (+ status rows)", len(stale))
-
-    def _prune_stale_files(self) -> None:
-        """Drop terminal per-file tracking entries older than the retention window.
-
-        Mirrors ``_prune_completed_jobs`` for ``self._files``, which otherwise
-        grew for the life of the process (one entry per upload, never removed
-        except on explicit delete). Only SUCCESS/FAILED entries are eligible, and
-        only once their completion/upload time is older than
-        ``FILE_TRACKING_RETENTION_SECONDS`` — INGESTING/UPLOADING entries (live
-        work) are always kept. SUCCESS files stay listable afterwards
-        (reconstructed from Chroma), so this loses only a stable file_id, not a
-        file.
-        """
-        now = datetime.now(tz=UTC)
-        with self._lock:
-            stale = []
-            for fid, fi in self._files.items():
-                if fi.status not in (FileStatus.SUCCESS, FileStatus.FAILED):
-                    continue
-                aged_at = fi.ingested_at or fi.uploaded_at
-                if aged_at is None:
-                    continue
-                if aged_at.tzinfo is None:
-                    aged_at = aged_at.replace(tzinfo=UTC)
-                if (now - aged_at).total_seconds() > FILE_TRACKING_RETENTION_SECONDS:
-                    stale.append(fid)
-            for fid in stale:
-                del self._files[fid]
-        if stale:
-            logger.debug("Pruned %d stale file tracking entry(ies)", len(stale))
-
-    def _index_tracked_files(self, collection_name: str) -> dict[str, tuple[str, FileInfo]]:
-        """``file_name -> (file_id, FileInfo)`` for one collection, first-seen wins.
-
-        Built in a single O(files) pass so ``list_files`` no longer rescans all
-        of ``self._files`` per listed file (was O(files²) as the dict grew).
-        """
-        index: dict[str, tuple[str, FileInfo]] = {}
-        with self._lock:
-            for fid, fi in self._files.items():
-                if fi.collection_name == collection_name and fi.file_name not in index:
-                    index[fi.file_name] = (fid, fi)
-        return index
+            # Only this process's copy. The shared row outlives it: it is the
+            # record of a failed file other processes list, and
+            # `ingest_status_store.prune_expired` removes it on its own clock.
+            logger.debug("Pruned %d completed job(s) from tracking", len(stale))
 
     def get_job_status(self, job_id: str) -> IngestionJobStatus:
         """Get current status of an ingestion job."""
         self._prune_completed_jobs()
-        self._prune_stale_files()
         with self._lock:
             local = self._jobs.get(job_id)
         if local is not None:
@@ -2971,12 +3223,11 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
             with self._lock:
                 client = self._get_chroma_client()
                 client.delete_collection(name=name)
-                # Purge in-memory tracking for the collection: entries left
-                # behind leak for the life of the process, and if a deleted
-                # collection name is ever reused, list_files would resurrect
-                # old FAILED entries as phantom files.
-                self._files = {fid: fi for fid, fi in self._files.items() if fi.collection_name != name}
+                # Purge the job tracking for the collection, here and in the
+                # shared store: if a deleted collection name is ever reused,
+                # list_files would resurrect old FAILED entries as phantom files.
                 self._jobs = {jid: job for jid, job in self._jobs.items() if job.collection_name != name}
+            ingest_status_store.forget_collection(name)
 
             # Clear summaries from centralized registry
             from aiq_agent.knowledge import clear_collection_summaries
@@ -3176,55 +3427,54 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
         """
         Upload a file to a collection.
 
-        This creates a FileInfo record and triggers async ingestion.
-        The actual ingestion is handled by submit_job in a background thread.
+        This submits an ingestion job (``submit_job``) and returns the file as it
+        stands: INGESTING, with the job to poll. The file is nowhere recorded
+        but in that job; every later question about it is answered from there
+        and from the chunks, by any process.
         """
         file_path_obj = Path(file_path)
+        file_name = file_path_obj.name
+        file_id = stable_file_id(collection_name, file_name)
 
         if not file_path_obj.exists():
             return FileInfo(
-                file_id=str(uuid.uuid4()),
-                file_name=file_path_obj.name,
+                file_id=file_id,
+                file_name=file_name,
                 collection_name=collection_name,
                 status=FileStatus.FAILED,
                 error_message=f"File not found: {file_path}",
             )
 
-        # Generate file ID
-        file_id = str(uuid.uuid4())
-        file_name = file_path_obj.name
-        file_size = file_path_obj.stat().st_size
-
-        # Create initial FileInfo
-        file_info = FileInfo(
-            file_id=file_id,
-            file_name=file_name,
-            collection_name=collection_name,
-            status=FileStatus.UPLOADING,
-            file_size=file_size,
-            uploaded_at=datetime.utcnow(),
-            metadata=metadata or {},
-        )
-
-        # Store file info for tracking
-        with self._lock:
-            self._files[file_id] = file_info
-
-        # Start async ingestion
         job_id = self.submit_job(
             file_paths=[file_path],
             collection_name=collection_name,
-            config={"file_id": file_id, **(metadata or {})},
+            config=dict(metadata or {}),
         )
-
-        # Update file info with job reference
-        with self._lock:
-            self._files[file_id].metadata["job_id"] = job_id
-            self._files[file_id].status = FileStatus.INGESTING
-
         logger.info(f"Uploaded file to {collection_name} (file_id={file_id}, job_id={job_id})")
 
-        return self._files[file_id]
+        return FileInfo(
+            file_id=file_id,
+            file_name=file_name,
+            collection_name=collection_name,
+            status=FileStatus.INGESTING,
+            file_size=file_path_obj.stat().st_size,
+            uploaded_at=datetime.utcnow(),
+            metadata={**(metadata or {}), "job_id": job_id},
+        )
+
+    def _file_name_of(self, file_id: str, collection_name: str) -> str:
+        """The file name a ``file_id`` addresses: a listed id resolves to its file's name, anything else is a name.
+
+        The frontend deletes by name; an id is what ``list_files`` and an
+        upload response hand out, and is a UUID derived from the name
+        (``stable_file_id``), so only a UUID needs the listing to be read back.
+        """
+        try:
+            uuid.UUID(file_id)
+        except ValueError:
+            return file_id
+        listed = next((f for f in self.list_files(collection_name) if f.file_id == file_id), None)
+        return listed.file_name if listed is not None else file_id
 
     def delete_file(self, file_id: str, collection_name: str) -> bool:
         """
@@ -3234,9 +3484,10 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
         Handles both exact file names and names with tmp prefix stripped.
         The tmp pattern is tmp[8 random chars]_filename.
 
-        The file_id parameter may be either a backend UUID or a human-readable
-        filename (the frontend sends filenames). Both are handled: UUID is looked
-        up directly in self._files, while a filename triggers a value-based search.
+        The file_id parameter may be either the id ``list_files`` hands out or
+        a human-readable filename (the frontend sends filenames); see
+        ``_file_name_of``. A FAILED file has no chunks, and deleting it forgets
+        the job record that is all there is of it (``ingest_status_store``).
 
         Deliberately does NOT take the replacement lock
         (:func:`_replacement_lock_key`). The ingestor holds it for the whole
@@ -3258,23 +3509,10 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
                 logger.warning(f"Collection {collection_name} not found")
                 return False
 
-            # Resolve file_name from tracking dict.
-            # The caller may pass a UUID (direct key) or a filename (value search).
-            file_name = None
-            tracking_ids_to_remove: list[str] = []
-            with self._lock:
-                if hasattr(self, "_files"):
-                    if file_id in self._files:
-                        file_name = self._files[file_id].file_name
-                        tracking_ids_to_remove.append(file_id)
-                    else:
-                        # file_id is likely a filename — search by value
-                        for fid, fi in self._files.items():
-                            if fi.file_name == file_id and fi.collection_name == collection_name:
-                                file_name = fi.file_name
-                                tracking_ids_to_remove.append(fid)
-            if not file_name:
-                file_name = file_id
+            file_name = self._file_name_of(file_id, collection_name)
+            # First, and raising: a delete that cannot reach the status store
+            # fails whole, before it has removed anything it could not retry.
+            forgotten = ingest_status_store.forget_file(collection_name, file_name)
 
             # Try exact match first
             results = collection.get(
@@ -3304,16 +3542,13 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
                         matching_ids.append(all_results["ids"][i])
                 if not matching_ids:
                     # No chunks in ChromaDB. Whatever else the document left
-                    # behind — tracking entries for a FAILED file, the summary
+                    # behind — the job record of a FAILED file, the summary
                     # row the inventory is built from, the lexical mirror — is
                     # forgotten regardless: a delete that returned early here
                     # left a file with no chunks in the agent's inventory for
                     # good, and every later delete took the same early exit.
-                    if tracking_ids_to_remove:
-                        with self._lock:
-                            for tid in tracking_ids_to_remove:
-                                self._files.pop(tid, None)
-                        logger.info(f"Removed {len(tracking_ids_to_remove)} tracking entries for file {file_name}")
+                    if forgotten:
+                        logger.info(f"Removed {forgotten} job record(s) of file {file_name}")
                     else:
                         logger.warning(f"No chunks found for file_name={file_name}; clearing its summary and text")
 
@@ -3325,18 +3560,12 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
 
                     get_chunk_text_store().delete_by_file(collection_name, file_name)
                     # True only when something of the file was actually removed.
-                    return bool(tracking_ids_to_remove)
+                    return forgotten > 0
                 results = {"ids": matching_ids}
 
             collection.delete(ids=results["ids"])
             bump_collection_version(collection_name)
             logger.info(f"Deleted {len(results['ids'])} chunks for file {file_name}")
-
-            # Remove all matching tracking entries
-            with self._lock:
-                if hasattr(self, "_files"):
-                    for tid in tracking_ids_to_remove:
-                        self._files.pop(tid, None)
 
             # Remove from centralized summary registry
             from aiq_agent.knowledge import unregister_summary
@@ -3356,10 +3585,60 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
             logger.error(f"Failed to delete file {file_id}: {e}")
             return False
 
+    def _indexed_files(self, collection_name: str, collection) -> dict[str, FileInfo]:
+        """``file_name -> FileInfo`` for each file the collection holds chunks of (Chroma says what is indexed)."""
+        stats: dict[str, dict[str, Any]] = {}
+        for m in self._get_all_metadatas(collection):
+            if not m or "file_name" not in m:
+                continue
+            seen = stats.setdefault(m["file_name"], {"chunk_count": 0, "content_types": set(), "pages": set()})
+            seen["chunk_count"] += 1
+            for key in ("file_size", "file_type", "creation_date", "last_modified_date"):
+                if key in m and seen.get(key) is None:
+                    seen[key] = m[key]
+            if "content_type" in m:
+                seen["content_types"].add(m["content_type"])
+            if "page_label" in m:
+                seen["pages"].add(m["page_label"])
+
+        return {
+            file_name: FileInfo(
+                file_id=stable_file_id(collection_name, file_name),
+                file_name=file_name,
+                collection_name=collection_name,
+                status=FileStatus.SUCCESS,
+                chunk_count=seen["chunk_count"],
+                file_size=seen.get("file_size"),
+                uploaded_at=self._parse_timestamp(seen.get("creation_date")),
+                ingested_at=self._parse_timestamp(seen.get("last_modified_date")),
+                metadata={
+                    "content_types": list(seen["content_types"]),
+                    "page_count": len(seen["pages"]),
+                    "file_type": seen.get("file_type"),
+                },
+            )
+            for file_name, seen in stats.items()
+        }
+
+    @staticmethod
+    def _recorded_files(collection_name: str) -> dict[str, FileInfo]:
+        """``file_name -> FileInfo`` from the newest job that named the file, read from the shared status store."""
+        records: dict[str, FileInfo] = {}
+        for job in ingest_status_store.collection_jobs(collection_name, FILE_TRACKING_RETENTION_SECONDS):
+            for detail in job.file_details:
+                records[detail.file_name] = _file_info_from_job(job, detail)
+        return records
+
     def list_files(self, collection_name: str) -> list[FileInfo]:
-        """List all files in a collection."""
+        """List all files in a collection, the same in every process.
+
+        Two shared records make the answer, and neither is this process's
+        memory: the chunks in Chroma say which files are indexed, and the job
+        rows in the status store say which are being read or failed, and why
+        (``_merge_file_records``). A file's id is derived from its collection
+        and name (``stable_file_id``), so two calls, and two processes, agree.
+        """
         try:
-            self._prune_stale_files()
             client = self._get_chroma_client()
 
             try:
@@ -3367,95 +3646,14 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
             except Exception:
                 return []
 
-            # Correlate tracked FileInfo by name in one pass (was an O(files)
-            # rescan of self._files per listed file).
-            tracked_by_name = self._index_tracked_files(collection_name)
+            indexed = self._indexed_files(collection_name, collection)
+            recorded = self._recorded_files(collection_name)
 
-            # Get all unique file names from chunks
-            metadatas = self._get_all_metadatas(collection)
-
-            # Group chunks by file_name
-            files_map: dict[str, dict[str, Any]] = {}
-            for i, m in enumerate(metadatas):
-                if m and "file_name" in m:
-                    file_name = m["file_name"]
-                    if file_name not in files_map:
-                        files_map[file_name] = {
-                            "chunk_count": 0,
-                            "content_types": set(),
-                            "pages": set(),
-                            "file_size": None,
-                            "file_type": None,
-                            "creation_date": None,
-                            "last_modified_date": None,
-                        }
-                    files_map[file_name]["chunk_count"] += 1
-                    if "file_size" in m and files_map[file_name]["file_size"] is None:
-                        files_map[file_name]["file_size"] = m["file_size"]
-                    if "file_type" in m and files_map[file_name]["file_type"] is None:
-                        files_map[file_name]["file_type"] = m["file_type"]
-                    if "creation_date" in m and files_map[file_name]["creation_date"] is None:
-                        files_map[file_name]["creation_date"] = m["creation_date"]
-                    if "last_modified_date" in m and files_map[file_name]["last_modified_date"] is None:
-                        files_map[file_name]["last_modified_date"] = m["last_modified_date"]
-                    if "content_type" in m:
-                        files_map[file_name]["content_types"].add(m["content_type"])
-                    if "page_label" in m:
-                        files_map[file_name]["pages"].add(m["page_label"])
-
-            # Convert to FileInfo objects
             result = []
-            for file_name, info in files_map.items():
-                # O(1) tracked-file lookup from the prebuilt index.
-                file_id, file_info = tracked_by_name.get(file_name, (None, None))
-
-                # Parse timestamps from chunk metadata
-                uploaded_at = self._parse_timestamp(info["creation_date"])
-                ingested_at = self._parse_timestamp(info["last_modified_date"])
-
-                if file_info:
-                    # Update tracked file with persisted metadata
-                    file_info.chunk_count = info["chunk_count"]
-                    if info["file_size"] is not None and not file_info.file_size:
-                        file_info.file_size = info["file_size"]
-                    if uploaded_at and not file_info.uploaded_at:
-                        file_info.uploaded_at = uploaded_at
-                    if ingested_at and not file_info.ingested_at:
-                        file_info.ingested_at = ingested_at
-                    result.append(file_info)
-                else:
-                    # Create new FileInfo from chunk metadata
-                    result.append(
-                        FileInfo(
-                            file_id=file_id or str(uuid.uuid4()),
-                            file_name=file_name,
-                            collection_name=collection_name,
-                            status=FileStatus.SUCCESS,
-                            chunk_count=info["chunk_count"],
-                            file_size=info["file_size"],
-                            uploaded_at=uploaded_at,
-                            ingested_at=ingested_at,
-                            metadata={
-                                "content_types": list(info["content_types"]),
-                                "page_count": len(info["pages"]),
-                                "file_type": info["file_type"],
-                            },
-                        )
-                    )
-
-            # Also include FAILED files from tracking (they won't have chunks in Chroma).
-            # Track seen names to avoid duplicates when the same file was uploaded multiple times.
-            with self._lock:
-                if hasattr(self, "_files"):
-                    existing_names = {f.file_name for f in result}
-                    for fid, fi in self._files.items():
-                        if (
-                            fi.collection_name == collection_name
-                            and fi.file_name not in existing_names
-                            and fi.status == FileStatus.FAILED
-                        ):
-                            result.append(fi)
-                            existing_names.add(fi.file_name)
+            for file_name in {**indexed, **recorded}:
+                merged = _merge_file_records(indexed.get(file_name), recorded.get(file_name))
+                if merged is not None:
+                    result.append(merged)
 
             logger.info(f"Listed {len(result)} files in {collection_name}")
             return result
@@ -3465,67 +3663,8 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
             return []
 
     def get_file_status(self, file_id: str, collection_name: str) -> FileInfo | None:
-        """Get the current status of a file."""
-        # Check tracking first
-        with self._lock:
-            if hasattr(self, "_files") and file_id in self._files:
-                file_info = self._files[file_id]
-
-                # Update status based on job status if ingesting
-                if file_info.status == FileStatus.INGESTING:
-                    job_id = file_info.metadata.get("job_id")
-                    if job_id:
-                        job_status = self.get_job_status(job_id)
-                        if job_status.status == JobState.COMPLETED:
-                            file_detail = next(
-                                (
-                                    detail
-                                    for detail in job_status.file_details
-                                    if detail.file_id == file_id or detail.file_name == file_info.file_name
-                                ),
-                                None,
-                            )
-                            if file_detail:
-                                file_info.status = file_detail.status
-                                file_info.chunk_count = file_detail.chunks_created
-                                file_info.error_message = file_detail.error_message
-                            else:
-                                file_info.status = FileStatus.SUCCESS
-                            # completed_at is an ISO string on the local path but
-                            # Pydantic coerces it back to a datetime when the
-                            # status is rehydrated from the shared store (a
-                            # cross-replica read), so normalize both forms.
-                            if file_info.status == FileStatus.SUCCESS and job_status.completed_at:
-                                _completed = job_status.completed_at
-                                file_info.ingested_at = (
-                                    _completed
-                                    if isinstance(_completed, datetime)
-                                    else datetime.fromisoformat(_completed)
-                                )
-                        elif job_status.status == JobState.FAILED:
-                            file_detail = next(
-                                (
-                                    detail
-                                    for detail in job_status.file_details
-                                    if detail.file_id == file_id or detail.file_name == file_info.file_name
-                                ),
-                                None,
-                            )
-                            file_info.status = file_detail.status if file_detail else FileStatus.FAILED
-                            file_info.chunk_count = file_detail.chunks_created if file_detail else file_info.chunk_count
-                            file_info.error_message = (
-                                file_detail.error_message if file_detail else job_status.error_message or ""
-                            )
-
-                return file_info
-
-        # Try to find in collection
-        files = self.list_files(collection_name)
-        for f in files:
-            if f.file_id == file_id:
-                return f
-
-        return None
+        """Get the current status of a file: its entry in ``list_files``, so the same in every process."""
+        return next((f for f in self.list_files(collection_name) if f.file_id == file_id), None)
 
     def get_document_text_sample(self, collection_name: str, file_name: str, max_chars: int = 4000) -> str | None:
         """Return representative text for an already-indexed file (fail-open).
@@ -3918,6 +4057,46 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
         collection_name: str,
         config: dict[str, Any],
     ):
+        """Background ingestion worker, under the uploading organization's data policy and on the cost ledger.
+
+        The job runs detached, with no request to read an organization from, so
+        the policy is entered here from the org the job config names: every model
+        call the job makes on a model the organization chose (the ingest VLM,
+        page transcription) follows its zero-data-retention setting. A job with
+        no organization (the base corpus sync) is pinned anyway.
+
+        Every model call the job makes (vision, transcription, summary, tags,
+        embeddings) is also recorded under ``activity = ingest`` for the job's
+        organization, and its project and uploader when the request named them.
+        No budget is enforced here: a document half-read because a limit ran out
+        mid-job is worse than the overrun, and the spend still lands in the
+        budgets it counts toward.
+
+        The job's ``priority`` (``interactive`` or ``bulk``) is its class at the
+        provider limiter (ADR-0081): a reindex yields to an office's own upload,
+        and both yield to a person waiting on an answer.
+        """
+        from aiq_agent.common.openrouter import ZERO_DATA_RETENTION
+        from aiq_agent.common.openrouter import data_policy_for
+        from aiq_agent.common.openrouter import data_policy_scope
+        from aiq_agent.common.provider_limiter import priority_scope
+
+        organization_id = config.get("organization_id")
+        policy = data_policy_for(organization_id) if organization_id else ZERO_DATA_RETENTION
+        with (
+            data_policy_scope(policy),
+            _ingest_cost_scope(job_id, config),
+            priority_scope(config.get("priority")),
+        ):
+            self._ingest_job(job_id, file_paths, collection_name, config)
+
+    def _ingest_job(
+        self,
+        job_id: str,
+        file_paths: list[str | Callable[[], str]],
+        collection_name: str,
+        config: dict[str, Any],
+    ):
         """Background ingestion worker with optional multimodal extraction."""
         from knowledge_layer.deferred_files import ORIGINAL_DOWNLOAD_FAILED
         from knowledge_layer.deferred_files import resolve_original
@@ -4023,6 +4202,14 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
             # _find_previous_versions), released when the file is done.
             kept_previous: list[str] = []
             for i, file_entry in enumerate(file_paths):
+                self._assert_still_owner(job_id)
+                # A document deleted while its job waited is not read at all:
+                # the download, OCR and vision calls would all be for chunks
+                # the check after indexing takes back out (below).
+                if self._deleted_while_indexing(config, collection_name):
+                    self._update_file_status(job, i, FileStatus.FAILED, error=DOCUMENT_DELETED_DURING_INGEST)
+                    logger.info("Skipped file %d of job %s: its document was deleted before it was read", i + 1, job_id)
+                    continue
                 # The original first, and nothing else for it when that fails:
                 # its rendition is no use without the identity it carries.
                 file_path = resolve_original(file_entry, downloaded)
@@ -4076,7 +4263,19 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
                     row_doc_class = get_document_doc_class(collection_name, file_name)
                     stored_doc_class = row_doc_class or preserved.get("doc_class")
                     base_corpus = legacy_shelf_for_collection_name(collection_name) is None
-                    doc_class = stored_doc_class or (guess_doc_class(file_name) if base_corpus else None)
+                    # The Dokumentart an admin chose at upload (`config["doc_class"]`, validated
+                    # by the route) beats a stored one and the guess: choosing is the point.
+                    from aiq_agent.knowledge.document_classification import is_valid_doc_class
+
+                    requested_doc_class = config.get("doc_class")
+                    explicit_doc_class = (
+                        requested_doc_class
+                        if isinstance(requested_doc_class, str) and is_valid_doc_class(requested_doc_class)
+                        else None
+                    )
+                    doc_class = (
+                        explicit_doc_class or stored_doc_class or (guess_doc_class(file_name) if base_corpus else None)
+                    )
                     is_pdf = (
                         rendition is not None
                         or file_name.lower().endswith(".pdf")
@@ -4423,10 +4622,15 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
                         else:
                             llm_input = text_source
                         executor = ThreadPoolExecutor(max_workers=3)
-                        summary_future = executor.submit(
-                            _generate_document_summary, llm_input, file_name, self.summary_llm
+                        # In the job's context, so the summary and the tags
+                        # land on its cost ledger (`_ingest_cost_scope`).
+                        from aiq_agent.common.cost_tracking import submit_in_context
+
+                        summary_future = submit_in_context(
+                            executor, _generate_document_summary, llm_input, file_name, self.summary_llm
                         )
-                        tags_future = executor.submit(
+                        tags_future = submit_in_context(
+                            executor,
                             classify_document_tags,
                             llm_input,
                             file_name,
@@ -4438,11 +4642,16 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
                         # for the platform owner to accept (ADR-0064, use 8).
                         from aiq_agent.knowledge.document_classification import DEFAULT_DOC_CLASS
 
-                        if stored_doc_class is None and base_corpus and doc_class == DEFAULT_DOC_CLASS:
+                        if (
+                            stored_doc_class is None
+                            and explicit_doc_class is None
+                            and base_corpus
+                            and doc_class == DEFAULT_DOC_CLASS
+                        ):
                             from aiq_agent.knowledge.document_classification import suggest_doc_class
 
-                            doc_class_future = executor.submit(
-                                suggest_doc_class, llm_input, file_name, organization_id=organization_id
+                            doc_class_future = submit_in_context(
+                                executor, suggest_doc_class, llm_input, file_name, organization_id=organization_id
                             )
 
                     # Wait for summary if started
@@ -4516,6 +4725,9 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
                         doc.metadata.update(provenance)
                         _apply_metadata_exclusions(doc)
 
+                    # The last moment a run that lost its claim can stop with
+                    # nothing of this file written: the new owner indexes it.
+                    self._assert_still_owner(job_id)
                     # Create/update index with all documents
                     chunks_before = self._chunk_ids_under(chroma_collection, file_name)
                     if index is None:
@@ -4656,7 +4868,7 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
                         # only stamp the guess when none was stored. The class
                         # carried from a row under another spelling is written
                         # here too: that row goes when its version is retired.
-                        if row_doc_class is None:
+                        if row_doc_class is None or explicit_doc_class is not None:
                             set_document_doc_class(collection_name, file_name, doc_class)
                         suggestion = _future_result(doc_class_future, "Dokumentart suggestion", file_name)
                         # A replaced version's row is kept under the same
@@ -4681,6 +4893,15 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
                             from aiq_agent.knowledge import set_document_display_title
 
                             set_document_display_title(collection_name, file_name, preserved["display_title"])
+                        elif base_corpus:
+                            # The starting name an admin can override: derived from the OIB file
+                            # name convention, nothing for a name that gives no confident default.
+                            from aiq_agent.common.norm_registry import guess_display_title
+                            from aiq_agent.knowledge import set_document_display_title
+
+                            default_title = guess_display_title(file_name)
+                            if default_title:
+                                set_document_display_title(collection_name, file_name, default_title)
 
                         # The same four keys on the document metadata row, so a
                         # surface that reads the row rather than a chunk — the
@@ -4696,29 +4917,13 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
 
                             set_document_provenance(collection_name, file_name, provenance)
 
-                        # Also store in local FileInfo for backwards compatibility
-                        file_id = config.get("file_id")
-                        if file_id and file_id in self._files:
-                            with self._lock:
-                                self._files[file_id].metadata["summary"] = summary
-                                if tags:
-                                    self._files[file_id].tags = tags
-                        else:
-                            # Fallback: store by filename when using submit_job directly
-                            with self._lock:
-                                self._files[file_name] = FileInfo(
-                                    file_id=file_name,
-                                    file_name=file_name,
-                                    collection_name=collection_name,
-                                    status=FileStatus.SUCCESS,
-                                    chunk_count=chunks_created,
-                                    tags=tags,
-                                    metadata={"summary": summary},
-                                )
                         logger.info(f"  Summary generated ({len(summary)} chars)")
 
                     logger.info(f"Completed file {i + 1}/{len(file_paths)} ({chunks_created} chunks)")
 
+                except _ClaimLost:
+                    # Not this file's failure: the run as a whole stops (below).
+                    raise
                 except Exception as e:
                     logger.exception(f"Error processing file {file_path}")
                     self._update_file_status(job, i, FileStatus.FAILED, error=str(e))
@@ -4789,7 +4994,7 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
             # silently failed to register — e.g. both the LLM summary and tag
             # classification calls failed. Runs at the end of every ingestion
             # job inside the knowledge layer, so every caller (the Knowledge
-            # API, scripts/ingest_oib.py's oib_sync, and any future caller)
+            # API, oib_sync, and any future caller)
             # gets this for free without having to remember to call it. Scoped
             # to THIS job's successful files: the unscoped mode's list_files
             # reads every chunk metadata in the collection — O(collection) per
@@ -4810,6 +5015,9 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
                 f"LlamaIndex ingestion completed: {job_id} "
                 f"(chunks={total_chunks}, tables={total_tables}, charts={total_charts}, images={total_images})"
             )
+
+        except _ClaimLost:
+            self._abandon(job_id)
 
         except Exception as e:
             logger.exception("LlamaIndex ingestion failed")
@@ -5026,8 +5234,6 @@ class LlamaIndexRetriever(BaseRetriever):
         ensure_retrieval_dependencies()
 
         try:
-            from llama_index.embeddings.nvidia import NVIDIAEmbedding
-
             embed_api_key = _resolve_embed_api_key(self.embed_base_url, self.embed_model_name)
             if not embed_api_key:
                 logger.error(
@@ -5035,7 +5241,7 @@ class LlamaIndexRetriever(BaseRetriever):
                     "the provider key for AIQ_EMBED_BASE_URL) - retrieval/ingestion will fail."
                 )
 
-            self._embed_model = NVIDIAEmbedding(
+            self._embed_model = make_embed_model(
                 base_url=self.embed_base_url,
                 model=self.embed_model_name,
                 api_key=embed_api_key,

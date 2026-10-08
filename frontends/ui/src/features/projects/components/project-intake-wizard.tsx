@@ -38,6 +38,16 @@ import { cn } from '@/lib/utils'
 import { DocumentRoleField } from './document-role-field'
 import { ProjektgrundlagenStep } from './projektgrundlagen-step'
 import {
+  createUploadTracker,
+  pendingBindsFromDraft,
+  persistedBauwerkIds,
+  sendPendingBinds,
+  withPendingBind,
+  withoutBauwerk,
+  withoutPendingBind,
+  type PendingRoleBind,
+} from '../lib/pending-role-binds'
+import {
   answerKeyFor,
   bauwerkIdFromAnswerKey,
   answersFromProfile,
@@ -111,6 +121,8 @@ type Answers = Record<string, ProjectPrimitiveValue>
 interface IntakeDraft {
   answers?: Answers
   bauwerke?: BauwerkInstance[]
+  /** Role bindings held for buildings not saved yet (`pending-role-binds`). */
+  pendingBinds?: PendingRoleBind[]
   currentStep?: number
   savedAt?: number
   baseVersion?: number | null
@@ -200,6 +212,18 @@ export function ProjectIntakeWizard({
   const [currentStep, setCurrentStep] = useState(initialStep)
   const [answers, setAnswers] = useState<Answers>({})
   const [bauwerke, setBauwerke] = useState<BauwerkInstance[]>(defaultBauwerke())
+  const [pendingBinds, setPendingBinds] = useState<PendingRoleBind[]>([])
+  // The latest list, read by the save after the uploads it waited for have
+  // added theirs: the state its closure captured predates them.
+  const pendingBindsRef = useRef<PendingRoleBind[]>([])
+  const updatePendingBinds = useCallback(
+    (next: (previous: PendingRoleBind[]) => PendingRoleBind[]) => {
+      pendingBindsRef.current = next(pendingBindsRef.current)
+      setPendingBinds(pendingBindsRef.current)
+    },
+    []
+  )
+  const deferredUploads = useMemo(() => createUploadTracker(), [])
   const [touched, setTouched] = useState<Set<string>>(new Set())
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -253,6 +277,7 @@ export function ProjectIntakeWizard({
                     ? parsed.bauwerke
                     : bauwerkeFromAnswers(parsed.answers)
                 setBauwerke(draftBauwerke)
+                updatePendingBinds(() => pendingBindsFromDraft(parsed.pendingBinds))
                 bwCounter.current = maxBwNumber(draftBauwerke)
                 setAnswers(pruneStaleConditionalAnswers(parsed.answers, data))
                 if (typeof parsed.currentStep === 'number') setCurrentStep(parsed.currentStep)
@@ -310,6 +335,7 @@ export function ProjectIntakeWizard({
           JSON.stringify({
             answers,
             bauwerke,
+            pendingBinds,
             currentStep,
             savedAt: Date.now(),
             baseVersion: typeof initialProfileVersion === 'number' ? initialProfileVersion : null,
@@ -321,7 +347,7 @@ export function ProjectIntakeWizard({
       }
     }, 500)
     return () => clearTimeout(timer)
-  }, [answers, bauwerke, currentStep, STORAGE_KEY, loading, initialProfileVersion])
+  }, [answers, bauwerke, pendingBinds, currentStep, STORAGE_KEY, loading, initialProfileVersion])
 
   useEffect(() => {
     if (draftSaved) {
@@ -566,6 +592,8 @@ export function ProjectIntakeWizard({
 
   const removeBauwerk = useCallback((id: string) => {
     setBauwerke((prev) => (prev.length > 1 ? prev.filter((bw) => bw.id !== id) : prev))
+    // A binding held for a building that is gone has nowhere to go.
+    updatePendingBinds((prev) => withoutBauwerk(prev, id))
     // Drop every answer belonging to the removed building.
     setAnswers((prev) => {
       const next: Answers = {}
@@ -574,7 +602,21 @@ export function ProjectIntakeWizard({
       }
       return next
     })
-  }, [])
+  }, [updatePendingBinds])
+
+  // The buildings the server already knows; a binding to any other waits for the save.
+  const savedBauwerkIds = useMemo(
+    () => persistedBauwerkIds(initialProfile, definition),
+    [initialProfile, definition]
+  )
+  const deferBind = useCallback(
+    (bind: PendingRoleBind) => updatePendingBinds((prev) => withPendingBind(prev, bind)),
+    [updatePendingBinds]
+  )
+  const discardPendingBind = useCallback(
+    (bind: PendingRoleBind) => updatePendingBinds((prev) => withoutPendingBind(prev, bind)),
+    [updatePendingBinds]
+  )
 
   const renameBauwerk = useCallback((id: string, name: string) => {
     setBauwerke((prev) => prev.map((bw) => (bw.id === id ? { ...bw, name } : bw)))
@@ -587,6 +629,9 @@ export function ProjectIntakeWizard({
     setError(null)
     setConflict(false)
     try {
+      // An upload still running for a new building has not recorded its
+      // binding yet; saving now would send the list without it.
+      await deferredUploads.settled()
       const built = buildIntakeProfile(answers, definition, { projectName, bauwerke })
       const profile: ProjectProfile = mergeIntakeProfile(built, initialProfile, definition)
       const res = await fetch(`/api/projects/${projectId}/profile`, {
@@ -602,6 +647,15 @@ export function ProjectIntakeWizard({
       if (!res.ok) {
         if (res.status === 409) throw new Error(t('intake.errors.saveConflict'))
         throw new Error('Failed to save')
+      }
+
+      // The save made the wizard's new buildings real; only now can their
+      // documents be bound to them.
+      const refused = await sendPendingBinds(projectId, pendingBindsRef.current)
+      if (refused.length > 0) {
+        toast.error(
+          `${refused.map((bind) => bind.filename).join(', ')} konnte nicht zugeordnet werden. Bitte in den Projektgrundlagen erneut wählen.`
+        )
       }
 
       try {
@@ -629,6 +683,7 @@ export function ProjectIntakeWizard({
     initialProfile,
     initialProfileVersion,
     mode,
+    deferredUploads,
     projectId,
     projectName,
     router,
@@ -932,6 +987,13 @@ export function ProjectIntakeWizard({
                     projectId={projectId}
                     answers={answers}
                     bauwerke={bauwerke}
+                    pendingBinds={{
+                      persistedBauwerkIds: savedBauwerkIds,
+                      pending: pendingBinds,
+                      onDefer: deferBind,
+                      onDiscard: discardPendingBind,
+                      track: deferredUploads.track,
+                    }}
                   />
                 ) : isReview ? (
                   <div className="space-y-4">

@@ -82,33 +82,41 @@ Body: { projectId: string, file: File }
 7. **Record the job** — on success the row is updated to `status: 'pending'` with `metadata: { ingestJobId }` so status reads can later reconcile the row against the backend job (see Step 5)
 8. **Return response** — `{ documentId, jobId, status: 'pending' | 'uploaded' | 'processing' }`
 
-Two kinds of file skip steps 6 and 7 and return `processing` with no job id:
-an IFC model (`beginModelExtraction`) and, when `GOTENBERG_URL` is set, an
-office file. Without it, a Word, presentation, `.xls` or `.ods` file returns
-`failed` at once.
+Two kinds of file skip steps 6 and 7 and return `processing` with no ingest
+job id: an IFC model (`beginModelExtraction`) and, when `GOTENBERG_URL` is set,
+an office file. Each is queued as a `bim_extract` or `office_rendition` job on
+`bff_job_queue` (ADR-0079, [`kubernetes.md`](../deployment/kubernetes.md) §6.3c)
+and the row remembers the queue job as `metadata.bffJobId`. Without a converter,
+a Word, presentation, `.xls` or `.ods` file returns `failed` at once.
 
 ### Office files: convert, then ingest
 
 **File**: `frontends/ui/src/lib/documents/service.ts` (`beginRenditionIngest`)
 
 An office file (`isOfficeRenditionSource` on the row's filename and stored type)
-is converted to its PDF rendition before it is ingested, detached from the
-request ([ADR-0071](../adr/0071-word-and-presentation-files-are-indexed-from-their-rendition.md)):
+is converted to its PDF rendition before it is ingested, by a background job
+rather than in the request ([ADR-0071](../adr/0071-word-and-presentation-files-are-indexed-from-their-rendition.md)):
 
-1. The row is set to `processing` and the upload returns.
-2. In the background, `ensureRendition` (`lib/documents/rendition.ts`) writes
+1. The row is set to `processing`, an `office_rendition` job is queued
+   (`interactive` for an upload, `bulk` inside a reindex) and the upload
+   returns.
+2. A `bff-jobs` pod claims the job (fairly across organisations) and runs
+   `ensureRendition` (`lib/documents/rendition.ts`), which writes
    `<dir>/_render.pdf` through Gotenberg, with a 120-second timeout. Each BFF
    process runs at most `GOTENBERG_MAX_CONCURRENCY` conversions at once
-   (default 2), readers ahead of background work, and the 120 seconds start
-   when a slot is held, not while the conversion waits for one.
+   (default 2; a pool pod gets `bffJobsRenditionConcurrency`, 1), readers ahead
+   of background work, and the 120 seconds start when a slot is held, not while
+   the conversion waits for one. The pool's replicas times that number is the
+   fleet-wide ceiling, held to Gotenberg's capacity by `gotenberg.spec.ts`.
 3. `dispatchIngest` posts to `/v1/ingest` with `preview_ref`, a presigned GET of
    the rendition for the thumbnail, and, when `isIndexedFromRendition(filename)`
    (`lib/documents/preview-types.ts`: Word, presentations, `.xls`, `.ods`),
    `extraction_ref`, the same URL for text extraction. `.xlsx` and `.xlsm` get
    `preview_ref` only.
 4. The dispatch sets the row to `pending` with the job id, or to `failed`. A
-   throw anywhere around it marks the row `failed`, so a row never stays at
-   `processing` because of an error nobody saw.
+   throw anywhere around it is retried by the queue, and the last attempt marks
+   the row `failed` first, so a row never stays at `processing` because of an
+   error nobody saw.
 
 There is no fallback reader. A failed or timed-out conversion of a Word,
 presentation, `.xls` or `.ods` file marks the row `failed` with
@@ -117,8 +125,11 @@ dispatch marks such a file failed the same way, before any background work. A
 `.xlsx` or `.xlsm` goes out without `preview_ref` and is indexed from the
 original, only without a thumbnail. The re-ingest action („Erneut lesen“,
 `POST /api/documents/{id}/reingest`) takes the same path and converts again. A
-process restart during a conversion leaves the row at `processing` with no job,
-which re-ingest reads as lost and retries.
+process restart during a conversion gives the claim back and another pod runs
+it. A row left at `processing` without a live job (from before the jobs, or one
+whose job died) is found by the sweep `POST /api/internal/maintenance/
+reconcile-background-work`, which the scheduler worker calls every tick: a row
+with no job gets a new one, a row whose job is dead is failed with its reason.
 
 **SeaweedFS config** (`frontends/ui/src/lib/s3.ts`):
 - Endpoint: `process.env.SEAWEED_ENDPOINT`
@@ -258,14 +269,17 @@ the find until the file is retired or discarded. Without it two jobs uploading
 one name at once both collected the same predecessor, both retired it, and both
 new versions stayed. With it the second job waits, finds the first job's new
 version as its predecessor, and replaces it: the version that finishes last is
-the one left. On Postgres (`AIQ_SUMMARY_DB`, else `NAT_JOB_STORE_DB_URL`) it
-is a session advisory lock on a connection of its own, so it holds across
-replicas and is released when a replica dies; with SQLite or no database only
-the in-process lock holds, and an unreachable database lets the file ingest
-unguarded, logged.
+the one left. On Postgres it is a session advisory lock on a connection of its
+own, taken on `AIQ_LOCK_DB_URL`, the direct DSN and never the pooled one
+(ADR-0083), so it holds across replicas and is released when a replica dies;
+with SQLite or no database only the in-process lock holds. With Postgres it
+fails closed: an unreachable lock database raises, logged, and the file
+is marked failed (it does not replace its predecessor unguarded across replicas),
+so the failed-ingestion rescan picks it up. An ingest worker on Postgres with no
+`AIQ_LOCK_DB_URL` refuses to start.
 
-The OIB sync (`src/aiq_agent/oib_sync.py`) relies on the same step and calls no
-`delete_file` before it uploads.
+The base corpus (`src/aiq_agent/oib_sync.py`) relies on the same step: its ingest
+jobs run on the queue like any other and nothing deletes a file before it is ingested again.
 
 ### A document deleted while it indexed takes its chunks back out
 
@@ -397,7 +411,7 @@ Two fixes landed together, both described in
    summary is missing, independent of tag-classification success, and reads a
    wider text sample (first + last chunk).
 2. **Reconciliation backfill** (`42a4fa3`) — `reconcile_collection_summaries()`
-   runs at the end of every ingestion job (this ingestor, `scripts/ingest_oib.py`'s
+   runs at the end of every ingestion job (this ingestor, the base-corpus
    `oib_sync`, and any future caller), diffing indexed-and-successful files
    against the `document_metadata` table and backfilling a fallback summary for any
    gap it finds (logged as a WARNING per backfilled document — a gap still

@@ -72,7 +72,7 @@ Consequences, where a reader looks for them.
 | [0010](0010-llm-agnostic-openai-compatible.md) | LLM-agnostic via OpenAI-compatible endpoints | Accepted |
 | [0011](0011-deletion-pipeline.md) | Deletion pipeline (soft-delete → purge, legal holds) | Accepted |
 | [0012](0012-cards-as-rich-ui-layer.md) | Cards as a general rich-UI presentation layer | Accepted |
-| [0013](0013-base64url-context-headers.md) | base64url-encoded context headers | Accepted |
+| [0013](0013-base64url-context-headers.md) | base64url-encoded context headers | Superseded by ADR-0077 |
 | [0014](0014-org-runtime-model-configuration.md) | Org-level runtime model configuration per agent group | Accepted |
 | [0015](0015-llm-budgets-and-usage-ledger.md) | LLM spend limits and the auditable usage ledger | Accepted |
 | [0016](0016-platform-tier-and-permission-registry.md) | Platform tier and the permission-driven authorization model | Accepted |
@@ -133,6 +133,17 @@ Consequences, where a reader looks for them.
 | [0071](0071-word-and-presentation-files-are-indexed-from-their-rendition.md) | Word and presentation files are indexed from their PDF rendition | Accepted |
 | [0072](0072-the-knowledge-layer-has-one-backend-llamaindex.md) | The knowledge layer has one backend: llamaindex | Accepted |
 | [0073](0073-a-coverage-gap-is-stated-never-enforced.md) | A coverage gap is stated in the block, never enforced on the pool | Accepted |
+| [0074](0074-zero-data-retention-is-the-default-enforced-at-one-seam.md) | Zero data retention is the default, enforced at one OpenRouter seam | Accepted |
+| [0076](0076-ingestion-is-claimed-fairly-from-a-durable-queue.md) | Ingestion is claimed fairly from a durable queue, by a tier that scales on its depth | Proposed |
+| [0077](0077-prompt-context-is-loaded-over-http-not-websocket-headers.md) | Prompt context is loaded over HTTP, not carried in WebSocket headers | Accepted |
+| [0078](0078-folders-are-a-property-of-a-shelf-not-of-a-project.md) | Folders are a property of a shelf, not of a project: the Archiv gains folders through the one folder implementation | Accepted |
+| [0079](0079-background-work-runs-on-one-claim-substrate.md) | Background work runs on one claim substrate, in worker pools KEDA scales on their queues | Proposed |
+| [0080](0080-chat-drops-affinity-for-the-conversation-bus.md) | Chat drops conversation affinity for the conversation bus, and the backend scales on turn occupancy | Proposed |
+| [0081](0081-every-model-call-passes-one-priority-aware-provider-limiter.md) | Every model call passes one priority-aware provider limiter that adapts to 429s | Proposed |
+| [0082](0082-backend-roles-are-split-by-job-and-named-after-it.md) | Backend roles are split by job, and named after it | Proposed |
+| [0083](0083-postgres-connections-go-through-a-transaction-pooler.md) | Postgres connections go through a transaction pooler; session features take a direct connection | Proposed |
+| [0084](0084-the-backend-authorizes-a-job-by-the-scope-the-bff-signed.md) | The backend authorizes a job by the scope the BFF signed | Proposed |
+| [0085](0085-outlook-archives-are-read-by-range-and-filed-as-the-person-per-mail.md) | Outlook archives are read by range and filed as the person, one folder per mail | Proposed |
 
 > Note: 0027, 0039, 0044 and 0047 were each independently used twice, every
 > time because two people read the next number off this index instead of off

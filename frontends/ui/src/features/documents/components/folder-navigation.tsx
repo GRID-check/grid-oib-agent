@@ -77,12 +77,13 @@ export function FolderBreadcrumbRow({
   currentFolderId,
   onNavigate,
   onCreateFolder,
-  /** Right-aligned extras (the Archiv has none; Files adds nothing yet). */
   children,
   onDropDocument,
   onDropFolder,
   canAcceptFolder,
-}: Pick<FolderNavProps, 'folders' | 'currentFolderId' | 'onNavigate' | 'onCreateFolder'> & {
+}: Pick<FolderNavProps, 'folders' | 'currentFolderId' | 'onNavigate'> & {
+  /** Absent for a read-only viewer: the path is still walkable, nothing can be created. */
+  onCreateFolder?: FolderNavProps['onCreateFolder']
   children?: ReactNode
   /** Dropping a document on „Alle Dateien" moves it back to the project root. */
   onDropDocument?: (documentId: string, folderId: string | null) => void
@@ -208,7 +209,9 @@ export function FolderBreadcrumbRow({
       </div>
       <div className="flex shrink-0 items-center gap-2">
         {children}
-        <NewFolderControl currentFolderId={currentFolderId} onCreateFolder={onCreateFolder} />
+        {onCreateFolder && (
+          <NewFolderControl currentFolderId={currentFolderId} onCreateFolder={onCreateFolder} />
+        )}
       </div>
     </div>
   )
