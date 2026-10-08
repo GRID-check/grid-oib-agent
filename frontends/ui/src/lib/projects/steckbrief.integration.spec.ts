@@ -96,7 +96,7 @@ describe.skipIf(!url)('the Steckbrief against Postgres', () => {
     })
     expect(await repo.findProjectPeriod(projectId, ORG)).toEqual({ startedOn: '2023-03-01', endedOn: '2026-10-01' })
 
-    // The 0114 guard covers the Steckbrief's people too; erasing one is still possible.
+    // The 0115 guard covers the Steckbrief's people too; erasing one is still possible.
     await expect(repo.insertProjectPerson(projectId, ORG, USER, person({ name: 'Später' }))).rejects.toThrow()
     expect(await repo.deleteProjectPersonRow(projectId, ORG, kept.id)).toBe(true)
 
