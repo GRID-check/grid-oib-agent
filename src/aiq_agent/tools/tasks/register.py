@@ -47,15 +47,20 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import re
 from typing import Any
 
 from aiq_agent import project_context
+from aiq_agent.common.plan_documents import MAX_PLAN_DOCUMENTS
+from aiq_agent.common.plan_documents import sanitize_plan_documents
 from nat.plugin_api import Builder
 from nat.plugin_api import FunctionBaseConfig
 from nat.plugin_api import FunctionInfo
 from nat.plugin_api import register_function
 
 from ..documents.filing import SignedEnvelope
+from ..files.resolve import Refusal
+from ..files.resolve import resolve_document
 from .cards import emit_task_card
 from .client import DelegationError
 from .client import post_task
@@ -71,6 +76,16 @@ MAX_GOAL_CHARS = 500
 #: is at most a few dozen characters; a longer one is REFUSED, never truncated,
 #: because slicing a comma list can leave a different, still-valid schedule.
 MAX_CADENCE_CHARS = 120
+
+#: The BFF's ceiling on pasted text (`TASK_MATERIAL_MAX_CHARS`). Longer is
+#: REFUSED, never cut: notes cut in half are the notes of a different meeting,
+#: and the way out — a file in the project — exists.
+MAX_MATERIAL_CHARS = 20_000
+
+#: How the model lists the documents in one string argument: one per line, or
+#: separated by semicolons. A comma is not a separator because file names carry
+#: commas („Notizen JF 3, Haus A.pdf“).
+_DOCUMENT_SEPARATORS = re.compile(r"[\n;]")
 
 #: The kinds, mirrored from `DELEGATABLE_TASK_KINDS`
 #: (`frontends/ui/src/lib/db/schema/tasks.ts`). Same parse-independently rule the
@@ -140,6 +155,55 @@ def _cadence_or_refuse(cadence: str) -> str:
     return text
 
 
+def _documents_or_refuse(documents: str) -> dict[str, Any] | None:
+    """The named files as the wire's ``documents.grundlage``, each resolved against this turn's inventory.
+
+    Resolved, not forwarded: a run told to read a file nobody has fails hours
+    later, where nobody can ask which file was meant. The resolver is the one
+    the file verbs use, so an ambiguous name comes back as a question here too.
+    """
+    names = [name.strip() for name in _DOCUMENT_SEPARATORS.split(documents or "") if name.strip()]
+    if not names:
+        return None
+    if len(names) > MAX_PLAN_DOCUMENTS:
+        raise _Refused(
+            f"Fehler: Ein Auftrag kann höchstens {MAX_PLAN_DOCUMENTS} Dateien nennen. Es wurde nichts angelegt."
+        )
+    resolved: list[str] = []
+    for name in names:
+        found = resolve_document(name)
+        if isinstance(found, Refusal):
+            raise _Refused(f"{found.message} Es wurde nichts angelegt.")
+        resolved.append(found.file_name)
+    plan_documents = sanitize_plan_documents({"grundlage": resolved})
+    return plan_documents.model_dump(exclude_none=True) if plan_documents else None
+
+
+def _material_or_refuse(material: str) -> str | None:
+    """The pasted text, verbatim apart from its outer whitespace."""
+    text = (material or "").strip()
+    if not text:
+        return None
+    if len(text) > MAX_MATERIAL_CHARS:
+        raise _Refused(
+            f"Fehler: Der übergebene Text ist länger als {MAX_MATERIAL_CHARS} Zeichen. Bitte die Nutzerin, ihn als "
+            "Datei ins Projekt hochzuladen, und nenne dann die Datei in `documents`. Es wurde nichts angelegt."
+        )
+    return text
+
+
+def _handed_over(documents: str, material: str) -> dict[str, Any]:
+    """What the person handed over with the task, as the wire's optional fields."""
+    handed: dict[str, Any] = {}
+    named = _documents_or_refuse(documents)
+    if named:
+        handed["documents"] = named
+    text = _material_or_refuse(material)
+    if text:
+        handed["material"] = text
+    return handed
+
+
 async def _post(payload: dict[str, Any], envelope: SignedEnvelope) -> dict[str, Any]:
     """The blocking call, off the event loop, with the refusal already worded."""
     try:
@@ -182,6 +246,9 @@ _CREATE_TASK_DESCRIPTION = (
     "`cadence` ist optional ein 5-Feld-Cron für wiederkehrende Aufträge („jeden Montag“ → "
     "`0 8 * * 1`, UTC): Damit wird ein Zeitplan angelegt statt eines einzelnen Laufs; er braucht die "
     "Berechtigung `project:skills:manage`, und ohne sie wird er abgelehnt. "
+    "Der Auftrag sieht diese Unterhaltung NICHT: Was er braucht, gibst du mit. `documents` ist optional "
+    "die Liste der Projektdateien, aus denen gearbeitet wird, eine je Zeile, genau wie in der Dateiübersicht. "
+    "`material` ist optional ein Text, den die Nutzerin hier eingefügt hat, wörtlich und vollständig. "
     "Der Auftrag läuft mit den Rechten der Nutzerin und kostet ihr Budget. Nach dem Aufruf ist die "
     "Arbeit ANGELEGT, nicht erledigt. "
     "Ein Auftrag gehört zu einem Projekt: Ohne Projekt in dieser Unterhaltung entsteht keiner, sage "
@@ -193,7 +260,7 @@ class CreateTaskConfig(FunctionBaseConfig, name="create_task"):
     """Configuration for the ``create_task`` tool."""
 
 
-async def _create(kind: str, goal: str, due: str, cadence: str) -> str:
+async def _create(kind: str, goal: str, due: str, cadence: str, documents: str, material: str) -> str:
     """The whole of ``create_task``, with every refusal raised where it is found."""
     project_id = _project_or_refuse()
     envelope = _envelope()
@@ -205,6 +272,7 @@ async def _create(kind: str, goal: str, due: str, cadence: str) -> str:
         "projectId": project_id,
         "kind": chosen_kind,
         "goal": chosen_goal,
+        **_handed_over(documents, material),
     }
     # Only when the model gave one. The BFF's schema is strict, and an empty
     # string is not a date — it would be a 400 for a field nobody asked for.
@@ -223,7 +291,9 @@ async def _create(kind: str, goal: str, due: str, cadence: str) -> str:
     return f"Auftrag angelegt: „{title}“. {_QUEUED}"
 
 
-async def run_create_task(kind: str, goal: str, due: str = "", cadence: str = "") -> str:
+async def run_create_task(
+    kind: str, goal: str, due: str = "", cadence: str = "", documents: str = "", material: str = ""
+) -> str:
     """Delegate one piece of work to a task row.
 
     Module-level, and the tool below is a one-line wrapper around it, so the
@@ -231,7 +301,7 @@ async def run_create_task(kind: str, goal: str, due: str = "", cadence: str = ""
     the refusals are most of what this tool is.
     """
     try:
-        return await _create(kind, goal, due, cadence)
+        return await _create(kind, goal, due, cadence, documents, material)
     except _Refused as refused:
         return refused.message
 

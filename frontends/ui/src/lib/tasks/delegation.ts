@@ -53,7 +53,8 @@ import { createTaskThread, submitAgentRun } from '@/lib/jobs/service'
 import { JobSubmitError, JobSubmitSkippedError } from '@/lib/jobs/backend-client'
 import { minIntervalMinutesFromEnv, nextOccurrence, validateCron } from '@/lib/jobs/schedule'
 import { emptySkillSnapshot } from '@/lib/jobs/types'
-import { isEmptyPlanDocuments, type PlanDocuments } from '@/lib/runs/plan-documents'
+import { isEmptyPlanDocuments, type PlanDocument, type PlanDocuments } from '@/lib/runs/plan-documents'
+import { fencedBlock } from '@/lib/text/code-fence'
 import * as repository from './repository'
 import { submittedRunStatus } from './task-vocabulary'
 import { TASK_GOAL_MAX_CHARS } from './wire'
@@ -219,6 +220,18 @@ export interface DelegateTaskInput {
   /** The version a `revision` task is about, and the reviewer's words. */
   subject?: TaskPlan['subject']
   /**
+   * The project documents the work is to be done from, as the inventory names
+   * them. Their names are written into the prompt — the run reads them itself —
+   * and the plan keeps them, so the run's block shows them as its Grundlage.
+   */
+  documents?: PlanDocuments | null
+  /**
+   * Text the person pasted into the conversation and handed over, verbatim.
+   * Quoted into the prompt, because a delegated run has no conversation to
+   * read it back from.
+   */
+  material?: string | null
+  /**
    * The text the run is revising, already read in the caller's own session and
    * bounded here. Quoted into the prompt rather than fetched by the worker,
    * because the worker holds no signed envelope and therefore acts as nobody —
@@ -313,8 +326,16 @@ export async function delegateTask(
     }
   }
 
+  const documents = input.documents && !isEmptyPlanDocuments(input.documents) ? input.documents : null
+  const material = input.material?.trim() || null
+
   const engine = TASK_ENGINES[input.kind]
-  const prompt = [engine.instruction(goal), sourceBlock(input.sourceText)]
+  const prompt = [
+    engine.instruction(goal),
+    documentsBlock(documents),
+    materialBlock(material),
+    sourceBlock(input.sourceText),
+  ]
     .filter(Boolean)
     .join('\n\n')
   const requester = input.requester ?? { userId: session.userId, email: session.email }
@@ -346,6 +367,7 @@ export async function delegateTask(
       dataSources: null,
       goal,
       subject: input.subject ?? null,
+      ...(documents ? { documents } : {}),
     },
     requesterUserId: requester.userId,
     requesterEmail: requester.email,
@@ -653,6 +675,46 @@ async function recordRun(run: TaskRun, patch: Partial<TaskRun>): Promise<TaskRun
     console.error('[runs] could not record run', run.id, patch.status, patch.backendJobId ?? '', error)
     return { ...run, ...patch }
   }
+}
+
+/**
+ * The documents the person named, as a list the run can open by name.
+ *
+ * Names only, never contents: the run reads them with its own tools, in its own
+ * budget, and cites what it read — a body pasted here would be text with no
+ * Citation key behind it, and nothing in the answer could point back at it.
+ * `ausgeschlossen` is said as plainly, because a run that does not know a file
+ * was excluded will find it with a search and use it.
+ */
+function documentsBlock(documents: PlanDocuments | null): string {
+  if (!documents) return ''
+  const line = (doc: PlanDocument) =>
+    doc.title && doc.title !== doc.name ? `- \`${doc.name}\` („${doc.title}“)` : `- \`${doc.name}\``
+  const sections: string[] = []
+  if (documents.grundlage.length > 0) {
+    sections.push(
+      ['Die Unterlagen, aus denen gearbeitet wird — öffne jede selbst und lies sie ganz:', ...documents.grundlage.map(line)].join('\n'),
+    )
+  }
+  if (documents.ausgeschlossen.length > 0) {
+    sections.push(
+      ['Diese Unterlagen sind ausgeschlossen und werden nicht verwendet:', ...documents.ausgeschlossen.map(line)].join('\n'),
+    )
+  }
+  return sections.join('\n\n')
+}
+
+/**
+ * The text the person pasted and handed over, quoted verbatim.
+ *
+ * Fenced for the reason {@link sourceBlock} is, with a fence the text cannot
+ * close (pasted notes carry backticks as often as anything else), and never cut:
+ * the wire bounds it and refuses a longer one, so whatever arrives here is the
+ * whole of it.
+ */
+function materialBlock(material: string | null): string {
+  if (!material) return ''
+  return ['Der Text, den die Person übergeben hat, wörtlich:', '', fencedBlock(material)].join('\n')
 }
 
 /**

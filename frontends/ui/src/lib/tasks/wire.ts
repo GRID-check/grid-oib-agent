@@ -34,6 +34,20 @@ export const TASK_GOAL_MAX_CHARS = 500
 export const RESEARCH_CONTEXT_MAX_CHARS = 8_000
 
 /**
+ * Bound on the text a person pasted into the conversation and handed over with
+ * a task — the notes of a meeting, typed into the composer.
+ *
+ * The run has no conversation to read it back out of: a delegated run is one
+ * HumanMessage with the composed prompt, nothing before it. So the text travels
+ * in the prompt, verbatim, and is bounded well under the skills submit route's
+ * 48 000-character prompt ceiling, beside the instruction and the goal. A longer
+ * text is REFUSED, never cut: a Protokoll drafted from the first half of the
+ * notes is a Protokoll of a different meeting. The way out is a file, which the
+ * run reads through `documents` instead.
+ */
+export const TASK_MATERIAL_MAX_CHARS = 20_000
+
+/**
  * `POST /api/internal/tasks` — the ONE machine entry point for delegation.
  *
  * A discriminated union on `op` with two members: `create`, which states a
@@ -83,6 +97,18 @@ export const internalTaskRequestSchema = z.discriminatedUnion('op', [
       cadence: z.string().trim().min(1).max(120).optional(),
       /** IANA zone the cadence is read in; UTC when absent. */
       cadenceTimezone: z.string().trim().min(1).max(80).optional(),
+      /**
+       * The project documents the work is to be done FROM, named the way the
+       * inventory lists them (`grundlage`). The run is told their names in its
+       * prompt and reads them itself; the run's block shows them as its
+       * Grundlage. The same contract the `research` op carries.
+       */
+      documents: planDocumentsSchema.optional(),
+      /**
+       * Text the person pasted into the conversation and handed over with the
+       * task, verbatim. Quoted into the run's prompt, fenced, never summarised.
+       */
+      material: z.string().trim().min(1).max(TASK_MATERIAL_MAX_CHARS).optional(),
     })
     .strict(),
   z

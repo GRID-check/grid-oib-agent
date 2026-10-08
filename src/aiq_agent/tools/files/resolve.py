@@ -1,7 +1,9 @@
 """Resolving what the reader said to what the turn can see.
 
 The four write-side tools take NAMES — a file name, a folder path, a person —
-because that is what the conversation contains. None of them may guess: a
+because that is what the conversation contains. ``create_task`` resolves the
+documents a task is to be done FROM through :func:`resolve_document` too, for
+the same reason: a run told to read a file nobody has fails hours later. None of them may guess: a
 proposal card that names a file the reader does not have is a decision they
 cannot make, and one that names the WRONG file is worse than no card at all.
 
@@ -132,8 +134,8 @@ def resolve_document(name: str) -> ResolvedDocument | Refusal:
     rows = _rows()
     if not rows:
         return Refusal(
-            "Fehler: Diese Unterhaltung sieht keine Projekt- oder Büroarchiv-Dateien, also gibt es nichts "
-            "zu ordnen. Sage das, statt einen Vorschlag zu machen."
+            "Fehler: Diese Unterhaltung sieht keine Projekt- oder Büroarchiv-Dateien, also auch keine, die "
+            "gemeint sein könnte. Sage das, statt einen Dateinamen zu raten."
         )
 
     for candidates in (

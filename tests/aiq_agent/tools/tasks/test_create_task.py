@@ -11,6 +11,8 @@ from __future__ import annotations
 
 import pytest
 
+from aiq_agent.knowledge import AvailableDocument
+from aiq_agent.knowledge.inventory import set_turn_documents
 from aiq_agent.tools.tasks import register as task_tools
 from aiq_agent.tools.tasks.client import DelegationError
 
@@ -23,6 +25,15 @@ from .conftest import envelope
 from .conftest import raiser
 from .conftest import responder
 from .conftest import task_cards
+
+#: What the turn can see: two Jour-fixe notes (one with a comma in its name, so
+#: a comma cannot be a separator) and a session attachment, which a run in a
+#: job could not read and the resolver therefore does not offer.
+INVENTORY = [
+    AvailableDocument(file_name="Notizen JF 12.pdf", shelf="project", collection="proj_1"),
+    AvailableDocument(file_name="Notizen JF 11, Haus A.pdf", shelf="project", collection="proj_1"),
+    AvailableDocument(file_name="Anhang.pdf", shelf="session", collection="s_1"),
+]
 
 
 class TestTheWire:
@@ -138,6 +149,62 @@ class TestRefusals:
         raiser(monkeypatch, DelegationError("the task API refused the call (403)", status=403))
         answer = await task_tools.run_create_task("einreichcheck", "Prüf das")
         assert "nicht angenommen" in answer
+
+
+class TestWhatIsHandedOver:
+    """The run sees no conversation, so the files and the pasted text travel on the wire."""
+
+    @pytest.fixture(autouse=True)
+    def inventory(self):
+        set_turn_documents(INVENTORY)
+        yield
+        set_turn_documents(None)
+
+    async def test_named_files_go_as_grundlage_in_the_inventorys_own_spelling(self, monkeypatch, calls) -> None:
+        responder(monkeypatch, ACCEPTED, calls)
+        await task_tools.run_create_task(
+            "document", "Schreib das zusammen", documents="notizen jf 12.pdf\n; Notizen JF 11, Haus A"
+        )
+
+        assert calls[0][0]["documents"] == {
+            "grundlage": [{"name": "Notizen JF 12.pdf"}, {"name": "Notizen JF 11, Haus A.pdf"}],
+            "ausgeschlossen": [],
+        }
+
+    async def test_a_file_the_turn_cannot_see_is_refused_and_nothing_is_posted(self, monkeypatch, calls) -> None:
+        """A run told to read a file nobody has fails hours later, where nobody can ask."""
+        responder(monkeypatch, ACCEPTED, calls)
+        answer = await task_tools.run_create_task("document", "Schreib das", documents="Notizen JF 13.pdf")
+        assert "Nicht gefunden" in answer
+        assert "nichts angelegt" in answer
+        assert calls == []
+
+    async def test_an_ambiguous_name_comes_back_as_a_question(self, monkeypatch, calls) -> None:
+        responder(monkeypatch, ACCEPTED, calls)
+        answer = await task_tools.run_create_task("document", "Schreib das", documents="Notizen JF")
+        assert "Mehrdeutig" in answer
+        assert calls == []
+
+    async def test_pasted_text_travels_verbatim_with_its_line_breaks(self, monkeypatch, calls) -> None:
+        responder(monkeypatch, ACCEPTED, calls)
+        notes = "TOP 1 Fenster\n- Huber bestellt Muster bis 17.10.\n\nTOP 2  Statik"
+        await task_tools.run_create_task("document", "Schreib das", material=f"  {notes}\n")
+        assert calls[0][0]["material"] == notes
+
+    async def test_overlong_text_is_refused_never_cut(self, monkeypatch, calls) -> None:
+        responder(monkeypatch, ACCEPTED, calls)
+        answer = await task_tools.run_create_task(
+            "document", "Schreib das", material="x" * (task_tools.MAX_MATERIAL_CHARS + 1)
+        )
+        assert "als Datei" in answer
+        assert calls == []
+
+    async def test_nothing_handed_over_sends_neither_field(self, monkeypatch, calls) -> None:
+        """The BFF's schema is strict: an empty list or string is a 400 for a field nobody asked for."""
+        responder(monkeypatch, ACCEPTED, calls)
+        await task_tools.run_create_task("document", "Schreib das", documents=" \n ; ", material="   ")
+        assert "documents" not in calls[0][0]
+        assert "material" not in calls[0][0]
 
 
 class TestWhatTheReaderSees:

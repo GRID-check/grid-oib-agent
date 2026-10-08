@@ -211,6 +211,47 @@ describe('delegateTask', () => {
     expect(insertedRun.skillSnapshot).toEqual({})
   })
 
+  // A delegated run is one message with the composed prompt and nothing before
+  // it: whatever the person handed over in the conversation has to be IN that
+  // prompt, or the run works from a sentence about notes it cannot see.
+  it('names the documents it was handed in the prompt and keeps them on the plan', async () => {
+    const documents = {
+      grundlage: [{ name: 'Notizen JF 12.pdf', title: 'Jour fixe 12' }],
+      ausgeschlossen: [{ name: 'Notizen JF 11.pdf' }],
+    }
+    await delegateTask(session, { projectId: PROJECT, kind: 'document', goal: 'Schreib das', documents })
+
+    expect(insertedDefinition.plan.prompt).toContain('- `Notizen JF 12.pdf` („Jour fixe 12“)')
+    expect(insertedDefinition.plan.prompt).toContain('ausgeschlossen')
+    expect(insertedDefinition.plan.prompt).toContain('- `Notizen JF 11.pdf`')
+    // On the plan, so the run's block lists them as its Grundlage.
+    expect(insertedRun.plan.documents).toEqual(documents)
+    expect(vi.mocked(submitAgentRun).mock.calls[0][0]).toMatchObject({ documents })
+  })
+
+  it('quotes pasted text verbatim, in a fence the text itself cannot close', async () => {
+    const material = 'TOP 1\n```\nHuber bestellt Muster bis 17.10.'
+    await delegateTask(session, { projectId: PROJECT, kind: 'document', goal: 'Schreib das', material })
+
+    expect(insertedDefinition.plan.prompt).toContain(`\`\`\`\`text\n${material}\n\`\`\`\``)
+    // Text is not a document: nothing is listed as a Grundlage for it.
+    expect(insertedDefinition.plan.documents).toBeUndefined()
+  })
+
+  it('adds neither block when nothing was handed over', async () => {
+    await delegateTask(session, {
+      projectId: PROJECT,
+      kind: 'document',
+      goal: 'Schreib das',
+      documents: { grundlage: [], ausgeschlossen: [] },
+      material: '   ',
+    })
+
+    expect(insertedDefinition.plan.prompt).not.toContain('Unterlagen')
+    expect(insertedDefinition.plan.prompt).not.toContain('übergeben hat')
+    expect(insertedDefinition.plan.documents).toBeUndefined()
+  })
+
   it('quotes the version being revised into the prompt, fenced and bounded', async () => {
     await delegateTask(session, {
       projectId: PROJECT,
