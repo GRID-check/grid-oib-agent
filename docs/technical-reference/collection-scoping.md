@@ -179,7 +179,7 @@ share and an admission cannot both go through:
 
 Sharing (`assertMayWidenConversation`, `widenConversationAudience`) allows a
 new reader exactly when they may read every recorded folder NOW; a folder
-opened to every member drops out, and a deleted folder's tombstone (0109) keeps
+opened to every member drops out, and a deleted folder's tombstone (0110) keeps
 answering with the access it had. The doors that write something the whole
 project reads refuse a conversation with a record
 (`lib/conversations/restricted-egress.ts`); deep research and tasks stay
