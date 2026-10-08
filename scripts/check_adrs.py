@@ -176,17 +176,31 @@ SUPERSEDED_BY_RE = re.compile(r"superseded by (?:ADR-)?(\d{4})", re.IGNORECASE)
 
 
 def check_superseded_refs(readme: Path, errors: list[str]) -> None:
-    """An index row's "superseded by NNNN" must match what the record itself says."""
+    """A "superseded by NNNN" in an index row must match what both records say.
+
+    The reference may sit in the title cell ("… (partly superseded by 0088)")
+    or in the status cell ("Superseded by ADR-0088"); both are read. The
+    superseded record must cite ADR-NNNN, and the superseding record must cite
+    the one it supersedes.
+    """
     for m in INDEX_ROW_RE.finditer(readme.read_text(encoding="utf-8")):
-        name, title = m.group(2).strip(), m.group(3)
+        name, cells = m.group(2).strip(), m.group(3) + " " + m.group(4)
         path = ADR_DIR / name
-        for ref in SUPERSEDED_BY_RE.findall(title):
-            if not any(ADR_DIR.glob(f"{ref}-*.md")):
+        for ref in SUPERSEDED_BY_RE.findall(cells):
+            targets = sorted(ADR_DIR.glob(f"{ref}-*.md"))
+            if not targets:
                 errors.append(f"docs/adr/README.md: {name} is superseded by {ref}, which does not exist.")
-            elif path.exists() and f"ADR-{ref}" not in path.read_text(encoding="utf-8"):
+                continue
+            if path.exists() and f"ADR-{ref}" not in path.read_text(encoding="utf-8"):
                 errors.append(
                     f"docs/adr/README.md: {name} is superseded by {ref} in the index, "
                     f"but the record itself never cites ADR-{ref}."
+                )
+            older = f"ADR-{m.group(1)}"
+            if not any(older in target.read_text(encoding="utf-8") for target in targets):
+                errors.append(
+                    f"docs/adr/README.md: {name} is superseded by {ref} in the index, "
+                    f"but {targets[0].name} never cites {older}."
                 )
 
 
