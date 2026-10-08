@@ -108,6 +108,7 @@ export const DownloadLogView: FC<DownloadLogViewProps> = ({ people }) => {
     if (entry.scope === 'session') return t('downloadLog.place.session')
     const project = entry.projectName ?? t('downloadLog.place.projectGone')
     if (!entry.folderId) return `${project} · ${t('downloadLog.place.root')}`
+    if (entry.nameWithheld) return `${project} · ${t('downloadLog.place.folderWithheld')}`
     return `${project} · ${entry.folderPath ?? t('downloadLog.place.folderGone')}`
   }
 
@@ -259,7 +260,13 @@ export const DownloadLogView: FC<DownloadLogViewProps> = ({ people }) => {
                     </Chip>
                   </TableCell>
                   <TableCell>
-                    <span className="break-words">{entry.documentName}</span>
+                    {entry.documentName !== null ? (
+                      <span className="break-words">{entry.documentName}</span>
+                    ) : (
+                      <span className="text-muted-foreground italic" data-testid="download-log-name-withheld">
+                        {t('downloadLog.nameWithheld')}
+                      </span>
+                    )}
                     {entry.versionId && (
                       <span className="text-muted-foreground block text-xs">
                         {t('downloadLog.version', { id: entry.versionId.slice(0, 8) })}

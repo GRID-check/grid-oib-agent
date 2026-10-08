@@ -1748,6 +1748,7 @@ describe('deleteDocument', () => {
     expect(recordAuditEvent).toHaveBeenCalledWith(
       expect.objectContaining({
         action: 'document.deleted',
+        filedIn: { projectId: projectDoc.projectId, folderId: projectDoc.folderId },
         metadata: expect.objectContaining({ chunksPurged: true }),
       })
     )
@@ -1889,6 +1890,8 @@ describe('renameDocument', () => {
         action: 'document.renamed',
         targetType: 'document',
         targetId: 'doc-1',
+        // Where it is filed, so the emitter withholds the names under a restricted folder (ADR-0084).
+        filedIn: { projectId: projectDoc.projectId, folderId: projectDoc.folderId },
         metadata: expect.objectContaining({
           filename: 'plan.pdf',
           previousName: 'Alt.pdf',
@@ -1914,7 +1917,7 @@ describe('renameDocument', () => {
       renameDocument({ ...session, role: 'admin' }, 'doc-1', 'Musterordner.pdf', request())
     ).resolves.toMatchObject({ displayName: 'Musterordner.pdf' })
     expect(recordAuditEvent).toHaveBeenCalledWith(
-      expect.objectContaining({ action: 'archiv.document.renamed' })
+      expect.objectContaining({ action: 'archiv.document.renamed', filedIn: null })
     )
   })
 })

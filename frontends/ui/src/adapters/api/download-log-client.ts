@@ -27,11 +27,13 @@ const EntrySchema = z.object({
   // Optional for a response from a build before ADR-0086.
   projectStatus: z.enum(PROJECT_STATUSES).nullable().optional(),
   documentId: z.string(),
-  documentName: z.string(),
+  /** Null when `nameWithheld`: the viewer may not read the folder the row was logged in. */
+  documentName: z.string().nullable(),
   versionId: z.string().nullable(),
   folderId: z.string().nullable(),
   folderPath: z.string().nullable(),
   ownList: z.boolean(),
+  nameWithheld: z.boolean(),
 })
 
 const PageSchema = z.object({

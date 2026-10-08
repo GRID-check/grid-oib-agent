@@ -149,7 +149,10 @@ live in WorkOS, where Piloti's own roles live; you assign them to people on the
 - A role can only carry permissions its editor holds.
 - A role can be deleted once nobody holds it. If folders name it in their
   access list, Piloti shows which folders (organization admins see their
-  names, other role managers how many) and asks you to confirm. After the
+  names, other role managers how many) and asks you to confirm. Folders a
+  restore could bring back count too, marked „im Papierkorb“ or „Projekt
+  gelöscht“: they are not in the folder tree, so fix their list after a
+  restore. After the
   deletion those lists match nobody: only organization admins can read the
   folders until someone sets a valid role, and the project's settings list them
   under **Ordner ohne gültige Rolle**, with a link to each. Renaming a role

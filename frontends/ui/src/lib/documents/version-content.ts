@@ -25,6 +25,7 @@ import { ConflictError, InsufficientStorageError, NotFoundError } from '@/lib/ap
 import { markingIsInBytes, type AiProvenanceMarking } from '@/lib/ai-provenance'
 import type { AuthorizedSession } from '@/lib/auth/types'
 import { recordAuditEvent } from '@/lib/audit/service'
+import { filedInOf } from '@/lib/audit/document-names'
 import { requireProjectAccess } from '@/lib/authz/projects'
 import { getBackendUrl } from '@/lib/backend-proxy'
 import { placementCollectionFor } from '@/lib/authz/folder-access'
@@ -584,6 +585,7 @@ export async function archiveDocument(
     action: 'document.archived',
     targetType: 'document',
     targetId: documentId,
+    filedIn: filedInOf(document),
     metadata: {
       projectId: document.projectId ?? '',
       filename: document.filename.slice(0, 200),

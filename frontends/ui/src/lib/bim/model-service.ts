@@ -30,6 +30,7 @@ import { requireResourceAccess } from '@/lib/sharing/access'
 import { isIfcModelsEnabled } from '@/lib/authz/feature-flags'
 import { ForbiddenError, NotFoundError } from '@/lib/api/errors'
 import { findDocumentInOrg } from '@/lib/documents/repository'
+import { getAccessibleDocument } from '@/lib/documents/access'
 import type { Document } from '@/lib/db/schema'
 import { findProjectInOrg } from '@/lib/projects/repository'
 import type { AuthorizedSession } from '@/lib/auth/types'
@@ -246,8 +247,11 @@ export async function getModelSource(
   modelId: string
 ): Promise<BimModelSource> {
   const model = await getAccessibleModel(session, modelId)
-  const document = await findDocumentInOrg(model.documentId, session.organizationId)
-  if (!document?.storageKey) throw new NotFoundError('Model file not available')
+  // The bytes leave through the one access decision every other document
+  // hand-over uses, not only the model's own shelf check above: a rule added to
+  // `getAccessibleDocument` reaches the raw IFC too (`download-log/coverage.spec.ts`).
+  const document = await getAccessibleDocument(session, model.documentId, 'read')
+  if (!document.storageKey) throw new NotFoundError('Model file not available')
 
   const expiresIn = presignTtlSeconds()
   const bucket = resolveDocumentBucket(document.storageBucket)

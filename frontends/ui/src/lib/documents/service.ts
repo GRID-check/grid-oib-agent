@@ -33,6 +33,7 @@ import { requireProjectAccess } from '@/lib/authz/projects'
 import { hasPermission, ORG_PERMISSIONS } from '@/lib/authz/permissions'
 import { ForbiddenError } from '@/lib/api/errors'
 import { recordAuditEvent } from '@/lib/audit/service'
+import { filedInOf } from '@/lib/audit/document-names'
 import { getBackendUrl } from '@/lib/backend-proxy'
 import { buildGridRequestContextWireHeaders } from '@/lib/request-context'
 import { findProjectInOrg } from '@/lib/projects/repository'
@@ -2122,6 +2123,8 @@ export async function renameDocument(
         : 'document.renamed',
     targetType: 'document',
     targetId: documentId,
+    // A document under a folder not every member may read is not named (ADR-0084).
+    filedIn: filedInOf(doc),
     metadata: {
       filename: doc.filename.slice(0, 200),
       previousName: documentDisplayName(doc).slice(0, 200),
@@ -2231,6 +2234,7 @@ export async function deleteDocument(
     actor: { userId: session.userId, email: session.email },
     action: 'document.deleted',
     targetType: 'document',
+    filedIn: filedInOf(doc),
     // Filename is user-controlled — cap it before it reaches the trail.
     metadata: {
       projectId: doc.projectId,

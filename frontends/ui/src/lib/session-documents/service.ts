@@ -322,7 +322,7 @@ export async function uploadSessionDocument(
   })
   await auditScreeningOverride(
     session,
-    { documentId, projectId: null, filename, overridden: nameGate.overridden },
+    { documentId, projectId: null, folderId: null, filename, overridden: nameGate.overridden },
     request,
   )
 

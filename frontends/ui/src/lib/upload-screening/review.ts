@@ -15,6 +15,7 @@
 import 'server-only'
 import { ConflictError, NotFoundError } from '@/lib/api/errors'
 import { recordAuditEvent } from '@/lib/audit/service'
+import { filedInOf } from '@/lib/audit/document-names'
 import type { AuthorizedSession } from '@/lib/auth/types'
 import { canManageArchiv } from '@/lib/authz/organizations'
 import { hasPermission, ORG_PERMISSIONS } from '@/lib/authz/permissions'
@@ -109,6 +110,7 @@ export async function releaseQuarantinedDocument(
     action: 'document.quarantine_released',
     targetType: 'document',
     targetId: doc.id,
+    filedIn: filedInOf(doc),
     metadata: {
       projectId: doc.projectId ?? '',
       filename: doc.filename.slice(0, 200),

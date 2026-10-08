@@ -238,7 +238,7 @@ describe.skipIf(!url)('read/write folder access against Postgres', () => {
 
     expect(found.total).toBe(2)
     expect(found.folders.map((entry) => entry.folderName).sort()).toEqual(['Honorare', 'Verträge'])
-    expect(found.folders[0]).toMatchObject({ projectId, projectName: 'Folders' })
+    expect(found.folders[0]).toMatchObject({ projectId, projectName: 'Folders', deleted: null })
 
     expect((await accessRepo.listFoldersNamingRole(ORG, 'org-buchhaltung')).folders.map((entry) => entry.folderName)).toEqual([
       'Verträge',
@@ -246,14 +246,34 @@ describe.skipIf(!url)('read/write folder access against Postgres', () => {
     expect(await accessRepo.listFoldersNamingRole(ORG, 'org-nobody')).toEqual({ folders: [], total: 0 })
   })
 
-  it('leaves a deleted folder’s tombstone and another organization’s folders out of a role’s usage', async () => {
+  it('counts a folder in the Papierkorb in a role’s usage, and leaves a purged tombstone and another organization’s folders out', async () => {
     const temporary = await insertFolder('Zeitweilig', null, 'Zeitweilig', [['org-zeitweilig', 'read']])
     expect((await accessRepo.listFoldersNamingRole(ORG, 'org-zeitweilig')).total).toBe(1)
 
     expect((await accessRepo.listFoldersNamingRole(OTHER_ORG, 'org-zeitweilig')).total).toBe(0)
 
+    // In the Papierkorb: a restore brings the list back, so the role is still in use.
     await inTenant(() => db.execute(sql`UPDATE project_folders SET deleted_at = now() WHERE id = ${temporary}::uuid`))
+    const binned = await accessRepo.listFoldersNamingRole(ORG, 'org-zeitweilig')
+    expect(binned.total).toBe(1)
+    expect(binned.folders.map((entry) => [entry.folderId, entry.deleted])).toEqual([[temporary, 'folder']])
+
+    // Purged: nothing can bring it back.
+    await inTenant(() => db.execute(sql`UPDATE project_folders SET purged_at = now() WHERE id = ${temporary}::uuid`))
     expect(await accessRepo.listFoldersNamingRole(ORG, 'org-zeitweilig')).toEqual({ folders: [], total: 0 })
+  })
+
+  it('counts the folders of a project pending deletion in a role’s usage: restoring the project brings their lists back', async () => {
+    const pending = await insertFolder('Vorbehalt', null, 'Vorbehalt', [['org-vorbehalt', 'read']])
+    await inTenant(() => db.execute(sql`UPDATE projects SET deleted_at = now() WHERE id = ${projectId}::uuid`))
+    try {
+      const usage = await accessRepo.listFoldersNamingRole(ORG, 'org-vorbehalt')
+      expect(usage.total).toBe(1)
+      expect(usage.folders.map((entry) => [entry.folderId, entry.deleted])).toEqual([[pending, 'project']])
+    } finally {
+      await inTenant(() => db.execute(sql`UPDATE projects SET deleted_at = NULL WHERE id = ${projectId}::uuid`))
+      await inTenant(() => db.execute(sql`UPDATE project_folders SET deleted_at = now(), purged_at = now() WHERE id = ${pending}::uuid`))
+    }
   })
 
   it('keeps a deleted folder as a tombstone that frees its name and still answers for its access', async () => {

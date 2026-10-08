@@ -743,6 +743,7 @@ export async function fileGeneratedDocument(
       action: 'document.generated',
       targetType: 'document',
       targetId: documentId,
+      filedIn: { projectId, folderId: folder.id },
       metadata: { projectId, producer, filename, fileSize: body.byteLength },
       request,
     })

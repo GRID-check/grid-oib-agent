@@ -5,6 +5,7 @@ vi.mock('./folder-access-repository', () => ({
   projectHasCustomOrBinnedFolders: vi.fn(),
   listProjectFolderTree: vi.fn(),
   listCustomFolderNames: vi.fn(),
+  listProjectsWithCustomOrBinnedFolders: vi.fn(),
 }))
 vi.mock('./projects', () => ({ requireProjectAccess: vi.fn() }))
 vi.mock('@/lib/auth/membership-roles', () => ({ resolveMembershipRoles: vi.fn() }))
@@ -38,6 +39,7 @@ import {
   readRestrictingFoldersOnPath,
   readableByEveryMember,
   readableFolderIdsFor,
+  readableFoldersOfRestrictedProjects,
   requireFolderWrite,
   restrictedCollectionName,
   unreadableFolderIds,
@@ -49,7 +51,11 @@ import {
   type FolderGrant,
   type FolderLevel,
 } from './folder-access'
-import { listProjectFolderTree, projectHasCustomOrBinnedFolders } from './folder-access-repository'
+import {
+  listProjectFolderTree,
+  listProjectsWithCustomOrBinnedFolders,
+  projectHasCustomOrBinnedFolders,
+} from './folder-access-repository'
 import { requireProjectAccess } from './projects'
 import { checkResourcePermission } from './resource-check'
 import { findProjectTenancy } from '@/lib/projects/repository'
@@ -447,6 +453,26 @@ describe('a closed project (ADR-0086): closing opens no restricted folder', () =
     expect((await clearanceOf(session(['admin']), 'proj-1')).seesEverything).toBe(true)
     expect((await clearanceOfMember('org-1', 'user-admin', 'proj-1')).seesEverything).toBe(true)
     expect(checkResourcePermission).not.toHaveBeenCalled()
+  })
+
+  it('the folders a name filter may match are decided per project: a closed one clears an outsider by no list', async () => {
+    const active = { organizationId: 'org-1', deletedAt: null, status: 'active' as const }
+    const shut = { vertraege: 'c1111111-aaaa-4bbb-8ccc-000000000001', plaene: 'c2222222-aaaa-4bbb-8ccc-000000000002' }
+    vi.mocked(listProjectsWithCustomOrBinnedFolders).mockResolvedValue(['proj-active', 'proj-closed'])
+    vi.mocked(findProjectTenancy).mockImplementation(async (projectId) => (projectId === 'proj-closed' ? closed : active))
+    vi.mocked(listProjectFolderTree).mockImplementation(async (_org, projectId) =>
+      projectId === 'proj-closed'
+        ? [custom(shut.vertraege, null, [{ role: GF, level: 'write' }]), inherit(shut.plaene, null)]
+        : TREE
+    )
+    vi.mocked(checkResourcePermission).mockResolvedValue(false)
+
+    const readable = await readableFoldersOfRestrictedProjects(session([GF]))
+
+    // GF reads Verträge where the role was matched before, and in the closed project only what every member reads.
+    expect(readable).toContain(F.vertraege)
+    expect(readable).toContain(shut.plaene)
+    expect(readable).not.toContain(shut.vertraege)
   })
 
   it('an active project never asks whether someone is a member: the roles decide as before', async () => {

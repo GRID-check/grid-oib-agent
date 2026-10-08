@@ -12,6 +12,7 @@
 import 'server-only'
 import { ApiError } from '@/lib/api/errors'
 import { recordAuditEvent } from '@/lib/audit/service'
+import { filedInOf } from '@/lib/audit/document-names'
 import { getCached, invalidateCached } from '@/lib/cache'
 import { getOrgSettings, writeDedicatedOrgSetting } from '@/lib/organizations/service'
 import type { AuthorizedSession } from '@/lib/auth/types'
@@ -157,7 +158,7 @@ export async function assertUploadNameAllowed(
 /** The audit event for an override, once the document exists. Best-effort, like every audit emit. */
 export async function auditScreeningOverride(
   session: AuthorizedSession,
-  input: { documentId: string; projectId: string | null; filename: string; overridden: NameMatch[] },
+  input: { documentId: string; projectId: string | null; folderId: string | null; filename: string; overridden: NameMatch[] },
   request: Request
 ): Promise<void> {
   if (input.overridden.length === 0) return
@@ -167,6 +168,7 @@ export async function auditScreeningOverride(
     action: 'document.screening_overridden',
     targetType: 'document',
     targetId: input.documentId,
+    filedIn: filedInOf(input),
     metadata: {
       projectId: input.projectId ?? '',
       filename: input.filename.slice(0, 200),

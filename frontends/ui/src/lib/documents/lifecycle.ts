@@ -46,6 +46,7 @@ import { ConflictError, ForbiddenError, NotFoundError, UnprocessableError } from
 import type { AuthorizedSession } from '@/lib/auth/types'
 import { requireProjectAccess } from '@/lib/authz/projects'
 import { recordAuditEvent } from '@/lib/audit/service'
+import { filedInOf } from '@/lib/audit/document-names'
 import { publishToUsers } from '@/lib/events/bus'
 import { emitInboxItems, resolveInboxItemsFor } from '@/lib/inbox/service'
 import { inboxGroupKey } from '@/lib/inbox/registry'
@@ -259,6 +260,7 @@ const EFFECT_REGISTRY: Record<DocumentVersionEffect, EffectRunner> = {
       action: transition.auditAction,
       targetType: 'document',
       targetId: document.id,
+      filedIn: filedInOf(document),
       metadata: {
         versionId: version.id,
         versionNumber: version.versionNumber,

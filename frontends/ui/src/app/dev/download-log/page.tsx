@@ -47,6 +47,7 @@ const base = {
   folderId: null,
   folderPath: null,
   ownList: false,
+  nameWithheld: false,
 }
 
 const ENTRIES = [
@@ -57,6 +58,7 @@ const ENTRIES = [
   { ...base, id: 'e5', occurredAt: at(1500), userId: 'user_01', person: { name: 'Matthias Bigl', email: 'matthias.bigl@buero.at' }, kind: 'download', access: 'download', scope: 'archiv', projectId: null, projectName: null, documentId: 'd5', documentName: 'Normenübersicht ÖNORM.pdf' },
   { ...base, id: 'e6', occurredAt: at(2900), userId: 'user_gone', person: null, kind: 'download', access: 'download', scope: 'session', projectId: null, projectName: null, documentId: 'd6', documentName: 'Foto Baustelle 14.jpg' },
   { ...base, id: 'e7', occurredAt: at(5200), userId: 'user_02', person: { name: 'Anna Weber', email: 'anna.weber@buero.at' }, kind: 'download', access: 'download', projectId: 'proj_gone', projectName: null, documentId: 'd7', documentName: 'Altbestand.docx', folderId: 'f_gone', folderPath: null },
+  { ...base, id: 'e8', occurredAt: at(6100), userId: 'user_03', person: { name: 'Klaus Berger', email: 'klaus.berger@buero.at' }, kind: 'preview', access: 'open', documentId: 'd8', documentName: null, folderId: 'f4', ownList: true, nameWithheld: true },
 ]
 
 if (typeof window !== 'undefined' && process.env.NODE_ENV === 'development') {
@@ -78,7 +80,7 @@ if (typeof window !== 'undefined' && process.env.NODE_ENV === 'development') {
         const document = query.get('document')?.toLowerCase()
         const rows = page.has('empty')
           ? []
-          : ENTRIES.filter((row) => (!user || row.userId === user) && (!document || row.documentName.toLowerCase().includes(document)))
+          : ENTRIES.filter((row) => (!user || row.userId === user) && (!document || (row.documentName ?? '').toLowerCase().includes(document)))
         const second = query.get('cursor') === 'page2'
         const slice = second ? rows.slice(4) : rows.slice(0, 4)
         return Response.json({

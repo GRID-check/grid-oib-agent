@@ -72,6 +72,36 @@ export async function projectHasCustomOrBinnedFolders(organizationId: string, pr
   return rows.length > 0
 }
 
+/** Most projects {@link listProjectsWithCustomOrBinnedFolders} answers with. */
+export const RESTRICTED_PROJECTS_LIMIT = 1_000
+
+/**
+ * The organization's projects for which {@link projectHasCustomOrBinnedFolders}
+ * is true, at most {@link RESTRICTED_PROJECTS_LIMIT}: the projects where a
+ * folder can hide something from someone. Served by the same two partial
+ * indexes, so it reads the restricted and binned folders alone.
+ */
+export async function listProjectsWithCustomOrBinnedFolders(organizationId: string): Promise<string[]> {
+  const db = getDb()
+  const rows = await withTenant({ organizationId }, () =>
+    db
+      .selectDistinct({ projectId: projectFolders.projectId })
+      .from(projectFolders)
+      .innerJoin(projects, eq(projects.id, projectFolders.projectId))
+      .where(
+        and(
+          eq(projects.organizationId, organizationId),
+          or(
+            eq(projectFolders.accessMode, 'custom'),
+            and(isNotNull(projectFolders.deletedAt), isNull(projectFolders.purgedAt))
+          )
+        )
+      )
+      .limit(RESTRICTED_PROJECTS_LIMIT)
+  )
+  return rows.flatMap((row) => (row.projectId ? [row.projectId] : []))
+}
+
 /** Most grants one project's folders hold, read back; 20 per custom folder by the 0109 trigger. */
 const PROJECT_GRANTS_LIMIT = 20_000
 
@@ -150,22 +180,38 @@ export async function listCustomFolderNames(
   )
 }
 
-/** One living folder whose own access list names a role. */
+/**
+ * Why a folder that names a role is not in a living project's folder tree: its
+ * project is pending deletion (`project`), or the folder is in the Papierkorb
+ * (`folder`). Either can be restored with its list. `null` for a living folder.
+ */
+export type FolderNamingRoleDeleted = 'folder' | 'project' | null
+
+/** One folder, living or restorable, whose own access list names a role. */
 export interface FolderNamingRole {
   folderId: string
   folderName: string
   projectId: string
   projectName: string
+  /** Set when the folder will not be found in the project's folder tree until a restore. */
+  deleted: FolderNamingRoleDeleted
 }
 
 /** Most folders one role's deletion confirmation lists; the total is still counted. */
 export const ROLE_USAGE_LIST_LIMIT = 50
 
 /**
- * The living folders of the organization's living projects whose own list names
- * `roleSlug`: what deleting the role would leave without that grant. The first
+ * The organization's folders whose own list names `roleSlug`: what deleting
+ * the role would leave without that grant. The first
  * {@link ROLE_USAGE_LIST_LIMIT} by project and folder name, and how many there
  * are in all.
+ *
+ * Whatever a restore can bring back counts, because it comes back with its
+ * list, which would then name a role that no longer exists: a folder in the
+ * Papierkorb (`deleted_at` set, `purged_at` not), and every folder of a project
+ * pending deletion (`restoreProject` clears the project's `deleted_at`). Only a
+ * purged tombstone is out, and a purged project's rows are gone. `deleted` says
+ * which of the two a row is, because neither is in the project's folder tree.
  */
 export async function listFoldersNamingRole(
   organizationId: string,
@@ -176,8 +222,7 @@ export async function listFoldersNamingRole(
     eq(projectFolderGrants.organizationId, organizationId),
     eq(projectFolderGrants.roleSlug, roleSlug),
     eq(projects.organizationId, organizationId),
-    isNull(projectFolders.deletedAt),
-    isNull(projects.deletedAt)
+    isNull(projectFolders.purgedAt)
   )
   const [rows, totals] = await withTenant({ organizationId }, () =>
     Promise.all([
@@ -187,6 +232,8 @@ export async function listFoldersNamingRole(
           folderName: projectFolders.name,
           projectId: projects.id,
           projectName: projects.name,
+          folderDeletedAt: projectFolders.deletedAt,
+          projectDeletedAt: projects.deletedAt,
         })
         .from(projectFolderGrants)
         .innerJoin(projectFolders, eq(projectFolders.id, projectFolderGrants.folderId))
@@ -202,7 +249,11 @@ export async function listFoldersNamingRole(
         .where(where),
     ])
   )
-  return { folders: rows, total: Number(totals[0]?.total ?? 0) }
+  const folders = rows.map(({ folderDeletedAt, projectDeletedAt, ...folder }): FolderNamingRole => {
+    const deleted: FolderNamingRoleDeleted = projectDeletedAt ? 'project' : folderDeletedAt ? 'folder' : null
+    return { ...folder, deleted }
+  })
+  return { folders, total: Number(totals[0]?.total ?? 0) }
 }
 
 /**

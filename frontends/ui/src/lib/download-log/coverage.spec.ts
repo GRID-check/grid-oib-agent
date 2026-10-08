@@ -11,20 +11,45 @@
  * what to classify. It reads the syntax tree, not the text, so a comment that
  * mentions `GetObjectCommand` is not a reader and a renamed import still is.
  *
- * ## Three layers
+ * ## Four layers
  *
- * 1. **Object readers.** Every top-level function in `src` that builds a
- *    `GetObjectCommand` or calls `getSignedUrl` is in {@link OBJECT_READERS}:
- *    either it records the hand-over itself (and says which `kind`), or it is
- *    exempt with the reason, written down. A function that calls
- *    `recordDocumentAccess` is in the table too, so the table is also the
- *    list of what is logged.
+ * 1. **Object readers.** Every unit of `src` that builds a `GetObjectCommand`
+ *    or calls `getSignedUrl` is in {@link OBJECT_READERS}. A unit is a top-level
+ *    function (`default` for an anonymous default export), a variable
+ *    statement, each member of a class (`Class.member`), or any other statement
+ *    that runs at the top of a module (`(top level, line N)`): every statement
+ *    but a type, an import or a re-export, so none escapes the walk. Either
+ *    it records the hand-over itself (and says which `kind`), or it is exempt
+ *    with the reason, written down. A unit that calls `recordDocumentAccess` is
+ *    in the table too, so the table is also the list of what is logged.
  * 2. **Pinned helpers.** A private helper several functions share
  *    ({@link PINNED_HELPERS}) is held to the exact list of its callers, so a new
  *    caller has to say whether it hands the bytes to a person.
  * 3. **Routes.** Every `app/api` route that reaches a logged function (by name,
  *    through any chain of functions in `src`), or builds a raw `Response`, is in
  *    {@link ROUTES}: logged through a named function, or exempt with the reason.
+ * 4. **The access check comes first.** Every logged function asks
+ *    `getAccessibleDocument` (itself, or through a function that does) before it
+ *    reads, presigns or records anything. That is the one answer to "may this
+ *    session have this document" (`lib/documents/access.ts`), so a reader that
+ *    authorizes some other way, or after the bytes are on their way, fails here.
+ *    A call is resolved to the function it names: one in the same file, one it
+ *    imports (through re-exports, `import * as` and a default import), or, as
+ *    `this.name()` in a class, that class's member. A method call on any other
+ *    object resolves to nothing, so a same-named function elsewhere in `src`
+ *    never stands in for it. A check counts only on the path every call takes:
+ *    not under a branch (`if`, `?:`, `&&`, `||`, `??`, `?.`, a `case`), in a
+ *    loop, in a `try` with a `catch`, or in a callback. And only when its result
+ *    is used: not a statement of its own, not `void`, not the left of a comma,
+ *    not a `const` nothing reads, and not a promise whose refusal a `.catch` (or
+ *    a `.then` with a rejection handler) swallows.
+ *
+ *    What it cannot see: data flow beyond that. A check on a different id than
+ *    the one whose bytes move, or one whose result is read and then not used for
+ *    them, still passes. Layer 4 guards against a reader that forgets the check,
+ *    makes it late or throws its answer away; it is not a proof, and review
+ *    reads the arguments. Layer 3 follows names, so a route that reaches a
+ *    default export under a name of its own is not followed there.
  */
 
 import { describe, expect, it } from 'vitest'
@@ -152,17 +177,268 @@ interface TopLevelFunction {
   /** The `kind` literals passed to `recordDocumentAccess`. */
   recordedKinds: string[]
   buildsObjectRead: boolean
+  /**
+   * What it calls (and `GetObjectCommand` when it builds one), in the order the
+   * calls complete: a call's arguments finish before the call, so a call is
+   * placed at its end. See {@link ResolvedCall}.
+   */
+  calls: ResolvedCall[]
+}
+
+/**
+ * One call, resolved. `target` is `<path under src>::<function>` for a function
+ * of `src` (declared in the same file, or imported, through re-exports), the
+ * bare name for anything else called by plain name (a package import, a
+ * global), and `?.<name>` for a method on some other object, which resolves to
+ * nothing. `conditional`: the call is not on the path every call of the
+ * function takes (see the module note, layer 4).
+ */
+interface ResolvedCall {
+  target: string
+  conditional: boolean
+  /** Its result is thrown away ({@link resultDiscarded}): it answers nothing, so it is no check. */
+  discarded: boolean
 }
 
 function topLevelFunctions(file: string): TopLevelFunction[] {
-  const source = ts.createSourceFile(file, readFileSync(file, 'utf8'), ts.ScriptTarget.Latest, true)
-  const rel = relative(SRC, file).replace(/\\/g, '/')
-  const found: TopLevelFunction[] = []
+  return functionsInSource(relative(SRC, file).replace(/\\/g, '/'), readFileSync(file, 'utf8'))
+}
+
+/**
+ * `src`-relative path of a module specifier, or null for a package. A module
+ * that is not on disk (a spec's synthetic source) is taken to be `<base>.ts`.
+ */
+function moduleFile(fromRel: string, specifier: string): string | null {
+  let base: string
+  if (specifier.startsWith('@/')) base = specifier.slice(2)
+  else if (specifier.startsWith('.')) base = join(fromRel, '..', specifier).replace(/\\/g, '/')
+  else return null
+  const candidates = [base, `${base}.ts`, `${base}.tsx`, `${base}/index.ts`, `${base}/index.tsx`]
+  return candidates.find((candidate) => /\.tsx?$/.test(candidate) && existsSync(join(SRC, candidate))) ?? `${base}.ts`
+}
+
+const parsedSources = new Map<string, ts.SourceFile | null>()
+function parsed(rel: string): ts.SourceFile | null {
+  if (!parsedSources.has(rel)) {
+    const path = join(SRC, rel)
+    const text = existsSync(path) ? readFileSync(path, 'utf8') : null
+    parsedSources.set(rel, text === null ? null : ts.createSourceFile(rel, text, ts.ScriptTarget.Latest, true))
+  }
+  return parsedSources.get(rel) ?? null
+}
+
+/** Whether a statement is the module's default export (`export default function`, `export default <expr>`). */
+function isDefaultExport(statement: ts.Statement): boolean {
+  if (ts.isExportAssignment(statement)) return !statement.isExportEquals
+  if (!ts.isFunctionDeclaration(statement) && !ts.isClassDeclaration(statement)) return false
+  return (ts.getCombinedModifierFlags(statement) & ts.ModifierFlags.Default) !== 0
+}
+
+/** The top-level names a module declares (functions, classes and `const`s), and `default` when it has a default export. */
+function declaredNames(source: ts.SourceFile): Set<string> {
+  const names = new Set<string>()
   for (const statement of source.statements) {
-    let name: string | null = null
-    if (ts.isFunctionDeclaration(statement) && statement.name) name = statement.name.text
-    else if (ts.isVariableStatement(statement)) name = statement.declarationList.declarations[0]?.name.getText() ?? null
-    if (!name) continue
+    if (isDefaultExport(statement)) names.add('default')
+    if ((ts.isFunctionDeclaration(statement) || ts.isClassDeclaration(statement)) && statement.name) names.add(statement.name.text)
+    if (!ts.isVariableStatement(statement)) continue
+    for (const declaration of statement.declarationList.declarations) names.add(declaration.name.getText())
+  }
+  return names
+}
+
+/** Where `name`, exported by module `rel`, is declared: through `export { a as b } from` and `export * from`. */
+function declarationOf(rel: string, name: string, seen = new Set<string>()): string {
+  const source = parsed(rel)
+  if (!source || seen.has(rel) || declaredNames(source).has(name)) return `${rel}::${name}`
+  seen.add(rel)
+  for (const statement of source.statements) {
+    if (!ts.isExportDeclaration(statement) || !statement.moduleSpecifier) continue
+    if (!ts.isStringLiteral(statement.moduleSpecifier)) continue
+    const target = moduleFile(rel, statement.moduleSpecifier.text)
+    const clause = statement.exportClause
+    if (!target) continue
+    if (!clause) {
+      const found = declarationOf(target, name, seen)
+      const declaring = parsed(found.split('::')[0])
+      if (declaring && declaredNames(declaring).has(name)) return found
+    } else if (ts.isNamedExports(clause)) {
+      const spec = clause.elements.find((element) => element.name.text === name)
+      if (spec) return declarationOf(target, (spec.propertyName ?? spec.name).text, seen)
+    }
+  }
+  return `${rel}::${name}`
+}
+
+/** What each name a module imports from `src` is: a function key, or a namespace (`ns:` and its file). */
+function importBindings(rel: string, source: ts.SourceFile): Map<string, string> {
+  const bindings = new Map<string, string>()
+  for (const statement of source.statements) {
+    if (!ts.isImportDeclaration(statement) || !ts.isStringLiteral(statement.moduleSpecifier)) continue
+    const target = moduleFile(rel, statement.moduleSpecifier.text)
+    const clause = statement.importClause
+    if (target && clause?.name) bindings.set(clause.name.text, declarationOf(target, 'default'))
+    const named = clause?.namedBindings
+    if (!target || !named) continue
+    if (ts.isNamespaceImport(named)) {
+      bindings.set(named.name.text, `ns:${target}`)
+      continue
+    }
+    for (const element of named.elements) {
+      bindings.set(element.name.text, declarationOf(target, (element.propertyName ?? element.name).text))
+    }
+  }
+  return bindings
+}
+
+const SHORT_CIRCUIT = new Set([
+  ts.SyntaxKind.AmpersandAmpersandToken,
+  ts.SyntaxKind.BarBarToken,
+  ts.SyntaxKind.QuestionQuestionToken,
+  ts.SyntaxKind.AmpersandAmpersandEqualsToken,
+  ts.SyntaxKind.BarBarEqualsToken,
+  ts.SyntaxKind.QuestionQuestionEqualsToken,
+])
+
+/** Whether `child`, directly under `parent`, runs on only some of the paths through `parent`. */
+function branches(parent: ts.Node, child: ts.Node): boolean {
+  if (ts.isIfStatement(parent)) return child !== parent.expression
+  if (ts.isConditionalExpression(parent)) return child !== parent.condition
+  if (ts.isBinaryExpression(parent)) return SHORT_CIRCUIT.has(parent.operatorToken.kind) && child === parent.right
+  if (ts.isTryStatement(parent)) return parent.catchClause !== undefined && child === parent.tryBlock
+  return ts.isCaseClause(parent) || ts.isDefaultClause(parent) || ts.isCatchClause(parent) || ts.isIterationStatement(parent, false)
+}
+
+/**
+ * Whether a call's result is thrown away, so a refusal it carries stops
+ * nothing: a statement of its own (`await check(…)`, `void check(…)`), the
+ * left of a comma, a `.catch(…)` (or a `.then` with a rejection handler) on its
+ * promise, or a `const` nothing reads. `getAccessibleDocument` refuses by
+ * throwing, so most of these still refuse; they are passed over all the same,
+ * because a check whose document is never used is usually a check on something
+ * other than what moves (module note, layer 4).
+ */
+function resultDiscarded(call: ts.CallExpression, root: ts.Node): boolean {
+  let node: ts.Node = call
+  const transparent = (parent: ts.Node): boolean =>
+    ts.isParenthesizedExpression(parent) ||
+    ts.isAwaitExpression(parent) ||
+    ts.isNonNullExpression(parent) ||
+    ts.isAsExpression(parent) ||
+    ts.isSatisfiesExpression(parent)
+  while (transparent(node.parent)) node = node.parent
+  const parent = node.parent
+  if (ts.isExpressionStatement(parent) || ts.isVoidExpression(parent)) return true
+  if (ts.isBinaryExpression(parent) && parent.operatorToken.kind === ts.SyntaxKind.CommaToken) return parent.left === node
+  if (ts.isPropertyAccessExpression(parent) && parent.expression === node) {
+    const chained = parent.parent
+    if (parent.name.text === 'catch') return true
+    return parent.name.text === 'then' && ts.isCallExpression(chained) && chained.arguments.length > 1
+  }
+  if (!ts.isVariableDeclaration(parent) || parent.initializer !== node) return false
+  return !bindingNames(parent.name).some((name) => readElsewhere(root, name))
+}
+
+/** The names a declaration binds, through destructuring. */
+function bindingNames(name: ts.BindingName): ts.Identifier[] {
+  if (ts.isIdentifier(name)) return [name]
+  return name.elements.flatMap((element) => (ts.isOmittedExpression(element) ? [] : bindingNames(element.name)))
+}
+
+/** Whether `root` mentions the name `declared` binds anywhere but in that declaration. */
+function readElsewhere(root: ts.Node, declared: ts.Identifier): boolean {
+  let found = false
+  const visit = (node: ts.Node): void => {
+    if (found) return
+    if (ts.isIdentifier(node) && node !== declared && node.text === declared.text) found = true
+    ts.forEachChild(node, visit)
+  }
+  visit(root)
+  return found
+}
+
+/** A member's name as its key spells it: `get`, `constructor`, `[computed]`, `static`. */
+function memberName(member: ts.ClassElement): string | null {
+  if (ts.isConstructorDeclaration(member)) return 'constructor'
+  if (ts.isClassStaticBlockDeclaration(member)) return 'static'
+  if (!member.name) return null
+  if (ts.isIdentifier(member.name) || ts.isPrivateIdentifier(member.name) || ts.isStringLiteralLike(member.name)) {
+    return member.name.text
+  }
+  return member.name.getText()
+}
+
+/**
+ * One unit the walk reads, named for its key: a function declaration (its name,
+ * or `default`), a variable statement (its first name), each member of a class
+ * (`Class.member`, `default.member` for an anonymous default class), a default
+ * export of an expression (`default`), and any other statement that runs code
+ * at the top of the module (`(top level, line N)`). Every statement but a type,
+ * an import or a re-export is one, so a call to a byte step cannot sit where the
+ * walk does not look.
+ */
+interface Unit {
+  name: string
+  node: ts.Node
+  /** The class whose `this` the unit's calls resolve against. */
+  className?: string
+  /** A unit that is not a function: every function inside it is a callback. */
+  bare?: true
+}
+
+function unitsOf(source: ts.SourceFile, statement: ts.Statement): Unit[] {
+  if (ts.isFunctionDeclaration(statement)) {
+    if (!statement.body) return []
+    return [{ name: statement.name?.text ?? 'default', node: statement }]
+  }
+  if (ts.isVariableStatement(statement)) {
+    const first = statement.declarationList.declarations[0]
+    return first ? [{ name: first.name.getText(), node: statement }] : []
+  }
+  if (ts.isClassDeclaration(statement)) {
+    const className = statement.name?.text ?? 'default'
+    return statement.members.flatMap((member) => {
+      const name = memberName(member)
+      if (name === null || ts.isIndexSignatureDeclaration(member)) return []
+      return [{ name: `${className}.${name}`, node: member, className, ...(ts.isClassStaticBlockDeclaration(member) ? { bare: true as const } : {}) }]
+    })
+  }
+  if (ts.isExportAssignment(statement)) return [{ name: 'default', node: statement }]
+  if (
+    ts.isImportDeclaration(statement) ||
+    ts.isImportEqualsDeclaration(statement) ||
+    ts.isExportDeclaration(statement) ||
+    ts.isInterfaceDeclaration(statement) ||
+    ts.isTypeAliasDeclaration(statement) ||
+    ts.isEmptyStatement(statement)
+  ) {
+    return []
+  }
+  const line = source.getLineAndCharacterOfPosition(statement.getStart()).line + 1
+  return [{ name: `(top level, line ${line})`, node: statement, bare: true }]
+}
+
+function functionsInSource(rel: string, text: string): TopLevelFunction[] {
+  const source = ts.createSourceFile(rel, text, ts.ScriptTarget.Latest, true)
+  const locals = declaredNames(source)
+  const imports = importBindings(rel, source)
+  /**
+   * `foo()` and `ns.foo()` to the function they name, `this.foo()` in a class
+   * to that class's member; a method on anything else to nothing.
+   */
+  const resolve = (expression: ts.Expression, className: string | undefined): string | null => {
+    if (ts.isIdentifier(expression)) {
+      if (locals.has(expression.text)) return `${rel}::${expression.text}`
+      return imports.get(expression.text) ?? expression.text
+    }
+    if (!ts.isPropertyAccessExpression(expression)) return null
+    if (className && expression.expression.kind === ts.SyntaxKind.ThisKeyword) return `${rel}::${className}.${expression.name.text}`
+    const owner = ts.isIdentifier(expression.expression) ? imports.get(expression.expression.text) : undefined
+    if (owner?.startsWith('ns:')) return declarationOf(owner.slice(3), expression.name.text)
+    return `?.${expression.name.text}`
+  }
+  const found: TopLevelFunction[] = []
+  for (const unit of source.statements.flatMap((statement) => unitsOf(source, statement))) {
+    const { name, className } = unit
     const fn: TopLevelFunction = {
       key: `${rel}::${name}`,
       name,
@@ -171,10 +447,22 @@ function topLevelFunctions(file: string): TopLevelFunction[] {
       callsRecord: false,
       recordedKinds: [],
       buildsObjectRead: false,
+      calls: [],
     }
-    const visit = (node: ts.Node): void => {
+    const ordered: Array<ResolvedCall & { end: number }> = []
+    // The first function met is the one being read; a function inside it is a
+    // callback, which may run later, many times, or never. A unit that is not a
+    // function has no such first one.
+    let rootSeen = unit.bare === true
+    const visit = (node: ts.Node, conditional: boolean): void => {
       if (ts.isIdentifier(node)) fn.identifiers.add(node.text)
       if (ts.isNewExpression(node) && node.expression.getText() === 'GetObjectCommand') fn.buildsObjectRead = true
+      if (ts.isCallExpression(node) || ts.isNewExpression(node)) {
+        const target = resolve(node.expression, className)
+        const optional = ts.isCallExpression(node) && node.questionDotToken !== undefined
+        const discarded = ts.isCallExpression(node) && resultDiscarded(node, unit.node)
+        if (target) ordered.push({ end: node.getEnd(), target, conditional: conditional || optional, discarded })
+      }
       if (ts.isCallExpression(node)) {
         const callee = node.expression.getText()
         if (callee === 'getSignedUrl') fn.buildsObjectRead = true
@@ -184,12 +472,59 @@ function topLevelFunctions(file: string): TopLevelFunction[] {
           if (kind && ts.isStringLiteralLike(kind)) fn.recordedKinds.push(kind.text)
         }
       }
-      ts.forEachChild(node, visit)
+      const callback = ts.isFunctionLike(node) && rootSeen
+      if (ts.isFunctionLike(node)) rootSeen = true
+      ts.forEachChild(node, (child) => visit(child, conditional || callback || branches(node, child)))
     }
-    visit(statement)
+    visit(unit.node, false)
+    fn.calls = ordered
+      .sort((a, b) => a.end - b.end)
+      .map(({ target, conditional, discarded }) => ({ target, conditional, discarded }))
     found.push(fn)
   }
   return found
+}
+
+/** The one access decision for a document (`lib/documents/access.ts`), as a resolved call target. */
+const ACCESS_CHECK = 'lib/documents/access.ts::getAccessibleDocument'
+/** What reads, presigns or records a document's bytes directly. */
+const BYTE_STEPS = new Set(['GetObjectCommand', 'getSignedUrl', 'lib/download-log/service.ts::recordDocumentAccess'])
+
+/**
+ * The functions (by key) that ask {@link ACCESS_CHECK} before anything reaches
+ * bytes: among the calls each makes, in order, the first that is either an
+ * access check (`getAccessibleDocument`, or a function already in this set) on
+ * the path every call takes, or a byte step (a read, a presign, a record, or a
+ * call to a function that does one without asking first), is an access check.
+ * A check under a branch is passed over, not counted. Calls are resolved to
+ * the function they name ({@link ResolvedCall}), to a fixed point.
+ */
+function accessCheckedFirst(functions: readonly TopLevelFunction[]): Set<string> {
+  const reads = new Set(functions.filter((fn) => fn.buildsObjectRead || fn.callsRecord).map((fn) => fn.key))
+  for (let grew = true; grew; ) {
+    grew = false
+    for (const fn of functions) {
+      if (reads.has(fn.key) || !fn.calls.some(({ target }) => target !== fn.key && reads.has(target))) continue
+      reads.add(fn.key)
+      grew = true
+    }
+  }
+  const checked = new Set<string>()
+  const asks = (call: ResolvedCall): boolean =>
+    !call.conditional && !call.discarded && (call.target === ACCESS_CHECK || checked.has(call.target))
+  for (let grew = true; grew; ) {
+    grew = false
+    for (const fn of functions) {
+      if (checked.has(fn.key)) continue
+      const first = fn.calls.find(
+        (call) => call.target !== fn.key && (asks(call) || BYTE_STEPS.has(call.target) || reads.has(call.target))
+      )
+      if (!first || !asks(first)) continue
+      checked.add(fn.key)
+      grew = true
+    }
+  }
+  return checked
 }
 
 const FILES = sourceFiles(SRC)
@@ -244,6 +579,168 @@ describe('download log coverage: object readers', () => {
     }
   })
 
+  it('every logged function asks getAccessibleDocument before it reads, presigns or records', () => {
+    const checked = accessCheckedFirst(CALLERS)
+    const logged = Object.entries(OBJECT_READERS)
+      .filter(([, disposition]) => 'logged' in disposition)
+      .map(([key]) => key)
+    expect(
+      logged.filter((key) => !checked.has(key)),
+      'A function records a hand-over without first asking getAccessibleDocument (itself or through a function ' +
+        'that does). That call is the one access decision for a document; authorize through it before the bytes move.'
+    ).toEqual([])
+  })
+
+  it('the access-check order is read from the code, not assumed (it fails a reader that checks late or elsewhere)', () => {
+    const functions = functionsInSource(
+      'lib/example.ts',
+      `
+      import { getAccessibleDocument } from '@/lib/documents/access'
+      import { recordDocumentAccess } from '@/lib/download-log/service'
+      import { getSignedUrl } from '@aws-sdk/s3-request-presigner'
+      async function load(session, id) { return getAccessibleDocument(session, id) }
+      export async function viaHelper(session, id) { const doc = await load(session, id); await recordDocumentAccess(session, doc, 'download') }
+      export async function direct(session, id) { const doc = await getAccessibleDocument(session, id); await getSignedUrl(s3, new GetObjectCommand({ Key: doc.storageKey })) }
+      export async function late(session, id) { const url = await getSignedUrl(s3, new GetObjectCommand({})); await getAccessibleDocument(session, id); return url }
+      export async function elsewhere(session, id) { await getAccessibleModel(session, id); await recordDocumentAccess(session, null, 'model') }
+      export async function nested(session, id) { await recordDocumentAccess(session, await getAccessibleDocument(session, id), 'pdf') }
+      export async function inCondition(session, id) { if (!(await getAccessibleDocument(session, id))) throw new Error(); await recordDocumentAccess(session, null, 'pdf') }
+      `
+    )
+    const checked = accessCheckedFirst(functions)
+    const key = (name: string) => `lib/example.ts::${name}`
+    expect(['load', 'viaHelper', 'direct', 'nested', 'inCondition'].filter((name) => !checked.has(key(name)))).toEqual([])
+    expect(['late', 'elsewhere'].filter((name) => checked.has(key(name)))).toEqual([])
+  })
+
+  it('resolves a call to the function it names, so a same-named check elsewhere in src or a method on another object does not count', () => {
+    const functions = [
+      // Another file's `load` asks first; this file's `load` does not.
+      ...functionsInSource(
+        'lib/other.ts',
+        `
+        import { getAccessibleDocument } from '@/lib/documents/access'
+        export async function load(session, id) { return getAccessibleDocument(session, id) }
+        `
+      ),
+      ...functionsInSource(
+        'lib/example.ts',
+        `
+        import { recordDocumentAccess } from '@/lib/download-log/service'
+        import * as other from './other'
+        import { load as checkedLoad } from './other'
+        async function load(session, id) { return cache.get(id) }
+        export async function sameName(session, id) { await load(session, id); await recordDocumentAccess(session, null, 'pdf') }
+        export async function method(session, id) { await store.load(session, id); await recordDocumentAccess(session, null, 'pdf') }
+        export async function imported(session, id) { const doc = await checkedLoad(session, id); await recordDocumentAccess(session, doc, 'pdf') }
+        export async function namespace(session, id) { const doc = await other.load(session, id); await recordDocumentAccess(session, doc, 'pdf') }
+        `
+      ),
+    ]
+    const checked = accessCheckedFirst(functions)
+    const key = (name: string) => `lib/example.ts::${name}`
+    expect(['sameName', 'method'].filter((name) => checked.has(key(name)))).toEqual([])
+    expect(['imported', 'namespace'].filter((name) => !checked.has(key(name)))).toEqual([])
+  })
+
+  it('counts a check only on the path every call takes: not under a branch, in a swallowing try, or in a callback', () => {
+    const functions = functionsInSource(
+      'lib/example.ts',
+      `
+      import { getAccessibleDocument } from '@/lib/documents/access'
+      import { recordDocumentAccess } from '@/lib/download-log/service'
+      export async function guarded(session, id) { if (!cached) await getAccessibleDocument(session, id); await recordDocumentAccess(session, null, 'pdf') }
+      export async function ternary(session, id) { const doc = cached ? cached : await getAccessibleDocument(session, id); await recordDocumentAccess(session, doc, 'pdf') }
+      export async function shortCircuit(session, id) { const doc = cached ?? (await getAccessibleDocument(session, id)); await recordDocumentAccess(session, doc, 'pdf') }
+      export async function swallowed(session, id) { try { await getAccessibleDocument(session, id) } catch {} await recordDocumentAccess(session, null, 'pdf') }
+      export async function callback(session, ids) { ids.forEach((id) => getAccessibleDocument(session, id)); await recordDocumentAccess(session, null, 'pdf') }
+      export async function finallyOnly(session, id) { let doc; try { doc = await getAccessibleDocument(session, id) } finally { done() } await recordDocumentAccess(session, doc, 'pdf') }
+      export async function thenUnconditional(session, id) { if (x) await getAccessibleDocument(session, id); const doc = await getAccessibleDocument(session, id); await recordDocumentAccess(session, doc, 'pdf') }
+      `
+    )
+    const checked = accessCheckedFirst(functions)
+    const key = (name: string) => `lib/example.ts::${name}`
+    expect(
+      ['guarded', 'ternary', 'shortCircuit', 'swallowed', 'callback'].filter((name) => checked.has(key(name)))
+    ).toEqual([])
+    expect(['finallyOnly', 'thenUnconditional'].filter((name) => !checked.has(key(name)))).toEqual([])
+  })
+
+  it('counts no check whose result is thrown away or whose refusal is caught', () => {
+    const functions = functionsInSource(
+      'lib/example.ts',
+      `
+      import { getAccessibleDocument } from '@/lib/documents/access'
+      import { recordDocumentAccess } from '@/lib/download-log/service'
+      export async function statement(session, id, other) { await getAccessibleDocument(session, id); await recordDocumentAccess(session, other, 'pdf') }
+      export async function voided(session, id, other) { void getAccessibleDocument(session, id); await recordDocumentAccess(session, other, 'pdf') }
+      export async function comma(session, id, other) { const doc = (await getAccessibleDocument(session, id), other); await recordDocumentAccess(session, doc, 'pdf') }
+      export async function unread(session, id, other) { const doc = await getAccessibleDocument(session, id); await recordDocumentAccess(session, other, 'pdf') }
+      export async function caught(session, id) { const doc = await getAccessibleDocument(session, id).catch(() => null); await recordDocumentAccess(session, doc, 'pdf') }
+      export async function rejectionHandled(session, id) { const doc = await getAccessibleDocument(session, id).then((found) => found, () => null); await recordDocumentAccess(session, doc, 'pdf') }
+      export async function read(session, id) { const doc = await getAccessibleDocument(session, id); await recordDocumentAccess(session, doc, 'pdf') }
+      export async function destructured(session, id) { const { folderId } = await getAccessibleDocument(session, id); await recordDocumentAccess(session, { folderId }, 'pdf') }
+      export async function chained(session, id) { const doc = await getAccessibleDocument(session, id).then((found) => found); await recordDocumentAccess(session, doc, 'pdf') }
+      `
+    )
+    const checked = accessCheckedFirst(functions)
+    const key = (name: string) => `lib/example.ts::${name}`
+    expect(
+      ['statement', 'voided', 'comma', 'unread', 'caught', 'rejectionHandled'].filter((name) => checked.has(key(name)))
+    ).toEqual([])
+    expect(['read', 'destructured', 'chained'].filter((name) => !checked.has(key(name)))).toEqual([])
+  })
+
+  it('reads class methods, default exports and top-level code, so a byte step cannot sit where the walk does not look', () => {
+    const functions = functionsInSource(
+      'lib/example.ts',
+      `
+      import { getAccessibleDocument } from '@/lib/documents/access'
+      import { recordDocumentAccess } from '@/lib/download-log/service'
+      import { getSignedUrl } from '@aws-sdk/s3-request-presigner'
+      export class Reader {
+        async load(session, id) { return getAccessibleDocument(session, id) }
+        async checked(session, id) { const doc = await this.load(session, id); await recordDocumentAccess(session, doc, 'pdf') }
+        async unchecked(session, doc) { await recordDocumentAccess(session, doc, 'preview') }
+        presign = async () => getSignedUrl(s3, new GetObjectCommand({}))
+        static { getSignedUrl(s3, new GetObjectCommand({})) }
+      }
+      export default async function (session, doc) { await recordDocumentAccess(session, doc, 'download') }
+      void getSignedUrl(s3, new GetObjectCommand({}))
+      `
+    )
+    const byKey = new Map(functions.map((fn) => [fn.key.replace('lib/example.ts::', ''), fn]))
+    expect(
+      [...byKey].filter(([, fn]) => fn.callsRecord || fn.buildsObjectRead).map(([name]) => name).sort()
+    ).toEqual(['(top level, line 13)', 'Reader.checked', 'Reader.presign', 'Reader.static', 'Reader.unchecked', 'default'])
+    expect(byKey.get('default')?.recordedKinds).toEqual(['download'])
+    // `this.load` resolves to the class's own member, which asks first.
+    const checked = accessCheckedFirst(functions)
+    expect(['Reader.checked'].filter((name) => !checked.has(`lib/example.ts::${name}`))).toEqual([])
+    expect(['Reader.unchecked', 'default'].filter((name) => checked.has(`lib/example.ts::${name}`))).toEqual([])
+  })
+
+  it('resolves a default import to the default export it names', () => {
+    const functions = [
+      ...functionsInSource(
+        'lib/other.ts',
+        `
+        import { getAccessibleDocument } from '@/lib/documents/access'
+        export default async function (session, id) { return getAccessibleDocument(session, id) }
+        `
+      ),
+      ...functionsInSource(
+        'lib/example.ts',
+        `
+        import { recordDocumentAccess } from '@/lib/download-log/service'
+        import load from './other'
+        export async function viaDefault(session, id) { const doc = await load(session, id); await recordDocumentAccess(session, doc, 'pdf') }
+        `
+      ),
+    ]
+    expect(accessCheckedFirst(functions).has('lib/example.ts::viaDefault')).toBe(true)
+  })
+
   it('every kind the table logs is used, and every kind in the type is logged by someone', () => {
     const used = new Set(
       Object.values(OBJECT_READERS).flatMap((disposition) => ('logged' in disposition ? disposition.logged : []))
@@ -253,11 +750,14 @@ describe('download log coverage: object readers', () => {
 })
 
 describe('download log coverage: routes', () => {
+  /** The name a caller writes for a unit: a class member's own name (`get` of `Reader.get`). */
+  const calledAs = (name: string): string => name.slice(name.lastIndexOf('.') + 1)
+
   /** Names of functions that hand bytes to a person (logged or reachable-by-browser exempt). */
   const seeds = new Set(
     Object.entries(OBJECT_READERS)
       .filter(([, disposition]) => 'logged' in disposition || ('servesPerson' in disposition && disposition.servesPerson))
-      .map(([key]) => key.split('::')[1])
+      .map(([key]) => calledAs(key.split('::')[1]))
   )
 
   /** Everything in `src` that, through any chain of functions, reaches a seed by name. */
@@ -267,9 +767,10 @@ describe('download log coverage: routes', () => {
       grew = false
       for (const fn of CALLERS) {
         // A route's own handler names (`GET`) are not functions anything calls.
-        if (/^app\/api\/.*route\.ts$/.test(fn.file) || names.has(fn.name)) continue
-        if ([...fn.identifiers].some((identifier) => identifier !== fn.name && names.has(identifier))) {
-          names.add(fn.name)
+        const name = calledAs(fn.name)
+        if (/^app\/api\/.*route\.ts$/.test(fn.file) || names.has(name)) continue
+        if ([...fn.identifiers].some((identifier) => identifier !== name && names.has(identifier))) {
+          names.add(name)
           grew = true
         }
       }

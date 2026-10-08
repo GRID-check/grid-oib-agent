@@ -30,7 +30,8 @@ Today access is per project and nothing finer. Roles are fixed in
 `lib/authz/catalog.ts` and provisioned into WorkOS; a custom role exists only if
 an operator creates it in the WorkOS dashboard; the session reads `role` and
 `permissions`, not `roles`. `documents.visibility = 'private'` can be set and
-nothing on the read side enforces it. Retrieval is scoped by the signed
+nothing on the read side enforces it (since 2026-10-07 the sharing registry
+refuses it on a document, until per-document access exists). Retrieval is scoped by the signed
 collection list the BFF puts in the request envelope (ADR-0047), and every
 Python read path — search, inventory, `read_passage`, browse, surfacing,
 `view_image` — stays inside that list. Chunks carry no folder or document id;
@@ -191,6 +192,28 @@ one function, `src/aiq_agent/memory/restriction.py`, shared by the `remember`
 tool and the reflection stage; the BFF stores only collections that are
 currently restricted collections of the project (as first designed; migration 0111
 ships the column keyed by folder, ADR-0085).
+
+**New audit events name no restricted document** (added 2026-10-07). The trail
+is read in the WorkOS audit portal with `org:audit:view`, which roles that are
+not organization admins hold. An event about a document filed, when it is
+emitted, under a folder not every project member may read leaves its name keys
+out and says `nameWithheld`; the target id still says which document
+(`lib/audit/document-names.ts`, `lib/audit/service.ts`). The compiler asks every
+call site of such an action where the document is filed. WorkOS events are
+immutable, so this holds from the release on and at emit time only: events
+emitted earlier, or while the folder was still open, or before a document was
+moved into a restricted folder, keep the name
+([`workos-provisioning.md`](../deployment/workos-provisioning.md)).
+
+"Restricted" here is a folder that some project member may not read: an own
+list that grants `*` read is not, because every member reads it anyway. The
+download log asks two other questions with two other answers. What it records:
+an open under any own list, `*` or not, because recording more is the safe
+direction. Whose names its view shows: those of folders the reader may read now,
+by their own roles, because `org:downloads:view` clears no folder (a row
+whose project is purged goes by the `own_list` it was recorded with). Both
+withholding rules therefore agree: a name is hidden from a reader who may not
+read its folder, and a `*` list hides it from nobody on either surface.
 
 **Re-classified here as "roles outside WorkOS"** and fixed: third-party
 permission checks (invitations, quarantine reviewers, storage alerts) consulted

@@ -2,10 +2,12 @@
  * The organization's download log (ADR-0085): who took which document out, and
  * who opened one in a folder with its own access list.
  *
- * GET — `org:downloads:view` (organization admins). Newest first, paginated by
+ * GET — `org:downloads:view` (organization admins, or a custom role given it). Newest first, paginated by
  *       an opaque `cursor`, filtered by person (`userId`), document (`document`:
  *       an id, or part of the name it had) and day (`from`, `to`). Every read is
- *       recorded in the audit trail first, and refused if it cannot be.
+ *       recorded in the audit trail first, and refused if it cannot be. The
+ *       permission clears no folder: a row in a folder the reader may not read
+ *       comes without its document and folder names (`nameWithheld`).
  * Thin handler; logic, authorization and the audit event live in
  * `@/lib/download-log/service`.
  */

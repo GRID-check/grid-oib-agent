@@ -35,8 +35,17 @@ import { configuredAppOrigin } from '@/lib/app-origin'
 import { getWorkOS } from '@/lib/workos/client'
 import type { AuthoredRefKind } from '@/lib/documents/document-authors'
 import { AUDIT_ACTIONS } from './schemas.mjs'
+import { DOCUMENT_NAME_KEYS, type AuditDocumentPlacement, type DocumentNameAction } from './document-names'
 
 export { AUDIT_ACTIONS }
+export {
+  DOCUMENT_NAME_ACTIONS,
+  DOCUMENT_NAME_KEYS,
+  UNRESTRICTED_NAME_ACTIONS,
+  filedInOf,
+  type AuditDocumentPlacement,
+  type DocumentNameAction,
+} from './document-names'
 export type AuditAction = (typeof AUDIT_ACTIONS)[number]
 
 /** Flat primitives only — the WorkOS metadata contract. */
@@ -116,17 +125,26 @@ interface AuditTarget {
   id: string
 }
 
-export interface AuditEventInput {
+interface AuditEventFields {
   /** WorkOS org the action AFFECTED (audit events are org-scoped). */
   organizationId: string
   actor: AuditActor
-  action: AuditAction
   targetType: string
   targetId?: string | null
   metadata?: Record<string, string | number | boolean | null | undefined>
   /** Source request, for actor IP + user agent in the event context. */
   request?: Request
 }
+
+/**
+ * An event. A {@link DocumentNameAction} must state `filedIn`, so a new call
+ * site that names a project document cannot compile without saying where it is.
+ */
+export type AuditEventInput = AuditEventFields &
+  (
+    | { action: Exclude<AuditAction, DocumentNameAction>; filedIn?: AuditDocumentPlacement }
+    | { action: DocumentNameAction; filedIn: AuditDocumentPlacement }
+  )
 
 function requestContext(request?: Request): { location: string; userAgent?: string } {
   // First hop of x-forwarded-for is the client (the BFF sits behind a proxy).
@@ -198,8 +216,37 @@ export class AuditEmitError extends Error {
   }
 }
 
+/**
+ * Whether a document filed here may be named in the trail: when every member of
+ * its project may read the folder. Fails closed: a folder the tree cannot
+ * answer for, or a lookup that throws, withholds the name.
+ */
+async function mayNameDocument(organizationId: string, placement: AuditDocumentPlacement | undefined): Promise<boolean> {
+  if (!placement || placement.folderId === null) return true
+  try {
+    // Loaded on use: the folder rule reads the database, and the emitter is
+    // imported by nearly every service.
+    const { ANY_MEMBER, isFolderVisibleToClearance } = await import('@/lib/authz/folder-access')
+    return await isFolderVisibleToClearance(organizationId, placement.projectId, placement.folderId, ANY_MEMBER)
+  } catch (error) {
+    console.error(`[Audit] could not decide whether a document in folder ${placement.folderId} may be named:`, error)
+    return false
+  }
+}
+
+/** The metadata that goes on the wire: compacted, and without a restricted document's names. */
+async function wireMetadata(input: AuditEventInput): Promise<AuditMetadata> {
+  const metadata = compactMetadata(input.metadata)
+  if (await mayNameDocument(input.organizationId, input.filedIn)) return metadata
+  const withheld = Object.fromEntries(
+    Object.entries(metadata).filter(([key]) => !(DOCUMENT_NAME_KEYS as readonly string[]).includes(key))
+  )
+  return { ...withheld, nameWithheld: true }
+}
+
 /** The single WorkOS call both emitters share. Throws whatever WorkOS throws. */
 async function emit(input: AuditEventInput): Promise<void> {
+  const metadata = await wireMetadata(input)
   const workos = getWorkOS()
   await workos.auditLogs.createEvent(input.organizationId, {
     action: input.action,
@@ -225,7 +272,7 @@ async function emit(input: AuditEventInput): Promise<void> {
     },
     targets: eventTargets(input),
     context: requestContext(input.request),
-    metadata: compactMetadata(input.metadata),
+    metadata,
   })
 }
 

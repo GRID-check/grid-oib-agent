@@ -43,7 +43,12 @@ import { checkResourcePermission } from './resource-check'
 import { resolveSubjectMembership } from './project-membership'
 import { findProjectTenancy } from '@/lib/projects/repository'
 import { isProjectClosed } from '@/lib/projects/project-status'
-import { listCustomFolderNames, listProjectFolderTree, projectHasCustomOrBinnedFolders } from './folder-access-repository'
+import {
+  listCustomFolderNames,
+  listProjectFolderTree,
+  listProjectsWithCustomOrBinnedFolders,
+  projectHasCustomOrBinnedFolders,
+} from './folder-access-repository'
 import {
   ANY_MEMBER,
   atLeast,
@@ -73,6 +78,28 @@ async function anyRoleAdministers(organizationId: string, roles: readonly string
 }
 
 /**
+ * The session's roles and admin bypass before any project narrows them. Only
+ * the bypass holds without a project ({@link seesEveryFolder}); the roles clear
+ * a folder only through {@link clearanceOf}, in the folder's project.
+ */
+async function organizationClearanceOf(session: AuthorizedSession): Promise<FolderClearance> {
+  const roles = rolesOf(session)
+  const current = await resolveMembershipRoles(session.organizationId, session.userId)
+  return current === null
+    ? { roles, seesEverything: hasPermission(session, ORG_PERMISSIONS.projectsAdminister) }
+    : { roles, seesEverything: await anyRoleAdministers(session.organizationId, current) }
+}
+
+/**
+ * Whether the session clears every folder of every project, closed or not:
+ * the admin bypass, which is the one part of a clearance no project changes.
+ * What decides a row whose project is purged, so that no list can answer now.
+ */
+export async function seesEveryFolder(session: AuthorizedSession): Promise<boolean> {
+  return (await organizationClearanceOf(session)).seesEverything
+}
+
+/**
  * What clears folders for this session in one project: its roles and the admin
  * bypass.
  *
@@ -91,12 +118,7 @@ async function anyRoleAdministers(organizationId: string, roles: readonly string
  * clearance is always a clearance in some project.
  */
 export async function clearanceOf(session: AuthorizedSession, projectId: string): Promise<FolderClearance> {
-  const roles = rolesOf(session)
-  const current = await resolveMembershipRoles(session.organizationId, session.userId)
-  const clearance =
-    current === null
-      ? { roles, seesEverything: hasPermission(session, ORG_PERMISSIONS.projectsAdminister) }
-      : { roles, seesEverything: await anyRoleAdministers(session.organizationId, current) }
+  const clearance = await organizationClearanceOf(session)
   if (clearance.seesEverything) return clearance
   const outsider = await readsOnlyBecauseClosed(session.organizationId, projectId, session.organizationMembershipId)
   return outsider ? ANY_MEMBER : clearance
@@ -381,6 +403,27 @@ export async function readableFolderIdsFor(
   return folders
     .filter((folder) => atLeast(effectiveFolderLevel(tree, clearance, folder.id), 'read'))
     .map((folder) => folder.id)
+}
+
+/**
+ * Every folder the session may read in the organization's projects that have a
+ * folder hiding something from someone ({@link loadCustomFolderTree} is not
+ * null for them): what a query that must not match an unreadable folder's rows
+ * is narrowed to in SQL (the download log's name filter). Each project by the
+ * session's clearance in that project ({@link clearanceOf}), so a closed one
+ * clears someone who reads it only because it is closed as a member with no
+ * role (ADR-0086). A project the list leaves out, past its bound, contributes
+ * no folder, so its rows match nothing: the narrowing fails closed.
+ */
+export async function readableFoldersOfRestrictedProjects(session: AuthorizedSession): Promise<string[]> {
+  const { organizationId } = session
+  const readable: string[] = []
+  // One project at a time: each is a few reads, and a burst of them would take
+  // the pool from every other request.
+  for (const projectId of await listProjectsWithCustomOrBinnedFolders(organizationId)) {
+    readable.push(...(await readableFolderIdsFor(organizationId, projectId, await clearanceOf(session, projectId))))
+  }
+  return readable
 }
 
 /**

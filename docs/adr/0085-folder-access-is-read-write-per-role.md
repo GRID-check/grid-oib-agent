@@ -227,7 +227,11 @@ need a write in its folder (`requireWriteAccess` on the descriptor, backed by
 `requireFolderWrite`).
 
 **Deleting a role** that folders name asks for a confirmation that lists them
-(`GET /api/organization/roles/{slug}/usage`, `DELETE …?confirmFolders=1`). Grants
+(`GET /api/organization/roles/{slug}/usage`, `DELETE …?confirmFolders=1`). Whatever
+a restore can bring back counts, because it comes back with its list: a folder in
+the Papierkorb, and every folder of a project pending deletion. The list marks
+those two („im Papierkorb“, „Projekt gelöscht“), since neither is in the
+project's folder tree. Grants
 keep their slug, so a folder whose own list then names no role that exists
 matches nobody: organization admins alone read it (`effectiveFolderLevel`), and
 the project settings list it as „Ordner ohne gültige Rolle“

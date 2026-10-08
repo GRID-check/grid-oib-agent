@@ -189,12 +189,16 @@ export const AUDIT_SCHEMAS = /** @type {const} */ ({
   // (every page, every filter). The filters are named, not their values' hits:
   // the event says who looked for whom, never what they found. The emitter is
   // `recordAuditEventOrThrow`: a read that cannot be recorded is not served.
+  // A typed name filter is recorded as `nameFiltered`, not its text, which may
+  // be a restricted document's name. `documentName` is no longer sent; it stays
+  // registered so a pod of the previous release is not rejected mid-rollout.
   'download_log.viewed': {
     targets: [{ type: 'organization' }],
     metadata: {
       userId: 'string',
       documentId: 'string',
       documentName: 'string',
+      nameFiltered: 'boolean',
       kind: 'string',
       from: 'string',
       to: 'string',
@@ -365,26 +369,30 @@ export const AUDIT_SCHEMAS = /** @type {const} */ ({
     targets: [{ type: 'project' }],
     metadata: { organizationMembershipId: 'string', roleSlug: 'string' },
   },
+  // `nameWithheld` (every action in `DOCUMENT_NAME_ACTIONS`, `service.ts`):
+  // the document is filed under a folder not every project member may read,
+  // so its name keys were left out (ADR-0084). The target id still says which.
   'document.uploaded': {
     targets: [{ type: 'document' }],
-    metadata: { projectId: 'string', filename: 'string', fileSize: 'number' },
+    metadata: { projectId: 'string', filename: 'string', fileSize: 'number', nameWithheld: 'boolean' },
   },
   // A file the name gate would have excluded, uploaded anyway because its
   // uploader released it in the upload dialog (ADR-0083): the Bauvertrag in a
-  // folder called „Verträge". The terms say which rule was overridden.
+  // folder called „Verträge". The terms say which rule was overridden; they
+  // matched a piece of the name, so they are withheld with it.
   'document.screening_overridden': {
     targets: [{ type: 'document' }],
-    metadata: { projectId: 'string', filename: 'string', terms: 'string' },
+    metadata: { projectId: 'string', filename: 'string', terms: 'string', nameWithheld: 'boolean' },
   },
   // A quarantined document a reviewer released for indexing (ADR-0083). The
   // reasons are the content gate's verdict as stored on the row.
   'document.quarantine_released': {
     targets: [{ type: 'document' }],
-    metadata: { projectId: 'string', filename: 'string', reasons: 'string' },
+    metadata: { projectId: 'string', filename: 'string', reasons: 'string', nameWithheld: 'boolean' },
   },
   'document.deleted': {
     targets: [{ type: 'document' }],
-    metadata: { projectId: 'string', filename: 'string', collectionName: 'string' },
+    metadata: { projectId: 'string', filename: 'string', collectionName: 'string', nameWithheld: 'boolean' },
   },
   // A deliverable Piloti wrote, filed into the project on a human's authority
   // (agent-authored-documents design, decision 4 — the BFF writes it in the
@@ -512,7 +520,7 @@ export const AUDIT_SCHEMAS = /** @type {const} */ ({
   // The bytes and every version stay; the chunks go.
   'document.archived': {
     targets: [{ type: 'document' }],
-    metadata: { projectId: 'string', filename: 'string', collectionName: 'string' },
+    metadata: { projectId: 'string', filename: 'string', collectionName: 'string', nameWithheld: 'boolean' },
   },
   'document.generated': {
     targets: [{ type: 'document' }, { type: 'agent_run' }, { type: 'answer_artifact' }],
@@ -521,7 +529,13 @@ export const AUDIT_SCHEMAS = /** @type {const} */ ({
     // one, and the emit for this action throws rather than swallowing — so an
     // unregistered key does not lose an audit line, it unfiles the document the
     // line was about.
-    metadata: { projectId: 'string', producer: 'string', filename: 'string', fileSize: 'number' },
+    metadata: {
+      projectId: 'string',
+      producer: 'string',
+      filename: 'string',
+      fileSize: 'number',
+      nameWithheld: 'boolean',
+    },
   },
   // A rename changes what a document is CALLED, never which file it is, so the
   // trail records both: `filename` is the unchanged identity, the other two are
@@ -533,6 +547,7 @@ export const AUDIT_SCHEMAS = /** @type {const} */ ({
       previousName: 'string',
       displayName: 'string',
       collectionName: 'string',
+      nameWithheld: 'boolean',
     },
   },
   'archiv.document.uploaded': {

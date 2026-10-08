@@ -47,7 +47,7 @@ vi.mock('@/lib/audit/service', () => ({ recordAuditEvent: (event: unknown) => re
 // is what is under test here.
 const usage = vi.hoisted(() => ({
   total: 0,
-  folders: [] as Array<{ folderId: string; folderName: string; projectId: string; projectName: string }>,
+  folders: [] as Array<{ folderId: string; folderName: string; projectId: string; projectName: string; deleted: 'folder' | 'project' | null }>,
 }))
 vi.mock('./folder-access-repository', () => ({
   listFoldersNamingRole: vi.fn(async () => ({ folders: usage.folders, total: usage.total })),
@@ -319,6 +319,7 @@ describe('deleteCustomRole', () => {
       folderName: 'Honorare',
       projectId: 'p1',
       projectName: 'Schule Süd',
+      deleted: null,
     }
 
     it('is refused with 409 and the count until the caller confirms, and WorkOS is not asked', async () => {

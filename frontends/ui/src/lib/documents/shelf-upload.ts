@@ -114,7 +114,14 @@ async function uploadAuditEvent(
   session: AuthorizedSession,
   shelf: DocumentShelf,
   request: Request,
-  event: { documentId: string; filename: string; fileSize: number; collectionName: string; replaced: boolean },
+  event: {
+    documentId: string
+    filename: string
+    fileSize: number
+    collectionName: string
+    folderId: string | null
+    replaced: boolean
+  },
 ): Promise<void> {
   const located =
     shelf.kind === 'project' ? { projectId: shelf.projectId } : { collectionName: event.collectionName }
@@ -124,6 +131,8 @@ async function uploadAuditEvent(
     action: shelf.kind === 'project' ? 'document.uploaded' : 'archiv.document.uploaded',
     targetType: 'document',
     targetId: event.documentId,
+    // A file put under a folder not every member may read is not named (ADR-0084).
+    filedIn: shelf.kind === 'project' ? { projectId: shelf.projectId, folderId: event.folderId } : null,
     // Filename is user-controlled — cap it before it reaches the trail.
     // `replaced` distinguishes a new document from new bytes under an existing
     // id, which is the one thing the trail could no longer infer from the id.
@@ -496,6 +505,7 @@ export async function uploadToShelf(
     filename,
     fileSize: file.size,
     collectionName,
+    folderId: upload.folderId,
     replaced: placed.replaced,
   })
   await auditScreeningOverride(
@@ -503,6 +513,7 @@ export async function uploadToShelf(
     {
       documentId,
       projectId: shelf.kind === 'project' ? shelf.projectId : null,
+      folderId: upload.folderId,
       filename,
       overridden: upload.screeningOverridden,
     },
