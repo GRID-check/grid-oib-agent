@@ -32,6 +32,17 @@ export type DecimalInput =
 
 const DECIMAL = /^[+-]?(?:\d+(?:[.,]\d*)?|[.,]\d+)$/
 
+/**
+ * One group separator followed by exactly three digits, per separator a locale
+ * can use here. Literal patterns rather than one built from the separator: the
+ * value comes from `Intl`, but a regex assembled at runtime is what the SAST
+ * gate refuses, and two constants say the same thing.
+ */
+const GROUPED_THOUSAND: Record<string, RegExp> = {
+  '.': /^[+-]?[1-9]\d{0,2}\.\d{3}$/,
+  ',': /^[+-]?[1-9]\d{0,2},\d{3}$/,
+}
+
 const separator = (locale: string | undefined, type: 'decimal' | 'group'): string | undefined =>
   new Intl.NumberFormat(locale).formatToParts(1234.5).find((part) => part.type === type)?.value
 
@@ -40,11 +51,8 @@ export function parseDecimalInput(raw: string, locale?: string): DecimalInput {
   if (text === '') return { status: 'blank' }
   if (!DECIMAL.test(text)) return { status: 'invalid', reason: 'notANumber' }
 
-  const group = separator(locale, 'group')
-  if (
-    (group === '.' || group === ',') &&
-    new RegExp(`^[+-]?[1-9]\\d{0,2}\\${group}\\d{3}$`).test(text)
-  ) {
+  const ambiguous = GROUPED_THOUSAND[separator(locale, 'group') ?? '']
+  if (ambiguous?.test(text)) {
     return { status: 'invalid', reason: 'ambiguous' }
   }
 
