@@ -14,7 +14,7 @@ describe('SectionCard', () => {
     render(
       <SectionCard title="Base knowledge" description="The shared corpus.">
         <p>42 documents</p>
-      </SectionCard>,
+      </SectionCard>
     )
 
     expect(screen.getByText('Base knowledge')).toBeDefined()
@@ -26,7 +26,7 @@ describe('SectionCard', () => {
     render(
       <SectionCard title="Base knowledge" loading skeletonRows={4}>
         <p>42 documents</p>
-      </SectionCard>,
+      </SectionCard>
     )
 
     expect(screen.getByTestId('section-loading').children).toHaveLength(4)
@@ -35,17 +35,30 @@ describe('SectionCard', () => {
 
   test('hides the header action while loading, so nothing is clickable mid-fetch', () => {
     const { rerender } = render(
-      <SectionCard title="Base knowledge" loading action={<button type="button">Add documents</button>} />,
+      <SectionCard
+        title="Base knowledge"
+        loading
+        action={<button type="button">Add documents</button>}
+      />
     )
     expect(screen.queryByRole('button', { name: 'Add documents' })).toBeNull()
 
-    rerender(<SectionCard title="Base knowledge" action={<button type="button">Add documents</button>} />)
+    rerender(
+      <SectionCard title="Base knowledge" action={<button type="button">Add documents</button>} />
+    )
     expect(screen.getByRole('button', { name: 'Add documents' })).toBeDefined()
   })
 
   test('offers a retry on error and calls back', async () => {
     const onRetry = vi.fn()
-    render(<SectionCard title="Base knowledge" error errorMessage="Could not load it." onRetry={onRetry} />)
+    render(
+      <SectionCard
+        title="Base knowledge"
+        error
+        errorMessage="Could not load it."
+        onRetry={onRetry}
+      />
+    )
 
     expect(screen.getByText('Could not load it.')).toBeDefined()
     await userEvent.click(screen.getByRole('button', { name: /Retry/i }))
@@ -63,9 +76,14 @@ describe('SectionCard', () => {
 
   test('renders the empty state instead of children', () => {
     render(
-      <SectionCard title="Base knowledge" empty emptyIcon={BookOpenCheck} emptyTitle="No documents yet">
+      <SectionCard
+        title="Base knowledge"
+        empty
+        emptyIcon={BookOpenCheck}
+        emptyTitle="No documents yet"
+      >
         <p>42 documents</p>
-      </SectionCard>,
+      </SectionCard>
     )
 
     expect(screen.getByText('No documents yet')).toBeDefined()
@@ -77,5 +95,62 @@ describe('SectionCard', () => {
 
     expect(screen.getByTestId('section-loading')).toBeDefined()
     expect(screen.queryByText('No documents yet')).toBeNull()
+  })
+
+  test('a refresh keeps the content on screen and marks it busy', () => {
+    // A mutation reloads the list. Swapping it for skeletons throws the
+    // reader's place (and keyboard focus) away on every click.
+    render(
+      <SectionCard title="Lessons" refreshing action={<button type="button">Sweep</button>}>
+        <p>12 lessons</p>
+      </SectionCard>
+    )
+
+    expect(screen.getByText('12 lessons')).toBeDefined()
+    expect(screen.queryByTestId('section-loading')).toBeNull()
+    expect(screen.getByTestId('section-refreshing')).toBeDefined()
+    expect(screen.getByText('12 lessons').closest('[aria-busy="true"]')).not.toBeNull()
+    expect(screen.getByRole('button', { name: 'Sweep' })).toBeDefined()
+  })
+
+  test('loading wins over refreshing: the first load has nothing to keep', () => {
+    render(
+      <SectionCard title="Lessons" loading refreshing>
+        <p>12 lessons</p>
+      </SectionCard>
+    )
+
+    expect(screen.getByTestId('section-loading')).toBeDefined()
+    expect(screen.queryByTestId('section-refreshing')).toBeNull()
+  })
+
+  test('renders without a title, so a page need not repeat its own heading', () => {
+    const { container } = render(
+      <SectionCard>
+        <p>Body only</p>
+      </SectionCard>
+    )
+
+    expect(screen.getByText('Body only')).toBeDefined()
+    expect(container.querySelector('[data-slot="card-header"]')).toBeNull()
+  })
+
+  test('shows the load error as a destructive alert', () => {
+    render(<SectionCard title="Base knowledge" error errorMessage="Could not load it." />)
+
+    expect(screen.getByRole('alert').textContent).toContain('Could not load it.')
+  })
+
+  test('offers an action under the empty state', () => {
+    render(
+      <SectionCard
+        title="Cards"
+        empty
+        emptyTitle="No cards"
+        emptyAction={<button type="button">Add</button>}
+      />
+    )
+
+    expect(screen.getByRole('button', { name: 'Add' })).toBeDefined()
   })
 })

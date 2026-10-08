@@ -31,7 +31,10 @@ const mockGetDb = vi.mocked(getDb)
  */
 function mockSelect(driverRows: unknown[]) {
   const groupBy = vi.fn().mockResolvedValue(driverRows)
-  const where = vi.fn(() => ({ groupBy, then: (fn: (rows: unknown[]) => unknown) => fn(driverRows) }))
+  const where = vi.fn(() => ({
+    groupBy,
+    then: (fn: (rows: unknown[]) => unknown) => fn(driverRows),
+  }))
   const from = vi.fn(() => ({ where }))
   mockGetDb.mockReturnValue({ select: vi.fn(() => ({ from })) } as never)
 }
@@ -40,6 +43,18 @@ function mockExecute(driverRows: unknown[]) {
   const execute = vi.fn().mockResolvedValue(driverRows)
   mockGetDb.mockReturnValue({ execute } as never)
   return execute
+}
+
+/** The literal SQL text of the first executed query (bound values excluded). */
+function sqlText(execute: ReturnType<typeof vi.fn>): string {
+  const chunks = (execute.mock.calls[0][0] as ReturnType<typeof sql>).queryChunks as unknown[]
+  return chunks
+    .map((chunk) =>
+      chunk !== null && typeof chunk === 'object' && chunk.constructor?.name === 'StringChunk'
+        ? ((chunk as { value: string[] }).value ?? []).join('')
+        : ' '
+    )
+    .join('')
 }
 
 beforeEach(() => {
@@ -71,7 +86,9 @@ describe('insertCitationEvents', () => {
 describe('aggregate coercion', () => {
   it('coerces string count aggregates from aggregateByKind', async () => {
     mockSelect([{ kind: 'citations_removed', turns: '18', items: '61' }])
-    expect(await aggregateByKind(new Date())).toEqual([{ kind: 'citations_removed', turns: 18, items: 61 }])
+    expect(await aggregateByKind(new Date())).toEqual([
+      { kind: 'citations_removed', turns: 18, items: 61 },
+    ])
   })
 
   it('coerces the observed-turn count', async () => {
@@ -84,9 +101,11 @@ describe('aggregate coercion', () => {
     expect(await countObservedTurns(new Date())).toBe(0)
   })
 
-  it('coerces the daily turn series', async () => {
-    mockSelect([{ day: '2026-07-28', turns: '12' }])
-    expect(await aggregateDailyTurns(new Date())).toEqual([{ day: '2026-07-28', turns: 12 }])
+  it('coerces the daily turn series, including the distinct defective turns', async () => {
+    mockSelect([{ day: '2026-07-28', turns: '12', defectTurns: '5' }])
+    expect(await aggregateDailyTurns(new Date())).toEqual([
+      { day: '2026-07-28', turns: 12, defectTurns: 5 },
+    ])
   })
 
   it('shapes the raw reason expansion', async () => {
@@ -96,11 +115,70 @@ describe('aggregate coercion', () => {
     ])
   })
 
-  it('shapes the raw per-organization rollup, keeping the unattributed bucket', async () => {
-    mockExecute([{ organization_id: null, turns: '7', defect_turns: '2', error_turns: '1' }])
-    expect(await aggregateByOrganization(new Date())).toEqual([
-      { organizationId: null, turns: 7, defectTurns: 2, errorTurns: 1 },
+  it('bounds reasons per kind, so one kind cannot crowd another out of the list', async () => {
+    const execute = mockExecute([])
+    await aggregateReasons(new Date())
+    expect(sqlText(execute)).toMatch(/partition by kind/)
+  })
+
+  it('shapes the raw per-organization rollup, keeping the unattributed bucket and the exact total', async () => {
+    mockExecute([
+      { organization_id: null, turns: '7', defect_turns: '2', error_turns: '1', total: '64' },
     ])
+    expect(await aggregateByOrganization(new Date())).toEqual({
+      rows: [{ organizationId: null, turns: 7, defectTurns: 2, errorTurns: 1 }],
+      total: 64,
+    })
+  })
+
+  it('reports zero organizations for an empty window', async () => {
+    mockExecute([])
+    expect(await aggregateByOrganization(new Date())).toEqual({ rows: [], total: 0 })
+  })
+
+  it('returns the failed targets with the exact distinct-target total', async () => {
+    mockExecute([
+      {
+        target: 'a.pdf',
+        reason: 'citation_key_not_in_registry',
+        turns: '4',
+        organizations: '2',
+        last_seen_at: '2026-07-28T10:00:00.000Z',
+        total: '1200',
+      },
+    ])
+    const result = await aggregateFailedTargets(new Date())
+    expect(result.total).toBe(1200)
+    expect(result.rows[0]).toEqual({
+      target: 'a.pdf',
+      reason: 'citation_key_not_in_registry',
+      turns: 4,
+      organizations: 2,
+      lastSeenAt: new Date('2026-07-28T10:00:00.000Z'),
+    })
+  })
+
+  it('returns the unavailable tools with the exact distinct-tool total', async () => {
+    mockExecute([{ tool: 'ris_search_tool', turns: '3', total: '11' }])
+    expect(await aggregateUnavailableTools(new Date())).toEqual({
+      rows: [{ tool: 'ris_search_tool', turns: 3 }],
+      total: 11,
+    })
+  })
+
+  it('reads the lanes the emitter writes into the source mix', async () => {
+    // Regression: detail.lanes was written by build_turn_events and never read.
+    const execute = mockExecute([
+      { dimension: 'lane', label: 'oib', turns: '6' },
+      { dimension: 'origin', label: 'baurecht', turns: '4' },
+      { dimension: 'tool', label: 'ris_search_tool', turns: '2' },
+    ])
+    expect(await aggregateDefectiveSourceMix(new Date())).toEqual([
+      { dimension: 'lane', label: 'oib', turns: 6 },
+      { dimension: 'origin', label: 'baurecht', turns: 4 },
+      { dimension: 'tool', label: 'ris_search_tool', turns: 2 },
+    ])
+    expect(sqlText(execute)).toContain("detail -> 'lanes'")
   })
 })
 
@@ -169,7 +247,7 @@ describe('raw-SQL window bounds', () => {
 
     const query = execute.mock.calls[0][0] as ReturnType<typeof sql>
     const dateParams = (query.queryChunks as unknown[]).filter(
-      (chunk) => chunk instanceof Date || (chunk as { value?: unknown })?.value instanceof Date,
+      (chunk) => chunk instanceof Date || (chunk as { value?: unknown })?.value instanceof Date
     )
     expect(dateParams).toEqual([])
   })

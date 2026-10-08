@@ -3,7 +3,7 @@
 /**
  * The answer-feedback window, in sentences.
  *
- * **Why it is the first thing on the card.** Everything below it is correct and
+ * **Why it sits right under the figures.** Everything around it is correct and
  * none of it is a story: a rate, four bars, a line, a table, a list of failed
  * turns. A reader who has thirty seconds reads the biggest number and leaves with
  * whatever that number implied. This says what the window actually means, and
@@ -26,14 +26,20 @@
 
 import type { JSX } from 'react'
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { RefreshCw, Sparkles, ThumbsDown, ThumbsUp } from 'lucide-react'
+import { ArrowRight, RefreshCw, Sparkles, ThumbsDown, ThumbsUp } from 'lucide-react'
 
 import { Button } from '@/components/ui/button'
-import { EmptyState } from '@/components/ui/empty-state'
+import {
+  Card,
+  CardAction,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from '@/components/ui/card'
 import { Skeleton } from '@/components/ui/skeleton'
 import { useLocale, useTranslations } from '@/i18n'
 import { formatRelativeTime } from '@/lib/format'
-import { SectionLabel } from '@/components/ui/section-label'
 import { cn } from '@/lib/utils'
 
 export interface FeedbackDigestPayload {
@@ -55,10 +61,10 @@ interface DigestResponse {
 
 export interface FeedbackDigestProps {
   /**
-   * The query string of the view this digest describes. Only the window and the
-   * org/topic filters actually change the sentences — the server keys its cache
-   * on those — but passing the whole thing keeps one source of truth for "what
-   * is on screen" rather than a second, subtly different one here.
+   * The query string of the window this digest describes: `days`, and the
+   * `org` / `topic` filters that narrow the aggregates. The drill-in's own
+   * filters (direction, reason, free text) do not change the sentences, and
+   * passing them made every Missed/Landed switch re-ask the model.
    */
   search: string
   className?: string
@@ -98,12 +104,13 @@ export function FeedbackDigest({ search, className }: FeedbackDigestProps): JSX.
         const body = (await res.json()) as DigestResponse
         if (requestId === latestRequest.current) setData(body)
       } catch {
-        if (requestId === latestRequest.current) setData({ digest: null, error: 'digest_unavailable' })
+        if (requestId === latestRequest.current)
+          setData({ digest: null, error: 'digest_unavailable' })
       } finally {
         if (requestId === latestRequest.current) setLoading(false)
       }
     },
-    [search, locale],
+    [search, locale]
   )
 
   useEffect(() => {
@@ -112,117 +119,152 @@ export function FeedbackDigest({ search, className }: FeedbackDigestProps): JSX.
 
   if (loading && !data) {
     return (
-      <div className={cn('min-h-[8.5rem] space-y-2 rounded-lg border bg-muted p-4', className)}>
-        <Skeleton className="h-4 w-40" />
-        <Skeleton className="h-12 w-full" />
-      </div>
+      <Card className={className} aria-busy data-testid="feedback-digest-loading">
+        <CardHeader>
+          <Skeleton className="h-4 w-36" />
+          <Skeleton className="h-3 w-28" />
+        </CardHeader>
+        <CardContent className="flex flex-col gap-3">
+          <Skeleton className="h-4 w-full" />
+          <Skeleton className="h-4 w-4/5" />
+          <div className="grid gap-4 pt-1 sm:grid-cols-2">
+            <Skeleton className="h-14 w-full" />
+            <Skeleton className="h-14 w-full" />
+          </div>
+        </CardContent>
+      </Card>
     )
   }
 
   const digest = data?.digest ?? null
   const error = data?.error ?? null
 
+  const title = (
+    <CardTitle className="flex items-center gap-2">
+      <Sparkles className="text-muted-foreground size-4" aria-hidden />
+      {t('answerFeedback.digest.title')}
+    </CardTitle>
+  )
+
   // A young window and a broken model both mean "no sentences", and the reader
   // needs to know which: one is a reason to come back tomorrow, the other is a
-  // reason to look at the logs.
+  // reason to look at the logs. Said in one quiet line under the card title,
+  // not as a big empty panel competing with the figures below.
   if (!digest) {
     return (
-      <EmptyState
-        variant="bare"
-        className={cn('min-h-[8.5rem]', className)}
-        data-testid="feedback-digest-empty"
-        title={t(
-          error && BENIGN.has(error)
-            ? `answerFeedback.digest.${error === 'no_feedback' ? 'emptyNoFeedback' : 'emptyTooFew'}`
-            : 'answerFeedback.digest.unavailable',
-        )}
-      />
+      <Card className={className} data-testid="feedback-digest-empty">
+        <CardHeader>
+          {title}
+          <CardDescription>
+            {t(
+              error && BENIGN.has(error)
+                ? `answerFeedback.digest.${error === 'no_feedback' ? 'emptyNoFeedback' : 'emptyTooFew'}`
+                : 'answerFeedback.digest.unavailable'
+            )}
+          </CardDescription>
+        </CardHeader>
+      </Card>
     )
   }
 
   return (
-    <section
+    <Card
       className={cn(
-        'animate-in fade-in-0 min-h-[8.5rem] space-y-3 rounded-lg border bg-muted p-4 duration-base ease-out motion-reduce:animate-none',
-        className,
+        'duration-base transition-opacity ease-out motion-reduce:transition-none',
+        loading && 'opacity-60',
+        className
       )}
       data-testid="feedback-digest"
       aria-label={t('answerFeedback.digest.title')}
+      aria-busy={loading || undefined}
     >
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <SectionLabel as="h3" className="flex items-center gap-1.5">
-          <Sparkles className="size-3.5" aria-hidden />
-          {t('answerFeedback.digest.title')}
-        </SectionLabel>
-        <div className="flex items-center gap-1.5">
-          {/* Provenance and age, together. "Written by a model, 20 minutes ago"
-              is one fact for the reader, not two. */}
-          <span className="text-xs text-muted-foreground/80" data-testid="feedback-digest-age">
-            {t('answerFeedback.digest.generated', {
-              ago: formatRelativeTime(digest.generatedAt, locale),
-            })}
-          </span>
-          <Button variant="ghost" size="sm" onClick={() => void load(true)} disabled={loading}>
-            <RefreshCw className={cn('size-3.5', loading && 'animate-spin motion-reduce:animate-none')} aria-hidden />
-            <span className="sr-only">{t('answerFeedback.digest.regenerate')}</span>
+      <CardHeader>
+        {title}
+        {/* Provenance and age together: "written by a model, 20 minutes ago"
+            is one fact for the reader, not two. */}
+        <CardDescription data-testid="feedback-digest-age">
+          {t('answerFeedback.digest.generated', {
+            ago: formatRelativeTime(digest.generatedAt, locale),
+          })}
+        </CardDescription>
+        <CardAction>
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => void load(true)}
+            disabled={loading}
+            aria-label={t('answerFeedback.digest.regenerate')}
+            title={t('answerFeedback.digest.regenerate')}
+          >
+            <RefreshCw
+              className={cn('size-3.5', loading && 'animate-spin motion-reduce:animate-none')}
+              aria-hidden
+            />
           </Button>
-        </div>
-      </div>
+        </CardAction>
+      </CardHeader>
 
-      {digest.headline && (
-        <p className="text-sm leading-relaxed text-foreground">{digest.headline}</p>
-      )}
+      <CardContent className="flex flex-col gap-5">
+        {digest.headline && (
+          <p className="text-foreground max-w-3xl text-sm leading-relaxed">{digest.headline}</p>
+        )}
 
-      {(digest.strengths.length > 0 || digest.concerns.length > 0) && (
-        <div className="grid gap-3 sm:grid-cols-2">
-          {/* Working first, and never conditional on there being concerns:
-              a layout that collapses to one column when the good list is empty
-              is a layout that quietly re-privileges the bad one. */}
-          <DigestColumn
-            testId="feedback-digest-strengths"
-            icon={<ThumbsUp className="size-3.5 text-success" aria-hidden />}
-            heading={t('answerFeedback.digest.working')}
-            items={digest.strengths}
-            emptyLabel={t('answerFeedback.digest.workingNone')}
-          />
-          <DigestColumn
-            testId="feedback-digest-concerns"
-            icon={<ThumbsDown className="size-3.5 text-warning" aria-hidden />}
-            heading={t('answerFeedback.digest.attention')}
-            items={digest.concerns}
-            emptyLabel={t('answerFeedback.digest.attentionNone')}
-          />
-        </div>
-      )}
+        {(digest.strengths.length > 0 || digest.concerns.length > 0) && (
+          <div className="grid gap-5 sm:grid-cols-2">
+            {/* Working first, and never conditional on there being concerns:
+                a layout that collapses to one column when the good list is
+                empty quietly re-privileges the bad one. */}
+            <DigestColumn
+              testId="feedback-digest-strengths"
+              icon={<ThumbsUp className="text-success size-3.5" aria-hidden />}
+              heading={t('answerFeedback.digest.working')}
+              items={digest.strengths}
+              emptyLabel={t('answerFeedback.digest.workingNone')}
+            />
+            <DigestColumn
+              testId="feedback-digest-concerns"
+              icon={<ThumbsDown className="text-warning size-3.5" aria-hidden />}
+              heading={t('answerFeedback.digest.attention')}
+              items={digest.concerns}
+              emptyLabel={t('answerFeedback.digest.attentionNone')}
+            />
+          </div>
+        )}
 
-      {digest.recommendation && (
-        <p
-          className="border-l-2 border-border pl-2.5 text-xs leading-relaxed text-muted-foreground"
-          data-testid="feedback-digest-recommendation"
-        >
-          <span className="font-medium text-foreground">
-            {t('answerFeedback.digest.nextStep')}
-          </span>{' '}
-          {digest.recommendation}
+        {digest.recommendation && (
+          <p
+            className="bg-muted text-muted-foreground flex gap-2 rounded-md px-3 py-2.5 text-sm leading-relaxed"
+            data-testid="feedback-digest-recommendation"
+          >
+            <ArrowRight className="text-foreground mt-1 size-3.5 shrink-0" aria-hidden />
+            <span>
+              <span className="text-foreground font-medium">
+                {t('answerFeedback.digest.nextStep')}
+              </span>{' '}
+              {digest.recommendation}
+            </span>
+          </p>
+        )}
+
+        {digest.causes && digest.causes.length > 0 && (
+          <p
+            className="text-muted-foreground text-xs leading-relaxed"
+            data-testid="feedback-digest-causes"
+          >
+            <span className="text-foreground font-medium">{t('answerFeedback.digest.causes')}</span>{' '}
+            {digest.causes
+              .map(({ cause, count }) => `${t(`answerFeedback.digest.cause.${cause}`)} ${count}`)
+              .join(' · ')}
+          </p>
+        )}
+
+        {/* The caveat travels with the text: these sentences are the most
+            quotable thing on the page. */}
+        <p className="text-muted-foreground text-xs">
+          {t('answerFeedback.digest.caveat', { votes: digest.votes, days: digest.windowDays })}
         </p>
-      )}
-
-      {digest.causes && digest.causes.length > 0 && (
-        <p className="text-xs leading-relaxed text-muted-foreground" data-testid="feedback-digest-causes">
-          <span className="font-medium text-foreground">{t('answerFeedback.digest.causes')}</span>{' '}
-          {digest.causes
-            .map(({ cause, count }) => `${t(`answerFeedback.digest.cause.${cause}`)} ${count}`)
-            .join(' · ')}
-        </p>
-      )}
-
-      {/* The caveat travels with the text. These sentences are a model's reading
-          of self-selected votes, and they are the most quotable thing on the
-          page — the disclaimer belongs where the quote is taken from. */}
-      <p className="text-xs text-muted-foreground/70">
-        {t('answerFeedback.digest.caveat', { votes: digest.votes, days: digest.windowDays })}
-      </p>
-    </section>
+      </CardContent>
+    </Card>
   )
 }
 
@@ -244,17 +286,17 @@ function DigestColumn({
   emptyLabel: string
 }): JSX.Element {
   return (
-    <div className="space-y-1.5" data-testid={testId}>
-      <p className="flex items-center gap-1.5 text-xs font-medium text-foreground">
+    <div className="flex flex-col gap-2" data-testid={testId}>
+      <p className="text-foreground flex items-center gap-1.5 text-sm font-medium">
         {icon}
         {heading}
       </p>
       {items.length === 0 ? (
-        <p className="text-xs italic text-muted-foreground">{emptyLabel}</p>
+        <p className="text-muted-foreground text-sm">{emptyLabel}</p>
       ) : (
-        <ul className="space-y-1">
+        <ul className="marker:text-muted-foreground/60 flex list-disc flex-col gap-1.5 pl-5">
           {items.map((item) => (
-            <li key={item} className="text-xs leading-relaxed text-muted-foreground">
+            <li key={item} className="text-muted-foreground text-sm leading-relaxed">
               {item}
             </li>
           ))}
