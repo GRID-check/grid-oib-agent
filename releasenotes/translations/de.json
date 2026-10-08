@@ -152,10 +152,6 @@
     "de": "Ein Dokument aus einem Ordner, den nicht alle lesen dürfen, lässt sich keinem Rechercheauftrag hinzufügen. Die Liste kennzeichnet es, und Piloti sagt beim Versuch, warum."
   },
   {
-    "en": "A document in a folder someone may only read can no longer be shared or assigned by them, because both change the document.",
-    "de": "Ein Dokument in einem Ordner, den jemand nur lesen darf, lässt sich von dieser Person nicht mehr teilen oder zuweisen, weil beides das Dokument ändert."
-  },
-  {
     "en": "A document stuck on \"processing\" after an ingestion job was lost can now be retried from its menu instead of deleted and re-uploaded. The retry keeps the document, so sources, chat references and assignments survive, and it refuses while ingestion is genuinely still running.",
     "de": "Ein Dokument, das nach dem Verlust eines Ingestion-Jobs auf „processing“ hängen bleibt, kann jetzt über sein Menü erneut gestartet werden, statt gelöscht und neu hochgeladen zu werden. Dabei bleibt das Dokument erhalten, sodass Quellen, Chat-Verweise und Zuweisungen bestehen bleiben. Solange die Ingestion tatsächlich noch läuft, kann kein erneuter Versuch gestartet werden."
   },
@@ -2074,10 +2070,6 @@
   {
     "en": "The header of the file preview now holds only the name, the kind of document and the controls for the file. Who created it, who is responsible and „Piloti dazu fragen“ moved into the panel beside it.",
     "de": "Der Kopf der Dateivorschau zeigt nur noch Namen, Dokumentart und die Schaltflächen für die Datei. Wer sie erstellt hat, wer zuständig ist und „Piloti dazu fragen“ stehen jetzt im Bereich daneben."
-  },
-  {
-    "en": "The inbox no longer shows the title of a chat the reader may no longer read.",
-    "de": "Das Postfach zeigt den Titel eines Chats nicht mehr, den die Leserin oder der Leser nicht mehr lesen darf."
   },
   {
     "en": "The interface feels calmer and more responsive: buttons answer every press with a subtle dip, copying an answer pops a check mark, and loading placeholders shimmer instead of flashing grey.",
