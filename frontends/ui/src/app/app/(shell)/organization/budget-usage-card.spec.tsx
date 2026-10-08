@@ -1,4 +1,5 @@
 import { render, screen, waitFor, within } from '@/test-utils'
+import userEvent from '@testing-library/user-event'
 import { afterEach, describe, expect, test, vi } from 'vitest'
 
 import { BudgetUsageCard } from './budget-usage-card'
@@ -137,9 +138,7 @@ describe('BudgetUsageCard — spend visualization', () => {
   })
 
   test('the meter carries state: within the limit, then over it with the limit marked', async () => {
-    stubFetch(
-      usageBody([model('alpha-model', 2, 120)], { dailyLimit: 10, monthlyLimit: 100 })
-    )
+    stubFetch(usageBody([model('alpha-model', 2, 120)], { dailyLimit: 10, monthlyLimit: 100 }))
     render(<BudgetUsageCard isAdmin={false} />)
 
     await waitFor(() => expect(screen.getAllByTestId(/^budget-meter-/)).toHaveLength(2))
@@ -161,7 +160,13 @@ describe('BudgetUsageCard — spend visualization', () => {
   })
 
   test('an organization on its own key sees tokens, a note, and never the word credits', async () => {
-    stubFetch(usageBody([model('alpha-model', 812, 48200)], { dailyLimit: null, monthlyLimit: 100000 }, 'token'))
+    stubFetch(
+      usageBody(
+        [model('alpha-model', 812, 48200)],
+        { dailyLimit: null, monthlyLimit: 100000 },
+        'token'
+      )
+    )
     render(<BudgetUsageCard isAdmin={false} />)
 
     await screen.findByTestId('spend-table')
@@ -179,5 +184,42 @@ describe('BudgetUsageCard — spend visualization', () => {
     expect(await screen.findByText('No LLM usage recorded in this window yet.')).toBeDefined()
     expect(screen.queryByTestId('spend-composition')).toBeNull()
     expect(screen.queryByTestId('spend-table')).toBeNull()
+  })
+
+  test('an unreadable organization limit blocks Save instead of saving no limit', async () => {
+    // `null` is what the route stores as NO LIMIT. The old parser returned it
+    // for "fünf" and "-5" as well as for a blank field, so a typo removed the
+    // organization's cap without a word.
+    const calls: { url: string; method: string; body?: string }[] = []
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input)
+        calls.push({ url, method: init?.method ?? 'GET', body: init?.body as string | undefined })
+        const body = url.includes('/usage')
+          ? usageBody([model('openai/gpt-5', 1, 10)], { dailyLimit: 50, monthlyLimit: null })
+          : url.includes('/budgets')
+            ? { organization: { dailyLimit: '50', monthlyLimit: null }, policies: [] }
+            : url.includes('/members')
+              ? { members: [] }
+              : { projects: [] }
+        return { ok: true, status: 200, json: async () => body } as unknown as Response
+      })
+    )
+    render(<BudgetUsageCard isAdmin />)
+
+    const daily = await screen.findByLabelText(/Daily limit/i)
+    await userEvent.clear(daily)
+    await userEvent.type(daily, '-5')
+
+    expect(daily).toHaveAttribute('aria-invalid', 'true')
+    expect(screen.getByText(/leave blank for no limit/i)).toBeInTheDocument()
+    const save = screen.getByRole('button', { name: /Save limits/i })
+    expect(save).toBeDisabled()
+    expect(calls.some((call) => call.method === 'PUT')).toBe(false)
+
+    await userEvent.clear(daily)
+    expect(daily).not.toHaveAttribute('aria-invalid')
+    expect(save).not.toBeDisabled()
   })
 })

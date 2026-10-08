@@ -35,7 +35,10 @@ let client: {
 beforeEach(() => {
   client = {
     list: vi.fn<FeedbackTriageClient['list']>().mockResolvedValue({
-      reports: [report(), report({ id: 'r2', kind: 'idea', message: 'Export plan lists, please.' })],
+      reports: [
+        report(),
+        report({ id: 'r2', kind: 'idea', message: 'Export plan lists, please.' }),
+      ],
       counts: { new: 2, in_progress: 0, resolved: 0, dismissed: 0 },
       nextCursor: null,
     }),
@@ -53,7 +56,9 @@ describe('FeedbackTriage', () => {
   })
 
   test('pins and marks the report an inbox row linked to, without listing it twice', async () => {
-    client.get.mockResolvedValue(report({ id: 'r2', kind: 'idea', message: 'Export plan lists, please.' }))
+    client.get.mockResolvedValue(
+      report({ id: 'r2', kind: 'idea', message: 'Export plan lists, please.' })
+    )
 
     render(<FeedbackTriage canTriage client={client} focusReportId="r2" />)
 
@@ -65,7 +70,12 @@ describe('FeedbackTriage', () => {
 
   test('offers the reply link only to a reporter who agreed to be contacted', async () => {
     client.list.mockResolvedValue({
-      reports: [report({ reporter: { userId: 'u1', name: 'Maria Huber', email: null }, allowContact: false })],
+      reports: [
+        report({
+          reporter: { userId: 'u1', name: 'Maria Huber', email: null },
+          allowContact: false,
+        }),
+      ],
       counts: { new: 1, in_progress: 0, resolved: 0, dismissed: 0 },
       nextCursor: null,
     })
@@ -92,6 +102,83 @@ describe('FeedbackTriage', () => {
 
     await user.click(screen.getByRole('button', { name: /Resolved/ }))
 
-    await waitFor(() => expect(client.list).toHaveBeenLastCalledWith({ status: 'resolved', kind: undefined }))
+    await waitFor(() =>
+      expect(client.list).toHaveBeenLastCalledWith({ status: 'resolved', kind: undefined })
+    )
+  })
+
+  test('a slow answer for the previous filter does not overwrite the current one', async () => {
+    const user = userEvent.setup()
+    let resolveSlow: (value: Awaited<ReturnType<FeedbackTriageClient['list']>>) => void = () =>
+      undefined
+    client.list
+      .mockResolvedValueOnce({
+        reports: [report()],
+        counts: { new: 1, in_progress: 0, resolved: 1, dismissed: 1 },
+        nextCursor: null,
+      })
+      // "Resolved": slow, answers last.
+      .mockReturnValueOnce(new Promise((resolve) => (resolveSlow = resolve)))
+      // "Dismissed": fast, answers first.
+      .mockResolvedValueOnce({
+        reports: [report({ id: 'r9', status: 'dismissed', message: 'Dismissed one.' })],
+        counts: { new: 1, in_progress: 0, resolved: 1, dismissed: 1 },
+        nextCursor: null,
+      })
+    render(<FeedbackTriage canTriage client={client} />)
+    await screen.findByText('The upload stops at 99 percent.')
+
+    await user.click(screen.getByRole('button', { name: /Resolved/ }))
+    await user.click(screen.getByRole('button', { name: /Dismissed/ }))
+    await screen.findByText('Dismissed one.')
+
+    resolveSlow({
+      reports: [report({ id: 'r8', status: 'resolved', message: 'Stale resolved one.' })],
+      counts: { new: 1, in_progress: 0, resolved: 1, dismissed: 1 },
+      nextCursor: null,
+    })
+    await waitFor(() => expect(client.list).toHaveBeenCalledTimes(3))
+    expect(screen.queryByText('Stale resolved one.')).not.toBeInTheDocument()
+    expect(screen.getByText('Dismissed one.')).toBeInTheDocument()
+  })
+
+  test('keeps the previous rows, marked busy, while a filter refetches', async () => {
+    const user = userEvent.setup()
+    render(<FeedbackTriage canTriage client={client} />)
+    await screen.findAllByTestId('feedback-report')
+
+    client.list.mockReturnValueOnce(new Promise(() => undefined))
+    await user.click(screen.getByRole('button', { name: /Resolved/ }))
+
+    expect(screen.getAllByTestId('feedback-report')).toHaveLength(2)
+    expect(screen.getByTestId('section-refreshing')).toBeInTheDocument()
+  })
+
+  test('says so when the linked report cannot be found', async () => {
+    client.get.mockRejectedValue(new Error('404'))
+    render(<FeedbackTriage canTriage client={client} focusReportId="gone" />)
+
+    expect(await screen.findByTestId('feedback-focus-missing')).toHaveTextContent(
+      'The linked report was not found.'
+    )
+    expect(screen.getAllByTestId('feedback-report')).toHaveLength(2)
+  })
+
+  test('keeps the filters on screen when a filter has no reports', async () => {
+    client.list.mockResolvedValue({
+      reports: [],
+      counts: { new: 0, in_progress: 0, resolved: 3, dismissed: 0 },
+      nextCursor: null,
+    })
+    render(<FeedbackTriage canTriage client={client} />)
+
+    expect(await screen.findByText('No feedback here')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /Resolved/ })).toBeInTheDocument()
+  })
+
+  test('does not repeat the page subtitle as the card description', async () => {
+    render(<FeedbackTriage canTriage client={client} />)
+    await screen.findAllByTestId('feedback-report')
+    expect(screen.queryByText(/What members report from inside Piloti/)).not.toBeInTheDocument()
   })
 })

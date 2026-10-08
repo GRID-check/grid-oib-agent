@@ -430,6 +430,39 @@ describe("with the Langfuse tier enabled", () => {
     });
   });
 
+  /**
+   * Answer feedback lands in Langfuse as scores written by the BFF (ADR-0044,
+   * Amendment 3). Every failure here is silent: a missing key or host makes the
+   * BFF's scoring a no-op, a missing NetworkPolicy makes every call time out in
+   * the background, and the vote itself succeeds either way.
+   */
+  describe("the BFF as a score writer", () => {
+    it("hands the frontend the in-cluster API, the public UI and the project", async () => {
+      const env = await containerEnv("frontend");
+
+      expect(env.LANGFUSE_HOST).toBe("http://langfuse-web:3000");
+      expect(env.LANGFUSE_PUBLIC_URL).toBe("https://langfuse.example.test");
+      expect(env.LANGFUSE_PROJECT_ID).toBe("grid-oib");
+    });
+
+    it("passes the keys by reference to the Langfuse Secret, never as literals", async () => {
+      const env = await containerEnv("frontend");
+
+      expect(env.LANGFUSE_PUBLIC_KEY).toEqual({ secretKeyRef: { name: "langfuse-secrets", key: "public-key" } });
+      expect(env.LANGFUSE_SECRET_KEY).toEqual({ secretKeyRef: { name: "langfuse-secrets", key: "secret-key" } });
+    });
+
+    it("lets the frontend, and only it among the app pods, reach the web tier", async () => {
+      const spec = (await resolve(
+        find("kubernetes:networking.k8s.io/v1:NetworkPolicy", "allow-frontend-to-langfuse").inputs.spec,
+      )) as any;
+
+      expect(spec.podSelector.matchLabels["app.kubernetes.io/name"]).toBe("langfuse-web");
+      expect(spec.ingress[0].from).toEqual([{ podSelector: { matchLabels: { "app.kubernetes.io/name": "frontend" } } }]);
+      expect(spec.ingress[0].ports).toEqual([{ protocol: "TCP", port: 3000 }]);
+    });
+  });
+
   it("turns on backend identity attributes, which is what makes traces attributable", async () => {
     // Without this the traces arrive but carry no user and no tenant — the
     // difference between "Langfuse is receiving spans" and "Langfuse can tell
@@ -442,6 +475,17 @@ describe("with the Langfuse tier enabled", () => {
     );
 
     expect(env.GRID_TRACE_IDENTITY_ATTRIBUTES).toBe("true");
+  });
+});
+
+describe("the frontend without the Langfuse tier", () => {
+  it("gets no Langfuse env and keeps its rollout checksum as it was", async () => {
+    const { frontendLangfuseEnv } = await import("./langfuse");
+    const { frontendSecretChecksum } = await import("../app/frontend");
+    const off = { langfuse: { enabled: false } } as never;
+
+    expect(frontendLangfuseEnv(off)).toEqual([]);
+    expect(frontendSecretChecksum(off, "app-sum")).toBe("app-sum");
   });
 });
 

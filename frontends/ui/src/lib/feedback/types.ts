@@ -51,3 +51,11 @@ export interface AnswerFeedbackView {
   comment: string | null
   expectedAnswer: string | null
 }
+
+/**
+ * Set on the CSV export when it stopped at its row cap; the value is the cap.
+ * A header and not a trailing note row, because a note row is a malformed record
+ * to every CSV reader downstream (`scripts/feedback_to_cases.py` among them). The
+ * person downloading sees the same fact in the filename.
+ */
+export const EXPORT_TRUNCATED_HEADER = 'X-Grid-Export-Truncated'

@@ -29,6 +29,7 @@ const STORAGE = {
     total: { bytes: 41 * GB, documents: 1380 },
   },
   quotaBytes: 50 * GB,
+  effectiveMaxUploadFileBytes: 100e6,
 }
 
 const OVER_QUOTA = {
@@ -38,6 +39,7 @@ const OVER_QUOTA = {
     total: { bytes: 52.6 * GB, documents: 1720 },
   },
   quotaBytes: 50 * GB,
+  effectiveMaxUploadFileBytes: 100e6,
 }
 
 /**
