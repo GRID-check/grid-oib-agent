@@ -728,7 +728,7 @@ class _ScriptedLLM:
 
 
 class TestRestrictedReflection:
-    """ADR-0086: a turn that could read a restricted folder still reflects, and
+    """ADR-0087: a turn that could read a restricted folder still reflects, and
     each finding goes through the one restriction decision before it is written."""
 
     _RESTRICTED = "proj-1_r0123456789ab"

@@ -441,7 +441,7 @@ refused_in() {
 }
 
 # ---------------------------------------------------------------------------
-# Migration 0110: read/write grants per folder (ADR-0087), and its DOWN.
+# Migration 0111: read/write grants per folder (ADR-0088), and its DOWN.
 #
 # What the database itself holds: a custom list may not be emptied (the
 # deferred trigger), may be REPLACED in one transaction, refuses a level or a
@@ -450,8 +450,8 @@ refused_in() {
 # down removes the tombstones, the grants table and the columns, and puts
 # develop's non-partial name index back; 0110 then re-applies.
 # ---------------------------------------------------------------------------
-echo "==> verifying the 0110 grants, their constraints and the down migration on grid_grants"
-migrate_until grid_grants 0110_project_folder_grants
+echo "==> verifying the 0111 grants, their constraints and the down migration on grid_grants"
+migrate_until grid_grants 0111_project_folder_grants
 sql_in grid_grants <<'SQL'
 INSERT INTO projects (id, organization_id, name, created_by, collection_name)
 VALUES ('aaaaaaaa-0000-4000-8000-000000000106', 'org_0106', 'Grants 0110', 'user_1', 'proj_0106');
@@ -496,26 +496,26 @@ check_in grid_grants "SELECT string_agg(role_slug || ':' || level, ',' ORDER BY 
 check_in grid_grants "SELECT count(*) FROM project_folder_grants WHERE folder_id = 'b2b2b2b2-b2b2-4000-8000-000000000106'" "1" "a tombstone keeps its list"
 refused_in grid_grants "INSERT INTO project_folder_grants (organization_id, project_id, folder_id, role_slug, level) SELECT 'org_0106', 'aaaaaaaa-0000-4000-8000-000000000106', 'd4d4d4d4-d4d4-4000-8000-000000000106', 'org-extra-' || n, 'read' FROM generate_series(1, 19) AS n;" "it needs 1 to 20" "a list holds at most 20 entries"
 refused_in grid_grants "INSERT INTO project_folders (organization_id, project_id, name, path) VALUES ('org_0106', 'aaaaaaaa-0000-4000-8000-000000000106', 'Personal', 'Personal');" "uniq_project_folders_parent_name" "two living folders still cannot share a name"
-apply_in grid_grants 0110_project_folder_grants.down.sql
+apply_in grid_grants 0111_project_folder_grants.down.sql
 check_in grid_grants "SELECT string_agg(name, ',' ORDER BY name) FROM project_folders WHERE project_id = 'aaaaaaaa-0000-4000-8000-000000000106'" "Honorare,Personal,Pläne,Verträge" "down removed the tombstone and kept every living folder"
 check_in grid_grants "SELECT to_regclass('public.project_folder_grants') IS NULL" "t" "down dropped the grants table"
 check_in grid_grants "SELECT count(*) FROM information_schema.columns WHERE table_name = 'project_folders' AND column_name IN ('access_mode', 'access_changed_by', 'access_changed_at', 'deleted_at', 'deleted_by')" "0" "down dropped the new columns"
 check_in grid_grants "SELECT indexdef LIKE '%WHERE%' FROM pg_indexes WHERE indexname = 'uniq_project_folders_parent_name'" "f" "down put develop's non-partial name index back"
-apply_in grid_grants 0110_project_folder_grants.sql
+apply_in grid_grants 0111_project_folder_grants.sql
 check_in grid_grants "SELECT string_agg(name || '=' || access_mode, ',' ORDER BY name) FROM project_folders WHERE project_id = 'aaaaaaaa-0000-4000-8000-000000000106'" "Honorare=inherit,Personal=inherit,Pläne=inherit,Verträge=inherit" "0110 re-applies, every folder inheriting"
 
-echo "==> 0110 grants, constraints and down migration verified"
+echo "==> 0111 grants, constraints and down migration verified"
 
 # ---------------------------------------------------------------------------
-# Migration 0111: the per-folder chat record, and its DOWN.
+# Migration 0112: the per-folder chat record, and its DOWN.
 #
 # One row per (conversation, source folder): inside the tenant boundary, and
 # `last_at` never before `first_at`. The down drops the table; 0111 re-applies.
 # The admission and read paths are proved against the real chain by
 # restricted-use.integration.spec.ts above.
 # ---------------------------------------------------------------------------
-echo "==> verifying the 0111 chat record and its down migration on grid_chat_folders"
-migrate_until grid_chat_folders 0111_conversation_restricted_folders
+echo "==> verifying the 0112 chat record and its down migration on grid_chat_folders"
+migrate_until grid_chat_folders 0112_conversation_restricted_folders
 check_in grid_chat_folders "SELECT relrowsecurity FROM pg_class WHERE relname = 'conversation_restricted_folders'" "t" "the table is inside the tenant boundary"
 refused_in grid_chat_folders "INSERT INTO conversation_restricted_folders (organization_id, conversation_id, folder_id, first_at, last_at) VALUES ('org_0107', 's_1', gen_random_uuid(), now(), now() - interval '1 minute');" "conversation_restricted_folders_order" "last_at never comes before first_at"
 sql_in grid_chat_folders <<'SQL'
@@ -523,15 +523,15 @@ INSERT INTO conversation_restricted_folders (organization_id, conversation_id, f
 VALUES ('org_0107', 's_never_created', 'a1a1a1a1-a1a1-4000-8000-000000000107');
 SQL
 check_in grid_chat_folders "SELECT count(*) FROM conversation_restricted_folders" "1" "a row needs no conversation row yet and no folder row (no foreign keys)"
-apply_in grid_chat_folders 0111_conversation_restricted_folders.down.sql
+apply_in grid_chat_folders 0112_conversation_restricted_folders.down.sql
 check_in grid_chat_folders "SELECT to_regclass('public.conversation_restricted_folders') IS NULL" "t" "down dropped the table"
-apply_in grid_chat_folders 0111_conversation_restricted_folders.sql
+apply_in grid_chat_folders 0112_conversation_restricted_folders.sql
 check_in grid_chat_folders "SELECT count(*) FROM conversation_restricted_folders" "0" "0111 re-applies, empty"
 
-echo "==> 0111 chat record and down migration verified"
+echo "==> 0112 chat record and down migration verified"
 
 # ---------------------------------------------------------------------------
-# Migration 0112: restricted memory by folder, and its DOWN.
+# Migration 0113: restricted memory by folder, and its DOWN.
 #
 # An open and a restricted note with the same text can both be live (the 0112
 # index); an empty folder list and a restricted organization note are refused
@@ -539,8 +539,8 @@ echo "==> 0111 chat record and down migration verified"
 # restricted notes are DELETED, because dropping the column alone would serve
 # them to everyone. It restores develop's dedup index; 0112 then re-applies.
 # ---------------------------------------------------------------------------
-echo "==> verifying the 0112 restricted memory and its down migration on grid_memory"
-migrate_until grid_memory 0112_project_memory_restricted_folders
+echo "==> verifying the 0113 restricted memory and its down migration on grid_memory"
+migrate_until grid_memory 0113_project_memory_restricted_folders
 sql_in grid_memory <<'SQL'
 INSERT INTO projects (id, organization_id, name, created_by, collection_name)
 VALUES ('aaaaaaaa-0000-4000-8000-000000000108', 'org_0108', 'Memory 0112', 'user_1', 'proj_0108');
@@ -552,14 +552,14 @@ check_in grid_memory "SELECT count(*) FROM project_memory WHERE organization_id 
 refused_in grid_memory "INSERT INTO project_memory (scope, project_id, organization_id, kind, content) VALUES ('project', 'aaaaaaaa-0000-4000-8000-000000000108', 'org_0108', 'decision', 'Honorar pauschal');" "uniq_project_memory_project_content_active" "a second open note with the same text is still one too many"
 refused_in grid_memory "INSERT INTO project_memory (scope, project_id, organization_id, kind, content, restricted_folder_ids) VALUES ('project', 'aaaaaaaa-0000-4000-8000-000000000108', 'org_0108', 'decision', 'leer', '{}');" "project_memory_restricted_folders_check" "an empty folder list is not a restriction"
 refused_in grid_memory "INSERT INTO project_memory (scope, organization_id, kind, content, restricted_folder_ids) VALUES ('organization', 'org_0108', 'decision', 'Büroweit', ARRAY['d4d4d4d4-d4d4-4000-8000-000000000108'::uuid]);" "project_memory_restricted_folders_check" "organization memory is never restricted"
-apply_in grid_memory 0112_project_memory_restricted_folders.down.sql
+apply_in grid_memory 0113_project_memory_restricted_folders.down.sql
 check_in grid_memory "SELECT count(*) FROM project_memory WHERE organization_id = 'org_0108'" "1" "down deleted the restricted note and kept the open one"
 check_in grid_memory "SELECT count(*) FROM information_schema.columns WHERE table_name = 'project_memory' AND column_name = 'restricted_folder_ids'" "0" "down dropped the column"
 check_in grid_memory "SELECT indexdef LIKE '%coalesce%' FROM pg_indexes WHERE indexname = 'uniq_project_memory_project_content_active'" "f" "down restored develop's dedup index"
-apply_in grid_memory 0112_project_memory_restricted_folders.sql
+apply_in grid_memory 0113_project_memory_restricted_folders.sql
 check_in grid_memory "SELECT count(*) FROM information_schema.columns WHERE table_name = 'project_memory' AND column_name = 'restricted_folder_ids'" "1" "0112 re-applies"
 
-echo "==> 0112 restricted memory and down migration verified"
+echo "==> 0113 restricted memory and down migration verified"
 
 # ---------------------------------------------------------------------------
 # Migration 0113: the download log, and its DOWN.
