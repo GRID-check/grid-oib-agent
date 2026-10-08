@@ -87,7 +87,7 @@ describe.skipIf(!url)('restricted use against Postgres (migrations 0112, 0111)',
   let upsertGrant: typeof import('@/lib/sharing/repository').upsertGrant
   let projectId = ''
   let restricted = ''
-  /** The source folder of `restricted`: what the record names (ADR-0087). */
+  /** The source folder of `restricted`: what the record names (ADR-0088). */
   let folderId = ''
 
   const session: AuthorizedSession = {

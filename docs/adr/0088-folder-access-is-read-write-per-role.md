@@ -116,13 +116,13 @@ access rule still answers for a deleted folder's id.
 **What is derived from restricted content records SOURCE FOLDER IDS** and is
 judged against the current grants when it is read:
 
-* a conversation's use, per person (`conversation_restricted_folders`, migration 0111): content
+* a conversation's use, per person (`conversation_restricted_folders`, migration 0112): content
   from a folder not every member may read enters the model's context only after the BFF
   admitted that use against the asker and everyone the conversation is shared with, under the
   advisory lock every widening takes (`POST /api/internal/conversations/[id]/restricted-use`).
   The agent narrows each turn's scope to what may be drawn on, admits each tool round before
   the model reads it, and keeps restricted collections out of every listing. Sharing allows a
-  person who may read every recorded folder now. This replaces ADR-0086's per-socket
+  person who may read every recorded folder now. This replaces ADR-0087's per-socket
   confinement check and its `4412` close.
 
   **The admission (amended 6 October 2026).** Every tool call REPORTS the collections it returns
@@ -187,7 +187,7 @@ recorded folders.
   `tests/aiq_agent/knowledge/test_collection_read_inventory.py`, and a tool that reads must name
   the test proving it reports. A tool bound outside Piloti's `ToolNode` gets no admission at
   all; deep research is one, and stays safe only because a run's scope never holds a restricted
-  collection (ADR-0086).
+  collection (ADR-0087).
 * Bad, because `GET /api/internal/document-file` still answers by name for an open collection
   when no envelope is presented (a job worker has none to forward); the envelope check binds the
   chat tool, which always echoes one, and the internal token is the same secret that signs

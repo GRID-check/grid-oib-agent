@@ -32,7 +32,7 @@ def _request(**fields) -> GridRequestContext:
 
 @contextlib.contextmanager
 def bound_use(drawable=(), confined=False) -> Iterator[RestrictedUse]:
-    """A turn's restricted use (ADR-0087), bound in the test's own context and reset after."""
+    """A turn's restricted use (ADR-0088), bound in the test's own context and reset after."""
     use = RestrictedUse(
         organization_id="org",
         user_id="user_asker",
@@ -411,7 +411,7 @@ def test_turn_identity_is_the_parsed_request_in_ledger_shape():
 
 
 class TestAConfinedTurnOffersNothingTheWholeProjectReads:
-    """ADR-0086, ADR-0087: a turn that may draw on a restricted folder, or whose
+    """ADR-0087, ADR-0088: a turn that may draw on a restricted folder, or whose
     conversation already drew on one, may not commission a run or hand work
     over, so it is never offered either. The BFF refuses both on its own; this
     keeps the model from proposing them. Settled after the whole setup gather

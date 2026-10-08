@@ -32,7 +32,7 @@ vi.mock('./version-repository', () => ({
 }))
 vi.mock('@/lib/storage/discard', () => ({ discardObject: vi.fn() }))
 vi.mock('@/lib/conversations/repository', () => ({ findConversationInOrg: vi.fn() }))
-// A subject in a folder every member may read admits nothing (ADR-0087); the
+// A subject in a folder every member may read admits nothing (ADR-0088); the
 // restricted case overrides `placementCollectionFor` and the admission.
 vi.mock('@/lib/authz/folder-access', async () => (await import('@/test-utils/folder-access')).openFolderAccessModule())
 vi.mock('@/lib/conversations/restricted-use', () => ({ admitRestrictedUse: vi.fn() }))

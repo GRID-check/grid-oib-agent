@@ -135,7 +135,7 @@ def _resolve_target(scope: str, project_id: str | None, organization_id: str | N
 def _restricted_scope_refusal() -> str | None:
     """The refusal for a turn that can read restricted content, else ``None``.
 
-    ADR-0086: memory is read by the whole project (and org memory by every
+    ADR-0087: memory is read by the whole project (and org memory by every
     project), so a finding drawn from a restricted folder would reach people the
     restriction excludes. The test is the turn's signed SCOPE, not the hits it
     happened to return, and the conversation's record: a turn that may draw on a

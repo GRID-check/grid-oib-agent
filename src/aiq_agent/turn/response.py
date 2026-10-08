@@ -132,6 +132,6 @@ def post_answer_turn_facts(
         emitted_card_types=emitted_card_types(cards),
         answer_confidence=state.answer_confidence,
         remembered_this_turn=remembered_this_turn,
-        # ADR-0086: a turn that could read a restricted folder writes no memory.
+        # ADR-0087: a turn that could read a restricted folder writes no memory.
         read_restricted=bool(restricted_collections_in(state.collection_scope)) or bool(state.confined),
     )

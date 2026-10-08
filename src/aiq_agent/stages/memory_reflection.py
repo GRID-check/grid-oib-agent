@@ -132,7 +132,7 @@ def _gate(facts: TurnFacts) -> GateDecision:
         # an org-only conversation has nothing it may safely write.
         return GateDecision.skip("no_project")
     if facts.read_restricted:
-        # ADR-0086: project memory is read by everyone on the project, and
+        # ADR-0087: project memory is read by everyone on the project, and
         # this turn could read a restricted folder. A finding distilled from
         # it would carry the content past the restriction.
         return GateDecision.skip("restricted_content")

@@ -303,7 +303,7 @@ class TestToolVocabulary:
                 info.input_schema(kind="decision", content="x", scope="global")
 
 
-# ADR-0086, glue until restricted memory lands: memory is read by people a
+# ADR-0087, glue until restricted memory lands: memory is read by people a
 # restricted folder excludes, so a turn whose scope holds a restricted folder's
 # collection, or whose conversation already drew on one, writes nothing — and
 # offers no card.

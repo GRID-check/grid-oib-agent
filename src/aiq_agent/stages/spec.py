@@ -83,7 +83,7 @@ class TurnFacts:
     #: built. Reflection must treat these as already recorded.
     remembered_this_turn: tuple[str, ...] = ()
     #: The turn's scope held a restricted folder's collection, or its
-    #: conversation already drew on one (ADR-0086), so its prompt and its
+    #: conversation already drew on one (ADR-0087), so its prompt and its
     #: retrieval could carry content not everyone in the project may see.
     #: Nothing that outlives the turn may be written from it.
     read_restricted: bool = False
