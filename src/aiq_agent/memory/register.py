@@ -229,16 +229,17 @@ def _emit_memory_proposal_card(*, content: str, kind: str, confidence: str) -> b
     return True
 
 
-def _failure_result(
-    exc: Exception, *, scope: str, kind: str, content: str, confidence: str, restricted: bool = False
-) -> str:
+def _failure_result(exc: Exception, *, kind: str, content: str, confidence: str, restricted: bool = False) -> str:
     """Translate a failed write into a tool result, emitting a card when one helps.
 
     An ORG-scoped write the agent's service token may not make is the one
     failure with a sanctioned alternative: a confirmation card lets the user
     complete the write through their OWN authenticated session (org-wide) or
-    save it to just this project. Everything else — and every project-scoped
-    failure — gets an honest error string instead of a dead end.
+    save it to just this project. Only that refusal: the BFF audits the memory
+    judge's verdict before it refuses (``outcome: refused``), and a write that
+    failed otherwise (a 500, a timeout) reached no audit, so a card for it would
+    write open memory whose judge's "none" the trail never saw. Everything else
+    gets an honest error string.
     """
     org_denied = isinstance(exc, memory_client.OrgMemoryDisabledError)
     if org_denied:
@@ -248,11 +249,8 @@ def _failure_result(
 
     # Never a card for a restricted finding: accepting it writes open memory
     # through the user's own session, which is the leak by another door.
-    if (
-        not restricted
-        and (org_denied or scope == "organization")
-        and _emit_memory_proposal_card(content=content, kind=kind, confidence=confidence)
-    ):
+    # `org_denied` is only ever an organization-scoped write.
+    if not restricted and org_denied and _emit_memory_proposal_card(content=content, kind=kind, confidence=confidence):
         return _CARD_SHOWN_RESULT
     return _ORG_DISABLED_RESULT if org_denied else _UNAVAILABLE_RESULT
 
@@ -391,7 +389,6 @@ async def project_memory_remember(tool_config: ProjectMemoryRememberConfig, buil
         except _WRITE_FAILURES as exc:
             return _failure_result(
                 exc,
-                scope=target.scope,
                 kind=kind,
                 content=content,
                 confidence=confidence,

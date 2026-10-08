@@ -123,14 +123,17 @@ async def test_org_deny_without_card_registry_falls_back_to_error(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_generic_org_failure_emits_confirmation_card(monkeypatch):
-    # A generic write failure on an ORG-scoped write also offers the card.
+@pytest.mark.parametrize("failure", [RuntimeError("500 from the BFF"), TimeoutError("timed out")])
+async def test_an_org_write_that_failed_otherwise_offers_no_card(monkeypatch, failure):
+    # Only the refusal offers the card. The BFF audits the memory judge's
+    # verdict before it refuses; a 500 or a timeout reached no audit, and a card
+    # accepted then would write open memory whose verdict the trail never saw.
     from aiq_agent.cards.registry import CardRegistry
     from aiq_agent.cards.registry import reset_card_registry
     from aiq_agent.cards.registry import set_card_registry
 
     _patch_context(monkeypatch)
-    insert = MagicMock(side_effect=RuntimeError("boom"))
+    insert = MagicMock(side_effect=failure)
 
     reg = CardRegistry()
     token = set_card_registry(reg)
@@ -139,8 +142,9 @@ async def test_generic_org_failure_emits_confirmation_card(monkeypatch):
     finally:
         reset_card_registry(token)
 
-    assert "NOT been saved yet" in result
-    assert [c["type"] for c in reg.snapshot()] == ["memory_proposal"]
+    assert "NOT saved" in result
+    assert "NOT been saved yet" not in result
+    assert reg.snapshot() == []
 
 
 @pytest.mark.asyncio
