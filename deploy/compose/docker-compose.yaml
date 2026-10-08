@@ -325,6 +325,36 @@ services:
       start_period: 20s
     restart: unless-stopped
 
+  legacy-corpus-import:
+    # One-shot (ADR-0082 A2): carries the pre-A2 base corpus into SeaweedFS and
+    # the corpus table, so an upgrade re-uploads nothing by hand. It reads the
+    # old backend volume (`aiq-data`: admin uploads, exclusions) and the host's
+    # data/oib (operator PDFs), both read-only, and stores what the corpus does
+    # not hold yet; the base-corpus housekeeping route then queues ingestion.
+    # A fresh stack has an empty volume, and the run stores nothing. Remove this
+    # service, the `aiq-data` volume and aiq_agent/legacy_corpus_import.py
+    # together once every installation has run it.
+    image: ${BACKEND_IMAGE:-nvcr.io/nvidia/blueprint/aiq-agent:2.0.0}
+    env_file:
+      - ../.env
+    environment:
+      - AIQ_SUMMARY_DB=${AIQ_SUMMARY_DB:-postgresql+psycopg://aiq:aiq_dev@pgbouncer:5432/aiq_jobs}
+      - FRONTEND_INTERNAL_URL=${FRONTEND_INTERNAL_URL:-http://frontend:3000}
+      - GRID_INTERNAL_API_TOKEN=${GRID_INTERNAL_API_TOKEN:-grid-internal-dev-token}
+    entrypoint: ["python", "-m", "aiq_agent.legacy_corpus_import"]
+    command: ["/legacy/data", "/legacy/oib"]
+    volumes:
+      - aiq-data:/legacy/data:ro
+      - ../../data/oib:/legacy/oib:ro
+    networks:
+      - aiq-network
+    depends_on:
+      frontend:
+        condition: service_healthy
+      pgbouncer:
+        condition: service_healthy
+    restart: "no"
+
   chroma-data-permissions:
     # Only the shared Chroma server writes the volume: it runs as uid 1000.
     image: alpine:3.20
@@ -598,7 +628,7 @@ services:
       # Admin token for the backend's /v1/admin/oib/* endpoints (must match
       # aiq-agent). Powers the platform-owner base-knowledge management UI.
       - GRID_ADMIN_TOKEN=${GRID_ADMIN_TOKEN:-}
-      # Corpus tarball for the answer-suite CI (/api/internal/oib-corpus). Unset = disabled.
+      # Corpus tarball (/api/internal/oib-corpus). No caller since the answer-suite CI workflow was removed. Unset = disabled.
       - GRID_CORPUS_EXPORT_TOKEN=${GRID_CORPUS_EXPORT_TOKEN:-}
       - WORKOS_CLIENT_ID=${WORKOS_CLIENT_ID}
       - WORKOS_API_KEY=${WORKOS_API_KEY}
@@ -1284,6 +1314,9 @@ services:
 
 volumes:
   chroma_data:
+    driver: local
+  # The pre-A2 backend volume, read once by legacy-corpus-import and by nothing else.
+  aiq-data:
     driver: local
   seaweedfs-data:
     driver: local

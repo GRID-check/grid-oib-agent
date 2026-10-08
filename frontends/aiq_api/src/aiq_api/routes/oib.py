@@ -287,8 +287,12 @@ def add_oib_routes(router: APIRouter) -> None:
     async def export_oib_corpus(
         _: None = Depends(_require_admin_token_strict),
     ) -> FileResponse:
-        """The corpus a CI run ingests (the answer-suite workflow), built on a
-        worker thread into a temp file that is removed once the response ends."""
+        """The corpus as a tarball, built on a worker thread into a temp file
+        that is removed once the response ends.
+
+        Its only consumer was the answer-suite CI workflow, which has been
+        removed; the export stays until someone decides to delete it.
+        """
         path = await asyncio.to_thread(_corpus_tarball)
         return _TemporaryFileResponse(path, media_type="application/gzip", filename="oib-corpus.tar.gz")
 

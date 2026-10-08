@@ -22,6 +22,13 @@ const requestBodyLimitMB = Math.ceil(requestBodyLimitBytes(process.env) / (1024 
 const nextConfig: NextConfig = {
   reactStrictMode: true,
 
+  // The build typechecks production code only: tsconfig.build.json leaves the
+  // specs and test helpers out of its roots, so a type error in a test cannot
+  // fail `next build`. `task fe:types` (tsc on tsconfig.json) still checks them.
+  typescript: {
+    tsconfigPath: 'tsconfig.build.json',
+  },
+
   images: {
     // The optimizer refuses any remote host that is not named here, which is
     // what keeps it from being an open image proxy. Directory avatars are the

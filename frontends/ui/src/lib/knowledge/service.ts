@@ -421,9 +421,10 @@ export async function reingestKnowledgeBaseDocuments(fileNames: string[]): Promi
 }
 
 /**
- * The whole base corpus as one .tar.gz, for a CI ingest (the answer-suite
- * workflow). The backend builds it from exactly the PDFs its sync ingests and
- * refuses without a configured admin token; this passes the stream through.
+ * The whole base corpus as one .tar.gz. Its only consumer was the answer-suite
+ * CI workflow, which has been removed; the export stays until someone decides
+ * to delete it. The backend builds it from exactly the PDFs its sync ingests
+ * and refuses without a configured admin token; this passes the stream through.
  */
 export async function streamKnowledgeBaseCorpus(): Promise<Response> {
   let res: Response

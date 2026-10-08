@@ -33,6 +33,7 @@ import { installChroma } from "./src/data/chroma";
 import { AppWiring, PULL_SECRET_NAME, buildRegistryPullSecret, buildScalerSecret, buildSecrets } from "./src/app/config";
 import { runMigrations } from "./src/app/migrations-job";
 import { reconcileAuditSchemas } from "./src/app/audit-schemas-job";
+import { importLegacyCorpus } from "./src/app/legacy-corpus-import-job";
 import { installBackend } from "./src/app/backend";
 import { installBackendScaling } from "./src/app/backend-scaling";
 import { installApi } from "./src/app/api";
@@ -236,6 +237,16 @@ const api = installApi(wiring, cfg, secrets, [
 ]);
 
 const frontend = installFrontend(wiring, cfg, secrets, [migrations, backend.service, api.service]);
+
+// The pre-A2 base corpus, carried off the old backend data volume once
+// (ADR-0082 A2). Only where that volume exists: see `storage.legacyCorpusClaim`.
+if (cfg.storage.legacyCorpusClaim) {
+  importLegacyCorpus(wiring, cfg, secrets, cfg.storage.legacyCorpusClaim, [
+    backend.statefulSet,
+    frontend.deployment,
+  ]);
+}
+
 const workers = installWorkers(wiring, cfg, secrets, [migrations]);
 // Landing site + blog (Astro, frontends/web) — static-first, no app secrets,
 // but it pulls from the same registry, so it gets the pull Secret too.
