@@ -257,7 +257,7 @@ def _agents_with_a_delivery_surface() -> set[str]:
 
     Two channels exist and they are different by necessity. Piloti
     resolves per turn inside a live request, so it names the agent at the
-    ``SkillResolver`` call site. Deep research runs in a Dask worker with no
+    ``SkillResolver`` call site. Deep research runs in a research worker with no
     request to read an organization off, so it resolves per RUN through
     ``resolve_served_skills`` and carries the tenant on its own state; its name
     is a module constant, imported here so that renaming or removing it fails

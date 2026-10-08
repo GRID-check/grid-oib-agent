@@ -3,7 +3,7 @@
 /**
  * Knowledge-base transparency panel — shows the user exactly what the RAG
  * knows: every document of the shared OIB Richtlinien corpus with its live
- * index state (indexed / outdated / pending / removed / inconsistent), plus
+ * index state (indexed / outdated / pending / failed / removed / inconsistent), plus
  * the project's own uploaded documents that join the retrieval scope.
  *
  * Data sources: `GET /api/knowledge-base` (base corpus, served by the
@@ -53,8 +53,8 @@ interface KnowledgeBasePanelProps {
 /** Badge color per corpus state — success only when the RAG really knows it. */
 const STATE_VARIANT: Record<KnowledgeFileState, 'success' | 'info' | 'warning' | 'destructive' | 'secondary'> = {
   ingested: 'success',
-  snapshot: 'success',
   pending: 'info',
+  failed: 'destructive',
   stale: 'warning',
   removed: 'secondary',
   inconsistent: 'destructive',
@@ -104,7 +104,7 @@ function CorpusRow({ file, onView }: { file: KnowledgeFile; onView: (fileName: s
         <Badge variant={STATE_VARIANT[file.state]} title={t(`stateHints.${file.state}`)}>
           {t(`states.${file.state}`)}
         </Badge>
-        {file.origin !== 'index_only' && (
+        {file.state !== 'removed' && (
           <Button
             variant="ghost"
             size="icon"
@@ -226,12 +226,16 @@ export function KnowledgeBasePanel({ projectId }: KnowledgeBasePanelProps) {
   }, [load])
 
   const attention = status
-    ? status.summary.pending + status.summary.stale + status.summary.removed + status.summary.inconsistent
+    ? status.summary.pending +
+        status.summary.failed +
+        status.summary.stale +
+        status.summary.removed +
+        status.summary.inconsistent
     : 0
   // "Indexed" = everything the assistant can actually search: verified corpus
-  // files, snapshot-restored corpus files, and successfully ingested project docs.
+  // files and successfully ingested project docs.
   const readyProjectDocs = documents.filter((doc) => documentStatusVariant(doc.status) === 'success').length
-  const indexed = status ? status.summary.ingested + status.summary.snapshot + readyProjectDocs : 0
+  const indexed = status ? status.summary.ingested + readyProjectDocs : 0
 
   return (
     <div className="mx-auto w-full max-w-5xl space-y-8 px-4 py-6 md:px-8">

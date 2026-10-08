@@ -132,6 +132,28 @@ export const chat = {
     // tiny one-line hint under the composer keeps the active source count legible.
     sourcesActiveMobile: '{count, plural, one {# source} other {# sources}} active',
   },
+  // Voice dictation in the composer (features/dictation).
+  dictation: {
+    start: 'Dictate',
+    startHint: 'Speak, and Piloti writes it into your message. Stops after {seconds} seconds.',
+    stop: 'Stop and insert',
+    recording: 'Recording, {elapsed}',
+    transcribing: 'Transcribing …',
+    unavailable: {
+      unsupported: 'This browser cannot record from a microphone.',
+      insecure: 'Voice input needs a secure (https) connection.',
+      noFormat: 'This browser records no audio format Piloti can transcribe.',
+      denied: 'Microphone access is blocked. Allow it in the browser’s site settings, then reload.',
+    },
+    errors: {
+      noMicrophone: 'No microphone was found.',
+      denied: 'Microphone access was not allowed.',
+      rateLimited: 'Too many recordings in a short time. Try again in a minute.',
+      tooLarge: 'The recording is too large to transcribe.',
+      notConfigured: 'Voice input is not available right now.',
+      failed: 'The recording could not be transcribed. Your message is unchanged.',
+    },
+  },
   // Source-preset shortcut chips under the composer (empty thread).
   // A source card's provenance tab in the Herleitung: the coarse stratum when
   // the backend named no fine lane, and the shelf the wire stated.
@@ -1205,7 +1227,7 @@ export const chat = {
     failed: 'Message could not be copied',
   },
   /**
-   * Sensitive data in chat (ADR-0083): what the composer reports before sending.
+   * Sensitive data in chat (ADR-0085): what the composer reports before sending.
    * The placeholders themselves are domain data and come from `content-screen.ts`.
    */
   screening: {

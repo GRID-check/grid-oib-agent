@@ -87,7 +87,7 @@ describe('listReviewCandidates', () => {
     expect(candidates.map((entry) => entry.userId)).toEqual(['user_anna', 'user_bernd'])
   })
 
-  it('offers only editors who may read the folder the document is filed in (ADR-0085)', async () => {
+  it('offers only editors who may read the folder the document is filed in (ADR-0087)', async () => {
     // Bernd edits the project but the folder is restricted to other roles: a round
     // in front of him is one he cannot open, on a document he was never to know.
     vi.mocked(filterUsersWhoMayReadFolder).mockResolvedValue(new Set(['user_anna']))

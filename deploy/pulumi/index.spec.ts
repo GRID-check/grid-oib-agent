@@ -21,13 +21,18 @@ import { baseStackConfig } from "./src/test-support/stack-config";
  * It does NOT prove the stack deploys. Nothing here contacts an API server.
  */
 
-const RESOURCES: Array<{ type: string; name: string }> = [];
+/** The few manifest fields the assertions below read; mock inputs are untyped. */
+type Container = { env?: Array<{ name: string; value?: string }> };
+type PodSpec = { spec: { containers: Container[] } };
+type Manifest = { spec?: { concurrencyPolicy?: string; template?: PodSpec; jobTemplate?: { spec: { template: PodSpec } } } };
+
+const RESOURCES: Array<{ type: string; name: string; inputs: Manifest }> = [];
 let STACK: Record<string, unknown> = {};
 
 pulumi.runtime.setMocks(
   {
     newResource: (args: pulumi.runtime.MockResourceArgs) => {
-      RESOURCES.push({ type: args.type, name: args.name });
+      RESOURCES.push({ type: args.type, name: args.name, inputs: args.inputs });
       return {
         id: `${args.name}-id`,
         state: { ...args.inputs, metadata: args.inputs.metadata ?? { name: args.name } },
@@ -100,6 +105,103 @@ describe("the program constructs in the split topology", () => {
     expect(named("kubernetes:batch/v1:CronJob")).toEqual(
       expect.arrayContaining(["storage-alerts", "vector-reconcile"]),
     );
+  });
+
+  it("schedules the backend's housekeeping as CronJobs, the only thing that runs it", () => {
+    // ADR-0082 step A1. The backend has no loop of its own: a missing CronJob is
+    // housekeeping silently gone, which nothing else alerts on.
+    const cronJobs = RESOURCES.filter((r) => r.type === "kubernetes:batch/v1:CronJob");
+    const housekeeping = cronJobs.filter((r) => r.name.startsWith("housekeeping-"));
+    expect(housekeeping.map((r) => r.name).sort()).toEqual([
+      "housekeeping-base-corpus",
+      "housekeeping-chat-checkpoints",
+      "housekeeping-ghost-jobs",
+      "housekeeping-job-events",
+    ]);
+    for (const job of housekeeping) {
+      const container = job.inputs.spec?.jobTemplate?.spec.template.spec.containers[0];
+      const url = container?.env?.find((e) => e.name === "SWEEP_URL")?.value;
+      // The api role serves them (ADR-0082 step B), not the chat tier.
+      expect(url).toBe(`http://aiq-api:8000/v1/maintenance/housekeeping/${job.name.replace("housekeeping-", "")}`);
+      expect(job.inputs.spec?.concurrencyPolicy).toBe("Forbid");
+    }
+  });
+
+  it("keeps no files on the web role: no volume claim, nothing mounted at /app/data", () => {
+    // ADR-0082 step A2's gate. The base corpus is in the object store and a
+    // table, the vectors in the shared Chroma; a claim here would bring back the
+    // one replica's disk an upload could land on.
+    const web = RESOURCES.find((r) => r.type === "kubernetes:apps/v1:StatefulSet" && r.name === "aiq-agent");
+    const spec = web?.inputs.spec;
+    expect(spec).toBeDefined();
+    expect(spec?.volumeClaimTemplates).toBeUndefined();
+    expect(spec?.persistentVolumeClaimRetentionPolicy).toBeUndefined();
+    const containers = spec?.template?.spec.containers ?? [];
+    expect(containers.length).toBeGreaterThan(0);
+    for (const container of containers) {
+      expect(container.volumeMounts ?? []).toEqual([]);
+      const env = container.env ?? [];
+      expect(env.find((e) => e.name === "AIQ_CHROMA_URL")?.value).toBeDefined();
+      for (const gone of ["AIQ_CHROMA_DIR", "OIB_UPLOADS_DIR", "GRID_BASE_CORPUS_STORE"]) {
+        expect(env.find((e) => e.name === gone)).toBeUndefined();
+      }
+    }
+    expect(spec?.template?.spec.volumes ?? []).toEqual([]);
+  });
+
+  it("runs the backend as two roles: the chat StatefulSet and the api Deployment, Service and HPA", () => {
+    // ADR-0082 step B. Each role is its own workload because each rolls, scales
+    // and fails on its own signal; a missing api tier is every BFF HTTP call
+    // failing behind a green `pulumi up`.
+    expect(named("kubernetes:apps/v1:StatefulSet")).toContain("aiq-agent");
+    expect(named("kubernetes:apps/v1:Deployment")).toContain("aiq-api");
+    expect(named("kubernetes:core/v1:Service")).toEqual(expect.arrayContaining(["aiq-agent", "aiq-api"]));
+    expect(named("kubernetes:autoscaling/v2:HorizontalPodAutoscaler")).toContain("aiq-api");
+
+    const role = (type: string, name: string) => {
+      const spec = RESOURCES.find((r) => r.type === type && r.name === name)?.inputs.spec;
+      const env = spec?.template?.spec.containers[0].env as Array<{ name: string; value?: string }> | undefined;
+      return env?.filter((e) => e.name === "GRID_ROLE").map((e) => e.value);
+    };
+    expect(role("kubernetes:apps/v1:StatefulSet", "aiq-agent")).toEqual(["chat"]);
+    expect(role("kubernetes:apps/v1:Deployment", "aiq-api")).toEqual(["api"]);
+  });
+
+  it("gives every backend tier the frontend's WorkOS posture, with a client id to validate against", () => {
+    // The backend once had neither REQUIRE_AUTH nor WORKOS_CLIENT_ID, so it ran
+    // with job ownership off while the frontend required login. Each tier must
+    // carry the frontend's value, and the client id must be non-empty: without
+    // it the backend has no validator, and with auth required it refuses to boot.
+    const envOf = (type: string, name: string) => {
+      const spec = RESOURCES.find((r) => r.type === type && r.name === name)?.inputs.spec;
+      return (spec?.template?.spec.containers[0].env ?? []) as Array<{ name: string; value?: string }>;
+    };
+    const valueIn = (env: Array<{ name: string; value?: string }>, name: string) =>
+      env.find((e) => e.name === name)?.value;
+
+    const frontend = envOf("kubernetes:apps/v1:Deployment", "frontend");
+    // The stack default (`requireAuth`, true): the posture the tiers must match.
+    expect(valueIn(frontend, "REQUIRE_AUTH")).toBe("true");
+    const tiers = {
+      chat: envOf("kubernetes:apps/v1:StatefulSet", "aiq-agent"),
+      api: envOf("kubernetes:apps/v1:Deployment", "aiq-api"),
+      "agent-worker": envOf("kubernetes:apps/v1:Deployment", "agent-worker"),
+      "ingest-worker": envOf("kubernetes:apps/v1:Deployment", "ingest-worker"),
+    };
+    for (const [tier, env] of Object.entries(tiers)) {
+      expect(valueIn(env, "REQUIRE_AUTH"), `${tier} REQUIRE_AUTH`).toBe(valueIn(frontend, "REQUIRE_AUTH"));
+      expect(valueIn(env, "WORKOS_CLIENT_ID"), `${tier} WORKOS_CLIENT_ID`).toBe(valueIn(frontend, "WORKOS_CLIENT_ID"));
+      expect(valueIn(env, "WORKOS_CLIENT_ID"), `${tier} WORKOS_CLIENT_ID`).toBeTruthy();
+    }
+  });
+
+  it("gives the frontend the api URL for HTTP and the chat URL for the socket", () => {
+    const frontend = RESOURCES.find((r) => r.type === "kubernetes:apps/v1:Deployment" && r.name === "frontend");
+    const env = frontend?.inputs.spec?.template?.spec.containers[0].env as Array<{ name: string; value?: string }>;
+    const value = (name: string) => env.find((e) => e.name === name)?.value;
+
+    expect(value("BACKEND_URL")).toBe("http://aiq-api:8000");
+    expect(value("BACKEND_CHAT_URL")).toBe("http://aiq-agent:8000");
   });
 
   it("creates the scheduler even with Agent Skills off, because it is the run reconciler's clock", () => {

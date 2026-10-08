@@ -4,8 +4,11 @@ from __future__ import annotations
 
 import asyncio
 import os
+import time
 from collections.abc import Mapping
+from dataclasses import dataclass
 from typing import Any
+from typing import Literal
 
 from fastapi import HTTPException
 from sqlalchemy import text
@@ -13,16 +16,15 @@ from sqlalchemy.engine import Connection
 
 from aiq_agent.auth import Principal
 from aiq_agent.auth import get_current_principal
+from aiq_agent.common.db_utils import ensure_schema
+from aiq_agent.knowledge.restricted_collections import base_collection_of
+from aiq_agent.project_context import REQUEST_CONTEXT_ENVELOPE_HEADER
+from aiq_agent.project_context import REQUEST_CONTEXT_ENVELOPE_SIG_HEADER
+from aiq_agent.project_context import GridRequestContext
 
 _job_access_schema_initialized: set[str] = set()
 
 _JOB_ACCESS_INDEX_SQL = "CREATE INDEX IF NOT EXISTS idx_job_access_owner ON job_access(owner_auth_type, owner_subject)"
-_JOB_ACCESS_ORG_INDEX_SQL = (
-    # The per-org admission count (`count_active_jobs(... organization_id=...)`)
-    # filters `job_access.organization_id` on the submit hot path; without this it
-    # is an unindexed scan against the (never-pruned in db mode) job_info join.
-    "CREATE INDEX IF NOT EXISTS idx_job_access_org ON job_access(organization_id)"
-)
 _JOB_ACCESS_PROJECT_INDEX_SQL = (
     "CREATE INDEX IF NOT EXISTS idx_job_access_owner_project ON job_access(owner_subject, project_collection)"
 )
@@ -51,9 +53,7 @@ def _is_postgres(db_url: str) -> bool:
 
 def ensure_job_access_table(db_url: str) -> None:
     """Create the AIQ-owned job access table if it does not exist."""
-    with _job_access_connection(db_url) as conn:
-        _ensure_job_access_schema(conn, db_url)
-        conn.commit()
+    _ensure_job_access_schema(db_url)
 
 
 def create_job_access(
@@ -65,8 +65,8 @@ def create_job_access(
     organization_id: str | None = None,
 ) -> None:
     """Persist the verified owner for a newly created job."""
+    _ensure_job_access_schema(db_url)
     with _job_access_connection(db_url) as conn:
-        _ensure_job_access_schema(conn, db_url)
         conn.execute(
             _job_access_upsert_sql(db_url),
             _principal_params(job_id, principal, conversation_id, project_collection, organization_id),
@@ -74,34 +74,10 @@ def create_job_access(
         conn.commit()
 
 
-def count_active_jobs(
-    db_url: str,
-    terminal_statuses: tuple[str, ...],
-    organization_id: str | None = None,
-) -> int:
-    """Count non-terminal, non-expired jobs (admission control).
-
-    Org scoping joins ``job_access.organization_id``, written at submit time;
-    pre-existing rows without it simply don't count toward per-org caps.
-    """
-    with _job_access_connection(db_url) as conn:
-        _ensure_job_access_schema(conn, db_url)
-        placeholders = ", ".join(f":s{i}" for i in range(len(terminal_statuses)))
-        params: dict[str, Any] = {f"s{i}": status for i, status in enumerate(terminal_statuses)}
-        query = (
-            "SELECT count(*) FROM job_info ji JOIN job_access ja ON ja.job_id = ji.job_id "
-            f"WHERE ji.status NOT IN ({placeholders}) AND ji.is_expired IS NOT TRUE"
-        )
-        if organization_id is not None:
-            query += " AND ja.organization_id = :organization_id"
-            params["organization_id"] = organization_id
-        return int(conn.execute(text(query), params).scalar() or 0)
-
-
 def get_job_access(job_id: str, db_url: str) -> dict[str, Any] | None:
     """Return job access metadata for a job."""
+    _ensure_job_access_schema(db_url)
     with _job_access_connection(db_url) as conn:
-        _ensure_job_access_schema(conn, db_url)
         row = conn.execute(_JOB_ACCESS_SELECT_SQL, {"job_id": job_id}).mappings().first()
         return dict(row) if row is not None else None
 
@@ -165,8 +141,8 @@ def job_exists(job_id: str, db_url: str) -> bool:
     """
     from sqlalchemy import inspect
 
+    _ensure_job_access_schema(db_url)
     with _job_access_connection(db_url) as conn:
-        _ensure_job_access_schema(conn, db_url)
         row = conn.execute(text("SELECT 1 FROM job_access WHERE job_id = :job_id"), {"job_id": job_id}).first()
         if row is not None:
             return True
@@ -180,22 +156,25 @@ def job_exists(job_id: str, db_url: str) -> bool:
 
 def delete_job_access(job_id: str, db_url: str) -> int:
     """Delete job access metadata for a specific job."""
+    _ensure_job_access_schema(db_url)
     with _job_access_connection(db_url) as conn:
-        _ensure_job_access_schema(conn, db_url)
         result = conn.execute(_JOB_ACCESS_DELETE_SQL, {"job_id": job_id})
         conn.commit()
         return result.rowcount or 0
 
 
 def cleanup_job_access(db_url: str, conn: Connection | None = None) -> int:
-    """Delete access rows for expired or missing jobs."""
+    """Delete access rows for expired or missing jobs.
+
+    With ``conn``, ``job_access`` must already exist (``ensure_job_access_table``): the
+    schema is created on a connection of its own, which would wait for the locks ``conn`` holds.
+    """
+    _ensure_job_access_schema(db_url)
     if conn is not None:
-        _ensure_job_access_schema(conn, db_url)
         result = conn.execute(_JOB_ACCESS_CLEANUP_SQL)
         return result.rowcount or 0
 
     with _job_access_connection(db_url) as owned_conn:
-        _ensure_job_access_schema(owned_conn, db_url)
         result = owned_conn.execute(_JOB_ACCESS_CLEANUP_SQL)
         owned_conn.commit()
         return result.rowcount or 0
@@ -206,20 +185,20 @@ def expire_terminal_jobs(
     delete_grace_seconds: int,
     conn: Connection | None = None,
 ) -> tuple[int, int]:
-    """Age out finished ``job_info`` rows so the table stays bounded in db mode.
+    """Age out finished ``job_info`` rows so the table stays bounded.
 
     Two phases, both preserving the single most-recent finished job so an idle
     deployment always shows its last run:
 
     1. **Mark** terminal rows ``is_expired = true`` once ``updated_at +
-       expiry_seconds`` has passed (the per-row expiry NAT itself honors). This
-       mirrors NAT's ``cleanup_expired_jobs`` — which runs only via the Dask
-       cleanup task and is therefore skipped in ``db`` execution mode (ADR-0021),
-       leaving ``job_info``/``job_access`` to grow forever. Marking here re-arms
-       the existing access/event cleanup, which keys off ``is_expired``.
-    2. **Delete** rows whose ``updated_at`` is older than ``delete_grace_seconds``
+       expiry_seconds`` has passed (the per-row expiry NAT itself honors). It
+       is the only job_info expiry (ADR-0082 A1: the
+       job-events housekeeping route runs it). Marking re-arms the
+       access/event cleanup, which keys off ``is_expired``.
+    2. **Delete** rows past BOTH their own expiry and ``delete_grace_seconds``
        (job_events + job_access + job_info together) so the table is actually
-       bounded, not merely flagged.
+       bounded, not merely flagged. Requiring the expiry too means a grace set
+       shorter than a job's expiry never deletes that job early.
 
     Runs on the caller's connection (under its advisory lock) without committing
     when ``conn`` is given, else opens and commits its own. Returns
@@ -279,7 +258,10 @@ def _expire_terminal_jobs(conn: Connection, db_url: str, delete_grace_seconds: i
             # Interpolated fragments are trusted dialect literals + generated ":sN"
             # placeholders; grace/status values are bound.
             # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text
-            text(f"SELECT job_id FROM job_info WHERE status IN ({placeholders}) AND {past_grace} AND {keep_newest}"),
+            text(
+                f"SELECT job_id FROM job_info WHERE status IN ({placeholders}) "
+                f"AND {past_grace} AND {past_expiry} AND {keep_newest}"
+            ),
             {**status_params, "grace": delete_grace_seconds},
         ).scalars()
     )
@@ -310,8 +292,8 @@ def rollback_job_submission(job_id: str, db_url: str) -> None:
     from .event_store import EventStore
 
     EventStore._ensure_table_exists(db_url)
+    _ensure_job_access_schema(db_url)
     with _job_access_connection(db_url) as conn:
-        _ensure_job_access_schema(conn, db_url)
         conn.execute(_JOB_ACCESS_DELETE_SQL, {"job_id": job_id})
         conn.execute(_JOB_EVENTS_DELETE_SQL, {"job_id": job_id})
         conn.execute(_JOB_INFO_DELETE_SQL, {"job_id": job_id})
@@ -349,24 +331,204 @@ def require_verified_principal() -> Principal:
     if principal is not None:
         return principal
 
-    if os.environ.get("REQUIRE_AUTH", "false").lower() == "true":
+    if _auth_required():
         raise HTTPException(403, "Verified principal required for async job access")
 
     return _make_no_auth_principal()
 
 
-async def authorize_job_access(job_store: Any, db_url: str, job_id: str, principal: Principal) -> Any:
-    """Load a job, enforcing ownership when auth is enabled.
+def _auth_required() -> bool:
+    return os.environ.get("REQUIRE_AUTH", "false").lower() == "true"
 
-    When REQUIRE_AUTH=false, ownership is not enforced — any caller may access
-    any existing job.  Ownership records are still written at submit time for
-    audit purposes and to support future auth enablement without data migration.
+
+def _base_collection_name() -> str:
+    """Return the configured base/OIB knowledge collection name.
+
+    Mirrors the env var precedence used elsewhere in the codebase
+    (e.g. ``aiq_agent.oib_sync``): ``OIB_COLLECTION_NAME`` wins over the
+    legacy ``COLLECTION_NAME``, defaulting to ``oib_knowledge``.
+    """
+    return os.environ.get("OIB_COLLECTION_NAME") or os.environ.get("COLLECTION_NAME") or "oib_knowledge"
+
+
+def derive_project_collection(collection_scope: list[str] | None) -> str | None:
+    """Extract the project collection from a request's collection scope.
+
+    The collection scope contains the base/OIB collection, the office Archiv
+    (``archiv_<org>``), the project collection, and an ``s_<conversation>``
+    scoped collection. The project collection is the single remaining entry
+    once those others are excluded. Returns None if no such entry exists (or
+    more than one candidate remains, which indicates an ambiguous scope not
+    worth guessing at).
+
+    One derivation for both ends of a job's life: submit records its answer on
+    ``job_access.project_collection``, and :func:`signed_job_scope` asks the
+    same question of the scope a later request signed. Two copies could
+    disagree about one scope, and a run would then be unreachable from the
+    project it was commissioned in.
+
+    A restricted folder's collection (``<project collection>_r<12 hex>``,
+    ADR-0086) is part of its project, not a second one: it is read as its base
+    before candidates are counted. Counted as itself, a cleared member's scope
+    held two candidates and recorded no project; recorded as itself, the BFF
+    would resolve it to no project and file the report nowhere.
+    """
+    if not collection_scope:
+        return None
+
+    base_collection = _base_collection_name()
+    candidates = {
+        base_collection_of(collection)
+        for collection in collection_scope
+        if collection != base_collection and not collection.startswith("s_") and not collection.startswith("archiv_")
+    }
+    if len(candidates) == 1:
+        return candidates.pop()
+    return None
+
+
+#: How long a signed envelope may authorize a job request, in milliseconds.
+#: The BFF verifier's window, ``GRID_REQUEST_CONTEXT_MAX_AGE_MS`` in
+#: ``frontends/ui/src/lib/request-context.ts``. The two must stay equal.
+JOB_ENVELOPE_MAX_AGE_MS = 6 * 60 * 60 * 1000
+
+#: What a request does to a job. A ``read`` follows it (status, stream, state,
+#: report, the listing); a ``control`` steers it (cancel, write-now, documents).
+JobAction = Literal["read", "control"]
+
+
+@dataclass(frozen=True)
+class SignedJobScope:
+    """The part of a verified envelope a job is authorized against (ADR-0084).
+
+    The BFF signs a project only after it checked ``project:chat`` on it, and a
+    conversation only after it checked ``viewer`` on it. This tier cannot ask
+    WorkOS who belongs to a project, so it checks that the job lies inside what
+    the BFF signed instead.
+    """
+
+    organization_id: str
+    project_collection: str | None
+    conversation_id: str | None
+
+
+@dataclass(frozen=True)
+class JobCaller:
+    """Who is asking for a job: the verified principal, and the scope its BFF signed."""
+
+    principal: Principal
+    scope: SignedJobScope | None = None
+
+
+def signed_job_scope(
+    headers: Mapping[str, str],
+    principal: Principal,
+    *,
+    now_ms: int | None = None,
+) -> SignedJobScope | None:
+    """The job scope a request's signed envelope grants, or None when it grants nothing.
+
+    Stricter than the envelope middleware, which only asks that one is present.
+    An envelope that widens access past the owner must be signed (no secret, no
+    grant), name an organization, speak for the user the bearer token names,
+    and be inside the BFF verifier's window, counted in both directions. A
+    failure on any of these is the same as no envelope: the caller keeps what
+    it owns and nothing more.
+    """
+    secret = os.environ.get("GRID_INTERNAL_API_TOKEN")
+    if not secret:
+        return None
+    context = GridRequestContext.from_envelope(
+        headers.get(REQUEST_CONTEXT_ENVELOPE_HEADER),
+        headers.get(REQUEST_CONTEXT_ENVELOPE_SIG_HEADER),
+        secret,
+    )
+    if context is None or not context.organization_id or context.issued_at is None:
+        return None
+    if context.user_id != principal.sub:
+        return None
+    now = now_ms if now_ms is not None else int(time.time() * 1000)
+    if abs(now - context.issued_at) > JOB_ENVELOPE_MAX_AGE_MS:
+        return None
+    return SignedJobScope(
+        organization_id=context.organization_id,
+        project_collection=derive_project_collection(context.collection_scope),
+        conversation_id=context.conversation_id,
+    )
+
+
+def job_access_allows(access: Mapping[str, Any], caller: JobCaller, action: JobAction) -> bool:
+    """Whether ``caller`` may ``action`` the job ``access`` describes (ADR-0084).
+
+    The owner may do anything. Anyone else needs a signed scope in the job's
+    organization (a row with no organization matches nobody), and then either
+    the job's project, which reads and steers, or the job's conversation, which
+    only reads: a viewer of a thread may follow a run in it, not stop it.
+    """
+    if _principal_matches_access(caller.principal, access):
+        return True
+    scope = caller.scope
+    if scope is None:
+        return False
+    organization_id = access.get("organization_id")
+    if not organization_id or organization_id != scope.organization_id:
+        return False
+    project_collection = access.get("project_collection")
+    if project_collection and project_collection == scope.project_collection:
+        return True
+    if action != "read":
+        return False
+    conversation_id = access.get("conversation_id")
+    return bool(conversation_id) and conversation_id == scope.conversation_id
+
+
+def job_visibility_clause(caller: JobCaller) -> tuple[str, dict[str, Any]]:
+    """:func:`job_access_allows` for a read, as SQL over ``job_access ja``, for the listing.
+
+    The same three ways in, so a run the listing shows is a run its stream
+    opens. A NULL column never equals a bound value, so a row with no
+    organization is only ever its owner's.
+    """
+    clauses = ["(ja.owner_auth_type = :owner_auth_type AND ja.owner_subject = :owner_subject)"]
+    params: dict[str, Any] = {
+        "owner_auth_type": caller.principal.type,
+        "owner_subject": caller.principal.sub,
+    }
+    scope = caller.scope
+    shared: list[str] = []
+    if scope is not None and scope.project_collection:
+        shared.append("ja.project_collection = :scope_project_collection")
+        params["scope_project_collection"] = scope.project_collection
+    if scope is not None and scope.conversation_id:
+        shared.append("ja.conversation_id = :scope_conversation_id")
+        params["scope_conversation_id"] = scope.conversation_id
+    if scope is not None and shared:
+        clauses.append(f"(ja.organization_id = :scope_organization_id AND ({' OR '.join(shared)}))")
+        params["scope_organization_id"] = scope.organization_id
+    return f"({' OR '.join(clauses)})", params
+
+
+async def authorize_job_access(
+    job_store: Any,
+    db_url: str,
+    job_id: str,
+    caller: JobCaller,
+    action: JobAction,
+) -> Any:
+    """Load a job, enforcing :func:`job_access_allows` when auth is enabled.
+
+    When REQUIRE_AUTH=false, access is not enforced: any caller may access any
+    existing job. Ownership records are still written at submit time for audit
+    purposes and to support enabling auth later without a data migration.
+
+    A refusal is the same 404 as a job that does not exist, so a caller cannot
+    learn which job ids are real.
     """
     job = await job_store.get_job(job_id)
     if not job:
         raise HTTPException(404, f"Job not found: {job_id}")
 
-    if os.environ.get("REQUIRE_AUTH", "false").lower() != "true":
+    if not _auth_required():
         return job
 
     loop = asyncio.get_running_loop()
@@ -374,7 +536,7 @@ async def authorize_job_access(job_store: Any, db_url: str, job_id: str, princip
     if access is None:
         raise HTTPException(404, f"Job not found: {job_id}")
 
-    if not _principal_matches_access(principal, access):
+    if not job_access_allows(access, caller, action):
         raise HTTPException(404, f"Job not found: {job_id}")
 
     return job
@@ -391,9 +553,22 @@ def _job_access_connection(db_url: str):
     return engine.connect()
 
 
-def _ensure_job_access_schema(conn: Connection, db_url: str) -> None:
+def _ensure_job_access_schema(db_url: str) -> None:
+    """Create or upgrade ``job_access`` in a transaction of its own, then remember it.
+
+    Not on the caller's connection: a read path closes its connection without
+    committing, which would roll the DDL back under a flag that says it is done.
+    """
     if db_url in _job_access_schema_initialized:
         return
+    from .event_store import EventStore
+
+    engine = EventStore._get_or_create_sync_engine(db_url)
+    ensure_schema(engine, "job_access", lambda conn: _create_job_access_schema(conn, db_url))
+    _job_access_schema_initialized.add(db_url)
+
+
+def _create_job_access_schema(conn: Connection, db_url: str) -> None:
     conn.execute(text(_job_access_table_sql(db_url)))
     conn.execute(text(_JOB_ACCESS_INDEX_SQL))
     # Backfill columns onto pre-existing tables BEFORE creating the
@@ -407,8 +582,6 @@ def _ensure_job_access_schema(conn: Connection, db_url: str) -> None:
     else:
         _ensure_sqlite_job_access_columns(conn)
     conn.execute(text(_JOB_ACCESS_PROJECT_INDEX_SQL))
-    conn.execute(text(_JOB_ACCESS_ORG_INDEX_SQL))
-    _job_access_schema_initialized.add(db_url)
 
 
 def _job_access_table_sql(db_url: str) -> str:

@@ -70,7 +70,7 @@ export const files: typeof en.files = {
     // Erfolg („Zitierbar“ wäre ein Versprechen, das die Suche nicht einlöst)
     // und kein Fehler. Dasselbe Wort wie im Toast nach dem Lauf.
     stored: 'Abgelegt',
-    // Die Inhaltsprüfung (ADR-0083) hat angeschlagen: Die Datei liegt im
+    // Die Inhaltsprüfung (ADR-0085) hat angeschlagen: Die Datei liegt im
     // Projekt, kein Modell hat sie gesehen, und jemand muss entscheiden.
     quarantined: 'In Quarantäne',
     unknown: 'Unbekannt',
@@ -264,7 +264,7 @@ export const files: typeof en.files = {
   },
   screening: {
     // Warum eine Datei zurückgehalten wurde – vom Inhaltsfilter (im Text) oder
-    // vom Namensfilter (im Datei- oder Ordnernamen), ADR-0083.
+    // vom Namensfilter (im Datei- oder Ordnernamen), ADR-0085.
     reasonTerm: '„{term}“ im Text',
     reasonIban: 'IBAN {sample}',
     reasonSvnr: 'Sozialversicherungsnummer {sample}',
@@ -331,7 +331,7 @@ export const files: typeof en.files = {
     breadcrumb: 'Ordnerpfad',
     movedFolder: '„{name}“ nach „{parent}“ verschoben.',
     moveFolderError: 'Der Ordner konnte nicht verschoben werden. Bitte erneut versuchen.',
-    /** Ordnerzugriff (ADR-0084): einen Ordner auf Rollen einschränken. */
+    /** Ordnerzugriff (ADR-0086): einen Ordner auf Rollen einschränken. */
     access: {
       menu: 'Zugriff …',
       restrictedTo: 'Eigene Zugriffsrechte: {roles}',
@@ -363,7 +363,7 @@ export const files: typeof en.files = {
         'Ändert sich, wer lesen darf, verschiebt Piloti die Dokumente des Ordners und liest sie neu ein. Bei einem großen Ordner dauert das einige Minuten; so lange stehen die Dokumente auf „Wird gelesen“.',
       ifcNotice:
         'Ordner, die nicht alle Projektmitglieder lesen dürfen, können noch keine Gebäudemodelle (IFC) enthalten. Legen Sie IFC-Modelle in Ordner, die alle lesen dürfen.',
-      /** Der 409 der IFC-Sperre (ADR-0084): einschränken, hochladen oder verschieben in einen eingeschränkten Ordner. */
+      /** Der 409 der IFC-Sperre (ADR-0086): einschränken, hochladen oder verschieben in einen eingeschränkten Ordner. */
       ifcRefused:
         'Gebäudemodelle (IFC) können noch nicht in einem Ordner liegen, den nicht alle lesen dürfen: Ihre Gebäudedaten schützt der Ordnerzugriff nicht. Legen Sie IFC-Modelle in Ordner, die alle lesen dürfen.',
       readOnlyBadge: 'Nur lesen',
@@ -382,7 +382,7 @@ export const files: typeof en.files = {
       forbidden: 'Nur Projekt-Admins können ändern, wer einen Ordner lesen und bearbeiten darf.',
     },
   },
-  /** The Papierkorb of a project (ADR-0085). */
+  /** The Papierkorb of a project (ADR-0087). */
   bin: {
     title: 'Papierkorb',
     subtitle:
@@ -575,7 +575,7 @@ export const files: typeof en.files = {
     collisions: '{count} Dateien teilen sich einen Namen mit einer anderen Datei in diesem Upload',
     collisionsExplain:
       'Ein Projekt hält pro Dateiname ein Dokument, deshalb werden diese nicht hochgeladen. Benennen Sie sie um und legen Sie sie erneut ab.',
-    // Vom Namensfilter des Büros zurückgehalten (ADR-0083): Die Dateien
+    // Vom Namensfilter des Büros zurückgehalten (ADR-0085): Die Dateien
     // verlassen den Rechner nicht, außer jemand gibt eine einzeln frei.
     excluded: '{count} Datei(en) bleiben auf Ihrem Rechner',
     excludedExplain:

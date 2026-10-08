@@ -15,7 +15,7 @@
  * The per-IP rate limiter does not cover that case, because the herd arrives
  * from thousands of distinct IPs.
  */
-import { type ChildProcess, spawn } from 'node:child_process'
+import { type ChildProcess, spawn, spawnSync } from 'node:child_process'
 import http from 'node:http'
 import path from 'node:path'
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest'
@@ -127,7 +127,7 @@ async function startGateway(env: Record<string, string> = {}): Promise<number> {
       NODE_ENV: 'development',
       PORT: String(port),
       NEXT_INTERNAL_URL: `http://127.0.0.1:${upstreamPort}`,
-      BACKEND_URL: `http://127.0.0.1:${upstreamPort}`,
+      BACKEND_CHAT_URL: `http://127.0.0.1:${upstreamPort}`,
       // Isolate the behaviour under test from the per-IP limiter: every request
       // here comes from 127.0.0.1, which is exactly the case it does cover.
       GRID_WS_UPGRADE_RATE_LIMIT: '0',
@@ -336,6 +336,29 @@ describe('gateway WS-upgrade admission gate', () => {
   })
 })
 
+describe('gateway chat backend address', () => {
+  it('dials BACKEND_CHAT_URL for the socket and never BACKEND_URL, which is the api role', async () => {
+    const deadPort = await reservePort() // nothing listens: the api role serves no socket
+    const port = await startGateway({ BACKEND_URL: `http://127.0.0.1:${deadPort}` })
+
+    expect(await upgrade(port, 'session=chat-role')).toBe(101)
+  })
+
+  it('refuses to start without BACKEND_CHAT_URL, whatever BACKEND_URL says', () => {
+    const inherited = { ...process.env }
+    delete inherited.BACKEND_CHAT_URL
+    const result = spawnSync('node', ['server.js'], {
+      cwd: UI_ROOT,
+      env: { ...inherited, NODE_ENV: 'development', PORT: '0', BACKEND_URL: `http://127.0.0.1:${upstreamPort}` },
+      encoding: 'utf8',
+      timeout: 20_000,
+    })
+
+    expect(result.status).not.toBe(0)
+    expect(result.stderr).toContain('BACKEND_CHAT_URL is required')
+  })
+})
+
 describe('gateway WS-upgrade upstream failures', () => {
   it('reports an unreachable backend as a warning, not an error', async () => {
     // Issues #270/#272: during a rollout or pod restart the backend Service has
@@ -343,7 +366,7 @@ describe('gateway WS-upgrade upstream failures', () => {
     // gets ECONNREFUSED. Logged at ERROR that filed one GitHub issue per
     // reconnect, for an outcome the gateway already handles correctly.
     const deadPort = await reservePort() // reserved, then released — nothing listens
-    const port = await startGateway({ BACKEND_URL: `http://127.0.0.1:${deadPort}` })
+    const port = await startGateway({ BACKEND_CHAT_URL: `http://127.0.0.1:${deadPort}` })
 
     // Downgrading the severity must not change the outcome: the upgrade is
     // still refused with a 502 so the client reconnects.

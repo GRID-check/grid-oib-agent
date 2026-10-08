@@ -71,6 +71,7 @@ describe('/api/jobs/async/[...path]', () => {
         projectId: 'proj-1',
         conversationId: 'conv-1',
         projectCollectionName: undefined,
+        verifiedConversationId: undefined,
       })
       const fetchMock = vi.fn().mockResolvedValue(
         new Response(createStream(), {
@@ -105,6 +106,7 @@ describe('/api/jobs/async/[...path]', () => {
         projectId: undefined,
         conversationId: 'conv-1',
         projectCollectionName: undefined,
+        verifiedConversationId: undefined,
       })
       const fetchMock = vi.fn().mockResolvedValue(
         new Response(JSON.stringify({ agents: [] }), {
@@ -178,6 +180,7 @@ describe('/api/jobs/async/[...path]', () => {
         projectId: 'proj-1',
         conversationId: 'conv-1',
         projectCollectionName: undefined,
+        verifiedConversationId: undefined,
       })
       const fetchMock = vi.fn().mockResolvedValue(
         new Response(JSON.stringify({ job_id: 'job-1' }), {
@@ -233,6 +236,7 @@ describe('/api/jobs/async/[...path]', () => {
         projectId: 'proj-1',
         conversationId: undefined,
         projectCollectionName: undefined,
+        verifiedConversationId: undefined,
       })
       const fetchMock = vi.fn().mockResolvedValue(
         new Response(JSON.stringify({ status: 'cancelled' }), {

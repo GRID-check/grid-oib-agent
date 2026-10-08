@@ -51,6 +51,9 @@ cleanup() {
     if [ ! -z "${BACKEND_PID:-}" ]; then
         kill $BACKEND_PID 2>/dev/null || true
     fi
+    if [ ! -z "${CHAT_PID:-}" ]; then
+        kill $CHAT_PID 2>/dev/null || true
+    fi
     if [ ! -z "${FRONTEND_PID:-}" ]; then
         kill $FRONTEND_PID 2>/dev/null || true
     fi
@@ -80,10 +83,14 @@ check_env() {
     # Suppress Python warnings unless overridden by .env
     export PYTHONWARNINGS="${PYTHONWARNINGS:-ignore}"
 
-    # For local E2E, backend always runs on localhost:8000
+    # For local E2E the backend runs as its two web roles (ADR-0082): the api role
+    # on localhost:8000 for every HTTP call, the chat role on localhost:8001 for
+    # the WebSocket. The gateway requires BACKEND_CHAT_URL and does not fall back
+    # to BACKEND_URL.
     export BACKEND_URL="http://localhost:8000"
+    export BACKEND_CHAT_URL="http://localhost:8001"
     export NEXT_PUBLIC_BACKEND_URL="http://localhost:8000"
-    echo "Backend URL for e2e: $BACKEND_URL"
+    echo "Backend URL for e2e: $BACKEND_URL (api), $BACKEND_CHAT_URL (chat)"
 }
 
 check_dependencies() {
@@ -131,14 +138,19 @@ start_backend() {
     echo "Starting NAT Backend Server (Hot Reload Enabled)..."
     echo "================================================"
     echo ""
-    echo "Backend will be available at: http://localhost:8000"
+    echo "Backend api role will be available at: http://localhost:8000"
+    echo "Backend chat role will be available at: http://localhost:8001"
     echo "Backend will auto-reload on code changes"
     echo "Config: $CONFIG_FILE"
     echo ""
 
-    nat serve --config_file "$CONFIG_FILE" --host 0.0.0.0 --port 8000 &
+    GRID_ROLE=api nat serve --config_file "$CONFIG_FILE" --host 0.0.0.0 --port 8000 &
     BACKEND_PID=$!
-    echo "Backend PID: $BACKEND_PID"
+    echo "Backend api PID: $BACKEND_PID"
+
+    GRID_ROLE=chat nat serve --config_file "$CONFIG_FILE" --host 0.0.0.0 --port 8001 &
+    CHAT_PID=$!
+    echo "Backend chat PID: $CHAT_PID"
 }
 
 wait_for_backend() {
@@ -218,7 +230,8 @@ main() {
     echo "Services Started"
     echo "================================================"
     echo ""
-    echo "Backend: http://localhost:8000"
+    echo "Backend api: http://localhost:8000"
+    echo "Backend chat: http://localhost:8001"
     if [ "$HAS_UI" = true ]; then
         echo "Frontend: http://localhost:3000"
     else

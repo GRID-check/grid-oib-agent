@@ -23,7 +23,7 @@ _NOISY_DEPENDENCY_LOGGERS = ("nat.builder.intermediate_step_manager",)
 def suppress_noisy_dependency_logs() -> None:
     """Raise known-noisy dependency loggers to ERROR.
 
-    Idempotent; call once at process startup (API server and Dask worker).
+    Idempotent; call once at process startup (API server and research worker).
     """
     for name in _NOISY_DEPENDENCY_LOGGERS:
         logging.getLogger(name).setLevel(logging.ERROR)

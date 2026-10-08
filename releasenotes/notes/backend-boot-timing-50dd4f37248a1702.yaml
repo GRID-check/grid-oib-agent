@@ -1,0 +1,10 @@
+---
+operators:
+  - >
+    Research workers report their queue and provider metrics for every job
+    again. Before, they stopped reporting after the first job they ran.
+  - >
+    Every backend role now reports how long it takes to start, broken down by
+    phase, as grid.boot.phase_seconds. It also logs one [boot-timing] line per
+    phase. The research worker also reports the setup it repeats for every
+    job.

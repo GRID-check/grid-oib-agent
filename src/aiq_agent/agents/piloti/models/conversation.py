@@ -61,7 +61,7 @@ class ConversationState(BaseModel):
         tasks_allowed: Whether the tenant may have work handed over via
             `create_task` (the `task-automation` flag, resolved per turn).
         confined: Whether this turn's signed scope holds a restricted folder's
-            collection (ADR-0084), which withdraws both of the above.
+            collection (ADR-0086), which withdraws both of the above.
     """
 
     messages: Annotated[list[AnyMessage], add_messages]
@@ -127,7 +127,7 @@ class ConversationState(BaseModel):
     # WorkOS flag rather than a second reading of `deep-research` or of `skills`.
     tasks_allowed: bool = True
     # PER TURN: the turn's signed scope holds a restricted folder's collection
-    # (ADR-0084). Nothing from such a conversation may reach a colleague not
+    # (ADR-0086). Nothing from such a conversation may reach a colleague not
     # cleared for the folder, so the register layer also withdraws deep research
     # and tasks for the turn; this says WHY, so the prompt and the refusal note
     # give the reader the right reason. Turn-scoped like the two above.

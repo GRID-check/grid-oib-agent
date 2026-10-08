@@ -3,10 +3,10 @@
 ## The gap this closes
 
 Async research jobs have had admission control since the scaling review
-(``GRID_MAX_ACTIVE_JOBS`` / ``…_PER_ORG`` in ``aiq_api.jobs.submit``): a
-deliberate ceiling on how many long runs may be in flight, per organization and
-overall. Interactive chat turns had none. A single shared conversation with ten
-members answering at once starts ten multi-agent runs, and the only thing that
+(``GRID_MAX_ACTIVE_JOBS_PER_ORG`` in ``aiq_api.jobs.queue``): a deliberate ceiling
+on how many long runs one organization may run at once. Interactive chat turns
+had none. A single shared conversation with ten members answering at once starts
+ten multi-agent runs, and the only thing that
 ever said no was the ADR-0015 euro budget — that is, after the money was spent.
 
 ## Why concurrency and not a rate
@@ -77,7 +77,7 @@ logger = logging.getLogger(__name__)
 # @default 24
 # @required false
 # Maximum interactive chat turns running concurrently across all organizations.
-# Its own pool, never shared with GRID_MAX_ACTIVE_JOBS — that separation is what
+# Its own pool, never shared with the research queue — that separation is what
 # stops background research from starving chat. 0 or negative disables.
 MAX_ACTIVE_TURNS = int(os.environ.get("GRID_MAX_ACTIVE_TURNS", "24"))
 

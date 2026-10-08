@@ -2785,7 +2785,7 @@ class TestDeepResearcherQuoteVerification:
 class TestSessionRegistryBinding:
     """The live citation stream needs a registry to read; the chat path owns its own.
 
-    In a Dask worker nothing binds a session registry, so every knowledge-base
+    In a research worker nothing binds a session registry, so every knowledge-base
     and OIB citation failed the "was this actually retrieved?" check and was
     never marked as cited -- a run citing four Richtlinien and one web page
     showed the web page alone. The run binds its own registry so the check has
@@ -2842,7 +2842,7 @@ class TestSessionRegistryBinding:
         during = await self._run_capturing_registry(agent)
 
         assert during is not None, "the worker run bound no registry, so citations cannot be recognised"
-        # Reset afterwards: a Dask worker is reused, and a leaked registry would
+        # Reset afterwards: a research worker is reused, and a leaked registry would
         # hand the next job a previous question's sources.
         assert get_session_registry() is None
 

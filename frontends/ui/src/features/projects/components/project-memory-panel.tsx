@@ -53,9 +53,9 @@ type MemoryItem = Omit<ProjectMemoryItem, 'createdAt' | 'updatedAt' | 'lastRefer
   createdAt: string
   updatedAt: string
   lastReferencedAt: string | null
-  /** The folders a restricted note (ADR-0084) is restricted to; only ever sent to a cleared reader. */
+  /** The folders a restricted note (ADR-0086) is restricted to; only ever sent to a cleared reader. */
   restrictedFolderNames?: string[]
-  /** When a folder the note came from was purged (ADR-0085): „Quelle gelöscht am …". */
+  /** When a folder the note came from was purged (ADR-0087): „Quelle gelöscht am …". */
   sourceDeletedAt?: string
 }
 
