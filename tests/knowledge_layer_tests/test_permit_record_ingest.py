@@ -20,7 +20,21 @@ def _page(label: str | None, text: str) -> SimpleNamespace:
 
 
 @pytest.fixture()
-def calls(monkeypatch):
+def forgotten(monkeypatch):
+    """The records the hook asked the BFF to drop: (document_id, collection, file_name)."""
+    seen: list[tuple] = []
+
+    def store(organization_id, document_id, collection, file_name, model, record):
+        assert record is None, "the hook only ever drops a record directly; storing goes through the extraction"
+        seen.append((document_id, collection, file_name))
+        return True
+
+    monkeypatch.setattr("aiq_agent.knowledge.permit_records_client.store_permit_record", store)
+    return seen
+
+
+@pytest.fixture()
+def calls(monkeypatch, forgotten):
     seen: list[dict] = []
 
     def extract_and_store(pages, llm, **kwargs):
@@ -59,9 +73,11 @@ def test_a_bescheid_is_extracted_over_its_pages_and_stored_for_its_document(call
 
 
 @pytest.mark.parametrize("tags", [["Gutachten"], [], None])
-def test_a_document_the_tags_do_not_call_a_bescheid_is_left_alone(calls, tags):
-    _ingestor()._remember_permit(CONFIG, "proj_1", "f.pdf", tags, [_page("1", "x")])
+def test_a_document_the_tags_do_not_call_a_bescheid_is_not_read_and_its_old_record_is_dropped(calls, forgotten, tags):
+    # A re-typed or re-uploaded document must stop answering as a permit: its record goes, without a model call.
+    _ingestor(enabled=False, llm=None)._remember_permit(CONFIG, "proj_1", "f.pdf", tags, [_page("1", "x")])
     assert calls == []
+    assert forgotten == [("d1", "proj_1", "f.pdf")]
 
 
 @pytest.mark.parametrize(
@@ -73,9 +89,16 @@ def test_a_document_the_tags_do_not_call_a_bescheid_is_left_alone(calls, tags):
         (CONFIG, _ingestor(llm=None)),
     ],
 )
-def test_nothing_runs_without_the_job_identity_or_the_summary_model(calls, config, ingestor):
+def test_nothing_runs_without_the_job_identity_or_the_summary_model(calls, forgotten, config, ingestor):
     ingestor._remember_permit(config, "proj_1", "f.pdf", ["Bescheid"], [_page("1", "x")])
     assert calls == []
+    assert forgotten == []
+
+
+def test_without_the_job_identity_no_record_is_dropped_either(calls, forgotten):
+    # The corpus sync names no BFF row: there is no record to address.
+    _ingestor()._remember_permit({"organization_id": "org_1"}, "proj_1", "f.pdf", ["Gutachten"], [_page("1", "x")])
+    assert forgotten == []
 
 
 def test_a_model_that_never_answers_does_not_stall_the_ingest(monkeypatch):

@@ -738,6 +738,31 @@ checkr "SELECT relrowsecurity::text FROM pg_class WHERE relname = 'conversation_
 echo "==> 0116 cross-project record and down migration verified"
 
 # ---------------------------------------------------------------------------
+# Migration 0117: permitting memory, and its DOWN.
+#
+# On grid_restricted, after 0116: both tables come up under row-level security,
+# the down drops them (they are derived, re-read from the documents), and 0117
+# re-applies empty.
+# ---------------------------------------------------------------------------
+echo "==> verifying the 0117 permit records and their down migration on grid_restricted"
+$MIGRATE_R -v ON_ERROR_STOP=1 -q -f "drizzle/0117_permit_records.sql" >/dev/null || {
+  echo "MIGRATION 0117 FAILED on the seeded database — re-run without -q to see the error" >&2
+  exit 1
+}
+checkr "SELECT string_agg(relrowsecurity::text, ',' ORDER BY relname) FROM pg_class WHERE relname IN ('permit_records', 'permit_requirements')" "true,true" "0117 brings both tables up under row-level security"
+$MIGRATE_R -v ON_ERROR_STOP=1 -q -f "drizzle/0117_permit_records.down.sql" >/dev/null || {
+  echo "DOWN MIGRATION 0117 FAILED — re-run without -q to see the error" >&2
+  exit 1
+}
+checkr "SELECT count(*) FROM information_schema.tables WHERE table_name IN ('permit_records', 'permit_requirements')" "0" "down dropped both tables"
+$MIGRATE_R -v ON_ERROR_STOP=1 -q -f "drizzle/0117_permit_records.sql" >/dev/null || {
+  echo "MIGRATION 0117 FAILED on re-apply — re-run without -q to see the error" >&2
+  exit 1
+}
+checkr "SELECT count(*) FROM permit_records" "0" "0117 re-applies, empty"
+echo "==> 0117 permit records and down migration verified"
+
+# ---------------------------------------------------------------------------
 # Migration 0102: project_folders become folders of a SHELF (project | archiv),
 # and its DOWN migration.
 #

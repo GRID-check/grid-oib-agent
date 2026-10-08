@@ -20,7 +20,7 @@ The BFF addresses a record by ``documentId``, and the BFF's ``documents`` table 
 readable from here (ADR-0055). Neither the summaries nor the vector store carry that id.
 ``--document-ids`` is optional. It is a JSON object from file name to document id for the
 collection, exported from the BFF, for example
-``select json_object_agg(file_name, id) from documents where collection_name = '...'``.
+``select json_object_agg(filename, id) from documents where collection_name = '...'``.
 With it, each record is stored under its document id, and a ``Bescheid`` with no entry is
 counted as failed. Without it, each record is stored by collection and file name, and the
 BFF finds the document from those (a live file name is unique per collection). A

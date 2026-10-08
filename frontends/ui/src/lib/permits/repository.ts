@@ -46,6 +46,13 @@ export const PERMIT_MAX_REQUIREMENTS_PER_RECORD = CROSS_PROJECT_MAX_PERMIT_REQUI
 
 /** How many requirements one search ranks: its own bound, so a large office cannot widen it. */
 const PERMIT_CANDIDATES = 300
+/**
+ * Without an embedder the rows cannot be ordered by meaning in SQL, so the cut
+ * falls back to recency and would keep only the newest requirements: an older
+ * Bescheid could never be found. The token channel then ranks a wider, still
+ * bounded pool.
+ */
+const PERMIT_CANDIDATES_TOKENS_ONLY = 3000
 
 export interface PermitRequirementInput {
   kind: PermitRequirementKind
@@ -217,6 +224,25 @@ export async function deletePermitRecord(organizationId: string, documentId: str
 }
 
 /**
+ * A record is served only while its document still stands where the record was
+ * read from. The restriction a record carries is a snapshot of the collection the
+ * document sat in at extraction (a restricted folder has its own collection), so
+ * a document moved since, into a restricted folder or because its folder gained
+ * an access list, no longer matches and its record goes quiet until it is read
+ * again. Nor is a record served whose document is in the Papierkorb (every folder
+ * of a binned subtree carries `deleted_at`, migration 0113), quarantined or
+ * archived: deleting through the bin removes what was derived from it at once,
+ * not when the purge cascades.
+ */
+const documentServesItsRecord = and(
+  eq(documents.organizationId, permitRecords.organizationId),
+  eq(documents.collectionName, permitRecords.collectionName),
+  sql`${documents.status} <> 'quarantined'`,
+  eq(documents.lifecycle, 'active'),
+  sql`NOT EXISTS (SELECT 1 FROM project_folders f WHERE f.id = ${documents.folderId} AND f.deleted_at IS NOT NULL)`
+)
+
+/**
  * The records of these projects whose requirements are most relevant to the
  * question, best first (a record ranks by its best requirement), each with the
  * requirements that matched; none for an empty scope or question.
@@ -265,9 +291,10 @@ export async function searchPermitRequirements(
     })
     .from(permitRequirements)
     .innerJoin(permitRecords, eq(permitRecords.id, permitRequirements.recordId))
-    .where(and(eq(permitRequirements.organizationId, organizationId), visible))
+    .innerJoin(documents, eq(documents.id, permitRecords.documentId))
+    .where(and(eq(permitRequirements.organizationId, organizationId), visible, documentServesItsRecord))
     .orderBy(...(embedded ? [sql`${relevance} desc nulls last`] : []), desc(permitRequirements.createdAt))
-    .limit(PERMIT_CANDIDATES)
+    .limit(embedded ? PERMIT_CANDIDATES : PERMIT_CANDIDATES_TOKENS_ONLY)
 
   // A vector from another model is noise of the right shape: only the current one counts.
   const dense = rows.map((row) =>
