@@ -33,6 +33,8 @@ import { FoldersWithoutRole } from './folders-without-role'
 import { ProjectBrief } from './project-brief'
 import { ProjectDangerZone } from './project-danger-zone'
 import { ProjectLifecycleCard } from './project-lifecycle-card'
+import { ProjectSteckbrief, type SteckbriefAccount } from './project-steckbrief'
+import type { SteckbriefView } from '@/lib/projects/steckbrief-types'
 import { ProjectMemoryPanel } from './project-memory-panel'
 import { ProjectReindexCard } from './project-reindex-card'
 import { ProjectRenameButton } from './project-rename-button'
@@ -47,6 +49,10 @@ import { useLocale, useTranslations } from '@/i18n'
 
 interface ProjectSettingsProps {
   data: ProjectOverviewData
+  /** The Steckbrief (ADR-0087): address, period, people. Omitted, the card is not shown. */
+  steckbrief?: SteckbriefView
+  /** Accounts a Steckbrief person may be linked to. */
+  steckbriefAccounts?: readonly SteckbriefAccount[]
   /**
    * Folders whose roles were deleted since (ADR-0085), for a project manager;
    * empty or omitted shows nothing.
@@ -84,6 +90,8 @@ interface ProjectSettingsProps {
 
 export function ProjectSettings({
   data,
+  steckbrief,
+  steckbriefAccounts = [],
   foldersWithoutRole = [],
   canManageProject = false,
   canManageMembers = canManageProject,
@@ -185,6 +193,13 @@ export function ProjectSettings({
           </RaisedCard>
         </div>
       </StaggerItem>
+
+      {/* The Steckbrief: what stays once the project is closed (ADR-0087). */}
+      {steckbrief && (
+        <StaggerItem>
+          <ProjectSteckbrief projectId={data.id} steckbrief={steckbrief} accounts={steckbriefAccounts} />
+        </StaggerItem>
+      )}
 
       {/* Standards applicability derived from the brief. */}
       <StaggerItem>

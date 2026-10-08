@@ -101,7 +101,7 @@ done
 # cosine query — and a mocked drizzle handle cannot disagree with the fixture
 # that mocked it. (The memory suite is the one that found the semantic gate
 # reading `.rows` off a postgres-js array, which every mock had agreed with.)
-echo "==> running the isolation, BIM query, memory consolidation, restricted memory, Papierkorb, profile-binding, legal-hold, chat-erasure, restricted-use, run-reconciler, usage-ledger, download-log and closed-project suites as grid_app_rw"
+echo "==> running the isolation, BIM query, memory consolidation, restricted memory, Papierkorb, profile-binding, legal-hold, chat-erasure, restricted-use, run-reconciler, usage-ledger, download-log, closed-project and Steckbrief suites as grid_app_rw"
 GRID_TEST_DATABASE_URL="postgres://grid_app_rw:$RUNTIME_PASSWORD@127.0.0.1:$PORT/grid_app" \
   npx vitest run \
     src/lib/db/tenant-isolation.integration.spec.ts \
@@ -125,7 +125,8 @@ GRID_TEST_DATABASE_URL="postgres://grid_app_rw:$RUNTIME_PASSWORD@127.0.0.1:$PORT
     src/lib/download-log/download-log.integration.spec.ts \
     src/lib/runs/reconcile.integration.spec.ts \
     src/lib/budgets/service.integration.spec.ts \
-    src/lib/projects/project-status.integration.spec.ts
+    src/lib/projects/project-status.integration.spec.ts \
+    src/lib/projects/steckbrief.integration.spec.ts
 
 # The job-queue suites claim from ONE table, whichever lane a job is in, so run
 # in parallel they claim each other's seeded jobs. One file at a time.
@@ -765,6 +766,11 @@ echo "==> 0102 backfill, constraints and down migration verified"
 # once every project is active it goes, and 0114 applies again.
 # ---------------------------------------------------------------------------
 echo "==> verifying the 0114 project status and its down migration on grid_app"
+# Down migrations run newest first: 0115's trigger uses 0114's function.
+$MIGRATE -v ON_ERROR_STOP=1 -q -f "drizzle/0115_project_steckbrief.down.sql" >/dev/null || {
+  echo "DOWN MIGRATION 0115 FAILED before the 0114 check — re-run without -q to see the error" >&2
+  exit 1
+}
 check14() {
   local got
   got=$($MIGRATE -tAc "$1")
@@ -804,4 +810,26 @@ $MIGRATE -v ON_ERROR_STOP=1 -q -f "drizzle/0114_project_status.sql" >/dev/null |
 }
 check14 "SELECT count(*) FROM pg_trigger WHERE tgname LIKE '%closed_project_guard'" "4" "0114 applies again"
 $MIGRATE -v ON_ERROR_STOP=1 -q -c "DELETE FROM projects WHERE id = 'aaaaaaaa-0000-4000-8000-000000000114'"
+$MIGRATE -v ON_ERROR_STOP=1 -q -f "drizzle/0115_project_steckbrief.sql" >/dev/null || {
+  echo "MIGRATION 0115 FAILED when re-applied after the 0114 check" >&2
+  exit 1
+}
 echo "==> 0114 project status and down migration verified"
+
+# ---------------------------------------------------------------------------
+# Migration 0115: the Steckbrief's period and people, and its DOWN migration
+# (lossy on purpose: the people go with the table), then 0115 again.
+# ---------------------------------------------------------------------------
+echo "==> verifying the 0115 Steckbrief down migration on grid_app"
+$MIGRATE -v ON_ERROR_STOP=1 -q -f "drizzle/0115_project_steckbrief.down.sql" >/dev/null || {
+  echo "DOWN MIGRATION 0115 FAILED — re-run without -q to see the error" >&2
+  exit 1
+}
+check14 "SELECT to_regclass('public.project_people') IS NULL" "t" "down dropped project_people"
+check14 "SELECT count(*) FROM information_schema.columns WHERE table_name = 'projects' AND column_name IN ('started_on','ended_on')" "0" "down dropped the period"
+$MIGRATE -v ON_ERROR_STOP=1 -q -f "drizzle/0115_project_steckbrief.sql" >/dev/null || {
+  echo "MIGRATION 0115 FAILED when re-applied after its down migration" >&2
+  exit 1
+}
+check14 "SELECT relrowsecurity FROM pg_class WHERE relname = 'project_people'" "t" "0115 applies again, with row-level security"
+echo "==> 0115 Steckbrief and down migration verified"

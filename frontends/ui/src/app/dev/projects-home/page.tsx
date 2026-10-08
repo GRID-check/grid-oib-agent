@@ -41,6 +41,8 @@ function makeProject(id: string, name: string, summary: string | null, createdMi
     status: 'active',
     closedAt: null,
     closedBy: null,
+    startedOn: null,
+    endedOn: null,
     deletedAt: null,
     createdAt: minutesAgo(createdMinutesAgo),
   }

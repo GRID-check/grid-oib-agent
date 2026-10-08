@@ -1,4 +1,4 @@
-import { check, index, integer, jsonb, pgTable, text, timestamp, unique, uuid } from 'drizzle-orm/pg-core'
+import { check, date, index, integer, jsonb, pgTable, text, timestamp, unique, uuid } from 'drizzle-orm/pg-core'
 import { sql } from 'drizzle-orm'
 
 import type { ProjectStatus } from '../../projects/project-status'
@@ -28,6 +28,10 @@ export const projects = pgTable(
     closedAt: timestamp('closed_at', { withTimezone: true }),
     /** Who closed it (WorkOS user id); set exactly when `status` is `closed`. */
     closedBy: text('closed_by'),
+    /** Beginn, month precision: the first of its month (migration 0115, ADR-0087). */
+    startedOn: date('started_on', { mode: 'string' }),
+    /** Abschluss, month precision: the first of its month. Closing fills it when unset. */
+    endedOn: date('ended_on', { mode: 'string' }),
     deletedAt: timestamp('deleted_at', { withTimezone: true }),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
@@ -45,6 +49,10 @@ export const projects = pgTable(
       .on(table.organizationId, table.status)
       .where(sql`${table.deletedAt} IS NULL`),
     statusCheck: check('projects_status_check', sql`${table.status} IN ('active', 'closed')`),
+    periodCheck: check(
+      'projects_period_check',
+      sql`(${table.startedOn} IS NULL OR extract(day FROM ${table.startedOn}) = 1) AND (${table.endedOn} IS NULL OR extract(day FROM ${table.endedOn}) = 1) AND (${table.startedOn} IS NULL OR ${table.endedOn} IS NULL OR ${table.endedOn} >= ${table.startedOn})`
+    ),
     closedStateCheck: check(
       'projects_closed_state_check',
       sql`(${table.status} = 'closed') = (${table.closedAt} IS NOT NULL) AND (${table.status} = 'closed') = (${table.closedBy} IS NOT NULL)`

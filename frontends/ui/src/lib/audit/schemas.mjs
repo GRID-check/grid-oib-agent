@@ -326,6 +326,24 @@ export const AUDIT_SCHEMAS = /** @type {const} */ ({
     targets: [{ type: 'project' }],
     metadata: { name: 'string' },
   },
+  // The Steckbrief (ADR-0087). A person is named by id only: the audit log
+  // outlives an erasure, and a name in it would not.
+  'project.period.changed': {
+    targets: [{ type: 'project' }],
+    metadata: { startedOn: 'string', endedOn: 'string' },
+  },
+  'project.person.added': {
+    targets: [{ type: 'project' }],
+    metadata: { personId: 'string' },
+  },
+  'project.person.updated': {
+    targets: [{ type: 'project' }],
+    metadata: { personId: 'string' },
+  },
+  'project.person.deleted': {
+    targets: [{ type: 'project' }],
+    metadata: { personId: 'string' },
+  },
   'project.role.assigned': {
     targets: [{ type: 'project' }],
     metadata: { organizationMembershipId: 'string', roleSlug: 'string' },

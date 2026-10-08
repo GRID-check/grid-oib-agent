@@ -16,7 +16,7 @@
  */
 
 import 'server-only'
-import { and, asc, desc, eq, isNull } from 'drizzle-orm'
+import { and, asc, desc, eq, isNull, sql } from 'drizzle-orm'
 import { getDb } from '@/lib/db'
 import { isUuid } from '@/lib/ids'
 import { salvageProjectProfile } from '@/lib/project-profile/salvage'
@@ -117,7 +117,8 @@ export async function findProjectTenancy(
 
 /**
  * Close or reopen a project: the status, and when and by whom it was closed
- * (cleared on reopen). Only a row in the other state changes, so two people
+ * (cleared on reopen). Closing also fills the Steckbrief's Abschluss with the
+ * month of the close when nobody set one; a reopen leaves it as it is. Only a row in the other state changes, so two people
  * closing at once write once; null when nothing changed (already in that
  * state, deleted, or not in the organization).
  */
@@ -133,7 +134,15 @@ export async function setProjectStatusInOrg(
       .update(projects)
       .set(
         closing
-          ? { status: 'closed', closedAt: change.at, closedBy: change.closedBy }
+          ? {
+              status: 'closed',
+              closedAt: change.at,
+              closedBy: change.closedBy,
+              // The Steckbrief's Abschluss (ADR-0087): the month it was closed
+              // in, unless someone set one. GREATEST keeps it from landing
+              // before a Beginn set in the future.
+              endedOn: sql`COALESCE(${projects.endedOn}, GREATEST(date_trunc('month', ${change.at.toISOString()}::timestamptz)::date, ${projects.startedOn}))`,
+            }
           : { status: 'active', closedAt: null, closedBy: null }
       )
       .where(
