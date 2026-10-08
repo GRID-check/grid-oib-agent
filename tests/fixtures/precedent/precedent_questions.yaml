@@ -264,3 +264,49 @@ questions:
       lookup: optional
       says_none: true
       not_cites: [Baden, Mödling, Moedling, Linz, Gänserndorf, Hinterbrühl, Wagramer, Neubaugasse]
+
+  # --- held out, permitting memory (ADR-0094): written 8 Oct 2026 before any ran ---
+  - id: perm-ma37-nachgefordert
+    group: explicit
+    holdout: true
+    question: Was hat die MA 37 bei unseren Projekten schon nachgefordert?
+    expect:
+      lookup: required
+      cites: [[Wien 22, Wagramer]]
+      mentions: [[Druckbelüftung, Druckbelueftung]]
+
+  - id: perm-baden-auflagen
+    group: explicit
+    holdout: true
+    question: Welche Auflagen hat uns die Stadtgemeinde Baden bei der Baubewilligung erteilt?
+    expect:
+      lookup: required
+      cites: [[Baden]]
+      mentions: [[Brandschutzgutachten]]
+
+  - id: perm-english-moedling
+    group: explicit
+    holdout: true
+    question: What did the Mödling building authority ask us to add before it approved our housing project?
+    expect:
+      lookup: required
+      cites: [[Mödling, Moedling]]
+      mentions: [["1,20", "1.20"]]
+
+  - id: perm-none-kufstein
+    group: none
+    holdout: true
+    question: Hat die BH Kufstein von uns schon einmal etwas nachgefordert?
+    expect:
+      lookup: required
+      says_none: true
+      not_cites: [Baden, Mödling, Moedling, Linz, Gänserndorf, Hinterbrühl, Wagramer, Neubaugasse]
+
+  - id: perm-wien-einreichung
+    group: implicit
+    holdout: true
+    scenario: wien-bestand
+    question: Wir reichen das Stiegenhaus bald bei der MA 37 ein. Womit müssen wir rechnen?
+    expect:
+      lookup: required
+      cites: [[Wien 22, Wagramer]]
