@@ -4252,23 +4252,25 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
         whole document, so it gets its own deadline, and a slow model costs the record,
         never the ingest.
 
-        A document the tag decision positively typed as something else (a non-empty tag
-        list without Bescheid) has its record dropped, with no model call and under a short
-        deadline, so a re-typed document stops answering as a permit. ``None`` is no
-        decision: the tagger timed out or failed, the classifier abstained, or summaries
-        are off. Placement re-ingests on every move, so treating that as "not a Bescheid"
-        would erase a real Bescheid's record whenever the tagger was slow
-        (docs/design/permitting-memory.md).
+        A document the tag decision positively typed as another kind (a document-type tag
+        other than Bescheid and Sonstiges, ``typed_as_something_else``) has its record
+        dropped, with no model call and under a short deadline, so a re-typed document
+        stops answering as a permit. Anything less is no decision: ``None`` (the tagger
+        timed out or failed, the classifier abstained, summaries are off), discipline tags
+        alone (the fallback drops an off-vocabulary type), or Sonstiges. Placement
+        re-ingests on every move, so dropping on any of them would erase a real Bescheid's
+        record whenever the tagger was slow or unsure (docs/design/permitting-memory.md).
         """
         from aiq_agent.knowledge.permit_extraction import extract_and_store_permit_record
         from aiq_agent.knowledge.permit_extraction import is_bescheid
+        from aiq_agent.knowledge.permit_extraction import typed_as_something_else
         from aiq_agent.knowledge.permit_records_client import store_permit_record
 
         organization_id, document_id = config.get("organization_id"), config.get("document_id")
         if not (organization_id and document_id):
             return
         if not is_bescheid(tags):
-            if tags:
+            if typed_as_something_else(tags):
                 self._bounded(
                     "Permit record drop",
                     file_name,

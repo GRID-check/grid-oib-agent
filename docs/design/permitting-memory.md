@@ -125,10 +125,13 @@ Request:
   `{ stored: false }`, 200.
 - `record: null` deletes the document's record and answers `{ stored: false }`.
   The ingest hook sends it when the tag decision positively types the document
-  as something else (a non-empty tag list without Bescheid), without a model
-  call and under a 5 s deadline. No decision (`None`: the tagger timed out or
-  failed, the classifier abstained, summaries are off) drops nothing: placement
-  re-ingests on every move, and a slow tagger must not erase a real record. The pen
+  as another kind (a document-type tag other than Bescheid and Sonstiges,
+  `typed_as_something_else`), without a model call and under a 5 s deadline.
+  Anything less drops nothing: `None` (the tagger timed out or failed, the
+  classifier abstained, summaries are off), discipline tags alone (the fallback
+  drops an off-vocabulary type, so „Baubescheid" leaves only „Brandschutz"),
+  or Sonstiges, the type picked when unsure. Placement re-ingests on every
+  move, and a slow or unsure tagger must not erase a real record. The pen
   never sends null for a FAILED extraction: an outage must not erase a stored
   record.
 - Otherwise it replaces the document's record and requirements in one
