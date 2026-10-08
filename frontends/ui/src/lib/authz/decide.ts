@@ -85,9 +85,9 @@ export type AuthzRule =
   /** A per-resource FGA role grants it. */
   | 'resource-role'
   | 'project-inherited'
-  /** Every organization member reads a closed project and chats about it (ADR-0086). */
+  /** Every organization member reads a closed project and chats about it (ADR-0088). */
   | 'closed-project-open'
-  /** The project is closed and the permission is a write (ADR-0086). */
+  /** The project is closed and the permission is a write (ADR-0088). */
   | 'project-closed'
   /** The resource is not in the caller's organization, or does not exist. */
   | 'tenancy-mismatch'

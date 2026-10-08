@@ -482,7 +482,7 @@ conversation graph refuses the escalation even when the model asks anyway. So a
 tenant without deep research is never shown a plan, and one without tasks is
 never told an Auftrag was created.
 
-The same answer carries a closed project (ADR-0086): the turn sends its
+The same answer carries a closed project (ADR-0088): the turn sends its
 `projectId`, and a closed project answers `deepResearch: false` and
 `tasks: false` whatever the flags say, because both file into the project.
 

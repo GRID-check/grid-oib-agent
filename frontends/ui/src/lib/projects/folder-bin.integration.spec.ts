@@ -48,7 +48,7 @@ vi.mock('@/lib/documents/service', () => ({
 }))
 // Project permissions are WorkOS's; each session here states which it holds,
 // and a denial is the real one's: not found.
-// A closed project (ADR-0086) is stubbed the way `requireProjectAccess` decides
+// A closed project (ADR-0088) is stubbed the way `requireProjectAccess` decides
 // it: writes refused before anything else unless the caller asks as if active.
 const projectState = vi.hoisted(() => ({ closed: false }))
 vi.mock('@/lib/authz/projects', async () => {
@@ -533,7 +533,7 @@ describe.skipIf(!url)('the Papierkorb against live Postgres (migration 0114)', (
       await expect(bin.restoreFolderFromBin(pl, { projectId, folderId: folder.vertraege })).rejects.toMatchObject({ status: 404 })
     })
 
-    it('in a closed project the manager restores, and nobody else does (ADR-0086)', async () => {
+    it('in a closed project the manager restores, and nobody else does (ADR-0088)', async () => {
       await bin.moveFolderToBin(gf, { projectId, folderId: folder.vertraege })
       projectState.closed = true
       try {

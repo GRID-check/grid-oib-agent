@@ -45,7 +45,7 @@ one decision covers every write path at once, and nothing in WorkOS has to be
 rewritten and later restored.
 
 **The model.** `projects.status` is `active` or `closed`; `closed_at` and
-`closed_by` are set exactly when it is `closed` (migration 0114, two CHECKs).
+`closed_by` are set exactly when it is `closed` (migration 0115, two CHECKs).
 `PUT /api/projects/{id}/status` closes or reopens (`setProjectStatus`), needs
 `project:manage`, and writes `project.closed` or `project.reopened` to the audit
 log. A project already in the requested state is a 409, so a double click
@@ -102,7 +102,7 @@ every permission asked is `project:view` or `project:chat`
 lists every closed project without asking WorkOS. `userHoldsProjectPermission`,
 the third-party form, mirrors both rules.
 
-**Closing opens no restricted folder.** The folder rule (ADR-0085) assumes the
+**Closing opens no restricted folder.** The folder rule (ADR-0087) assumes the
 caller is a member of the project: grants name organization roles, so a person
 holding the Geschäftsführung role in a project they never belonged to would
 otherwise read its Verträge folder once it closed. A clearance is therefore
@@ -120,7 +120,7 @@ and their documents already live in the project's open collection.
 **The agent's doors.** The pinned-session routes reach `requireProjectAccess`
 through their services. The two that hold no session check the status
 themselves: an agent memory write (`createProjectMemoryItemForProject`) is
-refused, and a scheduled task is skipped. Behind all of it, migration 0114's
+refused, and a scheduled task is skipped. Behind all of it, migration 0115's
 trigger refuses an INSERT of a document, folder, document version or project
 memory row into a closed project (SQLSTATE `GPC01`), reading the project row
 `FOR SHARE` so a close and an insert serialize. Updates pass: ingestion
@@ -169,6 +169,6 @@ reopen; the CHECKs; and the trigger. The script also takes 0114 down and up.
 ## More Information
 
 * Re-triage: [`audit/upload-and-filing-retriage-2026-10-06.md`](../audit/upload-and-filing-retriage-2026-10-06.md#1-abgeschlossene-projekte-mit-eckdaten--l-overall-first-slice-sm).
-* Folder access: [ADR-0085](0085-folder-access-is-read-write-per-role.md). Authorization: ADR-0038.
+* Folder access: [ADR-0087](0087-folder-access-is-read-write-per-role.md). Authorization: ADR-0038.
 * User guide: [`user-guides/projects.md`](../user-guides/projects.md#closing-a-project).
 * Table: [`database/schema.md`](../database/schema.md#projects).

@@ -15,7 +15,7 @@ export interface ProjectOverviewData {
   id: string
   name: string
   collectionName: string
-  /** `active` or `closed` (ADR-0086). */
+  /** `active` or `closed` (ADR-0088). */
   status: ProjectStatus
   /** ISO timestamp; set when closed. */
   closedAt: string | null

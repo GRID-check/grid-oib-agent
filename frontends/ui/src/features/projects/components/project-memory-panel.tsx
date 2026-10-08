@@ -69,7 +69,7 @@ function restrictionTitle(item: MemoryItem, t: Translator): string {
 
 interface ProjectMemoryPanelProps {
   projectId: string
-  /** A closed project's memory is read-only (ADR-0086): no add, edit, pin or remove. */
+  /** A closed project's memory is read-only (ADR-0088): no add, edit, pin or remove. */
   readOnly?: boolean
 }
 

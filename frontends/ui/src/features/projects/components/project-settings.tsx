@@ -61,7 +61,7 @@ interface ProjectSettingsProps {
   canManageProject?: boolean
   /**
    * Whether the user manages who is a member. Like {@link canManageProject},
-   * except that it stays true in a closed project (ADR-0086), which is
+   * except that it stays true in a closed project (ADR-0088), which is
    * read-only for everything but its members and its status.
    */
   canManageMembers?: boolean
@@ -246,7 +246,7 @@ export function ProjectSettings({
         </StaggerItem>
       )}
 
-      {/* Close or reopen (ADR-0086): the one change a closed project allows. */}
+      {/* Close or reopen (ADR-0088): the one change a closed project allows. */}
       {canChangeStatus && (
         <StaggerItem>
           <ProjectLifecycleCard projectId={data.id} status={data.status} closedAt={data.closedAt} />

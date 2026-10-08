@@ -390,7 +390,7 @@ describe('the session loaders', () => {
   })
 })
 
-describe('a closed project (ADR-0086): closing opens no restricted folder', () => {
+describe('a closed project (ADR-0088): closing opens no restricted folder', () => {
   const closed = { organizationId: 'org-1', deletedAt: null, status: 'closed' as const }
 
   beforeEach(() => {

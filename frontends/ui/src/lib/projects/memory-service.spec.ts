@@ -1158,7 +1158,7 @@ describe('restricted memory (ADR-0086)', () => {
       expect(values).toHaveBeenCalledWith(expect.objectContaining({ restrictedFolderIds: [RESTRICTED] }))
     })
 
-    it('refuses the agent a note in a closed project, before anything is written (ADR-0086)', async () => {
+    it('refuses the agent a note in a closed project, before anything is written (ADR-0088)', async () => {
       const { values } = mockProjectThenWrite('closed')
       await expect(createProjectMemoryItemForProject('proj-1', { kind: 'decision', content: 'x' })).rejects.toMatchObject({
         status: 403,

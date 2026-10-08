@@ -701,7 +701,7 @@ describe('fireScheduledJob', () => {
     expect(vi.mocked(repository.insertRun).mock.calls[0][0]).toMatchObject({ status: 'skipped' })
   })
 
-  it('skips a schedule whose project is closed, visibly, and submits nothing (ADR-0086)', async () => {
+  it('skips a schedule whose project is closed, visibly, and submits nothing (ADR-0088)', async () => {
     vi.mocked(findProjectInOrg).mockResolvedValueOnce({ collectionName: 'proj_x', status: 'closed' } as never)
 
     const result = await fireScheduledJob(definitionRow({ trigger: 'schedule', scheduleCron: '0 8 * * 1' }))

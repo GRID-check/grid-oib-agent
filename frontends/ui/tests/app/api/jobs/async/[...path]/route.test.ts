@@ -126,7 +126,7 @@ describe('/api/jobs/async/[...path]', () => {
       expect(getHeader(fetchMock.mock.calls[0][1], 'X-Grid-Collection-Scope')).toBe('anon-scope')
     })
 
-    it('refuses to submit research in a closed project, and forwards nothing (ADR-0086)', async () => {
+    it('refuses to submit research in a closed project, and forwards nothing (ADR-0088)', async () => {
       process.env.REQUIRE_AUTH = 'true'
       mockRequireAuthorizedSession.mockResolvedValue(baseSession)
       mockBuildCollectionScopeFromRequest.mockResolvedValue({

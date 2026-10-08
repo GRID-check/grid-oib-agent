@@ -96,7 +96,7 @@ class TestLoadTurnContext:
         assert context.project_context == "PROFILE\n\nLIVE"
         assert context.platform_lessons == "LESSONS"
         assert stubs["digest_args"] == ("p1", "org", "Wie hoch?")
-        # The project rides along, so a closed one withdraws research (ADR-0086).
+        # The project rides along, so a closed one withdraws research (ADR-0088).
         assert stubs["flags_project"] == "p1"
         facts = context.stage_facts
         assert (facts.conversation_id, facts.ws_parent_id, facts.organization_id, facts.project_id) == (

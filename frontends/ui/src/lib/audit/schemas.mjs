@@ -317,7 +317,7 @@ export const AUDIT_SCHEMAS = /** @type {const} */ ({
   'project.restored': {
     targets: [{ type: 'project' }],
   },
-  // A project closed (read-only, open to every member) or reopened (ADR-0086).
+  // A project closed (read-only, open to every member) or reopened (ADR-0088).
   'project.closed': {
     targets: [{ type: 'project' }],
     metadata: { name: 'string' },

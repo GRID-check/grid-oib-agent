@@ -759,12 +759,12 @@ $MIGRATE_F -v ON_ERROR_STOP=1 -q -f "drizzle/0102_archiv_folders.sql" >/dev/null
 echo "==> 0102 backfill, constraints and down migration verified"
 
 # ---------------------------------------------------------------------------
-# Migration 0114: project status, its CHECKs, the closed-project insert guard,
+# Migration 0115: project status, its CHECKs, the closed-project insert guard,
 # and its DOWN migration, on the fully migrated database as the owner. The down
 # refuses while a project is closed (an older build would let every write in);
 # once every project is active it goes, and 0114 applies again.
 # ---------------------------------------------------------------------------
-echo "==> verifying the 0114 project status and its down migration on grid_app"
+echo "==> verifying the 0115 project status and its down migration on grid_app"
 check14() {
   local got
   got=$($MIGRATE -tAc "$1")
@@ -786,22 +786,22 @@ if $MIGRATE -q -c "INSERT INTO documents (organization_id, created_by, filename,
   echo "0114 ASSERTION FAILED: a document was inserted into a closed project" >&2
   exit 1
 fi
-if $MIGRATE -v ON_ERROR_STOP=1 -q -f "drizzle/0114_project_status.down.sql" >/dev/null 2>&1; then
-  echo "0114 ASSERTION FAILED: the down migration ran with a closed project standing" >&2
+if $MIGRATE -v ON_ERROR_STOP=1 -q -f "drizzle/0115_project_status.down.sql" >/dev/null 2>&1; then
+  echo "0115 ASSERTION FAILED: the down migration ran with a closed project standing" >&2
   exit 1
 fi
 check14 "SELECT count(*) FROM pg_trigger WHERE tgname LIKE '%closed_project_guard'" "4" "the refused down migration changed nothing"
 $MIGRATE -v ON_ERROR_STOP=1 -q -c "UPDATE projects SET status = 'active', closed_at = NULL, closed_by = NULL WHERE id = 'aaaaaaaa-0000-4000-8000-000000000114'"
-$MIGRATE -v ON_ERROR_STOP=1 -q -f "drizzle/0114_project_status.down.sql" >/dev/null || {
-  echo "DOWN MIGRATION 0114 FAILED — re-run without -q to see the error" >&2
+$MIGRATE -v ON_ERROR_STOP=1 -q -f "drizzle/0115_project_status.down.sql" >/dev/null || {
+  echo "DOWN MIGRATION 0115 FAILED — re-run without -q to see the error" >&2
   exit 1
 }
 check14 "SELECT count(*) FROM information_schema.columns WHERE table_name = 'projects' AND column_name IN ('status','closed_at','closed_by')" "0" "down dropped the three columns"
 check14 "SELECT count(*) FROM pg_trigger WHERE tgname LIKE '%closed_project_guard'" "0" "down dropped the four triggers"
-$MIGRATE -v ON_ERROR_STOP=1 -q -f "drizzle/0114_project_status.sql" >/dev/null || {
-  echo "MIGRATION 0114 FAILED when re-applied after its down migration" >&2
+$MIGRATE -v ON_ERROR_STOP=1 -q -f "drizzle/0115_project_status.sql" >/dev/null || {
+  echo "MIGRATION 0115 FAILED when re-applied after its down migration" >&2
   exit 1
 }
 check14 "SELECT count(*) FROM pg_trigger WHERE tgname LIKE '%closed_project_guard'" "4" "0114 applies again"
 $MIGRATE -v ON_ERROR_STOP=1 -q -c "DELETE FROM projects WHERE id = 'aaaaaaaa-0000-4000-8000-000000000114'"
-echo "==> 0114 project status and down migration verified"
+echo "==> 0115 project status and down migration verified"
