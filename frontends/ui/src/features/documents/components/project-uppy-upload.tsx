@@ -10,7 +10,8 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import { Spinner } from '@/components/ui/spinner'
-import { useTranslations } from '@/i18n'
+import { useLocale, useTranslations } from '@/i18n'
+import { formatBytes } from '@/lib/format'
 import { useAppConfig } from '@/shared/context'
 import { DEFAULT_ACCEPTED_FILE_TYPES, DEFAULT_MAX_FILE_SIZE } from '../constants'
 import { withZipAccepted } from '../lib/zip-types'
@@ -61,6 +62,7 @@ export function ProjectUppyUpload({
   pickFolderRef,
 }: ProjectUppyUploadProps) {
   const t = useTranslations('files')
+  const { locale } = useLocale()
   const inputRef = useRef<HTMLInputElement>(null)
   const folderInputRef = useRef<HTMLInputElement>(null)
   useEffect(() => {
@@ -151,7 +153,7 @@ export function ProjectUppyUpload({
             {isUploading ? t('upload.uploading') : t('uploadZone.dragOrBrowse')}
           </span>
           <span className="text-xs text-muted-foreground">
-            {typesLabel} · {t('uploadZone.maxSizeShort', { size: Math.round(maxFileSize / (1024 * 1024)) })}
+            {typesLabel} · {t('uploadZone.maxSizeShort', { size: formatBytes(maxFileSize, locale) })}
           </span>
         </button>
       </>

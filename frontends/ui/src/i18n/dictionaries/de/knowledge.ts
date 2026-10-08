@@ -47,7 +47,7 @@ export const knowledge: typeof en.knowledge = {
     ingested: 'Für den Assistenten vollständig durchsuchbar.',
     stale: 'Die Datei wurde seit der Indexierung ersetzt; Antworten spiegeln bis zur nächsten Synchronisierung die vorherige Version wider.',
     pending: 'Hochgeladen, aber noch nicht verarbeitet — der Assistent kann sie erst verwenden, wenn ein Ingest-Worker sie fertig verarbeitet hat.',
-    failed: 'Die Verarbeitung wurde nicht abgeschlossen. Ein neuer Versuch erfolgt erst, wenn sich die Datei ändert; mit „Neu indizieren“ lässt er sich auslösen.',
+    failed: 'Die Verarbeitung wurde nicht abgeschlossen. Ein neuer Versuch erfolgt erst, wenn sich die Datei ändert; mit „Neu indexieren“ lässt er sich auslösen.',
     removed: 'Der Korpus führt dieses Dokument nicht mehr, seine indexierten Inhalte sind aber noch durchsuchbar. Zum Bereinigen löschen.',
     inconsistent: 'Als verarbeitet vermerkt, aber es wurden keine durchsuchbaren Inhalte gefunden. Synchronisierung erneut ausführen.',
   },

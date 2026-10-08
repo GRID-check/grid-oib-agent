@@ -1,9 +1,11 @@
 /**
- * Platform storage overview — stored bytes and quota for every tenant.
+ * Platform storage overview — stored bytes, quota and per-file upload limit for
+ * every tenant, plus the deployment's upload-limit default and ceiling.
  *
- * Read-only. The per-organization quota WRITE lives at
- * `/api/platform/organizations/[organizationId]/storage`, so the list endpoint
- * and the mutation endpoint cannot be confused for one another.
+ * Read-only. The per-organization WRITES live at
+ * `/api/platform/organizations/[organizationId]/storage` (quota) and
+ * `.../upload-limit`, so the list endpoint and the mutation endpoints cannot be
+ * confused for one another.
  */
 
 import { platformApiRoute } from '@/lib/api/platform-handler'

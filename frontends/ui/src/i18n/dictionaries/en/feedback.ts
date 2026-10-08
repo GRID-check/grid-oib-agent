@@ -91,5 +91,11 @@ export const feedback = {
     triaged: 'Moved to “{status}”.',
     triageError: 'The status could not be changed.',
     details: 'Browser details',
+    listTitle: 'Reports',
+    linked: 'From your inbox',
+    focusMissing: {
+      title: 'The linked report was not found.',
+      description: 'It was deleted or is not visible to you. The other reports are listed below.',
+    },
   },
 }
