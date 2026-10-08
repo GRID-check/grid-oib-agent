@@ -10,9 +10,16 @@
 # `expect` keys, each one check:
 #   lookup:      required | forbidden | optional — did the turn call project_lookup
 #   cites:       list of groups; each group is a list of alternatives, one of which
-#                must appear in the answer (a project's name, as the reader sees it)
-#   not_cites:   names that must NOT appear (a project the question does not concern,
-#                or an invented one)
+#                must appear in the answer (a project's name, as the reader sees it).
+#                An alternative the QUESTION already contains does not count (an
+#                answer that only repeats the question would pass it), so a group
+#                names the project by a part of its name the question leaves out:
+#                its street or its full name. A test holds every group to that.
+#   evidence:    documentIds of the office passages that answer the question (any
+#                one will do). Not graded on the answer: the offline test holds the
+#                fixture search to it (tests/test_precedent_eval.py), so a search
+#                that ranks badly or loses a passage fails there, not as an agent miss.
+#   not_cites:   names that must NOT appear (a project the question does not concern)
 #   says_none:   the answer says no comparable reference was found
 #   caveat:      the answer says the precedent was decided under an earlier edition
 #                or that the rules may have changed since
@@ -20,6 +27,12 @@
 #                material, a project's name), alternatives allowed. Never a
 #                meaning: whether an answer warns, refuses or says none is the
 #                judge's (says_none, caveat), not a word list's
+#
+# Every question with a `lookup` also gets the check `real_projects`: each project
+# the answer's source lines name must exist in the question's fixture office. That
+# is how an invented project is caught; `not_cites` only lists the real ones. A
+# judge that cannot answer `says_none` or `caveat` is a recorded failure, never a
+# missing check.
 #
 #   scenario:    which office the run sits in (office.json `scenarios`): `default`
 #                when absent, `wien-bestand` (a Vienna office building conversion:
@@ -41,6 +54,7 @@ questions:
     question: Wie haben wir die Traufe bei unseren früheren Holzbauten ausgeführt?
     expect:
       lookup: required
+      evidence: [doc-baden-traufe]
       cites: [[Baden]]
       mentions: [[Brandsperre, Brandsperren]]
 
@@ -49,7 +63,8 @@ questions:
     question: Was hat die Baubehörde in Mödling bei unserer Wohnhausanlage nachgefordert?
     expect:
       lookup: required
-      cites: [[Mödling, Moedling]]
+      evidence: [doc-moedling-nachforderung]
+      cites: [[Brunner Gasse, Wohnhausanlage Mödling]]
       mentions: [["1,20 m", "1,20"], [Rauchabzug]]
 
   - id: fluchttreppe-moedling
@@ -57,7 +72,8 @@ questions:
     question: Welche Fluchttreppe hatten wir bei der Wohnhausanlage in Mödling?
     expect:
       lookup: required
-      cites: [[Mödling, Moedling]]
+      evidence: [doc-moedling-fluchttreppe]
+      cites: [[Brunner Gasse, Wohnhausanlage Mödling]]
       mentions: [[Stahl, Stahlkonstruktion], [A2]]
 
   - id: sicherheitstreppenhaus-referenz
@@ -65,6 +81,7 @@ questions:
     question: Hatten wir schon ein Projekt mit Sicherheitstreppenhaus? Was hat die Behörde dort verlangt?
     expect:
       lookup: required
+      evidence: [doc-wien22-sicherheitstreppenhaus, doc-wien22-ma37]
       cites: [[Wien 22, Wagramer]]
       mentions: [[Druckbelüftung, Druckbelueftung]]
 
@@ -73,7 +90,8 @@ questions:
     question: Wie ist bei der Schule in Linz die Holz-Beton-Verbunddecke aufgebaut?
     expect:
       lookup: required
-      cites: [[Linz]]
+      evidence: [doc-linz-decke]
+      cites: [[Hybridbau, Schule Linz]]
       mentions: [["12 cm", Aufbeton]]
 
   # --- implicit: the agent should look unasked ------------------------------
@@ -82,6 +100,7 @@ questions:
     question: Wie können wir die Holzdecken in unserem GK-4-Holzbau brandschutztechnisch ausführen, wenn sie nicht in A2 sein sollen?
     expect:
       lookup: required
+      evidence: [doc-baden-gutachten]
       cites: [[Baden]]
       mentions: [[Kapselung, K2 60, K₂60, "K2 60"]]
 
@@ -90,6 +109,7 @@ questions:
     question: Mit welchen Auflagen müssen wir bei der Baubewilligung für unser Wohnhaus rechnen?
     expect:
       lookup: required
+      evidence: [doc-baden-bescheid, doc-moedling-bescheid]
       cites: [[Baden, Mödling, Moedling]]
 
   - id: gutachten-noetig
@@ -135,7 +155,8 @@ questions:
     question: Können wir die Fluchttreppe genauso ausführen wie in Mödling 2019?
     expect:
       lookup: required
-      cites: [[Mödling, Moedling]]
+      evidence: [doc-moedling-fluchttreppe]
+      cites: [[Brunner Gasse, Wohnhausanlage Mödling]]
       caveat: true
 
   - id: kapselung-wie-baden
@@ -143,7 +164,8 @@ questions:
     question: Können wir das Brandschutzkonzept vom Holzwohnbau Baden einfach übernehmen?
     expect:
       lookup: required
-      cites: [[Baden]]
+      evidence: [doc-baden-gutachten]
+      cites: [[Wiener Straße]]
       caveat: true
 
   # --- what the catalog alone should answer ----------------------------------
@@ -161,7 +183,8 @@ questions:
     question: Warum haben wir beim Holzwohnbau in Baden für die Kapselung Gipsfaserplatten genommen?
     expect:
       lookup: required
-      cites: [[Baden]]
+      evidence: [doc-baden-gutachten]
+      cites: [[Holzwohnbau Baden, Wiener Straße]]
       mentions: [[Prüfbericht, Pruefbericht]]
 
   # --- held out: written 7 Oct 2026 before any of them ran; never tune on these ---
@@ -171,6 +194,7 @@ questions:
     question: Wie hamma des mit der Hinterlüftung bei der Holzfassade damals gmacht?
     expect:
       lookup: required
+      evidence: [doc-baden-traufe]
       cites: [[Baden]]
 
   - id: hold-english-escape-stair
@@ -179,7 +203,9 @@ questions:
     question: How did we handle the external escape stair in one of our earlier housing projects?
     expect:
       lookup: required
-      cites: [[Mödling, Moedling]]
+      # No `evidence`: an English question shares no content word with the German passage,
+      # so the token channel cannot rank it and only the embedder can (the paid run's `cites` covers it).
+      cites: [[Brunner Gasse, Wohnhausanlage Mödling]]
 
   - id: hold-dachgeschoss-auflagen
     group: explicit
@@ -187,7 +213,8 @@ questions:
     question: Welche Auflagen hat die MA 37 bei unserem Dachgeschoßausbau im 7. Bezirk erteilt?
     expect:
       lookup: required
-      cites: [[Wien 7, Neubaugasse, Dachgeschoßausbau]]
+      evidence: [doc-wien7-bescheid]
+      cites: [[Neubaugasse, Wien 7]]
 
   - id: hold-norm-und-praxis
     group: implicit
@@ -195,6 +222,7 @@ questions:
     question: Wir planen ein Stiegenhaus in Stahlbeton im Holzbau. Hat sich das bei uns schon bewährt?
     expect:
       lookup: required
+      evidence: [doc-baden-gutachten]
       cites: [[Baden]]
       not_cites: [Linz]
 
@@ -222,6 +250,7 @@ questions:
     question: Wir brauchen im Hof ein neues Stiegenhaus. Worauf hat die Behörde bei unseren Wiener Bürobauten geachtet?
     expect:
       lookup: required
+      evidence: [doc-wien22-sicherheitstreppenhaus, doc-wien22-ma37]
       cites: [[Wien 22, Wagramer]]
 
   - id: wien-uebernahme-aus-noe
@@ -231,7 +260,8 @@ questions:
     question: Können wir die Kapselungslösung aus dem Holzwohnbau in Baden hier einfach übernehmen?
     expect:
       lookup: required
-      cites: [[Baden]]
+      evidence: [doc-baden-gutachten]
+      cites: [[Holzwohnbau Baden, Wiener Straße]]
       # Baden is in Niederösterreich, this project in Wien: the answer must warn
       # that another Bauordnung applied there. A meaning, so the judge reads it.
       caveat: true
@@ -272,6 +302,7 @@ questions:
     question: Was hat die MA 37 bei unseren Projekten schon nachgefordert?
     expect:
       lookup: required
+      evidence: [doc-wien22-ma37]
       cites: [[Wien 22, Wagramer]]
       mentions: [[Druckbelüftung, Druckbelueftung]]
 
@@ -281,7 +312,8 @@ questions:
     question: Welche Auflagen hat uns die Stadtgemeinde Baden bei der Baubewilligung erteilt?
     expect:
       lookup: required
-      cites: [[Baden]]
+      evidence: [doc-baden-bescheid]
+      cites: [[Holzwohnbau Baden, Wiener Straße]]
       mentions: [[Brandschutzgutachten]]
 
   - id: perm-english-moedling
@@ -290,7 +322,8 @@ questions:
     question: What did the Mödling building authority ask us to add before it approved our housing project?
     expect:
       lookup: required
-      cites: [[Mödling, Moedling]]
+      evidence: [doc-moedling-nachforderung]
+      cites: [[Brunner Gasse, Wohnhausanlage Mödling]]
       mentions: [["1,20", "1.20"]]
 
   - id: perm-none-kufstein
@@ -309,4 +342,5 @@ questions:
     question: Wir reichen das Stiegenhaus bald bei der MA 37 ein. Womit müssen wir rechnen?
     expect:
       lookup: required
+      evidence: [doc-wien22-ma37]
       cites: [[Wien 22, Wagramer]]
