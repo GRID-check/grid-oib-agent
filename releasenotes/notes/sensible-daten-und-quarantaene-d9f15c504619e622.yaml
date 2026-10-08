@@ -7,13 +7,5 @@ features:
     releases or deletes it.
 fixes:
   - >
-    A chat in a project with a great deal of project information can no longer
-    fail to connect and wait forever.
-  - >
-    Sharing a chat with colleagues works again.
-  - >
-    A link to a document in the Büroablage, such as a shared one, opens that
-    document again instead of the whole Büroablage.
-  - >
     A CSV or text file exported from Excel on Windows previews with its €, „ “
     and – again.
