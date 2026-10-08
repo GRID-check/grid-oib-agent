@@ -7,9 +7,15 @@
  * different folders. So:
  *
  *   * a folder is USED when content from it enters the model's context in a
- *     turn (a retrieval hit, an opened document). Every use of a folder that
- *     not every project member can read is recorded in
- *     `conversation_restricted_folders`, by the SOURCE FOLDER's id;
+ *     turn (a retrieval hit, an opened document). Listing is not use:
+ *     restricted documents are not in the inventory block or `list_files`. Every use of a folder that not every
+ *     project member can read is recorded here first ({@link admitRestrictedUse},
+ *     `conversation_restricted_folders`), by the SOURCE FOLDER's id;
+ *   * a turn may draw on such a folder only if its asker AND everyone the
+ *     conversation is currently shared with may READ it
+ *     ({@link drawableRestrictedCollections}). A conversation visible to the
+ *     whole project has an audience nobody can enumerate (members join later),
+ *     so it draws on none;
  *   * the conversation may be shared with person P iff P may read every folder
  *     it recorded ({@link widenConversationAudience}); it may be made visible to
  *     the project only while every folder it recorded is one every member reads.
@@ -20,9 +26,9 @@
  * deleted folder's tombstone keeps the access it had. A folder id the tree does
  * not know is a folder nobody may read.
  *
- * Widening takes a per-conversation lock (`lockConversationAudience`), so a
- * use recorded under the same lock cannot slip between a share's check and its
- * write.
+ * Admission and widening take the same per-conversation lock
+ * (`lockConversationAudience`), so a share cannot slip between an admission's
+ * check and its record, nor a use between a share's check and its write.
  *
  * What a conversation recorded also decides what may LEAVE it into something
  * the whole project reads (`restricted-egress.ts`): {@link recordedRestrictedFolders}
@@ -37,6 +43,7 @@ import {
   atLeast,
   clearanceOf,
   clearanceOfMember,
+  computeFolderAccess,
   customFolderNames,
   effectiveFolderLevel,
   folderTree,
@@ -54,8 +61,19 @@ import {
   listRecordedSourceFolders,
   lockConversationAudience,
   readConversationAudience,
+  recordSourceFolders,
   type ConversationAudienceRow,
 } from './restricted-use-repository'
+
+/** Most restricted collections or folders one admission names; a project has a handful. */
+export const ADMISSION_MAX_COLLECTIONS = 50
+
+/** Everyone who reads the conversation if it is private: the asker, its creator, its grantees. */
+function audiencePeople(audience: ConversationAudienceRow, askerUserId: string | null): string[] {
+  return [
+    ...new Set([askerUserId, audience.createdBy, ...audience.grantees].filter((id): id is string => Boolean(id))),
+  ]
+}
 
 /** Whether `clearance` may read `folderId` now (a tombstone included; an unknown id never). */
 export function mayReadFolder(tree: FolderTree, clearance: FolderClearance, folderId: string): boolean {
@@ -105,6 +123,21 @@ async function treeOf(organizationId: string, project: ProjectRef): Promise<Fold
   return folderTree(await listProjectFolderTree(organizationId, project.projectId))
 }
 
+/**
+ * Each person's clearance. `known` supplies one the caller already holds (the
+ * session's own); everyone else is asked of WorkOS (at most a minute old).
+ */
+async function clearancesOf(
+  organizationId: string,
+  people: readonly string[],
+  known: ReadonlyMap<string, FolderClearance> = new Map()
+): Promise<Map<string, FolderClearance>> {
+  const clearances = await Promise.all(
+    people.map((person) => known.get(person) ?? clearanceOfMember(organizationId, person))
+  )
+  return new Map(people.map((person, index) => [person, clearances[index]]))
+}
+
 /** The recorded folders that still restrict someone: not readable by every member now, or unknown. */
 function stillRestricting(tree: FolderTree, recorded: readonly string[]): string[] {
   return recorded.filter((folderId) => !readableByEveryMember(tree, folderId))
@@ -129,6 +162,152 @@ export async function recordedRestrictedFolders(conversationId: string, organiza
   // without a project there is no access to read, so all of it counts.
   if (!project) return recorded
   return stillRestricting(await treeOf(organizationId, project), recorded)
+}
+
+/** Who asks about a conversation's restricted use, and in which project. */
+export interface RestrictedUseRequest {
+  organizationId: string
+  conversationId: string
+  /** The asker, as the BFF signed it into the turn's envelope. */
+  userId: string
+  /** The project the turn runs in; used only when the conversation has no row yet. */
+  projectId: string | null
+}
+
+/** The folder each restricted collection is the collection of, for the collections that are current ones. */
+function sourceFolders(tree: FolderTree, project: ProjectRef, collections: readonly string[]): Map<string, string> {
+  const access = computeFolderAccess([...tree.values()], { roles: [], seesEverything: true }, project.projectCollection)
+  const found = new Map<string, string>()
+  for (const collection of collections) {
+    const folderId = access.sourceFolderOf(collection)
+    if (folderId) found.set(collection, folderId)
+  }
+  return found
+}
+
+/**
+ * The restricted collections among `candidates` a turn of this conversation may
+ * draw on right now: current restricted collections of its project whose folder
+ * the asker and everyone the conversation is shared with may read. A read;
+ * nothing is recorded.
+ */
+export async function drawableRestrictedCollections(
+  request: RestrictedUseRequest,
+  candidates: readonly string[]
+): Promise<string[]> {
+  if (candidates.length === 0) return []
+  const audience = await readConversationAudience(getDb(), request.organizationId, request.conversationId)
+  const project = await projectOf(request.organizationId, audience, request.projectId)
+  if (!project) return []
+  const tree = await treeOf(request.organizationId, project)
+  const folders = sourceFolders(tree, project, candidates)
+  const people = audiencePeople(audience, request.userId)
+  const clearances = await clearancesOf(request.organizationId, people)
+  const readable = new Set(foldersEveryoneMayRead(tree, [...folders.values()], audience, people, clearances))
+  return candidates.filter((collection) => readable.has(folders.get(collection) ?? ''))
+}
+
+/**
+ * The restricted collections an interactive chat socket of this session may be
+ * signed (the WebSocket upgrade, `collection-scope-request.ts`): the ones the
+ * session may read, narrowed to those everyone the conversation is shared with
+ * may read. The session's own clearance is its roles; everyone else's is
+ * WorkOS's.
+ */
+export async function restrictedCollectionsForChatScope(
+  session: AuthorizedSession,
+  conversationId: string,
+  project: ProjectRef,
+  sessionCleared: readonly string[]
+): Promise<string[]> {
+  if (sessionCleared.length === 0) return []
+  const audience = await readConversationAudience(getDb(), session.organizationId, conversationId)
+  if (audience.exists && audience.projectId !== project.projectId) return []
+  const tree = await treeOf(session.organizationId, project)
+  const folders = sourceFolders(tree, project, sessionCleared)
+  const people = audiencePeople(audience, session.userId)
+  const clearances = await clearancesOf(session.organizationId, people, new Map([[session.userId, await clearanceOf(session)]]))
+  const readable = new Set(foldersEveryoneMayRead(tree, [...folders.values()], audience, people, clearances))
+  return sessionCleared.filter((collection) => readable.has(folders.get(collection) ?? ''))
+}
+
+export interface FolderAdmission {
+  /** Recorded (or open to every member): content from these folders may enter the turn. */
+  admitted: string[]
+  /** Not: their content must be dropped from the turn. */
+  refused: string[]
+  /** Every source folder the conversation recorded after this admission that still restricts someone. */
+  recorded: string[]
+}
+
+/**
+ * Admit content from these source folders into a turn: record each folder the
+ * asker and everyone the conversation is shared with may read, and refuse the
+ * rest. A folder every project member may read needs no record and is
+ * admitted; one the tree does not know is refused. Called before the content
+ * enters the model's context.
+ *
+ * The audience is read twice. The clearances are computed outside the lock
+ * (they ask WorkOS); inside it the audience is read again and anyone who was
+ * not asked about counts as reading nothing restricted, so a grant committed in
+ * between refuses rather than slips through. The record is written in the same
+ * transaction, under the lock every widening takes.
+ */
+export async function admitSourceFolders(request: RestrictedUseRequest, folderIds: readonly string[]): Promise<FolderAdmission> {
+  const { organizationId, conversationId } = request
+  const asked = [...new Set(folderIds)].slice(0, ADMISSION_MAX_COLLECTIONS)
+  const before = await readConversationAudience(getDb(), organizationId, conversationId)
+  const project = await projectOf(organizationId, before, request.projectId)
+  const tree: FolderTree = project ? await treeOf(organizationId, project) : new Map()
+  const open = asked.filter((folderId) => tree.has(folderId) && readableByEveryMember(tree, folderId))
+  const restricted = asked.filter((folderId) => tree.has(folderId) && !open.includes(folderId))
+  const clearances =
+    restricted.length > 0 ? await clearancesOf(organizationId, audiencePeople(before, request.userId)) : new Map()
+  return getDb().transaction(async (tx) => {
+    await lockConversationAudience(tx, organizationId, conversationId)
+    const audience = await readConversationAudience(tx, organizationId, conversationId)
+    const admitted = foldersEveryoneMayRead(tree, restricted, audience, audiencePeople(audience, request.userId), clearances)
+    await recordSourceFolders(tx, organizationId, conversationId, admitted)
+    const recorded = await listRecordedSourceFolders(tx, organizationId, conversationId)
+    const kept = new Set([...open, ...admitted])
+    return {
+      admitted: asked.filter((folderId) => kept.has(folderId)),
+      refused: asked.filter((folderId) => !kept.has(folderId)),
+      // As `recordedRestrictedFolders` answers: a folder opened to everyone drops out.
+      recorded: project ? stillRestricting(tree, recorded) : recorded,
+    }
+  })
+}
+
+export interface AdmissionResult {
+  /** Admitted: content from these collections may enter the turn. */
+  admitted: string[]
+  /** Not: their content must be dropped from the turn. */
+  refused: string[]
+  /** The source folders the conversation recorded that still restrict someone. */
+  recorded: string[]
+}
+
+/**
+ * {@link admitSourceFolders} for the agent, which knows retrieval collections:
+ * each restricted collection is admitted as its source folder. A name that is
+ * not a current restricted collection of the conversation's project is refused.
+ */
+export async function admitRestrictedUse(
+  request: RestrictedUseRequest,
+  collections: readonly string[]
+): Promise<AdmissionResult> {
+  const asked = [...new Set(collections)].slice(0, ADMISSION_MAX_COLLECTIONS)
+  const audience = await readConversationAudience(getDb(), request.organizationId, request.conversationId)
+  const project = await projectOf(request.organizationId, audience, request.projectId)
+  const folders = project ? sourceFolders(await treeOf(request.organizationId, project), project, asked) : new Map<string, string>()
+  const admission = await admitSourceFolders(request, [...new Set(folders.values())])
+  const admitted = new Set(admission.admitted)
+  return {
+    admitted: asked.filter((collection) => admitted.has(folders.get(collection) ?? '')),
+    refused: asked.filter((collection) => !admitted.has(folders.get(collection) ?? '')),
+    recorded: admission.recorded,
+  }
 }
 
 /** A widening of a conversation's audience. */

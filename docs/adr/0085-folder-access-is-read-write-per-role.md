@@ -116,9 +116,36 @@ access rule still answers for a deleted folder's id.
 **What is derived from restricted content records SOURCE FOLDER IDS** and is
 judged against the current grants when it is read:
 
-* a conversation's use, per person (`conversation_restricted_folders`, migration 0110): the
-  source folders a conversation drew on. Sharing allows a person who may read every recorded
-  folder now. This replaces ADR-0084's per-socket confinement check and its `4412` close.
+* a conversation's use, per person (`conversation_restricted_folders`, migration 0110): content
+  from a folder not every member may read enters the model's context only after the BFF
+  admitted that use against the asker and everyone the conversation is shared with, under the
+  advisory lock every widening takes (`POST /api/internal/conversations/[id]/restricted-use`).
+  The agent narrows each turn's scope to what may be drawn on, admits each tool round before
+  the model reads it, and keeps restricted collections out of every listing. Sharing allows a
+  person who may read every recorded folder now. This replaces ADR-0084's per-socket
+  confinement check and its `4412` close.
+
+  **The admission (amended 6 October 2026).** Every tool call REPORTS the collections it returns
+  content from (`note_collections_read`): the grounding-block renderer reports every hit, the
+  exact search every file its match table names, `view_knowledge_image` the collection of the
+  image it returns. The Piloti `ToolNode`'s call wrapper (`report_collections_read`) stamps that
+  set onto the call's result, beside NAT's text. Before anything reads a round,
+  `admit_tool_results` takes, per result, what was reported plus any restricted collection its
+  text names (the backstop for a producer that forgot to report), puts only the ones the turn may
+  draw on to the BFF, and replaces every result carrying a restricted collection that was not
+  admitted with a notice: not drawable this turn, refused, the BFF unreachable, or no restricted
+  use bound at all. It fails closed whether or not a use is bound. Listing is not use, fallbacks
+  included: `list_files` filters a restricted folder's rows out of whatever it lists (the
+  inventory, or the scope when the inventory failed to load), and `read_passage` neither
+  suggests nor counts a restricted folder's file, nor confirms one exists ("no such Punkt",
+  "registered but empty"), until this turn admitted its collection (`may_name`).
+  `view_knowledge_image` takes its collection from the model, so it refuses one outside the
+  turn's scope, and a restricted one the turn may not draw on, before any lookup; it echoes the
+  turn's signed envelope to `GET /api/internal/document-file`, which then answers only for a
+  collection in the scope that envelope signs, in its organization, and for a restricted
+  folder's collection only when the asker and the conversation's audience may read the folder
+  now. Without an envelope (a job worker) that route never answers for a restricted folder's
+  collection.
 
 **The cached prompt view is dropped by placement.** The `documents:` block of
 the project prompt view (`lib/project-profile/prompt-view.ts`, cached 5 min, one
@@ -153,6 +180,21 @@ recorded folders.
   `_r…` collection leave everybody's scope.
 * Bad, because roles are looked up in WorkOS per person and organization at most once a minute;
   an outage falls back to the token's roles, which may be up to the token's lifetime stale.
+* Bad, because the admission is only as complete as the reporting: a future tool that returns a
+  restricted folder's content outside the grounding block, without calling
+  `note_collections_read` and without naming the collection, would still pass it. What stands in
+  the way is a test, not the type system: every registered NAT function must be classified in
+  `tests/aiq_agent/knowledge/test_collection_read_inventory.py`, and a tool that reads must name
+  the test proving it reports. A tool bound outside Piloti's `ToolNode` gets no admission at
+  all; deep research is one, and stays safe only because a run's scope never holds a restricted
+  collection (ADR-0084).
+* Bad, because `GET /api/internal/document-file` still answers by name for an open collection
+  when no envelope is presented (a job worker has none to forward); the envelope check binds the
+  chat tool, which always echoes one, and the internal token is the same secret that signs
+  envelopes anyway.
+* Bad, because listing is not use, so restricted files do not appear in the inventory block,
+  `list_files` or the document cards at all, even for a reader who may open them; they are
+  found by search.
 * Bad, because a conversation that recorded a restricted folder still cannot commission deep
   research or a task, even after the folder is opened again, until that rule is revisited.
 * Bad, because tombstones accumulate; nothing purges them yet.
@@ -209,9 +251,28 @@ recorded folders.
   the tombstone; `folder-service.ensure.spec.ts`: nothing is created below a read-only folder.
 * `documents/service.spec.ts`, `upload-screening/review.spec.ts`, `documents/generated.spec.ts`:
   delete, release and filing ask `requireFolderWrite` and stop on a read-only folder.
-* `conversations/restricted-use.spec.ts` and `restricted-use.integration.spec.ts`: the lock
-  with widening, loosen and tighten judged at read time.
+* `conversations/restricted-use.spec.ts` and `restricted-use.integration.spec.ts`: admission
+  against the audience, the lock with widening, loosen and tighten judged at read time.
 * `auth/membership-roles.spec.ts`: the membership lookup, the 60 s key, the fallback.
+* `tests/aiq_agent/knowledge/test_restricted_use.py`, `turn/test_context.py`,
+  `turn/test_subject_document.py`, `agents/piloti/test_confined_turn.py`: the agent asks before
+  reading the scope, narrows it, admits and withholds tool results, and stays confined;
+  `test_restricted_use.py` also pins the fail-closed admission (no use bound, not drawable, an
+  image result), the side channel (a reported read admitted or withheld whatever the text says,
+  calls never sharing what they read, a note from a worker thread) and the text backstop.
+* `agents/piloti/test_restricted_tool_round.py`: through NAT's LangChain wrapper and the compiled
+  graph, a read reported only on the side channel is admitted, or withheld when refused.
+* `tests/knowledge_layer_tests/test_restricted_reads.py`: `list_files` lists no restricted file,
+  the failed-inventory fallback included; `read_passage` neither suggests, counts nor confirms
+  one before admission, and reports what it reads; the exact search reports its match table;
+  `view_knowledge_image` refuses a collection outside the turn (or restricted and not drawable)
+  before any lookup, reports what it returns and echoes the envelope.
+* `tests/aiq_agent/knowledge/test_collection_read_inventory.py`: every registered NAT function is
+  classified by how it keeps restricted content from the model, and a tool that reads names the
+  test proving it reports.
+* `app/api/internal/document-file/route.spec.ts`: with an envelope, only a signed collection in the
+  signed organization, a restricted one only when drawable now, a bad envelope a 401; without
+  one, never a restricted collection.
 * `features/documents/components/folder-access-dialog.spec.tsx` and the `/dev/folder-access`
   preview: the dialog and the „Nur lesen" marks.
 * Nothing enforces that a NEW write path calls `requireFolderWrite`; review is the gate.
@@ -248,5 +309,5 @@ recorded folders.
 * User guide: [`sensitive-data-and-access.md`](../user-guides/sensitive-data-and-access.md#who-may-read-and-edit-a-folder).
 * Where a later lifecycle feature would attach (participant notices, an organization setting for
   deleted-folder content, a download log): `setFolderAccess` after placement, the tombstone in
-  `deleteProjectFolder`, `effectiveFolderLevel`, `resolveMembershipRoles` and
-  `widenConversationAudience`.
+  `deleteProjectFolder`, `effectiveFolderLevel`, `resolveMembershipRoles`, `admitSourceFolders`
+  and `widenConversationAudience`.

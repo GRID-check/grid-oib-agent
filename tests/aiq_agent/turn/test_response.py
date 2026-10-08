@@ -154,3 +154,14 @@ class TestPostAnswerTurnFacts:
 
     def test_memory_writes_cross(self):
         assert self._facts(_state(), remembered_this_turn=("Firma: Grid",)).remembered_this_turn == ("Firma: Grid",)
+
+    def test_a_restricted_collection_in_scope_crosses_as_read_restricted(self):
+        """ADR-0084: the memory-reflection gate reads it; a default would let the stage write."""
+        restricted = _state(collection_scope=["oib_knowledge", "proj_1", "proj_1_r0123456789ab"])
+        assert self._facts(restricted).read_restricted is True
+        assert self._facts(_state(collection_scope=["oib_knowledge", "proj_1"])).read_restricted is False
+        assert self._facts(_state()).read_restricted is False
+
+    def test_a_confined_conversation_crosses_as_read_restricted(self):
+        """Nothing restricted in scope this turn, but the conversation already drew on a restricted folder."""
+        assert self._facts(_state(collection_scope=["proj_1"], confined=True)).read_restricted is True

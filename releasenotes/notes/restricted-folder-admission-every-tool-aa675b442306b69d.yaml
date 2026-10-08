@@ -1,0 +1,7 @@
+---
+security:
+  - >
+    Piloti no longer shows an image from a folder not everyone may read unless
+    the chat may draw on that folder, and no longer lists, suggests or confirms
+    the name of a file in such a folder before the chat has drawn on it, also
+    when the project's file list could not be loaded.

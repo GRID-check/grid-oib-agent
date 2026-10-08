@@ -79,6 +79,7 @@ from aiq_agent.common.turn_status import SUBJECT_REFUSED
 from aiq_agent.common.turn_status import SUBJECT_UNREACHABLE
 from aiq_agent.common.turn_status import subject_document_step
 from aiq_agent.common.wire_v2 import StatusStep
+from aiq_agent.knowledge.restricted_use import current_restricted_use
 from aiq_agent.tools.documents.draft_store import DRAFT_ROOT
 from aiq_agent.tools.documents.draft_store import FILED_DOCUMENT_KEY
 from aiq_agent.tools.documents.draft_store import DraftBackend
@@ -130,7 +131,7 @@ def draft_path(display_name: str) -> str:
     return f"{DRAFT_ROOT}{(name or 'dokument')[:MAX_NAME_CHARS]}.md"
 
 
-async def _fetch(version_id: str, organization_id: str, conversation_id: str) -> dict | StatusStep:
+async def _fetch(version_id: str, organization_id: str, conversation_id: str, user_id: str | None) -> dict | StatusStep:
     """The version's body, or the miss as its step.
 
     Both scopes travel. The route refuses unless the version is THIS
@@ -140,7 +141,9 @@ async def _fetch(version_id: str, organization_id: str, conversation_id: str) ->
     where every other miss is a ``WARNING``.
     """
     try:
-        return await asyncio.to_thread(get_document_version_content, version_id, organization_id, conversation_id)
+        return await asyncio.to_thread(
+            get_document_version_content, version_id, organization_id, conversation_id, user_id
+        )
     except FilingError as refused:
         if refused.status == 404:
             logger.info("Subject version %s is not this conversation's subject; the turn continues", version_id)
@@ -215,6 +218,7 @@ async def load_subject_document(
     *,
     conversation_id: str | None,
     organization_id: str | None,
+    user_id: str | None = None,
 ) -> StatusStep | None:
     """Put the turn's unpublished subject into the working directory.
 
@@ -233,9 +237,15 @@ async def load_subject_document(
             envelope. Never from the client: the version id is the only thing
             the client chooses, and the organization is what stops it choosing
             somebody else's.
+        user_id: The signed asker. A subject in a folder not every member may
+            read is opened only when the BFF admits that folder for the
+            conversation against its audience (ADR-0084, ADR-0085), which needs
+            the asker; without one such a subject is not found.
     """
     try:
-        return await _load_subject_document(subject, conversation_id=conversation_id, organization_id=organization_id)
+        return await _load_subject_document(
+            subject, conversation_id=conversation_id, organization_id=organization_id, user_id=user_id
+        )
     except Exception:  # noqa: BLE001 - one document is worth strictly less than the answer
         logger.warning("Subject document load failed; the turn continues without it", exc_info=True)
         return None
@@ -246,6 +256,7 @@ async def _load_subject_document(
     *,
     conversation_id: str | None,
     organization_id: str | None,
+    user_id: str | None,
 ) -> StatusStep | None:
     # A published subject, a plain question, or a run with nowhere to put a file.
     # None of the three is a miss worth recording: nothing was expected.
@@ -253,9 +264,13 @@ async def _load_subject_document(
         return None
 
     assert subject.version_id is not None  # noqa: S101 - `is_open` is the check; this is for the type
-    body = await _fetch(subject.version_id, organization_id, conversation_id)
+    body = await _fetch(subject.version_id, organization_id, conversation_id, user_id)
     if isinstance(body, StatusStep):
         return body
+    if body.get("drewOnRestrictedFolder") and (use := current_restricted_use()) is not None:
+        # The BFF admitted and recorded the subject's restricted folder before
+        # it sent the bytes: the conversation is confined from here.
+        use.note_recorded()
 
     text = body.get("content")
     if not isinstance(text, str) or not text.strip():

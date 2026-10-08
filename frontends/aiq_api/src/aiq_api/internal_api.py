@@ -4,8 +4,9 @@ Python never touches the database (``grid_app`` is single-writer); every write
 goes over the internal HTTP API with the shared ``GRID_INTERNAL_API_TOKEN``.
 The chat socket persists a finished turn through here (``chat_socket``), and so
 do the jobs runner and its notifiers (``jobs/``), so there is one place that
-knows how the backend writes a message. The read a socket needs before a turn
-lives here too: the office's chat screening.
+knows how the backend writes a message. The two reads a socket needs before a
+turn live here too: whether a restricted conversation is still private, and the
+office's chat screening.
 """
 
 from __future__ import annotations

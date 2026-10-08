@@ -259,11 +259,13 @@ def strip_trace_lanes(text: str) -> str:
 def render_grounding_block(block: GroundingBlock) -> str:
     """The block as the text a model reads, filed under the hash of that text.
 
-    The one place the grammar's line order and spacing live. Recording and the
-    ``sources`` step are done HERE rather than by the callers, so a producer
-    cannot emit a block and forget to make it readable back, or leave it out of
-    the Herleitung. That step is one producer site for every evidence tool, and
-    it is built from the records, never read back out of the text.
+    The one place the grammar's line order and spacing live. Recording, the
+    ``sources`` step and reporting the hits' collections to the restricted-use
+    admission are done HERE rather than by the callers, so a producer cannot
+    emit a block and forget to make it readable back, leave it out of the
+    Herleitung, or return a restricted passage unadmitted. That step is one
+    producer site for every evidence tool, and it is built from the records,
+    never read back out of the text.
     """
     lines: list[str] = block.preamble.split("\n") if block.preamble else []
     if block.coverage_gap:
@@ -278,6 +280,13 @@ def render_grounding_block(block: GroundingBlock) -> str:
         lines.append(block.trailer)
     rendered = block.degraded_banner + "\n".join(lines)
     record_grounding_block(block, rendered)
+    # Every passage's collection is reported for the tool call that returns this
+    # block, which is what admits a restricted folder's passages before the
+    # model reads them (ADR-0085). Here and not in the producers, for the
+    # reason recording is: no evidence tool can render a hit and skip it.
+    from aiq_agent.knowledge.restricted_use import note_collections_read
+
+    note_collections_read(hit.collection for hit in block.hits)
     if block.lanes:
         round_index = current_retrieval_round()
         step_id = f"sources:{round_index}:{block.tool}:{uuid.uuid4().hex[:8]}"

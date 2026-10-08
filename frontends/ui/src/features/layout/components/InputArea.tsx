@@ -96,6 +96,7 @@ import {
   type MentionQuery,
 } from '@/features/collaboration/lib/mention-text'
 import { MENTION_ERROR_REASONS, type MentionCandidate } from '@/lib/mentions/types'
+import { SHARING_ERROR_REASONS } from '@/lib/sharing/types'
 import { InvokedSkillChip } from '@/features/skills/components/InvokedSkillChip'
 import { SlashCommandPicker } from '@/features/skills/components/SlashCommandPicker'
 import { useSlashCommand } from '@/features/skills/hooks/use-slash-command'
@@ -160,6 +161,12 @@ function mentionRefusalMessage(
       return tCollab('mentions.errors.containerAccessRequired', { name })
     case MENTION_ERROR_REASONS.rateLimited:
       return tCollab('mentions.errors.rateLimited')
+    // Mentioning someone new invites them, and a thread that drew on a
+    // restricted folder reaches only people cleared for it (ADR-0084).
+    case SHARING_ERROR_REASONS.restrictedContent:
+      return name
+        ? tCollab('sharing.errors.restrictedContent', { name })
+        : tCollab('sharing.errors.restrictedContentSomeone')
     default:
       return null
   }

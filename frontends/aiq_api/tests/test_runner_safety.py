@@ -1034,3 +1034,42 @@ class TestTheFindingsRideIntoMemory:
 
         assert _reflection_text("Bericht.", None) == "Bericht."
         assert _reflection_text("Bericht.", {"items": []}) == "Bericht."
+
+
+class TestReportReflectionHasNoScopeCheck:
+    """ADR-0084: a run's reflection takes no scope, because a check on it could never fire.
+
+    The BFF signs restricted collections only into an interactive chat scope, and
+    refuses to commission a run from a conversation that drew on a restricted
+    folder (``restricted-egress.ts``). The guard that stood here read the job's
+    scope, which never held one; it is gone, and this pins that the parameter
+    went with it, so nobody re-adds a check that reads like protection.
+    """
+
+    def test_the_reflection_takes_no_collection_scope(self) -> None:
+        import inspect
+
+        from aiq_api.jobs import runner
+
+        assert "collection_scope" not in inspect.signature(runner._run_deep_research_reflection).parameters
+
+    @pytest.mark.asyncio
+    async def test_a_report_still_reflects(self, monkeypatch) -> None:
+        from aiq_agent import common
+        from aiq_api.jobs import runner
+
+        get_llm = AsyncMock(side_effect=RuntimeError("stop before the model call"))
+        monkeypatch.setattr(common, "get_langchain_llm", get_llm)
+        await runner._run_deep_research_reflection(
+            builder=object(),
+            job_id="job-1",
+            reflection_llm_ref="card_llm",
+            reflection_enabled=True,
+            query="q",
+            report="Bericht.",
+            usage_context={"identity": {"project_id": "p1", "organization_id": "o1"}},
+            memory_digest=None,
+            org_credential=None,
+            model_overrides=None,
+        )
+        get_llm.assert_called_once()

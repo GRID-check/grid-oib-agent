@@ -48,6 +48,13 @@ ws://<host>/websocket?v=2&projectId=<uuid>&conversationId=<session_id>
   signed into the context envelope. A client message naming another
   conversation is refused with `rejected{conversation_mismatch}`; the socket
   stays open. To talk in another conversation, open a socket for it.
+- **A restricted scope is narrowed per turn, not per socket (ADR-0085).** When
+  the signed scope carries a restricted folder's collection, the agent asks
+  the BFF at the start of every turn which of them the asker and everyone the
+  conversation is shared with may read now
+  (`POST /api/internal/conversations/[id]/restricted-use`), and searches only
+  those. A thread shared since the upgrade keeps its socket; the server no
+  longer closes it (the `4412` close of ADR-0084 is retired).
 - **Auth** is read at the handshake and every client message re-checks the
   token's `exp`; an expired one is refused with `rejected{auth_expired}`, and
   the client reconnects with a fresh token.

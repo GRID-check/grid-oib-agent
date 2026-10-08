@@ -29,6 +29,9 @@ from aiq_agent import project_context
 from aiq_agent.cards.models import grid_card_adapter
 from aiq_agent.cards.registry import get_card_registry
 from aiq_agent.knowledge import project_memory as memory_client
+from aiq_agent.knowledge import scoping
+from aiq_agent.knowledge.restricted_collections import restricted_collections_in
+from aiq_agent.knowledge.restricted_use import current_restricted_use
 from nat.plugin_api import Builder
 from nat.plugin_api import FunctionBaseConfig
 from nat.plugin_api import FunctionInfo
@@ -58,6 +61,11 @@ _NO_PROJECT_RESULT = (
     "recorded in project-scoped chats. Do not retry."
 )
 _NO_ORG_RESULT = "Error: organization unknown for this session — cannot record org-wide memory. Do not retry."
+_RESTRICTED_RESULT = (
+    "Error: the finding was NOT saved. This conversation can read files from a restricted "
+    "folder, and memory is shared with people who may not see that folder, so nothing is "
+    "remembered here. Do not tell the user it has been noted. Do not retry."
+)
 
 #: A failed write that is the transport's fault, not the caller's. Narrow on
 #: purpose: ``ValueError`` from the client means this tool's vocabulary and
@@ -122,6 +130,30 @@ def _resolve_target(scope: str, project_id: str | None, organization_id: str | N
     if not organization_id:
         return _NO_PROJECT_RESULT if scope == "project" else _NO_ORG_RESULT
     return _Target("organization", None, organization_id)
+
+
+def _restricted_scope_refusal() -> str | None:
+    """The refusal for a turn that can read restricted content, else ``None``.
+
+    ADR-0084: memory is read by the whole project (and org memory by every
+    project), so a finding drawn from a restricted folder would reach people the
+    restriction excludes. The test is the turn's signed SCOPE, not the hits it
+    happened to return, and the conversation's record: a turn that may draw on a
+    restricted folder, or whose conversation already drew on one, writes
+    nothing. The card is refused as well — a proposal the user accepts is the
+    same write by another door. An unreadable scope refuses (fail closed).
+    """
+    try:
+        use = current_restricted_use()
+        restricted = restricted_collections_in(scoping.get_collection_scope_from_context())
+        confined = bool(restricted) or (use is not None and use.confined)
+    except Exception:  # noqa: BLE001 - an unreadable scope must not let a write through
+        logger.warning("remember: the turn's scope could not be read; refusing", exc_info=True)
+        return _RESTRICTED_RESULT
+    if not confined:
+        return None
+    logger.info("remember refused: the turn can read restricted collection(s) %s", restricted)
+    return _RESTRICTED_RESULT
 
 
 def _emit_memory_proposal_card(*, content: str, kind: str, confidence: str) -> bool:
@@ -223,6 +255,9 @@ async def project_memory_remember(tool_config: ProjectMemoryRememberConfig, buil
         content = content.strip()
         if not content:
             return "Error: content must not be empty."
+        refusal = _restricted_scope_refusal()
+        if refusal is not None:
+            return refusal
         content = content[: tool_config.max_content_chars]
         supersedes = supersedes.strip()
 

@@ -1044,20 +1044,48 @@ async def read_passage(config: ReadPassageConfig, _builder: Builder):
 
     search_config = _builder.get_function_config(config.knowledge_search)
 
-    async def _resolve_or_refuse(document: str) -> tuple[list[PassageTarget], str]:
-        """The (collection, file) targets this name resolves to, or the refusal."""
-        entries = _restrict_scope_to_turn(
+    def _entries() -> list[Any]:
+        return _restrict_scope_to_turn(
             _resolve_scoped_collections(search_config, _session_collection(), _resolve_base_collection(search_config))
         )
-        targets = await _resolve_targets(entries, document)
-        if targets:
-            return targets, ""
-        listings = await asyncio.gather(*(_documents_in(entry.collection) for entry in entries))
+
+    async def _unknown(document: str) -> str:
+        """The refusal for a name nothing nameable carries, with its guesses.
+
+        Counts and guesses come only from collections whose documents may be
+        named to the model (:func:`may_name`): a restricted folder's file is
+        neither suggested nor counted until this turn admitted its collection,
+        because listing is not use (ADR-0085).
+        """
+        from aiq_agent.knowledge.restricted_use import may_name
+
+        nameable = [entry for entry in _entries() if may_name(entry.collection)]
+        listings = await asyncio.gather(*(_documents_in(entry.collection) for entry in nameable))
         known = sum(len(docs) for docs in listings)
         scoped = [doc for docs in listings for doc in docs]
         # Full candidate list: the message shows the first three and names
         # how many more clear the bar, so truncating never hides the count.
-        return [], _unknown_document_message(document, known, _suggestion_names(document, scoped, limit=1000))
+        return _unknown_document_message(document, known, _suggestion_names(document, scoped, limit=1000))
+
+    async def _resolve_or_refuse(document: str) -> tuple[list[PassageTarget], str]:
+        """The (collection, file) targets this name resolves to, or the refusal."""
+        targets = await _resolve_targets(_entries(), document)
+        if targets:
+            return targets, ""
+        return [], await _unknown(document)
+
+    async def _miss(document: str, targets: list[PassageTarget], message: str) -> str:
+        """``message`` for a read that returned no passage, unless it would confirm a hidden document.
+
+        A document only restricted folders hold, none of them admitted this
+        turn, is answered as if it did not exist: "no such Punkt" or "registered
+        but empty" would tell the model it is there (ADR-0085).
+        """
+        from aiq_agent.knowledge.restricted_use import may_name
+
+        if any(may_name(target.collection) for target in targets):
+            return message
+        return await _unknown(document)
 
     async def _read(
         document: str,
@@ -1149,9 +1177,9 @@ async def read_passage(config: ReadPassageConfig, _builder: Builder):
         chunks = [chunk for chunk in fetched if _addresses(chunk, punkt, page)]
         if failures and not chunks:
             logger.warning("read_passage: every fetch failed for %r", query, exc_info=failures[0])
-            return _store_silent_message(query)
+            return await _miss(document, targets, _store_silent_message(query))
         if not chunks:
-            return _no_passage_message(document, punkt, page)
+            return await _miss(document, targets, _no_passage_message(document, punkt, page))
 
         chunks.sort(key=_punkt_sort_key)
         merged = _passage_result(chunks[:_MAX_PASSAGE_CHUNKS], query)
@@ -1201,9 +1229,9 @@ async def read_passage(config: ReadPassageConfig, _builder: Builder):
         broke = failures + page_failures
         if not fetched and broke:
             logger.warning("read_passage: every outline fetch failed for %r", query, exc_info=broke[0])
-            return _store_silent_message(query)
+            return await _miss(document, targets, _store_silent_message(query))
         if not fetched:
-            return _empty_document_message(document)
+            return await _miss(document, targets, _empty_document_message(document))
 
         merged = _passage_result(sorted(fetched, key=_punkt_sort_key)[:_MAX_PASSAGE_CHUNKS], query)
         # The line that replaces the Gliederung rides the same trailer, and for

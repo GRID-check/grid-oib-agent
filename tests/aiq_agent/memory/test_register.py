@@ -301,3 +301,86 @@ class TestToolVocabulary:
         async with project_memory_remember(ProjectMemoryRememberConfig(), MagicMock()) as info:
             with pytest.raises(ValidationError):
                 info.input_schema(kind="decision", content="x", scope="global")
+
+
+# ADR-0084, glue until restricted memory lands: memory is read by people a
+# restricted folder excludes, so a turn whose scope holds a restricted folder's
+# collection, or whose conversation already drew on one, writes nothing — and
+# offers no card.
+_RESTRICTED_SCOPE = ["oib_knowledge", "proj_abc", "proj_abc_r0123456789ab", "s_c1"]
+
+
+def _patch_scope(monkeypatch, scope):
+    from aiq_agent.knowledge import scoping
+
+    monkeypatch.setattr(scoping, "get_collection_scope_from_context", lambda: scope)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("scope", ["project", "organization"])
+async def test_a_turn_that_can_read_a_restricted_folder_records_nothing(monkeypatch, scope):
+    from aiq_agent.cards.registry import CardRegistry
+    from aiq_agent.cards.registry import reset_card_registry
+    from aiq_agent.cards.registry import set_card_registry
+
+    _patch_context(monkeypatch)
+    _patch_scope(monkeypatch, _RESTRICTED_SCOPE)
+    # Would be a card on the org path, had the gate let it through.
+    insert = MagicMock(side_effect=pm.OrgMemoryDisabledError("disabled"))
+    reg = CardRegistry()
+    token = set_card_registry(reg)
+    try:
+        result = await _remember(monkeypatch, insert, scope=scope)
+    finally:
+        reset_card_registry(token)
+
+    assert "NOT saved" in result
+    assert "restricted" in result
+    assert "Do not retry" in result
+    insert.assert_not_called()
+    assert reg.snapshot() == []
+
+
+@pytest.mark.asyncio
+async def test_a_conversation_that_drew_on_a_restricted_folder_records_nothing(monkeypatch):
+    """Nothing restricted is drawable this turn, but the conversation's record stands."""
+    from aiq_agent.knowledge.restricted_use import RestrictedUse
+    from aiq_agent.knowledge.restricted_use import bind_restricted_use
+    from aiq_agent.knowledge.restricted_use import reset_restricted_use
+
+    _patch_context(monkeypatch)
+    _patch_scope(monkeypatch, ["oib_knowledge", "proj_abc", "s_c1"])
+    insert = MagicMock(return_value="item-1")
+    use = RestrictedUse(organization_id="o1", user_id="u1", conversation_id="c1", project_id="p1", confined=True)
+    token = bind_restricted_use(use)
+    try:
+        result = await _remember(monkeypatch, insert)
+    finally:
+        reset_restricted_use(token)
+
+    assert "NOT saved" in result
+    insert.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_an_unreadable_scope_records_nothing(monkeypatch):
+    from aiq_agent.knowledge import scoping
+
+    def broken():
+        raise RuntimeError("envelope unreadable")
+
+    _patch_context(monkeypatch)
+    monkeypatch.setattr(scoping, "get_collection_scope_from_context", broken)
+    insert = MagicMock(return_value="item-1")
+
+    assert "NOT saved" in await _remember(monkeypatch, insert)
+    insert.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_an_open_scope_still_records(monkeypatch):
+    _patch_context(monkeypatch)
+    _patch_scope(monkeypatch, ["oib_knowledge", "proj_abc", "s_c1"])
+    insert = MagicMock(return_value="item-1")
+    assert await _remember(monkeypatch, insert) == "Recorded derived_fact in project memory."
+    insert.assert_called_once()

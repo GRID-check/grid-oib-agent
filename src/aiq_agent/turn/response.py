@@ -26,6 +26,7 @@ from aiq_agent.common.wire_v2 import RunFinishedBody
 from aiq_agent.common.wire_v2 import RunHandoff
 from aiq_agent.common.wire_v2 import TurnResult
 from aiq_agent.common.wire_v2 import card_key
+from aiq_agent.knowledge.restricted_collections import restricted_collections_in
 from aiq_agent.stages import TurnFacts
 
 if TYPE_CHECKING:
@@ -131,4 +132,6 @@ def post_answer_turn_facts(
         emitted_card_types=emitted_card_types(cards),
         answer_confidence=state.answer_confidence,
         remembered_this_turn=remembered_this_turn,
+        # ADR-0084: a turn that could read a restricted folder writes no memory.
+        read_restricted=bool(restricted_collections_in(state.collection_scope)) or bool(state.confined),
     )

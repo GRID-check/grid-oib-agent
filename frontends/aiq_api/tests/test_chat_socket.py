@@ -1549,6 +1549,37 @@ def test_the_answer_id_is_stable_per_turn():
 
 
 # ---------------------------------------------------------------------------
+# A restricted scope does not hold the socket hostage (ADR-0084, ADR-0085)
+# ---------------------------------------------------------------------------
+
+_RESTRICTED = "proj_8f2c3b1e_r22222222aaaa"
+
+
+def _restricted_envelope(*collections: str) -> list[tuple[bytes, bytes]]:
+    scope = [{"collection": name, "shelf": "project"} for name in ("oib_knowledge", *collections)]
+    return _envelope(
+        {"organizationId": "org_1", "userId": "user_asker", "collectionScope": scope, "conversationId": CONV}
+    )
+
+
+async def test_a_restricted_scope_runs_the_turn_on_the_same_socket(harness):
+    """Which restricted folders a turn may draw on is the agent's question, per turn, not the socket's.
+
+    The socket used to close when the thread had been shared since the upgrade
+    signed its scope. A restricted collection is now narrowed away per turn
+    (``aiq_agent.knowledge.restricted_use``), so the socket stays and the turn runs.
+    """
+    h = harness()
+    sock = h.connect(headers=_restricted_envelope(_RESTRICTED))
+
+    sock.client(type="user_message", message_id="t1", text="Was kostet der Zimmerer?")
+    await until(lambda: _last(sock) == "RUN_FINISHED")
+
+    assert sock.closed_with is None
+    assert not hasattr(chat_socket, "conversation_confined_to")
+
+
+# ---------------------------------------------------------------------------
 # What may reach the model: the office's chat screening (ADR-0083)
 # ---------------------------------------------------------------------------
 

@@ -1328,6 +1328,11 @@ Five retrieval-quality improvements sit in the knowledge layer's `register.py`
    bytes itself via boto3 (S3, path-style, read-only `get_object`) — which is
    why the aiq-agent tier now carries the `SEAWEED_*` credential set
    (deliberate override of the previous presign-only separation; ADR-0039).
+   The `collection` argument is the model's, so the tool refuses one outside
+   the turn's scope, or a restricted folder's the turn may not draw on, before
+   any lookup; it echoes the turn's signed envelope, and the route answers only
+   inside the scope that envelope signs (ADR-0085). An image it returns is
+   reported (`note_collections_read`) and admitted with the rest of the round.
    Every failure path (missing file, lookup/fetch/render error, invalid page
    number, disabled flag, no VLM key) degrades to a text-only explanation
    block.

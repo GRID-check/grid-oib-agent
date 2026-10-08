@@ -82,6 +82,11 @@ class TurnFacts:
     #: What the ``remember`` tool wrote DURING the turn, after that digest was
     #: built. Reflection must treat these as already recorded.
     remembered_this_turn: tuple[str, ...] = ()
+    #: The turn's scope held a restricted folder's collection, or its
+    #: conversation already drew on one (ADR-0084), so its prompt and its
+    #: retrieval could carry content not everyone in the project may see.
+    #: Nothing that outlives the turn may be written from it.
+    read_restricted: bool = False
     bundesland: str | None = None
 
     #: Which path the turn took, observed after the answer (``meta`` for a

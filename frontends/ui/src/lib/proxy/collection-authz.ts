@@ -8,6 +8,9 @@
  * - the base corpus is never writable through the proxy;
  * - `proj_*` collections must belong to a project in the caller's org AND the
  *   caller needs `project:edit` on that project;
+ * - a restricted folder's collection (`<project collection>_r<12 hex>`,
+ *   ADR-0084) is authorized as its project's, AND the session must be cleared
+ *   for it (`folder-access.ts`); otherwise it is absent (404), as the folder is;
  * - `s_*` (session) collections may be READ when they match the active
  *   conversation id, and are never written: a chat's attachments are uploaded
  *   and deleted through `/api/session/documents`, and its whole collection is
@@ -35,6 +38,7 @@ const PROJECT_UPLOAD: readonly ProjectPermission[] = ['project:documents:write',
 import { canManageArchiv } from '@/lib/authz/organizations'
 import { archivCollectionName } from '@/lib/archiv/collection'
 import { sessionCollectionName } from '@/lib/collection-scope'
+import { getProjectFolderAccess, restrictedCollectionBase } from '@/lib/authz/folder-access'
 import type { AuthorizedSession, GridSession } from '@/lib/auth/types'
 import { errorEnvelope, handleAuthzError } from '@/lib/backend-proxy'
 
@@ -110,6 +114,12 @@ export interface CollectionAuthzDeps {
     projectId: string,
     permission: readonly ProjectPermission[]
   ): Promise<unknown>
+  /** The restricted collections of the project this session is cleared for (ADR-0084). */
+  clearedRestrictedCollections(
+    session: AuthorizedSession,
+    projectId: string,
+    projectCollection: string
+  ): Promise<readonly string[]>
 }
 
 const defaultDeps: CollectionAuthzDeps = {
@@ -118,6 +128,9 @@ const defaultDeps: CollectionAuthzDeps = {
   },
   requireProjectAccess: (session, projectId, permission) =>
     requireProjectAccess(session, projectId, permission),
+  async clearedRestrictedCollections(session, projectId, projectCollection) {
+    return (await getProjectFolderAccess(session, projectId, projectCollection)).clearedRestrictedCollections
+  },
 }
 
 export interface ValidateCollectionOptions {
@@ -203,8 +216,12 @@ async function authorizeCollection(
     if (!session?.organizationId) {
       return handleAuthzError(new Error('Forbidden'))
     }
+    // A restricted folder's collection belongs to the project whose collection
+    // name it extends; nothing in the projects table names it directly.
+    const restrictedBase = restrictedCollectionBase(collectionName)
+    const projectCollection = restrictedBase ?? collectionName
     try {
-      const projectId = await deps.findProjectIdByCollection(collectionName, session.organizationId)
+      const projectId = await deps.findProjectIdByCollection(projectCollection, session.organizationId)
 
       if (!projectId) {
         return handleAuthzError(new Error('Not found'))
@@ -214,6 +231,18 @@ async function authorizeCollection(
       // corpus, so the permission is the document one; the umbrella stays
       // accepted for roles provisioned before the ADR-0038 split.
       await deps.requireProjectAccess(session as AuthorizedSession, projectId, PROJECT_UPLOAD)
+
+      // Project access is not enough for a restricted folder's collection: the
+      // session must be cleared for it, by the same answer that hides the
+      // folder. Not cleared reads as absent, never as forbidden.
+      if (restrictedBase) {
+        const cleared = await deps.clearedRestrictedCollections(
+          session as AuthorizedSession,
+          projectId,
+          projectCollection
+        )
+        if (!cleared.includes(collectionName)) return handleAuthzError(new Error('Not found'))
+      }
     } catch (error) {
       return handleAuthzError(error)
     }

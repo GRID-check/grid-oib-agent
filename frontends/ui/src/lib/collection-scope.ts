@@ -62,6 +62,14 @@ export interface ScopeContext {
    * corpus so every project's retrieval also sees the shared Archiv (ADR-0024).
    */
   archivCollectionName?: string
+  /**
+   * The project's restricted-folder collections this turn may search
+   * (ADR-0084), placed right after the project collection. The caller decides
+   * who gets them — a cleared session, in an interactive chat turn — so a
+   * caller that does not pass them (deep research, scheduled runs, every
+   * session-less path) cannot include one by accident.
+   */
+  restrictedCollections?: readonly string[]
 }
 
 export function computeCollectionScope(
@@ -82,6 +90,7 @@ export function computeCollectionScope(
     const projectCollectionName = context.projectCollectionName || (context.projectId ? `proj_${context.projectId}` : undefined)
     if (projectCollectionName) {
       scope.push(projectCollectionName)
+      scope.push(...(context.restrictedCollections ?? []))
     }
   }
 

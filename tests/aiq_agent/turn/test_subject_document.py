@@ -18,6 +18,9 @@ from aiq_agent.cards.registry import CardRegistry
 from aiq_agent.cards.registry import reset_card_registry
 from aiq_agent.cards.registry import set_card_registry
 from aiq_agent.common.wire_v2 import StatusStep
+from aiq_agent.knowledge.restricted_use import RestrictedUse
+from aiq_agent.knowledge.restricted_use import bind_restricted_use
+from aiq_agent.knowledge.restricted_use import reset_restricted_use
 from aiq_agent.tools.documents import draft_store
 from aiq_agent.tools.documents.draft_store import FILED_DOCUMENT_KEY
 from aiq_agent.tools.documents.draft_store import FILED_HASH_KEY
@@ -30,6 +33,7 @@ from aiq_agent.turn.payload import SubjectVersion
 
 CONVERSATION = "conv-subject-1"
 ORGANIZATION = "org_1"
+ASKER = "user_asker"
 TEXT = "# Befund\n\nAbschnitt 3: GK 4, weil das oberste Geschoß bei 11 m liegt.\n"
 
 BODY: dict[str, Any] = {
@@ -61,12 +65,14 @@ def store(monkeypatch: pytest.MonkeyPatch) -> InMemoryStore:
 
 
 @pytest.fixture
-def reads(monkeypatch: pytest.MonkeyPatch) -> list[tuple[str, str, str]]:
+def reads(monkeypatch: pytest.MonkeyPatch) -> list[tuple[str, str, str, str | None]]:
     """Every internal read the loader makes, with the body it gets back."""
-    seen: list[tuple[str, str, str]] = []
+    seen: list[tuple[str, str, str, str | None]] = []
 
-    def _read(version_id: str, organization_id: str, conversation_id: str) -> dict[str, Any]:
-        seen.append((version_id, organization_id, conversation_id))
+    def _read(
+        version_id: str, organization_id: str, conversation_id: str, user_id: str | None = None
+    ) -> dict[str, Any]:
+        seen.append((version_id, organization_id, conversation_id, user_id))
         return dict(BODY)
 
     monkeypatch.setattr(subject_document, "get_document_version_content", _read)
@@ -80,7 +86,7 @@ def _stored(store: InMemoryStore, path: str) -> dict | None:
 
 async def _load(subject: SubjectVersion) -> StatusStep | None:
     return await subject_document.load_subject_document(
-        subject, conversation_id=CONVERSATION, organization_id=ORGANIZATION
+        subject, conversation_id=CONVERSATION, organization_id=ORGANIZATION, user_id=ASKER
     )
 
 
@@ -119,7 +125,7 @@ class TestAnUnpublishedSubject:
             },
         )
         path = "/entwuerfe/Befund Fluchtwege.md"
-        assert reads == [("ver-9", ORGANIZATION, CONVERSATION)]
+        assert reads == [("ver-9", ORGANIZATION, CONVERSATION, ASKER)]
         assert _stored(store, path)["content"] == TEXT
 
     async def test_it_is_named_after_the_documents_LABEL_not_its_filename(self, store, reads) -> None:
@@ -231,7 +237,9 @@ class TestWhenTheBytesDoNotArrive:
     async def test_a_refusal_is_logged_and_the_turn_continues(
         self, store, monkeypatch, caplog: pytest.LogCaptureFixture
     ) -> None:
-        def _refuse(version_id: str, organization_id: str, conversation_id: str) -> dict[str, Any]:
+        def _refuse(
+            version_id: str, organization_id: str, conversation_id: str, user_id: str | None = None
+        ) -> dict[str, Any]:
             raise FilingError("the document API refused the read (403)", status=403)
 
         monkeypatch.setattr(subject_document, "get_document_version_content", _refuse)
@@ -242,7 +250,9 @@ class TestWhenTheBytesDoNotArrive:
     async def test_an_unreachable_bff_is_logged_and_the_turn_continues(
         self, store, monkeypatch, caplog: pytest.LogCaptureFixture
     ) -> None:
-        def _unreachable(version_id: str, organization_id: str, conversation_id: str) -> dict[str, Any]:
+        def _unreachable(
+            version_id: str, organization_id: str, conversation_id: str, user_id: str | None = None
+        ) -> dict[str, Any]:
             raise FilingError("the document API could not be reached")
 
         monkeypatch.setattr(subject_document, "get_document_version_content", _unreachable)
@@ -255,7 +265,9 @@ class TestWhenTheBytesDoNotArrive:
         assert _stored(store, "/entwuerfe/Befund Fluchtwege.md") is None
 
     async def test_an_unexpected_failure_never_reaches_the_turn(self, store, monkeypatch) -> None:
-        def _explode(version_id: str, organization_id: str, conversation_id: str) -> dict[str, Any]:
+        def _explode(
+            version_id: str, organization_id: str, conversation_id: str, user_id: str | None = None
+        ) -> dict[str, Any]:
             raise RuntimeError("boom")
 
         monkeypatch.setattr(subject_document, "get_document_version_content", _explode)
@@ -289,10 +301,35 @@ class TestTheReadIsScopedToTheConversation:
     logged a refusal.
     """
 
-    async def test_the_conversation_travels_with_the_read(self, store, reads) -> None:
+    async def test_the_conversation_and_the_asker_travel_with_the_read(self, store, reads) -> None:
         await _load(OPEN)
 
-        assert reads == [("ver-9", ORGANIZATION, CONVERSATION)]
+        # The asker: a subject in a folder not every member may read is
+        # admitted for the conversation against its audience (ADR-0085).
+        assert reads == [("ver-9", ORGANIZATION, CONVERSATION, ASKER)]
+
+    async def test_a_subject_from_a_restricted_folder_confines_the_turn(self, store, monkeypatch) -> None:
+        # The BFF admitted and recorded the folder before sending the bytes;
+        # the turn learns it here, so it offers nothing the project reads.
+        monkeypatch.setattr(
+            subject_document, "get_document_version_content", lambda *_: dict(BODY, drewOnRestrictedFolder=True)
+        )
+        use = RestrictedUse(organization_id=ORGANIZATION, user_id=ASKER, conversation_id=CONVERSATION, project_id=None)
+        token = bind_restricted_use(use)
+        try:
+            await _loaded_path(OPEN)
+        finally:
+            reset_restricted_use(token)
+        assert use.confined is True
+
+    async def test_an_open_subject_leaves_the_turn_as_it_was(self, store, reads) -> None:
+        use = RestrictedUse(organization_id=ORGANIZATION, user_id=ASKER, conversation_id=CONVERSATION, project_id=None)
+        token = bind_restricted_use(use)
+        try:
+            await _loaded_path(OPEN)
+        finally:
+            reset_restricted_use(token)
+        assert use.confined is False
 
     async def test_a_version_that_is_not_the_subject_is_not_a_fault(
         self, store, monkeypatch, caplog: pytest.LogCaptureFixture
@@ -300,7 +337,9 @@ class TestTheReadIsScopedToTheConversation:
         # 404 means the BFF does not consider this version the conversation's
         # subject: a reopened conversation, a subject that moved on. There is
         # nothing to load, the turn is an ordinary one, and nothing is written.
-        def _absent(version_id: str, organization_id: str, conversation_id: str) -> dict[str, Any]:
+        def _absent(
+            version_id: str, organization_id: str, conversation_id: str, user_id: str | None = None
+        ) -> dict[str, Any]:
             raise FilingError("the document API refused the read (404)", status=404)
 
         monkeypatch.setattr(subject_document, "get_document_version_content", _absent)

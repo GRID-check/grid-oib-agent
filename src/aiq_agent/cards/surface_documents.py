@@ -121,9 +121,15 @@ def _target_collections(
 
     When ``scoped`` entries carry a stated shelf (ADR-0047), that shelf wins
     and the collection-id prefix is not inspected.
+
+    A restricted folder's collection is never a target (ADR-0084, ADR-0085):
+    a card listing its files would put their names in front of the model and
+    the conversation without an admission. Searching it is admitted per tool
+    round instead.
     """
     from aiq_agent.common.source_kinds import Shelf
     from aiq_agent.common.source_kinds import parse_shelf
+    from aiq_agent.knowledge.restricted_collections import is_restricted_collection
 
     wanted = parse_shelf(shelf)
     seen: set[str] = set()
@@ -132,7 +138,7 @@ def _target_collections(
         for entry in scoped:
             entry_shelf = getattr(entry, "shelf", None)
             collection = getattr(entry, "collection", None)
-            if not collection or collection in seen:
+            if not collection or collection in seen or is_restricted_collection(collection):
                 continue
             if entry_shelf is Shelf.BASE:
                 continue
@@ -145,7 +151,7 @@ def _target_collections(
         return targets
     for collection in scope or []:
         source = _source_for_collection(collection)
-        if source is None:
+        if source is None or is_restricted_collection(collection):
             continue
         if wanted is Shelf.ARCHIV and source != "buero":
             continue

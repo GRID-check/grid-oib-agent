@@ -25,6 +25,8 @@ const PERSONAL_ID = 'ba987654-3210-4cde-8f01-23456789abcd'
 const OPENED_ID = 'c0ffee00-0000-4000-8000-000000000001'
 /** A deleted folder's tombstone, Geschäftsführung only. */
 const DELETED_ID = 'dead0000-0000-4000-8000-000000000001'
+const VERTRAEGE = `${COLLECTION}_r0123456789ab`
+const PERSONAL = `${COLLECTION}_rba9876543210`
 const GF: FolderClearance = { roles: ['org-gf'], seesEverything: false }
 const NOBODY: FolderClearance = { roles: [], seesEverything: false }
 
@@ -47,6 +49,7 @@ const state = vi.hoisted(() => ({
   /** The audience the first read sees, and the one read under the lock. */
   audiences: [] as ConversationAudienceRow[],
   recorded: [] as string[],
+  written: [] as string[][],
   members: new Map<string, FolderClearance>(),
   tree: [] as AccessFolder[],
   tx: { tx: true },
@@ -58,6 +61,10 @@ vi.mock('@/lib/db', () => ({
 vi.mock('./restricted-use-repository', () => ({
   lockConversationAudience: vi.fn(async () => undefined),
   listRecordedSourceFolders: vi.fn(async () => [...state.recorded]),
+  recordSourceFolders: vi.fn(async (_executor: unknown, _org: string, _id: string, folders: string[]) => {
+    state.written.push([...folders])
+    state.recorded = [...new Set([...state.recorded, ...folders])]
+  }),
   readConversationAudience: vi.fn(async () => (state.audiences.length > 1 ? state.audiences.shift()! : state.audiences[0])),
 }))
 vi.mock('@/lib/authz/folder-access-repository', () => ({
@@ -81,7 +88,10 @@ vi.mock('@/lib/authz/folder-access', async (importOriginal) => ({
 }))
 
 import {
+  admitRestrictedUse,
+  admitSourceFolders,
   assertMayWidenConversation,
+  drawableRestrictedCollections,
   foldersEveryoneMayRead,
   recordedRestrictedFolders,
   widenConversationAudience,
@@ -109,10 +119,13 @@ const audience = (grantees: string[] = [], visibility: 'private' | 'project' = '
   grantees,
 })
 
+const request = { organizationId: ORG, conversationId: CONV, userId: OWNER, projectId: PROJECT }
+
 beforeEach(() => {
   vi.clearAllMocks()
   state.audiences = [audience()]
   state.recorded = []
+  state.written = []
   state.tree = TREE
   state.members = new Map([
     [OWNER, GF],
@@ -139,6 +152,61 @@ describe('foldersEveryoneMayRead', () => {
 
   it('counts a reader nobody asked about as reading nothing restricted', () => {
     expect(foldersEveryoneMayRead(tree, [VERTRAEGE_ID], { visibility: 'private' }, ['a', 'stranger'], clearances)).toEqual([])
+  })
+})
+
+describe('drawableRestrictedCollections — what a turn may search', () => {
+  it('is everything the asker of an unshared chat may read', async () => {
+    expect(await drawableRestrictedCollections(request, [VERTRAEGE, PERSONAL])).toEqual([VERTRAEGE, PERSONAL])
+  })
+
+  it('narrows to what everyone the chat is shared with may read, a read-only colleague included', async () => {
+    state.audiences = [audience(['user_vertraege'])]
+    expect(await drawableRestrictedCollections(request, [VERTRAEGE, PERSONAL])).toEqual([VERTRAEGE])
+  })
+
+  it('records nothing: listing a folder in the scope is not use', async () => {
+    await drawableRestrictedCollections(request, [VERTRAEGE])
+    expect(state.written).toEqual([])
+  })
+})
+
+describe('admitRestrictedUse — the record of use, by source folder', () => {
+  it('records the source folder of what the asker and every reader may read, and refuses the rest', async () => {
+    state.audiences = [audience(['user_vertraege'])]
+
+    const result = await admitRestrictedUse(request, [VERTRAEGE, PERSONAL])
+
+    expect(result).toEqual({ admitted: [VERTRAEGE], refused: [PERSONAL], recorded: [VERTRAEGE_ID] })
+    expect(state.written).toEqual([[VERTRAEGE_ID]])
+  })
+
+  it('refuses when someone joined between the clearance lookup and the lock', async () => {
+    // First read: the owner alone. Under the lock: a reader nobody asked about.
+    state.audiences = [audience(), audience(['user_ina'])]
+
+    const result = await admitRestrictedUse(request, [VERTRAEGE])
+
+    expect(result.admitted).toEqual([])
+    expect(result.refused).toEqual([VERTRAEGE])
+    expect(state.written).toEqual([[]])
+  })
+
+  it('refuses a name that is not a current restricted collection of the project', async () => {
+    const result = await admitRestrictedUse(request, ['proj_other_r0123456789ab'])
+    expect(result.refused).toEqual(['proj_other_r0123456789ab'])
+  })
+
+  it('admits the first turn of a chat that does not exist yet, in the stated project', async () => {
+    state.audiences = [{ exists: false, projectId: null, createdBy: null, visibility: 'private', grantees: [] }]
+    expect((await admitRestrictedUse(request, [VERTRAEGE])).admitted).toEqual([VERTRAEGE])
+  })
+
+  it('admits a folder every member may read without recording it, and refuses an unknown one', async () => {
+    const result = await admitSourceFolders(request, [OPENED_ID, '99999999-0000-4000-8000-000000000000'])
+    expect(result.admitted).toEqual([OPENED_ID])
+    expect(result.refused).toEqual(['99999999-0000-4000-8000-000000000000'])
+    expect(state.written).toEqual([[]])
   })
 })
 
@@ -241,7 +309,7 @@ describe('widening a conversation — per person', () => {
     ).toEqual({ reason: 'restricted-content-self' })
   })
 
-  it('checks the record again under the lock: a use recorded after the pre-check refuses the write', async () => {
+  it('checks the record again under the lock: a use admitted after the pre-check refuses the write', async () => {
     const write = vi.fn()
     await assertMayWidenConversation(session, CONV, toIna)
     state.recorded = [VERTRAEGE_ID]

@@ -11,6 +11,9 @@ When a user asks a question, the AI needs to know which knowledge sources to sea
 - The base OIB knowledge collection (always)
 - The org-wide Archiv collection (`archiv_{orgId}`, when the Archiv feature is enabled for the org — ADR-0024)
 - The active project collection (`proj_{projectId}`, if working in a project)
+- The restricted-folder collections the session is cleared for
+  (`<project collection>_r<12 hex>`, interactive chat turns only — ADR-0084, see
+  [Restricted folders](#restricted-folders-adr-0084-adr-0085))
 - The session collection (`s_{conversationId}`, if in a conversation)
 
 This page is about which collections a request READS. What writes into the
@@ -75,6 +78,9 @@ function computeCollectionScope(
 - `projectId?: string` — if present, adds `proj_{projectId}`
 - `conversationId?: string` — if present, adds `s_{conversationId}`
 - `baseCollection?: string` — defaults to `process.env.BASE_COLLECTION_NAME || 'oib_knowledge'`
+- `restrictedCollections?: readonly string[]` — restricted-folder collections, placed right
+  after the project collection. Only `buildCollectionScopeFromRequest` passes them, and only for
+  an interactive chat turn; the session-less scheduled-run path (`jobs/service.ts`) never does
 
 ### `buildCollectionScopeHeader(scope)`
 
@@ -125,10 +131,64 @@ in `lib/authz/folder-access-rule.ts`). Who may WRITE never moves anything:
 collections key on read. Retrieval keeps the collection out of reach by leaving
 it out of the scope; no Python read path needs to know.
 
-No request scope carries a restricted collection: a chat turn, deep research,
-the `/api/v1` proxy and scheduled or commissioned runs search only the open
-project collection, so a restricted folder's documents are found in the file
-browser by the people who may read them, and not by the agent.
+`buildCollectionScopeFromRequest` adds a project's restricted collections, with
+shelf `project`, only when ALL of these hold:
+
+- the caller passed `interactiveChat: true`. Only the WebSocket upgrade
+  (`/api/auth/websocket-scope`) does. Deep research (`/api/jobs/async/*`, whose
+  context comes from `parseBodyContext`/`parseQueryContext` and cannot carry
+  the flag), the `/api/v1` proxy and scheduled or commissioned runs
+  (`submitAgentRun`, session-less) never get one: their reports are filed for
+  the whole project;
+- the session may read the folder (`effectiveFolderLevel` over its roles, read
+  from the WorkOS membership at most 60 s ago);
+- everyone the conversation is shared with may read it too
+  (`restrictedCollectionsForChatScope` in `lib/conversations/restricted-use.ts`).
+
+The same rule gates the collection proxy: `/api/v1/collections/<name>` with a
+restricted name is authorized as its project's collection and then 404s unless
+the session may read the folder (`lib/proxy/collection-authz.ts`).
+
+### Per person, by what the conversation used
+
+A conversation is restricted by what it USED, recorded per source folder in
+`conversation_restricted_folders` (migration 0110): content from a folder not
+every member may read entered the model's context. Being able to search a
+folder is not use. Each use is ADMITTED by the BFF
+(`POST /api/internal/conversations/[id]/restricted-use`) before the content
+reaches the model, against the asker and everyone the conversation is shared
+with, under the same advisory lock every widening of the audience takes, so a
+share and an admission cannot both go through:
+
+- at turn start the agent offers the restricted collections of its signed
+  scope and gets back the ones it may draw on (`drawable`) and whether the
+  conversation already recorded a folder (`recorded`). It binds the answer per
+  turn (`aiq_agent.knowledge.restricted_use`), and
+  `get_scoped_collections_from_context` keeps only the drawable ones, so every
+  read path searches only what everyone reading the conversation may read. A
+  thread shared since the socket was signed loses those collections from the
+  next turn on; the socket is not closed;
+- a tool round's results are admitted before the model reads them
+  (`PilotiAgent._tools_node` → `admit_tool_results`); a result carrying a
+  refused collection is replaced by a notice;
+- a subject document from a restricted folder is admitted by the BFF before it
+  is sent;
+- listing is not use: restricted collections stay out of the inventory block,
+  `list_files` and the document cards, so a name or a summary never reaches the
+  prompt without an admission.
+
+Sharing (`assertMayWidenConversation`, `widenConversationAudience`) allows a
+new reader exactly when they may read every recorded folder NOW; a folder
+opened to every member drops out, and a deleted folder's tombstone (0109) keeps
+answering with the access it had. The doors that write something the whole
+project reads refuse a conversation with a record
+(`lib/conversations/restricted-egress.ts`); deep research and tasks stay
+refused for such a conversation for now.
+
+A socket answers for one conversation only: the signed `conversationId`.
+A frame naming another is refused with `conversation_mismatch` before anything
+runs (`ChatSocket._admit`), so a restricted scope cannot be pointed at a
+different thread over the same socket.
 
 ## WebSocket Scope
 
@@ -146,6 +206,8 @@ During WebSocket upgrade (`/websocket` path):
 
 Internal endpoint that:
 - Reads `projectId` and `conversationId` from query params
+- Asks for an interactive chat scope (`interactiveChat: true`), the only scope that may carry
+  restricted-folder collections
 - Resolves the Grid session from the encrypted WorkOS cookie
 - Enforces project access if auth is required
 - Returns JSON with `{ scope, header, organizationId, userId, accessToken }`

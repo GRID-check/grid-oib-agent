@@ -39,6 +39,14 @@ features:
     organization admin, and a demoted admin stops reaching every folder within a
     minute. Review requests go only to people who may read the folder, and the
     projects overview counts only the documents you may read.
+  - >
+    A chat whose answers drew on a folder not everyone may read can be shared
+    only with colleagues who may read that folder too. A chat that is already
+    shared searches only the folders everyone in it may read.
+  - >
+    Such a chat also cannot start a Tiefenrecherche or an Auftrag, change the
+    project context, or file a draft or diagram where colleagues who may not
+    read the folder could open it; Piloti says why instead of offering it.
 fixes:
   - >
     A chat in a project with a great deal of project information can no longer

@@ -4,15 +4,21 @@ facts captured whatever else failed."""
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import time
+from collections.abc import Iterator
 
 import pytest
 
+from aiq_agent.knowledge.restricted_use import RestrictedUse
+from aiq_agent.knowledge.restricted_use import bind_restricted_use
+from aiq_agent.knowledge.restricted_use import reset_restricted_use
 from aiq_agent.project_context import GridRequestContext
 from aiq_agent.stages import TurnFacts
 from aiq_agent.stages.flags import TurnFlags
 from aiq_agent.turn import context as context_mod
 from aiq_agent.turn.context import load_turn_context
+from aiq_agent.turn.context import settle_restriction
 from aiq_agent.turn.context import thread_id_for_turn
 from aiq_agent.turn.context import turn_identity
 from aiq_agent.turn.context import user_info_from_principal
@@ -22,6 +28,24 @@ from aiq_agent.turn.context_client import TurnContextError
 
 def _request(**fields) -> GridRequestContext:
     return GridRequestContext(**fields)
+
+
+@contextlib.contextmanager
+def bound_use(drawable=(), confined=False) -> Iterator[RestrictedUse]:
+    """A turn's restricted use (ADR-0085), bound in the test's own context and reset after."""
+    use = RestrictedUse(
+        organization_id="org",
+        user_id="user_asker",
+        conversation_id="c1",
+        project_id="p1",
+        drawable=set(drawable),
+        confined=confined,
+    )
+    token = bind_restricted_use(use)
+    try:
+        yield use
+    finally:
+        reset_restricted_use(token)
 
 
 @pytest.fixture
@@ -384,3 +408,57 @@ def test_turn_identity_is_the_parsed_request_in_ledger_shape():
         "project_id": "p",
         "conversation_id": "conv",
     }
+
+
+class TestAConfinedTurnOffersNothingTheWholeProjectReads:
+    """ADR-0084, ADR-0085: a turn that may draw on a restricted folder, or whose
+    conversation already drew on one, may not commission a run or hand work
+    over, so it is never offered either. The BFF refuses both on its own; this
+    keeps the model from proposing them. Settled after the whole setup gather
+    (``settle_restriction``), because the subject can confine."""
+
+    _SCOPE = ["oib_knowledge", "proj_p1", "proj_p1_r0123456789ab", "s_c1"]
+
+    def _signed(self, scope=None) -> GridRequestContext:
+        return _request(
+            project_id="p1", organization_id="org", collection_scope=scope or self._SCOPE, envelope_header="signed"
+        )
+
+    async def _settled(self, request: GridRequestContext):
+        context = await load_turn_context(request, conversation_id="c1", query_text="q", resolve_stages=True)
+        return settle_restriction(context, request)
+
+    async def test_a_drawable_restricted_collection_withdraws_deep_research_and_tasks(self, stubs):
+        with bound_use(drawable={"proj_p1_r0123456789ab"}):
+            context = await self._settled(self._signed())
+        assert context.confined is True
+        assert context.restricted_scope == ("proj_p1_r0123456789ab",)
+        assert (context.deep_research_allowed, context.tasks_allowed) == (False, False)
+
+    async def test_a_conversation_that_drew_on_one_stays_confined_with_nothing_drawable(self, stubs):
+        """Everything narrowed away this turn, but the record stands: still no run, no task."""
+        with bound_use(drawable=(), confined=True):
+            context = await self._settled(self._signed())
+        assert context.restricted_scope == ()
+        assert context.confined is True
+        assert (context.deep_research_allowed, context.tasks_allowed) == (False, False)
+
+    async def test_nothing_drawable_and_nothing_recorded_is_an_open_turn(self, stubs):
+        """The thread is shared with someone not cleared, and it never drew on the folder: nothing to protect."""
+        with bound_use(drawable=(), confined=False):
+            context = await self._settled(self._signed())
+        assert context.confined is False
+        assert (context.deep_research_allowed, context.tasks_allowed) == (True, True)
+
+    async def test_an_open_scope_keeps_what_the_tenant_allows(self, stubs):
+        context = await self._settled(self._signed(["proj_p1"]))
+        assert context.confined is False
+        assert (context.deep_research_allowed, context.tasks_allowed) == (True, True)
+
+    async def test_the_fail_open_context_stays_confined(self, stubs):
+        stubs["digest"] = TypeError("a bug, not a transport failure")
+        with bound_use(drawable={"proj_p1_r0123456789ab"}):
+            context = await self._settled(self._signed())
+        assert context.project_context is None
+        assert context.confined is True
+        assert (context.deep_research_allowed, context.tasks_allowed) == (False, False)
