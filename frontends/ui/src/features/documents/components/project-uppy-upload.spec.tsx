@@ -11,8 +11,8 @@ vi.mock('@/shared/context', () => ({
       acceptedTypes: '.pdf,.docx,.txt,.md',
       acceptedMimeTypes: ['application/pdf', 'text/plain', 'text/markdown'],
       maxTotalSizeMB: 100,
-      maxFileSize: 100 * 1024 * 1024,
-      maxTotalSize: 100 * 1024 * 1024,
+      maxFileSize: 100 * 1e6,
+      maxTotalSize: 100 * 1e6,
       maxFileCount: 10,
     },
   }),
@@ -33,6 +33,14 @@ import { ProjectUppyUpload } from './project-uppy-upload'
  * only choose folders — so the split lives in a menu behind the single button.
  */
 describe('ProjectUppyUpload', () => {
+  it('labels the drop card with the per-file limit the server enforces, in decimal MB', () => {
+    // It used to divide by 1024², so a 100 MB limit read "max. 95 MB".
+    render(<ProjectUppyUpload onUpload={vi.fn()} isUploading={false} variant="dropcard" />)
+    expect(screen.getByTestId('project-upload-dropcard')).toHaveTextContent(
+      /· max\. 100 MB per file$/
+    )
+  })
+
   it('is a plain button where folders are not offered', () => {
     render(<ProjectUppyUpload onUpload={vi.fn()} isUploading={false} />)
 

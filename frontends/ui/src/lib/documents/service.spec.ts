@@ -41,6 +41,13 @@ vi.mock('@/lib/storage/service', () => ({
   assertWithinStorageQuota: vi.fn().mockResolvedValue(undefined),
 }))
 
+// The per-organization size limit, likewise: exercised in
+// src/lib/storage/upload-limit.spec.ts, stubbed here so an upload spec does not
+// reach Postgres for the organization's settings.
+vi.mock('@/lib/storage/upload-limit', () => ({
+  assertFileSizeAllowed: vi.fn().mockResolvedValue(undefined),
+}))
+
 vi.mock('@/lib/authz/projects', () => ({
   requireProjectAccess: vi.fn().mockResolvedValue(undefined),
 }))
