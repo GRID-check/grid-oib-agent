@@ -84,7 +84,7 @@ export interface PlatformOidcGate {
  * chooses the token, and any application in the WorkOS environment holding the
  * scope would do. `audiences` narrows that to this gate's own Connect client
  * plus the M2M applications named in `platformAgentClientIds`. ADR-0044
- * Amendment 3.
+ * Amendment 4.
  *
  * **One application, several routes.** Both platform routes gate on the same
  * permission and the same issuer, so they share one Connect application and it

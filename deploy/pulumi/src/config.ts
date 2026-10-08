@@ -1184,7 +1184,7 @@ export interface GridConfig {
      * `oidcClientId` they are the JWT `audiences` of the platform
      * SecurityPolicy, so a token minted for any OTHER application in the
      * WorkOS environment is refused even if it holds the permission scope.
-     * ADR-0044 Amendment 3.
+     * ADR-0044 Amendment 4.
      */
     agentClientIds: string[];
   };

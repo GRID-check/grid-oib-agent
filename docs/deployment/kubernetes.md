@@ -2181,7 +2181,7 @@ claude mcp add-json langfuse '{"type":"http","url":"https://langfuse.<baseDomain
 The same edge change applies to the Aspire dashboard host, but does not yet make
 it agent-readable: its Telemetry API (`/api/telemetry/*`, what
 `aspire agent mcp --dashboard-url` reads) still demands the random `x-api-key`
-the dashboard mints at every start. ADR-0044 Amendment 3 records why.
+the dashboard mints at every start. ADR-0044 Amendment 4 records why.
 
 **Before the first deploy of this, check both token types' claims.** The
 `audiences` rule assumes WorkOS sets `aud` to the requesting application's client

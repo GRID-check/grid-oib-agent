@@ -5,7 +5,7 @@
 # request that carries a WorkOS token holding `platform:organizations:view`,
 # checked exactly like a browser session. This script mints that token from a
 # WorkOS M2M application (client credentials) and prints it in the shape the
-# caller needs. ADR-0044 Amendment 3.
+# caller needs. ADR-0044 Amendment 4.
 #
 #   token             the bare JWT
 #   langfuse-headers  JSON headers for Claude Code's MCP `headersHelper`: the
