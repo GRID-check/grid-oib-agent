@@ -158,7 +158,8 @@ export const crossProjectPermitSchema = z.object({
   collection: z.string(),
   fileName: z.string(),
   kind: z.enum(PERMIT_RECORD_KINDS),
-  authority: z.string(),
+  /** The issuing authority as the document names it; null when it does not name one. */
+  authority: z.string().nullable(),
   /** The Gemeinde the procedure ran in, as the document writes it. */
   municipality: z.string().nullable(),
   issuedOn: isoDay.nullable(),

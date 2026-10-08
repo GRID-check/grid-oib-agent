@@ -227,7 +227,14 @@
                 ]
               },
               "authority": {
-                "type": "string"
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
               },
               "municipality": {
                 "anyOf": [
@@ -522,7 +529,14 @@
           ]
         },
         "authority": {
-          "type": "string"
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
         },
         "municipality": {
           "anyOf": [

@@ -68,7 +68,7 @@ export interface PermitRecordInput {
   restrictedFolderIds: string[] | null
   model: string
   kind: PermitRecordKind
-  authority: string
+  authority: string | null
   municipality: string | null
   bundesland: string | null
   /** `YYYY-MM-DD`. */
@@ -96,7 +96,7 @@ export interface FoundPermitRecord {
   collectionName: string
   fileName: string
   kind: PermitRecordKind
-  authority: string
+  authority: string | null
   municipality: string | null
   bundesland: string | null
   issuedOn: string | null

@@ -453,6 +453,17 @@ def _permit_body(item: dict[str, Any]) -> str:
     return "\n".join(([f"Verfahren: {procedure}"] if procedure else []) + requirements)
 
 
+#: A passage is capped at 900 characters; a record's requirements are several short items.
+PERMIT_BODY_MAX_CHARS = 2400
+
+
+def _capped_body(text: str) -> tuple[str, bool]:
+    """``text`` cut to PERMIT_BODY_MAX_CHARS, and whether it was cut; the renderer marks a cut body itself."""
+    if len(text) <= PERMIT_BODY_MAX_CHARS:
+        return text, False
+    return text[:PERMIT_BODY_MAX_CHARS].rstrip(), True
+
+
 def _permit_hits(permits: list[dict[str, Any]]) -> list[GroundingHit]:
     """One citable source per permit record: the DOCUMENT it was read from, with what it demands.
 
@@ -466,6 +477,7 @@ def _permit_hits(permits: list[dict[str, Any]]) -> list[GroundingHit]:
         first = next((r for r in item.get("requirements") or [] if isinstance(r, dict)), {})
         page = first.get("page") if isinstance(first.get("page"), int) and first.get("page") > 0 else None
         key = f"{item['fileName']} ({name})"
+        body, truncated = _capped_body(_permit_body(item))
         hits.append(
             GroundingHit(
                 citation_key=f"{key}, p.{page}" if page is not None else key,
@@ -482,8 +494,8 @@ def _permit_hits(permits: list[dict[str, Any]]) -> list[GroundingHit]:
                 provenance=None,
                 stored_image_index=None,
                 status_note=None,
-                body=_permit_body(item),
-                body_truncated=False,
+                body=body,
+                body_truncated=truncated,
                 project=_source_project(project, name),
             )
         )

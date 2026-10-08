@@ -451,6 +451,59 @@ class TestThePermitRecords:
 
         assert "Keine passenden" in result
 
+    async def test_a_notice_without_its_authority_is_titled_by_kind_and_date_and_still_cited(
+        self, monkeypatch, calls, turn, schema
+    ) -> None:
+        body = {**SEARCH_BODY, "hits": [], "permits": [_permit(authority=None)]}
+        _validator(schema, "CrossProjectSearchResponse").validate(body)
+        _answering(monkeypatch, calls, body)
+
+        result = await lookup.run_project_lookup("search", query="Brandschutzgutachten")
+        sources = extract_sources_from_tool_result("project_lookup", result)
+
+        assert "Source: Nachforderung, 12.03.2020" in result
+        assert [s.citation_key for s in sources] == ["Baubescheid_Baden_2020.pdf (Wohnbau Graz), p.2"]
+        assert "Verfahren: Gemeinde Baden, Geschäftszahl BA-123/2020" in result
+
+    async def test_a_record_longer_than_the_cap_is_cut_and_marked_as_truncated(self, monkeypatch, calls, turn) -> None:
+        long_requirements = [
+            {
+                "kind": "auflage",
+                "content": f"Auflage {n:02d} " + "x" * 300,
+                "evidence": None,
+                "legalBasis": None,
+                "page": 1,
+            }
+            for n in range(12)
+        ]
+        _answering(
+            monkeypatch, calls, {**SEARCH_BODY, "hits": [], "permits": [_permit(requirements=long_requirements)]}
+        )
+
+        result = await lookup.run_project_lookup("search", query="x")
+
+        assert "Auflage 00" in result
+        assert "Auflage 11" not in result
+        assert "... [truncated]" in result
+
+    async def test_a_short_record_is_not_marked_as_truncated(self, monkeypatch, calls, turn) -> None:
+        _answering(monkeypatch, calls, {**SEARCH_BODY, "hits": [], "permits": [_permit()]})
+
+        result = await lookup.run_project_lookup("search", query="Brandschutzgutachten")
+
+        assert "[truncated]" not in result
+
+    @pytest.mark.parametrize(
+        ("length", "cut"),
+        [(lookup.PERMIT_BODY_MAX_CHARS, False), (lookup.PERMIT_BODY_MAX_CHARS + 1, True)],
+        ids=["exactly the cap", "one over"],
+    )
+    def test_the_cap_is_inclusive_and_a_cut_body_is_at_most_the_cap(self, length: int, cut: bool) -> None:
+        body, truncated = lookup._capped_body("a" * length)
+
+        assert truncated is cut
+        assert len(body) <= lookup.PERMIT_BODY_MAX_CHARS
+
 
 class TestTheRecordedDecisions:
     async def test_they_come_first_as_one_citable_source_per_project_named_by_its_project(

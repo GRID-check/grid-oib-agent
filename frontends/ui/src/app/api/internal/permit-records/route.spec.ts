@@ -91,6 +91,13 @@ describe('POST /api/internal/permit-records', () => {
     expect(await response.json()).toEqual({ stored: false, requirements: 0 })
   })
 
+  it('accepts a record whose notice does not name its authority: a scan without its letterhead', async () => {
+    const response = await POST(request(body({ record: { ...record, authority: null } })))
+
+    expect(response.status).toBe(200)
+    expect(storePermitRecord).toHaveBeenCalledWith(body({ record: { ...record, authority: null } }))
+  })
+
   it('accepts a null record, which deletes', async () => {
     await POST(request(body({ record: null })))
     expect(storePermitRecord).toHaveBeenCalledWith(body({ record: null }))

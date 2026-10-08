@@ -137,9 +137,10 @@ class PermitRecord(BaseModel):
             "notice in the procedure (Bauverhandlung, Fristverlängerung, Anzeigebestätigung, Benützungsbewilligung)."
         )
     )
-    authority: str = Field(
+    authority: str | None = Field(
         description=(
-            'The issuing authority as the document names it ("Magistratsabteilung 37", "Stadtgemeinde Mödling").'
+            'The issuing authority as the document names it ("Magistratsabteilung 37", "Stadtgemeinde Mödling"). '
+            "null when the document does not name the issuing authority."
         )
     )
     municipality: str | None = Field(
@@ -159,7 +160,7 @@ class PermitRecord(BaseModel):
         )
     )
 
-    @field_validator("municipality", "reference", mode="before")
+    @field_validator("authority", "municipality", "reference", mode="before")
     @classmethod
     def _optional_text(cls, value: Any) -> Any:
         return _blank_to_none(value)

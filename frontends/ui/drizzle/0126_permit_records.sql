@@ -40,7 +40,7 @@ CREATE TABLE IF NOT EXISTS "permit_records" (
   "file_name" text NOT NULL,
   "restricted_folder_ids" uuid[],
   "kind" text NOT NULL,
-  "authority" text NOT NULL,
+  "authority" text,
   "municipality" text,
   "bundesland" text,
   "issued_on" date,

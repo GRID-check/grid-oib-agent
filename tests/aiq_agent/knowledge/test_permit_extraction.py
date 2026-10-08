@@ -176,6 +176,16 @@ def test_blank_optionals_are_stored_as_absent():
     assert record is not None and record.municipality is None and record.reference is None
 
 
+def test_a_notice_without_its_issuer_is_still_a_record():
+    # A scan without its letterhead: the model writes "" for the authority it cannot read.
+    record = extract_permit_record("Text", FakeLLM(_record(authority="")), file_name="scan.pdf")
+
+    assert record is not None
+    assert record.authority is None
+    assert record.to_wire()["authority"] is None
+    assert record.requirements[0].kind == "nachforderung"
+
+
 def test_the_prompt_carries_the_page_markers_and_the_file_name():
     text = pages_with_markers([("1", "Seite eins."), ("2", "Seite zwei.")])
     llm = FakeLLM(_record())
