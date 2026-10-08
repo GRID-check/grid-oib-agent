@@ -2678,7 +2678,7 @@ export async function streamDocumentImage(
   if (!doc?.storageKey) throw new NotFoundError()
   // The URL outlives the moment it was minted, and the optimizer's fetch has no
   // session, so the person it names is asked again: a folder they can no longer
-  // read does not load its images (ADR-0086, ADR-0087). Not found, like every
+  // read does not load its images (ADR-0087, ADR-0088). Not found, like every
   // other refusal on this path.
   if (
     doc.scope === 'project' &&

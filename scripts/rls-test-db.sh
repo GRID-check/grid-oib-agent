@@ -381,7 +381,7 @@ GRID_TEST_MIGRATION_DATABASE_URL="postgres://grid_app_owner@127.0.0.1:$PORT/grid
 echo "==> 0097 step rewrite and down migration verified"
 
 # ---------------------------------------------------------------------------
-# Migrations 0110 to 0113: each on a database of its own.
+# Migrations 0111 to 0114: each on a database of its own.
 #
 # `migrate_until <db> <tag>` creates <db> and applies the journal up to and
 # including <tag>, so every section below starts from exactly the chain it
@@ -562,7 +562,7 @@ check_in grid_memory "SELECT count(*) FROM information_schema.columns WHERE tabl
 echo "==> 0113 restricted memory and down migration verified"
 
 # ---------------------------------------------------------------------------
-# Migration 0113: the download log, and its DOWN.
+# Migration 0114: the download log, and its DOWN.
 #
 # The table is inside the tenant boundary, the database refuses an open outside
 # an own list, a shelf that disagrees with its project and any UPDATE, and the
@@ -570,8 +570,8 @@ echo "==> 0113 restricted memory and down migration verified"
 # platform role's delete and the retention sweep are proved against the real
 # chain by download-log.integration.spec.ts above.
 # ---------------------------------------------------------------------------
-echo "==> verifying the 0113 download log, its constraints and its down migration on grid_download_log"
-migrate_until grid_download_log 0113_document_access_log
+echo "==> verifying the 0114 download log, its constraints and its down migration on grid_download_log"
+migrate_until grid_download_log 0114_document_access_log
 check_in grid_download_log "SELECT relrowsecurity FROM pg_class WHERE relname = 'document_access_log'" "t" "the download log is inside the tenant boundary"
 check_in grid_download_log "SELECT count(*) FROM pg_indexes WHERE tablename = 'document_access_log'" "5" "the primary key and the four indexes (time, person, document, purge)"
 refused_in grid_download_log "INSERT INTO document_access_log (organization_id, user_id, kind, scope, document_id, document_name, own_list) VALUES ('org_0109', 'u', 'preview', 'archiv', gen_random_uuid(), 'x', false);" "document_access_log_open_needs_own_list" "an open outside an own list is refused"
@@ -579,13 +579,13 @@ refused_in grid_download_log "INSERT INTO document_access_log (organization_id, 
 sql_in grid_download_log <<<"INSERT INTO document_access_log (organization_id, user_id, kind, scope, document_id, document_name) VALUES ('org_0109', 'u', 'download', 'archiv', gen_random_uuid(), 'Plan.pdf');"
 refused_in grid_download_log "UPDATE document_access_log SET user_id = 'v';" "never changed" "a row is never changed, not even by its owner"
 refused_in grid_download_log "DELETE FROM document_access_log;" "deleted only by the retention sweep" "only the platform role deletes"
-apply_in grid_download_log 0113_document_access_log.down.sql
+apply_in grid_download_log 0114_document_access_log.down.sql
 check_in grid_download_log "SELECT to_regclass('public.document_access_log') IS NULL" "t" "down dropped the download log"
 check_in grid_download_log "SELECT to_regprocedure('grid_document_access_log_guard()') IS NULL" "t" "down dropped the guard function"
-apply_in grid_download_log 0113_document_access_log.sql
+apply_in grid_download_log 0114_document_access_log.sql
 check_in grid_download_log "SELECT count(*) FROM document_access_log" "0" "0113 re-applies, empty"
 
-echo "==> 0113 download log and down migration verified"
+echo "==> 0114 download log and down migration verified"
 
 # ---------------------------------------------------------------------------
 # Migration 0102: project_folders become folders of a SHELF (project | archiv),

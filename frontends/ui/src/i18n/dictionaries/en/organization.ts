@@ -70,7 +70,7 @@ export const organization = {
     },
   },
   /**
-   * Organization -> Download log (ADR-0087): who took which document out, and
+   * Organization -> Download log (ADR-0088): who took which document out, and
    * who opened one in a folder with its own access list. Personal data about
    * staff, so the page says what it is for, how long it keeps it and that
    * reading it is recorded.

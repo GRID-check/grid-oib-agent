@@ -1,4 +1,4 @@
--- 0112: the download log (ADR-0087, plan 2026-10-06-folder-access-lifecycle,
+-- 0112: the download log (ADR-0088, plan 2026-10-06-folder-access-lifecycle,
 -- decision 4): who took a document's bytes out, and who opened one in a folder
 -- with its own access list.
 --

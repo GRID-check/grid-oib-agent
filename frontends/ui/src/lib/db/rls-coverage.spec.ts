@@ -105,11 +105,11 @@ const BOUNDARY_MIGRATIONS = [
   // may read that a conversation actually drew on, one row per folder id,
   // judged against the current grants when read (ADR-0087, ADR-0088). Keyed
   // directly by its organization: the conversation row may not exist yet.
-  '0111_conversation_restricted_folders.sql',
+  '0112_conversation_restricted_folders.sql',
   // Adds document_access_log — the download log: who took a document's bytes,
   // and who opened one under a folder with its own list. Keyed directly by its
   // organization; no foreign keys, so the row outlives what it names.
-  '0113_document_access_log.sql',
+  '0114_document_access_log.sql',
   // Adds mail_imports (ADR-0085), an Outlook archive a member is filing into a
   // project. Keyed by the organization, secured like product_feedback; the
   // stale-upload sweep reads across tenants under the platform role.

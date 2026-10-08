@@ -382,7 +382,7 @@ recorded folders.
 * User guide: [`sensitive-data-and-access.md`](../user-guides/sensitive-data-and-access.md#who-may-read-and-edit-a-folder).
 * The download log is built: [`user-guides/download-log.md`](../user-guides/download-log.md) (what it records,
   retention, who reads it, the works-council note), the table in
-  [`database/schema.md`](../database/schema.md#document_access_log-migration-0113-adr-0085), and
+  [`database/schema.md`](../database/schema.md#document_access_log-migration-0114-adr-0085), and
   `lib/download-log/service.ts` — `recordDocumentAccess` is called by every function that hands a
   document's bytes to a person, held to the list by `coverage.spec.ts`.
 * Decided by the product owner on 6 Oct 2026 (`plans/2026-10-06-folder-access-lifecycle.md`):
