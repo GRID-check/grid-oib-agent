@@ -384,11 +384,13 @@ export const AUDIT_SCHEMAS = /** @type {const} */ ({
     targets: [{ type: 'document' }],
     metadata: { projectId: 'string', filename: 'string', terms: 'string', nameWithheld: 'boolean' },
   },
-  // A quarantined document a reviewer released for indexing (ADR-0085). The
-  // reasons are the content gate's verdict as stored on the row.
+  // A quarantined document a reviewer released for indexing (ADR-0083). The
+  // reasons are the kinds of the content gate's verdict as stored on the row;
+  // the terms are the office's words it found in the text, which say what the
+  // document holds, so they are withheld with the name.
   'document.quarantine_released': {
     targets: [{ type: 'document' }],
-    metadata: { projectId: 'string', filename: 'string', reasons: 'string', nameWithheld: 'boolean' },
+    metadata: { projectId: 'string', filename: 'string', reasons: 'string', terms: 'string', nameWithheld: 'boolean' },
   },
   'document.deleted': {
     targets: [{ type: 'document' }],

@@ -338,8 +338,10 @@ drown the admin trail.
   that moment, under a folder not every project member may read leaves its name
   out (ADR-0086): for the actions in `DOCUMENT_NAME_ACTIONS`
   (`lib/audit/document-names.ts`) the emitter drops `filename`, `previousName`
-  and `displayName`, and an upload-screening override's `terms` (the name-gate
-  words that matched a piece of the name), and sets `nameWithheld: true`; the
+  and `displayName`, and the screening `terms` (the name-gate words that
+  matched a piece of the name on an override, the office's words the content
+  check found in the text on a quarantine release; the release's `reasons` keep
+  only the kinds), and sets `nameWithheld: true`; the
   target id still says
   which document, and someone cleared for the folder opens it in Piloti. Folder
   events carry the folder id, never its name. A folder rule that cannot be read
@@ -352,7 +354,8 @@ drown the admin trail.
   document moved into a restricted folder (a move emits no audit event). If such
   names must not be read, limit `org:audit:view` to people cleared for those
   folders. `nameWithheld` is
-  registered on those actions; the deploy's schema job reconciles it, and an
+  registered on those actions (and `terms` on `document.quarantine_released`);
+  the deploy's schema job reconciles them, and an
   environment reconciled by hand needs `npm run provision:audit-schemas -- --apply`
   before this release, or WorkOS rejects the event.
 

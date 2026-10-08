@@ -103,7 +103,7 @@ export async function releaseQuarantinedDocument(
     folderPath: await resolveDocumentFolderPath(doc, session.organizationId),
   })
 
-  const verdict = parseQuarantine(doc.errorMessage)
+  const reasons = parseQuarantine(doc.errorMessage)?.reasons ?? []
   await recordAuditEvent({
     organizationId: session.organizationId,
     actor: { userId: session.userId, email: session.email },
@@ -114,9 +114,12 @@ export async function releaseQuarantinedDocument(
     metadata: {
       projectId: doc.projectId ?? '',
       filename: doc.filename.slice(0, 200),
-      // Kinds and terms only: a detector's masked sample stays on the row.
-      reasons: (verdict?.reasons ?? [])
-        .map((reason) => (reason.kind === 'term' ? `term:${reason.term ?? ''}` : reason.kind))
+      // Kinds only: a detector's masked sample stays on the row.
+      reasons: [...new Set(reasons.map((reason) => reason.kind))].join(',').slice(0, 200),
+      // The office's words found in the text say what the document holds, so
+      // they go under `terms`, which is withheld with the name when the folder
+      // is restricted (DOCUMENT_NAME_KEYS, ADR-0084).
+      terms: [...new Set(reasons.flatMap((reason) => (reason.kind === 'term' && reason.term ? [reason.term] : [])))]
         .join(',')
         .slice(0, 200),
     },
