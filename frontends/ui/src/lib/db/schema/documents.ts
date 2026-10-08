@@ -415,7 +415,7 @@ export const documents = pgTable('documents', {
   screeningReleasedBy: text('screening_released_by'),
   screeningReleasedAt: timestamp('screening_released_at', { withTimezone: true }),
   /**
-   * The upload gesture that last wrote this document's bytes (migration 0108),
+   * The upload gesture that last wrote this document's bytes (migration 0109),
    * or NULL for a row no batch wrote. No foreign key: the batch is a pointer
    * for the upload summary, and pruning it must not take the document along.
    */

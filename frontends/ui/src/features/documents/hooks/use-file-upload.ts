@@ -412,7 +412,7 @@ export const useFileUpload = (options: UseFileUploadOptions = {}): UseFileUpload
         // only the endpoint and form fields differ (Archiv resolves the org
         // server-side, a chat names its conversation).
         //
-        // The batch these uploads belong to (ADR-0083), opened before the
+        // The batch these uploads belong to (ADR-0085), opened before the
         // first file goes so each upload can name it. Null: no summary, and
         // the upload goes ahead regardless.
         const batchId = await openUploadBatch({

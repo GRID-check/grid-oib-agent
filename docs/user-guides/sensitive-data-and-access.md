@@ -1,7 +1,7 @@
 # Sensitive data and quarantine
 
 What an office can keep out of Piloti, and how an uploader learns what became
-of an upload. The decision behind this is ADR-0083 (screening and quarantine).
+of an upload. The decision behind this is ADR-0085 (screening and quarantine).
 
 ## The sensitive-data list
 

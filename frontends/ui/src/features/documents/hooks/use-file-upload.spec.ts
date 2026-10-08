@@ -1013,7 +1013,7 @@ describe('useFileUpload — chat attachments', () => {
     expect(mockClient.getCollection).not.toHaveBeenCalled()
     expect(mockClient.createCollection).not.toHaveBeenCalled()
     expect(xhr.requests.some((request) => request.url.includes('/api/v1/'))).toBe(false)
-    // The only request besides the upload is the upload's own batch (ADR-0083).
+    // The only request besides the upload is the upload's own batch (ADR-0085).
     expect(fetchMock.mock.calls.map(([url]) => String(url)).filter((url) => !url.startsWith('/api/upload-batches'))).toEqual([])
     // The marker that tells a later visit to list this chat's attachments.
     expect(mockMarkSessionHasCollection).toHaveBeenCalledWith(CHAT)
@@ -1120,7 +1120,7 @@ describe('useFileUpload — chat attachments', () => {
 })
 
 /**
- * ADR-0083: every upload is one batch — opened before the first file, named on
+ * ADR-0085: every upload is one batch — opened before the first file, named on
  * each upload, sealed after the last answer — so its uploader can be told when
  * everything was read. The batch records what the screening kept back by term
  * and count only.
