@@ -1,4 +1,4 @@
--- Reverse 0113: no Papierkorb, and a legal hold no longer names a folder.
+-- Reverse 0114: no Papierkorb, and a legal hold no longer names a folder.
 --
 -- Refuses while the bin holds anything. An older build has no bin: it would
 -- list a binned folder's documents (their chunks already purged) under a folder
@@ -6,15 +6,15 @@
 -- purge every bin entry first (`deletion_queue` rows with entity_type 'folder'
 -- and status 'pending' or 'purging').
 --
--- Purged tombstones stay tombstones (`deleted_at`), which is what 0109 calls a
+-- Purged tombstones stay tombstones (`deleted_at`), which is what 0110 calls a
 -- deleted folder; only the purge marker and the bin pointer go. Holds on
--- folders stay in `legal_holds` and protect nothing until 0113 is re-applied.
+-- folders stay in `legal_holds` and protect nothing until 0114 is re-applied.
 DO $$
 BEGIN
   IF EXISTS (
     SELECT 1 FROM project_folders WHERE deleted_at IS NOT NULL AND purged_at IS NULL
   ) THEN
-    RAISE EXCEPTION 'the Papierkorb is not empty: restore or purge every deleted folder before reversing 0113';
+    RAISE EXCEPTION 'the Papierkorb is not empty: restore or purge every deleted folder before reversing 0114';
   END IF;
 END
 $$;

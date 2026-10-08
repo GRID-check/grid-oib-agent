@@ -106,7 +106,7 @@ export async function findFolderByIdInOrg(
 
 /**
  * Every folder of a bin entry, purged ones included: what a retry of a
- * purged folder still reaches. A tombstone older than 0113 has no entry and is
+ * purged folder still reaches. A tombstone older than 0114 has no entry and is
  * its own.
  */
 export async function listEntryFolderIds(executor: DbExecutor, root: BinFolderRow): Promise<string[]> {

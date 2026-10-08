@@ -1,4 +1,4 @@
--- Reverse 0112. ORDER: roll the frontend back first; the newer build writes
+-- Reverse 0113. ORDER: roll the frontend back first; the newer build writes
 -- `document_access_log` in every download request and reads it on the admin page.
 --
 -- Lossy by nature: the download log is dropped with its rows. There is nothing
