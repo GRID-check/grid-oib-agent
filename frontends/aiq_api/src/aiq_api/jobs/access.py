@@ -4,8 +4,11 @@ from __future__ import annotations
 
 import asyncio
 import os
+import time
 from collections.abc import Mapping
+from dataclasses import dataclass
 from typing import Any
+from typing import Literal
 
 from fastapi import HTTPException
 from sqlalchemy import text
@@ -14,6 +17,9 @@ from sqlalchemy.engine import Connection
 from aiq_agent.auth import Principal
 from aiq_agent.auth import get_current_principal
 from aiq_agent.common.db_utils import ensure_schema
+from aiq_agent.project_context import REQUEST_CONTEXT_ENVELOPE_HEADER
+from aiq_agent.project_context import REQUEST_CONTEXT_ENVELOPE_SIG_HEADER
+from aiq_agent.project_context import GridRequestContext
 
 _job_access_schema_initialized: set[str] = set()
 
@@ -185,7 +191,7 @@ def expire_terminal_jobs(
 
     1. **Mark** terminal rows ``is_expired = true`` once ``updated_at +
        expiry_seconds`` has passed (the per-row expiry NAT itself honors). It
-       is the only job_info expiry, in both execution modes (ADR-0082 A1: the
+       is the only job_info expiry (ADR-0082 A1: the
        job-events housekeeping route runs it). Marking re-arms the
        access/event cleanup, which keys off ``is_expired``.
     2. **Delete** rows past BOTH their own expiry and ``delete_grace_seconds``
@@ -324,24 +330,198 @@ def require_verified_principal() -> Principal:
     if principal is not None:
         return principal
 
-    if os.environ.get("REQUIRE_AUTH", "false").lower() == "true":
+    if _auth_required():
         raise HTTPException(403, "Verified principal required for async job access")
 
     return _make_no_auth_principal()
 
 
-async def authorize_job_access(job_store: Any, db_url: str, job_id: str, principal: Principal) -> Any:
-    """Load a job, enforcing ownership when auth is enabled.
+def _auth_required() -> bool:
+    return os.environ.get("REQUIRE_AUTH", "false").lower() == "true"
 
-    When REQUIRE_AUTH=false, ownership is not enforced — any caller may access
-    any existing job.  Ownership records are still written at submit time for
-    audit purposes and to support future auth enablement without data migration.
+
+def _base_collection_name() -> str:
+    """Return the configured base/OIB knowledge collection name.
+
+    Mirrors the env var precedence used elsewhere in the codebase
+    (e.g. ``aiq_agent.oib_sync``): ``OIB_COLLECTION_NAME`` wins over the
+    legacy ``COLLECTION_NAME``, defaulting to ``oib_knowledge``.
+    """
+    return os.environ.get("OIB_COLLECTION_NAME") or os.environ.get("COLLECTION_NAME") or "oib_knowledge"
+
+
+def derive_project_collection(collection_scope: list[str] | None) -> str | None:
+    """Extract the project collection from a request's collection scope.
+
+    The collection scope contains the base/OIB collection, the office Archiv
+    (``archiv_<org>``), the project collection, and an ``s_<conversation>``
+    scoped collection. The project collection is the single remaining entry
+    once those others are excluded. Returns None if no such entry exists (or
+    more than one candidate remains, which indicates an ambiguous scope not
+    worth guessing at).
+
+    One derivation for both ends of a job's life: submit records its answer on
+    ``job_access.project_collection``, and :func:`signed_job_scope` asks the
+    same question of the scope a later request signed. Two copies could
+    disagree about one scope, and a run would then be unreachable from the
+    project it was commissioned in.
+    """
+    if not collection_scope:
+        return None
+
+    base_collection = _base_collection_name()
+    candidates = [
+        collection
+        for collection in collection_scope
+        if collection != base_collection and not collection.startswith("s_") and not collection.startswith("archiv_")
+    ]
+    if len(candidates) == 1:
+        return candidates[0]
+    return None
+
+
+#: How long a signed envelope may authorize a job request, in milliseconds.
+#: The BFF verifier's window, ``GRID_REQUEST_CONTEXT_MAX_AGE_MS`` in
+#: ``frontends/ui/src/lib/request-context.ts``. The two must stay equal.
+JOB_ENVELOPE_MAX_AGE_MS = 6 * 60 * 60 * 1000
+
+#: What a request does to a job. A ``read`` follows it (status, stream, state,
+#: report, the listing); a ``control`` steers it (cancel, write-now, documents).
+JobAction = Literal["read", "control"]
+
+
+@dataclass(frozen=True)
+class SignedJobScope:
+    """The part of a verified envelope a job is authorized against (ADR-0084).
+
+    The BFF signs a project only after it checked ``project:chat`` on it, and a
+    conversation only after it checked ``viewer`` on it. This tier cannot ask
+    WorkOS who belongs to a project, so it checks that the job lies inside what
+    the BFF signed instead.
+    """
+
+    organization_id: str
+    project_collection: str | None
+    conversation_id: str | None
+
+
+@dataclass(frozen=True)
+class JobCaller:
+    """Who is asking for a job: the verified principal, and the scope its BFF signed."""
+
+    principal: Principal
+    scope: SignedJobScope | None = None
+
+
+def signed_job_scope(
+    headers: Mapping[str, str],
+    principal: Principal,
+    *,
+    now_ms: int | None = None,
+) -> SignedJobScope | None:
+    """The job scope a request's signed envelope grants, or None when it grants nothing.
+
+    Stricter than the envelope middleware, which only asks that one is present.
+    An envelope that widens access past the owner must be signed (no secret, no
+    grant), name an organization, speak for the user the bearer token names,
+    and be inside the BFF verifier's window, counted in both directions. A
+    failure on any of these is the same as no envelope: the caller keeps what
+    it owns and nothing more.
+    """
+    secret = os.environ.get("GRID_INTERNAL_API_TOKEN")
+    if not secret:
+        return None
+    context = GridRequestContext.from_envelope(
+        headers.get(REQUEST_CONTEXT_ENVELOPE_HEADER),
+        headers.get(REQUEST_CONTEXT_ENVELOPE_SIG_HEADER),
+        secret,
+    )
+    if context is None or not context.organization_id or context.issued_at is None:
+        return None
+    if context.user_id != principal.sub:
+        return None
+    now = now_ms if now_ms is not None else int(time.time() * 1000)
+    if abs(now - context.issued_at) > JOB_ENVELOPE_MAX_AGE_MS:
+        return None
+    return SignedJobScope(
+        organization_id=context.organization_id,
+        project_collection=derive_project_collection(context.collection_scope),
+        conversation_id=context.conversation_id,
+    )
+
+
+def job_access_allows(access: Mapping[str, Any], caller: JobCaller, action: JobAction) -> bool:
+    """Whether ``caller`` may ``action`` the job ``access`` describes (ADR-0084).
+
+    The owner may do anything. Anyone else needs a signed scope in the job's
+    organization (a row with no organization matches nobody), and then either
+    the job's project, which reads and steers, or the job's conversation, which
+    only reads: a viewer of a thread may follow a run in it, not stop it.
+    """
+    if _principal_matches_access(caller.principal, access):
+        return True
+    scope = caller.scope
+    if scope is None:
+        return False
+    organization_id = access.get("organization_id")
+    if not organization_id or organization_id != scope.organization_id:
+        return False
+    project_collection = access.get("project_collection")
+    if project_collection and project_collection == scope.project_collection:
+        return True
+    if action != "read":
+        return False
+    conversation_id = access.get("conversation_id")
+    return bool(conversation_id) and conversation_id == scope.conversation_id
+
+
+def job_visibility_clause(caller: JobCaller) -> tuple[str, dict[str, Any]]:
+    """:func:`job_access_allows` for a read, as SQL over ``job_access ja``, for the listing.
+
+    The same three ways in, so a run the listing shows is a run its stream
+    opens. A NULL column never equals a bound value, so a row with no
+    organization is only ever its owner's.
+    """
+    clauses = ["(ja.owner_auth_type = :owner_auth_type AND ja.owner_subject = :owner_subject)"]
+    params: dict[str, Any] = {
+        "owner_auth_type": caller.principal.type,
+        "owner_subject": caller.principal.sub,
+    }
+    scope = caller.scope
+    shared: list[str] = []
+    if scope is not None and scope.project_collection:
+        shared.append("ja.project_collection = :scope_project_collection")
+        params["scope_project_collection"] = scope.project_collection
+    if scope is not None and scope.conversation_id:
+        shared.append("ja.conversation_id = :scope_conversation_id")
+        params["scope_conversation_id"] = scope.conversation_id
+    if scope is not None and shared:
+        clauses.append(f"(ja.organization_id = :scope_organization_id AND ({' OR '.join(shared)}))")
+        params["scope_organization_id"] = scope.organization_id
+    return f"({' OR '.join(clauses)})", params
+
+
+async def authorize_job_access(
+    job_store: Any,
+    db_url: str,
+    job_id: str,
+    caller: JobCaller,
+    action: JobAction,
+) -> Any:
+    """Load a job, enforcing :func:`job_access_allows` when auth is enabled.
+
+    When REQUIRE_AUTH=false, access is not enforced: any caller may access any
+    existing job. Ownership records are still written at submit time for audit
+    purposes and to support enabling auth later without a data migration.
+
+    A refusal is the same 404 as a job that does not exist, so a caller cannot
+    learn which job ids are real.
     """
     job = await job_store.get_job(job_id)
     if not job:
         raise HTTPException(404, f"Job not found: {job_id}")
 
-    if os.environ.get("REQUIRE_AUTH", "false").lower() != "true":
+    if not _auth_required():
         return job
 
     loop = asyncio.get_running_loop()
@@ -349,7 +529,7 @@ async def authorize_job_access(job_store: Any, db_url: str, job_id: str, princip
     if access is None:
         raise HTTPException(404, f"Job not found: {job_id}")
 
-    if not _principal_matches_access(principal, access):
+    if not job_access_allows(access, caller, action):
         raise HTTPException(404, f"Job not found: {job_id}")
 
     return job

@@ -343,6 +343,14 @@ export interface DeepResearchStreamOptions {
   lastEventId?: string
   /** Auth token for authenticated requests */
   authToken?: string
+  /**
+   * The project and conversation the stream is opened in. The job proxy checks
+   * the caller may reach them and signs them, and the backend opens a job inside
+   * them to someone other than its owner (ADR-0084). Without them only the
+   * caller's own jobs, or the stored active project's, can be followed.
+   */
+  projectId?: string | null
+  conversationId?: string | null
 }
 
 export interface DeepResearchClient {
@@ -381,7 +389,7 @@ const STREAM_REOPEN_GIVE_UP_MS = 120_000
 const STREAM_REOPEN_AFTER_SHUTDOWN_MS = 250
 
 export const createDeepResearchClient = (options: DeepResearchStreamOptions): DeepResearchClient => {
-  const { jobId, callbacks, lastEventId, authToken } = options
+  const { jobId, callbacks, lastEventId, authToken, projectId, conversationId } = options
 
   let eventSource: EventSource | null = null
   let lastReceivedEventId: string | null = lastEventId || null
@@ -406,12 +414,14 @@ export const createDeepResearchClient = (options: DeepResearchStreamOptions): De
       url += `/${lastReceivedEventId}`
     }
 
+    const query = new URLSearchParams()
     // Add auth token as query param if provided (EventSource doesn't support headers)
-    if (authToken) {
-      url += `?token=${encodeURIComponent(authToken)}`
-    }
+    if (authToken) query.set('token', authToken)
+    if (projectId) query.set('projectId', projectId)
+    if (conversationId) query.set('conversationId', conversationId)
+    const search = query.toString()
 
-    return url
+    return search ? `${url}?${search}` : url
   }
 
   /**
@@ -1021,12 +1031,19 @@ export const getJobReport = async (
   }
 }
 
-/** Cancel a running job */
+/**
+ * Cancel a running job.
+ *
+ * `projectId` names the project the job runs in, so the proxy can sign it and a
+ * teammate may stop a run somebody else started there (ADR-0084).
+ */
 export const cancelJob = async (
   jobId: string,
-  authToken?: string
+  authToken?: string,
+  options: { projectId?: string | null } = {}
 ): Promise<{ cancelled: boolean }> => {
-  const url = `${getDeepResearchBaseUrl()}/job/${jobId}/cancel`
+  const query = options.projectId ? `?projectId=${encodeURIComponent(options.projectId)}` : ''
+  const url = `${getDeepResearchBaseUrl()}/job/${jobId}/cancel${query}`
   const headers: HeadersInit = {
     'Content-Type': 'application/json',
   }

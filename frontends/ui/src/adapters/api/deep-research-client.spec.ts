@@ -47,12 +47,14 @@ class FakeEventSource {
 
 const connectWithFakeEventSource = (
   callbacks: DeepResearchCallbacks = {},
-  options: { jobId?: string; lastEventId?: string } = {}
+  options: { jobId?: string; lastEventId?: string; projectId?: string; conversationId?: string } = {}
 ) => {
   vi.stubGlobal('EventSource', FakeEventSource)
   const client = createDeepResearchClient({
     jobId: options.jobId ?? 'job-1',
     lastEventId: options.lastEventId,
+    projectId: options.projectId,
+    conversationId: options.conversationId,
     callbacks,
   })
   client.connect()
@@ -71,6 +73,15 @@ describe('deep research SSE client', () => {
       const { source } = connectWithFakeEventSource()
 
       expect(source.url).toBe('/api/jobs/async/job/job-1/stream')
+    })
+
+    test('names the project and conversation the proxy signs, on a resume too (ADR-0084)', () => {
+      const { source } = connectWithFakeEventSource(
+        {},
+        { lastEventId: '42', projectId: 'project 1', conversationId: 'conv-1' }
+      )
+
+      expect(source.url).toBe('/api/jobs/async/job/job-1/stream/42?projectId=project+1&conversationId=conv-1')
     })
 
     test('resumes from the /stream/{last_event_id} URL when a last event id is provided', () => {

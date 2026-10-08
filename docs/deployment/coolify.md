@@ -262,11 +262,14 @@ frontend cannot complete a login.
 > anonymous "Default User" (no WorkOS setup), set `REQUIRE_AUTH=false`
 > explicitly in that environment's variables and leave the WorkOS keys empty.
 > Do **not** do this for a production/staging environment — it disables login
-> and the backend's job-ownership checks.
+> and the backend's job access checks.
 
-`REQUIRE_AUTH` only gates *external* requests. Internal frontend→backend calls
-over the Coolify network are always classified internal, so setting it `true`
-never breaks in-cluster traffic. `AIQ_EXTERNAL_HOSTNAMES` is wired to the
+`REQUIRE_AUTH` gates the token check only for *external* requests. It also turns
+on job access control (a job's owner, or a caller whose signed envelope places the
+job in their project or conversation, ADR-0084) and the signed-envelope rule for
+WorkOS callers, for every request, so it is not only an external switch. In-cluster frontend→backend calls
+are classified internal and carry the user's token and envelope (or the internal
+token), so setting it `true` does not break them. `AIQ_EXTERNAL_HOSTNAMES` is wired to the
 frontend FQDN as defense-in-depth: should the backend's port 8000 ever be
 exposed under that domain, requests would be forced through the path allowlist
 and auth instead of being trusted as internal.

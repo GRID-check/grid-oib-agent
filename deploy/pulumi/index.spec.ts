@@ -167,6 +167,34 @@ describe("the program constructs in the split topology", () => {
     expect(role("kubernetes:apps/v1:Deployment", "aiq-api")).toEqual(["api"]);
   });
 
+  it("gives every backend tier the frontend's WorkOS posture, with a client id to validate against", () => {
+    // The backend once had neither REQUIRE_AUTH nor WORKOS_CLIENT_ID, so it ran
+    // with job ownership off while the frontend required login. Each tier must
+    // carry the frontend's value, and the client id must be non-empty: without
+    // it the backend has no validator, and with auth required it refuses to boot.
+    const envOf = (type: string, name: string) => {
+      const spec = RESOURCES.find((r) => r.type === type && r.name === name)?.inputs.spec;
+      return (spec?.template?.spec.containers[0].env ?? []) as Array<{ name: string; value?: string }>;
+    };
+    const valueIn = (env: Array<{ name: string; value?: string }>, name: string) =>
+      env.find((e) => e.name === name)?.value;
+
+    const frontend = envOf("kubernetes:apps/v1:Deployment", "frontend");
+    // The stack default (`requireAuth`, true): the posture the tiers must match.
+    expect(valueIn(frontend, "REQUIRE_AUTH")).toBe("true");
+    const tiers = {
+      chat: envOf("kubernetes:apps/v1:StatefulSet", "aiq-agent"),
+      api: envOf("kubernetes:apps/v1:Deployment", "aiq-api"),
+      "agent-worker": envOf("kubernetes:apps/v1:Deployment", "agent-worker"),
+      "ingest-worker": envOf("kubernetes:apps/v1:Deployment", "ingest-worker"),
+    };
+    for (const [tier, env] of Object.entries(tiers)) {
+      expect(valueIn(env, "REQUIRE_AUTH"), `${tier} REQUIRE_AUTH`).toBe(valueIn(frontend, "REQUIRE_AUTH"));
+      expect(valueIn(env, "WORKOS_CLIENT_ID"), `${tier} WORKOS_CLIENT_ID`).toBe(valueIn(frontend, "WORKOS_CLIENT_ID"));
+      expect(valueIn(env, "WORKOS_CLIENT_ID"), `${tier} WORKOS_CLIENT_ID`).toBeTruthy();
+    }
+  });
+
   it("gives the frontend the api URL for HTTP and the chat URL for the socket", () => {
     const frontend = RESOURCES.find((r) => r.type === "kubernetes:apps/v1:Deployment" && r.name === "frontend");
     const env = frontend?.inputs.spec?.template?.spec.containers[0].env as Array<{ name: string; value?: string }>;
