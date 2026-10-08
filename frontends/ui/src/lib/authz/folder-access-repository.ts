@@ -102,7 +102,7 @@ export async function listProjectsWithCustomOrBinnedFolders(organizationId: stri
   return rows.flatMap((row) => (row.projectId ? [row.projectId] : []))
 }
 
-/** Most grants one project's folders hold, read back; 20 per custom folder by the 0109 trigger. */
+/** Most grants one project's folders hold, read back; 20 per custom folder by the 0110 trigger. */
 const PROJECT_GRANTS_LIMIT = 20_000
 
 /** The project's whole folder tree, tombstones included, with each custom folder's grants. */
