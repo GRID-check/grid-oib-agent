@@ -64,8 +64,12 @@
     "de": "Eine noch laufende Chat-Antwort bricht nicht mehr ab, wenn der Browser-Tab im Hintergrund ist oder das Mobilfunksignal kurz schwächelt."
   },
   {
-    "en": "A chat whose answers drew on a folder not everyone may read can be shared only with colleagues who may read that folder too, and Piloti will not file a draft or diagram from it where others could open it.",
-    "de": "Ein Chat, dessen Antworten aus einem Ordner schöpfen, den nicht alle lesen dürfen, lässt sich nur mit Kolleginnen und Kollegen teilen, die diesen Ordner ebenfalls lesen dürfen, und Piloti legt Entwürfe oder Diagramme daraus nirgends ab, wo andere sie öffnen könnten."
+    "en": "A chat that drew on a folder not everyone may read also cannot start a Tiefenrecherche or an Auftrag, change the project context, or file a draft or diagram where colleagues who may not read the folder could open it; Piloti says why instead of offering it.",
+    "de": "Ein Chat, der aus einem Ordner geschöpft hat, den nicht alle lesen dürfen, kann außerdem keine Tiefenrecherche und keinen Auftrag starten, den Projektkontext nicht ändern und keinen Entwurf und kein Diagramm dort ablegen, wo Kolleginnen und Kollegen ohne Leserecht für den Ordner sie öffnen könnten; Piloti sagt, warum, statt es anzubieten."
+  },
+  {
+    "en": "A chat whose answers drew on a folder not everyone may read can be shared only with colleagues who may read that folder too. A chat that is already shared searches only the folders everyone in it may read.",
+    "de": "Ein Chat, dessen Antworten aus einem Ordner schöpfen, den nicht alle lesen dürfen, lässt sich nur mit Kolleginnen und Kollegen teilen, die diesen Ordner ebenfalls lesen dürfen. Ein bereits geteilter Chat durchsucht nur die Ordner, die alle darin lesen dürfen."
   },
   {
     "en": "A chat whose deletion failed because a service was briefly unavailable is now deleted automatically once the service is back, instead of staying hidden until someone deleted it again.",

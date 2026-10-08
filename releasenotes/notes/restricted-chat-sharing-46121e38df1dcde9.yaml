@@ -2,8 +2,8 @@
 features:
   - >
     A chat whose answers drew on a folder not everyone may read can be shared
-    only with colleagues who may read that folder too, and Piloti will not file
-    a draft or diagram from it where others could open it.
+    only with colleagues who may read that folder too. A chat that is already
+    shared searches only the folders everyone in it may read.
   - >
     A document from a folder not everyone may read cannot be added to a research
     run. The list marks it, and Piloti says why if you try.
