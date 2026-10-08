@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { render, screen } from '@/test-utils'
 
-import { FeedbackTrend } from './feedback-trend'
+import { FeedbackTrend, FeedbackTrendDirection } from './feedback-trend'
 
 /** N days back from today, which is what `fillWindow` anchors on. */
 const dayAgo = (n: number): string => {
@@ -15,14 +15,15 @@ describe('FeedbackTrend', () => {
     // Day A: 2 down of 20 (10%). Day B: 3 down of 10 (30%). B has FEWER
     // down-votes in absolute terms and is the worse day — a count series would
     // rank them the other way round.
+    const points = [
+      { day: dayAgo(2), up: 18, down: 2 },
+      { day: dayAgo(0), up: 7, down: 3 },
+    ]
     render(
-      <FeedbackTrend
-        windowDays={3}
-        points={[
-          { day: dayAgo(2), up: 18, down: 2 },
-          { day: dayAgo(0), up: 7, down: 3 },
-        ]}
-      />,
+      <>
+        <FeedbackTrend windowDays={3} points={points} />
+        <FeedbackTrendDirection windowDays={3} points={points} />
+      </>
     )
 
     expect(screen.getByTestId('feedback-trend')).toBeInTheDocument()
@@ -32,13 +33,18 @@ describe('FeedbackTrend', () => {
 
   it('refuses to report a direction it cannot see', () => {
     render(
-      <FeedbackTrend windowDays={7} points={[{ day: dayAgo(1), up: 1, down: 1 }]} />,
+      <>
+        <FeedbackTrend windowDays={7} points={[{ day: dayAgo(1), up: 1, down: 1 }]} />
+        <FeedbackTrendDirection windowDays={7} points={[{ day: dayAgo(1), up: 1, down: 1 }]} />
+      </>
     )
 
     // One day, and a thin one. A flat line at zero here would read as "perfect"
     // rather than "unknown".
     expect(screen.getByTestId('feedback-trend-empty')).toBeInTheDocument()
     expect(screen.queryByTestId('feedback-trend')).toBeNull()
+    // …and no direction badge claiming one.
+    expect(screen.queryByTestId('feedback-trend-delta')).toBeNull()
   })
 
   /**
@@ -54,7 +60,7 @@ describe('FeedbackTrend', () => {
       // …ending on one bad day that a first-vs-last reading would let dominate.
       { day: dayAgo(0), up: 2, down: 8 },
     ]
-    render(<FeedbackTrend windowDays={10} points={points} />)
+    render(<FeedbackTrendDirection windowDays={10} points={points} />)
 
     // Despite the final day being the worst in the window, the window improved.
     expect(screen.getByTestId('feedback-trend-delta')).toHaveTextContent(/better/i)
@@ -73,5 +79,21 @@ describe('FeedbackTrend', () => {
     // days in, 5 circles out.
     const svg = screen.getByRole('img')
     expect(svg.querySelectorAll('circle')).toHaveLength(4)
+  })
+
+  /**
+   * Bug: the plot was a fixed 720-unit viewBox stretched with
+   * `preserveAspectRatio="none"`, so on any other width the dots drew as
+   * ellipses and the SVG axis text was squashed or stretched. The plot now
+   * keeps its aspect and the scale is HTML.
+   */
+  it('draws without stretching: no squashed SVG text, aspect kept', () => {
+    const points = [0, 1, 2].map((n) => ({ day: dayAgo(n), up: 8, down: 2 }))
+    render(<FeedbackTrend windowDays={3} points={points} />)
+
+    const svg = screen.getByRole('img')
+    expect(svg.getAttribute('preserveAspectRatio')).toBeNull()
+    expect(svg.querySelector('text')).toBeNull()
+    expect(screen.getByText('100%')).toBeInTheDocument()
   })
 })

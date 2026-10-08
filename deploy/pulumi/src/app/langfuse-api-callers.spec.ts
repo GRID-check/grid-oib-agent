@@ -6,19 +6,22 @@ import * as pulumi from "@pulumi/pulumi";
 import { baseStackConfig, langfuseStackConfig } from "../test-support/stack-config";
 
 /**
- * Who may call Langfuse's public API (ADR-0044): the purger, which erases an
- * erased chat's traces and those of a folder purge's removed answers, and the
- * scheduler, which erases the ones past retention. Nothing else.
+ * Who may call Langfuse's public API (ADR-0044), and for what. The purger
+ * erases an erased chat's traces and those of a folder purge's removed answers,
+ * and the scheduler erases the ones past retention: deletion is theirs alone.
+ * The frontend writes every answer vote as a score (Amendment 3) and deletes
+ * nothing. The bff-jobs pool, built from the frontend's environment, holds no
+ * keys at all.
  *
  * Two layers say so and must agree. The network policy admits exactly those
- * two pods into Langfuse web (`platform/network-policies.ts`, rule 11b), and
- * only their environments carry the API's host and keys (`langfuseApiEnv`).
- * Code that erases traces from anywhere else fails silently, which is how the
- * Papierkorb's „Endgültig löschen" once "erased" traces from the BFF: no keys
- * there, so the client answered "not configured", the count read 0 and the
- * traces stayed. Keeping the keys out of the BFF's environment keeps the
- * policy's comment ("the BFF and the agent never call Langfuse's API") true by
- * construction, and the folder purge hands its traces to the purger instead.
+ * three pods into Langfuse web (`platform/network-policies.ts`, rules 11b and
+ * 11c), and only their environments carry the API's host and keys. Trace
+ * deletion run from anywhere but the two workers fails silently or by
+ * accident, which is how the Papierkorb's „Endgültig löschen" once "erased"
+ * traces from the BFF while it held no keys: the client answered "not
+ * configured", the count read 0 and the traces stayed. So the deletion client
+ * stays out of the BFF's code, and the folder purge hands its traces to the
+ * purger instead.
  */
 
 pulumi.runtime.setMocks(
@@ -63,8 +66,8 @@ describe("Langfuse's API credentials, with the tier deployed", () => {
     envs.scheduler = schedulerEnv(wiring as never);
   });
 
-  it("are not in the BFF's environment, the frontend's or the bff-jobs pool's", () => {
-    expect(apiNames(envs.frontend)).toEqual([]);
+  it("are in the frontend's, which scores votes, and not in the bff-jobs pool's built from it", () => {
+    expect(apiNames(envs.frontend).sort()).toEqual(["LANGFUSE_HOST", "LANGFUSE_PUBLIC_KEY", "LANGFUSE_SECRET_KEY"]);
     expect(apiNames(envs.bffJobs)).toEqual([]);
   });
 
