@@ -123,7 +123,7 @@ export interface UploadFilesOptions {
   folderIdFor?: (file: File) => string | null | undefined
   /**
    * The project folder a file lands in, as a path from the project root, for
-   * the upload screening (ADR-0083). The server screens against it too, so a
+   * the upload screening (ADR-0085). The server screens against it too, so a
    * caller that knows it must say it — or the browser lets through a file the
    * server will then refuse, after its bytes have left the office.
    */
@@ -323,7 +323,7 @@ export const useFileUpload = (options: UseFileUploadOptions = {}): UseFileUpload
       }
 
       /*
-       * The upload screening, last before a byte leaves (ADR-0083).
+       * The upload screening, last before a byte leaves (ADR-0085).
        *
        * The dialog already showed the reader what the office's policy holds
        * back and took their releases; this is the gate for every path that

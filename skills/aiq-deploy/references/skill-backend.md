@@ -29,8 +29,9 @@ If port `8000` is already in use, choose another free port with `--port` and han
 
 The default Agent Skill backend path starts:
 
-- backend API: `http://localhost:8000`
-- skill handoff URL: `AIQ_SERVER_URL=http://localhost:8000`
+- backend API (api role): `http://localhost:8000`
+- backend chat role: `http://localhost:8001` (serves `POST /chat`)
+- skill handoff URL: `AIQ_SERVER_URL=http://localhost:8000`, plus `AIQ_CHAT_URL=http://localhost:8001` for `chat`
 - frontend UI: not started
 - debug console: disabled
 

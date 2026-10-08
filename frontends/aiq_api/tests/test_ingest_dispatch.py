@@ -14,9 +14,11 @@ from datetime import datetime
 
 import pytest
 
+from aiq_agent.common import claim_queue
 from aiq_agent.knowledge import ingest_queue
 from aiq_agent.knowledge import ingest_status_store
 from aiq_agent.knowledge.base import PreparedIngestJob
+from aiq_agent.knowledge.ingest_scheduler import PLATFORM_LANE
 from aiq_agent.knowledge.schema import IngestionJobStatus
 from aiq_agent.knowledge.schema import JobState
 from aiq_api.jobs import ingest_dispatch
@@ -199,14 +201,6 @@ def test_a_worker_claims_runs_and_forgets_the_job(db):
     assert worker.source() is None
 
 
-def test_a_process_told_not_to_claim_does_not(db, monkeypatch):
-    monkeypatch.setenv("GRID_INGEST_QUEUE_CLAIM", "false")
-    worker = FakeIngestor()
-
-    assert ingest_dispatch.attach(worker) is False
-    assert worker.source is None
-
-
 def test_an_unreadable_job_is_dropped_and_reads_failed(db):
     status = _prepared().status
     ingest_status_store.put(status)
@@ -280,7 +274,6 @@ async def test_the_ingest_worker_claims_until_told_to_stop_then_drains(db, monke
         workflow_builder.WorkflowBuilder, "from_config", staticmethod(lambda config: fake_build(config))
     )
     monkeypatch.setattr(factory, "get_active_ingestor", lambda: ingestor)
-    monkeypatch.setenv("GRID_INGEST_QUEUE_CLAIM", "false")  # the web tier's env; the worker claims anyway
     monkeypatch.setenv("GRID_WORKER_LIVENESS_FILE", str(tmp_path / "alive"))
 
     stop = asyncio.Event()
@@ -618,29 +611,98 @@ def test_a_failed_count_leaves_the_statuses_alone(db, monkeypatch):
     assert statuses == {"job-1": {"status": "pending", "metadata": {}}}
 
 
-async def test_the_web_tier_stops_claiming_before_its_chat_drain_and_gives_back_what_it_holds(db, monkeypatch):
-    from aiq_api import plugin
+# ---------------------------------------------------------------------------
+# The base corpus's jobs: queued or not at all, and a download that carries no URL
+# ---------------------------------------------------------------------------
 
-    ingest_dispatch.dispatch(FakeIngestor(), _prepared("job-1"))
-    ingest_dispatch.dispatch(FakeIngestor(), _prepared("job-2"))
-    order: list[str] = []
 
-    class WebTier(FakeIngestor):
-        def detach_job_source(self) -> None:
-            order.append("detached")
-            self.source = None
+def _corpus_job(job_id: str = "oib-1") -> PreparedIngestJob:
+    from aiq_agent.corpus_store import CorpusObjectDownload
 
-    web = WebTier()
-    ingest_dispatch.attach(web)
-    web.source()  # running when SIGTERM lands
+    prepared = _prepared(job_id, files=[CorpusObjectDownload("base-corpus/plan.pdf", "ab" * 32)], org=None)
+    prepared.config.pop("extraction_paths")
+    prepared.config.pop("thumbnail_upload_url")
+    prepared.config["priority"] = "bulk"
+    return prepared
 
-    async def chat_drain() -> int:
-        order.append("chat drained")
-        assert web.source is None  # nothing claims while the turns finish
-        return 0
 
-    monkeypatch.setattr(plugin, "drain_chat_turns", chat_drain)
-    await plugin.drain_owned_work()
+def test_a_corpus_object_download_is_a_durable_file_and_round_trips_without_a_url():
+    prepared = _corpus_job()
 
-    assert order == ["detached", "chat drained"]
-    assert _queue_rows(db) == {"job-1": ("queued", 0, 0), "job-2": ("queued", 0, 0)}  # no attempt spent
+    assert ingest_dispatch.durable(prepared) is True
+    decoded = ingest_dispatch.decode(ingest_dispatch.encode(prepared))
+
+    (download,) = decoded.file_paths
+    assert download.to_payload() == {"storage_key": "base-corpus/plan.pdf", "sha256": "ab" * 32}
+    assert "http" not in ingest_dispatch.encode(prepared)
+
+
+def test_a_worker_refuses_a_corpus_download_for_something_that_is_not_a_corpus_object(db):
+    from aiq_api.jobs import payload_crypto
+
+    data = payload_crypto.deserialize(ingest_dispatch.encode(_corpus_job()))
+    data["file_paths"][0]["__corpus_object__"]["storage_key"] = "elsewhere/plan.pdf"
+    forged = payload_crypto.serialize(data)
+
+    with pytest.raises(Exception, match="not a corpus object key"):
+        ingest_dispatch.decode(forged)
+
+
+def test_enqueue_only_stores_a_corpus_job_and_names_it_bulk_in_the_platform_lane(db):
+    assert ingest_dispatch.enqueue_only(_corpus_job()) is True
+
+    rows = _queue_rows(db)
+    assert set(rows) == {"oib-1"}
+    claim = ingest_queue.claim_next("w1", stale_seconds=180, max_attempts=3)
+    assert claim.lane == PLATFORM_LANE  # a job with no organisation
+    assert claim.priority == claim_queue.priority_rank("bulk")
+
+
+def test_enqueue_only_stores_one_job_for_one_id(db):
+    assert ingest_dispatch.enqueue_only(_corpus_job()) is True
+    assert ingest_dispatch.enqueue_only(_corpus_job()) is False
+    assert ingest_queue.counts()["queued"] == 1
+
+
+def test_enqueue_only_never_falls_back_to_running_the_job_here(db, monkeypatch):
+    monkeypatch.setenv("GRID_INGEST_QUEUE", "off")
+
+    with pytest.raises(ingest_dispatch.QueueUnavailable, match="ingest queue is off"):
+        ingest_dispatch.enqueue_only(_corpus_job())
+
+
+def test_enqueue_only_without_a_database_raises(monkeypatch):
+    monkeypatch.delenv("AIQ_SUMMARY_DB", raising=False)
+    monkeypatch.delenv("NAT_JOB_STORE_DB_URL", raising=False)
+
+    with pytest.raises(ingest_dispatch.QueueUnavailable):
+        ingest_dispatch.enqueue_only(_corpus_job())
+
+
+def test_enqueue_only_refuses_a_job_with_a_local_file(db, tmp_path):
+    local = _prepared("oib-local", files=[str(tmp_path / "upload.pdf")])
+
+    with pytest.raises(ingest_dispatch.QueueUnavailable, match="cannot run in another process"):
+        ingest_dispatch.enqueue_only(local)
+    assert ingest_queue.counts()["queued"] == 0
+
+
+def test_enqueue_only_refuses_a_job_that_was_not_accepted(db):
+    rejected = _corpus_job()
+    rejected.status.status = JobState.FAILED
+    rejected.status.error_message = "No valid file paths provided"
+
+    with pytest.raises(ingest_dispatch.QueueUnavailable, match="No valid file paths"):
+        ingest_dispatch.enqueue_only(rejected)
+
+
+def test_a_queue_error_does_not_leak_the_payload(db, monkeypatch):
+    def refuse(*_args):
+        raise ConnectionError("could not connect with http://seaweedfs.test/x?X-Amz-Signature=secret")
+
+    monkeypatch.setattr(ingest_queue, "enqueue", refuse)
+
+    with pytest.raises(ingest_dispatch.QueueUnavailable) as raised:
+        ingest_dispatch.enqueue_only(_corpus_job())
+
+    assert "secret" not in str(raised.value)

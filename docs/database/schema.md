@@ -270,7 +270,7 @@ The three `authored_by` partial indexes above live **only in the migration** —
 - `documents_session_requires_conversation` — the scope partition: a `session` row has a conversation, nothing else does, and a `session` row has no project (migration `0049`)
 - `documents_authorship_requires_provenance` — `authored_by = 'user' OR (authored_by_producer IS NOT NULL AND authored_by_ref IS NOT NULL AND authored_by_ref_kind IS NOT NULL)`. A document no person wrote can always say what wrote it, which one, and what kind of identifier that is; one that cannot is an audit trail in appearance only. The third conjunct is migration `0066`'s: the first two were satisfiable by a row whose reference nobody could resolve, because the column's name asserted a job id over a value that was not one. Written against `<> 'user'` rather than against `agent` so a member added to `DOCUMENT_AUTHORS` arrives already constrained instead of arriving as a hole nothing notices (migration `0063`). One-directional: a `user` row carrying all three is legal.
 
-- `documents_screening_outcome_check` and `documents_screening_release_complete_check` — the vocabulary of `screening_outcome`, and a release that is all three columns or none (migration `0107`).
+- `documents_screening_outcome_check` and `documents_screening_release_complete_check` — the vocabulary of `screening_outcome`, and a release that is all three columns or none (migration `0108`).
 - `documents_lifecycle_known` — `lifecycle IN ('active', 'archived')` (migration `0082`). A CHECK where `scope` and `status` deliberately have none, because this column gates a LISTING: a third value nothing knows how to render would silently hide documents, and that looks like data loss to the person whose file vanished.
 
 **Version pointer (migration `0082`, ADR-0054):** `published_version_id` names the `document_versions` row whose bytes the storage columns above mirror, through a composite foreign key on `(published_version_id, id)` → `document_versions (id, document_id)` — so a document can only ever point at a version OF ITSELF. `ON DELETE SET NULL`: discarding a version must not take the item with it. The constraint lives only in the migration, because declaring it in drizzle would make `documents.ts` and `document-versions.ts` import each other.
@@ -778,7 +778,7 @@ This PostgreSQL entrypoint script runs on first container startup and creates tw
 | Table | Purpose | Key Columns |
 |-------|---------|-------------|
 | `job_info` | NAT JobStore metadata | `job_id` (PK), `status`, `config_file`, `error`, `output_path`, `created_at`, `updated_at`, `expiry_seconds`, `is_expired` |
-| `job_access` | Job ownership/access control | `job_id` (PK), `owner_auth_type`, `owner_subject`, `owner_email` |
+| `job_access` | Who may reach a job: its owner, and callers whose signed scope matches its organization and project or conversation (ADR-0084) | `job_id` (PK), `owner_auth_type`, `owner_subject`, `owner_email`, `conversation_id`, `project_collection`, `organization_id`, `created_at` |
 | `job_events` | SSE streaming event persistence | `id` (serial PK), `job_id`, `event_type`, `event_data`, `created_at` |
 | `document_metadata` | Per-document metadata (was `summaries`) | `collection` + `filename` (composite PK), `summary`, `tags` (`TEXT`, JSON list; nullable), `doc_class` (`TEXT`; nullable), `display_title` (`TEXT`; nullable), `folder_path` (`TEXT`; nullable — the BFF's materialised `project_folders.path`, ADR-0049), `provenance` (`TEXT`, JSON object; nullable — who wrote a published Piloti document and who released it, ADR-0054; deleted with the chunks by `unregister_summary`) |
 
@@ -888,7 +888,8 @@ LLM budgets and the usage ledger (ADR-0015).
   policy per (org, scope, subject).
 - `llm_usage_events`: one row per LLM generation — org/user/project/
   conversation/job attribution, `agent_group` (the call's role, NULL for an
-  agent turn), `activity` (0101: `'ingest'` or NULL), `requested_model`
+  agent turn), `activity` (0101: `'ingest'`; 0107: `'dictation'`; else NULL),
+  `audio_seconds` (0107: seconds a transcription call processed), `requested_model`
   vs served `model`, OpenRouter `generation_id`, token counts (incl. cached +
   reasoning), `cost_usd numeric(14,8)` exactly as OpenRouter reported,
   `cost_source`, `is_byok`, and `message_id` (migration 0098): the chat
@@ -904,6 +905,9 @@ LLM budgets and the usage ledger (ADR-0015).
   `cost_usd`, `events`. Incremented in the same transaction as every ledger
   insert; budget enforcement reads these rows instead of aggregating the
   ledger per WebSocket upgrade. Backfilled from the ledger by the migration.
+  Rows of an unbilled activity (`dictation`) are never added to it, and
+  migration 0107's `llm_usage_events_dictation_unbilled_check` refuses a
+  dictation row with a non-zero `price_usd` or `credits`.
 
 ## skills / jobs / job_runs (migrations 0041, 0043, 0044) — jobs and job_runs LEGACY since 0086
 
@@ -1165,7 +1169,7 @@ flush idempotent.
 | `organization_id` | `text` | Nullable; no FK (ops data outlives tenants) |
 | `conversation_id` | `text` | Client-side chat id; no FK, survives conversation deletion |
 | `turn_id` | `text` | Shared with `agent_profiler_spans.turn_id` — links a defect to its execution timeline |
-| `job_id` | `text` | Async deep-research job id, when the turn ran in a Dask worker |
+| `job_id` | `text` | Async deep-research job id, when the turn ran in a research worker |
 | `agent` | `text` | `shallow` \| `deep` |
 | `kind` | `text` | `turn_verified` \| `citations_removed` \| `quote_unverified` \| `answer_ungrounded` \| `registry_empty` \| `citation_fallback` \| `confidence_capped` |
 | `severity` | `text` | `ok` \| `info` \| `warn` \| `error` — derived from `kind` on the backend, never caller-supplied |

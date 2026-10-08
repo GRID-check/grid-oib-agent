@@ -194,7 +194,7 @@ async function settle(): Promise<void> {
 
 function renderPanel(props: Partial<React.ComponentProps<typeof TasksPanel>> = {}) {
   const utils = render(
-    <TasksPanel projectId="proj-1" projectCollection="col-1" canManageJobs {...props} />
+    <TasksPanel projectId="proj-1" canManageJobs {...props} />
   )
   return { ...utils }
 }

@@ -69,7 +69,7 @@ export const files = {
     // the knowledge base. Neither a success ("Citable" would promise a citation
     // retrieval cannot make) nor a failure — nothing went wrong.
     stored: 'Filed',
-    // The content check (ADR-0083) matched: the file is in the project, no
+    // The content check (ADR-0085) matched: the file is in the project, no
     // model has seen it, and someone has to decide.
     quarantined: 'Quarantined',
     unknown: 'Unknown',
@@ -284,7 +284,7 @@ export const files = {
   },
   screening: {
     // Why a file was held back, by the content check (in the text) or the
-    // name check (in the file or folder name), ADR-0083.
+    // name check (in the file or folder name), ADR-0085.
     reasonTerm: '“{term}” in the text',
     reasonIban: 'IBAN {sample}',
     reasonSvnr: 'Social security number {sample}',
@@ -515,7 +515,7 @@ export const files = {
     collisions: '{count} files share a name with another file in this upload',
     collisionsExplain:
       'A project holds one document per filename, so these are not uploaded. Rename them and drop them again.',
-    // Held back by the office's name screening (ADR-0083): the files do not
+    // Held back by the office's name screening (ADR-0085): the files do not
     // leave this computer unless someone releases one of them.
     excluded: '{count} file(s) stay on your computer',
     excludedExplain:
@@ -551,7 +551,7 @@ export const files = {
     uploadFiles: 'Choose files',
   },
   errors: {
-    // Held back by the office's name screening (ADR-0083) on a path with no
+    // Held back by the office's name screening (ADR-0085) on a path with no
     // upload dialog, such as a chat attachment.
     screenedOut: '{count} file(s) not uploaded because your office marks them as sensitive: {files}',
     screenedOutFile: '“{name}” ({reason})',

@@ -19,6 +19,7 @@ import { getSignedUrl } from '@aws-sdk/s3-request-presigner'
 import {
   s3Client,
   signingS3Client,
+  presignForBackend,
   buildImageStorageKey,
   buildThumbnailStorageKey,
 } from '@/lib/s3'
@@ -410,10 +411,9 @@ export async function dispatchIngest(
   // sign with the internal-endpoint client, not the browser-facing one.
   // The ingest JOB downloads it, not the request, and the job may start long
   // after dispatch behind the bounded ingest queue: see the constant.
-  const presignedUrl = await getSignedUrl(
-    s3Client,
+  const presignedUrl = await presignForBackend(
     new GetObjectCommand({ Bucket: bucket, Key: storageKey }),
-    { expiresIn: INGEST_JOB_REF_TTL_SECONDS }
+    INGEST_JOB_REF_TTL_SECONDS
   )
 
   // Presigned upload slot for the 200px JPEG thumbnail the ingest pipeline
@@ -422,15 +422,14 @@ export async function dispatchIngest(
   // write capability to a shared path rather than to this document's own.
   const thumbnailUploadKey = buildThumbnailStorageKey(storageKey)
   const thumbnailUploadUrl = thumbnailUploadKey
-    ? await getSignedUrl(
-        signingS3Client,
+    ? await presignForBackend(
         new PutObjectCommand({
           Bucket: bucket,
           Key: thumbnailUploadKey,
           ContentType: 'image/jpeg',
         }),
         // Written by the same job at its end, so it must outlive the queue too.
-        { expiresIn: INGEST_JOB_REF_TTL_SECONDS }
+        INGEST_JOB_REF_TTL_SECONDS
       )
     : null
 
@@ -439,7 +438,7 @@ export async function dispatchIngest(
   // Read from the row rather than threaded through every caller; a failed read
   // books the spend to the organization alone, never fails the dispatch.
   const attribution = await findDocumentInOrg(documentId, organizationId).catch(() => null)
-  // The content gate's rules (ADR-0083). Every path into the index passes this
+  // The content gate's rules (ADR-0085). Every path into the index passes this
   // line — upload, re-ingest, re-index, Archiv, chat, the IFC digest — so the
   // gate is not something a new caller has to remember.
   const screening = await ingestScreeningFor(organizationId, attribution)
@@ -800,7 +799,7 @@ export interface UploadDocumentInput {
   originPath?: string | null
   /**
    * The uploader released this file in the upload dialog although the
-   * organization's name screening excludes it (ADR-0083) — the Bauvertrag in a
+   * organization's name screening excludes it (ADR-0085) — the Bauvertrag in a
    * folder called „Verträge". Honoured and audited; absent means "do not
    * override", so a client that never asks is screened.
    */
@@ -1417,9 +1416,7 @@ async function signedRenditionRef(input: DispatchDocumentInput, fileName: string
   const bucket = resolveDocumentBucket(input.storageBucket)
   try {
     const renditionKey = await ensureRendition({ bucket, storageKey: input.storageKey, filename: fileName })
-    return await getSignedUrl(s3Client, new GetObjectCommand({ Bucket: bucket, Key: renditionKey }), {
-      expiresIn: INGEST_JOB_REF_TTL_SECONDS,
-    })
+    return await presignForBackend(new GetObjectCommand({ Bucket: bucket, Key: renditionKey }), INGEST_JOB_REF_TTL_SECONDS)
   } catch (error) {
     console.warn(
       '[documents] office rendition at ingest failed:',
@@ -2814,14 +2811,13 @@ export async function presignDocumentImageUpload(
   if (!doc) return null
   const storageKey = buildImageStorageKey(doc.storageKey, imageIndex)
   if (!storageKey) return null
-  const uploadUrl = await getSignedUrl(
-    signingS3Client,
+  const uploadUrl = await presignForBackend(
     new PutObjectCommand({
       Bucket: resolveDocumentBucket(doc.storageBucket),
       Key: storageKey,
       ContentType: 'image/jpeg',
     }),
-    { expiresIn: 3600 }
+    3600
   )
   return { uploadUrl, storageKey }
 }

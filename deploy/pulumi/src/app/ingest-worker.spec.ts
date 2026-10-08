@@ -28,7 +28,7 @@ describe("the ingest-worker tier", () => {
   it("emits only GRID_INGEST_ names the worker reads", () => {
     const readByPython = names(pythonSources, /"(GRID_INGEST_[A-Z_]+)"/g);
     const emitted = names(configSource, /name: "(GRID_INGEST_[A-Z_]+)"/g);
-    expect(emitted.size).toBeGreaterThan(2);
+    expect(emitted.size).toBeGreaterThan(1);
     expect([...emitted].filter((n) => !readByPython.has(n))).toEqual([]);
   });
 

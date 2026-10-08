@@ -390,7 +390,7 @@ server.js  ──  envelope.modelOverrides (signed) + x-grid-model-overrides  �
    directly-held LLMs (clarifier planner, reflection schedule)
    wrapped via apply_model_override(llm, group)
                                      │
- async deep research: submit_agent_job auto-captures the map → Dask runner
+ async deep research: submit_agent_job auto-captures the map → research runner
    applies it to the worker's provider AND re-injects the header;
    the effort is resolved live in the worker (platform-wide, nothing captured)
 ```
@@ -443,7 +443,7 @@ Key properties:
   back, so no tool schema is re-bound and no prompt is re-read. The deep agent
   still rebuilds.
 - Async jobs — both deep research and the post-answer memory-reflection
-  stage — re-apply the map inside the Dask worker rather than inheriting it:
+  stage — re-apply the map inside the research worker rather than inheriting it:
   request contextvars don't survive into a background job, so
   `jobs/runner.py` both (a) applies the sanitized overrides to the
   worker-side `LLMProvider` at build time and (b) re-injects the
