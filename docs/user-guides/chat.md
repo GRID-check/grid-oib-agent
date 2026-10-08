@@ -252,7 +252,9 @@ for it. It is Piloti's reading of the notes until a person approves it:
   close are carried over, each citing that Protokoll.
 - A remark about a regulation appears only with a citation from the corpus.
 
-Without notes, Piloti asks for them instead of drafting. To change the draft,
+Without notes, Piloti asks for them instead of drafting. A Protokoll is the
+minutes of one meeting, so it cannot be set up to repeat: each meeting is its
+own task, with its own notes. To change the draft,
 send it back with „Piloti überarbeiten lassen" (or „Änderungen anfordern" in
 the conversation it came from): Piloti writes the next version of the same
 document and submits it to you again.

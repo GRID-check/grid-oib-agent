@@ -320,6 +320,16 @@ class TestAProtokollNeedsItsNotes:
         await task_tools.run_create_task("protokoll", "Mach das Protokoll", material="TOP 1: Fenster")
         assert calls[0][0]["material"] == "TOP 1: Fenster"
 
+    async def test_a_cadence_is_refused_and_nothing_is_posted(self, monkeypatch, calls) -> None:
+        """One meeting, one Protokoll: a schedule would redraft the same notes every week."""
+        responder(monkeypatch, {**ACCEPTED, "kind": "protokoll"}, calls)
+        answer = await task_tools.run_create_task(
+            "protokoll", "Protokoll jeden Montag", cadence="0 8 * * 1", documents="Notizen JF 12.pdf"
+        )
+        assert "nicht wiederkehrend" in answer
+        assert "nichts angelegt" in answer
+        assert calls == []
+
     async def test_a_document_task_still_needs_nothing_handed_over(self, monkeypatch, calls) -> None:
         """The gate is the kind's, not a new rule for every task."""
         responder(monkeypatch, ACCEPTED, calls)

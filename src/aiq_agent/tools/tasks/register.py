@@ -101,6 +101,18 @@ TASK_KINDS: tuple[str, ...] = ("compliance_check", "einreichcheck", "document", 
 #: (`requiresHandedOver` in `lib/tasks/delegation.ts`).
 _NEEDS_HANDED_OVER: frozenset[str] = frozenset({"protokoll"})
 
+#: The kinds that run once, on what they were handed, and never on a cadence.
+#: A Protokoll is the minutes of ONE meeting; a schedule would redraft the same
+#: notes every week. Refused here and again by the BFF (`oneOff` in
+#: `lib/tasks/delegation.ts`).
+_ONE_OFF: frozenset[str] = frozenset({"protokoll"})
+
+_NO_CADENCE = (
+    "Fehler: Ein Protokoll gehört zu genau einer Besprechung und läuft nicht wiederkehrend. Es wurde nichts "
+    "angelegt. Lege es ohne `cadence` an, mit den Notizen dieser Besprechung; für die nächste Besprechung "
+    "entsteht ein neuer Auftrag mit ihren Notizen."
+)
+
 _NO_NOTES = (
     "Fehler: Für ein Protokoll braucht Piloti die Notizen der Besprechung, und dieser Auftrag nennt keine. "
     "Es wurde nichts angelegt. Frage die Nutzerin nach den Notizen: als Datei im Projekt (dann in "
@@ -268,7 +280,7 @@ _CREATE_TASK_DESCRIPTION = (
     "gegen die OIB-Richtlinien, `einreichcheck` prüft die Vollständigkeit der Einreichung, `document` "
     "schreibt ein Dokument und legt es als Entwurf ab, `protokoll` macht aus den Notizen einer Besprechung "
     "das Besprechungsprotokoll und legt es als Entwurf ab (braucht die Notizen in `documents` oder "
-    "`material`), `revision` überarbeitet einen zurückgegebenen Entwurf. "
+    "`material`; nie mit `cadence`), `revision` überarbeitet einen zurückgegebenen Entwurf. "
     "`goal` ist der Auftrag in den Worten der Nutzerin. `due` ist optional das gewünschte Datum als "
     "`JJJJ-MM-TT` — rechne „bis Freitag“ selbst in ein Datum um, gib keinen Text an. "
     "`cadence` ist optional ein 5-Feld-Cron für wiederkehrende Aufträge („jeden Montag“ → "
@@ -310,6 +322,8 @@ async def _create(kind: str, goal: str, due: str, cadence: str, documents: str, 
     if (due or "").strip():
         payload["due"] = due.strip()
     if (cadence or "").strip():
+        if chosen_kind in _ONE_OFF:
+            raise _Refused(_NO_CADENCE)
         payload["cadence"] = _cadence_or_refuse(cadence)
 
     body = await _post(payload, envelope)

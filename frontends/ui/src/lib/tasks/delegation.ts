@@ -110,6 +110,14 @@ interface TaskEngine {
    * where the person is still in the conversation to supply them.
    */
   readonly requiresHandedOver?: true
+  /**
+   * The work is done once, on what it was handed, and never on a cadence. A
+   * Protokoll is the minutes of ONE meeting: a schedule would redraft the same
+   * notes every week and file a fresh draft of last week's meeting each time.
+   * Set, a delegation with a cadence is refused here, before the
+   * `project:skills:manage` check, so the reason given is the real one.
+   */
+  readonly oneOff?: true
 }
 
 const TASK_ENGINES: Record<DelegatableTaskKind, TaskEngine> = {
@@ -202,6 +210,7 @@ const TASK_ENGINES: Record<DelegatableTaskKind, TaskEngine> = {
       ].join('\n'),
     title: (goal) => `Protokoll: ${goal}`,
     requiresHandedOver: true,
+    oneOff: true,
   },
   /**
    * Revise a version a reviewer sent back.
@@ -339,6 +348,9 @@ export async function delegateTask(
   }
   if (input.cadence && input.dueAt) {
     throw new UnprocessableError('A task is either one-off (due) or recurring (cadence), never both')
+  }
+  if (input.cadence && TASK_ENGINES[input.kind].oneOff) {
+    throw new UnprocessableError(`A ${input.kind} task runs once, on what it was handed, and takes no cadence`)
   }
 
   // Permissions attach to the TRIGGER, the same rule the definition editor

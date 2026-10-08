@@ -255,6 +255,23 @@ describe('delegateTask', () => {
     expect(submitAgentRun).not.toHaveBeenCalled()
   })
 
+  it('refuses a `protokoll` with a cadence before asking for the schedule permission', async () => {
+    // One meeting, one Protokoll: a schedule would redraft the same notes and
+    // file last week's minutes again every Monday.
+    await expect(
+      delegateTask(session, {
+        projectId: PROJECT,
+        kind: 'protokoll',
+        goal: 'Protokoll jeden Montag',
+        documents: { grundlage: [{ name: 'Notizen JF 12.pdf' }], ausgeschlossen: [] },
+        cadence: { cron: '0 8 * * 1' },
+      }),
+    ).rejects.toThrow(/takes no cadence/)
+    expect(requireProjectAccess).not.toHaveBeenCalledWith(session, PROJECT, 'project:skills:manage')
+    expect(repository.insertDefinition).not.toHaveBeenCalled()
+    expect(repository.insertDefinitionWithRun).not.toHaveBeenCalled()
+  })
+
   it('freezes no snapshot, so nothing can be delivered without the model asking', async () => {
     await delegateTask(session, { projectId: PROJECT, kind: 'einreichcheck', goal: 'Prüf die Einreichung' })
 

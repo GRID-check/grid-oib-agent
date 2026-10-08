@@ -68,6 +68,13 @@ def test_the_kinds_that_need_notes_agree_on_both_tiers() -> None:
     assert needs == {"protokoll"}
 
 
+def test_the_kinds_that_take_no_cadence_agree_on_both_tiers() -> None:
+    """A Protokoll is one meeting's minutes: a schedule would redraft the same notes every week."""
+    one_off = {kind for kind, row in _ts_engines().items() if "oneOff: true" in row}
+    assert one_off == set(task_tools._ONE_OFF)
+    assert one_off == {"protokoll"}
+
+
 def test_every_playbook_an_engine_names_is_a_skill_piloti_can_load() -> None:
     chat_skills = {skill.name for skill in discover_builtin_skills() if _skill_applies_to_agent(skill, "researcher")}
     named = {name for row in _ts_engines().values() for name in re.findall(r"— /([a-z0-9-]+)\.", row)}
