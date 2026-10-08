@@ -113,7 +113,7 @@ export const organization = {
     },
   },
   /**
-   * Personen & Zugriff → Eigene Rollen (ADR-0084): roles an office builds in
+   * Personen & Zugriff → Eigene Rollen (ADR-0086): roles an office builds in
    * WorkOS, assigned on the People tab, named by restricted folders.
    */
   customRoles: {

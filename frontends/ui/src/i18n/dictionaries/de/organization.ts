@@ -112,7 +112,7 @@ export const organization: typeof en.organization = {
     },
   },
   /**
-   * Personen & Zugriff → Eigene Rollen (ADR-0084): Rollen, die ein Büro in
+   * Personen & Zugriff → Eigene Rollen (ADR-0086): Rollen, die ein Büro in
    * WorkOS anlegt, im Reiter „Personen“ zuweist und auf die es Ordner einschränkt.
    */
   customRoles: {

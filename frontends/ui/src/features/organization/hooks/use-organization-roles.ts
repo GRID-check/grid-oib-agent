@@ -1,7 +1,7 @@
 'use client'
 
 /**
- * The organization's roles, read once per mount (ADR-0084).
+ * The organization's roles, read once per mount (ADR-0086).
  *
  * Two surfaces need them: the custom-roles section, which edits them, and the
  * project Files view, which names them on a restricted folder's lock and offers

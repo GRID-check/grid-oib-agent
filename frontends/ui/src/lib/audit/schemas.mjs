@@ -121,7 +121,7 @@ export const AUDIT_SCHEMAS = /** @type {const} */ ({
     targets: [{ type: 'model_config_version' }],
     metadata: { ...MODEL_GROUP_METADATA, reset: 'boolean', rollback: 'boolean' },
   },
-  // An office's own roles, kept in WorkOS (ADR-0084). The slug and the
+  // An office's own roles, kept in WorkOS (ADR-0086). The slug and the
   // permission list the role holds after the change; a role is a bundle of
   // permissions, so "who composed which bundle" is the trail that matters.
   'org.role.created': {
@@ -136,7 +136,7 @@ export const AUDIT_SCHEMAS = /** @type {const} */ ({
     targets: [{ type: 'organization' }],
     metadata: { role: 'string', permissions: 'string' },
   },
-  // Upload screening (ADR-0083). Its own action rather than
+  // Upload screening (ADR-0085). Its own action rather than
   // `org.settings.updated`, because "who widened what may be uploaded" has to
   // be answerable on its own. Counts, not the lists: a term list can name
   // what an office considers sensitive, which is itself sensitive.
