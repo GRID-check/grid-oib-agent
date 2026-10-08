@@ -44,7 +44,15 @@ vi.mock('@/lib/citations/service', () => ({
     reasons: [
       { kind: 'citations_removed', reason: 'url_not_in_registry', occurrences: 20, share: 0.66 },
     ],
-    sourceMix: [{ dimension: 'tool', label: 'ris_search_tool', turns: 7 }],
+    sourceMix: [
+      { dimension: 'tool', label: 'ris_search_tool', turns: 7 },
+      { dimension: 'lane', label: 'oib', turns: 5 },
+    ],
+    unavailableTools: [],
+    missingSources: [],
+    missingSourcesTotal: 0,
+    inventoryKnown: false,
+    organizationsTotal: 1,
     organizations: [
       {
         organizationId: 'org_1',
@@ -83,6 +91,12 @@ describe('GET /api/platform/citation-health', () => {
     expect(body.totals.cleanRate).toBe(0.88)
     expect(body.organizations[0].name).toBe('Tenant')
     expect(body.reasons[0].reason).toBe('url_not_in_registry')
+    // The fields the dashboard needs to say what it is NOT showing.
+    expect(body).toMatchObject({
+      inventoryKnown: false,
+      missingSourcesTotal: 0,
+      organizationsTotal: 1,
+    })
   })
 
   it('passes the requested window through to the service', async () => {

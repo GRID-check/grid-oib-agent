@@ -31,6 +31,8 @@ const health = (overrides: Partial<FeedbackHealth> = {}): FeedbackHealth =>
   ({
     windowDays: 30,
     answers: 500,
+    ratedAnswers: 45,
+    coverage: 0.09,
     totals: { up: 40, down: 10, voters: 12, downVoters: 4 },
     reasons: [{ reason: 'inaccurate', count: 7 }],
     daily: [],

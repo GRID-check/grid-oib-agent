@@ -21,8 +21,8 @@
  * not be able to fire a write.
  */
 
-import { type FC, useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { ExternalLink, Image as ImageIcon, Lock, MousePointerClick } from 'lucide-react'
+import { type FC, useCallback, useEffect, useMemo, useState } from 'react'
+import { ExternalLink, Image as ImageIcon, LayoutGrid, Lock, MousePointerClick } from 'lucide-react'
 
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -59,22 +59,29 @@ interface CatalogDto {
 /**
  * A preview that cannot be operated.
  *
- * `inert` is set through the DOM property rather than as a JSX attribute: this
- * app is on React 18, which passes unknown props through as attributes but
- * types them as errors. The property is the same switch — it removes the whole
- * subtree from hit-testing, focus order and the accessibility tree, which is
- * what a picture of a card should be. `pointer-events-none` alone would leave
- * the buttons keyboard-reachable, and a tabbed-to "Yes" still writes.
+ * `inert` removes the whole subtree from hit-testing, focus order and the
+ * accessibility tree, which is what a picture of a card should be. React 19
+ * knows the attribute, so it is a plain prop. `pointer-events-none` alone
+ * would leave the buttons keyboard-reachable, and a tabbed-to "Yes" still
+ * writes.
  */
-const InertPreview: FC<{ children: React.ReactNode }> = ({ children }) => {
-  const ref = useRef<HTMLDivElement>(null)
-  useEffect(() => {
-    if (ref.current) ref.current.inert = true
-  }, [])
+const InertPreview: FC<{ children: React.ReactNode }> = ({ children }) => (
+  <div inert className="pointer-events-none select-none">
+    {children}
+  </div>
+)
+
+/** The external "request a card" link, saying it leaves Piloti for a new tab. */
+const RequestCardLink: FC<{ url: string; variant: 'default' | 'outline' }> = ({ url, variant }) => {
+  const t = useTranslations('platform')
   return (
-    <div ref={ref} className="pointer-events-none select-none">
-      {children}
-    </div>
+    <Button asChild variant={variant} size="sm" className="shrink-0">
+      <a href={url} target="_blank" rel="noopener noreferrer">
+        {t('cards.requestCta')}
+        <ExternalLink className="size-3.5" aria-hidden />
+        <span className="sr-only">{t('cards.opensInNewTab')}</span>
+      </a>
+    </Button>
   )
 }
 
@@ -112,21 +119,25 @@ const CatalogEntry: FC<{ card: CatalogCardDto }> = ({ card }) => {
       ) : (
         <div className="text-muted-foreground flex items-center gap-2 rounded-md border border-dashed px-3 py-4 text-xs">
           <ImageIcon className="size-4 shrink-0" aria-hidden />
-          {excluded === 'needsDocuments' ? t('cards.noPreviewDocuments') : t('cards.noPreviewModel')}
+          {excluded === 'needsDocuments'
+            ? t('cards.noPreviewDocuments')
+            : t('cards.noPreviewModel')}
         </div>
       )}
 
       <Collapsible open={open} onOpenChange={setOpen}>
         <CollapsibleTrigger asChild>
           <Button variant="ghost" size="sm" className="self-start px-2">
-            {open ? t('cards.hideValues') : t('cards.showValues', { count: String(card.fields.length) })}
+            {open
+              ? t('cards.hideValues')
+              : t('cards.showValues', { count: String(card.fields.length) })}
           </Button>
         </CollapsibleTrigger>
         <CollapsibleContent>
           {/* The field list is wide on small screens — scroll it in its own
               container so the page body never scrolls horizontally. */}
           <div className="overflow-x-auto">
-            <dl className="mt-2 flex min-w-md flex-col divide-y text-xs">
+            <dl className="min-w-md mt-2 flex flex-col divide-y text-xs">
               {card.fields.map((field) => (
                 <div key={field.name} className="flex flex-col gap-0.5 py-2 sm:flex-row sm:gap-4">
                   <dt className="sm:w-52 sm:shrink-0">
@@ -153,11 +164,9 @@ const CatalogEntry: FC<{ card: CatalogCardDto }> = ({ card }) => {
 export const PlatformCards: FC = () => {
   const t = useTranslations('platform')
   const [payload, setPayload] = useState<CatalogDto | null>(null)
-  const [loading, setLoading] = useState(true)
   const [error, setError] = useState(false)
 
   const load = useCallback(async () => {
-    setLoading(true)
     setError(false)
     try {
       const res = await fetch('/api/platform/cards')
@@ -165,8 +174,6 @@ export const PlatformCards: FC = () => {
       setPayload((await res.json()) as CatalogDto)
     } catch {
       setError(true)
-    } finally {
-      setLoading(false)
     }
   }, [])
 
@@ -175,47 +182,40 @@ export const PlatformCards: FC = () => {
   }, [load])
 
   const featureRequest = payload?.featureRequest
+  const cards = payload?.cards ?? []
 
   return (
     <SectionCard
-      title={t('cards.title')}
+      title={payload ? t('cards.count', { count: String(payload.cardCount) }) : t('cards.title')}
       description={t('cards.description')}
-      loading={loading}
+      loading={payload === null && !error}
       skeletonRows={6}
       error={error}
       errorMessage={t('cards.loadError')}
       onRetry={() => void load()}
+      empty={payload !== null && cards.length === 0}
+      emptyIcon={LayoutGrid}
+      emptyTitle={t('cards.emptyTitle')}
+      emptyDescription={t('cards.emptyDescription')}
+      emptyAction={
+        featureRequest ? <RequestCardLink url={featureRequest.url} variant="default" /> : undefined
+      }
       testId="platform-cards"
       action={
-        featureRequest ? (
-          <Button asChild variant="outline" size="sm">
-            <a href={featureRequest.url} target="_blank" rel="noopener noreferrer">
-              {t('cards.requestCta')}
-              <ExternalLink className="size-3.5" aria-hidden />
-            </a>
-          </Button>
-        ) : undefined
+        featureRequest ? <RequestCardLink url={featureRequest.url} variant="outline" /> : undefined
       }
     >
-      <p className="text-muted-foreground text-sm">
-        {t('cards.count', { count: String(payload?.cardCount ?? 0) })}
-      </p>
-      <ul className="mt-2 flex flex-col divide-y">
-        {(payload?.cards ?? []).map((card) => (
+      <ul className="flex flex-col divide-y">
+        {cards.map((card) => (
           <CatalogEntry key={card.type} card={card} />
         ))}
       </ul>
       {featureRequest ? (
         // Repeated at the foot deliberately: the reader who has scrolled every
         // card and not found theirs is exactly the one with a request to file.
-        <div className="bg-muted/40 mt-6 flex flex-col gap-2 rounded-md border p-4 sm:flex-row sm:items-center sm:justify-between">
-          <p className="text-sm">{featureRequest.label}</p>
-          <Button asChild size="sm" className="shrink-0">
-            <a href={featureRequest.url} target="_blank" rel="noopener noreferrer">
-              {t('cards.requestCta')}
-              <ExternalLink className="size-3.5" aria-hidden />
-            </a>
-          </Button>
+        <div className="flex flex-col gap-3 border-t pt-5 sm:flex-row sm:items-center sm:justify-between">
+          <p className="text-muted-foreground text-sm">{featureRequest.label}</p>
+          <RequestCardLink url={featureRequest.url} variant="default" />
         </div>
       ) : null}
     </SectionCard>
