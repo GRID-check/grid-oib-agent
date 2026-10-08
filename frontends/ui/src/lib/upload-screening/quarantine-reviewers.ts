@@ -5,7 +5,9 @@
  * sensitive-data list, so it is not the project's yet: only the person who
  * uploaded it and the people who decide about it may open it. Everyone else is
  * told it does not exist, on every byte path (`getAccessibleDocument`) and in
- * every listing (`quarantineReaderFor` narrows the query).
+ * every listing (`quarantineReaderFor` narrows the query). The signed image
+ * route has no session to ask this with, so its URL carries the answer the mint
+ * got (`streamDocumentImage`, `@/lib/images/signed-image-url`).
  *
  * The reviewer rule lives here, apart from `./review`, because the documents
  * layer asks it on every item read, and `./review` imports the documents

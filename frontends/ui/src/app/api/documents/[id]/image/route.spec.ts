@@ -148,6 +148,22 @@ describe('GET /api/documents/[id]/image', () => {
     expect(s3Client.send).not.toHaveBeenCalled()
   })
 
+  it('404s a row that turned quarantined after the URL was minted, unless the URL names its uploader', async () => {
+    // Minted with no quarantine grant (the row was not quarantined then); a
+    // re-upload by somebody else has since been held back (ADR-0085).
+    await stubDocument({ ...imageRow, status: 'quarantined', createdBy: 'user-2' })
+
+    expect((await call(signedQuery())).status).toBe(404)
+    expect(s3Client.send).not.toHaveBeenCalled()
+
+    await stubDocument({ ...imageRow, status: 'quarantined', createdBy: USER })
+    vi.mocked(s3Client.send).mockResolvedValue({
+      ContentLength: 48211,
+      Body: { transformToWebStream: () => new ReadableStream() },
+    } as never)
+    expect((await call(signedQuery())).status).toBe(200)
+  })
+
   it('refuses an unsigned request', async () => {
     await stubDocument(imageRow)
 

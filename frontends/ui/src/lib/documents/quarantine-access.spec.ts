@@ -6,11 +6,12 @@
  * every org member, on every byte path: `getAccessibleDocument` never looked at
  * the status. These specs drive the real gate and the real reviewer rule
  * (`mayReviewQuarantine`) through each surface a person opens a file by —
- * download, preview, text preview, thumbnail — and the listing, for a member,
- * the uploader and a reviewer.
+ * download, preview, text preview, thumbnail, the signed image URL the
+ * thumbnail and preview hand out — and the listing, for a member, the uploader
+ * and a reviewer.
  */
 
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 vi.mock('server-only', () => ({}))
 vi.mock('@/lib/authz/folder-access', async () => (await import('@/test-utils/folder-access')).openFolderAccessModule())
@@ -70,6 +71,7 @@ import {
   probeProjectDocumentNames,
   resolveProjectDocumentsByName,
   searchProjectDocuments,
+  streamDocumentImage,
 } from './service'
 
 const personOf = (userId: string, permissions: string[] = []): AuthorizedSession =>
@@ -141,6 +143,66 @@ describe.each(SURFACES)('the $name of a quarantined project document', ({ open, 
 
   it("is served to the organization's admin", async () => {
     await expect(open(orgAdmin)).resolves.toBeDefined()
+  })
+})
+
+/**
+ * The signed image URL outlives its mint, and its route has no session to run
+ * `getAccessibleDocument` with. A re-upload keeps the document's id, so a card
+ * that fetched its thumbnail URL before the new bytes were quarantined holds a
+ * URL for the quarantined thumbnail, or for an image, the quarantined image.
+ */
+describe('the signed image URL of a document that turns quarantined', () => {
+  const imageRow = (overrides: Partial<Document> = {}): Document =>
+    quarantined({ filename: 'plan.png', contentType: 'image/png', storageKey: 'org-1/proj-1/doc-q/plan.png', ...overrides })
+  const before = imageRow({ status: 'completed', errorMessage: null })
+
+  /** Mint through the real surface, then present the URL as the optimizer would. */
+  async function mintThenStream(session: AuthorizedSession, atMint: Document, atUse: Document): Promise<Response> {
+    vi.mocked(findDocumentInOrg).mockResolvedValue(atMint)
+    const { url } = await getDocumentThumbnail(session, 'doc-q')
+    if (!url?.startsWith('/api/')) throw new Error(`expected a signed same-origin URL, got ${url}`)
+    vi.mocked(findDocumentInOrg).mockResolvedValue(atUse)
+    vi.mocked(s3Client.send).mockClear()
+    return streamDocumentImage('doc-q', new URL(url, 'https://grid.test').searchParams)
+  }
+
+  beforeEach(() => {
+    vi.stubEnv('GRID_INTERNAL_API_TOKEN', 'test-signing-secret')
+    vi.mocked(s3Client.send).mockResolvedValue({
+      ContentLength: 64,
+      Body: { transformToWebStream: () => new ReadableStream() },
+    } as never)
+  })
+
+  afterEach(() => {
+    vi.unstubAllEnvs()
+  })
+
+  it('answers 404 to a member whose URL was minted before the verdict', async () => {
+    await expect(mintThenStream(member, before, imageRow())).rejects.toBeInstanceOf(NotFoundError)
+    expect(s3Client.send).not.toHaveBeenCalled()
+  })
+
+  it('answers 404 to the earlier uploader, once somebody else re-uploaded it', async () => {
+    const theirs = before // uploaded by uploader-1
+    const reuploaded = imageRow({ createdBy: 'member-1' })
+    await expect(mintThenStream(uploader, theirs, reuploaded)).rejects.toBeInstanceOf(NotFoundError)
+  })
+
+  it('still streams to the uploader of the quarantined bytes', async () => {
+    const response = await mintThenStream(uploader, before, imageRow())
+    expect(response.status).toBe(200)
+  })
+
+  it('streams to a reviewer whose URL was minted on the quarantined row', async () => {
+    const response = await mintThenStream(projectAdmin, imageRow(), imageRow())
+    expect(response.status).toBe(200)
+  })
+
+  it('streams to a member once the row is no longer quarantined', async () => {
+    const response = await mintThenStream(member, before, before)
+    expect(response.status).toBe(200)
   })
 })
 

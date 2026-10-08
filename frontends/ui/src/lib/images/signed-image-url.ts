@@ -40,6 +40,16 @@
  * full-size original when it was issued for a thumbnail, and cannot be used
  * after the person it names has lost the folder.
  *
+ * And one grant: whether the person was cleared to see the document IN
+ * QUARANTINE (ADR-0085). The route cannot ask the reviewer rule again, because
+ * that rule reads session roles the token does not carry, so the mint records
+ * the answer: a URL minted for a row that was already quarantined, which
+ * `getAccessibleDocument` only lets the uploader and the reviewers reach, says
+ * so. A URL minted before the row turned quarantined does not, and the route
+ * refuses it to anyone but the row's current uploader. Without the grant a
+ * token minted for a member before a re-upload was quarantined would go on
+ * streaming the held-back bytes until it expired.
+ *
  * ## Why the expiry is bucketed rather than exact
  *
  * A per-request expiry would make every issued URL unique, which reintroduces
@@ -58,7 +68,7 @@ import { createHmac, timingSafeEqual } from 'node:crypto'
 /** Which object a token authorizes: the upload itself, or its ingest thumbnail. */
 export type DocumentImageVariant = 'original' | 'thumb'
 
-const SIGNATURE_DOMAIN = 'grid:document-image:v2'
+const SIGNATURE_DOMAIN = 'grid:document-image:v3'
 const DEV_DEFAULT_TOKEN = 'grid-internal-dev-token'
 const DEV_APP_ENVS = new Set(['development', 'dev', 'local'])
 
@@ -130,6 +140,12 @@ export interface DocumentImageClaims {
   userId: string
   documentId: string
   variant: DocumentImageVariant
+  /**
+   * The person may see this document while it is quarantined: it was
+   * quarantined when the URL was minted, and `getAccessibleDocument` let them
+   * reach it, so they are its uploader or one of its reviewers.
+   */
+  quarantine: boolean
   /** Unix seconds, bucketed by {@link IMAGE_URL_WINDOW_SECONDS}. */
   exp: number
 }
@@ -141,6 +157,7 @@ function signature(claims: DocumentImageClaims, secret: string): string {
     claims.userId,
     claims.documentId,
     claims.variant,
+    claims.quarantine ? 'quarantine' : '',
     String(claims.exp),
   ].join(':')
   return createHmac('sha256', secret).update(message, 'utf8').digest('hex')
@@ -153,6 +170,13 @@ function signature(claims: DocumentImageClaims, secret: string): string {
 export function imageUrlExpiry(nowMs: number = Date.now()): number {
   const nowSeconds = Math.floor(nowMs / 1000)
   return (Math.floor(nowSeconds / IMAGE_URL_WINDOW_SECONDS) + 2) * IMAGE_URL_WINDOW_SECONDS
+}
+
+/** What a minted URL grants beyond the five bound values, and the clock tests pin. */
+export interface DocumentImageUrlOptions {
+  /** See {@link DocumentImageClaims.quarantine}. Set it only for a row that is quarantined now. */
+  quarantine?: boolean
+  nowMs?: number
 }
 
 /**
@@ -169,7 +193,7 @@ export function buildDocumentImageUrl(
   userId: string,
   documentId: string,
   variant: DocumentImageVariant,
-  nowMs: number = Date.now(),
+  { quarantine = false, nowMs = Date.now() }: DocumentImageUrlOptions = {},
 ): string | null {
   const secret = signingSecret()
   if (!secret) return null
@@ -179,12 +203,14 @@ export function buildDocumentImageUrl(
     userId,
     documentId,
     variant,
+    quarantine,
     exp: imageUrlExpiry(nowMs),
   }
   const query = new URLSearchParams({
     org: organizationId,
     u: userId,
     v: variant,
+    ...(quarantine ? { q: '1' } : {}),
     exp: String(claims.exp),
     sig: signature(claims, secret),
   })
@@ -214,16 +240,18 @@ export function verifyDocumentImageUrl(
   const organizationId = params.get('org')
   const userId = params.get('u')
   const variant = params.get('v')
+  const grant = params.get('q')
   const exp = Number(params.get('exp'))
   const provided = params.get('sig')
 
   if (!organizationId || !userId || !provided) return { ok: false, reason: 'malformed' }
   if (variant !== 'original' && variant !== 'thumb') return { ok: false, reason: 'malformed' }
+  if (grant !== null && grant !== '1') return { ok: false, reason: 'malformed' }
   if (!Number.isSafeInteger(exp) || exp <= 0) return { ok: false, reason: 'malformed' }
 
   if (exp * 1000 <= nowMs) return { ok: false, reason: 'expired' }
 
-  const claims: DocumentImageClaims = { organizationId, userId, documentId, variant, exp }
+  const claims: DocumentImageClaims = { organizationId, userId, documentId, variant, quarantine: grant === '1', exp }
   const expected = signature(claims, secret)
 
   // timingSafeEqual throws on a length mismatch, which a hex-length check

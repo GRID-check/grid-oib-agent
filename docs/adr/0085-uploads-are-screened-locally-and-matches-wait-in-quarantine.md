@@ -125,7 +125,12 @@ German, and explains each verdict.
   (`mayReviewQuarantine`, `lib/upload-screening/quarantine-reviewers.ts`) for a
   quarantined row on every item path, and the listings push the same rule down
   to their query (`quarantineReader`); everyone else gets the 404 an unknown
-  document gets. Before this, the status was never consulted, so a file held
+  document gets. The signed image URL (`/api/documents/{id}/image`, amended
+  2026-10-08) has no session to ask the reviewer rule with, outlives its mint
+  by up to ten minutes, and a re-upload keeps the document's id: it carries a
+  signed quarantine grant, set when it is minted for a row that is already
+  quarantined, and the route streams a quarantined row only on that grant or to
+  the row's current uploader. Before this, the status was never consulted, so a file held
   back for its content was downloadable by every project member, and in the
   Büroablage by every org member. The agent's byte lookups
   (`/api/internal/document-file`, a chat's subject version) refuse it too, and
@@ -199,7 +204,8 @@ German, and explains each verdict.
   file's name, and nothing but the policy read is sent while the policy cannot be read.
   `upload-screening-policy.spec.ts` asserts the loader rejects rather than falling back and
   re-reads for every upload.
-* `documents/quarantine-access.spec.ts` drives download, preview, text preview, thumbnail and the
+* `documents/quarantine-access.spec.ts` drives download, preview, text preview, thumbnail, the
+  signed image URL (minted before the verdict, presented after it) and the
   listing for a member (404, left out), the uploader and a reviewer; `quarantine-listing.integration.spec.ts`
   proves the listing predicate, the IFC model list and the agent's byte lookup against Postgres;
   `bim/model-service.quarantine.spec.ts` covers the model viewer and the agent's IFC tools.

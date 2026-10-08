@@ -2509,7 +2509,9 @@ export async function getDocumentPreview(
   // full-size upload down to the box it is rendered in. Null for PDFs, SVGs and
   // the exotic formats above, whose callers fall back to `url` unoptimized.
   const imageUrl = OPTIMIZABLE_IMAGE_CONTENT_TYPES.includes(contentType)
-    ? buildDocumentImageUrl(session.organizationId, session.userId, documentId, 'original')
+    ? buildDocumentImageUrl(session.organizationId, session.userId, documentId, 'original', {
+        quarantine: doc.status === 'quarantined',
+      })
     : null
 
   return { url, contentType, filename: doc.filename, imageUrl, rendition: false, sourceContentType: null }
@@ -2698,7 +2700,9 @@ export async function getDocumentThumbnail(
     return { url: null }
   }
 
-  const signedUrl = buildDocumentImageUrl(session.organizationId, session.userId, documentId, 'thumb')
+  const signedUrl = buildDocumentImageUrl(session.organizationId, session.userId, documentId, 'thumb', {
+    quarantine: doc.status === 'quarantined',
+  })
   if (signedUrl) return { url: signedUrl }
 
   try {
@@ -2729,6 +2733,11 @@ export async function getDocumentThumbnail(
  * full-size original when it was issued for a thumbnail. The org id is taken
  * from the signed claims rather than the caller, so the row lookup stays
  * tenant-scoped exactly as the session path is.
+ *
+ * What may have changed since the mint is asked again: the folder, and the
+ * quarantine (ADR-0085). A re-upload keeps the document's id, so a URL minted
+ * for a member before the new bytes were quarantined would otherwise go on
+ * serving their thumbnail, or for an image the image itself, until it expired.
  */
 export async function streamDocumentImage(
   documentId: string,
@@ -2744,9 +2753,14 @@ export async function streamDocumentImage(
     throw new ForbiddenError('Invalid or expired image URL')
   }
 
-  const { organizationId, userId, variant } = verified.claims
+  const { organizationId, userId, variant, quarantine } = verified.claims
   const doc = await findDocumentInOrg(documentId, organizationId)
   if (!doc?.storageKey) throw new NotFoundError()
+  // `getAccessibleDocument`'s quarantine rule, for a person with no session:
+  // its uploader, or somebody the mint found quarantine-cleared on a row that
+  // was already quarantined (a reviewer's preview). The reviewer rule itself
+  // reads session roles the token does not carry.
+  if (doc.status === 'quarantined' && !quarantine && doc.createdBy !== userId) throw new NotFoundError()
   // The URL outlives the moment it was minted, and the optimizer's fetch has no
   // session, so the person it names is asked again: a folder they can no longer
   // read does not load its images (ADR-0086, ADR-0087). Not found, like every
