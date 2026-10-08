@@ -23,6 +23,7 @@
 
 import 'server-only'
 import { and, desc, eq, or, sql } from 'drizzle-orm'
+import { CROSS_PROJECT_MAX_PERMIT_REQUIREMENTS, CROSS_PROJECT_MAX_PERMITS } from '@/lib/cross-project/types'
 import { getDb } from '@/lib/db'
 import {
   documents,
@@ -37,11 +38,11 @@ import { cosineSimilaritySql, embedNote, type EmbeddedNote } from '@/lib/knowled
 import { fuseHybridRelevance } from '@/lib/knowledge/recall-scoring'
 import { memoryVisibleTo } from '@/lib/projects/memory-service'
 
-/** How many records one search returns at most, across every project it searched. */
-export const PERMIT_MAX_RECORDS = 8
+/** How many records one search returns at most: the wire's bound, so the two cannot drift. */
+export const PERMIT_MAX_RECORDS = CROSS_PROJECT_MAX_PERMITS
 
 /** How many requirements of one record a search returns at most. */
-export const PERMIT_MAX_REQUIREMENTS_PER_RECORD = 6
+export const PERMIT_MAX_REQUIREMENTS_PER_RECORD = CROSS_PROJECT_MAX_PERMIT_REQUIREMENTS
 
 /** How many requirements one search ranks: its own bound, so a large office cannot widen it. */
 const PERMIT_CANDIDATES = 300

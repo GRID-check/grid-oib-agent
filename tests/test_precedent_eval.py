@@ -88,6 +88,25 @@ class TestTheFixtureBff:
         assert body["decisions"][0]["project"]["name"] == "Holzwohnbau Baden, Wiener Straße"
         assert "Prüfbericht" in body["decisions"][0]["content"]
 
+    def test_a_projects_permit_record_answers_in_the_routes_wire_shape_with_only_the_requirements_that_matched(
+        self, bff
+    ):
+        _, body = _post(bff, "/api/internal/cross-project/search", {"query": "Druckbelüftung Prüfbericht"})
+
+        _validator("CrossProjectSearchResponse").validate(body)
+        permit = body["permits"][0]
+        assert (permit["fileName"], permit["collection"], permit["kind"], permit["restricted"]) == (
+            "MA37_Nachforderung_Druckbelueftung.pdf",
+            "proj_eval_wien22",
+            "nachforderung",
+            False,
+        )
+        assert permit["project"]["name"] == "Bürogebäude Wien 22, Wagramer Straße"
+        assert permit["project"]["bundesland"] == "wien"
+        assert "Prüfbericht" in permit["requirements"][0]["content"]
+        assert len(body["permits"]) <= 8
+        assert all(0 < len(found["requirements"]) <= 6 for found in body["permits"])
+
     def test_a_question_nothing_answers_still_gets_the_nearest_passages_as_in_production(self, bff):
         """No relevance floor: production hands the nearest passages over and the agent judges, so the eval does too."""
         _, body = _post(bff, "/api/internal/cross-project/search", {"query": "Feuerwehraufzug Hochhaus", "limit": 5})
@@ -131,6 +150,27 @@ class TestTheFixtureBff:
         logged = [json.loads(line) for line in (tmp_path / "requests.jsonl").read_text().splitlines()]
         assert logged[0]["path"] == "/api/internal/cross-project/search"
         assert logged[0]["body"] == {"query": "Traufe"}
+
+
+def test_the_fixture_permit_records_are_of_documents_the_office_holds_and_the_ingest_typed_bescheid():
+    """`permits.json` is the pen's output over the office: a record for a document that is not one is a stale render."""
+    permits = json.loads(
+        (REPO_ROOT / "frontends" / "ui" / "tests" / "fixtures" / "precedent" / "permits.json").read_text()
+    )
+    documents = {
+        document["documentId"]: document
+        for project in FixtureOffice().office["projects"]
+        for document in project["documents"]
+    }
+    bescheide = {
+        document_id for document_id, document in documents.items() if "Bescheid" in (document.get("tags") or [])
+    }
+
+    assert permits["records"], "no record at all: render_fixture_permits.py has not been run"
+    assert set(permits["records"]) <= set(documents)
+    assert set(permits["records"]) <= bescheide
+    # A Bescheid with no record would be a fixture office the production ingest does not produce.
+    assert set(permits["records"]) == bescheide
 
 
 def test_the_envelope_the_suite_mints_is_one_the_agent_accepts():
@@ -203,6 +243,9 @@ def _concept_embedder(concepts: dict[str, list[str]]):
 CONCEPTS = _concept_embedder({"eaves": ["eaves", "traufe"], "lining": ["lining", "kapselung", "gipsfaser"]})
 
 
+PERMIT_CONCEPTS = _concept_embedder({"pressure": ["druckbel", "pressuris"], "escape": ["fluchtweg", "escape"]})
+
+
 class TestTheSearchRanksByMeaning:
     def test_a_question_in_another_language_finds_the_passage_by_meaning(self):
         office = FixtureOffice(embed=CONCEPTS)
@@ -218,6 +261,17 @@ class TestTheSearchRanksByMeaning:
 
         assert decisions[0]["project"]["name"] == "Holzwohnbau Baden, Wiener Straße"
         assert len(decisions) <= 6
+
+    def test_the_permit_records_are_ranked_by_meaning_too(self):
+        office = FixtureOffice(embed=PERMIT_CONCEPTS)
+
+        permits = office.search({"query": "Must we prove the stairwell is pressurised?"})["permits"]
+
+        assert permits[0]["fileName"] == "MA37_Nachforderung_Druckbelueftung.pdf"
+        assert permits[0]["requirements"][0]["content"].startswith("Für das Sicherheitstreppenhaus")
+
+    def test_a_scenario_without_the_projects_has_no_permit_of_them(self):
+        assert FixtureOffice(scenario="leeres-buero").search({"query": "Druckbelüftung"})["permits"] == []
 
     def test_an_embedder_that_fails_leaves_the_token_channel(self):
         office = FixtureOffice(embed=lambda texts: None)

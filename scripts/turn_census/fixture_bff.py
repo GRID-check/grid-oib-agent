@@ -9,7 +9,9 @@ This serves exactly the routes that question needs, from
   and the reference catalog, both as the production renderers wrote them
   (``rendered.json``, from ``reference-brief.fixture.spec.ts``);
 - ``POST /api/internal/cross-project/{search,projects,brief}``: answered from
-  ``office.json``, in the routes' wire shape.
+  ``office.json`` (and the permit records of its Bescheide, ``permits.json``,
+  written by ``render_fixture_permits.py`` with the production pen), in the
+  routes' wire shape.
 
 Every OTHER internal route gets its connection dropped without an answer. That
 is exactly what a suite run sees today, with no BFF at all, so a run differs
@@ -19,7 +21,7 @@ Search ranks as production does, by meaning: the deployment's own embedding
 model (``knowledge_layer``'s ``make_embed_model``, the note-embeddings
 route's), fused by reciprocal rank with a token channel, each searched
 project's nearest passages returned whatever their relevance, the decisions
-ranked the same way. No word list and no threshold production does not have:
+and the permit records' requirements ranked the same way. No word list and no threshold production does not have:
 on a question nothing answers, the agent is handed the nearest passages and
 must judge, as it is in production. Without an embedding key the token
 channel alone ranks, and the run's report says so.
@@ -51,6 +53,9 @@ DEFAULT_SCENARIO = "default"
 #: As `perProjectTopK`'s cap and `CROSS_PROJECT_MAX_DECISIONS` in `lib/cross-project/`.
 MAX_PER_PROJECT = 30
 MAX_DECISIONS = 6
+#: As `CROSS_PROJECT_MAX_PERMITS` and `CROSS_PROJECT_MAX_PERMIT_REQUIREMENTS` in `lib/cross-project/types.ts`.
+MAX_PERMITS = 8
+MAX_PERMIT_REQUIREMENTS = 6
 #: Reciprocal-rank constant, as `RRF_K` in `lib/knowledge/recall-scoring.ts`.
 RRF_K = 60
 _TOKEN = re.compile(r"[a-z0-9]+")
@@ -138,6 +143,10 @@ class FixtureOffice:
         office_projects = every if kept is None else [project for project in every if project["id"] in set(kept)]
         self.projects = {project["id"]: project for project in office_projects}
         self.rendered = self._rendered[scenario]
+        permits = directory / "permits.json"
+        self.permits: dict[str, dict[str, Any]] = (
+            json.loads(permits.read_text(encoding="utf-8"))["records"] if permits.exists() else {}
+        )
 
     def turn_context(self) -> dict[str, Any]:
         return {
@@ -238,6 +247,7 @@ class FixtureOffice:
         following = offset + len(page)
         return {
             "decisions": self._decisions(page, query),
+            "permits": self._permits(page, query),
             "hits": hits[:limit],
             "projectsInScope": len(scope),
             "projectsSearched": len(page),
@@ -258,6 +268,56 @@ class FixtureOffice:
             for index, _score, relevance in ranked
             if relevance is not None
         ][:MAX_DECISIONS]
+
+    def _permits(self, page: list[dict[str, Any]], query: str) -> list[dict[str, Any]]:
+        """The page's permit records whose requirements match best, ranked as `searchPermitRequirements` ranks them.
+
+        Requirements are ranked, over the text production ranks (the requirement,
+        its evidence, the record's authority and Gemeinde); a record ranks by its
+        best requirement and carries only the requirements that matched.
+        """
+        candidates = [
+            (project, document, record, requirement)
+            for project in page
+            for document in project.get("documents") or []
+            if (record := self.permits.get(document["documentId"]))
+            for requirement in record["requirements"]
+        ]
+        texts = [
+            " ".join(
+                part
+                for part in (
+                    requirement["content"],
+                    requirement["evidence"],
+                    record["authority"],
+                    record["municipality"],
+                )
+                if part
+            )
+            for _project, _document, record, requirement in candidates
+        ]
+        grouped: dict[str, list[int]] = {}
+        for index, _score, relevance in self._rank(query, texts):
+            if relevance is not None:
+                grouped.setdefault(candidates[index][1]["documentId"], []).append(index)
+        permits = []
+        for indexes in list(grouped.values())[:MAX_PERMITS]:
+            project, document, record, _requirement = candidates[indexes[0]]
+            permits.append(
+                {
+                    "project": self._ref(project),
+                    "collection": project["collection"],
+                    "fileName": document["filename"],
+                    "kind": record["kind"],
+                    "authority": record["authority"],
+                    "municipality": record["municipality"],
+                    "issuedOn": record["issuedOn"],
+                    "reference": record["reference"],
+                    "requirements": [candidates[index][3] for index in indexes[:MAX_PERMIT_REQUIREMENTS]],
+                    "restricted": False,
+                }
+            )
+        return permits
 
     def projects_listing(self, body: dict[str, Any]) -> dict[str, Any]:
         needle = _fold(str(body.get("query") or ""))

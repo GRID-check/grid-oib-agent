@@ -46,6 +46,7 @@ import { buildProjectPromptView } from '@/lib/project-profile/prompt-view'
 import { findProjectInOrg } from '@/lib/projects/repository'
 import { audienceReach, type AudienceReach } from './audience-reach'
 import { searchProjectDecisions, type DecisionScope, type FoundDecision } from './decisions-repository'
+import { searchPermitRequirements, type FoundPermitRecord } from '@/lib/permits/repository'
 import { rankBySimilarity, similarityFacts } from './similarity'
 import type { VerifiedGridRequestContext } from '@/lib/request-context'
 import {
@@ -58,6 +59,7 @@ import {
   type CrossProjectRef,
   type CrossProjectListRequest,
   type CrossProjectListResponse,
+  type CrossProjectPermit,
   type CrossProjectSearchRequest,
   type CrossProjectSearchResponse,
   type ProjectStatus,
@@ -363,7 +365,24 @@ function asDecision(found: FoundDecision, byId: ReadonlyMap<string, Project>): C
   }
 }
 
-/** Search documents and recorded decisions across the projects in reach, one bounded page of projects per call (ADR-0093). */
+function asPermit(found: FoundPermitRecord, byId: ReadonlyMap<string, Project>): CrossProjectPermit | null {
+  const project = byId.get(found.projectId)
+  if (!project) return null
+  return {
+    project: projectRefOf(project),
+    collection: found.collectionName,
+    fileName: found.fileName,
+    kind: found.kind,
+    authority: found.authority,
+    municipality: found.municipality,
+    issuedOn: found.issuedOn,
+    reference: found.reference,
+    requirements: found.requirements,
+    restricted: found.restrictedFolderIds !== null,
+  }
+}
+
+/** Search documents, recorded decisions and permit records across the projects in reach, one bounded page of projects per call (ADR-0093). */
 export async function searchAcrossProjects(
   caller: CrossProjectCaller,
   request: CrossProjectSearchRequest
@@ -378,33 +397,41 @@ export async function searchAcrossProjects(
     current ?? (caller.currentProjectId ? { id: caller.currentProjectId, profile: null } : null)
   )
   const page = scope.slice(request.offset, request.offset + CROSS_PROJECT_PAGE_PROJECTS)
-  const [perProject, decided] = await Promise.all([
+  const memoryScopes = decisionScopes(caller.session, page, reach)
+  // Decisions and permit records are judged over the same scopes: the same
+  // projects, the same folder clearance, so the two cannot disagree on reach.
+  const [perProject, decided, permitted] = await Promise.all([
     mapBounded(page, SEARCH_CONCURRENCY, (project) => searchOneProject(caller.session, project, request, reach)),
-    decisionScopes(caller.session, page, reach).then((scopes) =>
-      searchProjectDecisions(caller.session.organizationId, scopes, request.query)
-    ),
+    memoryScopes.then((scopes) => searchProjectDecisions(caller.session.organizationId, scopes, request.query)),
+    memoryScopes.then((scopes) => searchPermitRequirements(caller.session.organizationId, scopes, request.query)),
   ])
   const byId = new Map(page.map((project) => [project.id, project]))
   const decisions = decided.flatMap((found) => {
     const decision = asDecision(found, byId)
     return decision ? [{ decision, folderIds: found.restrictedFolderIds ?? [] }] : []
   })
+  const permits = permitted.flatMap((found) => {
+    const permit = asPermit(found, byId)
+    return permit ? [{ permit, folderIds: found.restrictedFolderIds ?? [] }] : []
+  })
   const kept = perProject
     .flat()
     .sort((a, b) => b.hit.score - a.hit.score)
     .slice(0, request.limit)
   // Recorded before anything is returned: the projects and restricted folders
-  // of the hits AND of the decisions handed out.
+  // of the hits AND of the decisions and permit records handed out.
   await recordCrossProjectHandOut(
     party(caller),
     {
       projectIds: [
         ...kept.map((found) => found.hit.project.id),
         ...decisions.map(({ decision }) => decision.project.id),
+        ...permits.map(({ permit }) => permit.project.id),
       ],
       folderIds: [
         ...kept.map((found) => found.folderId).filter((folderId): folderId is string => folderId !== null),
         ...decisions.flatMap(({ folderIds }) => folderIds),
+        ...permits.flatMap(({ folderIds }) => folderIds),
       ],
     },
     reach.key
@@ -412,6 +439,7 @@ export async function searchAcrossProjects(
   const next = request.offset + page.length
   return {
     decisions: decisions.map(({ decision }) => decision),
+    permits: permits.map(({ permit }) => permit),
     hits: kept.map((found) => found.hit),
     projectsInScope: scope.length,
     projectsSearched: page.length,
