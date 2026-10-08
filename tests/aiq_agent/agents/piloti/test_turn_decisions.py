@@ -36,6 +36,14 @@ def _facts(question: str, **kwargs) -> TurnFacts:
 
 
 class TestWhatIsAsked:
+    def test_other_projects_are_a_corpus_only_when_the_office_has_reference_projects(self):
+        """A corpus nothing searches must not be offered: picking it would prefetch nothing."""
+        without = questions_for(_facts("Wie haben wir die Traufe gelöst?"))
+        with_catalog = questions_for(_facts("Wie haben wir die Traufe gelöst?", reference_projects=3))
+
+        assert "referenz" not in without["corpus"]["criteria"]
+        assert "referenz" in with_catalog["corpus"]["criteria"]
+
     def test_one_question_per_family_and_per_card_beside_the_fixed_ones(self):
         questions = questions_for(_facts("Wie lang darf der Fluchtweg sein?"))
         assert set(questions) == {
@@ -48,7 +56,7 @@ class TestWhatIsAsked:
             "card_stair_diagram",
         }
         assert questions["corpus"]["type"] == "choice"
-        assert set(questions["corpus"]["criteria"]) == {"baurecht", "projekt", "buero", "referenz", "modell", "none"}
+        assert set(questions["corpus"]["criteria"]) == {"baurecht", "projekt", "buero", "modell", "none"}
         # The family question carries the Richtlinie's subject, in the decider's language.
         assert "Brandschutz" in questions["family_2"]["criteria"]["true"]
         # The card question carries the card's own index line.
@@ -96,7 +104,7 @@ class TestTheReferenceProjects:
         assert _facts("q", reference_projects=6).state()["corpus"]["reference_projects"] == 6
 
     def test_earlier_projects_are_the_reference_corpus_not_the_archive(self):
-        options = questions_for(_facts("q"))["corpus"]["criteria"]
+        options = questions_for(_facts("q", reference_projects=2))["corpus"]["criteria"]
         assert "earlier" in options["referenz"] and "earlier" not in options["buero"]
 
     def _decided(self, corpus: str, precedent: float | None, evidence: float = 0.9) -> TurnDecisions:

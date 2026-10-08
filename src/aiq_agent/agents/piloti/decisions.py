@@ -268,6 +268,18 @@ class TurnFacts:
         return state
 
 
+def corpus_options(facts: TurnFacts) -> dict[str, str]:
+    """The corpora this turn can search: other projects only when the office has reference projects.
+
+    Offering ``referenz`` to an office with none let the model pick a corpus
+    nothing searches, and the turn prefetched nothing where ``buero`` would
+    have prefetched the archive.
+    """
+    if facts.reference_projects > 0:
+        return dict(CORPUS_OPTIONS)
+    return {key: text for key, text in CORPUS_OPTIONS.items() if key != "referenz"}
+
+
 def questions_for(facts: TurnFacts) -> dict[str, dict[str, Any]]:
     """Every question of the turn decision, keyed the way the answers are read back."""
     from aiq_agent.common.decisions import choice
@@ -283,7 +295,7 @@ def questions_for(facts: TurnFacts) -> dict[str, dict[str, Any]]:
             ),
             false=CORPUS_OPTIONS["none"],
         ),
-        "corpus": choice("Where does the answer to this message most likely live?", CORPUS_OPTIONS),
+        "corpus": choice("Where does the answer to this message most likely live?", corpus_options(facts)),
     }
     for family in facts.families:
         scope = FAMILY_SCOPE.get(str(family.key), family.label)
