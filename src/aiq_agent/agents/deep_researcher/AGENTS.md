@@ -1,6 +1,6 @@
 # The deep researcher: `src/aiq_agent/agents/deep_researcher`
 
-The long-form agent. It runs as an async job on a Dask worker, not on a chat
+The long-form agent. It runs as an async job on a research worker, not on a chat
 turn, and it is the one agent here built on **deepagents** rather than a
 LangGraph `StateGraph` of ours: an orchestrator LLM delegates to planner,
 researcher and writer subagents over a shared filesystem. `README.md` beside
@@ -8,7 +8,7 @@ this file has the diagram; `custom_middleware.py` is what that framework costs.
 
 ## The seams
 
-**No blocking call may touch the event loop.** A Dask worker heartbeats from
+**No blocking call may touch the event loop.** A research worker heartbeats from
 the same loop, and the ghost reaper fails a job with no heartbeat for 300 s —
 so a synchronous HTTP call inline (the skill resolver was one) fails healthy
 jobs with a timeout that names nothing. `asyncio.to_thread` it. The symptom and

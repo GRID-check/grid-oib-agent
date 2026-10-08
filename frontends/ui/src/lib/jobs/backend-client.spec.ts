@@ -11,11 +11,19 @@ import {
   JobSubmitError,
   JobSubmitSkippedError,
   submitJob,
+  writeNowBackendJob,
+  type JobControlCaller,
   type JobSubmitPayload,
 } from './backend-client'
 
 const headersOf = (init: RequestInit | undefined): Record<string, string> =>
   (init as RequestInit).headers as Record<string, string>
+
+/** A person steering a run: their token, and the envelope over the project their caller authorized. */
+const caller: JobControlCaller = {
+  accessToken: 'tok',
+  contextHeaders: { 'X-Grid-Request-Context': 'signed-scope', 'X-Grid-Request-Context-Sig': 'sig' },
+}
 
 const payload: JobSubmitPayload = {
   input: 'Fasse die Woche zusammen.',
@@ -110,16 +118,27 @@ describe('cancelBackendJob', () => {
     fetchMock.mockResolvedValue(
       new Response(JSON.stringify({ job_id: 'job 1', status: 'interrupted' }), { status: 200 }),
     )
-    await expect(cancelBackendJob('job 1', 'tok')).resolves.toBeUndefined()
+    await expect(cancelBackendJob('job 1', caller)).resolves.toBeUndefined()
     const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit]
     expect(url).toBe('http://backend:8000/v1/jobs/async/job/job%201/cancel')
     expect(init.method).toBe('POST')
     expect(headersOf(init).Authorization).toBe('Bearer tok')
   })
 
+  it('carries the signed envelope, which is what lets a teammate steer the run (ADR-0084)', async () => {
+    fetchMock.mockResolvedValue(new Response('{}', { status: 200 }))
+    await cancelBackendJob('job-1', caller)
+    await writeNowBackendJob('job-1', caller)
+    for (const [, init] of fetchMock.mock.calls as [string, RequestInit][]) {
+      expect(headersOf(init)['X-Grid-Request-Context']).toBe('signed-scope')
+      expect(headersOf(init)['X-Grid-Request-Context-Sig']).toBe('sig')
+    }
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+  })
+
   it('sends no bearer when the session has none (REQUIRE_AUTH=false)', async () => {
     fetchMock.mockResolvedValue(new Response('{}', { status: 200 }))
-    await cancelBackendJob('job-1', null)
+    await cancelBackendJob('job-1', { accessToken: null, contextHeaders: {} })
     const [, init] = fetchMock.mock.calls[0] as [string, RequestInit]
     expect(headersOf(init)).not.toHaveProperty('Authorization')
   })
@@ -129,13 +148,13 @@ describe('cancelBackendJob', () => {
     fetchMock.mockImplementation(
       async () => new Response('Job not cancellable: job-1 (status: success)', { status: 400 }),
     )
-    await expect(cancelBackendJob('job-1', 'tok')).rejects.toBeInstanceOf(JobCancelError)
-    await expect(cancelBackendJob('job-1', 'tok')).rejects.toMatchObject({
+    await expect(cancelBackendJob('job-1', caller)).rejects.toBeInstanceOf(JobCancelError)
+    await expect(cancelBackendJob('job-1', caller)).rejects.toMatchObject({
       status: 400,
       message: 'Job not cancellable: job-1 (status: success)',
     })
     fetchMock.mockRejectedValue(new TypeError('network down'))
-    await expect(cancelBackendJob('job-1', 'tok')).rejects.toMatchObject({ status: 503 })
+    await expect(cancelBackendJob('job-1', caller)).rejects.toMatchObject({ status: 503 })
   })
 })
 
@@ -143,12 +162,13 @@ describe('addDocumentToBackendJob', () => {
   it('posts the document as JSON to the job’s documents door, as the caller', async () => {
     fetchMock.mockResolvedValue(new Response('{}', { status: 200 }))
     await expect(
-      addDocumentToBackendJob('job 1', { name: 'Einreichplan.pdf', shelf: 'project' }, 'tok'),
+      addDocumentToBackendJob('job 1', { name: 'Einreichplan.pdf', shelf: 'project' }, caller),
     ).resolves.toBeUndefined()
     const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit]
     expect(url).toBe('http://backend:8000/v1/jobs/async/job/job%201/documents')
     expect(init.method).toBe('POST')
     expect(headersOf(init).Authorization).toBe('Bearer tok')
+    expect(headersOf(init)['X-Grid-Request-Context']).toBe('signed-scope')
     expect(headersOf(init)['Content-Type']).toBe('application/json')
     expect(JSON.parse(init.body as string)).toEqual({ name: 'Einreichplan.pdf', shelf: 'project' })
   })
@@ -156,7 +176,7 @@ describe('addDocumentToBackendJob', () => {
   it('carries the backend’s refusal the way the cancel does', async () => {
     fetchMock.mockResolvedValue(new Response('Job not running: job-1', { status: 400 }))
     await expect(
-      addDocumentToBackendJob('job-1', { name: 'Einreichplan.pdf' }, 'tok'),
+      addDocumentToBackendJob('job-1', { name: 'Einreichplan.pdf' }, caller),
     ).rejects.toMatchObject({ status: 400, message: 'Job not running: job-1' })
   })
 })

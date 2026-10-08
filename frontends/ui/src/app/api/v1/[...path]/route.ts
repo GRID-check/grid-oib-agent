@@ -96,7 +96,7 @@ const isRedirectError = (error: unknown): boolean => {
 /**
  * Forward only what a product client asks for (`@/lib/proxy/v1-allowlist`).
  *
- * The proxy forwards to `aiq-agent:8000` over the internal network, so the
+ * The proxy forwards to `BACKEND_URL` (the `aiq-api` service) over the internal network, so the
  * backend's `AuthMiddleware` classifies these requests as *internal* and skips
  * its `EXTERNAL_ALLOWED_PATHS` filter. A denylist of the two control-plane
  * prefixes (`admin`, `maintenance`) was therefore the only thing between a

@@ -11,10 +11,12 @@ useDefault = true
 [allowlist]
 description = "Global false-positive allowlist"
 
-# The detect-secrets baseline (.pre-commit-config.yaml) already tracks accepted
-# findings; these paths hold fixtures, examples, generated lockfiles, and docs
-# that legitimately contain secret-shaped strings.
+# These paths hold fixtures, examples, generated lockfiles, and docs that
+# legitimately contain secret-shaped strings.
 paths = [
+  # The detect-secrets baseline was removed, but the scan walks full history,
+  # where past commits still carry it. Its entries are SHA-1 hashes of findings
+  # a reviewer already accepted, not credentials.
   '''\.secrets\.baseline$''',
   '''(^|/)tests?/''',
   # Shared fixtures that are not under `tests/` and are not themselves specs —

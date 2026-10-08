@@ -1,0 +1,8 @@
+---
+operators:
+  - >
+    The backend now runs as two services: aiq-api takes every HTTP call and
+    aiq-agent takes the chat socket alone. Set BACKEND_CHAT_URL on the
+    frontend, which refuses to start without it, and point BACKEND_URL at
+    aiq-api. GRID_ROLE=web no longer exists, so use chat or api. Only the
+    ingest-worker claims ingestion now, and both Compose files run it.

@@ -1,5 +1,5 @@
 ---
-fixes:
+incident:
   - >
     Deleting a document from a project or the Archiv now also deletes the images
     Piloti cut out of it. If the files cannot be deleted, the document stays in

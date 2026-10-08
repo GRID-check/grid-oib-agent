@@ -7,9 +7,11 @@ turn. Conversation state lives in Postgres and reaches this process in headers
 
 ## The trap
 
-`pytest` run directly needs `PYTHONPATH=src`, which `Taskfile.yml` sets. Without
-it you validate whatever the venv installed, possibly another worktree, while
-everything passes.
+`pytest` run directly tests this checkout's `src/`, because `pyproject.toml` puts
+it first on the path. Before that setting, a bare `pytest` in a worktree without
+its own venv validated whatever the venv installed, possibly the main checkout,
+while everything passed. `PYTHONPATH=src` is still what `nat run` and ad-hoc
+scripts need.
 
 ## Obligations
 
