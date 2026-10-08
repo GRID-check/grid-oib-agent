@@ -5,12 +5,14 @@
  * Claiming, heartbeating, releasing and failing are not here: they are SQL in
  * `workers/job-queue.js`, run by the `bff-jobs` runner, because that process
  * has no build step and the claim must exist once (see `./queue.ts`). The BFF
- * adds a job, finds the open one of a kind, and reads back the row a worker was handed.
+ * adds a job, finds the open one of a kind, and reads back the row a worker was
+ * handed.
  */
 
 import 'server-only'
 import { and, asc, desc, eq, ne, sql } from 'drizzle-orm'
 import { getDb } from '@/lib/db'
+import type { DbExecutor } from '@/lib/db/executor'
 import { bffJobQueue, type BffJobPriority, type BffJobRow } from '@/lib/db/schema'
 
 /**
@@ -18,17 +20,30 @@ import { bffJobQueue, type BffJobPriority, type BffJobRow } from '@/lib/db/schem
  * that enqueues it: the table's WITH CHECK refuses a lane that is not the
  * active organization, so a route cannot enqueue into someone else's lane even
  * by mistake.
+ *
+ * `executor` is the caller's transaction when the job must exist exactly when
+ * the caller's other writes do (the Papierkorb queues its jobs that way).
+ * `jobId` lets such a caller stamp rows with the id before the insert returns.
  */
-export async function insertJob(job: {
-  kind: string
-  organizationId: string
-  priority: BffJobPriority
-  payload: Record<string, unknown>
-}): Promise<string> {
-  const db = getDb()
-  const [row] = await db
+export async function insertJob(
+  job: {
+    kind: string
+    organizationId: string
+    priority: BffJobPriority
+    payload: Record<string, unknown>
+    jobId?: string
+  },
+  executor: DbExecutor = getDb()
+): Promise<string> {
+  const [row] = await executor
     .insert(bffJobQueue)
-    .values({ kind: job.kind, lane: job.organizationId, priority: job.priority, payload: job.payload })
+    .values({
+      ...(job.jobId ? { jobId: job.jobId } : {}),
+      kind: job.kind,
+      lane: job.organizationId,
+      priority: job.priority,
+      payload: job.payload,
+    })
     .returning({ jobId: bffJobQueue.jobId })
   return row.jobId
 }

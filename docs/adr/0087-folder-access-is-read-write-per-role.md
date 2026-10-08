@@ -129,7 +129,9 @@ leak through the first path that forgot it. A purge the index does not confirm
 undoes the delete (502). Triggers refuse filing into a deleted folder under the
 project's bin lock (`GFD01`). A restore within `FOLDER_PURGE_GRACE_DAYS`
 (default 14) brings the folder back with its access, at the project root when
-its parent is gone. Then the purge erases the documents and keeps the folder
+its parent is gone; its documents become `processing` in the same transaction
+and a `restore_folder_bin` job reads them again (ADR-0079), so no document reads
+indexed while its chunks are gone. Then the purge erases the documents and keeps the folder
 rows, with their grants, as permanent tombstones (`purged_at`); the access rule
 still answers for a deleted folder's id.
 
@@ -269,7 +271,8 @@ recorded folders.
   research or a task, even after the folder is opened again, until that rule is revisited.
 * Bad, because tombstones accumulate: a purged folder's row and grants are kept for good, so
   the derived content's access can be decided.
-* Bad, because a restore re-reads every document of the folder (an ingest each), and a
+* Bad, because a restore re-reads every document of the folder (an ingest each, queued at bulk
+  priority), the folder's documents are not searchable until their re-read finishes, and a
   Dokumentart or display title set on the backend's metadata row is lost, as with a placement
   move.
 * Bad, because a deleted folder's chunks are purged in the request: a folder of many documents
@@ -394,9 +397,12 @@ recorded folders.
   one, never a restricted collection.
 * `features/documents/components/folder-access-dialog.spec.tsx` and the `/dev/folder-access`
   preview: the dialog and the „Nur lesen" marks.
-* `projects/folder-bin.integration.spec.ts` (real Postgres, 38 cases): a deleted folder and its
+* `projects/folder-bin.integration.spec.ts` (real Postgres): a deleted folder and its
   documents hidden from every listing, document read and the agent's restricted list, for admins
   too; chunks purged and `document-exists` answering gone; a refused purge undoing the delete;
+  a restore's documents `processing` for its job and found by the stuck sweep when the job is gone,
+  dispatched at bulk, a row with nothing to read failed, a Piloti document by its published
+  version, the walk stopped for a requester who lost the project;
   the generic refusal for a subtree with a hidden or read-only folder; the triggers refusing an
   upload, a move and a new subfolder, and an upload that started first being taken along;
   restore with exactly the access it had, to the root when the parent is gone, refused on a name

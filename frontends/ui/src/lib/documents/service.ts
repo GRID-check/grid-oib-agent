@@ -101,7 +101,7 @@ import { findOpenJobId } from '@/lib/jobs-queue/repository'
 import {
   BFF_JOB_PRIORITY,
   emptyCounts,
-  FAILED_NAMES_KEPT,
+  recordJobFailure,
   requesterOf,
   type BffJobPriority,
   type BimExtractPayload,
@@ -1608,12 +1608,6 @@ async function forEachBounded<T>(
   await Promise.all(workers)
 }
 
-/** Keep the names of the first few failures for the log; the count stays exact. */
-function recordFailure(counts: JobCounts, name: string): void {
-  counts.failed += 1
-  if (counts.failedNames.length < FAILED_NAMES_KEPT) counts.failedNames.push(name)
-}
-
 /**
  * Rebuild every document's chunks in one project: authorize, then hand the walk
  * to a job.
@@ -1775,7 +1769,7 @@ export async function runReindexSlice(
         return
       }
       // One document's failure must not abandon the rest of the project.
-      recordFailure(counts, documentDisplayName(row))
+      recordJobFailure(counts, documentDisplayName(row))
     }
   })
 
@@ -1901,7 +1895,7 @@ export async function runReingestFailedSlice(
   const counts: JobCounts = { ...payload.counts, failedNames: [...payload.counts.failedNames] }
   await forEachBounded(ids, REINDEX_CONCURRENCY, async (id) => {
     const outcome = await retryFailedDocument(session, id)
-    if (outcome === 'failed') recordFailure(counts, id)
+    if (outcome === 'failed') recordJobFailure(counts, id)
     else counts[outcome] += 1
   })
 

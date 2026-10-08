@@ -6,14 +6,15 @@
  * owns the queue, this owns the work. That split is why a job survives a
  * restart: nothing a handler holds in memory matters, only what it returned.
  *
- * A walk (`reindex_project`, `reingest_failed`) runs as the person who asked, in
- * the job's organization. The runner has no session, so the session is built
- * here, and built from what the identity provider says NOW: the payload names
- * who asked, but a job can wait in the queue and a walk spans many slices, and
- * a person who lost their role or left the organization in the meantime must
- * not have it carry on with the rights they had when they clicked. The services
- * the handlers call then check access per document exactly as they do for a
- * request. The other kinds are single steps run as the system (see `./types.ts`).
+ * A walk (`reindex_project`, `reingest_failed`, `restore_folder_bin`) runs as
+ * the person who asked, in the job's organization. The runner has no session,
+ * so the session is built here, and built from what the identity provider says
+ * NOW: the payload names who asked, but a job can wait in the queue and a walk
+ * spans many slices, and a person who lost their role or left the organization
+ * in the meantime must not have it carry on with the rights they had when they
+ * clicked. The services the handlers call then check access per document
+ * exactly as they do for a request. The other kinds are single steps run as
+ * the system (see `./types.ts`).
  */
 
 import 'server-only'
@@ -26,6 +27,7 @@ import {
   runReindexSlice,
   runReingestFailedSlice,
 } from '@/lib/documents/service'
+import { runRestoreFolderSlice } from '@/lib/projects/folder-bin-jobs'
 import { runReportFilingJob } from '@/lib/tasks/service'
 import { isLastAttempt } from './attempts'
 import {
@@ -34,6 +36,7 @@ import {
   officeRenditionPayloadSchema,
   reindexProjectPayloadSchema,
   reingestFailedPayloadSchema,
+  restoreFolderBinPayloadSchema,
   type BffJobKind,
   type JobAttempt,
   type JobRequester,
@@ -97,6 +100,7 @@ function systemHandler<TPayload extends object>(
 export const JOB_HANDLERS: Record<BffJobKind, JobHandler> = {
   reindex_project: handler(reindexProjectPayloadSchema, runReindexSlice),
   reingest_failed: handler(reingestFailedPayloadSchema, runReingestFailedSlice),
+  restore_folder_bin: handler(restoreFolderBinPayloadSchema, runRestoreFolderSlice),
   bim_extract: systemHandler(bimExtractPayloadSchema, runBimExtractJob),
   office_rendition: systemHandler(officeRenditionPayloadSchema, runOfficeRenditionJob),
   file_research_report: systemHandler(fileResearchReportPayloadSchema, runReportFilingJob),

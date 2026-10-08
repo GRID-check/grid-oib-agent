@@ -14,7 +14,7 @@
  */
 
 import 'server-only'
-import { and, asc, eq, gt, inArray, isNull, sql } from 'drizzle-orm'
+import { and, asc, eq, gt, inArray, isNotNull, isNull, notInArray, or, sql } from 'drizzle-orm'
 import { getDb } from '@/lib/db'
 import type { DbExecutor } from '@/lib/db/executor'
 import { executeRows } from '@/lib/db/execute-rows'
@@ -154,14 +154,90 @@ export async function markFoldersBinned(
     )
 }
 
-/** Take the folders of one bin entry out of the bin; the caller holds the bin lock. */
-export async function unbinFolders(tx: DbExecutor, projectId: string, rootId: string, at: Date): Promise<number> {
+/** Take the folders of one bin entry out of the bin, by id; the caller holds the bin lock. */
+export async function unbinFolders(tx: DbExecutor, projectId: string, rootId: string, at: Date): Promise<string[]> {
   const rows = await tx
     .update(projectFolders)
     .set({ deletedAt: null, deletedBy: null, binRootId: null, updatedAt: at })
     .where(and(eq(projectFolders.projectId, projectId), eq(projectFolders.binRootId, rootId), isNull(projectFolders.purgedAt)))
     .returning({ id: projectFolders.id })
+  return rows.map((row) => row.id)
+}
+
+/**
+ * Mark the documents of restored folders `processing`, owned by the restore's
+ * job: in the transaction that takes them out of the bin, so a restore never
+ * leaves a document that reads indexed while its chunks are gone (they were
+ * purged when the folder went to the bin). The job re-ingests them; a row it
+ * never reaches is one the stuck-processing sweep finds, because its job is
+ * gone or dead.
+ *
+ * Not every row: a quarantined file waits on a reviewer and was never
+ * indexed, an upload still writing its bytes finishes on its own, and a
+ * machine's document with no published version owns no chunks to restore.
+ * The previous ingest's job id goes; the restore's goes in its place.
+ */
+export async function markDocumentsRestoring(
+  tx: DbExecutor,
+  organizationId: string,
+  projectId: string,
+  folderIds: readonly string[],
+  jobId: string,
+  at: Date
+): Promise<number> {
+  if (folderIds.length === 0) return 0
+  const rows = await tx
+    .update(documents)
+    .set({
+      status: 'processing',
+      errorMessage: null,
+      metadata: sql`(coalesce(${documents.metadata}, '{}'::jsonb) - 'ingestJobId') || ${JSON.stringify({ bffJobId: jobId })}::text::jsonb`,
+      updatedAt: at,
+    })
+    .where(
+      and(
+        eq(documents.organizationId, organizationId),
+        eq(documents.projectId, projectId),
+        inArray(documents.folderId, [...folderIds]),
+        notInArray(documents.status, ['quarantined', 'uploading']),
+        or(eq(documents.authoredBy, 'user'), isNotNull(documents.publishedVersionId))
+      )
+    )
+    .returning({ id: documents.id })
   return rows.length
+}
+
+/**
+ * One page of the documents a restore job still owns, by id after `afterId`:
+ * `processing` and stamped with the job's id, in a folder that is not (again)
+ * in the bin. A row the job has dispatched has moved on and drops out.
+ */
+export async function listRestoringDocumentPage(
+  organizationId: string,
+  projectId: string,
+  jobId: string,
+  afterId: string | null,
+  limit: number
+): Promise<Document[]> {
+  const db = getDb()
+  return withTenant({ organizationId }, () =>
+    db
+      .select({ document: documents })
+      .from(documents)
+      .innerJoin(projectFolders, eq(projectFolders.id, documents.folderId))
+      .where(
+        and(
+          eq(documents.organizationId, organizationId),
+          eq(documents.projectId, projectId),
+          eq(documents.status, 'processing'),
+          sql`${documents.metadata}->>'bffJobId' = ${jobId}`,
+          isNull(projectFolders.deletedAt),
+          ...(afterId ? [gt(documents.id, afterId)] : [])
+        )
+      )
+      .orderBy(asc(documents.id))
+      .limit(limit)
+  ).then((rows) => rows.map((row) => row.document))
 }
 
 /** Re-home a restored folder (its parent gone, or its path stale) and rewrite every path below it. */

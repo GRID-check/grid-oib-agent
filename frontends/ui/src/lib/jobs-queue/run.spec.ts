@@ -18,6 +18,11 @@ vi.mock('@/lib/documents/service', () => ({
   runOfficeRenditionJob: (...args: unknown[]) => runOfficeRenditionJob(...args),
 }))
 
+const runRestoreFolderSlice = vi.fn()
+vi.mock('@/lib/projects/folder-bin-jobs', () => ({
+  runRestoreFolderSlice: (...args: unknown[]) => runRestoreFolderSlice(...args),
+}))
+
 const runReportFilingJob = vi.fn()
 vi.mock('@/lib/tasks/service', () => ({
   runReportFilingJob: (...args: unknown[]) => runReportFilingJob(...args),
@@ -65,6 +70,7 @@ beforeEach(() => {
   runBimExtractJob.mockReset()
   runOfficeRenditionJob.mockReset()
   runReportFilingJob.mockReset()
+  runRestoreFolderSlice.mockReset()
   // Who the identity provider says the requester is today: the role they hold now, not the one they clicked with.
   resolvePinnedRequesterSession.mockReset()
   resolvePinnedRequesterSession.mockImplementation(async ({ userId, email, organizationId }) => ({
@@ -175,6 +181,28 @@ describe('runJobSlice', () => {
     expect(outcome.done).toBe(true)
     expect(runReingestFailedSlice).toHaveBeenCalledTimes(1)
     expect(runReindexSlice).not.toHaveBeenCalled()
+  })
+
+  describe('the Papierkorb walks', () => {
+    const restore = {
+      projectId: 'p-1',
+      folderId: 'f-1',
+      jobId: '7d2c5e5e-8f0a-4c43-9d4c-2f6f0b1c2a11',
+      requester,
+      cursor: null,
+      counts: emptyCounts(),
+    }
+
+    it('runs a restore as the requester of today, and saves where it got to', async () => {
+      findClaimedJob.mockResolvedValue(row({ kind: 'restore_folder_bin', payload: restore }))
+      runRestoreFolderSlice.mockImplementation(async (_session, state) => ({ done: false, payload: { ...state, cursor: 'doc-25' } }))
+
+      const outcome = await runJobSlice('job-1', 'w-0')
+
+      expect(resolvePinnedRequesterSession).toHaveBeenCalledWith({ userId: 'user-1', email: 'user@example.com', organizationId: 'org-1' })
+      expect(runRestoreFolderSlice.mock.calls[0][0]).toMatchObject({ organizationId: 'org-1', organizationMembershipId: 'om-now' })
+      expect(outcome).toMatchObject({ done: false, payload: { cursor: 'doc-25' } })
+    })
   })
 
   it('fails the attempt for a kind it does not know', async () => {

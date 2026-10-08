@@ -26,11 +26,21 @@
  * hits by folder state instead would have to be repeated in every path that
  * reads the index, the agent's included, and a path that forgot would leak; a
  * purged chunk cannot be found by any path. If the backend does not confirm a
- * purge, the delete is undone (the documents purged so far are read again) and
- * refused with 502, so a folder is never in the bin while its content is still
- * searchable. An ingest still running when the folder went to the bin asks
+ * purge, the delete is undone (its documents are read again) and refused with
+ * 502, so a folder is never in the bin while its content is still searchable.
+ * An ingest still running when the folder went to the bin asks
  * `document-exists` once it has indexed, is told "gone", and takes its chunks
  * back out.
+ *
+ * ## Restore reads the documents again, as a job
+ *
+ * The transaction that takes the folder out of the bin also marks its
+ * documents `processing`, stamped with a `restore_folder_bin` job it queues in
+ * the same transaction. The job re-ingests them on the `bff-jobs` pool at
+ * `bulk` priority, a page per slice, as the person who restored; a row it
+ * never reaches is still `processing` with its job gone, which the
+ * stuck-processing sweep recovers. Never a document that reads indexed with
+ * its chunks gone.
  *
  * Nothing can be filed into a deleted folder: migration 0114's triggers refuse
  * the insert or move (SQLSTATE `GFD01`) under the project's bin lock, which
@@ -57,6 +67,7 @@
  */
 
 import 'server-only'
+import { randomUUID } from 'node:crypto'
 import { ConflictError, ForbiddenError, NotFoundError, UpstreamError } from '@/lib/api/errors'
 import type { AuthorizedSession } from '@/lib/auth/types'
 import { recordAuditEvent } from '@/lib/audit/service'
@@ -79,11 +90,17 @@ import { lockConversationAudience, recordSourceFolders } from '@/lib/conversatio
 import { getDb } from '@/lib/db'
 import { isUniqueViolation } from '@/lib/db/errors'
 import { withTenant } from '@/lib/db/tenant-context'
-import type { Document } from '@/lib/db/schema'
 import { computePurgeAfter, folderGraceDays } from '@/lib/deletion/policy'
 import { collectionFileRef, purgeIngestedChunks } from '@/lib/documents/collection-file-ref'
-import { dispatchDocument, eraseProjectDocument } from '@/lib/documents/service'
-import { resolveDocumentFolderPath } from '@/lib/documents/folder-path'
+import { eraseProjectDocument } from '@/lib/documents/service'
+import { enqueueJob } from '@/lib/jobs-queue/enqueue'
+import {
+  BFF_JOB_PRIORITY,
+  emptyCounts,
+  requesterOf,
+  type JobRequester,
+  type RestoreFolderBinPayload,
+} from '@/lib/jobs-queue/types'
 import { getDeletedFolderContentPolicy } from '@/lib/organizations/deleted-folder-content'
 import { loadOrganizationDirectory } from '@/lib/sharing/directory'
 import {
@@ -100,12 +117,12 @@ import {
   listBinEntries,
   listDocumentsInFolders,
   listLivingSubtree,
+  markDocumentsRestoring,
   markFoldersBinned,
   markFoldersPurged,
   mergeBinEntryPayload,
   rehomeFolder,
   releaseBinEntry,
-  setDocumentCollection,
   takeBinLock,
   unbinFolders,
   type BinFolderRow,
@@ -136,7 +153,7 @@ const BACKEND_CONCURRENCY = 8
 const ERASE_CONCURRENCY = 4
 
 /** Run `work` over `items`, at most `limit` at a time, in order of the results. */
-async function inPool<T, R>(items: readonly T[], limit: number, work: (item: T) => Promise<R>): Promise<R[]> {
+export async function inPool<T, R>(items: readonly T[], limit: number, work: (item: T) => Promise<R>): Promise<R[]> {
   const results: R[] = new Array(items.length)
   let next = 0
   const workers = Array.from({ length: Math.min(limit, items.length) }, async () => {
@@ -215,6 +232,7 @@ export async function moveFolderToBin(
 
   const purgeAfter = options.purgeAfter ?? computePurgeAfter(new Date(), folderGraceDays())
   const at = new Date()
+  const requester = requesterOf(session)
   const folderIds = await withTenant({ organizationId }, () =>
     db.transaction(async (tx) => {
       await takeBinLock(tx, project.id)
@@ -252,8 +270,7 @@ export async function moveFolderToBin(
     return ref ? purgeIngestedChunks(getBackendUrl(), ref, CHUNK_PURGE_TIMEOUT_MS) : true
   })
   if (purged.some((ok) => !ok)) {
-    const takenOut = docs.filter((_, index) => purged[index])
-    await returnFromBin(organizationId, project, root.id, takenOut).catch((error) => {
+    await returnFromBin(organizationId, project, root.id, requester).catch((error) => {
       console.error('[folder-bin] undoing a delete whose chunk purge failed also failed:', root.id, error)
     })
     throw new UpstreamError(
@@ -283,14 +300,22 @@ export type RestoredTo = 'original' | 'root'
  * Take a bin entry out of the bin: the queue row closed as restored, every
  * folder of the entry living again, the root under its old parent or, when
  * that is gone, at the project root. Under the bin lock.
+ *
+ * Its documents come back `processing`, owned by a `restore_folder_bin` job
+ * queued in the same transaction, which reads them into the index again as
+ * `requester`. Nothing is dispatched here: a restore of thousands of
+ * documents is a walk, and a walk belongs on the `bff-jobs` pool, not in a
+ * request a rollout may cut off (ADR-0079).
  */
 async function unbinEntry(
   organizationId: string,
   project: ProjectRow,
-  root: BinFolderRow
-): Promise<{ restoredTo: RestoredTo; folders: number }> {
+  root: BinFolderRow,
+  requester: JobRequester
+): Promise<{ restoredTo: RestoredTo; folders: number; documents: number }> {
   const db = getDb()
   const at = new Date()
+  const jobId = randomUUID()
   try {
     return await withTenant({ organizationId }, () =>
       db.transaction(async (tx) => {
@@ -300,10 +325,25 @@ async function unbinEntry(
         }
         const parent = root.parentId ? await findLivingFolder(tx, project.id, root.parentId) : null
         const restoredTo: RestoredTo = root.parentId && !parent ? 'root' : 'original'
-        const folders = await unbinFolders(tx, project.id, root.id, at)
+        const folderIds = await unbinFolders(tx, project.id, root.id, at)
         const path = buildFolderPath(parent?.path ?? '', root.name)
         await rehomeFolder(tx, project.id, root.id, parent?.id ?? null, root.path, path, at)
-        return { restoredTo, folders }
+        const documents = await markDocumentsRestoring(tx, organizationId, project.id, folderIds, jobId, at)
+        if (documents > 0) {
+          const payload: RestoreFolderBinPayload = {
+            projectId: project.id,
+            folderId: root.id,
+            jobId,
+            requester,
+            cursor: null,
+            counts: emptyCounts(),
+          }
+          await enqueueJob(
+            { kind: 'restore_folder_bin', organizationId, payload: { ...payload }, priority: BFF_JOB_PRIORITY.bulk, jobId },
+            tx
+          )
+        }
+        return { restoredTo, folders: folderIds.length, documents }
       })
     )
   } catch (error) {
@@ -315,53 +355,19 @@ async function unbinEntry(
 }
 
 /**
- * Read documents back into the collection their folder puts them in now (a
- * restore may land under different lists than the folder left). A failed
- * dispatch leaves the row `failed`, which the ordinary retry re-reads.
+ * Undo a bin entry without a person asking (its chunk purge failed): out of
+ * the bin, and its documents read again by the restore's job, as `requester`.
  */
-async function reingestDocuments(organizationId: string, project: ProjectRow, docs: readonly Document[]): Promise<number> {
-  if (docs.length === 0) return 0
-  const folders = await loadCustomFolderTree(organizationId, project.id)
-  const placement = folders
-    ? computeFolderAccess(folders, { roles: [], seesEverything: true }, project.collectionName)
-    : null
-  const dispatched = await inPool(docs, BACKEND_CONCURRENCY, async (doc) => {
-    const target = placement ? placement.collectionFor(doc.folderId) : project.collectionName
-    if (target !== doc.collectionName) await setDocumentCollection(organizationId, doc.id, target)
-    const placed = { ...doc, collectionName: target }
-    if (!collectionFileRef(placed) || !doc.storageKey) return false
-    try {
-      await dispatchDocument({
-        organizationId,
-        projectId: project.id,
-        documentId: doc.id,
-        filename: doc.filename,
-        storageKey: doc.storageKey,
-        storageBucket: doc.storageBucket,
-        collectionName: target,
-        folderPath: await resolveDocumentFolderPath(placed, organizationId),
-      })
-      return true
-    } catch (error) {
-      console.warn(`[folder-bin] re-ingest of ${doc.id} after restore failed:`, error)
-      return false
-    }
-  })
-  return dispatched.filter(Boolean).length
-}
-
-/** Undo a bin entry without a person asking (its chunk purge failed): out of the bin, and read again. */
 async function returnFromBin(
   organizationId: string,
   project: ProjectRow,
   rootId: string,
-  reingest: readonly Document[]
+  requester: JobRequester
 ): Promise<void> {
   const db = getDb()
   const root = await withTenant({ organizationId }, () => findFolderInOrg(db, organizationId, project.id, rootId))
   if (!root) return
-  await unbinEntry(organizationId, project, root)
-  await reingestDocuments(organizationId, project, reingest)
+  await unbinEntry(organizationId, project, root, requester)
 }
 
 /** The session's level on a folder of the tree, tombstones included, before the project ceiling. */
@@ -386,12 +392,13 @@ async function binEntryFor(session: AuthorizedSession, projectId: string, folder
 export interface RestoreFolderResult {
   restoredTo: RestoredTo
   folders: number
+  /** Documents queued to be read into the index again. */
   documents: number
 }
 
 /**
  * Restore a folder from the Papierkorb with its access, its subfolders and its
- * documents, which are read into the index again. Needs what deleting it
+ * documents, which a job reads into the index again. Needs what deleting it
  * needed: the project's document-write permission and write on the folder.
  * A folder whose parent is gone comes back at the project root, and says so.
  */
@@ -405,12 +412,7 @@ export async function restoreFolderFromBin(
   const projectWrite = await projectMayWriteDocuments(session, project.id)
   if (level !== 'write' || !projectWrite) throw folderReadOnlyError()
 
-  const { restoredTo, folders } = await unbinEntry(session.organizationId, project, root)
-  const folderIds = (await withTenant({ organizationId: session.organizationId }, () =>
-    listLivingSubtree(getDb(), project.id, root.id)
-  ))
-  const docs = await listDocumentsInFolders(session.organizationId, project.id, folderIds)
-  await reingestDocuments(session.organizationId, project, docs)
+  const { restoredTo, folders, documents } = await unbinEntry(session.organizationId, project, root, requesterOf(session))
 
   await recordAuditEvent({
     organizationId: session.organizationId,
@@ -418,10 +420,10 @@ export async function restoreFolderFromBin(
     action: 'project.folder.restored',
     targetType: 'project',
     targetId: project.id,
-    metadata: { folderId: root.id, documents: docs.length, folders, restoredTo },
+    metadata: { folderId: root.id, documents, folders, restoredTo },
     request,
   })
-  return { restoredTo, folders, documents: docs.length }
+  return { restoredTo, folders, documents }
 }
 
 /** One entry of the Papierkorb view. */
