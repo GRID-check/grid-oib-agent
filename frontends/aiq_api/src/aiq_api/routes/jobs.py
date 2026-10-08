@@ -797,7 +797,7 @@ async def register_job_routes(app: FastAPI, builder: WorkflowBuilder, worker: Fa
 
         # SUBMITTED is cancellable too: a job stuck before its first status
         # transition would otherwise be un-cancellable while still consuming
-        # admission-control quota (count_active_jobs counts non-terminal jobs).
+        # its organization's running-job quota.
         if job.status not in (JobStatus.RUNNING.value, JobStatus.SUBMITTED.value):
             raise HTTPException(400, f"Job not cancellable: {job_id} (status: {job.status})")
 
