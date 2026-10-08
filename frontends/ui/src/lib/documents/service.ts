@@ -438,7 +438,7 @@ export async function dispatchIngest(
   // Read from the row rather than threaded through every caller; a failed read
   // books the spend to the organization alone, never fails the dispatch.
   const attribution = await findDocumentInOrg(documentId, organizationId).catch(() => null)
-  // The content gate's rules (ADR-0083). Every path into the index passes this
+  // The content gate's rules (ADR-0085). Every path into the index passes this
   // line — upload, re-ingest, re-index, Archiv, chat, the IFC digest — so the
   // gate is not something a new caller has to remember.
   const screening = await ingestScreeningFor(organizationId, attribution)
@@ -799,7 +799,7 @@ export interface UploadDocumentInput {
   originPath?: string | null
   /**
    * The uploader released this file in the upload dialog although the
-   * organization's name screening excludes it (ADR-0083) — the Bauvertrag in a
+   * organization's name screening excludes it (ADR-0085) — the Bauvertrag in a
    * folder called „Verträge". Honoured and audited; absent means "do not
    * override", so a client that never asks is screened.
    */

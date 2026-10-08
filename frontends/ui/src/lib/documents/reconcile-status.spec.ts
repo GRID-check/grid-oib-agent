@@ -1011,7 +1011,7 @@ describe('describeBackendIngestState', () => {
 })
 
 /**
- * ADR-0083: the content gate stops a job on purpose. The row must read as
+ * ADR-0085: the content gate stops a job on purpose. The row must read as
  * quarantined (waiting on a person), never as an ordinary failure a retry
  * would re-dispatch into the same gate, and the job's screening outcome lands
  * on the row so the upload summary can say what was and was not checked.

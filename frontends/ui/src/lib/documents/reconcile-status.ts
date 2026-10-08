@@ -146,7 +146,7 @@ interface TerminalResolution {
   status: 'completed' | 'failed' | 'quarantined'
   errorMessage: string | null
   /**
-   * What the job's content gate concluded (ADR-0083), when it ran. Absent
+   * What the job's content gate concluded (ADR-0085), when it ran. Absent
    * leaves the column as it is: a job dispatched without screening (released,
    * or screening off) has nothing to say, and must not erase a `released`.
    */
@@ -192,13 +192,13 @@ interface BackendJobStatus {
   error_message?: string | null
   /** `queue_ahead`: the backend's count for a job still in the durable queue. */
   metadata?: { queue_ahead?: unknown } | null
-  /** `screening`: the content gate's per-file outcome (ADR-0083), null when the job carried no rules. */
+  /** `screening`: the content gate's per-file outcome (ADR-0085), null when the job carried no rules. */
   file_details?: Array<{ status?: string; error_message?: string | null; screening?: string | null }>
 }
 
 /**
  * A failure the content gate reported is not a failure: the job stopped on
- * purpose, before any model call, and the row goes to quarantine (ADR-0083).
+ * purpose, before any model call, and the row goes to quarantine (ADR-0085).
  */
 const failedOrQuarantined = (errorMessage: string | null): TerminalResolution =>
   errorMessage?.startsWith(QUARANTINED_PREFIX)

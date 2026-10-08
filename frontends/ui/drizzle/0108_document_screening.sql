@@ -1,4 +1,4 @@
--- Upload screening and quarantine (ADR-0083).
+-- Upload screening and quarantine (ADR-0085).
 --
 -- `screening_outcome` is what the content gate in the ingest job concluded about
 -- the CURRENT bytes: `clean` (the text layer was read and nothing matched),
