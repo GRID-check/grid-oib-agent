@@ -2,4 +2,7 @@
 features:
   - >
     Your office can now build its own roles in Piloti, under Organisation →
-    Personen & Zugriff → Eigene Rollen.
+    Personen & Zugriff → Eigene Rollen, and decide per project folder which
+    roles may read it and which may edit it. A role not on a folder's list does
+    not see the folder, its files or what Piloti finds in them, and organization
+    admins may read and edit everything.
