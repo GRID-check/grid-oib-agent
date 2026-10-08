@@ -1,4 +1,4 @@
-import { boolean, index, integer, pgTable, real, text, timestamp, uuid } from 'drizzle-orm/pg-core'
+import { boolean, index, integer, jsonb, pgTable, real, text, timestamp, uuid } from 'drizzle-orm/pg-core'
 import { relations } from 'drizzle-orm'
 import { projects } from './projects'
 
@@ -93,6 +93,13 @@ export const projectMemory = pgTable(
      * `lib/projects/memory-service.ts`).
      */
     restrictedFolderIds: uuid('restricted_folder_ids').array(),
+    /**
+     * The documents and pages an item was read from (migration 0118): set on a
+     * decision the closing extraction drafted (`provenanceType: distillation`,
+     * `verification: source_grounded`). Only the file name and page, never the
+     * quote. NULL for every other item; when set, always a JSON array.
+     */
+    evidence: jsonb('evidence').$type<{ fileName: string; page: string | null }[] | null>(),
     salience: real('salience').notNull().default(0.5),
     pinned: boolean('pinned').notNull().default(false),
     createdBy: text('created_by'),
