@@ -494,33 +494,38 @@ describe.skipIf(!url)('permit records against live Postgres', () => {
     })
 
     it('lists only the project asked about, and no other organization’s records', async () => {
-      expect((await list(ids.other, [])).map((record) => record.fileName)).toEqual(['Nebenprojekt.pdf'])
+      const listed = await project(ORG, 'Liste')
+      await store(ORG, listed, await document(ORG, listed, 'Liste.pdf'), 'Liste.pdf', [requirement('Auflage der Liste')])
+      expect((await list(listed, [])).map((record) => record.fileName)).toEqual(['Liste.pdf'])
       expect(await list(ids.foreign, [])).toEqual([])
     })
 
     it('leaves out a record whose document moved, sits in the Papierkorb or is archived', async () => {
-      const name = (suffix: string) => `Nebenprojekt_${suffix}.pdf`
-      const moved = await document(ORG, ids.other, name('verschoben'))
-      const binned = await document(ORG, ids.other, name('papierkorb'))
-      const archived = await document(ORG, ids.other, name('archiv'))
-      for (const [id, suffix] of [[moved, 'verschoben'], [binned, 'papierkorb'], [archived, 'archiv']] as const) {
-        await store(ORG, ids.other, id, name(suffix), [requirement(`Auflage ${suffix}`)])
+      // Its own project, so what the other tests store there cannot stand in for this one's records.
+      const own = await project(ORG, 'Ablage')
+      const name = (suffix: string) => `Ablage_${suffix}.pdf`
+      const kept = await document(ORG, own, name('bleibt'))
+      const moved = await document(ORG, own, name('verschoben'))
+      const binned = await document(ORG, own, name('papierkorb'))
+      const archived = await document(ORG, own, name('archiv'))
+      for (const [id, suffix] of [[kept, 'bleibt'], [moved, 'verschoben'], [binned, 'papierkorb'], [archived, 'archiv']] as const) {
+        await store(ORG, own, id, name(suffix), [requirement(`Auflage ${suffix}`)])
       }
-      expect((await list(ids.other, [])).map((record) => record.fileName)).toEqual(
-        expect.arrayContaining([name('verschoben'), name('papierkorb'), name('archiv')])
+      expect((await list(own, [])).map((record) => record.fileName).sort()).toEqual(
+        [name('archiv'), name('bleibt'), name('papierkorb'), name('verschoben')].sort()
       )
 
       const change = (statement: ReturnType<typeof sql>) => inOrg(ORG, () => db.execute(statement))
-      await change(sql`update documents set collection_name = ${`proj_prm_${ids.other}_r0123456789ab`} where id = ${moved}::uuid`)
+      await change(sql`update documents set collection_name = ${`proj_prm_${own}_r0123456789ab`} where id = ${moved}::uuid`)
       const [folder] = await change(sql`
         insert into project_folders (organization_id, project_id, name, path)
-        values (${ORG}, ${ids.other}::uuid, ${`Bin_list_${STAMP}`}, ${`Bin_list_${STAMP}`}) returning id`)
+        values (${ORG}, ${own}::uuid, ${`Bin_list_${STAMP}`}, ${`Bin_list_${STAMP}`}) returning id`)
       const folderId = String((folder as { id: string }).id)
       await change(sql`update documents set folder_id = ${folderId}::uuid where id = ${binned}::uuid`)
       await change(sql`update project_folders set deleted_at = now(), bin_root_id = id where id = ${folderId}::uuid`)
       await change(sql`update documents set lifecycle = 'archived' where id = ${archived}::uuid`)
 
-      expect((await list(ids.other, [])).map((record) => record.fileName)).toEqual(['Nebenprojekt.pdf'])
+      expect((await list(own, [])).map((record) => record.fileName)).toEqual([name('bleibt')])
     })
   })
 })
