@@ -304,7 +304,7 @@ describe.skipIf(!url)('the Papierkorb against live Postgres (migration 0114)', (
       await db.execute(sql`DELETE FROM conversations WHERE organization_id = ${ORG} AND id <> ${CHAT}`)
       await db.execute(sql`DELETE FROM documents WHERE organization_id = ${ORG}`)
       // The grants go with their folders (ON DELETE CASCADE); deleting them
-      // first would leave a custom list empty, which 0109 refuses.
+      // first would leave a custom list empty, which 0110 refuses.
       await db.execute(sql`DELETE FROM project_folders WHERE project_id = ${projectId}::uuid`)
       await db.execute(sql`DELETE FROM legal_holds WHERE organization_id = ${ORG}`)
     })

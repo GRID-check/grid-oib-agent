@@ -8,7 +8,7 @@
 -- removed) and never enter any state below.
 --
 -- Until now a deleted project folder moved its documents and subfolders up into its
--- parent and stayed behind as a tombstone (0109). Deleting a folder now takes
+-- parent and stayed behind as a tombstone (0110). Deleting a folder now takes
 -- its subfolders and documents WITH it: every folder of the subtree gets
 -- `deleted_at`, and `bin_root_id` names the folder the person deleted (itself
 -- for that one), which is what a restore puts back together. The documents keep
@@ -60,7 +60,7 @@ ALTER TABLE "project_folders"
   );
 --> statement-breakpoint
 COMMENT ON COLUMN "project_folders"."bin_root_id" IS
-  'The folder a person deleted, for every folder that went to the Papierkorb with it (itself included). NULL for a living folder and for a tombstone older than 0113.';
+  'The folder a person deleted, for every folder that went to the Papierkorb with it (itself included). NULL for a living folder and for a tombstone older than 0114.';
 --> statement-breakpoint
 COMMENT ON COLUMN "project_folders"."purged_at" IS
   'When the purge removed what the folder held. Set: a permanent tombstone (row and grants kept, ADR-0087). NULL with deleted_at set: in the Papierkorb.';
