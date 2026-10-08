@@ -36,6 +36,8 @@ import {
   type CitationRef,
   type CitedDocument,
 } from '../lib/citations'
+import { useChatStore } from '../store'
+import { isPrecedent } from '../lib/precedent'
 import { SourcePreviewChip } from './SourcePreview'
 import { CopyCitationsMenu } from './CopyCitation'
 import { useCitationScope } from './CitationScope'
@@ -93,9 +95,29 @@ const useClosedProjectNote = (): ((doc: CitedDocument) => string | null) => {
   }
 }
 
+/**
+ * The meta line of a precedent (ADR-0093): its project by name, that project's
+ * own status, and the Land the agent stated for it, warning included.
+ */
+const usePrecedentNote = (): ((doc: CitedDocument) => string | null) => {
+  const t = useTranslations('chat')
+  // The same chat project the chip's popover compares against (SourcePreviewChip).
+  const chatProjectId = useChatStore((s) => s.projectId)
+  return (doc) => {
+    if (!doc.project || !isPrecedent(doc, chatProjectId)) return null
+    const { name, status, landNote } = doc.project
+    const named = t('answerSources.precedentProject', {
+      name,
+      status: t(`answerSources.projectStatus.${status}`),
+    })
+    return landNote ? `${named} · ${landNote}` : named
+  }
+}
+
 const useSourceMeta = (): ((doc: CitedDocument) => string | undefined) => {
   const t = useTranslations('chat')
   const closedNoteFor = useClosedProjectNote()
+  const precedentNoteFor = usePrecedentNote()
   return (doc) => {
     const pages = documentPages(doc)
     const base =
@@ -104,9 +126,9 @@ const useSourceMeta = (): ((doc: CitedDocument) => string | undefined) => {
         : pages.length > 1
           ? t('answerSources.pages', { pages: pages.join(', ') })
           : refHost({ document: doc })
-    const closedNote = closedNoteFor(doc)
-    if (!closedNote) return base
-    return base ? `${base} · ${closedNote}` : closedNote
+    const note = precedentNoteFor(doc) ?? closedNoteFor(doc)
+    if (!note) return base
+    return base ? `${base} · ${note}` : note
   }
 }
 

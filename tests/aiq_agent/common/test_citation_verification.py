@@ -1930,6 +1930,90 @@ class TestSourceLane:
         assert wire["kind"] == "baurecht"
 
 
+class TestPrecedentLandOnTheWire:
+    """A source from another project says which Land it is in, as the producer stated it (ADR-0093)."""
+
+    LAND_NOTE = "Steiermark — nicht das Bundesland dieses Projekts: dort gilt eine andere Bauordnung"
+    PROJECT_LINE = "Projekt: Wohnbau Graz — abgeschlossen (project_id 22222222-0000-4000-8000-000000000002)\n"
+    RESULT = (
+        "Found 1 relevant document(s):\n\n"
+        "--- Result 1 ---\n"
+        "Source: Detail Traufe\n"
+        "{project}"
+        "{land}"
+        "Collection: proj_22\n"
+        "Citation: Detail Traufe.pdf (Wohnbau Graz), p.3\n"
+        "Content Type: text\n"
+        "Relevance Score: 0.91\n\n"
+        "Die Traufe ist hinterlüftet ausgeführt."
+    )
+
+    def _hit(self, land_note: str | None):
+        from aiq_agent.common.grounding_block import GroundingHit
+        from aiq_agent.common.grounding_block import SourceProject
+
+        return GroundingHit(
+            citation_key="Detail Traufe.pdf (Wohnbau Graz), p.3",
+            file_name="Detail Traufe.pdf",
+            page=3,
+            shelf=None,
+            collection="proj_22",
+            doc_class=None,
+            display_title="Detail Traufe",
+            folder_path=None,
+            punkt=None,
+            score=0.91,
+            content_type="text",
+            provenance=None,
+            stored_image_index=None,
+            status_note=None,
+            body="Die Traufe ist hinterlüftet ausgeführt.",
+            project=SourceProject(
+                id="22222222-0000-4000-8000-000000000002",
+                name="Wohnbau Graz",
+                status="closed",
+                land_note=land_note,
+            ),
+        )
+
+    def test_the_producers_land_note_reaches_the_wire_verbatim(self):
+        from aiq_agent.common.citation_verification import _entry_from_hit
+        from aiq_agent.common.citation_verification import source_entry_to_wire
+
+        entry = _entry_from_hit(self._hit(self.LAND_NOTE), "project_lookup")
+
+        assert source_entry_to_wire(entry)["project"] == {
+            "id": "22222222-0000-4000-8000-000000000002",
+            "name": "Wohnbau Graz",
+            "status": "closed",
+            "landNote": self.LAND_NOTE,
+        }
+
+    def test_the_wire_states_no_land_note_the_producer_did_not_state(self):
+        from aiq_agent.common.citation_verification import _entry_from_hit
+        from aiq_agent.common.citation_verification import source_entry_to_wire
+
+        entry = _entry_from_hit(self._hit(None), "project_lookup")
+
+        assert "landNote" not in source_entry_to_wire(entry)["project"]
+
+    def test_a_replayed_turn_reads_the_land_back_from_its_text(self):
+        from aiq_agent.common.citation_verification import _parse_knowledge_layer
+
+        text = self.RESULT.format(project=self.PROJECT_LINE, land=f"Bundesland: {self.LAND_NOTE}\n")
+
+        (entry,) = _parse_knowledge_layer(text, "project_lookup")
+
+        assert entry.project_land_note == self.LAND_NOTE
+
+    def test_a_replayed_hit_without_a_bundesland_line_states_none(self):
+        from aiq_agent.common.citation_verification import _parse_knowledge_layer
+
+        (entry,) = _parse_knowledge_layer(self.RESULT.format(project=self.PROJECT_LINE, land=""), "project_lookup")
+
+        assert entry.project_land_note is None
+
+
 class TestWireCitationNumber:
     """The wire carries the [N] label a source has in the answer prose."""
 

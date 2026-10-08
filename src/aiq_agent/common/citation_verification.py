@@ -145,6 +145,11 @@ class SourceEntry:
     project_id: str | None = None
     project_name: str | None = None
     project_status: str | None = None
+    # The Bundesland line of that project's hit, as the producer states it
+    # (``SourceProject.land_note``): the label, plus the warning when the
+    # project is in another Land than the chat's. Carried to the precedent
+    # chip's meta line; None when the producer stated none.
+    project_land_note: str | None = None
 
 
 @dataclass
@@ -686,6 +691,7 @@ def _registry_from_cached_entries(entries: Any) -> SourceRegistry:
                             project_id=item.get("project_id"),
                             project_name=item.get("project_name"),
                             project_status=item.get("project_status"),
+                            project_land_note=item.get("project_land_note"),
                         )
                     )
                 except Exception:
@@ -1031,6 +1037,7 @@ def _entry_from_hit(hit: GroundingHit, tool_name: str) -> SourceEntry:
         project_id=hit.project.id if hit.project else None,
         project_name=hit.project.name if hit.project else None,
         project_status=hit.project.status if hit.project else None,
+        project_land_note=hit.project.land_note if hit.project else None,
     )
 
 
@@ -1175,6 +1182,8 @@ _KL_PROVENANCE_RE = re.compile(r"^Herkunft:\s*(.+)$", re.MULTILINE)
 #: ``Projekt: Name — abgeschlossen (project_id …)`` (``grounding_block._project_line``, ADR-0093).
 _KL_PROJECT_RE = re.compile(r"^Projekt:\s*(.+?)\s+—\s+(\S+)\s+\(project_id\s+([^\s)]+)\)\s*$", re.MULTILINE)
 _KL_PUNKT_RE = re.compile(r"^Punkt:\s*(.+?)\s*$", re.MULTILINE)
+#: ``Bundesland: …`` under the ``Projekt:`` line (``grounding_block._header_lines``), when the project's Land is stated.
+_KL_LAND_RE = re.compile(r"^Bundesland:\s*(.+?)\s*$", re.MULTILINE)
 # The retrieval score ``_format_results`` prints, a true cosine similarity since
 # the audit's F6 fix. Parsed from the WHOLE block rather than the header region:
 # the header is defined as everything above this very line. A body could in
@@ -1305,6 +1314,7 @@ def _kl_entry(
     punkt: str | None = None,
     score: float | None = None,
     project: tuple[str, str, str] | None = None,
+    project_land_note: str | None = None,
 ) -> SourceEntry:
     """Build a knowledge-layer :class:`SourceEntry` from one hit's fields.
 
@@ -1327,6 +1337,7 @@ def _kl_entry(
         project_id=project_id,
         project_name=project_name,
         project_status=_PROJECT_STATUS_BY_LABEL.get(status_label, status_label) if status_label else None,
+        project_land_note=project_land_note,
     )
 
 
@@ -1394,6 +1405,7 @@ def _parse_knowledge_layer(content: str, tool_name: str) -> list[SourceEntry]:
                     tool_name=tool_name,
                     punkt=_first(_KL_PUNKT_RE, header),
                     project=_parse_kl_project(header),
+                    project_land_note=_first(_KL_LAND_RE, header),
                     # The score line is the header's last line by definition of
                     # ``_kl_block_header``, so it is read off the whole block.
                     score=_parse_kl_score(_first(_KL_SCORE_RE, block)),
@@ -2590,10 +2602,19 @@ def source_entry_to_wire(entry: SourceEntry, *, number: int | None = None) -> di
 
 
 def _wire_project(entry: SourceEntry) -> dict[str, str] | None:
-    """``{id, name, status}`` of the other project an entry came from, or None."""
+    """``{id, name, status[, landNote]}`` of the other project an entry came from, or None.
+
+    ``landNote`` is the project's Bundesland line verbatim, warning included.
+    It is omitted when the producer stated none (older messages, a replayed
+    turn whose text carries no ``Bundesland:`` line), and the browser reads
+    absence as null.
+    """
     if not entry.project_id:
         return None
-    return {"id": entry.project_id, "name": entry.project_name or "", "status": entry.project_status or "active"}
+    project = {"id": entry.project_id, "name": entry.project_name or "", "status": entry.project_status or "active"}
+    if entry.project_land_note:
+        project["landNote"] = entry.project_land_note
+    return project
 
 
 #: The wire keys a READ-BUT-UNCITED source keeps: identity (which document,

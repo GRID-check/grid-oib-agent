@@ -466,6 +466,11 @@ export interface CitationProject {
   id: string
   name: string
   status: 'active' | 'closed'
+  /**
+   * The project's Bundesland as the agent states it, warning included when the
+   * Land is not the chat's (ADR-0093). Absent on messages from before it was sent.
+   */
+  landNote?: string | null
 }
 
 export interface CitationSource {

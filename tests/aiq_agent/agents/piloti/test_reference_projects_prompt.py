@@ -37,6 +37,16 @@ def test_the_catalog_reaches_the_model_below_the_cache_boundary_with_the_rule_to
     assert "Präzedenzfall, nicht als Norm" in block
 
 
+def test_a_precedent_is_kept_apart_into_what_applies_what_the_office_does_and_where_it_was_done():
+    """The contract, not the prose: the three parts, their order, and the edition/Land caveat."""
+    block = _render([SEARCH, LOOKUP], reference_projects=CATALOG).split(HEADING)[1]
+
+    assert "halte drei Teile auseinander und in dieser Reihenfolge" in block
+    assert block.index("was gilt") < block.index("wie das Büro") < block.index("wo das Büro")
+    assert "Präzedenz: Projekt, Jahr, Bundesland" in block
+    assert "Weicht Ausgabe oder Bundesland der Präzedenz" in block
+
+
 def test_no_catalog_without_the_tool_to_act_on_it():
     assert HEADING not in _render([SEARCH], reference_projects=CATALOG)
 

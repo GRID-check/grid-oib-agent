@@ -55,6 +55,7 @@ export const chat = {
       baurecht: 'Building law & guidelines',
       buero: 'Office filing',
       projekt: 'Project knowledge',
+      praezedenz: 'Precedent',
       web: 'Web source',
     },
     // Origin line in the info popover (no openable document).
@@ -250,6 +251,9 @@ export const chat = {
     sourceNumber: 'Source {number}',
     page: 'p. {page}',
     pages: 'pp. {pages}',
+    // The meta line of a precedent from another project: project, status, then the Land.
+    precedentProject: '{name} · {status}',
+    projectStatus: { active: 'active', closed: 'closed' },
     // Sources past the eight chips fold behind the same control the read
     // sources use: the count first, every name on expand.
     more: '+{count} more',
