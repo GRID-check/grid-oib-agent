@@ -57,6 +57,7 @@ import { isEmptyPlanDocuments, type PlanDocuments } from '@/lib/runs/plan-docume
 import {
   AGENT_REFUSAL_LOCALE,
   requireMayLeaveConversation,
+  requirePlanDocumentsOpen,
 } from '@/lib/conversations/restricted-egress'
 import type { Locale } from '@/i18n/config'
 import * as repository from './repository'
@@ -514,6 +515,18 @@ export async function commissionResearchRun(
     session.organizationId,
     'deepResearch',
   )
+  // Its Unterlagen are written into the plan and the job stream and named in
+  // the report, all read by the whole project: a document from a restricted
+  // folder is refused on either list, whoever names it.
+  const documents = input.documents ?? null
+  if (documents) {
+    await requirePlanDocumentsOpen(
+      session.organizationId,
+      input.projectId,
+      [...documents.grundlage, ...documents.ausgeschlossen],
+      input.locale ?? AGENT_REFUSAL_LOCALE,
+    )
+  }
 
   const question = input.question.trim()
   if (!question) throw new UnprocessableError('A research run needs a question')
@@ -522,7 +535,6 @@ export async function commissionResearchRun(
   }
 
   const context = input.context?.trim()
-  const documents = input.documents ?? null
   const plan: TaskPlan = {
     prompt: context ? `${question}\n\n${CONTEXT_HEADING}\n${context}` : question,
     skill: emptySkillSnapshot(),

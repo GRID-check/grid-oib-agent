@@ -50,7 +50,11 @@ import { IN_FLIGHT_DOCUMENT_STATUSES } from './document-status'
 import { INGEST_ALREADY_DONE, INGEST_NOT_ELIGIBLE, INGEST_RUNNING } from './reingest-codes'
 import { normalizeDrawingStructured, type DrawingStructured } from './drawing-structured'
 import { getFileUploadConfigFromEnv } from '@/shared/config/file-upload'
-import { buildDocumentImageUrl, verifyDocumentImageUrl } from '@/lib/images/signed-image-url'
+import {
+  buildDocumentImageUrl,
+  DOCUMENT_IMAGE_CACHE_CONTROL,
+  verifyDocumentImageUrl,
+} from '@/lib/images/signed-image-url'
 import { isVlmConfigured } from '@/lib/documents/vlm-capability'
 import {
   FEATURE_FLAGS,
@@ -2742,9 +2746,10 @@ export async function streamDocumentImage(
     headers: {
       'Content-Type': contentType,
       'Content-Disposition': 'inline',
-      // Private: the bytes are tenant data, and the optimizer keeps its own
-      // server-side cache regardless. Bounded by the signature's own lifetime.
-      'Cache-Control': 'private, max-age=3600',
+      // One token window. The optimizer keeps no copy (`next.config.ts`) but
+      // forwards this max-age to the browser, so it bounds how long a picture
+      // stays visible without this check running again.
+      'Cache-Control': DOCUMENT_IMAGE_CACHE_CONTROL,
       'X-Content-Type-Options': 'nosniff',
     },
   })

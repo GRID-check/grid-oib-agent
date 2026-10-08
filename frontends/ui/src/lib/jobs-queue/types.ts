@@ -19,7 +19,10 @@ import { BFF_JOB_PRIORITY, type BffJobPriority } from '@/lib/db/schema'
  *
  * `reindex_project`, `reingest_failed` and `restore_folder_bin` walk a set of
  * documents a page per slice and run AS the person who asked (their payload
- * carries a `requester`). `purge_binned_chunks` walks too, but as the system:
+ * carries a `requester`). `placement_reingest` walks too, as the system: what
+ * it re-reads was decided by a change of folder access the person was
+ * authorized for, and the rows it takes say so themselves.
+ * `purge_binned_chunks` walks as the system as well:
  * it finishes a delete a person already committed, and whether a binned folder
  * stays searchable must not depend on whether that person is still a member.
  * The other three are one bounded step each and run as the system, because the
@@ -30,6 +33,7 @@ import { BFF_JOB_PRIORITY, type BffJobPriority } from '@/lib/db/schema'
 export const BFF_JOB_KINDS = [
   'reindex_project',
   'reingest_failed',
+  'placement_reingest',
   'restore_folder_bin',
   'purge_binned_chunks',
   'bim_extract',
@@ -141,6 +145,17 @@ export const reingestFailedPayloadSchema = z.object({
   counts: countsSchema,
 })
 export type ReingestFailedPayload = z.infer<typeof reingestFailedPayloadSchema>
+
+/**
+ * `placement_reingest`: re-read the documents collection placement moved in one
+ * project (ADR-0086), a page per slice. Its whole state is the project: the
+ * rows it takes are marked on the row (`documents/placement-repository.ts`),
+ * so a job already queued serves rows marked after it.
+ */
+export const placementReingestPayloadSchema = z.object({
+  projectId: z.string().min(1),
+})
+export type PlacementReingestPayload = z.infer<typeof placementReingestPayloadSchema>
 
 /**
  * `restore_folder_bin`: read the documents of a folder restored from the

@@ -51,4 +51,30 @@ describe('useProjectInventory', () => {
 
     await waitFor(() => expect(result.current.documents?.map((doc) => doc.name)).toEqual(['Plan.pdf']))
   })
+
+  it('marks a document indexed in a restricted folder’s collection, and only that one', async () => {
+    server.use(
+      http.get('/api/documents', () =>
+        HttpResponse.json({
+          documents: [
+            { ...row('p1', 'Abmahnung.pdf'), collectionName: 'proj_3f8b0d2e_r0123456789ab' },
+            { ...row('p2', 'Plan.pdf'), collectionName: 'proj_3f8b0d2e' },
+          ],
+          nextCursor: null,
+        })
+      ),
+      http.get('/api/archiv/documents', () =>
+        HttpResponse.json({ documents: [{ ...row('a1', 'Detail.pdf'), collectionName: 'archiv_org_1' }] })
+      )
+    )
+
+    const { result } = renderHook(() => useProjectInventory('proj-1', true))
+
+    await waitFor(() => expect(result.current.documents).not.toBeNull())
+    expect(result.current.documents?.map((doc) => [doc.name, doc.restricted])).toEqual([
+      ['Abmahnung.pdf', true],
+      ['Plan.pdf', false],
+      ['Detail.pdf', false],
+    ])
+  })
 })

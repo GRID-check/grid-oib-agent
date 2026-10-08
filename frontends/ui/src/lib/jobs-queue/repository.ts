@@ -93,17 +93,27 @@ export async function findClaimedJob(jobId: string, worker: string): Promise<Bff
  * `::text::jsonb` is not decoration: postgres-js types a bare `::jsonb`
  * parameter as JSON and encodes the string a second time, so `@>` would compare
  * against a JSON string and match nothing.
+ *
+ * `notStarted` narrows it to a job no worker has claimed yet: one that is
+ * certain to read the database again from the start. A walk that takes what is
+ * marked for it asks this, because a running job may already have looked.
  */
 export async function findOpenJobId(query: {
   kind: string
   organizationId: string
   matching: Record<string, unknown>
+  notStarted?: boolean
 }): Promise<string | null> {
   const db = getDb()
   const [row] = await db
     .select({ jobId: bffJobQueue.jobId })
     .from(bffJobQueue)
-    .where(and(matchingJobs(query), ne(bffJobQueue.status, 'dead')))
+    .where(
+      and(
+        matchingJobs(query),
+        query.notStarted ? eq(bffJobQueue.status, 'queued') : ne(bffJobQueue.status, 'dead')
+      )
+    )
     .orderBy(asc(bffJobQueue.createdAt))
     .limit(1)
   return row?.jobId ?? null

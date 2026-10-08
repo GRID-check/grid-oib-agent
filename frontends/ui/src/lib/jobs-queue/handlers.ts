@@ -13,8 +13,9 @@
  * spans many slices, and a person who lost their role or left the organization
  * in the meantime must not have it carry on with the rights they had when they
  * clicked. The services the handlers call then check access per document
- * exactly as they do for a request. `purge_binned_chunks` walks as the system,
- * and the other kinds are single steps run as the system (see `./types.ts`).
+ * exactly as they do for a request. `purge_binned_chunks` and
+ * `placement_reingest` walk as the system, and the other kinds are single
+ * steps run as the system (see `./types.ts`).
  */
 
 import 'server-only'
@@ -28,12 +29,14 @@ import {
   runReingestFailedSlice,
 } from '@/lib/documents/service'
 import { runPurgeBinnedChunksSlice, runRestoreFolderSlice } from '@/lib/projects/folder-bin-jobs'
+import { runPlacementReingestSlice } from '@/lib/projects/collection-placement'
 import { runReportFilingJob } from '@/lib/tasks/service'
 import { isLastAttempt } from './attempts'
 import {
   bimExtractPayloadSchema,
   fileResearchReportPayloadSchema,
   officeRenditionPayloadSchema,
+  placementReingestPayloadSchema,
   purgeBinnedChunksPayloadSchema,
   reindexProjectPayloadSchema,
   reingestFailedPayloadSchema,
@@ -115,6 +118,7 @@ function systemSliceHandler<TPayload extends object>(
 export const JOB_HANDLERS: Record<BffJobKind, JobHandler> = {
   reindex_project: handler(reindexProjectPayloadSchema, runReindexSlice),
   reingest_failed: handler(reingestFailedPayloadSchema, runReingestFailedSlice),
+  placement_reingest: systemSliceHandler(placementReingestPayloadSchema, runPlacementReingestSlice),
   restore_folder_bin: handler(restoreFolderBinPayloadSchema, runRestoreFolderSlice),
   purge_binned_chunks: systemSliceHandler(purgeBinnedChunksPayloadSchema, runPurgeBinnedChunksSlice),
   bim_extract: systemHandler(bimExtractPayloadSchema, runBimExtractJob),
