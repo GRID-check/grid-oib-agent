@@ -5,8 +5,11 @@ import { projects } from './projects'
 export const MAIL_IMPORT_STATUSES = ['uploading', 'queued', 'importing', 'completed', 'failed', 'cancelled'] as const
 export type MailImportStatus = (typeof MAIL_IMPORT_STATUSES)[number]
 
-/** Why a mail or one of its files was not filed. */
-export type MailImportSkipReason = 'embedded_message' | 'type' | 'size' | 'unreadable'
+/**
+ * Why a mail or one of its files was not filed. `screened`: the office's name
+ * screening (ADR-0086) holds the name back, the Outlook folder path included.
+ */
+export type MailImportSkipReason = 'embedded_message' | 'type' | 'size' | 'unreadable' | 'screened'
 
 /** Why an import ended without filing everything (migration 0108 holds the list). */
 export type MailImportErrorCode =
