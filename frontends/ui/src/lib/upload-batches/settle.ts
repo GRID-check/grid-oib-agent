@@ -7,11 +7,18 @@
  * moved to a terminal status, on a reader's read or the sweep's, and by a
  * retry that finds the job already finished. It never throws into its caller:
  * a read that reconciled a status must not fail because a notification could
- * not be sent. What it leaves undone is not lost: the guarded `completed_at`
- * lets the seal and the sweep still complete the batch
- * (`settleUploadBatches`), and an unsent quarantine stays owed in
- * `document_quarantine_decisions` until the sweep sends it. The reviewers'
- * inbox item is the one thing sent at most once.
+ * not be sent. What it leaves undone is mostly not lost:
+ *
+ *  - A batch that did not complete stays open (`completed_at` NULL), and the
+ *    seal and the sweep complete it later (`settleUploadBatches`).
+ *  - A batch that completed but whose uploader's inbox item could not be
+ *    written is reopened, so the sweep completes it and tells them again. Lost
+ *    only if the database refuses the reopen too.
+ *  - An unsent quarantine stays owed in `document_quarantine_decisions` until
+ *    the sweep sends it.
+ *
+ * The reviewers' inbox item is the exception: it is sent by the read that
+ * moved the row, once, and a write of it that fails is not retried.
  *
  * Imports nothing from reconciliation, which imports this.
  */
@@ -28,7 +35,7 @@ import { emitInboxItems, type InboxEmission } from '@/lib/inbox/service'
 import { findProjectInOrg } from '@/lib/projects/repository'
 import { loadOrganizationDirectory } from '@/lib/sharing/directory'
 import { auditOwedQuarantines } from '@/lib/upload-screening/quarantine-audit'
-import { batchIdsOfDocuments, completeSettledBatches } from './repository'
+import { batchIdsOfDocuments, completeSettledBatches, reopenCompletedBatches } from './repository'
 
 export interface SettledDocument {
   id: string
@@ -51,12 +58,26 @@ export async function onDocumentsSettled(organizationId: string, settled: readon
   }
 }
 
-/** Complete every given batch that is ready, and tell each uploader once. */
+/**
+ * Complete every given batch that is ready, and tell each uploader once. When
+ * the uploader cannot be told, the completion is undone and the error thrown:
+ * a completed batch is never settled again, so its item would be lost.
+ */
 export async function settleUploadBatches(organizationId: string, batchIds: readonly string[]): Promise<UploadBatch[]> {
-  const completed = await completeSettledBatches(organizationId, batchIds, new Date())
+  const completedAt = new Date()
+  const completed = await completeSettledBatches(organizationId, batchIds, completedAt)
   if (completed.length === 0) return completed
-  const emissions = await Promise.all(completed.map((batch) => completionEmission(batch)))
-  await emitInboxItems(emissions)
+  try {
+    const emissions = await Promise.all(completed.map((batch) => completionEmission(batch)))
+    await emitInboxItems(emissions)
+  } catch (error) {
+    await reopenCompletedBatches(
+      organizationId,
+      completed.map((batch) => batch.id),
+      completedAt
+    )
+    throw error
+  }
   return completed
 }
 

@@ -1,4 +1,4 @@
--- Reverse 0114: no project status.
+-- Reverse 0115: no project status.
 --
 -- Lossy in the open direction, so it refuses while any project is closed: an
 -- older build has no read-only check and would let every member's write into
@@ -7,7 +7,7 @@
 DO $$
 BEGIN
   IF EXISTS (SELECT 1 FROM projects WHERE status = 'closed') THEN
-    RAISE EXCEPTION 'closed projects exist: reopen every closed project before reversing 0114';
+    RAISE EXCEPTION 'closed projects exist: reopen every closed project before reversing 0115';
   END IF;
 END
 $$;

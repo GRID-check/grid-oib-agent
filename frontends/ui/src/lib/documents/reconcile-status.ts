@@ -397,17 +397,35 @@ export const clearCollectionFilesCache = (): void => {
  * called for a row a machine wrote: such a row has no entry of its own here,
  * and on a filename collision it would adopt the human document's `success` —
  * turning a never-dispatched row into a green, „zitierbar" one.
+ *
+ * A `failed` entry speaks only for a row that carries no job ({@link
+ * attributableFailure}). `success` is the file's chunks under that name, and
+ * stays the fallback for a job the backend has since forgotten.
  */
 const resolveFromCollection = (
   files: CollectionFiles | null,
-  ref: CollectionFileRef
+  ref: CollectionFileRef,
+  jobId: string | null
 ): TerminalResolution | null => {
   const file = files?.byName.get(ref.filename)
   if (!file) return null
   if (file.status === 'success') return { status: 'completed', errorMessage: null }
-  if (file.status === 'failed') return failedOrQuarantined(file.error_message ?? null)
+  if (file.status === 'failed' && attributableFailure(jobId)) return failedOrQuarantined(file.error_message ?? null)
   return null
 }
+
+/**
+ * Whether a `failed` entry of the collection file list is evidence about a row
+ * with this job. Only when the row has none (a legacy row, or one dispatched
+ * without a job id). The backend's failed entries are its per-upload tracking
+ * records, joined here by NAME, and it lists the first of a name it still
+ * tracks (`list_files` in the knowledge layer's adapter), so for a row that
+ * carries a job the entry may be an EARLIER dispatch's: a released file's old
+ * quarantine, written back over the new dispatch and recorded as a decision
+ * that job never made (ADR-0085). The job is the only witness to its own
+ * failure; a row whose job the backend forgot stays as it is.
+ */
+const attributableFailure = (jobId: string | null): boolean => jobId === null
 
 /**
  * What the backend knows about one document's ingestion, asked live.
@@ -469,10 +487,12 @@ export async function describeBackendIngestState(row: {
   const files = await loadCollectionFilesFresh(row.collectionName)
   if (files === null) return { state: 'unreachable' }
   if (files.ambiguousNames.has(ref.filename)) return { state: 'in-progress' }
-  const resolution = resolveFromCollection(files, ref)
+  const resolution = resolveFromCollection(files, ref, jobId)
   if (resolution) return { state: 'terminal', resolution }
   const file = files.byName.get(ref.filename)
-  if (file) return { state: 'in-progress' }
+  // A failure that is not this row's (`attributableFailure`) is no work in
+  // progress either: nothing the backend knows of is this dispatch.
+  if (file && !(file.status === 'failed' && !attributableFailure(jobId))) return { state: 'in-progress' }
   return { state: 'absent' }
 }
 
@@ -641,7 +661,7 @@ export async function reconcileDocumentStatuses<T extends ReconcilableDocument>(
           // the honest outcome for it is "unchanged", not another document's.
           const ref = collectionFileRef(row)
           if (!ref) return
-          resolution = resolveFromCollection(await getFreshCollectionFiles(row.collectionName), ref)
+          resolution = resolveFromCollection(await getFreshCollectionFiles(row.collectionName), ref, jobId)
         }
         if (!resolution) return
 

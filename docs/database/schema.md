@@ -79,7 +79,7 @@ export const projects = pgTable('projects', {
 
 **Indexes:** `projects_org_deleted_created_idx` on `(organization_id, deleted_at, created_at)` — tenant list queries (migration `0014`). `projects_org_status_idx` on `(organization_id, status) WHERE deleted_at IS NULL` (migration 0115).
 
-**Constraints (0114):** `projects_status_check`, and `projects_closed_state_check`: closed exactly when `closed_at` and `closed_by` are both set.
+**Constraints (0115):** `projects_status_check`, and `projects_closed_state_check`: closed exactly when `closed_at` and `closed_by` are both set.
 
 **The closed-project guard (0115).** `grid_refuse_insert_into_closed_project()` runs `BEFORE INSERT` on `documents`, `project_folders`, `document_versions` and `project_memory`, and raises SQLSTATE `GPC01` when the row names a closed project. It reads the project row `FOR SHARE`, so a close and an insert serialize. Updates are not refused. The down migration refuses while any project is closed.
 
@@ -105,7 +105,7 @@ optional account link, and nothing else. Never read into the agent's prompt
 | `created_by` | `text` | NOT NULL | |
 | `created_at`, `updated_at` | `timestamptz` | NOT NULL | |
 
-Deleted outright, never soft-deleted: the delete is the erasure. The 0114 trigger
+Deleted outright, never soft-deleted: the delete is the erasure. The 0115 trigger
 (`project_people_closed_project_guard`) refuses a new row in a closed project; a delete is
 always possible. Index `project_people_project_idx` on `(organization_id, project_id, name)`.
 The down migration drops the table and its rows.
@@ -789,7 +789,7 @@ conversation and a narrowed one confines it to fewer people.
 |--------|------|-------------|-------|
 | `organization_id` | `text` | NOT NULL, PK | RLS: `organization_id = grid_current_org()` |
 | `conversation_id` | `text` | NOT NULL, PK | No FK: the first turn of a new chat runs before its row exists |
-| `folder_id` | `uuid` | NOT NULL, PK | No FK: a deleted folder's tombstone (0109) keeps answering, and an unknown id is treated as unreadable |
+| `folder_id` | `uuid` | NOT NULL, PK | No FK: a deleted folder's tombstone (0110) keeps answering, and an unknown id is treated as unreadable |
 | `first_at` / `last_at` | `timestamptz` | NOT NULL, `defaultNow()`, CHECK `last_at >= first_at` | |
 
 `deleteConversationInOrg` deletes the rows with the conversation. Deleting a
@@ -851,7 +851,7 @@ re-apply in `scripts/rls-test-db.sh`.
 ## document_quarantine_decisions (migration 0118, ADR-0085)
 
 The content gate's quarantine decisions, kept until the audit trail has them
-(AI Act). One row per ingest job that quarantined a document, inserted by
+(AI Act), and no longer. One row per ingest job that quarantined a document, inserted by
 `setDocumentReconciledStatus` (`lib/documents/repository.ts`) in the
 transaction whose guarded status write records the quarantine, so a decision
 cannot exist without its row. `lib/upload-screening/quarantine-audit.ts` sends
@@ -862,12 +862,19 @@ within a week. The WorkOS idempotency key is the row's id and the event is
 built from the row alone, with `decided_at` as its time, so a repeated send is
 one event. A deployment with the audit log off sends and marks nothing.
 
+**Personal data** (the file's name, the uploader, the matched terms), kept for
+one purpose. Retention: the same sweep, as the platform role, deletes a
+decision once `audited_at` is set and any decision older than seven days, the
+window after which nothing sends it (`pruneSpentQuarantines`, at most 500 a
+tick), whether the audit log is on or off and whether the document still
+exists. The audit trail holds the event under its own retention.
+
 | Column | Type | Constraints | Notes |
 |--------|------|-------------|-------|
 | `id` | `uuid` | PK, `gen_random_uuid()` | The event's idempotency key, `document.quarantined:<id>` |
 | `organization_id` | `text` | NOT NULL | RLS: `organization_id = grid_current_org()` |
-| `document_id` | `uuid` | NOT NULL | No FK: a reviewer may delete the file before the decision reaches the trail |
-| `job_id` | `text` | UNIQUE with `document_id` (`document_quarantine_decisions_dispatch_key`) | The ingest job whose gate decided: one dispatch, one decision. NULL only when the row carried no job (the backend's file list said quarantined) |
+| `document_id` | `uuid` | NOT NULL | No FK: a reviewer may delete the file before the decision reaches the trail. The retention, not the document, ends the row |
+| `job_id` | `text` | UNIQUE with `document_id` (`document_quarantine_decisions_dispatch_key`) | The ingest job whose gate decided: one dispatch, one decision. NULL only when the row carried no job (the backend's file list said quarantined). A row that carries a job takes a failure only from that job, never from the file list, whose failed entry under the name may be an earlier dispatch's (`attributableFailure`, `lib/documents/reconcile-status.ts`) |
 | `decided_at` | `timestamptz` | NOT NULL, `now()` | The event's `occurredAt` |
 | `scope` | `text` | NOT NULL, CHECK `project`/`archiv`/`session` | |
 | `project_id` | `uuid` | | CHECK `(scope = 'project') = (project_id IS NOT NULL)` |
@@ -882,8 +889,8 @@ Indexes: the dispatch key, and `document_quarantine_decisions_due_idx
 (decided_at) WHERE audited_at IS NULL` for the sweep. A trigger
 (`grid_document_quarantine_decisions_guard`) refuses every UPDATE but
 `audited_at` going from NULL to a time, once, and every DELETE except by the
-platform role. Proven against Postgres in
-`lib/upload-batches/upload-batches.integration.spec.ts`; constraints, guard,
+platform role, which is the retention sweep. Proven against Postgres, the
+retention included, in `lib/upload-batches/upload-batches.integration.spec.ts`; constraints, guard,
 down and re-apply in `scripts/rls-test-db.sh`. The down drops the decisions
 not yet audited.
 
@@ -893,7 +900,7 @@ not yet audited.
 
 The table itself is described in
 [`project-memory-design.md`](../architecture/project-memory-design.md) §2; this
-is the column 0111 adds.
+is the column 0112 adds.
 
 | Column | Type | Constraints | Notes |
 |--------|------|-------------|-------|
@@ -903,10 +910,10 @@ is the column 0111 adds.
 Index: `uniq_project_memory_project_content_active` keys on
 `(project_id, coalesce(restricted_folder_ids, '{}'), normalized content)`, so an
 open and a restricted note with the same text can both be live; consolidation
-never crosses a restriction. The 0111 down DELETES restricted notes rather than
+never crosses a restriction. The 0112 down DELETES restricted notes rather than
 opening them. Proven against Postgres in `memory-restricted.integration.spec.ts`;
 the index, the CHECK and the down in `scripts/rls-test-db.sh`.
-The 0116 down drops `restriction_judge` and its CHECK; the verdicts stay in the
+The 0117 down drops `restriction_judge` and its CHECK; the verdicts stay in the
 audit trail.
 
 ---

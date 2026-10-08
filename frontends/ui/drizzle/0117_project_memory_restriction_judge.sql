@@ -1,4 +1,4 @@
--- 0116: a restricted note says when a language model helped decide who may
+-- 0117: a restricted note says when a language model helped decide who may
 -- read it (ADR-0086; AI Act transparency).
 --
 -- When a chat could list a restricted folder it did not read, the memory judge

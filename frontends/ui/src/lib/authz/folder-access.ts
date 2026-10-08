@@ -21,7 +21,7 @@
  * collection in its signed scope. Write never affects retrieval.
  *
  * Deleted folders stay in the tree (migration 0110): in the Papierkorb, then as
- * purged tombstones (0113). They are hidden from every listing and from
+ * purged tombstones (0114). They are hidden from every listing and from
  * placement, what is filed in them is hidden from everyone, and
  * {@link effectiveFolderLevel} still answers for them, because content derived
  * from a deleted folder is judged by the access it had (once purged, as the
@@ -406,6 +406,17 @@ export async function readableFolderIdsFor(
 }
 
 /**
+ * How many projects {@link readableFoldersOfRestrictedProjects} reads at once.
+ * Each is the session's clearance there ({@link clearanceOf}: for a session
+ * that does not see everything, a tenancy probe, and for a closed project a
+ * WorkOS FGA check too) and one transaction for its tree, so this many hold at
+ * most this many pool connections (of `GRID_DB_POOL_MAX`, 10 by default). The
+ * round trips are as many as one at a time made; a long list waits about a
+ * quarter as long for them, and every other request keeps most of the pool.
+ */
+export const RESTRICTED_PROJECT_READS_AT_ONCE = 4
+
+/**
  * Every folder the session may read in the organization's projects that have a
  * folder hiding something from someone ({@link loadCustomFolderTree} is not
  * null for them): what a query that must not match an unreadable folder's rows
@@ -413,17 +424,24 @@ export async function readableFolderIdsFor(
  * session's clearance in that project ({@link clearanceOf}), so a closed one
  * clears someone who reads it only because it is closed as a member with no
  * role (ADR-0088). A project the list leaves out, past its bound, contributes
- * no folder, so its rows match nothing: the narrowing fails closed.
+ * no folder, so its rows match nothing: the narrowing fails closed. Projects
+ * are read {@link RESTRICTED_PROJECT_READS_AT_ONCE} at a time; the answer is in
+ * the list's order all the same.
  */
 export async function readableFoldersOfRestrictedProjects(session: AuthorizedSession): Promise<string[]> {
   const { organizationId } = session
-  const readable: string[] = []
-  // One project at a time: each is a few reads, and a burst of them would take
-  // the pool from every other request.
-  for (const projectId of await listProjectsWithCustomOrBinnedFolders(organizationId)) {
-    readable.push(...(await readableFolderIdsFor(organizationId, projectId, await clearanceOf(session, projectId))))
+  const projectIds = await listProjectsWithCustomOrBinnedFolders(organizationId)
+  const readable: string[][] = []
+  let next = 0
+  const reader = async (): Promise<void> => {
+    for (let index = next++; index < projectIds.length; index = next++) {
+      const projectId = projectIds[index]
+      readable[index] = await readableFolderIdsFor(organizationId, projectId, await clearanceOf(session, projectId))
+    }
   }
-  return readable
+  const readers = Math.min(RESTRICTED_PROJECT_READS_AT_ONCE, projectIds.length)
+  await Promise.all(Array.from({ length: readers }, reader))
+  return readable.flat()
 }
 
 /**

@@ -29,9 +29,9 @@ ALTER TABLE "projects"
     AND ("started_on" IS NULL OR "ended_on" IS NULL OR "ended_on" >= "started_on")
   );
 --> statement-breakpoint
-COMMENT ON COLUMN "projects"."started_on" IS 'Beginn, month precision: always the first of its month (0115).';
+COMMENT ON COLUMN "projects"."started_on" IS 'Beginn, month precision: always the first of its month (0116).';
 --> statement-breakpoint
-COMMENT ON COLUMN "projects"."ended_on" IS 'Abschluss, month precision: always the first of its month. Closing fills it when unset (0115).';
+COMMENT ON COLUMN "projects"."ended_on" IS 'Abschluss, month precision: always the first of its month. Closing fills it when unset (0116).';
 --> statement-breakpoint
 CREATE TABLE IF NOT EXISTS "project_people" (
   "id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,

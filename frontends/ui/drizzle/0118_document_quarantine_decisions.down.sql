@@ -1,4 +1,4 @@
--- Reverse 0117. ORDER: roll the frontend back first; the newer build writes
+-- Reverse 0118. ORDER: roll the frontend back first; the newer build writes
 -- `document_quarantine_decisions` with every quarantine and its sweep reads it.
 --
 -- Lossy: a decision not yet audited is dropped with its row, and the older

@@ -1,4 +1,4 @@
--- 0110: conversation_restricted_folders — the folders not every project member
+-- 0111: conversation_restricted_folders — the folders not every project member
 -- can read whose content a conversation actually drew on, one row per folder
 -- (ADR-0086, ADR-0087).
 --
