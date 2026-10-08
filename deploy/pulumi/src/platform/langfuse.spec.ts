@@ -389,6 +389,18 @@ describe("with the Langfuse tier enabled", () => {
       expect(has("kubernetes:networking.k8s.io/v1:NetworkPolicy", "allow-collector-to-langfuse")).toBe(true);
       expect(has("kubernetes:networking.k8s.io/v1:NetworkPolicy", "allow-edge-to-langfuse")).toBe(true);
     });
+
+    it("names the purger and the scheduler as the only API callers, on the web port", async () => {
+      const spec = (await resolve(
+        find("kubernetes:networking.k8s.io/v1:NetworkPolicy", "allow-workers-to-langfuse").inputs.spec,
+      )) as any;
+
+      expect(spec.podSelector.matchLabels["app.kubernetes.io/name"]).toBe("langfuse-web");
+      expect(
+        (spec.ingress[0].from as any[]).map((f) => f.podSelector.matchLabels["app.kubernetes.io/name"]).sort(),
+      ).toEqual(["purger", "skill-scheduler"]);
+      expect(spec.ingress[0].ports).toEqual([{ protocol: "TCP", port: 3000 }]);
+    });
   });
 
   describe("edge", () => {

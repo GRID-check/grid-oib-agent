@@ -297,6 +297,27 @@ export function installNetworkPolicies(
       })
     : undefined;
 
+  // 11b. The purger and the skill-scheduler → Langfuse web, for its public API:
+  //     the purger deletes an erased chat's traces and the scheduler deletes the
+  //     ones past retention (ADR-0044; `workers/langfuse-traces.js`). Rule 2
+  //     withholds the web tier from the wholesale allow, so each caller is named,
+  //     as the collector is in rule 11. These two are the whole list: the BFF and
+  //     the agent never call Langfuse's API.
+  const workersToLangfuse = cfg.langfuse.enabled
+    ? mk("allow-workers-to-langfuse", {
+        podSelector: { matchLabels: { "app.kubernetes.io/name": LANGFUSE_WEB } },
+        policyTypes: ["Ingress"],
+        ingress: [
+          {
+            from: ["purger", "skill-scheduler"].map((name) => ({
+              podSelector: { matchLabels: { "app.kubernetes.io/name": name } },
+            })),
+            ports: [{ protocol: "TCP", port: PORT.langfuseWeb }],
+          },
+        ],
+      })
+    : undefined;
+
   // 12. Langfuse web + worker → ClickHouse, on both interfaces: HTTP 8123 for
   //     queries and native 9000 for the schema migrator. Nothing else in the
   //     deployment speaks to ClickHouse, and it holds the trace store in
@@ -403,6 +424,7 @@ export function installNetworkPolicies(
     ...(collectorToErr2Issue ? [collectorToErr2Issue] : []),
     ...(edgeLangfuse ? [edgeLangfuse] : []),
     ...(collectorToLangfuse ? [collectorToLangfuse] : []),
+    ...(workersToLangfuse ? [workersToLangfuse] : []),
     ...(langfuseToClickhouse ? [langfuseToClickhouse] : []),
     ...(gotenberg ? [gotenberg] : []),
   ];

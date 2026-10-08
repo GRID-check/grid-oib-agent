@@ -2,7 +2,15 @@
  * @vitest-environment node
  */
 import { describe, expect, it, vi } from 'vitest'
-import { claimDue, pruneOldRuns, PLATFORM_ROLE, PRUNE_BATCH } from './db.js'
+import {
+  claimDue,
+  conversationIsHeld,
+  findConversationsAwaitingTraceErasure,
+  markConversationTracesErased,
+  pruneOldRuns,
+  PLATFORM_ROLE,
+  PRUNE_BATCH,
+} from './db.js'
 
 // Same fake-sql idiom as purger/db.spec.mjs: a tagged-template fn that records
 // the rendered SQL text (`join('$')` renders each interpolation as `$`) plus the
@@ -235,5 +243,46 @@ describe('platform scope', () => {
       'role',
       'query',
     ])
+  })
+})
+
+describe('conversation trace erasure queries', () => {
+  it('finds purged conversation rows that are recent, settled, unstamped and not held', async () => {
+    const { sql, executed } = makeClaimSql([{ id: 'q1', entity_id: 's_1', organization_id: 'org_1' }])
+
+    const rows = await findConversationsAwaitingTraceErasure(sql, 100)
+
+    expect(rows).toEqual([{ id: 'q1', entity_id: 's_1', organization_id: 'org_1' }])
+    const [step, select] = executed
+    expect(step.text).toBe(`SET LOCAL ROLE ${PLATFORM_ROLE}`)
+    expect(select.text).toContain("q.entity_type = 'conversation'")
+    expect(select.text).toContain("q.status = 'purged'")
+    expect(select.text).toContain('q.purged_at >= now() - make_interval(days => $)')
+    expect(select.text).toContain('q.purged_at <= now() - make_interval(mins => $)')
+    expect(select.text).toContain("q.payload->>'langfuseTracesErasedAt' IS NULL")
+    expect(select.text).toContain('NOT grid_legal_hold_blocks(q.entity_type, q.entity_id, q.organization_id)')
+    // 35 days, 15 minutes, 100 rows.
+    expect(select.values).toEqual([35, 15, 100])
+  })
+
+  it('asks the hold predicate about the one conversation before its traces go', async () => {
+    const { sql, executed } = makeClaimSql([{ held: true }])
+    expect(await conversationIsHeld(sql, { entity_id: 's_1', organization_id: 'org_1' })).toBe(true)
+    expect(executed[1].text).toContain("grid_legal_hold_blocks('conversation', $, $)")
+    expect(executed[1].values).toEqual(['s_1', 'org_1'])
+
+    const free = makeClaimSql([{ held: false }])
+    expect(await conversationIsHeld(free.sql, { entity_id: 's_1', organization_id: 'org_1' })).toBe(false)
+  })
+
+  it('stamps the queue row through a jsonb merge that survives a missing or non-object payload', async () => {
+    const { sql, executed } = makeClaimSql([])
+    await markConversationTracesErased(sql, 'q1')
+    const update = executed.find((q) => q.text.startsWith('UPDATE deletion_queue'))
+    expect(update.text).toContain("jsonb_build_object('langfuseTracesErasedAt', now())")
+    expect(update.text).toContain("jsonb_typeof(payload) = 'object'")
+    expect(update.text).toContain('WHERE id = $')
+    expect(update.values).toEqual(['q1'])
+    expect(executed[0].text).toBe(`SET LOCAL ROLE ${PLATFORM_ROLE}`)
   })
 })
