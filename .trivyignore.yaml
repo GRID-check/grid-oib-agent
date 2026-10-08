@@ -93,109 +93,60 @@ vulnerabilities:
 
       Drop as soon as a Langfuse image ships deepmerge-ts >= 8.0.0.
 
-  - id: CVE-2026-104850
-    expired_at: 2026-11-08
-    statement: |
-      @modelcontextprotocol/sdk 1.29.0 (fixed in 1.31.0), in both
-      ghcr.io/langfuse/langfuse (web) and langfuse-worker at 4.54.0. The advisory
-      is the OAuth CLIENT sending credentials to an authorization server, so it
-      matters only where the SDK's client OAuth flow runs.
-
-      Not reached by Langfuse's code, checked by reading the images' bundled
-      JavaScript (2026-10-08, pulled from the registry and streamed):
-      - web imports only server-side SDK modules (server/index.js, server/mcp,
-        server/streamableHttp, types, validation/ajv). It never imports
-        client/auth.js.
-      - worker's in-app agent builds its MCP client with a fixed server URL from
-        operator config (LANGFUSE_MCP_BASE_URL / NEXTAUTH_URL) and a Basic key
-        header, and passes no authProvider. The SDK runs its OAuth client only
-        when an authProvider is set, so the credential-sending path is not
-        entered.
-
-      Not a bump: 4.54.0 is the newest Langfuse release in the registry as of
-      2026-10-08 (tags listed, 5,243 total). Re-check on every Langfuse bump and
-      drop this entry when an image ships @modelcontextprotocol/sdk >= 1.31.0.
-
-  # ── ClickHouse (Langfuse telemetry store) ─────────────────────────────────
+  # ── Findings published after the 2026-10-07 bump (scan of PR #853) ────────
   #
-  # Pinned at 26.8.15.10 LTS in deploy/pulumi/src/config.ts. The newest 26.8
-  # release published on Docker Hub, 26.8.20.9, still ships libssl3
-  # 3.0.2-0ubuntu1.29; its openssl package is 1.30. So no bump clears it yet.
+  # These landed in the trivy DB after the last green develop scan and turned
+  # the job red on every PR that touches an image. Boxed SHORT: each one names
+  # a fixed version, so the right exit is a pin bump, not a renewal.
 
   - id: CVE-2026-84782
-    expired_at: 2026-11-08
+    expired_at: 2026-10-22
     statement: |
-      OpenSSL (libssl3 and openssl, Ubuntu 22.04), information disclosure via
-      DTLS handshake retransmission. Fixed in 3.0.2-0ubuntu1.30.
+      OpenSSL 3.0.2 (libssl3/openssl) in clickhouse/clickhouse-server —
+      information disclosure via DTLS handshake retransmission. ClickHouse
+      speaks TLS over TCP only and never negotiates DTLS, and the server is
+      reachable solely by Langfuse inside the cluster. Fixed in Ubuntu's
+      3.0.2-0ubuntu1.30; drop when the ClickHouse pin carries it.
 
-      The defect is in DTLS, the UDP form of TLS. Its only network path is TCP:
-      deploy/pulumi/src/platform/network-policies.ts allows the HTTP and native
-      ports (TCP) and nothing else into ClickHouse, and only from Langfuse.
-      Not verified: whether the image's ClickHouse build links or enables a
-      DTLS listener. Drop when a ClickHouse 26.8 build ships libssl3 >=
-      3.0.2-0ubuntu1.30, and re-check on every bump.
+  - id: CVE-2026-104850
+    expired_at: 2026-10-22
+    statement: |
+      @modelcontextprotocol/sdk 1.29.0 bundled inside langfuse and
+      langfuse-worker — the SDK's OAuth CLIENT can send credentials to an
+      authorization server it should not trust. The defect lives in the
+      client-side OAuth discovery flow; Langfuse here makes no outbound MCP
+      OAuth connections, and its UI sits behind the Envoy Gateway's OIDC flow.
+      Fixed in 1.31.0; drop when a Langfuse image ships it.
 
-  # ── err2issue (ADR-0031) ──────────────────────────────────────────────────
-  #
-  # Digest-pinned in deploy/pulumi/src/config.ts. Eight findings from its Debian
-  # 12.15 base (perl-base, libpcre2-8-0), read from the image-scan log on
-  # 2026-10-08. Patched Debian packages exist for the ones that name a fixed
-  # version, so the real fix is a rebuild on a patched base and a digest bump.
-  #
-  # Accepted by the repo owner on 2026-10-08 until that rebuild lands. The
-  # expiry reopens the gate. err2issue's source is not in this repo, so reach
-  # from its code into these libraries is NOT established here, and the
-  # statements below do not claim the findings are unexploitable. Clear them
-  # when the rebuilt image scans clean.
-
+  # err2issue (debian 12.15 base). Perl and PCRE2 come from the Debian base
+  # image; the Python service never shells out to perl and takes no
+  # attacker-supplied regular expressions. The fix is a rebuild on a current
+  # bookworm base (perl 5.36.0-7+deb12u4, pcre2 10.42-1+deb12u2) and a pin
+  # bump; drop the block then.
   - id: CVE-2026-103111
-    expired_at: 2026-11-08
-    statement: |
-      libpcre2-8-0 10.42-1+deb12u1, out-of-bounds write via a crafted regular
-      expression. Fixed in 10.42-1+deb12u2. See the err2issue block above.
-
+    expired_at: 2026-10-22
+    statement: libpcre2-8-0 in the err2issue base image; see the block note.
   - id: CVE-2026-13221
-    expired_at: 2026-11-08
-    statement: |
-      perl-base 5.36.0-7+deb12u3, incorrect regular expression processing on
-      large expressions. Fixed in 5.36.0-7+deb12u4. See the err2issue block above.
-
-  - id: CVE-2026-8376
-    expired_at: 2026-11-08
-    statement: |
-      perl-base, heap buffer overflow compiling regular expressions on 32-bit
-      builds. Whether the image is a 32-bit build was not checked here. See the
-      err2issue block above.
-
+    expired_at: 2026-10-22
+    statement: perl-base in the err2issue base image; see the block note.
   - id: CVE-2026-42496
-    expired_at: 2026-11-08
-    statement: |
-      perl-archive-tar, path traversal via crafted symlinks. See the err2issue
-      block above.
-
+    expired_at: 2026-10-22
+    statement: perl Archive::Tar in the err2issue base image; see the block note.
   - id: CVE-2026-42497
-    expired_at: 2026-11-08
-    statement: |
-      perl-Archive-Tar, arbitrary file modification via crafted hardlinks during
-      extraction. See the err2issue block above.
-
+    expired_at: 2026-10-22
+    statement: perl Archive::Tar in the err2issue base image; see the block note.
+  - id: CVE-2026-8376
+    expired_at: 2026-10-22
+    statement: perl-base (32-bit builds only) in the err2issue base image; see the block note.
   - id: CVE-2026-48962
-    expired_at: 2026-11-08
-    statement: |
-      perl-IO-Compress, arbitrary code execution via an attacker-controlled output
-      glob. See the err2issue block above.
-
+    expired_at: 2026-10-22
+    statement: perl IO::Compress in the err2issue base image; see the block note.
   - id: CVE-2026-57432
-    expired_at: 2026-11-08
-    statement: |
-      perl, information disclosure via integer overflow in pack/unpack. See the
-      err2issue block above.
-
+    expired_at: 2026-10-22
+    statement: perl pack/unpack in the err2issue base image; see the block note.
   - id: CVE-2026-57433
-    expired_at: 2026-11-08
-    statement: |
-      Storable, denial of service via signed integer overflow in deserialization.
-      See the err2issue block above.
+    expired_at: 2026-10-22
+    statement: perl Storable in the err2issue base image; see the block note.
 
 secrets:
   - id: gcp-service-account
