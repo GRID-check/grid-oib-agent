@@ -8,7 +8,11 @@ marketing site, automatically, in German and English.
   manager. One YAML file per change, under `releasenotes/notes/`.
 - **Rule:** [AGENTS.md](../../AGENTS.md), the "Change what a customer can notice"
   row. Enforced on every PR by the **Release note** job in
-  [`ci.yml`](../../.github/workflows/ci.yml).
+  [`ci.yml`](../../.github/workflows/ci.yml), which goes by file, not by what
+  the diff does: a PR that touches a product file
+  ([`ci/require_release_note.py`](../../ci/require_release_note.py)) and adds
+  no note fails. A change no user can notice, a comment or a refactor, takes
+  the `no-release-note` label instead.
 - **Destination:** `https://piloti.at/changelog` (de) and `/en/changelog` (en).
 - **Reader:** the architect using Piloti. Not the reviewer of your diff, and not
   the people who run the platform.

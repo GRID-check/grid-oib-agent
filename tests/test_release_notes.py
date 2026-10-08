@@ -15,7 +15,9 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import os
 import re
+import subprocess
 import sys
 from pathlib import Path
 
@@ -467,3 +469,65 @@ def test_tests_and_docs_do_not_need_a_note():
 def test_a_note_in_the_pr_satisfies_the_gate():
     assert require_note.has_note(["releasenotes/notes/re-index-4f2a91c0deadbeef.yaml"])
     assert not require_note.has_note(["releasenotes/config.yaml"])
+
+
+def _git(repo: Path, *args: str) -> str:
+    env = {
+        **os.environ,
+        "GIT_AUTHOR_NAME": "t",
+        "GIT_AUTHOR_EMAIL": "t@t",
+        "GIT_COMMITTER_NAME": "t",
+        "GIT_COMMITTER_EMAIL": "t@t",
+        # A developer's signing setup must not reach these throwaway commits.
+        "GIT_CONFIG_COUNT": "1",
+        "GIT_CONFIG_KEY_0": "commit.gpgsign",
+        "GIT_CONFIG_VALUE_0": "false",
+    }
+    result = subprocess.run(["git", *args], cwd=repo, capture_output=True, text=True, check=True, env=env)
+    return result.stdout.strip()
+
+
+@pytest.fixture
+def pr_repo(tmp_path, monkeypatch):
+    """A repository with one product file and one old note, on its base commit."""
+    _git(tmp_path, "init", "-q", "-b", "develop")
+    (tmp_path / "src/aiq_agent").mkdir(parents=True)
+    (tmp_path / "src/aiq_agent/tool.py").write_text("X = 1\n")
+    (tmp_path / "releasenotes/notes").mkdir(parents=True)
+    (tmp_path / "releasenotes/notes/old-0000.yaml").write_text("features:\n  - Old.\n")
+    _git(tmp_path, "add", "-A")
+    _git(tmp_path, "commit", "-qm", "base")
+    monkeypatch.chdir(tmp_path)
+    return tmp_path
+
+
+def _pr(repo: Path, files: dict[str, str]) -> int:
+    base = _git(repo, "rev-parse", "HEAD")
+    for path, text in files.items():
+        (repo / path).write_text(text)
+    _git(repo, "add", "-A")
+    _git(repo, "commit", "-qm", "change")
+    return require_note.main(["require_release_note.py", base, _git(repo, "rev-parse", "HEAD")])
+
+
+def test_a_comment_only_edit_to_a_product_file_still_needs_a_note(pr_repo):
+    # The check goes by file; a change nobody can notice takes the label instead.
+    assert _pr(pr_repo, {"src/aiq_agent/tool.py": "# why X is one\nX = 1\n"}) == 1
+
+
+def test_a_note_the_pr_adds_satisfies_the_gate(pr_repo):
+    files = {"src/aiq_agent/tool.py": "X = 2\n", "releasenotes/notes/new-1111.yaml": "fixes:\n  - New.\n"}
+
+    assert _pr(pr_repo, files) == 0
+
+
+def test_editing_an_old_note_does_not_satisfy_the_gate(pr_repo):
+    files = {"src/aiq_agent/tool.py": "X = 2\n", "releasenotes/notes/old-0000.yaml": "features:\n  - Edited.\n"}
+
+    assert _pr(pr_repo, files) == 1
+
+
+def test_a_pr_without_product_files_needs_no_note(pr_repo):
+    (pr_repo / "docs").mkdir()
+
+    assert _pr(pr_repo, {"docs/readme.md": "Hello\n"}) == 0
