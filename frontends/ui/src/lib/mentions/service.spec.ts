@@ -689,7 +689,7 @@ describe('listShareCandidates', () => {
   })
 })
 
-describe('listShareCandidates: only people who can read what the chat drew on may be invited (ADR-0087)', () => {
+describe('listShareCandidates: only people who can read what the chat drew on may be invited (ADR-0088)', () => {
   beforeEach(() => {
     stubCallerRole('owner')
     // Anna is in the room; Bob and Carol reach the project, nobody else.

@@ -3,7 +3,7 @@
 Who took which document out of Piloti, and who opened one in a folder the office
 gave its own access list. This page says what is recorded and why, how long it
 is kept, who sees it, and what an office with a works council should settle
-before it relies on it. The decision behind it is ADR-0087 and its plan,
+before it relies on it. The decision behind it is ADR-0088 and its plan,
 [`plans/2026-10-06-folder-access-lifecycle.md`](../../plans/2026-10-06-folder-access-lifecycle.md)
 (decision 4).
 
@@ -129,5 +129,5 @@ through a function it calls or imports by name) before it reads, presigns or
 records, on the path every call takes: a check under a branch, in a `try` that
 swallows it or in a callback does not count. It reads the order of calls, not
 their arguments, so a check on a different document id is for review to catch. Table and
-purge: [`database/schema.md`](../database/schema.md#document_access_log-migration-0113-adr-0085);
+purge: [`database/schema.md`](../database/schema.md#document_access_log-migration-0114-adr-0085);
 routes: [`api/bff-routes.md`](../api/bff-routes.md).

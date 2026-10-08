@@ -42,14 +42,14 @@ export const PROJECT_MEMORY_PROVENANCES = [
 export type ProjectMemoryProvenance = (typeof PROJECT_MEMORY_PROVENANCES)[number]
 
 /**
- * The restricted-memory judge's verdicts (ADR-0086): the note draws on folders
+ * The restricted-memory judge's verdicts (ADR-0087): the note draws on folders
  * it named, on none of them, or the judge gave no usable answer and the note
  * was restricted to every restricted folder in scope.
  */
 export const PROJECT_MEMORY_JUDGE_VERDICTS = ['drawn', 'none', 'failed'] as const
 export type ProjectMemoryJudgeVerdict = (typeof PROJECT_MEMORY_JUDGE_VERDICTS)[number]
 
-/** At most this many source folders restrict one item: the 0111 CHECK (ADR-0087). */
+/** At most this many source folders restrict one item: the 0111 CHECK (ADR-0088). */
 export const PROJECT_MEMORY_MAX_RESTRICTED_FOLDERS = 20
 
 /**
@@ -90,7 +90,7 @@ export const projectMemory = pgTable(
      */
     conflictsWithId: uuid('conflicts_with_id'),
     /**
-     * The source folders this item depends on (ADR-0086, ADR-0087, migration
+     * The source folders this item depends on (ADR-0087, ADR-0088, migration
      * 0112): folders not every project member could read when it was
      * written. NULL is open memory. A restricted item is served and shown only
      * to a session that may read ALL of them NOW (`effectiveFolderLevel`), so a
@@ -103,7 +103,7 @@ export const projectMemory = pgTable(
     restrictedFolderIds: uuid('restricted_folder_ids').array(),
     /**
      * The judge's verdict, when a language model helped decide who may read
-     * this RESTRICTED note (migration 0117; AI Act transparency): the panel
+     * this RESTRICTED note (migration 0118; AI Act transparency): the panel
      * says so on the lock. Only on a restricted note (CHECK): an open note is
      * shown to readers who may not know a restricted folder exists, and a
      * marker there would tell them the chat could see one. Every verdict,

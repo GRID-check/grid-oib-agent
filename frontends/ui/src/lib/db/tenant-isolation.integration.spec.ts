@@ -324,6 +324,56 @@ describe.skipIf(!url)('tenant isolation against live Postgres', () => {
     )
   })
 
+  it('keeps mail imports inside their tenant, and the cursor and ending CHECKs hold', async () => {
+    for (const org of [ORG_A, ORG_B]) {
+      await withTenant({ organizationId: org, userId: `user_${org}` }, () =>
+        db.execute(
+          sql`insert into mail_imports (organization_id, project_id, user_id, filename, size_bytes, staging_bucket, staging_key)
+              select ${org}, id, ${'user_' + org}, 'Postfach.pst', 1000, 'grid-documents', ${'org/' + org + '/mail-imports/x/archive'}
+              from projects where organization_id = ${org} limit 1`
+        )
+      )
+    }
+
+    const seenByA = await withTenant({ organizationId: ORG_A }, () =>
+      db.execute(sql`select organization_id from mail_imports`)
+    )
+    expect([...seenByA].map((row) => row.organization_id)).toEqual([ORG_A])
+
+    const seenBySweep = await withPlatformAccess('test: mail import sweep', () =>
+      db.execute(sql`select organization_id from mail_imports where organization_id in (${ORG_A}, ${ORG_B})`)
+    )
+    expect(new Set([...seenBySweep].map((row) => row.organization_id))).toEqual(new Set([ORG_A, ORG_B]))
+
+    // The in-flight mail is always the one at the cursor.
+    const behind = await rejectionCause(() =>
+      withTenant({ organizationId: ORG_A }, () =>
+        db.execute(sql`update mail_imports set inflight_position = 3, next_position = 4 where organization_id = ${ORG_A}`)
+      )
+    )
+    expect(behind.message).toMatch(/mail_imports_inflight_at_cursor/)
+
+    // An ended import says when; a running one does not.
+    const undated = await rejectionCause(() =>
+      withTenant({ organizationId: ORG_A }, () =>
+        db.execute(sql`update mail_imports set status = 'failed' where organization_id = ${ORG_A}`)
+      )
+    )
+    expect(undated.message).toMatch(/mail_imports_completed_at/)
+
+    // Only an import that ended carries a reason.
+    const reasonWhileRunning = await rejectionCause(() =>
+      withTenant({ organizationId: ORG_A }, () =>
+        db.execute(sql`update mail_imports set error_code = 'quota' where organization_id = ${ORG_A}`)
+      )
+    )
+    expect(reasonWhileRunning.message).toMatch(/mail_imports_error_code_ended/)
+
+    await withPlatformAccess('test teardown: mail imports', () =>
+      db.execute(sql`delete from mail_imports where organization_id in (${ORG_A}, ${ORG_B})`)
+    )
+  })
+
   it('updates and deletes nothing in another tenant', async () => {
     await withTenant({ organizationId: ORG_A }, async () => {
       await db.execute(sql`update projects set name = 'overwritten' where organization_id = ${ORG_B}`)

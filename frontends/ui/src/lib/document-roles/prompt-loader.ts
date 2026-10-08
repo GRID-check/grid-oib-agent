@@ -20,7 +20,7 @@ import { buildDocumentRolesSection } from './prompt-section'
 import type { RecommendedSlot } from './prompt-section'
 
 /**
- * Which bindings the block may name (ADR-0086). A binding carries its
+ * Which bindings the block may name (ADR-0087). A binding carries its
  * document's filename into the agent's prompt, and listing is not use: a chat
  * draws on a restricted folder only through content it retrieves and admits,
  * never through a name in its prompt. So no document in a restricted folder is

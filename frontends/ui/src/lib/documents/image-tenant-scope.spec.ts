@@ -106,7 +106,7 @@ vi.mock('@/lib/backend-proxy', () => ({ getBackendUrl: () => 'http://backend:800
 vi.mock('@aws-sdk/s3-request-presigner', () => ({ getSignedUrl: vi.fn() }))
 vi.mock('@/lib/documents/vlm-capability', () => ({ isVlmConfigured: vi.fn() }))
 vi.mock('./reconcile-status', () => ({ reconcileDocumentStatuses: vi.fn() }))
-// What a row that came to rest sets off (ADR-0085) is off this path, and its
+// What a row that came to rest sets off (ADR-0086) is off this path, and its
 // module graph reaches the inbox and the sharing registry, which reads schema
 // table objects the narrow double above does not provide. Same reason as the
 // lifecycle mock.

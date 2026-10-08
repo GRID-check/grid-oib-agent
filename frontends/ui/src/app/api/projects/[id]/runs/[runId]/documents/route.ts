@@ -15,7 +15,7 @@ type Params = { id: string; runId: string }
 export const POST = apiRoute<Params>(
   async ({ session, params, request }) => {
     const document = await parseJsonBody(request, planDocumentSchema)
-    // A refusal (a document from a restricted folder, ADR-0086) is read by the
+    // A refusal (a document from a restricted folder, ADR-0087) is read by the
     // person who picked it.
     return addRunDocument(session, params.id, params.runId, document, await getLocale())
   },

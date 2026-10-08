@@ -66,7 +66,7 @@ export type SessionsSlice = {
   loadServerConversations: (projectId?: string) => Promise<void>
   hydrateConversationMessages: (conversationId: string) => Promise<void>
   /**
-   * The server said this person may no longer read the conversation (ADR-0087):
+   * The server said this person may no longer read the conversation (ADR-0088):
    * drop its title and messages from the store and mark it locked.
    */
   _lockConversation: (conversationId: string) => void
@@ -383,7 +383,7 @@ export const createSessionsSlice: StateCreator<
 
       for (const serverConv of serverConvs) {
         const idx = merged.findIndex((c) => c.id === serverConv.id)
-        // The person may no longer read what this chat drew on (ADR-0087): the
+        // The person may no longer read what this chat drew on (ADR-0088): the
         // server sent no title, and nothing a browser cached of its messages
         // may stay on screen.
         const locked = serverConv.contentLocked === true
@@ -482,7 +482,7 @@ export const createSessionsSlice: StateCreator<
   hydrateConversationMessages: async (conversationId: string) => {
     const conversation = get().conversations.find((c) => c.id === conversationId)
     if (!conversation) return
-    // Nothing is fetched for a chat the reader may no longer read (ADR-0087).
+    // Nothing is fetched for a chat the reader may no longer read (ADR-0088).
     if (conversation.contentLocked) return
     // Messages here are the whole thread unless the server's were never loaded:
     // a follow-up sent before the history arrived is only the tail of it.
@@ -1198,7 +1198,7 @@ export const createSessionsSlice: StateCreator<
       })
     } catch (err) {
       // Rights taken away while the chat was open: it closes, as the next turn
-      // would have (ADR-0087).
+      // would have (ADR-0088).
       if (isRightsLost(err)) get()._lockConversation(currentConversation.id)
       else console.warn('[appendMessage] Failed:', err)
     }

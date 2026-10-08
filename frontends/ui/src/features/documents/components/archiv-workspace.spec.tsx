@@ -711,7 +711,7 @@ describe('ArchivWorkspace — a file the Archiv already holds', () => {
     const fresh = new File(['x'], 'neu.pdf', { type: 'application/pdf' })
     pick(fresh)
 
-    // The folder it lands in rides along for the upload screening (ADR-0085).
+    // The folder it lands in rides along for the upload screening (ADR-0086).
     await waitFor(() =>
       expect(mockUploadFiles).toHaveBeenCalledWith([fresh], expect.objectContaining({ folderPathFor: expect.any(Function) }))
     )

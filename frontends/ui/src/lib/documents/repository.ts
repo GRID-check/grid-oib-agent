@@ -148,7 +148,7 @@ export interface ListProjectDocumentsOptions {
    */
   includeArchived?: boolean
   /**
-   * Folders whose documents this reader may not see (ADR-0086), from
+   * Folders whose documents this reader may not see (ADR-0087), from
    * `getHiddenFolderIds`. Their rows are left out as if they did not exist.
    */
   hiddenFolderIds?: readonly string[]
@@ -808,7 +808,7 @@ export async function findLiveDocumentByFilename(
  * The retrieval collections of this project that already hold a live,
  * person-uploaded document of this name — either Unicode form, as
  * {@link findLiveDocumentByFilename} reads it. A project keeps one document
- * per name across all its collections (ADR-0086); the database only enforces
+ * per name across all its collections (ADR-0087); the database only enforces
  * it per collection.
  */
 export async function findProjectCollectionsHoldingFilename(
@@ -1078,7 +1078,7 @@ export async function setDocumentIngestJob(
 /**
  * The `documents.metadata` key of a row placement purged and re-pointed whose
  * re-read into its new collection is the `placement_reingest` job's to do
- * (`lib/projects/collection-placement.ts`, ADR-0086). Only ever set beside
+ * (`lib/projects/collection-placement.ts`, ADR-0087). Only ever set beside
  * `status = 'processing'`; the job removes it when it takes the row, and every
  * other writer of `processing` or of an ingest job id drops it.
  */
@@ -1168,7 +1168,7 @@ export interface StuckProcessingDocument {
  *
  * A row whose job is still `queued` or `claimed` is left out in the query, so
  * the batch is always rows that need something done. So is a row in a folder
- * that went to the Papierkorb (ADR-0087): it is hidden and its chunks were
+ * that went to the Papierkorb (ADR-0088): it is hidden and its chunks were
  * purged, and restoring the folder marks it `processing` for the restore's
  * job again; a job queued for it here would only parse or convert a document
  * nobody may see. Once restored, a row that job never reached (it died, or its
@@ -1361,7 +1361,7 @@ const sameDispatch = (jobId: string | null): SQL =>
  * a NEW job, and a read that resolved the old one would write the old verdict
  * over it. A write keyed on the job lands only on the dispatch it is about.
  *
- * A quarantine is the content gate's decision (ADR-0085), and the same
+ * A quarantine is the content gate's decision (ADR-0086), and the same
  * transaction records it in `document_quarantine_decisions`, keyed on the
  * dispatch, for the audit trail: a moved row and its decision exist together
  * or not at all, and one job is one decision.
@@ -1380,7 +1380,7 @@ export async function setDocumentReconciledStatus(
         .set({
           status: resolution.status,
           errorMessage: resolution.errorMessage,
-          // Only when the job said something (ADR-0085): an unscreened job must
+          // Only when the job said something (ADR-0086): an unscreened job must
           // not erase a reviewer's `released`.
           ...(resolution.screeningOutcome ? { screeningOutcome: resolution.screeningOutcome } : {}),
           updatedAt: new Date(),
@@ -1425,7 +1425,7 @@ export async function setDocumentReconciledStatus(
 }
 
 /**
- * A reviewer's release of a quarantined document (ADR-0085): who, when, and
+ * A reviewer's release of a quarantined document (ADR-0086): who, when, and
  * which bytes. Guarded on the row still being quarantined with the bytes the
  * reviewer saw, so a release that raced a re-upload releases nothing. Returns
  * whether it took.

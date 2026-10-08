@@ -1,5 +1,5 @@
 /**
- * A project's lifecycle (ADR-0088): active, or closed. The pure rule, with no
+ * A project's lifecycle (ADR-0089): active, or closed. The pure rule, with no
  * I/O, so the authorization seam, the agent's service-token paths and the UI
  * read one answer.
  *
@@ -81,5 +81,5 @@ export function isProjectClosedBody(body: unknown): boolean {
   return !!details && typeof details === 'object' && (details as { reason?: unknown }).reason === PROJECT_CLOSED_REASON
 }
 
-/** The SQLSTATE the database's backstop raises for an insert into a closed project (migration 0115). */
+/** The SQLSTATE the database's backstop raises for an insert into a closed project (migration 0116). */
 export const PROJECT_CLOSED_SQLSTATE = 'GPC01'

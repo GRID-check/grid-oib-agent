@@ -1,5 +1,5 @@
 /**
- * The content gate's decision, in the audit trail (ADR-0085; AI Act).
+ * The content gate's decision, in the audit trail (ADR-0086; AI Act).
  *
  * Quarantining is the one screening decision Piloti makes without a person:
  * the ingest job's rule-based gate stops the file before any model reads it.
@@ -79,7 +79,7 @@ export async function auditQuarantineDecision(
         jobId: decision.jobId ?? '',
       },
       // Where it was filed when the gate decided: the trail withholds the name
-      // of a file under a folder not every project member may read (ADR-0086).
+      // of a file under a folder not every project member may read (ADR-0087).
       filedIn: decision.projectId ? { projectId: decision.projectId, folderId: decision.folderId } : null,
       occurredAt: new Date(decision.decidedAt),
       idempotencyKey: quarantineEventKey(decision.id),

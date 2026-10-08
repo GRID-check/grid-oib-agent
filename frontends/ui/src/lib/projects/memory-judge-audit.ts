@@ -1,5 +1,5 @@
 /**
- * The restricted-memory judge's verdicts, in the audit trail (ADR-0086; AI Act).
+ * The restricted-memory judge's verdicts, in the audit trail (ADR-0087; AI Act).
  *
  * When a turn could have seen a restricted folder it did not read, a language
  * model judges whether a note Piloti keeps draws on it (`memory/restriction.py`).

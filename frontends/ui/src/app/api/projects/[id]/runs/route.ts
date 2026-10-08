@@ -45,7 +45,7 @@ export const POST = apiRoute<Params>(
       question: input.question,
       context: input.context ?? null,
       documents: input.documents ?? null,
-      // A refusal (a thread that drew on a restricted folder, ADR-0086) is read
+      // A refusal (a thread that drew on a restricted folder, ADR-0087) is read
       // by the person who pressed the button.
       locale: await getLocale(),
     })

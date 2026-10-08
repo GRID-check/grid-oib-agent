@@ -18,7 +18,7 @@ export async function generateMetadata(): Promise<Metadata> {
 }
 
 /**
- * A project's Papierkorb (ADR-0087): the deleted folders the reader may read.
+ * A project's Papierkorb (ADR-0088): the deleted folders the reader may read.
  * Read here so the first paint is the list; the panel re-reads after each
  * action.
  */
