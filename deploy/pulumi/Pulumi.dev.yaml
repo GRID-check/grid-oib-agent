@@ -121,9 +121,6 @@ config:
   grid-oib:backendRequestsMemory: 1Gi
   grid-oib:backendLimitsCpu: "2"
   grid-oib:backendLimitsMemory: 4Gi
-  grid-oib:backendDaskWorkers: "1"
-  grid-oib:backendDaskThreads: "2"
-  grid-oib:backendMaxActiveJobs: "4"
   grid-oib:backendMaxActiveJobsPerOrg: "2"
   grid-oib:backendIngestMaxWorkers: "2"
   # ── Research execution ──

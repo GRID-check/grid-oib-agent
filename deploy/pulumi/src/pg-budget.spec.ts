@@ -60,7 +60,6 @@ describe("pgConnectionBudget", () => {
     const { cfg, pgConnectionBudget } = await load({
       "grid-oib:pgPoolerInstances": "2",
       "grid-oib:pgPoolerPoolSize": "16",
-      "grid-oib:ingestWorkerEnabled": "true",
       "grid-oib:ingestWorkerMaxReplicas": "5",
       "grid-oib:ingestWorkerConcurrency": "3",
     });
@@ -91,12 +90,10 @@ describe("pgConnectionBudget", () => {
       "grid-oib:seaweedfsFilerStore": "postgres",
       "grid-oib:seaweedfsFilerReplicas": "2",
     });
-    const noQueues = await load({ "grid-oib:jobExecution": "dask", "grid-oib:bffJobsEnabled": "false" });
 
     expect(part(full.pgConnectionBudget(full.cfg), /Langfuse/)).toBe(0);
     expect(part(full.pgConnectionBudget(full.cfg), /filer/)).toBe(0);
     expect(part(withFiler.pgConnectionBudget(withFiler.cfg), /filer/)).toBe(2 * 40);
-    expect(part(noQueues.pgConnectionBudget(noQueues.cfg), /KEDA/)).toBe(0);
     expect(part(full.pgConnectionBudget(full.cfg), /KEDA/)).toBe(8);
   });
 });

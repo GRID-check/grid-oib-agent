@@ -125,7 +125,7 @@ export function buildScalerSecret(w: AppWiring): k8s.core.v1.Secret {
     {
       metadata: { name: SCALER_SECRET_NAME, namespace: w.namespace },
       stringData: {
-        ...(w.cfg.jobExecution === "db" ? { [JOBS_QUEUE_DSN_KEY]: dsn("aiq_jobs") } : {}),
+        [JOBS_QUEUE_DSN_KEY]: dsn("aiq_jobs"),
         ...(w.cfg.bffJobs.enabled ? { [BFF_QUEUE_DSN_KEY]: dsn("grid_app") } : {}),
       },
     },
@@ -260,7 +260,7 @@ export function backendEnv(w: AppWiring, otelServiceName = "grid-aiq-agent"): En
     { name: "PORT", value: String(PORT.backend) },
     { name: "CONFIG_FILE", value: cfg.backend.configFile },
     { name: "COLLECTION_NAME", value: "oib_knowledge" },
-    // Research execution backend (dask = per-pod; db = DB-claimed workers).
+    // Research execution: DB-claimed workers, the only deployable value (ADR-0082 B).
     { name: "GRID_JOB_EXECUTION", value: cfg.jobExecution },
     // Encrypts DB-claimed job payloads at rest (empty = plaintext, dev only).
     sref("GRID_JOB_PAYLOAD_KEK"),
@@ -313,19 +313,10 @@ export function backendEnv(w: AppWiring, otelServiceName = "grid-aiq-agent"): En
     ...(cfg.langfuse.enabled
       ? [{ name: "GRID_TRACE_IDENTITY_ATTRIBUTES", value: "true" }]
       : []),
-    // Dask (in-process research execution) — vertical scaling knobs.
-    { name: "DASK_NWORKERS", value: String(cfg.backend.daskWorkers) },
-    { name: "DASK_NTHREADS", value: String(cfg.backend.daskThreads) },
     // Admission control (bounds concurrent heavy work — §4.2).
-    { name: "GRID_MAX_ACTIVE_JOBS", value: String(cfg.backend.maxActiveJobs) },
     { name: "GRID_MAX_ACTIVE_JOBS_PER_ORG", value: String(cfg.backend.maxActiveJobsPerOrg) },
     { name: "GRID_MAX_QUEUED_JOBS_PER_ORG", value: String(cfg.backend.maxQueuedJobsPerOrg) },
     { name: "AIQ_INGEST_MAX_WORKERS", value: String(cfg.backend.ingestMaxWorkers) },
-    // The durable ingest queue exists for the ingest tier to claim (ADR-0076):
-    // the chat and api roles only put jobs in it. With no tier (`jobExecution`
-    // dask, or `ingestWorkerEnabled` off) nothing would claim, so the queue is
-    // off and the accepting process runs the job in its own pool.
-    { name: "GRID_INGEST_QUEUE", value: cfg.ingestWorker.enabled ? "on" : "off" },
     { name: "GRID_INGEST_MAX_PER_ORG", value: String(cfg.ingestWorker.maxPerOrg) },
     // No env for the base corpus: it lives in SeaweedFS and the knowledge
     // database (ADR-0082 step A2), and the per-replica cache defaults to
@@ -441,7 +432,7 @@ export function frontendEnv(w: AppWiring): EnvVar[] {
     // WS proxy pins a conversation to `aiq-agent-<hash>.aiq-agent-headless` so
     // its in-process WS/HITL/task state is always on the same replica. With 1
     // replica the proxy falls back to the load-balanced BACKEND_CHAT_URL.
-    { name: "BACKEND_REPLICAS", value: String(cfg.jobExecution === "db" ? cfg.backend.replicas : 1) },
+    { name: "BACKEND_REPLICAS", value: String(cfg.backend.replicas) },
     // ADR-0080: "0" hands every socket to the load-balanced Service and lets the
     // conversation bus decide per turn which replica runs it, so the backend can
     // autoscale (backend-scaling.ts). "1" is the hash above, byte for byte.

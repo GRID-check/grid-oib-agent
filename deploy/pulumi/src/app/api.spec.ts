@@ -211,18 +211,25 @@ describe("the api tier", () => {
     expect(literal(purgerEnv(wiring as never)).BACKEND_URL).toBe(BACKEND_URL);
   });
 
-  it("takes queued ingestion only to hand it to the tier, or runs it itself when there is no tier", async () => {
-    expect(apiEnvValues.GRID_INGEST_QUEUE).toBe("off");
-    expect(chatEnvValues.GRID_INGEST_QUEUE).toBe("off");
+  it("only hands ingestion to the tier: the queue has no off switch and nothing in the roles claims", async () => {
+    expect(chatEnvValues.GRID_INGEST_QUEUE).toBeUndefined();
+    expect(apiEnvValues.GRID_INGEST_QUEUE).toBeUndefined();
+    expect(cfg.ingestWorker).not.toHaveProperty("enabled");
+  });
 
-    const made = await wiringFor({
-      "grid-oib:jobExecution": "db",
-      "grid-oib:allowPlaintextJobPayloads": "true",
-      "grid-oib:chromaEnabled": "true",
-      "grid-oib:observabilityEnabled": "false",
-    });
-    const { apiEnv } = await import("./config");
-    expect(literal(apiEnv(made.wiring as never)).GRID_INGEST_QUEUE).toBe("on");
+  it("deploys research as DB-claimed only, and refuses any other jobExecution naming ADR-0082 B", async () => {
+    const { loadConfig } = await import("../config");
+
+    expect(cfg.jobExecution).toBe("db");
+    expect(apiEnvValues.GRID_JOB_EXECUTION).toBe("db");
+    for (const value of ["dask", "", "Db"]) {
+      pulumi.runtime.setAllConfig({ ...baseStackConfig(), "grid-oib:jobExecution": value });
+      expect(() => loadConfig(), value).toThrow(
+        /ADR-0082 step B.*cannot cancel or stream a job that lives on a chat container's Dask cluster/s,
+      );
+    }
+    pulumi.runtime.setAllConfig({ ...baseStackConfig(), "grid-oib:jobExecution": "db" });
+    expect(loadConfig().jobExecution).toBe("db");
   });
 
   it("is reachable from the frontend and the CronJobs through the namespace-wide ingress allow", async () => {

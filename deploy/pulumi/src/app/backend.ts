@@ -51,7 +51,7 @@ export function installBackend(
 ): Backend {
   const labels = commonLabels("aiq-agent");
   const autoscaled = backendAutoscaled(cfg);
-  const multiReplica = cfg.jobExecution === "db" && (cfg.backend.replicas > 1 || autoscaled);
+  const multiReplica = cfg.backend.replicas > 1 || autoscaled;
   // The grace period is the chat drain plus the endpoint drain and slack: a
   // terminating replica finishes the turns it claimed (ADR-0080).
   const profile = backendRollout(cfg.backend.drainSeconds);
@@ -66,10 +66,10 @@ export function installBackend(
         // (aiq-agent-<i>.aiq-agent-headless), which the frontend uses for
         // conversation affinity so a chat pins to its owning replica.
         serviceName: "aiq-agent-headless",
-        // Singleton in dask mode; multi-replica chat tier in db mode (safe with
-        // conversation affinity, ADR-0028, or the conversation bus, ADR-0080).
-        // The floor when KEDA scales it (backend-scaling.ts).
-        replicas: cfg.jobExecution === "db" ? cfg.backend.replicas : 1,
+        // Multi-replica chat tier (safe with conversation affinity, ADR-0028, or
+        // the conversation bus, ADR-0080). The floor when KEDA scales it
+        // (backend-scaling.ts).
+        replicas: cfg.backend.replicas,
         selector: { matchLabels: labels },
         // One pod at a time, highest ordinal first, and each replacement must
         // stay Ready for minReadySeconds before the next is touched — the
@@ -91,9 +91,8 @@ export function installBackend(
             // SIGTERM with room to finish streaming responses in flight.
             terminationGracePeriodSeconds: shutdown.terminationGracePeriodSeconds,
             securityContext: { runAsNonRoot: true, runAsUser: UID.backend, runAsGroup: UID.backend },
-            // In db mode the web tier runs >1 replica — spread across nodes so an
-            // upgrade node-drain / node loss can't take every chat replica down.
-            // (Singleton dask mode: the array is empty, a harmless no-op.)
+            // The chat tier may run >1 replica — spread across nodes so an upgrade
+            // node-drain / node loss can't take every chat replica down.
             ...(multiReplica ? { topologySpreadConstraints: spreadAcrossNodes(labels) } : {}),
             containers: [
               {

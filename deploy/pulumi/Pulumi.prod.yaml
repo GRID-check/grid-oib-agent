@@ -250,16 +250,13 @@ config:
   grid-oib:backendRequestsMemory: 2Gi
   grid-oib:backendLimitsCpu: "4"
   grid-oib:backendLimitsMemory: 8Gi
-  grid-oib:backendDaskWorkers: "1"
-  grid-oib:backendDaskThreads: "4"
-  grid-oib:backendMaxActiveJobs: "8"
   grid-oib:backendMaxActiveJobsPerOrg: "3"
   grid-oib:backendIngestMaxWorkers: "2"
   # ── Research execution (ADR-0021) ──
 
-  # "dask" = per-pod cluster (agent is a singleton). "db" = DB-claimed workers:
+  # DB-claimed workers, the only deployable value (the plan fails on anything else, ADR-0082 B):
 
-  # web tier runs no Dask and dedicated agent-worker replicas execute research
+  # the web roles run no Dask and dedicated agent-worker replicas execute research
 
   # jobs, scaling the token-heavy workload horizontally. Requires chromaEnabled.
   grid-oib:jobExecution: db

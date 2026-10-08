@@ -122,7 +122,6 @@ describe("the chat tier's scale-out", () => {
     for (const [changed, why] of [
       [{ "grid-oib:chatAffinity": "true" }, "the hash routes by the replica count"],
       [{ "grid-oib:backendMaxReplicas": "1" }, "no room"],
-      [{ "grid-oib:jobExecution": "dask" }, "dask mode is a hard singleton"],
     ] as const) {
       pulumi.runtime.setAllConfig({ ...baseStackConfig(), ...AUTOSCALING, ...changed });
       expect(backendAutoscaled(loadConfig()), why).toBe(false);

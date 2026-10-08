@@ -365,7 +365,7 @@ describe("the program's ScaledObjects", () => {
       // not there fails, and so does a scaler that polls one.
       expect(init.image).toMatch(/grid-oib-backend/);
       expect(init.command.slice(0, 2)).toEqual(["python", "-c"]);
-      expect(init.command[2]).toBe(ensureTablesPython(cfg));
+      expect(init.command[2]).toBe(ensureTablesPython());
       expect(psql.image).toMatch(/^postgres:/);
       expect(script).toMatch(/pg_roles WHERE rolname = 'grid_keda_scaler'/);
       expect(script.indexOf("pg_roles")).toBeLessThan(script.indexOf("/sql/jobs.sql"));
@@ -382,15 +382,12 @@ describe("the program's ScaledObjects", () => {
       expect(read("frontends", "aiq_api", "src", "aiq_api", "jobs", "worker.py")).toContain('"NAT_JOB_STORE_DB_URL"');
     });
 
-    it("are created with only the tiers that need them", async () => {
+    it("are created for both Python queues", async () => {
       const { ensureTablesPython, jobsDatabaseTables } = await import("./queue-scaler-grants");
-      const none = { jobExecution: "dask", ingestWorker: { enabled: false } } as never;
-      const research = { jobExecution: "db", ingestWorker: { enabled: false } } as never;
 
-      expect(jobsDatabaseTables(none)).toEqual([]);
-      expect(jobsDatabaseTables(research)).toEqual(["research_job_queue"]);
-      expect(ensureTablesPython(research)).not.toContain("ingest_queue");
-      expect(ensureTablesPython(cfg)).toContain("ingest_queue.ensure_table(ingest_queue.db_url())");
+      expect(jobsDatabaseTables()).toEqual(["ingest_job_queue", "research_job_queue"]);
+      expect(ensureTablesPython()).toContain("ingest_queue.ensure_table(ingest_queue.db_url())");
+      expect(ensureTablesPython()).toContain("queue.ensure_research_queue_table(");
     });
 
     it("are in place before any ScaledObject exists, by the program's own ordering", () => {
@@ -399,11 +396,11 @@ describe("the program's ScaledObjects", () => {
       // The grants Job follows the cluster (the role) and the migrations (the BFF table)...
       expect(index).toMatch(/installQueueScalerGrants\(wiring, cfg, \[postgres\.cluster, postgres\.initJob, migrations\]\)/);
       // ...and every tier that owns a ScaledObject waits for it.
-      expect(index).toMatch(/const queueScalerDeps = \[[\s\S]*?\.\.\.\(scalerGrants \? \[scalerGrants\] : \[\]\)/);
-      expect(index).toMatch(/installBffJobs\(wiring, cfg, secrets, \[[\s\S]*?\.\.\.\(scalerGrants \? \[scalerGrants\] : \[\]\)/);
+      expect(index).toMatch(/const queueScalerDeps = \[[\s\S]*?scalerGrants/);
+      expect(index).toMatch(/installBffJobs\(wiring, cfg, secrets, \[[\s\S]*?scalerGrants/);
       // The TriggerAuthentication that points existing scalers at the new login moves
       // after the grants too, or they read through a login that can read nothing yet.
-      expect(index).toMatch(/installJobsQueueAuth\(wiring, \[[\s\S]*?scalerGrants \? \[scalerGrants\]/);
+      expect(index).toMatch(/installJobsQueueAuth\(wiring, \[[\s\S]*?scalerGrants/);
       // The queue-driven ScaledObjects are built from `dependsOn` by one helper.
       expect(read("deploy", "pulumi", "src", "app", "keda-scaling.ts")).toMatch(
         /dependsOn: \[tier\.deployment, \.\.\.tier\.dependsOn\]/,

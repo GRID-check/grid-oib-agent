@@ -130,6 +130,10 @@ Deployment when that routing is gone.
   to one replica's disk.
 * Good, because a tier's name says what it does.
 * Bad, because the BFF routes to two backend services instead of one.
+* Bad, because Dask is no longer deployable: the api role cannot cancel or
+  stream a job that lives on a chat container's Dask cluster, so Pulumi refuses
+  any `jobExecution` but `db` and both Compose files run `db` only. The Python
+  Dask path is not removed by B.
 * Neutral: one more Deployment of the same image.
 
 ### Confirmation

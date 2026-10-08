@@ -1,6 +1,6 @@
 import * as k8s from "@pulumi/kubernetes";
 import * as pulumi from "@pulumi/pulumi";
-import { GridConfig, assertPgConnectionBudget, queueScalerEnabled } from "../config";
+import { GridConfig, assertPgConnectionBudget } from "../config";
 import { commonLabels } from "../platform/namespaces";
 import { installPdb, spreadAcrossNodes } from "../platform/scheduling";
 import { hardenedJobSecurityContext } from "../platform/security";
@@ -277,17 +277,15 @@ export function installPostgres(
    * which is SELECT on the queue tables and nothing else. One role for both
    * databases, because a role is cluster-wide and its grants are per database.
    */
-  const scalerCredentials = queueScalerEnabled(cfg)
-    ? new k8s.core.v1.Secret(
-        "pg-keda-scaler-credentials",
-        {
-          metadata: { name: `${CLUSTER_NAME}-keda-scaler-credentials`, namespace },
-          type: "kubernetes.io/basic-auth",
-          stringData: { username: KEDA_SCALER_ROLE, password: cfg.postgres.scalerPassword },
-        },
-        { provider },
-      )
-    : undefined;
+  const scalerCredentials = new k8s.core.v1.Secret(
+    "pg-keda-scaler-credentials",
+    {
+      metadata: { name: `${CLUSTER_NAME}-keda-scaler-credentials`, namespace },
+      type: "kubernetes.io/basic-auth",
+      stringData: { username: KEDA_SCALER_ROLE, password: cfg.postgres.scalerPassword },
+    },
+    { provider },
+  );
 
   /**
    * Login for the SeaweedFS filer's metadata store (ADR-0043).
@@ -468,23 +466,19 @@ export function installPostgres(
             // no BYPASSRLS (its one read of a tenant table is a policy of its
             // own, written by the grants Job), no DDL, no role membership, and a
             // connection limit, because the operator opens one per poll.
-            ...(scalerCredentials
-              ? [
-                  {
-                    name: KEDA_SCALER_ROLE,
-                    ensure: "present",
-                    login: true,
-                    inherit: false,
-                    superuser: false,
-                    createdb: false,
-                    createrole: false,
-                    replication: false,
-                    bypassrls: false,
-                    connectionLimit: KEDA_SCALER_CONNECTION_LIMIT,
-                    passwordSecret: { name: scalerCredentials.metadata.apply((m) => m!.name!) },
-                  },
-                ]
-              : []),
+            {
+              name: KEDA_SCALER_ROLE,
+              ensure: "present",
+              login: true,
+              inherit: false,
+              superuser: false,
+              createdb: false,
+              createrole: false,
+              replication: false,
+              bypassrls: false,
+              connectionLimit: KEDA_SCALER_CONNECTION_LIMIT,
+              passwordSecret: { name: scalerCredentials.metadata.apply((m) => m!.name!) },
+            },
             // The SeaweedFS filer's own login (ADR-0043). It owns exactly one
             // database and needs DDL inside it — the `[postgres2]` store
             // creates a table per S3 bucket on demand, which is what makes

@@ -18,11 +18,11 @@ their own namespaces.
 
 | Workload | k8s object | Replicas | Storage | Scales by |
 |---|---|---|---|---|
-| `aiq-agent` (the **`chat` role**, `GRID_ROLE=chat`: the chat socket and NAT's own routes, ADR-0082) | **StatefulSet** | 1 (dask) / N (db, default 2) | none (no PVC; ADR-0082 step A2) | dask mode: vertically (singleton). db mode (both shipped templates): horizontally + PDB/spread — §6.4; with `chatAffinity: false` a KEDA ScaledObject on running turns, `backendReplicas`→`backendMaxReplicas` (§6.4b; prod stays at 1) |
+| `aiq-agent` (the **`chat` role**, `GRID_ROLE=chat`: the chat socket and NAT's own routes, ADR-0082) | **StatefulSet** | N (default 2) | none (no PVC; ADR-0082 step A2) | Horizontally + PDB/spread — §6.4; with `chatAffinity: false` a KEDA ScaledObject on running turns, `backendReplicas`→`backendMaxReplicas` (§6.4b; prod stays at 1) |
 | `aiq-api` (the **`api` role**, `GRID_ROLE=api`: every other backend HTTP route; `BACKEND_URL` names its Service, ADR-0082) | Deployment + HPA + PDB | `apiMinReplicas`→`apiMaxReplicas` (default 2→4; prod 1→3, dev 1→2) | — | Horizontally (CPU HPA, `apiHpaCpuTargetPercent`). Stateless: no volume. Drains for 60 s (the SSE close and short requests), not for a chat turn |
 | `frontend` (Next.js + BFF + WS gateway) | Deployment + HPA | `frontendMinReplicas`→`frontendMaxReplicas` (default 2→6; prod and dev 1→3) | — | Horizontally (CPU HPA) |
-| `agent-worker` (research, `jobExecution: db`) | Deployment + KEDA ScaledObject | `agentWorkerMinReplicas`→`agentWorkerMaxReplicas` (default 1→8; prod 1→3, dev 0→3) | — | Horizontally, on `research_job_queue` depth (§6.3) |
-| `ingest-worker` (ingestion, `jobExecution: db`) | Deployment + KEDA ScaledObject | `ingestWorkerMinReplicas`→`ingestWorkerMaxReplicas` (default 1→5; prod 1→5, dev 0→3) | — | Horizontally, on `ingest_job_queue` depth; the ceiling is held to the provider budget (§6.3b, §6.3d) |
+| `agent-worker` (research) | Deployment + KEDA ScaledObject | `agentWorkerMinReplicas`→`agentWorkerMaxReplicas` (default 1→8; prod 1→3, dev 0→3) | — | Horizontally, on `research_job_queue` depth (§6.3) |
+| `ingest-worker` (ingestion) | Deployment + KEDA ScaledObject | `ingestWorkerMinReplicas`→`ingestWorkerMaxReplicas` (default 1→5; prod 1→5, dev 0→3) | — | Horizontally, on `ingest_job_queue` depth; the ceiling is held to the provider budget (§6.3b, §6.3d) |
 | `bff-jobs` (the BFF's background pool: reindex, rescan, IFC, rendition, report filing; no Service, no route) | Deployment + KEDA ScaledObject | `bffJobsMinReplicas`→`bffJobsMaxReplicas` (default 1→4; prod 1→4, dev 0→2) | — | Horizontally, on `bff_job_queue` depth (§6.3c) |
 | KEDA (`keda` namespace) | Helm release, chart pinned to the release the plan's CRDs are validated against | 1 operator | — | n/a; what it may read and reach is §6.3d |
 | `purger` | Deployment | 1 | — | n/a (SKIP LOCKED-safe) |
@@ -175,12 +175,11 @@ Single-replica workloads deliberately get **no** PDB — `minAvailable: 1` on on
 pod would block the drain forever and deadlock the upgrade. Postgres HA is
 CloudNativePG's own PDB.
 
-**In dask mode, automatic upgrades interrupt in-flight research.** The default
-`jobExecution: dask` runs the agent as a singleton (deliberately without a
-PDB): every provider-initiated node drain evicts it, killing in-process Dask
-state (durable deep-research checkpoints survive; live WS/HITL state does not)
-with a recovery tail of volume re-attach + image pull + up-to-10-min boot.
-Both shipped stack templates use `db` mode, which drains one replica at a time.
+**Dask is not deployable.** `loadConfig` refuses any `jobExecution` but `db`
+(ADR-0082 step B): the api role cannot cancel or stream a job that lives on a
+chat container's Dask cluster. Research is claimed from Postgres by the
+`agent-worker` tier, so a provider-initiated node drain takes one replica at a
+time and the durable checkpoints survive it.
 
 **Moving image tags make `pulumi up` a no-op.** With `imageTag: latest`, a
 redeploy after publishing new images changes no pod spec, so nothing rolls and
@@ -1056,8 +1055,8 @@ The token-heavy workload (deep research) now scales out. Set
   every worker that takes it is kept as a `dead` row for
   `GRID_RESEARCH_DEAD_RETENTION_DAYS`.
 
-Safe rollout: `jobExecution: dask` (default in code) is byte-for-byte today's
-behaviour; flip to `db` per environment. `agentWorkerMinReplicas` /
+`jobExecution` is `db`, its default and the only value the program accepts.
+`agentWorkerMinReplicas` /
 `agentWorkerMaxReplicas` / `agentWorkerConcurrency` size the worker tier.
 
 ### 6.3b Ingestion — a fair queue and a tier KEDA scales on its depth (ADR-0076)
@@ -1076,9 +1075,7 @@ lost on restart. Now, with `jobExecution: db`:
 - **A dedicated `ingest-worker` tier** (same image, `GRID_ROLE=ingest-worker`,
   no port, no PVC) claims them, and it is the only process that does: the `chat`
   and `api` roles only enqueue (ADR-0082), so a PDF's parse never shares their
-  CPU. A stack with no tier (`jobExecution: dask`, which has no shared Chroma for
-  it, or `ingestWorkerEnabled: false`) sets `GRID_INGEST_QUEUE=off` instead, and
-  the accepting process runs the job itself.
+  CPU. The tier is always deployed.
 - **KEDA scales it on the queue**, not on CPU (a job mostly waits on the
   provider): its `postgresql` trigger counts the table's rows that are not
   `dead` and asks for
@@ -1357,7 +1354,7 @@ the tier autoscale:
   a NetworkPolicy lets the KEDA operator pod reach port 8000 of the backend pods,
   and an unreadable count is a 503, which makes the HPA hold the current count.
 - **Floor and ceiling.** `backendReplicas` is the floor and `backendMaxReplicas`
-  (default 3) the ceiling. The ScaledObject exists only with `jobExecution: db`,
+  (default 3) the ceiling. The ScaledObject exists only with
   affinity off and a ceiling above the floor, and then owns `spec.replicas`
   (`ignoreChanges`). Prod keeps affinity on and `backendMaxReplicas: 1` until the
   cross-replica path (reconnect, clarifier round trip, Stop, supersede, a
@@ -1602,8 +1599,7 @@ process*, so `server.js` pins each conversation to a specific replica by hash
 conversation cannot be served by replica *j* — surging a replacement does not
 help, because there is no interchangeable peer. Each affected conversation sees
 a real gap of (drain + cold start), which is what the client budget above is
-sized against. In `dask` mode the tier is a hard singleton and this applies to
-every conversation. Closing that gap for real means letting the WS proxy fall
+sized against. Closing that gap for real means letting the WS proxy fall
 back to the load-balanced Service when the pinned replica is unreachable, which
 trades away the in-process state ADR-0028 exists to preserve — a product
 decision, not a Pulumi setting.

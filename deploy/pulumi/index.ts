@@ -17,7 +17,7 @@
  */
 import * as pulumi from "@pulumi/pulumi";
 
-import { backendAutoscaled, backendImage, frontendImage, loadConfig, queueScalerEnabled, webImage } from "./src/config";
+import { backendAutoscaled, backendImage, frontendImage, loadConfig, webImage } from "./src/config";
 import { makeProvider } from "./src/platform/providers";
 import { makeAppNamespace } from "./src/platform/namespaces";
 import { installCertManager } from "./src/platform/cert-manager";
@@ -244,72 +244,46 @@ const web = installWeb(cfg, provider, namespace, wiring.imagePullSecrets, [
   ...(pullSecret ? [pullSecret] : []),
 ]);
 
-// KEDA, installed once when any tier it scales runs: the research and ingest
-// workers and the BFF job pool (queue depth, ADR-0079/0076) and the chat tier
-// (running turns, ADR-0080).
-const keda =
-  (cfg.jobExecution === "db" || cfg.ingestWorker.enabled || cfg.bffJobs.enabled || backendAutoscaled(cfg)) &&
-  cfg.keda.install
-    ? installKeda(provider)
-    : undefined;
+// KEDA scales the research and ingest workers and the BFF job pool (queue depth,
+// ADR-0079/0076) and the chat tier (running turns, ADR-0080).
+const keda = cfg.keda.install ? installKeda(provider) : undefined;
 
 // What the read-only scaler login may read, and the queue tables it reads, in
 // place before any ScaledObject is created (`app/queue-scaler-grants.ts`): after
 // the cluster (the role) and the migrations (`bff_job_queue`).
-const scalerGrants = queueScalerEnabled(cfg)
-  ? installQueueScalerGrants(wiring, cfg, [postgres.cluster, postgres.initJob, migrations])
-  : undefined;
+const scalerGrants = installQueueScalerGrants(wiring, cfg, [postgres.cluster, postgres.initJob, migrations]);
 
 // What KEDA connects with, in a Secret of its own that no pod reads.
-const scalerSecret = queueScalerEnabled(cfg) ? buildScalerSecret(wiring) : undefined;
+const scalerSecret = buildScalerSecret(wiring);
 
 // How KEDA reads the two Python claim queues, which share one database. Created
-// once, because the research tier runs whether or not the ingest tier does. After
-// the grants: on a stack that already runs, the existing ScaledObjects start
-// reading through the scaler login the moment this points at it, and the login
-// can read nothing before the Job has run.
-const jobsQueueAuth =
-  cfg.jobExecution === "db"
-    ? installJobsQueueAuth(wiring, [
-        ...(keda ? [keda] : []),
-        ...(scalerGrants ? [scalerGrants] : []),
-        ...(scalerSecret ? [scalerSecret] : []),
-      ])
-    : undefined;
-const queueScalerDeps = [
-  ...(keda ? [keda] : []),
-  ...(jobsQueueAuth ? [jobsQueueAuth] : []),
-  ...(scalerGrants ? [scalerGrants] : []),
-  ...(scalerSecret ? [scalerSecret] : []),
-];
+// once for both tiers. After the grants: on a stack that already runs, the
+// existing ScaledObjects start reading through the scaler login the moment this
+// points at it, and the login can read nothing before the Job has run.
+const jobsQueueAuth = installJobsQueueAuth(wiring, [...(keda ? [keda] : []), scalerGrants, scalerSecret]);
+const queueScalerDeps = [...(keda ? [keda] : []), jobsQueueAuth, scalerGrants, scalerSecret];
 
-// Research worker tier — only when execution is DB-claimed (ADR-0021). Claims
-// the research queue fairly across organizations (ADR-0079), scaled by KEDA on
-// the queue's depth.
-const agentWorker =
-  cfg.jobExecution === "db"
-    ? installAgentWorker(wiring, cfg, secrets, [
-        postgres.initJob,
-        postgres.pooler,
-        dragonfly.service,
-        seaweed.bucketInitJob,
-        ...(chroma ? [chroma.service] : []),
-        ...queueScalerDeps,
-      ])
-    : undefined;
+// Research worker tier (ADR-0021) — claims the research queue fairly across
+// organizations (ADR-0079), scaled by KEDA on the queue's depth.
+const agentWorker = installAgentWorker(wiring, cfg, secrets, [
+  postgres.initJob,
+  postgres.pooler,
+  dragonfly.service,
+  seaweed.bucketInitJob,
+  ...(chroma ? [chroma.service] : []),
+  ...queueScalerDeps,
+]);
 
-// Ingestion tier (ADR-0076) — claims the durable ingest queue fairly across
-// organisations, scaled by KEDA on the queue's depth.
-const ingestWorker = cfg.ingestWorker.enabled
-  ? installIngestWorker(wiring, cfg, secrets, [
-      postgres.initJob,
-      postgres.pooler,
-      dragonfly.service,
-      seaweed.bucketInitJob,
-      ...(chroma ? [chroma.service] : []),
-      ...queueScalerDeps,
-    ])
-  : undefined;
+// Ingestion tier (ADR-0076) — the only process that claims the durable ingest
+// queue, fairly across organisations, scaled by KEDA on the queue's depth.
+const ingestWorker = installIngestWorker(wiring, cfg, secrets, [
+  postgres.initJob,
+  postgres.pooler,
+  dragonfly.service,
+  seaweed.bucketInitJob,
+  ...(chroma ? [chroma.service] : []),
+  ...queueScalerDeps,
+]);
 
 // BFF background pool (ADR-0079) — claims bff_job_queue fairly across
 // organisations and runs project reindex and rescan jobs in its own BFF,
@@ -319,8 +293,8 @@ const bffJobs = cfg.bffJobs.enabled
       migrations,
       api.service,
       ...(keda ? [keda] : []),
-      ...(scalerGrants ? [scalerGrants] : []),
-      ...(scalerSecret ? [scalerSecret] : []),
+      scalerGrants,
+      scalerSecret,
     ])
   : undefined;
 
@@ -465,12 +439,8 @@ export const deployedImages = {
   frontend: frontendImage(cfg),
   web: webImage(cfg),
 };
-export const ingestWorkerDeployment = ingestWorker
-  ? ingestWorker.deployment.metadata.name
-  : pulumi.output("(none: the ingest queue is off and ingestion runs in the api and chat pods)");
+export const ingestWorkerDeployment = ingestWorker.deployment.metadata.name;
 export const bffJobsDeployment = bffJobs
   ? bffJobs.deployment.metadata.name
   : pulumi.output("(none: reindex and rescan jobs are not run)");
-export const agentWorkerDeployment = agentWorker
-  ? agentWorker.deployment.metadata.name
-  : pulumi.output("(none: dask mode)");
+export const agentWorkerDeployment = agentWorker.deployment.metadata.name;
