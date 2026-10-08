@@ -949,13 +949,13 @@ echo "==> 0115 project status and down migration verified"
 # ---------------------------------------------------------------------------
 echo "==> verifying the 0116 Steckbrief down migration on grid_app"
 $MIGRATE -v ON_ERROR_STOP=1 -q -f "drizzle/0116_project_steckbrief.down.sql" >/dev/null || {
-  echo "DOWN MIGRATION 0115 FAILED — re-run without -q to see the error" >&2
+  echo "DOWN MIGRATION 0116 FAILED — re-run without -q to see the error" >&2
   exit 1
 }
 check14 "SELECT to_regclass('public.project_people') IS NULL" "t" "down dropped project_people"
 check14 "SELECT count(*) FROM information_schema.columns WHERE table_name = 'projects' AND column_name IN ('started_on','ended_on')" "0" "down dropped the period"
 $MIGRATE -v ON_ERROR_STOP=1 -q -f "drizzle/0116_project_steckbrief.sql" >/dev/null || {
-  echo "MIGRATION 0115 FAILED when re-applied after its down migration" >&2
+  echo "MIGRATION 0116 FAILED when re-applied after its down migration" >&2
   exit 1
 }
 check14 "SELECT relrowsecurity FROM pg_class WHERE relname = 'project_people'" "t" "0116 applies again, with row-level security"
