@@ -7,6 +7,11 @@ object storage (the BFF staged the upload there and decided who may import it):
   with headers, the body as text and what each attachment is.
 - ``POST /v1/mail-archive/attachment``: one attachment's bytes, raw.
 
+Answers the BFF acts on: 422 the file is not an archive (no retry helps), 409
+one attachment is damaged (skip it), 413 too large (skip it), 502 the object
+store failed (retry). A damaged message comes back in the page as an
+``unreadable`` item rather than as an error, so the rest of the page files.
+
 The bytes are a second request rather than base64 inside the page because an
 attachment can be a hundred megabytes, and a page of them would be a response
 nobody should hold in memory twice. This tier decides nothing about access, and
@@ -26,11 +31,12 @@ from fastapi import Response
 from pydantic import BaseModel
 from pydantic import Field
 
-from ..mail_archive.archives import archive_for
+from ..mail_archive.archives import use_archive
 from ..mail_archive.reader import ArchiveError
 from ..mail_archive.reader import ArchiveMessage
 from ..mail_archive.reader import AttachmentInfo
 from ..mail_archive.reader import AttachmentTooLargeError
+from ..mail_archive.reader import UnreadableItemError
 from ..mail_archive.remote_file import RemoteFileError
 from .internal_auth import _require_internal_token
 
@@ -91,14 +97,16 @@ async def _read(operation, ref: ArchiveRef):  # noqa: ANN001, ANN202 - a closure
     """Run ``operation`` on the open archive, off the event loop, with errors as HTTP answers."""
 
     def run():  # noqa: ANN202
-        archive = archive_for(ref.key, ref.url, ref.size)
-        with archive.lock:
+        with use_archive(ref.key, ref.url, ref.size) as archive:
             return operation(archive)
 
     try:
         return await asyncio.to_thread(run)
     except AttachmentTooLargeError as error:
         raise HTTPException(status_code=413, detail="The attachment is too large to import.") from error
+    except UnreadableItemError as error:
+        # One damaged attachment of a readable archive: the import skips the file.
+        raise HTTPException(status_code=409, detail=str(error)) from error
     except ArchiveError as error:
         raise HTTPException(status_code=422, detail=str(error)) from error
     except RemoteFileError as error:
@@ -113,6 +121,8 @@ def _message_json(message: ArchiveMessage) -> dict:
         "message_class": message.message_class,
         "folder_path": list(message.folder_path),
     }
+    if message.kind == "unreadable":
+        return {**base, "message_class": "", "detail": message.message_class}
     if message.kind != "mail":
         return base
     return {

@@ -62,9 +62,14 @@ export function mailFolderName(when: string | null, sender: MailAddress | null):
   return `${stamp} – ${who}`.slice(0, MAX_FOLDER_NAME).trim()
 }
 
-/** `name`, `name (2)`, `name (3)`: the n-th candidate for a name that may be taken. */
+/**
+ * `name`, `name (2)`, `name (3)`: the n-th candidate for a folder name that may
+ * be taken, still within the folder-name limit once the number is on it.
+ */
 export function numbered(name: string, n: number): string {
-  return n <= 1 ? name : `${name} (${n})`
+  if (n <= 1) return name
+  const suffix = ` (${n})`
+  return `${name.slice(0, MAX_FOLDER_NAME - suffix.length).trim()}${suffix}`
 }
 
 /** As {@link numbered}, with the number before the extension: `Plan (2).pdf`. */
@@ -77,6 +82,22 @@ export function numberedFilename(filename: string, n: number): string {
 
 /** Names `validateFolderName` refuses (the old DOS devices), which an Outlook folder may still carry. */
 const RESERVED = new Set(['con', 'prn', 'aux', 'nul'])
+
+/**
+ * Outlook folder levels mirrored as project folders. Folder creation takes paths
+ * of at most twelve segments (`MAX_ENSURE_DEPTH`); anything deeper is folded
+ * into the last one, `Projekte – 2019 – Nord`, so a deep tree still files.
+ */
+const MAX_OUTLOOK_DEPTH = 12
+
+/** The project folder path that mirrors an Outlook folder path. */
+export function outlookFolderPath(segments: readonly string[]): string {
+  const names = segments.map(outlookFolderName)
+  if (names.length <= MAX_OUTLOOK_DEPTH) return names.join('/')
+  const kept = names.slice(0, MAX_OUTLOOK_DEPTH - 1)
+  const folded = outlookFolderName(names.slice(MAX_OUTLOOK_DEPTH - 1).join(' – '))
+  return [...kept, folded].join('/')
+}
 
 /** An Outlook folder's name as a project folder name. */
 export function outlookFolderName(raw: string): string {

@@ -10,6 +10,12 @@ nothing.
 
 The URL is presigned and expires, while an open archive outlives one request,
 so :meth:`RangeFile.renew` swaps it without dropping the cache.
+
+**A failed fetch is remembered.** libpff calls ``read`` from C and turns
+whatever it raises into a plain ``OSError`` about the archive, so a 503 from
+the store, an expired URL or a timeout would read as "not an archive" and end
+an import that only needed another try. :attr:`RangeFile.last_error` keeps the
+real cause; the reader checks it before blaming the file.
 """
 
 from __future__ import annotations
@@ -43,6 +49,12 @@ class RangeFile(io.RawIOBase):
         self._position = 0
         self._blocks: OrderedDict[int, bytes] = OrderedDict()
         self._lock = threading.Lock()
+        #: The fetch that failed since :meth:`clear_error`, if one did.
+        self.last_error: RemoteFileError | None = None
+
+    def clear_error(self) -> None:
+        """Forget an earlier failure; called before each operation on the archive."""
+        self.last_error = None
 
     def renew(self, url: str) -> None:
         """Read through a fresh presigned URL for the same object from now on."""
@@ -103,13 +115,20 @@ class RangeFile(io.RawIOBase):
         return block
 
     def _fetch(self, first: int, last: int) -> bytes:
-        response = self._client.get(self._url, headers={"Range": f"bytes={first}-{last}"})
+        try:
+            response = self._client.get(self._url, headers={"Range": f"bytes={first}-{last}"})
+        except httpx.HTTPError as error:
+            raise self._failed(f"range {first}-{last}: {type(error).__name__}") from error
         expected = last - first + 1
         if response.status_code != 206 or len(response.content) != expected:
-            raise RemoteFileError(
+            raise self._failed(
                 f"range {first}-{last} answered {response.status_code} with {len(response.content)} bytes"
             )
         return response.content
+
+    def _failed(self, detail: str) -> RemoteFileError:
+        self.last_error = RemoteFileError(detail)
+        return self.last_error
 
 
 def _block_starts(start: int, end: int) -> range:

@@ -8,6 +8,7 @@ import {
   numbered,
   numberedFilename,
   outlookFolderName,
+  outlookFolderPath,
 } from './naming'
 
 describe('mail names', () => {
@@ -33,6 +34,20 @@ describe('mail names', () => {
     expect(mailFolderName('2026-09-30T08:15:00Z', { name: 'Bau/Amt Wien', address: '' })).toBe(
       '2026-09-30 10.15 – Bau-Amt Wien',
     )
+  })
+
+  it('keeps a numbered folder name within the 120-character limit', () => {
+    const long = 'x'.repeat(120)
+    expect(numbered(long, 2)).toHaveLength(120)
+    expect(numbered(long, 2).endsWith(' (2)')).toBe(true)
+  })
+
+  it('folds an Outlook tree deeper than folder creation takes into its last level', () => {
+    const deep = Array.from({ length: 14 }, (_, i) => `E${i + 1}`)
+    const path = outlookFolderPath(deep).split('/')
+    expect(path).toHaveLength(12)
+    expect(path.at(-1)).toBe('E12 – E13 – E14')
+    expect(outlookFolderPath(['Posteingang', 'Behörde'])).toBe('Posteingang/Behörde')
   })
 
   it('numbers a taken name, before the extension for a file', () => {

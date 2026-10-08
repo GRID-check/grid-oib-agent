@@ -9,7 +9,11 @@ vi.mock('@/lib/documents/shelf-authz', () => ({ requireShelfWrite: vi.fn() }))
 vi.mock('@/lib/storage/service', () => ({ assertWithinStorageQuota: vi.fn() }))
 vi.mock('@/lib/jobs-queue/enqueue', () => ({ enqueueJob: vi.fn(async () => ({ jobId: 'job_1' })) }))
 vi.mock('./staging', () => ({
-  beginStagedUpload: vi.fn(async () => ({ bucket: 'grid-org-o1', key: 'org/o1/mail-imports/i1/archive', uploadId: 'u1' })),
+  stagingBucket: vi.fn(async () => 'grid-org-o1'),
+  stagingKey: (org: string, project: string, id: string) => `org/${org}/project/${project}/mail-imports/${id}/archive`,
+  beginStagedUpload: vi.fn(async () => 'u1'),
+  stagedArchiveSize: vi.fn(async () => null),
+  isNoSuchUpload: (error: unknown) => (error as { name?: string }).name === 'NoSuchUpload',
   putStagedPart: vi.fn(),
   listStagedParts: vi.fn(async () => []),
   completeStagedUpload: vi.fn(),
@@ -20,7 +24,7 @@ vi.mock('./repository', () => ({
   insertMailImport: vi.fn(async (values: object) => ({ ...row(), ...values })),
   findMailImport: vi.fn(),
   listProjectMailImports: vi.fn(async () => []),
-  updateMailImport: vi.fn(),
+  updateMailImport: vi.fn(async (_org: string, _id: string, _from: unknown, patch: object) => ({ ...row(), ...patch })),
 }))
 
 import { ConflictError, ForbiddenError } from '@/lib/api/errors'
@@ -77,6 +81,7 @@ function row(overrides: Partial<MailImport> = {}): MailImport {
     itemsSkipped: 0,
     filesSkipped: 0,
     skippedSamples: [],
+    failureStreak: 0,
     errorCode: null,
     lastError: null,
     createdAt: new Date('2026-10-08T10:00:00Z'),
@@ -128,12 +133,21 @@ describe('startMailImport', () => {
     await expect(startMailImport(session, PROJECT, { filename: 'b.ost', sizeBytes: 10 })).rejects.toBeInstanceOf(ConflictError)
   })
 
-  it('stages a multipart upload and answers the plan', async () => {
+  it('refuses at the database what the read missed: two tabs starting at once', async () => {
+    vi.mocked(repository.insertMailImport).mockResolvedValueOnce(null)
+    await expect(startMailImport(session, PROJECT, { filename: 'b.ost', sizeBytes: 10 })).rejects.toBeInstanceOf(ConflictError)
+    expect(staging.beginStagedUpload).not.toHaveBeenCalled()
+  })
+
+  it('stages the archive inside the project prefix, after the row exists', async () => {
     const plan = await startMailImport(session, PROJECT, { filename: 'Büro 2019.pst', sizeBytes: PART * 2 + 10 })
+    expect(vi.mocked(repository.insertMailImport).mock.calls[0][0].stagingKey).toMatch(
+      new RegExp(`^org/org_1/project/${PROJECT}/mail-imports/`),
+    )
     expect(staging.beginStagedUpload).toHaveBeenCalledOnce()
     expect(plan.partCount).toBe(3)
     expect(plan.uploadedParts).toEqual([])
-    expect(plan.import).toMatchObject({ status: 'uploading', ownedByViewer: true })
+    expect(plan.import).toMatchObject({ status: 'uploading', ownedByViewer: true, cancellable: true })
   })
 })
 
@@ -169,6 +183,17 @@ describe('completeMailImportUpload', () => {
     expect(staging.completeStagedUpload).not.toHaveBeenCalled()
   })
 
+  it('reads a join whose answer was lost as done, when the archive is there at its size', async () => {
+    vi.mocked(repository.findMailImport).mockResolvedValueOnce(row())
+    vi.mocked(staging.listStagedParts).mockRejectedValueOnce(Object.assign(new Error('gone'), { name: 'NoSuchUpload' }))
+    vi.mocked(staging.stagedArchiveSize).mockResolvedValueOnce(PART * 2 + 10)
+
+    const view = await completeMailImportUpload(session, PROJECT, IMPORT)
+    expect(staging.completeStagedUpload).not.toHaveBeenCalled()
+    expect(view.status).toBe('queued')
+    expect(enqueueJob).toHaveBeenCalledOnce()
+  })
+
   it('joins the parts, queues the import and enqueues its job as bulk work', async () => {
     vi.mocked(repository.findMailImport).mockResolvedValueOnce(row())
     vi.mocked(staging.listStagedParts).mockResolvedValueOnce([
@@ -195,6 +220,15 @@ describe('cancelMailImport', () => {
   it("lets nobody but the owner or a project administrator cancel", async () => {
     vi.mocked(repository.findMailImport).mockResolvedValueOnce(row({ userId: 'user_other' }))
     await expect(cancelMailImport(session, PROJECT, IMPORT)).rejects.toBeInstanceOf(ForbiddenError)
+  })
+
+  it("lets a project administrator cancel a colleague's import, and says so in the view", async () => {
+    const admin = { ...session, userId: 'user_admin', permissions: ['org:projects:administer'] }
+    vi.mocked(repository.findMailImport).mockResolvedValueOnce(row({ status: 'importing' }))
+    vi.mocked(repository.updateMailImport)
+      .mockResolvedValueOnce(row({ status: 'cancelled', completedAt: new Date() }))
+    const view = await cancelMailImport(admin, PROJECT, IMPORT)
+    expect(view).toMatchObject({ status: 'cancelled', ownedByViewer: false })
   })
 
   it('aborts the staged upload of a cancelled send', async () => {

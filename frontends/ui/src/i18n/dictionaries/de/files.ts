@@ -533,13 +533,10 @@ export const files: typeof en.files = {
       upload_expired: 'Das Archiv wurde nicht innerhalb von zwei Tagen vollständig gesendet.',
     },
     reasons: {
-      not_mail: 'keine E-Mail',
-      inline: 'Bild im Text',
       embedded_message: 'angehängte E-Mail',
       type: 'Dateityp nicht zugelassen',
       size: 'zu groß',
-      quota: 'Speicher voll',
-      unreadable: 'nicht lesbar',
+      unreadable: 'im Archiv beschädigt',
     },
   },
   upload: {

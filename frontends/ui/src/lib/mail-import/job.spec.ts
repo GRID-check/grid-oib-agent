@@ -11,6 +11,17 @@ vi.mock('@/lib/db/tenant-context', () => ({
 vi.mock('@/lib/documents/shelf-authz', () => ({ requireShelfWrite: vi.fn() }))
 vi.mock('@/lib/inbox/service', () => ({ emitInboxItems: vi.fn() }))
 vi.mock('@/lib/jobs-queue/repository', () => ({ findOpenJobId: vi.fn() }))
+vi.mock('@/lib/jobs-queue/enqueue', () => ({ enqueueJob: vi.fn(async () => ({ jobId: 'job_next' })) }))
+vi.mock('@/lib/auth/pinned-session', () => ({
+  resolvePinnedRequesterSession: vi.fn(async () => ({
+    userId: 'user_anna',
+    email: '',
+    organizationMembershipId: 'om_1',
+    role: 'member',
+    permissions: [],
+    featureFlags: null,
+  })),
+}))
 vi.mock('@/lib/projects/folder-service', () => ({
   getOrCreateProjectFolderByName: vi.fn(async () => ({ id: 'folder_root', name: 'E-Mail-Import' })),
 }))
@@ -39,9 +50,13 @@ vi.mock('./repository', () => ({
 import type { AuthorizedSession } from '@/lib/auth/types'
 import type { MailImport } from '@/lib/db/schema'
 import { emitInboxItems } from '@/lib/inbox/service'
+import { ForbiddenError } from '@/lib/api/errors'
+import { resolvePinnedRequesterSession } from '@/lib/auth/pinned-session'
+import { requireShelfWrite } from '@/lib/documents/shelf-authz'
+import { enqueueJob } from '@/lib/jobs-queue/enqueue'
 import { findOpenJobId } from '@/lib/jobs-queue/repository'
 import { readArchivePage, UnreadableArchiveError, type ArchivePage } from './archive-client'
-import { fileMail, MailImportQuotaError } from './filing'
+import { fileMail, ImportMovedOnError, MailImportQuotaError, SliceBudgetSpentError } from './filing'
 import { runMailImportSlice, sweepStaleMailImports } from './job'
 import * as repository from './repository'
 import { discardStaging } from './service'
@@ -72,6 +87,7 @@ function row(overrides: Partial<MailImport> = {}): MailImport {
     itemsSkipped: 0,
     filesSkipped: 0,
     skippedSamples: [],
+    failureStreak: 0,
     errorCode: null,
     lastError: null,
     createdAt: new Date(),
@@ -118,19 +134,17 @@ describe('runMailImportSlice', () => {
     vi.mocked(repository.findMailImport).mockResolvedValueOnce(row())
     vi.mocked(readArchivePage).mockResolvedValueOnce(page([mail, contact], null))
 
-    const result = await runMailImportSlice(session, payload, { last: false }, 'org_1')
+    const result = await runMailImportSlice(session, payload, 'org_1')
 
     expect(result.done).toBe(true)
     expect(fileMail).toHaveBeenCalledOnce()
     expect(repository.advanceMailImport).toHaveBeenNthCalledWith(1, 'org_1', payload.importId, 0, expect.objectContaining({
       to: 1, mailsFiled: 1, filesFiled: 2, filesSkipped: 1,
     }))
+    // A contact is counted, not sampled: a calendar walked first would fill every sample.
     expect(repository.advanceMailImport).toHaveBeenNthCalledWith(2, 'org_1', payload.importId, 1, expect.objectContaining({
       to: 2, itemsSkipped: 1,
-      skippedSamples: [
-        { mail: 'm', file: 'x.exe', reason: 'type' },
-        { mail: 'IPM.Contact', file: null, reason: 'not_mail' },
-      ],
+      skippedSamples: [{ mail: 'm', file: 'x.exe', reason: 'type' }],
     }))
     expect(repository.updateMailImport).toHaveBeenCalledWith('org_1', payload.importId, ['queued', 'importing'], expect.objectContaining({ status: 'completed' }))
     expect(discardStaging).toHaveBeenCalledOnce()
@@ -142,14 +156,14 @@ describe('runMailImportSlice', () => {
     vi.mocked(readArchivePage).mockResolvedValueOnce(page([mail, contact], null))
     vi.mocked(repository.advanceMailImport).mockResolvedValueOnce(false)
 
-    expect((await runMailImportSlice(session, payload, { last: false }, 'org_1')).done).toBe(true)
+    expect((await runMailImportSlice(session, payload, 'org_1')).done).toBe(true)
     expect(repository.advanceMailImport).toHaveBeenCalledOnce()
     expect(emitInboxItems).not.toHaveBeenCalled()
   })
 
   it('does nothing for an import that already ended', async () => {
     vi.mocked(repository.findMailImport).mockResolvedValueOnce(row({ status: 'cancelled', completedAt: new Date() }))
-    expect((await runMailImportSlice(session, payload, { last: false }, 'org_1')).done).toBe(true)
+    expect((await runMailImportSlice(session, payload, 'org_1')).done).toBe(true)
     expect(readArchivePage).not.toHaveBeenCalled()
   })
 
@@ -157,7 +171,7 @@ describe('runMailImportSlice', () => {
     vi.mocked(repository.findMailImport).mockResolvedValueOnce(row())
     vi.mocked(readArchivePage).mockRejectedValueOnce(new UnreadableArchiveError('not a readable Outlook archive'))
 
-    expect((await runMailImportSlice(session, payload, { last: false }, 'org_1')).done).toBe(true)
+    expect((await runMailImportSlice(session, payload, 'org_1')).done).toBe(true)
     expect(repository.updateMailImport).toHaveBeenCalledWith('org_1', payload.importId, ['queued', 'importing'], expect.objectContaining({
       status: 'failed', errorCode: 'unreadable', lastError: expect.stringMatching(/could not be read/),
     }))
@@ -169,30 +183,94 @@ describe('runMailImportSlice', () => {
     vi.mocked(readArchivePage).mockResolvedValueOnce(page([mail], null, 1))
     vi.mocked(fileMail).mockRejectedValueOnce(new MailImportQuotaError())
 
-    await runMailImportSlice(session, payload, { last: false }, 'org_1')
+    await runMailImportSlice(session, payload, 'org_1')
     expect(repository.updateMailImport).toHaveBeenCalledWith('org_1', payload.importId, ['queued', 'importing'], expect.objectContaining({
       status: 'failed', errorCode: 'quota',
     }))
   })
 
-  it('throws a passing failure for the queue to retry, and ends the import on the last attempt', async () => {
-    vi.mocked(repository.findMailImport).mockResolvedValue(row())
-    vi.mocked(readArchivePage).mockRejectedValue(new Error('the archive reader answered 502'))
+  it('hands the import on to a fresh job after a passing failure, waiting out the backoff', async () => {
+    vi.mocked(repository.findMailImport).mockResolvedValue(row({ failureStreak: 1 }))
+    vi.mocked(readArchivePage).mockRejectedValueOnce(new Error('the archive reader answered 502'))
+    vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const before = Date.now()
 
-    await expect(runMailImportSlice(session, payload, { last: false }, 'org_1')).rejects.toThrow(/502/)
+    expect((await runMailImportSlice(session, payload, 'org_1')).done).toBe(true)
+    expect(repository.updateMailImport).toHaveBeenCalledWith('org_1', payload.importId, ['queued', 'importing'], {
+      failureStreak: 2,
+      lastError: expect.stringMatching(/502/),
+    })
+    const queued = vi.mocked(enqueueJob).mock.calls[0][0]
+    expect(queued).toMatchObject({ kind: 'mail_import', organizationId: 'org_1', payload })
+    // The second failure in a row waits the second backoff, five minutes.
+    expect(queued.notBefore!.getTime()).toBeGreaterThanOrEqual(before + 5 * 60_000)
     expect(emitInboxItems).not.toHaveBeenCalled()
+    vi.mocked(repository.findMailImport).mockReset()
+  })
 
-    expect((await runMailImportSlice(session, payload, { last: true }, 'org_1')).done).toBe(true)
+  it('ends the import only when the streak has run through every backoff without a mail filed', async () => {
+    vi.mocked(repository.findMailImport).mockResolvedValue(row({ failureStreak: 6 }))
+    vi.mocked(readArchivePage).mockRejectedValueOnce(new Error('the archive reader answered 502'))
+    vi.spyOn(console, 'warn').mockImplementation(() => {})
+
+    await runMailImportSlice(session, payload, 'org_1')
+    expect(enqueueJob).not.toHaveBeenCalled()
     expect(repository.updateMailImport).toHaveBeenCalledWith('org_1', payload.importId, ['queued', 'importing'], expect.objectContaining({
       status: 'failed', errorCode: 'stopped', lastError: expect.stringMatching(/Repeated errors.*502/),
     }))
     vi.mocked(repository.findMailImport).mockReset()
-    vi.mocked(readArchivePage).mockReset()
+  })
+
+  it('treats an outage behind the access check as passing, and only a refusal as lost access', async () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => {})
+    vi.mocked(repository.findMailImport).mockResolvedValue(row())
+    vi.mocked(requireShelfWrite).mockRejectedValueOnce(new Error('connect ECONNREFUSED'))
+    await runMailImportSlice(session, payload, 'org_1')
+    expect(enqueueJob).toHaveBeenCalledOnce()
+
+    vi.mocked(requireShelfWrite).mockRejectedValueOnce(new ForbiddenError())
+    await runMailImportSlice(session, payload, 'org_1')
+    expect(repository.updateMailImport).toHaveBeenCalledWith('org_1', payload.importId, ['queued', 'importing'], expect.objectContaining({
+      status: 'failed', errorCode: 'access',
+    }))
+    vi.mocked(repository.findMailImport).mockReset()
+  })
+
+  it('stops a slice whose time ran out inside a mail without moving the cursor, and resumes later', async () => {
+    vi.mocked(repository.findMailImport).mockResolvedValueOnce(row())
+    vi.mocked(readArchivePage).mockResolvedValueOnce(page([mail], null, 1))
+    vi.mocked(fileMail).mockRejectedValueOnce(new SliceBudgetSpentError())
+
+    expect((await runMailImportSlice(session, payload, 'org_1')).done).toBe(false)
+    expect(repository.advanceMailImport).not.toHaveBeenCalled()
+  })
+
+  it('ends a slice quietly when the import moved on under it', async () => {
+    vi.mocked(repository.findMailImport).mockResolvedValueOnce(row())
+    vi.mocked(readArchivePage).mockResolvedValueOnce(page([mail], null, 1))
+    vi.mocked(fileMail).mockRejectedValueOnce(new ImportMovedOnError())
+
+    expect((await runMailImportSlice(session, payload, 'org_1')).done).toBe(true)
+    expect(enqueueJob).not.toHaveBeenCalled()
+    expect(emitInboxItems).not.toHaveBeenCalled()
+  })
+
+  it('skips a damaged item, sampled by its number', async () => {
+    vi.mocked(repository.findMailImport).mockResolvedValueOnce(row({ totalItems: 1 }))
+    vi.mocked(readArchivePage).mockResolvedValueOnce(
+      page([{ kind: 'unreadable', position: 0, folder_path: [], detail: 'message 0 is damaged' }], null, 1),
+    )
+
+    await runMailImportSlice(session, payload, 'org_1')
+    expect(fileMail).not.toHaveBeenCalled()
+    expect(repository.advanceMailImport).toHaveBeenCalledWith('org_1', payload.importId, 0, expect.objectContaining({
+      itemsSkipped: 1, skippedSamples: [{ mail: '#1', file: null, reason: 'unreadable' }],
+    }))
   })
 
   it('ends the import with a reason when the person who started it left', async () => {
     vi.mocked(repository.findMailImport).mockResolvedValueOnce(row())
-    await runMailImportSlice(null, payload, { last: false }, 'org_1')
+    await runMailImportSlice(null, payload, 'org_1')
     expect(repository.updateMailImport).toHaveBeenCalledWith('org_1', payload.importId, ['queued', 'importing'], expect.objectContaining({
       status: 'failed', errorCode: 'requester_left',
     }))
@@ -204,14 +282,14 @@ describe('runMailImportSlice', () => {
     vi.mocked(repository.updateMailImport).mockResolvedValueOnce({ ...queued, status: 'importing' })
     vi.mocked(readArchivePage).mockResolvedValueOnce(page([], null, 0))
 
-    await runMailImportSlice(session, payload, { last: false }, 'org_1')
+    await runMailImportSlice(session, payload, 'org_1')
     expect(repository.updateMailImport).toHaveBeenCalledWith('org_1', payload.importId, ['queued'], { status: 'importing' })
     expect(repository.updateMailImport).toHaveBeenCalledWith('org_1', payload.importId, ['importing'], { rootFolderId: 'folder_archive' })
   })
 })
 
 describe('sweepStaleMailImports', () => {
-  it('aborts an unfinished upload, fails an import without a job, and leaves one with a job', async () => {
+  it('aborts an unfinished upload, requeues an import without a job, and leaves one with a job', async () => {
     vi.mocked(repository.listStaleOpenImports).mockResolvedValueOnce([
       row({ id: 'a', status: 'uploading', uploadId: 'u1' }),
       row({ id: 'b', status: 'importing' }),
@@ -220,6 +298,25 @@ describe('sweepStaleMailImports', () => {
     vi.mocked(findOpenJobId).mockImplementation(async ({ matching }) => (matching.importId === 'c' ? 'job_c' : null))
 
     const result = await sweepStaleMailImports(new Date('2026-10-08T12:00:00Z'))
-    expect(result).toEqual({ checked: 3, aborted: 1, failed: 1, waiting: 1, errors: 0 })
+    expect(result).toEqual({ checked: 3, aborted: 1, requeued: 1, failed: 0, waiting: 1, errors: 0 })
+    expect(enqueueJob).toHaveBeenCalledWith(expect.objectContaining({
+      kind: 'mail_import',
+      payload: expect.objectContaining({ importId: 'b', requester: expect.objectContaining({ userId: 'user_anna' }) }),
+    }))
+  })
+
+  it('fails an import whose job keeps disappearing, and one whose starter left', async () => {
+    vi.mocked(repository.listStaleOpenImports).mockResolvedValueOnce([
+      row({ id: 'spent', status: 'importing', failureStreak: 6 }),
+      row({ id: 'left', status: 'importing' }),
+    ])
+    vi.mocked(findOpenJobId).mockResolvedValue(null)
+    vi.mocked(resolvePinnedRequesterSession)
+      .mockResolvedValueOnce({ userId: 'user_anna' } as never)
+      .mockResolvedValueOnce(null)
+
+    const result = await sweepStaleMailImports(new Date('2026-10-08T12:00:00Z'))
+    expect(result).toMatchObject({ failed: 2, requeued: 0 })
+    expect(enqueueJob).not.toHaveBeenCalled()
   })
 })

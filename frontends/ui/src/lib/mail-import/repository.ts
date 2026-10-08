@@ -25,11 +25,12 @@ export const MAIL_IMPORT_LIST_LIMIT = 20
 
 const ENDED_STATUSES: MailImportStatus[] = ['completed', 'failed', 'cancelled']
 
-export async function insertMailImport(values: NewMailImport): Promise<MailImport> {
-  const [row] = await withTenant({ organizationId: values.organizationId }, () =>
-    getDb().insert(mailImports).values(values).returning(),
+/** Insert the row, or null when the person already has an open import in the project (the unique index). */
+export async function insertMailImport(values: NewMailImport): Promise<MailImport | null> {
+  const rows = await withTenant({ organizationId: values.organizationId }, () =>
+    getDb().insert(mailImports).values(values).onConflictDoNothing().returning(),
   )
-  return row
+  return rows[0] ?? null
 }
 
 export async function findMailImport(organizationId: string, projectId: string, id: string): Promise<MailImport | null> {
@@ -64,6 +65,7 @@ export type MailImportPatch = Partial<
     | 'totalItems'
     | 'errorCode'
     | 'lastError'
+    | 'failureStreak'
     | 'completedAt'
     | 'inflightPosition'
     | 'inflightFolderId'
@@ -136,6 +138,8 @@ export async function advanceMailImport(
         itemsSkipped: sql`${mailImports.itemsSkipped} + ${advance.itemsSkipped}`,
         filesSkipped: sql`${mailImports.filesSkipped} + ${advance.filesSkipped}`,
         skippedSamples: advance.skippedSamples,
+        // A mail filed: whatever failed before it has passed.
+        failureStreak: 0,
         inflightPosition: null,
         inflightFolderId: null,
         updatedAt: new Date(),
@@ -152,21 +156,36 @@ export async function advanceMailImport(
  * imports whose staged archive is still there. Run under the platform bypass by
  * the caller; bounded.
  */
-export function listStaleOpenImports(uploadsBefore: Date, stalledBefore: Date, limit: number): Promise<MailImport[]> {
-  return getDb()
+export async function listStaleOpenImports(
+  uploadsBefore: Date,
+  stalledBefore: Date,
+  limit: number,
+): Promise<MailImport[]> {
+  const db = getDb()
+  const open = await db
     .select()
     .from(mailImports)
     .where(
       or(
         and(eq(mailImports.status, 'uploading'), lt(mailImports.updatedAt, uploadsBefore)),
         and(inArray(mailImports.status, ['queued', 'importing']), lt(mailImports.updatedAt, stalledBefore)),
-        and(
-          inArray(mailImports.status, ENDED_STATUSES),
-          isNull(mailImports.stagingDeletedAt),
-          lt(mailImports.updatedAt, stalledBefore),
-        ),
       ),
     )
     .orderBy(mailImports.updatedAt)
     .limit(limit)
+  // A batch of its own, so archives whose deletion keeps failing cannot crowd
+  // out the open imports, nor the other way round.
+  const undeleted = await db
+    .select()
+    .from(mailImports)
+    .where(
+      and(
+        inArray(mailImports.status, ENDED_STATUSES),
+        isNull(mailImports.stagingDeletedAt),
+        lt(mailImports.updatedAt, stalledBefore),
+      ),
+    )
+    .orderBy(mailImports.updatedAt)
+    .limit(limit)
+  return [...open, ...undeleted]
 }

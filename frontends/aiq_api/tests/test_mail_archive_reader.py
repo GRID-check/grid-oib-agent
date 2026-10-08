@@ -242,6 +242,57 @@ def test_an_attachment_is_read_by_position_and_index_and_bounded():
         archive.attachment(2, 0, max_bytes=100)
 
 
+class Damaged(Message):
+    @property
+    def plain_text_body(self):  # noqa: D401 - a property libpff raises from
+        raise OSError("libpff_message_get_plain_text_body: unable to read")
+
+    @plain_text_body.setter
+    def plain_text_body(self, _value):
+        pass
+
+
+def test_a_damaged_message_is_an_unreadable_item_and_the_page_goes_on():
+    archive = pst(Folder("Posteingang", [Damaged("kaputt"), Message("gut")]))
+
+    first, second = archive.page(0, 10).messages
+    assert (first.kind, first.position) == ("unreadable", 0)
+    assert "damaged" in first.message_class
+    assert (second.kind, second.subject) == ("mail", "gut")
+
+
+def test_a_store_failure_behind_the_damage_is_raised_as_itself():
+    from aiq_api.mail_archive.remote_file import RemoteFileError
+
+    class Source:
+        last_error = RemoteFileError("range 0-1 answered 503")
+
+    root = Folder(None, folders=[Folder("Top of Personal Folders", [Damaged("x")])])
+    archive = Archive(Handle(root), source=Source())
+    with pytest.raises(RemoteFileError):
+        archive.page(0, 10)
+
+
+def test_a_store_failure_while_opening_is_not_called_a_bad_archive(monkeypatch):
+    from aiq_api.mail_archive.remote_file import RemoteFileError
+
+    class Failing:
+        def open_file_object(self, _file):
+            raise OSError("libpff_file_open_file_io_handle: unable to open file")
+
+    monkeypatch.setattr(reader.pypff, "file", Failing)
+
+    class Source:
+        last_error = RemoteFileError("range 0-1048575: ReadTimeout")
+
+    with pytest.raises(RemoteFileError):
+        reader.open_archive(Source())
+
+    Source.last_error = None
+    with pytest.raises(ArchiveError, match="not a readable Outlook archive"):
+        reader.open_archive(Source())
+
+
 def test_a_position_past_the_end_is_refused():
     with pytest.raises(ArchiveError):
         pst(Folder("Posteingang", [Message("a")])).page(2, 10)

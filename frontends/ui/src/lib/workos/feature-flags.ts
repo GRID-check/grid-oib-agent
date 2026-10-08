@@ -81,16 +81,17 @@ async function enabledSlugsForOrg(organizationId: string): Promise<Set<string>> 
 /**
  * Every flag enabled for `organizationId`, for a session built without a token
  * (`lib/auth/pinned-session.ts`): the set a live session's JWT claim would
- * carry. Fails closed to none, like {@link isOrgFeatureEnabled} does per flag.
+ * carry.
+ *
+ * A failed lookup THROWS rather than answering "none". Its callers are
+ * background work acting for a person, and "none" is not a refusal there but a
+ * silent wrong answer that sticks: the mail import would file every picture as
+ * "file type not accepted" (the `image-upload` gate) for as long as WorkOS was
+ * down, while a throw has the job retry once it is back.
  */
 export async function enabledFlagsForOrganization(organizationId: string): Promise<string[]> {
   if (!process.env.WORKOS_API_KEY) return []
-  try {
-    return [...(await enabledSlugsForOrg(organizationId))]
-  } catch (error) {
-    console.warn(`[FeatureFlags] listing the flags of ${organizationId} failed; treating none as on`, error)
-    return []
-  }
+  return [...(await enabledSlugsForOrg(organizationId))]
 }
 
 /**

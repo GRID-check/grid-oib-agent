@@ -31,9 +31,15 @@ browser                     BFF (frontend)                     object store     
   `RangeFile`, a file object over presigned range GETs with a 64 MiB block cache.
   Items are numbered depth-first over the mail tree, so a position is a cursor.
 - **Filing.** `lib/mail-import/job.ts` runs on the BFF job queue as the person
-  who started the import, 150 s of filing per slice. `filing.ts` files one mail:
-  its folder, its attachments through `uploadDocument` at `bulk` ingest
-  priority, then the note. The cursor moves past a mail only after it is filed.
+  who started the import, 120 s of filing per slice, checked before every
+  attachment. `filing.ts` files one mail: its folder, its attachments through
+  `uploadDocument` at `bulk` ingest priority, then the note. The cursor moves
+  past a mail only after it is filed. A retried mail files into the folder it
+  had, under the same names, so each file is the same document again (a new
+  version, or `unchanged` once indexed), never a second one.
+- **Retries.** A passing failure hands the import to a fresh job that waits 1,
+  5, 15, 30, 60, then 120 minutes; filing a mail resets the streak. The
+  background-work sweep gives an import whose job vanished a new one.
 
 ## What a mail becomes
 
@@ -49,20 +55,24 @@ E-Mail-Import/
 The subject is in the note, never in a name. A filename is unique per project,
 so a name that is still taken is numbered (`… – Plan (2).pdf`).
 
-**Not filed, and named in the import's list:** items that are not mail
-(appointments, contacts, tasks), attached mails (a forward's original), files
-the upload path refuses (type, size), and a mail's inline pictures (signature
-logos, which are not counted).
+**Not filed, and named in the import's list:** attached mails (a forward's
+original), files the upload path refuses (type, size), and messages or
+attachments damaged in the archive. Counted but not named: items that are not
+mail (appointments, contacts, tasks). Not counted: a mail's inline pictures
+(signature logos).
 
 ## Endings
 
 | Ending | When | What the person sees |
 |---|---|---|
 | `completed` | The cursor passed the last item | Inbox: imported, linking to the folder |
-| `failed` | Not an archive; quota full; the person lost write access or left; the job's last attempt failed; the sweep found it stalled | Inbox: stopped (emailed if unread after 30 min); the dialog words the reason (`error_code`) |
+| `failed` | Not an archive; quota full; the person lost write access or left; passing failures through every backoff with no mail filed; a job that kept vanishing | Inbox: stopped (emailed if unread after 30 min); the dialog words the reason (`error_code`) |
 | `cancelled` | The person (or an org project administrator) cancelled; a send unfinished after 48 h | The dialog |
 
 Each ending deletes the staged archive. What was filed before a failure stays.
+The archive is staged under the project's prefix, so deleting the project
+mid-import erases it with the project, and the purge aborts an upload still open
+there (`purger/storage.js`, `abortMultipartUploads`).
 
 ## Switching it on
 

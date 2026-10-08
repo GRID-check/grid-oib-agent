@@ -34,11 +34,22 @@ export const MAIL_IMPORT_ROOT_FOLDER = 'E-Mail-Import'
 export const MAIL_IMPORT_PAGE_SIZE = 20
 
 /**
- * How long one job slice files before it hands back. The runner's request
- * timeout is five minutes; one mail with large attachments can take tens of
- * seconds, so the slice stops starting new mails well before that.
+ * How long one job slice files before it hands back. Checked before every
+ * mail and every attachment, so a slice overruns it by at most one backend read
+ * ({@link MAIL_ARCHIVE_READ_TIMEOUT_MS}) and one upload, well inside the
+ * runner's five-minute request timeout. A slice that outlived that timeout
+ * would be retried while it still ran, and two slices would file one mail.
  */
-export const MAIL_IMPORT_SLICE_BUDGET_MS = 150_000
+export const MAIL_IMPORT_SLICE_BUDGET_MS = 120_000
+
+/** The longest one backend read (a page, an attachment) may take. */
+export const MAIL_ARCHIVE_READ_TIMEOUT_MS = 90_000
+
+/**
+ * Failures in a row, with no mail filed between them, before an import ends.
+ * Each waits the next backoff first: about four hours from the first to the last.
+ */
+export const MAIL_IMPORT_RETRY_BACKOFF_MINUTES = [1, 5, 15, 30, 60, 120] as const
 
 /** An upload nobody finished is aborted after this long. */
 export const STALE_UPLOAD_HOURS = 48

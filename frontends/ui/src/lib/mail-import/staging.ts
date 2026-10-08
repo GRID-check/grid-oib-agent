@@ -17,6 +17,7 @@ import {
   CreateMultipartUploadCommand,
   DeleteObjectCommand,
   GetObjectCommand,
+  HeadObjectCommand,
   ListPartsCommand,
   UploadPartCommand,
   type Part,
@@ -36,23 +37,41 @@ export interface UploadedPart {
   etag: string
 }
 
-/** Where an import's archive is staged. One object per import, never a person's file name. */
-export function stagingKey(organizationId: string, importId: string): string {
-  return `org/${organizationId}/mail-imports/${importId}/archive`
+/**
+ * Where an import's archive is staged: inside the PROJECT's prefix, which the
+ * project purge erases (`purger/purge-project.js`), so deleting the project
+ * mid-import cannot leave a mailbox behind in the bucket. One object per
+ * import, never a person's file name.
+ */
+export function stagingKey(organizationId: string, projectId: string, importId: string): string {
+  return `org/${organizationId}/project/${projectId}/mail-imports/${importId}/archive`
+}
+
+/** The organization's bucket, created on its first upload (ADR-0043). */
+export function stagingBucket(organizationId: string): Promise<string> {
+  return ensureTenantBucketChecked(bucketAdminS3Client, organizationId)
 }
 
 /** Start the multipart upload the parts go into. */
-export async function beginStagedUpload(
-  organizationId: string,
-  importId: string,
-): Promise<StagedArchive & { uploadId: string }> {
-  const bucket = await ensureTenantBucketChecked(bucketAdminS3Client, organizationId)
-  const key = stagingKey(organizationId, importId)
+export async function beginStagedUpload(staged: StagedArchive): Promise<string> {
+  const { bucket, key } = staged
   const created = await s3Client.send(
     new CreateMultipartUploadCommand({ Bucket: bucket, Key: key, ContentType: 'application/vnd.ms-outlook' }),
   )
   if (!created.UploadId) throw new Error('object storage started no multipart upload')
-  return { bucket, key, uploadId: created.UploadId }
+  return created.UploadId
+}
+
+/** The staged object's size, or null when there is none (yet). */
+export async function stagedArchiveSize(staged: StagedArchive): Promise<number | null> {
+  try {
+    const head = await s3Client.send(new HeadObjectCommand({ Bucket: staged.bucket, Key: staged.key }))
+    return head.ContentLength ?? null
+  } catch (error) {
+    const status = (error as { $metadata?: { httpStatusCode?: number } } | null)?.$metadata?.httpStatusCode
+    if (status === 404 || (error as { name?: string } | null)?.name === 'NotFound') return null
+    throw error
+  }
 }
 
 /** Store one part. A part sent again replaces the earlier one, so a retried request is harmless. */
@@ -129,7 +148,8 @@ function toUploadedPart(part: Part): UploadedPart {
   return { partNumber: part.PartNumber ?? 0, size: part.Size ?? 0, etag: part.ETag ?? '' }
 }
 
-function isNoSuchUpload(error: unknown): boolean {
+/** Whether `error` is the store saying the multipart upload no longer exists. */
+export function isNoSuchUpload(error: unknown): boolean {
   const name = (error as { name?: string; Code?: string } | null)?.name
   const code = (error as { Code?: string } | null)?.Code
   return name === 'NoSuchUpload' || code === 'NoSuchUpload'

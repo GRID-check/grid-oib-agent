@@ -86,7 +86,8 @@ class AttachmentInfo:
 @dataclass(frozen=True)
 class ArchiveMessage:
     position: int
-    #: ``mail`` or ``other``. An ``other`` carries its class and nothing else.
+    #: ``mail``, ``other`` or ``unreadable``. An ``other`` carries its class and
+    #: nothing else; an ``unreadable`` (a damaged item) carries the damage there.
     kind: str
     message_class: str
     folder_path: tuple[str, ...]
@@ -124,11 +125,16 @@ class AttachmentTooLargeError(ArchiveError):
     """The attachment is larger than the caller will take; its bytes were not read."""
 
 
+class UnreadableItemError(ArchiveError):
+    """One item of a readable archive is damaged. The import skips it and goes on."""
+
+
 class Archive:
     """An open archive. Not thread-safe; callers hold :attr:`lock`."""
 
-    def __init__(self, handle: pypff.file) -> None:
+    def __init__(self, handle: pypff.file, source: object | None = None) -> None:
         self._handle = handle
+        self._source = source
         self._folders = tuple(_mail_folders(handle.get_root_folder()))
         self.total = sum(entry.count for entry in self._folders)
         self.lock = threading.Lock()
@@ -141,7 +147,7 @@ class Archive:
         for position, entry, local in self._from(start):
             if len(messages) >= limit:
                 break
-            messages.append(_read_message(entry.folder.get_sub_message(local), position, entry.path))
+            messages.append(self._read_or_skip(entry, local, position))
         end = start + len(messages)
         return MessagePage(messages=tuple(messages), next_position=end if end < self.total else None, total=self.total)
 
@@ -150,16 +156,39 @@ class Archive:
         message = self._message_at(position)
         if index < 0 or index >= message.number_of_attachments:
             raise ArchiveError(f"message {position} has no attachment {index}")
-        attachment = message.get_attachment(index)
-        info = _attachment_info(attachment, index, html="")
+        try:
+            attachment = message.get_attachment(index)
+            info = _attachment_info(attachment, index, html="")
+        except OSError as error:
+            raise self._damaged(error, f"attachment {index} of message {position}") from error
         if info.embedded_message:
             raise ArchiveError(f"attachment {index} of message {position} is a mail, not a file")
         if info.size > max_bytes:
             raise AttachmentTooLargeError(f"attachment {index} of message {position} is {info.size} bytes")
-        return info, attachment.read_buffer(info.size) if info.size else b""
+        try:
+            return info, attachment.read_buffer(info.size) if info.size else b""
+        except OSError as error:
+            raise self._damaged(error, f"attachment {index} of message {position}") from error
 
     def close(self) -> None:
         self._handle.close()
+
+    def _read_or_skip(self, entry: _Folder, local: int, position: int) -> ArchiveMessage:
+        """The message, or an ``unreadable`` item when this one message is damaged."""
+        try:
+            return _read_message(entry.folder.get_sub_message(local), position, entry.path)
+        except OSError as error:
+            damage = self._damaged(error, f"message {position}")
+            return ArchiveMessage(
+                position=position, kind="unreadable", message_class=str(damage), folder_path=entry.path
+            )
+
+    def _damaged(self, error: OSError, what: str) -> UnreadableItemError:
+        """``error`` as damage to ``what``, unless the object store caused it (then that is raised)."""
+        remote = getattr(self._source, "last_error", None)
+        if remote is not None:
+            raise remote from error
+        return UnreadableItemError(f"{what} is damaged: {error}")
 
     def _message_at(self, position: int) -> pypff.message:
         located = next(self._from(position), None) if 0 <= position < self.total else None
@@ -186,8 +215,11 @@ def open_archive(file_object) -> Archive:  # noqa: ANN001 - any seekable binary 
     try:
         handle.open_file_object(file_object)
     except OSError as error:
+        remote = getattr(file_object, "last_error", None)
+        if remote is not None:
+            raise remote from error
         raise ArchiveError(f"not a readable Outlook archive: {error}") from error
-    return Archive(handle)
+    return Archive(handle, source=file_object)
 
 
 def _mail_folders(root: pypff.folder) -> Iterator[_Folder]:

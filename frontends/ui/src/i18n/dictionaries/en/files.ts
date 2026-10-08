@@ -572,13 +572,10 @@ export const files = {
       upload_expired: 'The archive was not sent completely within two days.',
     },
     reasons: {
-      not_mail: 'not an email',
-      inline: 'picture in the text',
       embedded_message: 'attached email',
       type: 'file type not accepted',
       size: 'too large',
-      quota: 'storage full',
-      unreadable: 'unreadable',
+      unreadable: 'damaged in the archive',
     },
   },
   upload: {

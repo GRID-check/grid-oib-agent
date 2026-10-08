@@ -31,8 +31,12 @@ import {
   beginStagedUpload,
   completeStagedUpload,
   deleteStagedArchive,
+  isNoSuchUpload,
   listStagedParts,
   putStagedPart,
+  stagedArchiveSize,
+  stagingBucket,
+  stagingKey,
   type UploadedPart,
 } from './staging'
 import type { MailImportList, MailImportUploadPlan, MailImportView, StartMailImportInput } from './types'
@@ -67,8 +71,11 @@ export async function startMailImport(
     throw new ConflictError('An import of yours is still running in this project.', { importId: open[0].id })
   }
 
+  // The row first, the multipart upload second: the unique index refuses a
+  // second open import of this person before anything exists in the store, so
+  // a refused start leaves no orphan upload behind.
   const id = randomUUID()
-  const staged = await beginStagedUpload(session.organizationId, id)
+  const staged = { bucket: await stagingBucket(session.organizationId), key: stagingKey(session.organizationId, projectId, id) }
   const row = await repository.insertMailImport({
     id,
     organizationId: session.organizationId,
@@ -79,9 +86,20 @@ export async function startMailImport(
     sizeBytes: input.sizeBytes,
     stagingBucket: staged.bucket,
     stagingKey: staged.key,
-    uploadId: staged.uploadId,
   })
-  return uploadPlan(row, session, [])
+  if (!row) throw new ConflictError('An import of yours is still running in this project.')
+  let uploadId: string
+  try {
+    uploadId = await beginStagedUpload(staged)
+  } catch (error) {
+    await repository.updateMailImport(session.organizationId, id, ['uploading'], {
+      status: 'cancelled',
+      completedAt: new Date(),
+    })
+    throw error
+  }
+  const ready = await repository.updateMailImport(session.organizationId, id, ['uploading'], { uploadId })
+  return uploadPlan(ready ?? { ...row, uploadId }, session, [])
 }
 
 /** The plan for a send that broke off: which parts the store already has. */
@@ -125,12 +143,7 @@ export async function completeMailImportUpload(
 ): Promise<MailImportView> {
   requireEnabled(session)
   const row = await ownedUpload(session, projectId, importId)
-  const parts = await listStagedParts(staged(row), uploadIdOf(row))
-  const missing = missingParts(row.sizeBytes, parts)
-  if (missing.length > 0) {
-    throw new ConflictError('The archive has not been sent completely.', { missingParts: missing.slice(0, 50) })
-  }
-  await completeStagedUpload(staged(row), uploadIdOf(row), parts)
+  await joinParts(row)
 
   const queued = await repository.updateMailImport(session.organizationId, row.id, ['uploading'], {
     status: 'queued',
@@ -146,6 +159,11 @@ export async function completeMailImportUpload(
   return toView(queued, session)
 }
 
+/** Whether `session` may cancel `row`: its starter, or whoever administers every project. */
+function mayCancel(row: MailImport, session: Pick<AuthorizedSession, 'userId' | 'role' | 'permissions'>): boolean {
+  return row.userId === session.userId || hasPermission(session, ORG_PERMISSIONS.projectsAdminister)
+}
+
 export async function cancelMailImport(
   session: AuthorizedSession,
   projectId: string,
@@ -154,8 +172,7 @@ export async function cancelMailImport(
   await requireProjectAccess(session, projectId, 'project:view')
   const row = await repository.findMailImport(session.organizationId, projectId, importId)
   if (!row) throw new NotFoundError('Import not found')
-  const mayCancel = row.userId === session.userId || hasPermission(session, ORG_PERMISSIONS.projectsAdminister)
-  if (!mayCancel) throw new ForbiddenError()
+  if (!mayCancel(row, session)) throw new ForbiddenError()
   if (!isOpen(row)) return toView(row, session)
 
   const now = new Date()
@@ -168,6 +185,26 @@ export async function cancelMailImport(
   if (!cancelled) return toView((await repository.findMailImport(session.organizationId, projectId, importId)) ?? row, session)
   await discardStaging(cancelled)
   return toView(cancelled, session)
+}
+
+/**
+ * Join the staged parts into the archive. Safe to call again: a join whose
+ * answer was lost (likely, for 750 parts behind a proxy) leaves the upload
+ * gone and the object there, and that is read as done when its size is right.
+ */
+async function joinParts(row: MailImport): Promise<void> {
+  let parts: UploadedPart[]
+  try {
+    parts = await listStagedParts(staged(row), uploadIdOf(row))
+  } catch (error) {
+    if (isNoSuchUpload(error) && (await stagedArchiveSize(staged(row))) === Number(row.sizeBytes)) return
+    throw error
+  }
+  const missing = missingParts(row.sizeBytes, parts)
+  if (missing.length > 0) {
+    throw new ConflictError('The archive has not been sent completely.', { missingParts: missing.slice(0, 50) })
+  }
+  await completeStagedUpload(staged(row), uploadIdOf(row), parts)
 }
 
 /**
@@ -184,7 +221,10 @@ export async function discardStaging(row: MailImport): Promise<void> {
   })
 }
 
-export function toView(row: MailImport, session: Pick<AuthorizedSession, 'userId'>): MailImportView {
+export function toView(
+  row: MailImport,
+  session: Pick<AuthorizedSession, 'userId' | 'role' | 'permissions'>,
+): MailImportView {
   return {
     id: row.id,
     filename: row.filename,
@@ -192,6 +232,7 @@ export function toView(row: MailImport, session: Pick<AuthorizedSession, 'userId
     status: row.status,
     startedBy: { userId: row.userId, email: row.userEmail },
     ownedByViewer: row.userId === session.userId,
+    cancellable: isOpen(row) && mayCancel(row, session),
     folderId: row.rootFolderId,
     totalItems: row.totalItems,
     processedItems: row.nextPosition,

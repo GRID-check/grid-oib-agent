@@ -108,7 +108,7 @@ async function purgeBackendCollection(deps, fetchImpl, collectionName, conversat
  * @returns {Promise<void>}
  */
 async function purgeProject(tx, entry, deps) {
-  const { bucket, workos, deleteStoragePrefix } = deps
+  const { bucket, workos, deleteStoragePrefix, abortMultipartUploads } = deps
   const fetchImpl = deps.fetchImpl || fetch
   const projectId = entry.entity_id
   const orgId = entry.organization_id
@@ -222,6 +222,10 @@ async function purgeProject(tx, entry, deps) {
     // continues past the moment someone said stop, and reports success.
     await assertNoHold(tx, entry)
     await deleteStoragePrefix(target, `org/${orgId}/project/${projectId}/`)
+    // And what is not an object yet: an Outlook archive half-sent into the
+    // project's mail import (ADR-0085). Only the organization's own bucket
+    // receives one, but sweeping each target costs a list and catches any.
+    await abortMultipartUploads(target, `org/${orgId}/project/${projectId}/`)
   }
 
   // 2b. SeaweedFS objects under each CHAT's prefix.

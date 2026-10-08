@@ -1,19 +1,12 @@
 import { sql } from 'drizzle-orm'
-import { bigint, index, integer, jsonb, pgTable, text, timestamp, uuid } from 'drizzle-orm/pg-core'
+import { bigint, index, integer, jsonb, pgTable, text, timestamp, uniqueIndex, uuid } from 'drizzle-orm/pg-core'
 import { projects } from './projects'
 
 export const MAIL_IMPORT_STATUSES = ['uploading', 'queued', 'importing', 'completed', 'failed', 'cancelled'] as const
 export type MailImportStatus = (typeof MAIL_IMPORT_STATUSES)[number]
 
 /** Why a mail or one of its files was not filed. */
-export type MailImportSkipReason =
-  | 'not_mail'
-  | 'inline'
-  | 'embedded_message'
-  | 'type'
-  | 'size'
-  | 'quota'
-  | 'unreadable'
+export type MailImportSkipReason = 'embedded_message' | 'type' | 'size' | 'unreadable'
 
 /** Why an import ended without filing everything (migration 0108 holds the list). */
 export type MailImportErrorCode =
@@ -26,7 +19,7 @@ export type MailImportErrorCode =
   | 'upload_expired'
 
 export interface MailImportSkippedSample {
-  /** The mail's folder name (`<date time> – <sender>`), or the item's class for a non-mail. */
+  /** The mail's folder name (`<date time> – <sender>`), or `#<position>` for an item that could not be read. */
   mail: string
   /** The file, when one file of a mail was skipped. */
   file: string | null
@@ -59,6 +52,8 @@ export const mailImports = pgTable(
     nextPosition: integer('next_position').notNull().default(0),
     inflightPosition: integer('inflight_position'),
     inflightFolderId: uuid('inflight_folder_id'),
+    /** Failures since the cursor last moved (migration 0108, "Retries are counted here"). */
+    failureStreak: integer('failure_streak').notNull().default(0),
     mailsFiled: integer('mails_filed').notNull().default(0),
     filesFiled: integer('files_filed').notNull().default(0),
     itemsSkipped: integer('items_skipped').notNull().default(0),
@@ -72,6 +67,9 @@ export const mailImports = pgTable(
   },
   (table) => [
     index('mail_imports_org_project_created_idx').on(table.organizationId, table.projectId, table.createdAt),
+    uniqueIndex('mail_imports_one_open_per_person_uidx')
+      .on(table.projectId, table.userId)
+      .where(sql`${table.status} IN ('uploading', 'queued', 'importing')`),
     index('mail_imports_open_updated_idx')
       .on(table.updatedAt)
       .where(sql`${table.status} IN ('uploading', 'queued', 'importing')`),

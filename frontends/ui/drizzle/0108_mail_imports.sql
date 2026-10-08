@@ -19,9 +19,19 @@
 -- creating a second one beside it. Everything filed before it is behind the
 -- cursor and is never touched again.
 --
+-- ## Retries are counted here, not by the job queue
+--
+-- A twenty-gigabyte import runs for hours, and the queue's attempts are spent
+-- per job and never given back for progress: three passing outages hours apart
+-- would end it. So a slice that fails hands the import to a fresh job that waits
+-- out a backoff, and `failure_streak` counts the failures since the cursor last
+-- moved; filing a mail resets it, and only a streak that never moves the cursor
+-- ends the import.
+--
 -- ## The staged archive is temporary
 --
--- It lives in the organization's bucket under `staging_key` until the import
+-- It lives in the organization's bucket under `staging_key` (inside the
+-- project's prefix, so the project purge erases it too) until the import
 -- ends, then it is deleted and `staging_deleted_at` says when. An upload that
 -- was started and never finished is aborted by the background-work sweep after
 -- two days (`sweepStaleMailImports`). The archive is personal data of everyone
@@ -54,6 +64,7 @@ CREATE TABLE IF NOT EXISTS "mail_imports" (
   "next_position" integer DEFAULT 0 NOT NULL,
   "inflight_position" integer,
   "inflight_folder_id" uuid,
+  "failure_streak" integer DEFAULT 0 NOT NULL,
   "mails_filed" integer DEFAULT 0 NOT NULL,
   "files_filed" integer DEFAULT 0 NOT NULL,
   "items_skipped" integer DEFAULT 0 NOT NULL,
@@ -76,7 +87,8 @@ CREATE TABLE IF NOT EXISTS "mail_imports" (
   CONSTRAINT "mail_imports_positions"
     CHECK ("next_position" >= 0 AND ("total_items" IS NULL OR "next_position" <= "total_items")),
   CONSTRAINT "mail_imports_counts"
-    CHECK ("mails_filed" >= 0 AND "files_filed" >= 0 AND "items_skipped" >= 0 AND "files_skipped" >= 0),
+    CHECK ("mails_filed" >= 0 AND "files_filed" >= 0 AND "items_skipped" >= 0 AND "files_skipped" >= 0
+      AND "failure_streak" >= 0),
   -- The in-flight mail is the one at the cursor, never one behind it.
   CONSTRAINT "mail_imports_inflight_at_cursor"
     CHECK ("inflight_position" IS NULL OR "inflight_position" = "next_position"),
@@ -94,6 +106,12 @@ CREATE TABLE IF NOT EXISTS "mail_imports" (
 --> statement-breakpoint
 CREATE INDEX IF NOT EXISTS "mail_imports_org_project_created_idx"
   ON "mail_imports" USING btree ("organization_id", "project_id", "created_at");
+--> statement-breakpoint
+-- One open import per person per project. The service asks first and answers
+-- 409; this is the layer that holds when two tabs ask at once.
+CREATE UNIQUE INDEX IF NOT EXISTS "mail_imports_one_open_per_person_uidx"
+  ON "mail_imports" USING btree ("project_id", "user_id")
+  WHERE "status" IN ('uploading', 'queued', 'importing');
 --> statement-breakpoint
 -- The sweep's read: imports still open, oldest first.
 CREATE INDEX IF NOT EXISTS "mail_imports_open_updated_idx"

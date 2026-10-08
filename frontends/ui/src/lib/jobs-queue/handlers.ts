@@ -96,17 +96,15 @@ function systemHandler<TPayload extends object>(
 }
 
 /**
- * The mail import's walk. Not {@link handler}, for two reasons it does not
- * share with the reindex walks: a requester who left must END the import with
- * a reason (it is a row the person sees, not a quiet no-op), and the slice has
- * to know when its attempt is the last, so a failing archive ends `failed`
- * instead of reading `importing` after the queue gave up.
+ * The mail import's walk. Not {@link handler}: a requester who left must END
+ * the import with a reason, because it is a row the person sees, not a quiet
+ * no-op. Its retries are its own (`lib/mail-import/job.ts`), not the queue's.
  */
-const mailImportHandler: JobHandler = async ({ organizationId, payload, attempts }) => {
+const mailImportHandler: JobHandler = async ({ organizationId, payload }) => {
   const parsed = mailImportPayloadSchema.parse(payload)
   const { userId, email } = parsed.requester
   const session = await resolvePinnedRequesterSession({ userId, email, organizationId })
-  return runMailImportSlice(session, parsed, { last: isLastAttempt(attempts) }, organizationId)
+  return runMailImportSlice(session, parsed, organizationId)
 }
 
 /** One handler per kind; the record's type makes a kind without one a compile error. */

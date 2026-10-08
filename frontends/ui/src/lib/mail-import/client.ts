@@ -77,16 +77,25 @@ export async function sendMailArchive(
   let sentBytes = [...held].reduce((sum, n) => sum + partBlob(file, plan.partSize, n).size, 0)
   onProgress({ sentBytes, totalBytes: file.size })
 
-  const next = () => pending.shift()
+  // One part that keeps failing stops the others too, instead of letting them
+  // send the rest of a 25 GB archive for a send that has already failed.
+  const stop = new AbortController()
+  const parts = AbortSignal.any(signal ? [signal, stop.signal] : [stop.signal])
+  const next = () => (parts.aborted ? undefined : pending.shift())
   const worker = async (): Promise<void> => {
     for (let part = next(); part !== undefined; part = next()) {
       const blob = partBlob(file, plan.partSize, part)
-      await sendPart(`${base(projectId)}/${encodeURIComponent(importId)}/parts/${part}`, blob, signal)
+      await sendPart(`${base(projectId)}/${encodeURIComponent(importId)}/parts/${part}`, blob, parts)
       sentBytes += blob.size
       onProgress({ sentBytes, totalBytes: file.size })
     }
   }
-  await Promise.all(Array.from({ length: PARALLEL_PARTS }, worker))
+  try {
+    await Promise.all(Array.from({ length: PARALLEL_PARTS }, worker))
+  } catch (error) {
+    stop.abort()
+    throw error
+  }
 
   return json(
     await fetch(`${base(projectId)}/${encodeURIComponent(importId)}/complete`, {

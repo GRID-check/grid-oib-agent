@@ -231,7 +231,6 @@ function ImportRow({
   t: Translate
   locale: string
 }): JSX.Element {
-  const open = row.status === 'uploading' || row.status === 'queued' || row.status === 'importing'
   const resumable = row.status === 'uploading' && row.ownedByViewer && !sendingThis
   const total = row.totalItems
   return (
@@ -280,7 +279,7 @@ function ImportRow({
             {t('mailImport.resume')}
           </Button>
         )}
-        {open && row.ownedByViewer && (
+        {row.cancellable && (
           <Button size="sm" variant="ghost" onClick={onCancel} data-testid="mail-import-cancel">
             {t('mailImport.cancel')}
           </Button>
@@ -291,7 +290,7 @@ function ImportRow({
 }
 
 function SkippedSamples({ row, t }: { row: MailImportView; t: Translate }): JSX.Element | null {
-  const shown = row.skippedSamples.filter((sample) => sample.reason !== 'not_mail').slice(0, SAMPLES_SHOWN)
+  const shown = row.skippedSamples.slice(0, SAMPLES_SHOWN)
   if (shown.length === 0) return null
   return (
     <ul className="mt-1 space-y-0.5 text-xs text-muted-foreground">

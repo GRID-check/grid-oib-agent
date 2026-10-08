@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from contextlib import contextmanager
 from datetime import UTC
 from datetime import datetime
 from urllib.parse import unquote
@@ -18,6 +19,7 @@ from aiq_api.mail_archive.reader import ArchiveMessage
 from aiq_api.mail_archive.reader import AttachmentInfo
 from aiq_api.mail_archive.reader import AttachmentTooLargeError
 from aiq_api.mail_archive.reader import MessagePage
+from aiq_api.mail_archive.reader import UnreadableItemError
 from aiq_api.mail_archive.remote_file import RemoteFileError
 from aiq_api.routes import mail_archive as route
 
@@ -49,7 +51,8 @@ class FakeArchive:
         if self.failure:
             raise self.failure
         other = ArchiveMessage(position=4, kind="other", message_class="IPM.Contact", folder_path=("Kontakte",))
-        return MessagePage(messages=(MAIL, other), next_position=None, total=5)
+        damaged = ArchiveMessage(position=5, kind="unreadable", message_class="message 5 is damaged", folder_path=())
+        return MessagePage(messages=(MAIL, other, damaged), next_position=None, total=6)
 
     def attachment(self, position, index, max_bytes):
         if self.failure:
@@ -61,7 +64,12 @@ class FakeArchive:
 def client(monkeypatch):
     monkeypatch.setenv("GRID_INTERNAL_API_TOKEN", TOKEN)
     holder = {"archive": FakeArchive()}
-    monkeypatch.setattr(route, "archive_for", lambda key, url, size: holder["archive"])
+
+    @contextmanager
+    def use_archive(key, url, size):
+        yield holder["archive"]
+
+    monkeypatch.setattr(route, "use_archive", use_archive)
     router = APIRouter()
     route.add_mail_archive_routes(router)
     app = FastAPI()
@@ -85,13 +93,20 @@ def test_a_page_carries_mail_in_full_and_other_items_by_class(client):
 
     assert response.status_code == 200
     body = response.json()
-    assert (body["total"], body["next_position"]) == (5, None)
-    mail, other = body["messages"]
+    assert (body["total"], body["next_position"]) == (6, None)
+    mail, other, damaged = body["messages"]
     assert mail["sender"] == {"name": "Anna", "address": "anna@buero.at"}
     assert mail["sent_at"] == "2026-09-30T08:15:00+00:00"
     assert mail["body"] == {"text": "Hallo", "source": "plain", "truncated": False}
     assert mail["attachments"][0]["filename"] == "Grundriss Ä.pdf"
     assert other == {"position": 4, "kind": "other", "message_class": "IPM.Contact", "folder_path": ["Kontakte"]}
+    assert damaged == {
+        "position": 5,
+        "kind": "unreadable",
+        "message_class": "",
+        "folder_path": [],
+        "detail": "message 5 is damaged",
+    }
 
 
 def test_an_attachment_comes_back_raw_with_its_name_in_a_header(client):
@@ -111,6 +126,7 @@ def test_an_attachment_comes_back_raw_with_its_name_in_a_header(client):
     [
         (ArchiveError("not a readable Outlook archive"), 422),
         (AttachmentTooLargeError("too big"), 413),
+        (UnreadableItemError("attachment 0 of message 3 is damaged"), 409),
         (RemoteFileError("range answered 403"), 502),
     ],
 )

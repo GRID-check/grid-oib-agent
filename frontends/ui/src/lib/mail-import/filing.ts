@@ -9,9 +9,12 @@
  *
  * **Retry-safe by construction.** The job may die anywhere in here and run the
  * same mail again. The mail's folder is recorded (`markInflight`) the moment it
- * exists, so the retry files into it rather than beside it; a file whose name
- * is already in that folder is uploaded under the same name, which the upload
- * path answers `unchanged` for identical bytes.
+ * exists, so the retry files into it rather than beside it. A file whose name
+ * is already in that folder is uploaded under the same name, which makes it the
+ * same document again: a new version of it, or `unchanged` when its bytes are
+ * identical and it has finished indexing. Never a second document. Names are
+ * chosen in attachment order with the names this mail already claimed set
+ * aside, so a retry arrives at the same name for the same file.
  */
 
 import 'server-only'
@@ -28,6 +31,7 @@ import { FOLDER_NAME_TAKEN } from '@/lib/documents/shelf-folders'
 import { createProjectFolder, ensureProjectFolderPaths } from '@/lib/projects/folder-service'
 import {
   AttachmentTooLargeError,
+  AttachmentUnreadableError,
   readArchiveAttachment,
   type ArchiveAttachment,
   type ArchiveMail,
@@ -40,12 +44,28 @@ import {
   noteFilename,
   numbered,
   numberedFilename,
-  outlookFolderName,
+  outlookFolderPath,
 } from './naming'
 import { markInflight } from './repository'
 
 /** Candidates tried for a taken name before the mail is given up on. */
 const MAX_NAME_ATTEMPTS = 50
+
+/** The slice's time is up in the middle of a mail; the next slice resumes into its folder. */
+export class SliceBudgetSpentError extends Error {
+  constructor() {
+    super('The slice budget was spent in the middle of a mail')
+    this.name = 'SliceBudgetSpentError'
+  }
+}
+
+/** The import moved on under this slice (cancelled, or another slice took it over). */
+export class ImportMovedOnError extends Error {
+  constructor() {
+    super('The import is no longer at this mail')
+    this.name = 'ImportMovedOnError'
+  }
+}
 
 /** The storage quota ran out: no later mail can be filed either. */
 export class MailImportQuotaError extends Error {
@@ -65,6 +85,8 @@ export interface FilingContext {
   request: Request
   /** Outlook folder path → project folder id, for this slice. */
   folders: Map<string, string>
+  /** `Date.now()` past which no new attachment is started. */
+  deadline: number
 }
 
 export interface FiledMail {
@@ -76,23 +98,31 @@ export interface FiledMail {
 
 /** Build the context a slice files with; throws when the project has no collection. */
 export async function filingContext(
-  input: Omit<FilingContext, 'collectionName' | 'folders'>,
+  input: Omit<FilingContext, 'collectionName' | 'folders' | 'deadline'> & { deadline?: number },
 ): Promise<FilingContext> {
   const shelf = projectShelf(input.mailImport.projectId)
   const collectionName = await shelfCollectionName(shelf, input.session.organizationId)
   if (!collectionName) throw new NotFoundError('Project not found')
-  return { ...input, collectionName, folders: new Map() }
+  return { deadline: Number.POSITIVE_INFINITY, ...input, collectionName, folders: new Map() }
 }
 
-/** File one mail. Throws {@link MailImportQuotaError} when nothing more can be stored. */
+/**
+ * File one mail. Throws {@link MailImportQuotaError} when nothing more can be
+ * stored, {@link SliceBudgetSpentError} when the slice's time ran out between
+ * two of its files, and {@link ImportMovedOnError} when the import moved on.
+ */
 export async function fileMail(context: FilingContext, mail: ArchiveMail): Promise<FiledMail> {
   const folder = await mailFolder(context, mail)
   const result: FiledMail = { folderName: folder.name, filesFiled: 0, filesSkipped: 0, skipped: [] }
   const filedNames: string[] = []
+  // Names this mail has taken so far: the second `scan.pdf` of one mail is
+  // `scan (2).pdf`, not a new version of the first.
+  const claimed = new Set<string>()
 
   for (const attachment of mail.attachments) {
     if (attachment.inline) continue
-    const outcome = await fileAttachment(context, mail, folder, attachment)
+    if (Date.now() >= context.deadline) throw new SliceBudgetSpentError()
+    const outcome = await fileAttachment(context, mail, folder, attachment, claimed)
     if (outcome.filed) {
       result.filesFiled += 1
       filedNames.push(outcome.filename)
@@ -116,7 +146,7 @@ export async function fileMail(context: FilingContext, mail: ArchiveMail): Promi
     filedNames,
   )
   const noteName = noteFilename(folder.name)
-  const filedNote = await fileBytes(context, folder.id, noteName, new TextEncoder().encode(note), 'text/markdown')
+  const filedNote = await fileBytes(context, folder.id, noteName, new TextEncoder().encode(note), 'text/markdown', claimed)
   if (!filedNote) {
     result.filesSkipped += 1
     result.skipped.push({ mail: folder.name, file: noteName, reason: 'type' })
@@ -142,13 +172,17 @@ async function mailFolder(context: FilingContext, mail: ArchiveMail): Promise<Ma
   }
   const parentId = await outlookFolder(context, mail.folder_path)
   const folder = await createFolderWithFreeName(context, parentId, mailFolderName(mail.sent_at ?? mail.received_at, mail.sender))
-  await markInflight(session.organizationId, mailImport.id, mail.position, folder.id)
+  // Fenced: a slice that is no longer the import's (cancelled, or another
+  // slice moved the cursor) must not file into the folder it just made.
+  if (!(await markInflight(session.organizationId, mailImport.id, mail.position, folder.id))) {
+    throw new ImportMovedOnError()
+  }
   return folder
 }
 
 /** The project folder mirroring an Outlook folder path, created on first use. */
 async function outlookFolder(context: FilingContext, outlookPath: readonly string[]): Promise<string> {
-  const path = outlookPath.map(outlookFolderName).join('/')
+  const path = outlookFolderPath(outlookPath)
   if (!path) return context.archiveFolderId
   const known = context.folders.get(path)
   if (known) return known
@@ -188,6 +222,7 @@ async function fileAttachment(
   mail: ArchiveMail,
   folder: MailFolder,
   attachment: ArchiveAttachment,
+  claimed: Set<string>,
 ): Promise<AttachmentOutcome> {
   if (attachment.embedded_message) return { filed: false, reason: 'embedded_message' }
   const desired = attachmentFilename(folder.name, attachment.filename)
@@ -199,9 +234,10 @@ async function fileAttachment(
     bytes = await readArchiveAttachment(context.archive, mail.position, attachment.index)
   } catch (error) {
     if (error instanceof AttachmentTooLargeError) return { filed: false, reason: 'size' }
+    if (error instanceof AttachmentUnreadableError) return { filed: false, reason: 'unreadable' }
     throw error
   }
-  const filename = await fileBytes(context, folder.id, desired, bytes, attachment.content_type ?? '')
+  const filename = await fileBytes(context, folder.id, desired, bytes, attachment.content_type ?? '', claimed)
   return filename ? { filed: true, filename } : { filed: false, reason: 'type' }
 }
 
@@ -237,8 +273,10 @@ async function fileBytes(
   desired: string,
   bytes: Uint8Array,
   contentType: string,
+  claimed: Set<string>,
 ): Promise<string | null> {
-  const filename = await freeFilename(context, folderId, desired)
+  const filename = await freeFilename(context, folderId, desired, claimed)
+  claimed.add(filename)
   const file = new File([bytes as Uint8Array<ArrayBuffer>], filename, { type: contentType })
   try {
     await uploadDocument(
@@ -255,12 +293,19 @@ async function fileBytes(
 }
 
 /**
- * The first of `desired`, `desired (2)`… that no document in the project has,
- * or that the one in this very folder has (a retry of this mail).
+ * The first of `desired`, `desired (2)`… that this mail has not taken already
+ * and that no document in the project has, or that the one in this very
+ * folder has (a retry of this mail).
  */
-async function freeFilename(context: FilingContext, folderId: string, desired: string): Promise<string> {
+async function freeFilename(
+  context: FilingContext,
+  folderId: string,
+  desired: string,
+  claimed: ReadonlySet<string>,
+): Promise<string> {
   for (let n = 1; n <= MAX_NAME_ATTEMPTS; n += 1) {
     const candidate = documentNameKey(numberedFilename(desired, n))
+    if (claimed.has(candidate)) continue
     const existing = await findLiveDocumentByFilename(context.session.organizationId, context.collectionName, candidate)
     if (!existing || existing.folderId === folderId) return candidate
   }

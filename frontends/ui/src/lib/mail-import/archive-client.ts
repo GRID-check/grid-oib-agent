@@ -9,9 +9,7 @@
 import 'server-only'
 import { z } from 'zod'
 import { getBackendUrl } from '@/lib/backend-proxy'
-
-/** A page or an attachment can be a large read on a cold archive. */
-const READ_TIMEOUT_MS = 120_000
+import { MAIL_ARCHIVE_READ_TIMEOUT_MS } from './config'
 
 const addressSchema = z.object({ name: z.string(), address: z.string() })
 
@@ -25,6 +23,13 @@ const attachmentSchema = z.object({
 })
 
 const messageSchema = z.discriminatedUnion('kind', [
+  // A damaged item of a readable archive; `detail` says what libpff refused.
+  z.object({
+    kind: z.literal('unreadable'),
+    position: z.number().int().nonnegative(),
+    folder_path: z.array(z.string()),
+    detail: z.string(),
+  }),
   z.object({
     kind: z.literal('other'),
     position: z.number().int().nonnegative(),
@@ -73,6 +78,14 @@ export class UnreadableArchiveError extends Error {
   }
 }
 
+/** One attachment is damaged. The mail is still filed without it. */
+export class AttachmentUnreadableError extends Error {
+  constructor() {
+    super('The attachment could not be read from the archive')
+    this.name = 'AttachmentUnreadableError'
+  }
+}
+
 /** The backend refused one attachment as too large. The mail is still filed without it. */
 export class AttachmentTooLargeError extends Error {
   constructor() {
@@ -99,12 +112,13 @@ async function post(path: string, body: unknown): Promise<Response> {
       'x-grid-internal-token': process.env.GRID_INTERNAL_API_TOKEN ?? '',
     },
     body: JSON.stringify(body),
-    signal: AbortSignal.timeout(READ_TIMEOUT_MS),
+    signal: AbortSignal.timeout(MAIL_ARCHIVE_READ_TIMEOUT_MS),
   })
   if (response.ok) return response
   const detail = await response.text().catch(() => '')
   if (response.status === 422) throw new UnreadableArchiveError(detailOf(detail))
   if (response.status === 413) throw new AttachmentTooLargeError()
+  if (response.status === 409) throw new AttachmentUnreadableError()
   // Anything else (a 502 from the store, a 503 while the backend restarts) is
   // worth another attempt: the job's own retry takes it.
   throw new Error(`the archive reader answered ${response.status} on ${path}: ${detailOf(detail)}`)

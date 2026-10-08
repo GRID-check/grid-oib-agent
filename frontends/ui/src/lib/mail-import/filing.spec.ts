@@ -34,8 +34,15 @@ import { findLiveDocumentByFilename } from '@/lib/documents/repository'
 import { assertUploadTypeAllowed, uploadDocument } from '@/lib/documents/service'
 import { FOLDER_NAME_TAKEN } from '@/lib/documents/shelf-folders'
 import { createProjectFolder, ensureProjectFolderPaths } from '@/lib/projects/folder-service'
-import { readArchiveAttachment, type ArchiveMail } from './archive-client'
-import { fileMail, filingContext, MailImportQuotaError, type FilingContext } from './filing'
+import { AttachmentUnreadableError, readArchiveAttachment, type ArchiveMail } from './archive-client'
+import {
+  fileMail,
+  filingContext,
+  ImportMovedOnError,
+  MailImportQuotaError,
+  SliceBudgetSpentError,
+  type FilingContext,
+} from './filing'
 import { markInflight } from './repository'
 
 const session = { userId: 'user_anna', organizationId: 'org_1' } as AuthorizedSession
@@ -63,13 +70,14 @@ const mail: ArchiveMail = {
 
 const LEAF = '2026-09-30 10.15 – Anna Berger'
 
-async function context(overrides: Partial<MailImport> = {}): Promise<FilingContext> {
+async function context(overrides: Partial<MailImport> = {}, deadline?: number): Promise<FilingContext> {
   return filingContext({
     session,
     mailImport: { ...mailImport, ...overrides },
     archive: { key: 'k', url: 'u', size: 10 },
     archiveFolderId: 'folder_archive',
     request: new Request('http://bff-jobs.internal'),
+    deadline,
   })
 }
 
@@ -134,6 +142,45 @@ describe('fileMail', () => {
     expect(readArchiveAttachment).not.toHaveBeenCalled()
     expect(result.skipped).toContainEqual({ mail: LEAF, file: 'Plan.pdf', reason: 'type' })
     vi.mocked(assertUploadTypeAllowed).mockReset()
+  })
+
+  it('numbers the second of two same-named attachments of one mail instead of overwriting the first', async () => {
+    const twins: ArchiveMail = {
+      ...mail,
+      attachments: [
+        { index: 0, filename: 'scan.pdf', content_type: 'application/pdf', size: 3, inline: false, embedded_message: false },
+        { index: 1, filename: 'scan.pdf', content_type: 'application/pdf', size: 3, inline: false, embedded_message: false },
+      ],
+    }
+    await fileMail(await context(), twins)
+    expect(uploadedNames()).toEqual([`${LEAF} – scan.pdf`, `${LEAF} – scan (2).pdf`, `${LEAF}.md`])
+
+    // A retry of the mail, both already in its folder, arrives at the same two names.
+    vi.mocked(uploadDocument).mockClear()
+    vi.mocked(findLiveDocumentByFilename).mockImplementation(async () => ({ folderId: 'folder_earlier' }) as never)
+    vi.mocked(resolveShelfFolderPath).mockResolvedValueOnce(`E-Mail-Import/Büro/${LEAF}`)
+    await fileMail(await context({ inflightPosition: 7, inflightFolderId: 'folder_earlier' }), twins)
+    expect(uploadedNames()).toEqual([`${LEAF} – scan.pdf`, `${LEAF} – scan (2).pdf`, `${LEAF}.md`])
+    vi.mocked(findLiveDocumentByFilename).mockReset()
+  })
+
+  it('skips a damaged attachment and files the rest', async () => {
+    vi.mocked(readArchiveAttachment).mockRejectedValueOnce(new AttachmentUnreadableError())
+    const result = await fileMail(await context(), mail)
+    expect(result.skipped).toContainEqual({ mail: LEAF, file: 'Plan.pdf', reason: 'unreadable' })
+    expect(uploadedNames()).toEqual([`${LEAF}.md`])
+  })
+
+  it('stops between two files when the slice is out of time, its folder recorded for the next one', async () => {
+    await expect(fileMail(await context({}, Date.now() - 1), mail)).rejects.toBeInstanceOf(SliceBudgetSpentError)
+    expect(markInflight).toHaveBeenCalledWith('org_1', 'imp_1', 7, 'folder_mail')
+    expect(uploadDocument).not.toHaveBeenCalled()
+  })
+
+  it('files nothing into a folder when the import moved on under the slice', async () => {
+    vi.mocked(markInflight).mockResolvedValueOnce(false)
+    await expect(fileMail(await context(), mail)).rejects.toBeInstanceOf(ImportMovedOnError)
+    expect(uploadDocument).not.toHaveBeenCalled()
   })
 
   it('turns a full quota into the error that ends the import', async () => {

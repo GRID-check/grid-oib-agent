@@ -63,6 +63,13 @@ describe('resolvePinnedRequesterSession', () => {
     expect(enabledFlagsForOrganization).toHaveBeenCalledWith(requester.organizationId)
   })
 
+  it('lets a failed flag lookup throw, so the background work retries instead of acting with none', async () => {
+    vi.stubEnv('GRID_ENFORCE_FEATURE_FLAGS', 'true')
+    vi.mocked(enabledFlagsForOrganization).mockRejectedValueOnce(new Error('workos down'))
+
+    await expect(resolvePinnedRequesterSession(requester)).rejects.toThrow('workos down')
+  })
+
   it('carries no flags at all without enforcement, as a live session without the claim does', async () => {
     vi.stubEnv('GRID_ENFORCE_FEATURE_FLAGS', 'false')
 

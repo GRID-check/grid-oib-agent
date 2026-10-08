@@ -20,8 +20,10 @@ export interface MailImportView {
   status: MailImportStatus
   /** Who started it, so a colleague sees whose import is running. */
   startedBy: { userId: string; email: string | null }
-  /** Whether the viewer may send parts, complete or cancel it. */
+  /** Whether the viewer started it, and so may send its parts or resume it. */
   ownedByViewer: boolean
+  /** Whether the viewer may cancel it now: its starter, or a holder of `org:projects:administer`. */
+  cancellable: boolean
   /** The folder the mails are filed under, once the job has made it. */
   folderId: string | null
   totalItems: number | null

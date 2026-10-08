@@ -47,13 +47,17 @@ items, not a sequence of `.eml` files, so the inbox's parser does not apply.
 1. **The archive is staged as an S3 multipart upload, sent through the BFF.**
    The browser sends 32 MiB parts to `PUT /api/projects/[id]/mail-imports/[importId]/parts/[n]`;
    the BFF checks the person and the part's exact size and writes it as one
-   part. The store's CORS and its public endpoint stay out of the design, and
+   part, under the project's prefix so the project purge erases it (and aborts
+   an upload left open there). The store's CORS and its public endpoint stay out of the design, and
    every byte is behind the project permission. A send that breaks off resumes
    from the parts the store holds (`ListParts`).
 2. **The backend reads it where it lies, by range.** `libpff-python` opens a
    file object, and `aiq_api.mail_archive.remote_file.RangeFile` is one over a
    presigned GET, serving libpff's many small reads from a cache of aligned
-   1 MiB blocks. It is the only candidate that reads ANSI, Unicode and OST
+   1 MiB blocks. A failed range request is remembered, because libpff reports
+   any read error as damage to the archive: the backend answers 502 (retry) for
+   the store's failure and 422 only for a file that really is not an archive.
+   It is the only candidate that reads ANSI, Unicode and OST
    archives from a file object and exposes plain, HTML and RTF bodies; the
    spike against the pst-extractor corpus read both fixtures completely.
    `pst-extractor` opens a path only, so a slice would first download the whole
@@ -67,15 +71,27 @@ items, not a sequence of `.eml` files, so the inbox's parser does not apply.
 4. **The BFF job queue files it (ADR-0079), as the person, a time budget per
    slice.** `mail_import` reads a page from the cursor and files each mail
    before it moves the cursor past it, with a conditional update. The mail being
-   filed is recorded on the row the moment its folder exists, so a slice that
-   dies resumes into that folder; everything before it is never touched again.
-5. **One folder per mail, under `E-Mail-Import/<archive>/<Outlook folder>/`,
+   filed is recorded on the row the moment its folder exists (and the record is
+   the fence: a slice that is no longer the import's files nothing), so a slice
+   that dies resumes into that folder; everything before it is never touched
+   again. The budget is checked before every attachment, so a slice ends well
+   inside the runner's request timeout instead of running on beside its retry.
+5. **Retries are the import's own, not the queue's.** The queue spends attempts
+   per job and never gives them back for progress, so three passing outages
+   hours apart would end a long import. A slice that fails for a passing reason
+   hands the import to a fresh job held back by a backoff (1, 5, 15, 30, 60,
+   120 minutes) and ends; `failure_streak` counts failures since a mail was last
+   filed, and only a streak through every backoff ends the import. The
+   background-work sweep gives an import whose job vanished a new one on the
+   same streak. A refusal (403/404), an unreadable archive and a full quota end
+   it at once; a damaged message or attachment is skipped and named.
+6. **One folder per mail, under `E-Mail-Import/<archive>/<Outlook folder>/`,
    named `<date time> – <sender>`.** Never the subject: a folder name and a
    filename become storage keys, audit targets and titles, and the subject is
    the one header that carries content. A filename is unique per project, not
    per folder, so every file of a mail is prefixed with its folder's name and
    numbered when it still collides.
-6. **The mail itself is filed, as a Markdown note.** Its headers (subject,
+7. **The mail itself is filed, as a Markdown note.** Its headers (subject,
    from, to, cc, dates, Outlook folder, the attachments filed) and its text, from
    the plain body, else the HTML, else the RTF (`striprtf`). `.md` is indexed
    today, so the correspondence is searchable and citable; the inbox (#831)
