@@ -191,7 +191,10 @@ describe("the program's ScaledObjects", () => {
       for (const spec of rest) {
         expect(spec.pollingInterval).toBe(first.pollingInterval);
         expect(spec.cooldownPeriod).toBe(first.cooldownPeriod);
-        expect(spec.advanced).toEqual(first.advanced);
+        // The policy, not the HPA's name: a tier that adopts a pre-KEDA HPA names it.
+        expect(spec.advanced.horizontalPodAutoscalerConfig.behavior).toEqual(
+          first.advanced.horizontalPodAutoscalerConfig.behavior,
+        );
       }
       expect(first.pollingInterval).toBe(15);
       const behavior = first.advanced.horizontalPodAutoscalerConfig.behavior;
