@@ -443,15 +443,32 @@ describe("with the Langfuse tier enabled", () => {
         expect(spec.oidc.forwardIDToken).toBeUndefined();
       });
 
-      it("accepts tokens minted for this gate and the named agents, no other application", async () => {
+      it("pins the audience to the WorkOS environment, which is what WorkOS puts in aud", async () => {
         const spec = await policy();
 
-        // Without passthrough the only token ever verified was Envoy's own, so
-        // no audience was needed. With it the caller picks the token.
-        expect(spec.jwt.providers[0].audiences).toEqual([
-          "client_otel",
-          "client_agent_a",
-          "client_agent_b",
+        // WorkOS sets `aud` to the environment's client id on M2M tokens and on
+        // user tokens minted without a resource indicator. The application ids
+        // would reject every agent token here, and the browser's too.
+        expect(spec.jwt.providers[0].audiences).toEqual(["client"]);
+        expect(spec.oidc.resources).toBeUndefined();
+      });
+
+      it("allows only the gate's own client and the named agents, by client_id", async () => {
+        const spec = await policy();
+
+        expect(spec.authorization.rules).toHaveLength(1);
+        const { principal, action } = spec.authorization.rules[0];
+        expect(action).toBe("Allow");
+        expect(principal.jwt.provider).toBe(spec.jwt.providers[0].name);
+        // AND-ed with the claim below: the scope alone would admit any M2M
+        // application in the environment that was assigned it.
+        expect(principal.jwt.scopes).toEqual(["platform:organizations:view"]);
+        expect(principal.jwt.claims).toEqual([
+          {
+            name: "client_id",
+            valueType: "String",
+            values: ["client_otel", "client_agent_a", "client_agent_b"],
+          },
         ]);
       });
 
@@ -603,9 +620,10 @@ describe("config gating", () => {
     expect(error?.message).toMatch(/platformAgentClientIds.*not a WorkOS client id/);
   });
 
-  it("refuses more agent applications than the JWT audiences can hold", () => {
-    const ids = Array.from({ length: 8 }, (_, i) => `client_${i}`).join(",");
-    expect(loadWith({ "grid-oib:platformAgentClientIds": ids })?.message).toMatch(/at most 7/);
+  it("refuses more agent applications than the client_id rule can hold", () => {
+    const ids = (n: number) => Array.from({ length: n }, (_, i) => `client_${i}`).join(",");
+    expect(loadWith({ "grid-oib:platformAgentClientIds": ids(127) })).toBeNull();
+    expect(loadWith({ "grid-oib:platformAgentClientIds": ids(128) })?.message).toMatch(/at most 127/);
   });
 
   it("refuses a base64 encryption key, which is the natural mistake", () => {
@@ -690,6 +708,13 @@ describe("config gating", () => {
       "grid-oib:observabilityEnabled": "false",
     });
     expect(loadConfig().langfuse.enabled).toBe(false);
+  });
+
+  it("skips the platform tiers without the environment client id their JWT audience needs", () => {
+    pulumi.runtime.setAllConfig({ ...baseStackConfig(), ...langfuseStackConfig(), "grid-oib:workosClientId": "" });
+    const config = loadConfig();
+    expect(config.observability.enabled).toBe(false);
+    expect(config.langfuse.enabled).toBe(false);
   });
 
   it("stays off by default", () => {

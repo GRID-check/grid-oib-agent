@@ -40,9 +40,11 @@ export interface PlatformOidcGate {
  *                        success Envoy stores the tokens in cookies and, with
  *                        `forwardAccessToken`, replays the WorkOS access token
  *                        upstream as `Authorization: Bearer <jwt>`.
- *   2. `jwt`           — verifies that token against WorkOS's per-client JWKS.
+ *   2. `jwt`           — verifies that token against WorkOS's JWKS, its
+ *                        issuer and its audience (the environment).
  *   3. `authorization` — default-deny; allows only tokens carrying the
- *                        `platform:organizations:view` scope.
+ *                        `platform:organizations:view` scope AND minted by
+ *                        an allowed application (`client_id`).
  *
  * WHY A CONNECT APPLICATION AND NOT THE APP'S AUTHKIT CLIENT. The app's client
  * speaks WorkOS's `/user_management/*` endpoints, and those cannot serve this
@@ -80,11 +82,18 @@ export interface PlatformOidcGate {
  *
  * **Only tokens minted for known applications.** Without passthrough, the only
  * token the JWT filter ever saw was the one Envoy obtained itself for
- * `oidcClientId`, so the provider needed no `audiences`. With it, a caller
- * chooses the token, and any application in the WorkOS environment holding the
- * scope would do. `audiences` narrows that to this gate's own Connect client
- * plus the M2M applications named in `platformAgentClientIds`. ADR-0044
- * Amendment 4.
+ * `oidcClientId`. With it, a caller chooses the token, and any application in
+ * the WorkOS environment holding the scope would do. WorkOS names the minting
+ * application in `client_id` (and, for M2M, `sub`), not in `aud`: `aud` is the
+ * environment's client id for an M2M token always, and for a user token
+ * whenever no resource indicator was requested (Envoy requests none). So
+ * `audiences` pins the environment ({@link platformJwtAudience}), and the
+ * authorization rule allows only the client ids in
+ * {@link platformAllowedClientIds}: this gate's own Connect client and the M2M
+ * applications named in `platformAgentClientIds`. Listing the M2M client ids as
+ * audiences instead would reject every agent token, and admitting the
+ * environment id without the `client_id` rule would admit every M2M
+ * application in the environment that holds the scope. ADR-0044 Amendment 4.
  *
  * **One application, several routes.** Both platform routes gate on the same
  * permission and the same issuer, so they share one Connect application and it
@@ -163,7 +172,7 @@ export function platformOidcSecurityPolicySpec(
           name: jwtProviderName,
           issuer,
           remoteJWKS: { uri: `${issuer}/oauth2/jwks` },
-          audiences: [cfg.observability.oidcClientId, ...cfg.observability.agentClientIds],
+          audiences: [platformJwtAudience(cfg)],
           extractFrom: { headers: TOKEN_HEADERS },
         },
       ],
@@ -181,21 +190,28 @@ export function platformOidcSecurityPolicySpec(
       // harmless to whoever does it — silently gained cross-tenant read of
       // prompts, document snippets, LLM output and presigned S3 URLs.
       //
-      // One claim is enough because the permission is doubly scoped: it is
-      // issued only to this Connect application (per-application scope
-      // assignment) and only to a user whose role in the selected organization
-      // holds it.
+      // The permission alone is not enough once callers choose the token: any
+      // application in the environment that was assigned the scope would hold
+      // it. So the rule also names the applications, by the `client_id` claim
+      // WorkOS sets to the one that minted the token. Scopes and claims inside
+      // one JWT principal are AND-ed; the values of one claim are OR-ed.
       defaultAction: "Deny",
       rules: [
         {
           name: "platform-permission-only",
           action: "Allow",
           principal: {
-            // `scopes` matches the space-delimited `scope`/`scp` claim per
-            // RFC 6749, which is how granted permissions arrive on an OAuth
-            // access token. This mirrors PLATFORM_PERMISSIONS.organizationsView
-            // in frontends/ui/src/lib/authz/permissions.ts.
-            jwt: { provider: jwtProviderName, scopes: [PLATFORM_VIEW_PERMISSION] },
+            jwt: {
+              provider: jwtProviderName,
+              // `scopes` matches the space-delimited `scope`/`scp` claim per
+              // RFC 6749, which is how granted permissions arrive on an OAuth
+              // access token. This mirrors PLATFORM_PERMISSIONS.organizationsView
+              // in frontends/ui/src/lib/authz/permissions.ts.
+              scopes: [PLATFORM_VIEW_PERMISSION],
+              claims: [
+                { name: "client_id", valueType: "String", values: platformAllowedClientIds(cfg) },
+              ],
+            },
           },
         },
       ],
@@ -211,3 +227,23 @@ export function platformOidcSecurityPolicySpec(
  * put tokens in URLs and therefore in access logs.
  */
 const TOKEN_HEADERS = [{ name: "Authorization", valuePrefix: "Bearer " }, { name: AGENT_TOKEN_HEADER }];
+
+/**
+ * The `aud` every token at the platform edge carries: the WorkOS environment's
+ * client id (`workosClientId`, the app's own AuthKit client id). WorkOS sets it
+ * on every M2M token, and on a user token when the authorization request named
+ * no resource indicator, which Envoy's (no `oidc.resources`) does not.
+ * https://workos.com/docs/authkit/connect/token-claims
+ */
+export function platformJwtAudience(cfg: GridConfig): string {
+  return cfg.auth.workosClientId;
+}
+
+/**
+ * Applications whose tokens pass the platform edge, matched against `client_id`:
+ * the gate's Connect application (browser sessions) first, then the M2M
+ * applications agents mint from.
+ */
+export function platformAllowedClientIds(cfg: GridConfig): string[] {
+  return [cfg.observability.oidcClientId, ...cfg.observability.agentClientIds];
+}

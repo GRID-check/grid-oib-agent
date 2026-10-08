@@ -2151,9 +2151,11 @@ Langfuse's MCP server is `https://langfuse.<baseDomain>/api/public/mcp`
   permission check a browser session does (`passThroughAuthHeader` in
   `deploy/pulumi/src/platform/platform-oidc.ts`). A bad token: 401. No
   token but a `Basic` credential: 401 (`denyRedirect`). No credential at all:
-  the login redirect. Only tokens minted for the gate's own Connect client or
-  for an application listed in `grid-oib:platformAgentClientIds` count (JWT
-  `audiences`); the edge strips `x-workos-token` before the backend.
+  the login redirect. The token's `aud` must be the WorkOS environment
+  (`workosClientId`), and its `client_id` the gate's own Connect client or an
+  application listed in `grid-oib:platformAgentClientIds`; another application
+  holding the permission gets 403. The edge strips `x-workos-token` before the
+  backend.
 - **Langfuse** wants a project key pair as `Authorization: Basic
   base64(pk-lf-…:sk-lf-…)`. Mint one per agent (Langfuse → Settings → API Keys)
   so each can be revoked alone; do not hand out the seeded `langfusePublicKey`.
@@ -2164,7 +2166,7 @@ dashboard → Applications → Create → M2M, in the platform organization, wit
 to the stack and deploy:
 
 ```bash
-pulumi config set grid-oib:platformAgentClientIds client_…,client_…   # at most 7
+pulumi config set grid-oib:platformAgentClientIds client_…,client_…   # at most 127
 ```
 
 Then register the server with Claude Code, letting the helper mint a fresh
@@ -2183,14 +2185,42 @@ it agent-readable: its Telemetry API (`/api/telemetry/*`, what
 `aspire agent mcp --dashboard-url` reads) still demands the random `x-api-key`
 the dashboard mints at every start. ADR-0044 Amendment 4 records why.
 
-**Before the first deploy of this, check both token types' claims.** The
-`audiences` rule assumes WorkOS sets `aud` to the requesting application's client
-id, as its M2M verification example does; if it does not, browser sign-in to
-both hosts breaks too. Decode an M2M token
-(`scripts/observability-agent-token.sh token | cut -d. -f2 | base64 -d`) and
-confirm `aud` is its client id and `scope` holds `platform:organizations:view`.
-For the browser side, decode the `AccessToken-…` cookie Envoy sets on the
-Langfuse host and confirm `aud` is `otelOidcClientId`.
+**Before the first deploy of this, check both token types' claims.** The edge
+assumes what WorkOS documents
+([token claims](https://workos.com/docs/authkit/connect/token-claims)): `aud` is
+the environment's client id (`grid-oib:workosClientId`) on M2M tokens and on
+user tokens requested without a resource indicator, and `client_id` names the
+minting application. If `aud` differs, browser sign-in to both hosts breaks
+too, so confirm on real tokens first.
+
+- **M2M:** `scripts/observability-agent-token.sh claims` mints a token and
+  prints its payload. Expect `aud` = `workosClientId`, `client_id` (and `sub`)
+  = the M2M application's client id, and `scope` containing
+  `platform:organizations:view`.
+- **Browser:** the `AccessToken-…` cookie on the Langfuse host is no use here:
+  Envoy Gateway encrypts its token cookies (`disableTokenEncryption` is unset,
+  and must stay so). Mint a token from the Connect application directly
+  instead. In the WorkOS dashboard add `http://127.0.0.1:8765/callback` as a
+  temporary redirect URI on that application, then open
+
+  ```text
+  https://<tenant>.authkit.app/oauth2/authorize?response_type=code&client_id=<otelOidcClientId>&redirect_uri=http://127.0.0.1:8765/callback&scope=openid%20platform:organizations:view&state=check
+  ```
+
+  and sign in as a platform operator. The browser then fails to load
+  `127.0.0.1:8765`; copy the `code` from its address bar and exchange it the
+  way Envoy does (`client_secret_basic`):
+
+  ```bash
+  curl -sS -u "<otelOidcClientId>:$OTEL_OIDC_CLIENT_SECRET" https://<tenant>.authkit.app/oauth2/token \
+    --data-urlencode grant_type=authorization_code --data-urlencode code=<code> \
+    --data-urlencode redirect_uri=http://127.0.0.1:8765/callback |
+    python3 -c 'import base64,json,sys; p=json.load(sys.stdin)["access_token"].split(".")[1]; print(json.dumps(json.loads(base64.urlsafe_b64decode(p+"="*(-len(p)%4))),indent=2))'
+  ```
+
+  Expect `aud` = `workosClientId`, `client_id` = `otelOidcClientId`, and
+  `scope` containing `platform:organizations:view`. Remove the temporary
+  redirect URI afterwards.
 
 ### Traps worth knowing before the first deploy
 

@@ -386,13 +386,19 @@ rule. Agents mint the token from a WorkOS M2M application holding that
 permission (`scripts/observability-agent-token.sh`), and send Langfuse's own
 key pair in `Authorization` as Langfuse expects.
 
-Passthrough changes who picks the token, so the provider now names its
-`audiences`: the gate's own Connect client plus the M2M applications listed in
-`platformAgentClientIds`. Before, the only token ever verified was the one Envoy
-obtained itself, and an audience check had nothing to exclude; after, any
-application in the WorkOS environment holding the scope would have passed. A
-`Basic`-only request gets a 401 (`denyRedirect`) instead of a login page, and
-the routes strip `x-workos-token` before the backend.
+Passthrough changes who picks the token. Before, the only token ever verified
+was the one Envoy obtained itself; after, any application in the WorkOS
+environment that was assigned the scope would have passed. WorkOS names the
+minting application in `client_id` (and `sub` for M2M), not in `aud`: `aud` is
+the environment's client id on every M2M token and on a user token requested
+without a resource indicator ([token claims](https://workos.com/docs/authkit/connect/token-claims)).
+So the JWT provider's `audiences` is the environment (`workosClientId`), and the
+authorization rule ANDs the permission with a `client_id` claim match on the
+gate's own Connect client plus the M2M applications listed in
+`platformAgentClientIds`. Listing those application ids as `audiences`, the
+first draft of this amendment, would have refused every agent token and every
+browser session. A `Basic`-only request gets a 401 (`denyRedirect`) instead of
+a login page, and the routes strip `x-workos-token` before the backend.
 
 **Rejected: routing `/api/public` past the gate on Langfuse's key alone.**
 Simpler, and how Langfuse Cloud serves it, but it makes a project key a
@@ -408,11 +414,11 @@ credential. Making it agent-readable means running that API `Unsecured` behind
 the edge (the UI's arrangement) and reading the WorkOS token from `x-api-key`;
 that is a separate decision.
 
-**Verify before the first deploy:** that a WorkOS M2M token carries the assigned
-permission in `scope` (if not, agents get 403: fail closed), and that both M2M
-and browser tokens set `aud` to their application's client id. The second is
-not fail-safe for browsers: if the browser token's `aud` differs, sign-in to
-both platform hosts breaks until the audience list is corrected.
+**Verify before the first deploy:** decode one real token of each kind and
+confirm what the docs say: `aud` is `workosClientId`, `client_id` is the minting
+application, and `scope` holds `platform:organizations:view`. A wrong `scope` or
+`client_id` fails closed (403). A wrong `aud` is not fail-safe for browsers:
+sign-in to both platform hosts breaks until the audience is corrected.
 `docs/deployment/kubernetes.md` §9b lists the checks.
 
 ## References
