@@ -43,13 +43,25 @@ vi.mock('@/lib/cache', () => ({
 const recordAuditEvent = vi.fn(async (_event: unknown) => undefined)
 vi.mock('@/lib/audit/service', () => ({ recordAuditEvent: (event: unknown) => recordAuditEvent(event) }))
 
+// Which folders name a role is read from the database; the rule that acts on it
+// is what is under test here.
+const usage = vi.hoisted(() => ({
+  total: 0,
+  folders: [] as Array<{ folderId: string; folderName: string; projectId: string; projectName: string }>,
+}))
+vi.mock('./folder-access-repository', () => ({
+  listFoldersNamingRole: vi.fn(async () => ({ folders: usage.folders, total: usage.total })),
+}))
+
 import {
   ASSIGNABLE_ROLE_PERMISSIONS,
   assignableRolePermissions,
   createCustomRole,
   customRoleSlug,
   deleteCustomRole,
+  getCustomRoleUsage,
   listOrganizationRoles,
+  organizationRoleSlugs,
   updateCustomRole,
 } from './custom-roles'
 
@@ -90,6 +102,8 @@ const ROLE_CACHE_KEYS = ['authz:org-role-permissions:org_1', 'authz:org-roles:or
 
 beforeEach(() => {
   vi.clearAllMocks()
+  usage.total = 0
+  usage.folders = []
   roles.splice(0, roles.length, { ...ENVIRONMENT_ADMIN }, { ...GESCHAEFTSFUEHRUNG, permissions: [...GESCHAEFTSFUEHRUNG.permissions] })
 })
 
@@ -262,6 +276,17 @@ describe('updateCustomRole', () => {
     expect(workos.setOrganizationRolePermissions).not.toHaveBeenCalled()
   })
 
+  it('keeps the slug a folder grant names: a rename leaves the role list under the same slug', async () => {
+    await updateCustomRole(userAdmin(), 'org-geschaeftsfuehrung', { name: 'GF', description: 'Leitung' }, request())
+
+    // WorkOS takes a name and a description and nothing that could move the slug.
+    expect(workos.updateOrganizationRole).toHaveBeenCalledWith('org_1', 'org-geschaeftsfuehrung', {
+      name: 'GF',
+      description: 'Leitung',
+    })
+    expect([...(await organizationRoleSlugs('org_1'))].sort()).toEqual(['admin', 'org-geschaeftsfuehrung'])
+  })
+
   it('does not edit an environment role', async () => {
     await expect(updateCustomRole(userAdmin(), 'admin', { name: 'Chef' }, request())).rejects.toMatchObject({
       status: 403,
@@ -285,6 +310,57 @@ describe('deleteCustomRole', () => {
     expect(recordAuditEvent.mock.calls[0][0]).toMatchObject({
       action: 'org.role.deleted',
       metadata: { role: 'org-geschaeftsfuehrung' },
+    })
+  })
+
+  describe('a role that folders name (ADR-0085)', () => {
+    const folder = {
+      folderId: 'f1',
+      folderName: 'Honorare',
+      projectId: 'p1',
+      projectName: 'Schule Süd',
+    }
+
+    it('is refused with 409 and the count until the caller confirms, and WorkOS is not asked', async () => {
+      usage.total = 2
+      usage.folders = [folder]
+
+      await expect(deleteCustomRole(userAdmin(), 'org-geschaeftsfuehrung', request())).rejects.toMatchObject({
+        status: 409,
+        details: { reason: 'role-used-by-folders', total: 2 },
+      })
+
+      expect(workos.deleteOrganizationRole).not.toHaveBeenCalled()
+      expect(recordAuditEvent).not.toHaveBeenCalled()
+    })
+
+    it('is deleted once confirmed, and the audit entry counts the folders it left without that grant', async () => {
+      usage.total = 2
+
+      await deleteCustomRole(userAdmin(), 'org-geschaeftsfuehrung', request(), { confirmFolders: true })
+
+      expect(workos.deleteOrganizationRole).toHaveBeenCalledWith('org_1', 'org-geschaeftsfuehrung')
+      expect(recordAuditEvent.mock.calls[0][0]).toMatchObject({ metadata: { role: 'org-geschaeftsfuehrung', folders: 2 } })
+    })
+
+    it('needs no confirmation when no folder names it', async () => {
+      await expect(deleteCustomRole(userAdmin(), 'org-geschaeftsfuehrung', request())).resolves.toBeUndefined()
+    })
+
+    it('names the folders to someone who administers projects, and only counts them for a role manager who does not', async () => {
+      usage.total = 1
+      usage.folders = [folder]
+
+      await expect(getCustomRoleUsage(userAdmin(['org:projects:administer']), 'org-geschaeftsfuehrung')).resolves.toEqual({
+        total: 1,
+        folders: [folder],
+      })
+      await expect(getCustomRoleUsage(userAdmin(), 'org-geschaeftsfuehrung')).resolves.toEqual({ total: 1, folders: [] })
+    })
+
+    it('is for role managers, and only for the organization’s own roles', async () => {
+      await expect(getCustomRoleUsage(member(), 'org-geschaeftsfuehrung')).rejects.toMatchObject({ status: 403 })
+      await expect(getCustomRoleUsage(userAdmin(), 'admin')).rejects.toMatchObject({ status: 403 })
     })
   })
 

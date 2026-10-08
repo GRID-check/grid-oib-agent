@@ -28,6 +28,11 @@
  *                  delete-all, one CTA rather than two.
  *   - `busy`     — a turn in flight. Every row is dimmed and unclickable, so the
  *                  panel says why instead of leaving the user to test rows.
+ *   - `rights-lost` — chats shared with the reader who may no longer read a
+ *                  folder they drew on (ADR-0085): they stay in the list under
+ *                  the neutral title „Geteilter Chat", and the open one shows
+ *                  „Ihnen fehlen inzwischen die Rechte …" instead of a thread
+ *                  and a composer.
  *   - `research` — the Deep Research surfaces (FB-10): the All / Chats / Deep
  *                  Research scope filter, the always-open runs section with its
  *                  count pill and status badges, and the per-chat Deep Research
@@ -46,6 +51,7 @@ import { useSearchParams } from 'next/navigation'
 // re-exports `org-topbar`, which pulls in `i18n/server` (`server-only` +
 // `next/headers`) and fails to compile into a client preview.
 import { AppSidebar } from '@/components/shell/app-sidebar'
+import { RightsLostPanel } from '@/features/layout/components/RightsLostPanel'
 import { SessionsPanel } from '@/features/layout/components/SessionsPanel'
 import { useLayoutStore } from '@/features/layout/store'
 import { useChatStore } from '@/features/chat'
@@ -66,6 +72,12 @@ const SESSIONS = [
   { id: 's-10', title: 'Absturzsicherung Brüstungshöhen', date: daysAgo(11) },
   { id: 's-11', title: 'Aufzugsschacht Entrauchung', date: daysAgo(11) },
   { id: 's-12', title: 'Bauklasse und Gebäudehöhe Parzelle 1042', date: daysAgo(18) },
+]
+
+/** Shared with the reader, who has since lost a folder they drew on: no title, nothing of the content. */
+const LOCKED_SESSIONS = [
+  { id: 's-lost-1', title: '', date: minutesAgo(30), contentLocked: true },
+  { id: 's-lost-2', title: '', date: daysAgo(2), contentLocked: true },
 ]
 
 const PROJECTS = [
@@ -148,7 +160,8 @@ export default function SessionsPreviewPage() {
     input.dispatchEvent(new Event('input', { bubbles: true }))
   }, [variant])
 
-  const sessions = variant === 'empty' ? [] : SESSIONS
+  const rightsLost = variant === 'rights-lost'
+  const sessions = variant === 'empty' ? [] : rightsLost ? [...LOCKED_SESSIONS, ...SESSIONS.slice(0, 5)] : SESSIONS
 
   return (
     <div
@@ -175,13 +188,19 @@ export default function SessionsPreviewPage() {
           itself portals to <body>, so where it is rendered from matters only
           for props. */}
       <main className="relative min-w-0 flex-1 overflow-hidden">
-        <p className="text-muted-foreground p-6 font-mono text-xs">
-          /dev/sessions — chat plane stand-in (the history sheet rises above it)
-        </p>
+        {rightsLost ? (
+          <div className="flex h-full">
+            <RightsLostPanel />
+          </div>
+        ) : (
+          <p className="text-muted-foreground p-6 font-mono text-xs">
+            /dev/sessions — chat plane stand-in (the history sheet rises above it)
+          </p>
+        )}
 
         <SessionsPanel
           sessions={sessions}
-          selectedSessionId="s-2"
+          selectedSessionId={rightsLost ? 's-lost-1' : 's-2'}
           onSelectSession={() => {}}
           onNewSession={() => {}}
           onDeleteSession={() => {}}

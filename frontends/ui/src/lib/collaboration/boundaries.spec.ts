@@ -38,6 +38,8 @@ vi.mock('@/lib/authz/project-membership', () => ({
 // ADR-0084/0083: no conversation here recorded a restricted folder, so every
 // widening is allowed; the rule itself is `restricted-use.spec.ts`.
 vi.mock('@/lib/conversations/restricted-use', () => ({
+  peopleWhoMayRead: vi.fn(async (_org: string, _id: string, userIds: readonly string[]) => new Set(userIds)),
+  lockedConversationIds: vi.fn(async () => new Set<string>()),
   assertMayWidenConversation: vi.fn(async () => undefined),
   widenConversationAudience: vi.fn(
     async (_session: unknown, _id: string, _widening: unknown, write: (executor: unknown) => Promise<unknown>) =>
@@ -136,6 +138,9 @@ const session = {
   userId: 'user_me',
   organizationId: 'org_1',
   email: 'me@grid.test',
+  role: 'member',
+  roles: ['member'],
+  permissions: [],
 } as unknown as AuthorizedSession
 
 function person(userId: string, name: string) {

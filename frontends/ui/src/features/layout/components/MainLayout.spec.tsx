@@ -129,6 +129,28 @@ describe('MainLayout', () => {
     expect(screen.getByTestId('input-area')).toBeInTheDocument()
   })
 
+  test('a chat the reader may no longer read shows the state instead of the transcript and the composer (ADR-0085)', () => {
+    chatStoreOverrides = {
+      currentConversation: { id: 'session-1', title: '', messages: [], contentLocked: true },
+    }
+
+    render(<MainLayout isAuthenticated={true} />)
+
+    expect(screen.getByTestId('rights-lost')).toHaveTextContent('You no longer have the rights to view this chat')
+    expect(screen.getByTestId('rights-lost')).toHaveTextContent('Shared chat')
+    // Nothing of the chat is mounted: not the thread, not the composer to write into it.
+    expect(screen.queryByTestId('chat-area')).toBeNull()
+    expect(screen.queryByTestId('input-area')).toBeNull()
+    expect(screen.queryByTestId('no-sources-banner')).toBeNull()
+  })
+
+  test('an ordinary chat shows its thread and no rights notice', () => {
+    render(<MainLayout isAuthenticated={true} />)
+
+    expect(screen.queryByTestId('rights-lost')).toBeNull()
+    expect(screen.getByTestId('chat-area')).toBeInTheDocument()
+  })
+
   test('passes session title to AppBar', () => {
     render(<MainLayout />)
 

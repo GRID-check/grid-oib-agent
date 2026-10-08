@@ -108,6 +108,13 @@ const VISIBILITY_RANK: Record<ResourceVisibility, number> = {
 /** Candidates shown at once. Bounded so the dialog cannot grow without limit. */
 const MAX_CANDIDATES = 6
 
+/**
+ * Someone who cannot be invited: not in the project yet, or unable to read a
+ * folder the chat drew on (ADR-0085). Shown, disabled, with the reason.
+ */
+const isBlocked = (candidate: ShareCandidate): boolean =>
+  candidate.needsProjectAccess || candidate.lacksFolderAccess === true
+
 /** An owner can leave only when the conversation keeps another owner (SH-11). */
 const canLeave = (state: ResourceSharingState, currentUserId: string): boolean =>
   state.myRole !== 'owner' ||
@@ -221,7 +228,7 @@ export function ShareDialog({
     )
     // Invitable first, blocked colleagues last — visible, but never in the way of
     // the action that works (SH-19).
-    const weight = (candidate: ShareCandidate): number => (candidate.needsProjectAccess ? 1 : 0)
+    const weight = (candidate: ShareCandidate): number => (isBlocked(candidate) ? 1 : 0)
     return matches
       .sort((a, b) => weight(a) - weight(b) || a.person.name.localeCompare(b.person.name))
       .slice(0, MAX_CANDIDATES)
@@ -570,7 +577,7 @@ export function ShareDialog({
                         <li
                           key={candidate.person.userId}
                           data-testid="share-candidate"
-                          data-blocked={candidate.needsProjectAccess || undefined}
+                          data-blocked={isBlocked(candidate) || undefined}
                           className="flex items-center gap-3 rounded-lg px-2 py-2 transition-colors duration-snap ease-out hover:bg-accent motion-reduce:transition-none"
                         >
                           <PersonAvatar person={candidate.person} size="md" />
@@ -585,7 +592,7 @@ export function ShareDialog({
                             <p
                               className={cn(
                                 'truncate text-sm font-medium',
-                                candidate.needsProjectAccess
+                                isBlocked(candidate)
                                   ? 'text-foreground/70'
                                   : 'text-foreground',
                               )}
@@ -602,6 +609,18 @@ export function ShareDialog({
                             <p className="truncate text-xs text-muted-foreground">
                               {candidate.person.email ?? ''}
                             </p>
+                            {/* Not in the project is one sentence for the whole list
+                                (below). This one is per person and exact: it is
+                                what the owner decided the row says, and it never
+                                names the folder — the sharer may not read it. */}
+                            {candidate.lacksFolderAccess === true && (
+                              <p
+                                data-testid="share-candidate-lacks-folder"
+                                className="text-xs leading-snug text-muted-foreground"
+                              >
+                                {t('sharing.invite.lacksFolderAccess')}
+                              </p>
+                            )}
                           </div>
                           {/* One slot on the right: the action, or the reason there
                               isn't one. A disabled "Einladen" was a control that
@@ -610,6 +629,10 @@ export function ShareDialog({
                           {candidate.needsProjectAccess ? (
                             <Chip variant="muted" size="sm" className="shrink-0 font-normal">
                               {t('sharing.invite.needsProjectAccess')}
+                            </Chip>
+                          ) : candidate.lacksFolderAccess === true ? (
+                            <Chip variant="muted" size="sm" className="shrink-0 font-normal">
+                              {t('sharing.invite.lacksFolderAccessBadge')}
                             </Chip>
                           ) : (
                             <Button

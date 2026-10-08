@@ -14,7 +14,7 @@ import { isCollaborationEnabled } from '@/lib/authz/feature-flags'
 import type { ShareableResourceType } from '@/lib/db/schema'
 import { inboxGroupKey } from '@/lib/inbox/registry'
 import { emitInboxItems } from '@/lib/inbox/service'
-import { requireResourceAccess } from '@/lib/sharing/access'
+import { requireResourceAccess, requireResourceWriteAccess } from '@/lib/sharing/access'
 import { loadOrganizationDirectory, unknownPerson } from '@/lib/sharing/directory'
 import { describeResource } from '@/lib/sharing/registry'
 import type { DirectoryPerson } from '@/lib/sharing/types'
@@ -121,6 +121,8 @@ export async function addResourceAssignment(
     throw new NotFoundError()
   }
   const access = await requireResourceAccess(session, resourceType, resourceId, 'collaborator')
+  // Putting someone on the hook for a document is a change to it (ADR-0085).
+  await requireResourceWriteAccess(session, resourceType, resourceId)
   if (!subjectUserId.trim()) {
     throw new BadRequestError('A person is required')
   }
@@ -185,6 +187,7 @@ export async function removeResourceAssignment(
     throw new NotFoundError()
   }
   await requireResourceAccess(session, resourceType, resourceId, 'collaborator')
+  await requireResourceWriteAccess(session, resourceType, resourceId)
   await deleteAssignment(session.organizationId, resourceType, resourceId, subjectUserId)
 
   await recordAuditEvent({

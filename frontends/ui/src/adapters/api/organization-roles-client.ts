@@ -29,11 +29,26 @@ const OrganizationRolesSchema = z.object({
   assignable: z.array(AssignablePermissionSchema).nullable(),
 })
 
+const RoleFolderUseSchema = z.object({
+  folderId: z.string(),
+  folderName: z.string(),
+  projectId: z.string(),
+  projectName: z.string(),
+})
+
+const RoleUsageSchema = z.object({ total: z.number(), folders: z.array(RoleFolderUseSchema) })
+
 const RoleResponseSchema = z.object({ role: OrganizationRoleSchema })
 
 export type OrganizationRole = z.infer<typeof OrganizationRoleSchema>
 export type AssignablePermission = z.infer<typeof AssignablePermissionSchema>
 export type OrganizationRoles = z.infer<typeof OrganizationRolesSchema>
+/** The folders that name a role: `total` always, `folders` only for someone who may read them (ADR-0085). */
+export type RoleUsage = z.infer<typeof RoleUsageSchema>
+export type RoleFolderUse = z.infer<typeof RoleFolderUseSchema>
+
+/** `details.reason` of the refusal to delete a role folders still name, until confirmed. */
+export const ROLE_USED_BY_FOLDERS = 'role-used-by-folders'
 
 export interface CustomRoleFields {
   name: string
@@ -44,9 +59,11 @@ export interface CustomRoleFields {
 async function requestError(response: Response, fallback: string): Promise<ApiRequestError> {
   const body: unknown = await response.json().catch(() => null)
   const message = (body as { error?: { message?: unknown } } | null)?.error?.message
+  const reason = (body as { details?: { reason?: unknown } } | null)?.details?.reason
   return new ApiRequestError(
     typeof message === 'string' && message ? message : `${fallback}: ${response.status}`,
-    response.status
+    response.status,
+    typeof reason === 'string' ? reason : null
   )
 }
 
@@ -81,8 +98,20 @@ export async function updateCustomRole(slug: string, fields: Partial<CustomRoleF
   return RoleResponseSchema.parse(await response.json()).role
 }
 
-/** Delete a custom role. 409 = somebody still holds it. */
-export async function deleteCustomRole(slug: string): Promise<void> {
-  const response = await fetch(roleUrl(slug), { method: 'DELETE' })
+/** The folders whose own access list names this role: what the deletion confirmation shows. */
+export async function getRoleUsage(slug: string, signal?: AbortSignal): Promise<RoleUsage> {
+  const response = await fetch(`${roleUrl(slug)}/usage`, { signal })
+  if (!response.ok) throw await requestError(response, 'Failed to load where the role is used')
+  return RoleUsageSchema.parse(await response.json())
+}
+
+/**
+ * Delete a custom role. 409 `role-used-by-folders` = folders name it and the
+ * deletion was not confirmed (`confirmFolders`); any other 409 = somebody still
+ * holds it.
+ */
+export async function deleteCustomRole(slug: string, options: { confirmFolders?: boolean } = {}): Promise<void> {
+  const query = options.confirmFolders ? '?confirmFolders=1' : ''
+  const response = await fetch(`${roleUrl(slug)}${query}`, { method: 'DELETE' })
   if (!response.ok) throw await requestError(response, 'Failed to delete the role')
 }

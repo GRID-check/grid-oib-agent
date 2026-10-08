@@ -427,6 +427,13 @@ export interface Conversation {
   messages: ChatMessage[]
   createdAt: Date
   updatedAt: Date
+  /**
+   * The person may no longer read what this chat drew on (ADR-0085). The server
+   * sent no title and the store holds no messages for it; the UI shows a neutral
+   * title and "you no longer have the rights". Set by the list and by a 403
+   * `RESOURCE_RIGHTS_LOST`, cleared by the next list that says otherwise.
+   */
+  contentLocked?: boolean
   /** Per-session enabled data source IDs (persisted across refresh) */
   enabledDataSourceIds?: string[]
 }

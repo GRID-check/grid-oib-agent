@@ -146,6 +146,24 @@ export function readableByEveryMember(tree: FolderTree, folderId: string): boole
   return atLeast(effectiveFolderLevel(tree, ANY_MEMBER, folderId), 'read')
 }
 
+/**
+ * The living folders whose own list names no role that exists and not `*`:
+ * the list matches nobody, so only organization admins read them (the rule
+ * above gives a non-admin `none`). What is left of a folder when the role it
+ * named is deleted in WorkOS; the project settings flag it so someone sets a
+ * role again. A rename keeps the slug and so never lands a folder here.
+ */
+export function foldersWithoutValidRole(folders: readonly AccessFolder[], existingRoles: ReadonlySet<string>): string[] {
+  return folders
+    .filter(
+      (folder) =>
+        !folder.deleted &&
+        folder.accessMode === 'custom' &&
+        !folder.grants.some((grant) => grant.role === EVERY_PROJECT_MEMBER || existingRoles.has(grant.role))
+    )
+    .map((folder) => folder.id)
+}
+
 /** The folders on `folderId`'s path, itself first, that restrict reading. Empty for the root or an unknown id. */
 export function readRestrictingFoldersOnPath(tree: FolderTree, folderId: string | null): string[] {
   const found: string[] = []

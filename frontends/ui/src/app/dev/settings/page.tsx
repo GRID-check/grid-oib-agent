@@ -92,5 +92,17 @@ export default function SettingsDevPage(): JSX.Element {
   if (process.env.NODE_ENV !== 'development') {
     notFound()
   }
-  return <ProjectSettings data={DATA} canManageProject showKnowledgeLink currentMembershipId="me" />
+  return (
+    <ProjectSettings
+      data={DATA}
+      canManageProject
+      showKnowledgeLink
+      currentMembershipId="me"
+      // ADR-0085: folders whose roles were deleted since; each links to the folder.
+      foldersWithoutRole={[
+        { id: 'f-honorare', name: 'Honorare' },
+        { id: 'f-personal', name: 'Personal' },
+      ]}
+    />
+  )
 }

@@ -72,6 +72,25 @@ export class ConversationConfinedError extends ApiError {
   }
 }
 
+/** The machine-readable reason a person no longer has the rights to read a resource's content. */
+export const RIGHTS_LOST_REASON = 'rights-lost'
+
+/**
+ * 403 — the caller is still a party to the resource (a grant, its creator) but
+ * can no longer read what it was drawn from: a conversation that recorded a
+ * folder they may not read now (ADR-0085). Its own code, so the client shows
+ * "you no longer have the rights" instead of "not found", and its message and
+ * details carry nothing of the content: not its title, not the folder.
+ */
+export class ResourceRightsLostError extends ApiError {
+  constructor(readonly resourceType: string) {
+    super(403, 'RESOURCE_RIGHTS_LOST', 'You no longer have the rights to view this content.', {
+      reason: RIGHTS_LOST_REASON,
+      resourceType,
+    })
+  }
+}
+
 /**
  * 404 — resource missing OR the caller may not know it exists.
  * Cross-tenant and no-access lookups throw this (never Forbidden) so

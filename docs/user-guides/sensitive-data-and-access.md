@@ -121,7 +121,13 @@ live in WorkOS, where Piloti's own roles live; you assign them to people on the
 **Personen** tab.
 
 - A role can only carry permissions its editor holds.
-- A role can be deleted once nobody holds it.
+- A role can be deleted once nobody holds it. If folders name it in their
+  access list, Piloti shows which folders (organization admins see their
+  names, other role managers how many) and asks you to confirm. After the
+  deletion those lists match nobody: only organization admins can read the
+  folders until someone sets a valid role, and the project's settings list them
+  under **Ordner ohne gültige Rolle**, with a link to each. Renaming a role
+  changes nothing for folders: they follow its identifier, not its name.
 - Until your Piloti installation lets a person hold several roles, everyone
   holds exactly one. A role you use for folders must then also carry the
   permissions its holders work with.
@@ -207,6 +213,23 @@ them by searching. If the chat is shared with someone who
 may not read the folder, Piloti stops searching that folder in the chat from
 the next question on. A file name used in such a folder cannot be uploaded a
 second time elsewhere in the project.
+
+**Sharing such a chat shows only people who qualify.** In the share dialog,
+colleagues who may not read every folder the chat drew on appear greyed out
+with „Hat keinen Zugriff auf einen Ordner, aus dem dieser Chat stammt“, without
+naming the folder (you may not be allowed to read it either). Piloti still
+refuses the invitation on its own check.
+
+**When access changes after sharing.** A chat whose folders someone may no
+longer read (their role was taken away, or the folder was narrowed) stays in
+their list as **Geteilter Chat**. Opening it says „Ihnen fehlen inzwischen die
+Rechte, um diesen Chat zu sehen“, and shows no title, message, card or
+attachment. Whoever shared it sees the person marked **Hat keinen Zugriff
+mehr**. This applies to whoever started the chat, too. It is decided each time
+the chat is opened or listed, within a minute of the role change, and nothing
+is deleted: when the person gets the role back or the folder is opened again,
+the chat is whole again. Their inbox does not show the chat's title either.
+Anything they copied or downloaded earlier stays with them.
 
 Nothing from such a chat goes where the whole project reads it, so Piloti does
 not offer, and refuses with a message saying why:

@@ -14,6 +14,14 @@ vi.mock('@/lib/db', () => ({
   getDb: vi.fn(),
 }))
 
+// Which people may read what a conversation recorded is `restricted-use.spec.ts`'s
+// subject (ADR-0085); here nothing it recorded restricts anybody.
+vi.mock('@/lib/conversations/restricted-use', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/lib/conversations/restricted-use')>()),
+  peopleWhoMayRead: vi.fn(async (_org: string, _id: string, userIds: readonly string[]) => new Set(userIds)),
+  lockedConversationIds: vi.fn(async () => new Set<string>()),
+}))
+
 import { GET, POST } from '@/app/api/conversations/route'
 import { requireAuthorizedSession } from '@/lib/auth/require-auth'
 import { getDb } from '@/lib/db'

@@ -68,6 +68,7 @@ import { sanitizeProvenance } from './message-provenance'
 import { sanitizeStages } from './message-stages'
 import { sanitizePromptDetail, sanitizePromptState, type StoredPromptState } from './message-prompt'
 import { maskAnswerText, maskChatText } from '@/lib/upload-screening/service'
+import { lockedConversationIds } from './restricted-use'
 import { CONVERSATION_TAG_KEYS, normalizeConversationTags } from './tags'
 import {
   deleteConversationInOrg,
@@ -191,13 +192,33 @@ export interface ListConversationsFilter {
 export async function listConversations(
   session: AuthorizedSession,
   filter: ListConversationsFilter = {}
-): Promise<Conversation[]> {
+): Promise<ListedConversation[]> {
   if (filter.projectId) {
     await requireProjectAccess(session, filter.projectId, 'project:view')
   }
-  return listVisibleConversations(session.organizationId, session.userId, {
+  const rows = await listVisibleConversations(session.organizationId, session.userId, {
     projectId: filter.projectId,
   })
+  const locked = await lockedConversationIds(
+    session,
+    rows.map((row) => ({ id: row.id, projectId: row.projectId }))
+  )
+  return rows.map((row) => (locked.has(row.id) ? withheldConversation(row) : { ...row, contentLocked: false }))
+}
+
+/** A listed conversation, and whether its content is withheld from this caller. */
+export type ListedConversation = Conversation & { contentLocked: boolean }
+
+/**
+ * The row of a conversation the caller may no longer read (ADR-0085), as the
+ * list shows it: still theirs, still in the list, and nothing the content could
+ * have written. The title is model-written from the conversation, restricted
+ * folder content included, and the topic tags and the subject file come from the
+ * same place; the client shows its own neutral title. Judged per request, so a
+ * role given back brings the row back whole.
+ */
+function withheldConversation(row: Conversation): ListedConversation {
+  return { ...row, title: null, tags: [], subjectResourceType: null, subjectResourceId: null, contentLocked: true }
 }
 
 /**
@@ -451,7 +472,9 @@ async function authorizeConversationDelete(
   conversationId: string
 ): Promise<void> {
   try {
-    await requireResourceAccess(session, 'conversation', conversationId, 'owner')
+    // Deleting what is one's own reads none of it: an owner who may no longer
+    // read what the chat drew on can still remove it (ADR-0085).
+    await requireResourceAccess(session, 'conversation', conversationId, 'owner', { allowLocked: true })
     return
   } catch (error) {
     if (!(error instanceof NotFoundError)) throw error

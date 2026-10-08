@@ -172,6 +172,15 @@ export const organization = {
         'A role can only be deleted once nobody holds it. A folder restricted to this role alone is then visible to organization admins only.',
       confirm: 'Delete role',
       deleted: 'Role “{name}” deleted.',
+      /** Folders whose own access list names the role (ADR-0085): shown before the deletion is confirmed. */
+      foldersCount: '{count, plural, one {# folder names} other {# folders name}} this role in its access list:',
+      foldersEffect:
+        'After the deletion those lists match nobody: only organization admins can read these folders until a valid role is set. The project settings list them under “Folders without a valid role”.',
+      foldersMore: 'and {count} more',
+      foldersNamesHidden: 'Only organization admins see which folders these are.',
+      confirmAnyway: 'Delete anyway',
+      usageError: 'Which folders use this role could not be checked. Please try again.',
+      usedByFoldersNow: 'Folders now use this role. Review the list and confirm again.',
       stillAssigned: 'Somebody still holds this role. Give them another role on the People tab first.',
       error: 'The role could not be deleted. Please try again.',
     },

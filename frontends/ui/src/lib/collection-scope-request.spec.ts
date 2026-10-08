@@ -21,6 +21,14 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 vi.mock('@/lib/db', () => ({ getDb: vi.fn() }))
 vi.mock('@/lib/authz/projects', () => ({ requireProjectAccess: vi.fn() }))
+// Which people may read what a conversation recorded is `restricted-use.spec.ts`'s
+// subject (ADR-0085); here nothing it recorded restricts anybody.
+vi.mock('@/lib/conversations/restricted-use', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/lib/conversations/restricted-use')>()),
+  peopleWhoMayRead: vi.fn(async (_org: string, _id: string, userIds: readonly string[]) => new Set(userIds)),
+  lockedConversationIds: vi.fn(async () => new Set<string>()),
+}))
+
 vi.mock('@/lib/conversations/repository', () => ({ findConversationTenancy: vi.fn() }))
 vi.mock('@/lib/sharing/repository', () => ({ findGrantForSubject: vi.fn() }))
 
@@ -40,6 +48,9 @@ const session = {
   userId: 'user_me',
   organizationId: 'org_1',
   email: 'me@grid.test',
+  role: 'member',
+  roles: ['member'],
+  permissions: [],
 } as unknown as AuthorizedSession
 
 /** `resolveActiveProjectId` reads user preferences; no project is stored. */

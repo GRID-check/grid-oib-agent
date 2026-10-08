@@ -31,9 +31,14 @@ import { recordAuditEvent } from '@/lib/audit/service'
 import type { AuthorizedSession } from '@/lib/auth/types'
 import { organizationRoleSlugs } from '@/lib/authz/custom-roles'
 import {
+  clearanceOf,
+  computeFolderAccess,
+  customFolderNames,
   EVERY_PROJECT_MEMBER,
   folderReadOnlyError,
+  foldersWithoutValidRole,
   getProjectFolderAccess,
+  loadCustomFolderTree,
   type FolderGrant,
 } from '@/lib/authz/folder-access'
 import { requireProjectAccess } from '@/lib/authz/projects'
@@ -86,6 +91,45 @@ async function validatedGrants(organizationId: string, grants: readonly FolderGr
     if (unknown.length > 0) throw new BadRequestError(`Not a role of this organization: ${unknown.join(', ')}`)
   }
   return grants.map((grant) => ({ role: grant.role, level: grant.level }))
+}
+
+/** A folder whose own list names no role that exists any more. */
+export interface FolderWithoutValidRole {
+  id: string
+  name: string
+}
+
+/**
+ * The project's folders left without a valid role (ADR-0085): their own list
+ * names only roles deleted from the organization since, so organization admins
+ * are the only ones who read them. For the project settings to flag, with a
+ * link to each.
+ *
+ * `project:manage`, and only the folders this session may itself see: a folder
+ * nobody but admins reads is not named to a project admin who is not one. When
+ * the roles cannot be listed (WorkOS unreachable) the answer is none, because
+ * naming a folder an outage merely hid the role of would be a false alarm; the
+ * next load asks again.
+ */
+export async function listFoldersWithoutValidRole(
+  session: AuthorizedSession,
+  projectId: string
+): Promise<FolderWithoutValidRole[]> {
+  await requireProjectAccess(session, projectId, 'project:manage')
+  const folders = await loadCustomFolderTree(session.organizationId, projectId)
+  if (!folders) return []
+  const existing = await organizationRoleSlugs(session.organizationId).catch((error: unknown) => {
+    console.warn('[folder-access] cannot list the roles; flagging no folder:', error)
+    return null
+  })
+  if (!existing) return []
+  const orphaned = foldersWithoutValidRole(folders, existing)
+  if (orphaned.length === 0) return []
+  const access = computeFolderAccess(folders, await clearanceOf(session), '')
+  const names = await customFolderNames(session.organizationId, projectId)
+  return orphaned
+    .filter((folderId) => access.isVisible(folderId))
+    .map((folderId) => ({ id: folderId, name: names.get(folderId) ?? folderId }))
 }
 
 /**

@@ -23,9 +23,9 @@ import type { DbExecutor } from '@/lib/db/executor'
 import type { ResourceRole, ResourceVisibility, ShareableResourceType } from '@/lib/db/schema'
 import type { AudienceWidening } from '@/lib/conversations/restricted-use'
 import { publishToUsers } from '@/lib/events/bus'
-import { resolveResourceAccess, requireResourceAccess } from './access'
+import { resolveResourceAccess, requireResourceAccess, requireResourceWriteAccess } from './access'
 import { loadOrganizationDirectory, unknownPerson } from './directory'
-import { describeResource, roleSatisfies } from './registry'
+import { describeResource, roleSatisfies, type ShareableDescriptor } from './registry'
 import { consumeLimit, memberSubject, SHARE_LIMIT } from '@/lib/limits'
 import {
   countGrantsForResource,
@@ -83,7 +83,9 @@ export async function getSharingState(
   resourceType: ShareableResourceType,
   resourceId: string,
 ): Promise<ResourceSharingState> {
-  const access = await requireResourceAccess(session, resourceType, resourceId, 'viewer')
+  // The roster is the party's own place, not the content: someone who may no
+  // longer read the resource still sees who is in it, and that they are not.
+  const access = await requireResourceAccess(session, resourceType, resourceId, 'viewer', { allowLocked: true })
   const descriptor = describeResource(resourceType)
   const probe = await descriptor.probe(resourceId)
   const grants = await listGrantsForResource(session.organizationId, resourceType, resourceId)
@@ -118,11 +120,34 @@ export async function getSharingState(
     visibility: access.visibility,
     allowedVisibilities: descriptor.allowedVisibilities,
     myRole: access.role,
-    canManage: roleSatisfies(access.role, 'owner'),
+    // Managing a resource is acting on it: a caller locked out of its content
+    // is shown the roster and offered nothing the server would refuse.
+    canManage: roleSatisfies(access.role, 'owner') && !access.contentLocked,
     canEscalate: access.canEscalate,
-    entries,
+    entries: await markLostAccess(session, descriptor, resourceId, entries),
     shared: access.visibility !== 'private' || grants.length > 0,
   }
+}
+
+/**
+ * Flag each person on the roster who may no longer read what the resource was
+ * drawn from, for a type that judges that (`readersAmong`). The roster is
+ * bounded (`SHARE_ROSTER_LIMIT`), so is the question. Never says which folder.
+ */
+async function markLostAccess(
+  session: AuthorizedSession,
+  descriptor: ShareableDescriptor,
+  resourceId: string,
+  entries: readonly ResourceAccessEntry[],
+): Promise<ResourceAccessEntry[]> {
+  if (!descriptor.readersAmong || entries.length === 0) return [...entries]
+  const readers = await descriptor.readersAmong(
+    session.organizationId,
+    resourceId,
+    entries.map((entry) => entry.person.userId),
+    session,
+  )
+  return entries.map((entry) => ({ ...entry, lostAccess: !readers.has(entry.person.userId) }))
 }
 
 /**
@@ -140,6 +165,7 @@ export async function setResourceVisibility(
   request?: Request,
 ): Promise<ResourceSharingState> {
   const access = await requireResourceAccess(session, resourceType, resourceId, 'owner')
+  await requireResourceWriteAccess(session, resourceType, resourceId)
   const descriptor = describeResource(resourceType)
 
   if (!descriptor.allowedVisibilities.includes(visibility)) {
@@ -211,6 +237,7 @@ export async function grantResourceAccess(
   request?: Request,
 ): Promise<ResourceSharingState> {
   const access = await requireResourceAccess(session, resourceType, resourceId, 'owner')
+  await requireResourceWriteAccess(session, resourceType, resourceId)
 
   if (input.subjectUserId === session.userId) {
     throw new BadRequestError('You already have access to this resource')
@@ -352,6 +379,7 @@ export async function changeResourceRole(
   request?: Request,
 ): Promise<ResourceSharingState> {
   await requireResourceAccess(session, resourceType, resourceId, 'owner')
+  await requireResourceWriteAccess(session, resourceType, resourceId)
 
   // Party to the resource by grant, or by having created it — the creator's
   // ownership is not a grant row, yet the roster offers their role like any
@@ -429,7 +457,13 @@ export async function revokeResourceAccess(
 ): Promise<ResourceSharingState> {
   // Leaving your own share needs no ownership; removing someone else does.
   const isSelfRemoval = subjectUserId === session.userId
-  await requireResourceAccess(session, resourceType, resourceId, isSelfRemoval ? 'viewer' : 'owner')
+  // Removing a person only takes access away, and leaving is the way out of a
+  // resource one may no longer read: neither is refused for a locked caller.
+  await requireResourceAccess(session, resourceType, resourceId, isSelfRemoval ? 'viewer' : 'owner', {
+    allowLocked: true,
+  })
+  // Taking someone else out is a change to the resource; leaving is not.
+  if (!isSelfRemoval) await requireResourceWriteAccess(session, resourceType, resourceId)
   await assertNotLastOwner(session, resourceType, resourceId, subjectUserId, false)
 
   const removed = await deleteGrant(session.organizationId, resourceType, resourceId, subjectUserId)
@@ -529,6 +563,7 @@ export async function escalateToOwner(
   if (!access.canEscalate) {
     throw new NotFoundError()
   }
+  await requireResourceWriteAccess(session, resourceType, resourceId)
   // A project admin is not necessarily cleared for the folders the conversation drew on.
   const widening: AudienceWidening = { kind: 'person', userId: session.userId, self: true }
   await assertMayWiden(session, resourceType, resourceId, widening)
