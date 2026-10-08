@@ -61,7 +61,7 @@ type MemoryItem = Omit<ProjectMemoryItem, 'createdAt' | 'updatedAt' | 'lastRefer
 
 /**
  * The tooltip on a restricted note's lock: the folders it came from, when
- * known, and whether a language model helped decide that (ADR-0084; AI Act).
+ * known, and whether a language model helped decide that (ADR-0086; AI Act).
  */
 function restrictionTitle(item: MemoryItem, t: Translator): string {
   const folders = item.restrictedFolderNames ?? []

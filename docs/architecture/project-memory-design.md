@@ -347,7 +347,7 @@ with scope organization that the deployment refuses
 open, organization-wide at the widest. The BFF records that verdict against
 the organization (`outcome: refused`) before it refuses, when the organization
 is one it knows. A failure to assemble the audit line never fails the write. A note that ends up restricted also keeps the verdict
-(`restriction_judge`, migration 0116) and the panel's lock says a model helped
+(`restriction_judge`, migration 0117) and the panel's lock says a model helped
 decide („von KI mitbestimmt"); an open note never does (CHECK), because its
 readers may not know a restricted folder exists.
 

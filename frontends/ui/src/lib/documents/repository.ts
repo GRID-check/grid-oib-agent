@@ -1348,7 +1348,7 @@ const sameDispatch = (jobId: string | null): SQL =>
  * a NEW job, and a read that resolved the old one would write the old verdict
  * over it. A write keyed on the job lands only on the dispatch it is about.
  *
- * A quarantine is the content gate's decision (ADR-0083), and the same
+ * A quarantine is the content gate's decision (ADR-0085), and the same
  * transaction records it in `document_quarantine_decisions`, keyed on the
  * dispatch, for the audit trail: a moved row and its decision exist together
  * or not at all, and one job is one decision.
@@ -1367,7 +1367,7 @@ export async function setDocumentReconciledStatus(
         .set({
           status: resolution.status,
           errorMessage: resolution.errorMessage,
-          // Only when the job said something (ADR-0083): an unscreened job must
+          // Only when the job said something (ADR-0085): an unscreened job must
           // not erase a reviewer's `released`.
           ...(resolution.screeningOutcome ? { screeningOutcome: resolution.screeningOutcome } : {}),
           updatedAt: new Date(),

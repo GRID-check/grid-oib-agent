@@ -113,11 +113,11 @@ const BOUNDARY_MIGRATIONS = [
   // Adds project_people — the Steckbrief's people, with or without a Piloti
   // account (ADR-0089). Keyed directly by its organization, tied to its project
   // by a composite foreign key.
-  '0115_project_steckbrief.sql',
+  '0116_project_steckbrief.sql',
   // Adds document_quarantine_decisions — the content gate's decisions, owed to
   // the audit trail until sent. Keyed directly by its organization; no foreign
   // keys, so the row outlives the document it names.
-  '0117_document_quarantine_decisions.sql',
+  '0118_document_quarantine_decisions.sql',
 ]
 
 const MIGRATION_SOURCES = BOUNDARY_MIGRATIONS.map((file) =>

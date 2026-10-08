@@ -219,7 +219,7 @@ async function reconcileBackgroundWork(config, fetchImpl, streak) {
 
 /**
  * One upload sweep: POST {frontendUrl}/api/internal/upload-batches/sweep
- * (ADR-0083). Settles the uploads whose browser is gone, so their uploader is
+ * (ADR-0085). Settles the uploads whose browser is gone, so their uploader is
  * told when everything was read, and sends the content gate's quarantine
  * decisions still owed to the audit trail. Same posture as the run reconciler:
  * the BFF does the work, this container supplies the clock, nothing throws,

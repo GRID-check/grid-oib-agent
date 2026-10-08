@@ -654,7 +654,7 @@ export async function reconcileDocumentStatuses<T extends ReconcilableDocument>(
   }
 
   // Rows that came to rest settle their upload, audit a quarantine and tell
-  // its reviewers (ADR-0083). Only the rows this read moved: a concurrent read
+  // its reviewers (ADR-0085). Only the rows this read moved: a concurrent read
   // that lost the race settles nothing. Never throws. A quarantine whose audit
   // event did not go out stays owed in `document_quarantine_decisions`, and the
   // upload sweep sends it; a batch left open is the sweep's too.
