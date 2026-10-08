@@ -25,7 +25,7 @@
  *   - `?variant=invite`  — the same owner surface with a solo roster, so the invite
  *                          picker (all three candidate kinds, blocked row included)
  *                          fits on screen instead of below the fold.
- *   - `?variant=folders` — a chat that drew on a restricted folder (ADR-0085): Zoe,
+ *   - `?variant=folders` — a chat that drew on a restricted folder (ADR-0087): Zoe,
  *                          still shared with, "hat keinen Zugriff mehr" on the
  *                          roster, and in the picker Ina, who may not read every
  *                          folder, disabled with the sentence and never the folder.

@@ -14,7 +14,7 @@
 export const collaboration = {
   /**
    * A chat shared with someone who can no longer read a folder it drew on
-   * (ADR-0085). The title is neutral because the real one is model-written from
+   * (ADR-0087). The title is neutral because the real one is model-written from
    * the chat, restricted content included; nothing here names a folder.
    */
   rightsLost: {
@@ -82,7 +82,7 @@ export const collaboration = {
         'Add them to the project first. Sharing a chat never grants access to the project itself.',
       /**
        * Disabled row for someone who cannot read every folder the chat drew on
-       * (ADR-0085). Never names the folder: the sharer may not be cleared for
+       * (ADR-0087). Never names the folder: the sharer may not be cleared for
        * it either, and the server's refusal stays the authority.
        */
       lacksFolderAccess: 'Has no access to a folder this chat draws on',
@@ -431,14 +431,14 @@ export const collaboration = {
         title: '{actor} assigned {subject} to you',
         body: 'You are responsible for this file.',
       },
-      // ADR-0083: everything an upload brought in has been read. {subject}
+      // ADR-0085: everything an upload brought in has been read. {subject}
       // is where it went (a project name, "Büroablage" or "Chat").
       uploadCompleted: {
         title: 'Your upload has been read',
         body: '{subject}: open the summary to see what arrived.',
         bodyNoSubject: 'Open the summary to see what arrived.',
       },
-      // ADR-0083: the content check held files back.
+      // ADR-0085: the content check held files back.
       documentQuarantined: {
         titleOne: '1 file is waiting in quarantine',
         titleMany: '{count} files are waiting in quarantine',

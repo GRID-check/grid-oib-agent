@@ -6,7 +6,7 @@
 > 0111→0108, 0112→0109, 0113→0110. [`database/schema.md`](../database/schema.md) has the
 > numbers as shipped.
 >
-> Since then develop took migrations 0104–0106 and ADR-0079–0082 (#847), so these numbers moved again: migrations 0104→0107, 0105→0108, 0106→0109, 0107→0110, 0108→0111, 0109→0112, 0110→0113; ADR-0079→0083, ADR-0080→0084, ADR-0081→0085.
+> Since then develop took migrations 0104–0106 and ADR-0079–0082 (#847), so these numbers moved again: migrations 0104→0108, 0105→0109, 0106→0110, 0108→0111, 0109→0112, 0110→0113, 0111→0114; ADR-0079→0085, ADR-0080→0086, ADR-0081→0087.
 
 > **Superseded for the unbuilt tickets (6 Oct 2026).** Tickets 1, 2, 3, 7, 8 and 10 were triaged again against the code after develop gave the Archiv folders: [`upload-and-filing-retriage-2026-10-06.md`](upload-and-filing-retriage-2026-10-06.md). What tickets 4, 5 and 6 delivered is traced to code and tests in [`upload-governance-traceability-2026-10-06.md`](upload-governance-traceability-2026-10-06.md).
 

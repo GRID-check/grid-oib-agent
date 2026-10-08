@@ -423,7 +423,6 @@ Behind the release layer, the backend items that are real and were confirmed:
 | Item | Where | Why it matters for an agentic layer |
 |---|---|---|
 | A plan attached in chat is answered before it is ingested; nothing tells the agent the file is in flight | `InputArea.tsx` ("send is never blocked"), `ingest_status_store` unread on the chat path | The first event trigger (L5) fixes this and PF-2 at once |
-| Two execution paths, `dask` default in code, `db` in compose | `submit.py:30`, `coolify.yaml:100` | One path, then delete the other, per ADR-0021's own migration plan |
 | `research_job_queue` has no migration, no RLS, one index whose predicate the claim query cannot use | `queue.py:63-91` | It becomes the task queue |
 | `ResearchWorker`'s loop and heartbeat cancellation have no test | `worker.py:68-102`; `grep ResearchWorker frontends/aiq_api/tests/` is empty | The most safety-critical code in the tier |
 | No cross-service contract test for the fire path | ADR-0046 Risks records the 403 that broke every scheduled run in a real deployment | The lesson was written down; the test was not |
@@ -635,7 +634,6 @@ stop reading its feedback as evidence about those features.
 
 The pass that tries to remove, per `AGENTS.md`:
 
-- The Dask execution path once `GRID_JOB_EXECUTION=db` is the only path
   (`submit.py:30`).
 - Three of the four claim-and-lease implementations once one is shared.
 - `card_generator_llm` from the config and the register (`register.py:639,816`)

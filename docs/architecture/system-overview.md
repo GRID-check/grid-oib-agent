@@ -90,7 +90,7 @@ flowchart TB
     subgraph Tier2["Tier 2 · Python AI backend (port 8000)"]
         API["FastAPI (aiq_api plugin)"]
         NAT["NeMo Agent Toolkit + LangGraph agents"]
-        DASK["Dask — async deep-research jobs"]
+        JOBS["Research queue (Postgres) — deep-research jobs"]
     end
 
     subgraph Data["Stateful infrastructure"]
@@ -106,7 +106,7 @@ flowchart TB
     BFF <-->|Drizzle| PG
     BFF -->|presign / put| SEAWEED
     GW -->|"proxy WS upgrade + REST"| API
-    API --> NAT --> DASK
+    API --> NAT --> JOBS
     NAT <--> CHROMA
     NAT -->|"job store / checkpoints"| PG
     BFF -.->|"internal memory write API (token)"| BFF
@@ -119,13 +119,13 @@ flowchart TB
 | Container | Tech | Responsibility |
 |---|---|---|
 | **frontend** | Next.js 16, React 18, TypeScript | The UI, the BFF (all `/api/*`), and the `server.js` gateway. System of record for `grid_app`. |
-| **aiq-agent** | Python 3.14, FastAPI, NAT, LangGraph, Dask | Stateless AI orchestration; owns the vector store and the job/checkpoint DBs. |
+| **aiq-agent / aiq-api** | Python 3.14, FastAPI, NAT, LangGraph | Stateless AI orchestration, one image run as separate roles (ADR-0082): `aiq-agent` is the `chat` role (the chat socket), `aiq-api` the `api` role (every other HTTP route), beside the `agent-worker` and `ingest-worker`. Owns the vector store and the job/checkpoint DBs. |
 | **postgres** | PostgreSQL 16 | Three logical DBs: `grid_app` (app state), `aiq_jobs` (jobs/events/summaries), `aiq_checkpoints` (LangGraph state). |
 | **seaweedfs** | SeaweedFS (S3-compatible) | Object storage for OIB PDFs and uploaded documents (`grid-documents` bucket). |
-| **ChromaDB** | in-process in aiq-agent | Vector store (collections persisted to a volume). Not a separate container. |
+| **ChromaDB** | shared `chroma` server (HTTP) | Vector store (collections persisted to a volume), queried by every backend role. |
 | **purger** | same image as frontend, `node purger/index.js` | Scheduled worker that hard-deletes soft-deleted projects after the grace period. |
 | **dragonfly** | Dragonfly (Redis protocol) | Shared cache (ADR-0020): read-through caches, WS-upgrade rate limiting, citation-registry snapshots. Cache-only; both tiers fail open to in-process fallbacks. |
-| *(one-shot)* | alpine / mc | `aiq-data-permissions` (volume chown) and `seaweedfs-init` (bucket create). |
+| *(one-shot)* | alpine / mc | `chroma-data-permissions` (volume chown) and `seaweedfs-init` (bucket create). |
 
 The **gateway (`server.js`)** is the seam that makes the two-tier model work:
 on each WebSocket upgrade (and REST proxy) it calls an internal BFF endpoint to
@@ -302,7 +302,7 @@ happens in the inbox, where the person was told about the result.
 
 Two naming collisions to keep straight. The `task_definitions`/`task_runs`
 tables live in `grid_app` (the collapsed successor of `jobs`/`job_runs`/
-`tasks`); the backend async/Dask jobs live in `aiq_jobs` (deep-research runs,
+`tasks`); the backend async jobs live in `aiq_jobs` (deep-research runs,
 §5.5) — a `task_runs.backend_job_id` value names one of the latter. And
 `compliance_check` is a **task kind**, not a chat tool or an agent: the
 purpose-built compliance checker is deleted, and a full Soll-Ist runs as a
@@ -380,7 +380,7 @@ frontend start). → `docs/database/`.
 |---|---|
 | Frontend | Next.js 16, React 18, TypeScript, shadcn/ui + Tailwind v4 |
 | BFF / gateway | Next.js app-router API routes + a Node `server.js` WS/HTTP proxy |
-| AI orchestration | NeMo Agent Toolkit (NAT) + LangGraph; Dask for async jobs |
+| AI orchestration | NeMo Agent Toolkit (NAT) + LangGraph; the Postgres research queue for async jobs |
 | LLM | any OpenAI-compatible endpoint (reference boot floor: OpenAI GPT-5.6 Luna via OpenRouter; the served model is an admin decision at runtime) |
 | Embeddings | any OpenAI-compatible endpoint (reference: OpenAI text-embedding-3-large via OpenRouter) |
 | RAG / vector store | ChromaDB (+ LlamaIndex ingestion) |
@@ -395,10 +395,10 @@ frontend start). → `docs/database/`.
 ## 10. Deployment topology
 
 Seven Compose services on one bridge network: `postgres`, `seaweedfs` (+ `seaweedfs-init`),
-`aiq-agent` (+ one-shot `aiq-data-permissions`), `frontend`, and `purger`.
+`aiq-agent` (+ one-shot `chroma-data-permissions`), `frontend`, and `purger`.
 Frontend on `:3000` (the only public port for the app), backend on `:8000`,
 Postgres `:5432`, SeaweedFS `:8333/:8888`. Migrations run on frontend start; OIB
-ingestion is a one-time `scripts/ingest_oib.py` after first boot. → `docs/deployment/`.
+the OIB corpus is uploaded after first boot (admin UI or `scripts/upload_oib_corpus.py`) and ingested by the ingest workers, from jobs the upload and the base-corpus housekeeping queue. → `docs/deployment/`.
 
 ---
 
@@ -410,7 +410,7 @@ ingestion is a one-time `scripts/ingest_oib.py` after first boot. → `docs/depl
   `project` entity type has a registered purger; others are stubbed.
 - **Deep-research cards** — async deep-research jobs generate cards post-hoc
   from the final report in the job runner and deliver them via the job SSE
-  stream and job output; the synchronous inline deep-research path (no Dask)
+  stream and job output; the synchronous inline deep-research path (`use_async_deep_research` off)
   still returns no cards.
 - **Memory** — capture, curation, semantic consolidation and query-relevant
   recall are built (see `architecture/semantic-notes.md`); what remains open
@@ -448,6 +448,6 @@ What lives where in the checkout.
 | `deploy/` | Docker Compose assets and environment templates; `deploy/pulumi/` holds the Pulumi (TypeScript) Kubernetes deployment (see `docs/deployment/kubernetes.md`) |
 | `docs/architecture/` | Architecture docs (see `backend-deep-dive.md`, `project-memory-design.md`, `citation-system-audit-2026-07.md` for the citation pipeline as built) |
 | `skills/` | API-consumer skill examples |
-| `scripts/` | Utility scripts, including `scripts/ingest_oib.py` |
+| `scripts/` | Utility scripts, including `scripts/upload_oib_corpus.py` |
 | `releasenotes/` | reno release notes — one YAML file per user-visible change, published to piloti.at/changelog |
-| `data/oib/` | Where the OIB Richtlinien PDFs go. Operator-provided and gitignored: the directory ships empty and is filled by an admin upload or by dropping files in before first boot |
+| `data/oib/` | A local, gitignored copy of the OIB Richtlinien PDFs for the evals and tests. The platform does not read it: the base corpus is uploaded through the admin UI into object storage |

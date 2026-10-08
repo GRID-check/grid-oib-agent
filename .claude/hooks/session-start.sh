@@ -36,29 +36,29 @@ APM_VERSION="$(awk '/^  APM_VERSION:/ {print $2; exit}' Taskfile.yml)"
 step() { echo "[session-start] $*"; }
 
 # Copy, never hardlink, on every path: nltk pathsec refuses hard-linked corpora
-# (docs/contributing/gotchas.md), and the Taskfile and Dockerfile do the same.
+# (`st_nlink=2`), and the Taskfile and Dockerfile do the same.
 export UV_LINK_MODE=copy
 
-step "backend venv (uv sync --group dev)"
-uv venv .venv
-uv sync --group dev
-
-# The container's uv (0.8.x) knows no 3.14 newer than 3.14.0rc2, and pydantic
-# does not import on that release candidate, so every backend test dies at
-# collection (docs/contributing/gotchas.md, `prefer_fwd_module`). A current uv
-# from PyPI, which the proxy allows where the GitHub API is not, installs 3.14
-# final and the venv is rebuilt on it.
-if ! .venv/bin/python -c 'import sys; sys.exit(sys.version_info.releaselevel != "final")'; then
-  step "backend venv is on a pre-release Python; rebuilding on 3.14 final"
-  UV_CURRENT="${TMPDIR:-/tmp}/uv-current"
-  python3 -m venv "$UV_CURRENT"
-  "$UV_CURRENT/bin/pip" install --quiet --upgrade uv
-  "$UV_CURRENT/bin/uv" python install 3.14
-  # Copy, as the Dockerfile does: uv's default hardlinks every package file,
-  # and the ingest path's pathsec guard refuses a multiply-linked file (the
-  # NLTK stopword list llama-index reads), so every PDF ingest fails.
-  UV_LINK_MODE=copy "$UV_CURRENT/bin/uv" sync --group dev --python '>=3.14.1,<3.15'
+# go-task, pinned where CI pins it (.github/actions/setup-task). Nothing in a
+# fresh container installs it, and every doc names the `task` commands. Not
+# fatal: the installers below do not need it, so a failed npm install must not
+# stop them.
+TASK_VERSION="$(awk -F'"' '/default:/ {print $2; exit}' .github/actions/setup-task/action.yml)"
+if ! command -v task >/dev/null 2>&1; then
+  step "go-task ${TASK_VERSION} (npm, as CI installs it)"
+  npm i -g "@go-task/cli@${TASK_VERSION}" || step "go-task install failed; \`task\` is unavailable this session"
 fi
+
+step "backend venv (uv sync --group dev)"
+# `uv venv` refuses an existing directory, and a resumed container has one: under
+# `set -e` that aborted the whole hook before any later step ran. Create it only
+# when it is missing; `uv sync` below would create it anyway.
+if [ ! -x .venv/bin/python ]; then
+  uv venv .venv
+fi
+# pyproject's `requires-python` starts at 3.14.1, so a venv on a 3.14 release
+# candidate is rebuilt on a final 3.14 here, or the sync fails saying why.
+uv sync --group dev
 
 step "UI dependencies (bun)"
 # Bun is the INSTALLER and script runner only, never the runtime — see
@@ -80,12 +80,19 @@ step "agent skills (apm install --frozen)"
 # lockfile is out of sync, which is what makes this reproducible.
 uvx --from "apm-cli==${APM_VERSION}" apm install --frozen
 
-# `PYTHONPATH=src` is mandatory for pytest and the Taskfile sets it. A session
-# that calls pytest directly — which is exactly what an agent without `task`
-# does — otherwise tests whatever the venv installed, possibly another
-# worktree, while everything passes. tests/AGENTS.md calls this "the trap".
+# pytest puts this checkout's `src/` first itself (pyproject `pythonpath`), so
+# a bare pytest tests this tree. The export still covers everything else that
+# imports `aiq_agent` by name: `nat run`, ad-hoc scripts and the census.
 if [ -n "${CLAUDE_ENV_FILE:-}" ]; then
   echo 'export PYTHONPATH="src"' >> "$CLAUDE_ENV_FILE"
+fi
+
+# The agent reads OPENROUTER_API_KEY, and this environment is configured with
+# OPENROUTER_KEY. census and the answer suite accept either, but a bare `nat run`
+# reads only the first, so alias it for the session. `%q` shell-quotes the value,
+# which is written to the env file and never printed.
+if [ -n "${CLAUDE_ENV_FILE:-}" ] && [ -z "${OPENROUTER_API_KEY:-}" ] && [ -n "${OPENROUTER_KEY:-}" ]; then
+  printf 'export OPENROUTER_API_KEY=%q\n' "$OPENROUTER_KEY" >> "$CLAUDE_ENV_FILE"
 fi
 
 step "done"

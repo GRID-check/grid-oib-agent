@@ -25,7 +25,7 @@
  * path" filter would filter nothing, and checking the card against its schema
  * would pass a well-formed forgery. What the block can do is what a memory note
  * does: mask what it quotes where it reads it, under the policy as it stands
- * now (ADR-0083). That holds for every writer, including ones that do not exist
+ * now (ADR-0085). That holds for every writer, including ones that do not exist
  * yet, and for rows stored before the policy changed.
  */
 

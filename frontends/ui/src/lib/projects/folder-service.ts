@@ -7,7 +7,7 @@
  * `project:view` to read, `project:documents:write` or `project:edit` to
  * change). What is left here is the names and signatures a project's callers
  * know, and the one thing only a project's folders have: access per role
- * (ADR-0085). A folder the reader may not read, and everything below it, does
+ * (ADR-0087). A folder the reader may not read, and everything below it, does
  * not exist for them; a write asks `requireFolderWrite` first; a move that
  * changes who reads what needs `project:manage`, is audited, and moves the
  * documents into the collection their new access calls for. A delete is the
@@ -85,7 +85,7 @@ export interface EnsureFolderPathsInput {
 
 /**
  * A project folder as its reader sees it: the shelf's row, the folder's own
- * access list (ADR-0085; null when it inherits, and only ever shown to someone
+ * access list (ADR-0087; null when it inherits, and only ever shown to someone
  * who may read the folder), and what the reader may do there, the folder's
  * level with the project permission as the ceiling. The server checks again
  * on every write; `access` only shapes the UI.
@@ -98,7 +98,7 @@ export interface ProjectFolderRow extends FolderRow {
 const DOCUMENT_WRITE = ['project:documents:write', 'project:edit'] as const
 
 /**
- * The reader's view of the project's folders (ADR-0084, ADR-0085): a folder they
+ * The reader's view of the project's folders (ADR-0086, ADR-0087): a folder they
  * may not read, and everything below it, does not exist for them.
  */
 async function folderAccessFor(session: AuthorizedSession, projectId: string) {
@@ -133,7 +133,7 @@ export async function projectRootAccess(session: AuthorizedSession, projectId: s
 }
 
 export async function createProjectFolder(input: CreateFolderInput, session: AuthorizedSession) {
-  // A new folder is a write into its parent (ADR-0085): the project's
+  // A new folder is a write into its parent (ADR-0087): the project's
   // document-write permission, and write on the parent. A parent the session
   // may not read is not found; one it may only read is refused (403).
   await requireFolderWrite(session, input.projectId, [input.parentId ?? null])
@@ -175,7 +175,7 @@ export function getOrCreateProjectFolderByName(
   return getOrCreateShelfRootFolder(projectShelf(projectId), organizationId, name)
 }
 
-/** A folder upload into the project: what the reader may not see is skipped, and creating needs write (ADR-0085). */
+/** A folder upload into the project: what the reader may not see is skipped, and creating needs write (ADR-0087). */
 export async function ensureProjectFolderPaths(input: EnsureFolderPathsInput, session: AuthorizedSession) {
   const access = await folderAccessFor(session, input.projectId)
   const visibility: ShelfFolderVisibility = {
@@ -191,7 +191,7 @@ export async function ensureProjectFolderPaths(input: EnsureFolderPathsInput, se
 /**
  * The folders with their own access list at or above `folderId`, outermost
  * first; empty for the project root or a path that inherits all the way up.
- * The level on a folder is decided over exactly this list (ADR-0085: the
+ * The level on a folder is decided over exactly this list (ADR-0087: the
  * minimum over every own list on the path), so two places with the same list
  * give their contents the same access.
  */
@@ -249,7 +249,7 @@ async function recordFolderAccessChange(
  * cannot read (moving it widens or narrows that folder blind; an organization
  * admin reads everything), and returns the lists that will govern the folder.
  * Null when the move changes no one's access. Folders not every member may
- * read hold no IFC model either (ADR-0084): a 409 when the move would put one
+ * read hold no IFC model either (ADR-0086): a 409 when the move would put one
  * under such a folder.
  */
 async function checkMove(
@@ -307,7 +307,7 @@ export async function updateProjectFolder(input: UpdateFolderInput, session: Aut
 
 /**
  * Delete a folder: it goes to the Papierkorb with its subfolders and their
- * documents ({@link moveFolderToBin}, ADR-0085), restorable with its access
+ * documents ({@link moveFolderToBin}, ADR-0087), restorable with its access
  * until the purge. Not the shelf's delete (`deleteShelfFolder`), which
  * re-files the contents into the parent: that lifts the folder's own list from
  * them, so for a project it would widen who reads them. The Archiv keeps it.

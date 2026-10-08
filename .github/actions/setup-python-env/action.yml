@@ -33,7 +33,7 @@ runs:
         # splits — the retrieval harness (`task be:eval:retrieval`, now a local
         # tool) is where it was first hit, and production splits too. Copy mode
         # is the install that matches how those files have to be read.
-        # Symptom and the one-directory repair: docs/contributing/gotchas.md.
+        # A venv built before copy mode: `UV_LINK_MODE=copy uv sync --group dev --reinstall`.
         UV_LINK_MODE: copy
       run: |
         uv venv --python "$PYTHON_VERSION" .venv

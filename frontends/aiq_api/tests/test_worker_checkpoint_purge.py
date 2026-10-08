@@ -106,7 +106,7 @@ async def test_the_owner_purges_its_checkpoint(tmp_path, monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_the_dask_path_has_no_claim_and_purges(tmp_path, monkeypatch):
+async def test_an_unclaimed_run_has_no_claim_and_purges(tmp_path, monkeypatch):
     engine = _checkpoint_db(tmp_path, monkeypatch)
 
     assert await _purge_deep_checkpoint_unless_reclaimed("sqlite://", "job-1", None) is True

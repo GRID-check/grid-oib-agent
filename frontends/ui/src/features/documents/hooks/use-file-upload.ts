@@ -71,7 +71,7 @@ const failureMessage = (error: unknown, fallback: string, projectClosed?: string
   if (error instanceof XhrUploadError) {
     try {
       const body: unknown = JSON.parse(error.responseText)
-      // A closed project (ADR-0086) is named in the reader's language: the
+      // A closed project (ADR-0088) is named in the reader's language: the
       // project closed while this tab was open.
       if (projectClosed && isProjectClosedBody(body)) return projectClosed
       const message = (body as { error?: unknown })?.error
@@ -127,7 +127,7 @@ export interface UploadFilesOptions {
   folderIdFor?: (file: File) => string | null | undefined
   /**
    * The project folder a file lands in, as a path from the project root, for
-   * the upload screening (ADR-0083). The server screens against it too, so a
+   * the upload screening (ADR-0085). The server screens against it too, so a
    * caller that knows it must say it — or the browser lets through a file the
    * server will then refuse, after its bytes have left the office.
    */
@@ -327,7 +327,7 @@ export const useFileUpload = (options: UseFileUploadOptions = {}): UseFileUpload
       }
 
       /*
-       * The upload screening, last before a byte leaves (ADR-0083).
+       * The upload screening, last before a byte leaves (ADR-0085).
        *
        * The dialog already showed the reader what the office's policy holds
        * back and took their releases; this is the gate for every path that
@@ -416,7 +416,7 @@ export const useFileUpload = (options: UseFileUploadOptions = {}): UseFileUpload
         // only the endpoint and form fields differ (Archiv resolves the org
         // server-side, a chat names its conversation).
         //
-        // The batch these uploads belong to (ADR-0083), opened before the
+        // The batch these uploads belong to (ADR-0085), opened before the
         // first file goes so each upload can name it. Null: no summary, and
         // the upload goes ahead regardless.
         const batchId = await openUploadBatch({

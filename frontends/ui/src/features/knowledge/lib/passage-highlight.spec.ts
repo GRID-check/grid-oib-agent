@@ -71,7 +71,7 @@ describe('normalizePassage', () => {
   })
 
   it('drops soft hyphens and zero-width characters without splitting the word', () => {
-    expect(normalizePassage('Ver­waltung​sakt')).toBe('verwaltungsakt')
+    expect(normalizePassage('Ver­waltung\u200Bsakt')).toBe('verwaltungsakt')
   })
 })
 
