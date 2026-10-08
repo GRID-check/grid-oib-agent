@@ -486,6 +486,9 @@ Capability only, read per call, and a silent no-op when anything is missing.
 Pulumi injects all five into the frontend only where the Langfuse tier is
 deployed (`frontendLangfuseEnv` in `deploy/pulumi/src/platform/langfuse.ts`),
 the keys by reference to the `langfuse-secrets` Secret; Compose sets none.
+The bff-jobs pool, whose environment is otherwise the frontend's, gets none of
+the five (`BFF_JOBS_WITHHELD` in `deploy/pulumi/src/app/config.ts`): only the
+request path scores a vote, and no NetworkPolicy admits that pool to Langfuse.
 
 | Variable | Required | Default | Description |
 |----------|----------|---------|-------------|
