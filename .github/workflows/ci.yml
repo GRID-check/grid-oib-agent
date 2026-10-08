@@ -4,7 +4,8 @@ name: CI
 # backend and/or frontend jobs a change actually touches; the `ci-ok` gate at
 # the end is the single required status check for branch protection (it passes
 # when every needed job succeeded or was skipped). Private repo -> PRs run
-# directly (no copy-pr-bot).
+# directly (no copy-pr-bot). A push whose tree a green pull_request run already
+# tested skips every job and passes (`changes`, ci/reuse_green_run.py).
 on:
   push:
     branches: [develop, "release/**"]
@@ -16,39 +17,66 @@ permissions:
   pull-requests: write # coverage sticky comments (same-repo PRs)
 
 concurrency:
-  group: ci-${{ github.ref }}
-  cancel-in-progress: true
+  # A push gets a group of its own. GitHub drops a pending run when a newer run
+  # joins its group, and that newer run's diff covers only its own push, so the
+  # dropped push's checks would never run. A PR keeps one group: its newer push
+  # may cancel the older run, because every PR run diffs the whole PR (`changes`).
+  group: ${{ github.event_name == 'push' && format('ci-push-{0}', github.sha) || format('ci-{0}', github.ref) }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   changes:
     name: Detect changes
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      actions: read # find the pull request run's green marker (ci/reuse_green_run.py)
     outputs:
-      backend: ${{ steps.filter.outputs.backend }}
-      frontend: ${{ steps.filter.outputs.frontend }}
-      web: ${{ steps.filter.outputs.web }}
-      infra: ${{ steps.filter.outputs.infra }}
-      packages: ${{ steps.filter.outputs.packages }}
+      # 'true' when this push's tree already passed in full on its pull request.
+      # The filter then does not run, every tier reads 'false', every job below
+      # skips, and CI OK passes: the run still concludes `success` for deploy.yml.
+      reused: ${{ steps.reuse.outputs.hit || 'false' }}
+      backend: ${{ steps.filter.outputs.backend || 'false' }}
+      frontend: ${{ steps.filter.outputs.frontend || 'false' }}
+      web: ${{ steps.filter.outputs.web || 'false' }}
+      infra: ${{ steps.filter.outputs.infra || 'false' }}
+      packages: ${{ steps.filter.outputs.packages || 'false' }}
     steps:
       - uses: actions/checkout@v7
         with:
           persist-credentials: false
           fetch-depth: 0
-          # synchronize diffs the PR head against event.before. The default
-          # PR checkout is a merge commit; using that as HEAD would mix
-          # develop into a last-push diff.
+          # synchronize checks out the PR head. The default PR checkout is a
+          # merge commit, which would mix develop into the diff.
           ref: ${{ github.event.action == 'synchronize' && (github.event.pull_request.head.sha || github.sha) || github.sha }}
+      # A squash merge onto a base that has not moved lands exactly the tree the
+      # PR's last run tested, so on push this looks for that run's green marker
+      # (uploaded by CI OK below) and skips the re-run on a hit. Only a completed,
+      # successful pull_request run of this same, unmodified workflow from this
+      # repository counts. A miss or any error runs everything, as does a failure
+      # of this step (continue-on-error leaves `hit` unset).
+      - name: Reuse the pull request's green result for this tree
+        id: reuse
+        if: github.event_name == 'push'
+        continue-on-error: true
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: python3 ci/reuse_green_run.py ci-green
       - uses: dorny/paths-filter@v4
         id: filter
+        if: steps.reuse.outputs.hit != 'true'
         with:
           # One definition, read by this workflow and by Docker Build. What each
           # family means, and why the image scopes are separate: .github/filters.yml
           filters: .github/filters.yml
           # Empty token → git diff, so `base` is honoured on pull_request.
-          # synchronize: this push only. opened/reopened: the PR vs its base.
+          # pull_request: the whole PR against its base, on every push. Diffing
+          # only the last push skipped any tier an earlier, cancelled run owed,
+          # and a skipped tier counts as passed. security.yml and docker-build.yml
+          # carry the same expression.
           # push: this push vs event.before.
           token: ''
-          base: ${{ github.event.action == 'synchronize' && github.event.before || github.event.pull_request.base.sha || github.event.before }}
+          base: ${{ github.event.pull_request.base.sha || github.event.before }}
 
   backend-lint:
     name: Backend lint
@@ -65,11 +93,15 @@ jobs:
   # Deliberately NOT behind a paths filter. `pre-commit run --all-files` scans
   # the WHOLE repo, so gating it on the backend filter meant a PR touching only
   # deploy/** or frontends/ui/** could land drift on develop that stayed
-  # invisible until some later, unrelated backend PR tripped over it — which is
-  # exactly how the secrets baseline kept breaking CI. Running it on every PR
-  # means whoever introduces the drift is the one who sees it.
+  # invisible until some later, unrelated backend PR tripped over it. Running it
+  # on every PR means whoever introduces the drift is the one who sees it.
+  #
+  # It does wait for `changes`, for one answer only: a push whose tree already
+  # passed on its pull request skips this too.
   repo-lint:
     name: Repo lint (pre-commit, all files)
+    needs: changes
+    if: needs.changes.outputs.reused != 'true'
     runs-on: ubuntu-latest
     steps:
       # No persisted checkout token: this job executes repository-defined
@@ -94,21 +126,17 @@ jobs:
       #
       # The whole directory is cached, not just the repo dirs: db.db is the
       # url+rev -> dir index, and restoring one without the other desynchronises
-      # them. Note this cache deliberately contains no ruff env, since SKIP
-      # suppresses installing those hooks — do not reuse this key from a job
-      # that actually runs ruff.
+      # them.
       - uses: actions/cache@v6
         with:
           path: ~/.cache/pre-commit
           key: pre-commit-${{ runner.os }}-${{ env.pythonLocation }}-${{ hashFiles('.pre-commit-config.yaml') }}
           restore-keys: |
             pre-commit-${{ runner.os }}-${{ env.pythonLocation }}-
-      # `pytest` in SKIP is a no-op kept for clarity: that local hook is
-      # stages: [push], so it never runs at the default stage anyway.
-      - name: Pre-commit (non-ruff, non-pytest hooks)
+      - name: Pre-commit (all hooks)
         run: |
           . .venv/bin/activate
-          SKIP=ruff-check,ruff-format,pytest pre-commit run --all-files
+          pre-commit run --all-files
       - uses: ./.github/actions/setup-task
       # The other half of `task lint:repo`, and deliberately in THIS job rather
       # than behind a paths filter: `skills/` is the source, `.claude/` and
@@ -140,10 +168,8 @@ jobs:
         run: task be:test:ci
       - name: aiq_api plugin suite
         run: task be:test:api:ci
-      # sources/ was covered only by the push-stage pre-commit hook, which the
-      # repo-lint job skips — so a stale test there stayed green through every
-      # gate until someone ran pytest by hand. Same definition as the local
-      # `task be:verify`.
+      # sources/ is its own suite, not part of tests/. Same definition as the
+      # local `task be:verify`.
       - name: sources/ package suites
         run: task be:test:sources
       - name: Coverage comment (backend)
@@ -424,6 +450,12 @@ jobs:
 
   release-note:
     name: Release note
+    # The note lint runs on every pull request and push, so a push straight to
+    # release/** is still checked; only the require-a-note step reads a PR (its
+    # base and its labels). Skipped like every other job when a push reuses its
+    # pull request's green result for the same tree.
+    needs: changes
+    if: needs.changes.outputs.reused != 'true'
     # Deliberately NOT behind a paths filter, and deliberately not part of the
     # backend tier: this job answers "does this change need a note, and does the
     # note read like something a customer can use?", which is a question about
@@ -451,9 +483,10 @@ jobs:
       # PR. Enforced here rather than trusted, because the note is the first thing
       # that gets dropped under time pressure and the only thing the customer sees.
       # Escape hatch: the `no-release-note` label, for a PR that genuinely changes
-      # nothing a user can observe.
+      # nothing a user can observe. A push has no PR to label, so this step runs
+      # on pull requests only.
       - name: Require a note for user-visible changes
-        if: github.event_name == 'pull_request' && !contains(github.event.pull_request.labels.*.name, 'no-release-note')
+        if: ${{ github.event_name == 'pull_request' && !contains(github.event.pull_request.labels.*.name, 'no-release-note') }}
         env:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
@@ -500,3 +533,29 @@ jobs:
               sys.exit(1)
           print("All required jobs passed or were skipped.")
           EOF
+      # A green pull_request run leaves a marker named for the tree it tested
+      # (GITHUB_SHA is the merge commit every job checked out), so the push that
+      # lands this exact tree can reuse the result: `changes` reads it. After the
+      # check above and without always(), so a failing gate uploads nothing, and
+      # the push still demands that the whole run concluded `success`. Best
+      # effort: a hiccup here costs the push a full re-run, never this gate.
+      - name: Name the tree this run tested
+        id: tree
+        if: github.event_name == 'pull_request'
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tree="$(gh api "repos/$GITHUB_REPOSITORY/git/commits/$GITHUB_SHA" --jq .tree.sha)"
+          [[ "$tree" =~ ^[0-9a-f]{40}$ ]]
+          printf '%s\n' "$GITHUB_SHA" > "$RUNNER_TEMP/green-run.txt"
+          echo "tree=$tree" >> "$GITHUB_OUTPUT"
+      - name: Record this tree as green
+        if: github.event_name == 'pull_request' && steps.tree.outputs.tree != ''
+        continue-on-error: true
+        uses: actions/upload-artifact@v7
+        with:
+          name: ci-green-${{ steps.tree.outputs.tree }}
+          path: ${{ runner.temp }}/green-run.txt
+          retention-days: 7
+          overwrite: true

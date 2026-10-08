@@ -1,105 +1,93 @@
 ---
 name: aiq-maintain-ci
-description: Use when changing AI-Q continuous integration, pre-commit, or contributor governance — editing .github/workflows/ (ci, ui, skills-eval, request-nvskills-ci), .pre-commit-config.yaml hooks, .github/CODEOWNERS, .coderabbit.yaml, or the .github/skill-eval harness — and validating those changes without breaking the gate.
+description: Use when changing AI-Q continuous integration, pre-commit, or contributor governance — editing .github/workflows/ (ci, security, docker-build, pr, publish-images, deploy and the scheduled checks), .github/filters.yml, ci/ scripts, .pre-commit-config.yaml hooks, or .github/CODEOWNERS — and validating those changes without breaking the gate.
 license: Apache-2.0
 compatibility: Claude Code, Codex, Cursor, OpenCode, and Agent Skills-compatible tools.
 metadata:
-  version: "0.1.0"
+  version: "0.2.0"
   source-repo: "NVIDIA-AI-Blueprints/aiq"
-  tags: "aiq ci github-actions pre-commit governance skill-eval"
+  tags: "aiq ci github-actions pre-commit governance"
 allowed-tools: Read Bash Edit
 ---
 
 # Maintain AI-Q CI and Governance
 
 Use this skill when a developer changes AI-Q's CI, pre-commit hooks, or
-contributor governance — the GitHub Actions workflows, the pre-commit config,
-CODEOWNERS, the CodeRabbit review config, or the
-product-level skill-eval harness. These surfaces gate every PR, so a change must
-keep the gate working and must not weaken security or review rules.
+contributor governance: the GitHub Actions workflows, the path filters and
+`ci/` scripts they call, the pre-commit config, or CODEOWNERS. These surfaces
+gate every PR, so a change must keep the gate working and must not weaken
+security or review rules.
 
 ## Start Here
 
-- Identify the surface: a workflow (`.github/workflows/`), a pre-commit hook
-  (`.pre-commit-config.yaml`), governance (`.github/CODEOWNERS`,
-  `.coderabbit.yaml`), or the skill-eval harness
-  (`.github/skill-eval/`).
-- Read the authoritative files below and `CONTRIBUTING.md` "CI and Bot Workflow"
-  before editing — the bot/mirror flow is easy to break.
+- Identify the surface: a workflow (`.github/workflows/`), the shared path
+  filter (`.github/filters.yml`), a script a workflow runs (`ci/`), a pre-commit
+  hook (`.pre-commit-config.yaml`), or governance (`.github/CODEOWNERS`).
+- Read the authoritative files below and `CONTRIBUTING.md` "CI and the merge
+  gate" before editing.
 - Make the smallest change; do not weaken secret detection, auth gating, or
   code-owner review without a prior design discussion (see `AGENTS.md`).
-- Remember CI runs directly on the PR (`pull_request` events) — this private
-  repo has no copy-pr-bot mirror and no `/ok to test`.
+- CI runs directly on the PR (`pull_request` events). This private repo has no
+  copy-pr-bot mirror and no `/ok to test`.
 
 ## Authoritative References
 
-- [CONTRIBUTING.md](../../CONTRIBUTING.md): the CI merge gate — workflows
-  run directly on PRs (`pull_request` events); there is no bot mirror.
-- [AGENTS.md](../../AGENTS.md): "Git and PR hygiene" and the validation
-  commands CI mirrors.
-- `.github/workflows/ci.yml`: jobs `pre-commit`, `test` (pytest + coverage),
-  `helm-lint`, `test-scripts`. The `pre-commit` job runs Ruff separately and
-  `SKIP=ruff-check,ruff-format,pytest,helm-lint pre-commit run --all-files` — so
-  pytest/helm-lint run as their own jobs, not via the hook.
-- `.github/workflows/ui.yml`: jobs `install`, `lint`, `type-check`, `unit-test`,
-  `build`.
-- `.github/workflows/skills-eval.yml`: the Skills Eval gate (push +
-  `workflow_dispatch`; `detect-changes` path gate → `generate-datasets` spec
-  validation → `harbor-eval` on the self-hosted `aiq-eval` runner).
-- `.github/workflows/request-nvskills-ci.yml`: comment-triggered NVSkills CI.
-- `.pre-commit-config.yaml`: the hook set. Note `pytest` and `helm-lint` are
-  `stages: [push]` (see the reference for what that means locally).
-- `.github/CODEOWNERS`, `.coderabbit.yaml`: review
-  routing and path-scoped automated review.
+- [CONTRIBUTING.md](../../CONTRIBUTING.md): the merge gate (`CI OK`), security
+  scanning and secret-scan exceptions.
+- [AGENTS.md](../../AGENTS.md): "Obligations" and the `task verify` gate CI
+  mirrors.
+- `.github/workflows/ci.yml`: jobs `changes`, `backend-lint` (`task be:lint`),
+  `repo-lint` (`pre-commit run --all-files`, then `task agents:audit`),
+  `backend-test` (the coverage-gated core suite, the aiq_api suite and the
+  `sources/` suites), `frontend`, `frontend-test`, `frontend-coverage`,
+  `tenant-isolation`, `web`, `infra`, `packages` and `release-note`. `ci-ok` is
+  the required check.
+- `.github/workflows/security.yml`: Semgrep, OSV-Scanner, gitleaks and trivy,
+  gated by `security-ok`.
+- `.github/filters.yml`: the path families `ci.yml` and `docker-build.yml`
+  both read.
+- `.pre-commit-config.yaml`: the hook set, all at the default stage.
+- `.github/CODEOWNERS`: review routing.
 
-Longer procedures live in this bundle:
-
-- [references/workflows-and-hooks.md](references/workflows-and-hooks.md): the
-  workflows, their jobs/triggers, and the pre-commit
-  hook inventory (incl. the push-stage hooks).
-- [references/skill-eval-harness.md](references/skill-eval-harness.md): how the
-  `.github/skill-eval/` regression gate finds specs, runs adapters, and verifies.
+The full workflow and hook inventory:
+[references/workflows-and-hooks.md](references/workflows-and-hooks.md).
 
 ## Workflow
 
 1. Locate the exact workflow, hook, or governance file and read it plus the
    relevant `CONTRIBUTING.md` section.
-2. Make the smallest scoped change; keep job names, triggers, and the
-   `detect-changes` path gate intact unless that is the change.
+2. Make the smallest scoped change; keep job names, triggers, and the `changes`
+   path gate intact unless that is the change. A new job in `ci.yml` or
+   `security.yml` takes its `if:` from a `changes` output (or `reused`), or it
+   re-runs on every merge.
 3. Lint the change: validate YAML and, for workflows, run `actionlint` if it is
    installed.
-4. Reproduce the affected gate locally where possible — run the pre-commit hooks
-   or the job's underlying command (see the references).
-5. Note that CI runs automatically on the PR itself (`pull_request` events) —
-   no bot mirror, no maintainer comment needed to trigger it.
-6. Summarize changed files and the local validation evidence.
+4. Reproduce the affected gate locally: run the pre-commit hooks, the job's
+   underlying `task`, and `pytest tests/test_ci_change_detection.py
+   tests/test_reuse_green_run.py` for any workflow change.
+5. Summarize changed files and the local validation evidence.
 
 ## Validation
 
 ```bash
-uv run pre-commit run --all-files                     # default-stage hooks (NOT pytest/helm-lint)
-uv run pre-commit run --all-files --hook-stage push   # adds the push-stage pytest + helm-lint hooks
-uv run pre-commit run --files <changed>               # faster, during iteration
+.venv/bin/pre-commit run --all-files                  # every hook
+.venv/bin/pre-commit run --files <changed>            # faster, during iteration
 actionlint .github/workflows/<file>.yml               # if actionlint is installed
 ```
 
 Expected: hooks pass (or only auto-fix) and any edited workflow is valid YAML.
-`pytest` and `helm-lint` are push-stage, so the default `--all-files` run skips
-them — CI runs them as the dedicated `test` and `helm-lint` jobs. For skill-eval
-changes, see the harness reference: full Harbor runs need the self-hosted runner,
-so validate spec/adapter shape locally and rely on the mirrored CI run.
+Backend tests are not a hook: CI's `backend-test` job runs the core, aiq_api and
+`sources/` suites, and `task be:verify` runs all three (plus `be:lint`) locally.
 
 ## Common Mistakes
 
-- Adding a trigger `paths:` filter to `skills-eval.yml` instead of using the
-  `detect-changes` job — the comment in that workflow explains why path-filtering
-  the trigger is wrong here.
-- Weakening `detect-secrets`, auth gating, or code-owner review to make CI pass.
-- Expecting a bot to start CI; it runs automatically on the PR itself.
-- Assuming `pre-commit run --all-files` reproduces the whole gate — `pytest` and
-  `helm-lint` are `stages: [push]`, so they do not run at the default stage. Use
-  `--hook-stage push` (or run them directly), and remember CI runs them as
-  separate jobs.
+- Widening the `.gitleaks.toml` allowlist, weakening auth gating, or weakening
+  code-owner review to make CI pass.
+- Adding a job whose `if:` ignores `needs.changes.outputs`, so it runs again on
+  a push that reuses its PR's green result.
+  `tests/test_ci_change_detection.py` fails on it.
+- Assuming `pre-commit run --all-files` reproduces the whole gate. Backend tests
+  run in CI's `backend-test` job, not in a hook; run `task be:verify` yourself.
 - Editing `.github/CODEOWNERS` without updating the paths it routes, so reviews
   go to the wrong owners.
 

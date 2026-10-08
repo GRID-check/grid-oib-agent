@@ -419,7 +419,8 @@ export function frontendEnv(w: AppWiring): EnvVar[] {
     sref("GRID_APP_DATABASE_URL"),
     sref("GRID_INTERNAL_API_TOKEN"),
     sref("GRID_ADMIN_TOKEN"),
-    // The corpus export for the answer-suite CI (`/api/internal/oib-corpus`).
+    // The corpus export (`/api/internal/oib-corpus`). No caller since the
+    // answer-suite CI workflow was removed; unset disables it.
     sref("GRID_CORPUS_EXPORT_TOKEN"),
     { name: "GRID_ALLOW_AGENT_ORG_MEMORY", value: String(cfg.auth.allowAgentOrgMemory) },
     // WorkOS AuthKit.

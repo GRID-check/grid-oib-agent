@@ -29,11 +29,6 @@ vars:
   # are Python packaging facts rather than shell facts: a virtualenv puts its
   # executables in `Scripts/` on Windows and `bin/` everywhere else. Stated once
   # here so no task has to know about it.
-  #
-  # `uv run` would sidestep the whole question, but not in this repo: it
-  # resolves an environment without the `sources/` workspace packages, so the
-  # knowledge-layer tests fail to import. The venv that `uv sync --group dev`
-  # builds is the one that works.
   VENV_BIN: '{{if eq OS "windows"}}.venv/Scripts{{else}}.venv/bin{{end}}'
   EXE: '{{if eq OS "windows"}}.exe{{end}}'
   PY: '{{.VENV_BIN}}/python{{.EXE}}'
@@ -222,7 +217,7 @@ tasks:
       - bun run lint
 
   fe:types:
-    desc: Typecheck the UI (includes specs — a spec type error blocks next build)
+    desc: Typecheck the UI, specs included (next build checks production code only)
     dir: '{{.UI}}'
     cmds:
       - bun run type-check
@@ -250,8 +245,10 @@ tasks:
     desc: 'One shard of the UI suite, as a blob report (CI: SHARD=1/4 task fe:test:shard)'
     dir: '{{.UI}}'
     cmds:
-      # `--reporter=blob` writes a blob instead of printing a summary;
-      # fe:test:merge stitches the shards back into one run + one coverage set.
+      # `--reporter=blob` writes the blob that fe:test:merge stitches into one
+      # run and one coverage set. The default reporter is added beside it, since
+      # a blob alone prints nothing: a red shard's log then names the failing
+      # tests instead of ending at the step's exit code.
       # Coverage must be collected per shard — it cannot be recomputed at merge
       # time, because each shard only ever loaded its own slice of the app.
       #
@@ -265,7 +262,7 @@ tasks:
       # (`blob-1-6.json`) because all six artifacts are downloaded into one
       # directory with `merge-multiple: true`, where a fixed name would
       # overwrite five of them.
-      - bun run test:shard -- --shard={{.SHARD}} --outputFile=.vitest-reports/blob-{{.SHARD | replace "/" "-"}}.json
+      - bun run test:shard -- --shard={{.SHARD}} --reporter=default --outputFile=.vitest-reports/blob-{{.SHARD | replace "/" "-"}}.json
 
   fe:test:merge:
     desc: Merge sharded blob reports into one result + the coverage CI comments on
@@ -414,18 +411,12 @@ tasks:
       - '{{.PY}} -X faulthandler -m pytest tests/ -q'
 
   be:test:sources:
-    desc: The sources/ package suites, which no CI job used to run
+    desc: The sources/ package suites
     cmds:
-      # One pytest per package, not `pytest sources`, and the glob rather than a
-      # list so a new package is covered the day it lands.
-      #
-      # Every package ships a `tests/__init__.py`, so one run over all of them
-      # derives the module name `tests.conftest` for each and the second one
-      # aborts collection with "Plugin already registered under a different
-      # name". Splitting the invocation is what makes this suite runnable at
-      # all; merging it into one run needs those conftest names disambiguated
-      # first.
-      - 'for d in sources/*/tests; do "{{.PY}}" -X faulthandler -m pytest "$d" -q || exit 1; done'
+      # One run over every package. No package carries a `tests/__init__.py`, so
+      # no two conftests claim the module name `tests.conftest`, and a new
+      # package is collected the day it lands.
+      - '"{{.PY}}" -X faulthandler -m pytest sources -q'
 
   prompts:pull:
     desc: 'Bring a Langfuse prompt version into review: task prompts:pull [-- --label <label>]'
@@ -588,9 +579,7 @@ tasks:
       - task: be:lint
       - task: be:test:ci
       - task: be:test:api:ci
-      # sources/ used to be covered only by the push-stage pre-commit hook,
-      # which CI's repo-lint job skips — a stale test there stayed green
-      # through every gate. Now it is part of the tier.
+      # sources/ is part of the tier, and CI's backend-test job runs it too.
       - task: be:test:sources
 
   # ── infra (deploy/pulumi) ───────────────────────────────────────────────────
@@ -687,6 +676,10 @@ tasks:
     cmds:
       # Ours first: it is the one that reads the notes as published prose.
       - '{{.RELNOTES}} lint'
+      # reno walks each note's commit back to its parent, and a shallow clone
+      # lacks that history (KeyError on the sha). CI checks out full history; a
+      # container's clone is shallow, so deepen it here rather than fail on a sha.
+      - if [ "$(git rev-parse --is-shallow-repository)" = true ]; then git fetch --unshallow --quiet; fi
       # reno's own lint catches the structural problems ours does not look for
       # (a note on no branch, a malformed section body).
       - '{{.RENO}} lint .'
