@@ -13,12 +13,13 @@ fixes:
     administrator role, not a matter of a role called Admin. A custom
     administrator role reaches projects like the built-in one.
   - >
+    Project admins can create and run scheduled skills again. Only organization
+    admins could do so after a permission was renamed.
+security:
+  - >
     Project roles now mean what the access reference says: the Contributor role
     can be assigned and may use Piloti in the project. A Viewer reads documents
     and conversations but can no longer start research.
-  - >
-    Project admins can create and run scheduled skills again. Only organization
-    admins could do so after a permission was renamed.
 operators:
   - >
     Platform Support also works while viewing a tenant organization, which it

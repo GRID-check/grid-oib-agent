@@ -1,6 +1,6 @@
 /**
  * What the composer says when a message contains something the office's
- * „Sensible Daten" policy covers (ADR-0083, "Chat messages are screened too").
+ * „Sensible Daten" policy covers (ADR-0085, "Chat messages are screened too").
  *
  * It names what was found — the term the office wrote, or the kind of number
  * with a masked sample, never the value — and offers two ways on: send the

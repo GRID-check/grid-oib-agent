@@ -12,7 +12,7 @@ Docker Compose (`deploy/compose/docker-compose.yaml`):
 - **postgres** — 3 logical DBs: `aiq_jobs`, `aiq_checkpoints`, `grid_app`.
 - **seaweedfs** — object storage, bucket `grid-documents`. Published to the host at
   `localhost:8333`; internal DNS name `seaweedfs:8333`.
-- **aiq-agent** — FastAPI + NeMo Agent Toolkit (NAT) + embedded Dask
+- **aiq-agent** — FastAPI + NeMo Agent Toolkit (NAT)
   scheduler/worker + in-process ChromaDB. Runs the LangGraph workflow and the
   async deep-research jobs.
 - **frontend** — Next.js 16 BFF + a Node WebSocket proxy (`frontends/ui/server.js`).
@@ -429,8 +429,8 @@ deep research returns the stub `"Deep research job submitted. Job ID: …"`. The
 report artifact with cards attached over the job SSE stream, and stores
 `{"report", "cards"}` as the job output. Deep research cannot use the
 `emit_card` tool directly: the conversation-scoped `CardRegistry` is bound
-only in the chat request path, not inside a Dask worker. The remaining gap is
-the **synchronous inline** deep-research path (no Dask scheduler configured):
+only in the chat request path, not inside a research worker. The remaining gap is
+the **synchronous inline** deep-research path (`use_async_deep_research` off):
 those answers carry no cards, since the deep agent has no `emit_card` tool
 and no post-hoc generation runs in `deep_research_node`.
 
@@ -794,7 +794,7 @@ together:
    chunk) so a sparse first chunk can't starve it.
 2. **Reconciliation backfill (`42a4fa3`)**: `reconcile_collection_summaries()`
    (knowledge-layer factory) runs at the end of every `LlamaIndexIngestor`
-   ingestion job — the Knowledge API, `scripts/ingest_oib.py`'s `oib_sync`,
+   ingestion job — the Knowledge API, the base-corpus sync (`oib_sync`),
    and any future caller get it for free. It diffs a collection's indexed,
    successfully-ingested files (`BaseIngestor.list_files`) against the
    `document_metadata` table and registers a deterministic fallback summary for any
@@ -1297,7 +1297,9 @@ Five retrieval-quality improvements sit in the knowledge layer's `register.py`
    knowledge image to the VLM **as an image block during a research turn** —
    not just at ingestion. Three source shapes: **PDF pages** are re-rendered on
    demand with pypdfium2 (long edge `AIQ_PAGE_RENDER_MAX_DIM`, default 2048) —
-   base-corpus PDFs from disk (`OIB_UPLOADS_DIR` / repo corpus), project/Archiv
+   base-corpus PDFs from this replica's cache of the corpus, which
+   `corpus_store.ensure_local` fills from SeaweedFS on demand (the
+   `oib_corpus_files` table says what a base-corpus file is), project/Archiv
    PDFs from SeaweedFS bytes; **standalone image uploads** (PNG/JPG
    project/Archiv documents) are fetched from SeaweedFS and re-encoded to JPEG
    directly; and **stored embedded rasters** — the images
@@ -1331,7 +1333,7 @@ Five retrieval-quality improvements sit in the knowledge layer's `register.py`
    The `collection` argument is the model's, so the tool refuses one outside
    the turn's scope, or a restricted folder's the turn may not draw on, before
    any lookup; it echoes the turn's signed envelope, and the route answers only
-   inside the scope that envelope signs (ADR-0085). An image it returns is
+   inside the scope that envelope signs (ADR-0087). An image it returns is
    reported (`note_collections_read`) and admitted with the rest of the round.
    Every failure path (missing file, lookup/fetch/render error, invalid page
    number, disabled flag, no VLM key) degrades to a text-only explanation
@@ -1391,8 +1393,8 @@ Austria's). The org-Archiv stratum (ADR-0024) sits beside these unchanged.
   the pointer, downloads the law and returns the answering §§ as citable
   passages: `sources/ris_adapter/src/lookup/`), and by `ris_fetch_document` in
   deep research, which still drives the three older RIS tools itself.
-- **The OIB corpus is not in the catalog.** `data/oib/` → `oib_knowledge` is
-  its own source of truth; what a corpus file *is* (Richtlinie / Leitfaden /
+- **The OIB corpus is not in the catalog.** The `oib_corpus_files` table and its
+  objects → `oib_knowledge` are its own source of truth; what a corpus file *is* (Richtlinie / Leitfaden /
   Erläuterung / Begriffsbestimmungen / Zitierte Normen / Änderungsdokument)
   derives from the filename (`norm_registry.oib_doc_class`). The 15
   `aenderungen_*` diff files and the superseded `zitierte_normen` revision are
@@ -1744,14 +1746,14 @@ same three BFF functions. A run whose job the store cannot find is closed as
 failed after two hours. The transactional outbox the backlog item describes is
 still deferred; this is pull-based reconciliation instead.
 
-**Open items**: synchronous inline deep-research answers (no Dask) do not
+**Open items**: synchronous inline deep-research answers (`use_async_deep_research` off) do not
 carry Grid cards (§3; the async job path generates them post-hoc in the
 runner). And the research tab can 403 — see §9.
 
 **Collection-scope re-injection gap — now diagnosable (fixed 2026-07-16,
 `f8093a0`)**: the `X-Grid-Collection-Scope` header is captured once at submit
 time (`piloti/conversation_register.py`) and threaded into the async job payload
-as `collection_scope`. The Dask worker only re-injects it into its own
+as `collection_scope`. The research worker only re-injects it into its own
 request context conditionally — `frontends/aiq_api/src/aiq_api/jobs/runner.py:641`
 does `if collection_scope is not None:` before base64url-encoding it back
 onto the header. When the scope is absent, `knowledge_retrieval` inside the
@@ -1967,7 +1969,7 @@ full specs in `org-model-configuration.md` (ADR-0014) and
   `GridCostTracker` through LangChain's `register_configure_hook` ContextVar
   seam — every callback manager configured inside the request picks it up,
   so agents contain no metering code. Activated in exactly three places:
-  the chat workflow `_run`, the Dask job runner, and the reflection task.
+  the chat workflow `_run`, the research job runner, and the reflection task.
   Events (model, tokens, OpenRouter `usage.cost`, generation id) POST to
   the token-guarded `POST /api/internal/usage` (single-writer rule).
 - **Budgets**: `x-grid-budget` carries the remaining budget per scope — USD of cost for an organization the platform bills, tokens for one on its own key (ADR-0053)
@@ -2055,7 +2057,7 @@ loads house voice, offers and org skills through `use_skill`
   non-empty (§6) — only the *listing* still is, which is cosmetic once the
   list itself is reliable.
 - **Async job collection-scope fallback — fixed 2026-07-16 (`f8093a0`)** —
-  `collection_scope` is still only re-injected into the Dask worker context
+  `collection_scope` is still only re-injected into the research worker context
   when present (behavior unchanged: absent scope still drops
   project-collection search for that job, §7), but the degradation is no
   longer silent: `runner.py` logs a one-time WARNING (job id, whether the
@@ -2180,7 +2182,7 @@ loads house voice, offers and org skills through `use_skill`
   from `store`) passed through to `create_deep_agent`. When
   `deep_research_agent.checkpoint_db` is configured (env
   `AIQ_DEEP_CHECKPOINT_DB`; unset by default, opt-in since jobs run in
-  ephemeral Dask worker processes — the reference config sets it to
+  ephemeral research worker processes — the reference config sets it to
   `./deep_research_checkpoints.db`), `DeepResearcherAgent.run()` wires
   `configurable.thread_id = job_id` and `durability="async"` (LangGraph's
   canonical durable-execution mode for long batch-style runs), so a worker

@@ -25,10 +25,10 @@ export interface FolderObjectMenuProps {
   onNewInside?: () => void
   onRename: () => void
   onMove?: (parentId: string | null, parentName: string) => void
-  /** „Zugriff…" (ADR-0085); absent for a reader who may not manage the project. */
+  /** „Zugriff…" (ADR-0087); absent for a reader who may not manage the project. */
   onAccess?: () => void
   onDelete: () => void
-  /** The reader may only read this folder: its write entries are left out (ADR-0085). */
+  /** The reader may only read this folder: its write entries are left out (ADR-0087). */
   readOnly?: boolean
   children: ReactNode
 }

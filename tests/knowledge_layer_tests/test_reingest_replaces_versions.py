@@ -736,3 +736,103 @@ def test_a_run_that_lost_its_claim_stops_before_writing(tmp_path, live_ingestor,
     # Only the PROCESSING write from before the claim was lost; nothing after.
     assert [job.status.value for job in written] == ["processing"]
     assert prepared.job_id not in live_ingestor._jobs
+
+
+# ---------------------------------------------------------------------------
+# A base-corpus job, as the queue carries it: what the old in-process path
+# stamped after the fact is now the ingestor's own
+# ---------------------------------------------------------------------------
+
+
+def _ingest_base_corpus(ing, tmp_path, file_name: str, config: dict | None = None):
+    upload = tmp_path / "tmp_corpus.txt"
+    upload.write_text("Mindestens 1,20 m lichte Durchgangsbreite.", encoding="utf-8")
+    job_id = ing.submit_job(
+        [str(upload)], "oib_knowledge", config={"original_filenames": [file_name], "priority": "bulk", **(config or {})}
+    )
+    status = _wait_terminal(ing, job_id)
+    assert status.file_details[0].status.value == "success"
+
+
+def test_the_dokumentart_an_admin_chose_at_upload_is_stamped_by_the_job(tmp_path, live_ingestor, stores):
+    from aiq_agent.knowledge import get_document_doc_class
+
+    _ingest_base_corpus(live_ingestor, tmp_path, "statik.txt", {"doc_class": "gesetz"})
+
+    assert get_document_doc_class("oib_knowledge", "statik.txt") == "gesetz"
+
+
+def test_the_admins_choice_beats_the_class_a_replaced_version_carried(tmp_path, live_ingestor, stores):
+    from aiq_agent.knowledge import get_document_doc_class
+
+    _seed_previous_version(live_ingestor, stores, "oib_knowledge", "statik.txt")  # a person set "tragwerk"
+    _ingest_base_corpus(live_ingestor, tmp_path, "statik.txt", {"doc_class": "gesetz"})
+
+    assert get_document_doc_class("oib_knowledge", "statik.txt") == "gesetz"
+
+
+def test_a_replacement_with_no_choice_keeps_what_a_person_set(tmp_path, live_ingestor, stores):
+    from aiq_agent.knowledge import get_document_doc_class
+
+    _seed_previous_version(live_ingestor, stores, "oib_knowledge", "statik.txt")
+    _ingest_base_corpus(live_ingestor, tmp_path, "statik.txt")
+
+    assert get_document_doc_class("oib_knowledge", "statik.txt") == "tragwerk"
+
+
+def test_without_a_choice_the_class_is_guessed_from_the_file_name(tmp_path, live_ingestor, stores):
+    from aiq_agent.knowledge import get_document_doc_class
+
+    _ingest_base_corpus(live_ingestor, tmp_path, "oib-rl_2_ausgabe_mai_2023.txt")
+
+    assert get_document_doc_class("oib_knowledge", "oib-rl_2_ausgabe_mai_2023.txt") == "oib_richtlinie"
+
+
+def test_a_class_outside_the_vocabulary_is_not_stamped(tmp_path, live_ingestor, stores):
+    from aiq_agent.knowledge import get_document_doc_class
+
+    _ingest_base_corpus(live_ingestor, tmp_path, "statik.txt", {"doc_class": "not_a_real_class"})
+
+    assert get_document_doc_class("oib_knowledge", "statik.txt") == "sonstiges"
+
+
+def test_an_oib_document_gets_its_starting_display_title_from_its_name(tmp_path, live_ingestor, stores):
+    from aiq_agent.knowledge import get_document_display_title
+
+    _ingest_base_corpus(live_ingestor, tmp_path, "oib-rl_2_ausgabe_mai_2023.txt")
+
+    assert get_document_display_title("oib_knowledge", "oib-rl_2_ausgabe_mai_2023.txt") == (
+        "OIB-Richtlinie 2, Ausgabe Mai 2023"
+    )
+
+
+def test_a_name_that_gives_no_default_title_gets_none(tmp_path, live_ingestor, stores):
+    from aiq_agent.knowledge import get_document_display_title
+
+    _ingest_base_corpus(live_ingestor, tmp_path, "statik.txt")
+
+    assert get_document_display_title("oib_knowledge", "statik.txt") is None
+
+
+def test_a_title_an_admin_set_survives_the_replacement_of_the_document(tmp_path, live_ingestor, stores):
+    from aiq_agent.knowledge import get_document_display_title
+
+    _seed_previous_version(live_ingestor, stores, "oib_knowledge", "statik.txt")  # "Statik Bauteil B"
+    _ingest_base_corpus(live_ingestor, tmp_path, "statik.txt")
+
+    assert get_document_display_title("oib_knowledge", "statik.txt") == "Statik Bauteil B"
+
+
+def test_a_project_document_is_not_given_a_base_corpus_title_or_class(tmp_path, live_ingestor, stores):
+    from aiq_agent.knowledge import get_document_display_title
+    from aiq_agent.knowledge import get_document_doc_class
+
+    upload = tmp_path / "tmp_project.txt"
+    upload.write_text("Ein Projektdokument.", encoding="utf-8")
+    job_id = live_ingestor.submit_job(
+        [str(upload)], "proj_x", config={"original_filenames": ["oib-rl_2_ausgabe_mai_2023.txt"]}
+    )
+    _wait_terminal(live_ingestor, job_id)
+
+    assert get_document_display_title("proj_x", "oib-rl_2_ausgabe_mai_2023.txt") is None
+    assert get_document_doc_class("proj_x", "oib-rl_2_ausgabe_mai_2023.txt") is None

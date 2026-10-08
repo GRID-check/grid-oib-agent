@@ -1,7 +1,7 @@
 /**
  * @vitest-environment node
  *
- * Restricted project memory (ADR-0084, ADR-0085, migration 0111) against a REAL Postgres
+ * Restricted project memory (ADR-0086, ADR-0087, migration 0112) against a REAL Postgres
  * with the full migration chain applied, through the restricted runtime role:
  *
  *   GRID_TEST_DATABASE_URL=postgres://grid_app_rw@host:port/grid_app \
@@ -66,7 +66,7 @@ describe.skipIf(!url)('restricted project memory against live Postgres', () => {
   interface Seeded {
     projectId: string
     collection: string
-    /** The restricted folders' ids, in folder order: what a note is restricted to (ADR-0085). */
+    /** The restricted folders' ids, in folder order: what a note is restricted to (ADR-0087). */
     restricted: [string, string]
     /** Their retrieval collections, as the agent names them. */
     collections: [string, string]
@@ -300,7 +300,7 @@ describe.skipIf(!url)('restricted project memory against live Postgres', () => {
       expect(rows.get(secret.id)?.confidence).toBe('low')
     })
 
-    it("stores a note masked against the office's policy (ADR-0083)", async () => {
+    it("stores a note masked against the office's policy (ADR-0085)", async () => {
       const { projectId } = await seedProject('masked')
       const note = await write(projectId, 'Lohnzettel an AT61 1904 3002 3457 3201 überweisen')
       expect(note.content).toBe('[Begriff entfernt] an [IBAN entfernt] überweisen')
@@ -418,7 +418,7 @@ describe.skipIf(!url)('restricted project memory against live Postgres', () => {
           restrictedCollections: [collections[0]],
         })
       )
-      // Stored as the folder, not the collection (ADR-0085).
+      // Stored as the folder, not the collection (ADR-0087).
       expect(stored?.restrictedFolderIds).toEqual([restricted[0]])
 
       await expect(

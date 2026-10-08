@@ -51,7 +51,7 @@ class TestTargetCollections:
         assert _target_collections(None) == []
 
     def test_a_restricted_folders_collection_is_never_listed(self):
-        """ADR-0085: listing is not use; a card naming its files would skip the admission."""
+        """ADR-0087: listing is not use; a card naming its files would skip the admission."""
         from aiq_agent.common.source_kinds import Shelf
         from aiq_agent.knowledge.scoping import ScopedCollection
 

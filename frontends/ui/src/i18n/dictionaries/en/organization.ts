@@ -70,7 +70,7 @@ export const organization = {
     },
   },
   /**
-   * Organization -> Download log (ADR-0085): who took which document out, and
+   * Organization -> Download log (ADR-0087): who took which document out, and
    * who opened one in a folder with its own access list. Personal data about
    * staff, so the page says what it is for, how long it keeps it and that
    * reading it is recorded.
@@ -183,7 +183,7 @@ export const organization = {
     },
   },
   /**
-   * Personen & Zugriff → Eigene Rollen (ADR-0084): roles an office builds in
+   * Personen & Zugriff → Eigene Rollen (ADR-0086): roles an office builds in
    * WorkOS, assigned on the People tab, named by restricted folders.
    */
   customRoles: {
@@ -242,7 +242,7 @@ export const organization = {
         'A role can only be deleted once nobody holds it. A folder restricted to this role alone is then visible to organization admins only.',
       confirm: 'Delete role',
       deleted: 'Role “{name}” deleted.',
-      /** Folders whose own access list names the role (ADR-0085): shown before the deletion is confirmed. */
+      /** Folders whose own access list names the role (ADR-0087): shown before the deletion is confirmed. */
       foldersCount: '{count, plural, one {# folder names} other {# folders name}} this role in its access list:',
       foldersEffect:
         'After the deletion those lists match nobody: only organization admins can read these folders until a valid role is set. The project settings list them under “Folders without a valid role”.',
@@ -608,7 +608,7 @@ export const organization = {
     open: 'View audit logs',
     error: 'Could not open the audit log viewer.',
   },
-  /** Sensitive data: the lists Piloti checks every upload against (ADR-0083). */
+  /** Sensitive data: the lists Piloti checks every upload against (ADR-0085). */
   screening: {
     title: 'Screening list',
     description:
@@ -650,7 +650,7 @@ export const organization = {
     readOnly: 'Only people with the “Manage organization settings” permission can change these lists.',
     loadError: 'Could not load the lists.',
   },
-  /** Quarantine: files the content check held back (ADR-0083). */
+  /** Quarantine: files the content check held back (ADR-0085). */
   quarantine: {
     listLabel: 'Files held back',
     empty: 'Nothing is waiting for review',

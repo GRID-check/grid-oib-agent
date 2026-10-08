@@ -9,7 +9,7 @@ the response.
 
 This is the SYNCHRONOUS card channel: the answering agent emits cards from full
 context, as a visible tool step, on the chat path. The async
-deep-research job runner has no card registry bound in its Dask worker, so it
+deep-research job runner has no card registry bound in its research worker, so it
 still derives cards post-hoc from the finished report via
 :func:`aiq_agent.cards.generate.generate_cards`. Both surfaces describe the same
 schema AND the same trigger doctrine to the model through the shared

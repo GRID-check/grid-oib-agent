@@ -96,20 +96,20 @@ const BOUNDARY_MIGRATIONS = [
   // active tenant; the runner reads across lanes under the platform role.
   '0104_bff_job_queue.sql',
   // Adds upload_batches — one upload gesture and when it was all read
-  // (ADR-0083). Keyed directly by its organization.
-  '0108_upload_batches.sql',
+  // (ADR-0085). Keyed directly by its organization.
+  '0109_upload_batches.sql',
   // Adds project_folder_grants — a folder's own access list, one row per role
-  // and level (ADR-0085). Keyed directly by its organization.
-  '0109_project_folder_grants.sql',
+  // and level (ADR-0087). Keyed directly by its organization.
+  '0110_project_folder_grants.sql',
   // Adds conversation_restricted_folders — the source folders not every member
   // may read that a conversation actually drew on, one row per folder id,
-  // judged against the current grants when read (ADR-0084, ADR-0085). Keyed
+  // judged against the current grants when read (ADR-0086, ADR-0087). Keyed
   // directly by its organization: the conversation row may not exist yet.
-  '0110_conversation_restricted_folders.sql',
+  '0111_conversation_restricted_folders.sql',
   // Adds document_access_log — the download log: who took a document's bytes,
   // and who opened one under a folder with its own list. Keyed directly by its
   // organization; no foreign keys, so the row outlives what it names.
-  '0112_document_access_log.sql',
+  '0113_document_access_log.sql',
 ]
 
 const MIGRATION_SOURCES = BOUNDARY_MIGRATIONS.map((file) =>

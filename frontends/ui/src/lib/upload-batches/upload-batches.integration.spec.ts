@@ -2,7 +2,7 @@
  * @vitest-environment node
  *
  * Upload batches and the quarantine release, against a REAL Postgres
- * (ADR-0083, migrations 0107 and 0108), through the restricted runtime role:
+ * (ADR-0085, migrations 0108 and 0109), through the restricted runtime role:
  *
  *   GRID_TEST_DATABASE_URL=postgres://grid_app_rw@host:port/grid_app \
  *     npx vitest run src/lib/upload-batches/upload-batches.integration.spec.ts

@@ -18,7 +18,7 @@ pytestmark = pytest.mark.asyncio
 
 
 async def test_a_named_paragraph_makes_no_picker_call(lookup, catalog, monkeypatch):
-    from tests.conftest import FakePicker  # noqa: PLC0415 — the doubles live beside the fixtures
+    from sources.ris_adapter.tests.conftest import FakePicker  # noqa: PLC0415 — the doubles live beside the fixtures
 
     picker = FakePicker("§ 75")
     lookup.with_llms(monkeypatch, picker=picker)
@@ -32,7 +32,7 @@ async def test_a_named_paragraph_makes_no_picker_call(lookup, catalog, monkeypat
 
 async def test_a_named_paragraph_makes_no_planner_call_either(lookup, catalog, monkeypatch):
     """The catalog answers, so no live search is planned and none is run."""
-    from tests.conftest import FakePlanner
+    from sources.ris_adapter.tests.conftest import FakePlanner
 
     planner = FakePlanner()
     lookup.with_llms(monkeypatch, planner=planner)
@@ -65,7 +65,7 @@ async def test_only_the_named_paragraph_comes_back(lookup, catalog):
 
 async def test_a_pasted_ris_url_is_an_address_and_needs_no_search(lookup, monkeypatch):
     """No catalog, no live search: the caller already said which document."""
-    from tests.conftest import FakePlanner
+    from sources.ris_adapter.tests.conftest import FakePlanner
 
     planner = FakePlanner()
     lookup.with_llms(monkeypatch, planner=planner)
@@ -80,7 +80,7 @@ async def test_a_pasted_ris_url_is_an_address_and_needs_no_search(lookup, monkey
 
 async def test_a_list_of_paragraphs_comes_back_whole_in_one_call(lookup, catalog, monkeypatch):
     """ "§§ 63 und 64": both out of the one document already fetched, no model asked."""
-    from tests.conftest import FakePicker
+    from sources.ris_adapter.tests.conftest import FakePicker
 
     picker = FakePicker("§ 75")
     lookup.with_llms(monkeypatch, picker=picker)

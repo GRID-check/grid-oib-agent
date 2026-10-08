@@ -381,7 +381,7 @@ describe('ShareDialog — invite', () => {
     expect(within(row as HTMLElement).getByText('u-eva@example.com')).toBeInTheDocument()
   })
 
-  test('someone who cannot read a folder the chat drew on is SHOWN, disabled, with the reason and never the folder (ADR-0085)', () => {
+  test('someone who cannot read a folder the chat drew on is SHOWN, disabled, with the reason and never the folder (ADR-0087)', () => {
     useShareCandidatesMock.mockReturnValue(
       candidatesResult({
         candidates: [

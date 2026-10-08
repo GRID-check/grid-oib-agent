@@ -120,7 +120,7 @@ export function toFolderWireRow(row: ProjectFolderRow): FolderItem {
     parentId: row.parentId,
     name: row.name,
     path: row.path,
-    // Only ever a folder the reader may read (ADR-0085); the lock needs its
+    // Only ever a folder the reader may read (ADR-0087); the lock needs its
     // list, and the write affordances need what this reader may do here.
     grants: row.grants,
     access: row.access,

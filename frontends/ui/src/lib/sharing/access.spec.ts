@@ -271,7 +271,7 @@ describe('isShared', () => {
   })
 })
 
-describe('resolveResourceAccess — a document in a restricted folder (ADR-0084)', () => {
+describe('resolveResourceAccess — a document in a restricted folder (ADR-0086)', () => {
   function stubDocument(folderId: string | null): void {
     vi.mocked(findDocumentTenancy).mockResolvedValue({
       organizationId: 'org_1',
@@ -305,7 +305,7 @@ describe('resolveResourceAccess — a document in a restricted folder (ADR-0084)
   })
 })
 
-describe('the read gate: a role is not the right to read what the conversation drew on (ADR-0085)', () => {
+describe('the read gate: a role is not the right to read what the conversation drew on (ADR-0087)', () => {
   /** The folders the conversation recorded are no longer ones the asker may read. */
   function lockFor(...locked: string[]): void {
     vi.mocked(peopleWhoMayRead).mockImplementation(async (_organizationId, _conversationId, userIds) =>
