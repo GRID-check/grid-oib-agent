@@ -97,6 +97,14 @@ export const INBOX_ITEM_TYPES = [
    * inbox's platform lane, `@/lib/inbox/service`).
    */
   'feedback.submitted',
+  /**
+   * Informational, operational tier: an Outlook archive the recipient started
+   * importing has been filed, or the import stopped (ADR-0085). Addressed to the
+   * person who started it, pointing at the project and anchored on the folder
+   * the import filed under, which is where the row lands.
+   */
+  'mail_import.completed',
+  'mail_import.failed',
 ] as const
 export type InboxItemType = (typeof INBOX_ITEM_TYPES)[number]
 
