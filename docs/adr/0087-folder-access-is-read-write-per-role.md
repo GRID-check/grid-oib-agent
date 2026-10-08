@@ -407,10 +407,10 @@ recorded folders.
   retry.
 * `authz/folder-access.spec.ts`: the four settings on a purged folder, the bin hidden even
   without own lists. `purger/purge-folder.spec.mjs`: the purger's folder step.
-* `scripts/rls-test-db.sh`: 0113's backfill, its down refusing while the bin holds a folder, the
+* `scripts/rls-test-db.sh`: 0114's backfill, its down refusing while the bin holds a folder, the
   down and the re-apply.
 * Nothing enforces that a NEW write path calls `requireFolderWrite`; review is the gate. The
-  0113 triggers are the backstop for filing into a deleted folder.
+  0114 triggers are the backstop for filing into a deleted folder.
 
 ## Pros and Cons of the Options
 
