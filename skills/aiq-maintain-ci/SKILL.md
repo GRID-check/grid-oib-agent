@@ -37,18 +37,17 @@ keep the gate working and must not weaken security or review rules.
   run directly on PRs (`pull_request` events); there is no bot mirror.
 - [AGENTS.md](../../AGENTS.md): "Git and PR hygiene" and the validation
   commands CI mirrors.
-- `.github/workflows/ci.yml`: jobs `pre-commit`, `test` (pytest + coverage),
-  `helm-lint`, `test-scripts`. The `pre-commit` job runs Ruff separately and
-  `SKIP=ruff-check,ruff-format,pytest,helm-lint pre-commit run --all-files` — so
-  pytest/helm-lint run as their own jobs, not via the hook.
+- `.github/workflows/ci.yml`: jobs `backend-lint` (`task be:lint`, ruff),
+  `repo-lint` (`pre-commit run --all-files`, then `task agents:audit`),
+  `backend-test` (the coverage-gated suites), the frontend, infra and packages
+  jobs, and `release-note` (pull requests only). `ci-ok` is the required check.
 - `.github/workflows/ui.yml`: jobs `install`, `lint`, `type-check`, `unit-test`,
   `build`.
 - `.github/workflows/skills-eval.yml`: the Skills Eval gate (push +
   `workflow_dispatch`; `detect-changes` path gate → `generate-datasets` spec
   validation → `harbor-eval` on the self-hosted `aiq-eval` runner).
 - `.github/workflows/request-nvskills-ci.yml`: comment-triggered NVSkills CI.
-- `.pre-commit-config.yaml`: the hook set. Note `pytest` and `helm-lint` are
-  `stages: [push]` (see the reference for what that means locally).
+- `.pre-commit-config.yaml`: the hook set, all at the default stage.
 - `.github/CODEOWNERS`, `.coderabbit.yaml`: review
   routing and path-scoped automated review.
 
@@ -56,7 +55,7 @@ Longer procedures live in this bundle:
 
 - [references/workflows-and-hooks.md](references/workflows-and-hooks.md): the
   workflows, their jobs/triggers, and the pre-commit
-  hook inventory (incl. the push-stage hooks).
+  hook inventory.
 - [references/skill-eval-harness.md](references/skill-eval-harness.md): how the
   `.github/skill-eval/` regression gate finds specs, runs adapters, and verifies.
 
@@ -77,15 +76,14 @@ Longer procedures live in this bundle:
 ## Validation
 
 ```bash
-uv run pre-commit run --all-files                     # default-stage hooks (NOT pytest/helm-lint)
-uv run pre-commit run --all-files --hook-stage push   # adds the push-stage pytest + helm-lint hooks
+uv run pre-commit run --all-files                     # every hook
 uv run pre-commit run --files <changed>               # faster, during iteration
 actionlint .github/workflows/<file>.yml               # if actionlint is installed
 ```
 
 Expected: hooks pass (or only auto-fix) and any edited workflow is valid YAML.
-`pytest` and `helm-lint` are push-stage, so the default `--all-files` run skips
-them — CI runs them as the dedicated `test` and `helm-lint` jobs. For skill-eval
+Backend tests are not a hook: CI runs them in `backend-test`, and
+`task be:test:ci` runs the same coverage-gated suite locally. For skill-eval
 changes, see the harness reference: full Harbor runs need the self-hosted runner,
 so validate spec/adapter shape locally and rely on the mirrored CI run.
 
@@ -94,12 +92,11 @@ so validate spec/adapter shape locally and rely on the mirrored CI run.
 - Adding a trigger `paths:` filter to `skills-eval.yml` instead of using the
   `detect-changes` job — the comment in that workflow explains why path-filtering
   the trigger is wrong here.
-- Weakening `detect-secrets`, auth gating, or code-owner review to make CI pass.
+- Widening the `.gitleaks.toml` allowlist, weakening auth gating, or weakening
+  code-owner review to make CI pass.
 - Expecting a bot to start CI; it runs automatically on the PR itself.
-- Assuming `pre-commit run --all-files` reproduces the whole gate — `pytest` and
-  `helm-lint` are `stages: [push]`, so they do not run at the default stage. Use
-  `--hook-stage push` (or run them directly), and remember CI runs them as
-  separate jobs.
+- Assuming `pre-commit run --all-files` reproduces the whole gate. Backend tests
+  run in CI's `backend-test` job, not in a hook; run `task be:test:ci` yourself.
 - Editing `.github/CODEOWNERS` without updating the paths it routes, so reviews
   go to the wrong owners.
 

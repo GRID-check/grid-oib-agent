@@ -5,11 +5,12 @@ Authoritative sources: the workflow files under `.github/workflows/` and
 
 ## Workflows
 
-- `ci.yml` ("AIQ CI") — jobs: `pre-commit`, `test` (pytest with a coverage gate),
-  `helm-lint` (deploy charts), `test-scripts`. The `pre-commit` job does **not**
-  run the full hook set: it runs `ruff check .` / `ruff format --check .`
-  separately and `SKIP=ruff-check,ruff-format,pytest,helm-lint pre-commit run
-  --all-files`, leaving pytest/helm-lint to their own jobs.
+- `ci.yml` ("CI") — jobs: `changes` (path filter), `backend-lint` (`task be:lint`:
+  ruff check and format), `repo-lint` (`pre-commit run --all-files`, then
+  `task agents:audit`), `backend-test` (the coverage-gated core suite, the
+  aiq_api suite and the `sources/` suites), the frontend, tenant-isolation, web,
+  infra and packages jobs, `release-note` (pull requests only), and `ci-ok`, the
+  single required check.
 - `ui.yml` — jobs `install`, `lint`, `type-check`, `unit-test`, `build` for
   `frontends/ui/`.
 - `skills-eval.yml` ("Skills Eval") — runs on `push` and `workflow_dispatch`. A
@@ -28,23 +29,18 @@ the PR checks automatically.
 
 ## Pre-commit hooks
 
-`.pre-commit-config.yaml` is the source of truth. Default-stage hooks (run by a
-plain `pre-commit run`) include: `ruff-check`, `ruff-format`, `uv-lock`,
-`check-merge-conflict`, `check-added-large-files`, `check-yaml`,
-`end-of-file-fixer`, `trailing-whitespace`, `detect-secrets`, `validate-skills`,
-`clear-notebook-output-cells`, and `markdown-link-check`.
-
-Two hooks — `pytest` and `helm-lint` — are `stages: [push]`, so a default
-`pre-commit run` / `pre-commit run --all-files` **skips them**. Include them
-explicitly with `pre-commit run --all-files --hook-stage push`. CI does not run
-them via the `pre-commit` job either (it `SKIP=`s them); they run as the dedicated
-`test` and `helm-lint` jobs in `ci.yml`.
+`.pre-commit-config.yaml` is the source of truth. A plain `pre-commit run` runs
+every hook, all at the default stage: ruff-check and ruff-format, uv-lock, the
+pre-commit-hooks set (check-merge-conflict, check-added-large-files, check-yaml,
+end-of-file-fixer, trailing-whitespace), the repo's own checks (sync-platform-skills,
+card-schemas, wire-schemas, agent-docs, adr-check, hidden-unicode, doc-paths,
+validate-skills), and markdown-link-check. Secret scanning is not a hook: gitleaks
+runs in `security.yml`.
 
 ## Validation
 
 ```bash
-uv run pre-commit run --all-files                     # default-stage hooks
-uv run pre-commit run --all-files --hook-stage push   # + pytest, helm-lint
+uv run pre-commit run --all-files                     # every hook
 actionlint .github/workflows/<file>.yml               # if installed
 ```
 
