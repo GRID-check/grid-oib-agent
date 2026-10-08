@@ -206,30 +206,6 @@ describe.skipIf(!url)('upload batches against Postgres', () => {
     })
   })
 
-  it('finds a document still filed in a folder, and none in a purged tombstone or an empty folder', async () => {
-    const folders = await inTenant(ORG, () =>
-      db.execute<{ id: string; name: string }>(sql`
-        INSERT INTO project_folders (organization_id, project_id, name, path, deleted_at, purged_at)
-        VALUES (${ORG}, ${projectId}::uuid, 'Lohn', 'Lohn', NULL, NULL),
-               (${ORG}, ${projectId}::uuid, 'Alt', 'Alt', now(), now()),
-               (${ORG}, ${projectId}::uuid, 'Leer', 'Leer', NULL, NULL)
-        RETURNING id, name
-      `)
-    )
-    const byName = new Map(Array.from(folders).map((row) => [String(row.name), String(row.id)]))
-    const filed = byName.get('Lohn') ?? ''
-    const purged = byName.get('Alt') ?? ''
-    const empty = byName.get('Leer') ?? ''
-    await insertDocument('lohn.pdf', 'completed', { folderId: filed })
-
-    expect(await repo.hasDocumentsInFolders(ORG, projectId, [filed])).toBe(true)
-    expect(await repo.hasDocumentsInFolders(ORG, projectId, [purged, empty])).toBe(false)
-    expect(await repo.hasDocumentsInFolders(ORG, projectId, [purged, filed])).toBe(true)
-    expect(await repo.hasDocumentsInFolders(ORG, projectId, [])).toBe(false)
-    // Another organization sees none of it.
-    expect(await repo.hasDocumentsInFolders(OTHER_ORG, projectId, [filed])).toBe(false)
-  })
-
   it("pages a project's whole history newest first, ties broken by id, each upload once", async () => {
     const rows = await inTenant(ORG, () =>
       db.execute<{ id: string }>(sql`

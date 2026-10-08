@@ -172,34 +172,6 @@ export async function countBatchDocumentsByStatus(
     .map((row) => ({ batchId: row.batchId, status: row.status, count: Number(row.count) }))
 }
 
-/**
- * Whether any document of the project is still filed in one of `folderIds`,
- * whoever uploaded it and however. A purge erases a folder's documents, so its
- * tombstone holds none; an empty folder holds none either.
- */
-export async function hasDocumentsInFolders(
-  organizationId: string,
-  projectId: string,
-  folderIds: readonly string[]
-): Promise<boolean> {
-  if (folderIds.length === 0) return false
-  const db = getDb()
-  const rows = await withTenant({ organizationId }, () =>
-    db
-      .select({ id: documents.id })
-      .from(documents)
-      .where(
-        and(
-          eq(documents.organizationId, organizationId),
-          eq(documents.projectId, projectId),
-          inArray(documents.folderId, [...folderIds])
-        )
-      )
-      .limit(1)
-  )
-  return rows.length > 0
-}
-
 /** One page of a project's upload history, and where the next one starts. */
 export interface UploadBatchPage {
   batches: UploadBatch[]

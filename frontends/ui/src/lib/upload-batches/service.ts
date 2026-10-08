@@ -40,7 +40,6 @@ import { parseQuarantine, type QuarantineVerdict } from '@/lib/upload-screening/
 import {
   countBatchDocumentsByStatus,
   findUploadBatch,
-  hasDocumentsInFolders,
   insertUploadBatch,
   listBatchDocuments,
   listProjectUploadBatchPage,
@@ -229,6 +228,8 @@ type BatchCounts = Pick<UploadBatch, 'expectedCount' | 'unchangedCount' | 'faile
  * may be of a file bound for a folder hidden from the reader. Where that is
  * possible, `placed` (the documents the reader may see) stands in for the
  * announced total and the rest is withheld; `null` passes the batch through.
+ * It is possible while a folder the reader may not read can still receive a
+ * file, empty or not: a batch is opened before its first file lands.
  */
 function batchCounts(batch: UploadBatch, placed: number | null): BatchCounts {
   if (placed === null) {
@@ -342,6 +343,17 @@ export interface UploadHistoryEntry {
   counts: Record<UploadSummaryDocument['outcome'], number>
 }
 
+/**
+ * The folders the reader may not read that a file can still be filed in: every
+ * unreadable folder but a purged tombstone. The purge erases a folder's
+ * documents before it marks the folder purged, and nothing is uploaded into or
+ * restored to a tombstone, so it holds no file and never will. A living folder
+ * can receive one at any moment, empty or not.
+ */
+function foldersClosedToReader(tree: FolderTree, access: ProjectFolderAccess): string[] {
+  return unreadableFolderIds(access).filter((folderId) => !tree.get(folderId)?.purgedAt)
+}
+
 /** One page of a project's upload history. */
 export interface UploadHistoryPage {
   uploads: UploadHistoryEntry[]
@@ -370,11 +382,16 @@ export interface UploadHistoryPage {
  * counts only from a reader who may not read it, or every project with a
  * binned folder would show everyone a cut-down history.
  *
- * What withholds is a document still filed where the reader cannot look, not
- * the folder: a purged folder's tombstone (closed to non-admins under the
- * `admins` and `remove` settings) and an empty folder hold none, so they leave
- * the history whole. Otherwise one purge would cut every project member's
- * history down for good, though nothing is left to withhold.
+ * What withholds is a folder closed to the reader that can still hold a file
+ * (`foldersClosedToReader`). An empty one withholds too: the batch is opened
+ * with its announced total before the first file is sent, so a history that
+ * showed „12 Dateien" while the folder is empty and then dropped the upload
+ * once its first file landed there would tell the reader who filed how much
+ * there, and when. A purged folder's tombstone (closed to non-admins under the
+ * `admins` and `remove` settings) does not: the purge erased what it held
+ * before marking it, and nothing is filed in a tombstone again. Otherwise one
+ * purge would cut every project member's history down for good, though nothing
+ * is left to withhold.
  */
 export async function listProjectUploadHistory(
   session: AuthorizedSession,
@@ -387,15 +404,14 @@ export async function listProjectUploadHistory(
     readerFolders(session, projectId),
   ])
   const hiddenFolderIds = folders ? [...folders.access.hiddenFolderIds] : []
-  const unreadable = folders ? unreadableFolderIds(folders.access) : []
-  const [counts, directory, filesHiddenFromReader] = await Promise.all([
+  const filesHiddenFromReader = folders !== null && foldersClosedToReader(folders.tree, folders.access).length > 0
+  const [counts, directory] = await Promise.all([
     countBatchDocumentsByStatus(
       session.organizationId,
       batches.map((batch) => batch.id),
       { hiddenFolderIds }
     ),
     loadOrganizationDirectory(session.organizationId),
-    hasDocumentsInFolders(session.organizationId, projectId, unreadable),
   ])
   const uploads = batches.flatMap((batch): UploadHistoryEntry[] => {
     const tally: UploadHistoryEntry['counts'] = { ready: 0, reading: 0, quarantined: 0, failed: 0, stored: 0 }
