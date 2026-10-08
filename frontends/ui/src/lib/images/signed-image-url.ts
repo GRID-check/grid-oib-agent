@@ -4,14 +4,11 @@
  * ## Why this exists
  *
  * Document bytes live in SeaweedFS and used to reach the browser as presigned
- * object-store URLs. That is unoptimizable by construction, for two independent
- * reasons: the presigned host resolves to a private IP inside the compose
- * network, which `next/image` refuses to fetch (`dangerouslyAllowLocalIP` is
- * false by default), and every signature is a fresh URL, so the optimizer's
- * cache key changes on every request and it would re-download and re-encode the
- * original each time.
+ * object-store URLs. That is unoptimizable by construction: the presigned host
+ * resolves to a private IP inside the compose network, which `next/image`
+ * refuses to fetch (`dangerouslyAllowLocalIP` is false by default).
  *
- * Serving the same bytes from a SAME-ORIGIN route fixes both — the optimizer
+ * Serving the same bytes from a SAME-ORIGIN route fixes that — the optimizer
  * resolves a local path in-process, and one allow-list entry covers the whole
  * route rather than a per-environment host. (It does need that entry: a local
  * `src` with a query string is refused unless `images.localPatterns` names its
@@ -33,6 +30,14 @@
  * tightened, stops loading images within the role cache's minute
  * (`lib/auth/membership-roles.ts`), not when the URL expires.
  *
+ * That holds only because nothing answers for the route without calling it.
+ * The optimizer's server-side cache did: a cached or even stale copy was served
+ * without a fetch, and a failed refetch re-stored it, so `next.config.ts` turns
+ * that cache off (`maximumDiskCacheSize: 0`). What remains is the browser's own
+ * cache, which keeps a picture it has already been shown for at most
+ * {@link IMAGE_URL_WINDOW_SECONDS} ({@link DOCUMENT_IMAGE_CACHE_CONTROL}, and
+ * `images.minimumCacheTTL`); `optimizer-cache.spec.ts` holds both.
+ *
  * ## What the signature is bound to
  *
  * Organization, person, document id, variant and expiry — all five, so a token
@@ -42,15 +47,14 @@
  *
  * ## Why the expiry is bucketed rather than exact
  *
- * A per-request expiry would make every issued URL unique, which reintroduces
- * exactly the cache-key churn that made presigned URLs useless to the optimizer.
- * Rounding to a fixed window means one person gets a byte-identical URL for a
- * document throughout that window, so the optimizer caches once and serves the
- * resized image from cache. The cost is that a leaked URL stays live for up to
- * two windows; the benefit is that optimization works at all. The window is five
- * minutes: it was an hour, and the access it carries (project membership, which
- * the route cannot re-check without a session) outlived a revocation by up to
- * two hours. The folder is re-checked on every use regardless of the window.
+ * A per-request expiry would make every issued URL unique, so no cache could
+ * ever reuse a response. Rounding to a fixed window means one person gets a
+ * byte-identical URL for a document throughout that window, so their browser
+ * fetches it once rather than on every re-render or revisit. The cost is that a
+ * leaked URL stays live for up to two windows. The window is five minutes: it
+ * was an hour, and the access it carries (project membership, which the route
+ * cannot re-check without a session) outlived a revocation by up to two hours.
+ * The folder is re-checked on every use regardless of the window.
  */
 
 import { createHmac, timingSafeEqual } from 'node:crypto'
@@ -64,6 +68,13 @@ const DEV_APP_ENVS = new Set(['development', 'dev', 'local'])
 
 /** Expiry rounding, in seconds. Also the floor on a token's remaining life. */
 export const IMAGE_URL_WINDOW_SECONDS = 300
+
+/**
+ * What the route sends. Private, and no longer-lived than one window: the
+ * optimizer passes the max-age on (as `public`, see `next.config.ts`), so this
+ * is what bounds how long a browser keeps the picture without asking again.
+ */
+export const DOCUMENT_IMAGE_CACHE_CONTROL = `private, max-age=${IMAGE_URL_WINDOW_SECONDS}`
 
 function isDevEnvironment(): boolean {
   const env = (process.env.APP_ENV ?? process.env.NODE_ENV ?? 'production').toLowerCase()
