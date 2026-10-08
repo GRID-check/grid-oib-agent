@@ -820,6 +820,7 @@ export const platform: typeof en.platform = {
     revenueMonth: 'Umsatz diesen Monat',
     marginHint: 'Rohmarge {margin}',
     ingestShare: 'davon Ingestion {amount}',
+    dictationShare: 'davon Spracheingabe {amount}',
     ownKeyExcluded: 'Ohne {amount} auf eigenen Schlüsseln von Organisationen',
     requestsMonth: '{count} Anfragen diesen Monat',
   },

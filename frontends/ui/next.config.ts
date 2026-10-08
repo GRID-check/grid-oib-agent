@@ -99,7 +99,11 @@ const nextConfig: NextConfig = {
           { key: 'X-Content-Type-Options', value: 'nosniff' },
           { key: 'X-Frame-Options', value: 'DENY' },
           { key: 'Referrer-Policy', value: 'strict-origin-when-cross-origin' },
-          { key: 'Permissions-Policy', value: 'camera=(), microphone=(), geolocation=()' },
+          // The microphone is allowed for our own origin only: voice dictation
+          // in the composer records from it (docs/architecture/voice-dictation.md).
+          // `microphone=()` refused getUserMedia on every page with a
+          // NotAllowedError that reads exactly like a member denying access.
+          { key: 'Permissions-Policy', value: 'camera=(), microphone=(self), geolocation=()' },
           // Behind sign-in, so in no search index; the public site is what
           // gets found. Covers non-HTML responses the metadata cannot reach.
           { key: 'X-Robots-Tag', value: 'noindex, nofollow' },

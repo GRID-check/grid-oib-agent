@@ -206,6 +206,59 @@ class GenerateConversationTitleResponse(BaseModel):
     )
 
 
+#: Ceiling on one dictation's audio, in bytes before base64. 45 seconds of the
+#: browser's Opus or AAC at 64 kbit/s is about 360 KB; the bound leaves room for
+#: a browser that ignores the requested bitrate. Mirrored by the BFF
+#: (``frontends/ui/src/lib/dictation/limits.ts``), which refuses first.
+MAX_DICTATION_AUDIO_BYTES = 4 * 1024 * 1024
+
+#: The container formats a browser's MediaRecorder produces, named the way the
+#: transcription endpoint names them (Safari's ``audio/mp4`` is ``m4a``).
+DictationAudioFormat = Literal["webm", "ogg", "m4a"]
+
+
+class DictationRequest(BaseModel):
+    """One recorded utterance from the chat composer's microphone button."""
+
+    audio_base64: str = Field(
+        ...,
+        min_length=1,
+        # base64 is 4 characters per 3 bytes.
+        max_length=(MAX_DICTATION_AUDIO_BYTES * 4) // 3 + 4,
+        description="The recording, base64-encoded (raw bytes, not a data URI)",
+    )
+    format: DictationAudioFormat = Field(..., description="Container format of the recording")
+    duration_ms: int | None = Field(
+        default=None,
+        ge=0,
+        le=120_000,
+        description="Length the browser measured; recorded when the provider reports none",
+    )
+    locale: str | None = Field(
+        default=None,
+        max_length=16,
+        description=(
+            "The member's UI language. A hint for wording only: it is never sent as the "
+            "transcription language, because a German sentence with English terms must stay mixed"
+        ),
+    )
+
+
+class DictationResponse(BaseModel):
+    """The cleaned transcript, or why there is none. Always HTTP 200 (fail open)."""
+
+    text: str = Field(default="", description="Cleaned transcript; empty for silence or on failure")
+    audio_seconds: float | None = Field(default=None, description="Seconds of audio transcribed")
+    model: str | None = Field(default=None, description="The model that produced the transcript")
+    error: str | None = Field(
+        default=None,
+        description=(
+            "Failure code (transcription_not_configured, audio_invalid, audio_too_large, "
+            "transcription_failed); None on success, including an empty transcript"
+        ),
+    )
+
+
 #: Ceiling on the sampled questions a digest request may carry. Enforced on the
 #: schema so an oversized list is refused at parse time; the route slices to the
 #: same bound for callers that are within it.

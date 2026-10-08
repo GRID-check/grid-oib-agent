@@ -813,6 +813,7 @@ export const platform = {
     revenueMonth: 'Revenue this month',
     marginHint: 'Gross margin {margin}',
     ingestShare: 'of which ingestion {amount}',
+    dictationShare: 'of which voice input {amount}',
     ownKeyExcluded: 'Excludes {amount} on organizations’ own keys',
     requestsMonth: '{count} requests this month',
   },
