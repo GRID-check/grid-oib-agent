@@ -250,7 +250,7 @@ export const collaboration: typeof en.collaboration = {
       },
       // Ein Hintergrundauftrag ist zu Ende. {subject} ist der Name des Auftrags.
       // Kein {actor}: die Arbeit hat Piloti getan, nicht eine Person.
-      // ADR-0085: alles, was ein Upload gebracht hat, ist gelesen. {subject}
+      // ADR-0086: alles, was ein Upload gebracht hat, ist gelesen. {subject}
       // ist der Projektname; ein Upload in die Büroablage oder einen Chat hat
       // keinen und liest bodyNoSubject.
       uploadCompleted: {
@@ -258,7 +258,7 @@ export const collaboration: typeof en.collaboration = {
         body: '{subject}: Öffnen Sie die Übersicht, um zu sehen, was angekommen ist.',
         bodyNoSubject: 'Öffnen Sie die Übersicht, um zu sehen, was angekommen ist.',
       },
-      // ADR-0085: die Inhaltsprüfung hat Dateien zurückgehalten.
+      // ADR-0086: die Inhaltsprüfung hat Dateien zurückgehalten.
       documentQuarantined: {
         titleOne: '1 Datei wartet in der Quarantäne',
         titleMany: '{count} Dateien warten in der Quarantäne',

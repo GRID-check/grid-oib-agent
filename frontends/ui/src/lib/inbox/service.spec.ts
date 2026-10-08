@@ -119,7 +119,7 @@ const OPERATIONAL_TYPES = [
   // collaboration still has documents to approve, and gating the one review
   // queue in the product would make it invisible for exactly them.
   'document.review_requested',
-  // ADR-0085: an upload being read and a file held back by the content check
+  // ADR-0086: an upload being read and a file held back by the content check
   // are about the office's own files, not about working together.
   'upload.completed',
   'document.quarantined',

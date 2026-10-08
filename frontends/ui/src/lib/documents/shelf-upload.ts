@@ -14,7 +14,7 @@
  *   3. the object key's owner prefix (`uploadStorageKey`),
  *   4. the audit action and what it records (`uploadAuditEvent`).
  *
- * Both shelves also run the organization's name screening (ADR-0085) and
+ * Both shelves also run the organization's name screening (ADR-0086) and
  * record the upload batch the browser opened.
  *
  * `@/lib/documents/service#uploadDocument` and
@@ -61,7 +61,7 @@ export interface ShelfUploadInput {
    */
   screeningRelease?: boolean
   /**
-   * The upload gesture this file belongs to (migration 0109), as the browser
+   * The upload gesture this file belongs to (migration 0110), as the browser
    * opened it. Recorded on the row when it is the uploader's own open batch
    * for this shelf; anything else is ignored rather than refused.
    */
@@ -152,7 +152,7 @@ interface PlaceUploadInput {
   contentHash: string
   storageBucket: string
   uploadBatchId: string | null
-  /** The screening matches the uploader released (ADR-0085), audited once stored. */
+  /** The screening matches the uploader released (ADR-0086), audited once stored. */
   screeningOverridden: Awaited<ReturnType<typeof assertUploadNameAllowed>>['overridden']
 }
 

@@ -245,7 +245,7 @@ const productFeedbackTarget: InboxTargetDescriptor = {
 }
 
 /**
- * One upload gesture — the target of `upload.completed` (ADR-0085).
+ * One upload gesture — the target of `upload.completed` (ADR-0086).
  *
  * Its summary is its uploader's: it lists what they sent and what the office's
  * screening kept on their machine. Access is therefore "you made this upload",

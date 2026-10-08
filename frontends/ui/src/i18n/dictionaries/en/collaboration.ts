@@ -401,14 +401,14 @@ export const collaboration = {
         title: '{actor} assigned {subject} to you',
         body: 'You are responsible for this file.',
       },
-      // ADR-0085: everything an upload brought in has been read. {subject}
+      // ADR-0086: everything an upload brought in has been read. {subject}
       // is where it went (a project name, "Büroablage" or "Chat").
       uploadCompleted: {
         title: 'Your upload has been read',
         body: '{subject}: open the summary to see what arrived.',
         bodyNoSubject: 'Open the summary to see what arrived.',
       },
-      // ADR-0085: the content check held files back.
+      // ADR-0086: the content check held files back.
       documentQuarantined: {
         titleOne: '1 file is waiting in quarantine',
         titleMany: '{count} files are waiting in quarantine',

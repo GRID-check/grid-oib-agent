@@ -647,7 +647,7 @@ export async function reconcileDocumentStatuses<T extends ReconcilableDocument>(
   }
 
   // Rows that came to rest settle their upload and tell a quarantine's
-  // reviewers (ADR-0085). Never throws; a miss is the sweep's to catch.
+  // reviewers (ADR-0086). Never throws; a miss is the sweep's to catch.
   const settled = [...resolutions].filter(([, resolution]) => resolution.status !== 'pending')
   if (settled.length > 0) {
     await onDocumentsSettled(
