@@ -26,9 +26,12 @@ What it checks
 1. Every ``AGENTS.md`` has a ``CLAUDE.md`` beside it.
 2. Every such ``CLAUDE.md`` imports it with a real ``@AGENTS.md`` line.
 3. No ``CLAUDE.md`` mentions ``AGENTS.md`` only as bare text.
-4. Every relative link in an ``AGENTS.md`` resolves against **git**, not the
-   filesystem — a link into a generated directory (``.claude/``, ``.agents/``,
-   ``node_modules/``) is dead for every reader who has not run ``task setup``.
+4. Every relative link in every tracked Markdown file resolves against
+   **git**, not the filesystem — a link into a generated directory
+   (``.claude/``, ``.agents/``, ``node_modules/``) passes on the author's machine
+   and is dead in CI's fresh checkout and for every reader who has not run
+   ``task setup``. markdown-link-check reads the filesystem, so it cannot see
+   this.
 
 Usage:
     python scripts/check_agent_docs.py [--list]
@@ -56,6 +59,10 @@ MD_LINK_RE = re.compile(r"\[[^\]]*\]\(([^)#]+)(?:#[^)]*)?\)")
 # Directories that exist only after `task setup` and are gitignored. A link into
 # one of them resolves on the author's machine and nowhere else.
 GENERATED = ("node_modules/", ".claude/", ".agents/", "apm_modules/", ".venv/")
+
+# Vendored verbatim, so its links resolve upstream and not here; the
+# markdown-link-check hook excludes it for the same reason (.pre-commit-config.yaml).
+LINKS_NOT_CHECKED = frozenset({"src/aiq_agent/skills/review/skill-check/SKILL.md"})
 
 
 def tracked_files() -> set[str]:
@@ -103,28 +110,36 @@ def check_bridge(agents: Path, tracked: set[str], errors: list[str]) -> None:
         errors.append(f"{bridge}: no '@AGENTS.md' import line, so {agents} never loads.")
 
 
-def check_links(agents: Path, tracked: set[str], errors: list[str]) -> None:
-    """Assert every relative link in ``agents`` resolves in a fresh checkout."""
-    for target in MD_LINK_RE.findall(agents.read_text(encoding="utf-8")):
+def markdown_files(tracked: set[str]) -> list[Path]:
+    """Tracked Markdown whose relative links must resolve in a fresh checkout."""
+    return sorted(Path(p) for p in tracked if p.endswith(".md") and p not in LINKS_NOT_CHECKED)
+
+
+def check_links(doc: Path, tracked: set[str], errors: list[str]) -> None:
+    """Assert every relative link in ``doc`` resolves in a fresh checkout."""
+    for target in MD_LINK_RE.findall(doc.read_text(encoding="utf-8")):
         target = target.strip()
         if target.startswith(("http://", "https://", "mailto:", "<")):
             continue
+        if "<" in target:
+            # A template placeholder such as `references/<topic>.md`.
+            continue
         if any(seg in target for seg in GENERATED):
             errors.append(
-                f"{agents}: links into a generated directory ({target}). "
+                f"{doc}: links into a generated directory ({target}). "
                 f"It resolves only after `task setup` and is dead for every "
                 f"other reader."
             )
             continue
-        resolved = (agents.parent / target).resolve()
+        resolved = (doc.parent / target).resolve()
         try:
             rel = resolved.relative_to(Path.cwd().resolve()).as_posix()
         except ValueError:
-            errors.append(f"{agents}: link escapes the repository ({target}).")
+            errors.append(f"{doc}: link escapes the repository ({target}).")
             continue
         if rel in tracked or any(t.startswith(rel + "/") for t in tracked):
             continue
-        errors.append(f"{agents}: dead link, not tracked by git ({target}).")
+        errors.append(f"{doc}: dead link, not tracked by git ({target}).")
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -144,7 +159,9 @@ def main(argv: list[str] | None = None) -> int:
     errors: list[str] = []
     for guide in guides:
         check_bridge(guide, tracked, errors)
-        check_links(guide, tracked, errors)
+    for doc in markdown_files(tracked):
+        if doc.exists():
+            check_links(doc, tracked, errors)
 
     if errors:
         print(f"Agent-doc check FAILED ({len(errors)} error(s)):", file=sys.stderr)
