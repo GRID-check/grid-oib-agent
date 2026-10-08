@@ -20,16 +20,14 @@
  * `platform:settings:manage`).
  */
 
+import { SortableHead } from './sortable-head'
 import type { JSX } from 'react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { toast } from 'sonner'
 import {
   AlertTriangle,
-  ArrowDown,
-  ArrowUp,
   BookOpenCheck,
   CheckCircle2,
-  ChevronsUpDown,
   FileText,
   Layers,
   Lock,
@@ -579,26 +577,16 @@ export function BaseKnowledge(): JSX.Element {
     !ingest.timedOut &&
     ingest.missing.length === 0
 
-  const sortableHead = (key: SortKey, label: string, className?: string) => {
-    const Icon = sortKey !== key ? ChevronsUpDown : sortDir === 'asc' ? ArrowUp : ArrowDown
-    return (
-      <TableHead
-        className={className}
-        aria-sort={sortKey !== key ? 'none' : sortDir === 'asc' ? 'ascending' : 'descending'}
-      >
-        <button
-          type="button"
-          onClick={() => toggleSort(key)}
-          aria-label={t('knowledgeAdmin.sortBy', { column: label })}
-          // A header is text-height by design; `touch-target` makes it tappable.
-          className="duration-quick hover:text-foreground focus-visible:ring-ring/60 touch-target inline-flex items-center gap-1 rounded-sm uppercase tracking-wide transition-colors ease-out focus-visible:outline-none focus-visible:ring-2"
-        >
-          {label}
-          <Icon className="size-3" aria-hidden />
-        </button>
-      </TableHead>
-    )
-  }
+  const sortableHead = (key: SortKey, label: string, className?: string) => (
+    <SortableHead
+      label={label}
+      ariaLabel={t('knowledgeAdmin.sortBy', { column: label })}
+      active={sortKey === key}
+      direction={sortDir}
+      onSort={() => toggleSort(key)}
+      className={className}
+    />
+  )
 
   const overflowEntries: ActionMenuEntry[] = [
     {

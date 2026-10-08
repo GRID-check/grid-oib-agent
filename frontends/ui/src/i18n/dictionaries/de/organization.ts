@@ -389,6 +389,7 @@ export const organization: typeof en.organization = {
     dailyLimit: 'Tageslimit ({unit})',
     monthlyLimit: 'Monatslimit ({unit})',
     noLimitPlaceholder: 'Kein Limit',
+    limitInvalid: 'Eine Zahl ab 0 eingeben oder leer lassen für kein Limit.',
     saveLimits: 'Limits speichern',
     limitsSaved: 'Budgetlimits gespeichert',
     limitsSaveError: 'Die Budgetlimits konnten nicht gespeichert werden.',
