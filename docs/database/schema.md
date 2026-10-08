@@ -910,7 +910,7 @@ open and a restricted note with the same text can both be live; consolidation
 never crosses a restriction. The 0112 down DELETES restricted notes rather than
 opening them. Proven against Postgres in `memory-restricted.integration.spec.ts`;
 the index, the CHECK and the down in `scripts/rls-test-db.sh`.
-The 0116 down drops `restriction_judge` and its CHECK; the verdicts stay in the
+The 0117 down drops `restriction_judge` and its CHECK; the verdicts stay in the
 audit trail.
 
 ---

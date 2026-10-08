@@ -1,4 +1,4 @@
--- Reverse 0116. ORDER: roll the frontend back first; the newer build writes
+-- Reverse 0117. ORDER: roll the frontend back first; the newer build writes
 -- `restriction_judge` with every judged restricted note.
 --
 -- Lossy: the panel stops saying which notes a model helped restrict. Each

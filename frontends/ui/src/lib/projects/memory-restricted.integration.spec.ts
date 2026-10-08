@@ -18,7 +18,7 @@
  *     tightening one closes them, with no row rewritten;
  *   - the write stores a current restricted collection as its source folder,
  *     and refuses a collection that is not a current restricted one;
- *   - a restricted note keeps the memory judge's verdict, and the 0116 CHECK
+ *   - a restricted note keeps the memory judge's verdict, and the 0117 CHECK
  *     refuses one on an open note, where it would tell any member the chat
  *     could list a restricted folder;
  *   - the card decisions of a conversation that drew on a restricted folder stay

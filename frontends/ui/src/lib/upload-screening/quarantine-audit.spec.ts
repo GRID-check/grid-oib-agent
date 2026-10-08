@@ -184,7 +184,7 @@ describe('sweepOwedQuarantines', () => {
   })
 })
 
-// Retention (0117): a decision holds personal data (the file's name, the
+// Retention (0118): a decision holds personal data (the file's name, the
 // uploader, the matched terms) and is kept only to reach the trail.
 describe('pruneSpentQuarantines', () => {
   it('deletes what the trail has and what is past the window in which it is sent', async () => {

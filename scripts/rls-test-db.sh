@@ -641,7 +641,7 @@ echo "==> 0114 backfill, triggers and down migration verified"
 # ---------------------------------------------------------------------------
 # Migration 0117: a restricted note records the memory judge's verdict
 # (ADR-0086), and its DOWN. Only a restricted note carries one, and only a
-# verdict the judge gives; the down drops the column and its CHECK, and 0116
+# verdict the judge gives; the down drops the column and its CHECK, and 0117
 # re-applies.
 # ---------------------------------------------------------------------------
 echo "==> verifying the 0117 restriction judge column, its CHECK and the down migration on grid_judge"
@@ -651,7 +651,7 @@ check_in grid_judge "SELECT pg_get_constraintdef(oid) LIKE '%restricted_folder_i
 apply_in grid_judge 0117_project_memory_restriction_judge.down.sql
 check_in grid_judge "SELECT count(*) FROM information_schema.columns WHERE table_name = 'project_memory' AND column_name = 'restriction_judge'" "0" "down dropped the column"
 apply_in grid_judge 0117_project_memory_restriction_judge.sql
-check_in grid_judge "SELECT count(*) FROM pg_constraint WHERE conname = 'project_memory_restriction_judge_check'" "1" "0116 re-applies"
+check_in grid_judge "SELECT count(*) FROM pg_constraint WHERE conname = 'project_memory_restriction_judge_check'" "1" "0117 re-applies"
 
 echo "==> 0117 restriction judge and down migration verified"
 
@@ -678,7 +678,7 @@ apply_in grid_quarantine 0118_document_quarantine_decisions.down.sql
 check_in grid_quarantine "SELECT to_regclass('public.document_quarantine_decisions') IS NULL" "t" "down dropped the decisions"
 check_in grid_quarantine "SELECT to_regprocedure('grid_document_quarantine_decisions_guard()') IS NULL" "t" "down dropped the guard function"
 apply_in grid_quarantine 0118_document_quarantine_decisions.sql
-check_in grid_quarantine "SELECT count(*) FROM document_quarantine_decisions" "0" "0117 re-applies, empty"
+check_in grid_quarantine "SELECT count(*) FROM document_quarantine_decisions" "0" "0118 re-applies, empty"
 
 echo "==> 0118 quarantine decisions and down migration verified"
 

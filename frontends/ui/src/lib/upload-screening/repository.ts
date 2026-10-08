@@ -82,7 +82,7 @@ export async function markQuarantineDecisionAudited(
 }
 
 /**
- * Retention (0117): delete the decisions that are spent. A decision is kept to
+ * Retention (0118): delete the decisions that are spent. A decision is kept to
  * reach the trail and for nothing else, so it goes once the trail has it
  * (`audited_at` set), and in any case once it was taken before `decidedBefore`,
  * the end of the window in which anything still sends it. Across

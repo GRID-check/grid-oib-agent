@@ -526,7 +526,7 @@ export async function createProjectMemoryItem(
   // the agent's `remember` tool and reflection are all masked by construction.
   const content = await maskedNote(input.organizationId, input.content)
   // The judge's verdict rides only on a note that ended up restricted (the
-  // 0116 CHECK): on an open note it would tell any project member that the
+  // 0117 CHECK): on an open note it would tell any project member that the
   // chat could list a restricted folder. The audit trail has every verdict.
   const restrictionJudge = restrictedFolderIds ? (input.restrictionJudge ?? null) : null
   const values: NewProjectMemoryItem = { ...input, content, restrictedFolderIds, restrictionJudge }

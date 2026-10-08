@@ -1,4 +1,4 @@
--- 0117: the content gate's quarantine decisions, kept until the audit trail
+-- 0118: the content gate's quarantine decisions, kept until the audit trail
 -- has them (ADR-0085; AI Act transparency).
 --
 -- `document.quarantined` was emitted once, from the read whose guarded status

@@ -208,7 +208,7 @@ describe.skipIf(!url)('upload batches against Postgres', () => {
     ).rejects.toThrow()
   })
 
-  // Retention (0117): a decision holds the file's name, the uploader and the
+  // Retention (0118): a decision holds the file's name, the uploader and the
   // matched terms, and is kept only to reach the trail.
   it('deletes the spent decisions, on the platform role only, and keeps what is still owed', async () => {
     const decide = async (label: string, decidedAt: string, auditedAt: string | null): Promise<string> => {

@@ -112,7 +112,7 @@ describe('sweepUploadBatches', () => {
     warn.mockRestore()
   })
 
-  // Retention (0117): after the send, and even when the send could not run.
+  // Retention (0118): after the send, and even when the send could not run.
   it('deletes the spent quarantine decisions after sending, and counts them', async () => {
     vi.mocked(listOpenBatchesBetween).mockResolvedValue([])
     vi.mocked(sweepOwedQuarantines).mockRejectedValue(new Error('db hiccup'))
