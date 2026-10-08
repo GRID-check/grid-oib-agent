@@ -145,7 +145,7 @@ vi.mock('@/lib/storage/bucket', () => ({
 
 vi.mock('@/lib/bim/service', () => ({ deleteBimDerivedObjects: vi.fn().mockResolvedValue(undefined) }))
 vi.mock('@/lib/audit/service', () => ({ recordAuditEvent: vi.fn() }))
-// The upload-screening policy (ADR-0085) the name gate reads: an office on
+// The upload-screening policy (ADR-0086) the name gate reads: an office on
 // Piloti's suggested list. Unreadable settings refuse the upload outright.
 vi.mock('@/lib/organizations/service', () => ({
   getOrgSettings: vi.fn(async () => ({ displayName: null, defaultLocale: 'de', settings: {} })),

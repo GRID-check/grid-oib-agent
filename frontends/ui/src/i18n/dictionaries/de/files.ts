@@ -694,7 +694,7 @@ export const files: typeof en.files = {
     screenedOut: '{count} Datei(en) nicht hochgeladen, weil Ihr Büro sie als sensibel einstuft: {files}',
     screenedOutFile: '„{name}“ ({reason})',
     // Die Liste des Büros ist nicht lesbar: ohne sie wird nichts gesendet,
-    // auch nicht mit Pilotis Vorschlag (ADR-0085).
+    // auch nicht mit Pilotis Vorschlag (ADR-0086).
     screeningPolicyUnavailable:
       'Die Liste sensibler Daten Ihres Büros konnte nicht geladen werden. Es wurde nichts hochgeladen. Versuchen Sie es erneut.',
     validation: {

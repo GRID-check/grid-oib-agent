@@ -518,7 +518,7 @@ describe('ProjectFileWorkspace — a dropped folder', () => {
     expect(moveRequests[0]).toEqual({ documentId: 'doc-eg', folderId: 'folder-for-Plaene' })
   })
 
-  // Ticket 5 (ADR-0085): the plan the reader confirms is settled before
+  // Ticket 5 (ADR-0086): the plan the reader confirms is settled before
   // anything goes, a folder's name included.
   describe('settled before it is applied', () => {
     const officePolicy = { ...SUGGESTED_SCREENING_POLICY, nameTerms: [...SUGGESTED_SCREENING_POLICY.nameTerms, 'Huber'] }
@@ -784,7 +784,7 @@ describe('ProjectFileWorkspace — a picked file the project already holds', () 
   })
 
   // Ticket 5: an excluded file is not transferred, not even briefly, and its
-  // name is part of it (ADR-0085).
+  // name is part of it (ADR-0086).
   it('never asks the server about a name the office list holds back', async () => {
     renderWithCorpus()
     pick(new File(['x'], 'Lohnzettel_Mai_Huber.pdf', { type: 'application/pdf' }))
