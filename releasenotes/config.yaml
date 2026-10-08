@@ -1,36 +1,48 @@
 # reno configuration — https://docs.openstack.org/reno/latest/
 #
 # Release notes in this repo are written for CUSTOMERS, not for the commit log.
-# Every note in `releasenotes/notes/` is published verbatim (translated into
-# German) to the changelog on piloti.at, so the sections below are the ones a
-# reader of that page can act on — not reno's full upstream set.
+# The public sections below are published verbatim (translated into German) to
+# the changelog on piloti.at, so they are the ones a reader of that page can act
+# on — not reno's full upstream set. The internal ones (`security`, `incident`,
+# `operators`) are kept in the repository and never published.
 #
 # Authoring:  task release:note -- <slug>
 # Linting:    task release:lint     (also runs in CI on every PR)
 # Publishing: automatic, on merge to develop (.github/workflows/release-notes.yml)
 
-# The customer-facing section set. The order here is the order the changelog
-# renders them in: what you gained, what got better, what got fixed, then the
-# small print. `issues` and `critical` (reno defaults) are deliberately absent —
-# a known-issues list belongs in support docs, not on a marketing page.
+# The section set. The order here is the order the changelog renders the public
+# ones in: what you gained, what got better, what got fixed, then the small
+# print. `issues` and `critical` (reno defaults) are deliberately absent — a
+# known-issues list belongs in support docs, not on a marketing page.
+#
+# Which sections stay off the page is decided by INTERNAL_SECTIONS in
+# scripts/release_notes.py; the three at the bottom are those.
 sections:
   - [features, New features]
   - [improvements, Improvements]
   - [fixes, Fixes]
-  - [security, Security]
   - [deprecations, Deprecations]
   - [upgrade, Upgrade notes]
   - [other, Other]
-  # Never published: notes for the people who run the platform (the Platform
-  # area, model defaults, deployment and migration steps). The changelog is for
-  # architects; `task release:preview` still lists these.
+  # Never published from here down. The changelog is product news for
+  # architects, not a bug register; `task release:preview` still lists these.
+  #
+  # A vulnerability, a hardening, a dependency bumped for a CVE. A customer who
+  # must know is told directly; a public line only advertises the hole.
+  - [security, Security]
+  # A severe fix: something that should never have happened. Data lost, or kept
+  # after it was deleted; a permission or legal hold that did not hold; an
+  # answer passed as checked when it was not; a false claim on the website.
+  - [incident, Incidents]
+  # Notes for the people who run the platform (the Platform area, model
+  # defaults, deployment and migration steps).
   - [operators, For platform operators]
 
 # `improvements` is ours, so reno's default semver mapping has to learn about
 # it: a polish note is a patch-level change, the same as a fix.
 semver_major: [upgrade]
 semver_minor: [features]
-semver_patch: [fixes, improvements, security]
+semver_patch: [fixes, improvements, security, incident]
 
 # The repo tags nothing yet (`git tag` is empty) and merges continuously into
 # `develop`, so in practice every note lands unreleased and the changelog groups
@@ -44,17 +56,20 @@ add_release_date: true
 # because that is the only moment anyone reads them.
 template: |
   ---
-  # One entry per user-visible change. This text is PUBLISHED, in English and in
-  # German translation, to https://piloti.at/changelog — write it for the
-  # architect using Piloti, not for the reviewer of your diff.
+  # One entry per user-visible change. The public sections are PUBLISHED, in
+  # English and in German translation, to https://piloti.at/changelog — write
+  # them for the architect using Piloti, not for the reviewer of your diff.
   #
   #   - English. The German is generated from it; a German note fails the lint.
   #   - At most two sentences and 400 characters: what the reader can now do,
   #     or what stopped going wrong for them. The mechanism goes in the PR.
   #   - No RST, backticks, issue numbers, file paths or internal names.
   #   - Only the people running the platform can act on it (the Platform area,
-  #     model defaults, a deployment step)? Put it under `operators`, which
-  #     never reaches the public page.
+  #     model defaults, a deployment step)? Put it under `operators`.
+  #   - A security fix goes under `security`; a severe fix (data lost or kept
+  #     after deletion, a permission or legal hold that did not hold) under
+  #     `incident`. `security`, `incident` and `operators` are kept here and
+  #     never published, and a note in them still satisfies the PR check.
   #
   # Good: Uploading a corrected plan under the same name now replaces the old
   #       one instead of adding a second copy.
@@ -71,9 +86,6 @@ template: |
   fixes:
     - >
       Say what used to go wrong, and that it no longer does.
-  security:
-    - >
-      Only for changes a customer must know about. No exploit detail.
   deprecations:
     - >
       Name what is going away and what replaces it.
@@ -83,6 +95,12 @@ template: |
   other:
     - >
       Anything genuinely user-visible that fits nowhere above.
+  security:
+    - >
+      Only for a vulnerability or hardening; never published.
+  incident:
+    - >
+      Only for a severe fix that should never have happened; never published.
   operators:
     - >
       Only for the people running the platform; never published.
