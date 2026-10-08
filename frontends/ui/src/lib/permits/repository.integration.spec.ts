@@ -388,6 +388,17 @@ describe.skipIf(!url)('permit records against live Postgres', () => {
       })
     })
 
+    it('without an embedder still finds an old requirement behind 300 newer ones', async () => {
+      // Recency is the only SQL order the token channel has; a cut at the
+      // embedder's pool size would keep the newest rows and lose this one.
+      const old = 'Die Kellerwände sind mit einer Perimeterdämmung aus XPS auszuführen.'
+      await store(ORG, ids.baden, await document(ORG, ids.baden, 'Bescheid_alt.pdf'), 'Bescheid_alt.pdf', [requirement(old)])
+      const newer = Array.from({ length: 300 }, (_, index) => requirement(`Hinweis ${index}: Baustellenzufahrt freihalten.`))
+      await store(ORG, ids.baden, await document(ORG, ids.baden, 'Bescheid_neu.pdf'), 'Bescheid_neu.pdf', newer)
+
+      expect(contents(await search(ORG, 'Perimeterdämmung XPS Kellerwände'))).toContain(old)
+    })
+
     describe('a record is served only while its document still stands where it was read from', () => {
       /** A fresh Baden document with its own record, served before the change under test. */
       async function storedNotice(name: string, content: string): Promise<string> {

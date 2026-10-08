@@ -46,6 +46,13 @@ export const PERMIT_MAX_REQUIREMENTS_PER_RECORD = CROSS_PROJECT_MAX_PERMIT_REQUI
 
 /** How many requirements one search ranks: its own bound, so a large office cannot widen it. */
 const PERMIT_CANDIDATES = 300
+/**
+ * Without an embedder the rows cannot be ordered by meaning in SQL, so the cut
+ * falls back to recency and would keep only the newest requirements: an older
+ * Bescheid could never be found. The token channel then ranks a wider, still
+ * bounded pool.
+ */
+const PERMIT_CANDIDATES_TOKENS_ONLY = 3000
 
 export interface PermitRequirementInput {
   kind: PermitRequirementKind
@@ -287,7 +294,7 @@ export async function searchPermitRequirements(
     .innerJoin(documents, eq(documents.id, permitRecords.documentId))
     .where(and(eq(permitRequirements.organizationId, organizationId), visible, documentServesItsRecord))
     .orderBy(...(embedded ? [sql`${relevance} desc nulls last`] : []), desc(permitRequirements.createdAt))
-    .limit(PERMIT_CANDIDATES)
+    .limit(embedded ? PERMIT_CANDIDATES : PERMIT_CANDIDATES_TOKENS_ONLY)
 
   // A vector from another model is noise of the right shape: only the current one counts.
   const dense = rows.map((row) =>

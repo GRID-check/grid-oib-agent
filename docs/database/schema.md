@@ -850,6 +850,31 @@ Repository: `lib/conversations/restricted-use-repository.ts`; proven in
 
 ---
 
+## permit_records / permit_requirements (migration 0126, ADR-0094)
+
+Permitting memory (`docs/design/permitting-memory.md`): what a Bescheid or
+Nachforderung demanded, read once at ingest by the platform summary model and
+written only through `POST /api/internal/permit-records`, replaced per
+document. Both tables are secured on `organization_id` and cascade with their
+document and project. Columns are listed in the design doc; the ones that
+carry access:
+
+| Column | Type | Constraints | Notes |
+|--------|------|-------------|-------|
+| `permit_records.document_id` | `uuid` | NOT NULL, UNIQUE, FK → `documents` on delete cascade | one record per document |
+| `permit_records.collection_name` | `text` | NOT NULL | the collection the document sat in when it was read |
+| `restricted_folder_ids` (both tables) | `uuid[]` | NULL, canonical, 1..20 when set | the document's restricting folders when it was read |
+| `permit_requirements.embedding` / `embedding_model` | `real[]` / `text` | NULL | ranked only against the current model's vectors |
+
+The stored restriction is a snapshot. The search (`searchPermitRequirements`)
+joins the document and serves a record only while the document is still in
+`collection_name`, neither quarantined nor archived, and not in the Papierkorb;
+then it filters by the reader's clearance as project memory is filtered.
+Proven in `src/lib/permits/repository.integration.spec.ts` under
+`scripts/rls-test-db.sh`.
+
+---
+
 ## document_access_log (migration 0114, ADR-0088)
 
 The download log: one row per hand-over of a document's bytes to a person,

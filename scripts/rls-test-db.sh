@@ -997,6 +997,22 @@ check_in grid_cross_project "SELECT relrowsecurity FROM pg_class WHERE relname =
 echo "==> 0125 cross-project record and down migration verified"
 
 # ---------------------------------------------------------------------------
+# Migration 0126: permitting memory, and its DOWN.
+#
+# On grid_cross_project, after 0125: both tables come up under row-level
+# security, the down drops them (they are derived, re-read from the
+# documents), and 0126 re-applies empty.
+# ---------------------------------------------------------------------------
+echo "==> verifying the 0126 permit records and their down migration on grid_cross_project"
+apply_in grid_cross_project 0126_permit_records.sql
+check_in grid_cross_project "SELECT string_agg(relrowsecurity::text, ',' ORDER BY relname) FROM pg_class WHERE relname IN ('permit_records', 'permit_requirements')" "true,true" "0126 brings both tables up under row-level security"
+apply_in grid_cross_project 0126_permit_records.down.sql
+check_in grid_cross_project "SELECT count(*) FROM information_schema.tables WHERE table_name IN ('permit_records', 'permit_requirements')" "0" "down dropped both tables"
+apply_in grid_cross_project 0126_permit_records.sql
+check_in grid_cross_project "SELECT count(*) FROM permit_records" "0" "0126 re-applies, empty"
+echo "==> 0126 permit records and down migration verified"
+
+# ---------------------------------------------------------------------------
 # Migration 0102: project_folders become folders of a SHELF (project | archiv),
 # and its DOWN migration.
 #

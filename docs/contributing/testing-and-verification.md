@@ -426,11 +426,16 @@ production. Without an embedding key it ranks by tokens alone, a kinder search
 than production's, and the report's header says `fixture search: tokens only`.
 An earlier word-overlap matcher with a cut-off made „nothing comparable"
 questions easy and missed German compounds; tuning it only moved the misses.
-A question's `evidence` names the passages that answer it, and
-`tests/test_precedent_eval.py` holds the token channel to them offline: the
-evidence ranks in the top ten for every such question, and an inverted
-ranking fails, so a search regression fails there rather than as an agent
-miss.
+Passages from all searched projects are merged by score, as the BFF merges
+them; the fused rank decides only which passages each project hands over, and
+no fixture project holds more passages than that cut, so for passages the
+fused order changes nothing (it does order decisions and permits). A
+question's `evidence` names the passages that answer it, and
+`tests/test_precedent_eval.py` holds the token channel's scores to them
+offline: the evidence ranks in the top ten for every such question, and
+inverted scores lose it, so a scoring regression fails there rather than as an
+agent miss. A regression in the fused order alone shows only in the decisions
+and permits tests.
 
 **From a down-vote to a case.** Every down-voted answer can become a case, so a
 failure users reported cannot return unnoticed. Export the feedback CSV and run
