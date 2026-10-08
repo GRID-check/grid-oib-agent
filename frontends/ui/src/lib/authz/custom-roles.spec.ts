@@ -2,7 +2,7 @@
  * @vitest-environment node
  */
 /**
- * An office's own roles, kept in WorkOS (ADR-0086).
+ * An office's own roles, kept in WorkOS (ADR-0087).
  *
  * Only the WorkOS client, the cache and the audit sink are stubbed; the
  * service's rules run for real. The ones that matter most:
