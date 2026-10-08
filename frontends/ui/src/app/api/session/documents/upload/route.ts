@@ -15,6 +15,7 @@ import { BadRequestError } from '@/lib/api/errors'
 import { uploadSessionDocument } from '@/lib/session-documents/service'
 import { parseConversationId } from '../conversation-id'
 import { readScreeningRelease } from '@/lib/upload-screening/service'
+import { readUploadBatchId } from '@/lib/upload-batches/service'
 
 export const POST = apiRoute(
   async ({ session, request }) => {
@@ -41,6 +42,7 @@ export const POST = apiRoute(
         projectId: typeof projectId === 'string' && projectId ? projectId : null,
         file,
         screeningRelease: readScreeningRelease(formData.get('screeningRelease')),
+        uploadBatchId: readUploadBatchId(formData.get('uploadBatchId')),
       },
       request,
     )

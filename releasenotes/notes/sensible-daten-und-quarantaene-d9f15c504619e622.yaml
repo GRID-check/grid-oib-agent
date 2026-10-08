@@ -14,12 +14,20 @@ features:
     language model sees it. A file that matches waits in quarantine until an
     office or project admin releases or deletes it under Organisation →
     Quarantäne.
+  - >
+    When everything an upload brought in has been read, your inbox tells you,
+    with a summary of what arrived, where it was filed, what each file is, and
+    what was held back or failed. Project settings list every upload with its
+    outcome and who uploaded it.
 fixes:
   - >
     A chat in a project with a great deal of project information can no longer
     fail to connect and wait forever.
   - >
     Sharing a chat with colleagues works again.
+  - >
+    Dropping a folder no longer uploads .DS_Store, Thumbs.db or Office lock
+    files (~$Vertrag.docx) with it.
   - >
     A link to a document in the Büroablage, such as a shared one, opens that
     document again instead of the whole Büroablage.

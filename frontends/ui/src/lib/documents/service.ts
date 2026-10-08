@@ -805,6 +805,12 @@ export interface UploadDocumentInput {
    * override", so a client that never asks is screened.
    */
   screeningRelease?: boolean
+  /**
+   * The upload gesture this file belongs to (migration 0108), as the browser
+   * opened it. Recorded on the row when it is the uploader's own open batch
+   * for this project; anything else is ignored rather than refused.
+   */
+  uploadBatchId?: string | null
 }
 
 export type { UploadDocumentResult }

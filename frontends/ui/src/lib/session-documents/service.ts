@@ -23,6 +23,7 @@
  */
 
 import { assertUploadNameAllowed, auditScreeningOverride } from '@/lib/upload-screening/service'
+import { acceptedUploadBatchId } from '@/lib/upload-batches/service'
 import 'server-only'
 import { PutObjectCommand } from '@aws-sdk/client-s3'
 import { s3Client, bucketAdminS3Client, buildSessionStorageKey } from '@/lib/s3'
@@ -101,6 +102,8 @@ export interface UploadSessionDocumentInput {
   file: File
   /** See `UploadDocumentInput.screeningRelease`. */
   screeningRelease?: boolean
+  /** See `UploadDocumentInput.uploadBatchId`. */
+  uploadBatchId?: string | null
 }
 
 export interface UploadSessionDocumentResult {
@@ -156,6 +159,7 @@ export async function uploadSessionDocument(
   await assertWithinStorageQuota(session.organizationId, file.size)
 
   const collectionName = sessionCollectionName(conversationId)
+  const uploadBatchId = await acceptedUploadBatchId(session, input.uploadBatchId, { scope: 'session', projectId: null })
   // Same replace-on-re-upload rule as the project and Archiv paths, through the
   // same helpers — see `uploadDocument`. A chat attachment is the same table
   // with `scope = 'session'`, and the ingest pipeline replaces chunks by
@@ -239,6 +243,7 @@ export async function uploadSessionDocument(
         contentHash,
         folderId: null,
         createdBy: session.userId,
+        uploadBatchId,
       })
       // Nothing is discarded: the previous bytes are the previous VERSION's now
       // (ADR-0054) and its row still names them. They go with the attachment.
@@ -263,6 +268,7 @@ export async function uploadSessionDocument(
         fileSize: file.size,
         contentType: file.type || null,
         contentHash,
+        uploadBatchId,
         status: 'uploaded',
       })
     }

@@ -244,6 +244,7 @@ export const documents = pgTable('documents', {
 | `metadata` | `jsonb` | | Flexible metadata |
 | `screening_outcome` | `text` | CHECK `NULL` or `clean`/`partial`/`unchecked`/`quarantined`/`released` | **Migration `0107`, ADR-0083**: what the local content screening found before the first model call. `NULL` = not screened (a row older than the column, or one replaced since: a replacement resets it). `partial` = some pages had no text layer and were checked by name only; `unchecked` = no text could be read locally at all; `quarantined` = a term or detector matched and nothing went to a model. Written by reconciliation from the ingest job's `file_details[].screening`. |
 | `screening_released_hash` / `screening_released_by` / `screening_released_at` | `text` / `text` / `timestamptz` | all three or none (CHECK) | **Migration `0107`**: a reviewer released a quarantined document. The release names the BYTES (`content_hash` at the time), so a replacement under the same id is screened again instead of riding the old release. |
+| `upload_batch_id` | `uuid` | partial index | **Migration `0108`**: the upload gesture this row arrived in (`upload_batches.id`). Recorded only when the batch is the uploader's own, open one for this shelf; anything else is ignored rather than refused. No FK: a batch is history, and pruning it must not touch documents. |
 | `created_at` | `timestamptz` | NOT NULL, `defaultNow()` | |
 | `updated_at` | `timestamptz` | NOT NULL, `defaultNow()` | |
 
@@ -252,6 +253,7 @@ export const documents = pgTable('documents', {
 - `documents_collection_idx` — on `collection_name`
 - `documents_status_idx` — on `status`
 - `documents_quarantined_idx` — on (`organization_id`, `updated_at`), **PARTIAL** (`WHERE status = 'quarantined'`) — the quarantine queue (migration `0107`). `quarantined` is a terminal status like `stored`: never in `IN_FLIGHT_STATUSES`, never dispatched until a reviewer releases it.
+- `documents_upload_batch_idx` — on `upload_batch_id`, **PARTIAL** (`WHERE upload_batch_id IS NOT NULL`) — a batch's documents, for its settlement and summary (migration `0108`)
 - `documents_org_scope_idx` — on (`organization_id`, `scope`) — bounds the org-wide Archiv listing (ADR-0024)
 - `documents_conversation_idx` — on `conversation_id`, **PARTIAL** (`WHERE conversation_id IS NOT NULL`) — the session-document listing and the composite FK's referencing side (migration `0049`)
 - `documents_agent_authored_idx` — on (`project_id`, `created_at DESC`), **PARTIAL** (`WHERE authored_by = 'agent'`) — makes "everything Piloti wrote in this project" a point query in the listing's own sort order, while carrying no entry for the human uploads that are the overwhelming majority (migration `0063`). The predicate names `agent` rather than `<> 'user'`, so a second producer needs it widened or an index of its own.
@@ -666,6 +668,36 @@ export const projectFolders = pgTable('project_folders', {
 > **Applying `0063` to an existing deployment:** nothing ever stopped two sibling folders sharing a name, so the migration first fails loudly with the full list of offenders rather than letting `CREATE UNIQUE INDEX` report one key. It deliberately does not deduplicate — deleting a folder row cascades to `documents.folder_id` and would silently unfile real evidence. Rename or merge through the application, then re-run.
 
 > **Applying and reversing `0102`:** nothing to resolve before applying — every existing row is a project folder, `organization_id` is backfilled from its project, and the widened index rejects exactly what the old one did. The down migration **refuses while any Archiv folder exists** (the old schema has no place for one, and the backend still carries its path); delete them through the application first, which re-files their documents into the parent and mirrors the path rewrite. `scripts/rls-test-db.sh` applies `0102` to a seeded database, asserts the backfill and every new constraint, then proves the guard and the down path.
+
+---
+
+## upload_batches (migration 0108, ADR-0083)
+
+One upload gesture, from the browser's first request to the moment everything
+it brought in has been read. The browser opens it (`POST /api/upload-batches`),
+stamps each upload with its id, and seals it after its last request.
+Reconciliation and the scheduler's sweep settle it once no document of a sealed
+batch is in flight, which emits `upload.completed` to the uploader.
+
+| Column | Type | Constraints | Notes |
+|--------|------|-------------|-------|
+| `id` | `uuid` | PK | Chosen by the browser, so every file can carry it before the batch is confirmed |
+| `organization_id` | `text` | NOT NULL | RLS: `organization_id = grid_current_org()` |
+| `created_by` | `text` | NOT NULL | The uploader; the summary is theirs only |
+| `scope` | `text` | NOT NULL, CHECK `project`/`archiv`/`session` | The shelf |
+| `project_id` | `uuid` | FK → `projects.id` ON DELETE CASCADE; set exactly when `scope = 'project'` | |
+| `conversation_id` | `text` | | The chat, for a session upload |
+| `expected_count` | `integer` | NOT NULL, 0–10 000 | Files the browser announced |
+| `excluded` | `jsonb` | NOT NULL, array | What the name screening kept on the uploader's machine, as `{term, count}` — **never file names**: those files never reached the server |
+| `unchanged_count` / `failed_count` | `integer` | NOT NULL, ≥ 0 | Identical files not sent again; uploads that never arrived |
+| `sealed_at` | `timestamptz` | | The browser's last request is done; a batch abandoned for 30 min is sealed by the sweep |
+| `completed_at` | `timestamptz` | CHECK: only after `sealed_at` | Every document is terminal; set once, by a guarded UPDATE, which is what makes the inbox item exactly-once |
+| `created_at` | `timestamptz(3)` | NOT NULL, `defaultNow()` | |
+
+Indexes: `upload_batches_project_created_idx` (a project's history, newest
+first) and the partial `upload_batches_open_idx` (`WHERE completed_at IS NULL`,
+the sweep). Repository: `lib/upload-batches/repository.ts`; the completion guard
+is proven against Postgres in `upload-batches.integration.spec.ts`.
 
 ---
 
@@ -1225,7 +1257,7 @@ omits it to collapse.
 | `id` | `uuid` | PK, `defaultRandom()` | |
 | `organization_id` | `text` | NOT NULL | A user in two orgs has two inboxes; counts never mix |
 | `recipient_user_id` | `text` | NOT NULL | WorkOS user this is FOR |
-| `type` | `text` | NOT NULL | The item kind. **The list lives in `INBOX_ITEM_TYPES` (`frontends/ui/src/lib/db/schema/inbox.ts`) and is exhaustive over two registries by construction**, so it is not restated here — this row said four types long after there were eight. Today: the four collaboration ones, `storage.quota_warning`, `document.assigned_to_you`, `job.completed` / `job.failed`, and `document.review_requested` (ADR-0054, actionable). |
+| `type` | `text` | NOT NULL | The item kind. **The list lives in `INBOX_ITEM_TYPES` (`frontends/ui/src/lib/db/schema/inbox.ts`) and is exhaustive over two registries by construction**, so it is not restated here — this row said four types long after there were eight. Today: the four collaboration ones, `storage.quota_warning`, `document.assigned_to_you`, `job.completed` / `job.failed`, `document.review_requested` (ADR-0054, actionable), and `upload.completed` / `document.quarantined` (ADR-0083). |
 | `resource_type` / `resource_id` | `text` | NOT NULL | What it points AT — resolved through the sharing registry |
 | `anchor_id` | `text` | | Exact spot inside the resource (a message id), for a deep link |
 | `actor_user_id` | `text` | | Who caused it; NULL for system items |

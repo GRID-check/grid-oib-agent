@@ -51,6 +51,7 @@ describe('POST /api/archiv/documents/upload', () => {
       folderId: 'folder-1',
       originPath: 'Normen/plan.pdf',
       screeningRelease: false,
+      uploadBatchId: null,
     })
   })
 
@@ -61,6 +62,7 @@ describe('POST /api/archiv/documents/upload', () => {
       folderId: null,
       originPath: null,
       screeningRelease: false,
+      uploadBatchId: null,
     })
   })
 

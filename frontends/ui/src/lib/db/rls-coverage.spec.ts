@@ -95,6 +95,9 @@ const BOUNDARY_MIGRATIONS = [
   // whose predicate compares `lane` (not an `organization_id` column) to the
   // active tenant; the runner reads across lanes under the platform role.
   '0104_bff_job_queue.sql',
+  // Adds upload_batches — one upload gesture and when it was all read
+  // (ADR-0083). Keyed directly by its organization.
+  '0108_upload_batches.sql',
 ]
 
 const MIGRATION_SOURCES = BOUNDARY_MIGRATIONS.map((file) =>

@@ -154,9 +154,10 @@ export function uploadArchivDocument(
     folderId = null,
     originPath = null,
     screeningRelease,
+    uploadBatchId,
   }: Omit<ShelfUploadInput, 'file' | 'folderId'> & { folderId?: string | null } = {},
 ): Promise<UploadArchivDocumentResult> {
-  return uploadToShelf(session, ARCHIV_SHELF, { file, folderId, originPath, screeningRelease }, request)
+  return uploadToShelf(session, ARCHIV_SHELF, { file, folderId, originPath, screeningRelease, uploadBatchId }, request)
 }
 
 /**

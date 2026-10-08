@@ -17,10 +17,12 @@
  *      without a live `bff_job_queue` job a new one, and ends a report filing
  *      left `queued` whose job is gone (`lib/documents/stuck-processing.ts`,
  *      `lib/tasks/filing-sweep.ts`, ADR-0079);
- *   6. once a day, deletes the Langfuse traces older than the retention window
+ *   6. POSTs the BFF's upload sweep (`/api/internal/upload-batches/sweep`,
+ *      ADR-0083), which settles the uploads whose browser is gone;
+ *   7. once a day, deletes the Langfuse traces older than the retention window
  *      (`sweepTraceRetention`; ADR-0044 — Langfuse's own retention setting is an
  *      Enterprise feature, the delete API is not);
- *   7. every tick, deletes the Langfuse traces of chats the BFF erased in its
+ *   8. every tick, deletes the Langfuse traces of chats the BFF erased in its
  *      delete request, which the purger never sees (`sweepConversationTraces`).
  * See ADR-0046 and docs/architecture/agent-skills.md ("Scheduler worker").
  *
@@ -38,7 +40,7 @@
  *                                        (default 30, minimum 3)
  *
  * Schedules gate (steps 1-3): only when GRID_SKILLS_ENABLED=true or
- * GRID_ENFORCE_FEATURE_FLAGS=true. Steps 4 to 7 run regardless, because runs exist
+ * GRID_ENFORCE_FEATURE_FLAGS=true. Steps 4 to 8 run regardless, because runs exist
  * without Agent Skills: a chat question escalated to deep research is a
  * `task_runs` row with no definition behind it (ADR-0062). With the gate off the
  * container is a reconcile-only worker rather than exiting.
@@ -129,6 +131,7 @@ function createStreaks(config) {
   return {
     reconcile: createFailureStreak({ label: `${LOG} run reconcile`, escalateAfter }),
     background: createFailureStreak({ label: `${LOG} background work sweep`, escalateAfter }),
+    uploads: createFailureStreak({ label: `${LOG} upload sweep`, escalateAfter }),
     database: createFailureStreak({ label: `${LOG} schedule claim`, escalateAfter }),
     // Counts failed ATTEMPTS, one an hour at most (`TRACE_RETENTION_RETRY_MS`),
     // not ticks: three in a row is about three hours of Langfuse being wrong.
@@ -198,6 +201,27 @@ async function reconcileBackgroundWork(config, fetchImpl, streak) {
     console.log(
       `${LOG} background work sweep, report filings: checked ${filings.checked}, filed ${filings.filed}, ` +
         `failed ${filings.failed}, waiting ${filings.waiting}, errors ${filings.errors}`,
+    )
+  }
+  return counts
+}
+
+/**
+ * One upload sweep: POST {frontendUrl}/api/internal/upload-batches/sweep
+ * (ADR-0083). Settles the uploads whose browser is gone, so their uploader is
+ * told when everything was read. Same posture as the run reconciler: the BFF
+ * does the work, this container supplies the clock, nothing throws, and it
+ * logs only when it settled something or failed.
+ */
+async function sweepUploads(config, fetchImpl, streak) {
+  const counts = await postSweep(config, fetchImpl, streak, {
+    path: '/api/internal/upload-batches/sweep',
+    label: 'upload sweep',
+  })
+  if (counts && (counts.sealed > 0 || counts.completed > 0 || counts.failed > 0)) {
+    console.log(
+      `${LOG} upload sweep: checked ${counts.checked}, sealed ${counts.sealed}, ` +
+        `completed ${counts.completed}, failed ${counts.failed}`,
     )
   }
   return counts
@@ -430,6 +454,7 @@ async function tick(sql, config, fetchImpl, streaks) {
   const fired = config.schedulesEnabled ? await fireDue(sql, config, streaks.database) : 0
   await reconcileRuns(config, fetchImpl, streaks.reconcile)
   await reconcileBackgroundWork(config, fetchImpl, streaks.background)
+  await sweepUploads(config, fetchImpl, streaks.uploads)
   await sweepTraceRetention(config, fetchImpl, streaks.traceRetention, streaks.traceRetentionClock)
   await sweepConversationTraces(sql, config, fetchImpl, streaks.conversationTraces, streaks.conversationTracesClock)
   return fired
@@ -536,6 +561,7 @@ module.exports = {
   fireOne,
   reconcileRuns,
   reconcileBackgroundWork,
+  sweepUploads,
   sweepTraceRetention,
   sweepConversationTraces,
   tick,

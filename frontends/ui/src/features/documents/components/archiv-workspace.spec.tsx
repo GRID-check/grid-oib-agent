@@ -484,6 +484,24 @@ describe('ArchivWorkspace — only the newest answer may win', () => {
   })
 })
 
+describe('ArchivWorkspace — a link to one document', () => {
+  it('opens the document ?doc= names once the corpus has it', async () => {
+    currentSearch = 'doc=doc-2'
+    render(<ArchivWorkspace canManage />)
+
+    const dialog = await screen.findByRole('dialog')
+    expect(within(dialog).getAllByText('fassadendetail.pdf').length).toBeGreaterThan(0)
+  })
+
+  it('opens nothing for an id the Archiv does not hold', async () => {
+    currentSearch = 'doc=gone'
+    render(<ArchivWorkspace canManage />)
+
+    expect(await screen.findByText('fassadendetail.pdf')).toBeInTheDocument()
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+  })
+})
+
 /** Open the Archiv preview for a document and the preview-header actions menu. */
 async function openActions(user: ReturnType<typeof userEvent.setup>, filename: string) {
   await user.click(await screen.findByText(filename))

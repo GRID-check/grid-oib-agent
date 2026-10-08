@@ -1,7 +1,7 @@
 # Sensitive data and quarantine
 
-What an office can keep out of Piloti, and what happens to a file that
-matches. The decision behind this is ADR-0083 (screening and quarantine).
+What an office can keep out of Piloti, and how an uploader learns what became
+of an upload. The decision behind this is ADR-0083 (screening and quarantine).
 
 ## The sensitive-data list
 
@@ -32,7 +32,11 @@ can be switched off.
    match ends there: the file is stored, read by no model, and waits in
    quarantine.
 3. A file whose text cannot be read locally (a scan, a plan without a text
-   layer, a photo) is **checked by name only**.
+   layer, a photo) is **checked by name only**. The summary says so, so nobody
+   takes „nothing found" for „nothing there".
+
+What Piloti drops on its own: system files a folder carries along, such as
+`.DS_Store`, `Thumbs.db` and Office lock files (`~$Vertrag.docx`).
 
 ## The quarantine
 
@@ -43,3 +47,17 @@ the project's admins and, for the Büroablage, its curators can:
 - **Release** it. Piloti then reads it like any other upload. The release
   applies to exactly these bytes: uploading a changed version screens it again.
 - **Delete** it.
+
+Reviewers get an inbox notice when files wait for them. It names no file.
+
+## What arrived: the upload summary
+
+When everything an upload brought in has been read, the uploader gets an inbox
+notice. It opens a summary of that upload: what arrived and where it was filed,
+what each file is (its document type and summary), which files the screening
+kept on the computer and for which terms, what is in quarantine, and what
+failed and why. While files are still being read, the summary updates itself.
+
+**Project settings → Uploads** lists every upload into the project, newest
+first, with who uploaded it and what became of its files. Each person opens
+the file-by-file summary of their own uploads only.

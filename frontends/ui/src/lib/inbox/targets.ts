@@ -43,6 +43,7 @@ import { requireProjectAccess } from '@/lib/authz/projects'
 import { resolveResourceAccess } from '@/lib/sharing/access'
 import { describeResource } from '@/lib/sharing/registry'
 import { PLATFORM_INBOX_PERMISSION } from './registry'
+import { findOwnUploadBatch } from '@/lib/upload-batches/service'
 
 /** Row-level context a deep link may use. */
 export interface InboxTargetLinkContext {
@@ -112,6 +113,7 @@ export interface InboxTargetDescriptor {
  */
 const ORGANIZATION_DESTINATIONS: Partial<Record<InboxItemType, string>> = {
   'storage.quota_warning': '/app/organization/storage',
+  'document.quarantined': '/app/organization/quarantine',
 }
 
 function shareableTarget(type: ShareableResourceType): InboxTargetDescriptor {
@@ -235,11 +237,29 @@ const productFeedbackTarget: InboxTargetDescriptor = {
   },
 }
 
+/**
+ * One upload gesture — the target of `upload.completed` (ADR-0083).
+ *
+ * Its summary is its uploader's: it lists what they sent and what the office's
+ * screening kept on their machine. Access is therefore "you made this upload",
+ * re-asked at read time (spec IB-13) through the same service the summary page
+ * reads with, so the row and the page cannot disagree.
+ */
+const uploadBatchTarget: InboxTargetDescriptor = {
+  type: 'upload_batch',
+  resolve: async (session, resourceId) => {
+    const batch = await findOwnUploadBatch(session, resourceId).catch(() => null)
+    if (!batch) return null
+    return { deepLink: () => `/app/uploads/${encodeURIComponent(resourceId)}` }
+  },
+}
+
 export const INBOX_TARGET_REGISTRY: Record<InboxTargetType, InboxTargetDescriptor> = {
   ...shareableTargets,
   organization: organizationTarget,
   project: projectTarget,
   product_feedback: productFeedbackTarget,
+  upload_batch: uploadBatchTarget,
 }
 
 /**
