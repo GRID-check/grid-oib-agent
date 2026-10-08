@@ -27,7 +27,8 @@ function SimilarProjectCard({ project }: { project: SimilarProject }): JSX.Eleme
   const t = useTranslations('references')
   return (
     <RaisedCard interactive className="h-full">
-      <RaisedCardBody className="grid gap-4">
+      {/* The body takes the row's height: cards of one row differ a lot, and a short one would leave an empty tray. */}
+      <RaisedCardBody className="grid flex-1 content-start gap-4">
         <h3 className="min-w-0 truncate text-sm font-semibold tracking-tight text-foreground">
           <ReferenceProjectLink project={project} />
         </h3>

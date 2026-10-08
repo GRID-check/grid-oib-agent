@@ -23,7 +23,7 @@ export const references: typeof en.references = {
     empty: 'Keine Entscheidungen festgehalten.',
     kind: {
       decision: 'Entscheidung',
-      constraint: 'Einschränkung',
+      constraint: 'Vorgabe',
     },
     origin: {
       person: 'von einer Person festgehalten',
