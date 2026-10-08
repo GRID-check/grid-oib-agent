@@ -43,7 +43,7 @@ def data_source_registry():
 
 
 @pytest.fixture
-async def submit_app(monkeypatch):
+async def submit_app(monkeypatch, tmp_path):
     """Build a minimal app with async submit routes and patched side effects."""
     import aiq_agent.auth
     import aiq_api.routes.jobs as jobs_routes
@@ -72,13 +72,9 @@ async def submit_app(monkeypatch):
     monkeypatch.setattr(submit, "submit_agent_job", submitted_job)
 
     worker = SimpleNamespace(
-        _dask_available=True,
-        _job_store=MagicMock(),
-        _scheduler_address="tcp://localhost:8786",
-        _db_url="sqlite:///./test.db",
+        _db_url=f"sqlite+aiosqlite:///{tmp_path / 'test.db'}",
         _config_file_path="config.yml",
         _log_level=20,
-        _use_dask_threads=False,
         _front_end_config=SimpleNamespace(expiry_seconds=86400),
     )
 

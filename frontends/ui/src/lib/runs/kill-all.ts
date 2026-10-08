@@ -4,8 +4,7 @@
  * Two halves, in this order:
  *
  *  1. The job store (`killActiveBackendJobs`). Every submitted or running job is
- *     written INTERRUPTED, its queue row dropped (db mode) or its Dask task
- *     force-cancelled, and a running worker's `CancellationMonitor` sees the
+ *     written INTERRUPTED, its queue row dropped, and a running worker's `CancellationMonitor` sees the
  *     status and stops. The backend reports each verdict to
  *     `/api/internal/jobs/{id}/outcome`, which closes most `task_runs` rows
  *     before this call returns.

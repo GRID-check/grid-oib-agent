@@ -59,7 +59,7 @@ flowchart TB
         FAST["FastAPI (aiq_api plugin)"]
         NAT["NeMo Agent Toolkit"]
         LG["LangGraph<br/>Piloti → (escalate?) clarify → deep researcher"]
-        DASK["Dask — async deep-research jobs"]
+        JOBS["Research queue (Postgres) — deep-research jobs"]
         CHROMA["ChromaDB — oib_knowledge + proj_* + mem_*"]
     end
 
@@ -79,7 +79,7 @@ flowchart TB
     BFF <--> DB
     BFF -->|HTTP| FAST
     BFF -->|internal write API| BFF
-    FAST --> NAT --> LG --> DASK
+    FAST --> NAT --> LG --> JOBS
     LG <--> CHROMA
     BFF -->|upload| SEAWEED
     FAST -.->|/v1/ingest| CHROMA
@@ -118,13 +118,13 @@ cp deploy/.env.example deploy/.env
 # 2. Build and start the full stack
 docker compose -f deploy/compose/docker-compose.yaml --env-file deploy/.env up -d --build
 
-# 3. OIB knowledge-base ingestion starts automatically in the background when
-#    the aiq-agent container boots — watch its progress in the container logs:
+# 3. The OIB knowledge base starts empty. Upload the Richtlinien PDFs in the
+#    platform-admin UI, or from a directory of PDFs (the backend is on :8000):
+GRID_ADMIN_TOKEN=... uv run python scripts/upload_oib_corpus.py data/oib
+#    Each upload queues its own ingestion; anything not indexed yet is picked up
+#    by the housekeeping service every ten minutes. Watch the container logs:
 docker compose -f deploy/compose/docker-compose.yaml --env-file deploy/.env logs -f aiq-agent
-# To re-run ingestion manually (incremental — e.g. after adding PDFs to data/oib/,
-#  which ships empty; see data/oib/README.md):
-docker compose -f deploy/compose/docker-compose.yaml --env-file deploy/.env exec aiq-agent python scripts/ingest_oib.py
-# (An admin-token-guarded `POST /v1/admin/oib/sync` endpoint triggers the same re-run over HTTP.)
+# (An admin-token-guarded `POST /v1/admin/oib/sync` endpoint runs a sync cycle now.)
 
 # 4. Open the UI
 open http://localhost:3000
@@ -132,7 +132,7 @@ open http://localhost:3000
 
 > **LLM-agnostic.** Piloti runs against **any OpenAI-compatible API** — OpenRouter, a self-hosted vLLM/Ollama server, Azure OpenAI, NVIDIA NIM, etc. The LLM/embedding provider is not baked in: point the `base_url`, `model_name`, and API-key env at your endpoint in the workflow config (`configs/*.yml`) and set `CONFIG_FILE` accordingly. The shipped **reference config** is `configs/config_oib_openrouter.yml` (OpenAI GPT-5.6 Luna + `text-embedding-3-large`, both via OpenRouter).
 
-The stack runs eight Compose services: `postgres`, `seaweedfs` (+ `seaweedfs-init`), `aiq-agent` (+ a one-shot `aiq-data-permissions`), `frontend`, the `purger` deletion worker, and the `workflow-scheduler` cron worker (ADR-0023; a clean no-op unless workflows are enabled).
+The stack runs eight Compose services: `postgres`, `seaweedfs` (+ `seaweedfs-init`), `aiq-agent` (+ a one-shot `chroma-data-permissions`), `frontend`, the `purger` deletion worker, and the `workflow-scheduler` cron worker (ADR-0023; a clean no-op unless workflows are enabled).
 
 ## Tech Stack
 
@@ -140,7 +140,7 @@ The stack runs eight Compose services: `postgres`, `seaweedfs` (+ `seaweedfs-ini
 |---|---|---|
 | **Frontend** | Next.js 16, React 18, TypeScript, **shadcn/ui + Tailwind v4** | Project-centric chat UI |
 | **Backend** | Python 3.14, FastAPI, Uvicorn | AI endpoint server (`aiq_api` plugin) |
-| **AI Orchestration** | NeMo Agent Toolkit (NAT), LangGraph, Dask | Multi-agent pipeline + async jobs |
+| **AI Orchestration** | NeMo Agent Toolkit (NAT), LangGraph | Multi-agent pipeline + async jobs |
 | **RAG** | ChromaDB, LlamaIndex | Chunking · embeddings · scoped retrieval |
 | **LLM + Embeddings** | **Any OpenAI-compatible endpoint** — reference config: OpenAI GPT-5.6 Luna via OpenRouter | Reasoning, classification, cards, embeddings |
 | **Web Search** | Tavily | Context beyond the OIB corpus |
@@ -161,8 +161,8 @@ The stack runs eight Compose services: `postgres`, `seaweedfs` (+ `seaweedfs-ini
 │   └── benchmarks/         # Evaluation harnesses
 ├── configs/                # Workflow configs — config_oib_openrouter.yml is the working one
 ├── deploy/                 # Docker Compose, Dockerfile, env templates
-├── data/oib/               # Where the OIB PDFs go — operator-provided, ships empty
-├── scripts/                # Utility scripts (ingest_oib.py)
+├── data/oib/               # A local copy of the OIB PDFs for the evals; the platform does not read it
+├── scripts/                # Utility scripts (upload_oib_corpus.py)
 └── docs/                   # Documentation (see docs/architecture/ for the current deep-dives)
 ```
 

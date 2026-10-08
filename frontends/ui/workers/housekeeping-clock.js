@@ -24,11 +24,15 @@ const {
 const LOG = '[housekeeping]'
 const INTERNAL_TOKEN_HEADER = 'x-grid-internal-token'
 
-/** Every route and its period. The same cadences as the Kubernetes CronJobs. */
+/**
+ * Every route and its period. The same cadences as the Kubernetes CronJobs. `base-corpus` queues the
+ * ingest jobs the corpus needs and records the ones that finished; the ingest workers run them.
+ */
 const ROUTES = [
   { route: 'ghost-jobs', everyMs: 2 * 60 * 1000, timeoutMs: 90 * 1000 },
   { route: 'job-events', everyMs: 60 * 60 * 1000, timeoutMs: 15 * 60 * 1000 },
   { route: 'chat-checkpoints', everyMs: 60 * 60 * 1000, timeoutMs: 15 * 60 * 1000 },
+  { route: 'base-corpus', everyMs: 10 * 60 * 1000, timeoutMs: 10 * 60 * 1000 },
 ]
 
 /**

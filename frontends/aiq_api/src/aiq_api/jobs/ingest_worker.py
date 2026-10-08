@@ -2,7 +2,7 @@
 
 Run as its own container: ``GRID_ROLE=ingest-worker`` makes the entrypoint start
 ``python -m aiq_api.jobs.ingest_worker``. It builds the NAT workflow once, which
-activates the ingestor exactly as the web tier's does (same summary model, same
+activates the ingestor exactly as the web roles do (same summary model, same
 shared Chroma, same object store), attaches the durable queue to it, and then
 does nothing but claim: its ``AIQ_INGEST_MAX_WORKERS`` threads take the next job
 fairly across every organisation, run it, and come back for another.
@@ -32,6 +32,7 @@ import asyncio
 import logging
 import os
 import signal
+import time
 
 from aiq_agent.knowledge.leader_lock import require_direct_dsns
 
@@ -61,7 +62,9 @@ def _touch(path: str) -> None:
 async def run(stop: asyncio.Event) -> None:
     """Build the ingestor, claim until ``stop``, then drain."""
     from aiq_agent.knowledge.factory import get_active_ingestor
+    from aiq_agent.observability import boot_timing
     from aiq_agent.observability import ensure_registered as register_grid_telemetry
+    from aiq_agent.observability.boot_timing import BootClock
     from nat.builder.workflow_builder import WorkflowBuilder
     from nat.runtime.loader import load_config
 
@@ -69,14 +72,20 @@ async def run(stop: asyncio.Event) -> None:
     liveness = os.environ.get("GRID_WORKER_LIVENESS_FILE", "/tmp/ingest-worker.alive")
     # Grid's telemetry `_type`s register at import; load_config fails without them.
     register_grid_telemetry()
-    config = load_config(config_file)
+    clock = BootClock("ingest-worker")
+    with clock.phase("load_config"):
+        config = load_config(config_file)
+    building = time.monotonic()
     async with WorkflowBuilder.from_config(config=config):
+        clock.record("workflow_build", time.monotonic() - building)
         ingestor = get_active_ingestor()
         if ingestor is None:
             raise RuntimeError(f"{config_file} activates no ingestor; there is nothing to run jobs with")
-        if not ingest_dispatch.attach(ingestor, claim=True):
+        if not ingest_dispatch.attach(ingestor):
             raise RuntimeError("the ingest queue is off or has no database (GRID_INGEST_QUEUE, AIQ_SUMMARY_DB)")
         logger.info("Ingest worker %s claiming", ingest_dispatch.worker_id())
+        clock.ready()
+        boot_timing.flush()
         while not stop.is_set():
             _touch(liveness)
             try:

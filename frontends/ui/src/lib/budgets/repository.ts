@@ -22,6 +22,7 @@ import {
   budgetPolicies,
   llmUsageEvents,
   llmUsageRollups,
+  UNBILLED_USAGE_ACTIVITIES,
   type BudgetPolicy,
   type BudgetScope,
   type BudgetUnit,
@@ -205,9 +206,16 @@ interface RollupIncrement {
   events: number
 }
 
-function buildRollupIncrements(events: NewLlmUsageEvent[]): RollupIncrement[] {
+/**
+ * The rollup increments a batch adds. An unbilled activity (voice dictation)
+ * adds none: the rollup is what every budget reads, and a member is never
+ * blocked by spend they are not billed for. Its ledger row still carries the
+ * real cost for the platform views, which read the ledger.
+ */
+export function buildRollupIncrements(events: NewLlmUsageEvent[]): RollupIncrement[] {
   const byKey = new Map<string, RollupIncrement>()
   for (const event of events) {
+    if (event.activity && UNBILLED_USAGE_ACTIVITIES.has(event.activity)) continue
     const day = utcDayOf(event.createdAt ?? undefined)
     const userId = event.userId ?? ''
     const projectId = event.projectId ?? ''
@@ -310,6 +318,12 @@ export interface SpendWindow {
    * budgets read does not know which spend was ingestion.
    */
   ingestCostUsd?: number
+  /**
+   * What voice dictation cost the PLATFORM in this window: `activity =
+   * 'dictation'` rows not on a tenant's own key (migration 0107). Ledger-summed
+   * windows only, like `ingestCostUsd`; dictation never reaches the rollup.
+   */
+  dictationCostUsd?: number
 }
 
 export const EMPTY_SPEND_WINDOW: SpendWindow = {
@@ -320,6 +334,7 @@ export const EMPTY_SPEND_WINDOW: SpendWindow = {
   tokens: 0,
   events: 0,
   ingestCostUsd: 0,
+  dictationCostUsd: 0,
 }
 const EMPTY_WINDOW = EMPTY_SPEND_WINDOW
 
@@ -369,9 +384,12 @@ function windowColumns(dayStartIso: string) {
   const isToday = sql`${llmUsageEvents.createdAt} >= ${dayStartIso}`
   const ownKey = sql`${llmUsageEvents.isByok} = true`
   const platformIngest = sql`${llmUsageEvents.activity} = 'ingest' and ${llmUsageEvents.isByok} is not true`
+  const platformDictation = sql`${llmUsageEvents.activity} = 'dictation' and ${llmUsageEvents.isByok} is not true`
   return {
     monthIngestCostUsd: sql<string>`coalesce(sum(${llmUsageEvents.costUsd}) filter (where ${platformIngest}), 0)`,
     dayIngestCostUsd: sql<string>`coalesce(sum(${llmUsageEvents.costUsd}) filter (where ${isToday} and ${platformIngest}), 0)`,
+    monthDictationCostUsd: sql<string>`coalesce(sum(${llmUsageEvents.costUsd}) filter (where ${platformDictation}), 0)`,
+    dayDictationCostUsd: sql<string>`coalesce(sum(${llmUsageEvents.costUsd}) filter (where ${isToday} and ${platformDictation}), 0)`,
     monthCostUsd: sql<string>`coalesce(sum(${llmUsageEvents.costUsd}), 0)`,
     monthOwnKeyCostUsd: sql<string>`coalesce(sum(${llmUsageEvents.costUsd}) filter (where ${ownKey}), 0)`,
     monthPriceUsd: sql<string>`coalesce(sum(${llmUsageEvents.priceUsd}), 0)`,
@@ -403,6 +421,8 @@ interface WindowRow {
   /** Only the ledger-summed windows carry these (`windowColumns`); the rollup does not. */
   monthIngestCostUsd?: string
   dayIngestCostUsd?: string
+  monthDictationCostUsd?: string
+  dayDictationCostUsd?: string
 }
 
 /** Coerce at the repository boundary: raw `sql<T>` columns arrive as strings. */
@@ -416,6 +436,7 @@ function toWindows(row: WindowRow): { day: SpendWindow; month: SpendWindow } {
       tokens: num(row.dayTokens),
       events: num(row.dayEvents),
       ...(row.dayIngestCostUsd !== undefined ? { ingestCostUsd: num(row.dayIngestCostUsd) } : {}),
+      ...(row.dayDictationCostUsd !== undefined ? { dictationCostUsd: num(row.dayDictationCostUsd) } : {}),
     },
     month: {
       costUsd: num(row.monthCostUsd),
@@ -425,6 +446,7 @@ function toWindows(row: WindowRow): { day: SpendWindow; month: SpendWindow } {
       tokens: num(row.monthTokens),
       events: num(row.monthEvents),
       ...(row.monthIngestCostUsd !== undefined ? { ingestCostUsd: num(row.monthIngestCostUsd) } : {}),
+      ...(row.monthDictationCostUsd !== undefined ? { dictationCostUsd: num(row.monthDictationCostUsd) } : {}),
     },
   }
 }
@@ -439,6 +461,7 @@ export const sumSpendWindows = (windows: SpendWindow[]): SpendWindow =>
       tokens: total.tokens + w.tokens,
       events: total.events + w.events,
       ingestCostUsd: (total.ingestCostUsd ?? 0) + (w.ingestCostUsd ?? 0),
+      dictationCostUsd: (total.dictationCostUsd ?? 0) + (w.dictationCostUsd ?? 0),
     }),
     EMPTY_WINDOW,
   )
@@ -578,6 +601,7 @@ export async function aggregateDailySpend(options: {
       tokens: sql<string>`coalesce(sum(${llmUsageEvents.totalTokens}), 0)`,
       events: sql<string>`count(*)`,
       ingestCostUsd: sql<string>`coalesce(sum(${llmUsageEvents.costUsd}) filter (where ${llmUsageEvents.activity} = 'ingest' and ${llmUsageEvents.isByok} is not true), 0)`,
+      dictationCostUsd: sql<string>`coalesce(sum(${llmUsageEvents.costUsd}) filter (where ${llmUsageEvents.activity} = 'dictation' and ${llmUsageEvents.isByok} is not true), 0)`,
     })
     .from(llmUsageEvents)
     .where(and(...conditions))
@@ -592,6 +616,7 @@ export async function aggregateDailySpend(options: {
     tokens: num(row.tokens),
     events: num(row.events),
     ingestCostUsd: num(row.ingestCostUsd),
+    dictationCostUsd: num(row.dictationCostUsd),
   }))
 }
 

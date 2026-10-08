@@ -13,6 +13,8 @@ import time
 from collections.abc import Sequence
 from typing import Any
 
+from aiq_agent.common.db_utils import ensure_schema
+from aiq_agent.common.db_utils import lock_schema
 from aiq_agent.common.db_utils import normalize_db_url as _normalize_db_url
 from aiq_agent.common.db_utils import redact_db_url
 
@@ -45,6 +47,33 @@ configure_sqlalchemy_logging()
 
 ENGINE_CACHE_TTL_SECONDS = 3600
 ENGINE_CACHE_MAX_SIZE = 10
+
+
+def _create_job_events_table(conn) -> None:
+    """Create ``job_events`` and its indexes over a live sync connection (the caller commits, under the schema lock)."""
+    from sqlalchemy import Column
+    from sqlalchemy import DateTime
+    from sqlalchemy import Index
+    from sqlalchemy import Integer
+    from sqlalchemy import MetaData
+    from sqlalchemy import String
+    from sqlalchemy import Table
+    from sqlalchemy import Text
+    from sqlalchemy.sql import func
+
+    metadata = MetaData()
+    Table(
+        "job_events",
+        metadata,
+        Column("id", Integer, primary_key=True, autoincrement=True),
+        Column("job_id", String(64), nullable=False, index=True),
+        Column("event_type", String(64), nullable=False),
+        Column("event_data", Text, nullable=True),
+        Column("created_at", DateTime, server_default=func.now()),
+        Index("idx_job_events_job_id_id", "job_id", "id"),
+        Index("idx_job_events_created_at", "created_at"),
+    )
+    metadata.create_all(conn)
 
 
 def _events_query(
@@ -255,40 +284,7 @@ class EventStore:
 
     def _ensure_table_sync(self):
         """Create events table if it doesn't exist (sync version)."""
-        if self.db_url in EventStore._tables_initialized:
-            return
-
-        from sqlalchemy import Column
-        from sqlalchemy import DateTime
-        from sqlalchemy import Index
-        from sqlalchemy import Integer
-        from sqlalchemy import MetaData
-        from sqlalchemy import String
-        from sqlalchemy import Table
-        from sqlalchemy import Text
-        from sqlalchemy import inspect
-        from sqlalchemy.sql import func
-
-        metadata = MetaData()
-
-        Table(
-            "job_events",
-            metadata,
-            Column("id", Integer, primary_key=True, autoincrement=True),
-            Column("job_id", String(64), nullable=False, index=True),
-            Column("event_type", String(64), nullable=False),
-            Column("event_data", Text, nullable=True),
-            Column("created_at", DateTime, server_default=func.now()),
-            Index("idx_job_events_job_id_id", "job_id", "id"),
-            Index("idx_job_events_created_at", "created_at"),
-        )
-
-        inspector = inspect(self._sync_engine)
-        if not inspector.has_table("job_events"):
-            metadata.create_all(self._sync_engine)
-            logger.info("Created job_events table in %s", redact_db_url(self.db_url))
-
-        EventStore._tables_initialized.add(self.db_url)
+        self._ensure_table_exists(self.db_url)
 
     @classmethod
     async def _ensure_table_async(cls, db_url: str):
@@ -296,36 +292,13 @@ class EventStore:
         if db_url in cls._tables_initialized:
             return
 
-        from sqlalchemy import Column
-        from sqlalchemy import DateTime
-        from sqlalchemy import Index
-        from sqlalchemy import Integer
-        from sqlalchemy import MetaData
-        from sqlalchemy import String
-        from sqlalchemy import Table
-        from sqlalchemy import Text
-        from sqlalchemy.sql import func
-
         engine = cls._get_or_create_async_engine(db_url)
-        metadata = MetaData()
-
-        Table(
-            "job_events",
-            metadata,
-            Column("id", Integer, primary_key=True, autoincrement=True),
-            Column("job_id", String(64), nullable=False, index=True),
-            Column("event_type", String(64), nullable=False),
-            Column("event_data", Text, nullable=True),
-            Column("created_at", DateTime, server_default=func.now()),
-            Index("idx_job_events_job_id_id", "job_id", "id"),
-            Index("idx_job_events_created_at", "created_at"),
-        )
-
         async with engine.begin() as conn:
-            await conn.run_sync(lambda sync_conn: metadata.create_all(sync_conn))
+            await conn.run_sync(lock_schema, "job_events")
+            await conn.run_sync(_create_job_events_table)
 
         cls._tables_initialized.add(db_url)
-        logger.info("Created job_events table (async) in %s", redact_db_url(db_url))
+        logger.info("Ensured job_events table (async) in %s", redact_db_url(db_url))
 
     def store(self, event: dict):
         """
@@ -441,37 +414,10 @@ class EventStore:
         if db_url in cls._tables_initialized:
             return
 
-        from sqlalchemy import Column
-        from sqlalchemy import DateTime
-        from sqlalchemy import Index
-        from sqlalchemy import Integer
-        from sqlalchemy import MetaData
-        from sqlalchemy import String
-        from sqlalchemy import Table
-        from sqlalchemy import Text
-        from sqlalchemy import inspect
-        from sqlalchemy.sql import func
-
-        engine = cls._get_or_create_sync_engine(db_url)
-        inspector = inspect(engine)
-
-        if not inspector.has_table("job_events"):
-            metadata = MetaData()
-            Table(
-                "job_events",
-                metadata,
-                Column("id", Integer, primary_key=True, autoincrement=True),
-                Column("job_id", String(64), nullable=False, index=True),
-                Column("event_type", String(64), nullable=False),
-                Column("event_data", Text, nullable=True),
-                Column("created_at", DateTime, server_default=func.now()),
-                Index("idx_job_events_job_id_id", "job_id", "id"),
-                Index("idx_job_events_created_at", "created_at"),
-            )
-            metadata.create_all(engine)
-            logger.info("Created job_events table in %s", redact_db_url(db_url))
+        ensure_schema(cls._get_or_create_sync_engine(db_url), "job_events", _create_job_events_table)
 
         cls._tables_initialized.add(db_url)
+        logger.info("Ensured job_events table in %s", redact_db_url(db_url))
 
     @classmethod
     def get_events(

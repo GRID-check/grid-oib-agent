@@ -1,12 +1,21 @@
 /**
  * Research Runs API Client
  *
- * Lists deep research async jobs ("research runs") for a project via the
- * v1 BFF proxy (src/app/api/v1/[...path]/route.ts), which forwards to the
+ * Lists deep research async jobs ("research runs") for a project via the job
+ * proxy (src/app/api/jobs/async/[...path]/route.ts), which forwards to the
  * backend's /v1/jobs/async/jobs endpoint.
+ *
+ * The project is named by `projectId`, never by its collection: the proxy
+ * checks the caller may chat in that project, signs it, and filters the
+ * backend's listing to it (ADR-0084). The backend then lists the caller's own
+ * runs plus the project's. A collection name sent from here was a project
+ * nobody had checked, so the backend could only ever answer with the caller's
+ * own runs in it.
+ *
+ * Browser only: the proxy is where the project is checked, and there is no
+ * second path to the backend that skips it.
  */
 
-import { apiConfig } from './config'
 import { ApiRequestError } from './api-error'
 
 // ============================================================
@@ -33,7 +42,8 @@ export interface ListResearchRunsResponse {
 
 /** Query params accepted by the list endpoint */
 export interface ListResearchRunsParams {
-  projectCollection?: string
+  /** The project to list, checked and signed by the proxy. */
+  projectId?: string
   conversationId?: string
   status?: string
   limit?: number
@@ -44,15 +54,7 @@ export interface ListResearchRunsParams {
 // Helpers
 // ============================================================
 
-/**
- * Get the base URL for the v1 API.
- * Uses the local same-origin proxy route in the browser to avoid CORS issues,
- * and calls the backend directly on the server.
- */
-const getV1BaseUrl = (): string => {
-  const isBrowser = typeof window !== 'undefined'
-  return isBrowser ? '/api/v1' : `${apiConfig.baseUrl}/v1`
-}
+const RESEARCH_RUNS_URL = '/api/jobs/async/jobs'
 
 const getResearchRunsErrorDetails = async (response: Response): Promise<string | null> => {
   const responseText = await response.text().catch(() => '')
@@ -120,23 +122,23 @@ const normalizeListResearchRunsResponse = (data: unknown): ListResearchRunsRespo
 
 /**
  * List research runs (deep research async jobs), optionally scoped to a
- * project collection.
+ * project.
  */
 export const listResearchRuns = async (
   params: ListResearchRunsParams = {},
   authToken?: string
 ): Promise<ListResearchRunsResponse> => {
-  const { projectCollection, conversationId, status, limit, offset } = params
+  const { projectId, conversationId, status, limit, offset } = params
 
   const searchParams = new URLSearchParams()
-  if (projectCollection) searchParams.set('project_collection', projectCollection)
+  if (projectId) searchParams.set('projectId', projectId)
   if (conversationId) searchParams.set('conversation_id', conversationId)
   if (status) searchParams.set('status', status)
   if (limit !== undefined) searchParams.set('limit', String(limit))
   if (offset !== undefined) searchParams.set('offset', String(offset))
 
   const query = searchParams.toString()
-  const url = `${getV1BaseUrl()}/jobs/async/jobs${query ? `?${query}` : ''}`
+  const url = `${RESEARCH_RUNS_URL}${query ? `?${query}` : ''}`
 
   const headers: HeadersInit = {
     'Content-Type': 'application/json',

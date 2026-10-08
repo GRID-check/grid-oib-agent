@@ -33,7 +33,8 @@ Three shapes:
   for the same name cannot both retire the same predecessor and keep both new
   versions. Also fail-closed: when the lock cannot be taken it RAISES, the
   ingest attempt fails and the claim queue retries it, rather than replacing a
-  document unguarded across replicas.
+  document unguarded across replicas. :func:`keyed_lock_async` is the same wait
+  for a caller on an event loop.
 
 :func:`require_direct_dsns` is the start-up check: a process that is configured
 with Postgres refuses to boot without the direct DSNs it uses, so a missing one
@@ -223,7 +224,7 @@ async def leader_lock_async(lock_id: int):
 _KEYED_LOCK_NAMESPACE = 0x41495152
 
 # One per key, for the life of the process: bounded by the document names this
-# process has ingested, the same bound as oib_sync's per-basename locks.
+# process has ingested, the same bound as oib_sync's per-file locks.
 _PROCESS_LOCKS: dict[str, threading.Lock] = {}
 _PROCESS_LOCKS_GUARD = threading.Lock()
 
@@ -283,3 +284,19 @@ def keyed_lock(key: str):
                     "SELECT pg_advisory_unlock(:namespace, hashtext(:key))",
                     {"namespace": _KEYED_LOCK_NAMESPACE, "key": key},
                 )
+
+
+@contextlib.asynccontextmanager
+async def keyed_lock_async(key: str):
+    """:func:`keyed_lock` for an event loop: waiting for the lock, taking it and releasing it run on a thread.
+
+    Held across the awaited body. For a start-up step that other replicas run at
+    the same time and that cannot share a transaction, such as LangGraph's
+    ``setup()`` (``CREATE INDEX CONCURRENTLY``). Fail-closed like the sync form.
+    """
+    hold = keyed_lock(key)
+    await asyncio.to_thread(hold.__enter__)
+    try:
+        yield
+    finally:
+        await asyncio.to_thread(hold.__exit__, None, None, None)

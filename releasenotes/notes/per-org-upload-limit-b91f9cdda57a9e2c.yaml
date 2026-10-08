@@ -1,0 +1,16 @@
+---
+improvements:
+  - >
+    The upload area now states the largest file you can upload as a size per
+    file, and the number it shows is the one your organization is held to. It
+    no longer shows 95 MB for a 100 MB limit.
+operators:
+  - >
+    Platform staff can set a maximum file size per organization on Platform,
+    Storage, edited beside the quota. It can be raised above the deployment
+    default up to the largest request the deployment accepts, and building
+    models keep their own limit.
+  - >
+    Organization admins see the file size limit in force under Organization,
+    Storage, read-only. A file over it is refused with a message naming the
+    limit.

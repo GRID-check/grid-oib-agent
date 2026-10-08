@@ -72,6 +72,8 @@ function readConfig(env) {
       staleSeconds: Math.max(toInt(env.GRID_BFF_JOBS_STALE_SECONDS, 180), (heartbeatMs / 1000) * 4),
       maxAttempts: toInt(env.GRID_BFF_JOBS_MAX_ATTEMPTS, 3),
       perLaneCap: toInt(env.GRID_BFF_JOBS_MAX_PER_ORG, 0, { min: 0 }),
+      // A claim gives its slot back between slices after this long (runner.js, runClaim).
+      yieldAfterMs: 10 * 60_000,
       reapEveryMs: 60_000,
       transientBackoffMs: 5_000,
       retryBackoffSeconds: toInt(env.GRID_BFF_JOBS_RETRY_BACKOFF_SECONDS, queue.DEFAULT_RETRY_BACKOFF_SECONDS, { min: 0 }),

@@ -100,13 +100,15 @@ def mark_ensured(url: str) -> None:
     QUEUE.mark_ensured(url)
 
 
-def enqueue(job_id: str, organization_id: str | None, payload: str, priority: str | None = None) -> None:
-    """Store a claimable job. Raises: the caller runs the job locally when this fails.
+def enqueue(job_id: str, organization_id: str | None, payload: str, priority: str | None = None) -> bool:
+    """Store a claimable job; whether this call stored it (an id already in the table stores nothing).
+
+    Raises when the queue cannot be written.
 
     ``priority`` is ``interactive`` (the default) or ``bulk``: inside one
     organisation, interactive jobs are claimed first.
     """
-    QUEUE.enqueue(job_id, lane_of(organization_id), payload, priority)
+    return QUEUE.enqueue(job_id, lane_of(organization_id), payload, priority)
 
 
 def claim_next(worker: str, *, stale_seconds: int, max_attempts: int, per_lane_cap: int = 0) -> Claim | None:
