@@ -870,8 +870,8 @@ The stored restriction is a snapshot of where the document was read, and no
 reader consults it for access. The search (`searchPermitRequirements`) joins
 the document, judges its LIVE `folder_id` against the folder tree and the
 reader's clearance (`lib/permits/live-access.ts`), records that live
-restriction at hand-out, and serves nothing whose document is quarantined,
-archived or in the Papierkorb.
+restriction at hand-out, and serves nothing whose document is held by the
+upload screen (`SCREENED_ONLY`, ADR-0086), archived or in the Papierkorb.
 Proven in `src/lib/permits/repository.integration.spec.ts` under
 `scripts/rls-test-db.sh`.
 

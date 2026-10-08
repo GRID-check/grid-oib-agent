@@ -81,13 +81,15 @@ describe.skipIf(!url)('permit records against live Postgres', () => {
     )
   }
 
+  /** An upload the ingest read to the end and the screen let through, as a document with a record is. */
   async function document(organizationId: string, projectId: string, filename: string): Promise<string> {
     return first(
       await inOrg(organizationId, () =>
         db.execute<{ id: string }>(sql`
-          insert into documents (organization_id, project_id, scope, filename, storage_key, collection_name, created_by)
+          insert into documents (organization_id, project_id, scope, filename, storage_key, collection_name, created_by,
+                                 status, screening_outcome)
           values (${organizationId}, ${projectId}::uuid, 'project', ${filename}, ${`k/${STAMP}/${filename}`},
-                  ${`proj_prm_${projectId}`}, ${USER}) returning id`)
+                  ${`proj_prm_${projectId}`}, ${USER}, 'completed', 'clean') returning id`)
       )
     )
   }
@@ -493,6 +495,22 @@ describe.skipIf(!url)('permit records against live Postgres', () => {
 
         expect(contents(await search(ORG, quarantined))).not.toContain(quarantined)
         expect(contents(await search(ORG, archived))).not.toContain(archived)
+      })
+
+      it('goes quiet while its document is held: the screen has not judged the bytes it holds now (ADR-0086)', async () => {
+        // Not quarantined, yet not past the screen either: new bytes the verdict did not
+        // judge, or an upload with no verdict that never settled. What a record says
+        // reaches the agent, so it is served only as SCREENED_ONLY serves a document.
+        const replaced = 'Die Grünfläche ist mit mindestens drei Laubbäumen zu bepflanzen.'
+        const unsettled = 'Der Spielplatz ist vor Bezug der Wohnungen herzustellen.'
+        const first = await storedNotice('Bescheid_neue_Fassung.pdf', replaced)
+        const second = await storedNotice('Bescheid_ungeprueft.pdf', unsettled)
+
+        await change(sql`update documents set content_hash = 'new-bytes', screened_hash = 'old-bytes' where id = ${first}::uuid`)
+        await change(sql`update documents set screening_outcome = null, status = 'failed' where id = ${second}::uuid`)
+
+        expect(contents(await search(ORG, replaced))).not.toContain(replaced)
+        expect(contents(await search(ORG, unsettled))).not.toContain(unsettled)
       })
     })
 

@@ -533,3 +533,60 @@ class TestNoThumbnailBeforeTheVerdict:
         assert thumbnails == ["screen", f"thumbnail:{preview}"]
         # Downloaded by the job, so deleted by it.
         assert not preview.exists()
+
+
+@pytest.fixture
+def permits(monkeypatch, calls):
+    """The permit ingest hook's two exits, recording: a record extracted and stored, a record dropped.
+
+    The tag decision types every document a Bescheid, and the job names a BFF row, so the hook
+    would read any file that reaches it.
+    """
+    from knowledge_layer.llamaindex import document_presence
+
+    seen: dict[str, list] = {"extracted": [], "dropped": []}
+    monkeypatch.setattr(
+        "aiq_agent.knowledge.permit_extraction.extract_and_store_permit_record",
+        lambda pages, llm, **kwargs: seen["extracted"].append(kwargs["file_name"]) or True,
+    )
+    monkeypatch.setattr(
+        "aiq_agent.knowledge.permit_records_client.store_permit_record",
+        lambda *args, **kwargs: seen["dropped"].append(args) or True,
+    )
+    monkeypatch.setattr(document_presence, "document_still_exists", lambda *args, **kwargs: True)
+    calls["summary_llm"].invoke.side_effect = lambda prompt: MagicMock(
+        content='["Bescheid"]' if "klassifizierst" in prompt else "Ok."
+    )
+    return seen
+
+
+_PERMIT_JOB = {"organization_id": "org_1", "document_id": "d1"}
+
+
+class TestAQuarantinedFileIsNoPermit:
+    """The permit hook runs after the screen's ``continue`` (ADR-0086): a held Bescheid is never read for a record."""
+
+    def test_a_quarantined_pdf_is_neither_extracted_nor_dropped(self, tmp_path, calls, permits):
+        detail = _ingest(calls, _pdf(tmp_path, "Baubescheid", *_PAYSLIP), "Bescheid.pdf", _TERMS, **_PERMIT_JOB)
+
+        assert detail.screening == "quarantined"
+        assert permits == {"extracted": [], "dropped": []}
+
+    def test_a_quarantined_text_file_is_neither_extracted_nor_dropped(self, tmp_path, calls, permits):
+        path = tmp_path / "bescheid.txt"
+        path.write_text(f"Baubescheid\n\nGebühren auf {_IBAN}.\n", encoding="utf-8")
+
+        detail = _ingest(calls, path, "bescheid.txt", _IBAN_ONLY, **_PERMIT_JOB)
+
+        assert detail.screening == "quarantined"
+        assert permits == {"extracted": [], "dropped": []}
+
+    def test_the_same_files_screened_clean_are_read_for_a_record(self, tmp_path, calls, permits):
+        # What proves the gate, not the stubs, kept the hook away above.
+        pdf = _ingest(calls, _pdf(tmp_path, "Baubescheid", "Auflage 1"), "Bescheid.pdf", _TERMS, **_PERMIT_JOB)
+        path = tmp_path / "bescheid.txt"
+        path.write_text("Baubescheid\n\nAuflage 1: Stellplaetze nachweisen.\n", encoding="utf-8")
+        text = _ingest(calls, path, "bescheid.txt", _IBAN_ONLY, **_PERMIT_JOB)
+
+        assert (pdf.screening, text.screening) == ("clean", "clean")
+        assert permits["extracted"] == ["Bescheid.pdf", "bescheid.txt"]

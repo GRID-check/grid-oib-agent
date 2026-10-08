@@ -152,8 +152,12 @@ joins the document and judges its LIVE `folder_id` against the project's folder
 tree, as the document hits beside it are judged (`lib/permits/live-access.ts`):
 a record from a restricted folder only for a reader cleared for every folder
 restricting it now, and the restriction the hand-out records is that live one.
-A record whose document is quarantined, archived or in the Papierkorb is not
-served at all. Neither re-ingest nor placement is needed for any of this to
+A record whose document is not past the upload screen as a model reads it
+(`SCREENED_ONLY`, ADR-0086: quarantined, or held because no verdict judged the
+bytes it holds now), archived or in the Papierkorb is not served at all. The
+writer's own lookup (`findPermitDocument`) sees every row
+(`internalRead('ingest')`): the ingest hook asks before the verdict reaches the
+row, and it runs only after the screen let the file through. Neither re-ingest nor placement is needed for any of this to
 hold.
 
 `CrossProjectSearchResponse` gains `permits: CrossProjectPermit[]` (≤ 8

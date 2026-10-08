@@ -27,6 +27,7 @@ import 'server-only'
 import { and, desc, eq, inArray, isNull, or, sql, type SQL } from 'drizzle-orm'
 import { CROSS_PROJECT_MAX_PERMIT_REQUIREMENTS, CROSS_PROJECT_MAX_PERMITS } from '@/lib/cross-project/types'
 import { getDb } from '@/lib/db'
+import { documentVisibleTo, internalRead, SCREENED_ONLY } from '@/lib/documents/visibility'
 import {
   documents,
   permitRecords,
@@ -149,6 +150,11 @@ export interface PermitDocumentRef {
  * With an id, id AND collection. Without one, the collection and file name,
  * restricted to the rows `uniq_documents_live_name_per_collection` makes unique
  * (a person's upload, or a `piloti/` document), so the name names one row.
+ *
+ * The writer's read (ADR-0086): the ingest hook asks right after the upload
+ * screen, before the pipeline's verdict reaches the row, so it sees every row.
+ * Nothing it finds reaches a model from here; the search serves a record only
+ * through `SCREENED_ONLY` ({@link documentServesItsRecord}).
  */
 export async function findPermitDocument(organizationId: string, ref: PermitDocumentRef): Promise<PermitDocument | null> {
   const [row] = await getDb()
@@ -170,7 +176,8 @@ export async function findPermitDocument(organizationId: string, ref: PermitDocu
               eq(documents.filename, ref.fileName),
               sql`(${documents.authoredBy} = 'user' OR ${documents.filename} LIKE 'piloti/%')`
             ),
-        sql`NOT EXISTS (SELECT 1 FROM project_folders f WHERE f.id = ${documents.folderId} AND f.deleted_at IS NOT NULL)`
+        sql`NOT EXISTS (SELECT 1 FROM project_folders f WHERE f.id = ${documents.folderId} AND f.deleted_at IS NOT NULL)`,
+        documentVisibleTo(internalRead('ingest'))
       )
     )
     .limit(1)
@@ -234,10 +241,12 @@ export async function deletePermitRecord(organizationId: string, documentId: str
 }
 
 /**
- * A record is served only while its document is live: not quarantined, not
- * archived, and not in the Papierkorb (every folder of a binned subtree carries
- * `deleted_at`, migration 0115), so deleting through the bin removes what was
- * derived from it at once, not when the purge cascades. WHO may be served it is
+ * A record is served only while its document is live: past the upload screen
+ * as a model may read it (`SCREENED_ONLY`, ADR-0086: not quarantined, not held,
+ * its verdict about the bytes it holds now), not archived, and not in the
+ * Papierkorb (every folder of a binned subtree carries `deleted_at`, migration
+ * 0115), so deleting through the bin removes what was derived from it at once,
+ * not when the purge cascades. WHO may be served it is
  * decided apart, from the document's live folder (`live-access.ts`): the stored
  * restriction is a snapshot of where the document was read, and nothing here
  * trusts it.
@@ -245,7 +254,8 @@ export async function deletePermitRecord(organizationId: string, documentId: str
 const documentServesItsRecord = and(
   eq(documents.organizationId, permitRecords.organizationId),
   eq(documents.projectId, permitRecords.projectId),
-  sql`${documents.status} <> 'quarantined'`,
+  // What a record says reaches the agent: nobody's own held upload counts.
+  documentVisibleTo(SCREENED_ONLY),
   eq(documents.lifecycle, 'active'),
   sql`NOT EXISTS (SELECT 1 FROM project_folders f WHERE f.id = ${documents.folderId} AND f.deleted_at IS NOT NULL)`
 )

@@ -215,6 +215,10 @@ const ELEVATED_READERS: Record<string, { makes: string[]; why: string }> = {
     makes: ['internal:ingest'],
     why: 'The pipeline asks whether the file it just indexed still exists (service token, no person).',
   },
+  'lib/permits/repository.ts#findPermitDocument': {
+    makes: ['internal:ingest'],
+    why: "The permit writer resolves the document the ingest just read (service token, no person); the search serves its record only through SCREENED_ONLY.",
+  },
   'lib/documents/service.ts#dispatchIngest': { makes: ['internal:ingest'], why: "The dispatch reads the row it sends: whose spend, which rules." },
   'lib/documents/service.ts#dispatchDocument': { makes: ['internal:ingest'], why: 'The one funnel every ingest passes reads its row.' },
   'lib/documents/service.ts#jobStillOwnsRow': { makes: ['internal:ingest'], why: 'A background job asks whether the row is still its own.' },
@@ -264,6 +268,9 @@ const GUARDED_TABLES: Record<string, string> = {
   bimElements: 'bim_elements',
   bimCheckConfirmations: 'bim_check_confirmations',
   resourceAssignments: 'resource_assignments',
+  // What a Bescheid said (permitting memory, ADR-0094): derived from a document, served to the agent.
+  permitRecords: 'permit_records',
+  permitRequirements: 'permit_requirements',
 }
 
 /** The relational-API names that reach `documents` from another table (`one(documents)`, `many(documents)`). */
@@ -621,7 +628,14 @@ describe('every read of documents states its reader (ADR-0086)', () => {
     expect(documentReads.length).toBeGreaterThan(40)
     expect(documentReads.map((read) => read.key)).toContain('lib/documents/repository.ts#findDocumentInOrg')
     expect(factReads.map((read) => read.table)).toEqual(
-      expect.arrayContaining(['documentVersions', 'bimModels', 'bimElements', 'bimCheckConfirmations', 'resourceAssignments'])
+      expect.arrayContaining([
+        'documentVersions',
+        'bimModels',
+        'bimElements',
+        'bimCheckConfirmations',
+        'resourceAssignments',
+        'permitRequirements',
+      ])
     )
     expect(DOCUMENT_RELATIONS).toEqual(new Set(['documents', 'document']))
   })

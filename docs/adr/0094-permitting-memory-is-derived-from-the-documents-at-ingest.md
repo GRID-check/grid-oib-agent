@@ -55,8 +55,8 @@ and link (dates, authority, kind of item).
   document on re-extraction, deleted with the document.
 * Each row carries the document's restricting folders; the read filters by the
   reader's clearance judged against the document's LIVE folder, as document
-  hits are, and serves no row whose document is quarantined, archived or in the
-  Papierkorb: the stored restriction is a snapshot of where the document was
+  hits are, and serves no row whose document is held by the upload screen
+  (`SCREENED_ONLY`, ADR-0086), archived or in the Papierkorb: the stored restriction is a snapshot of where the document was
   read, so access is decided by where it is now, never by re-ingest or
   placement.
 * The cross-project search returns `permits` beside decisions and passages,
