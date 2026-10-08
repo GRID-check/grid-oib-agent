@@ -3,26 +3,29 @@ import { render, screen } from '@/test-utils'
 import { OtherProjectsNotice } from './OtherProjectsNotice'
 
 describe('OtherProjectsNotice (ADR-0093)', () => {
-  it('names each running other project and says what that closes; a closed one closes nothing and is not named', () => {
+  it('names every project it is given and says what that closes: the list is the server’s, not filtered here', () => {
     render(
       <OtherProjectsNotice
         projects={[
-          { id: 'g', name: 'Wohnbau Graz', status: 'closed' },
-          { id: 'l', name: 'Schule Linz', status: 'active' },
+          { id: 'g', name: 'Wohnbau Graz' },
+          { id: 'l', name: 'Schule Linz' },
         ]}
       />
     )
 
     const notice = screen.getByTestId('other-projects-notice')
-    expect(notice.textContent).not.toContain('Wohnbau Graz')
-    expect(notice.textContent).toContain('Schule Linz')
+    expect(notice.textContent).toContain('Wohnbau Graz and Schule Linz')
     expect(notice.textContent).toContain('project memory')
   })
 
-  it('renders nothing for a chat that drew on no other project, or only on closed ones', () => {
+  it('says so for a project that is gone, which still narrows the chat', () => {
+    render(<OtherProjectsNotice projects={[{ id: 'x', name: null }]} />)
+
+    expect(screen.getByTestId('other-projects-notice').textContent).toContain('a project that no longer exists')
+  })
+
+  it('renders nothing when nothing restricts the chat', () => {
     const { container } = render(<OtherProjectsNotice projects={[]} />)
     expect(container).toBeEmptyDOMElement()
-    const closedOnly = render(<OtherProjectsNotice projects={[{ id: 'g', name: 'Wohnbau Graz', status: 'closed' }]} />)
-    expect(closedOnly.container).toBeEmptyDOMElement()
   })
 })

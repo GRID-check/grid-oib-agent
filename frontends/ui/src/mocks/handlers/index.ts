@@ -4,13 +4,15 @@
  * Combines all MSW handlers for use in browser and server setups.
  */
 
+import { conversationHandlers } from './conversations'
 import { documentHandlers } from './documents'
 import { uploadScreeningHandlers } from './upload-screening'
 import { userPreferencesHandlers } from './user-preferences'
 
-export const handlers = [...documentHandlers, ...userPreferencesHandlers, ...uploadScreeningHandlers]
+export const handlers = [...documentHandlers, ...userPreferencesHandlers, ...uploadScreeningHandlers, ...conversationHandlers]
 
 // Re-export individual handler groups for selective use in tests
+export { conversationHandlers }
 export { documentHandlers }
 export { userPreferencesHandlers }
 export { uploadScreeningHandlers }

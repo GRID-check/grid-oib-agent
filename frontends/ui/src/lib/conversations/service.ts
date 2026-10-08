@@ -68,6 +68,7 @@ import { sanitizeProvenance } from './message-provenance'
 import { sanitizeStages } from './message-stages'
 import { sanitizePromptDetail, sanitizePromptState, type StoredPromptState } from './message-prompt'
 import { maskAnswerText, maskChatText } from '@/lib/upload-screening/service'
+import { restrictingOtherProjects, type RestrictingOtherProject } from './cross-project-use'
 import { lockedConversationIds } from './restricted-use'
 import { CONVERSATION_TAG_KEYS, normalizeConversationTags } from './tags'
 import {
@@ -168,6 +169,13 @@ export interface ConversationWithAccess extends Conversation {
    * answers next because a colleague typed "danke".
    */
   engagementSuggestion: ConversationEngagement | null
+  /**
+   * The other projects this chat's answers drew on that restrict it NOW
+   * (ADR-0093), judged at read time like every door: a project closed since the
+   * answer is not here, a reopened one is, and a closed project's restricted
+   * folder names its project. What the composer's notice lists.
+   */
+  restrictingOtherProjects: RestrictingOtherProject[]
 }
 
 export interface ListConversationsFilter {
@@ -234,10 +242,11 @@ export async function getConversation(
 ): Promise<ConversationWithAccess> {
   const access = await requireResourceAccess(session, 'conversation', conversationId, 'viewer')
 
-  const [conversation, grantCount, readMark] = await Promise.all([
+  const [conversation, grantCount, readMark, restricting] = await Promise.all([
     findConversationInOrg(conversationId, session.organizationId),
     countGrantsForResource('conversation', conversationId),
     findConversationRead(conversationId, session.userId),
+    restrictingOtherProjects(conversationId, session.organizationId),
   ])
   if (!conversation) throw new NotFoundError()
 
@@ -261,6 +270,7 @@ export async function getConversation(
     engagementMode: engagement.mode,
     engagementStored: engagement.stored,
     engagementSuggestion: engagement.suggestion,
+    restrictingOtherProjects: restricting,
   }
 }
 

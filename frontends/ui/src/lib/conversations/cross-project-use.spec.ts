@@ -29,6 +29,8 @@ const state = vi.hoisted(() => ({
   recordedProjects: [] as string[],
   recordedFolders: [] as string[],
   folderProjects: new Map<string, string>(),
+  names: new Map<string, string>(),
+  nameQueries: [] as string[][],
 }))
 
 vi.mock('@/lib/db', () => ({
@@ -56,10 +58,21 @@ vi.mock('./restricted-use-repository', () => ({
   projectsOfFolders: vi.fn(async (_db: unknown, _org: string, ids: readonly string[]) => {
     return new Map(ids.flatMap((id) => (state.folderProjects.has(id) ? [[id, state.folderProjects.get(id)!] as const] : [])))
   }),
+  listProjectNames: vi.fn(async (_db: unknown, _org: string, ids: string[]) => {
+    state.nameQueries.push([...ids])
+    return new Map(ids.filter((id) => state.names.has(id)).map((id) => [id, state.names.get(id)!]))
+  }),
 }))
 
 import { CrossProjectAudienceChangedError, CrossProjectMemoryError } from '@/lib/api/errors'
-import { audienceKey, isSoloAudience, recordCrossProjectHandOut, requireMayRememberFrom } from './cross-project-use'
+import {
+  audienceKey,
+  drewOnOtherProjects,
+  isSoloAudience,
+  recordCrossProjectHandOut,
+  restrictingOtherProjects,
+  requireMayRememberFrom,
+} from './cross-project-use'
 
 const solo: ConversationAudienceRow = { exists: true, projectId: null, createdBy: OWNER, visibility: 'private', grantees: [] }
 const party = { organizationId: ORG, userId: OWNER, conversationId: CONV }
@@ -200,5 +213,88 @@ describe('requireMayRememberFrom', () => {
   it('lets every other write through', async () => {
     await expect(requireMayRememberFrom(CONV, ORG)).resolves.toBeUndefined()
     await expect(requireMayRememberFrom(undefined, ORG)).resolves.toBeUndefined()
+  })
+})
+
+describe('drewOnOtherProjects', () => {
+  it('is true for a restricting project, or for a restricted folder of another project, and false for neither', async () => {
+    state.audiences = [{ ...solo, projectId: OWN }]
+    expect(await drewOnOtherProjects(CONV, ORG)).toBe(false)
+
+    state.recordedProjects = [OTHER]
+    expect(await drewOnOtherProjects(CONV, ORG)).toBe(true)
+
+    state.recordedProjects = []
+    state.recordedFolders = [HONORARE_ID]
+    state.folderProjects = new Map([[HONORARE_ID, OTHER]])
+    expect(await drewOnOtherProjects(CONV, ORG)).toBe(true)
+  })
+})
+
+describe('restrictingOtherProjects', () => {
+  const LINZ = '33333333-0000-4000-8000-000000000003'
+  const GONE = '44444444-0000-4000-8000-000000000004'
+
+  beforeEach(() => {
+    state.audiences = [{ ...solo, projectId: OWN }]
+    state.names = new Map([
+      [OTHER, 'Wohnbau Graz'],
+      [LINZ, 'Schule Linz'],
+    ])
+    state.nameQueries = []
+  })
+
+  it('is empty exactly when drewOnOtherProjects is false, and asks for no names then', async () => {
+    expect(await restrictingOtherProjects(CONV, ORG)).toEqual([])
+    expect(await drewOnOtherProjects(CONV, ORG)).toBe(false)
+    expect(state.nameQueries).toEqual([[]])
+  })
+
+  it('lists a recorded project that restricts, named', async () => {
+    state.recordedProjects = [LINZ]
+
+    expect(await restrictingOtherProjects(CONV, ORG)).toEqual([{ id: LINZ, name: 'Schule Linz' }])
+  })
+
+  it('lists the project that owns a recorded restricted folder, although the project is closed and not in the restricting record', async () => {
+    state.recordedFolders = [HONORARE_ID]
+    state.folderProjects = new Map([[HONORARE_ID, OTHER]])
+
+    expect(await restrictingOtherProjects(CONV, ORG)).toEqual([{ id: OTHER, name: 'Wohnbau Graz' }])
+    expect(await drewOnOtherProjects(CONV, ORG)).toBe(true)
+  })
+
+  it('does not list the conversation’s own project for a folder of its own', async () => {
+    state.recordedFolders = [HONORARE_ID]
+    state.folderProjects = new Map([[HONORARE_ID, OWN]])
+
+    expect(await restrictingOtherProjects(CONV, ORG)).toEqual([])
+    expect(await drewOnOtherProjects(CONV, ORG)).toBe(false)
+  })
+
+  it('names a project once when the record and a folder both say it, sorted by name', async () => {
+    state.recordedProjects = [LINZ, OTHER]
+    state.recordedFolders = [HONORARE_ID]
+    state.folderProjects = new Map([[HONORARE_ID, OTHER]])
+
+    expect((await restrictingOtherProjects(CONV, ORG)).map((project) => project.name)).toEqual([
+      'Schule Linz',
+      'Wohnbau Graz',
+    ])
+  })
+
+  it('keeps a project that is deleted or gone, nameless, because it still restricts', async () => {
+    state.recordedProjects = [GONE]
+
+    expect(await restrictingOtherProjects(CONV, ORG)).toEqual([{ id: GONE, name: null }])
+  })
+
+  it('counts a restricted folder no project holds any more, standing in nameless for its project', async () => {
+    state.recordedFolders = [HONORARE_ID]
+
+    const found = await restrictingOtherProjects(CONV, ORG)
+
+    expect(found).toEqual([{ id: HONORARE_ID, name: null }])
+    expect(await drewOnOtherProjects(CONV, ORG)).toBe(true)
   })
 })

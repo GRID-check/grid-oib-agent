@@ -51,9 +51,8 @@ import { cn } from '@/lib/utils'
 import { AnimatePresence, motion, motionQuick, motionEntrance, springPress } from '@/components/motion'
 import { useWebSocketChat, useChatStore, useIsCurrentSessionBusy } from '@/features/chat'
 import { ChatScreeningNotice } from '@/features/chat/components/ChatScreeningNotice'
-import { useShallow } from 'zustand/react/shallow'
 import { OtherProjectsNotice } from '@/features/chat/components/OtherProjectsNotice'
-import { otherProjectsOf } from '@/features/chat/lib/other-projects'
+import { useRestrictingOtherProjects } from '@/features/chat/hooks/use-restricting-other-projects'
 import { useChatScreening } from '@/features/chat/hooks/use-chat-screening'
 import type { MaskedText } from '@/lib/upload-screening/content-screen'
 import { composerCapabilities } from '@/features/collaboration/lib/composer-capabilities'
@@ -481,8 +480,8 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
   // File upload hook - provides session files and handles validation internally.
   // Attachments go through `/api/session/documents` (type gate, quota, a row).
   const chatProjectId = useChatStore((state) => state.projectId)
-  // The other projects this chat's answers drew on (ADR-0093), for the notice.
-  const otherProjects = useChatStore(useShallow((state) => otherProjectsOf(state.currentConversation?.messages ?? [])))
+  // The other projects that restrict this chat now (ADR-0093), as the server judges it, for the notice.
+  const otherProjects = useRestrictingOtherProjects(currentConversationId)
   const {
     uploadFiles,
     sessionFiles,
