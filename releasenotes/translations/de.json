@@ -848,6 +848,10 @@
     "de": "Vergleichs- und Datentabellen in den Karten stehen jetzt in normaler Textgröße statt in der kleinsten Schrift, und Spaltenköpfe heben sich durch den Schriftschnitt ab."
   },
   {
+    "en": "Confirming the upload preview checks your office's list once more before a folder is created; if the preview changed meanwhile, nothing is sent and the dialog shows the new preview to confirm.",
+    "de": "Beim Bestätigen der Upload-Vorschau prüft Piloti die Liste Ihres Büros noch einmal, bevor ein Ordner angelegt wird; hat sich die Vorschau inzwischen geändert, wird nichts gesendet, und der Dialog zeigt die neue Vorschau zur Bestätigung."
+  },
+  {
     "en": "Copied answers keep their formatting: pasted into Word, Outlook or Notion they arrive with real tables, headings and emphasis instead of raw Markdown characters.",
     "de": "Kopierte Antworten behalten ihre Formatierung: In Word, Outlook oder Notion eingefügt, erscheinen echte Tabellen, Überschriften und Hervorhebungen statt roher Markdown-Zeichen."
   },
