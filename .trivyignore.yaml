@@ -93,6 +93,68 @@ vulnerabilities:
 
       Drop as soon as a Langfuse image ships deepmerge-ts >= 8.0.0.
 
+  # ── err2issue (ADR-0031) ──────────────────────────────────────────────────
+  #
+  # Digest-pinned in deploy/pulumi/src/config.ts. Eight findings from its Debian
+  # 12.15 base (perl-base, libpcre2-8-0), read from the image-scan log on
+  # 2026-10-08. Patched Debian packages exist for the ones that name a fixed
+  # version, so the real fix is a rebuild on a patched base and a digest bump.
+  #
+  # Accepted by the repo owner on 2026-10-08 until that rebuild lands. The
+  # expiry reopens the gate. err2issue's source is not in this repo, so reach
+  # from its code into these libraries is NOT established here, and the
+  # statements below do not claim the findings are unexploitable. Clear them
+  # when the rebuilt image scans clean.
+
+  - id: CVE-2026-103111
+    expired_at: 2026-11-08
+    statement: |
+      libpcre2-8-0 10.42-1+deb12u1, out-of-bounds write via a crafted regular
+      expression. Fixed in 10.42-1+deb12u2. See the err2issue block above.
+
+  - id: CVE-2026-13221
+    expired_at: 2026-11-08
+    statement: |
+      perl-base 5.36.0-7+deb12u3, incorrect regular expression processing on
+      large expressions. Fixed in 5.36.0-7+deb12u4. See the err2issue block above.
+
+  - id: CVE-2026-8376
+    expired_at: 2026-11-08
+    statement: |
+      perl-base, heap buffer overflow compiling regular expressions on 32-bit
+      builds. Whether the image is a 32-bit build was not checked here. See the
+      err2issue block above.
+
+  - id: CVE-2026-42496
+    expired_at: 2026-11-08
+    statement: |
+      perl-archive-tar, path traversal via crafted symlinks. See the err2issue
+      block above.
+
+  - id: CVE-2026-42497
+    expired_at: 2026-11-08
+    statement: |
+      perl-Archive-Tar, arbitrary file modification via crafted hardlinks during
+      extraction. See the err2issue block above.
+
+  - id: CVE-2026-48962
+    expired_at: 2026-11-08
+    statement: |
+      perl-IO-Compress, arbitrary code execution via an attacker-controlled output
+      glob. See the err2issue block above.
+
+  - id: CVE-2026-57432
+    expired_at: 2026-11-08
+    statement: |
+      perl, information disclosure via integer overflow in pack/unpack. See the
+      err2issue block above.
+
+  - id: CVE-2026-57433
+    expired_at: 2026-11-08
+    statement: |
+      Storable, denial of service via signed integer overflow in deserialization.
+      See the err2issue block above.
+
 secrets:
   - id: gcp-service-account
     paths:
