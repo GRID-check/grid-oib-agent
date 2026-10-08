@@ -191,7 +191,7 @@ def expire_terminal_jobs(
 
     1. **Mark** terminal rows ``is_expired = true`` once ``updated_at +
        expiry_seconds`` has passed (the per-row expiry NAT itself honors). It
-       is the only job_info expiry, in both execution modes (ADR-0082 A1: the
+       is the only job_info expiry (ADR-0082 A1: the
        job-events housekeeping route runs it). Marking re-arms the
        access/event cleanup, which keys off ``is_expired``.
     2. **Delete** rows past BOTH their own expiry and ``delete_grace_seconds``

@@ -1511,7 +1511,7 @@ async def _run_event_cleanup(
                     return (0, 0, 0, 0, 0)
 
             # 0. Mark terminal job_info rows expired (past their per-row expiry) and
-            # hard-delete rows past the delete grace, in both execution modes: this is
+            # hard-delete rows past the delete grace: this is
             # the only job_info expiry there is. Runs FIRST so the newly-marked rows
             # are reclaimed by steps 2/3 this cycle.
             job_marked, job_deleted = expire_terminal_jobs(db_url, delete_grace_seconds, conn=conn)
