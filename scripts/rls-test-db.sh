@@ -556,7 +556,7 @@ echo "==> 0112 restricted memory and down migration verified"
 #
 # The table is inside the tenant boundary, the database refuses an open outside
 # an own list, a shelf that disagrees with its project and any UPDATE, and the
-# down drops the table and its guard function; 0112 then re-applies. The
+# down drops the table and its guard function; 0113 then re-applies. The
 # platform role's delete and the retention sweep are proved against the real
 # chain by download-log.integration.spec.ts above.
 # ---------------------------------------------------------------------------
@@ -573,7 +573,7 @@ apply_in grid_download_log 0113_document_access_log.down.sql
 check_in grid_download_log "SELECT to_regclass('public.document_access_log') IS NULL" "t" "down dropped the download log"
 check_in grid_download_log "SELECT to_regprocedure('grid_document_access_log_guard()') IS NULL" "t" "down dropped the guard function"
 apply_in grid_download_log 0113_document_access_log.sql
-check_in grid_download_log "SELECT count(*) FROM document_access_log" "0" "0112 re-applies, empty"
+check_in grid_download_log "SELECT count(*) FROM document_access_log" "0" "0113 re-applies, empty"
 
 echo "==> 0113 download log and down migration verified"
 
