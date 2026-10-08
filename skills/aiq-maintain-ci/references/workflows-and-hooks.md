@@ -9,8 +9,8 @@ Authoritative sources: the workflow files under `.github/workflows/` and
   `changes` (path filter over `.github/filters.yml`, plus the reuse lookup on
   push), `backend-lint` (`task be:lint`: ruff check and format), `repo-lint`
   (`pre-commit run --all-files`, then `task agents:audit`), `backend-test` (the
-  coverage-gated core suite, the aiq_api suite and the `sources/` suites, which
-  `task be:verify` runs locally), `frontend`, `frontend-test` (six shards),
+  coverage-gated core suite), `backend-test-plugins` (the aiq_api suite and the
+  `sources/` suites, beside it; `task be:verify` runs all three locally), `frontend`, `frontend-test` (six shards),
   `frontend-coverage`, `tenant-isolation`, `web`, `infra`, `packages`,
   `release-note` (note lint on every run; requiring a note only on pull
   requests), and `ci-ok`, the single required check.

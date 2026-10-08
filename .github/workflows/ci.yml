@@ -166,12 +166,6 @@ jobs:
       - uses: ./.github/actions/setup-task
       - name: Core suite (coverage-gated)
         run: task be:test:ci
-      - name: aiq_api plugin suite
-        run: task be:test:api:ci
-      # sources/ is its own suite, not part of tests/. Same definition as the
-      # local `task be:verify`.
-      - name: sources/ package suites
-        run: task be:test:sources
       - name: Coverage comment (backend)
         if: github.event_name == 'pull_request'
         continue-on-error: true # never fail CI on a comment hiccup
@@ -180,6 +174,29 @@ jobs:
           pytest-xml-coverage-path: coverage.xml
           title: Backend coverage (src/aiq_agent)
           unique-id-for-comment: backend-coverage
+
+  # The aiq_api and sources/ suites ran as steps after the core suite in
+  # `backend-test`, so the job paid for all three in series (core 2m17s, then
+  # aiq_api 50s, then sources 7s). They share nothing with the core suite but
+  # the environment, so they run beside it. `task be:verify` still runs all
+  # three locally.
+  backend-test-plugins:
+    name: Backend tests (aiq_api, sources)
+    needs: changes
+    if: needs.changes.outputs.backend == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: ./.github/actions/setup-python-env
+        with:
+          python-version: "3.14" # same interpreter as `backend-test`
+      - uses: ./.github/actions/setup-task
+      - name: aiq_api plugin suite
+        run: task be:test:api:ci
+      # sources/ is its own suite, not part of tests/. Same definition as the
+      # local `task be:verify`.
+      - name: sources/ package suites
+        run: task be:test:sources
 
   # `task fe:verify` runs lint -> types -> tests -> build in series, which is
   # right locally but wasteful here: on a 2-core runner the four steps measured
@@ -519,7 +536,7 @@ jobs:
     # What restoring the gate would take, and what was lost with it:
     # docs/adr/0058-retrieval-correctness-and-the-measurement-gate.md,
     # "Update (2026-09-09)".
-    needs: [changes, backend-lint, backend-test, frontend, frontend-test, tenant-isolation, web, infra, packages, repo-lint, release-note]
+    needs: [changes, backend-lint, backend-test, backend-test-plugins, frontend, frontend-test, tenant-isolation, web, infra, packages, repo-lint, release-note]
     runs-on: ubuntu-latest
     steps:
       - name: Require needed jobs to have passed (skipped is fine)
