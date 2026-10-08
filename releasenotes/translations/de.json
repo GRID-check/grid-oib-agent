@@ -1960,6 +1960,10 @@
     "de": "Die Knöpfe in der Herleitung, zum Falten der Ebenen und Ansehen einer Quelle, reagieren wieder auf Klick und Tippen. Bei der ersten Frage eines neuen Chats läuft die Seite der wachsenden Herleitung nicht mehr hinterher."
   },
   {
+    "en": "The changelog on piloti.at is quicker to read: a busy week opens with its headings, and fixes stay folded until you open them.",
+    "de": "Der Changelog auf piloti.at liest sich schneller: Eine Woche mit vielen Änderungen zeigt zuerst ihre Überschriften, und Fehlerbehebungen bleiben eingeklappt, bis Sie sie öffnen."
+  },
+  {
     "en": "The chat header no longer repeats the project name next to the conversation title, and its buttons are a touch smaller and quieter.",
     "de": "Der Chat-Header wiederholt den Projektnamen nicht mehr neben dem Konversationstitel, und die Buttons sind etwas kleiner und dezenter."
   },
