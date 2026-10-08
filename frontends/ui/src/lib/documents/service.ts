@@ -787,7 +787,7 @@ export async function searchProjectDocuments(
   if (!project) throw new NotFoundError('Project not found')
 
   // The project's own collection and every restricted one this reader is
-  // cleared for (ADR-0084); one ranking across them, cut to `topK`.
+  // cleared for (ADR-0086); one ranking across them, cut to `topK`.
   const access = await getProjectFolderAccess(session, projectId, project.collectionName)
   const collections = [project.collectionName, ...access.clearedRestrictedCollections]
   const hits = (await Promise.all(collections.map((collection) => fetchSemanticHits(collection, query, topK))))
@@ -1766,7 +1766,7 @@ export async function runReindexSlice(
       counts[outcome] += 1
     } catch (error) {
       // A document in a folder the requester may not read, or may only read
-      // (ADR-0085), is not theirs to re-read: skipped, and never named, since
+      // (ADR-0087), is not theirs to re-read: skipped, and never named, since
       // its name is what a hidden folder hides.
       if (error instanceof NotFoundError || error instanceof ForbiddenError) {
         counts.skipped += 1
@@ -2146,7 +2146,7 @@ export async function deleteDocument(
   const doc = await findDocumentInOrg(documentId, session.organizationId)
   if (!doc || doc.scope !== 'project' || doc.projectId === null) throw new NotFoundError()
 
-  // A delete is a write in the document's folder (ADR-0085): the project's
+  // A delete is a write in the document's folder (ADR-0087): the project's
   // document-write permission, and write on the folder. A folder the session
   // may not read is not found; one it may only read refuses (403).
   await requireFolderWrite(session, doc.projectId, [doc.folderId])

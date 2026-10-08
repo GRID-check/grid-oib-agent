@@ -285,7 +285,7 @@ beforeEach(() => {
   // and would have made the guard look breakable when it is not.
   vi.mocked(findDocumentInOrg).mockResolvedValue(makeDocument())
   // The real `requireFolderWrite` checks the project's document-write
-  // permission first (the ceiling, ADR-0085); the open mock keeps that step so
+  // permission first (the ceiling, ADR-0087); the open mock keeps that step so
   // the 403/404 cases below still reach `requireProjectAccess`.
   vi.mocked(requireFolderWrite).mockImplementation(async (s, projectId) => {
     await requireProjectAccess(s, projectId, DOCUMENT_WRITE_PERMISSIONS)
@@ -453,7 +453,7 @@ describe('uploadDocument server-side name screening', () => {
 })
 
 /**
- * Restricted folders do not hold IFC models (ADR-0084): the model's building
+ * Restricted folders do not hold IFC models (ADR-0086): the model's building
  * data is keyed by project, so a restriction would hide the file and leave the
  * building open. The upload is refused before anything is stored.
  */
@@ -1592,7 +1592,7 @@ describe('deleteDocument', () => {
     expect(recordAuditEvent).not.toHaveBeenCalled()
   })
 
-  it('refuses a delete in a folder the session may only read (ADR-0085), before any side effects', async () => {
+  it('refuses a delete in a folder the session may only read (ADR-0087), before any side effects', async () => {
     const { folderReadOnlyError } = await import('@/lib/authz/folder-access-rule')
     vi.mocked(findDocumentInOrg).mockResolvedValue({ ...projectDoc, folderId: 'folder-read-only' })
     vi.mocked(requireFolderWrite).mockRejectedValueOnce(folderReadOnlyError())
@@ -3166,7 +3166,7 @@ describe('an office document is viewed through its PDF rendition', () => {
   })
 })
 
-describe('restricted folders (ADR-0084)', () => {
+describe('restricted folders (ADR-0086)', () => {
   const HIDDEN = 'folder-hidden'
   const RESTRICTED_COLLECTION = 'proj_abc_r1111aaaa2222'
   const restricted: ProjectFolderAccess = {
@@ -3219,7 +3219,7 @@ describe('restricted folders (ADR-0084)', () => {
     expect(vi.mocked(admitOrDiscard).mock.calls[0][2]).toMatchObject({ collectionName: RESTRICTED_COLLECTION })
   })
 
-  it('refuses an upload into a folder the uploader may only read, before a byte is stored (ADR-0085)', async () => {
+  it('refuses an upload into a folder the uploader may only read, before a byte is stored (ADR-0087)', async () => {
     vi.mocked(getProjectFolderAccess).mockResolvedValue({
       ...restricted,
       levelOf: (folderId) => (folderId === 'folder-read' ? 'read' : 'write'),

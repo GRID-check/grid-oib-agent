@@ -13,7 +13,7 @@
  */
 import { describe, expect, it, vi, beforeEach } from 'vitest'
 
-// No folder has its own access list (ADR-0085): every write is allowed.
+// No folder has its own access list (ADR-0087): every write is allowed.
 vi.mock('@/lib/authz/folder-access', async () => (await import('@/test-utils/folder-access')).openFolderAccessModule())
 vi.mock('@/lib/authz/folder-access-repository', () => ({
   listProjectDocumentCollections: vi.fn(async () => []),
@@ -144,7 +144,7 @@ describe('deleteProjectFolder', () => {
     const folderDeleted = db.calls.indexOf('update:folders')
     expect(documentsMoved).toBeGreaterThanOrEqual(0)
     expect(folderDeleted).toBeGreaterThan(documentsMoved)
-    // A tombstone, not a delete (ADR-0085): the row keeps its access mode and
+    // A tombstone, not a delete (ADR-0087): the row keeps its access mode and
     // grants, so the access rule still answers for content drawn from it.
     expect(db.calls).not.toContain('delete:folder')
     // And in one transaction, so a failure half-way cannot strand documents in

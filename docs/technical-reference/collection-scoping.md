@@ -115,10 +115,10 @@ async function buildCollectionScopeFromRequest(
 
 ---
 
-## Restricted folders (ADR-0084, ADR-0085)
+## Restricted folders (ADR-0086, ADR-0087)
 
 A folder whose own access list does not include every project member
-(`project_folder_grants` without `*`, migration 0109) restricts READING. A
+(`project_folder_grants` without `*`, migration 0110) restricts READING. A
 document under it lives in the collection of its nearest such folder,
 `<project collection>_r<12 hex of the folder id>` (`restrictedCollectionName`
 in `lib/authz/folder-access-rule.ts`). Who may WRITE never moves anything:

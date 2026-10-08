@@ -1,4 +1,4 @@
--- 0109: folder access is read/write per role (ADR-0085).
+-- 0109: folder access is read/write per role (ADR-0087).
 --
 -- A folder either INHERITS its parent's access (`access_mode = 'inherit'`, the
 -- default and the state of every open folder; a root folder inherits the
@@ -82,7 +82,7 @@ CREATE TABLE IF NOT EXISTS "project_folder_grants" (
 );
 --> statement-breakpoint
 COMMENT ON TABLE "project_folder_grants" IS
-  'One role''s access to a folder with its own access list (ADR-0085): read, or write. `*` is every project member. Effective access is the minimum over the folder and its ancestors with own lists; the project permission caps write.';
+  'One role''s access to a folder with its own access list (ADR-0087): read, or write. `*` is every project member. Effective access is the minimum over the folder and its ancestors with own lists; the project permission caps write.';
 --> statement-breakpoint
 CREATE INDEX IF NOT EXISTS "project_folder_grants_project_idx" ON "project_folder_grants" ("project_id");
 --> statement-breakpoint

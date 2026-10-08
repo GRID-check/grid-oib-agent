@@ -146,7 +146,7 @@ export interface ListProjectDocumentsOptions {
    */
   includeArchived?: boolean
   /**
-   * Folders whose documents this reader may not see (ADR-0084), from
+   * Folders whose documents this reader may not see (ADR-0086), from
    * `getHiddenFolderIds`. Their rows are left out as if they did not exist.
    */
   hiddenFolderIds?: readonly string[]
@@ -806,7 +806,7 @@ export async function findLiveDocumentByFilename(
  * The retrieval collections of this project that already hold a live,
  * person-uploaded document of this name — either Unicode form, as
  * {@link findLiveDocumentByFilename} reads it. A project keeps one document
- * per name across all its collections (ADR-0084); the database only enforces
+ * per name across all its collections (ADR-0086); the database only enforces
  * it per collection.
  */
 export async function findProjectCollectionsHoldingFilename(

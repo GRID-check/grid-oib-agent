@@ -10,7 +10,7 @@ informed: everyone working in this repo
 
 ## Context and Problem Statement
 
-ADR-0084 gave a folder one switch: open, or restricted to some WorkOS roles.
+ADR-0086 gave a folder one switch: open, or restricted to some WorkOS roles.
 Whoever could see a restricted folder could do everything in it their project
 permission allowed. The product owner, 6 October 2026: "the whole file access,
 simply restricted or not restricted, is way too simple; I want read write
@@ -18,7 +18,7 @@ access control." An office wants the site manager to read the contracts the
 managing director edits, and every member to read the fee folder that only
 accounting may change.
 
-ADR-0084 also decided who may read a conversation that drew on a restricted
+ADR-0086 also decided who may read a conversation that drew on a restricted
 folder by a per-conversation mark and by role lists copied at the time. When a
 folder's list changed, conversations either stayed locked for people who may
 now read the folder or were left open to people who may no longer read it.
@@ -30,7 +30,7 @@ now read the folder or were left open to people who may no longer read it.
 * Writing is a second axis and must not change what anyone reads.
 * What was derived from a folder (a chat's record, a remembered note) follows the folder's
   access as it is NOW, without a job that rewrites it.
-* Roles stay in WorkOS (ADR-0007, ADR-0084).
+* Roles stay in WorkOS (ADR-0007, ADR-0086).
 
 ## Considered Options
 
@@ -41,7 +41,7 @@ now read the folder or were left open to people who may no longer read it.
 
 ## Decision Outcome
 
-Chosen option: per-role read/write grants, because they extend ADR-0084's
+Chosen option: per-role read/write grants, because they extend ADR-0086's
 roles without a second source of truth, keep retrieval's per-collection
 boundary, and give one rule a test table can pin.
 
@@ -83,7 +83,7 @@ were, or whose subtree the mover reads in full, is unaffected.
 **Retrieval keys on READ.** A folder restricts reading when it has its own list
 without `*`. Only such a folder gets its own collection
 (`<project collection>_r<12 hex>`), and a document lives in the collection of
-its nearest read-restricting folder, exactly as in ADR-0084. A list with `*`
+its nearest read-restricting folder, exactly as in ADR-0086. A list with `*`
 decides only who may write; changing who may write moves nothing.
 
 **Every write path asks one function**, `requireFolderWrite` (project ceiling,
@@ -133,7 +133,7 @@ list does.
   edit" (`*` read plus a role with write), without a second collection.
 * Good, because the rule is one pure function with a table of cases, and the database holds the
   shape (level CHECK, role CHECK, 1–20 entries by a deferred constraint trigger, RLS).
-* Bad, because the 0109 down migration drops every access list: an older build knows no folder
+* Bad, because the 0110 down migration drops every access list: an older build knows no folder
   access, so every folder has to inherit again in the product first, or the documents filed in a
   `_r…` collection leave everybody's scope.
 * Bad, because roles are looked up in WorkOS per person and organization at most once a minute;
@@ -195,7 +195,7 @@ list does.
 ### Per-user grants on a folder
 
 * Good, because "this one person" needs no role.
-* Bad, because offices already think in roles (ADR-0084), and a person-by-person list goes stale
+* Bad, because offices already think in roles (ADR-0086), and a person-by-person list goes stale
   as people join and leave; WorkOS has no per-user grant to mirror it.
 * Bad, because the retrieval collection is per folder, not per person, so per-user grants would
   still collapse to "who may read" per folder.
@@ -204,7 +204,7 @@ list does.
 
 * Good, because it is a managed authorization service with relations and inheritance.
 * Bad, because FGA is additive: "a child folder is narrower than its parent" needs exclusions,
-  which WorkOS lists as coming soon (the same reason ADR-0084 rejected it).
+  which WorkOS lists as coming soon (the same reason ADR-0086 rejected it).
 * Bad, because every folder and every change would be mirrored into WorkOS, a second source of
   truth for the tree, and every listing would call out per folder.
 
@@ -215,9 +215,9 @@ list does.
 
 ## More Information
 
-* Supersedes the parts of [ADR-0084](0084-folder-access-follows-workos-roles-and-a-restricted-folder-is-its-own-collection.md)
+* Supersedes the parts of [ADR-0086](0086-folder-access-follows-workos-roles-and-a-restricted-folder-is-its-own-collection.md)
   that decided who may see a folder (roles on `restricted_roles`), the per-conversation mark and
-  the per-socket confinement check. ADR-0084's retrieval collection per restricted folder, its
+  the per-socket confinement check. ADR-0086's retrieval collection per restricted folder, its
   memory rule and its IFC rule stand.
 * Where a later lifecycle feature would attach (participant notices, an organization setting for
   deleted-folder content, a download log): `setFolderAccess` after placement, the tombstone in

@@ -1,5 +1,5 @@
 /**
- * The pure core of folder access (ADR-0085): the rule over a path, the project
+ * The pure core of folder access (ADR-0087): the rule over a path, the project
  * ceiling, which folders restrict reading and which collection a document
  * belongs in. No I/O and no session: `./folder-access` loads the tree and
  * re-exports everything here, and that is the module callers import.

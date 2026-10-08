@@ -477,7 +477,7 @@ export async function assertMayFileGeneratedDocument(session: AuthorizedSession,
   await requireProjectAccess(session, projectId, ['project:documents:write', 'project:edit'])
   await requireProjectAccess(session, projectId, 'project:documents:generate')
 
-  // Filing is a write into the destination (ADR-0085): a „Berichte" this person
+  // Filing is a write into the destination (ADR-0087): a „Berichte" this person
   // may only read refuses (403), one they may not read is not found. Asked here,
   // with the other gates, so a reader whose filing would be refused hears it
   // when they ask rather than through a job refused on every read. Every
