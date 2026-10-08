@@ -1,5 +1,5 @@
 /**
- * The SQL behind a conversation's restricted use (ADR-0084, ADR-0085, migration
+ * The SQL behind a conversation's restricted use (ADR-0086, ADR-0087, migration
  * 0110): which folders not every member can read it drew on, who it is shared with, and the lock that
  * makes a check of the one against the other a single step.
  *

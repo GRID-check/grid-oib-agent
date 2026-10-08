@@ -14,7 +14,7 @@ All BFF (Backend-for-Frontend) routes are under `frontends/ui/src/app/api/`. The
 > route file is the source of truth; absence here means undocumented, never
 > non-existent.
 
-## Refusals for a conversation that drew on a restricted folder (ADR-0084, ADR-0085)
+## Refusals for a conversation that drew on a restricted folder (ADR-0086, ADR-0087)
 
 Every door that writes something the whole project reads answers
 **`403 CONVERSATION_CONFINED`** with `details.action` (`deepResearch`, `task`,
@@ -30,7 +30,7 @@ against the folders' current access; `lib/conversations/restricted-egress.ts`):
 Filing is allowed only into a living folder whose path carries every folder
 the conversation recorded.
 
-## Writes in a read-only folder (ADR-0085)
+## Writes in a read-only folder (ADR-0087)
 
 Every route that writes in a folder (upload, new folder, rename, move, delete,
 a document's rename, tags, re-read, move, delete, every lifecycle transition,

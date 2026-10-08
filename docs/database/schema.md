@@ -655,7 +655,7 @@ export const projectFolders = pgTable('project_folders', {
 | `path` | `varchar(1024)` | NOT NULL | Materialised path, for breadcrumbs and the backend mirror |
 | `access_mode` | `text` | NOT NULL, default `'inherit'`, CHECK `inherit`/`custom` | **Migration `0110`, ADR-0087**: `inherit` takes the parent's access (a root folder the project's); `custom` has its own list in `project_folder_grants`. The rule over a path is one pure function, `effectiveFolderLevel` in `lib/authz/folder-access-rule.ts`: the minimum over the folder and every ancestor with its own list, admins write everywhere, `project:documents:write` caps write. |
 | `access_changed_by` / `access_changed_at` | `text` / `timestamptz` | set whenever `access_mode = 'custom'` (`project_folders_access_custom_check`) | Who set the list, and when. |
-| `deleted_at` / `deleted_by` | `timestamptz` / `text` | | **Migration `0109`**: a deleted project folder is a TOMBSTONE (an Archiv folder's delete removes its row). The row keeps its `access_mode` and grants so the access rule still answers for content recorded from it (a conversation's source folders); every listing, the tree, placement and every read path filter `deleted_at IS NULL`. |
+| `deleted_at` / `deleted_by` | `timestamptz` / `text` | | **Migration `0110`**: a deleted project folder is a TOMBSTONE (an Archiv folder's delete removes its row). The row keeps its `access_mode` and grants so the access rule still answers for content recorded from it (a conversation's source folders); every listing, the tree, placement and every read path filter `deleted_at IS NULL`. |
 | `created_at` / `updated_at` | `timestamptz` | NOT NULL, `defaultNow()` | |
 
 **Indexes and constraints:**
@@ -728,7 +728,7 @@ is proven against Postgres in `upload-batches.integration.spec.ts`.
 
 ---
 
-## conversation_restricted_folders (migration 0110, ADR-0084, ADR-0085)
+## conversation_restricted_folders (migration 0111, ADR-0086, ADR-0087)
 
 A folder not every project member may read whose content this conversation
 drew on, checked under the same advisory lock as every widening of the
