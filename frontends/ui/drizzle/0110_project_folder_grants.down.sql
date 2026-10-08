@@ -1,4 +1,4 @@
--- Reverse 0109. ORDER: roll the frontend back first, and give every folder with
+-- Reverse 0110. ORDER: roll the frontend back first, and give every folder with
 -- its own access list back to its parent's access in the product before running
 -- this — the older build knows no folder access, and documents still filed in
 -- such a folder's collection (`proj_…_r…`) would no longer be in anybody's
