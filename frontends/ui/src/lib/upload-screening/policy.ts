@@ -7,6 +7,11 @@
  * call (`sources/knowledge_layer/src/llamaindex/screening.py`); the BFF hands it
  * the content half of this policy on every dispatch (`toIngestScreening`).
  *
+ * The content half also screens CHAT: the composer masks a message against
+ * the content terms and detectors before it leaves the browser, the BFF masks
+ * every user message it stores, and the chat socket masks what reaches the
+ * agent (`./content-screen`, `toChatScreening`). Name terms never apply to chat.
+ *
  * Pure and client-safe: the upload dialog imports it.
  */
 
@@ -143,4 +148,19 @@ export function toIngestScreening(
   if (!policy.enabled || options.released) return null
   if (policy.contentTerms.length === 0 && policy.detectors.length === 0) return null
   return { content_terms: [...policy.contentTerms], detectors: [...policy.detectors] }
+}
+
+/**
+ * `GET /api/internal/chat-screening`, exactly as `aiq_api.internal_api.chat_screening_from`
+ * reads it: the switch, and the content half of the policy. The chat socket
+ * masks a message's text with it; `enabled: false` masks nothing.
+ */
+export interface ChatScreening {
+  enabled: boolean
+  content_terms: string[]
+  detectors: ScreeningDetector[]
+}
+
+export function toChatScreening(policy: UploadScreeningPolicy): ChatScreening {
+  return { enabled: policy.enabled, content_terms: [...policy.contentTerms], detectors: [...policy.detectors] }
 }

@@ -38,6 +38,54 @@ can be switched off.
 What Piloti drops on its own: system files a folder carries along, such as
 `.DS_Store`, `Thumbs.db` and Office lock files (`~$Vertrag.docx`).
 
+## Chat messages
+
+The **content terms and number checks** apply to what people type into the chat
+as well; the file-name terms do not. When a message contains one, the composer
+does not send it. It says what it found, for example „Enthält eine IBAN
+(Sensible Daten). Piloti sendet sie nicht an das Modell.", and offers two
+choices:
+
+- **Maskiert senden** sends the message with each match replaced, so Piloti
+  reads „Bitte überweise an [IBAN entfernt]". The placeholders are
+  `[IBAN entfernt]`, `[SV-Nummer entfernt]`, `[Kartennummer entfernt]` and
+  `[Begriff entfernt]`.
+- **Bearbeiten** sends nothing and leaves the text as you typed it.
+
+There is no way to send the message unmasked. An answer to a question Piloti
+asked is checked the same way, and so is a plan you edit before approving it,
+and so are messages to colleagues in a shared chat. A message that reaches
+Piloti some other way is masked on the server without asking, and the stored
+chat keeps the masked text: your messages and your answers to Piloti's
+questions. In Piloti's own answers only numbers are masked (IBAN,
+Sozialversicherungsnummer, Kartennummer); an answer that names a term from the
+list, such as „Es gibt keine Honorarvereinbarung", reads the same after a
+reload. The name of the file you ask
+about („Frage zu …") is masked the same way before Piloti reads it.
+
+The same list masks, without asking, what you write elsewhere that Piloti
+later reads:
+
+- **notes** you add or edit in the Projektspeicher or the Organisationsgedächtnis,
+  and the notes Piloti keeps itself;
+- the **comment on a thumbs-down**.
+
+Masking a term hides the word, not what stands around it: „Honorarvereinbarung
+über 12.400 €" becomes „[Begriff entfernt] über 12.400 €". A change to the list
+applies to an open chat once the page is reloaded.
+
+**Not checked** against the list, so keep sensitive data out of them yourself:
+
+- the standing instructions under **Organisation → Anweisungen**, and the
+  instructions of a **Skill**, which Piloti reads when it answers;
+- the **project profile** you fill in with the intake wizard;
+- the comment a reviewer writes when sending a draft back („Änderungen
+  anfordern"), which the chat that wrote the draft reads;
+- the instruction of a **scheduled task**, and a research job started through
+  the API;
+- anything stored before the list applied to it: older chats, notes and
+  comments keep the text they were saved with.
+
 ## The quarantine
 
 **Organisation → Quarantäne.** A quarantined file shows which terms or checks

@@ -15,6 +15,10 @@ features:
     office or project admin releases or deletes it under Organisation →
     Quarantäne.
   - >
+    The same content terms and number checks now cover what you type into the
+    chat: before a message with an IBAN or a listed term goes out, Piloti shows
+    what it found and sends it only masked, or lets you edit it first.
+  - >
     When everything an upload brought in has been read, your inbox tells you,
     with a summary of what arrived, where it was filed, what each file is, and
     what was held back or failed. Project settings list every upload with its

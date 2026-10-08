@@ -442,8 +442,9 @@ export const organization: typeof en.organization = {
   /** Sensible Daten: die Liste, gegen die Piloti jeden Upload prüft (ADR-0083). */
   screening: {
     title: 'Prüfliste',
-    description: 'Piloti prüft jeden Upload gegen diese Listen. Was anschlägt, liest kein Modell.',
-    enabled: 'Uploads prüfen',
+    description:
+      'Piloti prüft jeden Upload gegen diese Listen, Chat-Nachrichten gegen die Inhaltsbegriffe und Nummern. Was anschlägt, liest kein Modell.',
+    enabled: 'Uploads und Chat prüfen',
     enabledHint: 'Ausgeschaltet prüft Piloti nichts. Ihre Listen bleiben gespeichert.',
     suggestedTitle: 'Es gilt der Vorschlag von Piloti',
     suggestedBody:
@@ -457,7 +458,7 @@ export const organization: typeof en.organization = {
     nameExceptionsHint: 'Wörter, die einen Begriff enthalten, aber etwas anderes meinen: „Berechnung“ enthält „Rechnung“.',
     contentTitle: 'Nach dem Hochladen: Inhalt',
     contentHint:
-      'Piloti liest den Text auf dem eigenen Server und prüft ihn, bevor ein Modell ihn sieht. Treffer warten in der Quarantäne, bis jemand sie freigibt oder löscht.',
+      'Piloti liest den Text auf dem eigenen Server und prüft ihn, bevor ein Modell ihn sieht. Treffer warten in der Quarantäne, bis jemand sie freigibt oder löscht. Dieselben Begriffe und Nummern gelten für Chat-Nachrichten: Piloti zeigt vor dem Senden, was es gefunden hat, und schickt die Nachricht nur maskiert an das Modell.',
     contentTerms: 'Inhaltsbegriffe',
     contentTermsHint: 'Trifft Wörter, die so beginnen: „Honorar“ findet „Honorarnote“.',
     detectors: 'Nummern erkennen',
@@ -473,7 +474,7 @@ export const organization: typeof en.organization = {
     removeTerm: '„{term}“ entfernen',
     emptyList: 'Keine Begriffe',
     useSuggestion: 'Vorschlag übernehmen',
-    saved: 'Liste gespeichert. Sie gilt ab dem nächsten Upload.',
+    saved: 'Liste gespeichert. Sie gilt ab dem nächsten Upload, im Chat spätestens nach dem Neuladen der Seite.',
     saveError: 'Die Liste konnte nicht gespeichert werden. Bitte versuchen Sie es erneut.',
     saveForbidden:
       'Sie können diese Liste nicht ändern. Dafür brauchen Sie die Berechtigung „Organisationseinstellungen verwalten“.',

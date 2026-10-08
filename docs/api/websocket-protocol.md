@@ -313,6 +313,22 @@ refused (`rejected{invalid_message}`), and so is an unknown `type`
 {"v":2,"type":"user_message","conversation_id":"s_1","message_id":"msg_1759000000000_3","text":"Wie lang darf der Fluchtweg in GK 4 sein?","data_sources":["knowledge_layer"]}
 ```
 
+### Sensitive data is masked, never refused (ADR-0083)
+
+The free text of a `user_message` (`context_only` lines included) and of an
+`interaction_response` `{text}` answer is masked against the office's
+„Sensible Daten" policy before the agent, its history or another replica sees
+it: each content-term or detector match (IBAN, Austrian social-security number,
+card number; checksum-valid only) becomes a placeholder such as
+`[IBAN entfernt]`. The wire does not change and the turn is never refused for a
+match. The composer masks first and asks the person; this is the backstop for a
+client that did not. The socket reads the policy once per connection from
+`GET /api/internal/chat-screening`, so a policy change applies from the next
+connection; until it can be read (no signed organization, an older BFF, an
+error) every detector applies and no term. A chosen `{option_id}` is not free
+text and passes as it is. `aiq_api.chat_socket.ChatSocket._masked`;
+the matcher is `aiq_agent.common.content_screen`.
+
 ### Invoking a skill (no wire field)
 
 There is no `skills` field on this payload. A skill is a working method the

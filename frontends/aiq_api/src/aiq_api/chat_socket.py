@@ -29,6 +29,15 @@ What a socket holds, in order of the checks on every client message:
   message's ``conversation_id``, so a message naming another is refused.
 * **Whose turn.** Stop and a HITL answer are the asker's (:func:`may_act_for`).
   In a shared conversation (ADR-0032) a colleague is a different subject.
+* **What may reach the model.** The text of a question (and the focus file's
+  name it carries), of a colleague's ``context_only`` line and of a typed HITL
+  answer is masked against the office's „Sensible Daten" policy (ADR-0083)
+  before the agent, its history or a relay replica sees it
+  (:meth:`ChatSocket._masked`). The composer masks first and asks the person;
+  this is the backstop for a client that did not, and it masks rather than
+  refuses. The policy is read once per socket from the BFF
+  (``chat_screening_for``), so a change applies from the next connection, and
+  every detector applies whenever it cannot be read.
 
 A turn outlives its socket: a dropped socket does not cancel it, its frames keep
 going to the conversation's stream (``conversation_bus``), a reconnect reads
@@ -62,6 +71,9 @@ from fastapi import WebSocket
 from pydantic import ValidationError
 from starlette.websockets import WebSocketDisconnect
 
+from aiq_agent.common.content_screen import ScreeningRules
+from aiq_agent.common.content_screen import findings_summary
+from aiq_agent.common.content_screen import mask_text
 from aiq_agent.common.human_prompt import human_response
 from aiq_agent.common.human_prompt import interaction_request
 from aiq_agent.common.wire_v2 import CLIENT_MESSAGE
@@ -87,6 +99,7 @@ from aiq_agent.common.wire_v2 import RunStartedBody
 from aiq_agent.common.wire_v2 import StageBody
 from aiq_agent.common.wire_v2 import StageValue
 from aiq_agent.common.wire_v2 import StateSnapshotBody
+from aiq_agent.common.wire_v2 import TextAnswer
 from aiq_agent.common.wire_v2 import TurnResult
 from aiq_agent.common.wire_v2 import UserMessage
 from aiq_agent.common.wire_v2 import WireSource
@@ -124,6 +137,8 @@ from aiq_api.conversation_bus import get_bus
 from aiq_api.conversation_bus import is_multi_replica_bus
 from aiq_api.conversation_bus import running_renew_interval
 from aiq_api.conversation_bus import running_ttl
+from aiq_api.internal_api import ChatScreening
+from aiq_api.internal_api import chat_screening_for
 from aiq_api.internal_api import post_internal_conversation_message
 from aiq_api.startup_banner import deployed_sha
 from aiq_api.turn_fence import TurnFence
@@ -321,6 +336,19 @@ def may_act_for(asker: str | None, actor: str | None, *, internal: bool) -> bool
     return internal or asker is None or actor == asker
 
 
+def _handshake_envelope(scope: Mapping[str, Any]) -> GridRequestContext | None:
+    """The verified ``X-Grid-Request-Context`` envelope of the upgrade, or None when absent or forged."""
+    headers: dict[str, str] = {}
+    for raw_name, raw_value in scope.get("headers", []) or []:
+        with contextlib.suppress(AttributeError, UnicodeDecodeError):
+            headers[raw_name.decode("latin-1").lower()] = raw_value.decode("latin-1")
+    return GridRequestContext.from_envelope(
+        headers.get(REQUEST_CONTEXT_ENVELOPE_HEADER),
+        headers.get(REQUEST_CONTEXT_ENVELOPE_SIG_HEADER),
+        os.environ.get("GRID_INTERNAL_API_TOKEN"),
+    )
+
+
 def handshake_conversation_binding(scope: Mapping[str, Any]) -> tuple[bool, str | None]:
     """The conversation the BFF authorized for this socket, read at the handshake.
 
@@ -332,15 +360,7 @@ def handshake_conversation_binding(scope: Mapping[str, Any]) -> tuple[bool, str 
     ``GridContextEnvelopeMiddleware`` closes an authenticated user's socket that
     arrives without a valid envelope.
     """
-    headers: dict[str, str] = {}
-    for raw_name, raw_value in scope.get("headers", []) or []:
-        with contextlib.suppress(AttributeError, UnicodeDecodeError):
-            headers[raw_name.decode("latin-1").lower()] = raw_value.decode("latin-1")
-    envelope = GridRequestContext.from_envelope(
-        headers.get(REQUEST_CONTEXT_ENVELOPE_HEADER),
-        headers.get(REQUEST_CONTEXT_ENVELOPE_SIG_HEADER),
-        os.environ.get("GRID_INTERNAL_API_TOKEN"),
-    )
+    envelope = _handshake_envelope(scope)
     if envelope is None:
         return False, None
     return True, envelope.conversation_id
@@ -1284,7 +1304,14 @@ class ChatSocket:
         self.session_manager = session_manager
         self.registry = registry
         self.caller: dict[str, Any] = {}
-        self.envelope_present, self.bound = handshake_conversation_binding(socket.scope)
+        envelope = _handshake_envelope(socket.scope)
+        self.envelope_present = envelope is not None
+        self.bound = envelope.conversation_id if envelope is not None else None
+        #: The signed organization, for the office's chat screening.
+        self.signed_org_id = envelope.organization_id if envelope is not None else None
+        #: The office's chat screening, once the BFF has answered for it; kept for
+        #: the socket's life. A fail-closed fallback is not kept (``_screening_rules``).
+        self.screening: ChatScreening | None = None
 
     @property
     def subject(self) -> str | None:
@@ -1382,6 +1409,13 @@ class ChatSocket:
             await self.socket.send_json(to_frame(event))
 
     async def on_user_message(self, message: UserMessage) -> None:
+        # The focus file's name is the client's word too, and the system prompt
+        # quotes it (``prompt.py``): masked like the text it rides with.
+        update = {"text": await self._masked(message.text, message)}
+        if message.focus_file_name:
+            update["focus_file_name"] = await self._masked(message.focus_file_name, message)
+        if any(getattr(message, field) != value for field, value in update.items()):
+            message = message.model_copy(update=update)
         if message.context_only:
             await self._ingest(message)
             return
@@ -1425,7 +1459,39 @@ class ChatSocket:
         await turn.finish(refused(refusal, message_id=turn.message_id))
         self.registry.finish_turn(turn)
 
+    async def _screening_rules(self) -> ScreeningRules | None:
+        """The rules this socket masks with: the office's, read once, or every detector until they can be read."""
+        if self.screening is not None:
+            return self.screening.rules
+        screening = await chat_screening_for(self.signed_org_id)
+        if screening.from_office:
+            self.screening = screening
+        return screening.rules
+
+    async def _masked(self, text: str, message: UserMessage | InteractionResponse) -> str:
+        """A message's free text, masked (ADR-0083). Never refuses: a match is replaced, the turn runs.
+
+        Called before anything reads the text: the agent, its history
+        (``append_conversation_context``), the HITL answer the turn resumes with,
+        and the bus a relay replica forwards an answer on. The log line names
+        what was found by kind and count, never a term or a value.
+        """
+        masked = mask_text(text, await self._screening_rules())
+        if masked.masked:
+            logger.info(
+                "Masked %s in a %s of conversation %s",
+                findings_summary(masked.findings),
+                message.type,
+                message.conversation_id,
+            )
+        return masked.text
+
     async def on_interaction_response(self, message: InteractionResponse) -> None:
+        # A chosen option is not free text, and passes as it is.
+        if isinstance(message.answer, TextAnswer):
+            text = await self._masked(message.answer.text, message)
+            if text != message.answer.text:
+                message = message.model_copy(update={"answer": TextAnswer(text=text)})
         self.registry.set_socket(message.conversation_id, self.socket)
         turn = self.registry.running(message.conversation_id, message.turn_id)
         if turn is None:

@@ -50,6 +50,19 @@ vi.mock('@/lib/knowledge/embeddings', async (importOriginal) => {
   return { ...actual, embedNote: vi.fn(async () => null), embedNotes: vi.fn(async () => null) }
 })
 
+// The office's chat screening (ADR-0083): the REAL matcher over Piloti's
+// suggested list, so a note is masked here exactly as the policy would, with no
+// database. What the matcher does has its own spec (`content-screen.spec.ts`).
+vi.mock('@/lib/upload-screening/service', async () => {
+  const { chatScreeningRules, maskText } = await import('@/lib/upload-screening/content-screen')
+  const { SUGGESTED_SCREENING_POLICY } = await import('@/lib/upload-screening/policy')
+  return {
+    maskChatText: vi.fn(async (_organizationId: string, text: string) =>
+      maskText(text, chatScreeningRules(SUGGESTED_SCREENING_POLICY))
+    ),
+  }
+})
+
 import { getDb } from '@/lib/db'
 import { embedNote } from '@/lib/knowledge/embeddings'
 import type { ProjectMemoryItem } from '@/lib/db/schema'
@@ -114,12 +127,44 @@ describe('updateProjectMemoryItem tenancy guard', () => {
   it('scopes project-owner updates to that project', async () => {
     const { where } = mockUpdateChain([{ id: 'item-1' }])
 
-    const result = await updateProjectMemoryItem({ projectId: 'proj-1' }, 'item-1', {
+    const result = await updateProjectMemoryItem({ projectId: 'proj-1', organizationId: 'org-1' }, 'item-1', {
       status: 'dismissed',
     })
 
     expect(result).toEqual({ id: 'item-1' })
     expect(where).toHaveBeenCalledWith(and(eq('pm.id', 'item-1'), eq('pm.projectId', 'proj-1')))
+  })
+})
+
+describe('a note is stored masked (ADR-0083)', () => {
+  const IBAN = 'AT61 1904 3002 3457 3201'
+
+  it('masks an edited note against the office policy before it is written', async () => {
+    const returning = vi.fn().mockResolvedValue([{ id: 'item-1' }])
+    const where = vi.fn().mockReturnValue({ returning })
+    const set = vi.fn().mockReturnValue({ where })
+    vi.mocked(getDb).mockReturnValue(asDb({ update: vi.fn().mockReturnValue({ set }) }))
+
+    await updateProjectMemoryItem({ projectId: 'proj-1', organizationId: 'org-1' }, 'item-1', {
+      content: `Honorar laut Honorarvereinbarung an ${IBAN}`,
+    })
+    await updateProjectMemoryItem({ organizationId: 'org-1' }, 'item-2', { content: `Konto ${IBAN}` })
+
+    expect(set.mock.calls.map(([patch]) => (patch as { content: string }).content)).toEqual([
+      'Honorar laut [Begriff entfernt] an [IBAN entfernt]',
+      'Konto [IBAN entfernt]',
+    ])
+  })
+
+  it('leaves an edit without text alone', async () => {
+    const returning = vi.fn().mockResolvedValue([{ id: 'item-1' }])
+    const where = vi.fn().mockReturnValue({ returning })
+    const set = vi.fn().mockReturnValue({ where })
+    vi.mocked(getDb).mockReturnValue(asDb({ update: vi.fn().mockReturnValue({ set }) }))
+
+    await updateProjectMemoryItem({ organizationId: 'org-1' }, 'item-1', { pinned: true })
+
+    expect(set.mock.calls[0][0]).not.toHaveProperty('content')
   })
 })
 
@@ -148,7 +193,7 @@ describe('deleteProjectMemoryItem tenancy guard', () => {
   it('project owner deletion is scoped to the project', async () => {
     const { where } = mockDeleteChain([{ id: 'item-1' }])
 
-    const deleted = await deleteProjectMemoryItem({ projectId: 'proj-1' }, 'item-1')
+    const deleted = await deleteProjectMemoryItem({ projectId: 'proj-1', organizationId: 'org-1' }, 'item-1')
 
     expect(deleted).toBe(true)
     expect(where).toHaveBeenCalledWith(and(eq('pm.id', 'item-1'), eq('pm.projectId', 'proj-1')))
@@ -322,6 +367,24 @@ describe('createProjectMemoryItem write-time de-duplication', () => {
     )
     return { set, values, insert, update }
   }
+
+  it('stores, embeds and de-duplicates a new note by its masked text (ADR-0083)', async () => {
+    const { values } = mockCreateChain(null)
+    vi.mocked(embedNote).mockClear()
+
+    await createProjectMemoryItem({
+      scope: 'organization',
+      projectId: null,
+      organizationId: 'org-1',
+      kind: 'derived_fact',
+      content: 'Lohnzettel gehen an AT61 1904 3002 3457 3201.',
+    })
+
+    expect((values.mock.calls[0][0] as { content: string }).content).toBe(
+      '[Begriff entfernt] gehen an [IBAN entfernt].'
+    )
+    expect(String(vi.mocked(embedNote).mock.calls[0][0])).not.toContain('AT61')
+  })
 
   it('inserts when no active duplicate exists', async () => {
     const { values, set } = mockCreateChain(null)
