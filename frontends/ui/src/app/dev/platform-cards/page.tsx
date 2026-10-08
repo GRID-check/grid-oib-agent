@@ -22,6 +22,8 @@
 import type { JSX } from 'react'
 import { notFound } from 'next/navigation'
 import { PlatformCards } from '@/app/app/(shell)/platform/cards/platform-cards'
+import { PageHeader } from '@/components/ui/page-header'
+import { useTranslations } from '@/i18n'
 
 const FIELDS = {
   stair_diagram: [
@@ -117,7 +119,8 @@ const CATALOG = {
     {
       type: 'calculation',
       model: 'CalculationCard',
-      summary: 'The arithmetic behind a number, computed by the renderer and checked against a limit.',
+      summary:
+        'The arithmetic behind a number, computed by the renderer and checked against a limit.',
       emittedBy: 'agent',
       interaction: 'presentational',
       fields: FIELDS.calculation,
@@ -150,7 +153,8 @@ function installShim(): void {
   w.__platformCardsShim = true
   const real = window.fetch.bind(window)
   window.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
-    const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url
+    const url =
+      typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url
     if (window.location.pathname.startsWith(PREVIEW_PATH) && url.includes('/api/platform/cards')) {
       return Response.json(CATALOG)
     }
@@ -161,19 +165,17 @@ function installShim(): void {
 installShim()
 
 export default function PlatformCardsDevPage(): JSX.Element {
+  const t = useTranslations('platform')
   if (process.env.NODE_ENV !== 'development') {
     notFound()
   }
 
   return (
-    <main className="mx-auto flex max-w-3xl flex-col gap-6 p-8" data-testid="platform-cards-preview">
-      <div>
-        <h1 className="text-lg font-semibold">Platform — Card catalog</h1>
-        <p className="text-muted-foreground mt-1 text-sm">
-          Platform-owner surface: every card the agent can render, shown rendered, with the values it carries
-          and a way to ask for one that is missing.
-        </p>
-      </div>
+    <main
+      className="mx-auto flex max-w-4xl flex-col gap-6 px-4 py-8 md:px-8"
+      data-testid="platform-cards-preview"
+    >
+      <PageHeader title={t('sections.cards.title')} subtitle={t('sections.cards.subtitle')} />
       <PlatformCards />
     </main>
   )

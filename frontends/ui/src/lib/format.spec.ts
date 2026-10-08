@@ -4,13 +4,51 @@
 import { describe, test, expect } from 'vitest'
 import {
   formatBytes,
+  formatCount,
   formatCredits,
+  formatDate,
   formatDurationElapsed,
   formatDurationShort,
   formatEur,
   formatTokens,
   formatTransferRate,
+  formatUsd,
 } from './format'
+
+describe('formatUsd', () => {
+  test('formats cents as currency', () => {
+    expect(formatUsd(12.5, 'en')).toBe('$12.50')
+    expect(formatUsd(0, 'en')).toBe('$0.00')
+  })
+
+  test('shows a sub-cent cost as "< $0.01", not as free', () => {
+    expect(formatUsd(0.004, 'en')).toBe('< $0.01')
+    expect(formatUsd(0.004, 'de')).toBe('< 0,01\u00a0$')
+    expect(formatUsd(0.01, 'en')).toBe('$0.01')
+  })
+
+  test('a wider unit for rates moves the floor with it', () => {
+    expect(formatUsd(0.0001, 'en', { maximumFractionDigits: 4 })).toBe('$0.0001')
+    expect(formatUsd(0.1, 'en', { maximumFractionDigits: 4 })).toBe('$0.10')
+    expect(formatUsd(0.00001, 'en', { maximumFractionDigits: 4 })).toBe('< $0.0001')
+  })
+})
+
+describe('formatCount', () => {
+  test('groups for the locale and never compacts', () => {
+    expect(formatCount(1720, 'en')).toBe('1,720')
+    expect(formatCount(1720, 'de')).toBe('1.720')
+    expect(formatCount(12_400_000, 'en')).toBe('12,400,000')
+  })
+})
+
+describe('formatDate', () => {
+  test('a date without a time, per locale', () => {
+    expect(formatDate('2026-08-01T09:00:00Z', 'en')).toBe('Aug 1, 2026')
+    expect(formatDate('2026-08-01T09:00:00Z', 'de')).toBe('01.08.2026')
+    expect(formatDate('not a date', 'en')).toBe('not a date')
+  })
+})
 
 describe('formatEur', () => {
   test('formats German amounts with comma decimal and trailing symbol', () => {

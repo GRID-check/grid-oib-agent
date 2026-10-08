@@ -4,11 +4,16 @@
 import { describe, expect, it, vi } from 'vitest'
 
 vi.mock('./repository', () => ({}))
-vi.mock('@/lib/workos/client', () => ({ getWorkOS: vi.fn() }))
+vi.mock('@/lib/organizations/display-names', () => ({ getOrganizationDisplayNames: vi.fn() }))
 vi.mock('@/lib/knowledge/service', () => ({ getKnowledgeBaseStatus: vi.fn() }))
 vi.mock('@/lib/norms/service', () => ({ getNormRegistry: vi.fn() }))
 
-import { buildFindings, type CitationKindTotal, type CitationOrganizationTotal, type CitationReasonTotal } from './service'
+import {
+  buildFindings,
+  type CitationKindTotal,
+  type CitationOrganizationTotal,
+  type CitationReasonTotal,
+} from './service'
 import type { MissingSourceCandidate } from './missing-sources'
 
 /**
@@ -20,7 +25,12 @@ const kind = (k: string, turns: number, items = turns): CitationKindTotal =>
   ({ kind: k, turns, items, share: 0 }) as CitationKindTotal
 
 const reason = (r: string, share: number): CitationReasonTotal =>
-  ({ kind: 'citations_removed', reason: r, occurrences: Math.round(share * 100), share }) as CitationReasonTotal
+  ({
+    kind: 'citations_removed',
+    reason: r,
+    occurrences: Math.round(share * 100),
+    share,
+  }) as CitationReasonTotal
 
 const org = (overrides: Partial<CitationOrganizationTotal>): CitationOrganizationTotal => ({
   organizationId: 'org_1',
@@ -67,7 +77,8 @@ describe('buildFindings', () => {
   it('reports an explicit all-clear when turns ran and nothing tripped', () => {
     const findings = buildFindings(base)
     expect(ids(findings)).toEqual(['all_clear'])
-    expect(findings[0].metrics).toEqual({ turns: 1000, share: 100 })
+    // Shares are fractions; the client formats them in the reader's locale.
+    expect(findings[0].metrics).toEqual({ turns: 1000, share: 1 })
   })
 
   it('names the unavailable tool when retrieval captured nothing', () => {
@@ -101,7 +112,7 @@ describe('buildFindings', () => {
     })
     const ungrounded = findings.find((f) => f.id === 'answers_ungrounded')
     expect(ungrounded?.severity).toBe('error')
-    expect(ungrounded?.metrics.share).toBe(2)
+    expect(ungrounded?.metrics.share).toBeCloseTo(0.02)
     // Must NOT borrow the worst org from the overall defect rollup: that org's
     // 18 defects may be removals with zero ungrounded answers among them, and
     // naming it would send an operator to audit the wrong tenant's corpus.
@@ -109,7 +120,11 @@ describe('buildFindings', () => {
   })
 
   it('stays quiet on a single ungrounded answer in a busy window', () => {
-    const findings = buildFindings({ ...base, defectTurns: 1, byKind: [kind('answer_ungrounded', 1)] })
+    const findings = buildFindings({
+      ...base,
+      defectTurns: 1,
+      byKind: [kind('answer_ungrounded', 1)],
+    })
     expect(ids(findings)).not.toContain('answers_ungrounded')
   })
 
@@ -174,7 +189,13 @@ describe('buildFindings', () => {
       byKind: [kind('citations_removed', 80, 240)],
       reasons: [reason('url_not_in_registry', 1)],
       missingSources: [
-        candidate({ target: 'https://example.test/leitfaden', kind: 'web', present: false, action: 'none', fileName: null }),
+        candidate({
+          target: 'https://example.test/leitfaden',
+          kind: 'web',
+          present: false,
+          action: 'none',
+          fileName: null,
+        }),
       ],
     })
     expect(findings.find((f) => f.id === 'citations_invented')?.metrics.unheld).toBe(1)
@@ -188,7 +209,11 @@ describe('buildFindings', () => {
       byKind: [kind('citations_removed', 80, 240)],
       reasons: [reason('citation_key_not_in_registry', 1)],
       missingSources: [
-        candidate({ target: 'erfundene_norm.pdf', present: false, action: 'upload_to_base_knowledge' }),
+        candidate({
+          target: 'erfundene_norm.pdf',
+          present: false,
+          action: 'upload_to_base_knowledge',
+        }),
         candidate({ target: 'oib-rl_2_ausgabe_mai_2023.pdf' }),
       ],
       missingSourceTurns: { held: 40, addable: 50 },
@@ -222,35 +247,47 @@ describe('buildFindings', () => {
       turns: 10,
       defectTurns: 2,
       byKind: [kind('citations_removed', 2, 6)],
-      missingSources: [candidate({ target: 'a.pdf' }), candidate({ target: 'b.pdf' }), candidate({ target: 'c.pdf' })],
+      missingSources: [
+        candidate({ target: 'a.pdf' }),
+        candidate({ target: 'b.pdf' }),
+        candidate({ target: 'c.pdf' }),
+      ],
     })
     expect(findings.find((f) => f.id === 'sources_unretrievable')?.metrics.turns).toBe(2)
   })
 
   it('flags fabricated quotes above the 2 % share', () => {
     expect(
-      ids(buildFindings({ ...base, defectTurns: 25, byKind: [kind('quote_unverified', 25, 40)] })),
+      ids(buildFindings({ ...base, defectTurns: 25, byKind: [kind('quote_unverified', 25, 40)] }))
     ).toContain('quotes_fabricated')
-    expect(ids(buildFindings({ ...base, defectTurns: 15, byKind: [kind('quote_unverified', 15)] }))).not.toContain(
-      'quotes_fabricated',
-    )
+    expect(
+      ids(buildFindings({ ...base, defectTurns: 15, byKind: [kind('quote_unverified', 15)] }))
+    ).not.toContain('quotes_fabricated')
   })
 
   it('flags a citation-format mismatch when the fallback keeps firing', () => {
-    expect(ids(buildFindings({ ...base, defectTurns: 60, byKind: [kind('citation_fallback', 60)] }))).toContain(
-      'citation_format_unparsed',
-    )
+    expect(
+      ids(buildFindings({ ...base, defectTurns: 60, byKind: [kind('citation_fallback', 60)] }))
+    ).toContain('citation_format_unparsed')
   })
 
   it('singles out an organization at twice the platform rate, with enough volume', () => {
     const findings = buildFindings({
       ...base,
       defectTurns: 100,
-      organizations: [org({ organizationId: 'org_bad', name: 'Statik Nord', turns: 50, defectTurns: 20, defectRate: 0.4 })],
+      organizations: [
+        org({
+          organizationId: 'org_bad',
+          name: 'Statik Nord',
+          turns: 50,
+          defectTurns: 20,
+          defectRate: 0.4,
+        }),
+      ],
     })
     const outlier = findings.find((f) => f.id === 'organization_outlier')
     expect(outlier?.subject).toEqual({ type: 'organization', label: 'Statik Nord' })
-    expect(outlier?.metrics).toEqual({ share: 40, platformShare: 10, turns: 20 })
+    expect(outlier?.metrics).toEqual({ share: 0.4, platformShare: 0.1, turns: 20 })
   })
 
   it('never names the unattributed bucket as the outlier', () => {
@@ -275,6 +312,71 @@ describe('buildFindings', () => {
       organizations: [org({ organizationId: 'org_tiny', turns: 2, defectTurns: 2, defectRate: 1 })],
     })
     expect(ids(findings)).not.toContain('organization_outlier')
+  })
+
+  it('passes every share as a fraction, never a pre-rounded percentage', () => {
+    // Regression: shares were sent as `5.2` and spliced into "{share}%", so
+    // German read "5.2%" instead of "5,2 %". The client formats; this layer
+    // must not.
+    const findings = buildFindings({
+      ...base,
+      defectTurns: 200,
+      byKind: [
+        kind('citations_removed', 150, 400),
+        kind('answer_ungrounded', 52),
+        kind('quote_unverified', 30, 35),
+      ],
+      reasons: [reason('url_not_in_registry', 0.8), reason('duplicate', 0.2)],
+    })
+    for (const finding of findings) {
+      for (const [name, value] of Object.entries(finding.metrics)) {
+        if (name === 'share' || name === 'platformShare') {
+          expect(value).toBeGreaterThanOrEqual(0)
+          expect(value).toBeLessThanOrEqual(1)
+        }
+      }
+    }
+    expect(findings.find((f) => f.id === 'answers_ungrounded')?.metrics.share).toBeCloseTo(0.052)
+  })
+
+  it('reads removal shares from citations_removed reasons only', () => {
+    // Regression: a confidence_capped reason row in the same list was summed
+    // into the "of removed citations" share.
+    const findings = buildFindings({
+      ...base,
+      defectTurns: 80,
+      byKind: [kind('citations_removed', 80, 240)],
+      reasons: [
+        reason('duplicate', 0.3),
+        reason('url_not_in_registry', 0.7),
+        {
+          kind: 'confidence_capped',
+          reason: 'duplicate',
+          occurrences: 60,
+          share: 1,
+        } as CitationReasonTotal,
+      ],
+    })
+    expect(ids(findings)).not.toContain('duplicates_only')
+    expect(ids(findings)).toContain('citations_invented')
+  })
+
+  it('treats a source of unknown presence as neither missing nor held', () => {
+    // With the inventory unavailable the candidate carries present: null. It
+    // must not be offered as an add, nor blamed on indexing — and, being no
+    // evidence either way, it must not clear the model of invention.
+    const unknown = candidate({ present: null, action: 'inventory_unknown' })
+    const findings = buildFindings({
+      ...base,
+      defectTurns: 80,
+      byKind: [kind('citations_removed', 80, 240)],
+      reasons: [reason('citation_key_not_in_registry', 1)],
+      missingSources: [unknown],
+    })
+    expect(ids(findings)).not.toContain('sources_missing')
+    expect(ids(findings)).not.toContain('sources_unretrievable')
+    expect(ids(findings)).toContain('citations_invented')
+    expect(findings.find((f) => f.id === 'citations_invented')?.metrics.unheld).toBe(0)
   })
 
   it('orders errors before warnings before info, then by affected turns', () => {

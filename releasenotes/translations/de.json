@@ -2144,6 +2144,10 @@
     "de": "Die Statuszeile über der Herleitung sagt, wonach Piloti gerade sucht, und sobald die Recherche abgeschlossen ist, dass die Antwort formuliert wird."
   },
   {
+    "en": "The upload area now states the largest file you can upload as a size per file, and the number it shows is the one your organization is held to. It no longer shows 95 MB for a 100 MB limit.",
+    "de": "Der Upload-Bereich gibt nun die maximale Dateigröße pro Datei an, die Sie hochladen können. Angezeigt wird der für Ihre Organisation geltende Wert. Bei einem Limit von 100 MB werden nicht mehr 95 MB angezeigt."
+  },
+  {
     "en": "The upload panel no longer retires itself out from under you. A wholly successful batch still clears after a few seconds, but the countdown holds while your pointer is on the panel or your keyboard focus is inside it.",
     "de": "Das Upload-Panel verschwindet nicht mehr, während Sie damit arbeiten. Ein Stapel, bei dem alle Uploads erfolgreich waren, wird weiterhin nach einigen Sekunden ausgeblendet. Der Countdown pausiert jedoch, solange sich der Mauszeiger über dem Panel befindet oder der Tastaturfokus darin liegt."
   },
