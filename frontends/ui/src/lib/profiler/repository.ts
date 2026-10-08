@@ -6,15 +6,19 @@
  */
 
 import 'server-only'
-import { and, desc, eq, ilike, isNotNull, or, sql } from 'drizzle-orm'
+import { and, desc, eq, ilike, inArray, isNotNull, or, sql } from 'drizzle-orm'
 import { getDb } from '@/lib/db'
 import { withOptionalTenant, withPlatformAccess } from '@/lib/db/tenant-context'
+import { escapeLikePattern } from '@/lib/text/like-pattern'
 import {
   agentProfilerSpans,
   conversations,
   type AgentProfilerSpan,
   type NewAgentProfilerSpan,
 } from '@/lib/db/schema'
+
+const PROFILER_ACCESS_REASON =
+  'platform profiler: a deliberately cross-organization operations directory'
 
 export async function insertSpans(spans: NewAgentProfilerSpan[]): Promise<number> {
   if (spans.length === 0) return 0
@@ -52,39 +56,37 @@ export async function listProfiledConversations(query?: string): Promise<{
   capped: boolean
 }> {
   const db = getDb()
-  const searchCondition = query
-    ? or(
-        ilike(agentProfilerSpans.conversationId, `%${query}%`),
-        ilike(conversations.title, `%${query}%`)
-      )
+  // Escaped: the operator types a literal string, and `%` or `_` in it must
+  // match themselves, not every conversation.
+  const pattern = query ? `%${escapeLikePattern(query)}%` : null
+  const searchCondition = pattern
+    ? or(ilike(agentProfilerSpans.conversationId, pattern), ilike(conversations.title, pattern))
     : undefined
 
-  const rows = await withPlatformAccess(
-    'platform profiler: a deliberately cross-organization operations directory',
-    () =>
-      db
-        .select({
-          conversationId: agentProfilerSpans.conversationId,
-          organizationId: sql<
-            string | null
-          >`max(coalesce(${conversations.organizationId}, ${agentProfilerSpans.organizationId}))`,
-          title: sql<string | null>`max(${conversations.title})`,
-          turnCount: sql<number>`count(*)::int`,
-          totalDurationMsRaw: sql<string>`coalesce(sum(${agentProfilerSpans.durationMs}), 0)::bigint`,
-          lastActiveAt: sql<Date>`max(${agentProfilerSpans.startedAt})`,
-        })
-        .from(agentProfilerSpans)
-        .leftJoin(conversations, eq(conversations.id, agentProfilerSpans.conversationId))
-        .where(
-          and(
-            eq(agentProfilerSpans.kind, 'turn'),
-            isNotNull(agentProfilerSpans.conversationId),
-            ...(searchCondition ? [searchCondition] : [])
-          )
+  const rows = await withPlatformAccess(PROFILER_ACCESS_REASON, () =>
+    db
+      .select({
+        conversationId: agentProfilerSpans.conversationId,
+        organizationId: sql<
+          string | null
+        >`max(coalesce(${conversations.organizationId}, ${agentProfilerSpans.organizationId}))`,
+        title: sql<string | null>`max(${conversations.title})`,
+        turnCount: sql<number>`count(*)::int`,
+        totalDurationMsRaw: sql<string>`coalesce(sum(${agentProfilerSpans.durationMs}), 0)::bigint`,
+        lastActiveAt: sql<Date>`max(${agentProfilerSpans.startedAt})`,
+      })
+      .from(agentProfilerSpans)
+      .leftJoin(conversations, eq(conversations.id, agentProfilerSpans.conversationId))
+      .where(
+        and(
+          eq(agentProfilerSpans.kind, 'turn'),
+          isNotNull(agentProfilerSpans.conversationId),
+          ...(searchCondition ? [searchCondition] : [])
         )
-        .groupBy(agentProfilerSpans.conversationId)
-        .orderBy(desc(sql`max(${agentProfilerSpans.startedAt})`))
-        .limit(CONVERSATION_LIST_CAP + 1)
+      )
+      .groupBy(agentProfilerSpans.conversationId)
+      .orderBy(desc(sql`max(${agentProfilerSpans.startedAt})`))
+      .limit(CONVERSATION_LIST_CAP + 1)
   )
 
   const capped = rows.length > CONVERSATION_LIST_CAP
@@ -105,17 +107,64 @@ export async function listProfiledConversations(query?: string): Promise<{
   }
 }
 
-export async function getSpansForConversation(
-  conversationId: string
-): Promise<AgentProfilerSpan[]> {
+/** Newest turns one timeline reads; older turns are reported, not loaded. */
+export const TIMELINE_TURN_CAP = 50
+/** Hard ceiling on spans per timeline, whatever the turn count. */
+export const TIMELINE_SPAN_CAP = 5000
+
+export interface ConversationSpans {
+  spans: AgentProfilerSpan[]
+  /** Distinct turns the conversation has in the ledger, loaded or not. */
+  totalTurns: number
+  /** True when older turns, or spans past the span ceiling, were left out. */
+  capped: boolean
+}
+
+/**
+ * The newest `TIMELINE_TURN_CAP` turns of one conversation, spans returned
+ * oldest first. Bounded twice: by turns (a long-running conversation must not load
+ * its whole history) and by spans (one runaway turn must not either).
+ */
+export async function getSpansForConversation(conversationId: string): Promise<ConversationSpans> {
   const db = getDb()
-  return withPlatformAccess(
-    'platform profiler: a deliberately cross-organization operations directory',
-    () =>
-      db
-        .select()
-        .from(agentProfilerSpans)
-        .where(eq(agentProfilerSpans.conversationId, conversationId))
-        .orderBy(agentProfilerSpans.startedAt)
-  )
+  return withPlatformAccess(PROFILER_ACCESS_REASON, async () => {
+    const turnRows = await db
+      .select({
+        turnId: agentProfilerSpans.turnId,
+        totalTurns: sql<string>`count(*) over ()`,
+      })
+      .from(agentProfilerSpans)
+      .where(eq(agentProfilerSpans.conversationId, conversationId))
+      .groupBy(agentProfilerSpans.turnId)
+      .orderBy(desc(sql`min(${agentProfilerSpans.startedAt})`))
+      .limit(TIMELINE_TURN_CAP)
+
+    const totalTurns = Number(turnRows[0]?.totalTurns ?? 0)
+    if (turnRows.length === 0) return { spans: [], totalTurns: 0, capped: false }
+
+    const spans = await db
+      .select()
+      .from(agentProfilerSpans)
+      .where(
+        and(
+          eq(agentProfilerSpans.conversationId, conversationId),
+          inArray(
+            agentProfilerSpans.turnId,
+            turnRows.map((row) => row.turnId)
+          )
+        )
+      )
+      // Newest first, so a cut drops the OLDEST spans: the recent turns are
+      // the ones an operator opens the timeline for.
+      .orderBy(desc(agentProfilerSpans.startedAt), desc(agentProfilerSpans.spanId))
+      // One over the ceiling, so "exactly full" reads differently from "cut".
+      .limit(TIMELINE_SPAN_CAP + 1)
+
+    const spansCapped = spans.length > TIMELINE_SPAN_CAP
+    return {
+      spans: spans.slice(0, TIMELINE_SPAN_CAP).reverse(),
+      totalTurns,
+      capped: spansCapped || totalTurns > turnRows.length,
+    }
+  })
 }

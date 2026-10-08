@@ -35,12 +35,28 @@ describe('CitationDefectChart', () => {
         ]}
         kinds={KINDS}
         {...labels}
-      />,
+      />
     )
 
     expect(screen.getByText('3 findings')).toBeDefined()
     expect(screen.queryByText('3 turns')).toBeNull()
     expect(screen.getByRole('button', { name: 'Jul 28: 3 findings' })).toBeDefined()
+  })
+
+  test('draws the legend inside the palette scope, so its swatches have a colour', () => {
+    // The series variables only resolve under `.grid-usage-viz`. The legend
+    // used to sit outside that element, so every swatch painted nothing and
+    // the legend was labels alone.
+    render(
+      <CitationDefectChart
+        points={[{ day: '2026-07-28', turns: 4, defectTurns: 2, byKind: { citations_removed: 2 } }]}
+        kinds={KINDS}
+        {...labels}
+      />
+    )
+
+    const legendItem = screen.getAllByText('citations_removed').find((node) => node.closest('li'))
+    expect(legendItem?.closest('.grid-usage-viz')).not.toBeNull()
   })
 
   test('renders the empty label when no kind carries a finding', () => {
@@ -49,7 +65,7 @@ describe('CitationDefectChart', () => {
         points={[{ day: '2026-07-28', turns: 12, defectTurns: 0, byKind: {} }]}
         kinds={KINDS}
         {...labels}
-      />,
+      />
     )
 
     expect(screen.getByText('No citation findings in this window.')).toBeDefined()
