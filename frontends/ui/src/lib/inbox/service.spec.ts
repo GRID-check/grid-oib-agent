@@ -99,6 +99,8 @@ const ALL_TYPES = [
   'job.failed',
   'job.waiting',
   'document.review_requested',
+  'mail_import.completed',
+  'mail_import.failed',
 ] as const satisfies readonly InboxItemType[]
 
 /** What a tenant WITHOUT collaboration may see: the operational types only. */
@@ -113,6 +115,10 @@ const OPERATIONAL_TYPES = [
   // collaboration still has documents to approve, and gating the one review
   // queue in the product would make it invisible for exactly them.
   'document.review_requested',
+  // An Outlook archive import ended (ADR-0085): an office without
+  // collaboration imports mail too.
+  'mail_import.completed',
+  'mail_import.failed',
 ] as const satisfies readonly InboxItemType[]
 
 const at = new Date('2026-07-29T10:00:00.000Z')

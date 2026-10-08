@@ -132,6 +132,16 @@ describe("frontendEnv", () => {
     expect(configSource).not.toContain('name: "GRID_WORKFLOWS_ENABLED"');
   });
 
+  it("emits the mail import gate under the name the BFF reads", () => {
+    // `isMailImportEnabled` in frontends/ui/src/lib/authz/feature-flags.ts.
+    const reader = readFileSync(
+      join(repoRoot, "frontends", "ui", "src", "lib", "authz", "feature-flags.ts"),
+      "utf8",
+    );
+    expect(reader).toContain("process.env.GRID_MAIL_IMPORT_ENABLED");
+    expect(configSource).toContain('name: "GRID_MAIL_IMPORT_ENABLED"');
+  });
+
   it("hands the BFF the GitHub token and the repo it files bug reports into", () => {
     // The names the BFF reads (`lib/github/issues.ts`, `lib/product-feedback/github.ts`).
     expect(configSource).toContain('sref("GRID_GITHUB_TOKEN")');

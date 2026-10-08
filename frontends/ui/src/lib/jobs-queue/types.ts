@@ -30,6 +30,7 @@ export const BFF_JOB_KINDS = [
   'bim_extract',
   'office_rendition',
   'file_research_report',
+  'mail_import',
 ] as const
 export type BffJobKind = (typeof BFF_JOB_KINDS)[number]
 
@@ -194,6 +195,19 @@ export const fileResearchReportPayloadSchema = z.object({
   requester: requesterSchema.nullable(),
 })
 export type FileResearchReportPayload = z.infer<typeof fileResearchReportPayloadSchema>
+
+/**
+ * `mail_import`: file a staged Outlook archive into its project (ADR-0085), a
+ * time budget of mails per slice, as the person who started it. Its progress
+ * lives on the `mail_imports` row, not here, because it advances per mail and
+ * a slice can die between two of them.
+ */
+export const mailImportPayloadSchema = z.object({
+  importId: z.string().uuid(),
+  projectId: z.string().uuid(),
+  requester: requesterSchema,
+})
+export type MailImportPayload = z.infer<typeof mailImportPayloadSchema>
 
 /** What a one-step job is told about the attempt it is running. */
 export interface JobAttempt {
