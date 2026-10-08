@@ -72,6 +72,26 @@ def is_bescheid(tags: Iterable[str] | None) -> bool:
     return BESCHEID_TAG in (tags or ())
 
 
+#: The type the classifier picks when it cannot tell: no evidence that a document is not a Bescheid.
+_UNDECIDED_TYPE = "Sonstiges"
+
+
+def typed_as_something_else(tags: Iterable[str] | None) -> bool:
+    """Whether the tag decision positively typed the document as another kind than a Bescheid.
+
+    Only a document-type tag counts. ``None`` or ``[]`` is no decision (the tagger timed out
+    or failed, the classifier abstained, summaries are off); a list of discipline tags alone
+    is none either, because the fallback drops a type outside the vocabulary
+    (``["Baubescheid", "Brandschutz"]`` comes back as ``["Brandschutz"]``); and
+    ``Sonstiges`` is the type picked when unsure. A record is dropped on nothing less than a
+    positive other type, so a real Bescheid's record survives every re-ingest a move makes.
+    """
+    from aiq_agent.knowledge.document_classification import DOCUMENT_TYPE_TAGS
+
+    given = set(tags or ())
+    return not is_bescheid(given) and any(tag in given for tag in DOCUMENT_TYPE_TAGS if tag != _UNDECIDED_TYPE)
+
+
 def _blank_to_none(value: Any) -> Any:
     """A model writes ``""`` for "not stated"; the record stores that as absent."""
     if isinstance(value, str):

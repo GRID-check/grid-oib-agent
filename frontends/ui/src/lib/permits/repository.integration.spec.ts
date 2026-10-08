@@ -459,6 +459,12 @@ describe.skipIf(!url)('permit records against live Postgres', () => {
         const cleared = await search(ORG, content, { [ids.baden]: [folderId] })
         // A reader cleared for the folder is served it, and the hand-out records the folder it sits in NOW.
         expect(cleared.find((record) => record.fileName === 'Bescheid_verschoben.pdf')?.restrictedFolderIds).toEqual([folderId])
+
+        // Placement catches up: the citation names the collection the document is in now, not the one it was read from.
+        const restrictedCollection = `proj_prm_${ids.baden}_r${folderId.replaceAll('-', '').slice(0, 12)}`
+        await change(sql`update documents set collection_name = ${restrictedCollection}, status = 'completed' where id = ${documentId}::uuid`)
+        const placed = await search(ORG, content, { [ids.baden]: [folderId] })
+        expect(placed.find((record) => record.fileName === 'Bescheid_verschoben.pdf')?.collectionName).toBe(restrictedCollection)
       })
 
       it('goes quiet the moment its folder is in the Papierkorb, not when the purge cascades', async () => {

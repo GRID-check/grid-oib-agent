@@ -72,18 +72,21 @@ def test_a_bescheid_is_extracted_over_its_pages_and_stored_for_its_document(call
     ]
 
 
-def test_a_document_the_tags_type_as_something_else_is_not_read_and_its_old_record_is_dropped(calls, forgotten):
+@pytest.mark.parametrize("tags", [["Gutachten"], ["Grundriss", "Brandschutz"]])
+def test_a_document_the_tags_type_as_something_else_is_not_read_and_its_old_record_is_dropped(calls, forgotten, tags):
     # A re-typed document must stop answering as a permit: its record goes, without a model call.
-    _ingestor(enabled=False, llm=None)._remember_permit(CONFIG, "proj_1", "f.pdf", ["Gutachten"], [_page("1", "x")])
+    _ingestor(enabled=False, llm=None)._remember_permit(CONFIG, "proj_1", "f.pdf", tags, [_page("1", "x")])
     assert calls == []
     assert forgotten == [("d1", "proj_1", "f.pdf")]
 
 
-@pytest.mark.parametrize("tags", [None, []])
+@pytest.mark.parametrize("tags", [None, [], ["Brandschutz"], ["Sonstiges", "Brandschutz"]])
 def test_no_tag_decision_is_no_reason_to_drop_a_record(calls, forgotten, tags):
     # None: the tagger timed out or failed, the classifier abstained, or summaries are off. Placement
     # re-ingests on every move, so dropping here would erase a real Bescheid's record whenever the
-    # tagger was slow. An empty list decided nothing either.
+    # tagger was slow. An empty list decided nothing; discipline tags alone are what the fallback
+    # leaves of ["Baubescheid", "Brandschutz"] (the off-vocabulary type is dropped); and Sonstiges
+    # is the type picked when unsure.
     _ingestor()._remember_permit(CONFIG, "proj_1", "Bescheid.pdf", tags, [_page("1", "x")])
     assert forgotten == []
     assert calls == []
