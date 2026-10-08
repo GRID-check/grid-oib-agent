@@ -2504,6 +2504,10 @@
     "de": "Widersprechen sich zwei Quellen, zeigt Piloti den Unterschied jetzt an, nennt beide mit Fundstelle und sagt, welche Regel den Vorrang entscheidet, oder dass sich der Widerspruch aus den Quellen nicht auflösen lässt."
   },
   {
+    "en": "When you close a project, Piloti now proposes which files it no longer needs, such as working copies, older versions, duplicates and temporary files. It is marked as an AI proposal, you decide about every file, and what you confirm goes to the Papierkorb for 14 days.",
+    "de": "Wenn Sie ein Projekt abschließen, schlägt Piloti jetzt vor, welche Dateien es nicht mehr braucht, etwa Arbeitskopien, ältere Fassungen, Duplikate und temporäre Dateien. Der Vorschlag ist als KI-Vorschlag gekennzeichnet, Sie entscheiden über jede Datei, und was Sie bestätigen, kommt für 14 Tage in den Papierkorb."
+  },
+  {
     "en": "When you send a new question while Piloti is still answering the previous one, the earlier answer is now stopped completely before the new one starts, so the two can no longer mix in one conversation. In the rare case that the earlier answer does not stop within a few seconds, Piloti says it is still finishing and asks you to send the question again.",
     "de": "Wenn Sie eine neue Frage senden, während Piloti noch die vorherige beantwortet, wird die frühere Antwort vollständig beendet, bevor die neue beginnt. So können sich die beiden nicht mehr in einer Unterhaltung vermischen. Falls die frühere Antwort ausnahmsweise nicht innerhalb weniger Sekunden stoppt, teilt Piloti Ihnen mit, dass sie noch abgeschlossen wird, und bittet Sie, die Frage erneut zu senden."
   },
