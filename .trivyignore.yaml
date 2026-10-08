@@ -93,6 +93,29 @@ vulnerabilities:
 
       Drop as soon as a Langfuse image ships deepmerge-ts >= 8.0.0.
 
+  - id: CVE-2026-104850
+    expired_at: 2026-11-08
+    statement: |
+      @modelcontextprotocol/sdk 1.29.0 (fixed in 1.31.0), in both
+      ghcr.io/langfuse/langfuse (web) and langfuse-worker at 4.54.0. The advisory
+      is the OAuth CLIENT sending credentials to an authorization server, so it
+      matters only where the SDK's client OAuth flow runs.
+
+      Not reached by Langfuse's code, checked by reading the images' bundled
+      JavaScript (2026-10-08, pulled from the registry and streamed):
+      - web imports only server-side SDK modules (server/index.js, server/mcp,
+        server/streamableHttp, types, validation/ajv). It never imports
+        client/auth.js.
+      - worker's in-app agent builds its MCP client with a fixed server URL from
+        operator config (LANGFUSE_MCP_BASE_URL / NEXTAUTH_URL) and a Basic key
+        header, and passes no authProvider. The SDK runs its OAuth client only
+        when an authProvider is set, so the credential-sending path is not
+        entered.
+
+      Not a bump: 4.54.0 is the newest Langfuse release in the registry as of
+      2026-10-08 (tags listed, 5,243 total). Re-check on every Langfuse bump and
+      drop this entry when an image ships @modelcontextprotocol/sdk >= 1.31.0.
+
   # ── err2issue (ADR-0031) ──────────────────────────────────────────────────
   #
   # Digest-pinned in deploy/pulumi/src/config.ts. Eight findings from its Debian
