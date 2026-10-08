@@ -10,10 +10,11 @@ features:
     first upload: Ältere Uploads laden shows the next older ones.
 fixes:
   - >
-    If a folder of the project is closed to you, the upload history in the
-    project settings counts only the files that landed in folders you can open,
-    and no longer lists an upload with none there. A folder in the Papierkorb
-    that you could open does not count as closed to you.
+    If a folder of the project that still holds files is closed to you, the
+    upload history in the project settings counts only the files that landed in
+    folders you can open, and no longer lists an upload with none there. A
+    folder in the Papierkorb that you could open, and a folder whose files were
+    deleted for good, do not count as closed to you.
   - >
     Files uploaded in the project wizard now get the same inbox notice and
     upload summary as any other upload, and appear in the project's upload

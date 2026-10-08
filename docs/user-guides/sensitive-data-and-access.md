@@ -130,13 +130,15 @@ the same notice and summary, and the project's upload list shows it.
 first, with who uploaded it and what became of its files; **Ältere Uploads
 laden** reads further back, to the first one. Each person opens
 the file-by-file summary of their own uploads only. If a folder of the project
-is closed to you, you see of each upload only the files that landed in folders
-you can open, exactly as the file list shows them. Files Piloti found
+that still holds files is closed to you, you see of each upload only the files
+that landed in folders you can open, exactly as the file list shows them. Files Piloti found
 unchanged, transfers that failed and files the screening kept back belong to no
 folder, so they are not counted for you, and an upload with nothing in your
 folders is not listed. A folder in the Papierkorb is hidden from everyone, so
 its files are not counted, but it closes nothing to you as long as you could
-open it: the upload's other counts stay.
+open it: the upload's other counts stay. A folder that holds no files closes
+nothing either, and that includes a folder whose files were deleted for good
+when its time in the Papierkorb ran out.
 
 ## Your office's own roles
 

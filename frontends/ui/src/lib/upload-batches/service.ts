@@ -40,6 +40,7 @@ import { parseQuarantine, type QuarantineVerdict } from '@/lib/upload-screening/
 import {
   countBatchDocumentsByStatus,
   findUploadBatch,
+  hasDocumentsInFolders,
   insertUploadBatch,
   listBatchDocuments,
   listProjectUploadBatchPage,
@@ -368,6 +369,12 @@ export interface UploadHistoryPage {
  * admins included, so its files are not tallied; it withholds the batch's
  * counts only from a reader who may not read it, or every project with a
  * binned folder would show everyone a cut-down history.
+ *
+ * What withholds is a document still filed where the reader cannot look, not
+ * the folder: a purged folder's tombstone (closed to non-admins under the
+ * `admins` and `remove` settings) and an empty folder hold none, so they leave
+ * the history whole. Otherwise one purge would cut every project member's
+ * history down for good, though nothing is left to withhold.
  */
 export async function listProjectUploadHistory(
   session: AuthorizedSession,
@@ -380,23 +387,24 @@ export async function listProjectUploadHistory(
     readerFolders(session, projectId),
   ])
   const hiddenFolderIds = folders ? [...folders.access.hiddenFolderIds] : []
-  const [counts, directory] = await Promise.all([
+  const unreadable = folders ? unreadableFolderIds(folders.access) : []
+  const [counts, directory, filesHiddenFromReader] = await Promise.all([
     countBatchDocumentsByStatus(
       session.organizationId,
       batches.map((batch) => batch.id),
       { hiddenFolderIds }
     ),
     loadOrganizationDirectory(session.organizationId),
+    hasDocumentsInFolders(session.organizationId, projectId, unreadable),
   ])
-  const readerHidesFolders = folders !== null && unreadableFolderIds(folders.access).length > 0
   const uploads = batches.flatMap((batch): UploadHistoryEntry[] => {
     const tally: UploadHistoryEntry['counts'] = { ready: 0, reading: 0, quarantined: 0, failed: 0, stored: 0 }
     for (const row of counts) {
       if (row.batchId === batch.id) tally[outcomeOf(row.status)] += row.count
     }
     const placed = Object.values(tally).reduce((sum, count) => sum + count, 0)
-    if (readerHidesFolders && placed === 0) return []
-    const own = batchCounts(batch, readerHidesFolders ? placed : null)
+    if (filesHiddenFromReader && placed === 0) return []
+    const own = batchCounts(batch, filesHiddenFromReader ? placed : null)
     return [
       {
         id: batch.id,
