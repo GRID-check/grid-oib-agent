@@ -168,7 +168,6 @@ Chosen option 3.
   from two replicas exactly one runs first; the renewal and the release are
   compare-and-write on the marker's own `{replica, turn_id}` value.
 * A replica holds no disk state a conversation depends on: checkpoints are in
-  Postgres, vectors in the shared Chroma. The one per-replica file set is the
-  base-corpus admin upload (`OIB_UPLOADS_DIR` on the data PVC, kubernetes.md
-  §6.4), which chat never reads. Scale-in keeps the PVC (`whenScaled: Retain`),
-  so that source PDF is back when the ordinal returns.
+  Postgres, vectors in the shared Chroma. (When this was written the one
+  per-replica file set was the base-corpus admin upload on the data PVC; ADR-0082
+  step A2 moved it to object storage and removed the PVC.)

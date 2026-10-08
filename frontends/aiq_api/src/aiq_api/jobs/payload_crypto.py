@@ -2,9 +2,8 @@
 
 The claimable queue row (``research_job_queue.payload``) persists the full
 ``run_agent_job`` payload durably in Postgres. That payload carries the user's
-auth token plus identity/budget context — unlike the old Dask path, which held
-it only transiently in worker memory, this is at-rest exposure (table, WAL,
-backups, replicas).
+auth token plus identity/budget context, so persisting it is at-rest exposure
+(table, WAL, backups, replicas).
 
 When ``GRID_JOB_PAYLOAD_KEK`` (32 bytes, base64) is set the payload is
 AES-256-GCM encrypted; the worker decrypts it in-process to run the job. Without

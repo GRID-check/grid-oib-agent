@@ -136,10 +136,11 @@ full design.
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `BACKEND_URL` | `http://localhost:8000` | Backend HTTP URL |
+| `BACKEND_URL` | `http://localhost:8000` | Backend HTTP URL: the `api` role (ADR-0082) |
+| `BACKEND_CHAT_URL` | none (required by the gateway) | The backend's `chat` role, the only role that serves the socket; no fallback to `BACKEND_URL` |
 | `NEXT_PUBLIC_BACKEND_URL` | Falls back to `BACKEND_URL` | Browser-accessible backend URL |
 
-The WebSocket URL is derived by replacing `http` → `ws` in `BACKEND_URL`. Keep-alive is set to 15 seconds on upstream sockets.
+The WebSocket URL is derived by replacing `http` → `ws` in `BACKEND_CHAT_URL`. Keep-alive is set to 15 seconds on upstream sockets.
 
 ---
 
@@ -313,7 +314,7 @@ refused (`rejected{invalid_message}`), and so is an unknown `type`
 {"v":2,"type":"user_message","conversation_id":"s_1","message_id":"msg_1759000000000_3","text":"Wie lang darf der Fluchtweg in GK 4 sein?","data_sources":["knowledge_layer"]}
 ```
 
-### Sensitive data is masked, never refused (ADR-0083)
+### Sensitive data is masked, never refused (ADR-0085)
 
 The free text of a `user_message` (`context_only` lines included) and of an
 `interaction_response` `{text}` answer is masked against the office's

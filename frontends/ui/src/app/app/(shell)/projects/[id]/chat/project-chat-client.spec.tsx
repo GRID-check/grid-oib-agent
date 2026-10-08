@@ -87,7 +87,6 @@ const clientProps = {
   showConfidenceChip: true,
   showAnswerFeedback: true,
   showResearchInHistory: false,
-  projectCollection: null as string | null,
   projectName: 'Lacknergasse',
 }
 

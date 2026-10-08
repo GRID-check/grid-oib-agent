@@ -1,21 +1,18 @@
-# OIB corpus — provided by the platform owner, not by this repository
+# A local copy of the OIB corpus, for the evals and tests
 
-This directory is where the OIB Richtlinien PDFs live at runtime. It ships
-**empty**: the corpus is licensed material that belongs to whoever operates the
-platform, and 71 MB of binaries in git made every clone pay for documents that
-change once a year and that an operator can supply in a minute.
+The running platform does not read this directory. Its base corpus lives in
+object storage and is uploaded through the platform-admin UI (or
+`scripts/upload_oib_corpus.py data/oib`, which sends every PDF in a directory
+through the same admin route); see
+[`docs/technical-reference/oib-sync.md`](../../docs/technical-reference/oib-sync.md).
 
-There are two ways to fill it, and they are equivalent from the agent's side:
-
-- **Upload through the platform-admin UI.** Files land in `OIB_UPLOADS_DIR`
-  (`data/oib_uploads`, on the persistent data volume) and are ingested by the
-  same background sync. This is the path a running deployment should use.
-- **Drop PDFs in here before first boot.** Both Compose files bind-mount this
-  directory read-only, and `oib_sync.discover_pdfs()` reads it alongside the
-  uploads directory. Useful for a local stack or for seeding a fresh volume.
-
-Either way the sync is incremental and hash-gated (`data/oib_registry.json`),
-so re-running it costs nothing for files that have not changed.
+What reads `data/oib` is the offline tooling: the retrieval benchmarks
+(`frontends/benchmarks/oib_retrieval`), the answer-suite census and the filename
+tests in `tests/aiq_agent/common/test_norm_registry.py`. They need the
+Richtlinien PDFs on disk, and the corpus is licensed material that belongs to
+whoever operates the platform, so this directory ships **empty**: 71 MB of
+binaries in git made every clone pay for documents that change once a year.
+Put the PDFs here yourself; those tests skip when there are none.
 
 `*.pdf` here is gitignored. Do not commit the corpus back.
 

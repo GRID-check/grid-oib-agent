@@ -73,7 +73,7 @@ vi.mock('@/lib/audit/service', () => ({
   recordAuditEvent: vi.fn().mockResolvedValue(undefined),
 }))
 
-// The upload-screening policy (ADR-0083) is read off the organization's
+// The upload-screening policy (ADR-0085) is read off the organization's
 // settings; an office that never saved one is on Piloti's suggestion.
 vi.mock('@/lib/organizations/service', () => ({
   getOrgSettings: vi.fn().mockResolvedValue({ displayName: null, defaultLocale: 'de', settings: {} }),
@@ -383,7 +383,7 @@ describe('uploadDocument server-side type gate', () => {
 })
 
 /**
- * The name gate's server-side repeat (ADR-0083). The browser checks first and
+ * The name gate's server-side repeat (ADR-0085). The browser checks first and
  * never sends an excluded file; this is what makes a client that skipped the
  * check harmless. It runs before a byte is written, and an explicit release by
  * the uploader is honoured and audited rather than refused.

@@ -26,7 +26,6 @@ function file(overrides: Partial<KnowledgeBaseStatus['files'][number]>): Knowled
   return {
     fileName: 'doc.pdf',
     state: 'ingested',
-    origin: 'corpus',
     sizeBytes: 1024,
     chunkCount: 4,
     ingestedSha256: null,
@@ -49,7 +48,7 @@ const STATUS: KnowledgeBaseStatus = {
     ingested: 3,
     stale: 0,
     pending: 0,
-    snapshot: 0,
+    failed: 0,
     removed: 0,
     inconsistent: 0,
     totalChunks: 12,
@@ -57,7 +56,7 @@ const STATUS: KnowledgeBaseStatus = {
   files: [
     file({ fileName: 'oib-richtlinie-2.pdf', docClass: 'oib_richtlinie' }),
     file({ fileName: 'oenorm-b-1600.pdf', docClass: 'norm_extern' }),
-    file({ fileName: 'sonstiges-notiz.pdf', docClass: 'sonstiges', origin: 'uploaded' }),
+    file({ fileName: 'sonstiges-notiz.pdf', docClass: 'sonstiges' }),
   ],
 }
 
@@ -241,10 +240,10 @@ describe('BaseKnowledge', () => {
     })
   })
 
-  test('a repo-shipped (corpus) row deletes with corpus wording after confirmation', async () => {
+  test('a row deletes after confirmation, and the dialog says what is deleted', async () => {
     const fetchSpy = vi.fn((url: string, init?: RequestInit) => {
       if (typeof url === 'string' && url.includes('/api/platform/knowledge/documents/') && init?.method === 'DELETE') {
-        return Promise.resolve(jsonResponse({ success: true, fileName: 'oib-richtlinie-2.pdf', mode: 'excluded' }))
+        return Promise.resolve(jsonResponse({ success: true, fileName: 'oib-richtlinie-2.pdf' }))
       }
       return Promise.resolve(jsonResponse(STATUS))
     })
@@ -254,13 +253,13 @@ describe('BaseKnowledge', () => {
     render(<BaseKnowledge />)
     const sheet = await openDetail(user, 'oib-richtlinie-2.pdf')
 
-    // The corpus row (origin: 'corpus') offers "Remove from corpus", not "Remove".
-    await user.click(within(sheet).getByRole('button', { name: 'Remove from corpus' }))
-
-    // The confirm dialog repeats the corpus-specific wording; confirm it.
+    // One kind of removal for every row: it deletes.
+    expect(within(sheet).queryByRole('button', { name: 'Remove from corpus' })).not.toBeInTheDocument()
+    await user.click(within(sheet).getByRole('button', { name: 'Remove' }))
     const dialog = await screen.findByRole('dialog')
-    expect(dialog).toHaveTextContent('Remove oib-richtlinie-2.pdf from the corpus?')
-    await user.click(within(dialog).getByRole('button', { name: 'Remove from corpus' }))
+    expect(dialog).toHaveTextContent('Remove oib-richtlinie-2.pdf?')
+    expect(dialog).toHaveTextContent('This deletes the PDF and all of its indexed content')
+    await user.click(within(dialog).getByRole('button', { name: 'Remove document' }))
 
     await waitFor(() => {
       expect(
@@ -274,17 +273,19 @@ describe('BaseKnowledge', () => {
     })
   })
 
-  test('an uploaded row deletes with the uploaded wording', async () => {
-    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(jsonResponse(STATUS)))
+  test('an indexed file the corpus no longer lists can be deleted but not viewed', async () => {
+    const orphaned: KnowledgeBaseStatus = {
+      ...STATUS,
+      files: [...STATUS.files, file({ fileName: 'orphan.pdf', state: 'removed', sizeBytes: null })],
+    }
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(jsonResponse(orphaned)))
     const user = userEvent.setup()
 
     render(<BaseKnowledge />)
-    const sheet = await openDetail(user, 'sonstiges-notiz.pdf')
+    const sheet = await openDetail(user, 'orphan.pdf')
 
-    await user.click(within(sheet).getByRole('button', { name: 'Remove' }))
-    const dialog = await screen.findByRole('dialog')
-    expect(dialog).toHaveTextContent('Remove sonstiges-notiz.pdf?')
-    expect(dialog).toHaveTextContent('This deletes the uploaded PDF')
+    expect(within(sheet).queryByRole('button', { name: 'View PDF' })).not.toBeInTheDocument()
+    expect(within(sheet).getByRole('button', { name: 'Remove' })).toBeInTheDocument()
   })
 
   test('the detail sheet opens the in-app PDF viewer', async () => {
@@ -409,7 +410,7 @@ describe('BaseKnowledge', () => {
     // Status snapshot where a.pdf has finished indexing but b.pdf hasn't appeared yet.
     const statusWithA: KnowledgeBaseStatus = {
       ...STATUS,
-      files: [...STATUS.files, file({ fileName: 'a.pdf', origin: 'uploaded', docClass: 'sonstiges' })],
+      files: [...STATUS.files, file({ fileName: 'a.pdf', docClass: 'sonstiges' })],
     }
     const fetchSpy = vi.fn((url: string, init?: RequestInit) => {
       if (typeof url === 'string' && url.includes('/api/platform/knowledge/documents') && init?.method === 'POST') {

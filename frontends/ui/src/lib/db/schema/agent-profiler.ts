@@ -31,7 +31,7 @@ export const agentProfilerSpans = pgTable(
     conversationId: text('conversation_id'),
     /** Groups every span of one backend track_agent_profile() call (one turn/job run). */
     turnId: text('turn_id').notNull(),
-    /** Async deep-research job id, when the turn ran inside a Dask worker. */
+    /** Async deep-research job id, when the turn ran inside a research worker. */
     jobId: text('job_id'),
     spanId: text('span_id').notNull(),
     parentSpanId: text('parent_span_id'),

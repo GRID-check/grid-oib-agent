@@ -92,6 +92,19 @@ describe("tenant bucket prefix", () => {
   });
 });
 
+describe("the backend's vector store", () => {
+  // The backend keeps no volume (ADR-0082). An embedded store would deploy
+  // cleanly, answer from an empty index after every restart, and look healthy.
+  it("refuses to run without the shared Chroma server", () => {
+    const error = loadWith({ "grid-oib:chromaEnabled": "false" });
+    expect(error?.message).toMatch(/chromaEnabled=false is not supported/);
+  });
+
+  it("accepts the shared Chroma server", () => {
+    expect(loadWith({ "grid-oib:chromaEnabled": "true" })).toBeNull();
+  });
+});
+
 describe("SeaweedFS topology", () => {
 
   it("refuses an even master count", () => {

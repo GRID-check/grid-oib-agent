@@ -1,5 +1,5 @@
 /**
- * Why a document is in quarantine, read back from its stored error (ADR-0083).
+ * Why a document is in quarantine, read back from its stored error (ADR-0085).
  *
  * The content gate in the ingest job ends a matching file with
  * `quarantined:{"reasons":[…],"checked":"full"|"partial"}`
