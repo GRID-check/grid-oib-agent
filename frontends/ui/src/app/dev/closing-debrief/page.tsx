@@ -5,10 +5,15 @@
  * 3): the REAL `ProjectLifecycleCard`, whose close dialog („Ausmisten", ADR-0091) asks
  * with the REAL `ClosingDebrief` inside. Open it with „Projekt abschließen".
  *
- *   - default             — a project admin who may write the memory: two facts
- *                           of the fingerprint open (one of them the derived
- *                           Gebäudeklasse), two decisions to confirm, a
- *                           constraint a person already pinned, and the lesson.
+ *   - default             — a project admin who may write the memory: the Vorhaben
+ *                           is a suggestion read from the documents (with its
+ *                           evidence and „Übernehmen"), the OIB edition is
+ *                           suggested beside the fingerprint, the derived
+ *                           Gebäudeklasse is open, a decision drawn from the
+ *                           documents waits to be confirmed or dismissed, two
+ *                           more decisions to confirm, a constraint a person
+ *                           already pinned, and the lesson. „Aus den Unterlagen
+ *                           erschließen" answers after 1.5 s with a fixed result.
  *   - `?variant=readonly` — a closer without `project:memory:write`: what stays,
  *                           and no control that would change it.
  *   - `?variant=empty`    — nothing recorded yet, and no profile at all.
@@ -28,7 +33,7 @@ import { useEffect, useState } from 'react'
 import { I18nProvider } from '@/i18n'
 import { ProjectLifecycleCard } from '@/features/projects/components/project-lifecycle-card'
 import { buildIntakeProfile, projectIntakeDefinitionV1 } from '@/lib/project-profile/intake-definition'
-import type { ProjectPrimitiveValue, ProjectProfile } from '@/lib/project-profile/types'
+import type { ProjectAssumption, ProjectPrimitiveValue, ProjectProfile } from '@/lib/project-profile/types'
 
 type Variant = 'default' | 'readonly' | 'empty' | 'structure'
 const PROJECT = 'dev-closing-debrief'
@@ -70,19 +75,40 @@ const MEMORY = [
   item('m-2', 'constraint', 'Die BH Baden verlangt die Fluchtwegbreiten in jedem Geschoßgrundriss bemaßt.', { pinned: true }),
   item('m-3', 'decision', 'Laubengang statt zweitem Stiegenhaus; Fluchtniveau unter 11\u00a0m gehalten.'),
   item('m-4', 'derived_fact', 'Die Dachlast beträgt 2 kN/m².'),
+  item(
+    'm-5',
+    'decision',
+    'Fluchttreppe außen in Stahl statt eines zweiten Stiegenhauses, weil die Brandwand im Bestand nicht durchbrochen werden durfte.',
+    { verification: 'source_grounded', evidence: [{ fileName: 'Bescheid.pdf', page: '3' }] }
+  ),
 ]
 
 // Built by the intake's own producer, in the shape production stores.
 const built = (answers: Record<string, ProjectPrimitiveValue>): ProjectProfile =>
   buildIntakeProfile(answers, projectIntakeDefinitionV1, { bauwerke: [{ id: 'bw1', name: 'Haupthaus' }] })
 
-const PROFILE = built({
-  A2_country: 'at',
-  A2_land: 'niederoesterreich',
-  'C1@bw1': 'gebaeude',
-  'C10@bw1': ['holzbau', 'stahlbeton'],
-  'D0@bw1': ['wohnen'],
+/** A value the closing extraction read from a document, not yet a person's answer. */
+const suggested = (value: ProjectPrimitiveValue, reason: string): ProjectAssumption => ({
+  value,
+  status: 'unconfirmed',
+  reason,
+  source: 'agent_suggested',
+  updatedAt: '2026-10-07T09:00:00Z',
 })
+
+const PROFILE: ProjectProfile = {
+  ...built({
+    A2_country: 'at',
+    A2_land: 'niederoesterreich',
+    'C1@bw1': 'gebaeude',
+    'C10@bw1': ['holzbau', 'stahlbeton'],
+    'D0@bw1': ['wohnen'],
+  }),
+  assumptions: {
+    vorhabensart: suggested(['neubau'], 'Baubeschreibung.pdf, S. 2: „Neubau eines viergeschoßigen Wohnhauses“'),
+    oib_ausgabe: suggested('2019', 'Einreichplan.pdf, S. 1: „Nachweis nach OIB-Richtlinien 2019“'),
+  },
+}
 
 /** A Stützmauer: no Gebäudeklasse, no Bauweise to ask for. */
 const STRUCTURE = built({ A2_country: 'at', A2_land: 'tirol', A5: ['neubau'], 'C1@bw1': 'sonstig' })
@@ -103,7 +129,17 @@ if (typeof window !== 'undefined' && process.env.NODE_ENV === 'development') {
       const patched = url.startsWith(`/api/projects/${PROJECT}/memory/`) && init?.method === 'PATCH'
       if (patched) {
         const found = MEMORY.find((entry) => url.endsWith(`/${entry.id}`))
-        return Response.json({ item: { ...found, verification: 'user_confirmed' } })
+        const body = JSON.parse(String(init?.body)) as { status?: string }
+        return Response.json({ item: { ...found, ...(body.status ? { status: body.status } : { verification: 'user_confirmed' }) } })
+      }
+      // Answered after a pause, as the BFF reads documents for a while; the fixture is not changed.
+      if (url === `/api/projects/${PROJECT}/experience` && init?.method === 'POST') {
+        await new Promise((resolve) => setTimeout(resolve, 1500))
+        return Response.json({ suggested: 1, drafted: 1, documentsRead: ['Baubeschreibung.pdf', 'Bescheid.pdf'], error: null })
+      }
+      // Accepting answers, but the fixture profile stays as it was rendered.
+      if (url === `/api/projects/${PROJECT}/profile/patches` && init?.method === 'POST') {
+        return Response.json({ profile: PROFILE })
       }
       // The „Ausmisten" proposal the close dialog asks for first (ADR-0091): nothing to remove.
       if (url.endsWith('/cleanup/proposal')) return Response.json({ items: [], considered: 0, aiUsed: false, aiError: null })

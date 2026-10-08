@@ -154,12 +154,28 @@ export const projects: typeof en.projects = {
         period: 'Zeitraum',
         periodOpen: '{start} bis heute',
         periodNone: 'offen; im Steckbrief eintragen',
+        suggested: 'Vorschlag aus den Unterlagen',
+        accept: 'Übernehmen',
+        oibEdition: 'OIB-Richtlinien {edition}',
         labels: {
           bundesland: 'Bundesland',
           gebaeudeklasse: 'Gebäudeklasse',
           bauweise: 'Bauweise',
           nutzungen: 'Nutzungen',
           vorhabensart: 'Art des Vorhabens',
+          oibEdition: 'OIB-Ausgabe',
+        },
+      },
+      extract: {
+        action: 'Aus den Unterlagen erschließen',
+        pending: 'Piloti liest die Unterlagen …',
+        result:
+          '{suggested, plural, one {# Eckdatum} other {# Eckdaten}} vorgeschlagen, {drafted, plural, one {# Entscheidung} other {# Entscheidungen}} erschlossen aus {documents, plural, one {# Dokument} other {# Dokumenten}}.',
+        none: 'Piloti hat in den Unterlagen nichts Neues gefunden.',
+        errors: {
+          backendUnavailable: 'Piloti konnte die Unterlagen gerade nicht lesen, bitte später erneut.',
+          noDocuments: 'Es gibt noch keine lesbaren Unterlagen in den offenen Ordnern.',
+          failed: 'Das Lesen hat nicht geklappt, bitte später erneut.',
         },
       },
       decisions: {
@@ -169,6 +185,9 @@ export const projects: typeof en.projects = {
         empty: 'Piloti hat für dieses Projekt noch keine Entscheidungen festgehalten.',
         confirm: 'Bestätigen',
         confirmed: 'Bestätigt',
+        dismiss: 'Verwerfen',
+        grounded: 'aus den Unterlagen erschlossen',
+        evidencePage: '{file}, S. {page}',
         kind: { decision: 'Entscheidung', constraint: 'Vorgabe' },
       },
       lesson: {

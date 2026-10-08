@@ -97,6 +97,11 @@ export interface FingerprintFact {
   applies: boolean
   /** Whether the intake wizard writes it, so the briefing is where to add it. */
   editable: boolean
+  /**
+   * Whether the value is only a suggestion read from the project's documents
+   * (`closed-project-experience.md`): no person confirmed it yet.
+   */
+  suggested: boolean
 }
 
 function valueOf(key: FingerprintKey, facts: SimilarityFacts): string | null {
@@ -119,6 +124,7 @@ function valueOf(key: FingerprintKey, facts: SimilarityFacts): string | null {
 /** Every fingerprint fact of a profile, open and inapplicable ones included. */
 export function fingerprintOf(profile: ProjectProfile | null | undefined): FingerprintFact[] {
   const facts = similarityFacts(profile ?? null)
+  const confirmed = similarityFacts(profile ? { ...profile, assumptions: {} } : null)
   const { answers, bauwerke } = profile
     ? answersFromProfile(profile, DEFINITION)
     : { answers: {} as Record<string, ProjectPrimitiveValue>, bauwerke: defaultBauwerke() }
@@ -129,13 +135,28 @@ export function fingerprintOf(profile: ProjectProfile | null | undefined): Finge
       askers.some(({ question, perBuilding }) =>
         perBuilding ? bauwerke.some((building) => asked(question, answers, building.id)) : asked(question, answers)
       )
-    return { key, value: valueOf(key, facts), applies, editable: askers.some(({ question }) => Boolean(question.writesTo)) }
+    const value = valueOf(key, facts)
+    return {
+      key,
+      value,
+      applies,
+      editable: askers.some(({ question }) => Boolean(question.writesTo)),
+      suggested: value !== null && valueOf(key, confirmed) === null,
+    }
   })
 }
 
-/** The fingerprint's known values, labelled, for a one-line summary („Niederösterreich, GK 4, Holzbau"). */
+/**
+ * The fingerprint's known values, labelled, for a one-line summary („Niederösterreich,
+ * GK 4, Holzbau"). A value only read from the documents says so, so the agent's
+ * catalog never presents a suggestion as a confirmed fact.
+ */
 export function fingerprintLabels(profile: ProjectProfile | null | undefined): string[] {
-  return fingerprintOf(profile)
-    .map((fact) => fact.value)
-    .filter((value): value is string => value !== null)
+  return fingerprintOf(profile).flatMap((fact) => {
+    if (fact.value === null) return []
+    return [fact.suggested ? `${fact.value} (${SUGGESTED_MARK})` : fact.value]
+  })
 }
+
+/** How a summary line marks a value only the project's documents suggest. */
+export const SUGGESTED_MARK = 'aus den Unterlagen, unbestätigt'
