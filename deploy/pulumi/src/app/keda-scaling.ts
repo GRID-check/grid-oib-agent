@@ -143,9 +143,11 @@ export interface QueueScaledTier {
    * dropped, and KEDA's admission webhook refuses a ScaledObject whose workload
    * another HPA already scales. Without the takeover the update fails at the
    * ScaledObject, the old HPA is never deleted, and every later deploy fails the
-   * same way. With it KEDA adopts the HPA under this name; when Pulumi then
-   * deletes its old record of it, KEDA recreates its own on the next reconcile.
-   * On a stack without that HPA the annotation is inert.
+   * same way. With it KEDA adopts the HPA under this name. Pulumi's delete of
+   * its old record then never completes, because KEDA recreates the object
+   * before the provider starts watching, so each stack needs that record
+   * dropped from state once by hand (`docs/contributing/gotchas.md`). On a
+   * stack without that HPA the annotation is inert.
    */
   adoptHpa?: string;
   dependsOn: pulumi.Resource[];
