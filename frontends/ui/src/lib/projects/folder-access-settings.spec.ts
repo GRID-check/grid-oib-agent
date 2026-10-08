@@ -335,7 +335,7 @@ describe('setFolderAccess', () => {
   })
 })
 
-describe('listFoldersWithoutValidRole (ADR-0085)', () => {
+describe('listFoldersWithoutValidRole (ADR-0087)', () => {
   beforeEach(() => {
     orphans.tree = [
       { id: 'honorare', parentId: null, accessMode: 'custom', grants: [{ role: 'org-gone', level: 'write' }] },

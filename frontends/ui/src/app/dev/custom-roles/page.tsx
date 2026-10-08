@@ -13,7 +13,7 @@
  * applies create, edit and delete to an in-memory list, so the round trip can
  * be tried. Deleting „Projektleitung" answers 409 (still assigned).
  *
- * Deleting „Geschäftsführung" (ADR-0085) shows the folders that name it and
+ * Deleting „Geschäftsführung" (ADR-0087) shows the folders that name it and
  * deletes only with the confirmation (`?confirmFolders=1`); `?usage=hidden` is
  * the role manager who may not read those folders, who is told how many.
  *

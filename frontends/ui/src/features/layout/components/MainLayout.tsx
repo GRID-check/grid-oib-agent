@@ -252,7 +252,7 @@ export const MainLayout: FC<MainLayoutProps> = ({
           )}
 
           {/* A chat the reader may no longer read has no transcript and no
-              composer here (ADR-0085): nothing of it is mounted, so nothing of
+              composer here (ADR-0087): nothing of it is mounted, so nothing of
               it is fetched or drawn. */}
           {currentConversationLocked ? (
             <RightsLostPanel />

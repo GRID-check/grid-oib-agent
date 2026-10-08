@@ -233,7 +233,7 @@ describe.skipIf(!url)('read/write folder access against Postgres', () => {
     ).rejects.toThrow()
   })
 
-  it('lists the living folders whose own list names a role, with their project, and counts them all (ADR-0085)', async () => {
+  it('lists the living folders whose own list names a role, with their project, and counts them all (ADR-0087)', async () => {
     const found = await accessRepo.listFoldersNamingRole(ORG, 'org-geschaeftsfuehrung')
 
     expect(found.total).toBe(2)

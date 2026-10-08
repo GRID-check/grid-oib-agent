@@ -414,7 +414,7 @@ describe('requireFolderWrite — the one write check', () => {
   })
 })
 
-describe('a role deleted in WorkOS leaves its folders to the admins (ADR-0085)', () => {
+describe('a role deleted in WorkOS leaves its folders to the admins (ADR-0087)', () => {
   /** Honorare named only „Geschäftsführung" (`GF`), which was deleted; `PL` still exists. */
   const GONE = 'org-gone'
   const DEAD = '99999999-aaaa-4bbb-8ccc-0000000000a1'

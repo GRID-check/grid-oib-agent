@@ -1,6 +1,6 @@
 # Folder access: read/write per role, and what happens when access changes
 
-> **Numbers as written.** This branch's migrations 0104–0110 are 0107–0113 since develop took 0104–0106 (#847), and its ADR-0079, 0080, 0081 are ADR-0083, 0084, 0085. Older numbers here (0106–0113) are those before the stack's collapse; [`database/schema.md`](../docs/database/schema.md) has the numbers as shipped.
+> **Numbers as written.** This branch's migrations 0104–0111 are 0108–0114 since develop took 0104–0106 (#847), and its ADR-0079, 0080, 0081 are ADR-0085, 0086, 0087. Older numbers here (0106–0114) are those before the stack's collapse; [`database/schema.md`](../docs/database/schema.md) has the numbers as shipped.
 
 Status: decided by the product owner, 6 Oct 2026 (decisions at the end). Builds on
 ADR-0080; becomes ADR-0081.

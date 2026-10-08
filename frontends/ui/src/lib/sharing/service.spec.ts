@@ -560,7 +560,7 @@ describe('a conversation that drew on a restricted folder reaches only people cl
   })
 })
 
-describe('the roster says who can no longer read what the chat drew on (ADR-0085)', () => {
+describe('the roster says who can no longer read what the chat drew on (ADR-0087)', () => {
   const person = (userId: string) => ({ userId, email: null, name: userId, profilePictureUrl: null })
 
   it('flags a grantee and the creator whose roles no longer reach a recorded folder, and nobody else', async () => {
@@ -626,7 +626,7 @@ describe('the roster says who can no longer read what the chat drew on (ADR-0085
   })
 })
 
-describe('sharing a document is a write in its folder (ADR-0085)', () => {
+describe('sharing a document is a write in its folder (ADR-0087)', () => {
   const readOnly = () => new ForbiddenError('You can read this folder but not change it.', { reason: 'folder-read-only' })
 
   beforeEach(() => {

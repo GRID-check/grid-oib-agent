@@ -43,7 +43,7 @@ const RoleResponseSchema = z.object({ role: OrganizationRoleSchema })
 export type OrganizationRole = z.infer<typeof OrganizationRoleSchema>
 export type AssignablePermission = z.infer<typeof AssignablePermissionSchema>
 export type OrganizationRoles = z.infer<typeof OrganizationRolesSchema>
-/** The folders that name a role: `total` always, `folders` only for someone who may read them (ADR-0085). */
+/** The folders that name a role: `total` always, `folders` only for someone who may read them (ADR-0087). */
 export type RoleUsage = z.infer<typeof RoleUsageSchema>
 export type RoleFolderUse = z.infer<typeof RoleFolderUseSchema>
 

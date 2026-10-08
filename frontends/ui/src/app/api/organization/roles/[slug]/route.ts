@@ -33,7 +33,7 @@ export const PATCH = apiRoute<Params>(
 /**
  * `?confirmFolders=1` says the caller was shown the folders that name the role
  * (`GET …/usage`) and deletes it anyway; without it a role that folders name is
- * refused with 409 `role-used-by-folders` (ADR-0085).
+ * refused with 409 `role-used-by-folders` (ADR-0087).
  */
 const deleteQuerySchema = z.object({ confirmFolders: z.literal('1').optional() })
 

@@ -14,7 +14,7 @@ All BFF (Backend-for-Frontend) routes are under `frontends/ui/src/app/api/`. The
 > route file is the source of truth; absence here means undocumented, never
 > non-existent.
 
-## A chat the reader may no longer read (ADR-0085)
+## A chat the reader may no longer read (ADR-0087)
 
 **`403 RESOURCE_RIGHTS_LOST`** (`details.reason = 'rights-lost'`,
 `details.resourceType`) answers every read or write of a conversation by a
@@ -34,7 +34,7 @@ redacted. Nothing is stored: a role given back opens the chat again.
 with `title: null`, `tags: []`, no subject; every other row carries
 `contentLocked: false`.
 
-## Refusals for a conversation that drew on a restricted folder (ADR-0084, ADR-0085)
+## Refusals for a conversation that drew on a restricted folder (ADR-0086, ADR-0087)
 
 Every door that writes something the whole project reads answers
 **`403 CONVERSATION_CONFINED`** with `details.action` (`deepResearch`, `task`,
@@ -526,7 +526,7 @@ Source: `frontends/ui/src/app/api/organizations/route.ts`
 | `GET` | `/api/organization/roles` | Required | Every role in the organization, in WorkOS's priority order (ADR-0086): the platform's environment roles (`custom: false`) and the office's own (`custom: true`, slug `org-…`). Any member may read it, because a restricted folder's lock and its access dialog name roles. `permissions` on each role, and `assignable` (the organization-tier permissions a role may carry, `grantable: false` for one the reader does not hold), are present only for `org:members:manage`; `assignable` is `null` otherwise. Cached 60 s per organization. | — | `{ roles: [{ slug, name, description, custom, permissions? }], assignable: [{ slug, grantable }] \| null }` |
 | `POST` | `/api/organization/roles` | `org:members:manage` | Create a custom role in WorkOS. The slug is derived from the name once (`Geschäftsführung` → `org-geschaeftsfuehrung`) and never changes. Refuses a permission outside the organization tier (400), one the editor does not hold (403: composing a role is granting), and a name whose slug exists (409). Forgets the role caches; audited as `org.role.created`. | `{ name, description?, permissions: string[] }` | `{ role }` (201) |
 | `PATCH` | `/api/organization/roles/{slug}` | `org:members:manage` | Rename a custom role or change its description or permissions. Adding a permission the editor lacks is refused (403); removing one is allowed. A platform role is refused (403), a slug that is not this organization's is 404. Audited as `org.role.updated`. | `{ name?, description?, permissions? }` (at least one) | `{ role }` |
-| `GET` | `/api/organization/roles/{slug}/usage` | `org:members:manage` | The living folders of living projects whose own access list names the role (ADR-0085): what the deletion confirmation shows. `folders` (the first 50 by project and folder name, with their project) is filled only for someone who also holds `org:projects:administer` and so may read them; any other role manager gets `total` and `folders: []`. | — | `{ total, folders: [{ folderId, folderName, projectId, projectName }] }` |
+| `GET` | `/api/organization/roles/{slug}/usage` | `org:members:manage` | The living folders of living projects whose own access list names the role (ADR-0087): what the deletion confirmation shows. `folders` (the first 50 by project and folder name, with their project) is filled only for someone who also holds `org:projects:administer` and so may read them; any other role manager gets `total` and `folders: []`. | — | `{ total, folders: [{ folderId, folderName, projectId, projectName }] }` |
 | `DELETE` | `/api/organization/roles/{slug}` | `org:members:manage` | Delete a custom role. **409 `role-used-by-folders`** (with `details.total`) while folders name it, until the request carries `?confirmFolders=1`; 409 `role-assigned` while anybody holds it (WorkOS refuses); a platform role is refused (403). A folder whose own list then matches no role that exists is readable by organization admins alone and listed in the project settings as „Ordner ohne gültige Rolle“. Audited as `org.role.deleted` with the number of folders. A rename (`PATCH`) never changes the slug, so folder grants keep matching. | — | `{ slug }` |
 
 Sources: `frontends/ui/src/app/api/organization/{model-config,budgets,usage,audit-portal,roles}/…` (roles service: `frontends/ui/src/lib/authz/custom-roles.ts`)

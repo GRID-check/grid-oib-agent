@@ -47,7 +47,7 @@ import { useLocale, useTranslations } from '@/i18n'
 interface ProjectSettingsProps {
   data: ProjectOverviewData
   /**
-   * Folders whose roles were deleted since (ADR-0085), for a project manager;
+   * Folders whose roles were deleted since (ADR-0087), for a project manager;
    * empty or omitted shows nothing.
    */
   foldersWithoutRole?: readonly FolderWithoutRole[]
