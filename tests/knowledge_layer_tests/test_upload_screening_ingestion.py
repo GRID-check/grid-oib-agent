@@ -113,6 +113,13 @@ def _ingest(calls: dict, path, name: str, screening: dict | None, **config):
     raise AssertionError("ingestion job did not terminate in time")
 
 
+def _deleted_within(path, *, seconds: float) -> bool:
+    deadline = time.time() + seconds
+    while path.exists() and time.time() < deadline:
+        time.sleep(0.05)
+    return not path.exists()
+
+
 def _pdf(tmp_path, *lines: str):
     path = tmp_path / "upload.pdf"
     path.write_bytes(build_pdf([[("R", 11, line) for line in lines]]))
@@ -531,8 +538,9 @@ class TestNoThumbnailBeforeTheVerdict:
 
         assert detail.screening == "clean"
         assert thumbnails == ["screen", f"thumbnail:{preview}"]
-        # Downloaded by the job, so deleted by it.
-        assert not preview.exists()
+        # Downloaded by the job, so deleted by it: in its `finally`, which runs
+        # after the status turns terminal, so the deletion is waited for.
+        assert _deleted_within(preview, seconds=10)
 
 
 @pytest.fixture
