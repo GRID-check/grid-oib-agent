@@ -1,28 +1,5 @@
 ---
-features:
-  - >
-    Your office now decides what must not be uploaded, under Organisation →
-    Sensible Daten: terms for file and folder names, terms for the content, and
-    checks for IBANs, Austrian social security numbers and card numbers. Piloti
-    starts you on a suggested list you can keep, change or switch off.
-  - >
-    Before an upload starts, you see which files that list holds back and why,
-    and those files never leave your computer. A single file, such as a
-    Bauvertrag in a folder called „Verträge“, can be released with one tick.
-  - >
-    Piloti now checks the text of every upload on its own server before any
-    language model sees it. A file that matches waits in quarantine until an
-    office or project admin releases or deletes it under Organisation →
-    Quarantäne.
 fixes:
-  - >
-    A chat in a project with a great deal of project information can no longer
-    fail to connect and wait forever.
-  - >
-    Sharing a chat with colleagues works again.
-  - >
-    A link to a document in the Büroablage, such as a shared one, opens that
-    document again instead of the whole Büroablage.
   - >
     A CSV or text file exported from Excel on Windows previews with its €, „ “
     and – again.
