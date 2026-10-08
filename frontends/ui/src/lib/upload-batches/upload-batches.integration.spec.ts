@@ -14,7 +14,8 @@
  * for the exact bytes the reviewer saw. And the content gate's decisions
  * (migration 0118): a status write lands only on the dispatch it resolved,
  * records one decision per dispatch, and the decision stays owed to the audit
- * trail, outliving its document, until it is marked once.
+ * trail, outliving its document, until it is marked once; then the retention
+ * sweep, and only it, deletes it.
  */
 
 import { sql } from 'drizzle-orm'
@@ -205,6 +206,68 @@ describe.skipIf(!url)('upload batches against Postgres', () => {
     await expect(
       inTenant(ORG, () => db.execute(sql`DELETE FROM document_quarantine_decisions WHERE id = ${owed.id}::uuid`))
     ).rejects.toThrow()
+  })
+
+  // Retention (0117): a decision holds the file's name, the uploader and the
+  // matched terms, and is kept only to reach the trail.
+  it('deletes the spent decisions, on the platform role only, and keeps what is still owed', async () => {
+    const decide = async (label: string, decidedAt: string, auditedAt: string | null): Promise<string> => {
+      const rows = await inTenant(ORG, () =>
+        db.execute<{ id: string }>(sql`
+          INSERT INTO document_quarantine_decisions
+            (organization_id, document_id, job_id, decided_at, scope, project_id, filename, uploaded_by, audited_at)
+          VALUES
+            (${ORG}, gen_random_uuid(), ${label}, ${decidedAt}::timestamptz, 'project', ${projectId}::uuid,
+             ${`${label}.pdf`}, ${USER}, ${auditedAt}::timestamptz)
+          RETURNING id
+        `)
+      )
+      return String(Array.from(rows)[0]?.id)
+    }
+    const now = Date.now()
+    const ago = (days: number) => new Date(now - days * 24 * 60 * 60_000).toISOString()
+    const owed = await decide('owed', ago(1), null)
+    const audited = await decide('audited', ago(0), ago(0))
+    const expired = await decide('expired', ago(8), null)
+    const window = new Date(now - 7 * 24 * 60 * 60_000)
+    const remaining = async () =>
+      Array.from(
+        await inTenant(ORG, () =>
+          db.execute<{ id: string }>(sql`
+            SELECT id FROM document_quarantine_decisions
+            WHERE id IN (${sql.join([owed, audited, expired].map((id) => sql`${id}::uuid`), sql`, `)})
+          `)
+        )
+      ).map((row) => String(row.id))
+
+    // A tenant session never deletes one, spent or not.
+    await expect(inTenant(ORG, () => decisionsRepo.deleteSpentQuarantineDecisions(window, 500))).rejects.toThrow()
+    expect((await remaining()).sort()).toEqual([owed, audited, expired].sort())
+
+    const deleted = await withPlatformAccess('test: the quarantine decisions retention', () =>
+      decisionsRepo.deleteSpentQuarantineDecisions(window, 500)
+    )
+    expect(deleted).toBeGreaterThanOrEqual(2)
+    expect(await remaining()).toEqual([owed])
+  })
+
+  it('reopens a completion its uploader was not told of, and only the one it wrote', async () => {
+    const batch = '7c1f0f8e-0b6a-4f41-9d3b-5a0b2f9e1a03'
+    await repo.insertUploadBatch({ id: batch, organizationId: ORG, createdBy: USER, scope: 'project', projectId, expectedCount: 1 })
+    await insertDocument('reopen.pdf', 'completed', { batch })
+    expect(await repo.sealUploadBatch(ORG, batch, USER, { unchanged: 0, failed: 0 }, new Date())).toBe(true)
+    const completedAt = new Date()
+    expect((await repo.completeSettledBatches(ORG, [batch], completedAt)).map((row) => row.id)).toEqual([batch])
+
+    // Another organization, or another completion time, reopens nothing.
+    await repo.reopenCompletedBatches(OTHER_ORG, [batch], completedAt)
+    await repo.reopenCompletedBatches(ORG, [batch], new Date(completedAt.getTime() + 1))
+    expect((await repo.findUploadBatch(ORG, batch))?.completedAt).not.toBeNull()
+
+    await repo.reopenCompletedBatches(ORG, [batch], completedAt)
+    expect((await repo.findUploadBatch(ORG, batch))?.completedAt).toBeNull()
+    // Open again, so the next settle completes it and tells the uploader.
+    expect((await repo.completeSettledBatches(ORG, [batch], new Date())).map((row) => row.id)).toEqual([batch])
   })
 
   it('refuses a completed-but-unsealed batch at the CHECK, whatever the writer', async () => {

@@ -1,11 +1,11 @@
 /**
  * The content gate's quarantine decisions still owed to the audit trail
- * (migration 0118, ADR-0085). Written by `setDocumentReconciledStatus`, in the
- * transaction that moves the row; read and marked here.
+ * (migration 0117, ADR-0083). Written by `setDocumentReconciledStatus`, in the
+ * transaction that moves the row; read, marked and deleted here.
  */
 
 import 'server-only'
-import { and, desc, eq, gt, inArray, isNull, lt } from 'drizzle-orm'
+import { and, desc, eq, gt, inArray, isNotNull, isNull, lt, or } from 'drizzle-orm'
 import { getDb } from '@/lib/db'
 import { documentQuarantineDecisions, type DocumentQuarantineDecision } from '@/lib/db/schema'
 import { withTenant } from '@/lib/db/tenant-context'
@@ -79,4 +79,31 @@ export async function markQuarantineDecisionAudited(
       .returning({ id: documentQuarantineDecisions.id })
   )
   return marked.length > 0
+}
+
+/**
+ * Retention (0117): delete the decisions that are spent. A decision is kept to
+ * reach the trail and for nothing else, so it goes once the trail has it
+ * (`audited_at` set), and in any case once it was taken before `decidedBefore`,
+ * the end of the window in which anything still sends it. Across
+ * organizations: the caller runs it under `withPlatformAccess`, the one role
+ * the table's guard lets delete. Returns how many it deleted.
+ */
+export async function deleteSpentQuarantineDecisions(decidedBefore: Date, limit: number): Promise<number> {
+  const db = getDb()
+  const spent = db
+    .select({ id: documentQuarantineDecisions.id })
+    .from(documentQuarantineDecisions)
+    .where(
+      or(
+        isNotNull(documentQuarantineDecisions.auditedAt),
+        lt(documentQuarantineDecisions.decidedAt, decidedBefore)
+      )
+    )
+    .limit(limit)
+  const deleted = await db
+    .delete(documentQuarantineDecisions)
+    .where(inArray(documentQuarantineDecisions.id, spent))
+    .returning({ id: documentQuarantineDecisions.id })
+  return deleted.length
 }

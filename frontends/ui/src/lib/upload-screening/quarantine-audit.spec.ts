@@ -10,6 +10,7 @@ vi.mock('@/lib/audit/service', () => ({
   SYSTEM_ACTORS: { uploadScreening: 'system:upload_screening', memoryJudge: 'system:memory_judge' },
 }))
 vi.mock('./repository', () => ({
+  deleteSpentQuarantineDecisions: vi.fn().mockResolvedValue(0),
   listOwedQuarantineDecisions: vi.fn(),
   listOwedQuarantineDecisionsBetween: vi.fn(),
   markQuarantineDecisionAudited: vi.fn().mockResolvedValue(true),
@@ -20,11 +21,15 @@ import type { DocumentQuarantineDecision } from '@/lib/db/schema'
 import {
   auditOwedQuarantines,
   auditQuarantineDecision,
+  pruneSpentQuarantines,
   QUARANTINE_AUDIT_GRACE_MS,
   QUARANTINE_AUDIT_SWEEP_LIMIT,
+  QUARANTINE_AUDIT_WINDOW_MS,
+  QUARANTINE_PRUNE_LIMIT,
   sweepOwedQuarantines,
 } from './quarantine-audit'
 import {
+  deleteSpentQuarantineDecisions,
   listOwedQuarantineDecisions,
   listOwedQuarantineDecisionsBetween,
   markQuarantineDecisionAudited,
@@ -176,5 +181,27 @@ describe('sweepOwedQuarantines', () => {
     vi.mocked(auditLogsEnabled).mockReturnValue(false)
     expect(await sweepOwedQuarantines()).toBe(0)
     expect(listOwedQuarantineDecisionsBetween).not.toHaveBeenCalled()
+  })
+})
+
+// Retention (0117): a decision holds personal data (the file's name, the
+// uploader, the matched terms) and is kept only to reach the trail.
+describe('pruneSpentQuarantines', () => {
+  it('deletes what the trail has and what is past the window in which it is sent', async () => {
+    const now = new Date('2026-10-08T12:00:00Z')
+    vi.mocked(deleteSpentQuarantineDecisions).mockResolvedValue(3)
+
+    expect(await pruneSpentQuarantines(now)).toBe(3)
+
+    expect(deleteSpentQuarantineDecisions).toHaveBeenCalledWith(
+      new Date(now.getTime() - QUARANTINE_AUDIT_WINDOW_MS),
+      QUARANTINE_PRUNE_LIMIT
+    )
+  })
+
+  it('deletes them too where the deployment keeps no trail, which never marks one', async () => {
+    vi.mocked(auditLogsEnabled).mockReturnValue(false)
+    await pruneSpentQuarantines()
+    expect(deleteSpentQuarantineDecisions).toHaveBeenCalledTimes(1)
   })
 })

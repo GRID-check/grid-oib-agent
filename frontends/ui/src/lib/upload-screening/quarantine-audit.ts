@@ -17,6 +17,12 @@
  * event: the WorkOS idempotency key is the row's id, and the event is built
  * from the row alone, its time the decision's.
  *
+ * Kept only for that: the sweep deletes a decision once the trail has it, and
+ * any decision older than {@link QUARANTINE_AUDIT_WINDOW_MS}, after which
+ * nothing sends it (`pruneSpentQuarantines`). A deployment with the trail off
+ * therefore keeps a week of them, and none longer, whether or not the document
+ * still exists.
+ *
  * The actor is {@link SYSTEM_ACTORS.uploadScreening}; the uploader rides as
  * metadata. Kinds and terms only, never content. The file's name goes only
  * where every member of its project may read the folder it was filed in, as
@@ -27,6 +33,7 @@ import 'server-only'
 import { auditLogsEnabled, recordAuditEventOrThrow, SYSTEM_ACTORS } from '@/lib/audit/service'
 import type { DocumentQuarantineDecision } from '@/lib/db/schema'
 import {
+  deleteSpentQuarantineDecisions,
   listOwedQuarantineDecisions,
   listOwedQuarantineDecisionsBetween,
   markQuarantineDecisionAudited,
@@ -34,10 +41,15 @@ import {
 
 /** Younger than this, a decision is the moving read's to send; the sweep leaves it alone. */
 export const QUARANTINE_AUDIT_GRACE_MS = 60_000
-/** Older than this, an owed decision is left alone: the trail has been off, or refusing it, for a week. */
-const QUARANTINE_AUDIT_WINDOW_MS = 7 * 24 * 60 * 60_000
+/**
+ * Older than this, an owed decision is no longer sent, and is deleted: the
+ * trail has been off, or refusing it, for a week.
+ */
+export const QUARANTINE_AUDIT_WINDOW_MS = 7 * 24 * 60 * 60_000
 /** Decisions one sweep sends. */
 export const QUARANTINE_AUDIT_SWEEP_LIMIT = 50
+/** Spent decisions one sweep deletes; the sweep runs every tick, so a backlog drains. */
+export const QUARANTINE_PRUNE_LIMIT = 500
 
 /** The WorkOS idempotency key of one decision's event. */
 export const quarantineEventKey = (decisionId: string): string =>
@@ -121,4 +133,15 @@ export async function sweepOwedQuarantines(now: Date = new Date()): Promise<numb
     if (await auditQuarantineDecision(decision)) sent += 1
   }
   return sent
+}
+
+/**
+ * The retention half of the sweep: delete the decisions the trail has, and
+ * every decision older than {@link QUARANTINE_AUDIT_WINDOW_MS}. Runs whether
+ * or not the trail is on: with it off, nothing is ever marked, and the window
+ * is all that bounds the personal data a decision holds (the file's name, the
+ * uploader, the matched terms). Returns how many it deleted.
+ */
+export async function pruneSpentQuarantines(now: Date = new Date()): Promise<number> {
+  return deleteSpentQuarantineDecisions(new Date(now.getTime() - QUARANTINE_AUDIT_WINDOW_MS), QUARANTINE_PRUNE_LIMIT)
 }

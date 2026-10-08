@@ -848,7 +848,7 @@ re-apply in `scripts/rls-test-db.sh`.
 ## document_quarantine_decisions (migration 0118, ADR-0085)
 
 The content gate's quarantine decisions, kept until the audit trail has them
-(AI Act). One row per ingest job that quarantined a document, inserted by
+(AI Act), and no longer. One row per ingest job that quarantined a document, inserted by
 `setDocumentReconciledStatus` (`lib/documents/repository.ts`) in the
 transaction whose guarded status write records the quarantine, so a decision
 cannot exist without its row. `lib/upload-screening/quarantine-audit.ts` sends
@@ -859,12 +859,19 @@ within a week. The WorkOS idempotency key is the row's id and the event is
 built from the row alone, with `decided_at` as its time, so a repeated send is
 one event. A deployment with the audit log off sends and marks nothing.
 
+**Personal data** (the file's name, the uploader, the matched terms), kept for
+one purpose. Retention: the same sweep, as the platform role, deletes a
+decision once `audited_at` is set and any decision older than seven days, the
+window after which nothing sends it (`pruneSpentQuarantines`, at most 500 a
+tick), whether the audit log is on or off and whether the document still
+exists. The audit trail holds the event under its own retention.
+
 | Column | Type | Constraints | Notes |
 |--------|------|-------------|-------|
 | `id` | `uuid` | PK, `gen_random_uuid()` | The event's idempotency key, `document.quarantined:<id>` |
 | `organization_id` | `text` | NOT NULL | RLS: `organization_id = grid_current_org()` |
-| `document_id` | `uuid` | NOT NULL | No FK: a reviewer may delete the file before the decision reaches the trail |
-| `job_id` | `text` | UNIQUE with `document_id` (`document_quarantine_decisions_dispatch_key`) | The ingest job whose gate decided: one dispatch, one decision. NULL only when the row carried no job (the backend's file list said quarantined) |
+| `document_id` | `uuid` | NOT NULL | No FK: a reviewer may delete the file before the decision reaches the trail. The retention, not the document, ends the row |
+| `job_id` | `text` | UNIQUE with `document_id` (`document_quarantine_decisions_dispatch_key`) | The ingest job whose gate decided: one dispatch, one decision. NULL only when the row carried no job (the backend's file list said quarantined). A row that carries a job takes a failure only from that job, never from the file list, whose failed entry under the name may be an earlier dispatch's (`attributableFailure`, `lib/documents/reconcile-status.ts`) |
 | `decided_at` | `timestamptz` | NOT NULL, `now()` | The event's `occurredAt` |
 | `scope` | `text` | NOT NULL, CHECK `project`/`archiv`/`session` | |
 | `project_id` | `uuid` | | CHECK `(scope = 'project') = (project_id IS NOT NULL)` |
@@ -879,8 +886,8 @@ Indexes: the dispatch key, and `document_quarantine_decisions_due_idx
 (decided_at) WHERE audited_at IS NULL` for the sweep. A trigger
 (`grid_document_quarantine_decisions_guard`) refuses every UPDATE but
 `audited_at` going from NULL to a time, once, and every DELETE except by the
-platform role. Proven against Postgres in
-`lib/upload-batches/upload-batches.integration.spec.ts`; constraints, guard,
+platform role, which is the retention sweep. Proven against Postgres, the
+retention included, in `lib/upload-batches/upload-batches.integration.spec.ts`; constraints, guard,
 down and re-apply in `scripts/rls-test-db.sh`. The down drops the decisions
 not yet audited.
 
