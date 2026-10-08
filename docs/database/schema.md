@@ -746,7 +746,7 @@ conversation and a narrowed one confines it to fewer people.
 |--------|------|-------------|-------|
 | `organization_id` | `text` | NOT NULL, PK | RLS: `organization_id = grid_current_org()` |
 | `conversation_id` | `text` | NOT NULL, PK | No FK: the first turn of a new chat runs before its row exists |
-| `folder_id` | `uuid` | NOT NULL, PK | No FK: a deleted folder's tombstone (0109) keeps answering, and an unknown id is treated as unreadable |
+| `folder_id` | `uuid` | NOT NULL, PK | No FK: a deleted folder's tombstone (0110) keeps answering, and an unknown id is treated as unreadable |
 | `first_at` / `last_at` | `timestamptz` | NOT NULL, `defaultNow()`, CHECK `last_at >= first_at` | |
 
 `deleteConversationInOrg` deletes the rows with the conversation.
