@@ -287,7 +287,7 @@ interchangeable (ADR-0051):
   attempt and a chat delegation are the same row.
 
 `fireJob` inserts the run and submits it; a chat delegation (`create_task`:
-`compliance_check | einreichcheck | document | revision`) does the same with
+`compliance_check | einreichcheck | document | protokoll | revision`) does the same with
 `trigger: delegated`, and with an optional cadence it writes a `schedule`
 definition instead and dispatches nothing — the scheduler fires it. Reviewer
 rejections of earlier runs of the same definition are quoted into the next

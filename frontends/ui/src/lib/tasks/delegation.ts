@@ -102,6 +102,14 @@ interface TaskEngine {
   readonly instruction: (goal: string) => string
   /** What the row is called in the inbox and in the task list. */
   readonly title: (goal: string) => string
+  /**
+   * The work has nothing to be done FROM unless the person handed it over: a
+   * Protokoll drafted from no notes is a Protokoll of nothing, and the run would
+   * either invent one or spend its budget saying so hours later. Set, a
+   * delegation that names no document and carries no text is refused here,
+   * where the person is still in the conversation to supply them.
+   */
+  readonly requiresHandedOver?: true
 }
 
 const TASK_ENGINES: Record<DelegatableTaskKind, TaskEngine> = {
@@ -163,6 +171,37 @@ const TASK_ENGINES: Record<DelegatableTaskKind, TaskEngine> = {
         goal,
       ].join('\n'),
     title: (goal) => `Dokument: ${goal}`,
+  },
+  /**
+   * Draft the Besprechungsprotokoll from the notes the person handed over.
+   *
+   * The builtin `besprechungsprotokoll` skill is the method, NAMED as
+   * `einreichcheck` is; the grounding rules a Protokoll cannot ship without are
+   * also stated here, because an organization can switch the skill off and the
+   * run must not then invent attendees. Filed like `document` — a draft,
+   * submitted to the requester — unless the run found nothing to draft from, in
+   * which case its answer says so in the thread and nothing is filed
+   * (`answerIsTheDocument` in `./service`).
+   */
+  protokoll: {
+    instruction: (goal) =>
+      [
+        'Erstelle das Besprechungsprotokoll aus den übergebenen Notizen — /besprechungsprotokoll.',
+        'Schreibe es VOLLSTÄNDIG als deine Antwort, in Markdown, beginnend mit der Überschrift',
+        '`# Besprechungsprotokoll …`. Die Antwort IST das Protokoll: keine Zusammenfassung davor,',
+        'keine Rückfrage. Nur was in den Notizen steht: Jeder Beschluss und jeder offene Punkt nennt',
+        'die Notizstelle, aus der er stammt. Teilnehmende, Datum, Ort, Zuständige und Fristen, die die',
+        'Notizen nicht nennen, bleiben „—“ und stehen unter „Unklar in den Notizen“.',
+        'Lassen sich die Notizen nicht lesen, schreibe KEIN Protokoll und keine Überschrift, sondern',
+        'sage in zwei Sätzen, welche Notizen fehlen.',
+        'Piloti legt das Protokoll danach als ENTWURF im Projekt ab und legt es zur Freigabe vor —',
+        'behaupte nicht, es sei freigegeben.',
+        '',
+        'Der Auftrag, wörtlich:',
+        goal,
+      ].join('\n'),
+    title: (goal) => `Protokoll: ${goal}`,
+    requiresHandedOver: true,
   },
   /**
    * Revise a version a reviewer sent back.
@@ -330,6 +369,11 @@ export async function delegateTask(
   const material = input.material?.trim() || null
 
   const engine = TASK_ENGINES[input.kind]
+  if (engine.requiresHandedOver && !documents?.grundlage.length && !material) {
+    throw new UnprocessableError(
+      `A ${input.kind} task needs what it is to be done from: name the documents or pass the text`,
+    )
+  }
   const prompt = [
     engine.instruction(goal),
     documentsBlock(documents),

@@ -54,6 +54,9 @@ import { jobRuns, jobs } from './jobs'
  *   - `einreichcheck` — the builtin Einreichcheck skill, whose "Done" section
  *     is literally the work list.
  *   - `document` — write a document and file it as a draft version.
+ *   - `protokoll` — draft the Besprechungsprotokoll from the notes the person
+ *     handed over (the builtin `besprechungsprotokoll` skill), and file it as a
+ *     draft submitted to the requester, exactly as `document` is filed.
  *   - `revision` — revise a version a reviewer sent back, and file the result
  *     as the next draft of the SAME document. Created by the lifecycle's
  *     `request_changes` transition when nobody is in a conversation to hear the
@@ -74,6 +77,7 @@ export const DELEGATABLE_TASK_KINDS = [
   'compliance_check',
   'einreichcheck',
   'document',
+  'protokoll',
   'revision',
 ] as const satisfies readonly TaskKind[]
 export type DelegatableTaskKind = (typeof DELEGATABLE_TASK_KINDS)[number]

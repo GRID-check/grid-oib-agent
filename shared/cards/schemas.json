@@ -2586,6 +2586,7 @@
             "compliance_check",
             "einreichcheck",
             "document",
+            "protokoll",
             "revision"
           ],
           "title": "Kind",

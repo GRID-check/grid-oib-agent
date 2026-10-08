@@ -36,9 +36,10 @@ SAY it created one, in one sentence, and never to claim the work is done.
 
 ## Why the kinds are closed
 
-Four members, mirrored from `DELEGATABLE_TASK_KINDS` on the BFF side, because
+Five members, mirrored from `DELEGATABLE_TASK_KINDS` on the BFF side, because
 each one names an ENGINE that already exists — a norm check by the general
-agent, the Einreichcheck skill, the drafting tools, the revision path. An open `kind` string
+agent, the Einreichcheck skill, the drafting tools, the Besprechungsprotokoll
+skill, the revision path. An open `kind` string
 would let the model delegate „Kostenschätzung" to a queue that has nothing to run
 it with, and the failure would arrive hours later as a task that did nothing.
 """
@@ -89,9 +90,21 @@ _DOCUMENT_SEPARATORS = re.compile(r"[\n;]")
 
 #: The kinds, mirrored from `DELEGATABLE_TASK_KINDS`
 #: (`frontends/ui/src/lib/db/schema/tasks.ts`). Same parse-independently rule the
-#: request-context headers follow; `tests/aiq_agent/tools/tasks/` is what catches
-#: the drift.
-TASK_KINDS: tuple[str, ...] = ("compliance_check", "einreichcheck", "document", "revision")
+#: request-context headers follow; `tests/aiq_agent/tools/tasks/test_kind_parity.py`
+#: reads the TypeScript tuple and is what catches the drift.
+TASK_KINDS: tuple[str, ...] = ("compliance_check", "einreichcheck", "document", "protokoll", "revision")
+
+#: The kinds that have nothing to work FROM unless the person hands it over. A
+#: Protokoll from no notes is a Protokoll of nothing: refused here, where the
+#: person is still in the conversation to supply them, and again by the BFF
+#: (`requiresHandedOver` in `lib/tasks/delegation.ts`).
+_NEEDS_HANDED_OVER: frozenset[str] = frozenset({"protokoll"})
+
+_NO_NOTES = (
+    "Fehler: Für ein Protokoll braucht Piloti die Notizen der Besprechung, und dieser Auftrag nennt keine. "
+    "Es wurde nichts angelegt. Frage die Nutzerin nach den Notizen: als Datei im Projekt (dann in "
+    "`documents`) oder als eingefügter Text (dann in `material`). Entwirf kein Protokoll ohne sie."
+)
 
 #: What each kind is called when the refusal has to name the set.
 _KIND_LIST = ", ".join(f"`{kind}`" for kind in TASK_KINDS)
@@ -236,11 +249,13 @@ _CREATE_TASK_DESCRIPTION = (
     "Legt einen Auftrag an, den Piloti nach diesem Gespräch selbständig erledigt, und meldet sich, "
     "wenn er fertig ist. Aufrufen, wenn die Nutzerin um Arbeit bittet, die länger dauert als diese "
     "Antwort („mach den Einreichcheck bis Freitag“, „@Piloti prüf das“, „schreib mir bis Montag den "
-    "Aktenvermerk“) — nicht für eine Frage, die sich jetzt beantworten lässt. "
+    "Aktenvermerk“, „mach das Protokoll aus den Notizen vom Jour fixe“) — nicht für eine Frage, die sich "
+    "jetzt beantworten lässt. "
     "`kind` ist eine von " + _KIND_LIST + ": `compliance_check` ist die Normprüfung eines Dokuments "
     "gegen die OIB-Richtlinien, `einreichcheck` prüft die Vollständigkeit der Einreichung, `document` "
-    "schreibt ein Dokument und legt es als Entwurf ab, `revision` überarbeitet einen zurückgegebenen "
-    "Entwurf. "
+    "schreibt ein Dokument und legt es als Entwurf ab, `protokoll` macht aus den Notizen einer Besprechung "
+    "das Besprechungsprotokoll und legt es als Entwurf ab (braucht die Notizen in `documents` oder "
+    "`material`), `revision` überarbeitet einen zurückgegebenen Entwurf. "
     "`goal` ist der Auftrag in den Worten der Nutzerin. `due` ist optional das gewünschte Datum als "
     "`JJJJ-MM-TT` — rechne „bis Freitag“ selbst in ein Datum um, gib keinen Text an. "
     "`cadence` ist optional ein 5-Feld-Cron für wiederkehrende Aufträge („jeden Montag“ → "
@@ -272,8 +287,11 @@ async def _create(kind: str, goal: str, due: str, cadence: str, documents: str, 
         "projectId": project_id,
         "kind": chosen_kind,
         "goal": chosen_goal,
-        **_handed_over(documents, material),
     }
+    handed = _handed_over(documents, material)
+    if chosen_kind in _NEEDS_HANDED_OVER and not handed:
+        raise _Refused(_NO_NOTES)
+    payload.update(handed)
     # Only when the model gave one. The BFF's schema is strict, and an empty
     # string is not a date — it would be a 400 for a field nobody asked for.
     if (due or "").strip():

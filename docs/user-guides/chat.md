@@ -232,6 +232,31 @@ The empty chat in a project says the same thing in one sentence, because
 otherwise the only people who find out that Piloti writes are the ones who
 happen to phrase a request as a commission.
 
+## Handing over the meeting notes: the Besprechungsprotokoll
+
+„@Piloti mach das Protokoll aus den Notizen vom Jour fixe" hands Piloti work
+rather than asking it a question. The notes are a file in the project (a scan,
+a Word file, a PDF) or text pasted into the composer. Piloti takes on a task
+for it, a **Besprechungsprotokoll** task card appears under the answer, and the
+work runs in the same thread.
+
+The Protokoll arrives as a **draft in Berichte**, submitted to whoever asked
+for it. It is Piloti's reading of the notes until a person approves it:
+
+- The head (project, date, place, attendees) holds only what the notes say.
+- Every Beschluss and every open point (Was, Wer, bis wann) names the place in
+  the notes it came from. A row with no place in the notes is not written.
+- What the notes leave open, an owner, a deadline or a date, stays „—" and is
+  listed again under „Unklar in den Notizen". Piloti does not fill it in.
+- Open points of the previous Protokoll in the project that the notes do not
+  close are carried over, each citing that Protokoll.
+- A remark about a regulation appears only with a citation from the corpus.
+
+Without notes, Piloti asks for them instead of drafting. To change the draft,
+send it back with „Piloti überarbeiten lassen" (or „Änderungen anfordern" in
+the conversation it came from): Piloti writes the next version of the same
+document and submits it to you again.
+
 ## How an answer arrives
 
 Piloti writes the answer on screen while the model writes it. Nothing waits for

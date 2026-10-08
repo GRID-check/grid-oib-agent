@@ -115,6 +115,20 @@ export default function TaskCreatedCardPreview(): JSX.Element {
             conversationId="s_00000000_0000_4000_8000_0000000000f7"
           />
         </Panel>
+
+        <Panel
+          title="Besprechungsprotokoll"
+          note="„@Piloti mach das Protokoll aus den Notizen vom Jour fixe“. Die Notizen hängen am Auftrag; das Protokoll landet als Entwurf in Berichte und wird der Person zur Freigabe vorgelegt."
+        >
+          <TaskCreatedCard
+            taskId="00000000-0000-4000-8000-0000000000f8"
+            kind="protokoll"
+            title="Protokoll: Mach das Protokoll aus den Notizen vom Jour fixe 12"
+            goal="Mach das Protokoll aus den Notizen vom Jour fixe 12"
+            dueAt={null}
+            conversationId="s_00000000_0000_4000_8000_0000000000f9"
+          />
+        </Panel>
       </div>
     </I18nProvider>
   )

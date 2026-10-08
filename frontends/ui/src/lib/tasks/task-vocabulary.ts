@@ -17,6 +17,7 @@ export const TASK_KINDS = [
   'compliance_check',
   'einreichcheck',
   'document',
+  'protokoll',
   'revision',
 ] as const
 export type TaskKind = (typeof TASK_KINDS)[number]

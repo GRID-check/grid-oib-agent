@@ -1504,6 +1504,10 @@
     "de": "Piloti wählt Skills jetzt selbst: Es liest die Kurzbeschreibung jedes verfügbaren Skills und lädt die Anleitung, wenn sie zur Frage passt. Unter der Antwort steht weiterhin, welche Skills sie geprägt haben."
   },
   {
+    "en": "Piloti now drafts the Besprechungsprotokoll from the notes of a meeting: hand it the notes as a file or as pasted text, and the minutes arrive as a draft for your approval. Every decision and open point names the place in the notes it came from, and what the notes leave open is listed under „Unklar in den Notizen“ instead of being filled in.",
+    "de": "Piloti entwirft jetzt das Besprechungsprotokoll aus den Notizen einer Besprechung: Übergeben Sie die Notizen als Datei oder als eingefügten Text, und das Protokoll kommt als Entwurf zu Ihrer Freigabe. Jeder Beschluss und jeder offene Punkt nennt die Stelle in den Notizen, aus der er stammt, und was die Notizen offenlassen, steht unter „Unklar in den Notizen“, statt ergänzt zu werden."
+  },
+  {
     "en": "Piloti now knows how you filed your project documents: it can say what is in Brandschutz, name the folder when it points at a file, and search one folder including its subfolders. Renaming or moving a folder updates what it sees without re-uploading anything.",
     "de": "Piloti kennt jetzt Ihre Ablage: Es sagt, was im Ordner Brandschutz liegt, nennt den Ordner, wenn es auf eine Datei verweist, und durchsucht einen Ordner samt Unterordnern. Umbenennen oder Verschieben eines Ordners übernimmt es sofort, ohne dass etwas neu hochgeladen werden muss."
   },

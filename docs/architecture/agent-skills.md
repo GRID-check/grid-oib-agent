@@ -238,7 +238,7 @@ somebody wrote. The door exists so a builtin can become org-facing without
 first becoming a database row; day to day, curation happens in `platform_skills`.
 Genre methods (Brandschutz, Gebäudeklasse, Hygiene) stay
 machinery so an ordinary question still auto-loads them. Job playbooks
-(`einreichcheck`, `bestand`) declare `grid-catalog: curated`: they appear on
+(`einreichcheck`, `bestand`, `besprechungsprotokoll`) declare `grid-catalog: curated`: they appear on
 the Skills tab. A chat-usable FILE offer starts ON; a dashboard offer starts
 OFF. The org can still switch a file offer off. Deep research's skill
 filesystem hides curated directories, so an offer the org did not take up is
@@ -358,6 +358,15 @@ collection assignment in `deep_research_skills` instead, which today names
 `research` and `synthesis` and nothing else. So `deep_researcher` on these nine
 claims a channel that does not exist. It is harmless, and a skill added now
 should not copy it without checking.
+
+`besprechungsprotokoll` in `project/` is the first that did not: it names
+`researcher` alone. It is the method of the `protokoll` task kind, and a
+delegated task runs as a `chat`-output job, which is Piloti
+(`_OUTPUT_AGENT_TYPES` in `frontends/aiq_api/src/aiq_api/routes/skills.py`).
+The task's instruction names it as `/besprechungsprotokoll`;
+`tests/aiq_agent/tools/tasks/test_kind_parity.py` fails when a name an engine
+row gives is not a builtin Piloti can load. `project` matches no platform
+category's slug, so the Skills tab lists it unsorted until one is added.
 
 There is no `presentation/` collection any more. Its one skill, `diagrams`,
 was retired because every rule it held was already in the static prompt

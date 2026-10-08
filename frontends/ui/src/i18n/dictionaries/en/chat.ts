@@ -511,11 +511,12 @@ export const chat = {
       eyebrow: 'Task',
       due: 'by {date}',
       open: 'Open conversation',
-      // The four kinds, in the words somebody would use to ask for them.
+      // The five kinds, in the words somebody would use to ask for them.
       kind: {
         complianceCheck: 'Compliance check',
         einreichcheck: 'Submission check',
         document: 'Document',
+        protokoll: 'Meeting minutes',
         revision: 'Revision',
       },
     },

@@ -201,6 +201,60 @@ describe('delegateTask', () => {
     expect(resolveSkillSnapshot).not.toHaveBeenCalled()
   })
 
+  it('names the besprechungsprotokoll skill for a `protokoll` task and states its grounding rules', async () => {
+    await delegateTask(session, {
+      projectId: PROJECT,
+      kind: 'protokoll',
+      goal: 'Mach das Protokoll aus den Notizen vom Jour fixe',
+      documents: { grundlage: [{ name: 'Notizen JF 12.pdf' }], ausgeschlossen: [] },
+    })
+
+    const prompt = insertedDefinition.plan.prompt
+    expect(prompt).toContain('/besprechungsprotokoll')
+    // Named, never pasted: the body is the skill's, and the model loads it.
+    expect(resolveSkillSnapshot).not.toHaveBeenCalled()
+    // The rules a Protokoll cannot ship without ride the instruction too, so a
+    // run whose organization switched the skill off still invents nobody.
+    expect(prompt).toContain('Unklar in den Notizen')
+    expect(prompt).toContain('# Besprechungsprotokoll')
+    expect(prompt).toContain('schreibe KEIN Protokoll')
+    expect(prompt).toContain('ENTWURF')
+    // And the notes it is to be drafted from.
+    expect(prompt).toContain('- `Notizen JF 12.pdf`')
+    expect(insertedDefinition.title).toBe('Protokoll: Mach das Protokoll aus den Notizen vom Jour fixe')
+    expect(insertedRun.kind).toBe('protokoll')
+  })
+
+  it('takes pasted notes as the whole of what a `protokoll` is drafted from', async () => {
+    await delegateTask(session, {
+      projectId: PROJECT,
+      kind: 'protokoll',
+      goal: 'Protokoll vom Jour fixe',
+      material: 'TOP 1 Fenster: Huber bestellt Muster bis 17.10.',
+    })
+    expect(insertedDefinition.plan.prompt).toContain('Huber bestellt Muster bis 17.10.')
+  })
+
+  it('refuses a `protokoll` with no notes, and creates nothing', async () => {
+    // A Protokoll drafted from no notes is a Protokoll of nothing. The tool
+    // refuses first; this is the contract it leans on.
+    await expect(
+      delegateTask(session, { projectId: PROJECT, kind: 'protokoll', goal: 'Mach das Protokoll' }),
+    ).rejects.toThrow(UnprocessableError)
+    await expect(
+      delegateTask(session, {
+        projectId: PROJECT,
+        kind: 'protokoll',
+        goal: 'Mach das Protokoll',
+        // Only an exclusion is still nothing to draft from.
+        documents: { grundlage: [], ausgeschlossen: [{ name: 'Notizen JF 11.pdf' }] },
+        material: '  ',
+      }),
+    ).rejects.toThrow(UnprocessableError)
+    expect(repository.insertDefinitionWithRun).not.toHaveBeenCalled()
+    expect(submitAgentRun).not.toHaveBeenCalled()
+  })
+
   it('freezes no snapshot, so nothing can be delivered without the model asking', async () => {
     await delegateTask(session, { projectId: PROJECT, kind: 'einreichcheck', goal: 'Prüf die Einreichung' })
 
@@ -350,8 +404,8 @@ describe('delegateTask', () => {
 })
 
 describe('isDelegatableTaskKind', () => {
-  it('accepts the four engines and refuses the two job outputs', () => {
-    for (const kind of ['compliance_check', 'einreichcheck', 'document', 'revision']) {
+  it('accepts the five engines and refuses the two job outputs', () => {
+    for (const kind of ['compliance_check', 'einreichcheck', 'document', 'protokoll', 'revision']) {
       expect(isDelegatableTaskKind(kind)).toBe(true)
     }
     // `chat` and `deep-research` describe how a definition delivers a result;

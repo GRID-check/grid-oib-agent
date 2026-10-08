@@ -275,9 +275,45 @@ class TestWhatTheReaderSees:
         assert task_cards(registry) == []
 
 
-@pytest.mark.parametrize("kind", ["compliance_check", "einreichcheck", "document", "revision"])
+@pytest.mark.parametrize("kind", ["compliance_check", "einreichcheck", "document", "protokoll", "revision"])
 async def test_every_declared_kind_is_accepted(monkeypatch, calls, kind: str) -> None:
-    """The four kinds are the four engines; a fifth would be a queue with nothing to run."""
+    """The five kinds are the five engines; a sixth would be a queue with nothing to run."""
     responder(monkeypatch, {**ACCEPTED, "kind": kind}, calls)
-    await task_tools.run_create_task(kind, "Tu das")
+    await task_tools.run_create_task(kind, "Tu das", material="TOP 1: Fenster")
     assert calls[0][0]["kind"] == kind
+
+
+class TestAProtokollNeedsItsNotes:
+    """A Protokoll from no notes is a Protokoll of nothing: the person is asked, not drafted for."""
+
+    @pytest.fixture(autouse=True)
+    def inventory(self):
+        set_turn_documents(INVENTORY)
+        yield
+        set_turn_documents(None)
+
+    async def test_no_notes_is_refused_and_nothing_is_posted(self, monkeypatch, calls) -> None:
+        responder(monkeypatch, {**ACCEPTED, "kind": "protokoll"}, calls)
+        answer = await task_tools.run_create_task("protokoll", "Mach das Protokoll vom Jour fixe")
+
+        assert "nichts angelegt" in answer
+        # The refusal tells the model what to ask for and where it goes.
+        assert "`documents`" in answer
+        assert "`material`" in answer
+        assert calls == []
+
+    async def test_notes_as_a_project_file_are_enough(self, monkeypatch, calls) -> None:
+        responder(monkeypatch, {**ACCEPTED, "kind": "protokoll"}, calls)
+        await task_tools.run_create_task("protokoll", "Mach das Protokoll", documents="Notizen JF 12.pdf")
+        assert calls[0][0]["documents"]["grundlage"] == [{"name": "Notizen JF 12.pdf"}]
+
+    async def test_notes_as_pasted_text_are_enough(self, monkeypatch, calls) -> None:
+        responder(monkeypatch, {**ACCEPTED, "kind": "protokoll"}, calls)
+        await task_tools.run_create_task("protokoll", "Mach das Protokoll", material="TOP 1: Fenster")
+        assert calls[0][0]["material"] == "TOP 1: Fenster"
+
+    async def test_a_document_task_still_needs_nothing_handed_over(self, monkeypatch, calls) -> None:
+        """The gate is the kind's, not a new rule for every task."""
+        responder(monkeypatch, ACCEPTED, calls)
+        await task_tools.run_create_task("document", "Schreib den Aktenvermerk")
+        assert len(calls) == 1

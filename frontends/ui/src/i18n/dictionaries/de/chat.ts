@@ -505,11 +505,12 @@ export const chat: typeof en.chat = {
       eyebrow: 'Auftrag',
       due: 'bis {date}',
       open: 'Unterhaltung öffnen',
-      // Die vier Arten, in den Worten, in denen die Nutzerin sie beauftragt hat.
+      // Die fünf Arten, in den Worten, in denen die Nutzerin sie beauftragt hat.
       kind: {
         complianceCheck: 'Normprüfung',
         einreichcheck: 'Einreichcheck',
         document: 'Dokument',
+        protokoll: 'Besprechungsprotokoll',
         revision: 'Überarbeitung',
       },
     },

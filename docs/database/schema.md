@@ -483,10 +483,13 @@ pinned, the plan frozen, and review as an axis of its own.
 **`kind` has no CHECK, deliberately** (see migration `0075`'s own header), which
 is why the vocabulary lives in one place — `TASK_KINDS` in
 `lib/db/schema/tasks.ts` — rather than in a column and a tuple that can disagree.
-It holds six members: `deep-research` and `chat` are `jobs.output` and describe
-how a JOB delivers its result; `compliance_check`, `einreichcheck`, `document`
-and `revision` are what a person DELEGATES (`DELEGATABLE_TASK_KINDS`, derived as
-the complement rather than listed again). `status`, `review` and `filing_status`
+It holds seven members: `deep-research` and `chat` are `jobs.output` and describe
+how a JOB delivers its result; `compliance_check`, `einreichcheck`, `document`,
+`protokoll` and `revision` are what a person DELEGATES (`DELEGATABLE_TASK_KINDS`,
+derived as the complement rather than listed again). Adding one needed no
+migration and needs none: it is a member of the tuple, an engine row in
+`lib/tasks/delegation.ts`, and the mirrors that
+`tests/aiq_agent/tools/tasks/test_kind_parity.py` holds to it. `status`, `review` and `filing_status`
 DO carry CHECKs naming their members.
 
 **`plan` is the frozen statement of what was asked:** `prompt` (as submitted,

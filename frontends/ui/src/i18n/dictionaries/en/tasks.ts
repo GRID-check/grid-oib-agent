@@ -120,6 +120,7 @@ export const tasks = {
     compliance_check: 'Compliance check',
     einreichcheck: 'Submission check',
     document: 'Document',
+    protokoll: 'Meeting minutes',
     revision: 'Revision',
   },
   status: {
