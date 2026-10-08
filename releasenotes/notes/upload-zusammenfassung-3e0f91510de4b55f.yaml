@@ -5,6 +5,9 @@ features:
     with a summary of what arrived, where it was filed, what each file is, and
     what was held back or failed. Project settings list every upload with its
     outcome and who uploaded it.
+  - >
+    An Outlook archive import ends with the same summary, once everything it
+    filed has been read.
 fixes:
   - >
     Dropping a folder no longer uploads .DS_Store, Thumbs.db or Office lock

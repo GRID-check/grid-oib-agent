@@ -17,10 +17,12 @@ browser                     BFF (frontend)                     object store     
   │                                                                               ◀── POST messages ─── page from cursor
   │                                                            ◀── range GETs ─── libpff walks
   │                                                                               ◀── POST attachment ─ per file
+  │                                                                                                     open upload batch
   │                                                                                                     uploadDocument ×n
   │                                                                                                     advance cursor
   │                                                                                                     … until done:
-  │ inbox: imported / stopped ◀─────────────────────────────────────────────────────────────────────── delete staging
+  │ inbox: imported / stopped ◀─────────────────────────────────────────────────────────────────────── seal batch, delete staging
+  │ inbox: what arrived       ◀── reconciliation / sweep, once every filed document has been read
 ```
 
 - **Upload.** `lib/mail-import/client.ts` sends the parts the server does not
@@ -41,7 +43,8 @@ browser                     BFF (frontend)                     object store     
   `uploadDocument` at `bulk` ingest priority, then the note. The cursor moves
   past a mail only after it is filed. A retried mail files into the folder it
   had, under the same names, so each file is the same document again (a new
-  version, or `unchanged` once indexed), never a second one.
+  version, or `unchanged` once indexed), never a second one. Every upload
+  carries the import's upload batch (below).
 - **Retries.** A passing failure hands the import to a fresh job that waits 1,
   5, 15, 30, 60, then 120 minutes; filing a mail resets the streak. The
   background-work sweep gives an import whose job vanished a new one.
@@ -75,15 +78,42 @@ left to throw is retried until the import ends `stopped`. Counted but not
 named: items that are not mail (appointments, contacts, tasks). Not counted: a
 mail's inline pictures (signature logos).
 
+## What the person is told
+
+Two inbox items, at two moments. `mail_import.completed` (or `.failed`) when
+filing ends: what was filed and what was skipped. Filing ending is not reading
+ending, so the files are still being screened and read then. The
+`upload.completed` summary of an upload batch (ADR-0086, „Was ist
+angekommen?") follows once everything the import filed has been read: what
+each file became, and what the screening held back and why. The same summary a
+dropped folder gets.
+
+`lib/mail-import/upload-batch.ts` keeps the import's batch:
+
+- **Opened** by the first slice, as the person who started the import, on the
+  project's shelf, announcing no files (nobody knows how many yet).
+- **Found again** by every later slice without a column on `mail_imports`: the
+  batch id is a UUIDv5 of the import's id and a generation number, and the
+  import's batch is the first generation that is not sealed. A job handed on
+  after a failure, or requeued by the sweep, lands in the same batch.
+- **Rolled over** when it holds `UPLOAD_BATCH_MAX_FILES` (10 000) documents:
+  sealed, and the next generation opened. Each batch gives one summary.
+- **Sealed** at every ending, completed, failed or cancelled, announcing the
+  documents that carry it. A seal that fails is logged, not fatal: the upload
+  sweep seals a batch no file has come into for 30 minutes. The same rule seals
+  it during a backoff longer than that, and the next slice then opens the next
+  generation.
+
 ## Endings
 
 | Ending | When | What the person sees |
 |---|---|---|
-| `completed` | The cursor passed the last item | Inbox: imported, linking to the folder |
+| `completed` | The cursor passed the last item | Inbox: imported, linking to the folder; later, the upload summary |
 | `failed` | Not an archive; quota full; the person lost write access or left; passing failures through every backoff with no mail filed; a job that kept vanishing | Inbox: stopped (emailed if unread after 30 min); the dialog words the reason (`error_code`) |
 | `cancelled` | The person (or an org project administrator) cancelled; a send unfinished after 48 h | The dialog |
 
-Each ending deletes the staged archive. What was filed before a failure stays.
+Each ending seals the upload batch and deletes the staged archive. What was
+filed before a failure or a cancel stays, and gets its upload summary.
 The archive is staged under the project's prefix, so deleting the project
 mid-import erases it with the project, and the purge aborts an upload still open
 there (`purger/storage.js`, `abortMultipartUploads`).
