@@ -349,7 +349,7 @@ async def _load_setup(
                 user_id=request.user_id,
             ),
         ),
-        # The restricted memory earlier turns were shown (ADR-0086): evidence
+        # The restricted memory earlier turns were shown (ADR-0087): evidence
         # for the memory restriction decision, kept beside the citation registry.
         spanned("setup.shown_restricted_notes", load_turn_shown_notes(thread_id)),
     )
@@ -378,7 +378,7 @@ class _Turn:
     inputs: TurnInputs
     request: GridRequestContext
     runtime: _TurnRuntime
-    #: The restricted memory earlier turns were shown (ADR-0086).
+    #: The restricted memory earlier turns were shown (ADR-0087).
     shown_notes: ShownNotes = ShownNotes()
 
 

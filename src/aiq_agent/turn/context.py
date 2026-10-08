@@ -191,7 +191,7 @@ async def _bff_context_blocks(request: GridRequestContext, query_text: str) -> C
     """The compact-handshake blocks, with restricted memory when this turn may draw on it.
 
     ``fetch_turn_context`` serves open memory only. A turn whose verified scope
-    carries restricted-folder collections (ADR-0086, ADR-0087) also asks the live
+    carries restricted-folder collections (ADR-0087, ADR-0088) also asks the live
     digest endpoint, the one that admits the restricted notes' folders for the
     conversation, and takes its digest instead: it is a superset of the open one.
     Both run at once so the extra round-trip is not paid in sequence; when the

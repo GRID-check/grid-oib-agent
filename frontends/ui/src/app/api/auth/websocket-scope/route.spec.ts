@@ -128,7 +128,7 @@ describe('GET /api/auth/websocket-scope gate-then-fanout', () => {
     })
   })
 
-  it('names no document of a restricted folder in the legacy inline project context and serves open memory only, whatever the scope carries (ADR-0086, ADR-0087)', async () => {
+  it('names no document of a restricted folder in the legacy inline project context and serves open memory only, whatever the scope carries (ADR-0087, ADR-0088)', async () => {
     // Listing is not use: the shared, cached prompt view names no restricted
     // document for anyone, and restricted memory reaches a turn only through
     // the live per-turn digest, which admits its folders for the conversation.

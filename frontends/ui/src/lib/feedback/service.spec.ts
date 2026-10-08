@@ -24,12 +24,12 @@ vi.mock('@/lib/projects/memory-service', () => ({
   implicateMemoryFromFeedback: vi.fn(async () => 0),
 }))
 
-// The voter's folder clearance (ADR-0086), decided in the projects service.
+// The voter's folder clearance (ADR-0087), decided in the projects service.
 vi.mock('@/lib/projects/service', () => ({
   memoryClearance: vi.fn(async () => ({ cleared: ['00000000-0000-4000-8000-0000000000aa'] })),
 }))
 
-// The office's chat screening (ADR-0085): the REAL matcher over Piloti's
+// The office's chat screening (ADR-0086): the REAL matcher over Piloti's
 // suggested list, with no database behind it.
 vi.mock('@/lib/upload-screening/service', async () => {
   const { chatScreeningRules, maskText } = await import('@/lib/upload-screening/content-screen')
@@ -208,7 +208,7 @@ describe('submitAnswerFeedback', () => {
       comment: 'OIB 4 falsch zitiert',
       projectId: 'proj_1',
     })
-    // Among the notes this voter may see (ADR-0086): their clearance rides along.
+    // Among the notes this voter may see (ADR-0087): their clearance rides along.
     await vi.waitFor(() =>
       expect(mockImplicate).toHaveBeenCalledWith({
         organizationId: 'org_1',

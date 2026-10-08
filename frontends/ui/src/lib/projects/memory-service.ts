@@ -48,7 +48,7 @@ export { PROJECT_MEMORY_MAX_RESTRICTED_FOLDERS }
 
 
 /**
- * A restriction in its stored form (ADR-0087, migration 0112): the source
+ * A restriction in its stored form (ADR-0088, migration 0113): the source
  * folder ids, trimmed, lower-cased, de-duplicated, sorted, and null when nothing
  * is left. Two items carry the same restriction exactly when these arrays are
  * equal, which is what consolidation and the unique index key on.
@@ -275,7 +275,7 @@ async function findSemanticNearMatch(
     values.scope === 'organization'
       ? sql`m.scope = 'organization' and m.organization_id = ${values.organizationId} and m.project_id is null`
       : sql`m.scope = 'project' and m.project_id = ${values.projectId as string}`
-  // Same restriction only, as in `consolidationScope` (ADR-0086).
+  // Same restriction only, as in `consolidationScope` (ADR-0087).
   const restriction = canonicalRestriction(values.restrictedFolderIds)
   const restricted = restriction
     ? sql`m.restricted_folder_ids = ${arrayLiteral(restriction)}::uuid[]`
@@ -395,7 +395,7 @@ export async function listProjectMemory(
     organizationId?: string
     sourceConversationId?: string
     /**
-     * Every folder the reader may read now (ADR-0087, `readableFolderIdsFor`).
+     * Every folder the reader may read now (ADR-0088, `readableFolderIdsFor`).
      * Empty — the default — lists open memory only.
      */
     readableFolderIds?: readonly string[]
@@ -429,7 +429,7 @@ export async function listProjectMemory(
     conditions.push(eq(projectMemory.status, 'active'))
   }
   // A restricted item is absent for a reader not cleared for all of it — not
-  // greyed out, not counted (ADR-0086).
+  // greyed out, not counted (ADR-0087).
   conditions.push(memoryVisibleTo(options.readableFolderIds))
   if (options.sourceConversationId) {
     // Used by the chat "Piloti noted N" chip to show only what this turn recorded.
@@ -638,7 +638,7 @@ export async function createProjectMemoryItem(
 
 /**
  * The source folders of the restricted collections a writer names (the agent
- * knows collections, the store keeps folders, ADR-0087). A name that is not a
+ * knows collections, the store keeps folders, ADR-0088). A name that is not a
  * CURRENT restricted collection of the project is refused: stored, such an item
  * would be served to nobody; refused, the writer learns the truth. A 400, not a
  * silent open write.
@@ -792,7 +792,7 @@ export type DigestItem = Pick<
   ProjectMemoryItem,
   'scope' | 'kind' | 'content' | 'confidence' | 'verification'
 > & {
-  /** Set on a restricted item, which the line then marks `restricted` (ADR-0086). */
+  /** Set on a restricted item, which the line then marks `restricted` (ADR-0087). */
   restrictedFolderIds?: readonly string[] | null
 }
 
@@ -867,7 +867,7 @@ export interface MemoryDigestOptions {
    */
   query?: string | null
   /**
-   * The folders the turn's asker may read now (ADR-0087): restricted memory is
+   * The folders the turn's asker may read now (ADR-0088): restricted memory is
    * a candidate only when all of its source folders are among them. Empty —
    * the default, and what deep research, scheduled runs, the handshake and
    * every session-less caller get — serves open memory only.
@@ -1220,7 +1220,7 @@ export async function implicateMemoryFromFeedback(input: {
   projectId: string | null
   comment: string
   /**
-   * Every folder the person who voted may read (ADR-0087), as every other
+   * Every folder the person who voted may read (ADR-0088), as every other
    * reader here takes them: a note they cannot see
    * is not one their complaint can be about, and must not lose salience for
    * people who can. Empty: open notes only.

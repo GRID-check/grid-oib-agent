@@ -30,7 +30,7 @@ export function FolderAccessMark({
   roleNames: readonly string[]
   /**
    * The tooltip, when the mark names something other than a folder's roles —
-   * a memory note restricted to folders (ADR-0086) uses the same lock.
+   * a memory note restricted to folders (ADR-0087) uses the same lock.
    */
   label?: string
   className?: string

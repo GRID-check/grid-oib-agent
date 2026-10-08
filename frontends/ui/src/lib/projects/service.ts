@@ -317,7 +317,7 @@ export type ProjectMemoryItemPatch = Partial<
 >
 
 /**
- * A memory item as the panel receives it. A restricted item (ADR-0086) also
+ * A memory item as the panel receives it. A restricted item (ADR-0087) also
  * names the folders it is restricted to, for the lock; it only reaches a reader
  * already cleared for all of them.
  */
@@ -325,7 +325,7 @@ export type ProjectMemoryListItem = ProjectMemoryItem & { restrictedFolderNames?
 
 /**
  * Every folder of the project (tombstones included) this session may read now
- * (ADR-0087): what restricted memory is shown against. A project not found in
+ * (ADR-0088): what restricted memory is shown against. A project not found in
  * the organization reads nothing restricted.
  */
 export async function memoryClearance(
@@ -359,7 +359,7 @@ async function labelRestrictions(
 
 /**
  * List a project's memory items, including the org-wide items that apply to
- * every project in the org. A restricted item (ADR-0087) is listed only for a
+ * every project in the org. A restricted item (ADR-0088) is listed only for a
  * session that may read all of its source folders now; for anyone else it is absent.
  */
 export async function getProjectMemory(
