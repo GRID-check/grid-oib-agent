@@ -13,7 +13,7 @@ When a user asks a question, the AI needs to know which knowledge sources to sea
 - The active project collection (`proj_{projectId}`, if working in a project)
 - The restricted-folder collections the session is cleared for
   (`<project collection>_r<12 hex>`, interactive chat turns only — ADR-0086, see
-  [Restricted folders](#restricted-folders-adr-0086-adr-0085))
+  [Restricted folders](#restricted-folders-adr-0086-adr-0087))
 - The session collection (`s_{conversationId}`, if in a conversation)
 
 This page is about which collections a request READS. What writes into the
