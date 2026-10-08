@@ -20,6 +20,7 @@ import type { DbExecutor } from '@/lib/db/executor'
 import { executeRows } from '@/lib/db/execute-rows'
 import { withTenant } from '@/lib/db/tenant-context'
 import { deletionQueue, documents, projectFolders, projects, type Document } from '@/lib/db/schema'
+import { documentVisibleTo, type DocumentReader } from '@/lib/documents/visibility'
 
 /**
  * The ids of the documents filed in any of `folderIds`, inside the caller's
@@ -472,18 +473,29 @@ export interface BinEntryRow {
 /** Most bin entries one listing returns. */
 export const BIN_LIST_LIMIT = 200
 
-/** The project's bin entries, newest first: each deleted folder's root, with what it holds. */
-export async function listBinEntries(organizationId: string, projectId: string): Promise<BinEntryRow[]> {
+/**
+ * The project's bin entries, newest first: each deleted folder's root, with
+ * what it holds as the reader may count it. A held file of somebody else is
+ * not in the number (ADR-0083): a count that moves when a colleague's upload
+ * lands in a binned folder says it is there.
+ */
+export async function listBinEntries(
+  organizationId: string,
+  projectId: string,
+  reader: DocumentReader
+): Promise<BinEntryRow[]> {
   const db = getDb()
+  const visible = documentVisibleTo(reader) ?? sql`true`
   const rows = await withTenant({ organizationId }, () =>
     db.execute(sql`
       SELECT f.id AS folder_id, f.name, f.path, f.deleted_at, f.deleted_by,
              q.purge_after, q.status,
              (SELECT count(*) FROM project_folders s
                WHERE s.bin_root_id = f.id AND s.purged_at IS NULL) AS folders,
-             (SELECT count(*) FROM documents d
-               WHERE d.organization_id = ${organizationId}
-                 AND d.folder_id IN (SELECT s.id FROM project_folders s WHERE s.bin_root_id = f.id)) AS documents
+             (SELECT count(*) FROM ${documents}
+               WHERE ${documents.organizationId} = ${organizationId}
+                 AND ${documents.folderId} IN (SELECT s.id FROM project_folders s WHERE s.bin_root_id = f.id)
+                 AND ${visible}) AS documents
       FROM project_folders f
       JOIN projects p ON p.id = f.project_id AND p.organization_id = ${organizationId}
       JOIN deletion_queue q

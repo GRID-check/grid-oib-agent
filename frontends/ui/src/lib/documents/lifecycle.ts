@@ -168,6 +168,37 @@ export interface TransitionInput {
 }
 
 /** The context every effect receives. Read-only; effects do not chain. */
+/**
+ * A person's document published from a draft: its new bytes are screened and
+ * indexed like an upload's (ADR-0083, migration 0121).
+ *
+ * The upload shelves dispatch what they store, and an upload's version is born
+ * `published` without passing through here. A draft forked from a person's
+ * document and published swaps the item's bytes in `promoteVersionToPublished`,
+ * and nothing dispatched them: the item served bytes nobody had screened under
+ * the previous bytes' `clean`. The verdict is now bound to the bytes it judged,
+ * so those bytes are held until this dispatch's verdict lands; bytes the gate
+ * already judged (a draft never edited) are not sent again.
+ */
+async function ingestPublishedUpload(
+  session: AuthorizedSession,
+  document: Document,
+  version: DocumentVersion,
+): Promise<void> {
+  if (version.contentHash !== null && version.contentHash === document.screenedHash) return
+  const { dispatchDocument } = await import('./service')
+  await dispatchDocument({
+    organizationId: session.organizationId,
+    projectId: document.projectId,
+    documentId: document.id,
+    filename: document.filename,
+    storageKey: version.storageKey,
+    storageBucket: version.storageBucket,
+    collectionName: document.collectionName,
+    folderPath: await resolveDocumentFolderPath(document, session.organizationId),
+  })
+}
+
 interface EffectContext {
   session: AuthorizedSession
   document: Document
@@ -401,7 +432,10 @@ const EFFECT_REGISTRY: Record<DocumentVersionEffect, EffectRunner> = {
 
   /**
    * Index the version that was just published, with the provenance that says
-   * who wrote it and who cleared it (ADR-0054 § Indexing).
+   * who wrote it and who cleared it (ADR-0054 § Indexing). A person's document
+   * published from a draft is dispatched as an upload is, so its new bytes are
+   * screened before anyone but its uploader and reviewers sees them
+   * ({@link ingestPublishedUpload}).
    *
    * The slot was named before it did anything, and that is why the door could
    * be opened without moving a call site: "only a published version is ever
@@ -435,10 +469,10 @@ const EFFECT_REGISTRY: Record<DocumentVersionEffect, EffectRunner> = {
    * which.
    */
   ingestPublished: async ({ session, document, version, previous }) => {
-    // Human-authored items are dispatched by whatever wrote their bytes — the
-    // three upload shelves — and re-dispatching here would double-ingest every
-    // re-upload. This effect exists for the door ADR-0054 opened.
-    if (document.authoredBy === 'user') return
+    if (document.authoredBy === 'user') {
+      await ingestPublishedUpload(session, document, version)
+      return
+    }
 
     // Both halves of `collectionFileRef`'s restated rule, asked before anything
     // is sent: a row outside the `piloti/` namespace would be indexed under a

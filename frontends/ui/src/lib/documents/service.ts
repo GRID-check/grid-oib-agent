@@ -114,7 +114,7 @@ import {
   type ReingestFailedPayload,
 } from '@/lib/jobs-queue/types'
 import { findDocumentForSession, getAccessibleDocument } from './access'
-import { hasPassedScreening, internalRead, memberReader, SCREENED_ONLY } from './document-reader'
+import { hasPassedScreening, internalRead, SCREENED_ONLY } from './document-reader'
 import { maySeeHeld, shelfReaderFor } from '@/lib/upload-screening/quarantine-reviewers'
 import { recordDocumentAccess } from '@/lib/download-log/service'
 import { findOpenVersion, listDocumentVersionSummaries } from './version-repository'
@@ -2517,9 +2517,16 @@ export async function getDocumentPreview(
   // optimizer can actually process — this is what lets `next/image` resize a
   // full-size upload down to the box it is rendered in. Null for PDFs, SVGs and
   // the exotic formats above, whose callers fall back to `url` unoptimized.
-  const imageUrl = OPTIMIZABLE_IMAGE_CONTENT_TYPES.includes(contentType)
-    ? buildDocumentImageUrl(session.organizationId, session.userId, documentId, 'original')
-    : null
+  //
+  // Null for a held file too (ADR-0083). That URL is a bearer capability the
+  // optimizer fetches without a session, so `streamDocumentImage` serves only
+  // screened files through it: the session that minted it (a reviewer, the
+  // uploader) is not there to be asked again. The pane falls back to `url`,
+  // which this session's own check just presigned.
+  const imageUrl =
+    OPTIMIZABLE_IMAGE_CONTENT_TYPES.includes(contentType) && hasPassedScreening(doc)
+      ? buildDocumentImageUrl(session.organizationId, session.userId, documentId, 'original')
+      : null
 
   return { url, contentType, filename: doc.filename, imageUrl, rendition: false, sourceContentType: null }
 }
@@ -2758,11 +2765,13 @@ export async function streamDocumentImage(
   }
 
   const { organizationId, userId, variant } = verified.claims
-  // The person the URL names, by the hold (ADR-0083); a thumbnail is a
-  // derivative, and none is served for a file whose screening has not passed,
-  // whoever asks (`getDocumentThumbnail`).
-  const reader = variant === 'thumb' ? SCREENED_ONLY : memberReader(userId)
-  const doc = await findDocumentInOrg(documentId, organizationId, reader)
+  // Screened files only, whatever the variant and whoever the URL names
+  // (ADR-0083). The claims carry a person, not their standing: a reviewer's or
+  // an uploader's right to a held file is a session check this sessionless
+  // fetch cannot repeat, so neither `getDocumentPreview` nor
+  // `getDocumentThumbnail` mints one of these URLs for a held file, and one
+  // minted before the file was held (a re-upload, a quarantine) stops working.
+  const doc = await findDocumentInOrg(documentId, organizationId, SCREENED_ONLY)
   if (!doc?.storageKey) throw new NotFoundError()
   // The URL outlives the moment it was minted, and the optimizer's fetch has no
   // session, so the person it names is asked again: a folder they can no longer

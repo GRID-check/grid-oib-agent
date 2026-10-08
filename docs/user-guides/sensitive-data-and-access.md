@@ -125,10 +125,23 @@ exist. Piloti's assistant never reads it. Restoring a folder from the
 Papierkorb, changing a folder's access or re-indexing the project leaves it in
 quarantine; only a release takes it out.
 
-**Before the check has finished**, a new file is like any other: everyone who
-may open its folder sees it while it is being read, and can download it. The
-quarantine starts when the check has found something. A file you expect to
-match belongs in a folder that is restricted to the people who may see it.
+**Before the check has finished**, a new file is held back the same way: you
+see your own upload at once, with its progress, and so do the people above;
+your colleagues see it a few moments later, once the check has passed. The
+same holds when you upload a corrected file over an existing one, or publish a
+new version of a document from a draft: until the new content is checked,
+colleagues do not see the document at all, its earlier version included, and
+a link or a citation to it answers as if it did not exist for those minutes.
+
+**A file whose reading failed before the check** (an IFC model too large to
+read, for example) stays held back, because nothing has checked it. It waits in
+**Organisation → Quarantäne**, marked „Nicht geprüft", until one of the people
+above releases or deletes it; its uploader can ask for that from the upload
+summary.
+
+**In the Papierkorb**, a deleted folder counts only the files you may see. A
+folder still takes every file filed in it into the Papierkorb, and back out,
+held-back ones included.
 
 **Replacing a quarantined file.** A file cannot be uploaded over one that waits
 in quarantine, not even by its uploader: the held-back version would stay in

@@ -405,6 +405,17 @@ window in which a file nobody had screened was everybody's.
   before screening existed. Piloti's own documents were never an upload and are not
   held. `uploaded`, `pending`, `processing`, `failed` and `error` without a verdict
   are held.
+* **A verdict names the bytes it judged** (migration 0121). `screened_hash` is the
+  `content_hash` of the bytes the verdict (or, with screening off, the completed
+  read) was about: the dispatch records the hash beside its job id, the reconcile
+  writes it with the verdict, a release writes the hash it released. A person's
+  upload passes only while `screened_hash` equals `content_hash`. Before this a
+  verdict was a column every writer of the bytes had to reset: the upload's
+  replace did, but publishing a draft of a person's document and a content write
+  to the version the item mirrors swapped the bytes under the old `clean`, and
+  nothing screened them. Now a writer that forgets holds the file back instead of
+  vouching for it, and publishing a person's draft with new bytes dispatches them
+  like an upload (`ingestPublishedUpload`).
 * **One predicate.** Every query over `documents` takes a `DocumentReader` and
   ANDs `documentVisibleTo(reader)` (`lib/documents/visibility.ts`) into its WHERE:
   a member (screened rows and their own), a reviewer (every row), one reader per
@@ -417,19 +428,52 @@ window in which a file nobody had screened was everybody's.
   `findDocumentForSession`, the write paths included, so delete, move, rename,
   tags and a new version answer 404 to a member who may not see the file.
   `document-visibility.spec.ts` fails for a query that does not compose the
-  predicate; its allowlist names the reviewers' queue, the sweeps, the quota sums
-  and the orphan checks, each with its reason.
-* **No derivative before the verdict.** The ingest job draws a file's thumbnail
-  only after its screen passes: a PDF after its text screen, an image on its name,
-  a spreadsheet from its rendition (`preview_paths`, now the job's deferred
-  download rather than a background task in the ingest route). The BFF serves no
-  thumbnail of a held file, to its uploader and reviewers either.
+  predicate, asked per query rather than per function, through an aliased or
+  namespace import, schema-qualified or `sql.raw` SQL, and a relational include;
+  its allowlist names the reviewers' queue, the sweeps, the quota sums and the
+  orphan checks, each with its reason. The tables that carry one document's facts
+  (versions, roles, IFC models and elements, Prüfbuch confirmations, assignments)
+  are read behind the predicate or keyed by a document a reader already let
+  through, and the spec lists each such read with that read. A reader that sees
+  held rows (`internalRead(why)`, the reviewer's reader) is made only where the
+  spec lists it, so a person-facing listing cannot borrow one.
+* **Derivatives: what the screen needs is drawn first, and follows the file.**
+  What the screen judges or reads from is drawn before the verdict, because there
+  is nothing to screen without it: an IFC's digest, with the element index, the
+  index JSON and the viewer's source that the same parse writes, and an office
+  file's PDF rendition. Each is a derivative of a held file and follows its rule:
+  the uploader and the reviewers open them (the IFC viewer, the rendition
+  preview), nobody else, and no model. What only shows the file is not drawn until
+  the screen passes: the ingest job draws a thumbnail only then (a PDF after its
+  text screen, an image on its name, a spreadsheet from its rendition;
+  `preview_paths`, now the job's deferred download rather than a background task
+  in the ingest route).
+* **The signed image route serves screened files only.** The optimizer's image
+  URL and a thumbnail's are bearer capabilities that the optimizer fetches
+  without a session, so the route cannot ask whether the person a URL names is
+  a reviewer. It serves a file that has passed and nothing else; neither the
+  preview nor the thumbnail mints one for a held file, and one minted before a
+  file was held (a re-upload, a quarantine) stops working. The uploader and the
+  reviewers preview a held image through the URL their session presigned.
 * **Model paths refuse a held file**, whoever's session fetches it: the
   conversation subject's version (`readVersionForService`), the revision task's
   source text (`readVersionTextForTask`), the agent's byte and model lookups. A held
   document opens no revision task.
 * **A quarantined row leaves quarantine through a release and nothing else.** A
   re-screen is a new verdict after a release, never a reset to `pending`.
+* **A file the gate never judged can be released too.** A held file at rest
+  (`isHeldAtRest`: not in flight, no passing verdict for its bytes), such as an IFC
+  over the size limit, one that would not parse, a reading that failed, or a legacy
+  row stranded at `uploaded`, is in the reviewers' queue beside the quarantine,
+  marked unscreened, and a reviewer releases it the same way: the bytes they saw,
+  audited, re-dispatched. Its uploader may ask for that („Freigabe anfragen").
+  Before this a retry failed the same way and the file stayed with its uploader
+  for good.
+* **The Papierkorb counts what its reader may see.** A binned folder's count
+  leaves out a colleague's held file. Binning, restoring and purging a folder
+  still take every document filed in it, held ones included: the folder is the
+  unit, and a held file left behind would be filed in a folder that no longer
+  exists.
 
 ### Consequences
 
@@ -442,13 +486,23 @@ window in which a file nobody had screened was everybody's.
   than at once with a progress badge; for a large file or a long ingest queue that
   is minutes. The uploader sees their own file from the first moment, with its
   progress, and the upload summary is theirs alone anyway. A file whose reading
-  failed before a verdict, and a legacy row stranded at `uploaded`, stay with
-  their uploader (who may retry or delete) and the reviewers. Uploading a file
+  failed before a verdict, and a legacy row stranded at `uploaded`, wait in the
+  reviewers' queue until one of them releases or deletes it. Uploading a file
   under the name of a colleague's held file is refused as a taken name, without
   saying whose.
-* Bad, because a signed image URL is asked again as the person it names, by the
-  member rule: a reviewer opens a colleague's held image through the preview,
-  not through the optimizer's URL.
+* Bad, and a second UX price: the hold is per document, the screen is per bytes.
+  A corrected file uploaded over an existing shared document, or a person's draft
+  published with new bytes, holds the whole document back from everyone but its
+  uploader and the reviewers until the new bytes are screened, the earlier
+  screened version included. Citations, chat subjects, assignments and shares
+  that point at the document answer 404 for those minutes, while the earlier
+  chunks stay in the index (the backend retires them only once the new version
+  is indexed), so Piloti can cite a document a member cannot open yet. Serving
+  the last screened version while the next one is screened would close this; it
+  is not built, because the item has one storage key and every byte path would
+  have to choose between it and the last screened version's.
+* Bad, because a held image is previewed unoptimized, full size, through the
+  presigned URL: the optimizer's route serves screened files only.
 
 ## More Information
 

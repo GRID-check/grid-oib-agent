@@ -250,7 +250,10 @@ const QuarantineRow: FC<{
             ))}
           </ul>
         ) : (
-          <ItemDescription>{t('quarantine.noReason')}</ItemDescription>
+          // A sentence, not a label, for the same reason as the one below.
+          <ItemDescription className={item.held === 'unscreened' ? 'whitespace-normal' : undefined}>
+            {item.held === 'unscreened' ? t('quarantine.unscreened') : t('quarantine.noReason')}
+          </ItemDescription>
         )}
         {item.verdict?.checked === 'partial' && (
           // A sentence, not a label: it wraps instead of truncating on a phone.

@@ -102,6 +102,7 @@ export const makeLiveDocumentMatch = (overrides: Partial<LiveDocumentMatch> = {}
   scope: 'project',
   projectId: 'proj-1',
   ...overrides,
+  screenedHash: 'screenedHash' in overrides ? (overrides.screenedHash ?? null) : (overrides.contentHash ?? null),
 })
 
 /** A `documents` row as `findDocumentInOrg` returns it. */
@@ -156,5 +157,9 @@ export const makeDocument = (overrides: Partial<Document> = {}): Document => ({
   uploadBatchId: null,
   folderId: null,
   ...overrides,
+  // The verdict on record is about the bytes the row holds unless a test says
+  // otherwise (migration 0121): a fixture that sets a digest has been screened
+  // as that digest.
+  screenedHash: 'screenedHash' in overrides ? (overrides.screenedHash ?? null) : (overrides.contentHash ?? null),
   visibility: overrides.visibility ?? 'project',
 })

@@ -31,7 +31,7 @@ import {
 } from '@/lib/db/schema'
 import type { DocumentScreeningOutcome } from '@/lib/db/schema/documents'
 import { auditedQuarantineReasons, parseQuarantine } from '@/lib/upload-screening/quarantine'
-import { documentVisibleTo, internalRead, SCREENED_ONLY, type DocumentReader } from './visibility'
+import { documentVisibleTo, heldAtRest, internalRead, SCREENED_ONLY, type DocumentReader } from './visibility'
 
 /**
  * Hard cap on one page of a document listing (project and Archiv alike).
@@ -108,6 +108,8 @@ export interface DocumentListRow {
    */
   createdBy: string
   screeningOutcome: DocumentScreeningOutcome | null
+  /** The digest the verdict judged (migration 0121); dropped with the two above. */
+  screenedHash: string | null
   createdAt: Date
   updatedAt: Date
   errorMessage: string | null
@@ -202,6 +204,7 @@ export const documentListColumns = {
   contentHash: documents.contentHash,
   createdBy: documents.createdBy,
   screeningOutcome: documents.screeningOutcome,
+  screenedHash: documents.screenedHash,
   createdAt: documents.createdAt,
   updatedAt: documents.updatedAt,
   errorMessage: documents.errorMessage,
@@ -826,6 +829,7 @@ export async function findLiveDocumentByFilename(
   status: string
   authoredBy: DocumentAuthor
   screeningOutcome: DocumentScreeningOutcome | null
+  screenedHash: string | null
   createdBy: string
   scope: Document['scope']
   projectId: string | null
@@ -844,6 +848,7 @@ export async function findLiveDocumentByFilename(
         status: documents.status,
         authoredBy: documents.authoredBy,
         screeningOutcome: documents.screeningOutcome,
+        screenedHash: documents.screenedHash,
         createdBy: documents.createdBy,
         scope: documents.scope,
         projectId: documents.projectId,
@@ -1122,6 +1127,11 @@ const notQuarantined = ne(documents.status, 'quarantined')
  * with the backend's ingestion state (see lib/documents/reconcile-status.ts).
  * Returns whether the row took it: a quarantined row does not
  * ({@link notQuarantined}).
+ *
+ * Beside the job id, the digest of the bytes this job reads
+ * (`ingestContentHash`): the verdict it brings back is about those bytes, and
+ * the reconcile writes it to `screened_hash` from here (migration 0121), not
+ * from whatever the row holds when the verdict lands.
  */
 export async function setDocumentIngestJob(
   documentId: string,
@@ -1132,7 +1142,11 @@ export async function setDocumentIngestJob(
   const moved = await withTenant({ organizationId }, () =>
     db
       .update(documents)
-      .set({ status: 'pending', metadata: { ingestJobId }, updatedAt: new Date() })
+      .set({
+        status: 'pending',
+        metadata: sql`jsonb_build_object('ingestJobId', ${ingestJobId}::text, 'ingestContentHash', ${documents.contentHash})`,
+        updatedAt: new Date(),
+      })
       .where(and(eq(documents.id, documentId), eq(documents.organizationId, organizationId), notQuarantined))
       .returning({ id: documents.id }),
   )
@@ -1400,6 +1414,9 @@ const sameDispatch = (jobId: string | null): SQL =>
     ? sql`${documents.metadata} ->> 'ingestJobId' = ${jobId}`
     : sql`(${documents.metadata} ->> 'ingestJobId') IS NULL`
 
+/** The digest the dispatch of the job being reconciled recorded, or the row's earlier one. */
+const screenedHashOfDispatch = sql<string | null>`coalesce(${documents.metadata} ->> 'ingestContentHash', ${documents.screenedHash})`
+
 /**
  * Persist a reconciled ingestion status.
  *
@@ -1437,6 +1454,11 @@ export async function setDocumentReconciledStatus(
           // Only when the job said something (ADR-0083): an unscreened job must
           // not erase a reviewer's `released`.
           ...(resolution.screeningOutcome ? { screeningOutcome: resolution.screeningOutcome } : {}),
+          // A job that read its bytes to the end vouches for THOSE bytes
+          // (migration 0121): the digest its dispatch recorded, never the row's
+          // current one, which a version swap may have moved since. A job
+          // dispatched before 0121 recorded none and keeps the backfilled value.
+          ...(resolution.status === 'completed' ? { screenedHash: screenedHashOfDispatch } : {}),
           updatedAt: new Date(),
         })
         .where(
@@ -1479,10 +1501,12 @@ export async function setDocumentReconciledStatus(
 }
 
 /**
- * A reviewer's release of a quarantined document (ADR-0083): who, when, and
- * which bytes. Guarded on the row still being quarantined with the bytes the
+ * A reviewer's release of a held document (ADR-0083): who, when, and which
+ * bytes. Guarded on the row still being held at rest with the bytes the
  * reviewer saw, so a release that raced a re-upload releases nothing. Returns
- * whether it took.
+ * whether it took. A quarantine is released this way, and so is a file the gate
+ * never reached a verdict on (its reading failed): before 2026-10-08 that file
+ * stayed held with no way out.
  */
 export async function markScreeningReleased(
   documentId: string,
@@ -1497,6 +1521,8 @@ export async function markScreeningReleased(
         status: 'uploaded',
         errorMessage: null,
         screeningOutcome: 'released',
+        // The release is a verdict about these bytes (migration 0121).
+        screenedHash: release.contentHash,
         screeningReleasedHash: release.contentHash,
         screeningReleasedBy: release.releasedBy,
         screeningReleasedAt: release.releasedAt,
@@ -1506,7 +1532,9 @@ export async function markScreeningReleased(
         and(
           eq(documents.id, documentId),
           eq(documents.organizationId, organizationId),
-          eq(documents.status, 'quarantined'),
+          // Held and at rest: a quarantine, or a file the gate never reached a
+          // verdict on (ADR-0083). A file in flight is the job's, not a reviewer's.
+          heldAtRest(),
           eq(documents.contentHash, release.contentHash),
         ),
       )
@@ -1525,8 +1553,9 @@ export interface QuarantineCursor {
 }
 
 /**
- * One page of the organization's quarantined documents, newest first, after
- * `cursor`. Authorization is the caller's, which is why it pages: a reviewer of
+ * One page of the organization's held documents at rest (`heldAtRest`: a
+ * quarantine, or a file whose reading ended without a verdict), newest first,
+ * after `cursor`. Authorization is the caller's, which is why it pages: a reviewer of
  * one project must not lose their documents behind a page of another project's
  * (`listQuarantineQueue` reads on until its own list is full).
  */
@@ -1545,7 +1574,7 @@ export async function listQuarantinedDocuments(
     db
       .select()
       .from(documents)
-      .where(and(eq(documents.organizationId, organizationId), eq(documents.status, 'quarantined'), after))
+      .where(and(eq(documents.organizationId, organizationId), heldAtRest(), after))
       .orderBy(desc(documents.updatedAt), desc(documents.id))
       .limit(QUARANTINE_LIST_LIMIT),
   )

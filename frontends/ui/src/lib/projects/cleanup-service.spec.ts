@@ -78,6 +78,7 @@ const row = (n: number, filename: string, folderId: string | null, extra: Record
   status: 'completed',
   screeningOutcome: 'clean',
   contentHash: null,
+  screenedHash: null,
   createdAt: new Date(`2026-0${n}-01T00:00:00Z`),
   ...extra,
 })
@@ -128,7 +129,9 @@ afterEach(() => vi.unstubAllGlobals())
  * returns; every other document passed (`clean`). The listing already leaves
  * out what is hidden, as the real repository does.
  */
-function screening(outcomes: Record<number, { status?: string; screeningOutcome: string | null }>) {
+function screening(
+  outcomes: Record<number, { status?: string; screeningOutcome: string | null; screenedHash?: string; authoredBy?: string }>
+) {
   const byId = new Map(Object.entries(outcomes).map(([n, outcome]) => [UUID(Number(n)), outcome]))
   mocks.listProjectDocumentPage.mockResolvedValue({
     rows: ROWS.filter((r) => r.folderId !== FOLDER.honorare).map((r) => ({ ...r, ...(byId.get(r.id) ?? {}) })),
@@ -162,15 +165,16 @@ describe('proposeCleanup', () => {
   it('sends the model nothing the content gate has not passed, and leaves quarantined documents out entirely', async () => {
     screening({
       1: { screeningOutcome: 'released' },
-      2: { screeningOutcome: 'partial' },
-      5: { screeningOutcome: null },
+      2: { screeningOutcome: 'clean', screenedHash: 'sha256:earlier' },
+      5: { status: 'processing', screeningOutcome: null },
       6: { status: 'quarantined', screeningOutcome: 'quarantined' },
     })
     modelAnswers([])
     const proposal = await proposeCleanup(session, 'p1', 'de')
 
     const body = JSON.parse(fetchMock.mock.calls[0][1].body as string) as { documents: Array<Record<string, unknown>> }
-    // Released by a reviewer: passed. Partly screened, unscreened, quarantined: never reach the model.
+    // Released by a reviewer: passed. Still in flight, a verdict about earlier
+    // bytes, quarantined: held, and never reach the model.
     expect(body.documents.map((doc) => doc.filename)).toEqual(['Einreichplan_v1.pdf'])
     expect(JSON.stringify(body)).not.toMatch(/Einreichplan_v2|Baubeschreibung/)
     // The rules still look at what the gate has not passed; the quarantined one is not proposed at all.
@@ -179,6 +183,28 @@ describe('proposeCleanup', () => {
     await expect(
       confirmCleanup(session, 'p1', { documentIds: [UUID(6)], proposedIds: [], aiUsed: true })
     ).rejects.toMatchObject({ status: 400, details: { reason: 'not-writable' } })
+  })
+
+  it('names to the model every file the gate passed, by the one definition of screened', async () => {
+    screening({
+      // Read by its name alone (a scan): passes, as it passes to every member.
+      1: { screeningOutcome: 'partial' },
+      2: { screeningOutcome: 'unchecked' },
+      // Indexed with screening switched off: no verdict at a settled status.
+      5: { status: 'completed', screeningOutcome: null },
+      // Piloti's own report carries no verdict and was never an upload.
+      6: { authoredBy: 'agent', screeningOutcome: null },
+    })
+    modelAnswers([])
+    await proposeCleanup(session, 'p1', 'de')
+
+    const body = JSON.parse(fetchMock.mock.calls[0][1].body as string) as { documents: Array<Record<string, unknown>> }
+    expect(body.documents.map((doc) => doc.filename)).toEqual([
+      'Einreichplan_v1.pdf',
+      'Einreichplan_v2.pdf',
+      '~$Baubeschreibung.docx',
+      'Baubeschreibung.docx',
+    ])
   })
 
   it("merges the model's reasons with the rules, and marks the proposal as the model's", async () => {

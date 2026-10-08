@@ -15,8 +15,9 @@
  */
 
 import 'server-only'
-import { and, eq, inArray, isNull, ne, or, sql, type SQL } from 'drizzle-orm'
+import { and, eq, inArray, isNotNull, isNull, ne, not, notInArray, or, sql, type SQL } from 'drizzle-orm'
 import { documents } from '@/lib/db/schema'
+import { IN_FLIGHT_DOCUMENT_STATUSES } from './document-status'
 import {
   SCREENING_PASSED_OUTCOMES,
   UNSCREENED_SETTLED_STATUSES,
@@ -34,16 +35,34 @@ export {
   type ShelfReader,
 } from './document-reader'
 
-/** `hasPassedScreening` (`./document-reader`) as SQL. */
+/**
+ * `hasPassedScreening` (`./document-reader`) as SQL. Two-valued on purpose: an
+ * `IN` over a NULL verdict is NULL, not false, and `heldAtRest` negates this.
+ */
 function passedScreening(): SQL {
   return and(
     ne(documents.status, 'quarantined'),
     or(
       ne(documents.authoredBy, 'user'),
-      inArray(documents.screeningOutcome, [...SCREENING_PASSED_OUTCOMES]),
-      and(isNull(documents.screeningOutcome), inArray(documents.status, [...UNSCREENED_SETTLED_STATUSES])),
+      and(
+        // The verdict judged the bytes the row holds now (migration 0121).
+        sql`${documents.screenedHash} IS NOT DISTINCT FROM ${documents.contentHash}`,
+        or(
+          and(isNotNull(documents.screeningOutcome), inArray(documents.screeningOutcome, [...SCREENING_PASSED_OUTCOMES])),
+          and(isNull(documents.screeningOutcome), inArray(documents.status, [...UNSCREENED_SETTLED_STATUSES])),
+        ),
+      ),
     ),
   ) as SQL
+}
+
+/**
+ * `isHeldAtRest` (`./document-reader`) as SQL: the rows the reviewers' queue
+ * lists and a release may take, whether the gate quarantined them or never
+ * reached a verdict on them.
+ */
+export function heldAtRest(): SQL {
+  return and(not(passedScreening()), notInArray(documents.status, [...IN_FLIGHT_DOCUMENT_STATUSES])) as SQL
 }
 
 /** A held row this shelf reader may still see: one they uploaded, or any when they review. */

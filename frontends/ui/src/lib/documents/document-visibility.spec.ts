@@ -79,8 +79,6 @@ const SEES_EVERY_ROW: Record<string, string> = {
     "Placement moves every document whose folder's access changed into the right collection, held ones too, or a held file stays in a collection readers it should not have can search once it passes.",
   'lib/projects/folder-bin-repository.ts#listDocumentIdsInFolders': 'The Papierkorb moves a folder with every document in it.',
   'lib/projects/folder-bin-repository.ts#listDocumentsInFolders': 'The Papierkorb purges and restores every document of a folder.',
-  'lib/projects/folder-bin-repository.ts#listBinEntries':
-    "The Papierkorb's count of what a binned folder holds; restoring it brings every document back, held ones included.",
   'lib/projects/folder-derived-repository.ts#listReportsDerivedFrom':
     "Piloti's own reports drawn from a purged folder: the purge marks every one of them, and none of them is an upload.",
   'lib/authz/folder-access-repository.ts#listProjectDocumentCollections':
@@ -92,6 +90,138 @@ const SEES_EVERY_ROW: Record<string, string> = {
   'lib/upload-batches/repository.ts#batchIdsOfDocuments': 'The settle hook: which batches the rows a reconcile moved belong to. Ids only.',
   'lib/upload-batches/repository.ts#listInFlightBatchDocuments': 'The upload sweep reconciles in-flight rows, held by definition.',
   'lib/upload-batches/repository.ts#completeSettledBatches': 'Closes batches whose rows all came to rest. No row leaves.',
+}
+
+/**
+ * Reads of a table that carries one document's facts which do not join
+ * `documents` themselves, keyed `<path under src>#<function>|<table>`. Each is
+ * keyed by a document or model id that a reader's rule already let through,
+ * and says which read that was.
+ */
+const KEYED_BY_A_READ_DOCUMENT: Record<string, string> = {
+  // --- Versions: keyed by a document the caller already read ----------------
+  'lib/documents/version-repository.ts#listDocumentVersions|documentVersions':
+    'The version list and the last refusers, after `getAccessibleDocument` / `findDocumentForSession` read the document.',
+  'lib/documents/version-repository.ts#findDocumentVersion|documentVersions':
+    'A version of a document the transition, the view or the content read loaded through its reader first.',
+  'lib/documents/version-repository.ts#findPreviousVersion|documentVersions':
+    "The version before the one a transition just moved, of the document that transition read.",
+  'lib/documents/version-repository.ts#findDocumentVersionInOrg|documentVersions':
+    "`readVersionForService` reads the version's document through SCREENED_ONLY before it returns a byte.",
+  'lib/documents/version-repository.ts#findPublishedVersion|documentVersions': 'The fork, after `getAccessibleDocument(…, "write")`.',
+  'lib/documents/version-repository.ts#findOpenVersion|documentVersions':
+    'The fork, the status read and the filing paths, each after reading the document (or writing it a moment ago).',
+  'lib/documents/version-repository.ts#listDocumentVersionSummaries|documentVersions':
+    'Annotates rows a listing already narrowed by its reader; ids in, never a project id.',
+  'lib/documents/version-repository.ts#listDocumentVersionObjects|documentVersions':
+    "Erasing a document's objects, after the delete authorized the document.",
+  'lib/documents/version-repository.ts#nextVersionNumber|documentVersions': 'The key of an upload that is replacing this document. A number, no fact.',
+  'lib/documents/version-repository.ts#allocateVersionNumber|documentVersions': 'Inside the insert of a new version. A number, no fact.',
+  'lib/projects/folder-derived-repository.ts#listReportsDerivedFrom|documentVersions':
+    "Piloti's own reports drawn from a purged folder (see SEES_EVERY_ROW): none of them is an upload.",
+  'lib/storage/repository.ts#versionOverheadByScope|documentVersions': 'Quota: version bytes, every row.',
+  'lib/storage/repository.ts#versionOverheadBytes|documentVersions': 'Quota: version bytes, every row.',
+
+  // --- IFC models and elements: keyed by a model already read ---------------
+  'lib/bim/repository.ts#elementScope|bimModels':
+    "The tenant half of every element query's WHERE, on a model id `getAccessibleModel` or `runBimQuery` already read.",
+  'lib/bim/repository.ts#listBimElements|bimElements': 'Elements of a model read through its reader (`getAccessibleModel`, `resolveInternalModel`).',
+  'lib/bim/repository.ts#findBimElement|bimElements': 'One element of a model read through its reader.',
+  'lib/bim/repository.ts#findBimElementsByGlobalIds|bimElements': 'Elements of a model read through its reader.',
+  'lib/bim/repository.ts#aggregateBimElements|bimElements': 'Counts over a model read through its reader.',
+  'lib/bim/repository.ts#listBimPropertyCatalog|bimModels': 'The tenant check of a model read through its reader.',
+  'lib/bim/repository.ts#listBimPropertyCatalog|bimElements': 'Property names of a model read through its reader.',
+  'lib/bim/repository.ts#loadBimElementsForComparison|bimElements': 'Two revisions, each read through its reader first.',
+  'lib/bim/repository.ts#loadBimRuleInputs|bimModels': 'The rule projection of a model read through its reader.',
+  'lib/bim/repository.ts#loadBimElementsForSchedule|bimElements': 'Elements of a model read through its reader.',
+  'lib/bim/repository.ts#countBimElementsByType|bimElements': 'Counts over a model read through its reader.',
+
+  // --- Assignments: keyed by resources already authorized ------------------
+  'lib/assignments/repository.ts#listAssignmentsForResources|resourceAssignments':
+    'Ids from `requireResourceAccess` (which reads a document through the sharing registry) or from a listing its reader narrowed.',
+}
+
+/**
+ * Where a reader that sees held rows is made, keyed `<path under src>#<function>`.
+ * `makes` is what it makes: `internal:<why>`, `reviewer`.
+ */
+const ELEVATED_READERS: Record<string, { makes: string[]; why: string }> = {
+  'lib/upload-screening/quarantine-reviewers.ts#shelfReaderFor': {
+    makes: ['reviewer'],
+    why: 'The one place a person becomes a reviewer of a shelf: after `mayReviewQuarantine` said so.',
+  },
+  'lib/documents/access.ts#findDocumentForSession': {
+    makes: ['internal:quarantine-review'],
+    why: 'Loads a row the member rule refused, to ask `mayReviewQuarantine`; returns it only on yes.',
+  },
+  'lib/upload-screening/review.ts#releaseQuarantinedDocument': {
+    makes: ['internal:quarantine-review'],
+    why: 'Loads the row to ask `mayReviewQuarantine`; a non-reviewer gets 404.',
+  },
+  'lib/upload-batches/settle.ts#onQuarantined': {
+    makes: ['internal:audit'],
+    why: "The reviewers' notification about a verdict the reconcile just wrote.",
+  },
+  'lib/bim/model-service.ts#getAccessibleModel': {
+    makes: ['internal:resolve-document'],
+    why: "Learns WHICH document a model id belongs to; `findDocumentForSession` then decides on that document.",
+  },
+  'lib/bim/model-service.ts#getModelForDocument': {
+    makes: ['internal:reloaded'],
+    why: 'The model of a document this request just loaded through `findDocumentForSession`.',
+  },
+  'lib/bim/query.ts#runBimQuery': {
+    makes: ['internal:reloaded'],
+    why: 'Models (and a comparison base) whose caller resolved them through a reader a moment ago.',
+  },
+  'lib/document-roles/repository.ts#findBindingsForRole': {
+    makes: ['internal:identity'],
+    why: "Whether a role is taken, which the unique index answers over every row; returns no held document's facts.",
+  },
+  'lib/documents/repository.ts#findDocumentAuthoredByRef': {
+    makes: ['internal:identity'],
+    why: "Idempotency of Piloti's filing by its run reference, which a unique index answers over every row.",
+  },
+  'lib/documents/repository.ts#findLiveDocumentByFilename': {
+    makes: ['internal:identity'],
+    why: 'The name probe of an upload; a held row of another person answers as taken (`assertMayReplaceHeld`).',
+  },
+  'lib/documents/repository.ts#findProjectCollectionsHoldingFilename': {
+    makes: ['internal:identity'],
+    why: 'Which collections already hold a filename: identity, over every row.',
+  },
+  'lib/documents/repository.ts#findStorageKeyByIdAndCollection': {
+    makes: ['internal:ingest'],
+    why: 'The pipeline presigns a raster slot for the file it is reading (service token, no person).',
+  },
+  'lib/documents/repository.ts#documentExistsInCollection': {
+    makes: ['internal:ingest'],
+    why: 'The pipeline asks whether the file it just indexed still exists (service token, no person).',
+  },
+  'lib/documents/service.ts#dispatchIngest': { makes: ['internal:ingest'], why: "The dispatch reads the row it sends: whose spend, which rules." },
+  'lib/documents/service.ts#dispatchDocument': { makes: ['internal:ingest'], why: 'The one funnel every ingest passes reads its row.' },
+  'lib/documents/service.ts#jobStillOwnsRow': { makes: ['internal:ingest'], why: 'A background job asks whether the row is still its own.' },
+  'lib/documents/service.ts#redispatchStuckDocument': { makes: ['internal:ingest'], why: 'The sweep re-dispatches a stuck row.' },
+  'lib/documents/service.ts#runReindexSlice': {
+    makes: ['internal:ingest'],
+    why: 'A reindex re-dispatches every row of the project; `dispatchDocument` leaves a quarantine where it is.',
+  },
+  'lib/documents/lifecycle.ts#recordUploadedVersion': {
+    makes: ['internal:just-written'],
+    why: 'Reads back the row the upload wrote a moment ago, to record its version.',
+  },
+  'lib/documents/agent-document.ts#fileAgentDocumentDraft': {
+    makes: ['internal:just-written'],
+    why: "Reads back Piloti's own document it just filed.",
+  },
+  'lib/documents/research-report.ts#openReviewRound': {
+    makes: ['internal:just-written'],
+    why: "Reads back Piloti's report it just filed, to open its review.",
+  },
+  'lib/tasks/service.ts#fileResultFor': {
+    makes: ['internal:just-written'],
+    why: "Reads back the task result it just filed as Piloti's document.",
+  },
 }
 
 /** Every `.ts` under `src`, specs, fixtures and mocks aside. */
@@ -108,159 +238,438 @@ function sourceFiles(dir = SRC, found: string[] = []): string[] {
   return found
 }
 
-const JOIN_METHODS = new Set(['from', 'innerJoin', 'leftJoin', 'rightJoin', 'fullJoin'])
-const RAW_READ = /\b(from|join)\s+("?documents"?\b|\$\{documents\})/i
+/** The `documents` table, and the tables whose rows carry one document's facts, by schema export and SQL name. */
+const GUARDED_TABLES: Record<string, string> = {
+  documents: 'documents',
+  documentVersions: 'document_versions',
+  documentRoles: 'document_roles',
+  bimModels: 'bim_models',
+  bimElements: 'bim_elements',
+  bimCheckConfirmations: 'bim_check_confirmations',
+  resourceAssignments: 'resource_assignments',
+}
 
-/** Whether the file imports the `documents` TABLE (a value) from the schema. */
-function importsDocumentsTable(tree: ts.SourceFile): boolean {
-  return tree.statements.some(
-    (statement) =>
-      ts.isImportDeclaration(statement) &&
-      ts.isStringLiteral(statement.moduleSpecifier) &&
-      statement.moduleSpecifier.text.startsWith('@/lib/db/schema') &&
-      !statement.importClause?.isTypeOnly &&
-      statement.importClause?.namedBindings !== undefined &&
-      ts.isNamedImports(statement.importClause.namedBindings) &&
-      statement.importClause.namedBindings.elements.some(
-        (element) => !element.isTypeOnly && (element.propertyName ?? element.name).text === 'documents'
-      )
-  )
+/** The relational-API names that reach `documents` from another table (`one(documents)`, `many(documents)`). */
+function documentRelations(): Set<string> {
+  const names = new Set<string>()
+  const dir = join(SRC, 'lib/db/schema')
+  for (const file of readdirSync(dir)) {
+    if (!file.endsWith('.ts') || file.endsWith('.spec.ts')) continue
+    const tree = ts.createSourceFile(file, readFileSync(join(dir, file), 'utf8'), ts.ScriptTarget.Latest, true)
+    const visit = (node: ts.Node) => {
+      if (
+        ts.isPropertyAssignment(node) &&
+        ts.isCallExpression(node.initializer) &&
+        ts.isIdentifier(node.initializer.expression) &&
+        ['one', 'many'].includes(node.initializer.expression.text) &&
+        node.initializer.arguments[0]?.getText() === 'documents'
+      ) {
+        names.add(node.name.getText())
+      }
+      ts.forEachChild(node, visit)
+    }
+    visit(tree)
+  }
+  return names
+}
+const DOCUMENT_RELATIONS = documentRelations()
+
+const JOIN_METHODS = new Set(['from', 'innerJoin', 'leftJoin', 'rightJoin', 'fullJoin'])
+
+/** `FROM documents`, `JOIN "public"."bim_models"`, `FROM ${documents}`: raw SQL that reads a guarded table. */
+function rawReadOf(text: string, interpolated: ReadonlySet<string>): string | null {
+  for (const [exported, sqlName] of Object.entries(GUARDED_TABLES)) {
+    const name = new RegExp(`\\b(from|join)\\s+(("?public"?\\.)?"?${sqlName}"?\\b)`, 'i')
+    if (name.test(text)) return exported
+  }
+  const slot = /\b(from|join)\s+\$\{\s*([\w.]+)\s*\}/gi
+  for (const match of text.matchAll(slot)) {
+    const local = match[2].split('.').pop() ?? ''
+    if (interpolated.has(match[2]) || local in GUARDED_TABLES) {
+      return interpolated.has(match[2]) ? 'documents' : local
+    }
+  }
+  return null
+}
+
+/** How this module names the guarded tables: imported (perhaps renamed), or through a namespace import of the schema. */
+interface Bindings {
+  tables: Map<string, string>
+  namespaces: Set<string>
+}
+
+function schemaBindings(tree: ts.SourceFile): Bindings {
+  const tables = new Map<string, string>()
+  const namespaces = new Set<string>()
+  for (const statement of tree.statements) {
+    if (!ts.isImportDeclaration(statement) || !ts.isStringLiteral(statement.moduleSpecifier)) continue
+    if (!statement.moduleSpecifier.text.startsWith('@/lib/db/schema')) continue
+    const clause = statement.importClause
+    if (!clause || clause.isTypeOnly || !clause.namedBindings) continue
+    if (ts.isNamespaceImport(clause.namedBindings)) {
+      namespaces.add(clause.namedBindings.name.text)
+      continue
+    }
+    for (const element of clause.namedBindings.elements) {
+      const exported = (element.propertyName ?? element.name).text
+      if (!element.isTypeOnly && exported in GUARDED_TABLES) tables.set(element.name.text, exported)
+    }
+  }
+  return { tables, namespaces }
+}
+
+/** The guarded table an expression names in this module, or null. */
+function tableOf(expression: ts.Expression | undefined, bindings: Bindings): string | null {
+  if (!expression) return null
+  if (ts.isIdentifier(expression)) return bindings.tables.get(expression.text) ?? null
+  if (
+    ts.isPropertyAccessExpression(expression) &&
+    ts.isIdentifier(expression.expression) &&
+    bindings.namespaces.has(expression.expression.text) &&
+    expression.name.text in GUARDED_TABLES
+  ) {
+    return expression.name.text
+  }
+  return null
+}
+
+/** The guarded table `node` reads, or null: a from or join, the relational API, an include, or raw SQL. */
+function readOf(node: ts.Node, bindings: Bindings): string | null {
+  if (ts.isCallExpression(node) && ts.isPropertyAccessExpression(node.expression)) {
+    if (JOIN_METHODS.has(node.expression.name.text)) {
+      const table = tableOf(node.arguments[0], bindings)
+      if (table) return table
+    }
+    // `sql.raw('SELECT … FROM documents')`: not a tagged template, read the same.
+    if (node.expression.getText() === 'sql.raw' && node.arguments[0]) {
+      const table = rawReadOf(node.arguments[0].getText(), new Set())
+      if (table) return table
+    }
+  }
+  if (ts.isPropertyAccessExpression(node) && node.name.text in GUARDED_TABLES && /\.query$/.test(node.expression.getText())) {
+    return node.name.text
+  }
+  // `db.query.bimModels.findMany({ with: { document: true } })`: the include reads `documents`.
+  if (
+    ts.isPropertyAssignment(node) &&
+    node.name.getText() === 'with' &&
+    ts.isObjectLiteralExpression(node.initializer) &&
+    node.initializer.properties.some((property) => property.name && DOCUMENT_RELATIONS.has(property.name.getText()))
+  ) {
+    return 'documents'
+  }
+  if (ts.isTaggedTemplateExpression(node) && node.tag.getText() === 'sql') {
+    return rawReadOf(node.template.getText(), new Set([...bindings.tables.keys()].filter((name) => bindings.tables.get(name) === 'documents')))
+  }
+  return null
 }
 
 /** The name of the nearest named function around `node`, or `<module>`. */
 function enclosingFunction(node: ts.Node): string {
-  for (let current: ts.Node | undefined = node.parent; current; current = current.parent) {
-    if ((ts.isFunctionDeclaration(current) || ts.isMethodDeclaration(current)) && current.name) {
-      return current.name.getText()
-    }
-    if ((ts.isArrowFunction(current) || ts.isFunctionExpression(current)) && current.parent) {
-      const owner = current.parent
-      if (ts.isVariableDeclaration(owner) || ts.isPropertyAssignment(owner)) return owner.name.getText()
-    }
-  }
-  return '<module>'
+  const fn = enclosingFunctionNode(node)
+  return fn ? functionName(fn) : '<module>'
 }
 
-/** Whether `node` is a read of the documents table: a from or join, `db.query.documents`, or raw SQL. */
-function isDocumentsRead(node: ts.Node, tableImported: boolean): boolean {
-  if (tableImported && ts.isCallExpression(node) && ts.isPropertyAccessExpression(node.expression)) {
-    const [first] = node.arguments
-    if (JOIN_METHODS.has(node.expression.name.text) && first && ts.isIdentifier(first) && first.text === 'documents') {
-      return true
+type FunctionNode = ts.FunctionDeclaration | ts.MethodDeclaration | ts.ArrowFunction | ts.FunctionExpression
+
+function functionName(fn: FunctionNode): string {
+  if ((ts.isFunctionDeclaration(fn) || ts.isMethodDeclaration(fn)) && fn.name) return fn.name.getText()
+  const owner = fn.parent
+  if (owner && (ts.isVariableDeclaration(owner) || ts.isPropertyAssignment(owner))) return owner.name.getText()
+  return '<anonymous>'
+}
+
+/** The nearest NAMED function around `node`: an unnamed callback belongs to the function it is written in. */
+function enclosingFunctionNode(node: ts.Node): FunctionNode | null {
+  for (let current: ts.Node | undefined = node.parent; current; current = current.parent) {
+    if (
+      (ts.isFunctionDeclaration(current) || ts.isMethodDeclaration(current) || ts.isArrowFunction(current) || ts.isFunctionExpression(current)) &&
+      functionName(current) !== '<anonymous>'
+    ) {
+      return current
     }
   }
-  if (ts.isPropertyAccessExpression(node) && node.name.text === 'documents' && /\.query$/.test(node.expression.getText())) {
-    return true
+  return null
+}
+
+/**
+ * The whole query a read site belongs to: the method chain around a `from` or a
+ * join (`db.select().from(documents).innerJoin(…).where(…)`), the relational
+ * call around an include, the template itself for raw SQL. A predicate
+ * elsewhere in the same function guards some other query, not this one.
+ */
+function queryOf(site: ts.Node): ts.Node {
+  let node: ts.Node = site
+  if (ts.isPropertyAssignment(site)) {
+    for (let current: ts.Node | undefined = site.parent; current; current = current.parent) {
+      if (ts.isCallExpression(current)) {
+        node = current
+        break
+      }
+    }
   }
-  return ts.isTaggedTemplateExpression(node) && node.tag.getText() === 'sql' && RAW_READ.test(node.template.getText())
+  if (ts.isTaggedTemplateExpression(site)) return site
+  for (;;) {
+    const parent: ts.Node | undefined = node.parent
+    if (!parent) return node
+    const chained =
+      (ts.isPropertyAccessExpression(parent) && parent.expression === node) ||
+      (ts.isCallExpression(parent) && parent.expression === node) ||
+      ts.isNonNullExpression(parent) ||
+      ts.isParenthesizedExpression(parent) ||
+      ts.isAsExpression(parent) ||
+      ts.isSatisfiesExpression(parent)
+    if (!chained) return node
+    node = parent
+  }
 }
 
 interface DocumentsRead {
   /** `<path under src>#<function>` */
   key: string
+  /** The guarded table the query reads. */
+  table: string
   composes: boolean
 }
 
-/** Every read of `documents` in one module, and whether its function composes the predicate. */
+/** Every read of a guarded table in one module, and whether THAT query composes the predicate. */
 function documentsReads(source: string, path: string): DocumentsRead[] {
   const tree = ts.createSourceFile(path, source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX)
-  const tableImported = importsDocumentsTable(tree)
+  const bindings = schemaBindings(tree)
 
-  // Each named function's body, and the same-module names it calls.
-  const bodies = new Map<string, { composes: boolean; calls: Set<string> }>()
-  const record = (name: string, body: ts.Node) => {
-    const calls = new Set<string>()
-    let composes = false
-    const walk = (node: ts.Node) => {
-      if (ts.isCallExpression(node) && ts.isIdentifier(node.expression)) {
-        if (node.expression.text === PREDICATE) composes = true
-        calls.add(node.expression.text)
-      }
-      ts.forEachChild(node, walk)
-    }
-    walk(body)
-    const known = bodies.get(name)
-    bodies.set(name, {
-      composes: composes || Boolean(known?.composes),
-      calls: new Set([...calls, ...(known?.calls ?? [])]),
-    })
-  }
-  const sites: string[] = []
+  // Same-module functions and module constants, by name, for the transitive check.
+  const definitions = new Map<string, ts.Node[]>()
+  const define = (name: string, body: ts.Node) => definitions.set(name, [...(definitions.get(name) ?? []), body])
+  const sites: ts.Node[] = []
+  const tables = new Map<ts.Node, string>()
   const visit = (node: ts.Node) => {
     if ((ts.isFunctionDeclaration(node) || ts.isMethodDeclaration(node)) && node.name && node.body) {
-      record(node.name.getText(), node.body)
+      define(node.name.getText(), node.body)
     }
-    if ((ts.isArrowFunction(node) || ts.isFunctionExpression(node)) && node.parent) {
-      const owner = node.parent
-      if (ts.isVariableDeclaration(owner) || ts.isPropertyAssignment(owner)) record(owner.name.getText(), node.body)
+    if (ts.isVariableDeclaration(node) && node.initializer && ts.isIdentifier(node.name)) {
+      define(node.name.text, node.initializer)
     }
-    if (isDocumentsRead(node, tableImported)) sites.push(enclosingFunction(node))
+    const table = readOf(node, bindings)
+    if (table) {
+      sites.push(node)
+      tables.set(node, table)
+    }
     ts.forEachChild(node, visit)
   }
   visit(tree)
 
-  // A function composes when it calls the predicate, or a same-module function that does.
-  const composes = (name: string, seen = new Set<string>()): boolean => {
-    const body = bodies.get(name)
-    if (!body || seen.has(name)) return false
-    seen.add(name)
-    return body.composes || [...body.calls].some((callee) => composes(callee, seen))
+  // Whether `expression` composes the predicate: calls it, calls a same-module
+  // function that does, or names a binding (a local `where`, a module constant)
+  // whose definition does.
+  const composesIn = (expression: ts.Node, seen: Set<string>): boolean => {
+    let found = false
+    const walk = (node: ts.Node) => {
+      if (found) return
+      if (ts.isCallExpression(node) && ts.isIdentifier(node.expression) && node.expression.text === PREDICATE) {
+        found = true
+        return
+      }
+      if (ts.isIdentifier(node) && !seen.has(node.text) && definitions.has(node.text)) {
+        seen.add(node.text)
+        if (definitions.get(node.text)!.some((definition) => composesIn(definition, seen))) {
+          found = true
+          return
+        }
+      }
+      ts.forEachChild(node, walk)
+    }
+    walk(expression)
+    return found
   }
-  return [...new Set(sites)].map((name) => ({ key: `${path}#${name}`, composes: composes(name) }))
+
+  // A query held in a variable and narrowed later (`const q = db.select().from(documents)…; q.where(…)`)
+  // composes where the variable is used.
+  const usesOfHeldQuery = (query: ts.Node): ts.Node[] => {
+    const holder = query.parent
+    if (!holder || !ts.isVariableDeclaration(holder) || !ts.isIdentifier(holder.name)) return []
+    const fn = enclosingFunctionNode(query)
+    const name = holder.name.text
+    const uses: ts.Node[] = []
+    const walk = (node: ts.Node) => {
+      if (ts.isIdentifier(node) && node.text === name && node !== holder.name) uses.push(queryOf(node))
+      ts.forEachChild(node, walk)
+    }
+    if (fn?.body) walk(fn.body)
+    return uses
+  }
+
+  const byKey = new Map<string, DocumentsRead>()
+  for (const site of sites) {
+    const query = queryOf(site)
+    const composes = [query, ...usesOfHeldQuery(query)].some((part) => composesIn(part, new Set()))
+    const key = `${path}#${enclosingFunction(site)}`
+    const table = tables.get(site)!
+    const known = byKey.get(`${key}|${table}`)
+    // A function is as good as its weakest query over the table.
+    byKey.set(`${key}|${table}`, { key, table, composes: composes && (known?.composes ?? true) })
+  }
+  return [...byKey.values()]
+}
+
+/**
+ * Where a reader that sees held rows is made: `internalRead(why)`, the
+ * reviewer's reader, or the object literal either stands for. Keyed
+ * `<path under src>#<function>`, valued by what it makes (`internal:<why>` or
+ * `reviewer`).
+ */
+function elevatedReaders(source: string, path: string): Array<{ key: string; makes: string }> {
+  const tree = ts.createSourceFile(path, source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX)
+  const found: Array<{ key: string; makes: string }> = []
+  const visit = (node: ts.Node) => {
+    const at = () => `${path}#${enclosingFunction(node)}`
+    if (ts.isCallExpression(node) && ts.isIdentifier(node.expression) && node.expression.text === 'internalRead') {
+      const [why] = node.arguments
+      found.push({ key: at(), makes: why && ts.isStringLiteral(why) ? `internal:${why.text}` : 'internal:<not a literal>' })
+    }
+    if (ts.isIdentifier(node) && node.text === 'REVIEWER_READER' && !ts.isImportSpecifier(node.parent) && !ts.isExportSpecifier(node.parent)) {
+      found.push({ key: at(), makes: 'reviewer' })
+    }
+    if (ts.isObjectLiteralExpression(node)) {
+      const kind = node.properties.find(
+        (property): property is ts.PropertyAssignment =>
+          ts.isPropertyAssignment(property) && property.name.getText() === 'kind' && ts.isStringLiteral(property.initializer)
+      )
+      const literal = kind && (kind.initializer as ts.StringLiteral).text
+      if (literal === 'internal' || literal === 'reviewer') found.push({ key: at(), makes: `literal:${literal}` })
+    }
+    ts.forEachChild(node, visit)
+  }
+  visit(tree)
+  return found
 }
 
 describe('every read of documents states its reader (ADR-0083)', () => {
-  const reads = sourceFiles().flatMap((file) =>
-    documentsReads(readFileSync(file, 'utf8'), file.slice(SRC.length + 1).replaceAll('\\', '/'))
-  )
+  const files = sourceFiles().map((file) => ({
+    path: file.slice(SRC.length + 1).replaceAll('\\', '/'),
+    source: readFileSync(file, 'utf8'),
+  }))
+  const reads = files.flatMap(({ path, source }) => documentsReads(source, path))
+  const documentReads = reads.filter((read) => read.table === 'documents')
+  const factReads = reads.filter((read) => read.table !== 'documents')
 
   it('composes documentVisibleTo, or is listed with the reason it sees every row', () => {
-    const offenders = reads.filter((read) => !read.composes && !(read.key in SEES_EVERY_ROW)).map((read) => read.key)
+    const offenders = documentReads.filter((read) => !read.composes && !(read.key in SEES_EVERY_ROW)).map((read) => read.key)
     expect(
       offenders,
       'A query over `documents` that does not compose `documentVisibleTo(reader)`. Take a ' +
-        '`DocumentReader` and AND the predicate into its WHERE; only a query that must see ' +
+        '`DocumentReader` and AND the predicate into THAT query\'s WHERE; only a query that must see ' +
         'held rows (a sweep, a quota sum, an orphan check) belongs in SEES_EVERY_ROW, with why.'
+    ).toEqual([])
+  })
+
+  it("reads a document's facts from another table only behind the predicate, or keyed by a document already read", () => {
+    const offenders = factReads
+      .filter((read) => !read.composes && !(`${read.key}|${read.table}` in KEYED_BY_A_READ_DOCUMENT))
+      .map((read) => `${read.key}|${read.table}`)
+    expect(
+      offenders,
+      'A query over a table that carries a document\'s facts (versions, roles, IFC models and ' +
+        'elements, check confirmations, assignments) that neither joins `documents` behind ' +
+        '`documentVisibleTo(reader)` nor is listed in KEYED_BY_A_READ_DOCUMENT with the read ' +
+        'that authorized the document it is keyed by.'
     ).toEqual([])
   })
 
   it('lists no query that no longer exists, or that now composes the predicate', () => {
     const uncomposed = new Set(reads.filter((read) => !read.composes).map((read) => read.key))
+    const uncomposedFacts = new Set(factReads.filter((read) => !read.composes).map((read) => `${read.key}|${read.table}`))
     expect(Object.keys(SEES_EVERY_ROW).filter((key) => !uncomposed.has(key))).toEqual([])
+    expect(Object.keys(KEYED_BY_A_READ_DOCUMENT).filter((key) => !uncomposedFacts.has(key))).toEqual([])
+  })
+
+  it('makes a reader that sees held rows only where ELEVATED_READERS says why', () => {
+    const made = new Map<string, Set<string>>()
+    for (const { path, source } of files) {
+      if (path === 'lib/documents/document-reader.ts') continue
+      for (const { key, makes } of elevatedReaders(source, path)) made.set(key, new Set([...(made.get(key) ?? []), makes]))
+    }
+    const actual = Object.fromEntries([...made].map(([key, kinds]) => [key, [...kinds].sort().join(',')]).sort())
+    const expected = Object.fromEntries(
+      Object.entries(ELEVATED_READERS).map(([key, entry]) => [key, [...entry.makes].sort().join(',')]).sort()
+    )
+    expect(
+      actual,
+      'A reader that sees held rows (`internalRead(why)`, `REVIEWER_READER`, or the object ' +
+        'literal for either) made where ELEVATED_READERS does not list it, or with another ' +
+        'reason. A person-facing path takes its reader from `shelfReaderFor` or `memberReader`.'
+    ).toEqual(expected)
   })
 
   it('finds the reads it guards (the scan is not vacuous)', () => {
-    expect(reads.length).toBeGreaterThan(40)
-    expect(reads.map((read) => read.key)).toContain('lib/documents/repository.ts#findDocumentInOrg')
+    expect(documentReads.length).toBeGreaterThan(40)
+    expect(documentReads.map((read) => read.key)).toContain('lib/documents/repository.ts#findDocumentInOrg')
+    expect(factReads.map((read) => read.table)).toEqual(
+      expect.arrayContaining(['documentVersions', 'bimModels', 'bimElements', 'bimCheckConfirmations', 'resourceAssignments'])
+    )
+    expect(DOCUMENT_RELATIONS).toEqual(new Set(['documents', 'document']))
   })
 
   describe('the guard itself', () => {
-    const header = "import { documents } from '@/lib/db/schema'\nimport { sql } from 'drizzle-orm'\n"
-    const check = (body: string) => documentsReads(header + body, 'probe.ts')
+    const header = "import { documents, bimModels } from '@/lib/db/schema'\nimport { sql } from 'drizzle-orm'\n"
+    const check = (body: string, prelude = header) =>
+      documentsReads(prelude + body, 'probe.ts').filter((read) => read.table === 'documents')
 
     it.each([
       ['a select', 'export function f() { return db.select().from(documents) }'],
       ['an inner join', 'export function f() { return db.select().from(bimModels).innerJoin(documents, on) }'],
       ['a left join', 'export const f = () => db.select().from(x).leftJoin(documents, on)'],
       ['raw SQL', 'export function f() { return sql`SELECT 1 FROM documents d WHERE d.id = ${id}` }'],
+      ['raw SQL on the schema-qualified name', 'export function f() { return sql`SELECT 1 FROM public.documents d` }'],
+      ['raw SQL quoted and qualified', 'export function f() { return sql`SELECT 1 FROM "public"."documents" d` }'],
       ['raw SQL with the table interpolated', 'export function f() { return sql`SELECT 1 FROM ${documents} WHERE true` }'],
+      ['sql.raw, which is not a tagged template', "export function f() { return db.execute(sql.raw('SELECT id FROM documents')) }"],
       ['the relational API', 'export function f() { return db.query.documents.findMany() }'],
+      ['an include from another table', 'export function f() { return db.query.bimModels.findMany({ with: { document: true } }) }'],
     ])('flags %s that does not compose the predicate', (_label, body) => {
-      expect(check(body)).toEqual([{ key: 'probe.ts#f', composes: false }])
+      expect(check(body)).toEqual([{ key: 'probe.ts#f', table: 'documents', composes: false }])
+    })
+
+    it('flags the table imported under another name, or through the schema namespace', () => {
+      const aliased = "import { documents as docs } from '@/lib/db/schema'\n"
+      expect(check('export function f() { return db.select().from(docs) }', aliased)).toEqual([
+        { key: 'probe.ts#f', table: 'documents', composes: false },
+      ])
+      const namespace = "import * as schema from '@/lib/db/schema'\n"
+      expect(check('export function f() { return db.select().from(schema.documents) }', namespace)).toEqual([
+        { key: 'probe.ts#f', table: 'documents', composes: false },
+      ])
+    })
+
+    it('asks each query, not its function: a predicate on one query does not cover the next', () => {
+      const body =
+        'export async function f(r) {\n' +
+        '  const mine = await db.select().from(documents).where(documentVisibleTo(r))\n' +
+        '  const all = await db.select().from(documents)\n' +
+        '  return [mine, all]\n' +
+        '}'
+      expect(check(body)).toEqual([{ key: 'probe.ts#f', table: 'documents', composes: false }])
     })
 
     it('accepts a query that composes the predicate', () => {
       expect(check('export function f(r) { return db.select().from(documents).where(documentVisibleTo(r)) }')).toEqual([
-        { key: 'probe.ts#f', composes: true },
+        { key: 'probe.ts#f', table: 'documents', composes: true },
       ])
     })
 
-    it('accepts a query whose same-module helper composes it, transitively', () => {
-      const body =
+    it('accepts a predicate held in a local, or in a same-module helper, transitively', () => {
+      const local = 'export function f(r) { const where = and(x, documentVisibleTo(r)); return db.select().from(documents).where(where) }'
+      expect(check(local)).toEqual([{ key: 'probe.ts#f', table: 'documents', composes: true }])
+      const helper =
         'function inner(r) { return and(x, documentVisibleTo(r)) }\n' +
         'function where(r) { return inner(r) }\n' +
         'export function f(r) { return db.select().from(documents).where(where(r)) }'
-      expect(check(body)).toEqual([{ key: 'probe.ts#f', composes: true }])
+      expect(check(helper)).toEqual([{ key: 'probe.ts#f', table: 'documents', composes: true }])
+    })
+
+    it('accepts a query held in a variable and narrowed where it is used', () => {
+      const body =
+        'export function f(r) { const q = db.select().from(documents).$dynamic(); return q.where(documentVisibleTo(r)) }'
+      expect(check(body)).toEqual([{ key: 'probe.ts#f', table: 'documents', composes: true }])
     })
 
     it('does not flag an update, a delete, or another table', () => {
@@ -272,6 +681,18 @@ describe('every read of documents states its reader (ADR-0083)', () => {
     it('does not take a local array called documents for the table', () => {
       const source = 'export function f(documents) { return documents.from(documents) }'
       expect(documentsReads(source, 'probe.ts')).toEqual([])
+    })
+
+    it('finds a reader that sees held rows wherever it is made', () => {
+      const source =
+        "export function f() { return list(internalRead('identity')) }\n" +
+        'export function g() { return list(REVIEWER_READER) }\n' +
+        "export function h() { return list({ kind: 'internal', why: 'audit' }) }"
+      expect(elevatedReaders(source, 'probe.ts')).toEqual([
+        { key: 'probe.ts#f', makes: 'internal:identity' },
+        { key: 'probe.ts#g', makes: 'reviewer' },
+        { key: 'probe.ts#h', makes: 'literal:internal' },
+      ])
     })
   })
 })

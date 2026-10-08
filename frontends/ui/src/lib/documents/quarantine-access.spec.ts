@@ -55,6 +55,7 @@ import { ORG_PERMISSIONS } from '@/lib/authz/permissions'
 import { requireProjectAccess } from '@/lib/authz/projects'
 import type { Document } from '@/lib/db/schema'
 import { s3Client } from '@/lib/s3'
+import { buildDocumentImageUrl } from '@/lib/images/signed-image-url'
 import { makeDocument } from '@/test-utils/db-fixtures'
 import { mayReadDocument, memberReader, REVIEWER_READER } from './document-reader'
 import {
@@ -76,6 +77,7 @@ import {
   renameDocument,
   resolveProjectDocumentsByName,
   searchProjectDocuments,
+  streamDocumentImage,
 } from './service'
 
 const personOf = (userId: string, permissions: string[] = []): AuthorizedSession =>
@@ -314,6 +316,7 @@ describe('a verdict that lands during the listing', () => {
     contentHash: null,
     createdBy,
     screeningOutcome: 'clean',
+    screenedHash: null,
     createdAt: new Date('2026-10-01T00:00:00Z'),
     updatedAt: new Date('2026-10-01T00:00:00Z'),
     errorMessage: null,
@@ -339,5 +342,64 @@ describe('a verdict that lands during the listing', () => {
   it('keeps both for a reviewer', async () => {
     const { documents } = await listDocumentsPage(projectAdmin, 'proj-1')
     expect(documents.map((doc) => doc.id)).toEqual(['mine', 'theirs'])
+  })
+})
+
+/**
+ * The optimizer's signed image URL is a bearer capability fetched without a
+ * session, so it cannot ask again whether the person it names reviews the
+ * quarantine. A reviewer opening a colleague's held PNG used to get one, and the
+ * route then refused it (404): the pane showed "preview failed" instead of the
+ * file. A held file is previewed through the URL this session's own check
+ * presigned; the signed route serves screened files only.
+ */
+describe('the preview of a held image', () => {
+  const heldImage = () =>
+    quarantined({ status: 'processing', errorMessage: null, filename: 'scan.png', contentType: 'image/png' })
+
+  beforeEach(() => {
+    vi.stubEnv('GRID_INTERNAL_API_TOKEN', 'test-secret')
+  })
+
+  it.each([
+    ['its uploader', uploader],
+    ["the project's admin, who reviews it", projectAdmin],
+  ])('gives %s the presigned file and no optimizer URL', async (_label, session) => {
+    store(heldImage())
+    await expect(getDocumentPreview(session, 'doc-q')).resolves.toMatchObject({
+      url: 'https://seaweedfs.internal/presigned',
+      imageUrl: null,
+    })
+  })
+
+  it('is not served through a signed URL, whoever it names', async () => {
+    store(heldImage())
+    for (const person of ['uploader-1', 'admin-1']) {
+      const signed = new URL(buildDocumentImageUrl('org-1', person, 'doc-q', 'original')!, 'https://grid.test')
+      await expect(streamDocumentImage('doc-q', signed.searchParams)).rejects.toBeInstanceOf(NotFoundError)
+    }
+    expect(s3Client.send).not.toHaveBeenCalled()
+  })
+
+  it('once screened, is previewed through the optimizer URL that then serves it', async () => {
+    store(heldImage())
+    vi.mocked(findDocumentInOrg).mockImplementation(async (_id, _org, reader) => {
+      const screened = quarantined({
+        status: 'completed',
+        errorMessage: null,
+        screeningOutcome: 'clean',
+        filename: 'scan.png',
+        contentType: 'image/png',
+      })
+      return mayReadDocument(screened, reader) ? screened : null
+    })
+    const preview = await getDocumentPreview(member, 'doc-q')
+    expect(preview.imageUrl).toBeTruthy()
+    vi.mocked(s3Client.send).mockResolvedValue({
+      ContentLength: 64,
+      Body: { transformToWebStream: () => new ReadableStream() },
+    } as never)
+    const response = await streamDocumentImage('doc-q', new URL(preview.imageUrl!, 'https://grid.test').searchParams)
+    expect(response.status).toBe(200)
   })
 })

@@ -702,6 +702,8 @@ export const organization: typeof en.organization = {
     whereSession: 'Chat-Anhang',
     reasonsLabel: 'Gründe',
     noReason: 'Grund nicht lesbar',
+    unscreened:
+      'Nicht geprüft: Die Datei ließ sich nicht zu Ende lesen. Sie bleibt zurückgehalten, bis jemand sie freigibt.',
     open: 'Ansehen',
     openTitle: '„{name}“ dort öffnen, wo sie abgelegt ist',
     release: 'Freigeben',

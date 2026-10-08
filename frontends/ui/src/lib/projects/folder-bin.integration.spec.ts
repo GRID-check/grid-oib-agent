@@ -524,6 +524,22 @@ describe.skipIf(!url)('the Papierkorb against live Postgres (migration 0113)', (
       expect((await queueRow(folder.verwaltung))[0]?.status).toBe('restored')
     })
 
+    it("counts a colleague's held upload only for the people who may see it (ADR-0083)", async () => {
+      // Still being screened, uploaded by somebody else: not the project's yet.
+      await inOrg(() =>
+        db.execute(sql`
+          INSERT INTO documents (organization_id, created_by, filename, storage_key, collection_name, status, scope, project_id, folder_id)
+          VALUES (${ORG}, 'user_colleague', 'Lohnzettel.pdf', 'k/Lohnzettel.pdf', ${COLLECTION}, 'processing', 'project', ${projectId}::uuid, ${folder.verwaltung}::uuid)
+        `)
+      )
+      await bin.moveFolderToBin(gf, { projectId, folderId: folder.verwaltung })
+      const countFor = async (session: typeof gf) =>
+        (await bin.listFolderBin(session, projectId)).entries.find((entry) => entry.folderId === folder.verwaltung)?.documents
+      expect(await countFor(gf)).toBe(3)
+      // The project's admin reviews its quarantine and counts it.
+      expect(await countFor(manager)).toBe(4)
+    })
+
     it('needs write on the deleted folder: a reader sees the entry but may not restore it', async () => {
       await bin.moveFolderToBin(gf, { projectId, folderId: folder.vertraege })
       const listing = await bin.listFolderBin(bh, projectId)

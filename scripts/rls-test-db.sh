@@ -378,7 +378,7 @@ GRID_TEST_MIGRATION_DATABASE_URL="postgres://grid_app_owner@127.0.0.1:$PORT/grid
 echo "==> 0097 step rewrite and down migration verified"
 
 # ---------------------------------------------------------------------------
-# Migrations 0109 to 0113 and 0116 to 0119: each on a database of its own.
+# Migrations 0109 to 0113 and 0116 to 0121: each on a database of its own.
 #
 # `migrate_until <db> <tag>` creates <db> and applies the journal up to and
 # including <tag>, so every section below starts from exactly the chain it
@@ -763,6 +763,50 @@ apply_in grid_lessons 0119_answer_feedback_restricted_source.sql
 check_in grid_lessons "SELECT count(*) FILTER (WHERE restricted_source) FROM answer_feedback WHERE message_id LIKE 'm_0118_%' OR message_id LIKE 'm_0119_%'" "4" "0119 re-applies; the marker set by a delete before the down is gone with its column"
 
 echo "==> 0119 feedback marker, trigger and down migration verified"
+
+# ---------------------------------------------------------------------------
+# Migrations 0120 and 0121: the one exit from quarantine, and a verdict bound
+# to the bytes it judged (ADR-0083, amended 2026-10-08), and their DOWNs.
+#
+# On a database of its own, migrated to 0119 and seeded with a screened upload,
+# a Piloti document and a quarantined upload. 0120: a quarantined row refuses
+# every UPDATE out of quarantine but a release of the bytes it holds; its down
+# lets one through. 0121: the backfill binds each person's verdict to the
+# bytes the row holds now, Piloti's own documents get none; its down drops the
+# column and 0121 re-applies.
+# ---------------------------------------------------------------------------
+echo "==> verifying the 0120 quarantine exit, the 0121 screened hash and their down migrations on grid_hold"
+migrate_until grid_hold 0119_answer_feedback_restricted_source
+sql_in grid_hold <<'SQL'
+INSERT INTO projects (id, organization_id, name, created_by, collection_name)
+VALUES ('aaaaaaaa-0000-4000-8000-000000000120', 'org_0120', 'Hold 0120', 'user_1', 'proj_0120');
+INSERT INTO documents (id, organization_id, created_by, filename, storage_key, collection_name, status, scope, project_id, content_hash, screening_outcome) VALUES
+  ('d1d1d1d1-0000-4000-8000-000000000120', 'org_0120', 'user_1', 'plan.pdf', 'k/0120/plan', 'proj_0120', 'completed', 'project', 'aaaaaaaa-0000-4000-8000-000000000120', 'sha256:plan', 'clean'),
+  ('d3d3d3d3-0000-4000-8000-000000000120', 'org_0120', 'user_1', 'lohn.pdf', 'k/0120/lohn', 'proj_0120', 'quarantined', 'project', 'aaaaaaaa-0000-4000-8000-000000000120', 'sha256:lohn', 'quarantined');
+INSERT INTO documents (id, organization_id, created_by, filename, storage_key, collection_name, status, scope, project_id, content_hash,
+                       authored_by, authored_by_producer, authored_by_ref, authored_by_ref_kind) VALUES
+  ('d2d2d2d2-0000-4000-8000-000000000120', 'org_0120', 'user_1', 'piloti/d2/bericht.md', 'k/0120/bericht', 'proj_0120', 'stored', 'project', 'aaaaaaaa-0000-4000-8000-000000000120', 'sha256:bericht',
+   'agent', 'deep_research', 'run-0120', 'backend_job');
+SQL
+apply_in grid_hold 0120_document_quarantine_exit.sql
+refused_in grid_hold "UPDATE documents SET status = 'pending' WHERE id = 'd3d3d3d3-0000-4000-8000-000000000120';" "only a release takes it out of quarantine" "a re-dispatch cannot move a quarantined row"
+refused_in grid_hold "UPDATE documents SET status = 'uploaded', screening_outcome = 'released', screening_released_hash = 'sha256:other', screening_released_by = 'user_2', screening_released_at = now() WHERE id = 'd3d3d3d3-0000-4000-8000-000000000120';" "only a release takes it out of quarantine" "a release of other bytes is refused"
+sql_in grid_hold <<<"UPDATE documents SET error_message = 'noted' WHERE id = 'd3d3d3d3-0000-4000-8000-000000000120';"
+check_in grid_hold "SELECT status FROM documents WHERE id = 'd3d3d3d3-0000-4000-8000-000000000120'" "quarantined" "a write that keeps it quarantined is not refused"
+apply_in grid_hold 0120_document_quarantine_exit.down.sql
+check_in grid_hold "SELECT (SELECT count(*) FROM pg_trigger WHERE tgname = 'documents_hold_quarantine') + (SELECT count(*) FROM pg_proc WHERE proname = 'grid_documents_hold_quarantine')" "0" "down dropped the trigger and its function"
+apply_in grid_hold 0120_document_quarantine_exit.sql
+refused_in grid_hold "UPDATE documents SET status = 'pending' WHERE id = 'd3d3d3d3-0000-4000-8000-000000000120';" "only a release takes it out of quarantine" "0120 re-applies"
+
+apply_in grid_hold 0121_document_screened_hash.sql
+check_in grid_hold "SELECT string_agg(filename || '=' || coalesce(screened_hash, '-'), ',' ORDER BY filename) FROM documents WHERE organization_id = 'org_0120'" "lohn.pdf=sha256:lohn,piloti/d2/bericht.md=-,plan.pdf=sha256:plan" "the backfill binds each person's verdict to the bytes the row holds, and no Piloti document"
+apply_in grid_hold 0121_document_screened_hash.down.sql
+check_in grid_hold "SELECT count(*) FROM information_schema.columns WHERE table_name = 'documents' AND column_name = 'screened_hash'" "0" "down dropped the column"
+apply_in grid_hold 0121_document_screened_hash.sql
+apply_in grid_hold 0121_document_screened_hash.sql
+check_in grid_hold "SELECT count(*) FROM documents WHERE organization_id = 'org_0120' AND screened_hash = content_hash" "2" "0121 re-applies, twice, to the same binding"
+
+echo "==> 0120 quarantine exit, 0121 screened hash and their down migrations verified"
 
 # ---------------------------------------------------------------------------
 # Migration 0102: project_folders become folders of a SHELF (project | archiv),

@@ -1124,9 +1124,19 @@ export interface BimStoredConfirmation {
   confirmedAt: Date
 }
 
+/**
+ * The confirmations of a project's Prüfbuch this reader may see (ADR-0083).
+ *
+ * A confirmation names a model revision and carries a person's note about it,
+ * so it is a fact about that model's document: one recorded on a held revision
+ * (by its uploader or a reviewer) is not every viewer's to read, by note or by
+ * model id. Inner joins lose nothing: `model_id` and the model's `document_id`
+ * are both foreign keys that cascade.
+ */
 export async function listBimCheckConfirmations(
   organizationId: string,
-  projectId: string
+  projectId: string,
+  reader: DocumentReader
 ): Promise<BimStoredConfirmation[]> {
   const db = getDb()
   const rows = await withTenant({ organizationId }, () =>
@@ -1139,10 +1149,16 @@ export async function listBimCheckConfirmations(
         confirmedAt: bimCheckConfirmations.updatedAt,
       })
       .from(bimCheckConfirmations)
+      .innerJoin(
+        bimModels,
+        and(eq(bimModels.id, bimCheckConfirmations.modelId), eq(bimModels.organizationId, organizationId))
+      )
+      .innerJoin(documents, eq(documents.id, bimModels.documentId))
       .where(
         and(
           eq(bimCheckConfirmations.organizationId, organizationId),
-          eq(bimCheckConfirmations.projectId, projectId)
+          eq(bimCheckConfirmations.projectId, projectId),
+          documentVisibleTo(reader)
         )
       )
   )

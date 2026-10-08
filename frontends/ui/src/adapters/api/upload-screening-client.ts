@@ -39,6 +39,8 @@ const verdictSchema = z
 
 const QuarantineQueueItemSchema = z.object({
   id: z.string(),
+  // Absent from a BFF older than the field: every row it listed was a quarantine.
+  held: z.enum(['quarantined', 'unscreened']).default('quarantined'),
   filename: z.string(),
   scope: z.enum(['project', 'archiv', 'session']),
   projectId: z.string().nullable(),

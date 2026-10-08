@@ -53,6 +53,7 @@ export async function listSessionDocuments(
         contentHash: documents.contentHash,
         createdBy: documents.createdBy,
         screeningOutcome: documents.screeningOutcome,
+        screenedHash: documents.screenedHash,
         status: documents.status,
         authoredBy: documents.authoredBy,
         publishedVersionId: documents.publishedVersionId,

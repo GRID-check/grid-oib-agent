@@ -778,17 +778,42 @@ describe('transitionDocumentVersion — effects', () => {
     expect(compareAndSwapVersionState).not.toHaveBeenCalled()
   })
 
-  it('dispatches nothing on publish for a document a PERSON wrote', async () => {
+  it('dispatches nothing on publish for bytes of a PERSON\'s document the gate already judged', async () => {
+    // A draft forked and published unedited: the same bytes the verdict on
+    // record is about (migration 0121). Sending them again would screen and
+    // index what is already screened and indexed.
+    vi.mocked(getAccessibleDocument).mockResolvedValue(
+      makeDocument({ id: 'doc_1', projectId: 'proj_1', contentHash: 'sha256:abc', screeningOutcome: 'clean' }),
+    )
     const published = version({ state: 'published' })
     vi.mocked(findDocumentVersion).mockResolvedValue(version({ state: 'approved' }))
     vi.mocked(promoteVersionToPublished).mockResolvedValue({ version: published, superseded: [] })
 
     await transitionDocumentVersion(session, 'doc_1', 'ver_1', 'publish')
 
-    // A human upload's bytes are dispatched by whatever stored them, on all
-    // three shelves. Dispatching again from here would double-ingest every
-    // re-upload — one job for the object and one for the version row.
     expect(dispatchDocument).not.toHaveBeenCalled()
+  })
+
+  it('screens and indexes the new bytes of a PERSON\'s document published from a draft', async () => {
+    // The item's bytes are swapped by the promote; nothing else dispatches
+    // them, and the verdict on record is about the bytes they replaced. Before
+    // 0121 they were served to every member under that `clean`, unscreened.
+    vi.mocked(getAccessibleDocument).mockResolvedValue(
+      makeDocument({ id: 'doc_1', projectId: 'proj_1', contentHash: 'sha256:before', screeningOutcome: 'clean' }),
+    )
+    const published = version({ state: 'published', contentHash: 'sha256:edited' })
+    vi.mocked(findDocumentVersion).mockResolvedValue(version({ state: 'approved', contentHash: 'sha256:edited' }))
+    vi.mocked(promoteVersionToPublished).mockResolvedValue({ version: published, superseded: [] })
+
+    await transitionDocumentVersion(session, 'doc_1', 'ver_1', 'publish')
+
+    expect(dispatchDocument).toHaveBeenCalledTimes(1)
+    const [input] = vi.mocked(dispatchDocument).mock.calls[0]
+    expect(input).toMatchObject({ documentId: 'doc_1', storageKey: published.storageKey, collectionName: 'proj_abc' })
+    // A person's document carries no provenance and names no version: the
+    // dispatch is an upload's.
+    expect(input.provenance ?? null).toBeNull()
+    expect(input.versionId ?? null).toBeNull()
   })
 })
 

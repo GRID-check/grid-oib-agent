@@ -15,6 +15,7 @@
  */
 
 import type { DocumentScreeningOutcome } from '@/lib/db/schema/documents'
+import { IN_FLIGHT_DOCUMENT_STATUSES } from './document-status'
 
 /**
  * The verdicts that let a person's upload reach everyone who may read its
@@ -41,6 +42,10 @@ export interface ScreeningFacts {
   status: string
   authoredBy: string
   screeningOutcome: DocumentScreeningOutcome | null
+  /** The digest of the bytes the row holds now. */
+  contentHash: string | null
+  /** The digest of the bytes the verdict judged (migration 0121). */
+  screenedHash: string | null
 }
 
 const PASSED: ReadonlySet<string> = new Set(SCREENING_PASSED_OUTCOMES)
@@ -50,14 +55,33 @@ const SETTLED: ReadonlySet<string> = new Set(UNSCREENED_SETTLED_STATUSES)
  * Whether the content gate has let this file through. Piloti's own documents
  * (`authoredBy` other than `user`) were never an upload and are not held. A
  * `quarantined` status holds whatever the verdict column says.
+ *
+ * A verdict is about the bytes it judged, not about the document: it counts
+ * only while `screenedHash` names the bytes the row holds now. A writer that
+ * swaps `storage_key`/`content_hash` (a published draft, a content write to the
+ * version the item mirrors) leaves the verdict behind and the file held, so no
+ * writer has to remember to reset it.
  */
 export function hasPassedScreening(row: ScreeningFacts): boolean {
   if (row.status === 'quarantined') return false
   if (row.authoredBy !== 'user') return true
+  if ((row.screenedHash ?? null) !== (row.contentHash ?? null)) return false
   // `undefined` reads as no verdict: a row read without the column.
   const verdict = row.screeningOutcome ?? null
   if (verdict !== null) return PASSED.has(verdict)
   return SETTLED.has(row.status)
+}
+
+/**
+ * Held, and nothing will move it on its own: a quarantine, or a file the gate
+ * never reached a verdict on and that is no longer in flight (its reading
+ * failed, it was stranded before its dispatch, its bytes were swapped after
+ * the verdict). Each waits on a reviewer, who may release it
+ * (`releaseQuarantinedDocument`); `heldAtRest` in `./visibility` is the same
+ * rule in SQL, for the reviewers' queue.
+ */
+export function isHeldAtRest(row: ScreeningFacts): boolean {
+  return !hasPassedScreening(row) && !IN_FLIGHT_DOCUMENT_STATUSES.has(row.status)
 }
 
 /** How a person reads one shelf: as somebody who reviews its quarantine, or not. */

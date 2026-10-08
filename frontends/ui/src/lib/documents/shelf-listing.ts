@@ -26,7 +26,7 @@ import { keepReadable, type ShelfReader } from './document-reader'
  * anything reading a listing had to re-widen the type to find the faces it
  * renders.
  */
-export type ListedDocument = Omit<DocumentListRow, 'metadata' | 'createdBy' | 'screeningOutcome'> &
+export type ListedDocument = Omit<DocumentListRow, 'metadata' | 'createdBy' | 'screeningOutcome' | 'screenedHash'> &
   DocumentMetadata & {
     assignees: AssignedPerson[]
     /**
@@ -63,7 +63,7 @@ export async function toListedDocuments(
   // by the same rule, after the verdict (ADR-0083).
   const reconciled = keepReadable(await reconcileDocumentStatuses(rows, session.organizationId), reader)
 
-  const listed = reconciled.map(({ metadata, createdBy: _createdBy, screeningOutcome: _screening, ...row }) => ({
+  const listed = reconciled.map(({ metadata, createdBy: _createdBy, screeningOutcome: _screening, screenedHash: _screened, ...row }) => ({
     ...row,
     sourceDeletedAt: sourceDeletedAtOf(metadata),
   }))

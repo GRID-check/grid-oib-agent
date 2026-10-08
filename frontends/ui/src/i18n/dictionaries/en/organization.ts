@@ -691,6 +691,7 @@ export const organization = {
     whereSession: 'Chat attachment',
     reasonsLabel: 'Reasons',
     noReason: 'Reason could not be read',
+    unscreened: 'Not checked: the file could not be read to the end. It stays held back until someone releases it.',
     open: 'View',
     openTitle: 'Open “{name}” where it is filed',
     release: 'Release',

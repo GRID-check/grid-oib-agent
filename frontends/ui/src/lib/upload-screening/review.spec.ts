@@ -148,6 +148,33 @@ describe('releaseQuarantinedDocument', () => {
     expect(dispatchDocument).not.toHaveBeenCalled()
   })
 
+  /**
+   * A file the gate never reached a verdict on is held from upload until its
+   * screening passes (2026-10-08). When its reading fails for good (an IFC model
+   * over the size limit, an unparseable one) a retry fails the same way, so
+   * without a release it stayed with its uploader for ever.
+   */
+  it.each([
+    ['whose reading failed', { status: 'failed', errorMessage: 'IFC zu groß' }],
+    ['stranded before its dispatch', { status: 'uploaded', errorMessage: null }],
+    ['whose bytes were swapped after its verdict', { status: 'completed', screeningOutcome: 'clean' as const, screenedHash: 'sha256:earlier' }],
+  ])('releases a file %s, which waits on a reviewer as a quarantine does', async (_label, fields) => {
+    vi.mocked(findDocumentInOrg).mockResolvedValue({ ...quarantined, errorMessage: null, ...fields })
+    await expect(releaseQuarantinedDocument(orgAdmin, 'doc-q', new Request('http://x'))).resolves.toMatchObject({
+      id: 'doc-q',
+    })
+    expect(markScreeningReleased).toHaveBeenCalledWith('doc-q', 'org-1', expect.objectContaining({ contentHash: 'sha256:abc' }))
+    expect(dispatchDocument).toHaveBeenCalled()
+  })
+
+  it('refuses a held file still in flight: its own job decides it', async () => {
+    vi.mocked(findDocumentInOrg).mockResolvedValue({ ...quarantined, status: 'processing', errorMessage: null })
+    await expect(releaseQuarantinedDocument(orgAdmin, 'doc-q', new Request('http://x'))).rejects.toMatchObject({
+      status: 409,
+    })
+    expect(markScreeningReleased).not.toHaveBeenCalled()
+  })
+
   it('refuses a document with no digest, because a release must name its bytes', async () => {
     vi.mocked(findDocumentInOrg).mockResolvedValue({ ...quarantined, contentHash: null })
     await expect(releaseQuarantinedDocument(orgAdmin, 'doc-q', new Request('http://x'))).rejects.toMatchObject({
@@ -207,6 +234,18 @@ describe('listQuarantineQueue', () => {
     expect(requireProjectAccess).toHaveBeenCalledTimes(2)
   })
 
+  it('lists a file whose reading ended without a verdict as unscreened, not as a reasonless quarantine', async () => {
+    vi.mocked(listQuarantinedDocuments)
+      .mockResolvedValueOnce([quarantined, { ...quarantined, id: 'doc-f', status: 'failed', errorMessage: 'IFC zu groß' }])
+      .mockResolvedValue([])
+    const items = await listQuarantineQueue(orgAdmin)
+    expect(items.map((item) => [item.id, item.held])).toEqual([
+      ['doc-q', 'quarantined'],
+      ['doc-f', 'unscreened'],
+    ])
+    expect(items[1]?.verdict).toBeNull()
+  })
+
   it('gives a member who reviews nothing an empty queue', async () => {
     vi.mocked(listQuarantinedDocuments).mockResolvedValue([quarantined])
     expect(await listQuarantineQueue(member)).toEqual([])
@@ -259,6 +298,14 @@ describe('requestQuarantineRelease („Freigabe anfragen")', () => {
   it('refuses a reviewer who did not upload it: they release it themselves', async () => {
     await expect(requestQuarantineRelease(orgAdmin, 'doc-q')).rejects.toBeInstanceOf(ForbiddenError)
     expect(emitInboxItems).not.toHaveBeenCalled()
+  })
+
+  it('lets the uploader ask about a file whose reading failed before a verdict', async () => {
+    vi.mocked(findDocumentInOrg).mockImplementation(async (_id, _org, reader) => {
+      const failed = { ...quarantined, status: 'failed', errorMessage: 'IFC zu groß' }
+      return mayReadDocument(failed, reader) ? failed : null
+    })
+    await expect(requestQuarantineRelease(uploader, 'doc-q')).resolves.toEqual({ id: 'doc-q', notified: 2 })
   })
 
   it('refuses a file that is no longer in quarantine', async () => {

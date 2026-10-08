@@ -26,7 +26,7 @@ import {
   QUARANTINE_LIST_LIMIT,
   type QuarantineCursor,
 } from '@/lib/documents/repository'
-import { internalRead } from '@/lib/documents/document-reader'
+import { internalRead, isHeldAtRest } from '@/lib/documents/document-reader'
 import { getAccessibleDocument } from '@/lib/documents/access'
 import { dispatchDocument, type DispatchDocumentResult } from '@/lib/documents/service'
 import { resolveDocumentFolderPath } from '@/lib/documents/folder-path'
@@ -45,12 +45,16 @@ export interface ReleaseResult {
 }
 
 /**
- * Release a quarantined document for indexing.
+ * Release a held document for indexing.
  *
- * Refuses (409) anything not quarantined, and a document without a content
- * digest: a release names the bytes it releases, so a row with no digest could
- * only be released for whatever bytes it holds next. Every upload since
- * migration 0078 records one.
+ * Takes a quarantine, and a file the gate never reached a verdict on and that
+ * is no longer in flight (`isHeldAtRest`): an IFC model too large to read, a
+ * file whose reading failed, a row stranded before its dispatch. Without this
+ * such a file stayed with its uploader for good, since a retry fails the same
+ * way. Refuses (409) anything else, and a document without a content digest:
+ * a release names the bytes it releases, so a row with no digest could only be
+ * released for whatever bytes it holds next. Every upload since migration 0078
+ * records one.
  */
 export async function releaseQuarantinedDocument(
   session: AuthorizedSession,
@@ -61,8 +65,8 @@ export async function releaseQuarantinedDocument(
   // Not found and not allowed answer alike: a reviewer of one project learns
   // nothing about another project's quarantine.
   if (!doc || !(await mayReviewQuarantine(session, doc))) throw new NotFoundError('Document not found')
-  if (doc.status !== 'quarantined') {
-    throw new ConflictError('Only a quarantined document can be released', { status: doc.status })
+  if (!isHeldAtRest(doc)) {
+    throw new ConflictError('Only a held document can be released', { status: doc.status })
   }
   if (!doc.contentHash || !doc.storageKey) {
     throw new ConflictError('This document has no recorded digest, so its release cannot name its bytes')
@@ -133,8 +137,8 @@ export async function requestQuarantineRelease(
 ): Promise<ReleaseRequestResult> {
   const doc = await getAccessibleDocument(session, documentId)
   if (doc.createdBy !== session.userId) throw new ForbiddenError('Only the uploader asks for a release')
-  if (doc.status !== 'quarantined') {
-    throw new ConflictError('Only a quarantined document can be asked for', { status: doc.status })
+  if (!isHeldAtRest(doc)) {
+    throw new ConflictError('Only a held document can be asked for', { status: doc.status })
   }
 
   const reviewers = (await quarantineReviewersOf(session.organizationId, doc)).filter(
@@ -159,6 +163,11 @@ export async function requestQuarantineRelease(
 
 export interface QuarantineQueueItem {
   id: string
+  /**
+   * Why it is held: the gate quarantined it, or its reading ended without a
+   * verdict (`unscreened`), which the queue says instead of a reason.
+   */
+  held: 'quarantined' | 'unscreened'
   filename: string
   scope: Document['scope']
   projectId: string | null
@@ -206,6 +215,7 @@ export async function listQuarantineQueue(session: AuthorizedSession): Promise<Q
 
   return visible.slice(0, QUARANTINE_LIST_LIMIT).map((row) => ({
     id: row.id,
+    held: row.status === 'quarantined' ? ('quarantined' as const) : ('unscreened' as const),
     filename: row.filename,
     scope: row.scope,
     projectId: row.projectId,

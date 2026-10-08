@@ -137,6 +137,23 @@ describe('UploadSummaryView', () => {
     it('offers it on no file that is not in quarantine', () => {
       render(<UploadSummaryView summary={MIXED_SUMMARY} />)
       expect(screen.queryByTestId('upload-file-request-release-doc-grundriss-eg')).not.toBeInTheDocument()
+      // Failed after its check passed (read by its name): nothing is held.
+      expect(screen.queryByTestId('upload-file-request-release-doc-scan')).not.toBeInTheDocument()
+    })
+
+    it('offers it on a file whose reading failed before the check had a verdict, which stays held', async () => {
+      stubAsk(1)
+      const summary = {
+        ...MIXED_SUMMARY,
+        documents: MIXED_SUMMARY.documents.map((document) =>
+          document.id === 'doc-scan' ? { ...document, screening: null } : document
+        ),
+      }
+      render(<UploadSummaryView summary={summary} />)
+      fireEvent.click(screen.getByTestId('upload-file-request-release-doc-scan'))
+      await waitFor(() =>
+        expect(fetch).toHaveBeenCalledWith('/api/documents/doc-scan/quarantine/request-release', { method: 'POST' })
+      )
     })
   })
 

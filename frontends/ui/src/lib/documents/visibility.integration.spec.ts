@@ -24,6 +24,7 @@ import { and, eq, sql } from 'drizzle-orm'
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
 import {
   internalRead,
+  isHeldAtRest,
   mayReadDocument,
   memberReader,
   REVIEWER_READER,
@@ -63,20 +64,26 @@ describe.skipIf(!url)('the hold on a document, against Postgres', () => {
     outcome: (typeof OUTCOMES)[number]
     authoredBy: 'user' | 'agent'
     createdBy: string
+    /** What the verdict judged (migration 0121): the row's own bytes unless a test says otherwise. */
+    screened?: 'own' | 'earlier' | 'none'
   }): Promise<Row> {
     const n = rows.length
     const agent = fields.authoredBy === 'agent'
+    const contentHash = `sha256:${n}`
+    const screened = fields.screened ?? 'own'
+    const screenedHash = screened === 'own' ? contentHash : screened === 'earlier' ? `sha256:earlier-${n}` : null
     const [row] = await inTenant(() =>
       db.execute<{ id: string }>(sql`
         INSERT INTO documents
           (organization_id, created_by, filename, storage_key, collection_name, status, scope, project_id,
-           screening_outcome, authored_by, authored_by_producer, authored_by_ref, authored_by_ref_kind, content_hash)
+           screening_outcome, authored_by, authored_by_producer, authored_by_ref, authored_by_ref_kind, content_hash,
+           screened_hash)
         VALUES
           (${ORG}, ${fields.createdBy}, ${`f-${n}.pdf`}, ${`k/${n}`},
            ${fields.scope === 'project' ? COLLECTION : `archiv_${ORG}`}, ${fields.status}, ${fields.scope},
            ${fields.scope === 'project' ? projectId : null}::uuid, ${fields.outcome},
            ${fields.authoredBy}, ${agent ? 'deep_research' : null}, ${agent ? `run-${n}` : null},
-           ${agent ? 'backend_job' : null}, ${`sha256:${n}`})
+           ${agent ? 'backend_job' : null}, ${contentHash}, ${screenedHash})
         RETURNING id
       `)
     )
@@ -85,6 +92,8 @@ describe.skipIf(!url)('the hold on a document, against Postgres', () => {
       status: fields.status,
       authoredBy: fields.authoredBy,
       screeningOutcome: fields.outcome,
+      contentHash,
+      screenedHash,
       createdBy: fields.createdBy,
       scope: fields.scope,
       projectId: fields.scope === 'project' ? projectId : null,
@@ -120,15 +129,21 @@ describe.skipIf(!url)('the hold on a document, against Postgres', () => {
           await insert({ scope: 'archiv', status, outcome, authoredBy: 'user', createdBy })
         }
         await insert({ scope: 'project', status, outcome, authoredBy: 'agent', createdBy: OTHER })
+        // A verdict about other bytes than the row holds (a published draft, a
+        // content write on the version the item mirrors) or none at all.
+        await insert({ scope: 'project', status, outcome, authoredBy: 'user', createdBy: OTHER, screened: 'earlier' })
+        await insert({ scope: 'project', status, outcome, authoredBy: 'user', createdBy: OTHER, screened: 'none' })
+        await insert({ scope: 'project', status, outcome, authoredBy: 'agent', createdBy: OTHER, screened: 'earlier' })
       }
     }
-  }, 120_000)
+  }, 180_000)
 
   afterAll(async () => {
     if (!db) return
     const { withPlatformAccess } = await import('@/lib/db/tenant-context')
     await withPlatformAccess('test teardown', async () => {
       await db.execute(sql`DELETE FROM document_roles WHERE organization_id = ${ORG}`)
+      await db.execute(sql`DELETE FROM bim_check_confirmations WHERE organization_id = ${ORG}`)
       await db.execute(sql`DELETE FROM bim_models WHERE organization_id = ${ORG}`)
       await db.execute(sql`DELETE FROM documents WHERE organization_id = ${ORG}`)
       await db.execute(sql`DELETE FROM projects WHERE organization_id = ${ORG}`)
@@ -187,6 +202,93 @@ describe.skipIf(!url)('the hold on a document, against Postgres', () => {
     // In flight with no verdict yet is held: nobody else sees a file before its screening.
     const pending = rows.find((row) => row.status === 'pending' && row.screeningOutcome === null && row.createdBy === OTHER)
     expect(pending && seen.has(pending.id)).toBe(false)
+  })
+
+  it('lists for the reviewers, in SQL, exactly the rows held at rest in memory', async () => {
+    const { documents } = schema
+    const found = await inTenant(() =>
+      db
+        .select({ id: documents.id })
+        .from(documents)
+        .where(and(eq(documents.organizationId, ORG), visibility.heldAtRest()))
+    )
+    const expected = rows.filter((row) => isHeldAtRest(row)).map((row) => row.id).sort()
+    // A failed upload with no verdict is among them: the case a NULL verdict
+    // used to drop out of a negated predicate for.
+    expect(rows.some((row) => row.status === 'failed' && row.screeningOutcome === null && expected.includes(row.id))).toBe(true)
+    expect(found.map((row) => row.id).sort()).toEqual(expected)
+  })
+
+  it("holds a person's upload whose verdict judged other bytes than it holds, whatever the verdict says", async () => {
+    const seen = new Set(await visibleIds(memberReader('user_vis_nobody')))
+    const stale = rows.filter((row) => row.authoredBy === 'user' && row.screenedHash !== row.contentHash)
+    expect(stale.length).toBeGreaterThan(50)
+    expect(stale.filter((row) => seen.has(row.id))).toEqual([])
+    // Piloti's own documents were never an upload: no verdict binds them.
+    const agentStale = rows.find((row) => row.authoredBy === 'agent' && row.screenedHash !== row.contentHash && row.status === 'completed')
+    expect(agentStale && seen.has(agentStale.id)).toBe(true)
+  })
+
+  describe('a verdict names the bytes it judged (migration 0121)', () => {
+    const facts = async (id: string) => {
+      const [row] = await inTenant(() =>
+        db.execute<{ content_hash: string | null; screened_hash: string | null; status: string; hash: string | null }>(sql`
+          SELECT content_hash, screened_hash, status, metadata ->> 'ingestContentHash' AS hash FROM documents WHERE id = ${id}::uuid
+        `)
+      )
+      return row
+    }
+
+    it('records the dispatched bytes, writes them with the verdict, and holds bytes swapped in after', async () => {
+      const upload = await insert({ scope: 'project', status: 'uploaded', outcome: null, authoredBy: 'user', createdBy: OTHER, screened: 'none' })
+      await expect(repo.setDocumentIngestJob(upload.id, ORG, 'job-0121')).resolves.toBe(true)
+      expect((await facts(upload.id)).hash).toBe(upload.contentHash)
+
+      // The bytes change while the job reads the old ones (a published draft).
+      await inTenant(() => db.execute(sql`UPDATE documents SET content_hash = 'sha256:swapped' WHERE id = ${upload.id}::uuid`))
+      await expect(
+        repo.setDocumentReconciledStatus(
+          upload.id,
+          ORG,
+          { status: 'completed', errorMessage: null, screeningOutcome: 'clean' },
+          { status: 'pending', jobId: 'job-0121' },
+        ),
+      ).resolves.toBe(true)
+      const after = await facts(upload.id)
+      // The verdict is about the bytes the job read, not the ones that replaced them.
+      expect(after).toMatchObject({ status: 'completed', screened_hash: upload.contentHash, content_hash: 'sha256:swapped' })
+      await expect(repo.findDocumentInOrg(upload.id, ORG, memberReader(UPLOADER))).resolves.toBeNull()
+
+      // Its own job's verdict lets the swapped bytes through.
+      await expect(repo.setDocumentIngestJob(upload.id, ORG, 'job-0121-b')).resolves.toBe(true)
+      await repo.setDocumentReconciledStatus(
+        upload.id,
+        ORG,
+        { status: 'completed', errorMessage: null, screeningOutcome: 'clean' },
+        { status: 'pending', jobId: 'job-0121-b' },
+      )
+      expect((await facts(upload.id)).screened_hash).toBe('sha256:swapped')
+      await expect(repo.findDocumentInOrg(upload.id, ORG, memberReader(UPLOADER))).resolves.toMatchObject({ id: upload.id })
+    })
+
+    it('releases a failed upload that never had a verdict, and nothing in flight', async () => {
+      const failed = await insert({ scope: 'project', status: 'failed', outcome: null, authoredBy: 'user', createdBy: OTHER })
+      const inFlight = await insert({ scope: 'project', status: 'processing', outcome: null, authoredBy: 'user', createdBy: OTHER })
+      const release = (row: Row) =>
+        repo.markScreeningReleased(row.id, ORG, { contentHash: row.contentHash!, releasedBy: UPLOADER, releasedAt: new Date() })
+      await expect(release(inFlight)).resolves.toBe(false)
+      await expect(release(failed)).resolves.toBe(true)
+      await expect(repo.findDocumentInOrg(failed.id, ORG, memberReader(UPLOADER))).resolves.toMatchObject({ id: failed.id })
+    })
+
+    it('binds a release to the bytes it released', async () => {
+      const held = await insert({ scope: 'project', status: 'quarantined', outcome: 'quarantined', authoredBy: 'user', createdBy: OTHER, screened: 'none' })
+      await expect(
+        repo.markScreeningReleased(held.id, ORG, { contentHash: held.contentHash!, releasedBy: UPLOADER, releasedAt: new Date() }),
+      ).resolves.toBe(true)
+      expect((await facts(held.id)).screened_hash).toBe(held.contentHash)
+      await expect(repo.findDocumentInOrg(held.id, ORG, memberReader(UPLOADER))).resolves.toMatchObject({ id: held.id })
+    })
   })
 
   describe('the item read', () => {
@@ -299,9 +401,31 @@ describe.skipIf(!url)('the hold on a document, against Postgres', () => {
       await inTenant(() =>
         db.execute(sql`
           INSERT INTO bim_models (organization_id, project_id, document_id, status)
-          VALUES (${ORG}, ${projectId}::uuid, ${heldId}::uuid, 'ready')
+          VALUES (${ORG}, ${projectId}::uuid, ${heldId}::uuid, 'ready'),
+                 (${ORG}, ${projectId}::uuid, ${passedId}::uuid, 'ready')
         `)
       )
+      // A Prüfbuch confirmation on each revision.
+      await inTenant(() =>
+        db.execute(sql`
+          INSERT INTO bim_check_confirmations (organization_id, project_id, rule_id, model_id, confirmed_by, note)
+          SELECT ${ORG}, ${projectId}::uuid, 'oib4-held', m.id, ${OTHER}, 'Gutachten zum Entwurf'
+            FROM bim_models m WHERE m.document_id = ${heldId}::uuid
+          UNION ALL
+          SELECT ${ORG}, ${projectId}::uuid, 'oib4-passed', m.id, ${OTHER}, NULL
+            FROM bim_models m WHERE m.document_id = ${passedId}::uuid
+        `)
+      )
+    })
+
+    it("names a held revision's Prüfbuch confirmations only to who may see the revision", async () => {
+      const bim = await import('@/lib/bim/repository')
+      const rulesFor = async (reader: DocumentReader) =>
+        (await bim.listBimCheckConfirmations(ORG, projectId, reader)).map((row) => row.ruleId).sort()
+      expect(await rulesFor(memberReader(UPLOADER))).toEqual(['oib4-passed'])
+      expect(await rulesFor(SCREENED_ONLY)).toEqual(['oib4-passed'])
+      expect(await rulesFor(memberReader(OTHER))).toEqual(['oib4-held', 'oib4-passed'])
+      expect(await rulesFor(REVIEWER_READER)).toEqual(['oib4-held', 'oib4-passed'])
     })
 
     it("names a held file's document role to its uploader and reviewers only, and to no prompt", async () => {

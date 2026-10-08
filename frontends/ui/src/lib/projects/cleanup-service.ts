@@ -57,7 +57,7 @@ import { moveFolderToBin, restoreFolderFromBin } from './folder-bin'
 import { createProjectFolder, listProjectFolders } from './folder-service'
 import { findProjectInOrg } from './repository'
 import { deleteEmptyCreatedFolder } from './cleanup-repository'
-import { keepReadable, type ShelfReader } from '@/lib/documents/document-reader'
+import { hasPassedScreening, keepReadable, type ShelfReader } from '@/lib/documents/document-reader'
 import { shelfReaderFor } from '@/lib/upload-screening/quarantine-reviewers'
 import { CLEANUP_CATEGORIES, ruleCandidates, type CleanupCategory, type CleanupDocumentFacts } from './cleanup-rules'
 import { CLEANUP_PARTIALLY_UNDONE_REASON, type CleanupProposal, type CleanupProposalItem } from './cleanup-types'
@@ -69,9 +69,6 @@ export const CLEANUP_MAX_DOCUMENTS = 2000
 const PROPOSAL_TIMEOUT_MS = 60_000
 /** Longest summary sent to the model; the index already holds it, the model needs the gist. */
 const SUMMARY_CHARS = 300
-
-/** The content gate's outcomes a document may reach the model with: it passed, or a reviewer released it. */
-const SCREENING_PASSED: ReadonlySet<string> = new Set(['clean', 'released'])
 
 interface ModelCandidate {
   id: string
@@ -134,7 +131,10 @@ async function writableFacts(session: AuthorizedSession, projectId: string): Pro
     authoredBy: row.authoredBy,
     contentHash: row.contentHash ?? null,
     createdAt: new Date(row.createdAt).toISOString(),
-    screeningPassed: SCREENING_PASSED.has(row.screeningOutcome ?? ''),
+    // The one definition of "screened" (ADR-0083), the same that lets a file
+    // reach every member and the retrieval index: what a reader may already ask
+    // Piloti about may be named to the clean-out's model too.
+    screeningPassed: hasPassedScreening(row),
   }))
 }
 

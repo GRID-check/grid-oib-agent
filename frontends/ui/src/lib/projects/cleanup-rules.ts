@@ -45,7 +45,7 @@ export interface CleanupDocumentFacts {
   authoredBy: 'user' | 'agent' | string
   contentHash: string | null
   createdAt: string
-  /** The content gate passed it (`clean`, or `released` by a reviewer): only then may it reach the model. */
+  /** The content gate passed these bytes (`hasPassedScreening`): only then may it reach the model. */
   screeningPassed: boolean
 }
 

@@ -177,6 +177,15 @@ export const extractIngestJobId = (metadata: unknown): string | null => {
   return null
 }
 
+/** The digest a dispatch recorded beside its job id (`setDocumentIngestJob`), or null. */
+const recordedIngestHash = (metadata: unknown): string | null => {
+  if (metadata && typeof metadata === 'object' && 'ingestContentHash' in metadata) {
+    const hash = (metadata as Record<string, unknown>).ingestContentHash
+    if (typeof hash === 'string' && hash.length > 0) return hash
+  }
+  return null
+}
+
 const fetchJson = async (url: string, init?: RequestInit): Promise<{ status: number; body: unknown } | null> => {
   try {
     const response = await fetch(url, { ...init, signal: AbortSignal.timeout(FETCH_TIMEOUT_MS) })
@@ -724,8 +733,15 @@ export async function reconcileDocumentStatuses<T extends ReconcilableDocument>(
       resolution && 'screeningOutcome' in resolution && resolution.screeningOutcome && 'screeningOutcome' in row
         ? { screeningOutcome: resolution.screeningOutcome }
         : {}
+    // And the bytes it judged, as `setDocumentReconciledStatus` writes them
+    // (migration 0121): the digest the dispatch recorded.
+    const dispatchedHash = recordedIngestHash(row.metadata)
+    const judged =
+      resolution?.status === 'completed' && 'screenedHash' in row && dispatchedHash !== null
+        ? { screenedHash: dispatchedHash }
+        : {}
     const base = resolution
-      ? { ...row, status: resolution.status, errorMessage: resolution.errorMessage, ...verdict }
+      ? { ...row, status: resolution.status, errorMessage: resolution.errorMessage, ...verdict, ...judged }
       : row
     return { ...base, ...meta, queueAhead: queueAheadByRow.get(row.id) ?? null }
   })

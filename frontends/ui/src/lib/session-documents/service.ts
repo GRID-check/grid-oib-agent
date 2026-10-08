@@ -67,7 +67,7 @@ import {
 } from './repository'
 
 export interface SessionDocumentListResult {
-  documents: Array<Omit<DocumentListRow, 'metadata' | 'createdBy' | 'screeningOutcome'> & DocumentMetadata>
+  documents: Array<Omit<DocumentListRow, 'metadata' | 'createdBy' | 'screeningOutcome' | 'screenedHash'> & DocumentMetadata>
   collectionName: string
 }
 
@@ -94,7 +94,7 @@ export async function listSessionDocuments(
 
   return {
     documents: reconciled.map(
-      ({ metadata: _metadata, createdBy: _createdBy, screeningOutcome: _screening, ...row }) => row
+      ({ metadata: _metadata, createdBy: _createdBy, screeningOutcome: _screening, screenedHash: _screened, ...row }) => row
     ),
     collectionName: sessionCollectionName(conversationId),
   }

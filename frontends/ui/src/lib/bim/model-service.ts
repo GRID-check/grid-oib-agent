@@ -345,7 +345,7 @@ export async function listAccessibleCheckConfirmations(
 ): Promise<BimStoredConfirmation[]> {
   assertIfcModelsEnabled(session)
   await requireProjectAccess(session, projectId, 'project:view')
-  return listBimCheckConfirmations(session.organizationId, projectId)
+  return listBimCheckConfirmations(session.organizationId, projectId, await modelListReader(session, projectId))
 }
 
 /**
@@ -478,7 +478,7 @@ export async function exportAccessibleComplianceBcf(
       },
       { modelId: model.id, organizationId: session.organizationId }
     ),
-    listBimCheckConfirmations(session.organizationId, projectId),
+    listBimCheckConfirmations(session.organizationId, projectId, await modelListReader(session, projectId)),
     findProjectInOrg(projectId, session.organizationId),
   ])
 

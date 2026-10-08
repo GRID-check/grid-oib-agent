@@ -143,6 +143,15 @@ describe('QuarantineQueue', () => {
     expect(await screen.findByTestId('quarantine-row-doc-3')).toBeInTheDocument()
   })
 
+  it('says a file whose reading ended without a verdict was not checked, rather than that its reason is unreadable', async () => {
+    stubApi([{ ...ITEMS[2], id: 'doc-f', held: 'unscreened' }, ITEMS[2]])
+    render(<QuarantineQueue />)
+    const unscreened = await screen.findByTestId('quarantine-row-doc-f')
+    expect(within(unscreened).getByText(en.organization.quarantine.unscreened)).toBeInTheDocument()
+    expect(within(screen.getByTestId('quarantine-row-doc-3')).getByText(en.organization.quarantine.noReason)).toBeInTheDocument()
+    expect(within(unscreened).getByTestId('quarantine-release-doc-f')).toBeInTheDocument()
+  })
+
   it('shows an empty state when nothing waits', async () => {
     stubApi([])
     render(<QuarantineQueue />)

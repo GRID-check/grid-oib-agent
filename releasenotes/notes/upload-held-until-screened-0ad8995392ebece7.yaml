@@ -6,8 +6,15 @@ upgrade:
     the person who uploaded it and those who may release quarantined files see
     it.
   - >
-    A file whose reading failed before the check stays with the person who
-    uploaded it, who can retry or delete it.
+    A file whose reading failed before the check (an IFC model too large to
+    read, for example) waits in Organisation → Quarantäne, marked as not
+    checked, until someone who may release files releases or deletes it. The
+    person who uploaded it can ask for the release.
+  - >
+    A corrected file uploaded over an existing document, or a new version of a
+    document published from a draft, is checked before colleagues see it.
+    Until then the document is visible only to the person who uploaded it and
+    those who may release files.
 fixes:
   - >
     A file waiting in quarantine no longer shows up anywhere for colleagues
@@ -21,3 +28,10 @@ fixes:
   - >
     A file has no preview image until its check has passed, and Piloti does
     not read a file under review when a revision is requested on it.
+  - >
+    A project admin reviewing a colleague's image that is still being checked
+    sees the image instead of "preview failed".
+  - >
+    Prüfbuch confirmations on an IFC model still under review, and the number
+    of such files in a folder in the Papierkorb, are no longer shown to
+    colleagues who may not see the model or the file.

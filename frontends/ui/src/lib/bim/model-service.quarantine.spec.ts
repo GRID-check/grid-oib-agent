@@ -67,8 +67,13 @@ import { findDocumentInOrg } from '@/lib/documents/repository'
 import { makeDocument } from '@/test-utils/db-fixtures'
 import { mayReadDocument, memberReader, REVIEWER_READER, SCREENED_ONLY } from '@/lib/documents/document-reader'
 import { resolveInternalModel } from './internal-access'
-import { getAccessibleModel, getModelForDocument, listAccessibleModels } from './model-service'
-import { listBimModels } from './repository'
+import {
+  getAccessibleModel,
+  getModelForDocument,
+  listAccessibleCheckConfirmations,
+  listAccessibleModels,
+} from './model-service'
+import { listBimCheckConfirmations, listBimModels } from './repository'
 
 const personOf = (userId: string): AuthorizedSession =>
   ({ organizationId: 'org-1', userId, email: `${userId}@example.at`, permissions: [] }) as unknown as AuthorizedSession
@@ -146,6 +151,17 @@ describe('the model of a quarantined IFC', () => {
       project: memberReader('member-1'),
       archiv: REVIEWER_READER,
     })
+  })
+
+  // A confirmation names a model revision and carries a note about it. One on
+  // a held revision was read for every project viewer, model id and note.
+  it("keeps a held revision's Prüfbuch confirmations to the people who may see the revision", async () => {
+    await listAccessibleCheckConfirmations(member, 'proj-1')
+    expect(vi.mocked(listBimCheckConfirmations).mock.calls[0]).toEqual([
+      'org-1',
+      'proj-1',
+      { kind: 'shelves', project: memberReader('member-1'), archiv: memberReader('member-1') },
+    ])
   })
 
   it("is never resolved for the agent's IFC tools", async () => {
