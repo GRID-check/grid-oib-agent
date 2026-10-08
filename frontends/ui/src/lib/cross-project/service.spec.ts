@@ -24,6 +24,8 @@ const state = vi.hoisted(() => ({
   outOfReach: [] as Project[],
   restrictedFolders: true,
   hits: new Map<string, Array<Record<string, unknown>>>(),
+  /** Rows of a project's documents the backend did NOT hit: same-named siblings in other collections. */
+  siblingRows: new Map<string, Array<Record<string, unknown>>>(),
   failing: new Set<string>(),
   searched: [] as Array<{ projectId: string; topK: number; snippetMaxChars?: number }>,
   recorded: [] as Array<{ projectIds: readonly string[]; folderIds: readonly string[] }>,
@@ -75,18 +77,40 @@ vi.mock('@/lib/projects/repository', () => ({
     async (id: string) => [...state.reachable, ...state.outOfReach].find((project) => project.id === id) ?? null
   ),
 }))
-vi.mock('@/lib/documents/service', () => ({
-  searchProjectDocuments: vi.fn(
-    async (_session: unknown, projectId: string, _query: string, topK: number, options: { snippetMaxChars?: number }) => {
-    state.searched.push({ projectId, topK, snippetMaxChars: options.snippetMaxChars })
-    state.inFlight += 1
-    state.peak = Math.max(state.peak, state.inFlight)
-    await Promise.resolve()
-    state.inFlight -= 1
-    if (state.failing.has(projectId)) throw new Error('backend down')
-    return { hits: state.hits.get(projectId) ?? [] }
-  }),
-}))
+// Only the backend call and the row lookup are replaced; the join is the real
+// `joinHitsToFiles`. A mock that handed back already-joined hits carrying their
+// own `collectionName` is what let a hit from a restricted folder's collection
+// be labelled with an open collection (a newer same-named row) unnoticed.
+vi.mock('@/lib/documents/service', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/lib/documents/service')>()
+  return {
+    searchProjectDocuments: vi.fn(
+      async (_session: unknown, projectId: string, _query: string, topK: number, options: { snippetMaxChars?: number }) => {
+        state.searched.push({ projectId, topK, snippetMaxChars: options.snippetMaxChars })
+        state.inFlight += 1
+        state.peak = Math.max(state.peak, state.inFlight)
+        await Promise.resolve()
+        state.inFlight -= 1
+        if (state.failing.has(projectId)) throw new Error('backend down')
+        // What the backend answers: one hit per passage, naming the collection it was found in.
+        const found = state.hits.get(projectId) ?? []
+        const backendHits = found.map((row) => ({
+          file_name: row.filename as string,
+          collection: row.collectionName as string,
+          score: row.score as number,
+          snippet: row.snippet as string,
+          page_number: row.page as number | null,
+        }))
+        // What the database answers for those names: the hit documents' rows and any same-named siblings.
+        const rows = [
+          ...found.map(({ snippet: _snippet, page: _page, score: _score, ...row }) => ({ authoredBy: 'user', ...row })),
+          ...(state.siblingRows.get(projectId) ?? []),
+        ] as unknown as Array<{ filename: string; collectionName: string; createdAt: Date; authoredBy: string }>
+        return { hits: actual.joinHitsToFiles(backendHits, rows) }
+      }
+    ),
+  }
+})
 
 import { CrossProjectAudienceChangedError, NotFoundError } from '@/lib/api/errors'
 import {
@@ -151,6 +175,7 @@ beforeEach(() => {
   state.outOfReach = [project(9)]
   state.restrictedFolders = true
   state.hits = new Map()
+  state.siblingRows = new Map()
   state.failing = new Set()
   state.searched = []
   state.recorded = []
@@ -220,6 +245,55 @@ describe('searchAcrossProjects', () => {
 
     expect(result.hits.map((found) => found.filename)).toEqual(['plan.pdf'])
     expect(state.recorded).toEqual([{ projectIds: [one.id], folderIds: [] }])
+  })
+
+  // Filenames are unique per collection, not per project: a restricted folder has
+  // its own collection, so „GF intern/Protokoll.pdf" and a NEWER root „Protokoll.pdf"
+  // coexist. The backend hit comes from the GF collection; a join on the name alone
+  // handed it to the root row and labelled it with the open collection, which a
+  // shared chat keeps and records nowhere.
+  describe('a restricted passage and a newer same-named open document', () => {
+    const GF_COLLECTION = 'proj_1_rabcdef012345'
+    const newerOpenRow = () => ({
+      id: 'protokoll-root',
+      authoredBy: 'user',
+      filename: 'protokoll.pdf',
+      displayName: null,
+      collectionName: 'proj_1',
+      createdAt: new Date('2026-09-01T08:00:00Z'),
+      tags: [],
+    })
+
+    function arrange() {
+      const [one] = state.reachable
+      state.folders.set(GF_COLLECTION, 'folder-gf')
+      // The backend found the passage in the GF collection only.
+      state.hits.set(one.id, [hit('protokoll', 0.9, { collectionName: GF_COLLECTION, snippet: 'Honorar GF intern' })])
+      state.siblingRows.set(one.id, [newerOpenRow()])
+      return one
+    }
+
+    it('keeps the passage out of a shared chat instead of passing it off as the open document', async () => {
+      arrange()
+      state.restrictedFolders = false
+
+      const result = await searchAcrossProjects(caller(), search({}))
+
+      expect(result.hits).toEqual([])
+      // Nothing was handed out, so nothing names a project or a folder.
+      expect(state.recorded.flatMap((handOut) => [...handOut.projectIds, ...handOut.folderIds])).toEqual([])
+    })
+
+    it('returns it from a solo chat as the restricted document, recorded with its folder', async () => {
+      const one = arrange()
+
+      const result = await searchAcrossProjects(caller(), search({}))
+
+      expect(result.hits).toHaveLength(1)
+      expect(result.hits[0]).toMatchObject({ documentId: 'protokoll', collection: GF_COLLECTION, snippet: 'Honorar GF intern' })
+      expect(result.hits[0].documentId).not.toBe('protokoll-root')
+      expect(state.recorded).toEqual([{ projectIds: [one.id], folderIds: ['folder-gf'] }])
+    })
   })
 
   it('returns nothing when the record refuses: the audience changed while the search ran', async () => {
