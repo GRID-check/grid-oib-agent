@@ -109,6 +109,29 @@ function assertFrontendBudgetFits(): void {
 }
 
 /**
+ * What the api tier spends after SIGTERM: closing its SSE streams (5 s,
+ * `connection_manager.shutdown`) and finishing the requests in flight, which are
+ * short (a knowledge lookup, a title, a summary), not a chat turn. Nothing here
+ * waits on the chat drain: that is the chat tier's, and the reason the two tiers
+ * were split (ADR-0082). Must fit inside the api grace period alongside
+ * `endpointDrainSeconds`.
+ */
+export const API_DRAIN_SECONDS = 30;
+
+function assertApiBudgetFits(): void {
+  const p = ROLLOUT.api;
+  const needed = p.endpointDrainSeconds + API_DRAIN_SECONDS;
+  if (needed >= p.terminationGracePeriodSeconds) {
+    throw new Error(
+      `Invalid api shutdown budget: endpointDrainSeconds (${p.endpointDrainSeconds}) + ` +
+        `API_DRAIN_SECONDS (${API_DRAIN_SECONDS}) = ${needed}s does not fit inside ` +
+        `terminationGracePeriodSeconds (${p.terminationGracePeriodSeconds}s). Raise the grace ` +
+        `period or shorten the drain.`,
+    );
+  }
+}
+
+/**
  * A workload's startupProbe budget, in seconds: how long Kubernetes will keep
  * waiting for the container to report started before killing it.
  *
@@ -184,7 +207,23 @@ export const ROLLOUT = {
   },
 
   /**
-   * aiq-agent chat/web tier (StatefulSet). Boot is heavy — multi-GB image, Dask
+   * aiq-api (Deployment + HPA, ADR-0082): every backend HTTP route but the chat
+   * socket. Surge-only like the frontend. It boots the same workflow the chat
+   * tier does, so the startupProbe is as long (backend.ts / api.ts), and the
+   * deadline exceeds it with room (`assertStartupFitsRollout`). The grace period
+   * is short on purpose: what it drains is SSE streams and short requests, not
+   * a chat turn (`API_DRAIN_SECONDS`).
+   */
+  api: {
+    minReadySeconds: 30,
+    progressDeadlineSeconds: 1200,
+    // 10s endpoint drain + 30s SSE close and in-flight requests + slack.
+    terminationGracePeriodSeconds: 60,
+    endpointDrainSeconds: 10,
+  },
+
+  /**
+   * aiq-agent chat tier (StatefulSet). Boot is heavy — multi-GB image, Dask
    * spin-up, Chroma open, optional corpus sync — hence the long grace and the
    * generous startupProbe in backend.ts.
    */
@@ -287,6 +326,7 @@ export const ROLLOUT = {
 } as const satisfies Record<string, RolloutProfile>;
 
 assertFrontendBudgetFits();
+assertApiBudgetFits();
 
 /**
  * Seconds a queue worker gets, after its drain budget ends, to give back the

@@ -10,7 +10,7 @@ import {
   orderedRollout,
   secretChecksumAnnotations,
 } from "../platform/rollout";
-import { AppSecrets, AppWiring, backendEnv } from "./config";
+import { AppSecrets, AppWiring, chatEnv } from "./config";
 import { PORT, UID } from "../constants";
 
 export interface Backend {
@@ -22,10 +22,12 @@ export interface Backend {
 }
 
 /**
- * The agent (aiq-agent): FastAPI web tier + an in-process Dask cluster. It keeps
- * no files: the vectors live in the shared Chroma server, the base corpus in
- * SeaweedFS and a Postgres table (ADR-0082 step A2), and what it caches on its
- * own disk (`GRID_BASE_CORPUS_CACHE_DIR`, under /tmp) it can lose at any restart.
+ * The chat tier (aiq-agent, `GRID_ROLE=chat`, ADR-0082): the chat socket and the
+ * answers running on it, plus NAT's own routes. Every other backend route is the
+ * api tier's (`api.ts`, the `aiq-api` Service). It keeps no files: the vectors
+ * live in the shared Chroma server, the base corpus in SeaweedFS and a Postgres
+ * table (ADR-0082 step A2), and what it caches on its own disk
+ * (`GRID_BASE_CORPUS_CACHE_DIR`, under /tmp) it can lose at any restart.
  *
  * Replica count depends on the execution mode:
  *   - "dask" (default): a HARD SINGLETON (replicas=1) — in-pod Dask +
@@ -49,7 +51,7 @@ export function installBackend(
 ): Backend {
   const labels = commonLabels("aiq-agent");
   const autoscaled = backendAutoscaled(cfg);
-  const multiReplica = cfg.jobExecution === "db" && (cfg.backend.replicas > 1 || autoscaled);
+  const multiReplica = cfg.backend.replicas > 1 || autoscaled;
   // The grace period is the chat drain plus the endpoint drain and slack: a
   // terminating replica finishes the turns it claimed (ADR-0080).
   const profile = backendRollout(cfg.backend.drainSeconds);
@@ -64,10 +66,10 @@ export function installBackend(
         // (aiq-agent-<i>.aiq-agent-headless), which the frontend uses for
         // conversation affinity so a chat pins to its owning replica.
         serviceName: "aiq-agent-headless",
-        // Singleton in dask mode; multi-replica chat tier in db mode (safe with
-        // conversation affinity, ADR-0028, or the conversation bus, ADR-0080).
-        // The floor when KEDA scales it (backend-scaling.ts).
-        replicas: cfg.jobExecution === "db" ? cfg.backend.replicas : 1,
+        // Multi-replica chat tier (safe with conversation affinity, ADR-0028, or
+        // the conversation bus, ADR-0080). The floor when KEDA scales it
+        // (backend-scaling.ts).
+        replicas: cfg.backend.replicas,
         selector: { matchLabels: labels },
         // One pod at a time, highest ordinal first, and each replacement must
         // stay Ready for minReadySeconds before the next is touched — the
@@ -89,9 +91,8 @@ export function installBackend(
             // SIGTERM with room to finish streaming responses in flight.
             terminationGracePeriodSeconds: shutdown.terminationGracePeriodSeconds,
             securityContext: { runAsNonRoot: true, runAsUser: UID.backend, runAsGroup: UID.backend },
-            // In db mode the web tier runs >1 replica — spread across nodes so an
-            // upgrade node-drain / node loss can't take every chat replica down.
-            // (Singleton dask mode: the array is empty, a harmless no-op.)
+            // The chat tier may run >1 replica — spread across nodes so an upgrade
+            // node-drain / node loss can't take every chat replica down.
             ...(multiReplica ? { topologySpreadConstraints: spreadAcrossNodes(labels) } : {}),
             containers: [
               {
@@ -100,7 +101,7 @@ export function installBackend(
                 imagePullPolicy: appPullPolicy(cfg, backendImage(cfg)),
                 securityContext: hardenedContainerSecurityContext(),
                 ports: [{ containerPort: PORT.backend, name: "http" }],
-                env: backendEnv(w),
+                env: chatEnv(w),
                 resources: toResourceRequirements(cfg.backend.resources),
                 lifecycle: shutdown.lifecycle,
                 // Boot spins up Dask and opens the Chroma client — generous
@@ -164,8 +165,9 @@ export function installBackend(
     { provider: w.provider },
   );
 
-  // Load-balanced ClusterIP for callers that don't need affinity (BACKEND_URL,
-  // internal REST, the migration/health checks).
+  // Load-balanced ClusterIP for callers that don't need affinity: the frontend's
+  // WebSocket proxy when it has no pod address (BACKEND_CHAT_URL), and KEDA's
+  // occupancy scaler. HTTP callers use the api tier's Service, not this one.
   const service = new k8s.core.v1.Service(
     "aiq-agent",
     {

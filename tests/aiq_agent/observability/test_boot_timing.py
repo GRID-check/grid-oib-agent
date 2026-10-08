@@ -61,12 +61,12 @@ def test_a_flush_takes_every_role_s_readings_once(reader):
 
 
 def test_a_phase_is_recorded_even_when_it_raises(reader):
-    with pytest.raises(ValueError), BootClock("web").phase("load_config"):
+    with pytest.raises(ValueError), BootClock("chat").phase("load_config"):
         raise ValueError("bad config")
 
     boot_timing.flush()
 
-    assert ("web", "load_config") in _points(reader)
+    assert ("chat", "load_config") in _points(reader)
 
 
 def test_the_process_age_comes_from_the_kernel_s_start_time(tmp_path):
@@ -85,8 +85,8 @@ def test_without_proc_there_is_no_age(tmp_path, reader):
 
 
 def test_ready_records_this_process_s_age(reader):
-    BootClock("web").ready()
+    BootClock("chat").ready()
     boot_timing.flush()
 
-    age = _points(reader)[("web", "ready")]
+    age = _points(reader)[("chat", "ready")]
     assert 0 < age < 3600

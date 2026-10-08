@@ -119,10 +119,10 @@ flowchart TB
 | Container | Tech | Responsibility |
 |---|---|---|
 | **frontend** | Next.js 16, React 18, TypeScript | The UI, the BFF (all `/api/*`), and the `server.js` gateway. System of record for `grid_app`. |
-| **aiq-agent** | Python 3.14, FastAPI, NAT, LangGraph, Dask | Stateless AI orchestration; owns the vector store and the job/checkpoint DBs. |
+| **aiq-agent / aiq-api** | Python 3.14, FastAPI, NAT, LangGraph, Dask | Stateless AI orchestration, one image run as separate roles (ADR-0082): `aiq-agent` is the `chat` role (the chat socket), `aiq-api` the `api` role (every other HTTP route), beside the `agent-worker` and `ingest-worker`. Owns the vector store and the job/checkpoint DBs. |
 | **postgres** | PostgreSQL 16 | Three logical DBs: `grid_app` (app state), `aiq_jobs` (jobs/events/summaries), `aiq_checkpoints` (LangGraph state). |
 | **seaweedfs** | SeaweedFS (S3-compatible) | Object storage for OIB PDFs and uploaded documents (`grid-documents` bucket). |
-| **ChromaDB** | in-process in aiq-agent | Vector store (collections persisted to a volume). Not a separate container. |
+| **ChromaDB** | shared `chroma` server (HTTP) | Vector store (collections persisted to a volume), queried by every backend role. |
 | **purger** | same image as frontend, `node purger/index.js` | Scheduled worker that hard-deletes soft-deleted projects after the grace period. |
 | **dragonfly** | Dragonfly (Redis protocol) | Shared cache (ADR-0020): read-through caches, WS-upgrade rate limiting, citation-registry snapshots. Cache-only; both tiers fail open to in-process fallbacks. |
 | *(one-shot)* | alpine / mc | `chroma-data-permissions` (volume chown) and `seaweedfs-init` (bucket create). |

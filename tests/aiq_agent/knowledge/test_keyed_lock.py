@@ -10,6 +10,7 @@ pinned by what it sends, since the suite has no Postgres server.
 
 from __future__ import annotations
 
+import asyncio
 import threading
 import time
 from unittest.mock import MagicMock
@@ -18,6 +19,7 @@ import pytest
 
 from aiq_agent.knowledge import leader_lock
 from aiq_agent.knowledge.leader_lock import keyed_lock
+from aiq_agent.knowledge.leader_lock import keyed_lock_async
 
 
 @pytest.fixture(autouse=True)
@@ -113,3 +115,31 @@ def test_on_postgres_the_key_is_an_advisory_lock_held_on_its_own_session(monkeyp
     (unlock_sql, _), _ = conn.execute.call_args
     assert "pg_advisory_unlock" in str(unlock_sql)
     conn.close.assert_called_once()
+
+
+async def test_the_async_form_waits_off_the_event_loop_and_holds_across_the_await():
+    events: list[str] = []
+
+    async def holder():
+        async with keyed_lock_async("langgraph-setup:store"):
+            events.append("first in")
+            await asyncio.sleep(0.2)
+            events.append("first done")
+
+    async def waiter():
+        await asyncio.sleep(0.05)
+        async with keyed_lock_async("langgraph-setup:store"):
+            events.append("second in")
+
+    ticks = 0
+
+    async def loop_stays_free():
+        nonlocal ticks
+        while len(events) < 3:
+            ticks += 1
+            await asyncio.sleep(0.01)
+
+    await asyncio.wait_for(asyncio.gather(holder(), waiter(), loop_stays_free()), 10)
+
+    assert events == ["first in", "first done", "second in"]
+    assert ticks > 5

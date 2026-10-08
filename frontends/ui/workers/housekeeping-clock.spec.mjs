@@ -4,7 +4,7 @@
 import { describe, expect, it, vi } from 'vitest'
 import { configFromEnv, runOnce } from './housekeeping-clock.js'
 
-const config = { backendUrl: 'http://aiq-agent:8000', internalToken: 'token' }
+const config = { backendUrl: 'http://aiq-api:8000', internalToken: 'token' }
 const job = { route: 'ghost-jobs', timeoutMs: 1000 }
 
 function streak() {
@@ -32,7 +32,7 @@ describe('the Compose housekeeping clock', () => {
     const result = await runOnce(config, fetchImpl, s, job, silentLog())
     expect(result).toEqual({ reaped: [] })
     expect(fetchImpl).toHaveBeenCalledWith(
-      'http://aiq-agent:8000/v1/maintenance/housekeeping/ghost-jobs',
+      'http://aiq-api:8000/v1/maintenance/housekeeping/ghost-jobs',
       expect.objectContaining({ method: 'POST', headers: { 'x-grid-internal-token': 'token' } })
     )
     expect(s.succeeded).toHaveBeenCalledOnce()
@@ -64,9 +64,9 @@ describe('the Compose housekeeping clock', () => {
   })
 
   it('refuses to start without a backend URL and a token', () => {
-    expect(() => configFromEnv({ BACKEND_URL: 'http://aiq-agent:8000' })).toThrow(/GRID_INTERNAL_API_TOKEN/)
-    expect(configFromEnv({ BACKEND_URL: 'http://aiq-agent:8000/', GRID_INTERNAL_API_TOKEN: 't' })).toEqual({
-      backendUrl: 'http://aiq-agent:8000',
+    expect(() => configFromEnv({ BACKEND_URL: 'http://aiq-api:8000' })).toThrow(/GRID_INTERNAL_API_TOKEN/)
+    expect(configFromEnv({ BACKEND_URL: 'http://aiq-api:8000/', GRID_INTERNAL_API_TOKEN: 't' })).toEqual({
+      backendUrl: 'http://aiq-api:8000',
       internalToken: 't',
     })
   })

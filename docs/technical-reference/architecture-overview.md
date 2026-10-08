@@ -24,7 +24,8 @@ Grid AIQ uses a two-tier architecture consisting of a **Next.js Backend-for-Fron
 │  │    Python backend  │    │  • Document uploads  │                   │
 │  └───────────────────┘    └──────────────────────┘                   │
 │                                                                       │
-│  Environment: BACKEND_URL=http://aiq-agent:8000                       │
+│  Environment: BACKEND_URL=http://aiq-api:8000 (HTTP, api role)        │
+│               BACKEND_CHAT_URL=http://aiq-agent:8000 (WS, chat role)  │
 │               PORT=3000, NEXT_INTERNAL_URL=http://localhost:3001     │
 └──────────────────────┬──────────────────────────────────────────────┘
                        │ HTTP + WS

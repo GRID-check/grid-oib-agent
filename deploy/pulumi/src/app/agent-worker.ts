@@ -26,7 +26,7 @@ export const QUEUE_TABLE = "research_job_queue";
 export const RESEARCH_QUEUE_DEPTH_QUERY = queueDepthQuery(QUEUE_TABLE);
 
 /**
- * Research worker tier (ADR-0021, ADR-0079) — only deployed when jobExecution = "db".
+ * Research worker tier (ADR-0021, ADR-0079).
  *
  * Dedicated worker replicas (same backend image, `GRID_ROLE=worker`) claim
  * deep-research jobs from Postgres and execute them, so the token-heavy

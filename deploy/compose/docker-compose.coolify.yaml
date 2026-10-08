@@ -53,6 +53,9 @@ services:
       dockerfile: deploy/Dockerfile
       target: ${BUILD_TARGET:-release}
     environment:
+      # The chat role: the chat WebSocket and the answers running on it
+      # (ADR-0082). The services below extend this one and set their own role.
+      - GRID_ROLE=chat
       - APP_ENV=${APP_ENV:-production}
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
       # ── Secrets (must be provided in Coolify's Environment Variables UI) ──
@@ -81,6 +84,8 @@ services:
       # statements goes straight to `postgres`.
       - NAT_JOB_STORE_DB_URL=postgresql+asyncpg://aiq:${SERVICE_PASSWORD_POSTGRES}@pgbouncer:5432/aiq_jobs
       - AIQ_CHECKPOINT_DB=postgresql://aiq:${SERVICE_PASSWORD_POSTGRES}@pgbouncer:5432/aiq_checkpoints
+      # A research job's deep checkpoint: resume on another worker instead of starting over.
+      - AIQ_DEEP_CHECKPOINT_DB=postgresql://aiq:${SERVICE_PASSWORD_POSTGRES}@pgbouncer:5432/aiq_checkpoints
       - AIQ_SUMMARY_DB=postgresql+psycopg://aiq:${SERVICE_PASSWORD_POSTGRES}@pgbouncer:5432/aiq_jobs
       # SSE LISTEN/NOTIFY: a notification reaches the one server session that ran
       # LISTEN, which a transaction pooler does not keep for the client.
@@ -96,10 +101,10 @@ services:
       # ── Deep-research execution (ADR-0021), mirroring the Kubernetes topology ──
       # db = DB-claimed jobs run by the dedicated `agent-worker` service below
       # (FOR UPDATE SKIP LOCKED), so the token-heavy research workload scales and
-      # crashes independently of the chat/web tier. Set to `dask` to fall back to
-      # the legacy in-process executor (no worker/chroma server needed) — kept as a
-      # dev escape hatch; on this stack it is redundant now that a worker exists.
-      - GRID_JOB_EXECUTION=${GRID_JOB_EXECUTION:-db}
+      # crashes independently of the chat tier, and so a job submitted by the chat
+      # role can be streamed and cancelled by the api role: a Dask job would run on
+      # the cluster of the container that submitted it, out of the other's reach.
+      - GRID_JOB_EXECUTION=db
       # Encrypts DB-claimed job payloads at rest (AES-256-GCM). Empty = plaintext
       # (a one-time warning is logged); acceptable on a single trusted node. Set a
       # base64 32-byte key to encrypt: `openssl rand -base64 32`.
@@ -121,11 +126,12 @@ services:
       - SEAWEED_SECRET_KEY=${SERVICE_PASSWORD_SEAWEEDREADONLY}
       - SEAWEED_BUCKET=grid-documents
       # ── Knowledge base (shared Chroma server, ADR-0021) ──
-      # Every replica and the agent-worker talk to ONE Chroma server over HTTP
-      # (the `chroma` service below), so the vector store is not pinned to a
-      # single container's disk — the precondition for db-mode workers. There is no
-      # embedded fallback: the backend keeps no volume (ADR-0082). Keep
-      # AIQ_EMBED_MODEL stable so stored + query vectors match.
+      # Every role (chat, api, agent-worker, ingest-worker) talks to ONE Chroma
+      # server over HTTP (the `chroma` service below), so the vector store is not
+      # pinned to a single container's disk: the chat and api roles read what the
+      # ingest worker writes. There is no embedded fallback: the backend keeps no
+      # volume (ADR-0082). Keep AIQ_EMBED_MODEL stable so stored + query vectors
+      # match.
       - AIQ_CHROMA_URL=${AIQ_CHROMA_URL:-http://chroma:8000}
       - COLLECTION_NAME=${COLLECTION_NAME:-oib_knowledge}
       - CONFIG_FILE=${BACKEND_CONFIG:-/app/configs/config_oib_openrouter.yml}
@@ -152,6 +158,9 @@ services:
       # internal frontend->backend calls are always classified internal, so this
       # never breaks in-cluster traffic.
       - REQUIRE_AUTH=${REQUIRE_AUTH:-true}
+      # The validator REQUIRE_AUTH needs: without it the backend refuses to start
+      # (aiq_api.plugin), because the WorkOS validator loads only when this is set.
+      - WORKOS_CLIENT_ID=${WORKOS_CLIENT_ID:-}
       # The commit this deployment is running. Stamped into the image as a
       # build arg by publish-images.yml, so it is normally already set inside
       # the container and this line only matters for a locally built or
@@ -237,8 +246,7 @@ services:
   # vectors always match), but launched with GRID_ROLE=worker: the entrypoint
   # then execs `python -m aiq_api.jobs.worker` instead of the web server. Workers
   # claim jobs from Postgres (FOR UPDATE SKIP LOCKED) and read/write the shared
-  # Chroma server — no web port, no Dask. Only meaningful when
-  # GRID_JOB_EXECUTION=db (the default); harmless idle in dask mode.
+  # Chroma server — no web port, no Dask.
   agent-worker:
     extends:
       service: aiq-agent
@@ -270,6 +278,75 @@ services:
         - "python"
         - "-c"
         - "import os,sys,time; f='/tmp/research-worker.alive'; sys.exit(0 if os.path.exists(f) and time.time()-os.path.getmtime(f) < 180 else 1)"
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 300s
+    restart: unless-stopped
+
+  # ── The api role (ADR-0082), the docker-compose mirror of the Kubernetes
+  #    Deployment in deploy/pulumi/src/app/api.ts ──
+  # Every HTTP route of the backend but the chat socket: knowledge, jobs and their
+  # SSE streams, the LLM utilities, admin, housekeeping. It is what BACKEND_URL
+  # names. Same image and env as aiq-agent (via `extends`, so the two cannot
+  # drift) and GRID_ROLE=api. Like aiq-agent it has no `ports:`: Coolify would
+  # publish it on the host.
+  aiq-api:
+    extends:
+      service: aiq-agent
+    environment:
+      - GRID_ROLE=api
+    # extends does NOT carry depends_on — declare the role's own start ordering.
+    depends_on:
+      seaweedfs:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+      pgbouncer:
+        condition: service_healthy
+      chroma:
+        condition: service_healthy
+      dragonfly:
+        condition: service_started
+    restart: unless-stopped
+
+  # ── Ingestion tier (ADR-0076), the docker-compose mirror of the Kubernetes
+  #    Deployment in deploy/pulumi/src/app/ingest-worker.ts ──
+  # POST /v1/ingest, served by the api role, only puts a job in the durable
+  # queue. This is the one process that claims it, fairly across organizations,
+  # and runs it against the shared Chroma. With it stopped, uploads sit pending.
+  # No web port, no Dask.
+  ingest-worker:
+    extends:
+      service: aiq-agent
+    environment:
+      - GRID_ROLE=ingest-worker
+      # Ingestion jobs this process runs at once (K8s: ingestWorker.concurrency).
+      - AIQ_INGEST_MAX_WORKERS=${AIQ_INGEST_MAX_WORKERS:-2}
+      - GRID_INGEST_WORKER_DRAIN_SECONDS=${GRID_INGEST_WORKER_DRAIN_SECONDS:-600}
+      - GRID_WORKER_LIVENESS_FILE=/tmp/ingest-worker.alive
+    # The drain budget and the time to give back what is still running; docker's
+    # default 10 s would kill it first.
+    stop_grace_period: 660s
+    depends_on:
+      seaweedfs:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+      pgbouncer:
+        condition: service_healthy
+      chroma:
+        condition: service_healthy
+      dragonfly:
+        condition: service_started
+    # The marker the worker touches every 15 s while its loop runs (the K8s
+    # liveness probe's); the long start_period covers the cold import.
+    healthcheck:
+      test:
+        - "CMD"
+        - "python"
+        - "-c"
+        - "import os,sys,time; f='/tmp/ingest-worker.alive'; sys.exit(0 if os.path.exists(f) and time.time()-os.path.getmtime(f) < 120 else 1)"
       interval: 30s
       timeout: 10s
       retries: 3
@@ -473,7 +550,11 @@ services:
       # preview. Production requires the WorkOS AuthKit vars below.
       - REQUIRE_AUTH=${REQUIRE_AUTH:-true}
       - APP_ENV=${APP_ENV:-production}
-      - BACKEND_URL=http://aiq-agent:8000
+      # Every backend HTTP call goes to the api role. Only the WebSocket proxy
+      # (server.js) goes to the chat role, and it has no fallback to BACKEND_URL:
+      # the api role serves no socket (ADR-0082).
+      - BACKEND_URL=http://aiq-api:8000
+      - BACKEND_CHAT_URL=http://aiq-agent:8000
       # Least-privilege runtime role: DML only, subject to row-level security
       # (ADR-0041). The container's CMD synchronises this role's login from
       # this very URL before starting, so there is one source of truth.
@@ -580,6 +661,8 @@ services:
         condition: service_completed_successfully
       aiq-agent:
         condition: service_healthy
+      aiq-api:
+        condition: service_healthy
       seaweedfs:
         condition: service_healthy
       seaweedfs-init:
@@ -634,7 +717,7 @@ services:
     depends_on:
       grid-migrate:
         condition: service_completed_successfully
-      aiq-agent:
+      aiq-api:
         condition: service_healthy
       seaweedfs:
         condition: service_healthy
@@ -655,7 +738,7 @@ services:
       # Least-privilege runtime role (ADR-0041). This worker spans tenants, so
       # it steps up to grid_app_platform per transaction.
       - GRID_APP_DATABASE_URL=postgresql://grid_app_rw:${SERVICE_PASSWORD_GRIDRUNTIME}@pgbouncer:5432/grid_app
-      - BACKEND_URL=http://aiq-agent:8000
+      - BACKEND_URL=http://aiq-api:8000
       # A chat erasure the delete request could not finish is retried through
       # the BFF, which owns its steps.
       - FRONTEND_INTERNAL_URL=http://frontend:3000
@@ -682,7 +765,7 @@ services:
         condition: service_healthy
       seaweedfs-init:
         condition: service_completed_successfully
-      aiq-agent:
+      aiq-api:
         condition: service_healthy
     restart: unless-stopped
 
@@ -725,10 +808,10 @@ services:
       dockerfile: deploy/Dockerfile
     command: ["node", "workers/housekeeping-clock.js"]
     environment:
-      - BACKEND_URL=http://aiq-agent:8000
+      - BACKEND_URL=http://aiq-api:8000
       - GRID_INTERNAL_API_TOKEN=${SERVICE_PASSWORD_INTERNALTOKEN}
     depends_on:
-      aiq-agent:
+      aiq-api:
         condition: service_healthy
     restart: unless-stopped
 

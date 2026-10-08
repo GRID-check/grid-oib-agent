@@ -524,7 +524,7 @@ tasks:
       - '{{.PY}} scripts/turn_census/suite.py {{.CLI_ARGS}}'
 
   be:eval:loop:
-    desc: 'Agentic-loop shape eval — rounds, locator use, checkpoint source, truncation (NEEDS a running backend with the corpus; set GRID_LOOP_EVAL_URL)'
+    desc: 'Agentic-loop shape eval — rounds, locator use, checkpoint source, truncation (NEEDS a running backend with the corpus; set GRID_LOOP_EVAL_URL to its chat role)'
     cmds:
       # Sibling of be:eval:retrieval and unrunnable in CI for the same reason:
       # the corpus is operator-provided and gitignored, and every question here

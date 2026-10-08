@@ -2,7 +2,7 @@
 
 Run as its own container: ``GRID_ROLE=ingest-worker`` makes the entrypoint start
 ``python -m aiq_api.jobs.ingest_worker``. It builds the NAT workflow once, which
-activates the ingestor exactly as the web tier's does (same summary model, same
+activates the ingestor exactly as the web roles do (same summary model, same
 shared Chroma, same object store), attaches the durable queue to it, and then
 does nothing but claim: its ``AIQ_INGEST_MAX_WORKERS`` threads take the next job
 fairly across every organisation, run it, and come back for another.
@@ -81,7 +81,7 @@ async def run(stop: asyncio.Event) -> None:
         ingestor = get_active_ingestor()
         if ingestor is None:
             raise RuntimeError(f"{config_file} activates no ingestor; there is nothing to run jobs with")
-        if not ingest_dispatch.attach(ingestor, claim=True):
+        if not ingest_dispatch.attach(ingestor):
             raise RuntimeError("the ingest queue is off or has no database (GRID_INGEST_QUEUE, AIQ_SUMMARY_DB)")
         logger.info("Ingest worker %s claiming", ingest_dispatch.worker_id())
         clock.ready()

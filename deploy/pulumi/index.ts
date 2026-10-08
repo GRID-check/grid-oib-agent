@@ -4,8 +4,8 @@
  * Provisions the whole stack against a provider-supplied kubeconfig:
  *   platform  → cert-manager (+ Let's Encrypt issuer), Envoy Gateway, metrics-server
  *   data      → CloudNativePG Postgres (3 DBs), Dragonfly cache, SeaweedFS (S3)
- *   app       → aiq-agent (StatefulSet, the singleton agent), frontend
- *               (Deployment + HPA), purger, skill-scheduler, gotenberg (office
+ *   app       → aiq-agent (StatefulSet, the chat role), aiq-api (Deployment +
+ *               HPA, the api role), frontend (Deployment + HPA), purger, skill-scheduler, gotenberg (office
  *               → PDF), a migration Job and a WorkOS audit-schema reconcile Job
  *   edge      → Gateway API (Envoy Gateway) + HTTPRoutes with cert-manager TLS,
  *               for the app, the landing site and the public S3 endpoint
@@ -17,7 +17,7 @@
  */
 import * as pulumi from "@pulumi/pulumi";
 
-import { backendAutoscaled, backendImage, frontendImage, loadConfig, queueScalerEnabled, webImage } from "./src/config";
+import { backendAutoscaled, backendImage, frontendImage, loadConfig, webImage } from "./src/config";
 import { makeProvider } from "./src/platform/providers";
 import { makeAppNamespace } from "./src/platform/namespaces";
 import { installCertManager } from "./src/platform/cert-manager";
@@ -36,6 +36,7 @@ import { reconcileAuditSchemas } from "./src/app/audit-schemas-job";
 import { importLegacyCorpus } from "./src/app/legacy-corpus-import-job";
 import { installBackend } from "./src/app/backend";
 import { installBackendScaling } from "./src/app/backend-scaling";
+import { installApi } from "./src/app/api";
 import { installFrontend } from "./src/app/frontend";
 import { installWeb } from "./src/app/web";
 import { installGotenberg } from "./src/app/gotenberg";
@@ -218,15 +219,36 @@ if (cfg.auth.requireAuth) {
 }
 
 // ── App workloads ──────────────────────────────────────────────────────────
+//
+// Rollout order (ADR-0082 step B): the api tier, then the frontend, then the
+// chat tier. A frontend from before the split sends every HTTP call to
+// `aiq-agent`, and a new `aiq-agent` serves only the chat socket, so the chat
+// tier may change only once the frontend that calls `aiq-api` instead has
+// rolled out; and that frontend needs `aiq-api` to be there. Pulumi awaits a
+// workload's rollout before it creates what depends on it, so the `dependsOn`
+// below is the whole mechanism and no operator sequences anything.
+
+// The api role: every backend HTTP route but the chat socket, behind the
+// Service BACKEND_URL names.
+const api = installApi(wiring, cfg, secrets, [
+  postgres.initJob,
+  seaweed.bucketInitJob,
+  dragonfly.service,
+  ...(chroma ? [chroma.service] : []),
+]);
+
+// Not after `aiq-agent`: the chat tier waits on the frontend (above), so the
+// reverse edge would be a cycle. The old chat pods serve the socket meanwhile.
+const frontend = installFrontend(wiring, cfg, secrets, [migrations, api.service]);
+
 const backend = installBackend(wiring, cfg, secrets, [
   postgres.initJob,
   postgres.pooler,
   seaweed.bucketInitJob,
   dragonfly.service,
   ...(chroma ? [chroma.service] : []),
+  frontend.deployment,
 ]);
-
-const frontend = installFrontend(wiring, cfg, secrets, [migrations, backend.service]);
 
 // The pre-A2 base corpus, carried off the old backend data volume once
 // (ADR-0082 A2). Only where that volume exists: see `storage.legacyCorpusClaim`.
@@ -236,6 +258,7 @@ if (cfg.storage.legacyCorpusClaim) {
     frontend.deployment,
   ]);
 }
+
 const workers = installWorkers(wiring, cfg, secrets, [migrations]);
 // Landing site + blog (Astro, frontends/web) — static-first, no app secrets,
 // but it pulls from the same registry, so it gets the pull Secret too.
@@ -244,72 +267,46 @@ const web = installWeb(cfg, provider, namespace, wiring.imagePullSecrets, [
   ...(pullSecret ? [pullSecret] : []),
 ]);
 
-// KEDA, installed once when any tier it scales runs: the research and ingest
-// workers and the BFF job pool (queue depth, ADR-0079/0076) and the chat tier
-// (running turns, ADR-0080).
-const keda =
-  (cfg.jobExecution === "db" || cfg.ingestWorker.enabled || cfg.bffJobs.enabled || backendAutoscaled(cfg)) &&
-  cfg.keda.install
-    ? installKeda(provider)
-    : undefined;
+// KEDA scales the research and ingest workers and the BFF job pool (queue depth,
+// ADR-0079/0076) and the chat tier (running turns, ADR-0080).
+const keda = cfg.keda.install ? installKeda(provider) : undefined;
 
 // What the read-only scaler login may read, and the queue tables it reads, in
 // place before any ScaledObject is created (`app/queue-scaler-grants.ts`): after
 // the cluster (the role) and the migrations (`bff_job_queue`).
-const scalerGrants = queueScalerEnabled(cfg)
-  ? installQueueScalerGrants(wiring, cfg, [postgres.cluster, postgres.initJob, migrations])
-  : undefined;
+const scalerGrants = installQueueScalerGrants(wiring, cfg, [postgres.cluster, postgres.initJob, migrations]);
 
 // What KEDA connects with, in a Secret of its own that no pod reads.
-const scalerSecret = queueScalerEnabled(cfg) ? buildScalerSecret(wiring) : undefined;
+const scalerSecret = buildScalerSecret(wiring);
 
 // How KEDA reads the two Python claim queues, which share one database. Created
-// once, because the research tier runs whether or not the ingest tier does. After
-// the grants: on a stack that already runs, the existing ScaledObjects start
-// reading through the scaler login the moment this points at it, and the login
-// can read nothing before the Job has run.
-const jobsQueueAuth =
-  cfg.jobExecution === "db"
-    ? installJobsQueueAuth(wiring, [
-        ...(keda ? [keda] : []),
-        ...(scalerGrants ? [scalerGrants] : []),
-        ...(scalerSecret ? [scalerSecret] : []),
-      ])
-    : undefined;
-const queueScalerDeps = [
-  ...(keda ? [keda] : []),
-  ...(jobsQueueAuth ? [jobsQueueAuth] : []),
-  ...(scalerGrants ? [scalerGrants] : []),
-  ...(scalerSecret ? [scalerSecret] : []),
-];
+// once for both tiers. After the grants: on a stack that already runs, the
+// existing ScaledObjects start reading through the scaler login the moment this
+// points at it, and the login can read nothing before the Job has run.
+const jobsQueueAuth = installJobsQueueAuth(wiring, [...(keda ? [keda] : []), scalerGrants, scalerSecret]);
+const queueScalerDeps = [...(keda ? [keda] : []), jobsQueueAuth, scalerGrants, scalerSecret];
 
-// Research worker tier — only when execution is DB-claimed (ADR-0021). Claims
-// the research queue fairly across organizations (ADR-0079), scaled by KEDA on
-// the queue's depth.
-const agentWorker =
-  cfg.jobExecution === "db"
-    ? installAgentWorker(wiring, cfg, secrets, [
-        postgres.initJob,
-        postgres.pooler,
-        dragonfly.service,
-        seaweed.bucketInitJob,
-        ...(chroma ? [chroma.service] : []),
-        ...queueScalerDeps,
-      ])
-    : undefined;
+// Research worker tier (ADR-0021) — claims the research queue fairly across
+// organizations (ADR-0079), scaled by KEDA on the queue's depth.
+const agentWorker = installAgentWorker(wiring, cfg, secrets, [
+  postgres.initJob,
+  postgres.pooler,
+  dragonfly.service,
+  seaweed.bucketInitJob,
+  ...(chroma ? [chroma.service] : []),
+  ...queueScalerDeps,
+]);
 
-// Ingestion tier (ADR-0076) — claims the durable ingest queue fairly across
-// organisations, scaled by KEDA on the queue's depth.
-const ingestWorker = cfg.ingestWorker.enabled
-  ? installIngestWorker(wiring, cfg, secrets, [
-      postgres.initJob,
-      postgres.pooler,
-      dragonfly.service,
-      seaweed.bucketInitJob,
-      ...(chroma ? [chroma.service] : []),
-      ...queueScalerDeps,
-    ])
-  : undefined;
+// Ingestion tier (ADR-0076) — the only process that claims the durable ingest
+// queue, fairly across organisations, scaled by KEDA on the queue's depth.
+const ingestWorker = installIngestWorker(wiring, cfg, secrets, [
+  postgres.initJob,
+  postgres.pooler,
+  dragonfly.service,
+  seaweed.bucketInitJob,
+  ...(chroma ? [chroma.service] : []),
+  ...queueScalerDeps,
+]);
 
 // BFF background pool (ADR-0079) — claims bff_job_queue fairly across
 // organisations and runs project reindex and rescan jobs in its own BFF,
@@ -317,10 +314,10 @@ const ingestWorker = cfg.ingestWorker.enabled
 const bffJobs = cfg.bffJobs.enabled
   ? installBffJobs(wiring, cfg, secrets, [
       migrations,
-      backend.service,
+      api.service,
       ...(keda ? [keda] : []),
-      ...(scalerGrants ? [scalerGrants] : []),
-      ...(scalerSecret ? [scalerSecret] : []),
+      scalerGrants,
+      scalerSecret,
     ])
   : undefined;
 
@@ -430,6 +427,7 @@ export const webUrl = pulumi.interpolate`https://${cfg.ingress.webDomain}`;
 export const appNamespace = namespace;
 export const postgresRwHost = postgres.rwHost;
 export const backendService = backend.service.metadata.name;
+export const apiService = api.service.metadata.name;
 export const frontendService = frontend.service.metadata.name;
 export const webService = web.service.metadata.name;
 export const purgerDeployment = workers.purger.metadata.name;
@@ -464,12 +462,8 @@ export const deployedImages = {
   frontend: frontendImage(cfg),
   web: webImage(cfg),
 };
-export const ingestWorkerDeployment = ingestWorker
-  ? ingestWorker.deployment.metadata.name
-  : pulumi.output("(none: ingestion runs in the backend pods)");
+export const ingestWorkerDeployment = ingestWorker.deployment.metadata.name;
 export const bffJobsDeployment = bffJobs
   ? bffJobs.deployment.metadata.name
   : pulumi.output("(none: reindex and rescan jobs are not run)");
-export const agentWorkerDeployment = agentWorker
-  ? agentWorker.deployment.metadata.name
-  : pulumi.output("(none: dask mode)");
+export const agentWorkerDeployment = agentWorker.deployment.metadata.name;
