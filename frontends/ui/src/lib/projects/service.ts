@@ -354,8 +354,8 @@ export async function restoreProject(
 
 /**
  * What the overview's count, size and recent list leave out for this session:
- * the folders hidden from it (ADR-0086) and the quarantined files it neither
- * uploaded nor reviews (ADR-0085). One answer for every page that renders the
+ * the folders hidden from it (ADR-0087) and the quarantined files it neither
+ * uploaded nor reviews (ADR-0086). One answer for every page that renders the
  * overview data, so a second reader dimension cannot reach one and miss the other.
  */
 export async function projectOverviewReader(

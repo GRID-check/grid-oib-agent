@@ -14,7 +14,7 @@ export interface ProjectOverviewReader {
    */
   hiddenFolderIds: readonly string[]
   /**
-   * The reader when they may not review this project's quarantine (ADR-0085),
+   * The reader when they may not review this project's quarantine (ADR-0086),
    * from `quarantineReaderFor`; `undefined` for a reviewer. A key that must be
    * present for the same reason as the one above: a quarantined file is not
    * there for anyone else, by name or in a number.

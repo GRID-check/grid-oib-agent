@@ -559,7 +559,7 @@ export async function listDocumentsPage(
 
   // `limit` is deliberately not passed: the repository's own default is the
   // page size, and a second copy of it here could drift from the real one.
-  // A file in quarantine is listed for its uploader and its reviewers only (ADR-0085).
+  // A file in quarantine is listed for its uploader and its reviewers only (ADR-0086).
   const quarantineReader = await quarantineReaderFor(session, { scope: 'project', projectId })
   const page = await listProjectDocumentPage(projectId, session.organizationId, {
     hiddenFolderIds: await getHiddenFolderIds(session, projectId),
@@ -627,7 +627,7 @@ export async function probeProjectDocumentNames(
   await requireProjectAccess(session, projectId, 'project:view')
   // A name taken in a hidden folder is not reported: the upload refuses it
   // without saying where (`assertNameFreeInProject`). Nor is one held by
-  // somebody else's quarantined file (ADR-0085): the upload refuses it as a
+  // somebody else's quarantined file (ADR-0086): the upload refuses it as a
   // taken name (`assertMayReplaceQuarantined`).
   return findProjectDocumentsByNames(projectId, session.organizationId, names, {
     hiddenFolderIds: await getHiddenFolderIds(session, projectId),
@@ -984,7 +984,7 @@ export interface DispatchDocumentResult {
    * `processing` is a detached path: an IFC model ({@link beginModelExtraction})
    * or an office file converting first ({@link beginRenditionIngest}).
    * `quarantined` is a row nothing was dispatched for: it waits on a reviewer
-   * (ADR-0085), and only a release sends it on.
+   * (ADR-0086), and only a release sends it on.
    */
   status: 'pending' | 'uploaded' | 'failed' | 'processing' | 'quarantined'
 }
@@ -1078,7 +1078,7 @@ export async function dispatchDocument(
   if (!row || !mayBeIndexed(row, input.versionId ?? null)) {
     throw new AgentAuthoredDocumentNotIndexableError(input.documentId)
   }
-  // A quarantined row (ADR-0085) reaches the index through a reviewer's release
+  // A quarantined row (ADR-0086) reaches the index through a reviewer's release
   // and no other way: the release moves it to `uploaded` before it dispatches
   // (`markScreeningReleased`). Every other caller re-reads a whole folder or
   // project — a restore from the Papierkorb, a placement move when a folder's
@@ -1720,7 +1720,7 @@ async function redispatchForReindex(
   // Mid-flight rows are skipped: a second dispatch would double the work of
   // one that is running. Every in-flight spelling, not just two of them.
   // So is a quarantined one: it waits on a reviewer, and `dispatchDocument`
-  // would leave it alone anyway (ADR-0085).
+  // would leave it alone anyway (ADR-0086).
   if (!doc.storageKey || IN_FLIGHT_DOCUMENT_STATUSES.has(doc.status) || doc.status === 'quarantined') return 'skipped'
 
   // Belt to the query's braces. The listing already asks for `'user'` only, so
@@ -2719,7 +2719,7 @@ export async function getDocumentThumbnail(
  * tenant-scoped exactly as the session path is.
  *
  * What may have changed since the mint is asked again: the folder, and the
- * quarantine (ADR-0085). A re-upload keeps the document's id, so a URL minted
+ * quarantine (ADR-0086). A re-upload keeps the document's id, so a URL minted
  * for a member before the new bytes were quarantined would otherwise go on
  * serving their thumbnail, or for an image the image itself, until it expired.
  */

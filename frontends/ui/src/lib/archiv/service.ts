@@ -77,7 +77,7 @@ export async function listArchiv(
   session: AuthorizedSession,
   options: { authoredBy?: DocumentAuthor; includeArchived?: boolean; cursor?: DocumentListCursor } = {},
 ): Promise<ArchivListResult> {
-  // A file in quarantine is listed for its uploader and the curators only (ADR-0085).
+  // A file in quarantine is listed for its uploader and the curators only (ADR-0086).
   const quarantineReader = await archivQuarantineReader(session)
   const page = await listArchivDocumentRows(session.organizationId, { ...options, quarantineReader })
   return {
@@ -140,7 +140,7 @@ export async function probeArchivDocumentNames(
   session: AuthorizedSession,
   names: readonly string[],
 ): Promise<DocumentNameMatchRow[]> {
-  // Not somebody else's quarantined file: the probe answers with its digest (ADR-0085).
+  // Not somebody else's quarantined file: the probe answers with its digest (ADR-0086).
   return findArchivDocumentsByNames(session.organizationId, names, {
     quarantineReader: await archivQuarantineReader(session),
   })

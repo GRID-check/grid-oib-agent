@@ -1,5 +1,5 @@
 /**
- * Who may look at a quarantined document (ADR-0085), asked of a session.
+ * Who may look at a quarantined document (ADR-0086), asked of a session.
  *
  * A quarantined file is held back because its content matched the office's
  * sensitive-data list, so it is not the project's yet: only the person who
@@ -37,7 +37,7 @@ export async function mayReviewQuarantine(session: AuthorizedSession, doc: Revie
     return false
   }
   // A project admin who is not cleared for the document's folder does not
-  // review it: they could not see it anywhere else either (ADR-0086).
+  // review it: they could not see it anywhere else either (ADR-0087).
   return isFolderVisibleTo(session, doc.projectId, doc.folderId).catch(() => false)
 }
 

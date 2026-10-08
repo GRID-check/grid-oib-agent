@@ -1,5 +1,5 @@
 /**
- * Which quarantined rows a listing's reader may see (ADR-0085), asked of rows
+ * Which quarantined rows a listing's reader may see (ADR-0086), asked of rows
  * already in memory. Its own module because it is pure: the listings that need
  * it mock the repository whole, and a predicate is not a database read.
  */

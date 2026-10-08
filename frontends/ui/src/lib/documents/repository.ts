@@ -102,7 +102,7 @@ export interface DocumentListRow {
    * Who uploaded it. On the LIST row for one reader: a listing reconciles its
    * rows after the query, and a row the reconcile turns `quarantined` is kept
    * only for its uploader (`keepVisibleQuarantine` in `./quarantine-visibility`,
-   * ADR-0085). It does not leave the BFF (`toListedDocuments` drops it).
+   * ADR-0086). It does not leave the BFF (`toListedDocuments` drops it).
    */
   createdBy: string
   createdAt: Date
@@ -160,7 +160,7 @@ export interface ListProjectDocumentsOptions {
    */
   hiddenFolderIds?: readonly string[]
   /**
-   * The reader, when they may not review this shelf's quarantine (ADR-0085),
+   * The reader, when they may not review this shelf's quarantine (ADR-0086),
    * from `quarantineReaderFor`: a quarantined row is kept only if they uploaded
    * it. Absent for a reviewer, and for a caller that serves no reader.
    */
@@ -551,7 +551,7 @@ export async function findDocumentsByNames(
             shelfDocumentWhere(shelf, organizationId),
             ...outsideHiddenFolders(hiddenFolderIds),
             // The probe answers with the digest: somebody else's quarantined
-            // file would let a member confirm its contents by hash (ADR-0085).
+            // file would let a member confirm its contents by hash (ADR-0086).
             ...visibleQuarantineFor(quarantineReader),
             where,
           ),
@@ -976,7 +976,7 @@ export async function findStorageKeyByCollectionAndFilename(
             // See the note above: this is a byte-serving path reachable with
             // model-supplied arguments. A machine-authored row must not resolve.
             eq(documents.authoredBy, 'user'),
-            // Nor a quarantined one (ADR-0085): nothing of it reached a model at
+            // Nor a quarantined one (ADR-0086): nothing of it reached a model at
             // ingest, and a file name the model was told must not reach it now.
             ne(documents.status, 'quarantined'),
             ...(organizationId ? [eq(documents.organizationId, organizationId)] : []),

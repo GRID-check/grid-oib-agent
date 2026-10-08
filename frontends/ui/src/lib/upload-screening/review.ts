@@ -123,7 +123,7 @@ export interface ReleaseRequestResult {
 
 /**
  * The uploader asks for their quarantined file to be released („Freigabe
- * anfragen", ADR-0085). It releases nothing: it tells the people who may
+ * anfragen", ADR-0086). It releases nothing: it tells the people who may
  * release it, through the inbox, that somebody is waiting on their decision.
  *
  * Only the uploader asks. Everyone else is told the document does not exist,

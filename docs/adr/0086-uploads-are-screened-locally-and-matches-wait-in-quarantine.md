@@ -119,7 +119,7 @@ German, and explains each verdict.
   terms only, never a sample or text (AI Act transparency;
   `docs/user-guides/ai-act.md`), and the decision records the folder the file
   was filed in, so a file under a folder not every project member may read is
-  not named (ADR-0086).
+  not named (ADR-0087).
 - **Who sees a quarantined file** (amended 2026-10-06): its uploader and its
   reviewers, nobody else. `getAccessibleDocument` asks the reviewer rule
   (`mayReviewQuarantine`, `lib/upload-screening/quarantine-reviewers.ts`) for a
@@ -158,7 +158,7 @@ German, and explains each verdict.
   list and download it. The quarantine starts at the verdict. Holding every
   upload back until it is screened would make every file unreadable while it
   is being read; that is a product decision this ADR does not take. A file
-  expected to match belongs in a restricted folder (ADR-0086).
+  expected to match belongs in a restricted folder (ADR-0087).
 - **Asking for a release** (amended 2026-10-06): the uploader may ask the
   reviewers from the upload summary („Freigabe anfragen",
   `POST /api/documents/{id}/quarantine/request-release`); they get a

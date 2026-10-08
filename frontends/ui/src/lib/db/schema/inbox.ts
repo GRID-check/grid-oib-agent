@@ -111,7 +111,7 @@ export const INBOX_ITEM_TYPES = [
   'document.quarantined',
   /**
    * Operational: the uploader of a quarantined file asks for it to be released
-   * (ADR-0085, „Freigabe anfragen"). Addressed to whoever may release it, one
+   * (ADR-0086, „Freigabe anfragen"). Addressed to whoever may release it, one
    * row per file, opening the quarantine queue. It names the file: only the
    * file's own reviewers receive it.
    */

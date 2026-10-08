@@ -101,7 +101,7 @@ async function assertDocumentReadable(
   notFoundMessage: string
 ): Promise<void> {
   // A quarantined file's model is its uploader's and its reviewers' only
-  // (ADR-0085): the header, the query and the presigned source all pass here.
+  // (ADR-0086): the header, the query and the presigned source all pass here.
   if (document.status === 'quarantined' && !(await maySeeQuarantined(session, document))) {
     throw new NotFoundError(notFoundMessage)
   }
@@ -165,7 +165,7 @@ export async function getModelForDocument(
 }
 
 /**
- * The model list's reader per shelf (ADR-0085). It reads the project's models
+ * The model list's reader per shelf (ADR-0086). It reads the project's models
  * and the Büroablage's together, and each shelf has its own reviewers: the
  * project's admins for one, the Büroablage's curators for the other.
  */

@@ -153,7 +153,7 @@ describe('GET /api/documents/[id]/image', () => {
 
   it('404s a row that turned quarantined after the URL was minted, unless the URL names its uploader', async () => {
     // Minted with no quarantine grant (the row was not quarantined then); a
-    // re-upload by somebody else has since been held back (ADR-0085).
+    // re-upload by somebody else has since been held back (ADR-0086).
     await stubDocument({ ...imageRow, status: 'quarantined', createdBy: 'user-2' })
 
     expect((await call(signedQuery())).status).toBe(404)

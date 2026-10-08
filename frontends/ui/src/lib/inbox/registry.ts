@@ -269,7 +269,7 @@ export const INBOX_TYPE_DEFINITIONS: Record<InboxItemType, InboxTypeDefinition> 
     email: IN_APP_ONLY,
   },
   /*
-    The uploader asks for a quarantined file to be released (ADR-0085).
+    The uploader asks for a quarantined file to be released (ADR-0086).
     `per-anchor` on the document: asking twice about one file is one row, two
     files are two. Informational for the same reason as `document.quarantined`:
     the queue page is where the decision is made.

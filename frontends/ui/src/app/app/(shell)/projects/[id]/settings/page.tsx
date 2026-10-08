@@ -37,7 +37,7 @@ export default async function ProjectSettingsPage({ params }: ProjectSettingsPag
 
     const { role, closed } = await requireProjectAccess(session, id, 'project:view')
 
-    // The same reader the overview route uses: hidden folders and quarantine (ADR-0086, ADR-0085).
+    // The same reader the overview route uses: hidden folders and quarantine (ADR-0087, ADR-0086).
     const data = await getProjectOverviewData(id, session.organizationId, await projectOverviewReader(session, id))
     if (!data) {
       notFound()

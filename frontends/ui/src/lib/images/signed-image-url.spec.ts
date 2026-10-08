@@ -133,7 +133,7 @@ describe('signed document image URLs', () => {
   })
 
   // The grant is what lets a reviewer's preview stream a quarantined row
-  // (ADR-0085), so a member's token must not pick it up by editing the query.
+  // (ADR-0086), so a member's token must not pick it up by editing the query.
   it('will not let a token claim the quarantine grant it was not minted with', () => {
     withSecret()
     const params = paramsOf(buildDocumentImageUrl(ORG, USER, DOC, 'thumb', { nowMs: NOW })!)

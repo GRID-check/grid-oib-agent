@@ -46,7 +46,7 @@
  * after the person it names has lost the folder.
  *
  * And one grant: whether the person was cleared to see the document IN
- * QUARANTINE (ADR-0085). The route cannot ask the reviewer rule again, because
+ * QUARANTINE (ADR-0086). The route cannot ask the reviewer rule again, because
  * that rule reads session roles the token does not carry, so the mint records
  * the answer: a URL minted for a row that was already quarantined, which
  * `getAccessibleDocument` only lets the uploader and the reviewers reach, says

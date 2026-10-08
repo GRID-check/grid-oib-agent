@@ -513,7 +513,7 @@ describe('readVersionForService — the conversation is part of the predicate', 
     })
   })
 
-  it('answers 404 for a quarantined subject, so its bytes never reach a model (ADR-0085)', async () => {
+  it('answers 404 for a quarantined subject, so its bytes never reach a model (ADR-0086)', async () => {
     vi.mocked(findConversationInOrg).mockResolvedValue({
       subjectResourceType: 'document',
       subjectResourceId: 'doc_1',

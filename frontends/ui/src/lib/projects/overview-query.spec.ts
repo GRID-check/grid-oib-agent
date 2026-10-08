@@ -143,7 +143,7 @@ describe('getProjectOverviewData', () => {
   })
 
   it("leaves somebody else's quarantined file out of the count, the total size and the recent list", async () => {
-    // ADR-0085. The recent list names the file; for a reader who neither
+    // ADR-0086. The recent list names the file; for a reader who neither
     // uploaded it nor reviews the quarantine, it is not there.
     await getProjectOverviewData(PROJECT_ID, ORG_ID, { hiddenFolderIds: [], quarantineReader: 'user-member' })
 
