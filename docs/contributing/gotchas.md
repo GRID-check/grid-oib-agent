@@ -190,6 +190,13 @@ what you would have searched for, not as a tidy summary after the fact.
 
 Then ask the ratchet question: can this be closed rather than documented? A
 CHECK constraint, a lint rule, or a failing test beats an entry here, and an
-entry here beats nothing. When you do close it, keep the row and say what closed
-it, so the next person meeting the old symptom in an old branch still lands
-somewhere useful.
+entry here beats nothing.
+
+What happens to a row once its cause is fixed depends on whose defect it was:
+
+- **This repo's tooling** (the build, CI, the dev environment, a script): fix it
+  in code and delete the row in the same change. A row that only records a
+  workaround for our own tooling is a bug report nobody closed.
+- **Product behaviour**: keep the row and say what closed it. The symptom can
+  come back as a regression, and this page is where somebody meeting it again
+  searches first.
