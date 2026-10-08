@@ -16,26 +16,38 @@ import { useEffect, useState } from 'react'
 import type { FileItem } from '@/features/documents/components/project-file-workspace'
 import { toFileItem, type DocumentWireRow } from '@/features/documents/lib/file-item'
 import { fetchListingPages } from '@/features/documents/lib/fetch-listing-pages'
+import { restrictedCollectionBase } from '@/lib/authz/folder-access-rule'
 import type { PlanDocument } from '@/lib/runs/plan-documents'
 
 export interface InventoryDocument extends PlanDocument {
   file: FileItem
   source: 'projekt' | 'buero'
+  /**
+   * Filed under a folder not every project member may read (ADR-0086): its row
+   * sits in that folder's restricted collection. Listed to a cleared reader,
+   * and never handed to a run, whose Unterlagen the whole project reads; the
+   * picker says so instead of offering it. The server refuses it either way
+   * (`requirePlanDocumentsOpen`).
+   */
+  restricted: boolean
 }
+
+/** The listing row, with the collection the document is indexed in (`toDocumentWireRow`). */
+type InventoryWireRow = DocumentWireRow & { collectionName?: string | null }
 
 /**
  * A whole listing, every page: the picker offers what a run can read, and a
  * document older than the newest page is as readable as any other.
  */
-const listing = async (url: string): Promise<DocumentWireRow[]> => {
+const listing = async (url: string): Promise<InventoryWireRow[]> => {
   try {
-    return (await fetchListingPages<DocumentWireRow>(url)).documents
+    return (await fetchListingPages<InventoryWireRow>(url)).documents
   } catch {
     return []
   }
 }
 
-const toInventory = (rows: DocumentWireRow[], source: InventoryDocument['source']): InventoryDocument[] =>
+const toInventory = (rows: InventoryWireRow[], source: InventoryDocument['source']): InventoryDocument[] =>
   rows.map((row) => {
     const file = toFileItem(row)
     const title = file.displayName?.trim()
@@ -45,6 +57,7 @@ const toInventory = (rows: DocumentWireRow[], source: InventoryDocument['source'
       shelf: source === 'buero' ? 'archiv' : 'project',
       file,
       source,
+      restricted: restrictedCollectionBase(row.collectionName ?? '') !== null,
     }
   })
 

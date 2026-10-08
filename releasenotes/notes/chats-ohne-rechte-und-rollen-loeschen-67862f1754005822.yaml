@@ -16,7 +16,7 @@ features:
     you to confirm. Folders left without a valid role are readable by
     organization admins only and are listed in the project settings with a link
     to each.
-fixes:
+security:
   - >
     A document in a folder someone may only read can no longer be shared or
     assigned by them, because both change the document.

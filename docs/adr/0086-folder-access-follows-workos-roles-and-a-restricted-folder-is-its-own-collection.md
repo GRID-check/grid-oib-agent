@@ -88,7 +88,10 @@ inherits the restriction without knowing it exists. Restricting a folder,
 opening it, or moving a document across the boundary re-ingests the affected
 documents into the right collection: chunks are purged from the old collection
 before the row moves, so the restriction is in force before the new copy
-exists.
+exists. The purge and the re-point run in the request; the re-read is a
+`placement_reingest` job on the `bff-jobs` pool (ADR-0079), bulk like a
+reindex, so a colleague's upload goes first and the re-reads take provider
+slots only after interactive work (ADR-0081).
 
 **The BFF's read paths ask one decision point.** `lib/authz/folder-access.ts`
 answers, per session and project, which folders are hidden and which restricted
@@ -145,6 +148,18 @@ envelope is also refused on the envelope's own restricted collections:
   the document is cleared for everything the thread could have drawn on.
   Generated documents go to the root folder „Berichte", so in practice this
   refuses unless „Berichte" is itself the project's one restricted folder.
+- a run's Unterlagen (`requirePlanDocumentsOpen`, `details.action`
+  `planDocument`), in `commissionResearchRun` on both lists and in
+  `addRunDocument`. This door is about the document, not the conversation: a
+  cleared member can pick a restricted document from their own inventory in an
+  open thread, and its name and title then reach every member through the
+  run's plan, its job stream and the report's „Nicht gelesene Unterlagen",
+  which ADR-0084 opens to every `project:chat` member. A plan document is a
+  file name, so it is resolved against every project document by that name,
+  restricted folders and archived rows included, and refused when any of them
+  sits in a folder not every member may read; an Archiv entry is not checked.
+  The async proxy does not forward `job/{id}/documents`, so `addRunDocument` is
+  the only way a document reaches a running run.
 
 The agent does not offer what will be refused: a turn whose signed scope holds a
 restricted collection withdraws deep research and tasks for the turn, its
@@ -227,7 +242,8 @@ to them. They now ask WorkOS for the organization's roles first.
 * Good, because roles live in one place (WorkOS), are built by the office, and are assigned
   where roles are already assigned.
 * Bad, because changing a restriction re-ingests the folder's documents: minutes, and model
-  cost, for a large folder. The folder reads as being processed meanwhile.
+  cost, for a large folder, at bulk priority behind the office's uploads. The folder reads as
+  being processed meanwhile.
 * Bad, because a WebSocket's signed scope is fixed for the socket's lifetime, so a withdrawn
   role takes effect on the next connection, not mid-conversation. (A thread shared mid-socket
   is caught: the per-turn confinement check closes the socket.)
@@ -281,8 +297,12 @@ to them. They now ask WorkOS for the organization's roles first.
 * `collection-scope-request.restricted.spec.ts` proves the restricted collection is in a cleared
   member's chat scope and absent from an uncleared member's, from a shared thread's, and from
   every deep-research and scheduled scope.
+* `collection-placement.priority.spec.ts` proves the request dispatches nothing and queues one
+  bulk `placement_reingest` job, and that the job's dispatch is bulk on every branch: the
+  `/v1/ingest` body, an IFC model's `bim_extract` and a Word file's `office_rendition`.
 * `collection-placement.integration.spec.ts` proves against Postgres that the purge comes before
-  the re-point, a failed purge leaves the row, the sweep finishes it, a misplaced row behind a
+  the re-point, the re-read is handed to one job and dispatched where the folder puts the row
+  when the job runs, a failed purge leaves the row, the sweep finishes it, a misplaced row behind a
   thousand placed ones is moved, an in-flight row waits, and a project beyond the first page of
   restricting projects is swept.
 * `restricted-turn-sequence.spec.ts` proves a share made after a turn's confinement check

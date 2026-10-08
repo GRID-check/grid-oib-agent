@@ -126,10 +126,15 @@ purged from retrieval in the request and read again on restore, rather than
 hits being filtered by folder state wherever retrieval resolves them: a purged
 chunk cannot be found by any path, the agent's included, and a filter would
 leak through the first path that forgot it. A purge the index does not confirm
-undoes the delete (502). Triggers refuse filing into a deleted folder under the
+undoes the delete (502). A request that dies after binning the folder leaves a
+`purge_binned_chunks` job, queued with the bin entry and held back two minutes,
+to finish the purge on the `bff-jobs` pool, or undo the delete when the index
+keeps refusing. Triggers refuse filing into a deleted folder under the
 project's bin lock (`GFD01`). A restore within `FOLDER_PURGE_GRACE_DAYS`
 (default 14) brings the folder back with its access, at the project root when
-its parent is gone. Then the purge erases the documents and keeps the folder
+its parent is gone; its documents become `processing` in the same transaction
+and a `restore_folder_bin` job reads them again (ADR-0079), so no document reads
+indexed while its chunks are gone. Then the purge erases the documents and keeps the folder
 rows, with their grants, as permanent tombstones (`purged_at`); the access rule
 still answers for a deleted folder's id.
 
@@ -273,11 +278,14 @@ recorded folders.
   research or a task, even after the folder is opened again, until that rule is revisited.
 * Bad, because tombstones accumulate: a purged folder's row and grants are kept for good, so
   the derived content's access can be decided.
-* Bad, because a restore re-reads every document of the folder (an ingest each), and a
+* Bad, because a restore re-reads every document of the folder (an ingest each, queued at bulk
+  priority), the folder's documents are not searchable until their re-read finishes, and a
   Dokumentart or display title set on the backend's metadata row is lost, as with a placement
   move.
 * Bad, because a deleted folder's chunks are purged in the request: a folder of many documents
-  takes a while to delete, and a backend that does not confirm refuses the delete.
+  takes a while to delete, and a backend that does not confirm refuses the delete. A request cut
+  off half way leaves the folder partly searchable until its `purge_binned_chunks` job takes over
+  (two minutes).
 * Bad, because removing derived content cannot reach the agent's LangGraph checkpoints of the
   affected chats; they go with the idle-thread reaper (14 days) or the chat's deletion.
 * Good, because a manager cannot widen their own access: changing a list needs write on the
@@ -398,17 +406,25 @@ recorded folders.
   one, never a restricted collection.
 * `features/documents/components/folder-access-dialog.spec.tsx` and the `/dev/folder-access`
   preview: the dialog and the „Nur lesen" marks.
-* `projects/folder-bin.integration.spec.ts` (real Postgres, 38 cases): a deleted folder and its
+* `projects/folder-bin.integration.spec.ts` (real Postgres): a deleted folder and its
   documents hidden from every listing, document read and the agent's restricted list, for admins
   too; chunks purged and `document-exists` answering gone; a refused purge undoing the delete;
+  the takeover job queued with the entry, withdrawn by a request that finished, finishing a
+  request that died, undoing on its last attempt and idle once the folder was restored; a
+  restore's documents `processing` for its job and found by the stuck sweep when the job is gone,
+  dispatched at bulk, a row with nothing to read failed, a Piloti document by its published
+  version, the walk stopped for a requester who lost the project;
   the generic refusal for a subtree with a hidden or read-only folder; the triggers refusing an
   upload, a move and a new subfolder, and an upload that started first being taken along;
   restore with exactly the access it had, to the root when the parent is gone, refused on a name
   clash; the purge keeping tombstones with grants and marking derived answers; idempotent
   purges; the hold coverage table and the 409s; each setting's read-time effect on a folder, a
   note and a conversation; „Mit dem Ordner entfernen" through „Endgültig löschen" (notes,
-  answers, traces through a stubbed Langfuse, reports marked, the content-free record) and its
-  retry.
+  answers, reports marked, the content-free record, no call to Langfuse from the BFF, and the
+  row handed to the purger with the conversations whose traces it owes).
+* `deploy/pulumi/src/app/langfuse-api-callers.spec.ts`: Langfuse's API keys only in the purger's
+  and the scheduler's environments, never the BFF's or the bff-jobs pool's, and no BFF module
+  importing the trace client.
 * `authz/folder-access.spec.ts`: the four settings on a purged folder, the bin hidden even
   without own lists. `purger/purge-folder.spec.mjs`: the purger's folder step.
 * `scripts/rls-test-db.sh`: 0114's backfill, its down refusing while the bin holds a folder, the
