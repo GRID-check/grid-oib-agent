@@ -8,6 +8,7 @@
  */
 
 import type { RateLimitDecision } from '@/lib/limits/types'
+import { BYTES_PER_MB } from '@/shared/config/request-body-limit'
 
 export class ApiError extends Error {
   constructor(
@@ -121,8 +122,9 @@ export class UnprocessableError extends ApiError {
 /**
  * 413 — the request body was larger than the server will accept.
  *
- * Distinct from the 400 that judges a declared file size: this one is reached
- * when the body has ALREADY been cut off in transit, so nothing downstream can
+ * Distinct from {@link FileTooLargeError}, which judges one named file against
+ * its organization's limit: this one is reached when the body has ALREADY been
+ * cut off in transit, so nothing downstream can
  * name the file — the multipart stream carrying its name is the thing that
  * failed to parse. The limit is worth stating for exactly that reason: it is
  * the only actionable fact left.
@@ -133,7 +135,7 @@ export class PayloadTooLargeError extends ApiError {
       413,
       'PAYLOAD_TOO_LARGE',
       limitBytes
-        ? `Request body exceeds the maximum accepted size of ${Math.round(limitBytes / (1024 * 1024))} MB`
+        ? `Request body exceeds the maximum accepted size of ${formatMegabytes(limitBytes)} MB`
         : 'Request body exceeds the maximum accepted size',
       limitBytes ? { limitBytes } : undefined
     )
@@ -141,9 +143,38 @@ export class PayloadTooLargeError extends ApiError {
 }
 
 /**
+ * A byte limit in the decimal MB it was configured in, for a server message.
+ *
+ * These messages used to divide by 1024², so a 100 MB limit read "95 MB" — a
+ * number nobody configured. One decimal, and only when it is not whole.
+ */
+export function formatMegabytes(bytes: number): string {
+  return String(Math.round((bytes / BYTES_PER_MB) * 10) / 10)
+}
+
+/**
+ * 413 — one uploaded file is larger than its organization may upload.
+ *
+ * The limit is per organization (platform staff may set it, else the deployment
+ * default; `@/lib/storage/upload-limit`) or, for a model, `BIM_MAX_IFC_BYTES`.
+ * The message names that limit in MB because it is what the uploader can act on,
+ * and the client shows the server's sentence as the row's error.
+ */
+export class FileTooLargeError extends ApiError {
+  constructor(details: { fileSize: number; maxSizeBytes: number }) {
+    super(
+      413,
+      'FILE_TOO_LARGE',
+      `File exceeds the maximum upload size of ${formatMegabytes(details.maxSizeBytes)} MB`,
+      details
+    )
+  }
+}
+
+/**
  * 507 — the organization's storage quota would be exceeded by this write.
  *
- * Distinct from 400 "file exceeds the maximum size", which judges the ONE file:
+ * Distinct from 413 {@link FileTooLargeError}, which judges the ONE file:
  * this one says the file is acceptable but the tenant has no room left, so the
  * remedy is different (delete something, or raise the quota) and the UI has to
  * say so. RFC 4918's Insufficient Storage is exactly this case.

@@ -68,6 +68,7 @@ const EXPECTED: Record<string, string> = {
   'norms/verify/route.ts POST': 'settingsManage',
   'organizations/[organizationId]/storage/route.ts GET': 'organizationsView',
   'organizations/[organizationId]/storage/route.ts PUT': 'organizationsManage',
+  'organizations/[organizationId]/upload-limit/route.ts PUT': 'organizationsManage',
   'organizations/[organizationId]/budgets/route.ts GET': 'organizationsView',
   'organizations/[organizationId]/budgets/route.ts PUT': 'organizationsManage',
   'overview/route.ts GET': 'organizationsView',

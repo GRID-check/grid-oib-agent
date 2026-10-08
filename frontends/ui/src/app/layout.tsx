@@ -18,6 +18,7 @@ import { NavigationTrail } from '@/components/shell/navigation-trail'
 import type { AppConfig } from '@/shared/context'
 import { getFileUploadConfigFromEnv } from '@/shared/config/file-upload'
 import { isVlmConfigured } from '@/lib/documents/vlm-capability'
+import { getEffectiveMaxUploadBytes } from '@/lib/storage/upload-limit'
 import { getGridSession } from '@/lib/auth/session'
 import { runWithTenantSlot } from '@/lib/db/tenant-context'
 import { PRODUCT_NAME } from '@/lib/brand'
@@ -136,6 +137,25 @@ const isSessionFlagEnabled = async (flag: KnownFeatureFlag): Promise<boolean> =>
 }
 
 /**
+ * The per-file upload limit of this session's organization, the number the
+ * upload routes enforce (`assertFileSizeAllowed`). `undefined` means the
+ * deployment default: a public page, a session without an organization, or a
+ * read that failed. Failing to the default is safe in both directions, because
+ * the server judges every file against the real number regardless.
+ */
+const getSessionMaxUploadBytes = async (): Promise<number | undefined> => {
+  try {
+    return await runWithTenantSlot(async () => {
+      const session = await getGridSession()
+      if (!session?.organizationId) return undefined
+      return getEffectiveMaxUploadBytes(session.organizationId)
+    })
+  } catch {
+    return undefined
+  }
+}
+
+/**
  * Runtime configuration from server-side environment variables.
  * These values can be changed at runtime without rebuilding the container.
  */
@@ -144,10 +164,11 @@ const getAppConfig = async (): Promise<AppConfig> => {
   // in this process, so there is no capability to derive). Resolved server-side
   // so the picker and validation share ONE accepted-types list with the upload
   // allow-list.
-  const [imageUploadEnabled, vlmAvailable, ifcUploadEnabled] = await Promise.all([
+  const [imageUploadEnabled, vlmAvailable, ifcUploadEnabled, maxFileSizeBytes] = await Promise.all([
     isImageUploadEnabled(),
     isVlmConfigured(),
     isIfcUploadEnabled(),
+    getSessionMaxUploadBytes(),
   ])
   return {
     authRequired: isAuthRequired(),
@@ -155,6 +176,7 @@ const getAppConfig = async (): Promise<AppConfig> => {
       imageUploadEnabled,
       vlmAvailable,
       ifcUploadEnabled,
+      maxFileSizeBytes,
     }),
     // Read server-side per request: the Docker image builds with no env
     // files, so a client-side `process.env.NEXT_PUBLIC_*` read would bake
