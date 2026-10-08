@@ -5,10 +5,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 vi.mock('server-only', () => ({}))
 vi.mock('@/lib/authz/project-membership', () => ({ resolveSubjectMembership: vi.fn() }))
-vi.mock('@/lib/workos/feature-flags', () => ({ isOrgFeatureEnabled: vi.fn() }))
+vi.mock('@/lib/workos/feature-flags', () => ({ enabledFlagsForOrganization: vi.fn() }))
 
 import { resolveSubjectMembership } from '@/lib/authz/project-membership'
-import { isOrgFeatureEnabled } from '@/lib/workos/feature-flags'
+import { enabledFlagsForOrganization } from '@/lib/workos/feature-flags'
 import { resolvePinnedRequesterSession } from './pinned-session'
 
 const requester = { userId: 'user_owner', email: 'owner@grid.test', organizationId: 'org_1' }
@@ -53,12 +53,26 @@ describe('resolvePinnedRequesterSession', () => {
     expect(await resolvePinnedRequesterSession(requester)).toBeNull()
   })
 
-  it('resolves the filing flag per organization under enforcement, and fails closed', async () => {
+  it("carries every flag of the requester's organization under enforcement, asked by that organization", async () => {
     vi.stubEnv('GRID_ENFORCE_FEATURE_FLAGS', 'true')
-    vi.mocked(isOrgFeatureEnabled).mockResolvedValueOnce(true)
-    expect((await resolvePinnedRequesterSession(requester))?.featureFlags).toEqual(['agent-authored-documents'])
+    vi.mocked(enabledFlagsForOrganization).mockResolvedValueOnce(['agent-authored-documents', 'image-upload'])
 
-    vi.mocked(isOrgFeatureEnabled).mockRejectedValueOnce(new Error('workos down'))
-    expect((await resolvePinnedRequesterSession(requester))?.featureFlags).toEqual([])
+    const session = await resolvePinnedRequesterSession(requester)
+    expect(session?.featureFlags).toEqual(['agent-authored-documents', 'image-upload'])
+    // The lookup that used to pass the slug as the organization.
+    expect(enabledFlagsForOrganization).toHaveBeenCalledWith(requester.organizationId)
+  })
+
+  it('lets a failed flag lookup throw, so the background work retries instead of acting with none', async () => {
+    vi.stubEnv('GRID_ENFORCE_FEATURE_FLAGS', 'true')
+    vi.mocked(enabledFlagsForOrganization).mockRejectedValueOnce(new Error('workos down'))
+
+    await expect(resolvePinnedRequesterSession(requester)).rejects.toThrow('workos down')
+  })
+
+  it('carries no flags at all without enforcement, as a live session without the claim does', async () => {
+    vi.stubEnv('GRID_ENFORCE_FEATURE_FLAGS', 'false')
+
+    expect((await resolvePinnedRequesterSession(requester))?.featureFlags).toBeNull()
   })
 })
