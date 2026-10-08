@@ -110,7 +110,7 @@ covers the folder decision; the project-level admin reach of
 `requireProjectAccess` still reads the token.
 
 **Deleting a folder puts it in the Papierkorb, then leaves a tombstone**
-(migration 0113, `lib/projects/folder-bin.ts`, decided 6 Oct 2026). A project
+(migration 0114, `lib/projects/folder-bin.ts`, decided 6 Oct 2026). A project
 folder only: the Archiv's folders (ADR-0078) keep the shelf's delete, which
 re-files the contents into the parent and removes the row, and have no bin,
 purge or tombstone (`project_folders_bin_state_check`). The folder goes with its subfolders and their documents, as one entry: moving the contents

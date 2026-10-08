@@ -1,7 +1,7 @@
 /**
  * @vitest-environment node
  *
- * Deleting a PROJECT folder is the Papierkorb's (ADR-0085): the folder goes to
+ * Deleting a PROJECT folder is the Papierkorb's (ADR-0087): the folder goes to
  * the bin with its subfolders and their documents. The shelf's delete, which
  * re-files the contents into the parent, is the Archiv's alone; for a project
  * it would lift the folder's own list from what it held. What the bin does is

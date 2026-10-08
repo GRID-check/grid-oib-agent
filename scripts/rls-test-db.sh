@@ -372,7 +372,7 @@ GRID_TEST_MIGRATION_DATABASE_URL="postgres://grid_app_owner@127.0.0.1:$PORT/grid
 echo "==> 0097 step rewrite and down migration verified"
 
 # ---------------------------------------------------------------------------
-# Migrations 0109 to 0113: each on a database of its own.
+# Migrations 0110 to 0114: each on a database of its own.
 #
 # `migrate_until <db> <tag>` creates <db> and applies the journal up to and
 # including <tag>, so every section below starts from exactly the chain it
@@ -579,7 +579,7 @@ check_in grid_download_log "SELECT count(*) FROM document_access_log" "0" "0112 
 echo "==> 0113 download log and down migration verified"
 
 # ---------------------------------------------------------------------------
-# Migration 0113: the Papierkorb, and its DOWN.
+# Migration 0114: the Papierkorb, and its DOWN.
 #
 # Seeded before 0113 runs: a tombstone the old delete left behind is
 # backfilled as PURGED (its contents had been moved out), a living folder is
@@ -591,8 +591,8 @@ echo "==> 0113 download log and down migration verified"
 # (columns, triggers and functions gone, the 0093 predicate back, which does not
 # know folders), and 0113 re-applies.
 # ---------------------------------------------------------------------------
-echo "==> verifying the 0113 Papierkorb backfill, triggers and down migration on grid_bin"
-migrate_until grid_bin 0112_document_access_log
+echo "==> verifying the 0114 Papierkorb backfill, triggers and down migration on grid_bin"
+migrate_until grid_bin 0113_document_access_log
 sql_in grid_bin <<'SQL'
 INSERT INTO projects (id, organization_id, name, created_by, collection_name)
 VALUES ('aaaaaaaa-0000-4000-8000-000000000110', 'org_0110', 'Papierkorb 0113', 'user_1', 'proj_0110');
@@ -603,7 +603,7 @@ INSERT INTO project_folders (id, organization_id, project_id, name, path) VALUES
 INSERT INTO project_folders (id, organization_id, scope, name, path) VALUES
   ('e3e3e3e3-e3e3-4000-8000-000000000110', 'org_0110', 'archiv', 'Normen 0113', 'Normen 0113');
 SQL
-apply_in grid_bin 0113_folder_bin.sql
+apply_in grid_bin 0114_folder_bin.sql
 check_in grid_bin "SELECT (purged_at = deleted_at)::text || ',' || coalesce(bin_root_id::text, 'none') FROM project_folders WHERE id = 'e1e1e1e1-e1e1-4000-8000-000000000110'" "true,none" "an older tombstone is backfilled as purged, with no bin entry"
 check_in grid_bin "SELECT count(*) FROM project_folders WHERE id IN ('e2e2e2e2-e2e2-4000-8000-000000000110', 'e3e3e3e3-e3e3-4000-8000-000000000110') AND purged_at IS NULL AND deleted_at IS NULL" "2" "a living project folder and an Archiv folder are untouched"
 refused_in grid_bin "INSERT INTO documents (organization_id, created_by, filename, storage_key, collection_name, status, scope, project_id, folder_id) VALUES ('org_0110', 'user_1', 'spaet.pdf', 'k/spaet', 'proj_0110', 'completed', 'project', 'aaaaaaaa-0000-4000-8000-000000000110', 'e1e1e1e1-e1e1-4000-8000-000000000110');" "is deleted; nothing may be filed into it" "a document cannot be filed into a deleted folder"
@@ -621,19 +621,19 @@ SQL
 check_in grid_bin "SELECT grid_legal_hold_blocks('folder', 'e2e2e2e2-e2e2-4000-8000-000000000110', 'org_0110')::text" "true" "a hold on a document in a folder covers the folder"
 sql_in grid_bin <<<"UPDATE legal_holds SET released_at = now() WHERE organization_id = 'org_0110';"
 sql_in grid_bin <<<"UPDATE project_folders SET deleted_at = now(), deleted_by = 'user_1', bin_root_id = id WHERE id = 'e2e2e2e2-e2e2-4000-8000-000000000110';"
-refused_in grid_bin "$(cat drizzle/0113_folder_bin.down.sql)" "the Papierkorb is not empty" "the down refuses while a folder is in the bin"
+refused_in grid_bin "$(cat drizzle/0114_folder_bin.down.sql)" "the Papierkorb is not empty" "the down refuses while a folder is in the bin"
 check_in grid_bin "SELECT count(*) FROM information_schema.columns WHERE table_name = 'project_folders' AND column_name IN ('bin_root_id', 'purged_at')" "2" "the refused down changed nothing"
 sql_in grid_bin <<<"UPDATE project_folders SET deleted_at = NULL, deleted_by = NULL, bin_root_id = NULL WHERE id = 'e2e2e2e2-e2e2-4000-8000-000000000110';"
-apply_in grid_bin 0113_folder_bin.down.sql
+apply_in grid_bin 0114_folder_bin.down.sql
 check_in grid_bin "SELECT count(*) FROM information_schema.columns WHERE table_name = 'project_folders' AND column_name IN ('bin_root_id', 'purged_at')" "0" "down dropped the bin columns"
 check_in grid_bin "SELECT count(*) FROM pg_trigger WHERE tgname IN ('documents_deleted_folder_guard', 'project_folders_deleted_parent_guard')" "0" "down dropped the triggers"
 check_in grid_bin "SELECT count(*) FROM project_folders WHERE id = 'e1e1e1e1-e1e1-4000-8000-000000000110' AND deleted_at IS NOT NULL" "1" "the tombstone stays a tombstone"
 sql_in grid_bin <<<"INSERT INTO legal_holds (entity_type, entity_id, organization_id, reason, created_by) VALUES ('document', 'd1d1d1d1-d1d1-4000-8000-000000000110', 'org_0110', 'rls test 2', 'user_1');"
 check_in grid_bin "SELECT grid_legal_hold_blocks('folder', 'e2e2e2e2-e2e2-4000-8000-000000000110', 'org_0110')::text" "false" "the 0093 predicate is back: it does not know folders"
-apply_in grid_bin 0113_folder_bin.sql
+apply_in grid_bin 0114_folder_bin.sql
 check_in grid_bin "SELECT grid_legal_hold_blocks('folder', 'e2e2e2e2-e2e2-4000-8000-000000000110', 'org_0110')::text || ',' || (SELECT (purged_at IS NOT NULL)::text FROM project_folders WHERE id = 'e1e1e1e1-e1e1-4000-8000-000000000110')" "true,true" "0113 re-applies"
 
-echo "==> 0113 backfill, triggers and down migration verified"
+echo "==> 0114 backfill, triggers and down migration verified"
 
 # ---------------------------------------------------------------------------
 # Migration 0102: project_folders become folders of a SHELF (project | archiv),

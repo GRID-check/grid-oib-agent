@@ -1,5 +1,5 @@
 /**
- * Saving „Inhalte aus gelöschten Ordnern" (ADR-0085): the one writer of
+ * Saving „Inhalte aus gelöschten Ordnern" (ADR-0087): the one writer of
  * `organizations.settings.deletedFolderContent` (the generic settings save
  * refuses the key, `DEDICATED_ROUTE_SETTINGS`), audited.
  */

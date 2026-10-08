@@ -109,7 +109,7 @@ export interface FileItem {
    */
   lifecycle?: DocumentLifecycle | null
   /**
-   * A filed report drawn from a folder that was purged since (ADR-0085): when
+   * A filed report drawn from a folder that was purged since (ADR-0087): when
    * the purge ran, for „Quelle gelöscht am …". Null for every other document.
    */
   sourceDeletedAt?: string | null

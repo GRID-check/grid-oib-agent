@@ -27,7 +27,7 @@ export interface FolderTreeOptions {
   /** Re-read the documents after a change that moved some (a delete re-files them). */
   reloadFiles: (quiet?: boolean) => Promise<unknown>
   /**
-   * The shelf's Papierkorb (a project's, ADR-0085). With it, a delete moves the
+   * The shelf's Papierkorb (a project's, ADR-0087). With it, a delete moves the
    * folder there with its contents and the toast links to it; without it (the
    * Archiv), a delete re-files the contents into the parent.
    */

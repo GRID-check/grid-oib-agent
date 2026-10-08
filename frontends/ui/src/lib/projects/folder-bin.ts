@@ -1,5 +1,5 @@
 /**
- * The Papierkorb: deleting a folder, restoring it and purging it (ADR-0085,
+ * The Papierkorb: deleting a folder, restoring it and purging it (ADR-0087,
  * `docs/architecture/deletion-pipeline.md`).
  *
  * ## Deleting takes the contents with it
@@ -32,7 +32,7 @@
  * `document-exists` once it has indexed, is told "gone", and takes its chunks
  * back out.
  *
- * Nothing can be filed into a deleted folder: migration 0113's triggers refuse
+ * Nothing can be filed into a deleted folder: migration 0114's triggers refuse
  * the insert or move (SQLSTATE `GFD01`) under the project's bin lock, which
  * the delete holds while it reads the subtree.
  *

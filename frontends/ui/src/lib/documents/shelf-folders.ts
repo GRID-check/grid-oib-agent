@@ -21,7 +21,7 @@
  * not see. A project's path rewrite reaches every collection its documents
  * live in (a restricted folder's documents are in their own). A project folder
  * is never deleted here: it goes to the Papierkorb with its contents
- * (`@/lib/projects/folder-bin`, ADR-0085), so {@link deleteShelfFolder} takes
+ * (`@/lib/projects/folder-bin`, ADR-0087), so {@link deleteShelfFolder} takes
  * the Archiv's shelf alone.
  */
 
@@ -663,7 +663,7 @@ export async function updateShelfFolder(
  * into the parent would lift the folder's own access list from them, and what
  * was derived from it must keep being judged by the access it had. It goes to
  * the Papierkorb with its contents instead (`@/lib/projects/folder-bin`,
- * ADR-0085), and the type of `shelf` keeps a project caller from landing here.
+ * ADR-0087), and the type of `shelf` keeps a project caller from landing here.
  *
  * The counts come back so the surface can say what happened rather than leaving
  * the reader to discover where their files went.

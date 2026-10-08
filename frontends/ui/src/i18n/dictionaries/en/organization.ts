@@ -608,7 +608,7 @@ export const organization = {
     open: 'View audit logs',
     error: 'Could not open the audit log viewer.',
   },
-  /** Sensible Daten → „Inhalte aus gelöschten Ordnern" (ADR-0085). */
+  /** Sensible Daten → „Inhalte aus gelöschten Ordnern" (ADR-0087). */
   deletedFolderContent: {
     title: 'Content from deleted folders',
     description:
@@ -632,7 +632,7 @@ export const organization = {
     loadError: 'The setting could not be loaded.',
     readOnly: 'Only organization admins can change this.',
   },
-  /** Sensitive data: the lists Piloti checks every upload against (ADR-0083). */
+  /** Sensitive data: the lists Piloti checks every upload against (ADR-0085). */
   screening: {
     title: 'Screening list',
     description:

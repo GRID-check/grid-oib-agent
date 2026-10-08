@@ -113,7 +113,7 @@ export function effectiveFolderLevel(tree: FolderTree, clearance: FolderClearanc
   if (!target) return 'none'
   if (clearance.seesEverything) return 'write'
   // A purged folder's derived content follows the organization's setting
-  // (ADR-0085); `unchanged` reads the kept grants below.
+  // (ADR-0087); `unchanged` reads the kept grants below.
   const purgedPolicy = target.purgedAt ? (target.purgedContent ?? 'unchanged') : 'unchanged'
   if (purgedPolicy === 'project') return 'read'
   if (purgedPolicy === 'admins' || purgedPolicy === 'remove') return 'none'

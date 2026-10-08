@@ -85,7 +85,7 @@ describe('getProjectMemory', () => {
     expect(items.find((item) => item.id === 'restricted')).not.toHaveProperty('sourceDeletedAt')
   })
 
-  it('says when the folder a note came from was purged, for „Quelle gelöscht am …" (ADR-0085)', async () => {
+  it('says when the folder a note came from was purged, for „Quelle gelöscht am …" (ADR-0087)', async () => {
     vi.mocked(readableFolderIdsFor).mockResolvedValue([CONTRACTS])
     vi.mocked(customFolderNames).mockResolvedValue(new Map([[CONTRACTS, 'Verträge']]))
     vi.mocked(purgedFolderDates).mockResolvedValue(new Map([[CONTRACTS, new Date('2026-10-20T03:00:00Z')]]))

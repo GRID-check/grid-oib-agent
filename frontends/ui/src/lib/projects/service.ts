@@ -325,7 +325,7 @@ export type ProjectMemoryItemPatch = Partial<
 export type ProjectMemoryListItem = ProjectMemoryItem & {
   restrictedFolderNames?: string[]
   /**
-   * When a folder the note came from was purged (ADR-0085): the panel's
+   * When a folder the note came from was purged (ADR-0087): the panel's
    * „Quelle gelöscht am …". The earliest, when several were.
    */
   sourceDeletedAt?: string

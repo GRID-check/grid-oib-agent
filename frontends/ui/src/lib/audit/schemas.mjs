@@ -170,7 +170,7 @@ export const AUDIT_SCHEMAS = /** @type {const} */ ({
     targets: [{ type: 'organization' }],
     metadata: { policy: 'string' },
   },
-  // Upload screening (ADR-0083). Its own action rather than
+  // Upload screening (ADR-0085). Its own action rather than
   // `org.settings.updated`, because "who widened what may be uploaded" has to
   // be answerable on its own. Counts, not the lists: a term list can name
   // what an office considers sensitive, which is itself sensitive.

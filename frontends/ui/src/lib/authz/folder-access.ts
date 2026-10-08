@@ -20,7 +20,7 @@
  * of its NEAREST such folder. Only a session that may read that folder gets the
  * collection in its signed scope. Write never affects retrieval.
  *
- * Deleted folders stay in the tree (migration 0109): in the Papierkorb, then as
+ * Deleted folders stay in the tree (migration 0110): in the Papierkorb, then as
  * purged tombstones (0113). They are hidden from every listing and from
  * placement, what is filed in them is hidden from everyone, and
  * {@link effectiveFolderLevel} still answers for them, because content derived
@@ -354,7 +354,7 @@ export async function sourceFoldersOfCollections(
 }
 
 /**
- * When each purged folder of the project was purged (ADR-0085): what a surface
+ * When each purged folder of the project was purged (ADR-0087): what a surface
  * shows as „Quelle gelöscht am …" under content drawn from it. Labels, never a
  * decision: who may see that content is {@link effectiveFolderLevel}'s.
  */
