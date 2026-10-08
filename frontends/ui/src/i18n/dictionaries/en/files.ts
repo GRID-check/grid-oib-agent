@@ -626,6 +626,7 @@ export const files = {
       type: 'file type not accepted',
       size: 'too large',
       unreadable: 'damaged in the archive',
+      screened: 'held back by the office’s name screening',
     },
   },
   upload: {

@@ -5,7 +5,10 @@
  * Everything goes through the ordinary upload path as the person who started
  * the import, so the same type, size, quota and permission gates apply as when
  * they drop a file, and the audit trail names them. What a person could not
- * upload is skipped and named, never forced in.
+ * upload is skipped and named, never forced in. That includes the office's
+ * name screening (ADR-0086): the import never passes `screeningRelease`,
+ * because releasing a screened file is a person's decision about that file and
+ * a job cannot make it on their behalf.
  *
  * **Retry-safe by construction.** The job may die anywhere in here and run the
  * same mail again. The mail's folder is recorded (`markInflight`) the moment it
@@ -29,6 +32,7 @@ import { projectShelf } from '@/lib/documents/shelf'
 import { shelfCollectionName } from '@/lib/documents/shelf-collection'
 import { FOLDER_NAME_TAKEN } from '@/lib/documents/shelf-folders'
 import { createProjectFolder, ensureProjectFolderPaths } from '@/lib/projects/folder-service'
+import { ScreenedUploadError } from '@/lib/upload-screening/service'
 import {
   AttachmentTooLargeError,
   AttachmentUnreadableError,
@@ -47,6 +51,7 @@ import {
   outlookFolderPath,
 } from './naming'
 import { markInflight } from './repository'
+import { importBatchWithRoom, type ImportBatch } from './upload-batch'
 
 /** Candidates tried for a taken name before the mail is given up on. */
 const MAX_NAME_ATTEMPTS = 50
@@ -87,6 +92,8 @@ export interface FilingContext {
   folders: Map<string, string>
   /** `Date.now()` past which no new attachment is started. */
   deadline: number
+  /** The upload batch every file is stamped with (`./upload-batch`); moves on when full. */
+  uploadBatch: ImportBatch
 }
 
 export interface FiledMail {
@@ -262,10 +269,15 @@ async function refusalBeforeReading(
   return null
 }
 
-/** The skip a refusal of the upload path stands for, or null when `error` is not one. */
+/**
+ * The skip a refusal of the upload path stands for, or null when `error` is not
+ * one. Every refusal a retry would repeat belongs here: one left out is
+ * rethrown, the job retries the same mail until the import ends `stopped`.
+ */
 function refusalReason(error: unknown): MailImportSkipReason | null {
   if (error instanceof FileTooLargeError) return 'size'
   if (error instanceof BadRequestError) return 'type'
+  if (error instanceof ScreenedUploadError) return 'screened'
   return null
 }
 
@@ -285,12 +297,15 @@ async function fileBytes(
   const filename = await freeFilename(context, folderId, desired, claimed)
   claimed.add(filename)
   const file = new File([bytes as Uint8Array<ArrayBuffer>], filename, { type: contentType })
+  context.uploadBatch = await importBatchWithRoom(context.session, context.mailImport, context.uploadBatch)
   try {
-    await uploadDocument(
+    const uploaded = await uploadDocument(
       context.session,
-      { projectId: context.mailImport.projectId, folderId, file, priority: 'bulk' },
+      { projectId: context.mailImport.projectId, folderId, file, priority: 'bulk', uploadBatchId: context.uploadBatch.id },
       context.request,
     )
+    // Unchanged bytes write nothing, so the document does not join the batch.
+    if (!uploaded.unchanged) context.uploadBatch.documents += 1
   } catch (error) {
     if (error instanceof InsufficientStorageError) throw new MailImportQuotaError()
     const reason = refusalReason(error)
