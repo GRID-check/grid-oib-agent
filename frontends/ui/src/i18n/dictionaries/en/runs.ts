@@ -120,6 +120,10 @@ export const runs = {
     add: 'Add',
     addOne: 'Add {name}',
     alreadyNamed: 'named',
+    addFailed: 'The document did not reach the run. Please try again.',
+    restricted: 'restricted',
+    restrictedReason:
+      'Sits in a folder with restricted access. A run’s documents and its report are visible to everyone in the project, so it cannot be added.',
     done: 'Done',
     shelf: { project: 'Project', archiv: 'Office filing', session: 'This chat', base: 'Regulations' },
   },

@@ -24,15 +24,34 @@ import type { PlanDocument, PlanDocuments } from './plan-documents'
 /** How a request is made — injected so a spec can hand in a fake. */
 export type RunViewFetch = (input: string, init?: RequestInit) => Promise<Response>
 
-/** A request the API refused, with the status the caller decides on. */
+/**
+ * A request the API refused, with the status the caller decides on, and the
+ * API's own `code` when the body named one. When it did, `message` is the
+ * API's sentence, already in the reader's language (a 403
+ * `CONVERSATION_CONFINED` is written to be shown as it is).
+ */
 export class RunViewError extends Error {
   constructor(
     readonly status: number,
-    message: string
+    message: string,
+    readonly code: string | null = null
   ) {
     super(message)
     this.name = 'RunViewError'
   }
+}
+
+/** The API's error envelope (`lib/api/handler.ts` `errorResponse`): `{ error, code }`. */
+const apiRefusalSchema = z.object({ error: z.string().min(1), code: z.string().min(1) })
+
+/** The refusal as the API worded it, or the generic one when the body says nothing usable. */
+async function refusalOf(response: Response): Promise<RunViewError> {
+  const fallback = `Run view request failed with ${response.status}`
+  const body: unknown = await response.json().catch(() => null)
+  const parsed = apiRefusalSchema.safeParse(body)
+  return parsed.success
+    ? new RunViewError(response.status, parsed.data.error, parsed.data.code)
+    : new RunViewError(response.status, fallback)
 }
 
 export function runViewPath(projectId: string, runId: string): string {
@@ -94,22 +113,29 @@ export function runDocumentsPath(projectId: string, runId: string): string {
   return `${runViewPath(projectId, runId)}/documents`
 }
 
-/** Add a document to a running run's Grundlage. Same errors as the cancel. */
+/**
+ * Add a document to a running run's Grundlage. Same errors as the cancel, and
+ * the API's code and sentence on the error when it gave them: a document from
+ * a restricted folder is a 403 `CONVERSATION_CONFINED` the block shows as is.
+ *
+ * Only the plan document's own fields are sent. A caller holds richer rows (the
+ * picker's inventory carries the file row it opens from) and the route's
+ * schema is strict, so a whole row is refused as a bad request.
+ */
 export async function addRunDocument(
   projectId: string,
   runId: string,
   document: PlanDocument,
   run: RunViewFetch = (input, init) => fetch(input, init)
 ): Promise<RunView> {
+  const { name, title, shelf } = document
   const response = await run(runDocumentsPath(projectId, runId), {
     method: 'POST',
     headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
     credentials: 'same-origin',
-    body: JSON.stringify(document),
+    body: JSON.stringify({ name, title, shelf }),
   })
-  if (!response.ok) {
-    throw new RunViewError(response.status, `Run view request failed with ${response.status}`)
-  }
+  if (!response.ok) throw await refusalOf(response)
   return runViewSchema.parse(await response.json())
 }
 

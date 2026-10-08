@@ -992,3 +992,49 @@ describe('/api/jobs/async/[...path] proxy — a cancel the backend refuses becau
     expect(error).toHaveBeenCalledWith(expect.stringContaining('POST backend error'), 500, '{"detail":"boom"}')
   })
 })
+
+describe('/api/jobs/async/[...path] proxy — a run’s documents have one door (ADR-0055, ADR-0086)', () => {
+  // `addRunDocument` checks a document against the project's restricted
+  // folders before the backend hears of it; the proxy would forward the same
+  // control with a signed project and no such check, so it does not serve it.
+  let fetchSpy: ReturnType<typeof vi.spyOn>
+
+  beforeEach(() => {
+    delete process.env.REQUIRE_AUTH
+    fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response('{}', { status: 200 }))
+    vi.spyOn(console, 'log').mockImplementation(() => undefined)
+  })
+
+  afterEach(() => {
+    vi.restoreAllMocks()
+    if (originalRequireAuth !== undefined) process.env.REQUIRE_AUTH = originalRequireAuth
+  })
+
+  it.each([
+    [['job', 'job-1', 'documents']],
+    [['job', 'job-1', 'documents', '']],
+    [['job', 'job-1', 'x', '..', 'documents']],
+    [['job', 'job-1', 'x/../documents']],
+  ])('refuses %j without calling the backend, and names the run route', async (path) => {
+    const res = await POST(
+      postRequest('https://grid.example/api/jobs/async/job/job-1/documents?projectId=project-1', {
+        name: 'Abmahnung_Meier_2026.pdf',
+        title: 'Abmahnung Meier',
+      }),
+      postParams(path)
+    )
+
+    expect(res.status).toBe(404)
+    expect((await res.json()).error.message).toContain('/api/projects/{projectId}/runs/{runId}/documents')
+    expect(fetchSpy).not.toHaveBeenCalled()
+  })
+
+  it.each(['cancel', 'write-now'])('still forwards %s', async (action) => {
+    const res = await POST(
+      postRequest(`https://grid.example/api/jobs/async/job/job-1/${action}?projectId=project-1`),
+      postParams(['job', 'job-1', action])
+    )
+    expect(res.status).toBe(200)
+    expect(String(fetchSpy.mock.calls[0][0])).toContain(`/v1/jobs/async/job/job-1/${action}`)
+  })
+})

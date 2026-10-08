@@ -7,7 +7,9 @@
 import { act, renderHook, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-vi.mock('@/lib/runs/run-view-client', () => ({
+vi.mock('@/lib/runs/run-view-client', async (importOriginal) => ({
+  // The real error class: the hook narrows on it.
+  RunViewError: (await importOriginal<typeof import('@/lib/runs/run-view-client')>()).RunViewError,
   fetchRunView: vi.fn(),
   cancelRun: vi.fn(),
   addRunDocument: vi.fn(),
@@ -20,7 +22,7 @@ import {
   type DeepResearchStreamOptions,
 } from '@/adapters/api/deep-research-client'
 import type { RunLedger, RunView } from '@/lib/runs/run-ledger-types'
-import { addRunDocument, cancelRun, fetchRunView } from '@/lib/runs/run-view-client'
+import { addRunDocument, cancelRun, fetchRunView, RunViewError } from '@/lib/runs/run-view-client'
 import { useRunLedger } from './use-run-ledger'
 import { useChatStore } from '@/features/chat/store'
 
@@ -367,6 +369,41 @@ describe('useRunLedger — adding a document while the run goes', () => {
 
     expect(addRunDocument).toHaveBeenCalledWith('p1', RUN, { name: 'Nachtrag.pdf', shelf: 'project' })
     expect(result.current.ledger?.grundlage?.map((doc) => doc.name)).toEqual(['Nachtrag.pdf'])
+  })
+
+  it('keeps the API’s sentence for a restricted-folder refusal until the next try', async () => {
+    const refusal = 'Eine genannte Unterlage liegt in einem Ordner mit eingeschränktem Zugriff …'
+    vi.mocked(addRunDocument).mockRejectedValueOnce(new RunViewError(403, refusal, 'CONVERSATION_CONFINED'))
+
+    const { result } = renderHook(() =>
+      useRunLedger({ message: { id: 'msg-1', runLedger: ledger() }, projectId: 'p1' })
+    )
+    await waitFor(() => expect(result.current.addDocument).not.toBeNull())
+    expect(result.current.addDocumentFailure).toBeNull()
+
+    await act(async () => {
+      await result.current.addDocument?.({ name: 'Abmahnung.pdf', shelf: 'project' })
+    })
+    expect(result.current.addDocumentFailure).toEqual({ message: refusal })
+
+    vi.mocked(addRunDocument).mockResolvedValueOnce(view({ ledger: ledger() }))
+    await act(async () => {
+      await result.current.addDocument?.({ name: 'Einreichplan.pdf', shelf: 'project' })
+    })
+    expect(result.current.addDocumentFailure).toBeNull()
+  })
+
+  it('reports any other failure without the API’s wording, which is not written for the reader', async () => {
+    vi.mocked(addRunDocument).mockRejectedValueOnce(new RunViewError(409, 'This run has already ended', 'CONFLICT'))
+
+    const { result } = renderHook(() =>
+      useRunLedger({ message: { id: 'msg-1', runLedger: ledger() }, projectId: 'p1' })
+    )
+    await waitFor(() => expect(result.current.addDocument).not.toBeNull())
+    await act(async () => {
+      await result.current.addDocument?.({ name: 'Einreichplan.pdf', shelf: 'project' })
+    })
+    expect(result.current.addDocumentFailure).toEqual({ message: null })
   })
 
   it('offers no addition once the run is over', () => {

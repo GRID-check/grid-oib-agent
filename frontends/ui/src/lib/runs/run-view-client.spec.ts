@@ -3,6 +3,7 @@
  */
 import { describe, expect, it, vi } from 'vitest'
 import {
+  addRunDocument,
   cancelRun,
   commissionRun,
   fetchRunView,
@@ -115,5 +116,39 @@ describe('commissionRun', () => {
     await expect(
       commissionRun('p1', { conversationId: 's', question: 'q' }, respond(403, { error: 'no' }))
     ).rejects.toMatchObject({ status: 403 })
+  })
+})
+
+describe('addRunDocument', () => {
+  it('posts only the plan document’s fields, whatever row the caller holds', async () => {
+    const run = respond(200, view)
+    const row = {
+      name: 'Einreichplan.pdf',
+      title: 'Einreichplan EG',
+      shelf: 'project',
+      // What the picker's inventory carries beside the plan document.
+      file: { id: 'doc-1' },
+      source: 'projekt',
+    }
+
+    await addRunDocument('p1', 'run-1', row, run)
+
+    expect(run.mock.calls[0][0]).toBe('/api/projects/p1/runs/run-1/documents')
+    expect(JSON.parse(String(run.mock.calls[0][1]?.body))).toEqual({
+      name: 'Einreichplan.pdf',
+      title: 'Einreichplan EG',
+      shelf: 'project',
+    })
+  })
+
+  it('carries the API’s code and sentence on a refusal, and the status alone on a bare one', async () => {
+    const refusal = 'Eine genannte Unterlage liegt in einem Ordner mit eingeschränktem Zugriff …'
+    await expect(
+      addRunDocument('p1', 'run-1', { name: 'a.pdf' }, respond(403, { error: refusal, code: 'CONVERSATION_CONFINED' }))
+    ).rejects.toMatchObject({ status: 403, code: 'CONVERSATION_CONFINED', message: refusal })
+    await expect(addRunDocument('p1', 'run-1', { name: 'a.pdf' }, respond(502, {}))).rejects.toMatchObject({
+      status: 502,
+      code: null,
+    })
   })
 })
