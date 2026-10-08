@@ -6,7 +6,9 @@
  * with a masked sample, never the value — and offers two ways on: send the
  * message with each match replaced by its placeholder, or go back and edit it.
  * There is deliberately no third button that sends it as typed: the policy's
- * promise is that the model never sees it.
+ * promise is that the answering model never sees it. "Answering" because a
+ * dictated message's audio has already been through the transcription model
+ * before this notice can see its text (ADR-0085, "Neutral").
  *
  * A molecule over the `Alert` and `Button` atoms; the composer owns the state.
  */

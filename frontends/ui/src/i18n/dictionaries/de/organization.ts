@@ -552,7 +552,7 @@ export const organization: typeof en.organization = {
     nameExceptionsHint: 'Wörter, die einen Begriff enthalten, aber etwas anderes meinen: „Berechnung“ enthält „Rechnung“.',
     contentTitle: 'Nach dem Hochladen: Inhalt',
     contentHint:
-      'Piloti liest den Text auf dem eigenen Server und prüft ihn, bevor ein Modell ihn sieht. Treffer warten in der Quarantäne, bis jemand sie freigibt oder löscht. Dieselben Begriffe und Nummern gelten für Chat-Nachrichten: Piloti zeigt vor dem Senden, was es gefunden hat, und schickt die Nachricht nur maskiert an das Modell.',
+      'Piloti liest den Text auf dem eigenen Server und prüft ihn, bevor ein Modell ihn sieht. Treffer warten in der Quarantäne, bis jemand sie freigibt oder löscht. Dieselben Begriffe und Nummern gelten für Chat-Nachrichten: Piloti zeigt vor dem Senden, was es gefunden hat, und schickt die Nachricht nur maskiert an das Antwortmodell. Eine diktierte Nachricht hört vorher ein externes Sprachmodell, um sie zu transkribieren.',
     contentTerms: 'Inhaltsbegriffe',
     contentTermsHint: 'Trifft Wörter, die so beginnen: „Honorar“ findet „Honorarnote“.',
     detectors: 'Nummern erkennen',
