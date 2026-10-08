@@ -1358,7 +1358,7 @@ describe('request_changes and the revision task', () => {
 
   /**
    * A task's goal, plan (the draft's text) and filed filename are listed to
-   * every project member, and tasks carry no folder audience (ADR-0084). A
+   * every project member, and tasks carry no folder audience (ADR-0086). A
    * draft in a folder some member may not read is never quoted into one.
    */
   describe('a draft in a folder some project member may not read', () => {

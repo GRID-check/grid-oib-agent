@@ -164,7 +164,7 @@ organization's turns. A vote on a conversation with any
 (`OUTSIDE_RESTRICTED_USE`); only the aggregate counts include it. Deleting the
 chat deletes that row and keeps the vote, which has no foreign key to the
 conversation, so deleting the row marks the vote `restricted_source` (a
-trigger, migration 0119) and the filter reads both. The digest's cache key was
+trigger, migration 0120) and the filter reads both. The digest's cache key was
 bumped with the filter, so a digest written from such a vote is not served.
 
 The agent does not offer what will be refused: a turn whose signed scope holds a

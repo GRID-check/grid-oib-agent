@@ -31,8 +31,8 @@ import { executeRows } from '@/lib/db/execute-rows'
 
 /**
  * Leaves out a vote on a conversation that drew on a folder with restricted
- * access: one with any `conversation_restricted_folders` row (ADR-0084,
- * ADR-0085). Its question, answer, comment and expected answer may quote that
+ * access: one with any `conversation_restricted_folders` row (ADR-0086,
+ * ADR-0087). Its question, answer, comment and expected answer may quote that
  * folder, and every reader of these rows is outside the folder's audience: the
  * platform staff's drill-in and CSV export, the digest's model, the eval-case
  * converter fed by the export, and the lessons distiller that injects into
@@ -41,7 +41,7 @@ import { executeRows } from '@/lib/db/execute-rows'
  * Any record counts, including one for a folder since opened: these readers
  * are cross-tenant, and the safe direction is to show less. The record goes
  * with a deleted chat while the vote stays, so the vote carries the fact too:
- * deleting the record marks it `restricted_source` (migration 0119), and both
+ * deleting the record marks it `restricted_source` (migration 0120), and both
  * are read. Expects the feedback row aliased `f`.
  */
 export const OUTSIDE_RESTRICTED_USE = sql`not f.restricted_source and not exists (

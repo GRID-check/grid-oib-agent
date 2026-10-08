@@ -151,7 +151,7 @@ export interface TransitionInput {
    * origin conversation opens one either way — see the `openRevisionTask` effect.
    *
    * Refused before the swap for a document in a folder some project member may
-   * not read: a task is listed to the whole project (ADR-0084).
+   * not read: a task is listed to the whole project (ADR-0086).
    */
   delegateRevision?: boolean
   /** The language of a refusal; the agent's route leaves it German. */
@@ -519,7 +519,7 @@ const EFFECT_REGISTRY: Record<DocumentVersionEffect, EffectRunner> = {
    * no folder audience of their own. So a draft in a folder some member may not
    * read gets no task, whoever filed it: the reviewer who asked outright was
    * refused with the reason before the swap, and a version nobody asked about
-   * keeps its comment on the row for its author (ADR-0084).
+   * keeps its comment on the row for its author (ADR-0086).
    */
   openRevisionTask: async ({ session, document, version, input }) => {
     const delegated = input.delegateRevision === true
