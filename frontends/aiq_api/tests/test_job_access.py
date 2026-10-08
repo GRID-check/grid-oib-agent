@@ -397,12 +397,8 @@ def test_job_routes_under_auth_through_the_middleware_chain(db_url, auth_on, mon
     and is refused without it.
     """
     monkeypatch.setenv("APP_ENV", "production")
-    job = _seed(db_url)
-    job_store = SimpleNamespace(get_job=AsyncMock(side_effect=lambda job_id: job if job_id == "job-1" else None))
+    _seed(db_url)
     worker = SimpleNamespace(
-        _dask_available=True,
-        _job_store=job_store,
-        _scheduler_address="tcp://localhost:8786",
         _db_url=db_url,
         _config_file_path="config.yml",
         _front_end_config=SimpleNamespace(expiry_seconds=86400),
@@ -441,5 +437,5 @@ def test_job_routes_under_auth_through_the_middleware_chain(db_url, auth_on, mon
 
     # 404 from the handler ("Job not found"), so the call got past both gates.
     assert internal.status_code == 404
-    assert job_store.get_job.await_args_list[-1].args == ("job-missing",)
+    assert internal.json()["detail"] == "Job not found: job-missing"
     assert no_token.status_code == 403
