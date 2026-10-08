@@ -109,11 +109,40 @@ def test_a_dry_run_extracts_and_writes_nothing_and_needs_no_ids():
     assert store.calls == []
 
 
-def test_a_bescheid_without_a_document_id_fails_before_any_model_call():
+def test_with_document_ids_a_bescheid_without_an_entry_fails_before_any_model_call():
     llm = FakeLLM()
-    stats, store = _run([_doc()], ids={}, llm=llm)
+    stats, store = _run([_doc()], ids={"other.pdf": "d9"}, llm=llm)
     assert stats.failed == 1
     assert llm.messages == [] and store.calls == []
+
+
+def test_without_document_ids_a_real_run_stores_by_file_name_with_no_id():
+    llm = FakeLLM()
+    stats, store = _run([_doc()], ids={}, llm=llm)
+
+    assert (stats.stored, stats.failed) == (1, 0)
+    org, document_id, collection, file_name, _, record = store.calls[0]
+    assert (org, document_id, collection, file_name) == ("org_1", None, "proj_1", "ma37.pdf")
+    assert record.authority == "MA 37"
+
+
+def test_a_real_run_without_document_ids_exits_zero_and_stores_by_file_name(monkeypatch):
+    stored = []
+
+    def fake_store(*args):
+        stored.append(args)
+        return True
+
+    monkeypatch.setattr("aiq_agent.knowledge.configure_summary_db", lambda url: None)
+    monkeypatch.setattr("aiq_agent.knowledge.get_available_documents", lambda collection: [_doc()])
+    monkeypatch.setattr("aiq_agent.knowledge.permit_records_client.store_permit_record", fake_store)
+    monkeypatch.setattr(backfill, "make_page_fetcher", lambda chroma_dir: _fetch)
+    monkeypatch.setattr(backfill, "build_extraction_llm", lambda: FakeLLM())
+
+    exit_code = backfill.main(["--organization-id", "org_1", "--collection", "proj_1"])
+
+    assert exit_code == 0
+    assert [(call[1], call[3]) for call in stored] == [(None, "ma37.pdf")]
 
 
 def test_a_store_the_bff_refused_is_a_failure():

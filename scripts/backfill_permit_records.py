@@ -12,16 +12,19 @@ record, so a second run rewrites the same rows.
         --document-ids document_ids.json --dry-run
     python scripts/backfill_permit_records.py --organization-id org_1 --collection proj_x \\
         --document-ids document_ids.json
+    python scripts/backfill_permit_records.py --organization-id org_1 --collection proj_x
 
 DOCUMENT IDS
 ------------
 The BFF addresses a record by ``documentId``, and the BFF's ``documents`` table is not
 readable from here (ADR-0055). Neither the summaries nor the vector store carry that id.
-``--document-ids`` is a JSON object from file name to document id for the collection,
-exported from the BFF, for example
+``--document-ids`` is optional. It is a JSON object from file name to document id for the
+collection, exported from the BFF, for example
 ``select json_object_agg(file_name, id) from documents where collection_name = '...'``.
-A ``Bescheid`` with no entry is counted as failed. A ``--dry-run`` writes nothing and
-needs no ids.
+With it, each record is stored under its document id, and a ``Bescheid`` with no entry is
+counted as failed. Without it, each record is stored by collection and file name, and the
+BFF finds the document from those (a live file name is unique per collection). A
+``--dry-run`` writes nothing.
 
 TEXT SOURCE
 -----------
@@ -73,7 +76,7 @@ DEFAULT_CHROMA_DIR = os.environ.get("AIQ_CHROMA_DIR", "/tmp/chroma_data")
 
 # A document's indexed chunks as (page_label, text), in reading order; None when unavailable.
 PageFetcher = Callable[[str, str], "list[tuple[str | None, str]] | None"]
-# (organization_id, document_id, collection, file_name, model, record) -> stored
+# (organization_id, document_id | None, collection, file_name, model, record) -> stored
 StoreFn = Callable[..., bool]
 
 
@@ -180,13 +183,14 @@ def process_row(
 
     A document the tags do not call a Bescheid is skipped. Everything else is fail-soft
     per document: it is logged and counted, and never aborts the batch. ``--dry-run``
-    extracts, to preview, and writes nothing.
+    extracts, to preview, and writes nothing. An empty ``document_ids`` means no
+    ``--document-ids`` was given: the record is stored by file name, with no id.
     """
     file_name = doc.file_name
     if not is_bescheid(doc.tags):
         return SKIPPED
-    document_id = document_ids.get(file_name)
-    if not document_id and not dry_run:
+    document_id = document_ids.get(file_name) or None
+    if document_ids and document_id is None and not dry_run:
         logger.warning("[fail] %s/%s has no entry in --document-ids", collection, file_name)
         return FAILED
     pages = page_fetcher(collection, file_name)
@@ -254,7 +258,10 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument(
         "--document-ids",
         default=None,
-        help="JSON object from file name to document id for the collection (see the module docstring).",
+        help=(
+            "Optional JSON object from file name to document id for the collection. Without it, records "
+            "are stored by collection and file name (see the module docstring)."
+        ),
     )
     parser.add_argument("--dry-run", action="store_true", help="Extract and print, but write nothing.")
     parser.add_argument("--summary-db", default=DEFAULT_SUMMARY_DB, help="Summaries DB URL (default: $AIQ_SUMMARY_DB).")
@@ -292,9 +299,6 @@ def main(argv: list[str] | None = None) -> int:
 
     document_ids = _load_document_ids(args.document_ids)
     if document_ids is None:
-        return 2
-    if not document_ids and not args.dry_run:
-        logger.error("--document-ids is required for a real run: the BFF addresses records by document id.")
         return 2
 
     configure_summary_db(args.summary_db)
