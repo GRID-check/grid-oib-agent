@@ -56,17 +56,20 @@ add_release_date: true
 # because that is the only moment anyone reads them.
 template: |
   ---
-  # One entry per user-visible change. This text is PUBLISHED, in English and in
-  # German translation, to https://piloti.at/changelog — write it for the
-  # architect using Piloti, not for the reviewer of your diff.
+  # One entry per user-visible change. The public sections are PUBLISHED, in
+  # English and in German translation, to https://piloti.at/changelog — write
+  # them for the architect using Piloti, not for the reviewer of your diff.
   #
   #   - English. The German is generated from it; a German note fails the lint.
   #   - At most two sentences and 400 characters: what the reader can now do,
   #     or what stopped going wrong for them. The mechanism goes in the PR.
   #   - No RST, backticks, issue numbers, file paths or internal names.
   #   - Only the people running the platform can act on it (the Platform area,
-  #     model defaults, a deployment step)? Put it under `operators`, which
-  #     never reaches the public page.
+  #     model defaults, a deployment step)? Put it under `operators`.
+  #   - A security fix goes under `security`; a severe fix (data lost or kept
+  #     after deletion, a permission or legal hold that did not hold) under
+  #     `incident`. `security`, `incident` and `operators` are kept here and
+  #     never published, and a note in them still satisfies the PR check.
   #
   # Good: Uploading a corrected plan under the same name now replaces the old
   #       one instead of adding a second copy.
@@ -83,9 +86,6 @@ template: |
   fixes:
     - >
       Say what used to go wrong, and that it no longer does.
-  security:
-    - >
-      Only for changes a customer must know about. No exploit detail.
   deprecations:
     - >
       Name what is going away and what replaces it.
@@ -95,6 +95,12 @@ template: |
   other:
     - >
       Anything genuinely user-visible that fits nowhere above.
+  security:
+    - >
+      Only for a vulnerability or hardening; never published.
+  incident:
+    - >
+      Only for a severe fix that should never have happened; never published.
   operators:
     - >
       Only for the people running the platform; never published.

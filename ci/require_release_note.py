@@ -2,9 +2,17 @@
 """Fail a PR that touches a product file but adds no release note.
 
 The rule (AGENTS.md, "Release notes are mandatory"): a change a customer can
-notice carries its note in the same pull request. The note is published to
-https://piloti.at/changelog on merge, so the PR is the last moment at which the
-person who knows what changed is still the one writing it down.
+notice carries its note in the same pull request. A note in a public section
+(features, improvements, fixes, deprecations, upgrade, other) is published to
+https://piloti.at/changelog on merge; one in `security`, `incident` or
+`operators` is kept in the repository and never published. Either way the PR
+is the last moment at which the person who knows what changed is still the one
+writing it down.
+
+Any section satisfies this check, an internal one included: a security or
+severe fix needs its note as much as a feature does, it just does not reach the
+page. Which sections are internal is `INTERNAL_SECTIONS` in
+scripts/release_notes.py.
 
 The check goes by file, not by reading the diff. A product file is one under the
 agent backend, the API, the app UI or the CLI, minus tests, specs, fixtures,
@@ -111,11 +119,16 @@ def main(argv: list[str]) -> int:
     print(
         "This pull request touches product files but adds no release note:\n\n"
         f"{shown}{more}\n\n"
-        "Write one — it is published to https://piloti.at/changelog when this merges:\n\n"
+        "Write one:\n\n"
         "    task release:note -- short-slug\n"
         "    # edit releasenotes/notes/short-slug-<hash>.yaml, keep one section\n"
         "    task release:lint\n\n"
-        "Plain sentences, written for the architect using Piloti. The rules are in\n"
+        "Notes under features, improvements, fixes, deprecations, upgrade or other are\n"
+        "published to https://piloti.at/changelog when this merges: plain sentences,\n"
+        "written for the architect using Piloti. A security fix goes under `security`,\n"
+        "a severe fix (data lost, a permission that did not hold) under `incident`, and\n"
+        "a note only platform operators can act on under `operators`. Those three are\n"
+        "kept and never published, and they satisfy this check too. The rules are in\n"
         "docs/contributing/release-notes.md.\n\n"
         "If this change genuinely cannot be noticed by a user (a refactor, a comment,\n"
         "internal tooling, infrastructure), add the `no-release-note` label to the PR.",

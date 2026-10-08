@@ -193,7 +193,8 @@ TEMPLATE_MARKERS = [
     "say what is new, from the reader's side",
     "say what got better about something they already had",
     "say what used to go wrong",
-    "only for changes a customer must know about",
+    "only for a vulnerability or hardening; never published",
+    "only for a severe fix that should never have happened; never published",
     "name what is going away",
     "only when the reader has to do something themselves",
     "anything genuinely user-visible",
@@ -804,8 +805,9 @@ def cmd_lint(args: argparse.Namespace) -> int:
         for problem in problems:
             print(f"  ✗ {problem}", file=sys.stderr)
         print(
-            "\nNotes are published to https://piloti.at/changelog, for the architect using\n"
-            "Piloti. Good and bad examples: docs/contributing/release-notes.md.\n",
+            "\nNotes in the public sections are published to https://piloti.at/changelog, for\n"
+            "the architect using Piloti; `security`, `incident` and `operators` never are.\n"
+            "Good and bad examples: docs/contributing/release-notes.md.\n",
             file=sys.stderr,
         )
         return 1

@@ -568,6 +568,13 @@ def test_a_note_the_pr_adds_satisfies_the_gate(pr_repo):
     assert _pr(pr_repo, files) == 0
 
 
+def test_a_note_in_an_internal_section_satisfies_the_gate(pr_repo):
+    """The failure message promises it: a security fix needs a note, not a public one."""
+    files = {"src/aiq_agent/tool.py": "X = 2\n", "releasenotes/notes/hole-2222.yaml": "security:\n  - Closed.\n"}
+
+    assert _pr(pr_repo, files) == 0
+
+
 def test_editing_an_old_note_does_not_satisfy_the_gate(pr_repo):
     files = {"src/aiq_agent/tool.py": "X = 2\n", "releasenotes/notes/old-0000.yaml": "features:\n  - Edited.\n"}
 
