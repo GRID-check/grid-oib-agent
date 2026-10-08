@@ -28,7 +28,7 @@ export const projects = pgTable(
     closedAt: timestamp('closed_at', { withTimezone: true }),
     /** Who closed it (WorkOS user id); set exactly when `status` is `closed`. */
     closedBy: text('closed_by'),
-    /** Beginn, month precision: the first of its month (migration 0115, ADR-0087). */
+    /** Beginn, month precision: the first of its month (migration 0116, ADR-0089). */
     startedOn: date('started_on', { mode: 'string' }),
     /** Abschluss, month precision: the first of its month. Closing fills it when unset. */
     endedOn: date('ended_on', { mode: 'string' }),

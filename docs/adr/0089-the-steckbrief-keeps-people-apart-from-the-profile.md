@@ -25,7 +25,7 @@ every person row deletable (GDPR); people stay out of the agent's prompt.
 
 * People are personal data of people who mostly never gave it (GDPR Art. 14), so as few fields as the purpose needs (Art. 5(1)(c)), and erasure that works (Art. 17).
 * The profile is read into the agent's prompt on every turn (`lib/project-profile/prompt-view.ts`); people must not be.
-* A closed project is read-only (ADR-0086), but erasure cannot wait for a reopen.
+* A closed project is read-only (ADR-0088), but erasure cannot wait for a reopen.
 
 ## Considered Options
 
@@ -46,7 +46,7 @@ project fills `ended_on` with the month of the close when nobody set one, and
 never before a Beginn (`setProjectStatusInOrg`). It is not a profile fact, so
 the agent does not see it either; that can change when an answer needs it.
 
-**The people** are `project_people` (migration 0115): name, function, company,
+**The people** are `project_people` (migration 0116): name, function, company,
 months from and to, an optional `user_id` that must name a member of the
 organization when set, the creator and timestamps. A composite foreign key
 ties a row to its project and organization and cascades with the project's
@@ -94,6 +94,6 @@ check, audit without names), `people-stay-out-of-the-prompt.spec.ts`, and the 01
 
 ## More Information
 
-* [ADR-0086](0086-a-closed-project-is-read-only-and-open-to-the-office.md): closed projects.
+* [ADR-0088](0088-a-closed-project-is-read-only-and-open-to-the-office.md): closed projects.
 * User guide: [`user-guides/projects.md`](../user-guides/projects.md#the-steckbrief).
-* Table: [`database/schema.md`](../database/schema.md#project_people-migration-0115-adr-0087).
+* Table: [`database/schema.md`](../database/schema.md#project_people-migration-0116-adr-0087).
