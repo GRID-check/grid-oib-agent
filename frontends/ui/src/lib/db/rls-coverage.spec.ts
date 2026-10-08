@@ -105,11 +105,11 @@ const BOUNDARY_MIGRATIONS = [
   // may read that a conversation actually drew on, one row per folder id,
   // judged against the current grants when read (ADR-0086, ADR-0087). Keyed
   // directly by its organization: the conversation row may not exist yet.
-  '0110_conversation_restricted_folders.sql',
+  '0111_conversation_restricted_folders.sql',
   // Adds document_access_log — the download log: who took a document's bytes,
   // and who opened one under a folder with its own list. Keyed directly by its
   // organization; no foreign keys, so the row outlives what it names.
-  '0112_document_access_log.sql',
+  '0113_document_access_log.sql',
 ]
 
 const MIGRATION_SOURCES = BOUNDARY_MIGRATIONS.map((file) =>

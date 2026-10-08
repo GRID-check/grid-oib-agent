@@ -3272,7 +3272,7 @@ describe('restricted folders (ADR-0086)', () => {
 })
 
 /**
- * The download log's seam (ADR-0085). Every function that hands a document's
+ * The download log's seam (ADR-0087). Every function that hands a document's
  * bytes to a person asks `recordDocumentAccess` once, with the document row the
  * access check returned and the kind that names the route; `coverage.spec.ts`
  * holds the list of functions, this holds that the calls are really made, and

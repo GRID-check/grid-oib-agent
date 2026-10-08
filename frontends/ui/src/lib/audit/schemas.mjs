@@ -162,7 +162,7 @@ export const AUDIT_SCHEMAS = /** @type {const} */ ({
       detectors: 'string',
     },
   },
-  // The download log (ADR-0085): who took which document's bytes. It is
+  // The download log (ADR-0087): who took which document's bytes. It is
   // personal data about staff, so READING it is recorded, one event per request
   // (every page, every filter). The filters are named, not their values' hits:
   // the event says who looked for whom, never what they found. The emitter is

@@ -759,7 +759,7 @@ project-wide `PROPOSAL_DECISIONS` block.
 
 ---
 
-## document_access_log (migration 0112, ADR-0085)
+## document_access_log (migration 0113, ADR-0087)
 
 The download log: one row per hand-over of a document's bytes to a person,
 written in the request that hands them over (`recordDocumentAccess`,
@@ -803,7 +803,7 @@ re-apply in `scripts/rls-test-db.sh`.
 
 ---
 
-## project_memory.restricted_folder_ids (migration 0111, ADR-0084, ADR-0085)
+## project_memory.restricted_folder_ids (migration 0112, ADR-0086, ADR-0087)
 
 The table itself is described in
 [`project-memory-design.md`](../architecture/project-memory-design.md) §2; this
