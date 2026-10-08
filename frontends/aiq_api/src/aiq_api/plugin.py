@@ -417,6 +417,13 @@ class AIQAPIWorker(FastApiFrontEndPluginWorker):
         else:
             logger.info("Debug console disabled by AIQ_ENABLE_DEBUG")
 
+        # The workflow is built and every route registered: this replica serves
+        # from here, and the meter provider exists to take the boot readings.
+        from aiq_agent.observability import boot_timing
+
+        boot_timing.BootClock("web").ready()
+        boot_timing.flush()
+
     async def _create_chat_session_manager(self, builder: WorkflowBuilder) -> SessionManager:
         """The chat socket's session manager, with NAT's concurrency gate off (``max_concurrency=0``).
 

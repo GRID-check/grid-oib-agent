@@ -95,6 +95,10 @@ own service when one of these holds, and that is a new ADR:
 Option 2 was rejected: it multiplies builds, scans and cached layers for a size
 saving nobody has measured. Role-scoped boot (each role builds only what it
 uses) is the lever for cold start, to be pulled once cold start is measured.
+`grid.boot.phase_seconds{role,phase}` measures it
+(`aiq_agent.observability.boot_timing`): each role's `load_config`,
+`workflow_build` and `ready` (process age when it can work), and the research
+worker's per-job build under `role="research-job"`, which every job pays.
 
 ### Steps, in order
 
