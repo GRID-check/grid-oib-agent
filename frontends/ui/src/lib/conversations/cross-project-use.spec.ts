@@ -25,6 +25,7 @@ const state = vi.hoisted(() => ({
   audiences: [] as ConversationAudienceRow[],
   steps: [] as string[],
   recordedProjects: [] as string[],
+  foreignFolders: [] as string[],
 }))
 
 vi.mock('@/lib/db', () => ({
@@ -47,8 +48,18 @@ vi.mock('./restricted-use-repository', () => ({
   listRestrictingSourceProjects: vi.fn(async () => [...state.recordedProjects]),
 }))
 
+vi.mock('./restricted-use', () => ({
+  recordedForeignRestrictedFolders: vi.fn(async () => [...state.foreignFolders]),
+}))
+
 import { CrossProjectAudienceChangedError, CrossProjectMemoryError } from '@/lib/api/errors'
-import { audienceKey, isSoloAudience, recordCrossProjectHandOut, requireMayRememberFrom } from './cross-project-use'
+import {
+  audienceKey,
+  drewOnOtherProjects,
+  isSoloAudience,
+  recordCrossProjectHandOut,
+  requireMayRememberFrom,
+} from './cross-project-use'
 
 const solo: ConversationAudienceRow = { exists: true, projectId: null, createdBy: OWNER, visibility: 'private', grantees: [] }
 const party = { organizationId: ORG, userId: OWNER, conversationId: CONV }
@@ -58,6 +69,7 @@ beforeEach(() => {
   state.audiences = [solo]
   state.steps = []
   state.recordedProjects = []
+  state.foreignFolders = []
 })
 
 describe('isSoloAudience', () => {
@@ -134,8 +146,30 @@ describe('requireMayRememberFrom', () => {
     expect((error as CrossProjectMemoryError).message).toContain('laufende andere Projekte')
   })
 
+  it('refuses a memory from a conversation that drew on a restricted folder of a closed project, which restricts no project', async () => {
+    state.foreignFolders = [HONORARE_ID]
+
+    const error = await requireMayRememberFrom(CONV, ORG).catch((caught: unknown) => caught)
+
+    expect(error).toBeInstanceOf(CrossProjectMemoryError)
+    expect((error as CrossProjectMemoryError).status).toBe(409)
+  })
+
   it('lets every other write through', async () => {
     await expect(requireMayRememberFrom(CONV, ORG)).resolves.toBeUndefined()
     await expect(requireMayRememberFrom(undefined, ORG)).resolves.toBeUndefined()
+  })
+})
+
+describe('drewOnOtherProjects', () => {
+  it('is true for a restricting project, or for a restricted folder of another project, and false for neither', async () => {
+    expect(await drewOnOtherProjects(CONV, ORG)).toBe(false)
+
+    state.recordedProjects = [OTHER]
+    expect(await drewOnOtherProjects(CONV, ORG)).toBe(true)
+
+    state.recordedProjects = []
+    state.foreignFolders = [HONORARE_ID]
+    expect(await drewOnOtherProjects(CONV, ORG)).toBe(true)
   })
 })

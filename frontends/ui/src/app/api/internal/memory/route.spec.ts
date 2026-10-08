@@ -16,10 +16,17 @@ vi.mock('@/lib/projects/memory-service', () => ({
 }))
 
 // The cross-project record (ADR-0085): which conversations drew on another project.
-const crossProject = vi.hoisted(() => ({ recorded: new Map<string, string[]>() }))
+const crossProject = vi.hoisted(() => ({
+  recorded: new Map<string, string[]>(),
+  foreignFolders: new Map<string, string[]>(),
+}))
 vi.mock('@/lib/db', () => ({ getDb: () => ({}) }))
 vi.mock('@/lib/conversations/restricted-use-repository', () => ({
   listRestrictingSourceProjects: vi.fn(async (_db: unknown, _org: string, id: string) => crossProject.recorded.get(id) ?? []),
+}))
+// Restricted folders of OTHER projects a lookup recorded, still restricting (a closed project's included).
+vi.mock('@/lib/conversations/restricted-use', () => ({
+  recordedForeignRestrictedFolders: vi.fn(async (id: string) => crossProject.foreignFolders.get(id) ?? []),
 }))
 vi.mock('@/lib/projects/repository', () => ({
   findProjectTenancy: vi.fn(async () => ({ organizationId: 'org_1', deletedAt: null })),
@@ -58,6 +65,7 @@ afterEach(() => {
   vi.unstubAllEnvs()
   vi.clearAllMocks()
   crossProject.recorded.clear()
+  crossProject.foreignFolders.clear()
 })
 
 describe('POST /api/internal/memory — a conversation that drew on another project (ADR-0085)', () => {
@@ -80,6 +88,18 @@ describe('POST /api/internal/memory — a conversation that drew on another proj
     expect(organization.status).toBe(409)
     expect(createProjectMemoryItemForProject).not.toHaveBeenCalled()
     expect(createProjectMemoryItem).not.toHaveBeenCalled()
+  })
+
+  it('refuses a conversation that drew on a restricted folder of a project that is closed now', async () => {
+    vi.stubEnv('GRID_INTERNAL_API_TOKEN', REAL_TOKEN)
+    // No restricting project (it is closed), but a recorded folder of it still restricts.
+    crossProject.foreignFolders.set('s_closed_folder', ['folder_honorare'])
+
+    const response = await POST(makeRequest({ ...validProjectPayload, sourceConversationId: 's_closed_folder' }, REAL_TOKEN))
+
+    expect(response.status).toBe(409)
+    expect((await response.json()).code).toBe('CROSS_PROJECT_MEMORY')
+    expect(createProjectMemoryItemForProject).not.toHaveBeenCalled()
   })
 
   it('writes from a conversation that drew on no other project, as before', async () => {

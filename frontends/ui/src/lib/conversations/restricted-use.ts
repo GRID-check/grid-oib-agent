@@ -300,6 +300,30 @@ export async function recordedRestrictedFolders(conversationId: string, organiza
 }
 
 /**
+ * The recorded restricted folders that belong to OTHER projects than the
+ * conversation's own (ADR-0085), judged as {@link recordedRestrictedFolders}
+ * judges them: not readable by every member now, a deleted folder's tombstone
+ * included, an unknown id included. The folders of the conversation's own
+ * project are left out; the per-folder memory rules (ADR-0080, ADR-0081) govern
+ * those.
+ *
+ * This is what a cross-project lookup into a CLOSED project's restricted folder
+ * leaves behind: the project restricts nobody ({@link recordedSourceProjects}),
+ * the folder still does. A conversation that has no project row yet has no own
+ * project, so every recorded folder is another project's.
+ */
+export async function recordedForeignRestrictedFolders(
+  conversationId: string,
+  organizationId: string
+): Promise<string[]> {
+  const recorded = await listRecordedSourceFolders(getDb(), organizationId, conversationId)
+  if (recorded.length === 0) return []
+  const audience = await readConversationAudience(getDb(), organizationId, conversationId)
+  const view = await recordView(organizationId, audience.projectId, recorded)
+  return stillRestricting(view.tree, recorded).filter((folderId) => view.ownerOf.get(folderId) !== audience.projectId)
+}
+
+/**
  * The other projects this conversation drew on through a cross-project lookup
  * (ADR-0085), sorted. Every one counts, whoever may open it now: the doors a
  * whole project reads (`restricted-egress.ts`) cannot enumerate their readers,

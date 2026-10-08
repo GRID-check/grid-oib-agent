@@ -160,7 +160,13 @@ migration, because the record was never deleted.
 **The turn knows.** `drewOnOtherProjects` in the turn context, and the tool's
 own `restricting` flag per answer (an active project, or a restricted folder),
 shut the agent's doors before it offers what would be refused. A closed
-project's open folder shuts none.
+project's open folder shuts none. (Clarified 2026-10-08: `drewOnOtherProjects`
+and the memory check count a recorded restricted folder of ANY other project,
+a closed one's included, and a binned folder's tombstone as it was
+(`recordedForeignRestrictedFolders`). They first read only
+`listRestrictingSourceProjects`, so a closed project's restricted folder,
+recorded by a lookup, let its content be remembered as open memory; an
+independent review found it.)
 
 **What the reader sees.** A source from another project carries its project on
 the citation wire (`project: {id, name, status}`), so its chip names it, its

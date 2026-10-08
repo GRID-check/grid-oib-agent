@@ -27,7 +27,9 @@
  * leave it (`restricted-egress.ts`) and what may be remembered from it
  * ({@link requireMayRememberFrom}). A project closed NOW restricts nobody: every
  * office member reads its open folders (ADR-0082). It stays recorded, so a
- * reopen restricts again; the judges read `listRestrictingSourceProjects`.
+ * reopen restricts again; the judges read `listRestrictingSourceProjects`. Its
+ * restricted folders are judged on their own (`recordedForeignRestrictedFolders`)
+ * and still restrict the turn's doors ({@link drewOnOtherProjects}).
  */
 
 import 'server-only'
@@ -35,6 +37,7 @@ import { CrossProjectAudienceChangedError, CrossProjectMemoryError } from '@/lib
 import { getDictionary } from '@/i18n/dictionaries'
 import { getDb } from '@/lib/db'
 import { AGENT_REFUSAL_LOCALE } from './restricted-egress'
+import { recordedForeignRestrictedFolders } from './restricted-use'
 import {
   listRestrictingSourceProjects,
   lockConversationAudience,
@@ -109,12 +112,17 @@ export async function recordCrossProjectHandOut(
 }
 
 /**
- * Whether this conversation drew on another project that still restricts its
- * readers (ADR-0085): an active one, or a folder of one. What a turn reads to
- * know its doors are shut. Content from a project closed now does not count.
+ * Whether this conversation drew on another project in a way that still
+ * restricts its readers (ADR-0085): an active project, or a restricted folder
+ * of ANY other project, closed or not. What a turn reads to know its doors are
+ * shut. A closed project restricts nobody for its open folders, but a folder
+ * with its own access list still does: every office member may open the closed
+ * project, not every one may read that folder. A folder of the conversation's
+ * own project is not counted here; the per-folder memory rules govern it.
  */
 export async function drewOnOtherProjects(conversationId: string, organizationId: string): Promise<boolean> {
-  return (await listRestrictingSourceProjects(getDb(), organizationId, conversationId)).length > 0
+  if ((await listRestrictingSourceProjects(getDb(), organizationId, conversationId)).length > 0) return true
+  return (await recordedForeignRestrictedFolders(conversationId, organizationId)).length > 0
 }
 
 /**
@@ -123,8 +131,10 @@ export async function drewOnOtherProjects(conversationId: string, organizationId
  * everyone in the project, and a note's words can carry what the other
  * project's documents said; no folder of this project is narrow enough for
  * that, so nothing is remembered from such a conversation. A lesson from a
- * closed project may be remembered: every office member reads it anyway. Both agent writers (`remember` and the reflection stage) name
- * the conversation; a write that names none is not one a chat turn made.
+ * closed project's open folders may be remembered: every office member reads
+ * them anyway; a restricted folder of any other project may not. Both agent
+ * writers (`remember` and the reflection stage) name the conversation; a write
+ * that names none is not one a chat turn made.
  */
 export async function requireMayRememberFrom(
   conversationId: string | null | undefined,
