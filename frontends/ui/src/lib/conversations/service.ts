@@ -210,7 +210,7 @@ export async function listConversations(
 export type ListedConversation = Conversation & { contentLocked: boolean }
 
 /**
- * The row of a conversation the caller may no longer read (ADR-0087), as the
+ * The row of a conversation the caller may no longer read (ADR-0088), as the
  * list shows it: still theirs, still in the list, and nothing the content could
  * have written. The title is model-written from the conversation, restricted
  * folder content included, and the topic tags and the subject file come from the
@@ -473,7 +473,7 @@ async function authorizeConversationDelete(
 ): Promise<void> {
   try {
     // Deleting what is one's own reads none of it: an owner who may no longer
-    // read what the chat drew on can still remove it (ADR-0087).
+    // read what the chat drew on can still remove it (ADR-0088).
     await requireResourceAccess(session, 'conversation', conversationId, 'owner', { allowLocked: true })
     return
   } catch (error) {

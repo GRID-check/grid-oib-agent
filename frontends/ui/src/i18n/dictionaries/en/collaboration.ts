@@ -14,7 +14,7 @@
 export const collaboration = {
   /**
    * A chat shared with someone who can no longer read a folder it drew on
-   * (ADR-0087). The title is neutral because the real one is model-written from
+   * (ADR-0088). The title is neutral because the real one is model-written from
    * the chat, restricted content included; nothing here names a folder.
    */
   rightsLost: {
@@ -82,7 +82,7 @@ export const collaboration = {
         'Add them to the project first. Sharing a chat never grants access to the project itself.',
       /**
        * Disabled row for someone who cannot read every folder the chat drew on
-       * (ADR-0087). Never names the folder: the sharer may not be cleared for
+       * (ADR-0088). Never names the folder: the sharer may not be cleared for
        * it either, and the server's refusal stays the authority.
        */
       lacksFolderAccess: 'Has no access to a folder this chat draws on',

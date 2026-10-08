@@ -332,7 +332,7 @@ describe('widening a conversation — per person', () => {
   })
 })
 
-describe('peopleWhoMayRead: who may read the conversation now (ADR-0087)', () => {
+describe('peopleWhoMayRead: who may read the conversation now (ADR-0088)', () => {
   const PEOPLE = [OWNER, 'user_vertraege', 'user_nobody']
 
   it('answers everybody for a conversation that recorded nothing, with one read and no question to WorkOS', async () => {
@@ -417,7 +417,7 @@ describe('peopleWhoMayRead: who may read the conversation now (ADR-0087)', () =>
   })
 })
 
-describe('lockedConversationIds: which of a list the session may no longer read (ADR-0087)', () => {
+describe('lockedConversationIds: which of a list the session may no longer read (ADR-0088)', () => {
   const asGf = { ...session, role: 'org-gf', roles: ['org-gf'] } as AuthorizedSession
   const asNobody = { ...session, userId: 'user_nobody', role: 'member', roles: ['member'] } as AuthorizedSession
   const list = [

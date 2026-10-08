@@ -81,7 +81,7 @@ export const RIGHTS_LOST_REASON = 'rights-lost'
 /**
  * 403 — the caller is still a party to the resource (a grant, its creator) but
  * can no longer read what it was drawn from: a conversation that recorded a
- * folder they may not read now (ADR-0087). Its own code, so the client shows
+ * folder they may not read now (ADR-0088). Its own code, so the client shows
  * "you no longer have the rights" instead of "not found", and its message and
  * details carry nothing of the content: not its title, not the folder.
  */

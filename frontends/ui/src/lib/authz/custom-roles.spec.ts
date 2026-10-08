@@ -313,7 +313,7 @@ describe('deleteCustomRole', () => {
     })
   })
 
-  describe('a role that folders name (ADR-0087)', () => {
+  describe('a role that folders name (ADR-0088)', () => {
     const folder = {
       folderId: 'f1',
       folderName: 'Honorare',

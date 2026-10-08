@@ -100,7 +100,7 @@ export interface FolderWithoutValidRole {
 }
 
 /**
- * The project's folders left without a valid role (ADR-0087): their own list
+ * The project's folders left without a valid role (ADR-0088): their own list
  * names only roles deleted from the organization since, so organization admins
  * are the only ones who read them. For the project settings to flag, with a
  * link to each.

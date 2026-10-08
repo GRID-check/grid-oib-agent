@@ -375,7 +375,7 @@ describe.skipIf(!url)('restricted use against Postgres (migrations 0112, 0111)',
     expect(await reasonOf(shareWith(id, UNCLEARED))).toBe('restricted-content')
   })
 
-  describe('who may still read a chat that recorded the folder (ADR-0087)', () => {
+  describe('who may still read a chat that recorded the folder (ADR-0088)', () => {
     /** The same people, with the roles WorkOS reports for them NOW. */
     const withRoles = (userId: string, roleList: string[]): AuthorizedSession => ({
       ...session,

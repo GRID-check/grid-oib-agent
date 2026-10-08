@@ -359,7 +359,7 @@ describe('listing conversations', () => {
   })
 })
 
-describe('a chat the reader may no longer read (ADR-0087)', () => {
+describe('a chat the reader may no longer read (ADR-0088)', () => {
   /** The folders the conversation recorded are no longer ones this reader's roles reach. */
   function lockFor(...locked: string[]): void {
     vi.mocked(peopleWhoMayRead).mockImplementation(async (_org, _id, userIds) =>

@@ -49,7 +49,7 @@ export const CustomRolesSection: FC = () => {
   const [editing, setEditing] = useState<Editing>(null)
   const [deleting, setDeleting] = useState<OrganizationRole | null>(null)
   const [pendingDelete, setPendingDelete] = useState(false)
-  // Which folders name the role being deleted (ADR-0087), read when the dialog
+  // Which folders name the role being deleted (ADR-0088), read when the dialog
   // opens so the confirmation can say what the deletion leaves behind.
   const [usage, setUsage] = useState<RoleUsage | null>(null)
   const [usageFailed, setUsageFailed] = useState(false)
@@ -226,7 +226,7 @@ export const CustomRolesSection: FC = () => {
 
 /**
  * What deleting a role leaves behind: the folders whose own list names it
- * (ADR-0087). Names only for someone who may read those folders; anyone else is
+ * (ADR-0088). Names only for someone who may read those folders; anyone else is
  * told how many.
  */
 const RoleUsageNotice: FC<{ usage: RoleUsage | null; failed: boolean }> = ({ usage, failed }) => {
