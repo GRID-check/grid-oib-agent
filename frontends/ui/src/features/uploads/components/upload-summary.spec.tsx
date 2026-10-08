@@ -33,6 +33,36 @@ describe('UploadSummaryView', () => {
     expect(screen.getByTestId('upload-summary-upload-failed')).toHaveTextContent('1 file did not arrive')
   })
 
+  it('headlines the changed and the protected files, and marks each such file', () => {
+    render(<UploadSummaryView summary={MIXED_SUMMARY} />)
+    expect(within(tile('changed')).getByText('1')).toBeInTheDocument()
+    expect(within(tile('changed')).getByText(en.uploadBatches.summary.counts.changed)).toBeInTheDocument()
+    expect(within(tile('protected')).getByText('2')).toBeInTheDocument()
+    expect(within(tile('protected')).getByText(en.uploadBatches.summary.counts.protected)).toBeInTheDocument()
+
+    const replaced = screen.getByTestId('upload-file-doc-brandschutz')
+    expect(within(replaced).getByTestId('upload-facet-changed')).toHaveAttribute(
+      'title',
+      en.uploadBatches.summary.files.changedHint
+    )
+    expect(within(replaced).getByTestId('upload-facet-protected')).toHaveTextContent(
+      en.uploadBatches.summary.counts.protected
+    )
+    const fresh = screen.getByTestId('upload-file-doc-grundriss-eg')
+    expect(within(fresh).queryByTestId('upload-facet-changed')).not.toBeInTheDocument()
+    expect(within(fresh).queryByTestId('upload-facet-protected')).not.toBeInTheDocument()
+  })
+
+  it('shows no changed or protected tile when no file is either', () => {
+    const plain = {
+      ...MIXED_SUMMARY,
+      documents: MIXED_SUMMARY.documents.map((document) => ({ ...document, replaced: false, restricted: false })),
+    }
+    render(<UploadSummaryView summary={plain} />)
+    expect(screen.queryByTestId('upload-tally-changed')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('upload-tally-protected')).not.toBeInTheDocument()
+  })
+
   it('names the excluded terms with their counts and never a file', () => {
     render(<UploadSummaryView summary={MIXED_SUMMARY} />)
     const excluded = screen.getByTestId('upload-summary-excluded')

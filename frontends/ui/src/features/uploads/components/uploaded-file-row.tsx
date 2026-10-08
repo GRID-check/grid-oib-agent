@@ -28,6 +28,7 @@ import { useTranslations } from '@/i18n'
 import { documentTypeOf } from '@/lib/documents/tag-vocabulary'
 import { describeQuarantineReason } from '@/lib/upload-screening/quarantine'
 import { displayNameOf, otherTags } from '../lib/upload-summary'
+import { FacetChip, useTallyLabel } from './upload-atoms'
 
 /** Lines of a file's summary shown before it asks for the space. */
 const SUMMARY_LINES = 2
@@ -45,6 +46,7 @@ export function UploadedFileRow({
 }): JSX.Element {
   const t = useTranslations('uploadBatches')
   const tFiles = useTranslations('files')
+  const tallyLabel = useTallyLabel()
   const name = displayNameOf(document)
   const Icon = fileTypeIcon(null, document.filename)
   const type = documentTypeOf(document.tags)
@@ -75,8 +77,14 @@ export function UploadedFileRow({
           <DocumentStatusBadge status={document.status} />
         </div>
 
-        {(type || tags.length > 0 || document.pageCount) && (
+        {(document.replaced || document.restricted || type || tags.length > 0 || document.pageCount) && (
           <div className="flex flex-wrap items-center gap-1.5">
+            {document.replaced && (
+              <FacetChip facet="changed" label={tallyLabel('changed')} hint={t('summary.files.changedHint')} />
+            )}
+            {document.restricted && (
+              <FacetChip facet="protected" label={tallyLabel('protected')} hint={t('summary.files.protectedHint')} />
+            )}
             {type && (
               <Chip variant="outline" size="sm" title={tFiles('preview.indexed.documentType')}>
                 {type}

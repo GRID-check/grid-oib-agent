@@ -7,6 +7,7 @@ import {
   groupByFolder,
   isSettling,
   placeHref,
+  summaryFacets,
   tallyHistoryEntry,
   tallySummary,
   visibleTally,
@@ -34,6 +35,23 @@ describe('tallySummary', () => {
       { key: 'ready', count: 0 },
       { key: 'unchanged', count: 2 },
     ])
+  })
+})
+
+describe('summaryFacets', () => {
+  it('counts the new versions and the protected files beside the outcomes', () => {
+    expect(summaryFacets(MIXED_SUMMARY)).toEqual([
+      { key: 'changed', count: 1 },
+      { key: 'protected', count: 2 },
+    ])
+  })
+
+  it('shows neither when no file is either', () => {
+    const plain = {
+      ...MIXED_SUMMARY,
+      documents: MIXED_SUMMARY.documents.map((document) => ({ ...document, replaced: false, restricted: false })),
+    }
+    expect(summaryFacets(plain)).toEqual([])
   })
 })
 

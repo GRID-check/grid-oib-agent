@@ -16,12 +16,23 @@
 import 'server-only'
 import { BadRequestError, ConflictError, NotFoundError } from '@/lib/api/errors'
 import type { AuthorizedSession } from '@/lib/auth/types'
-import { getProjectFolderAccess } from '@/lib/authz/folder-access'
+import {
+  atLeast,
+  clearanceOf,
+  computeFolderAccess,
+  folderTree,
+  isUnderOwnList,
+  loadCustomFolderTree,
+  unreadableFolderIds,
+  type FolderTree,
+  type ProjectFolderAccess,
+} from '@/lib/authz/folder-access'
 import { canManageArchiv } from '@/lib/authz/organizations'
 import { requireProjectAccess } from '@/lib/authz/projects'
 import type { Document, UploadBatch, UploadBatchExclusion, UploadBatchScope } from '@/lib/db/schema'
 import { documentStatusFacts } from '@/lib/documents/document-status'
 import { reconcileDocumentStatuses, type DocumentMetadata } from '@/lib/documents/reconcile-status'
+import { encodeDocumentListCursor, type DocumentListCursor } from '@/lib/documents/list-cursor'
 import { findFolderPathsInProject } from '@/lib/documents/repository'
 import { findProjectInOrg } from '@/lib/projects/repository'
 import { loadOrganizationDirectory } from '@/lib/sharing/directory'
@@ -31,7 +42,7 @@ import {
   findUploadBatch,
   insertUploadBatch,
   listBatchDocuments,
-  listProjectUploadBatches,
+  listProjectUploadBatchPage,
   sealUploadBatch,
 } from './repository'
 
@@ -139,6 +150,21 @@ export interface UploadSummaryDocument {
   summary: string | null
   tags: string[]
   pageCount: number | null
+  /**
+   * A new version of a document that was already on the shelf (ADR-0054), not
+   * a new document: „geändert". Read off the row rather than recorded: a
+   * re-upload keeps the document's id and `created_at` and stamps this batch,
+   * so a row older than its batch is one this upload changed.
+   */
+  replaced: boolean
+  /**
+   * Filed in a folder with its own access list, or below one (ADR-0085):
+   * „geschützt", as ticket „Übersicht" asks. The test the folder's lock in the
+   * file browser and the download log apply (`isUnderOwnList`), whatever the
+   * list grants: one that lets every member read and limits only who may
+   * change the files counts too, so the mark and the lock never disagree.
+   */
+  restricted: boolean
 }
 
 export interface UploadSummary {
@@ -168,7 +194,11 @@ function outcomeOf(status: string): UploadSummaryDocument['outcome'] {
 
 type EnrichedDocument = Document & DocumentMetadata
 
-function toSummaryDocument(row: EnrichedDocument, folderPaths: Map<string, string>): UploadSummaryDocument {
+function toSummaryDocument(
+  row: EnrichedDocument,
+  folderPaths: Map<string, string>,
+  facts: { replaced: boolean; restricted: boolean }
+): UploadSummaryDocument {
   return {
     id: row.id,
     filename: row.filename,
@@ -183,6 +213,79 @@ function toSummaryDocument(row: EnrichedDocument, folderPaths: Map<string, strin
     summary: row.summary ?? null,
     tags: row.tags ?? [],
     pageCount: row.pageCount ?? null,
+    ...facts,
+  }
+}
+
+/** The counts a batch holds itself rather than on a document row. */
+type BatchCounts = Pick<UploadBatch, 'expectedCount' | 'unchangedCount' | 'failedCount' | 'excluded'>
+
+/**
+ * A batch's own counts, as this reader may see them. Only a document row
+ * carries a folder: the files the batch announced, the ones the server
+ * answered „unchanged" for (no row is written), the transfers that failed and
+ * the files the screening kept back are counts on the batch, and any of them
+ * may be of a file bound for a folder hidden from the reader. Where that is
+ * possible, `placed` (the documents the reader may see) stands in for the
+ * announced total and the rest is withheld; `null` passes the batch through.
+ */
+function batchCounts(batch: UploadBatch, placed: number | null): BatchCounts {
+  if (placed === null) {
+    const { expectedCount, unchangedCount, failedCount, excluded } = batch
+    return { expectedCount, unchangedCount, failedCount, excluded }
+  }
+  return { expectedCount: placed, unchangedCount: 0, failedCount: 0, excluded: [] }
+}
+
+/**
+ * A project's folder tree and the session's access to it, or null when no
+ * folder hides anything from anyone (no own list, nothing in the Papierkorb):
+ * one probe, as `getProjectFolderAccess` costs. The tree is kept because the
+ * summary's „geschützt" asks it a question the access answer does not hold.
+ */
+async function readerFolders(
+  session: AuthorizedSession,
+  projectId: string
+): Promise<{ tree: FolderTree; access: ProjectFolderAccess } | null> {
+  const folders = await loadCustomFolderTree(session.organizationId, projectId)
+  if (!folders) return null
+  return { tree: folderTree(folders), access: computeFolderAccess(folders, await clearanceOf(session, projectId), '') }
+}
+
+/** What the reader may see of a batch, and which of its folders have their own access list. */
+interface ReaderView {
+  rows: Document[]
+  /** A row was left out because its folder is one the reader may not read: the batch's own counts go too. */
+  withheld: boolean
+  isRestricted: (folderId: string | null) => boolean
+}
+
+const UNRESTRICTED = (): boolean => false
+
+/**
+ * The batch's documents this reader may still see. A folder restricted after
+ * the upload hides what was filed in it from its own uploader too (ADR-0084):
+ * the summary names files, and a name is what the restriction withholds. Once
+ * it hides any of them, the batch's own counts are withheld as well
+ * (`batchCounts`), since they may count files in that folder. A file in the
+ * Papierkorb is left out as the file list leaves it out, but withholds
+ * nothing while the uploader may still read its folder: what it would reveal
+ * they may see in the bin. A batch that wrote no row at all (every file
+ * „unchanged") keeps its counts: nothing places it, and they only restate what
+ * its uploader sent.
+ */
+async function readerView(session: AuthorizedSession, batch: UploadBatch, rows: Document[]): Promise<ReaderView> {
+  const open = { rows, withheld: false, isRestricted: UNRESTRICTED }
+  if (batch.scope !== 'project' || !batch.projectId) return open
+  const project = await findProjectInOrg(batch.projectId, session.organizationId)
+  if (!project) return { rows: [], withheld: false, isRestricted: UNRESTRICTED }
+  const folders = await readerFolders(session, batch.projectId)
+  if (!folders) return open
+  const { tree, access } = folders
+  return {
+    rows: rows.filter((row) => access.isVisible(row.folderId)),
+    withheld: rows.some((row) => row.folderId !== null && !atLeast(access.levelOf(row.folderId), 'read')),
+    isRestricted: (folderId) => isUnderOwnList(tree, folderId),
   }
 }
 
@@ -192,30 +295,19 @@ function toSummaryDocument(row: EnrichedDocument, folderPaths: Map<string, strin
  * the batch, and the summary and tags come from the same enrichment the file
  * list uses.
  */
-/**
- * The batch's documents this reader may still see. A folder restricted after
- * the upload hides what was filed in it from its own uploader too (ADR-0084):
- * the summary names files, and a name is what the restriction withholds.
- */
-async function visibleToReader(session: AuthorizedSession, batch: UploadBatch, rows: Document[]): Promise<Document[]> {
-  if (batch.scope !== 'project' || !batch.projectId) return rows
-  const project = await findProjectInOrg(batch.projectId, session.organizationId)
-  if (!project) return []
-  const access = await getProjectFolderAccess(session, batch.projectId, project.collectionName)
-  return access.anyRestricted ? rows.filter((row) => access.isVisible(row.folderId)) : rows
-}
-
 export async function getUploadSummary(session: AuthorizedSession, batchId: string): Promise<UploadSummary> {
   const batch = await findOwnUploadBatch(session, batchId)
   if (!batch) throw new NotFoundError('Upload not found')
-  const rows = await visibleToReader(session, batch, await listBatchDocuments(session.organizationId, batchId))
-  const enriched = await reconcileDocumentStatuses(rows, session.organizationId)
+  const rows = await listBatchDocuments(session.organizationId, batchId)
+  const view = await readerView(session, batch, rows)
+  const enriched = await reconcileDocumentStatuses(view.rows, session.organizationId)
   const folderIds = [...new Set(enriched.map((row) => row.folderId).filter((id): id is string => !!id))]
   const folderPaths =
     batch.projectId && folderIds.length > 0
       ? await findFolderPathsInProject(folderIds, batch.projectId, session.organizationId)
       : new Map<string, string>()
   const fresh = await findOwnUploadBatch(session, batchId)
+  const openedAt = new Date(batch.createdAt).getTime()
   return {
     id: batch.id,
     scope: batch.scope,
@@ -224,11 +316,13 @@ export async function getUploadSummary(session: AuthorizedSession, batchId: stri
     createdAt: new Date(batch.createdAt).toISOString(),
     sealedAt: batch.sealedAt ? new Date(batch.sealedAt).toISOString() : null,
     completedAt: fresh?.completedAt ? new Date(fresh.completedAt).toISOString() : null,
-    expectedCount: batch.expectedCount,
-    unchangedCount: batch.unchangedCount,
-    failedCount: batch.failedCount,
-    excluded: batch.excluded,
-    documents: enriched.map((row) => toSummaryDocument(row, folderPaths)),
+    ...batchCounts(batch, view.withheld ? enriched.length : null),
+    documents: enriched.map((row) =>
+      toSummaryDocument(row, folderPaths, {
+        replaced: new Date(row.createdAt).getTime() < openedAt,
+        restricted: view.isRestricted(row.folderId ?? null),
+      })
+    ),
   }
 }
 
@@ -247,38 +341,76 @@ export interface UploadHistoryEntry {
   counts: Record<UploadSummaryDocument['outcome'], number>
 }
 
+/** One page of a project's upload history. */
+export interface UploadHistoryPage {
+  uploads: UploadHistoryEntry[]
+  /** Where the next page starts (`?cursor=`), or `null` on the last one. */
+  nextCursor: string | null
+}
+
 /**
- * A project's uploads, newest first. Readable by anyone who can open the
+ * A project's uploads, newest first, one keyset page at a time: every upload
+ * is reachable by following `nextCursor`. Readable by anyone who can open the
  * project: it says who brought how much in when, and the per-file detail stays
  * in each uploader's summary.
+ *
+ * What was filed in a folder hidden from the reader (ADR-0084) is left out as
+ * the document listing leaves it out, as if it did not exist. A count is
+ * metadata, and „12 Dateien, 3 in Quarantäne" for a folder the reader cannot
+ * open says who filed how much there and when. Only a document row carries a
+ * folder, so a reader who cannot open every folder of the project is shown
+ * only the documents that landed where they can look: the batch's own counts
+ * (the files it announced, the ones the server answered „unchanged" for, the
+ * transfers that failed, the ones the screening kept back) cannot be placed
+ * in a folder, and an upload with no such document is not listed at all. A
+ * page can therefore hold fewer rows than it read, or none, and still have a
+ * next one. A folder in the Papierkorb is hidden from everyone, organization
+ * admins included, so its files are not tallied; it withholds the batch's
+ * counts only from a reader who may not read it, or every project with a
+ * binned folder would show everyone a cut-down history.
  */
 export async function listProjectUploadHistory(
   session: AuthorizedSession,
-  projectId: string
-): Promise<UploadHistoryEntry[]> {
+  projectId: string,
+  { cursor }: { cursor?: DocumentListCursor } = {}
+): Promise<UploadHistoryPage> {
   await requireProjectAccess(session, projectId, 'project:view')
-  const batches = await listProjectUploadBatches(session.organizationId, projectId)
+  const [{ batches, nextCursor }, folders] = await Promise.all([
+    listProjectUploadBatchPage(session.organizationId, projectId, { cursor }),
+    readerFolders(session, projectId),
+  ])
+  const hiddenFolderIds = folders ? [...folders.access.hiddenFolderIds] : []
   const [counts, directory] = await Promise.all([
     countBatchDocumentsByStatus(
       session.organizationId,
-      batches.map((batch) => batch.id)
+      batches.map((batch) => batch.id),
+      { hiddenFolderIds }
     ),
     loadOrganizationDirectory(session.organizationId),
   ])
-  return batches.map((batch) => {
+  const readerHidesFolders = folders !== null && unreadableFolderIds(folders.access).length > 0
+  const uploads = batches.flatMap((batch): UploadHistoryEntry[] => {
     const tally: UploadHistoryEntry['counts'] = { ready: 0, reading: 0, quarantined: 0, failed: 0, stored: 0 }
-    for (const row of counts) if (row.batchId === batch.id) tally[outcomeOf(row.status)] += row.count
-    return {
-      id: batch.id,
-      createdBy: batch.createdBy,
-      createdByName: directory.get(batch.createdBy)?.name ?? null,
-      createdAt: new Date(batch.createdAt).toISOString(),
-      completedAt: batch.completedAt ? new Date(batch.completedAt).toISOString() : null,
-      expectedCount: batch.expectedCount,
-      unchangedCount: batch.unchangedCount,
-      failedCount: batch.failedCount,
-      excludedCount: batch.excluded.reduce((sum, entry) => sum + entry.count, 0),
-      counts: tally,
+    for (const row of counts) {
+      if (row.batchId === batch.id) tally[outcomeOf(row.status)] += row.count
     }
+    const placed = Object.values(tally).reduce((sum, count) => sum + count, 0)
+    if (readerHidesFolders && placed === 0) return []
+    const own = batchCounts(batch, readerHidesFolders ? placed : null)
+    return [
+      {
+        id: batch.id,
+        createdBy: batch.createdBy,
+        createdByName: directory.get(batch.createdBy)?.name ?? null,
+        createdAt: new Date(batch.createdAt).toISOString(),
+        completedAt: batch.completedAt ? new Date(batch.completedAt).toISOString() : null,
+        expectedCount: own.expectedCount,
+        unchangedCount: own.unchangedCount,
+        failedCount: own.failedCount,
+        excludedCount: own.excluded.reduce((sum, entry) => sum + entry.count, 0),
+        counts: tally,
+      },
+    ]
   })
+  return { uploads, nextCursor: nextCursor ? encodeDocumentListCursor(nextCursor) : null }
 }

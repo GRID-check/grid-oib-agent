@@ -40,6 +40,7 @@ import {
   readableFolderIdsFor,
   requireFolderWrite,
   restrictedCollectionName,
+  unreadableFolderIds,
   unreadableFoldersBelow,
   withProjectCeiling,
   type AccessFolder,
@@ -276,6 +277,22 @@ describe('the helpers derived from the rule', () => {
     expect(readRestrictingFoldersOnPath(tree, F.honorare)).toEqual([F.honorare, F.vertraege])
     expect(readRestrictingFoldersOnPath(tree, F.statikAlt)).toEqual([])
     expect(readRestrictingFoldersOnPath(tree, null)).toEqual([])
+  })
+
+  it('unreadableFolderIds: what the clearance may not read, not a folder hidden only by the bin', () => {
+    const access = (roles: string[], seesEverything = false) =>
+      unreadableFolderIds(computeFolderAccess(TREE, who(roles, seesEverything), COLLECTION)).sort()
+    // Archiviert is in the bin and lists GF: hidden from GF, but GF could read it.
+    expect(access([GF])).toEqual([F.waise])
+    expect(access(['member'])).toEqual([F.vertraege, F.honorare, F.waise, F.archiviert].sort())
+    expect(access([], true)).toEqual([])
+    // A bin with no own list anywhere hides its folder from everyone and keeps it from no one.
+    const open = TREE.filter((folder) => folder.id !== F.waise).map((folder) => ({
+      ...folder,
+      accessMode: 'inherit' as const,
+      grants: [],
+    }))
+    expect(unreadableFolderIds(computeFolderAccess(open, who(['member']), COLLECTION))).toEqual([])
   })
 
   it('names restricted collections as `_r` and twelve hex digits of the folder id', () => {

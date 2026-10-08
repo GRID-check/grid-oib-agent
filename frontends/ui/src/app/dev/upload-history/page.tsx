@@ -6,7 +6,8 @@
  * component, loaded through the module-scope fetch shim below:
  *
  *  - a project with three uploads: two of the reader's own (they link to their
- *    summary) and a colleague's (no link, no name);
+ *    summary) and a colleague's (no link, no name), the oldest behind
+ *    „Ältere Uploads laden" as a second page;
  *  - a project with none yet (the empty state);
  *  - a project whose history fails to load (the retry).
  *
@@ -27,8 +28,13 @@ if (typeof window !== 'undefined' && process.env.NODE_ENV === 'development') {
     const real = window.fetch.bind(window)
     window.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url
-      if (url === `/api/projects/${FIXTURE_PROJECT_ID}/uploads`) return Response.json({ uploads: HISTORY })
-      if (url === `/api/projects/${EMPTY_PROJECT_ID}/uploads`) return Response.json({ uploads: [] })
+      if (url === `/api/projects/${FIXTURE_PROJECT_ID}/uploads`) {
+        return Response.json({ uploads: HISTORY.slice(0, 2), nextCursor: 'older' })
+      }
+      if (url === `/api/projects/${FIXTURE_PROJECT_ID}/uploads?cursor=older`) {
+        return Response.json({ uploads: HISTORY.slice(2), nextCursor: null })
+      }
+      if (url === `/api/projects/${EMPTY_PROJECT_ID}/uploads`) return Response.json({ uploads: [], nextCursor: null })
       if (url === `/api/projects/${BROKEN_PROJECT_ID}/uploads`) {
         return Response.json({ error: { message: 'Internal error' } }, { status: 500 })
       }

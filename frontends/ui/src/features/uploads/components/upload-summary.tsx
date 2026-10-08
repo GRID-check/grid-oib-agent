@@ -35,6 +35,7 @@ import {
   groupByFolder,
   isSettling,
   placeHref,
+  summaryFacets,
   tallySummary,
   visibleTally,
 } from '../lib/upload-summary'
@@ -57,12 +58,13 @@ export function UploadSummaryView({ summary }: { summary: UploadSummary }): JSX.
   const tally = useMemo(() => tallySummary(summary), [summary])
   const groups = useMemo(() => groupByFolder(summary.documents), [summary.documents])
   const types = useMemo(() => documentTypeCounts(summary.documents), [summary.documents])
+  const facets = useMemo(() => summaryFacets(summary), [summary])
 
   return (
     <div className="space-y-7" data-testid="upload-summary">
       <Section label={t('summary.counts.label')} testId="upload-summary-counts">
         <ul className="grid grid-cols-2 gap-2 sm:grid-cols-3">
-          {visibleTally(tally).map(({ key, count }) => (
+          {[...visibleTally(tally), ...facets].map(({ key, count }) => (
             <TallyTile key={key} tally={key} count={count} label={tallyLabel(key)} />
           ))}
         </ul>

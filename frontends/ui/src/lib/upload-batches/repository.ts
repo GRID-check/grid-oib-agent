@@ -5,7 +5,7 @@
  */
 
 import 'server-only'
-import { and, desc, eq, gt, inArray, isNotNull, isNull, lt, sql } from 'drizzle-orm'
+import { and, asc, desc, eq, gt, inArray, isNotNull, isNull, lt, sql } from 'drizzle-orm'
 import { getDb } from '@/lib/db'
 import { withTenant } from '@/lib/db/tenant-context'
 import {
@@ -16,8 +16,10 @@ import {
   type UploadBatch,
 } from '@/lib/db/schema'
 import { IN_FLIGHT_DOCUMENT_STATUSES } from '@/lib/documents/document-status'
+import { CURSOR_TIMESTAMP_FORMAT, type DocumentListCursor } from '@/lib/documents/list-cursor'
+import { outsideHiddenFolders } from '@/lib/documents/repository'
 
-/** Bound on a project's upload history in one read. */
+/** Uploads per page of a project's history; the rest is behind the page's cursor. */
 export const UPLOAD_HISTORY_LIMIT = 50
 /** Bound on the documents a summary lists. A batch above it is summarised by counts. */
 export const UPLOAD_SUMMARY_DOCUMENT_LIMIT = 500
@@ -139,10 +141,16 @@ export async function listBatchDocuments(organizationId: string, batchId: string
   )
 }
 
-/** Per-status counts of a set of batches' documents, for the history list. */
+/**
+ * Per-status counts of a set of batches' documents, for the history list,
+ * leaving out what is filed in a folder hidden from this reader
+ * (`getHiddenFolderIds`) with the document listing's own predicate
+ * (`outsideHiddenFolders`), so "hidden" has one SQL spelling.
+ */
 export async function countBatchDocumentsByStatus(
   organizationId: string,
-  batchIds: readonly string[]
+  batchIds: readonly string[],
+  { hiddenFolderIds }: { hiddenFolderIds?: readonly string[] } = {}
 ): Promise<Array<{ batchId: string; status: string; count: number }>> {
   if (batchIds.length === 0) return []
   const db = getDb()
@@ -150,25 +158,69 @@ export async function countBatchDocumentsByStatus(
     db
       .select({ batchId: documents.uploadBatchId, status: documents.status, count: sql<number>`count(*)` })
       .from(documents)
-      .where(and(eq(documents.organizationId, organizationId), inArray(documents.uploadBatchId, [...batchIds])))
+      .where(
+        and(
+          eq(documents.organizationId, organizationId),
+          inArray(documents.uploadBatchId, [...batchIds]),
+          ...outsideHiddenFolders(hiddenFolderIds)
+        )
+      )
       .groupBy(documents.uploadBatchId, documents.status)
   )
   return rows
-    .filter((row): row is { batchId: string; status: string; count: number } => row.batchId !== null)
+    .filter((row): row is typeof row & { batchId: string } => row.batchId !== null)
     .map((row) => ({ batchId: row.batchId, status: row.status, count: Number(row.count) }))
 }
 
-/** A project's upload history, newest first, bounded. */
-export async function listProjectUploadBatches(organizationId: string, projectId: string): Promise<UploadBatch[]> {
+/** One page of a project's upload history, and where the next one starts. */
+export interface UploadBatchPage {
+  batches: UploadBatch[]
+  /** The position after the last batch, or `null` when this page is the last. */
+  nextCursor: DocumentListCursor | null
+}
+
+/**
+ * One keyset page of a project's upload history, newest first, the id
+ * breaking ties: the document listing's order and cursor (`list-cursor.ts`),
+ * so a page neither skips nor repeats an upload that lands between two reads.
+ * Each query stays bounded; the whole history comes from following
+ * `nextCursor`. `limit + 1` rows are read so the last page says so without a
+ * COUNT.
+ */
+export async function listProjectUploadBatchPage(
+  organizationId: string,
+  projectId: string,
+  { cursor }: { cursor?: DocumentListCursor } = {}
+): Promise<UploadBatchPage> {
   const db = getDb()
-  return withTenant({ organizationId }, () =>
+  const at = cursor ? sql`(${cursor.createdAt}::timestamp AT TIME ZONE 'UTC')` : null
+  const rows = await withTenant({ organizationId }, () =>
     db
-      .select()
+      .select({
+        batch: uploadBatches,
+        cursorCreatedAt: sql<string>`to_char(${uploadBatches.createdAt} AT TIME ZONE 'UTC', ${CURSOR_TIMESTAMP_FORMAT})`,
+      })
       .from(uploadBatches)
-      .where(and(eq(uploadBatches.organizationId, organizationId), eq(uploadBatches.projectId, projectId)))
-      .orderBy(desc(uploadBatches.createdAt))
-      .limit(UPLOAD_HISTORY_LIMIT)
+      .where(
+        and(
+          eq(uploadBatches.organizationId, organizationId),
+          eq(uploadBatches.projectId, projectId),
+          ...(cursor && at
+            ? [
+                sql`(${uploadBatches.createdAt} < ${at} OR (${uploadBatches.createdAt} = ${at} AND ${uploadBatches.id} > ${cursor.id}::uuid))`,
+              ]
+            : [])
+        )
+      )
+      .orderBy(desc(uploadBatches.createdAt), asc(uploadBatches.id))
+      .limit(UPLOAD_HISTORY_LIMIT + 1)
   )
+  const page = rows.slice(0, UPLOAD_HISTORY_LIMIT)
+  const last = page.at(-1)
+  return {
+    batches: page.map((row) => row.batch),
+    nextCursor: rows.length > UPLOAD_HISTORY_LIMIT && last ? { createdAt: last.cursorCreatedAt, id: last.batch.id } : null,
+  }
 }
 
 /**

@@ -18,7 +18,9 @@ import {
   CircleX,
   Clock3,
   Equal,
+  FilePen,
   Folder,
+  Lock,
   MonitorOff,
   ShieldAlert,
   type LucideIcon,
@@ -28,12 +30,12 @@ import { Chip, ChipCount } from '@/components/ui/chip'
 import { CountPill } from '@/components/ui/count-pill'
 import { StatCardIcon } from '@/components/ui/stat-card'
 import { useTranslations } from '@/i18n'
-import type { TallyKey } from '../lib/upload-summary'
+import type { CountKey } from '../lib/upload-summary'
 
 type Tone = 'success' | 'info' | 'warning' | 'destructive' | 'muted'
 
 /** Icon and tone per count. Colour never travels alone: every tile and pill also says its word. */
-const TALLY_LOOK: Record<TallyKey, { icon: LucideIcon; tone: Tone }> = {
+const TALLY_LOOK: Record<CountKey, { icon: LucideIcon; tone: Tone }> = {
   ready: { icon: CircleCheck, tone: 'success' },
   reading: { icon: Clock3, tone: 'info' },
   quarantined: { icon: ShieldAlert, tone: 'warning' },
@@ -41,10 +43,12 @@ const TALLY_LOOK: Record<TallyKey, { icon: LucideIcon; tone: Tone }> = {
   stored: { icon: Archive, tone: 'muted' },
   unchanged: { icon: Equal, tone: 'muted' },
   excluded: { icon: MonitorOff, tone: 'muted' },
+  changed: { icon: FilePen, tone: 'info' },
+  protected: { icon: Lock, tone: 'muted' },
 }
 
 /** The word for each count, from the dictionary that already says it. */
-export function useTallyLabel(): (key: TallyKey) => string {
+export function useTallyLabel(): (key: CountKey) => string {
   const tFiles = useTranslations('files')
   const t = useTranslations('uploadBatches')
   return (key) => {
@@ -63,12 +67,16 @@ export function useTallyLabel(): (key: TallyKey) => string {
         return t('summary.counts.unchanged')
       case 'excluded':
         return t('summary.counts.excluded')
+      case 'changed':
+        return t('summary.counts.changed')
+      case 'protected':
+        return t('summary.counts.protected')
     }
   }
 }
 
 /** One headline count in the summary: a tinted well, the number, the word. */
-export function TallyTile({ tally, count, label }: { tally: TallyKey; count: number; label: string }): JSX.Element {
+export function TallyTile({ tally, count, label }: { tally: CountKey; count: number; label: string }): JSX.Element {
   const look = TALLY_LOOK[tally]
   return (
     <li
@@ -85,7 +93,7 @@ export function TallyTile({ tally, count, label }: { tally: TallyKey; count: num
 }
 
 /** One count as a small pill, for a dense row (the project's upload history). */
-export function TallyPill({ tally, count, label }: { tally: TallyKey; count: number; label: string }): JSX.Element {
+export function TallyPill({ tally, count, label }: { tally: CountKey; count: number; label: string }): JSX.Element {
   const look = TALLY_LOOK[tally]
   const Icon = look.icon
   return (
@@ -93,6 +101,23 @@ export function TallyPill({ tally, count, label }: { tally: TallyKey; count: num
       <Icon aria-hidden />
       {label}
       <ChipCount>{count}</ChipCount>
+    </Chip>
+  )
+}
+
+/**
+ * What one file was besides how it ended, as a chip on its row: the tile's own
+ * icon and word, so „Geschützt" on the tile and on the file are one fact. The
+ * title says what it means.
+ */
+export function FacetChip({ facet, label, hint }: { facet: 'changed' | 'protected'; label: string; hint: string }): JSX.Element {
+  const look = TALLY_LOOK[facet]
+  const Icon = look.icon
+  return (
+    <Chip variant={look.tone} size="sm" title={hint} data-testid={`upload-facet-${facet}`}>
+      <Icon aria-hidden />
+      {label}
+      <span className="sr-only">: {hint}</span>
     </Chip>
   )
 }

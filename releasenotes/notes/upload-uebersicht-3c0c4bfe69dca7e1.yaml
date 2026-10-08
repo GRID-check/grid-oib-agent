@@ -1,0 +1,20 @@
+---
+features:
+  - >
+    The upload summary now shows which files were a new version of a document
+    already there (Geändert) and which went into a folder with its own access
+    list, the folders marked with a lock (Geschützt), as counts and on each
+    file.
+  - >
+    The upload history in the project settings now reaches back to a project's
+    first upload: Ältere Uploads laden shows the next older ones.
+fixes:
+  - >
+    If a folder of the project is closed to you, the upload history in the
+    project settings counts only the files that landed in folders you can open,
+    and no longer lists an upload with none there. A folder in the Papierkorb
+    that you could open does not count as closed to you.
+  - >
+    Files uploaded in the project wizard now get the same inbox notice and
+    upload summary as any other upload, and appear in the project's upload
+    history.

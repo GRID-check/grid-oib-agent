@@ -37,15 +37,19 @@ describe.skipIf(!url)('upload batches against Postgres', () => {
   const inTenant = <T>(organizationId: string, run: () => Promise<T>): Promise<T> =>
     withTenant({ organizationId, userId: USER }, run)
 
-  async function insertDocument(filename: string, status: string, extra: { hash?: string } = {}): Promise<string> {
+  async function insertDocument(
+    filename: string,
+    status: string,
+    extra: { hash?: string; batch?: string; folderId?: string | null } = {}
+  ): Promise<string> {
     const rows = await inTenant(ORG, () =>
       db.execute<{ id: string }>(sql`
         INSERT INTO documents
           (organization_id, created_by, filename, storage_key, collection_name, status, scope, project_id,
-           upload_batch_id, content_hash)
+           upload_batch_id, content_hash, folder_id)
         VALUES
           (${ORG}, ${USER}, ${filename}, ${`k/${filename}`}, 'coll_uploads', ${status}, 'project', ${projectId}::uuid,
-           ${BATCH}::uuid, ${extra.hash ?? null})
+           ${extra.batch ?? BATCH}::uuid, ${extra.hash ?? null}, ${extra.folderId ?? null}::uuid)
         RETURNING id
       `)
     )
@@ -176,5 +180,77 @@ describe.skipIf(!url)('upload batches against Postgres', () => {
 
     expect([...seen].sort()).toEqual([...ids].sort())
     expect(seen[2]).toBe(ids[2])
+  })
+
+  it("leaves a batch's documents in a hidden folder uncounted, with the listing's own predicate", async () => {
+    const batch = '7c1f0f8e-0b6a-4f41-9d3b-5a0b2f9e1a02'
+    await repo.insertUploadBatch({ id: batch, organizationId: ORG, createdBy: USER, scope: 'project', projectId, expectedCount: 3 })
+    const folders = await inTenant(ORG, () =>
+      db.execute<{ id: string }>(sql`
+        INSERT INTO project_folders (organization_id, project_id, name, path)
+        VALUES (${ORG}, ${projectId}::uuid, 'Honorare', 'Honorare')
+        RETURNING id
+      `)
+    )
+    const folderId = String(Array.from(folders)[0]?.id)
+    await insertDocument('root.pdf', 'completed', { batch })
+    await insertDocument('honorar-1.pdf', 'completed', { batch, folderId })
+    await insertDocument('honorar-2.pdf', 'quarantined', { batch, folderId })
+
+    const byStatus = (rows: Awaited<ReturnType<typeof repo.countBatchDocumentsByStatus>>) =>
+      Object.fromEntries(rows.map((row) => [row.status, row.count]))
+
+    expect(byStatus(await repo.countBatchDocumentsByStatus(ORG, [batch]))).toEqual({ completed: 2, quarantined: 1 })
+    expect(byStatus(await repo.countBatchDocumentsByStatus(ORG, [batch], { hiddenFolderIds: [folderId] }))).toEqual({
+      completed: 1,
+    })
+  })
+
+  it("pages a project's whole history newest first, ties broken by id, each upload once", async () => {
+    const rows = await inTenant(ORG, () =>
+      db.execute<{ id: string }>(sql`
+        INSERT INTO projects (organization_id, name, created_by, collection_name)
+        VALUES (${ORG}, 'Many uploads', ${USER}, 'coll_many_uploads')
+        RETURNING id
+      `)
+    )
+    const many = String(Array.from(rows)[0]?.id)
+    const total = repo.UPLOAD_HISTORY_LIMIT + 7
+    // One minute apart, except that the last upload of the first page and the
+    // first of the second share one timestamp: the tie a plain `created_at <`
+    // cursor would skip across the page boundary.
+    await inTenant(ORG, () =>
+      db.execute(sql`
+        INSERT INTO upload_batches (id, organization_id, created_by, scope, project_id, expected_count, created_at)
+        SELECT gen_random_uuid(), ${ORG}, ${USER}, 'project', ${many}::uuid, 1,
+               timestamptz '2026-10-01T12:00:00.123Z' - make_interval(mins => n - CASE WHEN n = ${repo.UPLOAD_HISTORY_LIMIT} THEN 1 ELSE 0 END)
+        FROM generate_series(0, ${total - 1}) AS n
+      `)
+    )
+
+    const seen: string[] = []
+    let cursor: Awaited<ReturnType<typeof repo.listProjectUploadBatchPage>>['nextCursor'] = null
+    let pages = 0
+    do {
+      const page: Awaited<ReturnType<typeof repo.listProjectUploadBatchPage>> = await repo.listProjectUploadBatchPage(
+        ORG,
+        many,
+        cursor ? { cursor } : {}
+      )
+      expect(page.batches.length).toBeLessThanOrEqual(repo.UPLOAD_HISTORY_LIMIT)
+      seen.push(...page.batches.map((batch) => batch.id))
+      cursor = page.nextCursor
+      pages += 1
+    } while (cursor && pages < 10)
+
+    expect(pages).toBe(2)
+    expect(seen).toHaveLength(total)
+    expect(new Set(seen).size).toBe(total)
+    const ordered = await inTenant(ORG, () =>
+      db.execute<{ id: string }>(sql`
+        SELECT id FROM upload_batches WHERE project_id = ${many}::uuid ORDER BY created_at DESC, id ASC
+      `)
+    )
+    expect(seen).toEqual(Array.from(ordered).map((row) => String(row.id)))
   })
 })

@@ -79,4 +79,67 @@ describe('DocumentRoleField upload', () => {
     expect(fetchSpy).not.toHaveBeenCalled()
     expect(vi.mocked(toast.error).mock.calls[0][0]).toBe(en.files.errors.screeningPolicyUnavailable)
   })
+
+  it('opens an upload batch, stamps every upload with it and seals it, so the upload gets its summary', async () => {
+    const fetchSpy = vi.fn(async (url: string, _init?: RequestInit) => ({
+      ok: url !== '/api/documents/upload' || fetchSpy.mock.calls.filter(([u]) => u === url).length !== 2,
+      status: 201,
+      json: async () => {
+        if (url !== '/api/documents/upload') return { replaced: [] }
+        return fetchSpy.mock.calls.filter(([u]) => u === url).length === 3
+          ? { documentId: 'doc-3', unchanged: true }
+          : { documentId: 'doc-1' }
+      },
+    }))
+    vi.stubGlobal('fetch', fetchSpy)
+
+    const { container } = render(<DocumentRoleField projectId="proj-1" role="lageplan" />)
+    const input = container.querySelector('input[type="file"]') as HTMLInputElement
+    fireEvent.change(input, {
+      target: {
+        files: [
+          new File(['fee'], 'Honorarnote.pdf', { type: 'application/pdf' }),
+          new File(['plan'], 'Lageplan.pdf', { type: 'application/pdf' }),
+          new File(['broken'], 'Lageplan-alt.pdf', { type: 'application/pdf' }),
+          new File(['same'], 'Lageplan-gleich.pdf', { type: 'application/pdf' }),
+        ],
+      },
+    })
+
+    await waitFor(() =>
+      expect(fetchSpy.mock.calls.some(([url]) => /^\/api\/upload-batches\/[^/]+\/seal$/.test(url))).toBe(true)
+    )
+    const calls = fetchSpy.mock.calls as unknown as Array<[string, RequestInit]>
+    const opened = calls.find(([url]) => url === '/api/upload-batches')
+    expect(opened).toBeDefined()
+    const batch = JSON.parse(String(opened?.[1].body)) as Record<string, unknown>
+    expect(batch).toMatchObject({
+      scope: 'project',
+      projectId: 'proj-1',
+      conversationId: null,
+      expectedCount: 3,
+      excluded: [{ term: 'Honorar', count: 1 }],
+    })
+    // Opened before the first file went.
+    expect(calls.findIndex(([url]) => url === '/api/upload-batches')).toBeLessThan(
+      calls.findIndex(([url]) => url === '/api/documents/upload')
+    )
+
+    const uploads = calls.filter(([url]) => url === '/api/documents/upload')
+    expect(uploads).toHaveLength(3)
+    for (const [, init] of uploads) expect((init.body as FormData).get('uploadBatchId')).toBe(batch.id)
+
+    const sealed = calls.find(([url]) => url === `/api/upload-batches/${String(batch.id)}/seal`)
+    expect(JSON.parse(String(sealed?.[1].body))).toEqual({ unchanged: 1, failed: 1 })
+  })
+
+  it('opens no batch when the screen holds back every file', async () => {
+    const fetchSpy = vi.fn(async () => ({ ok: true, status: 201, json: async () => ({}) }))
+    vi.stubGlobal('fetch', fetchSpy)
+    const { container } = render(<DocumentRoleField projectId="proj-1" role="lageplan" />)
+    const input = container.querySelector('input[type="file"]') as HTMLInputElement
+    fireEvent.change(input, { target: { files: [new File(['fee'], 'Honorarnote.pdf', { type: 'application/pdf' })] } })
+    await waitFor(() => expect(toast.error).toHaveBeenCalled())
+    expect(fetchSpy).not.toHaveBeenCalled()
+  })
 })

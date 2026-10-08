@@ -11,11 +11,14 @@
  * the history endpoint resolves from the organization directory (most readers
  * may not read the project roster). Someone who has left the organization has
  * no name there, and their row carries none rather than an id.
+ *
+ * The list is read a page at a time; „Ältere Uploads laden" reads the next,
+ * so every upload of the project can be reached.
  */
 
 import type { JSX } from 'react'
 import Link from 'next/link'
-import { ArrowUpRight, History } from 'lucide-react'
+import { ArrowUpRight, History, Loader2 } from 'lucide-react'
 
 import type { UploadHistoryEntry } from '@/adapters/api/upload-batches-client'
 import { Alert, AlertDescription } from '@/components/ui/alert'
@@ -115,7 +118,7 @@ export function UploadHistory({
 }): JSX.Element {
   const t = useTranslations('uploadBatches')
   const tCommon = useTranslations('common')
-  const { state, retry } = useProjectUploads(projectId)
+  const { state, retry, loadMore } = useProjectUploads(projectId)
 
   if (state.status === 'loading') {
     return (
@@ -138,5 +141,33 @@ export function UploadHistory({
       </Alert>
     )
   }
-  return <UploadHistoryList uploads={state.uploads} currentUserId={currentUserId} />
+  const hasMore = state.nextCursor !== null
+  return (
+    <div className="space-y-3">
+      {/* A first page whose uploads all went where the reader cannot look is not „no uploads yet". */}
+      {(state.uploads.length > 0 || !hasMore) && (
+        <UploadHistoryList uploads={state.uploads} currentUserId={currentUserId} />
+      )}
+      {hasMore && (
+        <div className="flex flex-col items-start gap-2">
+          {state.more === 'error' && (
+            <p className="text-error text-sm" data-testid="upload-history-more-error">
+              {t('history.moreError')}
+            </p>
+          )}
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={loadMore}
+            disabled={state.more === 'loading'}
+            aria-busy={state.more === 'loading'}
+            data-testid="upload-history-more"
+          >
+            {state.more === 'loading' && <Loader2 className="size-3.5 animate-spin motion-reduce:animate-none" aria-hidden />}
+            {t('history.more')}
+          </Button>
+        </div>
+      )}
+    </div>
+  )
 }

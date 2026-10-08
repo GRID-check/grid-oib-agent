@@ -117,11 +117,26 @@ When everything an upload brought in has been read, the uploader gets an inbox
 notice. It opens a summary of that upload: what arrived and where it was filed,
 what each file is (its document type and summary), which files the screening
 kept on the computer and for which terms, what is in quarantine, and what
-failed and why. While files are still being read, the summary updates itself.
+failed and why. **Geändert** counts and marks the files that were a new version
+of a document already there; **Geschützt** those filed in a folder with its own
+access list, or below one: the folders the file list marks with a lock. That
+includes a list that lets every member read and limits only who may change the
+files; the lock says which it is. While files are still being read, the
+summary updates itself. A file dropped into a question of the
+project wizard (the Bebauungsplan, say) is an upload like any other: it gets
+the same notice and summary, and the project's upload list shows it.
 
 **Project settings → Uploads** lists every upload into the project, newest
-first, with who uploaded it and what became of its files. Each person opens
-the file-by-file summary of their own uploads only.
+first, with who uploaded it and what became of its files; **Ältere Uploads
+laden** reads further back, to the first one. Each person opens
+the file-by-file summary of their own uploads only. If a folder of the project
+is closed to you, you see of each upload only the files that landed in folders
+you can open, exactly as the file list shows them. Files Piloti found
+unchanged, transfers that failed and files the screening kept back belong to no
+folder, so they are not counted for you, and an upload with nothing in your
+folders is not listed. A folder in the Papierkorb is hidden from everyone, so
+its files are not counted, but it closes nothing to you as long as you could
+open it: the upload's other counts stay.
 
 ## Your office's own roles
 
