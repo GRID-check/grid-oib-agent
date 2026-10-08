@@ -75,7 +75,7 @@ vi.mock('./restricted-use-repository', () => ({
 }))
 vi.mock('@/lib/authz/folder-access-repository', () => ({
   listProjectFolderTree: vi.fn(async () => state.tree),
-  projectHasCustomFolders: vi.fn(async () => state.tree.some((folder) => folder.accessMode === 'custom')),
+  projectHasCustomOrBinnedFolders: vi.fn(async () => state.tree.some((folder) => folder.accessMode === 'custom')),
 }))
 vi.mock('@/lib/projects/repository', () => ({ findProjectCollectionName: vi.fn(async () => COLLECTION) }))
 vi.mock('@/lib/sharing/directory', () => ({

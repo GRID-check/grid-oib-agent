@@ -608,6 +608,30 @@ export const organization = {
     open: 'View audit logs',
     error: 'Could not open the audit log viewer.',
   },
+  /** Sensible Daten → „Inhalte aus gelöschten Ordnern" (ADR-0085). */
+  deletedFolderContent: {
+    title: 'Content from deleted folders',
+    description:
+      'Who sees chats, answers and notes drawn from a folder once it is permanently deleted. Applies at once, to folders already deleted too.',
+    options: {
+      unchanged: 'Visible as before',
+      project: 'Visible to everyone in the project',
+      admins: 'Admins only',
+      remove: 'Remove with the folder',
+    },
+    hints: {
+      unchanged: 'Whoever could read the folder keeps seeing them, with the note “Source deleted on …”.',
+      project: 'Every project member sees them, with the same note.',
+      admins: 'Only organization admins see them.',
+      remove: 'The permanent deletion removes them too: notes deleted, answers replaced by “Content removed”.',
+    },
+    retentionNote:
+      'How long derived content stays once its source is deleted is your organization’s choice, made here.',
+    saved: 'Saved.',
+    saveError: 'The setting could not be saved. Please try again.',
+    loadError: 'The setting could not be loaded.',
+    readOnly: 'Only organization admins can change this.',
+  },
   /** Sensitive data: the lists Piloti checks every upload against (ADR-0083). */
   screening: {
     title: 'Screening list',

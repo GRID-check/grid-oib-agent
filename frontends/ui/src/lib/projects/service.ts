@@ -33,6 +33,7 @@ import {
   clearanceOf,
   customFolderNames,
   getHiddenFolderIds,
+  purgedFolderDates,
   readableFolderIdsFor,
 } from '@/lib/authz/folder-access'
 import {
@@ -321,7 +322,14 @@ export type ProjectMemoryItemPatch = Partial<
  * names the folders it is restricted to, for the lock; it only reaches a reader
  * already cleared for all of them.
  */
-export type ProjectMemoryListItem = ProjectMemoryItem & { restrictedFolderNames?: string[] }
+export type ProjectMemoryListItem = ProjectMemoryItem & {
+  restrictedFolderNames?: string[]
+  /**
+   * When a folder the note came from was purged (ADR-0085): the panel's
+   * „Quelle gelöscht am …". The earliest, when several were.
+   */
+  sourceDeletedAt?: string
+}
 
 /**
  * Every folder of the project (tombstones included) this session may read now
@@ -344,17 +352,26 @@ async function labelRestrictions(
   items: ProjectMemoryItem[]
 ): Promise<ProjectMemoryListItem[]> {
   if (!items.some((item) => (item.restrictedFolderIds?.length ?? 0) > 0)) return items
-  const names = await customFolderNames(session.organizationId, projectId)
-  return items.map((item) =>
-    item.restrictedFolderIds && item.restrictedFolderIds.length > 0
-      ? {
-          ...item,
-          restrictedFolderNames: item.restrictedFolderIds
-            .map((folderId) => names.get(folderId))
-            .filter((name): name is string => name !== undefined),
-        }
-      : item
-  )
+  const [names, purgedAt] = await Promise.all([
+    customFolderNames(session.organizationId, projectId),
+    purgedFolderDates(session.organizationId, projectId),
+  ])
+  return items.map((item) => {
+    if (!item.restrictedFolderIds || item.restrictedFolderIds.length === 0) return item
+    const deleted = item.restrictedFolderIds
+      .flatMap((folderId) => {
+        const at = purgedAt.get(folderId)
+        return at ? [at.toISOString()] : []
+      })
+      .sort()
+    return {
+      ...item,
+      restrictedFolderNames: item.restrictedFolderIds
+        .map((folderId) => names.get(folderId))
+        .filter((name): name is string => name !== undefined),
+      ...(deleted.length > 0 ? { sourceDeletedAt: deleted[0] } : {}),
+    }
+  })
 }
 
 /**

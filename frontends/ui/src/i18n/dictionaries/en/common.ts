@@ -131,4 +131,10 @@ export const common = {
       open: 'Open passage',
     },
   },
+  /** Content drawn from a folder that has since been deleted (ADR-0085). */
+  derivedSource: {
+    deletedOn: 'Source deleted on {date}',
+    deletedOnTitle: 'The folder this came from was permanently deleted on {date}.',
+    erased: 'Content removed: source deleted',
+  },
 }

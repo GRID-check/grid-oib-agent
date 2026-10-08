@@ -562,10 +562,13 @@ tree renders recursively). The prior "can't nest" symptom was **UX only** — th
 was no per-folder affordance. **Fix**: `folder-tree-pane.tsx` now shows an "add
 subfolder" `+` on each folder row and makes root creation explicit.
 
-`folder-service.ts` carries the full set: `createProjectFolder`,
-`updateProjectFolder` (rename and/or move) and `deleteProjectFolder`, behind
-`POST`/`PATCH`/`DELETE` on `/api/projects/{id}/folders[/{folderId}]`. Two
-invariants are load-bearing:
+`folder-service.ts` carries `createProjectFolder`, `updateProjectFolder`
+(rename and/or move) and `deleteProjectFolder`, which is the Papierkorb's
+`moveFolderToBin` in `folder-bin.ts` (ADR-0085). They sit behind
+`POST`/`PATCH`/`DELETE` on `/api/projects/{id}/folders[/{folderId}]`; the
+Archiv's folders (`/api/archiv/folders`, ADR-0078) share the shelf core in
+`lib/documents/shelf-folders.ts`, delete included. Two invariants are
+load-bearing:
 
 - **`path` is materialised**, so a rename or a move has to rewrite every
   descendant row. `rewriteDescendantPaths` does it as one prefix-replace
@@ -575,12 +578,16 @@ invariants are load-bearing:
   folder's own subtree is rejected up front — with a materialised path a cycle
   is invisible until something walks it.
 - **`documents.folder_id` is `ON DELETE CASCADE`** (see the deletion pipeline),
-  so deleting a folder row would take its documents with it. `deleteProjectFolder`
-  re-files the documents *and* re-parents the child folders into the deleted
-  folder's own parent **inside the transaction, before the delete**, and returns
-  `{ documentsMoved, foldersMoved }` so the surface can say where the files
-  went. `folder-service.mutations.spec.ts` pins that ordering — deleting a label
-  must never delete the work filed under it.
+  so a folder row is never deleted with anything in it. A project folder's
+  delete marks it and its subfolders `deleted_at` (the Papierkorb), purges their
+  documents' chunks and keeps every row; the purge after
+  `FOLDER_PURGE_GRACE_DAYS` erases the documents one by one and keeps the
+  folders as tombstones with their grants. Migration 0113's triggers refuse
+  filing anything into a deleted folder, and its CHECK refuses a deleted Archiv
+  folder. `folder-bin.integration.spec.ts` pins it against Postgres. An Archiv
+  folder has no bin: `deleteShelfFolder` re-files its documents and child
+  folders into its parent inside the transaction, then removes the row
+  (`shelf-folders.spec.ts`, `shelf-folders.integration.spec.ts`).
 
 #### Folders on the Python side (ADR-0049)
 

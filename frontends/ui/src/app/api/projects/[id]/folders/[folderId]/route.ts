@@ -1,16 +1,18 @@
 /**
  * One project folder — rename, move, delete.
  *
- * Thin handlers; the request handling is shared with the Archiv's folders
- * (`@/lib/documents/folder-route-handlers`, where the delete's re-filing is
- * explained) and authz and logic live in `@/lib/projects/folder-service`. A
- * project folder's delete keeps the row as a tombstone (ADR-0085): deleting a
- * label must not delete the work filed under it, nor the access that decides
- * who may read what was derived from it.
+ * Thin handlers; authz and logic live in `@/lib/projects/folder-service`. The
+ * rename and move share their request handling with the Archiv's folders
+ * (`@/lib/documents/folder-route-handlers`). The delete does not: a project
+ * folder goes to the Papierkorb with its subfolders and their documents
+ * (`@/lib/projects/folder-bin`, ADR-0085), restorable with its access for
+ * `FOLDER_PURGE_GRACE_DAYS`, then purged to a tombstone. It answers
+ * `{ documentsBinned, foldersBinned, purgeAfter }`, not the Archiv's re-filing
+ * counts.
  */
 
 import { apiRoute } from '@/lib/api/handler'
-import { deleteFolderHandler, updateFolderHandler } from '@/lib/documents/folder-route-handlers'
+import { updateFolderHandler } from '@/lib/documents/folder-route-handlers'
 import { deleteProjectFolder, updateProjectFolder } from '@/lib/projects/folder-service'
 
 type Params = { id: string; folderId: string }
@@ -28,13 +30,12 @@ export const PATCH = apiRoute<Params>(
 )
 
 export const DELETE = apiRoute<Params>(
-  deleteFolderHandler<Params>((params, session, request) =>
-    deleteProjectFolder({ projectId: params.id, folderId: params.folderId }, session, request)
-  ),
+  async ({ session, params, request }) =>
+    deleteProjectFolder({ projectId: params.id, folderId: params.folderId }, session, request),
   {
     authz: {
       enforcedBy:
-        'deleteProjectFolder (requireFolderWrite: project:documents:write + write on the folder and its child folders; project:manage for a folder with its own access list)',
+        'deleteProjectFolder → moveFolderToBin (project:documents:write, write on the folder and on every folder below it)',
     },
   }
 )

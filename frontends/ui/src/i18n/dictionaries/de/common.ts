@@ -133,4 +133,10 @@ export const common: typeof en.common = {
       open: 'Stelle öffnen',
     },
   },
+  /** Content drawn from a folder that has since been deleted (ADR-0085). */
+  derivedSource: {
+    deletedOn: 'Quelle gelöscht am {date}',
+    deletedOnTitle: 'Der Ordner, aus dem das stammt, wurde am {date} endgültig gelöscht.',
+    erased: 'Inhalt entfernt: Quelle gelöscht',
+  },
 }

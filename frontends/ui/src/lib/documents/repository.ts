@@ -958,6 +958,11 @@ export async function findStorageKeyByIdAndCollection(
  * No authorship predicate, unlike the presign lookup. A published
  * machine-authored version IS ingested (ADR-0054's publish door), and
  * answering "gone" for it would have the pipeline discard a live document.
+ *
+ * A document filed in a folder that is in the Papierkorb (or purged) is gone
+ * for this question: its chunks were purged when the folder went to the bin,
+ * and an ingest that was still running then must take back out what it
+ * inserted afterwards. A restore dispatches it again.
  */
 export async function documentExistsInCollection(
   documentId: string,
@@ -978,6 +983,7 @@ export async function documentExistsInCollection(
             eq(documents.id, documentId),
             eq(documents.collectionName, collectionName),
             ...(organizationId ? [eq(documents.organizationId, organizationId)] : []),
+            sql`NOT EXISTS (SELECT 1 FROM project_folders f WHERE f.id = ${documents.folderId} AND f.deleted_at IS NOT NULL)`,
           ),
         )
         .limit(1),
@@ -1148,7 +1154,10 @@ export interface StuckProcessingDocument {
  * organization, and acts on each row inside its own.
  *
  * A row whose job is still `queued` or `claimed` is left out in the query, so
- * the batch is always rows that need something done.
+ * the batch is always rows that need something done. So is a row in a folder
+ * that went to the Papierkorb (ADR-0085): it is hidden and its chunks were
+ * purged, and restoring the folder dispatches it again; a job queued for it
+ * here would only parse or convert a document nobody may see.
  */
 export async function listStuckProcessingDocuments(
   before: Date,
@@ -1173,6 +1182,7 @@ export async function listStuckProcessingDocuments(
           eq(documents.status, 'processing'),
           lt(documents.updatedAt, before),
           or(isNull(bffJobQueue.jobId), eq(bffJobQueue.status, 'dead')),
+          sql`NOT EXISTS (SELECT 1 FROM project_folders f WHERE f.id = ${documents.folderId} AND f.deleted_at IS NOT NULL)`,
         ),
       )
       .orderBy(asc(documents.updatedAt))

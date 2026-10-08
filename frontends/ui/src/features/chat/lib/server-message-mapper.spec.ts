@@ -196,6 +196,32 @@ describe('mapServerMessageToChatMessage', () => {
     expect(mapped!.messageType).toBe('user')
     expect(mapped!.errorData).toBeUndefined()
   })
+
+  it('carries the marks of a deleted source folder: the purge’s date and a removal’s (ADR-0085)', () => {
+    const drawn = mapServerMessageToChatMessage(
+      serverMessage({ role: 'assistant', metadata: { sourceDeleted: { folderId: 'f1', at: '2026-10-20T03:00:00.000Z' } } })
+    )
+    expect(drawn!.sourceDeletedAt).toBe('2026-10-20T03:00:00.000Z')
+    expect(drawn!.erasedAt).toBeUndefined()
+
+    const erased = mapServerMessageToChatMessage(
+      serverMessage({
+        role: 'assistant',
+        content: 'Inhalt entfernt: Quelle gelöscht',
+        metadata: { sourceRemoved: { folderId: 'f1', at: '2026-10-21T08:00:00.000Z' } },
+      })
+    )
+    expect(erased!.erasedAt).toBe('2026-10-21T08:00:00.000Z')
+    expect(erased!.citations).toBeUndefined()
+  })
+
+  it('ignores a mark without a real date', () => {
+    const mapped = mapServerMessageToChatMessage(
+      serverMessage({ role: 'assistant', metadata: { sourceDeleted: { at: 'gestern' }, sourceRemoved: 'yes' } })
+    )
+    expect(mapped!.sourceDeletedAt).toBeUndefined()
+    expect(mapped!.erasedAt).toBeUndefined()
+  })
 })
 
 describe('mapServerMessagesToChatMessages', () => {

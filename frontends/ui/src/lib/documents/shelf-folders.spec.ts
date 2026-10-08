@@ -71,7 +71,11 @@ const folder = (id: string, name: string, path: string, parentId: string | null 
 
 /** A drizzle handle that answers `select`s in order and records every write. */
 function fakeDb(selects: Array<Array<ReturnType<typeof folder>>>) {
-  const writes = { inserted: [] as Array<Record<string, unknown>>, updated: [] as Array<Record<string, unknown>> }
+  const writes = {
+    inserted: [] as Array<Record<string, unknown>>,
+    updated: [] as Array<Record<string, unknown>>,
+    deleted: 0,
+  }
   const answer = (rows: unknown[]) =>
     Object.assign(Promise.resolve(rows), {
       limit: () => Promise.resolve(rows),
@@ -96,7 +100,11 @@ function fakeDb(selects: Array<Array<ReturnType<typeof folder>>>) {
         }
       },
     }),
-    delete: () => ({ where: async () => undefined }),
+    delete: () => ({
+      where: async () => {
+        writes.deleted += 1
+      },
+    }),
     transaction: async (run: (tx: unknown) => unknown) => run(db),
   }
   return { db, writes }
@@ -255,6 +263,10 @@ describe('deleting an Archiv folder', () => {
     const result = await deleteShelfFolder(session, ARCHIV_SHELF, 'f-2')
 
     expect(result.ok && result.result).toEqual({ documentsMoved: 1, foldersMoved: 1 })
+    // The row goes: the Archiv has no Papierkorb and no tombstone (ADR-0085),
+    // only a project folder's delete keeps one, and that is not this function.
+    expect(fake.writes.deleted).toBe(1)
+    expect(fake.writes.updated).not.toContainEqual(expect.objectContaining({ deletedAt: expect.anything() }))
     // The child moves up a level, carrying its path with it.
     expect(fake.writes.updated).toContainEqual(
       expect.objectContaining({ parentId: 'f-1', path: 'Normen/Alt' }),

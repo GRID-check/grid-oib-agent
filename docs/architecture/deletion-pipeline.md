@@ -1,4 +1,4 @@
-# Deletion Pipeline: Projects, Documents, Conversations, Organizations
+# Deletion Pipeline: Projects, Folders, Documents, Conversations, Organizations
 
 **Date:** 2026-07-05
 **Status:** Phase 1 implemented
@@ -31,7 +31,7 @@ New table `deletion_queue` — simultaneously tombstone, work queue, and survivi
 | Column | Type | Notes |
 |---|---|---|
 | `id` | uuid pk | |
-| `entity_type` | text | `'project' \| 'document' \| 'conversation' \| 'organization'` |
+| `entity_type` | text | `'project' \| 'folder' \| 'document' \| 'conversation' \| 'organization'` |
 | `entity_id` | text | uuid for rows; WorkOS org id for organizations |
 | `display_name` | text | snapshot for audit + restore UI (entity row may be gone later) |
 | `organization_id` | text | scoping for admin views |
@@ -52,14 +52,14 @@ Entities that do have rows additionally get a `deleted_at timestamptz` column (`
 
 New table `legal_holds`: `id`, `entity_type`, `entity_id`, `organization_id`, `reason`, `created_by`, `created_at`, `released_at` (nullable). A hold is **active** while `released_at IS NULL`.
 
-Semantics: a hold does **not** block soft delete (the entity still disappears from the UI as the requester expects) — it blocks **purge**. The reaper's claim query excludes any queue row with an active hold on the same entity, or on its parent organization (org-level holds freeze everything inside the org, including project-purge children enqueued by an org offboarding). When the hold is released, purge resumes on the next tick with no further action.
+Semantics: a hold does **not** block soft delete (a folder still goes to the Papierkorb) (the entity still disappears from the UI as the requester expects) — it blocks **purge**. The reaper's claim query excludes any queue row with an active hold on the same entity, or on its parent organization (org-level holds freeze everything inside the org, including project-purge children enqueued by an org offboarding). When the hold is released, purge resumes on the next tick with no further action.
 
 This doubles as GDPR **Art. 18 (restriction of processing)** support: restricted data is preserved but not actively processed.
 
-**What a hold covers, and who asks (migration 0093).** "Covered" is one database function, `grid_legal_hold_blocks(entity_type, entity_id, organization_id)`, and every reader calls it rather than restating it. An entity is covered by an active hold of its own organization on: the organization; the entity itself; what contains it (a document's project and conversation, a conversation's project); what it contains, since erasing it erases that too (a conversation's attachments; a project's documents, chats and the chats' attachments; for an organization, any hold in it at all); and the user who created it (a custodian hold: `documents.created_by`, `conversations.created_by`). Three readers:
+**What a hold covers, and who asks (migration 0093).** "Covered" is one database function, `grid_legal_hold_blocks(entity_type, entity_id, organization_id)`, and every reader calls it rather than restating it. An entity is covered by an active hold of its own organization on: the organization; the entity itself; what contains it (a document's project and conversation, a conversation's project); what it contains, since erasing it erases that too (a conversation's attachments; a project's documents, chats and the chats' attachments; for an organization, any hold in it at all); and the user who created it (a custodian hold: `documents.created_by`, `conversations.created_by`). Since migration 0113 a **folder** is covered by a hold on the folder, on a folder above it (which contains it) or below it, on a document in its subtree, on the project, on the creator of a document in it, or on the organization; a document is also covered by a hold on any folder on its path, and a project by a hold on any of its folders (`grid_folder_subtree`, `grid_folder_ancestry`). Three readers:
 
 - **The purger** — its claim query and the TOCTOU re-checks in `purge-project.js` and `purge-conversation.js`. The predicate used to be written out in `purger/db.js` and saw only the project and the organization, so a held document inside a deleted project was purged with it.
-- **The BFF's immediate deletes** — documents, Archiv documents, conversations and chat attachments are hard-deleted in the request, not queued, so each calls `assertNoActiveHold` (`lib/compliance/holds.ts`) after its access check and before its first destructive step. A covered entity answers **409** `{ code: 'CONFLICT', details: { reason: 'legal_hold' } }` and nothing is erased; the chat is not even marked deleting. The response never names the hold or its reason.
+- **The BFF's immediate deletes** — documents, Archiv documents, conversations and chat attachments are hard-deleted in the request, not queued, and a folder is purged in the request by „Endgültig löschen", so each calls `assertNoActiveHold` (`lib/compliance/holds.ts`) after its access check and before its first destructive step. A covered entity answers **409** `{ code: 'CONFLICT', details: { reason: 'legal_hold' } }` and nothing is erased; the chat is not even marked deleting. The response never names the hold or its reason.
 - **The delete triggers** — `BEFORE DELETE` on `documents` and `conversations` raise SQLSTATE `GLH01` for a covered row, including a row reached by a cascade from a project. This is the backstop for a delete path that forgot to ask; `lib/api/handler.ts` maps `GLH01` to the same 409. It guards the rows only: object storage and the vector store are outside the transaction, which is why the application check comes first. A project row has no trigger of its own: its content has, and an empty project row is not content (its creation rollback, `deleteProjectRow`, must keep working under an organization hold).
 
 Unlike the purge, an immediate delete is **refused**, not deferred: there is no queue row for a document to resume from once the hold is released, so the requester gets the refusal and deletes again after release. A chat is refused the same way when the hold exists at delete time. A hold placed after the chat was marked deleting, while its erasure waits in the queue for a retry, defers that retry instead (see **Conversation** below).
@@ -74,6 +74,7 @@ All list/get queries for projects and conversations gain `WHERE deleted_at IS NU
 
 | Entity | Confirm UX | Grace period | Restorable |
 |---|---|---|---|
+| Folder | simple confirm; „Endgültig löschen" (project admins) confirms again | 14 days (config `FOLDER_PURGE_GRACE_DAYS`) in the Papierkorb | yes, with its access, subfolders and documents |
 | Document | simple confirm dialog | 0 (purged on next reaper tick, ≤~60s) | no |
 | Conversation | simple confirm (existing modal flow, upgraded) | 0 | no |
 | Project | **type-to-confirm** (project name) | 7 days (config `PROJECT_PURGE_GRACE_DAYS`) | yes |
@@ -138,6 +139,26 @@ Archiv, a chat attachment, and a whole chat's attachments in step 4 of the
 conversation delete below) purges the chunks once more after the row (logged,
 never surfaced; the orphaned-vector sweep is the net)
 ([a document deleted while it indexed](../technical-reference/document-ingestion.md#a-document-deleted-while-it-indexed-takes-its-chunks-back-out)).
+
+**Folder** (the Papierkorb, migration 0113, ADR-0085). A project folder only: an Archiv folder has no bin, and its delete re-files what it holds into its parent and removes the row in the request (ADR-0078). Deleting a project folder takes its subfolders and their documents with it, as one bin entry: `moveFolderToBin` (`lib/projects/folder-bin.ts`) needs write on the folder and on every folder below it (a subtree holding a folder the person may not read, or may only read, is refused with one generic 403, `folder-contents-protected`, that names nothing), takes the project's bin lock, marks every folder of the subtree `deleted_at` with `bin_root_id` = the deleted folder, and inserts the queue row (`purge_after` = now + `FOLDER_PURGE_GRACE_DAYS`, default 14, at most 23) in one transaction. The documents keep their `folder_id`: a deleted folder hides itself and what is filed in it from every listing, document read and the agent's internal routes, for everyone, admins included (`folder-access-rule.ts`, the restricted-folder enforcement). In the same request each document's chunks are purged from the vector store (`purgeIngestedChunks`); when the backend does not confirm one, the bin entry is undone (the documents purged so far are dispatched again) and the request answers 502, so a folder is never in the bin while its content is searchable. An ingest still running asks `document-exists`, which answers `false` for a document in a deleted folder, and takes its chunks back out. Placement never moves a document in the bin. Migration 0113's triggers refuse an insert or a move of a document or folder into a deleted folder (SQLSTATE `GFD01`, answered 404) under the same lock, so nothing lands in a folder between its check and its deletion.
+
+Restoring (`restoreFolderFromBin`, within the grace period, while the purger has not claimed the row) needs what deleting needed. It closes the row as `restored`, takes the entry's folders out of the bin, puts the folder under its old parent or, when that is gone, at the project root (the answer says `restoredTo: 'root'`), refuses (409 `folder-name-taken`) while a living sibling holds its name, and dispatches every document again into the collection its folder puts it in now.
+
+Purge steps (`purger/purge-folder.js` → `POST /api/internal/folders/[id]/purge` → `purgeBinnedFolder`; „Endgültig löschen" runs the same function in the request after claiming the row, and puts the row back to `pending` for the purger when anything fails):
+1. Re-check the legal hold (409 `legal_hold` defers the row, like a held project).
+2. Find the answers that drew on the folder's documents (stored cited and read sources, by document id or collection and file name), record the folder on their conversations (`conversation_restricted_folders`), mark them `metadata.sourceDeleted`, and mark the reports Piloti filed from them.
+3. When the organization's setting is „Mit dem Ordner entfernen": the derived-content removal (below), its ids merged into the row's payload (`payload.derivedRemoval`).
+4. Erase each document by the document delete's own steps (`eraseProjectDocument`: chunks, every version's objects, renditions, thumbnails and extracted images, grants and assignments, the row, the chunks once more).
+5. Mark the entry's folders `purged_at`, last: they stay as permanent tombstones with their grants (ADR-0085).
+6. The purger erases the Langfuse traces of the conversations step 3 touched and merges the counts into the payload.
+
+Every step is idempotent; a retry after any failure finishes the work, and a folder already purged answers `already-purged` with the conversations whose traces step 6 still owes. A row that names a folder not in the bin is failed for good (`not_in_bin`).
+
+**What is derived from a purged folder** is decided at read time by the folder rule, `effectiveFolderLevel`, from the organization's setting „Inhalte aus gelöschten Ordnern" (`organizations.settings.deletedFolderContent`): `unchanged` (default) keeps the tombstone's grants, `project` lets every project member read it, `admins` and `remove` leave it to organization admins. Memory notes (by their folder ids), conversations (by their record) and anything else asking the rule follow at once; nothing is rewritten when the setting changes.
+
+**The derived-content removal** („Mit dem Ordner entfernen"): memory notes whose source folders include the folder, and notes learned in a conversation whose answers drew on it, are deleted (an open folder's notes carry no folder id, so the conversation is the only link; deleting one note too many is recoverable, keeping personal data is not); those answers' text becomes „Inhalt entfernt: Quelle gelöscht" and their metadata only `sourceRemoved` (citations, cards, findings, the Herleitung go; the message row stays, so the chat reads on); filed reports from those conversations are marked „Quelle gelöscht am …", never deleted; the conversations' Langfuse traces are deleted (a no-op without Langfuse configured). The record is the queue row: `requested_by`, `requested_at`, `purged_at`, `payload.derivedRemoval` (the ids of the conversations, messages, notes and reports) and `payload.purged` (counts). No content.
+
+**GDPR, without a GDPR button.** There is no separate erasure action, and no user-facing copy names the GDPR (product owner, 6 Oct 2026). The ordinary pipeline meets Art. 17: a deleted folder is out of every listing, search and answer at once, and its purge removes the files, every version, renditions and previews, the index entries and (under „Mit dem Ordner entfernen") the derived content and its traces once `FOLDER_PURGE_GRACE_DAYS` is over, which is capped at 23 days so grace plus retries stay inside the one-month response window of Art. 12(3). A request that cannot wait is „Endgültig löschen" by a project admin. A legal hold (Art. 18) stops the purge and nothing else.
 
 **Conversation**:
 1. Delete LangGraph checkpoints (`checkpoints`, `checkpoint_blobs`, `checkpoint_writes` in `aiq_checkpoints`) for `thread_id = conversation id`
@@ -297,6 +318,10 @@ Beside it, `POST /v1/maintenance/reconcile-summaries` (same guard) forgets summa
 
 - `DELETE /api/projects/[id]` — reworked: permission check → set `projects.deleted_at` → insert `deletion_queue` row. No hard deletes, no WorkOS call here.
 - `POST /api/projects/[id]/restore` — org admin; within grace; clears `deleted_at`, sets queue row `restored`.
+- `DELETE /api/projects/[id]/folders/[folderId]` — the folder, its subfolders and documents to the Papierkorb; enqueue (grace `FOLDER_PURGE_GRACE_DAYS`).
+- `GET /api/projects/[id]/bin`, `POST /api/projects/[id]/bin/[folderId]/restore`, `DELETE /api/projects/[id]/bin/[folderId]` („Endgültig löschen", `project:manage`).
+- `POST /api/internal/folders/[id]/purge` — token-guarded; the purger's purge of a bin entry, in the queue row's organization.
+- `GET`/`PUT /api/organization/deleted-folder-content` — the setting; `PUT` needs `org:settings:manage`.
 - `DELETE /api/documents/[id]` — new; soft-delete + enqueue (grace 0).
 - `DELETE /api/conversations/[id]` — marks and enqueues, then erases in the request; the queue row is the retry when that erase fails (see **Conversation** above).
 - `POST /api/internal/conversations/[id]/erase` — token-guarded; the purger's retry of that erase, in the queue row's organization.
@@ -323,6 +348,8 @@ How the design satisfies the articles enterprise DPAs and security questionnaire
 | Obligation | Mechanism |
 |---|---|
 | **Art. 17** — right to erasure "without undue delay" | Deletion pipeline for all five entity types; grace + retry bounded within the Art. 12(3) one-month response window; `purged_at` timestamps are the evidence of completion |
+| **Art. 17** — erasing a folder and what was derived from it | The folder's purge after at most 23 days (or at once by „Endgültig löschen"): the documents by the document delete's steps, and under „Mit dem Ordner entfernen" the memory notes drawn from it, the answers that drew on it (replaced), the conversations' Langfuse traces; the queue row (ids, counts, who, when; no content) is the proof. A legal hold defers it |
+| **Art. 5(1)(e)** — derived content outliving a deleted folder | The organization's setting „Inhalte aus gelöschten Ordnern": unchanged, project, admins only, or removed with the folder; keeping derived personal data longer than its source is the organization's decision |
 | **Art. 17 / Art. 5(1)(e)** — the prompts and answers in LLM traces | Langfuse traces are deleted by conversation id when the purger erases a chat or a project (native delete API, every edition; asynchronous, usually within about 15 minutes), and by the scheduler's daily sweep once older than `GRID_LANGFUSE_TRACE_RETENTION_DAYS` (default 30, minimum 3). A chat deleted by the request itself is picked up by a scheduler job from its closed queue row, within about the hour (legal-held chats keep theirs); the 30-day sweep is the net behind it. Langfuse does not remove copies saved into datasets; Piloti creates none |
 | **Art. 12(3)** — respond within one month | Grace periods capped at ≤ 23 days; `attempts`/`failed` status surfaces stuck purges before the deadline |
 | **Art. 18** — restriction of processing | Legal hold: data preserved, hidden from active use, purge blocked until release |
@@ -359,7 +386,8 @@ One caution for honest positioning: this makes the *product capable of* GDPR-con
 ## Out of scope
 
 - Scheduled retention policies ("auto-delete after X days") — the queue supports it later via `purge_after`.
-- Folder deletion (composes from document deletion; follow-up).
+- Retention periods per folder („aufbewahren bis"); a deletion before it ends would be refused (later phase).
+- LangGraph checkpoints of chats whose answers a folder purge replaced: the agent's per-thread state keeps the original answer until the checkpoint reaper removes the idle thread (`GRID_CHAT_CHECKPOINT_RETENTION_SECONDS`, default 14 days) or the chat is deleted; no per-thread checkpoint delete exists yet.
 - Legal-hold management UI (API only for now; holds are rare, deliberate events).
 - Data export / portability (Art. 20) and export-before-delete — separate feature.
 - Backup scrubbing — deleted data persists in backups until rotation; document the rotation window in the DPA (see GDPR section).

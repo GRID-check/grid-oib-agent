@@ -440,6 +440,7 @@ export function frontendEnv(w: AppWiring): EnvVar[] {
     sref("SEAWEED_TENANT_ADMIN_SECRET_KEY"),
     { name: "SEAWEED_PRESIGNED_URL_TTL_SECONDS", value: String(APP_DEFAULTS.presignedUrlTtlSeconds) },
     { name: "PROJECT_PURGE_GRACE_DAYS", value: String(APP_DEFAULTS.projectPurgeGraceDays) },
+    { name: "FOLDER_PURGE_GRACE_DAYS", value: String(APP_DEFAULTS.folderPurgeGraceDays) },
     // Model catalog. Pricing (margin, credit price) is a platform setting in
     // the database (ADR-0053), not an environment variable.
     sref("OPENROUTER_API_KEY"),
