@@ -206,10 +206,13 @@ re-open a passage with `read_passage` before citing it now applies only to a
 passage the transcript no longer holds (`knowledge/already_read.py`): applied
 to every passage, it sent the model back to re-read what it was looking at.
 Switch: `held_evidence` beside `turn_decisions`. The
-threshold is set by analogy, not measured: `task be:eval:decisions:held` runs
+threshold was set by analogy: `task be:eval:decisions:held` runs
 the tuning rows (`tests/fixtures/decisions/held_coverage.yaml`) and holds two
 floors, no false yes at the threshold, a recall of at least 0.6, and every
-row decided; below them, `held_evidence: false`. The state carries the file
+row decided; below them, `held_evidence: false`. First run 2026-10-08 on
+`typesafe/jev-1.13`: 22/22 decided, no false yes, recall 0.77 at 0.8 (the
+three misses are the vague repeats at p ≈ 0.65), so the switch stays on; the
+rows are still the tuning set. The state carries the file
 the user has open, so a repeated „fass das Dokument zusammen" after opening
 another file is not answered by the old file's passages.
 

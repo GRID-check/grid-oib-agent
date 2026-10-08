@@ -41,7 +41,12 @@ USAGE
 
 THE LAST RUN
 ------------
-None yet: the branch that introduced use 10 had no key.
+2026-10-08, model ``typesafe/jev-1.13``, two runs: 22/22 decided, no false
+yes at any threshold swept (0.5-0.9), recall 0.77 at the 0.8 threshold
+(10 of 13 held rows), 1.00 at 0.6, 0.46 at 0.9. The three held rows under
+0.8 are the vague repeats (h01-h03, p 0.64-0.66); every "no" row stayed at or
+under 0.39. The floors hold, so ``held_evidence`` stays on. Still a tuning
+set: no held-out rows yet.
 """
 
 from __future__ import annotations
