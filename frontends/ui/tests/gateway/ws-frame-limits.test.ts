@@ -96,7 +96,7 @@ async function startGateway(env: Record<string, string> = {}): Promise<number> {
       REDIS_URL: '',
       PORT: String(port),
       NEXT_INTERNAL_URL: `http://127.0.0.1:${upstreamPort}`,
-      BACKEND_URL: `http://127.0.0.1:${upstreamPort}`,
+      BACKEND_CHAT_URL: `http://127.0.0.1:${upstreamPort}`,
       // Authenticated scopes require a signed compact turn-context capsule.
       GRID_INTERNAL_API_TOKEN: 'gateway-frame-limits-test-token', // pragma: allowlist secret
       // Every request here comes from 127.0.0.1; the per-IP upgrade limit is a

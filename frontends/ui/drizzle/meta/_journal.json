@@ -754,6 +754,13 @@
     {
       "idx": 107,
       "version": "7",
+      "when": 1791072000012,
+      "tag": "0107_usage_events_dictation",
+      "breakpoints": true
+    },
+    {
+      "idx": 107,
+      "version": "7",
       "when": 1791158400007,
       "tag": "0107_document_screening",
       "breakpoints": true

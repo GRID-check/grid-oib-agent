@@ -190,6 +190,9 @@ export function useRunLedger({
 
         client = createDeepResearchClient({
           jobId: view.backendJobId,
+          // The run's project, signed by the proxy, is what opens a run somebody
+          // else commissioned to this reader (ADR-0084).
+          projectId,
           callbacks: {
             onLedger: (payload) => {
               const next = sanitizeRunLedger(payload)

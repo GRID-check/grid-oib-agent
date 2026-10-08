@@ -85,6 +85,7 @@ from dataclasses import field
 from typing import Any
 
 from aiq_agent.common import german_text
+from aiq_agent.common.db_utils import ensure_schema
 from aiq_agent.common.db_utils import normalize_db_url as _normalize_db_url
 from aiq_agent.common.db_utils import redact_db_url
 
@@ -268,67 +269,58 @@ class ChunkTextStore:
             if self.db_url in ChunkTextStore._tables_initialized:
                 return
 
-            created = False
             try:
-                with self._sync_engine.connect() as conn:
-                    created = self._run_schema(conn)
-                    conn.commit()
+                ensure_schema(self._sync_engine, TABLE_NAME, self._create_schema)
             except Exception as e:  # noqa: BLE001 — a store outage must not break ingestion
                 logger.warning("Failed to ensure chunk_text schema: %s", e)
+                return
+            ChunkTextStore._tables_initialized.add(self.db_url)
 
-            if created:
-                ChunkTextStore._tables_initialized.add(self.db_url)
-
-    def _run_schema(self, conn) -> bool:
-        """Create table + indexes over a live connection (caller commits)."""
+    def _create_schema(self, conn) -> None:
+        """Create table + indexes over a live connection (the caller commits)."""
         from sqlalchemy import text
 
-        try:
-            if self._is_postgres():
-                conn.execute(
-                    # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text
-                    text(
-                        f"CREATE TABLE IF NOT EXISTS {TABLE_NAME} ("
-                        "collection VARCHAR(256) NOT NULL, "
-                        "chunk_id VARCHAR(256) NOT NULL, "
-                        "file_name VARCHAR(512), "
-                        "page_label VARCHAR(64), "
-                        "body TEXT NOT NULL, "
-                        # Generated, so a row's index can never disagree with its
-                        # own body. The two-argument to_tsvector with a constant
-                        # config is IMMUTABLE, which a generated column requires.
-                        f"tsv tsvector GENERATED ALWAYS AS (to_tsvector('{FTS_CONFIG}', body)) STORED, "
-                        "PRIMARY KEY (collection, chunk_id))"
-                    )
-                )
-                conn.execute(
-                    # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text
-                    text(f"CREATE INDEX IF NOT EXISTS {_TSV_INDEX_NAME} ON {TABLE_NAME} USING GIN (tsv)")
-                )
-            else:
-                conn.execute(
-                    # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text
-                    text(
-                        f"CREATE TABLE IF NOT EXISTS {TABLE_NAME} ("
-                        "collection VARCHAR(256) NOT NULL, "
-                        "chunk_id VARCHAR(256) NOT NULL, "
-                        "file_name VARCHAR(512), "
-                        "page_label VARCHAR(64), "
-                        "body TEXT NOT NULL, "
-                        # Python-analyzed lexemes; written by upsert_many because
-                        # SQLite has no to_tsvector to generate them from.
-                        "tsv TEXT NOT NULL DEFAULT '', "
-                        "PRIMARY KEY (collection, chunk_id))"
-                    )
-                )
+        if self._is_postgres():
             conn.execute(
                 # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text
-                text(f"CREATE INDEX IF NOT EXISTS {_FILE_INDEX_NAME} ON {TABLE_NAME} (collection, file_name)")
+                text(
+                    f"CREATE TABLE IF NOT EXISTS {TABLE_NAME} ("
+                    "collection VARCHAR(256) NOT NULL, "
+                    "chunk_id VARCHAR(256) NOT NULL, "
+                    "file_name VARCHAR(512), "
+                    "page_label VARCHAR(64), "
+                    "body TEXT NOT NULL, "
+                    # Generated, so a row's index can never disagree with its
+                    # own body. The two-argument to_tsvector with a constant
+                    # config is IMMUTABLE, which a generated column requires.
+                    f"tsv tsvector GENERATED ALWAYS AS (to_tsvector('{FTS_CONFIG}', body)) STORED, "
+                    "PRIMARY KEY (collection, chunk_id))"
+                )
             )
-            return True
-        except Exception as e:  # noqa: BLE001 — see _ensure_schema
-            logger.warning("Failed to create chunk_text schema: %s", e)
-            return False
+            conn.execute(
+                # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text
+                text(f"CREATE INDEX IF NOT EXISTS {_TSV_INDEX_NAME} ON {TABLE_NAME} USING GIN (tsv)")
+            )
+        else:
+            conn.execute(
+                # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text
+                text(
+                    f"CREATE TABLE IF NOT EXISTS {TABLE_NAME} ("
+                    "collection VARCHAR(256) NOT NULL, "
+                    "chunk_id VARCHAR(256) NOT NULL, "
+                    "file_name VARCHAR(512), "
+                    "page_label VARCHAR(64), "
+                    "body TEXT NOT NULL, "
+                    # Python-analyzed lexemes; written by upsert_many because
+                    # SQLite has no to_tsvector to generate them from.
+                    "tsv TEXT NOT NULL DEFAULT '', "
+                    "PRIMARY KEY (collection, chunk_id))"
+                )
+            )
+        conn.execute(
+            # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text
+            text(f"CREATE INDEX IF NOT EXISTS {_FILE_INDEX_NAME} ON {TABLE_NAME} (collection, file_name)")
+        )
 
     # ------------------------------------------------------------------
     # Writes

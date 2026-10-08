@@ -6,8 +6,10 @@ license: Apache-2.0
 permissions:
   env:
     - AIQ_SERVER_URL
+    - AIQ_CHAT_URL
   network:
     - http://localhost:8000
+    - http://localhost:8001
 compatibility: |
   Designed for Claude Code, OpenCode, Codex, and Agent Skills-compatible tools. Requires Python 3.11+ and network
   access to a running local AI-Q Blueprint server at `http://localhost:8000` by default. Non-local backends must be
@@ -54,8 +56,8 @@ Users need:
 
 - Python 3.11+ available as `python3`.
 - A reachable local or self-hosted AI-Q Blueprint backend.
-- `AIQ_SERVER_URL` set when the backend is not running at `http://localhost:8000`; non-local values must be trusted by
-  the user before any query is sent.
+- `AIQ_SERVER_URL` set when the backend is not running at `http://localhost:8000`, and `AIQ_CHAT_URL` set when the chat
+  role is not at `http://localhost:8001`; non-local values must be trusted by the user before any query is sent.
 - A backend configured with authentication disabled for this public helper, or a separate authenticated AI-Q skill for
   authenticated environments.
 - Network access from the local machine to the AI-Q backend URL.
@@ -97,7 +99,7 @@ I do not see a reachable local AI-Q backend. Do you already have an AI-Q backend
 - If the user wants local deployment, hand off to `aiq-deploy` and preserve the original research request.
 - If a reachable backend returns `401` or `403`, stop and explain that this public skill does not manage
   authentication. Ask the user to use an authenticated AI-Q skill or configure authentication for their environment.
-- If `health` succeeds but `/chat` or `/v1/jobs/async/agents` fails, report that the backend is reachable but not
+- If `health` succeeds but `chat` (`POST /chat` on `AIQ_CHAT_URL`) or `/v1/jobs/async/agents` fails, report that the backend is reachable but not
   compatible with this public research flow, then offer to run `aiq-deploy` validation.
 
 ### Step 2 - Send the routed research request
@@ -105,7 +107,7 @@ I do not see a reachable local AI-Q backend. Do you already have an AI-Q backend
 Before sending the request, state the resolved endpoint:
 
 ```text
-I will send this query to <AIQ_SERVER_URL>. Make sure this endpoint is trusted before sending sensitive information.
+I will send this query to <AIQ_SERVER_URL> (for `chat`, to <AIQ_CHAT_URL>). Make sure this endpoint is trusted before sending sensitive information.
 ```
 
 Do not send credentials, cookies, bearer tokens, or secret values through the query text.
@@ -230,7 +232,7 @@ If your Blueprint version is not compatible:
 | Script | Purpose | Arguments |
 |---|---|---|
 | `scripts/aiq.py health` | Check whether the configured server responds | none |
-| `scripts/aiq.py chat` | POST `/chat`; may return inline output or a deep-research job ID | `<query>` |
+| `scripts/aiq.py chat` | POST `/chat` to `AIQ_CHAT_URL` (chat role, `http://localhost:8001`); may return inline output or a deep-research job ID | `<query>` |
 | `scripts/aiq.py agents` | List available async agent types | none |
 | `scripts/aiq.py submit` | Submit an explicit async job | `<query> [agent_type]` |
 | `scripts/aiq.py research` | Submit an async job, poll, and print the final report JSON | `<query> [agent_type]` |
@@ -248,13 +250,14 @@ the equivalent shell command, such as `python3 $SKILL_DIR/scripts/aiq.py health`
 
 | Variable | Required | Default | Description |
 |---|---:|---|---|
-| `AIQ_SERVER_URL` | No | `http://localhost:8000` | Local or self-hosted AI-Q server base URL |
+| `AIQ_SERVER_URL` | No | `http://localhost:8000` | Local or self-hosted AI-Q api role base URL, used by every command except `chat` |
+| `AIQ_CHAT_URL` | No | `http://localhost:8001` | AI-Q chat role base URL, used only by `chat` (`POST /chat`) |
 
 ## Security Best Practices
 
 - Do not put API keys, bearer tokens, cookies, or basic-auth credentials in `AIQ_SERVER_URL`.
 - Store backend credentials in the AI-Q deployment environment, not in this skill or command examples.
-- User query text is transmitted to the configured `AIQ_SERVER_URL`. Confirm the endpoint is trusted before sending
+- User query text is transmitted to the configured `AIQ_SERVER_URL`, or to `AIQ_CHAT_URL` for `chat`. Confirm the endpoint is trusted before sending
   sensitive or confidential information.
 - Treat returned reports as potentially sensitive if the backend uses private data sources.
 - Do not truncate citations or source URLs from returned reports.
@@ -263,7 +266,7 @@ the equivalent shell command, such as `python3 $SKILL_DIR/scripts/aiq.py health`
 
 - This skill requires a running AI-Q backend; it does not deploy one.
 - The public helper does not manage authentication tokens or cookies.
-- Remote `AIQ_SERVER_URL` endpoints may log prompts, responses, and metadata.
+- Remote AI-Q endpoints (`AIQ_SERVER_URL`, `AIQ_CHAT_URL`) may log prompts, responses, and metadata.
 - If the backend returns HTTP 500 or lacks async agents, report the failure instead of fabricating a research answer.
 
 ## Examples
@@ -345,7 +348,7 @@ source URLs intact.
 **Symptoms:**
 
 - Requests fail with HTTP 401 or HTTP 403.
-- The backend is reachable but rejects `/chat` or async job calls.
+- The backend is reachable but rejects the `chat` request (`/chat` on `AIQ_CHAT_URL`) or async job calls.
 
 **Causes:**
 
@@ -363,7 +366,7 @@ source URLs intact.
 **Symptoms:**
 
 - `health` returns successfully.
-- `/chat`, `/v1/jobs/async/agents`, or polling commands fail.
+- `chat` (`/chat` on `AIQ_CHAT_URL`), `/v1/jobs/async/agents`, or polling commands fail.
 
 **Causes:**
 

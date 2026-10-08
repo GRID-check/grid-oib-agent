@@ -8,7 +8,7 @@ pulls it **just in time** from the internal endpoint::
     x-grid-internal-token: {GRID_INTERNAL_API_TOKEN}
 
 Design constraints (why pull, not push): the plaintext key must never ride
-WebSocket-upgrade headers, Dask ``job_args`` (persisted in the job store), or
+WebSocket-upgrade headers, the research job payload (persisted in the job store), or
 any shared cache. The org id — which already flows on every request
 (``x-grid-organization-id``) and inside worker ``usage_context`` — is all the
 backend needs.
