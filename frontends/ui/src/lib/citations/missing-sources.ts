@@ -34,6 +34,12 @@ export type MissingSourceAction =
   | 'investigate_retrieval'
   /** Out of corpus scope — nothing to add. */
   | 'none'
+  /**
+   * The inventory this kind is checked against could not be read, so whether
+   * the platform holds it is unknown. No add is offered: offering an upload of
+   * a document the corpus may already hold is the wrong fix.
+   */
+  | 'inventory_unknown'
 
 export interface MissingSourceCandidate {
   target: string
@@ -42,8 +48,11 @@ export interface MissingSourceCandidate {
   turns: number
   organizations: number
   lastSeenAt: string
-  /** True when the platform already holds this source. */
-  present: boolean
+  /**
+   * True when the platform already holds this source, false when it verifiably
+   * does not, null when the inventory it is checked against was unavailable.
+   */
+  present: boolean | null
   action: MissingSourceAction
   /** For `document` candidates: the bare filename to upload. */
   fileName: string | null
@@ -79,40 +88,40 @@ export function risDocumentNumber(target: string): string | null {
 const normalizeFileName = (name: string): string => name.trim().toLowerCase()
 
 /**
+ * The live inventories a candidate is checked against. `null` means the
+ * inventory could not be read — NOT that it is empty. The two must stay
+ * distinct: reading an unreachable backend as "nothing is held" offered
+ * documents the corpus already holds for upload.
+ */
+export interface PlatformInventory {
+  corpusFileNames: string[] | null
+  catalogedDocumentNumbers: string[] | null
+}
+
+/**
  * Decide each candidate's kind, whether the platform already holds it, and the
  * one action that follows from those two facts.
  *
- * `corpusFileNames` / `catalogedDocumentNumbers` are the live inventories; an
- * EMPTY inventory is treated as "unknown, assume absent" rather than "nothing
- * is held", because the caller degrades to empty sets when the backend is
- * unreachable and a false "everything is missing" is the safer error than a
- * false "everything is fine". The service says so in its own docstring.
+ * A candidate whose inventory is unknown gets `present: null` and
+ * `inventory_unknown`, never an add action. A web page needs no inventory: it
+ * is outside the corpus whatever the backend says.
  */
 export function buildMissingSourceCandidates(
   rows: FailedTargetRow[],
-  corpusFileNames: string[],
-  catalogedDocumentNumbers: string[],
+  inventory: PlatformInventory
 ): MissingSourceCandidate[] {
-  const corpus = new Set(corpusFileNames.map(normalizeFileName))
-  const cataloged = new Set(catalogedDocumentNumbers.map((value) => value.trim().toLowerCase()))
+  const corpus = inventory.corpusFileNames
+    ? new Set(inventory.corpusFileNames.map(normalizeFileName))
+    : null
+  const cataloged = inventory.catalogedDocumentNumbers
+    ? new Set(inventory.catalogedDocumentNumbers.map((value) => value.trim().toLowerCase()))
+    : null
 
   return rows.map((row) => {
     const kind = classifyTarget(row.target)
     const fileName = kind === 'document' ? fileNameFromTarget(row.target) : null
     const documentNumber = kind === 'ris' ? risDocumentNumber(row.target) : null
-
-    let present = false
-    if (kind === 'document' && fileName) present = corpus.has(normalizeFileName(fileName))
-    if (kind === 'ris' && documentNumber) present = cataloged.has(documentNumber.toLowerCase())
-
-    let action: MissingSourceAction = 'none'
-    if (present) action = 'investigate_retrieval'
-    // A norm-catalog entry is keyed by its RIS document number. Without one
-    // there is nothing to verify or append, so the candidate must not be
-    // offered as an add — nor counted among the "only needs its rank
-    // confirmed" additions the findings copy promises.
-    else if (kind === 'ris' && documentNumber) action = 'add_to_norm_catalog'
-    else if (kind === 'document' && fileName) action = 'upload_to_base_knowledge'
+    const { present, action } = decide(kind, fileName, documentNumber, corpus, cataloged)
 
     return {
       target: row.target,
@@ -127,4 +136,30 @@ export function buildMissingSourceCandidates(
       documentNumber,
     }
   })
+}
+
+function decide(
+  kind: MissingSourceKind,
+  fileName: string | null,
+  documentNumber: string | null,
+  corpus: Set<string> | null,
+  cataloged: Set<string> | null
+): { present: boolean | null; action: MissingSourceAction } {
+  // A norm-catalog entry is keyed by its RIS document number. Without one
+  // there is nothing to verify or append, so the candidate must not be
+  // offered as an add — nor counted among the "only needs its rank
+  // confirmed" additions the findings copy promises.
+  if (kind === 'ris' && documentNumber) {
+    if (!cataloged) return { present: null, action: 'inventory_unknown' }
+    return cataloged.has(documentNumber.toLowerCase())
+      ? { present: true, action: 'investigate_retrieval' }
+      : { present: false, action: 'add_to_norm_catalog' }
+  }
+  if (kind === 'document' && fileName) {
+    if (!corpus) return { present: null, action: 'inventory_unknown' }
+    return corpus.has(normalizeFileName(fileName))
+      ? { present: true, action: 'investigate_retrieval' }
+      : { present: false, action: 'upload_to_base_knowledge' }
+  }
+  return { present: false, action: 'none' }
 }

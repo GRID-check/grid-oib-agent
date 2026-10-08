@@ -11,7 +11,8 @@
 import { type ChangeEvent, type FC, useCallback, useEffect, useId, useMemo, useRef, useState } from 'react'
 import { CheckCircle2, FileText, Upload, XCircle } from 'lucide-react'
 import { Spinner } from '@/components/ui/spinner'
-import { useTranslations } from '@/i18n'
+import { useLocale, useTranslations } from '@/i18n'
+import { formatBytes } from '@/lib/format'
 import { useDocumentsStore } from '../store'
 import { useIsCurrentSessionBusy } from '@/features/chat'
 import { useFileDragDrop } from '../hooks/use-file-drag-drop'
@@ -62,6 +63,7 @@ export const FileUploadZone: FC<FileUploadZoneProps> = ({
   label,
 }) => {
   const t = useTranslations('files')
+  const { locale } = useLocale()
   // Check if current session is busy with operations
   const isBusy = useIsCurrentSessionBusy()
   const targetCollectionName = collectionName ?? sessionId
@@ -168,7 +170,7 @@ export const FileUploadZone: FC<FileUploadZoneProps> = ({
           <span className="font-medium text-primary">{t('uploadZone.clickToUpload')}</span>{t('uploadZone.orDragAndDrop')}
         </p>
         <p className="text-xs text-muted-foreground">
-          <span>{t('uploadZone.maxSize', { size: Math.round(maxFileSize / (1024 * 1024)) })}</span>
+          <span>{t('uploadZone.maxSize', { size: formatBytes(maxFileSize, locale) })}</span>
           <span> · </span>
           <span>{t('uploadZone.accepts', { types: acceptedTypes })}</span>
         </p>
