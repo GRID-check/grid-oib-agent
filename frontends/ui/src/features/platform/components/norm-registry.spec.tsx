@@ -359,7 +359,7 @@ describe('NormRegistry', () => {
     expect(putCalls(spy)).toHaveLength(1)
   })
 
-  test('read-only staff see the catalog without Add, Save or an editor to open', async () => {
+  test('read-only staff see the catalog without Add or Save, and open entries read-only', async () => {
     stubFetch()
     render(
       <PlatformAccessProvider permissions={[PLATFORM_PERMISSIONS.settingsView]}>
@@ -369,8 +369,15 @@ describe('NormRegistry', () => {
 
     expect(await screen.findByText('Bauordnung für Wien')).toBeDefined()
     expect(screen.queryByRole('button', { name: 'Save registry' })).toBeNull()
-    expect(screen.queryByRole('button', { name: /Edit Bauordnung/ })).toBeNull()
     expect(screen.getByText(/do not have permission to change it/)).toBeDefined()
+
+    // The entry still opens: the source, rank and scope are what support staff
+    // need to answer "why did Piloti cite this?". Nothing in it can change.
+    await userEvent.click(screen.getByRole('button', { name: /Bauordnung für Wien/ }))
+    const sheet = await screen.findByRole('dialog')
+    for (const input of within(sheet).queryAllByRole('textbox')) expect(input).toBeDisabled()
+    expect(within(sheet).queryByRole('button', { name: /Apply|Übernehmen/ })).toBeNull()
+    expect(within(sheet).queryByRole('button', { name: /Delete/ })).toBeNull()
   })
 
   test('the card is titled by its entry count, not by the page title, and the table has no second frame', async () => {

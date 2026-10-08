@@ -471,9 +471,7 @@ export function NormRegistry(): JSX.Element {
                     key={entry.id}
                     entry={entry}
                     t={t}
-                    onOpen={
-                      canManage ? () => setEditor({ entry, originalId: entry.id }) : undefined
-                    }
+                    onOpen={() => setEditor({ entry, originalId: entry.id })}
                   />
                 ))}
               </TableBody>
@@ -504,6 +502,7 @@ export function NormRegistry(): JSX.Element {
               onCancel={() => setEditor(null)}
               onRequestDelete={() => editor.originalId && setPendingDelete(editor.originalId)}
               isNew={editor.originalId === null}
+              readOnly={!canManage}
               t={t}
             />
           )}
