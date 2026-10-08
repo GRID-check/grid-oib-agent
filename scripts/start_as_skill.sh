@@ -27,7 +27,7 @@ while [[ $# -gt 0 ]]; do
         -h|--help)
             echo "Usage: $0 [OPTIONS]"
             echo ""
-            echo "Start the AI-Q API backend for Agent Skill use."
+            echo "Start the AI-Q api and chat roles for Agent Skill use."
             echo ""
             echo "Options:"
             echo "  --config_file PATH  Config file (default: configs/config_oib_openrouter.yml)"
@@ -116,10 +116,33 @@ echo "Config:      $CONFIG_FILE"
 echo "Bind Host:   $HOST"
 echo "API Server:  $SKILL_SERVER_URL"
 echo "Skill URL:   AIQ_SERVER_URL=$SKILL_SERVER_URL"
+echo "Chat URL:    AIQ_CHAT_URL=http://localhost:8001"
 echo "Debug UI:    disabled"
 echo ""
 echo "Starting server..."
 echo ""
 
-# The research skill and the debug console talk to the job API: the api role (ADR-0082).
-GRID_ROLE=api nat serve --config_file "$CONFIG_FILE" --host "$HOST" --port "$PORT"
+cleanup() {
+    echo ""
+    echo "Shutting down services..."
+    # ${VAR:-} guards: under `set -u` these may be unset if the user
+    # interrupts before the corresponding service was started.
+    if [ ! -z "${API_PID:-}" ]; then
+        kill $API_PID 2>/dev/null || true
+    fi
+    if [ ! -z "${CHAT_PID:-}" ]; then
+        kill $CHAT_PID 2>/dev/null || true
+    fi
+    exit 0
+}
+
+trap cleanup SIGINT SIGTERM
+
+# The research skill's job API and the debug console are the api role's; `aiq.py chat` POSTs /chat to the
+# chat role on 8001 (ADR-0082). Both run, as in start_e2e.sh.
+GRID_ROLE=api nat serve --config_file "$CONFIG_FILE" --host "$HOST" --port "$PORT" &
+API_PID=$!
+GRID_ROLE=chat nat serve --config_file "$CONFIG_FILE" --host "$HOST" --port 8001 &
+CHAT_PID=$!
+
+wait
