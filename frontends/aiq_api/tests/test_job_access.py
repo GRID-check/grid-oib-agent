@@ -5,9 +5,12 @@ import base64
 import hashlib
 import hmac
 import json
+import math
+import re
 import time
 from datetime import UTC
 from datetime import datetime
+from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 from unittest.mock import MagicMock
@@ -358,6 +361,15 @@ class TestAuthorizeJobAccess:
         job = _seed(db_url, organization_id=None)
 
         assert _authorize(db_url, job, TEAMMATE, None, action) is job
+
+
+def test_the_job_envelope_window_is_the_bff_verifiers():
+    """The two windows are one decision written in two languages; this holds them equal."""
+    source = (Path(__file__).resolve().parents[3] / "frontends/ui/src/lib/request-context.ts").read_text()
+    match = re.search(r"export const GRID_REQUEST_CONTEXT_MAX_AGE_MS = ([\d *]+)\n", source)
+    assert match, "GRID_REQUEST_CONTEXT_MAX_AGE_MS moved; point this test at it"
+
+    assert math.prod(int(factor) for factor in match.group(1).split("*")) == JOB_ENVELOPE_MAX_AGE_MS
 
 
 class _TokenValidator:
