@@ -239,7 +239,7 @@ export const documents = pgTable('documents', {
 | `display_name` | `text` | | **Migration `0048`**: what a reader sees, once somebody has renamed the document. `NULL` = never renamed → show `filename`, which is what every earlier row means (no backfill). Resolve the pair with `documentDisplayName` (`lib/documents/display-name`) rather than reading the column directly. Written by `PATCH /api/documents/{id}`, which also mirrors the value onto the backend metadata store's `display_title` so citation chips follow the rename without a re-ingestion. Renaming `filename` instead would orphan the document's chunks — the migration spells out why. |
 | `storage_key` | `text` | NOT NULL | Object storage key |
 | `storage_bucket` | `text` | | **ADR-0043** (migration `0033`): the S3 bucket holding this document's bytes. `NULL` means the deployment's shared bucket (`SEAWEED_BUCKET`), which is what every row written before per-organization buckets existed means — and the meaning is fixed, so no backfill is needed or wanted. Recorded rather than derived from `organization_id`: deriving it would make `SEAWEED_PER_ORG_BUCKETS` a cutover, where flipping it makes every earlier object unreachable. `resolveDocumentBucket` in `lib/storage/bucket` is the one place that turns it back into a name. |
-| `collection_name` | `text` | NOT NULL | The retrieval collection holding the document's chunks. For a project document it is the project's `collection_name`, **or, under a restricted folder, that folder's own collection** `<project collection>_r<12 hex of the folder id>` (ADR-0086). Which one is a function of the folder tree: `lib/projects/collection-placement.ts` moves rows when the tree changes (purge, re-point, re-ingest). |
+| `collection_name` | `text` | NOT NULL | The retrieval collection holding the document's chunks. For a project document it is the project's `collection_name`, **or, under a restricted folder, that folder's own collection** `<project collection>_r<12 hex of the folder id>` (ADR-0086). Which one is a function of the folder tree: `lib/projects/collection-placement.ts` moves rows when the tree changes: purge and re-point in the caller, the re-ingest by a bulk `placement_reingest` job. |
 | `file_size` | `integer` | | Size in bytes |
 | `content_type` | `text` | | MIME type |
 | `status` | `text` | NOT NULL, DEFAULT `'pending'` | `pending` → `processing` → `processed` / `error`, plus `stored` (migration `0063`). `stored` is TERMINAL and means "the bytes are here and indexing was deliberately skipped" — an agent-authored document, which is never dispatched to `/v1/ingest`. It must stay out of `IN_FLIGHT_STATUSES` in `lib/documents/reconcile-status`, or every read polls a backend that has never heard of the row and then overwrites its status from a file list that will never contain it. Plain `text` with no CHECK, so a new state is a TypeScript change. |
@@ -1141,7 +1141,8 @@ split is stated explicitly).
 ## bff_job_queue / bff_job_lane_turns (migration 0104, ADR-0079)
 
 The BFF's durable background work: one row is one job a `bff-jobs` replica
-claims and runs (project reindex, failed-ingestion rescan; and, one step each,
+claims and runs (project reindex, failed-ingestion rescan, the re-read of the
+documents collection placement moved `placement_reingest`; and, one step each,
 IFC extraction `bim_extract`, office conversion `office_rendition` and research
 report filing `file_research_report`). The claim is SQL in
 `frontends/ui/workers/job-queue.js`, in the order ADR-0076 proved for
@@ -1164,7 +1165,10 @@ bulk), then oldest, with `FOR UPDATE SKIP LOCKED`.
 | `created_at`, `last_error` | timestamptz, text | |
 
 A document at `processing` remembers its job as `documents.metadata.bffJobId`,
-which the sweep joins on. Migration 0103 lets `task_runs.filing_status` be
+which the sweep joins on. One that collection placement moved and whose re-read
+no `placement_reingest` slice has taken yet also carries
+`metadata.placementReingest` (ADR-0086): the job takes marked rows, so its
+payload is the project alone. Migration 0103 lets `task_runs.filing_status` be
 `queued` (a `file_research_report` job holds the report) and adds the partial
 index `ix_task_runs_filing_queued` the filing sweep reads.
 
