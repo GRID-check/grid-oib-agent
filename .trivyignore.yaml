@@ -93,6 +93,61 @@ vulnerabilities:
 
       Drop as soon as a Langfuse image ships deepmerge-ts >= 8.0.0.
 
+  # ── Findings published after the 2026-10-07 bump (scan of PR #853) ────────
+  #
+  # These landed in the trivy DB after the last green develop scan and turned
+  # the job red on every PR that touches an image. Boxed SHORT: each one names
+  # a fixed version, so the right exit is a pin bump, not a renewal.
+
+  - id: CVE-2026-84782
+    expired_at: 2026-10-22
+    statement: |
+      OpenSSL 3.0.2 (libssl3/openssl) in clickhouse/clickhouse-server —
+      information disclosure via DTLS handshake retransmission. ClickHouse
+      speaks TLS over TCP only and never negotiates DTLS, and the server is
+      reachable solely by Langfuse inside the cluster. Fixed in Ubuntu's
+      3.0.2-0ubuntu1.30; drop when the ClickHouse pin carries it.
+
+  - id: CVE-2026-104850
+    expired_at: 2026-10-22
+    statement: |
+      @modelcontextprotocol/sdk 1.29.0 bundled inside langfuse and
+      langfuse-worker — the SDK's OAuth CLIENT can send credentials to an
+      authorization server it should not trust. The defect lives in the
+      client-side OAuth discovery flow; Langfuse here makes no outbound MCP
+      OAuth connections, and its UI sits behind the Envoy Gateway's OIDC flow.
+      Fixed in 1.31.0; drop when a Langfuse image ships it.
+
+  # err2issue (debian 12.15 base). Perl and PCRE2 come from the Debian base
+  # image; the Python service never shells out to perl and takes no
+  # attacker-supplied regular expressions. The fix is a rebuild on a current
+  # bookworm base (perl 5.36.0-7+deb12u4, pcre2 10.42-1+deb12u2) and a pin
+  # bump; drop the block then.
+  - id: CVE-2026-103111
+    expired_at: 2026-10-22
+    statement: libpcre2-8-0 in the err2issue base image; see the block note.
+  - id: CVE-2026-13221
+    expired_at: 2026-10-22
+    statement: perl-base in the err2issue base image; see the block note.
+  - id: CVE-2026-42496
+    expired_at: 2026-10-22
+    statement: perl Archive::Tar in the err2issue base image; see the block note.
+  - id: CVE-2026-42497
+    expired_at: 2026-10-22
+    statement: perl Archive::Tar in the err2issue base image; see the block note.
+  - id: CVE-2026-8376
+    expired_at: 2026-10-22
+    statement: perl-base (32-bit builds only) in the err2issue base image; see the block note.
+  - id: CVE-2026-48962
+    expired_at: 2026-10-22
+    statement: perl IO::Compress in the err2issue base image; see the block note.
+  - id: CVE-2026-57432
+    expired_at: 2026-10-22
+    statement: perl pack/unpack in the err2issue base image; see the block note.
+  - id: CVE-2026-57433
+    expired_at: 2026-10-22
+    statement: perl Storable in the err2issue base image; see the block note.
+
 secrets:
   - id: gcp-service-account
     paths:
@@ -111,9 +166,26 @@ secrets:
       Scoped to `**/web/.next/**` rather than suppressing the rule outright, so
       a genuinely leaked service-account key anywhere else in any scanned image
       still fails the gate. Only the Langfuse web image has that path among the
-      five pinned images.
+      pinned images.
 
       The `expired_at` here is a RE-VERIFICATION date, not a wait-for-a-fix
       date: upstream will never "fix" placeholder text in a form. It is boxed so
       that someone confirms, after a Langfuse bump, that these matches are still
       the template and not something that has become real.
+
+  - id: private-key
+    paths:
+      - "**/ssl-cert-snakeoil.key"
+    expired_at: 2026-11-30
+    statement: |
+      ghcr.io/cloudnative-pg/pgbouncer ships Debian's ssl-cert "snakeoil" key,
+      generated at image build by the ssl-cert package that the PGDG pgbouncer
+      package pulls in. It is a self-signed placeholder, identical for every
+      pull of the digest, and nothing here uses it: the CloudNativePG Pooler
+      mounts its own server and client certificates from the cluster's
+      secrets and points pgbouncer's TLS settings at them.
+
+      Scoped to that one filename so a real private key anywhere else in any
+      scanned image still fails the gate. RE-VERIFICATION date, like the
+      Langfuse entry above: confirm after a pgbouncer bump that the match is
+      still the snakeoil file.
