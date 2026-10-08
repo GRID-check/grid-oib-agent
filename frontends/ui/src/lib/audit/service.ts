@@ -134,6 +134,19 @@ interface AuditEventFields {
   metadata?: Record<string, string | number | boolean | null | undefined>
   /** Source request, for actor IP + user agent in the event context. */
   request?: Request
+  /**
+   * When it happened, if not now: an event sent again later (an outbox the
+   * sweep drains) keeps the time of the decision it records.
+   */
+  occurredAt?: Date
+  /**
+   * WorkOS's `Idempotency-Key`, for an event that may be sent more than once:
+   * WorkOS answers a repeat within 24 hours with the first response instead of
+   * a second event. Without it the SDK mints a random key per call, which only
+   * covers its own retries. Pair it with a fixed `occurredAt`, so a repeat is
+   * the same event and not merely the same key.
+   */
+  idempotencyKey?: string
 }
 
 /**
@@ -145,6 +158,19 @@ export type AuditEventInput = AuditEventFields &
     | { action: Exclude<AuditAction, DocumentNameAction>; filedIn?: AuditDocumentPlacement }
     | { action: DocumentNameAction; filedIn: AuditDocumentPlacement }
   )
+
+/**
+ * Actors for the decisions Piloti makes on its own, with no human in the loop
+ * at that moment (AI Act transparency). Not WorkOS user ids, like
+ * `BOOTSTRAP_ACTOR`: a reader of the trail filters by them to see every
+ * automated decision of one kind.
+ */
+export const SYSTEM_ACTORS = {
+  /** The content gate of the ingest job (ADR-0083): rule-based, no model. */
+  uploadScreening: 'system:upload_screening',
+  /** The restricted-memory judge (ADR-0084): a language model. */
+  memoryJudge: 'system:memory_judge',
+} as const
 
 function requestContext(request?: Request): { location: string; userAgent?: string } {
   // First hop of x-forwarded-for is the client (the BFF sits behind a proxy).
@@ -248,9 +274,12 @@ async function wireMetadata(input: AuditEventInput): Promise<AuditMetadata> {
 async function emit(input: AuditEventInput): Promise<void> {
   const metadata = await wireMetadata(input)
   const workos = getWorkOS()
+  // Its own key when the caller has one (see `idempotencyKey`); otherwise the
+  // SDK mints one per call.
+  const options = input.idempotencyKey ? { idempotencyKey: input.idempotencyKey } : undefined
   await workos.auditLogs.createEvent(input.organizationId, {
     action: input.action,
-    occurredAt: new Date(),
+    occurredAt: input.occurredAt ?? new Date(),
     actor: {
       // Always the human, agent-authored events included — see AuditActorType.
       type: 'user',
@@ -273,7 +302,7 @@ async function emit(input: AuditEventInput): Promise<void> {
     targets: eventTargets(input),
     context: requestContext(input.request),
     metadata,
-  })
+  }, options)
 }
 
 /** Emit one WorkOS Audit Log event. Never throws. */

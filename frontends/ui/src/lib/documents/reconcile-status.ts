@@ -580,6 +580,9 @@ export async function reconcileDocumentStatuses<T extends ReconcilableDocument>(
 
   // --- Status reconciliation (in-flight rows, and recent interrupted failures) ---
   const resolutions = new Map<string, RowResolution>()
+  // The rows THIS read moved. A row another read moved first still reports
+  // its new status, but settles once, in the read whose write landed.
+  const moved = new Set<string>()
   const queueAheadByRow = new Map<string, number>()
   const inFlight = rows.filter(
     (row) => IN_FLIGHT_STATUSES.has(row.status) && row.status !== LOCALLY_OWNED_STATUS
@@ -606,7 +609,9 @@ export async function reconcileDocumentStatuses<T extends ReconcilableDocument>(
         if (jobStatuses === null || !jobId) return
         const resolution = resolveInterruptedRow(jobStatuses.get(jobId))
         if (!resolution) return
-        await setDocumentReconciledStatus(row.id, organizationId, resolution)
+        if (await setDocumentReconciledStatus(row.id, organizationId, resolution, { status: row.status, jobId })) {
+          moved.add(row.id)
+        }
         resolutions.set(row.id, resolution)
       })
     )
@@ -640,15 +645,20 @@ export async function reconcileDocumentStatuses<T extends ReconcilableDocument>(
         }
         if (!resolution) return
 
-        await setDocumentReconciledStatus(row.id, organizationId, resolution)
+        if (await setDocumentReconciledStatus(row.id, organizationId, resolution, { status: row.status, jobId })) {
+          moved.add(row.id)
+        }
         resolutions.set(row.id, resolution)
       })
     )
   }
 
-  // Rows that came to rest settle their upload and tell a quarantine's
-  // reviewers (ADR-0083). Never throws; a miss is the sweep's to catch.
-  const settled = [...resolutions].filter(([, resolution]) => resolution.status !== 'pending')
+  // Rows that came to rest settle their upload, audit a quarantine and tell
+  // its reviewers (ADR-0083). Only the rows this read moved: a concurrent read
+  // that lost the race settles nothing. Never throws. A quarantine whose audit
+  // event did not go out stays owed in `document_quarantine_decisions`, and the
+  // upload sweep sends it; a batch left open is the sweep's too.
+  const settled = [...resolutions].filter(([id, resolution]) => moved.has(id) && resolution.status !== 'pending')
   if (settled.length > 0) {
     await onDocumentsSettled(
       organizationId,

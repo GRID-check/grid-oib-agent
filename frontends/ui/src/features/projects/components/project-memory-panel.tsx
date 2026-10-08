@@ -59,12 +59,19 @@ type MemoryItem = Omit<ProjectMemoryItem, 'createdAt' | 'updatedAt' | 'lastRefer
   sourceDeletedAt?: string
 }
 
-/** The tooltip on a restricted note's lock: the folders it came from, when known. */
+/**
+ * The tooltip on a restricted note's lock: the folders it came from, when
+ * known, and whether a language model helped decide that (ADR-0084; AI Act).
+ */
 function restrictionTitle(item: MemoryItem, t: Translator): string {
   const folders = item.restrictedFolderNames ?? []
-  return folders.length > 0
-    ? t('memory.restricted.title', { folders: folders.join(', ') })
-    : t('memory.restricted.titleUnknown')
+  const where =
+    folders.length > 0
+      ? t('memory.restricted.title', { folders: folders.join(', ') })
+      : t('memory.restricted.titleUnknown')
+  if (!item.restrictionJudge) return where
+  const judge = item.restrictionJudge === 'failed' ? t('memory.restricted.judgeFailed') : t('memory.restricted.judged')
+  return `${where} ${judge}`
 }
 
 interface ProjectMemoryPanelProps {
@@ -516,6 +523,12 @@ export function ProjectMemoryPanel({
                                 label={restrictionTitle(item, t)}
                               />
                               {t('memory.restricted.badge')}
+                              {item.restrictionJudge && (
+                                <span data-testid="memory-restriction-judged">
+                                  {' · '}
+                                  {t('memory.restricted.judgedBadge')}
+                                </span>
+                              )}
                             </Badge>
                           )}
                           {item.sourceDeletedAt && (

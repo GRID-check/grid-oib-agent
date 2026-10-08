@@ -62,7 +62,8 @@ import { purgeResourceCollaboration } from '@/lib/collaboration/cleanup'
 import { assertNoActiveHold } from '@/lib/compliance/holds'
 import type { AuthorizedSession } from '@/lib/auth/types'
 import type { Document, DocumentAuthor } from '@/lib/db/schema'
-import { reconcileDocumentStatuses, describeBackendIngestState } from './reconcile-status'
+import { onDocumentsSettled } from '@/lib/upload-batches/settle'
+import { reconcileDocumentStatuses, describeBackendIngestState, extractIngestJobId } from './reconcile-status'
 import { toListedDocuments, toListedPage, type ListedDocument } from './shelf-listing'
 import { projectShelf } from './shelf'
 import { uploadToShelf, type UploadDocumentResult } from './shelf-upload'
@@ -1547,8 +1548,18 @@ export async function reingestDocument(
       // Heal the row either way. A success is not re-dispatched: the reader
       // clicked "retry" on what looked stuck, and it is done. A failure is
       // what they were retrying, so it goes on to the dispatch below.
-      await setDocumentReconciledStatus(doc.id, session.organizationId, knowledge.resolution)
+      const moved = await setDocumentReconciledStatus(doc.id, session.organizationId, knowledge.resolution, {
+        status: doc.status,
+        jobId: extractIngestJobId(doc.metadata),
+      })
       if (knowledge.resolution.status !== 'failed') {
+        // Came to rest here rather than on a listing read: settle it as
+        // reconciliation would, or a quarantine is never audited and its
+        // reviewers never told. Only if this write moved the row: a listing
+        // read that got there first has settled it. Never throws.
+        if (moved) {
+          await onDocumentsSettled(session.organizationId, [{ id: doc.id, status: knowledge.resolution.status }])
+        }
         throw new ConflictError(`Ingestion already ${knowledge.resolution.status} for this document`, {
           status: knowledge.resolution.status,
           code: INGEST_ALREADY_DONE,

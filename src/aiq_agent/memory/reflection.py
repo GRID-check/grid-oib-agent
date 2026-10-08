@@ -51,9 +51,9 @@ from aiq_agent.common.message_utils import content_to_text
 from aiq_agent.knowledge.project_memory import VALID_CONFIDENCES
 from aiq_agent.knowledge.project_memory import insert_memory_item
 from aiq_agent.knowledge.project_memory import looks_like_personal_data
-from aiq_agent.memory.restriction import Restriction
+from aiq_agent.memory.restriction import RestrictionDecision
 from aiq_agent.memory.restriction import RestrictionEvidence
-from aiq_agent.memory.restriction import decide_restrictions
+from aiq_agent.memory.restriction import restriction_decisions
 
 logger = logging.getLogger(__name__)
 
@@ -385,9 +385,10 @@ async def _write_finding(
     project_id: str | None,
     organization_id: str | None,
     conversation_id: str | None,
-    restriction: Restriction = None,
+    decision: RestrictionDecision | None = None,
 ) -> dict[str, str] | None:
     """Record one finding, returning the row the frame carries, or None if it did not land."""
+    decision = decision or RestrictionDecision(None)
     item_id = await asyncio.to_thread(
         insert_memory_item,
         # Always project scope — org-wide writes are excluded (audit S1).
@@ -407,7 +408,9 @@ async def _write_finding(
         supersedes_content=finding.supersedes or None,
         # ADR-0084: a finding from a turn that could read restricted folders
         # is served only to people cleared for the ones it draws on.
-        restricted_collections=restriction,
+        restricted_collections=decision.restriction,
+        # The judge's verdict, audited by the BFF with the item (AI Act).
+        restriction_judge=decision.judge.as_payload() if decision.judge else None,
     )
     if not item_id:
         return None
@@ -422,7 +425,7 @@ async def _record_findings(
     project_id: str | None,
     organization_id: str | None,
     conversation_id: str | None,
-    restrictions: list[Restriction] | None = None,
+    decisions: list[RestrictionDecision] | None = None,
 ) -> list[dict[str, str]]:
     """Write every finding concurrently, keeping the rows that landed, in order.
 
@@ -434,7 +437,7 @@ async def _record_findings(
     UNIQUE indexes make the loser an error that is logged and dropped, the same
     outcome the sequential second write reached by merging.
     """
-    restrictions = restrictions if restrictions is not None else [None] * len(findings)
+    decisions = decisions if decisions is not None else [RestrictionDecision(None)] * len(findings)
     results = await asyncio.gather(
         *(
             _write_finding(
@@ -442,9 +445,9 @@ async def _record_findings(
                 project_id=project_id,
                 organization_id=organization_id,
                 conversation_id=conversation_id,
-                restriction=restriction,
+                decision=decision,
             )
-            for finding, restriction in zip(findings, restrictions, strict=True)
+            for finding, decision in zip(findings, decisions, strict=True)
         ),
         return_exceptions=True,
     )
@@ -501,7 +504,7 @@ async def run_memory_reflection(
         logger.info("Memory reflection: no new durable findings for this turn")
         return []
 
-    restrictions = await decide_restrictions(
+    decisions = await restriction_decisions(
         [finding.content for finding in findings], restriction or RestrictionEvidence(), llm=llm
     )
     recorded = await _record_findings(
@@ -509,7 +512,7 @@ async def run_memory_reflection(
         project_id=project_id,
         organization_id=organization_id,
         conversation_id=conversation_id,
-        restrictions=restrictions,
+        decisions=decisions,
     )
     if recorded:
         logger.info("Memory reflection recorded %d new memory item(s)", len(recorded))

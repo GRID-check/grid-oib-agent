@@ -3,7 +3,9 @@
 What an office can keep out of Piloti, what it can keep from some of its own
 people, and how an uploader learns what became of an upload. The decisions
 behind this are ADR-0083 (screening and quarantine), ADR-0084 (folder
-access follows WorkOS roles) and ADR-0085 (read and write per role).
+access follows WorkOS roles) and ADR-0085 (read and write per role). Which of
+this is automated, which part is a language model, where a person decides and
+what the audit log records: [Sensitive data and the AI Act](ai-act.md).
 
 ## The sensitive-data list
 
@@ -109,7 +111,9 @@ the project's admins and, for the Büroablage, its curators can:
   applies to exactly these bytes: uploading a changed version screens it again.
 - **Delete** it.
 
-Reviewers get an inbox notice when files wait for them. It names no file.
+Reviewers get an inbox notice when files wait for them. It names no file. The
+audit log records both the quarantine, as Piloti's own decision, and a release,
+with the terms and checks that matched but never the matched text.
 
 ## What arrived: the upload summary
 
@@ -284,7 +288,8 @@ the project intake.
 notes from it in the project's memory as it does from any chat, but a note that
 draws on a folder not everyone may read is shown, under Projektspeicher, only to
 people who may read that folder now, with a lock that names it, and only their
-chats are given it. Everyone else does not see the note at all. A note meant
+chats are given it. When a language model helped decide that (see
+[the AI Act note](ai-act.md)), the lock says „von KI mitbestimmt". Everyone else does not see the note at all. A note meant
 for the whole organization that draws on such a folder is kept in the project
 instead.
 

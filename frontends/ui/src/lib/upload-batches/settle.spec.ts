@@ -16,7 +16,12 @@ vi.mock('@/lib/authz/project-membership', () => ({
 }))
 vi.mock('@/lib/authz/org-role-permissions', () => ({ orgRoleHoldsPermission: vi.fn() }))
 vi.mock('@/lib/authz/folder-access', () => ({ isFolderVisibleToClearance: vi.fn().mockResolvedValue(true) }))
+// The event itself is `quarantine-audit.spec.ts`'s subject; here, settling hands it over.
+vi.mock('@/lib/upload-screening/quarantine-audit', () => ({
+  auditOwedQuarantines: vi.fn().mockResolvedValue(undefined),
+}))
 
+import { auditOwedQuarantines } from '@/lib/upload-screening/quarantine-audit'
 import { orgRoleHoldsPermission } from '@/lib/authz/org-role-permissions'
 import { resolveSubjectMembership, userHoldsProjectPermission } from '@/lib/authz/project-membership'
 import type { UploadBatch } from '@/lib/db/schema'
@@ -152,6 +157,27 @@ describe('onDocumentsSettled', () => {
 
     const emitted = vi.mocked(emitInboxItems).mock.calls[0]?.[0] ?? []
     expect(emitted.map((emission) => emission.recipientUserId)).toEqual(['gf'])
+  })
+
+  it("sends the content gate's owed decisions to the audit trail before telling the reviewers", async () => {
+    vi.mocked(findDocumentInOrg).mockResolvedValue(makeDocument({ id: 'doc-q', projectId: 'proj-1' }))
+    vi.mocked(loadOrganizationDirectory).mockResolvedValue(new Map())
+
+    await onDocumentsSettled('org-1', [
+      { id: 'doc-q', status: 'quarantined' },
+      { id: 'doc-ok', status: 'completed' },
+    ])
+
+    expect(auditOwedQuarantines).toHaveBeenCalledTimes(1)
+    expect(auditOwedQuarantines).toHaveBeenCalledWith('org-1', ['doc-q'])
+  })
+
+  it('audits nothing for a document that came to rest any other way', async () => {
+    await onDocumentsSettled('org-1', [
+      { id: 'doc-1', status: 'completed' },
+      { id: 'doc-2', status: 'failed' },
+    ])
+    expect(auditOwedQuarantines).not.toHaveBeenCalled()
   })
 
   it('never throws into the read that reconciled', async () => {

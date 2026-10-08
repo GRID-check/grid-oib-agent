@@ -183,6 +183,17 @@ session cleared for all of them is ever served it or shown it. Which collections
 - Every failure fails closed to every restricted collection in scope: no judge
   model, a timeout, a reply that does not parse strictly, an unknown inventory,
   more than 150 unread restricted entries.
+- Each judge verdict is audited. The writer sends it with the write
+  (`restrictionJudge`: `drawn`, `none` or `failed`, and the collections judged
+  and named), and the BFF records `project.memory.restriction_judged`, acted by
+  `system:memory_judge`, with the note's id and the folders, never its text. A
+  "none" is what leaves a note open, so it is the verdict the trail exists for.
+- A restricted note also keeps the verdict (`project_memory.restriction_judge`,
+  migration 0116), and its lock in the Projektspeicher says „von KI
+  mitbestimmt": a reader learns that a model helped decide who reads it. An
+  open note never carries it (CHECK): its readers may not know a restricted
+  folder exists, and the marker would tell them the chat could list one. Those
+  verdicts are in the audit trail only.
 
 Memory meant for the whole organization that depends on restricted content is
 kept as restricted project memory instead, and a restricted finding never

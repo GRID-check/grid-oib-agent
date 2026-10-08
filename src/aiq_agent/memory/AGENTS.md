@@ -20,9 +20,11 @@ connection.
 project write to the organization; reflection never does. A wrong firm-wide
 finding poisons every project in the org, and no human saw this one.
 
-**A memory from a turn with restricted folders in scope is decided by
-`restriction.decide_restrictions`, and nowhere else.** Both writers call it;
-every failure restricts to all of the scope's restricted collections. A
+**A memory from a turn with restricted folders in scope is decided in
+`restriction.py`, and nowhere else.** Both writers call
+`restriction_decisions` (the restriction `decide_restrictions` returns, plus the
+judge's verdict, sent with the write so the BFF audits it); every failure
+restricts to all of the scope's restricted collections. A
 restricted finding is project memory (never organization) and never a
 `memory_proposal` card, because accepting a card writes open memory
 (ADR-0084, `docs/architecture/project-memory-design.md` §3.6). Its evidence

@@ -114,6 +114,10 @@ const BOUNDARY_MIGRATIONS = [
   // account (ADR-0087). Keyed directly by its organization, tied to its project
   // by a composite foreign key.
   '0115_project_steckbrief.sql',
+  // Adds document_quarantine_decisions — the content gate's decisions, owed to
+  // the audit trail until sent. Keyed directly by its organization; no foreign
+  // keys, so the row outlives the document it names.
+  '0117_document_quarantine_decisions.sql',
 ]
 
 const MIGRATION_SOURCES = BOUNDARY_MIGRATIONS.map((file) =>

@@ -220,19 +220,22 @@ async function reconcileBackgroundWork(config, fetchImpl, streak) {
 /**
  * One upload sweep: POST {frontendUrl}/api/internal/upload-batches/sweep
  * (ADR-0083). Settles the uploads whose browser is gone, so their uploader is
- * told when everything was read. Same posture as the run reconciler: the BFF
- * does the work, this container supplies the clock, nothing throws, and it
- * logs only when it settled something or failed.
+ * told when everything was read, and sends the content gate's quarantine
+ * decisions still owed to the audit trail. Same posture as the run reconciler:
+ * the BFF does the work, this container supplies the clock, nothing throws,
+ * and it logs only when it settled or sent something, or failed.
  */
 async function sweepUploads(config, fetchImpl, streak) {
   const counts = await postSweep(config, fetchImpl, streak, {
     path: '/api/internal/upload-batches/sweep',
     label: 'upload sweep',
   })
-  if (counts && (counts.sealed > 0 || counts.completed > 0 || counts.failed > 0)) {
+  // An older BFF does not report `audited`.
+  const audited = counts?.audited ?? 0
+  if (counts && (counts.sealed > 0 || counts.completed > 0 || counts.failed > 0 || audited > 0)) {
     console.log(
       `${LOG} upload sweep: checked ${counts.checked}, sealed ${counts.sealed}, ` +
-        `completed ${counts.completed}, failed ${counts.failed}`,
+        `completed ${counts.completed}, failed ${counts.failed}, quarantines audited ${audited}`,
     )
   }
   return counts

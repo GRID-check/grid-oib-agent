@@ -1,11 +1,17 @@
 /**
  * What happens when documents come to rest (ADR-0083): their upload completes
- * and its uploader is told, and a quarantined file's reviewers are told.
+ * and its uploader is told, and a quarantined file's quarantine is audited and
+ * its reviewers are told.
  *
- * Called by status reconciliation for every row it moved to a terminal status,
- * by the seal, and by the sweep. Never throws into its caller: a read that
- * reconciled a status must not fail because a notification could not be sent,
- * and the guarded `completed_at` means a later settle can still emit.
+ * `onDocumentsSettled` is called by status reconciliation for every row it
+ * moved to a terminal status, on a reader's read or the sweep's, and by a
+ * retry that finds the job already finished. It never throws into its caller:
+ * a read that reconciled a status must not fail because a notification could
+ * not be sent. What it leaves undone is not lost: the guarded `completed_at`
+ * lets the seal and the sweep still complete the batch
+ * (`settleUploadBatches`), and an unsent quarantine stays owed in
+ * `document_quarantine_decisions` until the sweep sends it. The reviewers'
+ * inbox item is the one thing sent at most once.
  *
  * Imports nothing from reconciliation, which imports this.
  */
@@ -21,6 +27,7 @@ import { inboxGroupKey } from '@/lib/inbox/registry'
 import { emitInboxItems, type InboxEmission } from '@/lib/inbox/service'
 import { findProjectInOrg } from '@/lib/projects/repository'
 import { loadOrganizationDirectory } from '@/lib/sharing/directory'
+import { auditOwedQuarantines } from '@/lib/upload-screening/quarantine-audit'
 import { batchIdsOfDocuments, completeSettledBatches } from './repository'
 
 export interface SettledDocument {
@@ -33,7 +40,7 @@ export async function onDocumentsSettled(organizationId: string, settled: readon
   if (settled.length === 0) return
   try {
     const quarantined = settled.filter((row) => row.status === 'quarantined').map((row) => row.id)
-    if (quarantined.length > 0) await notifyQuarantineReviewers(organizationId, quarantined)
+    if (quarantined.length > 0) await onQuarantined(organizationId, quarantined)
     const batchIds = await batchIdsOfDocuments(
       organizationId,
       settled.map((row) => row.id)
@@ -114,16 +121,25 @@ async function reviewersOf(organizationId: string, document: Document): Promise<
 }
 
 /**
+ * The content gate quarantined these documents: send its decisions to the
+ * audit trail (AI Act), then tell the reviewers.
+ */
+async function onQuarantined(organizationId: string, documentIds: readonly string[]): Promise<void> {
+  await auditOwedQuarantines(organizationId, documentIds)
+  const documents = (await Promise.all(documentIds.map((id) => findDocumentInOrg(id, organizationId)))).filter(
+    (row): row is Document => row !== null
+  )
+  await notifyQuarantineReviewers(organizationId, documents)
+}
+
+/**
  * Tell the reviewers that files wait for them. One collapsed row per reviewer
  * and organization, counted, pointing at the quarantine queue — which is where
  * each file and its reasons are, for the people allowed to see them. The row
  * names no file: a reviewer of one project must not learn another project's
  * file names from a badge.
  */
-async function notifyQuarantineReviewers(organizationId: string, documentIds: readonly string[]): Promise<void> {
-  const documents = (await Promise.all(documentIds.map((id) => findDocumentInOrg(id, organizationId)))).filter(
-    (row): row is Document => row !== null
-  )
+async function notifyQuarantineReviewers(organizationId: string, documents: readonly Document[]): Promise<void> {
   const emissions: InboxEmission[] = []
   for (const document of documents) {
     for (const reviewer of await reviewersOf(organizationId, document)) {

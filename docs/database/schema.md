@@ -35,6 +35,7 @@ All schemas are in `frontends/ui/src/lib/db/schema/` and barrel-exported from `i
 | `conversation-reads.ts` | `conversation_reads` |
 | `conversation-restricted-folders.ts` | `conversation_restricted_folders` |
 | `document-access-log.ts` | `document_access_log` (the download log) |
+| `document-quarantine-decisions.ts` | `document_quarantine_decisions` (the content gate's decisions owed to the audit trail) |
 | `project-memory.ts` | `project_memory` (documented in [`project-memory-design.md`](../architecture/project-memory-design.md); the restricted-memory column below) |
 | `jobs.ts` | `skills`, `jobs`, `job_runs` — the last two LEGACY since 0086; they are not written or read after the cutover and migration 0087 drops them |
 | `tasks.ts` | `tasks` — LEGACY since 0086, same |
@@ -844,6 +845,47 @@ re-apply in `scripts/rls-test-db.sh`.
 
 ---
 
+## document_quarantine_decisions (migration 0117, ADR-0083)
+
+The content gate's quarantine decisions, kept until the audit trail has them
+(AI Act). One row per ingest job that quarantined a document, inserted by
+`setDocumentReconciledStatus` (`lib/documents/repository.ts`) in the
+transaction whose guarded status write records the quarantine, so a decision
+cannot exist without its row. `lib/upload-screening/quarantine-audit.ts` sends
+each to the trail as `document.quarantined` and sets `audited_at`: the read
+that moved the row at once, the upload sweep (`POST
+/api/internal/upload-batches/sweep`) whatever is still owed after a minute and
+within a week. The WorkOS idempotency key is the row's id and the event is
+built from the row alone, with `decided_at` as its time, so a repeated send is
+one event. A deployment with the audit log off sends and marks nothing.
+
+| Column | Type | Constraints | Notes |
+|--------|------|-------------|-------|
+| `id` | `uuid` | PK, `gen_random_uuid()` | The event's idempotency key, `document.quarantined:<id>` |
+| `organization_id` | `text` | NOT NULL | RLS: `organization_id = grid_current_org()` |
+| `document_id` | `uuid` | NOT NULL | No FK: a reviewer may delete the file before the decision reaches the trail |
+| `job_id` | `text` | UNIQUE with `document_id` (`document_quarantine_decisions_dispatch_key`) | The ingest job whose gate decided: one dispatch, one decision. NULL only when the row carried no job (the backend's file list said quarantined) |
+| `decided_at` | `timestamptz` | NOT NULL, `now()` | The event's `occurredAt` |
+| `scope` | `text` | NOT NULL, CHECK `project`/`archiv`/`session` | |
+| `project_id` | `uuid` | | CHECK `(scope = 'project') = (project_id IS NOT NULL)` |
+| `folder_id` | `uuid` | | The folder the document was filed in when quarantined; NULL at a shelf's root. No FK. The event's `filedIn`: under a folder not every project member may read, the name is withheld (`nameWithheld`, ADR-0084) |
+| `filename` | `text` | NOT NULL, CHECK 1–500 characters | The name at the time |
+| `reasons` | `text` | NOT NULL, default `''` | Kinds and terms (`term:Lohnzettel,iban`), never a masked sample or text |
+| `checked` | `text` | NOT NULL, default `''` | `full` or `partial` |
+| `uploaded_by` | `text` | NOT NULL | The document's `created_by` |
+| `audited_at` | `timestamptz` | | NULL while owed |
+
+Indexes: the dispatch key, and `document_quarantine_decisions_due_idx
+(decided_at) WHERE audited_at IS NULL` for the sweep. A trigger
+(`grid_document_quarantine_decisions_guard`) refuses every UPDATE but
+`audited_at` going from NULL to a time, once, and every DELETE except by the
+platform role. Proven against Postgres in
+`lib/upload-batches/upload-batches.integration.spec.ts`; constraints, guard,
+down and re-apply in `scripts/rls-test-db.sh`. The down drops the decisions
+not yet audited.
+
+---
+
 ## project_memory.restricted_folder_ids (migration 0111, ADR-0084, ADR-0085)
 
 The table itself is described in
@@ -853,6 +895,7 @@ is the column 0111 adds.
 | Column | Type | Constraints | Notes |
 |--------|------|-------------|-------|
 | `restricted_folder_ids` | `uuid[]` | NULL, or CHECK 1–20 entries, none NULL, `scope = 'project'` (`project_memory_restricted_folders_check`) | The source folders the note depends on; `NULL` = open. Stored sorted and de-duplicated (`canonicalRestriction`). Served and shown only to a session that may read ALL of them now (`memoryVisibleTo` with `readableFolderIdsFor`, tombstones included); a folder since opened to every member opens the note |
+| `restriction_judge` | `text` | NULL, or CHECK `drawn` / `none` / `failed` AND `restricted_folder_ids IS NOT NULL` (`project_memory_restriction_judge_check`, migration 0116) | The memory judge's verdict when a language model helped decide who may read this restricted note (AI Act); the Projektspeicher's lock says so. Set on insert only. Never on an open note, which readers see who may not know a restricted folder exists: the marker would tell them the chat could list one. Every verdict, open ones included, is in the audit trail as `project.memory.restriction_judged`. Rows before 0116 stay NULL |
 
 Index: `uniq_project_memory_project_content_active` keys on
 `(project_id, coalesce(restricted_folder_ids, '{}'), normalized content)`, so an
@@ -860,6 +903,8 @@ open and a restricted note with the same text can both be live; consolidation
 never crosses a restriction. The 0111 down DELETES restricted notes rather than
 opening them. Proven against Postgres in `memory-restricted.integration.spec.ts`;
 the index, the CHECK and the down in `scripts/rls-test-db.sh`.
+The 0116 down drops `restriction_judge` and its CHECK; the verdicts stay in the
+audit trail.
 
 ---
 

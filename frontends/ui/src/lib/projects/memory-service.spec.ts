@@ -1167,6 +1167,28 @@ describe('restricted memory (ADR-0084)', () => {
       expect(values).not.toHaveBeenCalled()
     })
 
+    it('keeps the judge\'s verdict on a restricted note', async () => {
+      const { values } = mockProjectThenWrite()
+      vi.mocked(sourceFoldersOfCollections).mockResolvedValueOnce(new Map([['proj_x_raaaaaaaaaaaa', RESTRICTED]]))
+      await createProjectMemoryItemForProject('proj-1', {
+        kind: 'decision',
+        content: 'x',
+        restrictedCollections: ['proj_x_raaaaaaaaaaaa'],
+        restrictionJudge: 'drawn',
+      })
+      expect(values).toHaveBeenCalledWith(
+        expect.objectContaining({ restrictedFolderIds: [RESTRICTED], restrictionJudge: 'drawn' })
+      )
+    })
+
+    it('never keeps it on an open note', async () => {
+      // On an open note the verdict would tell every project member that the
+      // chat could list a restricted folder; the audit trail has it instead.
+      const { values } = mockProjectThenWrite()
+      await createProjectMemoryItemForProject('proj-1', { kind: 'decision', content: 'x', restrictionJudge: 'none' })
+      expect(values).toHaveBeenCalledWith(expect.objectContaining({ restrictedFolderIds: null, restrictionJudge: null }))
+    })
+
     it('asks nothing about folders for open memory', async () => {
       mockProjectThenWrite()
       vi.mocked(sourceFoldersOfCollections).mockClear()

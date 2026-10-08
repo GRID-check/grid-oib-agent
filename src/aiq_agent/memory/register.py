@@ -40,10 +40,10 @@ from aiq_agent.cards.registry import get_card_registry
 from aiq_agent.knowledge import project_memory as memory_client
 from aiq_agent.knowledge import scoping
 from aiq_agent.knowledge.restricted_collections import restricted_collections_in
-from aiq_agent.memory.restriction import Restriction
+from aiq_agent.memory.restriction import RestrictionDecision
 from aiq_agent.memory.restriction import RestrictionEvidence
-from aiq_agent.memory.restriction import decide_restriction
 from aiq_agent.memory.restriction import restricted_digest_notes
+from aiq_agent.memory.restriction import restriction_decisions
 from aiq_agent.memory.restriction import restriction_evidence
 from aiq_agent.memory.shown_notes import turn_shown_notes
 from nat.plugin_api import Builder
@@ -357,9 +357,10 @@ async def project_memory_remember(tool_config: ProjectMemoryRememberConfig, buil
         if isinstance(target, str):
             return target
         evidence = _turn_restriction_evidence()
-        restriction: Restriction = None
+        decision = RestrictionDecision(None)
         if evidence.restricted:
-            restriction = await decide_restriction(content, evidence, llm=_turn_judge_llm(base_judge))
+            [decision] = await restriction_decisions([content], evidence, llm=_turn_judge_llm(base_judge))
+        restriction = decision.restriction
         demoted = False
         if restriction is not None:
             restricted_target = _restricted_target(target, project_id)
@@ -384,6 +385,8 @@ async def project_memory_remember(tool_config: ProjectMemoryRememberConfig, buil
                 supersedes_content=supersedes or None,
                 # ADR-0084: served and shown only to people cleared for all of these.
                 restricted_collections=restriction,
+                # Audited by the BFF with the item it was about (AI Act).
+                restriction_judge=decision.judge.as_payload() if decision.judge else None,
             )
         except _WRITE_FAILURES as exc:
             return _failure_result(

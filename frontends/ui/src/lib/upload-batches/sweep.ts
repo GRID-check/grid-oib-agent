@@ -12,6 +12,9 @@
  *    is the upload.
  *  - Its documents still in flight are reconciled, which persists their status
  *    and settles the batch through the same hook a reader's read uses.
+ *  - A quarantine whose audit event did not go out when its row moved is sent
+ *    (`upload-screening/quarantine-audit.ts`, `sweepOwedQuarantines`): the
+ *    content gate's decisions reach the trail at least once.
  *
  * Replica-safe: completion is a guarded UPDATE, so two sweeps that settle the
  * same batch emit one inbox item.
@@ -20,6 +23,7 @@
 import 'server-only'
 import { withTenant } from '@/lib/db/tenant-context'
 import { reconcileDocumentStatuses } from '@/lib/documents/reconcile-status'
+import { sweepOwedQuarantines } from '@/lib/upload-screening/quarantine-audit'
 import { listInFlightBatchDocuments, listOpenBatchesBetween, sealAbandonedBatch } from './repository'
 import { settleUploadBatches } from './settle'
 
@@ -37,6 +41,8 @@ export interface UploadSweepResult {
   sealed: number
   completed: number
   failed: number
+  /** Owed quarantine decisions sent to the audit trail. */
+  audited: number
 }
 
 export async function sweepUploadBatches(now: Date = new Date()): Promise<UploadSweepResult> {
@@ -45,7 +51,7 @@ export async function sweepUploadBatches(now: Date = new Date()): Promise<Upload
     new Date(now.getTime() - SETTLE_GRACE_MS),
     SWEEP_BATCH
   )
-  const result: UploadSweepResult = { checked: open.length, sealed: 0, completed: 0, failed: 0 }
+  const result: UploadSweepResult = { checked: open.length, sealed: 0, completed: 0, failed: 0, audited: 0 }
   for (const batch of open) {
     try {
       await withTenant({ organizationId: batch.organizationId }, async () => {
@@ -62,6 +68,13 @@ export async function sweepUploadBatches(now: Date = new Date()): Promise<Upload
       result.failed += 1
       console.warn(`[upload-batches] sweep could not settle batch ${batch.id}:`, error)
     }
+  }
+  // After the batches: a quarantine their reconciliation just moved was sent
+  // by that read, and is not the sweep's for another minute.
+  try {
+    result.audited = await sweepOwedQuarantines(now)
+  } catch (error) {
+    console.warn('[upload-batches] sweep could not list the owed quarantine decisions:', error)
   }
   return result
 }

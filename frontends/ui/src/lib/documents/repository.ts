@@ -21,6 +21,7 @@ import { FILENAME_LOOKUP_MAX_NAMES } from './filename-lookup'
 import { CURSOR_TIMESTAMP_FORMAT, type DocumentListCursor } from './list-cursor'
 import {
   bffJobQueue,
+  documentQuarantineDecisions,
   documents,
   projectFolders,
   type Document,
@@ -29,6 +30,7 @@ import {
   type ResourceVisibility,
 } from '@/lib/db/schema'
 import type { DocumentScreeningOutcome } from '@/lib/db/schema/documents'
+import { auditedQuarantineReasons, parseQuarantine } from '@/lib/upload-screening/quarantine'
 
 /**
  * Hard cap on one page of a document listing (project and Archiv alike).
@@ -1319,31 +1321,93 @@ export async function countDocumentsByProject(
   return Object.fromEntries(rows.map((row) => [row.projectId, Number(row.total)]))
 }
 
+/** What a reconciling read saw: the row's status, and the dispatch (ingest job) it resolved. */
+export interface ReconciledFrom {
+  status: string
+  jobId: string | null
+}
+
+/** The row still carries the dispatch the read resolved: that job, or none. */
+const sameDispatch = (jobId: string | null): SQL =>
+  jobId
+    ? sql`${documents.metadata} ->> 'ingestJobId' = ${jobId}`
+    : sql`(${documents.metadata} ->> 'ingestJobId') IS NULL`
+
 /**
  * Persist a reconciled ingestion status.
  *
  * Lives here rather than in `reconcile-status.ts` because a repository is the
  * only module that queries for this domain — the reconciler decides WHAT the
  * status should be, and this writes it.
+ *
+ * Guarded on what the caller read (`from`): the status AND the dispatch.
+ * Returns whether this call moved the row. Reconciliation runs on reads, so two
+ * reads (or a read and the re-ingest heal) can resolve the same in-flight row
+ * at once, and only the one whose write lands may settle it. The status alone
+ * is not enough: a release between two reads puts the row back in flight under
+ * a NEW job, and a read that resolved the old one would write the old verdict
+ * over it. A write keyed on the job lands only on the dispatch it is about.
+ *
+ * A quarantine is the content gate's decision (ADR-0083), and the same
+ * transaction records it in `document_quarantine_decisions`, keyed on the
+ * dispatch, for the audit trail: a moved row and its decision exist together
+ * or not at all, and one job is one decision.
  */
 export async function setDocumentReconciledStatus(
   documentId: string,
   organizationId: string,
   resolution: { status: string; errorMessage: string | null; screeningOutcome?: DocumentScreeningOutcome },
-): Promise<void> {
+  from: ReconciledFrom,
+): Promise<boolean> {
   const db = getDb()
-  await withTenant({ organizationId }, () =>
-    db
-      .update(documents)
-      .set({
-        status: resolution.status,
-        errorMessage: resolution.errorMessage,
-        // Only when the job said something (ADR-0083): an unscreened job must
-        // not erase a reviewer's `released`.
-        ...(resolution.screeningOutcome ? { screeningOutcome: resolution.screeningOutcome } : {}),
-        updatedAt: new Date(),
-      })
-      .where(and(eq(documents.id, documentId), eq(documents.organizationId, organizationId))),
+  return withTenant({ organizationId }, () =>
+    db.transaction(async (tx) => {
+      const [moved] = await tx
+        .update(documents)
+        .set({
+          status: resolution.status,
+          errorMessage: resolution.errorMessage,
+          // Only when the job said something (ADR-0083): an unscreened job must
+          // not erase a reviewer's `released`.
+          ...(resolution.screeningOutcome ? { screeningOutcome: resolution.screeningOutcome } : {}),
+          updatedAt: new Date(),
+        })
+        .where(
+          and(
+            eq(documents.id, documentId),
+            eq(documents.organizationId, organizationId),
+            eq(documents.status, from.status),
+            sameDispatch(from.jobId),
+          ),
+        )
+        .returning({
+          scope: documents.scope,
+          projectId: documents.projectId,
+          folderId: documents.folderId,
+          filename: documents.filename,
+          createdBy: documents.createdBy,
+        })
+      if (!moved) return false
+      if (resolution.status === 'quarantined') {
+        const verdict = parseQuarantine(resolution.errorMessage)
+        await tx
+          .insert(documentQuarantineDecisions)
+          .values({
+            organizationId,
+            documentId,
+            jobId: from.jobId,
+            scope: moved.scope,
+            projectId: moved.projectId,
+            folderId: moved.folderId,
+            filename: moved.filename.slice(0, 500),
+            reasons: auditedQuarantineReasons(verdict),
+            checked: verdict?.checked ?? '',
+            uploadedBy: moved.createdBy,
+          })
+          .onConflictDoNothing({ target: [documentQuarantineDecisions.documentId, documentQuarantineDecisions.jobId] })
+      }
+      return true
+    }),
   )
 }
 

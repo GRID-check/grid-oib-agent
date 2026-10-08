@@ -239,11 +239,28 @@ def test_insert_sends_a_restriction_sorted_and_unique(monkeypatch):
     assert captured["payload"]["restrictedCollections"] == ["proj_p1_raaaaaaaaaaaa", "proj_p1_rbbbbbbbbbbbb"]
 
 
+def test_insert_sends_the_judge_verdict_for_the_audit_trail(monkeypatch):
+    """AI Act: the BFF audits the judge's verdict with the item it was about."""
+    monkeypatch.setenv("GRID_INTERNAL_API_TOKEN", "t")
+    verdict = {"verdict": "none", "judgedCollections": ["proj_p1_raaaaaaaaaaaa"], "drawnCollections": []}
+    with _patched_opener(monkeypatch, body={"item": {"id": "item-j"}}) as captured:
+        pm.insert_memory_item(
+            scope="project",
+            project_id="p1",
+            organization_id=None,
+            kind="decision",
+            content="x",
+            restriction_judge=verdict,
+        )
+    assert captured["payload"]["restrictionJudge"] == verdict
+
+
 def test_open_memory_sends_no_restriction(monkeypatch):
     monkeypatch.setenv("GRID_INTERNAL_API_TOKEN", "t")
     with _patched_opener(monkeypatch, body={"item": {"id": "item-o"}}) as captured:
         pm.insert_memory_item(scope="project", project_id="p1", organization_id=None, kind="decision", content="x")
     assert "restrictedCollections" not in captured["payload"]
+    assert "restrictionJudge" not in captured["payload"]
 
 
 def test_a_restricted_write_is_logged_as_restricted_for_the_turn(monkeypatch):

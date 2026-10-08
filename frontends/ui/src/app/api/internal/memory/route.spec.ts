@@ -15,11 +15,20 @@ vi.mock('@/lib/projects/memory-service', () => ({
   organizationExists: vi.fn(),
 }))
 
+// The audit record itself is `memory-judge-audit.spec.ts`'s subject; here, the
+// route hands it over. The schema stays real: the route parses with it.
+vi.mock('@/lib/projects/memory-judge-audit', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/lib/projects/memory-judge-audit')>()),
+  recordMemoryJudgeVerdict: vi.fn().mockResolvedValue(undefined),
+  recordRefusedMemoryJudgeVerdict: vi.fn().mockResolvedValue(undefined),
+}))
+
 import {
   createProjectMemoryItem,
   createProjectMemoryItemForProject,
   organizationExists,
 } from '@/lib/projects/memory-service'
+import { recordMemoryJudgeVerdict, recordRefusedMemoryJudgeVerdict } from '@/lib/projects/memory-judge-audit'
 import { POST } from './route'
 import { makeMemoryItem } from '@/test-utils/db-fixtures'
 
@@ -287,6 +296,86 @@ describe('restricted memory', () => {
     )
   })
 
+  it("audits the judge's verdict with the item it was about (AI Act)", async () => {
+    vi.stubEnv('GRID_INTERNAL_API_TOKEN', REAL_TOKEN)
+    const item = makeMemoryItem({ id: 'item-open' })
+    vi.mocked(createProjectMemoryItemForProject).mockResolvedValue(item)
+    const restrictionJudge = { verdict: 'none', judgedCollections: [RESTRICTED], drawnCollections: [] }
+
+    const response = await POST(makeRequest({ ...validProjectPayload, restrictionJudge }, REAL_TOKEN))
+
+    expect(response.status).toBe(201)
+    expect(recordMemoryJudgeVerdict).toHaveBeenCalledWith(item, restrictionJudge)
+  })
+
+  it('hands the judge\'s verdict to the write, so a restricted note can say a model helped decide', async () => {
+    vi.stubEnv('GRID_INTERNAL_API_TOKEN', REAL_TOKEN)
+    vi.mocked(createProjectMemoryItemForProject).mockResolvedValue(makeMemoryItem())
+    const restrictionJudge = { verdict: 'drawn', judgedCollections: [RESTRICTED], drawnCollections: [RESTRICTED] }
+
+    await POST(
+      makeRequest({ ...validProjectPayload, restrictedCollections: [RESTRICTED], restrictionJudge }, REAL_TOKEN)
+    )
+
+    const values = vi.mocked(createProjectMemoryItemForProject).mock.calls[0][1]
+    expect(values).toMatchObject({ restrictedCollections: [RESTRICTED], restrictionJudge: 'drawn' })
+  })
+
+  // The default deployment refuses agent organization memory, and the agent
+  // then offers the finding as a card that writes it open: the judge's "none"
+  // decided that, so it is in the trail although no item exists.
+  it("audits the judge's verdict on an organization write the deployment refused", async () => {
+    vi.stubEnv('GRID_INTERNAL_API_TOKEN', REAL_TOKEN)
+    vi.mocked(organizationExists).mockResolvedValue(true)
+    const restrictionJudge = { verdict: 'none', judgedCollections: [RESTRICTED], drawnCollections: [] }
+
+    const response = await POST(
+      makeRequest(
+        {
+          scope: 'organization',
+          organizationId: 'org-1',
+          kind: 'preference',
+          content: 'Honorare immer netto angeben.',
+          sourceConversationId: 'conv-1',
+          restrictionJudge,
+        },
+        REAL_TOKEN
+      )
+    )
+
+    expect(response.status).toBe(403)
+    expect(recordRefusedMemoryJudgeVerdict).toHaveBeenCalledWith(
+      { organizationId: 'org-1', provenanceType: 'agent', sourceConversationId: 'conv-1' },
+      restrictionJudge
+    )
+    expect(createProjectMemoryItem).not.toHaveBeenCalled()
+  })
+
+  it('audits no refused verdict into an organization this deployment does not know', async () => {
+    vi.stubEnv('GRID_INTERNAL_API_TOKEN', REAL_TOKEN)
+    vi.mocked(organizationExists).mockResolvedValue(false)
+    const restrictionJudge = { verdict: 'none', judgedCollections: [RESTRICTED], drawnCollections: [] }
+
+    const response = await POST(
+      makeRequest(
+        { scope: 'organization', organizationId: 'org-x', kind: 'preference', content: 'x', restrictionJudge },
+        REAL_TOKEN
+      )
+    )
+
+    expect(response.status).toBe(403)
+    expect(recordRefusedMemoryJudgeVerdict).not.toHaveBeenCalled()
+  })
+
+  it('audits nothing when no judge was asked', async () => {
+    vi.stubEnv('GRID_INTERNAL_API_TOKEN', REAL_TOKEN)
+    vi.mocked(createProjectMemoryItemForProject).mockResolvedValue(makeMemoryItem())
+
+    await POST(makeRequest(validProjectPayload, REAL_TOKEN))
+
+    expect(recordMemoryJudgeVerdict).not.toHaveBeenCalled()
+  })
+
   it('writes open memory when no restriction is named', async () => {
     vi.stubEnv('GRID_INTERNAL_API_TOKEN', REAL_TOKEN)
     vi.mocked(createProjectMemoryItemForProject).mockResolvedValue(makeMemoryItem())
@@ -295,6 +384,7 @@ describe('restricted memory', () => {
 
     const values = vi.mocked(createProjectMemoryItemForProject).mock.calls[0][1]
     expect(values).not.toHaveProperty('restrictedCollections')
+    expect(values).not.toHaveProperty('restrictionJudge')
   })
 
   it('refuses restricted organization memory (400) — it reaches every project', async () => {

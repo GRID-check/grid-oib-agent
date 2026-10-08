@@ -409,6 +409,10 @@ export const projects = {
       title:
         'Drawn from restricted folders ({folders}). Only people cleared for all of them see this note, and only their chats are given it.',
       titleUnknown: 'Drawn from restricted folders. Only people cleared for all of them see this note.',
+      judgedBadge: 'decided with AI',
+      judged: 'A language model helped decide who may read this note.',
+      judgeFailed:
+        'The language model that decides who may read this note gave no usable answer, so the note is restricted to every restricted folder of the chat.',
     },
     time: {
       justNow: 'just now',

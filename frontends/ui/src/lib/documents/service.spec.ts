@@ -116,7 +116,7 @@ vi.mock('./repository', () => ({
   findProjectDocumentsByNames: vi.fn().mockResolvedValue([]),
   deleteProjectDocument: vi.fn().mockResolvedValue(undefined),
   setDocumentDisplayName: vi.fn().mockResolvedValue(undefined),
-  setDocumentReconciledStatus: vi.fn().mockResolvedValue(undefined),
+  setDocumentReconciledStatus: vi.fn().mockResolvedValue(true),
   listFailedDocumentPageInOrg: vi.fn().mockResolvedValue({ ids: [], nextCursor: null }),
 }))
 
@@ -129,10 +129,16 @@ vi.mock('@/lib/jobs-queue/repository', () => ({
   findOpenJobId: vi.fn().mockResolvedValue(null),
 }))
 
-vi.mock('./reconcile-status', () => ({
+vi.mock('./reconcile-status', async (importOriginal) => ({
+  // Reading the job id off a row is pure; the reconciler itself is mocked.
+  extractIngestJobId: (await importOriginal<typeof import('./reconcile-status')>()).extractIngestJobId,
   reconcileDocumentStatuses: vi.fn(),
   describeBackendIngestState: vi.fn(),
 }))
+
+// What a row that came to rest sets off (its upload settles, a quarantine is
+// audited and its reviewers told) is `upload-batches/settle`'s subject.
+vi.mock('@/lib/upload-batches/settle', () => ({ onDocumentsSettled: vi.fn().mockResolvedValue(undefined) }))
 
 // The hold predicate is SQL (`grid_legal_hold_blocks`, migration 0093), proven
 // against Postgres in `legal-hold.integration.spec.ts`; the gate runs for real.
@@ -147,6 +153,7 @@ vi.mock('@/lib/compliance/repository', () => ({
 }))
 
 import { findProjectInOrg } from '@/lib/projects/repository'
+import { onDocumentsSettled } from '@/lib/upload-batches/settle'
 import { isCoveredByActiveHold } from '@/lib/compliance/repository'
 import { eraseDocumentObjectsOrKeepRow } from '@/lib/documents/object-cleanup'
 import { requireProjectAccess } from '@/lib/authz/projects'
@@ -1364,7 +1371,12 @@ describe('reingestDocument', () => {
     // would churn the chunks citations point at, so the row is written back
     // and the retry refused.
     vi.mocked(findDocumentInOrg).mockResolvedValue(
-      makeDocument({ id: 'doc-99', status: 'processing', storageKey: 'org/proj/doc/file.pdf' })
+      makeDocument({
+        id: 'doc-99',
+        status: 'processing',
+        storageKey: 'org/proj/doc/file.pdf',
+        metadata: { ingestJobId: 'job-80' },
+      })
     )
     vi.mocked(describeBackendIngestState).mockResolvedValue({
       state: 'terminal',
@@ -1375,13 +1387,51 @@ describe('reingestDocument', () => {
       status: 409,
       details: { status: 'completed', code: INGEST_ALREADY_DONE },
     })
+    // Guarded on the status AND the dispatch it read: a heal lands only on the
+    // job whose outcome it is.
     expect(setDocumentReconciledStatus).toHaveBeenCalledWith(
       'doc-99',
       'org-1',
-      { status: 'completed', errorMessage: null }
+      { status: 'completed', errorMessage: null },
+      { status: 'processing', jobId: 'job-80' }
     )
     expect(mockFetch).not.toHaveBeenCalled()
     expect(setDocumentIngestJob).not.toHaveBeenCalled()
+  })
+
+  it('settles a row the retry finds quarantined, so the quarantine is audited and its reviewers told', async () => {
+    vi.mocked(findDocumentInOrg).mockResolvedValue(
+      makeDocument({ id: 'doc-99', status: 'processing', storageKey: 'org/proj/doc/file.pdf' })
+    )
+    const verdict = 'quarantined:{"reasons":[{"kind":"iban"}],"checked":"full"}'
+    vi.mocked(describeBackendIngestState).mockResolvedValue({
+      state: 'terminal',
+      resolution: { status: 'quarantined', errorMessage: verdict, screeningOutcome: 'quarantined' },
+    })
+
+    await expect(reingestDocument(session, 'doc-99')).rejects.toMatchObject({
+      details: { status: 'quarantined', code: INGEST_ALREADY_DONE },
+    })
+    expect(onDocumentsSettled).toHaveBeenCalledWith('org-1', [{ id: 'doc-99', status: 'quarantined' }])
+    expect(setDocumentIngestJob).not.toHaveBeenCalled()
+  })
+
+  it('leaves the settling to the listing read that moved the row first', async () => {
+    // The heal's guarded write found the row already quarantined by a listing
+    // read, which settled it. Settling again would audit the quarantine twice.
+    vi.mocked(findDocumentInOrg).mockResolvedValue(
+      makeDocument({ id: 'doc-99', status: 'processing', storageKey: 'org/proj/doc/file.pdf' })
+    )
+    vi.mocked(describeBackendIngestState).mockResolvedValue({
+      state: 'terminal',
+      resolution: { status: 'quarantined', errorMessage: 'quarantined:{}', screeningOutcome: 'quarantined' },
+    })
+    vi.mocked(setDocumentReconciledStatus).mockResolvedValueOnce(false)
+
+    await expect(reingestDocument(session, 'doc-99')).rejects.toMatchObject({
+      details: { status: 'quarantined', code: INGEST_ALREADY_DONE },
+    })
+    expect(onDocumentsSettled).not.toHaveBeenCalled()
   })
 
   it('heals a row the backend already failed, then retries it', async () => {
@@ -1402,11 +1452,15 @@ describe('reingestDocument', () => {
 
     const result = await reingestDocument(session, 'doc-99')
 
-    expect(setDocumentReconciledStatus).toHaveBeenCalledWith('doc-99', 'org-1', {
-      status: 'failed',
-      errorMessage: 'boom',
-    })
+    expect(setDocumentReconciledStatus).toHaveBeenCalledWith(
+      'doc-99',
+      'org-1',
+      { status: 'failed', errorMessage: 'boom' },
+      { status: 'processing', jobId: null }
+    )
     expect(result).toEqual({ id: 'doc-99', status: 'pending', jobId: 'job-81' })
+    // Dispatched again, so not at rest: nothing settles.
+    expect(onDocumentsSettled).not.toHaveBeenCalled()
   })
 
   it('refuses when the backend cannot be asked (fail-closed, row untouched)', async () => {

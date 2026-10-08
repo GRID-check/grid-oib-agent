@@ -411,6 +411,10 @@ export const projects: typeof en.projects = {
         'Stammt aus eingeschränkten Ordnern ({folders}). Nur wer für alle diese Ordner freigegeben ist, sieht diese Notiz, und nur deren Chats erhalten sie.',
       titleUnknown:
         'Stammt aus eingeschränkten Ordnern. Nur wer für alle diese Ordner freigegeben ist, sieht diese Notiz.',
+      judgedBadge: 'von KI mitbestimmt',
+      judged: 'Ein Sprachmodell hat mitentschieden, wer diese Notiz lesen darf.',
+      judgeFailed:
+        'Das Sprachmodell, das über den Leserkreis entscheidet, gab keine verwertbare Antwort. Deshalb ist die Notiz auf alle eingeschränkten Ordner des Chats beschränkt.',
     },
     time: {
       justNow: 'gerade eben',

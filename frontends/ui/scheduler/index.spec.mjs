@@ -525,6 +525,14 @@ describe('sweepUploads (the upload sweep’s clock, ADR-0083)', () => {
     log.mockRestore()
   })
 
+  it('logs a sweep that only sent owed quarantine decisions to the audit trail', async () => {
+    const log = vi.spyOn(console, 'log').mockImplementation(() => {})
+    const audited = { checked: 0, sealed: 0, completed: 0, failed: 0, audited: 2 }
+    await sweepUploads(config, vi.fn().mockResolvedValue({ ok: true, json: () => Promise.resolve(audited) }), streak())
+    expect(log.mock.calls[0].join(' ')).toContain('quarantines audited 2')
+    log.mockRestore()
+  })
+
   it('treats a transport error as transient and never throws', async () => {
     const s = streak()
     expect(await sweepUploads(config, vi.fn().mockRejectedValue(new Error('ECONNREFUSED')), s)).toBeNull()

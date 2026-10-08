@@ -1,8 +1,9 @@
 """The one decision about which restricted folders a memory depends on (ADR-0084).
 
-``decide_restrictions`` is called by the ``remember`` tool and by the reflection
-stage. These tests drive it directly with a fake judge model, and pin the strict
-reading of the judge's reply, because an unusable reply must fail CLOSED.
+``restriction_decisions`` (``decide_restrictions`` plus the judge's verdict) is
+called by the ``remember`` tool and by the reflection stage. These tests drive
+it directly with a fake judge model, and pin the strict reading of the judge's
+reply, because an unusable reply must fail CLOSED.
 """
 
 import asyncio
@@ -11,6 +12,8 @@ import json
 import pytest
 
 from aiq_agent.memory import restriction as R
+from aiq_agent.memory.restriction import JudgeVerdict
+from aiq_agent.memory.restriction import RestrictionDecision
 from aiq_agent.memory.restriction import RestrictionEvidence
 from aiq_agent.memory.restriction import decide_restriction
 from aiq_agent.memory.restriction import decide_restrictions
@@ -175,6 +178,43 @@ class TestDecision:
         evidence = _evidence(rows=(CONTRACT_ROW, PERSONNEL_ROW))
         assert await decide_restriction("x", evidence, llm=judge) == (CONTRACTS, PERSONNEL)
         assert judge.calls == []
+
+
+class TestVerdicts:
+    """AI Act: every judge verdict reaches the audit trail, so each decision says
+    what the judge answered, about which folders, and nothing of the text."""
+
+    @pytest.mark.asyncio
+    async def test_a_batch_carries_one_verdict_per_note(self):
+        judge = _Judge(_reply([], [2]))
+        evidence = _evidence(rows=(CONTRACT_ROW, PERSONNEL_ROW))
+        decisions = await R.restriction_decisions(["a", "b"], evidence, llm=judge)
+        judged = (CONTRACTS, PERSONNEL)
+        assert decisions == [
+            RestrictionDecision(None, JudgeVerdict("none", judged)),
+            RestrictionDecision((PERSONNEL,), JudgeVerdict("drawn", judged, (PERSONNEL,))),
+        ]
+
+    @pytest.mark.asyncio
+    async def test_an_unanswered_judge_is_recorded_as_failed(self):
+        evidence = _evidence(rows=(CONTRACT_ROW,))
+        [decision] = await R.restriction_decisions(["x"], evidence, llm=_Judge("not json"))
+        assert decision == RestrictionDecision((CONTRACTS, PERSONNEL), JudgeVerdict("failed", (CONTRACTS,)))
+
+    @pytest.mark.asyncio
+    async def test_no_verdict_when_no_judge_was_asked(self):
+        judge = _Judge(_reply([1]))
+        evidence = _evidence(sources=[CONTRACTS], rows=(CONTRACT_ROW, OPEN_ROW))
+        [decision] = await R.restriction_decisions(["x"], evidence, llm=judge)
+        assert decision == RestrictionDecision((CONTRACTS,))
+
+    def test_the_payload_names_collections_only(self):
+        verdict = JudgeVerdict("drawn", (CONTRACTS, PERSONNEL), (CONTRACTS,))
+        assert verdict.as_payload() == {
+            "verdict": "drawn",
+            "judgedCollections": [CONTRACTS, PERSONNEL],
+            "drawnCollections": [CONTRACTS],
+        }
 
 
 class TestParse:

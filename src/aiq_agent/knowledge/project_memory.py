@@ -18,6 +18,7 @@ import re
 import urllib.error
 import urllib.parse
 import urllib.request
+from collections.abc import Mapping
 from collections.abc import Sequence
 from contextvars import ContextVar
 from contextvars import Token
@@ -311,6 +312,7 @@ def insert_memory_item(
     supersedes_content: str | None = None,
     salience: float | None = None,
     restricted_collections: Sequence[str] | None = None,
+    restriction_judge: Mapping[str, object] | None = None,
 ) -> str | None:
     """Record one memory item via the internal BFF endpoint.
 
@@ -331,6 +333,10 @@ def insert_memory_item(
     :mod:`aiq_agent.memory.restriction` decided. Project scope only — the BFF
     refuses a restricted organization write, and refuses (400) a collection that
     is not a current restricted collection of the project.
+
+    ``restriction_judge`` is the memory judge's verdict on this item, when it
+    was asked (``JudgeVerdict.as_payload``): the BFF records it in the audit
+    trail with the item it was about. Collections only, never text.
 
     Returns the new item id, or None when the target (project/org) is unknown.
     Raises RuntimeError on configuration problems and urllib errors on
@@ -377,6 +383,8 @@ def insert_memory_item(
         payload["salience"] = max(0.0, min(1.0, float(salience)))
     if restricted_collections:
         payload["restrictedCollections"] = sorted(set(restricted_collections))
+    if restriction_judge:
+        payload["restrictionJudge"] = dict(restriction_judge)
 
     request = urllib.request.Request(
         f"{_internal_base_url()}/api/internal/memory",

@@ -106,6 +106,11 @@ vi.mock('@/lib/backend-proxy', () => ({ getBackendUrl: () => 'http://backend:800
 vi.mock('@aws-sdk/s3-request-presigner', () => ({ getSignedUrl: vi.fn() }))
 vi.mock('@/lib/documents/vlm-capability', () => ({ isVlmConfigured: vi.fn() }))
 vi.mock('./reconcile-status', () => ({ reconcileDocumentStatuses: vi.fn() }))
+// What a row that came to rest sets off (ADR-0083) is off this path, and its
+// module graph reaches the inbox and the sharing registry, which reads schema
+// table objects the narrow double above does not provide. Same reason as the
+// lifecycle mock.
+vi.mock('@/lib/upload-batches/settle', () => ({ onDocumentsSettled: vi.fn() }))
 // Folder placement drops the project's cached prompt view, whose loader reaches
 // the document-role tables the narrow schema double above does not provide.
 vi.mock('@/lib/project-profile/prompt-view', () => ({ invalidateProjectPromptViewCache: vi.fn() }))

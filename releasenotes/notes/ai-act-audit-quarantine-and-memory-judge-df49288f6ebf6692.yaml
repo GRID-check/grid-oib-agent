@@ -1,0 +1,11 @@
+---
+features:
+  - >
+    The audit log now records when Piloti quarantines an upload, with the terms
+    and checks that matched, once per decision, even if the log was briefly
+    unreachable. It also records each decision of the model that judges who may
+    read a note Piloti keeps from a chat with restricted folders, including a
+    firm-wide note Piloti offered you to save.
+  - >
+    A restricted note in the Projektspeicher now says „von KI mitbestimmt" when
+    a language model helped decide who may read it.

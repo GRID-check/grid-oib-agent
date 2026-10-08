@@ -31,7 +31,7 @@ import {
 } from '@/lib/documents/repository'
 import { dispatchDocument } from '@/lib/documents/service'
 import { resolveDocumentFolderPath } from '@/lib/documents/folder-path'
-import { parseQuarantine, type QuarantineVerdict } from './quarantine'
+import { auditedQuarantineReasons, parseQuarantine, type QuarantineVerdict } from './quarantine'
 
 type ReviewedDocument = Pick<Document, 'scope' | 'projectId' | 'folderId'>
 
@@ -115,10 +115,7 @@ export async function releaseQuarantinedDocument(
       projectId: doc.projectId ?? '',
       filename: doc.filename.slice(0, 200),
       // Kinds and terms only: a detector's masked sample stays on the row.
-      reasons: (verdict?.reasons ?? [])
-        .map((reason) => (reason.kind === 'term' ? `term:${reason.term ?? ''}` : reason.kind))
-        .join(',')
-        .slice(0, 200),
+      reasons: auditedQuarantineReasons(verdict),
     },
     request,
   })

@@ -18,6 +18,11 @@ import {
   organizationExists,
 } from '@/lib/projects/memory-service'
 import {
+  memoryJudgeVerdictSchema,
+  recordMemoryJudgeVerdict,
+  recordRefusedMemoryJudgeVerdict,
+} from '@/lib/projects/memory-judge-audit'
+import {
   PROJECT_MEMORY_CONFIDENCES,
   PROJECT_MEMORY_KINDS,
   PROJECT_MEMORY_MAX_RESTRICTED_FOLDERS,
@@ -74,6 +79,13 @@ const internalMemorySchema = z
       .min(1)
       .max(PROJECT_MEMORY_MAX_RESTRICTED_FOLDERS)
       .optional(),
+    /**
+     * The restricted-memory judge's verdict on this finding, when it was asked
+     * (ADR-0084): recorded in the audit trail with the item (AI Act), and the
+     * verdict alone kept on a restricted item, so the panel can say a model
+     * helped decide who reads it. Collections only, never text.
+     */
+    restrictionJudge: memoryJudgeVerdictSchema.optional(),
   })
   .refine((v) => (v.scope === 'project' ? !!v.projectId : !!v.organizationId), {
     message: 'project scope requires projectId; organization scope requires organizationId',
@@ -94,6 +106,7 @@ export const POST = internalApiRoute(
       supersedesContent,
       salience,
       restrictedCollections,
+      restrictionJudge,
     } = await parseJsonBody(request, internalMemorySchema)
 
     // Organization memory reaches every project in the tenant, so it is never
@@ -116,6 +129,20 @@ export const POST = internalApiRoute(
             console.warn(
               '[Internal Memory API] Rejected agent org-scoped write (GRID_ALLOW_AGENT_ORG_MEMORY not set)'
             )
+            // The judge's "none" still decided something: it left the finding
+            // open, and the agent now offers it to the user as a card that
+            // writes it open, organization-wide at the widest. Audited against
+            // the organization, when that is a tenant this deployment knows.
+            if (restrictionJudge && (await organizationExists(organizationId as string).catch(() => false))) {
+              await recordRefusedMemoryJudgeVerdict(
+                {
+                  organizationId: organizationId as string,
+                  provenanceType,
+                  sourceConversationId: sourceConversationId ?? null,
+                },
+                restrictionJudge
+              )
+            }
             // Distinct ORG_MEMORY_DISABLED code (not a bare FORBIDDEN) so the backend
             // reports the accurate cause instead of mislabeling it a token mismatch.
             throw new OrgMemoryDisabledError('Agent organization-scoped memory is disabled')
@@ -153,6 +180,7 @@ export const POST = internalApiRoute(
                   provenanceType,
                   ...(salience !== undefined ? { salience } : {}),
                   ...(restrictedCollections ? { restrictedCollections } : {}),
+                  ...(restrictionJudge ? { restrictionJudge: restrictionJudge.verdict } : {}),
                 },
                 writeOptions
               )
@@ -174,6 +202,7 @@ export const POST = internalApiRoute(
         if (!item) {
           throw new NotFoundError('Unknown project')
         }
+        if (restrictionJudge) await recordMemoryJudgeVerdict(item, restrictionJudge)
 
         // `supersededId` is null when the quote resolved to nothing, or to an entry
         // the agent may not retire — the caller can then be honest about what it did.

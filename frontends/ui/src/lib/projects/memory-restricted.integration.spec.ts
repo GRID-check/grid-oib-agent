@@ -18,6 +18,9 @@
  *     tightening one closes them, with no row rewritten;
  *   - the write stores a current restricted collection as its source folder,
  *     and refuses a collection that is not a current restricted one;
+ *   - a restricted note keeps the memory judge's verdict, and the 0116 CHECK
+ *     refuses one on an open note, where it would tell any member the chat
+ *     could list a restricted folder;
  *   - the card decisions of a conversation that drew on a restricted folder stay
  *     out of the project-wide PROPOSAL_DECISIONS block.
  *
@@ -430,6 +433,27 @@ describe.skipIf(!url)('restricted project memory against live Postgres', () => {
           })
         )
       ).rejects.toThrow(/Not a restricted collection of this project/)
+    })
+
+    it('keeps the judge\'s verdict on a restricted note, and the CHECK refuses one on an open note', async () => {
+      const { projectId, collections } = await seedProject('judged')
+      const stored = await inTenant(() =>
+        memory.createProjectMemoryItemForProject(projectId, {
+          kind: 'decision',
+          content: 'Vom Modell eingeschränkt',
+          restrictedCollections: [collections[1]],
+          restrictionJudge: 'drawn',
+        })
+      )
+      expect(stored?.restrictionJudge).toBe('drawn')
+
+      const onOpenNote = () =>
+        inTenant(() =>
+          db.execute(sql`
+            insert into project_memory (scope, project_id, organization_id, kind, content, restriction_judge)
+            values ('project', ${projectId}::uuid, ${ORG}, 'decision', 'Offen, aber beurteilt', 'none')`)
+        )
+      expect(await failureOf(onOpenNote)).toContain('project_memory_restriction_judge_check')
     })
   })
 

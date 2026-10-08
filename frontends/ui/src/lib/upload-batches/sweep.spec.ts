@@ -11,9 +11,11 @@ vi.mock('./repository', () => ({
 }))
 vi.mock('./settle', () => ({ settleUploadBatches: vi.fn() }))
 vi.mock('@/lib/documents/reconcile-status', () => ({ reconcileDocumentStatuses: vi.fn().mockResolvedValue([]) }))
+vi.mock('@/lib/upload-screening/quarantine-audit', () => ({ sweepOwedQuarantines: vi.fn().mockResolvedValue(0) }))
 
 import type { UploadBatch } from '@/lib/db/schema'
 import { reconcileDocumentStatuses } from '@/lib/documents/reconcile-status'
+import { sweepOwedQuarantines } from '@/lib/upload-screening/quarantine-audit'
 import { makeDocument } from '@/test-utils/db-fixtures'
 import { listInFlightBatchDocuments, listOpenBatchesBetween, sealAbandonedBatch } from './repository'
 import { settleUploadBatches } from './settle'
@@ -41,6 +43,7 @@ beforeEach(() => {
   vi.clearAllMocks()
   vi.mocked(listInFlightBatchDocuments).mockResolvedValue([])
   vi.mocked(settleUploadBatches).mockResolvedValue([])
+  vi.mocked(sweepOwedQuarantines).mockResolvedValue(0)
 })
 
 describe('sweepUploadBatches', () => {
@@ -78,6 +81,30 @@ describe('sweepUploadBatches', () => {
     const result = await sweepUploadBatches(NOW)
 
     expect(result).toMatchObject({ checked: 2, completed: 1, failed: 1 })
+    warn.mockRestore()
+  })
+
+  // The content gate's decisions reach the trail at least once (ADR-0083): a
+  // send that failed when the row moved is the sweep's, batch or no batch.
+  it('sends the quarantine decisions still owed to the audit trail, and counts them', async () => {
+    vi.mocked(listOpenBatchesBetween).mockResolvedValue([])
+    vi.mocked(sweepOwedQuarantines).mockResolvedValue(2)
+
+    const result = await sweepUploadBatches(NOW)
+
+    expect(sweepOwedQuarantines).toHaveBeenCalledWith(NOW)
+    expect(result).toMatchObject({ checked: 0, audited: 2 })
+  })
+
+  it('still reports the batches when the owed decisions cannot be listed', async () => {
+    vi.mocked(listOpenBatchesBetween).mockResolvedValue([batch('b1', 10 * 60_000, true)])
+    vi.mocked(settleUploadBatches).mockResolvedValue([batch('b1', 10 * 60_000, true)])
+    vi.mocked(sweepOwedQuarantines).mockRejectedValue(new Error('db hiccup'))
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+
+    const result = await sweepUploadBatches(NOW)
+
+    expect(result).toMatchObject({ completed: 1, audited: 0 })
     warn.mockRestore()
   })
 })

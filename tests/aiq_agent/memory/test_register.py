@@ -355,9 +355,10 @@ async def test_a_finding_from_a_read_restricted_folder_is_restricted_memory(monk
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
-    ("judge", "expected"), [(_Judge([1]), (_RESTRICTED,)), (_Judge([]), None), (None, (_RESTRICTED,))]
+    ("judge", "expected", "verdict"),
+    [(_Judge([1]), (_RESTRICTED,), "drawn"), (_Judge([]), None, "none"), (None, (_RESTRICTED,), "failed")],
 )
-async def test_a_listed_but_unread_folder_is_judged(monkeypatch, judge, expected):
+async def test_a_listed_but_unread_folder_is_judged(monkeypatch, judge, expected, verdict):
     """Yes restricts, no leaves it open, no judge at all fails closed."""
     _patch_context(monkeypatch)
     _patch_scope(monkeypatch, _RESTRICTED_SCOPE)
@@ -365,6 +366,22 @@ async def test_a_listed_but_unread_folder_is_judged(monkeypatch, judge, expected
     insert = MagicMock(return_value="item-1")
     await _remember(monkeypatch, insert)
     assert insert.call_args.kwargs["restricted_collections"] == expected
+    # AI Act: the verdict goes with the write, for the BFF's audit trail.
+    assert insert.call_args.kwargs["restriction_judge"] == {
+        "verdict": verdict,
+        "judgedCollections": [_RESTRICTED],
+        "drawnCollections": [_RESTRICTED] if verdict == "drawn" else [],
+    }
+
+
+@pytest.mark.asyncio
+async def test_a_finding_no_judge_decided_sends_no_verdict(monkeypatch):
+    _patch_context(monkeypatch)
+    _patch_scope(monkeypatch, _RESTRICTED_SCOPE)
+    _patch_turn(monkeypatch, read=[_RESTRICTED])
+    insert = MagicMock(return_value="item-1")
+    await _remember(monkeypatch, insert)
+    assert insert.call_args.kwargs["restriction_judge"] is None
 
 
 @pytest.mark.asyncio

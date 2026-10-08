@@ -384,6 +384,29 @@ export const AUDIT_SCHEMAS = /** @type {const} */ ({
     targets: [{ type: 'document' }],
     metadata: { projectId: 'string', filename: 'string', terms: 'string', nameWithheld: 'boolean' },
   },
+  // The content gate's own decision to hold a document back (ADR-0083): rule
+  // based, before any model reads it. Its actor is `system:upload_screening`,
+  // not a person, and `uploadedBy` names whose upload it was. The reasons are
+  // kinds and terms (`term:Lohnzettel,iban`), never a matched sample or text;
+  // `checked` is `full` or `partial` (some pages had no text layer). `jobId`
+  // is the dispatch that decided: one job, one decision, one event. Sent at
+  // least once from `document_quarantine_decisions`, under an idempotency key,
+  // with the time of the decision rather than of the send. Like every action
+  // that names a document, it leaves the name out under a folder not every
+  // project member may read (`nameWithheld`).
+  'document.quarantined': {
+    targets: [{ type: 'document' }],
+    metadata: {
+      projectId: 'string',
+      filename: 'string',
+      scope: 'string',
+      reasons: 'string',
+      checked: 'string',
+      uploadedBy: 'string',
+      jobId: 'string',
+      nameWithheld: 'boolean',
+    },
+  },
   // A quarantined document a reviewer released for indexing (ADR-0083). The
   // reasons are the content gate's verdict as stored on the row.
   'document.quarantine_released': {
@@ -577,6 +600,33 @@ export const AUDIT_SCHEMAS = /** @type {const} */ ({
       previousName: 'string',
       displayName: 'string',
       collectionName: 'string',
+    },
+  },
+  // The restricted-memory judge's verdict on one note (ADR-0084), a language
+  // model deciding who may read it: `drawn` (it named folders the note draws
+  // on), `none` (it named none, so they add no restriction) or `failed` (no
+  // usable answer; restricted to every folder in scope). Actor
+  // `system:memory_judge`. The note by id, never its text. `judgedFolders` were
+  // shown to the judge, `drawnFolders` it named, `restrictedFolders` the note
+  // was stored with; each a folder id, or the collection name when it no
+  // longer resolves to one, comma-separated, cut at 500 characters (the counts
+  // say when). `projectId` is empty for organization memory. `outcome` is
+  // `stored`, the target the note, or `refused`, the target the organization:
+  // an organization-wide finding this deployment does not let the agent store
+  // (the default), which the agent then offers the user as a card.
+  'project.memory.restriction_judged': {
+    targets: [{ type: 'project_memory_item' }, { type: 'organization' }],
+    metadata: {
+      projectId: 'string',
+      verdict: 'string',
+      outcome: 'string',
+      judgedFolders: 'string',
+      judgedCount: 'number',
+      drawnFolders: 'string',
+      drawnCount: 'number',
+      restrictedFolders: 'string',
+      provenance: 'string',
+      conversationId: 'string',
     },
   },
   // Sharing (ADR-0032). Access-control changes on a resource are privileged

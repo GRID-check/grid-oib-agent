@@ -102,6 +102,28 @@ describe('recordAuditEvent (WorkOS-native audit trail)', () => {
     expect(event.metadata).toEqual({})
   })
 
+  // An event an outbox sends again (the quarantine decisions, ADR-0083) must
+  // be the SAME event: its own key, and the decision's time rather than now.
+  it('passes a fixed occurredAt and the idempotency key through, and mints neither when absent', async () => {
+    const decidedAt = new Date('2026-10-01T08:00:00Z')
+    await recordAuditEventOrThrow({
+      organizationId: 'org_1',
+      actor: { userId: 'system:upload_screening' },
+      action: 'document.quarantined',
+      targetType: 'document',
+      targetId: 'doc_1',
+      filedIn: null,
+      occurredAt: decidedAt,
+      idempotencyKey: 'document.quarantined:decision_1',
+    })
+    const [, event, options] = createEvent.mock.calls[0]
+    expect(event.occurredAt).toEqual(decidedAt)
+    expect(options).toEqual({ idempotencyKey: 'document.quarantined:decision_1' })
+
+    await recordAuditEvent({ organizationId: 'org_1', actor: { userId: 'u' }, action: 'org.settings.updated', targetType: 'organization' })
+    expect(createEvent.mock.calls[1][2]).toBeUndefined()
+  })
+
   // Issues #274/#277. WorkOS derives the validator from the registered schema
   // and marks BOTH `metadata` and `actor.metadata` required for every action
   // that registers a metadata map — so an omitted key is a 400, not a smaller

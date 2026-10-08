@@ -25,6 +25,7 @@ import type { AuditAction } from './service'
 export const DOCUMENT_NAME_ACTIONS = [
   'document.uploaded',
   'document.screening_overridden',
+  'document.quarantined',
   'document.quarantine_released',
   'document.deleted',
   'document.archived',
