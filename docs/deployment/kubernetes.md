@@ -1271,6 +1271,14 @@ The backend's HTTP routes are the `aiq-api` Deployment's (ADR-0082): it scales
 on CPU between `apiMinReplicas` and `apiMaxReplicas`, holds no volume, and rolls
 without waiting on a chat turn. What follows is the `aiq-agent` chat tier.
 
+The api tier's work mostly waits on model calls and SSE streams, so CPU can stay
+low while it is saturated. `grid.http.requests_in_flight{role="api",kind="request"}`
+(`frontends/aiq_api/src/aiq_api/inflight.py`) is the candidate scaling signal: the
+requests a replica is serving now. Job SSE streams are counted apart as
+`kind="stream"`, since a research run keeps one open for its whole length. The api
+HPA stays on CPU until a week of readings shows how in-flight requests and CPU
+relate under load; `grid.http.request_seconds` is the duration of the same count.
+
 In `db` mode the `aiq-agent` chat tier now runs `backendReplicas` replicas
 (default 2). The chat/retrieval path is replica-safe:
 
