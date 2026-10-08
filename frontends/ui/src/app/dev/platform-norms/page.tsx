@@ -13,7 +13,9 @@
 
 import type { JSX } from 'react'
 import { useEffect } from 'react'
+import { PageHeader } from '@/components/ui/page-header'
 import { NormRegistry } from '@/features/platform/components/norm-registry'
+import { useTranslations } from '@/i18n'
 
 /** The remaining state building acts — enough rows that the pager appears. */
 const stateAct = (
@@ -21,7 +23,7 @@ const stateAct = (
   short: string,
   title: string,
   bundesland: string,
-  verifiedAt: string,
+  verifiedAt: string
 ) => ({
   id,
   title,
@@ -53,7 +55,8 @@ const ENTRIES = [
     document_number: 'NOR40251234',
     source_url: '',
     citation_url: 'https://ris.bka.gv.at/Dokument.wxe?Dokumentnummer=NOR40251234',
-    full_law_url: 'https://ris.bka.gv.at/GeltendeFassung.wxe?Abfrage=Bundesnormen&Gesetzesnummer=20001234',
+    full_law_url:
+      'https://ris.bka.gv.at/GeltendeFassung.wxe?Abfrage=Bundesnormen&Gesetzesnummer=20001234',
     aliases: ['OIB 2', 'Richtlinie 2'],
     binding_note: 'In allen Bundesländern durch Verweis verbindlich gestellt.',
     verify: { title_query: 'OIB-Richtlinie 2', exclude: ['Entwurf'], gesetzesnummer: '20001234' },
@@ -177,7 +180,8 @@ if (typeof window !== 'undefined' && process.env.NODE_ENV === 'development') {
     w.__platformNormsShim = true
     const real = window.fetch.bind(window)
     window.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
-      const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url
+      const url =
+        typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url
       if (url.startsWith('/api/platform/norms/verify')) {
         return Response.json(VERIFY_RESPONSE)
       }
@@ -200,16 +204,17 @@ export default function PlatformNormsDevPage(): JSX.Element {
 }
 
 function Preview(): JSX.Element {
-  // The authoring flow is what this preview exists to show — the list is
-  // already covered by the section screenshot. There is no prop to open the
-  // editor, so drive the real affordance once the catalog has loaded, exactly
-  // as a reviewer would.
+  const t = useTranslations('platform')
+  // `?editor=1` shows the authoring flow; without it the list itself. There
+  // is no prop to open the editor, so drive the real affordance once the
+  // catalog has loaded, exactly as a reviewer would.
   useEffect(() => {
+    if (new URLSearchParams(window.location.search).get('editor') !== '1') return
     let cancelled = false
     const open = (): void => {
       if (cancelled) return
-      const button = Array.from(document.querySelectorAll('button')).find(
-        (candidate) => candidate.textContent?.trim().startsWith('New entry'),
+      const button = Array.from(document.querySelectorAll('button')).find((candidate) =>
+        candidate.textContent?.trim().startsWith('New entry')
       )
       if (button) button.click()
       else window.setTimeout(open, 100)
@@ -223,15 +228,10 @@ function Preview(): JSX.Element {
 
   return (
     <main
-      className="mx-auto flex max-w-4xl flex-col gap-6 p-8"
+      className="mx-auto flex max-w-4xl flex-col gap-6 px-4 py-8 md:px-8"
       data-testid="platform-norms-preview"
     >
-      <div>
-        <h1 className="text-lg font-semibold">Platform — Norm catalog</h1>
-        <p className="mt-1 text-sm text-muted-foreground">
-          The curated pointers to Austrian building law, rebuilt on the shared admin primitives.
-        </p>
-      </div>
+      <PageHeader title={t('sections.norms.title')} subtitle={t('sections.norms.subtitle')} />
       <NormRegistry />
     </main>
   )

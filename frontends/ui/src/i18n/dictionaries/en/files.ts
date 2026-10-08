@@ -3,10 +3,11 @@ export const files = {
   uploadZone: {
     clickToUpload: 'Click to upload',
     orDragAndDrop: ' or drag and drop',
-    maxSize: 'Up to {size} MB',
+    /** `size` is formatted with its unit ("100 MB"); the limit is per file. */
+    maxSize: 'Up to {size} per file',
     accepts: 'Accepts: {types}',
     dragOrBrowse: 'Drag files here or browse',
-    maxSizeShort: 'max. {size} MB',
+    maxSizeShort: 'max. {size} per file',
   },
   // The upload tray. Wording follows the surface's one rule: a number is
   // stated only where one was measured. "Reading" is what the backend does to a
