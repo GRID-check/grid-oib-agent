@@ -81,7 +81,7 @@ vi.mock('@/lib/mentions/service', () => ({
   threadIsAwaitingHuman: vi.fn(),
 }))
 
-// The office's chat screening (ADR-0083): the REAL matcher over Piloti's
+// The office's chat screening (ADR-0085): the REAL matcher over Piloti's
 // suggested list; only the settings read is replaced, because it reaches the
 // database. What the matcher does has its own spec (`content-screen.spec.ts`).
 vi.mock('@/lib/upload-screening/service', async () => {
@@ -1591,7 +1591,7 @@ describe('deleting a conversation takes its working directory with it', () => {
   })
 })
 
-describe('what a person wrote is stored masked (ADR-0083, chat screening)', () => {
+describe('what a person wrote is stored masked (ADR-0085, chat screening)', () => {
   const IBAN = 'AT61 1904 3002 3457 3201'
 
   afterEach(() => {

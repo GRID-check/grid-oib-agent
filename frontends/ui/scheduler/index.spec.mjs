@@ -421,7 +421,7 @@ describe('tick', () => {
   })
 })
 
-describe('sweepUploads (the upload sweep’s clock, ADR-0083)', () => {
+describe('sweepUploads (the upload sweep’s clock, ADR-0085)', () => {
   const config = { frontendUrl: 'http://frontend:3000', internalToken: 'tok', pollMs: 30000 }
   const streak = () => ({ failed: vi.fn(), succeeded: vi.fn() })
 

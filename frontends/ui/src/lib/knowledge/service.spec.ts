@@ -22,13 +22,13 @@ const fetchMock = vi.fn()
 const backendPayload = {
   collection_name: 'oib_knowledge',
   collection_exists: true,
-  documents_dir: 'data/oib',
   collection_updated_at: '2026-07-01T00:00:00Z',
   summary: {
     total_files: 2,
     ingested: 1,
     stale: 0,
     pending: 1,
+    failed: 0,
     removed: 0,
     inconsistent: 0,
     total_chunks: 42,
@@ -37,7 +37,6 @@ const backendPayload = {
     {
       file_name: 'oib-rl_1_ausgabe_mai_2023.pdf',
       state: 'ingested',
-      origin: 'corpus',
       size_bytes: 1234,
       chunk_count: 42,
       ingested_sha256: 'abc',
@@ -84,7 +83,7 @@ describe('getKnowledgeBaseStatus', () => {
       ingested: 1,
       stale: 0,
       pending: 1,
-      snapshot: 0,
+      failed: 0,
       removed: 0,
       inconsistent: 0,
       totalChunks: 42,
@@ -92,7 +91,6 @@ describe('getKnowledgeBaseStatus', () => {
     expect(status.files[0]).toEqual({
       fileName: 'oib-rl_1_ausgabe_mai_2023.pdf',
       state: 'ingested',
-      origin: 'corpus',
       sizeBytes: 1234,
       chunkCount: 42,
       ingestedSha256: 'abc',
@@ -141,13 +139,13 @@ describe('getKnowledgeBaseStatus', () => {
     await expect(getKnowledgeBaseStatus()).rejects.toBeInstanceOf(UpstreamError)
   })
 
-  it('maps snapshot state and file origin', async () => {
+  it('maps the removed state of an indexed file the corpus no longer lists', async () => {
     fetchMock.mockResolvedValue(
       new Response(
         JSON.stringify({
           collection_exists: true,
-          summary: { snapshot: 1 },
-          files: [{ file_name: 'a.pdf', state: 'snapshot', origin: 'index_only', chunk_count: 5 }],
+          summary: { removed: 1 },
+          files: [{ file_name: 'a.pdf', state: 'removed', chunk_count: 5 }],
         }),
         { status: 200 },
       ),
@@ -155,8 +153,35 @@ describe('getKnowledgeBaseStatus', () => {
 
     const status = await getKnowledgeBaseStatus()
 
-    expect(status.summary.snapshot).toBe(1)
-    expect(status.files[0]).toMatchObject({ state: 'snapshot', origin: 'index_only' })
+    expect(status.summary.removed).toBe(1)
+    expect(status.files[0]).toMatchObject({ state: 'removed', chunkCount: 5 })
+    expect(status.files[0]).not.toHaveProperty('origin')
+  })
+
+  it('maps the failed state of a file whose ingest job did not finish', async () => {
+    fetchMock.mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          collection_exists: true,
+          summary: { failed: 1 },
+          files: [{ file_name: 'a.pdf', state: 'failed', chunk_count: 0 }],
+        }),
+        { status: 200 },
+      ),
+    )
+
+    const status = await getKnowledgeBaseStatus()
+
+    expect(status.summary.failed).toBe(1)
+    expect(status.files[0]).toMatchObject({ state: 'failed' })
+  })
+
+  it('reads a state it does not know as pending', async () => {
+    fetchMock.mockResolvedValue(
+      new Response(JSON.stringify({ files: [{ file_name: 'a.pdf', state: 'snapshot' }] }), { status: 200 }),
+    )
+
+    expect((await getKnowledgeBaseStatus()).files[0].state).toBe('pending')
   })
 })
 

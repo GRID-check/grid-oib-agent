@@ -1,7 +1,7 @@
 /**
  * @vitest-environment node
  *
- * Folders not every member may read do not hold IFC models (ADR-0084, ADR-0085). The folder tree is the
+ * Folders not every member may read do not hold IFC models (ADR-0086, ADR-0087). The folder tree is the
  * decision's own core, run for real; only the two reads are stubbed.
  */
 import { describe, expect, it, vi, beforeEach } from 'vitest'

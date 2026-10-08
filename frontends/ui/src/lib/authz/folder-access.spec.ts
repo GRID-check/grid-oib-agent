@@ -113,7 +113,7 @@ describe('unreadableFoldersBelow — what a move of a subtree may not do blind',
   })
 })
 
-describe('effectiveFolderLevel — the one rule (ADR-0085)', () => {
+describe('effectiveFolderLevel — the one rule (ADR-0087)', () => {
   // [who, folder, expected level]
   const cases: Array<[string, FolderClearance, string | null, FolderLevel]> = [
     // The project root and inheriting folders: the project decides.

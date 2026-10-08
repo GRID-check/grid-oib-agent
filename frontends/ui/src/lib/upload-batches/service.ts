@@ -1,6 +1,6 @@
 /**
  * Upload batches: one upload gesture, from the browser's first request to the
- * moment everything it brought in has been read (migration 0108, ADR-0083).
+ * moment everything it brought in has been read (migration 0109, ADR-0085).
  *
  *   open    → the browser, before it sends a file (`POST /api/upload-batches`)
  *   stamp   → each upload names the batch; the document row carries its id
@@ -38,7 +38,7 @@ import {
 /** The shelves an upload can go to; re-stated here so a route needs nothing from the db layer. */
 export { UPLOAD_BATCH_SCOPES } from '@/lib/db/schema'
 
-/** Most files one batch may announce. Mirrors the CHECK in migration 0108. */
+/** Most files one batch may announce. Mirrors the CHECK in migration 0109. */
 export const UPLOAD_BATCH_MAX_FILES = 10_000
 
 export interface OpenUploadBatchInput {

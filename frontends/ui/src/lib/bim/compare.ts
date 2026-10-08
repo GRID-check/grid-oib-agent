@@ -29,7 +29,7 @@ import type { BimElement } from './types'
 
 /** One field that differs between the two revisions of one element. */
 export interface BimFieldChange {
-  /** `storey`, `name`, `Pset_WallCommon.FireRating`, `Qto_…​.NetSideArea`. */
+  /** `storey`, `name`, `Pset_WallCommon.FireRating`, `Qto_….NetSideArea`. */
   field: string
   before: string | number | boolean | null
   after: string | number | boolean | null

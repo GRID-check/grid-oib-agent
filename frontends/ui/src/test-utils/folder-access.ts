@@ -1,6 +1,6 @@
 /**
  * `@/lib/authz/folder-access` for a project where no folder has its own
- * access list (ADR-0084, ADR-0085), for specs that mock the database layer.
+ * access list (ADR-0086, ADR-0087), for specs that mock the database layer.
  *
  * Every read path that returns a project document asks the folder-access
  * decision point, which reads `project_folders`. A spec that stubs `@/lib/db`

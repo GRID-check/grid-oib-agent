@@ -1,5 +1,5 @@
 /**
- * What happens when documents come to rest (ADR-0083): their upload completes
+ * What happens when documents come to rest (ADR-0085): their upload completes
  * and its uploader is told, and a quarantined file's reviewers are told.
  *
  * Called by status reconciliation for every row it moved to a terminal status,

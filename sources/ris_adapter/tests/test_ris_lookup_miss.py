@@ -17,7 +17,7 @@ pytestmark = pytest.mark.asyncio
 
 async def test_nothing_matched_anywhere_still_says_what_was_searched(lookup, monkeypatch):
     """No catalog entry, no live hit: the miss names the terms and the Land."""
-    from tests.conftest import FakePlanner
+    from sources.ris_adapter.tests.conftest import FakePlanner
 
     lookup.with_llms(monkeypatch, planner=FakePlanner(suchworte="Stellplatzverpflichtung"))
 
@@ -38,7 +38,7 @@ async def test_an_unresolved_bundesland_is_the_first_thing_the_retry_asks_for(lo
 
 async def test_a_catalog_entry_with_no_full_text_is_named_and_not_invented(lookup, catalog):
     """The catalog's own honest case: the norm exists, its text is not in RIS."""
-    from tests.conftest import norm_entry
+    from sources.ris_adapter.tests.conftest import norm_entry
 
     catalog(
         norm_entry(
@@ -62,7 +62,7 @@ async def test_a_catalog_entry_with_no_full_text_is_named_and_not_invented(looku
 
 
 async def test_a_web_only_catalog_entry_hands_the_web_tool_its_next_move(lookup, catalog):
-    from tests.conftest import norm_entry
+    from sources.ris_adapter.tests.conftest import norm_entry
 
     catalog(
         norm_entry(
@@ -86,7 +86,7 @@ async def test_a_web_only_catalog_entry_hands_the_web_tool_its_next_move(lookup,
 
 async def test_a_document_that_was_read_but_answers_nothing_returns_its_index(lookup, catalog, monkeypatch):
     """The RIS twin of `read_passage`'s Gliederung — labelled as an index."""
-    from tests.conftest import FakePicker
+    from sources.ris_adapter.tests.conftest import FakePicker
 
     # The picker names no §: nothing in the table of contents answers this.
     lookup.with_llms(monkeypatch, picker=FakePicker())
@@ -109,7 +109,7 @@ async def test_a_named_paragraph_the_law_does_not_have_is_a_miss_not_a_guess(loo
 async def test_a_failed_live_search_is_a_miss_with_a_retry_not_an_exception(lookup, monkeypatch):
     from ris_adapter.client import RisError
 
-    from tests.conftest import FakePlanner
+    from sources.ris_adapter.tests.conftest import FakePlanner
 
     lookup.with_llms(monkeypatch, planner=FakePlanner())
     lookup.client.search_result = RisError("OGD-RIS API error: Seitennummer zu hoch")
@@ -122,7 +122,7 @@ async def test_a_failed_live_search_is_a_miss_with_a_retry_not_an_exception(look
 
 async def test_a_live_hit_that_cannot_be_fetched_is_named_as_unread(lookup, monkeypatch):
     """The fetch failed; the miss still says which document it was."""
-    from tests.conftest import FakePlanner
+    from sources.ris_adapter.tests.conftest import FakePlanner
 
     lookup.with_llms(monkeypatch, planner=FakePlanner())
     lookup.client.search_result = RisSearchResult(

@@ -36,4 +36,4 @@
 
 - name: answer-suite
   color: "5319e7"
-  description: "Paused: the answer-suite CI run is commented out; run task be:eval:answer-suite locally"
+  description: "No CI reads this label; run task be:eval:answer-suite and attach the report to the PR"

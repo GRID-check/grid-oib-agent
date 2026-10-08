@@ -1,5 +1,5 @@
 /**
- * Clearing the quarantine (ADR-0083): who may, what release does, and the
+ * Clearing the quarantine (ADR-0085): who may, what release does, and the
  * reviewers' queue.
  *
  * A quarantined document's bytes are in the tenant's bucket and nothing of it

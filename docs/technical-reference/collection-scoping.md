@@ -115,10 +115,10 @@ async function buildCollectionScopeFromRequest(
 
 ---
 
-## Restricted folders (ADR-0084, ADR-0085)
+## Restricted folders (ADR-0086, ADR-0087)
 
 A folder whose own access list does not include every project member
-(`project_folder_grants` without `*`, migration 0109) restricts READING. A
+(`project_folder_grants` without `*`, migration 0110) restricts READING. A
 document under it lives in the collection of its nearest such folder,
 `<project collection>_r<12 hex of the folder id>` (`restrictedCollectionName`
 in `lib/authz/folder-access-rule.ts`). Who may WRITE never moves anything:
@@ -248,7 +248,7 @@ read **once, at job submit time**, in `piloti/conversation_register.py`, and
 carried through as a `collection_scope` field on the job payload rather than
 as a live header.
 
-When the Dask worker later runs the job, `frontends/aiq_api/src/aiq_api/jobs/runner.py:641`
+When the research worker later runs the job, `frontends/aiq_api/src/aiq_api/jobs/runner.py:641`
 re-injects it into the worker's own request context **only when present**:
 
 ```python

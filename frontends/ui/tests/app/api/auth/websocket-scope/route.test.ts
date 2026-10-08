@@ -57,6 +57,7 @@ describe('/api/auth/websocket-scope', () => {
       projectId: 'proj-1',
       conversationId: 'conv-1',
       projectCollectionName: undefined,
+      verifiedConversationId: undefined,
     })
 
     const req = new Request(
@@ -118,6 +119,7 @@ describe('/api/auth/websocket-scope', () => {
       projectId: 'proj-1',
       conversationId: undefined,
       projectCollectionName: undefined,
+      verifiedConversationId: undefined,
     })
 
     const req = new Request('http://localhost:3000/api/auth/websocket-scope?projectId=proj-1')

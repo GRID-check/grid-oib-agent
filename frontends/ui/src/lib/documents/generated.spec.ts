@@ -1026,7 +1026,7 @@ describe('fileGeneratedDocument', () => {
  * this file's fixtures, and a spy proves only what today's fixtures happened to
  * exercise.
  */
-describe('filing into a folder the commissioning person may only read (ADR-0085)', () => {
+describe('filing into a folder the commissioning person may only read (ADR-0087)', () => {
   const file = () =>
     fileGeneratedDocument({
       session: SESSION,

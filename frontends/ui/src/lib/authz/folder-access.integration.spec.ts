@@ -1,7 +1,7 @@
 /**
  * @vitest-environment node
  *
- * Read/write folder access against a REAL Postgres (ADR-0085, migration 0109),
+ * Read/write folder access against a REAL Postgres (ADR-0087, migration 0110),
  * through the restricted runtime role:
  *
  *   GRID_TEST_DATABASE_URL=postgres://grid_app_rw@host:port/grid_app \

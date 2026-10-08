@@ -303,16 +303,19 @@ async function purgeProject(tx, entry, deps) {
   }
 
   await assertNoHold(tx, entry)
-  // 3. WorkOS FGA resource (+ role assignments). Already-gone is success.
-  try {
-    await workos.authorization.deleteResourceByExternalId({
-      organizationId: orgId,
-      resourceTypeSlug: 'project',
-      externalId: projectId,
-      cascadeDelete: true,
-    })
-  } catch (error) {
-    if (!isNotFound(error)) throw error
+  // 3. WorkOS FGA resource (+ role assignments). Already-gone is success. No
+  //    WorkOS environment means no resource was ever created (`PurgeDeps.workos`).
+  if (workos) {
+    try {
+      await workos.authorization.deleteResourceByExternalId({
+        organizationId: orgId,
+        resourceTypeSlug: 'project',
+        externalId: projectId,
+        cascadeDelete: true,
+      })
+    } catch (error) {
+      if (!isNotFound(error)) throw error
+    }
   }
 
   // 4. grid_app rows: the collaboration rows FIRST, then conversations
