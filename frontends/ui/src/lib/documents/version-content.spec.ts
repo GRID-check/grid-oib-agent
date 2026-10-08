@@ -32,7 +32,7 @@ vi.mock('./version-repository', () => ({
 }))
 vi.mock('@/lib/storage/discard', () => ({ discardObject: vi.fn() }))
 vi.mock('@/lib/conversations/repository', () => ({ findConversationInOrg: vi.fn() }))
-// A subject in a folder every member may read is read as before (ADR-0085); the
+// A subject in a folder every member may read is read as before (ADR-0087); the
 // restricted case overrides `placementCollectionFor`.
 vi.mock('@/lib/authz/folder-access', async () => (await import('@/test-utils/folder-access')).openFolderAccessModule())
 vi.mock('@/lib/projects/repository', async (importOriginal) => ({
@@ -517,7 +517,7 @@ describe('readVersionForService — the conversation is part of the predicate', 
     })
   })
 
-  describe('a subject in a folder not every member may read (ADR-0084, ADR-0085)', () => {
+  describe('a subject in a folder not every member may read (ADR-0086, ADR-0087)', () => {
     const RESTRICTED = 'proj_abc_r0123456789ab'
     beforeEach(() => {
       vi.mocked(findConversationInOrg).mockResolvedValue({

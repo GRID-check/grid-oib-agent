@@ -87,7 +87,7 @@ describe('POST /api/internal/bim/query', () => {
     expect(runBimQuery).not.toHaveBeenCalled()
   })
 
-  // ADR-0084: the agent's routes carry no session to clear, and a model's
+  // ADR-0086: the agent's routes carry no session to clear, and a model's
   // building data is keyed by project, so every restricted subtree is hidden.
   it('never queries a model filed under a restricted folder', async () => {
     vi.mocked(getRestrictedFolderIds).mockResolvedValueOnce(['folder-verwaltung'])

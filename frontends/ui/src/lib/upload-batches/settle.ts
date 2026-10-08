@@ -102,7 +102,7 @@ async function reviewersOf(organizationId: string, document: Document): Promise<
       if (document.scope !== 'project' || !document.projectId) return null
       const manages = await userHoldsProjectPermission({ organizationId }, document.projectId, userId, 'project:manage')
       if (!manages) return null
-      // Nor a project admin the document's folder is hidden from (ADR-0084).
+      // Nor a project admin the document's folder is hidden from (ADR-0086).
       const cleared = await isFolderVisibleToClearance(organizationId, document.projectId, document.folderId, {
         roles: membership.role ? [membership.role] : [],
         seesEverything: false,

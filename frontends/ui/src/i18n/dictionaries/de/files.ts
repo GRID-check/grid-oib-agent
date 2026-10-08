@@ -331,7 +331,7 @@ export const files: typeof en.files = {
     breadcrumb: 'Ordnerpfad',
     movedFolder: '„{name}“ nach „{parent}“ verschoben.',
     moveFolderError: 'Der Ordner konnte nicht verschoben werden. Bitte erneut versuchen.',
-    /** Ordnerzugriff (ADR-0084): einen Ordner auf Rollen einschränken. */
+    /** Ordnerzugriff (ADR-0086): einen Ordner auf Rollen einschränken. */
     access: {
       menu: 'Zugriff …',
       restrictedTo: 'Eigene Zugriffsrechte: {roles}',
@@ -363,7 +363,7 @@ export const files: typeof en.files = {
         'Ändert sich, wer lesen darf, verschiebt Piloti die Dokumente des Ordners und liest sie neu ein. Bei einem großen Ordner dauert das einige Minuten; so lange stehen die Dokumente auf „Wird gelesen“.',
       ifcNotice:
         'Ordner, die nicht alle Projektmitglieder lesen dürfen, können noch keine Gebäudemodelle (IFC) enthalten. Legen Sie IFC-Modelle in Ordner, die alle lesen dürfen.',
-      /** Der 409 der IFC-Sperre (ADR-0084): einschränken, hochladen oder verschieben in einen eingeschränkten Ordner. */
+      /** Der 409 der IFC-Sperre (ADR-0086): einschränken, hochladen oder verschieben in einen eingeschränkten Ordner. */
       ifcRefused:
         'Gebäudemodelle (IFC) können noch nicht in einem Ordner liegen, den nicht alle lesen dürfen: Ihre Gebäudedaten schützt der Ordnerzugriff nicht. Legen Sie IFC-Modelle in Ordner, die alle lesen dürfen.',
       readOnlyBadge: 'Nur lesen',

@@ -194,7 +194,7 @@ function toSummaryDocument(row: EnrichedDocument, folderPaths: Map<string, strin
  */
 /**
  * The batch's documents this reader may still see. A folder restricted after
- * the upload hides what was filed in it from its own uploader too (ADR-0084):
+ * the upload hides what was filed in it from its own uploader too (ADR-0086):
  * the summary names files, and a name is what the restriction withholds.
  */
 async function visibleToReader(session: AuthorizedSession, batch: UploadBatch, rows: Document[]): Promise<Document[]> {

@@ -368,7 +368,7 @@ def derive_project_collection(collection_scope: list[str] | None) -> str | None:
     project it was commissioned in.
 
     A restricted folder's collection (``<project collection>_r<12 hex>``,
-    ADR-0084) is part of its project, not a second one: it is read as its base
+    ADR-0086) is part of its project, not a second one: it is read as its base
     before candidates are counted. Counted as itself, a cleared member's scope
     held two candidates and recorded no project; recorded as itself, the BFF
     would resolve it to no project and file the report nowhere.

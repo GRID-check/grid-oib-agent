@@ -34,7 +34,7 @@ function makeTx({
   sessionDocumentRows = [],
   /**
    * `{ collection_name }` rows: the distinct collections the project's OWN
-   * documents name. A document under a restricted folder (ADR-0084) names
+   * documents name. A document under a restricted folder (ADR-0086) names
    * `<project collection>_r<12 hex>`, which the project's purge call does not
    * reach.
    */
@@ -537,7 +537,7 @@ describe('session attachments', () => {
   })
 })
 
-// ADR-0084: a restricted folder's documents live in their own collection,
+// ADR-0086: a restricted folder's documents live in their own collection,
 // `<project collection>_r<12 hex>`. Purging only the project's collection left the
 // one set of chunks a restriction exists for readable after the project was gone.
 describe('restricted folder collections', () => {
