@@ -55,7 +55,7 @@ function addRole(dialog: HTMLElement, name: string): void {
   fireEvent.click(screen.getByRole('option', { name }))
 }
 
-describe('FolderAccessDialog (ADR-0087)', () => {
+describe('FolderAccessDialog (ADR-0088)', () => {
   beforeEach(() => vi.clearAllMocks())
   afterEach(() => vi.unstubAllGlobals())
 
@@ -133,7 +133,7 @@ describe('FolderAccessDialog (ADR-0087)', () => {
     )
   })
 
-  it('says why when the folder holds IFC models (ADR-0086)', async () => {
+  it('says why when the folder holds IFC models (ADR-0087)', async () => {
     stubPut({ access: { mode: 'inherit' }, moved: 0, failed: [] }, 409)
     const { dialog } = renderDialog(INHERITS)
     fireEvent.click(within(dialog).getByTestId('folder-access-custom'))

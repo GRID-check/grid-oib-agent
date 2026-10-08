@@ -690,7 +690,7 @@ describe('findRunMessageByBackendJobId', () => {
  * run's own stream once the worker has taken it.
  */
 /**
- * A closed project (ADR-0088): every member reads it and may chat about it, but
+ * A closed project (ADR-0089): every member reads it and may chat about it, but
  * someone who reads it only because it is closed does not steer another
  * person's run, and nobody hands a run a document, which files into it.
  */
@@ -760,7 +760,7 @@ describe('addRunDocument', () => {
    * where the document's name and title would land. A cleared member picking a
    * document from a restricted folder is refused, and the backend hears nothing.
    */
-  describe('a document from a restricted folder (ADR-0086)', () => {
+  describe('a document from a restricted folder (ADR-0087)', () => {
     const PERSONAL = 'folder-personal'
     const OPEN = 'folder-plaene'
     const TREE: AccessFolder[] = [

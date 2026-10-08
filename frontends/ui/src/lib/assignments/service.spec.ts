@@ -160,7 +160,7 @@ describe('addResourceAssignment — container check', () => {
   })
 })
 
-describe('assigning on a document is a write in its folder (ADR-0087)', () => {
+describe('assigning on a document is a write in its folder (ADR-0088)', () => {
   const readOnly = () => new ForbiddenError('You can read this folder but not change it.', { reason: 'folder-read-only' })
 
   it('asks for the write before adding anyone, and writes nothing when it is refused', async () => {

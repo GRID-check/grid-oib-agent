@@ -197,7 +197,7 @@ describe('mapServerMessageToChatMessage', () => {
     expect(mapped!.errorData).toBeUndefined()
   })
 
-  it('carries the marks of a deleted source folder: the purge’s date and a removal’s (ADR-0087)', () => {
+  it('carries the marks of a deleted source folder: the purge’s date and a removal’s (ADR-0088)', () => {
     const drawn = mapServerMessageToChatMessage(
       serverMessage({ role: 'assistant', metadata: { sourceDeleted: { folderId: 'f1', at: '2026-10-20T03:00:00.000Z' } } })
     )

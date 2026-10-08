@@ -1,5 +1,5 @@
 /**
- * Clearing the quarantine (ADR-0085): who may, what release does, and the
+ * Clearing the quarantine (ADR-0086): who may, what release does, and the
  * reviewers' queue.
  *
  * A quarantined document's bytes are in the tenant's bucket and nothing of it
@@ -72,7 +72,7 @@ export async function releaseQuarantinedDocument(
     throw new ConflictError('This document has no recorded digest, so its release cannot name its bytes')
   }
   // Releasing files the document into its folder for good: a write there
-  // (ADR-0087). A reviewer who may only read the folder sees the document and
+  // (ADR-0088). A reviewer who may only read the folder sees the document and
   // cannot release it (403); an organization admin writes everywhere.
   if (doc.scope === 'project' && doc.projectId) await requireFolderWrite(session, doc.projectId, [doc.folderId])
 
@@ -110,7 +110,7 @@ export async function releaseQuarantinedDocument(
       reasons: [...new Set(reasons.map((reason) => reason.kind))].join(',').slice(0, 200),
       // The office's words found in the text say what the document holds, so
       // they go under `terms`, which is withheld with the name when the folder
-      // is restricted (DOCUMENT_NAME_KEYS, ADR-0086).
+      // is restricted (DOCUMENT_NAME_KEYS, ADR-0087).
       terms: [...new Set(reasons.flatMap((reason) => (reason.kind === 'term' && reason.term ? [reason.term] : [])))]
         .join(',')
         .slice(0, 200),
@@ -128,7 +128,7 @@ export interface ReleaseRequestResult {
 
 /**
  * The uploader asks for their quarantined file to be released („Freigabe
- * anfragen", ADR-0085). It releases nothing: it tells the people who may
+ * anfragen", ADR-0086). It releases nothing: it tells the people who may
  * release it, through the inbox, that somebody is waiting on their decision.
  *
  * Only the uploader asks. Everyone else is told the document does not exist,

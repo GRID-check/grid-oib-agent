@@ -577,7 +577,7 @@ async def test_a_new_version_of_the_same_document_is_submitted(app, keyed_ingest
 async def test_a_move_into_a_restricted_collection_does_not_join_the_open_collections_job(
     app, keyed_ingestor, no_network
 ):
-    """A document moved across a folder restriction (ADR-0086) keeps its id and
+    """A document moved across a folder restriction (ADR-0087) keeps its id and
     object and is dispatched again into the folder's collection. Joining the
     job still writing into the open collection would index nothing where the
     document now belongs."""

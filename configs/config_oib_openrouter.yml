@@ -606,7 +606,7 @@ functions:
   # Available in project-scoped chats; no-ops (with a clear error) elsewhere.
   remember:
     _type: project_memory_remember
-    # Judges, in a turn with restricted folders in scope (ADR-0086), whether a
+    # Judges, in a turn with restricted folders in scope (ADR-0087), whether a
     # finding draws on a restricted document it did not read. The same model
     # and agent group as memory_reflection_llm; unset fails closed (the finding
     # is restricted to every restricted folder in scope).

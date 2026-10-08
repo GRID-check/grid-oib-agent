@@ -279,7 +279,7 @@ export function AccessOverview({
                         {/* Why they are here — quiet, but never absent. */}
                         <p className="truncate text-xs text-muted-foreground">{reasonFor(entry)}</p>
                         {/* Still shared with, no longer able to read what the chat
-                            drew on (ADR-0087). Said plainly, never with the folder. */}
+                            drew on (ADR-0088). Said plainly, never with the folder. */}
                         {entry.lostAccess && (
                           <p data-testid="access-lost" className="text-xs font-medium text-warning">
                             {t('sharing.lostAccess')}

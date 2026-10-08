@@ -280,7 +280,7 @@ export function DocumentLifecyclePanel({
           await load()
         } else if (error instanceof DocumentLifecycleError && error.code === 'CONVERSATION_CONFINED') {
           // The server's sentence, already in the reader's language: why
-          // Piloti may not revise a draft in a restricted folder (ADR-0086).
+          // Piloti may not revise a draft in a restricted folder (ADR-0087).
           toast.error(error.message)
         } else {
           toast.error(t('lifecycle.errors.actionFailed'))

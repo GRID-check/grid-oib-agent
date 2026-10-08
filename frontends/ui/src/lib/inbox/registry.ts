@@ -215,6 +215,27 @@ export const INBOX_TYPE_DEFINITIONS: Record<InboxItemType, InboxTypeDefinition> 
     nobody opened for three months is still on the triage page, which is the
     record; the inbox row is only the announcement.
   */
+  /*
+    An Outlook archive import ended (ADR-0085). The `job.*` shapes, and for the
+    same reasons: informational, one row per import (anchored on its folder),
+    operational because an office without collaboration imports mail too. A
+    failure is the one worth an email: the person may have closed the tab hours
+    ago, and the archive is gone from staging once it ends.
+  */
+  'mail_import.completed': {
+    actionable: false,
+    grouping: 'per-anchor',
+    retentionDays: 30,
+    gate: 'operational',
+    email: IN_APP_ONLY,
+  },
+  'mail_import.failed': {
+    actionable: false,
+    grouping: 'per-anchor',
+    retentionDays: 60,
+    gate: 'operational',
+    email: { send: 'if-unread', afterMinutes: 30 },
+  },
   'feedback.submitted': {
     actionable: false,
     grouping: 'collapse',
@@ -223,7 +244,7 @@ export const INBOX_TYPE_DEFINITIONS: Record<InboxItemType, InboxTypeDefinition> 
     email: { send: 'if-unread', afterMinutes: 0 },
   },
   /*
-    An upload of yours has been read (ADR-0085). `per-anchor` on the batch id:
+    An upload of yours has been read (ADR-0086). `per-anchor` on the batch id:
     two uploads are two summaries. Informational and in-app only: nothing waits
     on the reader, and the files already show their status where they live.
   */
@@ -235,7 +256,7 @@ export const INBOX_TYPE_DEFINITIONS: Record<InboxItemType, InboxTypeDefinition> 
     email: IN_APP_ONLY,
   },
   /*
-    The content check held files back (ADR-0085). `collapse` per organization:
+    The content check held files back (ADR-0086). `collapse` per organization:
     a folder of payslips is one row reading "7 Dateien warten", not seven.
     Informational rather than actionable, because the queue page is where the
     decision is made and a row nothing can resolve would sit in the badge.
@@ -248,7 +269,7 @@ export const INBOX_TYPE_DEFINITIONS: Record<InboxItemType, InboxTypeDefinition> 
     email: IN_APP_ONLY,
   },
   /*
-    The uploader asks for a quarantined file to be released (ADR-0085).
+    The uploader asks for a quarantined file to be released (ADR-0086).
     `per-anchor` on the document: asking twice about one file is one row, two
     files are two. Informational for the same reason as `document.quarantined`:
     the queue page is where the decision is made.

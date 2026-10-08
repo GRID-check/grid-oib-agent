@@ -1,6 +1,6 @@
 /**
  * Every project document in the retrieval collection its folder puts it in
- * (ADR-0086).
+ * (ADR-0087).
  *
  * A document under a restricted folder belongs in that folder's collection
  * (`<project collection>_r<…>`); every other document in the project's own.

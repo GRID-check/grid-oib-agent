@@ -57,7 +57,7 @@ vi.mock('@/lib/backend-proxy', () => ({
   getBackendUrl: vi.fn().mockReturnValue('http://backend:8000'),
 }))
 
-// The upload-screening policy (ADR-0085) the name gate reads: an office on
+// The upload-screening policy (ADR-0086) the name gate reads: an office on
 // Piloti's suggested list. Unreadable settings refuse the upload outright.
 vi.mock('@/lib/organizations/service', () => ({
   getOrgSettings: vi.fn(async () => ({ displayName: null, defaultLocale: 'de', settings: {} })),
@@ -229,7 +229,7 @@ describe('listArchiv', () => {
 
   // The query keeps a `pending` row; the reconcile on the way out may turn it
   // `quarantined`, and then it is the uploader's and the curators' only.
-  it('narrows again after the reconcile turns a row quarantined (ADR-0085)', async () => {
+  it('narrows again after the reconcile turns a row quarantined (ADR-0086)', async () => {
     const row = (id: string, createdBy: string) =>
       ({ id, filename: `${id}.pdf`, status: 'pending', createdBy, metadata: null }) as never
     vi.mocked(listArchivDocuments).mockResolvedValue({ rows: [row('mine', 'user-1'), row('theirs', 'user-2')], nextCursor: null })
@@ -287,7 +287,7 @@ describe('listArchiv', () => {
     })
   })
 
-  it('lists every quarantined file to a curator of the Büroablage (ADR-0085)', async () => {
+  it('lists every quarantined file to a curator of the Büroablage (ADR-0086)', async () => {
     vi.mocked(listArchivDocuments).mockResolvedValue({ rows: [], nextCursor: null })
     vi.mocked(reconcileDocumentStatuses).mockResolvedValue([])
     vi.mocked(canManageArchiv).mockReturnValue(true)
@@ -783,7 +783,7 @@ describe('deleteArchivDocument', () => {
 })
 
 // The probe answers with id, size and digest: somebody else's quarantined file
-// would let a member confirm its contents by hash (ADR-0085).
+// would let a member confirm its contents by hash (ADR-0086).
 describe('probeArchivDocumentNames and a quarantined file', () => {
   it("keeps a member to their own, and a curator to every one", async () => {
     vi.mocked(canManageArchiv).mockReturnValue(false)

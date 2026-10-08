@@ -4,7 +4,7 @@ import type { DocumentScope } from './documents'
 
 /**
  * `document_quarantine_decisions` — the content gate's quarantine decisions,
- * kept until the audit trail has them (migration 0118, ADR-0085; AI Act).
+ * kept until the audit trail has them (migration 0119, ADR-0086; AI Act).
  *
  * One row per ingest job that quarantined a document, inserted in the same
  * transaction as the status write that records the decision
@@ -32,7 +32,7 @@ export const documentQuarantineDecisions = pgTable(
     projectId: uuid('project_id'),
     /**
      * The folder the document was filed in when it was quarantined, or NULL at
-     * a shelf's root. What the trail asks before it names the file (ADR-0086).
+     * a shelf's root. What the trail asks before it names the file (ADR-0087).
      */
     folderId: uuid('folder_id'),
     /** The document's name when it was quarantined. */

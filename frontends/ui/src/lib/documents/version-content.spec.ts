@@ -32,7 +32,7 @@ vi.mock('./version-repository', () => ({
 }))
 vi.mock('@/lib/storage/discard', () => ({ discardObject: vi.fn() }))
 vi.mock('@/lib/conversations/repository', () => ({ findConversationInOrg: vi.fn() }))
-// A subject in a folder every member may read admits nothing (ADR-0087); the
+// A subject in a folder every member may read admits nothing (ADR-0088); the
 // restricted case overrides `placementCollectionFor` and the admission.
 vi.mock('@/lib/authz/folder-access', async () => (await import('@/test-utils/folder-access')).openFolderAccessModule())
 vi.mock('@/lib/conversations/restricted-use', () => ({ admitRestrictedUse: vi.fn() }))
@@ -514,7 +514,7 @@ describe('readVersionForService — the conversation is part of the predicate', 
     })
   })
 
-  it('answers 404 for a quarantined subject, so its bytes never reach a model (ADR-0085)', async () => {
+  it('answers 404 for a quarantined subject, so its bytes never reach a model (ADR-0086)', async () => {
     vi.mocked(findConversationInOrg).mockResolvedValue({
       subjectResourceType: 'document',
       subjectResourceId: 'doc_1',
@@ -601,7 +601,7 @@ describe('readVersionForService — the conversation is part of the predicate', 
     })
   })
 
-  describe('a subject in a folder not every member may read (ADR-0086, ADR-0087)', () => {
+  describe('a subject in a folder not every member may read (ADR-0087, ADR-0088)', () => {
     const RESTRICTED = 'proj_abc_r0123456789ab'
     beforeEach(() => {
       vi.mocked(findConversationInOrg).mockResolvedValue({

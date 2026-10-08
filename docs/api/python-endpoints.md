@@ -75,6 +75,17 @@ Validates the URLs and submits a job to the ingestor's `submit_job()` with the o
 
 `folder_path` is the materialised project-folder path the BFF filed the document under (`Brandschutz/Fluchtwege`); omit or send `null` for the project root. It is carried into the detached ingest thread on the job config and stamped onto the document's `document_metadata` row, so the agent's inventory and `knowledge_search folder=` can see the filing. It is a PATH, not a folder id — see **ADR-0049**.
 
+## Outlook archives (internal; ADR-0085)
+
+Both on the `api` role, internal-token only and off the external allowlist. The archive is a presigned GET into object storage, read by range through a block cache (`aiq_api.mail_archive.remote_file`); nothing is downloaded whole and nothing is stored.
+
+| Method | Path | Description | Request | Response | Handler |
+|--------|------|-------------|---------|----------|---------|
+| `POST` | `/v1/mail-archive/messages` | A page of the archive's items from a position on, in one fixed depth-first order over the person's mail tree. Mail carries its headers, its body as text (plain, else HTML, else RTF; at most 1,000,000 characters, `truncated` says so) and what each attachment is; any other item carries its class only. `next_position` is `null` once the archive is exhausted | `{ archive: { key, url, size }, start, limit? }` (limit 1–200, default 25) | `{ total, next_position, messages[] }` | `add_mail_archive_routes` in `aiq_api.routes.mail_archive` |
+| `POST` | `/v1/mail-archive/attachment` | One attachment's bytes, raw (`application/octet-stream`), with its name percent-encoded in `x-attachment-filename`. 413 above 512 MiB, before a byte is read | `{ archive, position, index }` | the bytes | same |
+
+`422` when the file is not an archive libpff can read or the position names nothing (no retry changes that), `409` when one attachment is damaged (the BFF skips it), `502` when the store refused or timed out a range (retry). libpff reports any read failure as damage to the archive, so `RangeFile` remembers the failed fetch and the reader raises that instead; a damaged message comes back in the page as `{ kind: "unreadable", detail }` and the rest of the page files. An archive stays open per process for five minutes after its last use (at most two), keyed by `key`, so a slice's page and attachment reads do not reopen it; the URL is renewed on every request.
+
 ## Documents
 
 | Method | Path | Description | Request | Response | Handler |
@@ -112,7 +123,7 @@ The retriever is a **cached singleton** (`get_active_retriever` in `aiq_agent.kn
 
 | Method | Path | Description | Request | Response | Handler |
 |---|---|---|---|---|---|
-| `POST` | `/v1/cleanup-proposal` | „Ausmisten" at a project's close (ADR-0090): proposes which documents are working copies, superseded, duplicates, temporary or never-published drafts, from their indexed METADATA only. A document entry with any field beyond those listed is refused (422), so no content can ride along. Ids the model invents are dropped. Best-effort like the check above: `200` with `candidates: []` and `error` (`llm_not_configured`, `llm_request_failed`, `llm_response_malformed`) on any failure; the BFF then falls back to its rules. Same LLM resolution as `/v1/generate-summary` (`SUMMARY_LLM_*`, then `LLM_*`, BYOK through `x-grid-organization-id`); the call queues for an `interactive` provider slot (ADR-0081). Called by the BFF's `POST /api/projects/{id}/cleanup/proposal`, which sends only documents whose screening passed. | `{ documents: [{ id, filename, folder_path?, content_type?, tags?, summary?, version_state?, authored_by?, uploaded_at? }] (≤ 2000), locale? }` | `{ candidates: [{ id, category, reason }], model?, error? }` | `add_cleanup_proposal_routes` in `aiq_api.routes.cleanup_proposal` |
+| `POST` | `/v1/cleanup-proposal` | „Ausmisten" at a project's close (ADR-0091): proposes which documents are working copies, superseded, duplicates, temporary or never-published drafts, from their indexed METADATA only. A document entry with any field beyond those listed is refused (422), so no content can ride along. Ids the model invents are dropped. Best-effort like the check above: `200` with `candidates: []` and `error` (`llm_not_configured`, `llm_request_failed`, `llm_response_malformed`) on any failure; the BFF then falls back to its rules. Same LLM resolution as `/v1/generate-summary` (`SUMMARY_LLM_*`, then `LLM_*`, BYOK through `x-grid-organization-id`); the call queues for an `interactive` provider slot (ADR-0081). Called by the BFF's `POST /api/projects/{id}/cleanup/proposal`, which sends only documents whose screening passed. | `{ documents: [{ id, filename, folder_path?, content_type?, tags?, summary?, version_state?, authored_by?, uploaded_at? }] (≤ 2000), locale? }` | `{ candidates: [{ id, category, reason }], model?, error? }` | `add_cleanup_proposal_routes` in `aiq_api.routes.cleanup_proposal` |
 
 ## Conversations
 

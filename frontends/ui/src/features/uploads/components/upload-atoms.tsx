@@ -1,7 +1,7 @@
 'use client'
 
 /**
- * The upload surfaces' own atoms (ADR-0085): one count with its icon and word,
+ * The upload surfaces' own atoms (ADR-0086): one count with its icon and word,
  * as a tile in the summary and as a pill in the history, and a term with how
  * many files it kept back. Both surfaces compose these, so a count reads the
  * same in the dialog and in the project's list.

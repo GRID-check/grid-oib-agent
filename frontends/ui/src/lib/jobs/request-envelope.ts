@@ -33,7 +33,7 @@ export interface AuthorizedJobScope {
   /** A conversation that exists and the caller may view. */
   verifiedConversationId: string | undefined
   /**
-   * The caller reads the project only because it is closed (ADR-0088). Such a
+   * The caller reads the project only because it is closed (ADR-0089). Such a
    * caller steers no run but their own, so the project is not signed: the
    * backend then lets them reach the jobs they own and, through a conversation
    * they may view, read the others. Absent on a scope built before the project

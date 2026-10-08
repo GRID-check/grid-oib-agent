@@ -7,7 +7,7 @@
  *   - which documents at `processing` the sweep is handed: those with no job,
  *     and those whose job is dead, and NOT those whose job is still waiting or
  *     running, however many there are, nor those in a folder in the
- *     Papierkorb (ADR-0087);
+ *     Papierkorb (ADR-0088);
  *   - that the job id a row remembers leaves with the status;
  *   - which report filings are still `queued` after the window (migration 0105,
  *     its CHECK and its partial index).

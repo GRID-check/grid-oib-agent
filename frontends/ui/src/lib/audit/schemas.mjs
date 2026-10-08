@@ -129,7 +129,7 @@ export const AUDIT_SCHEMAS = /** @type {const} */ ({
     targets: [{ type: 'model_config_version' }],
     metadata: { ...MODEL_GROUP_METADATA, reset: 'boolean', rollback: 'boolean' },
   },
-  // An office's own roles, kept in WorkOS (ADR-0086). The slug and the
+  // An office's own roles, kept in WorkOS (ADR-0087). The slug and the
   // permission list the role holds after the change; a role is a bundle of
   // permissions, so "who composed which bundle" is the trail that matters.
   'org.role.created': {
@@ -144,7 +144,7 @@ export const AUDIT_SCHEMAS = /** @type {const} */ ({
     targets: [{ type: 'organization' }],
     metadata: { role: 'string', permissions: 'string' },
   },
-  // A project folder restricted to roles, or opened again (ADR-0086). The
+  // A project folder restricted to roles, or opened again (ADR-0087). The
   // roles after the change, comma-separated; empty means open. Also emitted
   // when a folder move changes the restrictions over a subtree
   // (`folder-service.ts`): then `grants` is every folder with its own list now
@@ -178,7 +178,7 @@ export const AUDIT_SCHEMAS = /** @type {const} */ ({
     targets: [{ type: 'organization' }],
     metadata: { policy: 'string' },
   },
-  // Upload screening (ADR-0085). Its own action rather than
+  // Upload screening (ADR-0086). Its own action rather than
   // `org.settings.updated`, because "who widened what may be uploaded" has to
   // be answerable on its own. Counts, not the lists: a term list can name
   // what an office considers sensitive, which is itself sensitive.
@@ -192,7 +192,7 @@ export const AUDIT_SCHEMAS = /** @type {const} */ ({
       detectors: 'string',
     },
   },
-  // The download log (ADR-0087): who took which document's bytes. It is
+  // The download log (ADR-0088): who took which document's bytes. It is
   // personal data about staff, so READING it is recorded, one event per request
   // (every page, every filter). The filters are named, not their values' hits:
   // the event says who looked for whom, never what they found. The emitter is
@@ -329,7 +329,7 @@ export const AUDIT_SCHEMAS = /** @type {const} */ ({
   'project.restored': {
     targets: [{ type: 'project' }],
   },
-  // A project closed (read-only, open to every member) or reopened (ADR-0088).
+  // A project closed (read-only, open to every member) or reopened (ADR-0089).
   'project.closed': {
     targets: [{ type: 'project' }],
     metadata: { name: 'string' },
@@ -338,7 +338,7 @@ export const AUDIT_SCHEMAS = /** @type {const} */ ({
     targets: [{ type: 'project' }],
     metadata: { name: 'string' },
   },
-  // The Steckbrief (ADR-0089). A person is named by id only: the audit log
+  // The Steckbrief (ADR-0090). A person is named by id only: the audit log
   // outlives an erasure, and a name in it would not.
   'project.period.changed': {
     targets: [{ type: 'project' }],
@@ -356,7 +356,7 @@ export const AUDIT_SCHEMAS = /** @type {const} */ ({
     targets: [{ type: 'project' }],
     metadata: { personId: 'string' },
   },
-  // „Ausmisten" at a close (ADR-0090): what the person confirmed into the
+  // „Ausmisten" at a close (ADR-0091): what the person confirmed into the
   // Papierkorb, and how far they went against Piloti's proposal.
   'project.cleanup.confirmed': {
     targets: [{ type: 'project' }],
@@ -379,20 +379,20 @@ export const AUDIT_SCHEMAS = /** @type {const} */ ({
   },
   // `nameWithheld` (every action in `DOCUMENT_NAME_ACTIONS`, `service.ts`):
   // the document is filed under a folder not every project member may read,
-  // so its name keys were left out (ADR-0086). The target id still says which.
+  // so its name keys were left out (ADR-0087). The target id still says which.
   'document.uploaded': {
     targets: [{ type: 'document' }],
     metadata: { projectId: 'string', filename: 'string', fileSize: 'number', nameWithheld: 'boolean' },
   },
   // A file the name gate would have excluded, uploaded anyway because its
-  // uploader released it in the upload dialog (ADR-0085): the Bauvertrag in a
+  // uploader released it in the upload dialog (ADR-0086): the Bauvertrag in a
   // folder called „Verträge". The terms say which rule was overridden; they
   // matched a piece of the name, so they are withheld with it.
   'document.screening_overridden': {
     targets: [{ type: 'document' }],
     metadata: { projectId: 'string', filename: 'string', terms: 'string', nameWithheld: 'boolean' },
   },
-  // The content gate's own decision to hold a document back (ADR-0085): rule
+  // The content gate's own decision to hold a document back (ADR-0086): rule
   // based, before any model reads it. Its actor is `system:upload_screening`,
   // not a person, and `uploadedBy` names whose upload it was. The reasons are
   // kinds and terms (`term:Lohnzettel,iban`), never a matched sample or text;
@@ -415,7 +415,7 @@ export const AUDIT_SCHEMAS = /** @type {const} */ ({
       nameWithheld: 'boolean',
     },
   },
-  // A quarantined document a reviewer released for indexing (ADR-0085). The
+  // A quarantined document a reviewer released for indexing (ADR-0086). The
   // reasons are the kinds of the content gate's verdict as stored on the row;
   // the terms are the office's words it found in the text, which say what the
   // document holds, so they are withheld with the name.
@@ -612,7 +612,7 @@ export const AUDIT_SCHEMAS = /** @type {const} */ ({
       collectionName: 'string',
     },
   },
-  // The restricted-memory judge's verdict on one note (ADR-0086), a language
+  // The restricted-memory judge's verdict on one note (ADR-0087), a language
   // model deciding who may read it: `drawn` (it named folders the note draws
   // on), `none` (it named none, so they add no restriction) or `failed` (no
   // usable answer; restricted to every folder in scope). Actor

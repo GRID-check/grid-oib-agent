@@ -44,7 +44,7 @@ export async function mayReviewQuarantine(session: AuthorizedSession, doc: Revie
     return false
   }
   // A project admin who is not cleared for the document's folder does not
-  // review it: they could not see it anywhere else either (ADR-0086).
+  // review it: they could not see it anywhere else either (ADR-0087).
   return isFolderVisibleTo(session, doc.projectId, doc.folderId).catch(() => false)
 }
 

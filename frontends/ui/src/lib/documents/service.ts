@@ -628,7 +628,7 @@ export async function probeProjectDocumentNames(
   await requireProjectAccess(session, projectId, 'project:view')
   // A name taken in a hidden folder is not reported: the upload refuses it
   // without saying where (`assertNameFreeInProject`). Nor is one held by
-  // somebody else's quarantined file (ADR-0085): the upload refuses it as a
+  // somebody else's quarantined file (ADR-0086): the upload refuses it as a
   // taken name (`assertMayReplaceQuarantined`).
   return findProjectDocumentsByNames(projectId, session.organizationId, names, {
     hiddenFolderIds: await getHiddenFolderIds(session, projectId),
@@ -812,7 +812,7 @@ export async function searchProjectDocuments(
   if (!project) throw new NotFoundError('Project not found')
 
   // The project's own collection and every restricted one this reader is
-  // cleared for (ADR-0086); one ranking across them, cut to `topK`.
+  // cleared for (ADR-0087); one ranking across them, cut to `topK`.
   const access = await getProjectFolderAccess(session, projectId, project.collectionName)
   const collections = [project.collectionName, ...access.clearedRestrictedCollections]
   const hits = (await Promise.all(collections.map((collection) => fetchSemanticHits(collection, query, topK))))
@@ -845,17 +845,19 @@ export interface UploadDocumentInput {
   originPath?: string | null
   /**
    * The uploader released this file in the upload dialog although the
-   * organization's name screening excludes it (ADR-0085) — the Bauvertrag in a
+   * organization's name screening excludes it (ADR-0086) — the Bauvertrag in a
    * folder called „Verträge". Honoured and audited; absent means "do not
    * override", so a client that never asks is screened.
    */
   screeningRelease?: boolean
   /**
-   * The upload gesture this file belongs to (migration 0109), as the browser
+   * The upload gesture this file belongs to (migration 0110), as the browser
    * opened it. Recorded on the row when it is the uploader's own open batch
    * for this project; anything else is ignored rather than refused.
    */
   uploadBatchId?: string | null
+  /** See `ShelfUploadInput.priority`: `bulk` for a machine filing on a person's behalf. */
+  priority?: IngestPriority
 }
 
 export type { UploadDocumentResult }
@@ -983,7 +985,7 @@ export interface DispatchDocumentResult {
    * `processing` is a detached path: an IFC model ({@link beginModelExtraction})
    * or an office file converting first ({@link beginRenditionIngest}).
    * `quarantined` is a row nothing was dispatched for: it waits on a reviewer
-   * (ADR-0085), and only a release sends it on.
+   * (ADR-0086), and only a release sends it on.
    */
   status: 'pending' | 'uploaded' | 'failed' | 'processing' | 'quarantined'
 }
@@ -1077,7 +1079,7 @@ export async function dispatchDocument(
   if (!row || !mayBeIndexed(row, input.versionId ?? null)) {
     throw new AgentAuthoredDocumentNotIndexableError(input.documentId)
   }
-  // A quarantined row (ADR-0085) reaches the index through a reviewer's release
+  // A quarantined row (ADR-0086) reaches the index through a reviewer's release
   // and no other way: the release moves it to `uploaded` before it dispatches
   // (`markScreeningReleased`). Every other caller re-reads a whole folder or
   // project — a restore from the Papierkorb, a placement move when a folder's
@@ -1719,7 +1721,7 @@ async function redispatchForReindex(
   // Mid-flight rows are skipped: a second dispatch would double the work of
   // one that is running. Every in-flight spelling, not just two of them.
   // So is a quarantined one: it waits on a reviewer, and `dispatchDocument`
-  // would leave it alone anyway (ADR-0085).
+  // would leave it alone anyway (ADR-0086).
   if (!doc.storageKey || IN_FLIGHT_DOCUMENT_STATUSES.has(doc.status) || doc.status === 'quarantined') return 'skipped'
 
   // Belt to the query's braces. The listing already asks for `'user'` only, so
@@ -1794,7 +1796,7 @@ export async function runReindexSlice(
       counts[outcome] += 1
     } catch (error) {
       // A document in a folder the requester may not read, or may only read
-      // (ADR-0087), is not theirs to re-read: skipped, and never named, since
+      // (ADR-0088), is not theirs to re-read: skipped, and never named, since
       // its name is what a hidden folder hides.
       if (error instanceof NotFoundError || error instanceof ForbiddenError) {
         counts.skipped += 1
@@ -2138,7 +2140,7 @@ export async function renameDocument(
         : 'document.renamed',
     targetType: 'document',
     targetId: documentId,
-    // A document under a folder not every member may read is not named (ADR-0086).
+    // A document under a folder not every member may read is not named (ADR-0087).
     filedIn: filedInOf(doc),
     metadata: {
       filename: doc.filename.slice(0, 200),
@@ -2235,7 +2237,7 @@ export async function deleteDocument(
   const doc = await findDocumentForSession(session, documentId)
   if (!doc || doc.scope !== 'project' || doc.projectId === null) throw new NotFoundError()
 
-  // A delete is a write in the document's folder (ADR-0087): the project's
+  // A delete is a write in the document's folder (ADR-0088): the project's
   // document-write permission, and write on the folder. A folder the session
   // may not read is not found; one it may only read refuses (403).
   await requireFolderWrite(session, doc.projectId, [doc.folderId])
@@ -2759,7 +2761,7 @@ export async function streamDocumentImage(
   if (!doc?.storageKey) throw new NotFoundError()
   // The URL outlives the moment it was minted, and the optimizer's fetch has no
   // session, so the person it names is asked again: a folder they can no longer
-  // read does not load its images (ADR-0086, ADR-0087). Not found, like every
+  // read does not load its images (ADR-0087, ADR-0088). Not found, like every
   // other refusal on this path.
   if (
     doc.scope === 'project' &&

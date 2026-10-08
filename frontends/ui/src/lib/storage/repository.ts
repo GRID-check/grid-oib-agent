@@ -378,7 +378,7 @@ export async function replaceDocumentWithinQuota(
     contentHash: string | null
     folderId: string | null
     createdBy: string
-    /** The upload gesture these bytes came in with (migration 0109), or null. */
+    /** The upload gesture these bytes came in with (migration 0110), or null. */
     uploadBatchId?: string | null
   },
   quotaBytes: number | null,
@@ -412,7 +412,7 @@ export async function replaceDocumentWithinQuota(
         createdBy: next.createdBy,
         status: 'uploaded',
         errorMessage: null,
-        // New bytes have not been screened (ADR-0085): the previous version's
+        // New bytes have not been screened (ADR-0086): the previous version's
         // verdict says nothing about them, and a stale `clean` in the upload
         // summary would vouch for content nobody checked.
         screeningOutcome: null,

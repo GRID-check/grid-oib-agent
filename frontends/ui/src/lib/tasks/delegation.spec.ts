@@ -17,7 +17,7 @@ vi.mock('@/lib/jobs/service', () => ({
   createTaskThread: vi.fn(async () => 's_definition_thread'),
 }))
 vi.mock('@/lib/skills/service', () => ({ resolveSkillSnapshot: vi.fn() }))
-// What the conversation recorded it drew on (ADR-0086): the real refusal runs against it.
+// What the conversation recorded it drew on (ADR-0087): the real refusal runs against it.
 vi.mock('@/lib/conversations/restricted-use', () => ({
   recordedRestrictedFolders: vi.fn(async () => []),
 }))
@@ -581,7 +581,7 @@ describe('commissionResearchRun — an escalated question becomes a run', () => 
   })
 })
 
-describe('nothing is handed over from a conversation that drew on a restricted folder (ADR-0086)', () => {
+describe('nothing is handed over from a conversation that drew on a restricted folder (ADR-0087)', () => {
   const THREAD = 's_confined'
   const RESTRICTED = '01234567-89ab-4cde-8f01-23456789abcd'
   const QUESTION = 'Welches Honorar ist für LP 5 vereinbart?'
@@ -631,7 +631,7 @@ describe('nothing is handed over from a conversation that drew on a restricted f
   })
 })
 
-describe('a run’s Unterlagen never name a document from a restricted folder (ADR-0086)', () => {
+describe('a run’s Unterlagen never name a document from a restricted folder (ADR-0087)', () => {
   const THREAD = 's_open_thread'
   const QUESTION = 'Was steht in der Abmahnung?'
   const PERSONAL = 'folder-personal'

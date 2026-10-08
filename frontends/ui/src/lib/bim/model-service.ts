@@ -119,7 +119,7 @@ async function assertDocumentReadable(
       if (document.projectId === null) throw new NotFoundError(notFoundMessage)
       await requireProjectAccess(session, document.projectId, 'project:view')
       // A model filed under a folder this session is not cleared for does not
-      // exist for it (ADR-0086): not found, never forbidden — the header, the
+      // exist for it (ADR-0087): not found, never forbidden — the header, the
       // element query and the presigned source URL all pass through here.
       if (!(await isFolderVisibleTo(session, document.projectId, document.folderId))) {
         throw new NotFoundError(notFoundMessage)
@@ -164,7 +164,7 @@ export async function getModelForDocument(
 }
 
 /**
- * The model list's reader per shelf (ADR-0085). It reads the project's models
+ * The model list's reader per shelf (ADR-0086). It reads the project's models
  * and the Büroablage's together, and each shelf has its own reviewers: the
  * project's admins for one, the Büroablage's curators for the other.
  */

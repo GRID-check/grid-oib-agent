@@ -1,7 +1,7 @@
 'use client'
 
 /**
- * Dev preview for a project's upload history (ADR-0085, ticket
+ * Dev preview for a project's upload history (ADR-0086, ticket
  * „Verlauf/Protokoll"), the section in project Settings. Renders the REAL
  * component, loaded through the module-scope fetch shim below:
  *
@@ -65,7 +65,7 @@ export default function UploadHistoryDevPage(): JSX.Element {
       <div>
         <h1 className="text-lg font-semibold">Projekt-Einstellungen — Uploads</h1>
         <p className="text-muted-foreground mt-1 text-sm">
-          The project&apos;s upload history (ADR-0085). Own uploads link to their summary.
+          The project&apos;s upload history (ADR-0086). Own uploads link to their summary.
         </p>
       </div>
       <Frame caption="Three uploads: two of yours, one of a colleague's">

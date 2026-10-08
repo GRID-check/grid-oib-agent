@@ -286,7 +286,7 @@ export async function delegateTask(
   await requireProjectAccess(session, input.projectId, [...COMMISSION_PERMISSIONS])
   // Before anything is written: a task's title and plan are listed to every
   // project member, and its goal was put in words with restricted content in
-  // front of the model (ADR-0086).
+  // front of the model (ADR-0087).
   await requireMayLeaveConversation(
     {
       conversationId: input.conversationId ?? null,
@@ -506,7 +506,7 @@ export async function commissionResearchRun(
   // folder to everyone in the project: its question and context are written
   // with restricted content in front of the model, its job gets an open scope
   // and an open memory digest, and its title, plan and report are listed to
-  // every member. Refused before the row exists (ADR-0086).
+  // every member. Refused before the row exists (ADR-0087).
   await requireMayLeaveConversation(
     {
       conversationId: input.conversationId,

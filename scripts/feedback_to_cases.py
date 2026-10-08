@@ -19,7 +19,7 @@ corpus, never taken on trust. A draft therefore carries the claim as
 reviewer to fill from the corpus.
 
 The export already leaves out every vote on a conversation that drew on a
-folder with restricted access (ADR-0086), so no such question or expectation
+folder with restricted access (ADR-0087), so no such question or expectation
 reaches a draft.
 
 Only a down-vote with a question and an `expected_answer` becomes a case. The

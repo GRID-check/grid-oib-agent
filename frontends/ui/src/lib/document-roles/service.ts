@@ -230,7 +230,7 @@ export async function declareDocumentRole(
  * The displaced bindings this session may be told about. Cardinality counts
  * every holder of the slot, hidden or not, so a hidden holder is displaced like
  * any other; naming it in the answer would hand its filename to someone not
- * cleared for its folder (ADR-0086), so it is displaced without a word.
+ * cleared for its folder (ADR-0087), so it is displaced without a word.
  */
 async function keepVisible(
   projectId: string,

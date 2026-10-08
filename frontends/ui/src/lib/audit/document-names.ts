@@ -16,7 +16,7 @@ import type { AuditAction } from './service'
  * Why: the trail is read in the WorkOS audit portal, which `org:audit:view`
  * opens, and that permission is held by roles that are not organization admins
  * (`org-auditor`, `org-compliance-officer`). A restricted folder's file names
- * are not theirs to read (ADR-0086). The target id still says which document,
+ * are not theirs to read (ADR-0087). The target id still says which document,
  * and someone cleared for the folder resolves it in Piloti.
  *
  * `audit/service.spec.ts` fails when an action registers a name key and is in

@@ -89,7 +89,7 @@ describe('ProjectCard', () => {
 })
 
 describe('getProjectStatus', () => {
-  test('reads the stored status (ADR-0088): active, or closed', () => {
+  test('reads the stored status (ADR-0089): active, or closed', () => {
     expect(getProjectStatus({ status: 'active' })).toBe('active')
     expect(getProjectStatus({ status: 'closed' })).toBe('closed')
   })

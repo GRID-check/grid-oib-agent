@@ -152,7 +152,7 @@ export interface TransitionInput {
    * origin conversation opens one either way — see the `openRevisionTask` effect.
    *
    * Refused before the swap for a document in a folder some project member may
-   * not read: a task is listed to the whole project (ADR-0086).
+   * not read: a task is listed to the whole project (ADR-0087).
    */
   delegateRevision?: boolean
   /** The language of a refusal; the agent's route leaves it German. */
@@ -554,7 +554,7 @@ const EFFECT_REGISTRY: Record<DocumentVersionEffect, EffectRunner> = {
    * no folder audience of their own. So a draft in a folder some member may not
    * read gets no task, whoever filed it: the reviewer who asked outright was
    * refused with the reason before the swap, and a version nobody asked about
-   * keeps its comment on the row for its author (ADR-0086).
+   * keeps its comment on the row for its author (ADR-0087).
    */
   openRevisionTask: async ({ session, document, version, input }) => {
     const delegated = input.delegateRevision === true
@@ -1187,7 +1187,7 @@ export async function replaceVersionContent(
     /**
      * The conversation the new content came out of, for the agent's rewrite. Content from a thread that drew on a
      * restricted folder goes only into a document filed at least as narrowly
-     * (ADR-0086, `restricted-egress.ts`), exactly as a new filing does.
+     * (ADR-0087, `restricted-egress.ts`), exactly as a new filing does.
      */
     origin?: ConversationOrigin
   } = {},

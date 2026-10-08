@@ -1,7 +1,7 @@
 /**
  * @vitest-environment node
  *
- * The Papierkorb against a REAL Postgres (migration 0114, ADR-0087), through
+ * The Papierkorb against a REAL Postgres (migration 0115, ADR-0088), through
  * the restricted runtime role:
  *
  *   GRID_TEST_DATABASE_URL=postgres://grid_app_rw@host:port/grid_app \
@@ -50,7 +50,7 @@ vi.mock('@/lib/documents/service', () => ({
 }))
 // Project permissions are WorkOS's; each session here states which it holds,
 // and a denial is the real one's: not found.
-// A closed project (ADR-0088) is stubbed the way `requireProjectAccess` decides
+// A closed project (ADR-0089) is stubbed the way `requireProjectAccess` decides
 // it: writes refused before anything else unless the caller asks as if active.
 const projectState = vi.hoisted(() => ({ closed: false }))
 vi.mock('@/lib/authz/projects', async () => {
@@ -106,7 +106,7 @@ const admin = sessionOf('user_admin', [], ['org:projects:administer'])
 
 class Rollback extends Error {}
 
-describe.skipIf(!url)('the Papierkorb against live Postgres (migration 0114)', () => {
+describe.skipIf(!url)('the Papierkorb against live Postgres (migration 0115)', () => {
   let db: ReturnType<typeof import('@/lib/db').getDb>
   let withTenant: typeof import('@/lib/db/tenant-context').withTenant
   let withPlatformAccess: typeof import('@/lib/db/tenant-context').withPlatformAccess
@@ -581,7 +581,7 @@ describe.skipIf(!url)('the Papierkorb against live Postgres (migration 0114)', (
     })
   })
 
-  describe('nothing lands in a deleted folder (the triggers, migration 0114)', () => {
+  describe('nothing lands in a deleted folder (the triggers, migration 0115)', () => {
     it('refuses an upload, a move and a new subfolder into a folder in the bin', async () => {
       await bin.moveFolderToBin(pl, { projectId, folderId: folder.plaene })
       await expect(insertDocument('Neu.pdf', folder.archiv)).rejects.toMatchObject({ cause: { code: 'GFD01' } })
@@ -743,7 +743,7 @@ describe.skipIf(!url)('the Papierkorb against live Postgres (migration 0114)', (
       await expect(bin.restoreFolderFromBin(pl, { projectId, folderId: folder.vertraege })).rejects.toMatchObject({ status: 404 })
     })
 
-    it('in a closed project the manager restores, and nobody else does (ADR-0088)', async () => {
+    it('in a closed project the manager restores, and nobody else does (ADR-0089)', async () => {
       await bin.moveFolderToBin(gf, { projectId, folderId: folder.vertraege })
       projectState.closed = true
       try {

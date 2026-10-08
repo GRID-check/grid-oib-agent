@@ -1,7 +1,7 @@
 /**
  * @vitest-environment node
  *
- * Moving documents into the collection their folder puts them in (ADR-0086),
+ * Moving documents into the collection their folder puts them in (ADR-0087),
  * against a REAL Postgres through the restricted runtime role:
  *
  *   GRID_TEST_DATABASE_URL=postgres://grid_app_rw@host:port/grid_app \

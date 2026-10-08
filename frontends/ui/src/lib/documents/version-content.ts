@@ -446,7 +446,7 @@ export async function readVersionTextForTask(
 
 /**
  * A subject in a restricted folder is opened into the turn's working directory
- * whole, so reading it is USE of that folder (ADR-0086, ADR-0087): admitted for
+ * whole, so reading it is USE of that folder (ADR-0087, ADR-0088): admitted for
  * the conversation, against its audience, before the bytes leave. Refused, or
  * with no asker to check, it reads as no subject at all. True when a folder not
  * every member may read was admitted, so the agent knows the conversation is
