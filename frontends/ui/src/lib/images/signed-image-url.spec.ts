@@ -48,7 +48,7 @@ describe('signed document image URLs', () => {
 
     expect(result).toEqual({
       ok: true,
-      claims: { organizationId: ORG, userId: USER, documentId: DOC, variant: 'original', quarantine: false, exp: imageUrlExpiry(NOW) },
+      claims: { organizationId: ORG, userId: USER, documentId: DOC, variant: 'original', exp: imageUrlExpiry(NOW) },
     })
   })
 
@@ -130,27 +130,6 @@ describe('signed document image URLs', () => {
     params.set('v', 'original')
 
     expect(verifyDocumentImageUrl(DOC, params, NOW)).toEqual({ ok: false, reason: 'bad-signature' })
-  })
-
-  // The grant is what lets a reviewer's preview stream a quarantined row
-  // (ADR-0085), so a member's token must not pick it up by editing the query.
-  it('will not let a token claim the quarantine grant it was not minted with', () => {
-    withSecret()
-    const params = paramsOf(buildDocumentImageUrl(ORG, USER, DOC, 'thumb', { nowMs: NOW })!)
-    params.set('q', '1')
-
-    expect(verifyDocumentImageUrl(DOC, params, NOW)).toEqual({ ok: false, reason: 'bad-signature' })
-  })
-
-  it('carries the quarantine grant it was minted with, and binds it', () => {
-    withSecret()
-    const params = paramsOf(buildDocumentImageUrl(ORG, USER, DOC, 'thumb', { quarantine: true, nowMs: NOW })!)
-
-    expect(verifyDocumentImageUrl(DOC, params, NOW)).toMatchObject({ ok: true, claims: { quarantine: true } })
-    params.delete('q')
-    expect(verifyDocumentImageUrl(DOC, params, NOW)).toEqual({ ok: false, reason: 'bad-signature' })
-    params.set('q', 'yes')
-    expect(verifyDocumentImageUrl(DOC, params, NOW)).toEqual({ ok: false, reason: 'malformed' })
   })
 
   it('will not let the expiry be extended without resigning', () => {

@@ -475,7 +475,12 @@ window in which a file nobody had screened was everybody's.
   a reviewer. It serves a file that has passed and nothing else; neither the
   preview nor the thumbnail mints one for a held file, and one minted before a
   file was held (a re-upload, a quarantine) stops working. The uploader and the
-  reviewers preview a held image through the URL their session presigned.
+  reviewers preview a held image through the URL their session presigned. This
+  replaces the signed quarantine grant an earlier repair put in the URL (a URL
+  minted on a row already quarantined streamed it, and one naming its uploader
+  did): the grant covered `quarantined` only, not a file still being screened,
+  and let a reviewer's URL outlive their standing for its window. The signature
+  domain is back to `grid:document-image:v2`, the claims without the grant.
 * **Model paths refuse a held file**, whoever's session fetches it: the
   conversation subject's version (`readVersionForService`), the revision task's
   source text (`readVersionTextForTask`), the agent's byte and model lookups. A held
