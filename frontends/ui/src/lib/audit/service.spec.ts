@@ -331,7 +331,7 @@ describe('recordAuditEventOrThrow (the events whose absence is the failure)', ()
 // Gap 10 of the upload-governance audit: the WorkOS audit portal opens with
 // `org:audit:view`, which roles that are not organization admins hold, so the
 // name of a document under a folder not every member may read stays out.
-describe('a restricted document is not named in the trail (ADR-0086)', () => {
+describe('a restricted document is not named in the trail (ADR-0087)', () => {
   /** The registry as the metadata maps these checks read. */
   const SCHEMAS: Readonly<
     Record<AuditAction, { readonly targets: readonly { readonly type: string }[]; readonly metadata?: Readonly<Record<string, string>> }>

@@ -487,7 +487,7 @@ describe('escalateToOwner (spec SH-10)', () => {
   })
 })
 
-describe('a conversation that drew on a restricted folder reaches only people cleared for it (ADR-0086)', () => {
+describe('a conversation that drew on a restricted folder reaches only people cleared for it (ADR-0087)', () => {
   const notCleared = () =>
     new ConflictError('not cleared', { reason: 'restricted-content', person: 'Ina Praktikantin' })
 
@@ -607,7 +607,7 @@ describe('a conversation that drew on a restricted folder reaches only people cl
   })
 })
 
-describe('the roster says who can no longer read what the chat drew on (ADR-0087)', () => {
+describe('the roster says who can no longer read what the chat drew on (ADR-0088)', () => {
   const person = (userId: string) => ({ userId, email: null, name: userId, profilePictureUrl: null })
 
   it('flags a grantee and the creator whose roles no longer reach a recorded folder, and nobody else', async () => {
@@ -673,7 +673,7 @@ describe('the roster says who can no longer read what the chat drew on (ADR-0087
   })
 })
 
-describe('sharing a document is a write in its folder (ADR-0087)', () => {
+describe('sharing a document is a write in its folder (ADR-0088)', () => {
   const readOnly = () => new ForbiddenError('You can read this folder but not change it.', { reason: 'folder-read-only' })
 
   beforeEach(() => {

@@ -1,5 +1,5 @@
 /**
- * Organization → quarantine. Files the content check held back (ADR-0085),
+ * Organization → quarantine. Files the content check held back (ADR-0086),
  * for the people who may release or delete them.
  *
  * The chrome, the back link and the section nav live in the shared `layout.tsx`;

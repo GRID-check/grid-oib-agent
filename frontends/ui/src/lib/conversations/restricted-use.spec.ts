@@ -2,7 +2,7 @@
  * @vitest-environment node
  */
 /**
- * The per-person rule for restricted folders (ADR-0086, ADR-0087; product owner
+ * The per-person rule for restricted folders (ADR-0087, ADR-0088; product owner
  * 2026-10-02: "only when actually used … being restricted is unique to one
  * person"), driven with the stores mocked and the folder rule real. The record
  * names SOURCE FOLDERS and is judged against the folders' access at read time.
@@ -335,7 +335,7 @@ describe('widening a conversation — per person', () => {
   })
 })
 
-describe('peopleWhoMayRead: who may read the conversation now (ADR-0087)', () => {
+describe('peopleWhoMayRead: who may read the conversation now (ADR-0088)', () => {
   const PEOPLE = [OWNER, 'user_vertraege', 'user_nobody']
 
   it('answers everybody for a conversation that recorded nothing, with one read and no question to WorkOS', async () => {
@@ -420,7 +420,7 @@ describe('peopleWhoMayRead: who may read the conversation now (ADR-0087)', () =>
   })
 })
 
-describe('lockedConversationIds: which of a list the session may no longer read (ADR-0087)', () => {
+describe('lockedConversationIds: which of a list the session may no longer read (ADR-0088)', () => {
   const asGf = { ...session, role: 'org-gf', roles: ['org-gf'] } as AuthorizedSession
   const asNobody = { ...session, userId: 'user_nobody', role: 'member', roles: ['member'] } as AuthorizedSession
   const list = [

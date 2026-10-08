@@ -1,6 +1,6 @@
 /**
- * Who may read and who may write which folders of a project (ADR-0086,
- * ADR-0087) — the one place that decides.
+ * Who may read and who may write which folders of a project (ADR-0087,
+ * ADR-0088) — the one place that decides.
  *
  * A folder either inherits its parent's access (`accessMode: 'inherit'`; a root
  * folder inherits the project) or has its own access list (`'custom'`): grants
@@ -20,7 +20,7 @@
  * of its NEAREST such folder. Only a session that may read that folder gets the
  * collection in its signed scope. Write never affects retrieval.
  *
- * Deleted folders stay in the tree (migration 0110): in the Papierkorb, then as
+ * Deleted folders stay in the tree (migration 0111): in the Papierkorb, then as
  * purged tombstones (0114). They are hidden from every listing and from
  * placement, what is filed in them is hidden from everyone, and
  * {@link effectiveFolderLevel} still answers for them, because content derived
@@ -110,7 +110,7 @@ export async function seesEveryFolder(session: AuthorizedSession): Promise<boole
  * long. Only when WorkOS cannot be asked is the token's claim the answer, as it
  * is for the roles.
  *
- * Someone who reads a CLOSED project only because it is closed (ADR-0088: every
+ * Someone who reads a CLOSED project only because it is closed (ADR-0089: every
  * organization member may) clears what a member holding no role clears: the
  * folders open to everyone, and no folder with its own role list. Their roles
  * were never matched against this project's grants before it closed, and
@@ -423,7 +423,7 @@ export const RESTRICTED_PROJECT_READS_AT_ONCE = 4
  * is narrowed to in SQL (the download log's name filter). Each project by the
  * session's clearance in that project ({@link clearanceOf}), so a closed one
  * clears someone who reads it only because it is closed as a member with no
- * role (ADR-0088). A project the list leaves out, past its bound, contributes
+ * role (ADR-0089). A project the list leaves out, past its bound, contributes
  * no folder, so its rows match nothing: the narrowing fails closed. Projects
  * are read {@link RESTRICTED_PROJECT_READS_AT_ONCE} at a time; the answer is in
  * the list's order all the same.
@@ -468,7 +468,7 @@ export async function sourceFoldersOfCollections(
 }
 
 /**
- * When each purged folder of the project was purged (ADR-0087): what a surface
+ * When each purged folder of the project was purged (ADR-0088): what a surface
  * shows as „Quelle gelöscht am …" under content drawn from it. Labels, never a
  * decision: who may see that content is {@link effectiveFolderLevel}'s.
  */

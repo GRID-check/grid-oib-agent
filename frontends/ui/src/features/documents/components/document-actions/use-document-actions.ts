@@ -282,7 +282,7 @@ export function useDocumentActions({
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ folderId }),
         })
-        // 409: an IFC model bound for a restricted folder (ADR-0086). Retrying cannot help, so say why.
+        // 409: an IFC model bound for a restricted folder (ADR-0087). Retrying cannot help, so say why.
         if (res.status === 409) {
           toast.error(tFiles('folders.access.ifcRefused'))
           return false

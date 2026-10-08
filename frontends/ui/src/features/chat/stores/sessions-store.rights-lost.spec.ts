@@ -1,5 +1,5 @@
 /**
- * A chat the reader may no longer read (ADR-0087), in the browser's store.
+ * A chat the reader may no longer read (ADR-0088), in the browser's store.
  *
  * The server sends the list row without its title and flagged `contentLocked`,
  * and answers a read of its messages with 403 `RESOURCE_RIGHTS_LOST`. What a

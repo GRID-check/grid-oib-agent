@@ -90,7 +90,7 @@ export type PlannedAction =
    */
   | 'duplicate'
   /**
-   * The organization's upload screening names it (ADR-0085): its file name or
+   * The organization's upload screening names it (ADR-0086): its file name or
    * one of its folders contains a term the office does not want uploaded. Not
    * sent — the bytes stay on this machine — unless the reader releases it in
    * the dialog, which turns it back into whatever it would otherwise have been.
@@ -204,7 +204,7 @@ export interface FolderUploadCounts {
   unchanged: number
   collision: number
   duplicate: number
-  /** Held back by the organization's upload screening (ADR-0085). */
+  /** Held back by the organization's upload screening (ADR-0086). */
   excluded: number
   refiled: number
   foldersCreated: number
@@ -244,7 +244,7 @@ export interface FolderUploadPlanInput {
   digests?: ReadonlyMap<File, string>
   /**
    * The organization's upload screening, and the files the reader released
-   * from it (ADR-0085). Absent means nothing is screened here — the upload
+   * from it (ADR-0086). Absent means nothing is screened here — the upload
    * hook and the server still are.
    */
   screening?: PlanScreening

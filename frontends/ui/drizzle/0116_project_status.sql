@@ -1,4 +1,4 @@
--- 0114: a project is active or closed (ADR-0088, ticket „Abgeschlossene Projekte").
+-- 0114: a project is active or closed (ADR-0089, ticket „Abgeschlossene Projekte").
 --
 -- ## The status
 --
@@ -44,7 +44,7 @@ ALTER TABLE "projects"
   );
 --> statement-breakpoint
 COMMENT ON COLUMN "projects"."status" IS
-  'active or closed (ADR-0088). A closed project is read-only for files, folders, versions, the profile and project memory, and every organization member may read it.';
+  'active or closed (ADR-0089). A closed project is read-only for files, folders, versions, the profile and project memory, and every organization member may read it.';
 --> statement-breakpoint
 COMMENT ON COLUMN "projects"."closed_at" IS 'When the project was closed. Set exactly when status = closed.';
 --> statement-breakpoint

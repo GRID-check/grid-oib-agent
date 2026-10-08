@@ -90,7 +90,7 @@ export const projectMemory = pgTable(
      */
     conflictsWithId: uuid('conflicts_with_id'),
     /**
-     * The source folders this item depends on (ADR-0086, ADR-0087, migration
+     * The source folders this item depends on (ADR-0087, ADR-0088, migration
      * 0112): folders not every project member could read when it was
      * written. NULL is open memory. A restricted item is served and shown only
      * to a session that may read ALL of them NOW (`effectiveFolderLevel`), so a

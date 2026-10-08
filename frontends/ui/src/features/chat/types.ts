@@ -385,14 +385,14 @@ export interface ChatMessage {
    */
   stopped?: true
   /**
-   * The answer drew on a folder that was permanently deleted since (ADR-0087):
+   * The answer drew on a folder that was permanently deleted since (ADR-0088):
    * when its purge ran, for the „Quelle gelöscht am …" note. Set by the purge
    * (`metadata.sourceDeleted`); who may still read the answer is decided by
    * the organization's setting, on the server.
    */
   sourceDeletedAt?: string
   /**
-   * The answer was removed with its source folder (ADR-0087, „Mit dem Ordner
+   * The answer was removed with its source folder (ADR-0088, „Mit dem Ordner
    * entfernen“): its text is the stored replacement, every source and card is
    * gone, and the chat shows the removal note in the reader's language
    * (`metadata.sourceRemoved`).
@@ -442,7 +442,7 @@ export interface Conversation {
   createdAt: Date
   updatedAt: Date
   /**
-   * The person may no longer read what this chat drew on (ADR-0087). The server
+   * The person may no longer read what this chat drew on (ADR-0088). The server
    * sent no title and the store holds no messages for it; the UI shows a neutral
    * title and "you no longer have the rights". Set by the list and by a 403
    * `RESOURCE_RIGHTS_LOST`, cleared by the next list that says otherwise.

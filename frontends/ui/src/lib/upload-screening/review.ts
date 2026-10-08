@@ -1,5 +1,5 @@
 /**
- * Clearing the quarantine (ADR-0085): who may, what release does, and the
+ * Clearing the quarantine (ADR-0086): who may, what release does, and the
  * reviewers' queue.
  *
  * A quarantined document's bytes are in the tenant's bucket and nothing of it
@@ -46,7 +46,7 @@ export async function mayReviewQuarantine(session: AuthorizedSession, doc: Revie
     return false
   }
   // A project admin who is not cleared for the document's folder does not
-  // review it: they could not see it anywhere else either (ADR-0086).
+  // review it: they could not see it anywhere else either (ADR-0087).
   return isFolderVisibleTo(session, doc.projectId, doc.folderId).catch(() => false)
 }
 
@@ -80,7 +80,7 @@ export async function releaseQuarantinedDocument(
     throw new ConflictError('This document has no recorded digest, so its release cannot name its bytes')
   }
   // Releasing files the document into its folder for good: a write there
-  // (ADR-0087). A reviewer who may only read the folder sees the document and
+  // (ADR-0088). A reviewer who may only read the folder sees the document and
   // cannot release it (403); an organization admin writes everywhere.
   if (doc.scope === 'project' && doc.projectId) await requireFolderWrite(session, doc.projectId, [doc.folderId])
 
@@ -118,7 +118,7 @@ export async function releaseQuarantinedDocument(
       reasons: [...new Set(reasons.map((reason) => reason.kind))].join(',').slice(0, 200),
       // The office's words found in the text say what the document holds, so
       // they go under `terms`, which is withheld with the name when the folder
-      // is restricted (DOCUMENT_NAME_KEYS, ADR-0086).
+      // is restricted (DOCUMENT_NAME_KEYS, ADR-0087).
       terms: [...new Set(reasons.flatMap((reason) => (reason.kind === 'term' && reason.term ? [reason.term] : [])))]
         .join(',')
         .slice(0, 200),

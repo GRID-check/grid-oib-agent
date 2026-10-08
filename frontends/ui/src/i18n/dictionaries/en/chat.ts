@@ -228,7 +228,7 @@ export const chat = {
     },
     grounding: { belegt: 'sourced', abgeleitet: 'derived', offen: 'unsourced' },
     clarify: 'Clarify',
-    /** Under the matrix in a closed project, where „Clarify“ would be (ADR-0088). */
+    /** Under the matrix in a closed project, where „Clarify“ would be (ADR-0089). */
     clarifyClosed: 'Closed project: no new research to clarify open findings.',
     commissioned: 'Run commissioned',
     change: {
@@ -1227,7 +1227,7 @@ export const chat = {
     failed: 'Message could not be copied',
   },
   /**
-   * Sensitive data in chat (ADR-0085): what the composer reports before sending.
+   * Sensitive data in chat (ADR-0086): what the composer reports before sending.
    * The placeholders themselves are domain data and come from `content-screen.ts`.
    */
   screening: {

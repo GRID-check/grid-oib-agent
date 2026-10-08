@@ -517,7 +517,7 @@ def _collection_names(collections: Sequence[str]) -> str:
     """Collections as a message names them: a restricted folder's by what it is, never by its id.
 
     Its id in a result would make the admission treat the whole result as that
-    folder's content (ADR-0087), and an outage is not content.
+    folder's content (ADR-0088), and an outage is not content.
     """
     from aiq_agent.knowledge.restricted_collections import is_restricted_collection
 
@@ -623,7 +623,7 @@ async def _turn_rows(search_config: Any) -> list[FileRow]:
     """The turn's inventory rows, uncapped; loaded from the scope when this path bound none.
 
     Never a row of a restricted folder's collection, whichever way the rows were
-    found (ADR-0087): listing is not use, so a name, a title or a summary of
+    found (ADR-0088): listing is not use, so a name, a title or a summary of
     such a file never reaches the model without an admission. The filter sits on
     the rows themselves rather than on one of the two sources, because the
     fallback below is the path a failed inventory load takes.
@@ -1021,7 +1021,7 @@ async def _search(
         return no_match_message(phrases, answered, failed)
     # The match table names every matching file and counts its matches, which
     # is content of each file it names, passages shown or not: reported for the
-    # restricted-use admission (ADR-0087), beside the passages the grounding
+    # restricted-use admission (ADR-0088), beside the passages the grounding
     # block reports itself.
     from aiq_agent.knowledge.restricted_use import note_collections_read
 

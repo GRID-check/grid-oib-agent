@@ -65,12 +65,12 @@ const internalMemorySchema = z
      */
     salience: z.number().min(0).max(1).optional(),
     /**
-     * The restricted-folder collections this finding depends on (ADR-0086):
+     * The restricted-folder collections this finding depends on (ADR-0087):
      * set by the agent when the turn's signed scope held restricted
      * collections and the finding drew on them. Each must be a CURRENT
      * restricted collection of the project — `createProjectMemoryItemForProject`
      * refuses anything else with a 400 rather than storing an item nobody could
-     * be served — and is stored as its SOURCE FOLDER (ADR-0087), so who is
+     * be served — and is stored as its SOURCE FOLDER (ADR-0088), so who is
      * shown the note follows that folder's access as it changes. Shaped like
      * the names `restrictedCollectionName` mints.
      */
