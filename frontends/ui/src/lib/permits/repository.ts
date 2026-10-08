@@ -395,7 +395,7 @@ export async function listPermitRecordsForProject(
   const records = await db
     .select({
       id: permitRecords.id,
-      fileName: permitRecords.fileName,
+      fileName: documents.filename,
       kind: permitRecords.kind,
       authority: permitRecords.authority,
       issuedOn: permitRecords.issuedOn,
