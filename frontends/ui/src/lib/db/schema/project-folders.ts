@@ -90,7 +90,7 @@ export const projectFolders = pgTable('project_folders', {
   /**
    * The folder a person deleted, on every folder that went to the Papierkorb
    * with it (itself included); what a restore puts back together. NULL for a
-   * living folder and for a tombstone older than 0113.
+   * living folder and for a tombstone older than 0114.
    */
   binRootId: uuid('bin_root_id'),
   /**

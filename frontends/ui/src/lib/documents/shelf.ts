@@ -74,7 +74,7 @@ export function shelfFolderWhere(shelf: DocumentShelf, organizationId: string): 
     eq(projectFolders.organizationId, organizationId),
     eq(projectFolders.scope, shelfScope(shelf)),
     // A deleted project folder, in the Papierkorb or a tombstone (migrations
-    // 0109, 0113), is no folder of the shelf: only the access rule and the bin
+    // 0110, 0114), is no folder of the shelf: only the access rule and the bin
     // read it, through their own repositories.
     isNull(projectFolders.deletedAt),
     ...(shelf.kind === 'project' ? [eq(projectFolders.projectId, shelf.projectId)] : []),
