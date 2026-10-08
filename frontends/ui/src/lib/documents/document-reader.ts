@@ -73,6 +73,37 @@ export function hasPassedScreening(row: ScreeningFacts): boolean {
 }
 
 /**
+ * The version states whose bytes are, or were, the item's own: what an upload
+ * is born as (`published`) and what it becomes once replaced (`superseded`).
+ * A person's upload is never anything else; an open, approved or rejected
+ * version holds text written in the version workflow.
+ */
+const ITEM_BYTES_STATES: ReadonlySet<string> = new Set(['published', 'superseded'])
+
+/** The version facts {@link versionBytesPassedScreening} reads. */
+export interface VersionScreeningFacts {
+  state: string
+  contentHash: string | null
+}
+
+/**
+ * Whether the bytes of THIS version may reach a model (ADR-0085): the verdict
+ * on record is about the item's bytes, and a version read returns the
+ * version's. The item must have passed, and a version that holds bytes a person
+ * uploaded must hold exactly the bytes that verdict judged. An earlier upload,
+ * replaced while it was still being read or after its reading failed, holds
+ * bytes no verdict on record judged; no version records a verdict of its own,
+ * so every earlier upload of a person's document is refused, not only those.
+ * Workflow text (a draft, a version in review) follows the item, and Piloti's
+ * own documents are never held.
+ */
+export function versionBytesPassedScreening(document: ScreeningFacts, version: VersionScreeningFacts): boolean {
+  if (!hasPassedScreening(document)) return false
+  if (document.authoredBy !== 'user' || !ITEM_BYTES_STATES.has(version.state)) return true
+  return (version.contentHash ?? null) === (document.screenedHash ?? null)
+}
+
+/**
  * Held, and nothing will move it on its own: a quarantine, or a file the gate
  * never reached a verdict on and that is no longer in flight (its reading
  * failed, it was stranded before its dispatch, its bytes were swapped after

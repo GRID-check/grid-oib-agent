@@ -545,6 +545,51 @@ describe('readVersionForService — the conversation is part of the predicate', 
     expect(s3Client.send).not.toHaveBeenCalled()
   })
 
+  /**
+   * The verdict is about the item's bytes; the subject read returns a VERSION's
+   * (ADR-0085). A superseded version a person uploaded holds bytes no verdict
+   * on record judged: replaced while it was still being read, or after its
+   * reading failed. It reaches no model, however the item stands now.
+   */
+  describe('the bytes the screen judged, not the item', () => {
+    const screened = makeDocument({
+      id: 'doc_1',
+      projectId: 'proj_1',
+      contentHash: 'sha256:now',
+      screenedHash: 'sha256:now',
+      screeningOutcome: 'clean',
+    })
+
+    beforeEach(() => {
+      vi.mocked(findConversationInOrg).mockResolvedValue({
+        subjectResourceType: 'document',
+        subjectResourceId: 'doc_1',
+      } as never)
+      vi.mocked(findDocumentInOrg).mockImplementation(async (_id, _org, reader) =>
+        mayReadDocument(screened, reader) ? screened : null
+      )
+    })
+
+    it('answers 404 for an earlier upload of a screened document whose bytes no verdict judged', async () => {
+      vi.mocked(findDocumentVersionInOrg).mockResolvedValue(version({ state: 'superseded', contentHash: 'sha256:before' }))
+
+      await expect(readVersionForService('ver_1', 'org_1', 'conv_1')).rejects.toMatchObject({ status: 404 })
+      expect(s3Client.send).not.toHaveBeenCalled()
+    })
+
+    it('serves the version that holds the bytes the verdict judged', async () => {
+      vi.mocked(findDocumentVersionInOrg).mockResolvedValue(version({ state: 'published', contentHash: 'sha256:now' }))
+
+      await expect(readVersionForService('ver_1', 'org_1', 'conv_1')).resolves.toMatchObject({ content: '# Aktenvermerk' })
+    })
+
+    it('serves a draft, whose text was written in the workflow rather than uploaded', async () => {
+      vi.mocked(findDocumentVersionInOrg).mockResolvedValue(version({ state: 'draft', contentHash: 'sha256:edited' }))
+
+      await expect(readVersionForService('ver_1', 'org_1', 'conv_1')).resolves.toMatchObject({ content: '# Aktenvermerk' })
+    })
+  })
+
   it('answers 404 for an ordinary chat, which is about nothing', async () => {
     vi.mocked(findConversationInOrg).mockResolvedValue({
       subjectResourceType: null,
@@ -682,6 +727,19 @@ describe('reading a version’s text, and the download log', () => {
     ['still being screened', { status: 'processing', screeningOutcome: null }],
   ])('refuses the agent task a document that is %s, before reading a byte', async (_label, held) => {
     vi.mocked(getAccessibleDocument).mockResolvedValueOnce({ ...document, ...held })
+
+    await expect(readVersionTextForTask(session, 'doc_1', 'ver_1')).rejects.toMatchObject({ status: 404 })
+    expect(s3Client.send).not.toHaveBeenCalled()
+  })
+
+  it('refuses the agent task an earlier upload whose bytes no verdict judged, before reading a byte', async () => {
+    vi.mocked(getAccessibleDocument).mockResolvedValueOnce({
+      ...document,
+      contentHash: 'sha256:now',
+      screenedHash: 'sha256:now',
+      screeningOutcome: 'clean',
+    })
+    vi.mocked(findDocumentVersion).mockResolvedValueOnce(version({ state: 'superseded', contentHash: 'sha256:before' }))
 
     await expect(readVersionTextForTask(session, 'doc_1', 'ver_1')).rejects.toMatchObject({ status: 404 })
     expect(s3Client.send).not.toHaveBeenCalled()

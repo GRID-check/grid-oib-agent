@@ -57,7 +57,7 @@ import {
 } from './generated'
 import type { DocumentVersionState } from './lifecycle-types'
 import { findDocumentInOrg } from './repository'
-import { hasPassedScreening, SCREENED_ONLY } from '@/lib/documents/document-reader'
+import { hasPassedScreening, SCREENED_ONLY, versionBytesPassedScreening } from '@/lib/documents/document-reader'
 import {
   findDocumentVersion,
   findDocumentVersionInOrg,
@@ -395,7 +395,8 @@ async function readObjectText(
  * The version's text, read for a session that may read its document; nothing
  * is recorded here. `forModel` when a model reads the text rather than the
  * person: a held document (ADR-0085) reaches no model, whoever's session
- * fetches it, its uploader and its reviewers included.
+ * fetches it, its uploader and its reviewers included, and neither do a
+ * version's bytes the verdict on record did not judge.
  */
 async function fetchVersionText(
   session: AuthorizedSession,
@@ -407,6 +408,7 @@ async function fetchVersionText(
   if (forModel && !hasPassedScreening(document)) throw new NotFoundError('Version not found')
   const version = await findDocumentVersion(versionId, documentId, session.organizationId)
   if (!version) throw new NotFoundError('Version not found')
+  if (forModel && !versionBytesPassedScreening(document, version)) throw new NotFoundError('Version not found')
   return { document, text: await readObjectText(version.storageBucket, version.storageKey) }
 }
 
@@ -536,7 +538,8 @@ export async function readVersionForService(
   // A held document (ADR-0085) never reaches a model, not even as the subject
   // its own uploader opened a chat about: nobody's own uploads count here.
   const document = await findDocumentInOrg(version.documentId, organizationId, SCREENED_ONLY)
-  if (!document) throw new NotFoundError('Version not found')
+  // The verdict is about the item's bytes; these are the version's.
+  if (!document || !versionBytesPassedScreening(document, version)) throw new NotFoundError('Version not found')
   const drewOnRestrictedFolder = await admitSubjectRead(document, organizationId, conversationId, askerUserId)
   return {
     documentId: version.documentId,
