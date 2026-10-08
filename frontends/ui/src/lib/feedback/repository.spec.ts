@@ -12,6 +12,9 @@ import { getDb } from '@/lib/db'
 import {
   CONVERSATION_FEEDBACK_LIST_LIMIT,
   FEEDBACK_EXPORT_ROW_CAP,
+  FEEDBACK_ORG_ROLLUP_LIMIT,
+  FEEDBACK_TOPIC_ROLLUP_LIMIT,
+  getFeedbackHealth,
   FEEDBACK_WEEKLY_SUMMARY_LIMIT,
   deleteAnswerFeedbackForUser,
   getFeedbackWeeklySummary,
@@ -264,5 +267,41 @@ describe('getFeedbackWeeklySummary', () => {
     // Wednesday 2026-10-07 -> Monday 2026-10-05; Sunday 2026-10-11 -> the same Monday.
     expect(isoWeekStart(new Date('2026-10-07T13:00:00Z'))).toBe('2026-10-05T00:00:00.000Z')
     expect(isoWeekStart(new Date('2026-10-11T23:59:00Z'))).toBe('2026-10-05T00:00:00.000Z')
+  })
+})
+
+/**
+ * The file header promises every list is bounded. The two rollups group by
+ * values nothing bounds (customers, LLM-written tags), and had no LIMIT.
+ */
+describe('getFeedbackHealth rollups', () => {
+  /** A drizzle builder double: every call chains, awaiting it yields no rows. */
+  function chain(calls: { method: string; args: unknown[] }[]) {
+    const builder: Record<string, unknown> = {}
+    for (const method of ['select', 'from', 'innerJoin', 'where', 'groupBy', 'orderBy', 'limit']) {
+      builder[method] = (...args: unknown[]) => {
+        calls.push({ method, args })
+        return builder
+      }
+    }
+    builder.then = (resolve: (rows: unknown[]) => unknown) => resolve([])
+    return builder
+  }
+
+  it('bounds the organization and the topic rollups', async () => {
+    const calls: { method: string; args: unknown[] }[] = []
+    const execute = vi.fn().mockResolvedValue([])
+    mockGetDb.mockReturnValue({ ...chain(calls), execute } as never)
+
+    await getFeedbackHealth({ limit: 0 })
+
+    expect(calls.filter((call) => call.method === 'limit').map((call) => call.args[0])).toContain(
+      FEEDBACK_ORG_ROLLUP_LIMIT,
+    )
+    const topicQuery = execute.mock.calls
+      .map(([query]) => new PgDialect().sqlToQuery(query))
+      .find((query) => query.sql.includes('unnest(c.tags)'))
+    expect(topicQuery?.sql).toMatch(/limit \$\d+\s*$/)
+    expect(topicQuery?.params).toContain(FEEDBACK_TOPIC_ROLLUP_LIMIT)
   })
 })

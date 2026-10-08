@@ -155,6 +155,15 @@ export const FEEDBACK_HEALTH_RECENT_LIMIT = 50
 export const FEEDBACK_EXPORT_ROW_CAP = 5000
 
 /**
+ * Ceilings on the two rollups, which group by a value the table does not bound:
+ * organizations grow with the customer list, and topic tags are written by an
+ * LLM (unknown keys are dropped only after the read). Ordered by volume, so a
+ * cut drops the quietest rows, never the ones the page leads with.
+ */
+export const FEEDBACK_ORG_ROLLUP_LIMIT = 500
+export const FEEDBACK_TOPIC_ROLLUP_LIMIT = 100
+
+/**
  * **Deliberately NOT organization-scoped** — the one read in this file that
  * crosses tenants.
  *
@@ -448,7 +457,8 @@ export async function getFeedbackHealth(
     .from(answerFeedback)
     .where(and(inWindow, ...scope))
     .groupBy(answerFeedback.organizationId)
-    .orderBy(desc(sql`count(*) filter (where ${answerFeedback.verdict} = 'down')`))
+    .orderBy(desc(sql`count(*) filter (where ${answerFeedback.verdict} = 'down')`), desc(sql`count(*)`))
+    .limit(FEEDBACK_ORG_ROLLUP_LIMIT)
 
   // Votes by topic. `unnest` fans a conversation out over its tags on purpose —
   // here the tag IS the grouping key, so a two-tag conversation legitimately
@@ -468,6 +478,7 @@ export async function getFeedbackHealth(
       ${topic ? sql`and c.tags @> array[${topic}]::text[]` : sql``}
     group by tag
     order by count(*) desc
+    limit ${FEEDBACK_TOPIC_ROLLUP_LIMIT}
   `)
 
   const turns = await listFeedbackTurns(filters)
