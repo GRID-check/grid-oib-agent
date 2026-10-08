@@ -51,6 +51,10 @@
               "de": "Das Archiv hat jetzt Ordner, wie bei den Dateien eines Projekts: Sie können Ordner erstellen, umbenennen, verschieben und löschen, eine ganze Ordnerstruktur hochladen und Dokumente zwischen Ordnern verschieben. Beim Löschen eines Ordners bleiben die darin enthaltenen Inhalte erhalten, und Piloti weiß, in welchem Ordner sich ein Dokument befindet."
             },
             {
+              "en": "Teammates can now follow and steer deep research runs in the projects they work in, including the runs of scheduled and shared tasks, not only their own. Anyone who can view a chat can follow a run in it, while stopping a run or adding a document to it still needs permission to chat in the project.",
+              "de": "Teammitglieder können Deep-Research-Läufe in den Projekten, in denen sie arbeiten, jetzt verfolgen und steuern – auch Läufe geplanter und geteilter Aufgaben, nicht nur ihre eigenen. Wer einen Chat ansehen kann, kann darin einen Lauf verfolgen. Um einen Lauf zu stoppen oder ein Dokument hinzuzufügen, ist weiterhin die Berechtigung erforderlich, im Projekt zu chatten."
+            },
+            {
               "en": "Organization admins can now rescan all failed ingestions at once from Organization, Enterprise: every file that could not be read is sent back through reading under its own name.",
               "de": "Organisationsadmins können unter Organisation, Enterprise jetzt alle fehlgeschlagenen Einlesevorgänge auf einmal erneut scannen: Jede Datei, die nicht gelesen werden konnte, wird unter ihrem eigenen Namen erneut eingelesen."
             },
@@ -84,6 +88,10 @@
               "de": "IFC-Modelle, Word- und Präsentationsdateien sowie fertige Rechercheberichte werden jetzt im Hintergrund verarbeitet und überstehen einen Neustart: Ein Modell bleibt nicht mehr bei „wird extrahiert“ und eine Datei nicht mehr bei „wird verarbeitet“ hängen. Ein Ordner mit Hunderten Bürodateien bremst andere Büros nicht mehr aus, und ein Bericht, dessen PDF-Erstellung fehlgeschlagen ist, wird erneut verarbeitet, statt verloren zu gehen."
             },
             {
+              "en": "The upload area now states the largest file you can upload as a size per file, and the number it shows is the one your organization is held to. It no longer shows 95 MB for a 100 MB limit.",
+              "de": "Der Upload-Bereich gibt nun die maximale Dateigröße pro Datei an, die Sie hochladen können. Angezeigt wird der für Ihre Organisation geltende Wert. Bei einem Limit von 100 MB werden nicht mehr 95 MB angezeigt."
+            },
+            {
               "en": "When the AI provider is busy, answers to your questions now go ahead of background work such as re-indexing a project, so a large upload no longer slows the chat down.",
               "de": "Wenn der KI-Anbieter ausgelastet ist, haben Antworten auf Ihre Fragen nun Vorrang vor Hintergrundarbeiten wie der Neuindizierung eines Projekts. Dadurch verlangsamt ein großer Upload den Chat nicht mehr."
             },
@@ -111,6 +119,10 @@
             {
               "en": "Previews of spreadsheets and text files saved on Windows show euro signs, dashes and curly quotes again instead of leaving them blank.",
               "de": "Vorschauen von unter Windows gespeicherten Tabellen und Textdateien zeigen Eurozeichen, Gedankenstriche und typografische Anführungszeichen wieder an, statt sie leer zu lassen."
+            },
+            {
+              "en": "A document that failed to index, or that is still being read, now stays in the project file list with its status, so it is no longer mistaken for a file that was never uploaded.",
+              "de": "Ein Dokument, das nicht indexiert werden konnte oder noch eingelesen wird, bleibt jetzt samt Status in der Dateiliste des Projekts, damit es nicht mehr für eine nie hochgeladene Datei gehalten wird."
             },
             {
               "en": "A question about building regulations no longer comes back empty just because a document was open beside the chat. Only the file you chose with \"Asking about this file\" narrows the search now, and when a search in that file finds nothing on a regulation question, Piloti searches the guidelines again without it.",

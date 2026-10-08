@@ -105,7 +105,53 @@ export const LANGFUSE_SECRET_KEYS = {
  * inside the exporter, which surfaces only as "no traces in Langfuse".
  */
 export function langfuseOtlpTracesEndpoint(): string {
-  return `http://${LANGFUSE.web}:${PORT.langfuseWeb}${LANGFUSE.otlpTracesPath}`;
+  return `${langfuseInClusterUrl()}${LANGFUSE.otlpTracesPath}`;
+}
+
+/** The web tier's in-cluster base URL: what the collector and the BFF call. */
+export function langfuseInClusterUrl(): string {
+  return `http://${LANGFUSE.web}:${PORT.langfuseWeb}`;
+}
+
+/**
+ * What the BFF needs to write answer feedback into Langfuse as scores and to
+ * link a rated turn to its trace (ADR-0044, Amendment 3;
+ * `frontends/ui/src/lib/langfuse/config.ts` reads exactly these names).
+ *
+ * Empty unless the tier is deployed, so a stack without Langfuse renders the
+ * frontend exactly as before and the BFF's scoring stays a no-op.
+ *
+ * - `LANGFUSE_HOST` is the in-cluster web Service, never the public host: the
+ *   public route sits behind the edge's OIDC gate, which a server-side API call
+ *   cannot pass. `allow-frontend-to-langfuse` is the NetworkPolicy that makes
+ *   the Service reachable at all.
+ * - `LANGFUSE_PUBLIC_URL` + `LANGFUSE_PROJECT_ID` build the browser links.
+ * - The keys come from the Langfuse Secret by reference, never as literals. A
+ *   non-optional reference: a pod started before the Secret exists waits for it
+ *   rather than starting with scoring silently off until its next restart.
+ */
+export function frontendLangfuseEnv(cfg: GridConfig): k8s.types.input.core.v1.EnvVar[] {
+  if (!cfg.langfuse.enabled) return [];
+  const fromSecret = (name: string, key: string): k8s.types.input.core.v1.EnvVar => ({
+    name,
+    valueFrom: { secretKeyRef: { name: SECRETS_NAME, key } },
+  });
+  return [
+    { name: "LANGFUSE_HOST", value: langfuseInClusterUrl() },
+    { name: "LANGFUSE_PUBLIC_URL", value: `https://${cfg.langfuse.domain}` },
+    { name: "LANGFUSE_PROJECT_ID", value: cfg.langfuse.projectId },
+    fromSecret("LANGFUSE_PUBLIC_KEY", LANGFUSE_SECRET_KEYS.publicKey),
+    fromSecret("LANGFUSE_SECRET_KEY", LANGFUSE_SECRET_KEYS.secretKey),
+  ];
+}
+
+/**
+ * The part of the frontend's rollout checksum that the Langfuse keys own, or
+ * undefined without the tier. `secretKeyRef` is read once at container start, so
+ * without this a key rotation would leave the BFF scoring with a retired key.
+ */
+export function frontendLangfuseChecksumInput(cfg: GridConfig): pulumi.Output<string> | undefined {
+  return cfg.langfuse.enabled ? langfuseOtlpBasicAuth(cfg) : undefined;
 }
 
 /**
