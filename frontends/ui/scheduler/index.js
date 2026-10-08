@@ -18,7 +18,7 @@
  *      left `queued` whose job is gone (`lib/documents/stuck-processing.ts`,
  *      `lib/tasks/filing-sweep.ts`, ADR-0079);
  *   6. POSTs the BFF's upload sweep (`/api/internal/upload-batches/sweep`,
- *      ADR-0083), which settles the uploads whose browser is gone;
+ *      ADR-0085), which settles the uploads whose browser is gone;
  *   7. once a day, deletes the Langfuse traces older than the retention window
  *      (`sweepTraceRetention`; ADR-0044 — Langfuse's own retention setting is an
  *      Enterprise feature, the delete API is not);
@@ -208,7 +208,7 @@ async function reconcileBackgroundWork(config, fetchImpl, streak) {
 
 /**
  * One upload sweep: POST {frontendUrl}/api/internal/upload-batches/sweep
- * (ADR-0083). Settles the uploads whose browser is gone, so their uploader is
+ * (ADR-0085). Settles the uploads whose browser is gone, so their uploader is
  * told when everything was read. Same posture as the run reconciler: the BFF
  * does the work, this container supplies the clock, nothing throws, and it
  * logs only when it settled something or failed.

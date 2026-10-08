@@ -136,10 +136,11 @@ full design.
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `BACKEND_URL` | `http://localhost:8000` | Backend HTTP URL |
+| `BACKEND_URL` | `http://localhost:8000` | Backend HTTP URL: the `api` role (ADR-0082) |
+| `BACKEND_CHAT_URL` | none (required by the gateway) | The backend's `chat` role, the only role that serves the socket; no fallback to `BACKEND_URL` |
 | `NEXT_PUBLIC_BACKEND_URL` | Falls back to `BACKEND_URL` | Browser-accessible backend URL |
 
-The WebSocket URL is derived by replacing `http` → `ws` in `BACKEND_URL`. Keep-alive is set to 15 seconds on upstream sockets.
+The WebSocket URL is derived by replacing `http` → `ws` in `BACKEND_CHAT_URL`. Keep-alive is set to 15 seconds on upstream sockets.
 
 ---
 

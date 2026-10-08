@@ -124,6 +124,29 @@ export const chat: typeof en.chat = {
     // tiny one-line hint under the composer keeps the active source count legible.
     sourcesActiveMobile: '{count, plural, one {# Quelle} other {# Quellen}} aktiv',
   },
+  // Spracheingabe im Eingabefeld (features/dictation).
+  dictation: {
+    start: 'Diktieren',
+    startHint: 'Sprechen Sie, Piloti schreibt es in Ihre Nachricht. Stoppt nach {seconds} Sekunden.',
+    stop: 'Beenden und einfügen',
+    recording: 'Aufnahme, {elapsed}',
+    transcribing: 'Wird verschriftlicht …',
+    unavailable: {
+      unsupported: 'Dieser Browser kann nicht vom Mikrofon aufnehmen.',
+      insecure: 'Spracheingabe braucht eine sichere (https-)Verbindung.',
+      noFormat: 'Dieser Browser nimmt in keinem Format auf, das Piloti verschriftlichen kann.',
+      denied:
+        'Der Mikrofonzugriff ist blockiert. Erlauben Sie ihn in den Website-Einstellungen des Browsers und laden Sie die Seite neu.',
+    },
+    errors: {
+      noMicrophone: 'Es wurde kein Mikrofon gefunden.',
+      denied: 'Der Mikrofonzugriff wurde nicht erlaubt.',
+      rateLimited: 'Zu viele Aufnahmen in kurzer Zeit. Versuchen Sie es in einer Minute erneut.',
+      tooLarge: 'Die Aufnahme ist zu groß zum Verschriftlichen.',
+      notConfigured: 'Spracheingabe ist gerade nicht verfügbar.',
+      failed: 'Die Aufnahme konnte nicht verschriftlicht werden. Ihre Nachricht ist unverändert.',
+    },
+  },
   // Der Reiter einer Quellenkarte in der Herleitung: die grobe Ebene, wenn der
   // Server keine feine Lane benannt hat, und das Regal, auf dem das Dokument
   // laut Wire liegt (ADR-0047: Deutsch ist Darstellung, nie Transport).

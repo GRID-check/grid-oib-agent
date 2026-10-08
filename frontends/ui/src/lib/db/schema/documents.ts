@@ -39,7 +39,7 @@ import { type ResourceVisibility } from './resource-shares'
 export const DOCUMENT_SCOPES = ['project', 'archiv', 'session'] as const
 export type DocumentScope = (typeof DOCUMENT_SCOPES)[number]
 
-/** The content gate's verdict on a document's current bytes (ADR-0083). */
+/** The content gate's verdict on a document's current bytes (ADR-0085). */
 export const DOCUMENT_SCREENING_OUTCOMES = ['clean', 'partial', 'unchecked', 'quarantined', 'released'] as const
 export type DocumentScreeningOutcome = (typeof DOCUMENT_SCREENING_OUTCOMES)[number]
 
@@ -401,8 +401,8 @@ export const documents = pgTable('documents', {
   errorMessage: text('error_message'),
   metadata: jsonb('metadata'),
   /**
-   * What the content gate concluded about the CURRENT bytes (ADR-0083,
-   * migration 0107). NULL: not screened. `quarantined` pairs with
+   * What the content gate concluded about the CURRENT bytes (ADR-0085,
+   * migration 0108). NULL: not screened. `quarantined` pairs with
    * `status = 'quarantined'`; `released` with a complete release below.
    */
   screeningOutcome: text('screening_outcome').$type<DocumentScreeningOutcome>(),
@@ -415,7 +415,7 @@ export const documents = pgTable('documents', {
   screeningReleasedBy: text('screening_released_by'),
   screeningReleasedAt: timestamp('screening_released_at', { withTimezone: true }),
   /**
-   * The upload gesture that last wrote this document's bytes (migration 0108),
+   * The upload gesture that last wrote this document's bytes (migration 0109),
    * or NULL for a row no batch wrote. No foreign key: the batch is a pointer
    * for the upload summary, and pruning it must not take the document along.
    */

@@ -77,7 +77,7 @@ export const citationEvents = pgTable(
     conversationId: text('conversation_id'),
     /** Shared with `agent_profiler_spans.turnId`, so a defect links to its timeline. */
     turnId: text('turn_id').notNull(),
-    /** Async deep-research job id, when the turn ran inside a Dask worker. */
+    /** Async deep-research job id, when the turn ran inside a research worker. */
     jobId: text('job_id'),
     agent: text('agent').$type<CitationEventAgent>().notNull(),
     kind: text('kind').$type<CitationEventKind>().notNull(),

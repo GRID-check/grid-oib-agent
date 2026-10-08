@@ -242,9 +242,9 @@ export const documents = pgTable('documents', {
 | `status` | `text` | NOT NULL, DEFAULT `'pending'` | `pending` → `processing` → `processed` / `error`, plus `stored` (migration `0063`). `stored` is TERMINAL and means "the bytes are here and indexing was deliberately skipped" — an agent-authored document, which is never dispatched to `/v1/ingest`. It must stay out of `IN_FLIGHT_STATUSES` in `lib/documents/reconcile-status`, or every read polls a backend that has never heard of the row and then overwrites its status from a file list that will never contain it. Plain `text` with no CHECK, so a new state is a TypeScript change. |
 | `error_message` | `text` | | Error details if status is `error` |
 | `metadata` | `jsonb` | | Flexible metadata |
-| `screening_outcome` | `text` | CHECK `NULL` or `clean`/`partial`/`unchecked`/`quarantined`/`released` | **Migration `0107`, ADR-0083**: what the local content screening found before the first model call. `NULL` = not screened (a row older than the column, or one replaced since: a replacement resets it). `partial` = some pages had no text layer and were checked by name only; `unchecked` = no text could be read locally at all; `quarantined` = a term or detector matched and nothing went to a model. Written by reconciliation from the ingest job's `file_details[].screening`. |
-| `screening_released_hash` / `screening_released_by` / `screening_released_at` | `text` / `text` / `timestamptz` | all three or none (CHECK) | **Migration `0107`**: a reviewer released a quarantined document. The release names the BYTES (`content_hash` at the time), so a replacement under the same id is screened again instead of riding the old release. |
-| `upload_batch_id` | `uuid` | partial index | **Migration `0108`**: the upload gesture this row arrived in (`upload_batches.id`). Recorded only when the batch is the uploader's own, open one for this shelf; anything else is ignored rather than refused. No FK: a batch is history, and pruning it must not touch documents. |
+| `screening_outcome` | `text` | CHECK `NULL` or `clean`/`partial`/`unchecked`/`quarantined`/`released` | **Migration `0108`, ADR-0085**: what the local content screening found before the first model call. `NULL` = not screened (a row older than the column, or one replaced since: a replacement resets it). `partial` = some pages had no text layer and were checked by name only; `unchecked` = no text could be read locally at all; `quarantined` = a term or detector matched and nothing went to a model. Written by reconciliation from the ingest job's `file_details[].screening`. |
+| `screening_released_hash` / `screening_released_by` / `screening_released_at` | `text` / `text` / `timestamptz` | all three or none (CHECK) | **Migration `0108`**: a reviewer released a quarantined document. The release names the BYTES (`content_hash` at the time), so a replacement under the same id is screened again instead of riding the old release. |
+| `upload_batch_id` | `uuid` | partial index | **Migration `0109`**: the upload gesture this row arrived in (`upload_batches.id`). Recorded only when the batch is the uploader's own, open one for this shelf; anything else is ignored rather than refused. No FK: a batch is history, and pruning it must not touch documents. |
 | `created_at` | `timestamptz` | NOT NULL, `defaultNow()` | |
 | `updated_at` | `timestamptz` | NOT NULL, `defaultNow()` | |
 
@@ -252,8 +252,8 @@ export const documents = pgTable('documents', {
 - `documents_project_idx` — on `project_id`
 - `documents_collection_idx` — on `collection_name`
 - `documents_status_idx` — on `status`
-- `documents_quarantined_idx` — on (`organization_id`, `updated_at`), **PARTIAL** (`WHERE status = 'quarantined'`) — the quarantine queue (migration `0107`). `quarantined` is a terminal status like `stored`: never in `IN_FLIGHT_STATUSES`, never dispatched until a reviewer releases it.
-- `documents_upload_batch_idx` — on `upload_batch_id`, **PARTIAL** (`WHERE upload_batch_id IS NOT NULL`) — a batch's documents, for its settlement and summary (migration `0108`)
+- `documents_quarantined_idx` — on (`organization_id`, `updated_at`), **PARTIAL** (`WHERE status = 'quarantined'`) — the quarantine queue (migration `0108`). `quarantined` is a terminal status like `stored`: never in `IN_FLIGHT_STATUSES`, never dispatched until a reviewer releases it.
+- `documents_upload_batch_idx` — on `upload_batch_id`, **PARTIAL** (`WHERE upload_batch_id IS NOT NULL`) — a batch's documents, for its settlement and summary (migration `0109`)
 - `documents_org_scope_idx` — on (`organization_id`, `scope`) — bounds the org-wide Archiv listing (ADR-0024)
 - `documents_conversation_idx` — on `conversation_id`, **PARTIAL** (`WHERE conversation_id IS NOT NULL`) — the session-document listing and the composite FK's referencing side (migration `0049`)
 - `documents_agent_authored_idx` — on (`project_id`, `created_at DESC`), **PARTIAL** (`WHERE authored_by = 'agent'`) — makes "everything Piloti wrote in this project" a point query in the listing's own sort order, while carrying no entry for the human uploads that are the overwhelming majority (migration `0063`). The predicate names `agent` rather than `<> 'user'`, so a second producer needs it widened or an index of its own.
@@ -270,7 +270,7 @@ The three `authored_by` partial indexes above live **only in the migration** —
 - `documents_session_requires_conversation` — the scope partition: a `session` row has a conversation, nothing else does, and a `session` row has no project (migration `0049`)
 - `documents_authorship_requires_provenance` — `authored_by = 'user' OR (authored_by_producer IS NOT NULL AND authored_by_ref IS NOT NULL AND authored_by_ref_kind IS NOT NULL)`. A document no person wrote can always say what wrote it, which one, and what kind of identifier that is; one that cannot is an audit trail in appearance only. The third conjunct is migration `0066`'s: the first two were satisfiable by a row whose reference nobody could resolve, because the column's name asserted a job id over a value that was not one. Written against `<> 'user'` rather than against `agent` so a member added to `DOCUMENT_AUTHORS` arrives already constrained instead of arriving as a hole nothing notices (migration `0063`). One-directional: a `user` row carrying all three is legal.
 
-- `documents_screening_outcome_check` and `documents_screening_release_complete_check` — the vocabulary of `screening_outcome`, and a release that is all three columns or none (migration `0107`).
+- `documents_screening_outcome_check` and `documents_screening_release_complete_check` — the vocabulary of `screening_outcome`, and a release that is all three columns or none (migration `0108`).
 - `documents_lifecycle_known` — `lifecycle IN ('active', 'archived')` (migration `0082`). A CHECK where `scope` and `status` deliberately have none, because this column gates a LISTING: a third value nothing knows how to render would silently hide documents, and that looks like data loss to the person whose file vanished.
 
 **Version pointer (migration `0082`, ADR-0054):** `published_version_id` names the `document_versions` row whose bytes the storage columns above mirror, through a composite foreign key on `(published_version_id, id)` → `document_versions (id, document_id)` — so a document can only ever point at a version OF ITSELF. `ON DELETE SET NULL`: discarding a version must not take the item with it. The constraint lives only in the migration, because declaring it in drizzle would make `documents.ts` and `document-versions.ts` import each other.
@@ -671,7 +671,7 @@ export const projectFolders = pgTable('project_folders', {
 
 ---
 
-## upload_batches (migration 0108, ADR-0083)
+## upload_batches (migration 0109, ADR-0085)
 
 One upload gesture, from the browser's first request to the moment everything
 it brought in has been read. The browser opens it (`POST /api/upload-batches`),
@@ -778,7 +778,7 @@ This PostgreSQL entrypoint script runs on first container startup and creates tw
 | Table | Purpose | Key Columns |
 |-------|---------|-------------|
 | `job_info` | NAT JobStore metadata | `job_id` (PK), `status`, `config_file`, `error`, `output_path`, `created_at`, `updated_at`, `expiry_seconds`, `is_expired` |
-| `job_access` | Job ownership/access control | `job_id` (PK), `owner_auth_type`, `owner_subject`, `owner_email` |
+| `job_access` | Who may reach a job: its owner, and callers whose signed scope matches its organization and project or conversation (ADR-0084) | `job_id` (PK), `owner_auth_type`, `owner_subject`, `owner_email`, `conversation_id`, `project_collection`, `organization_id`, `created_at` |
 | `job_events` | SSE streaming event persistence | `id` (serial PK), `job_id`, `event_type`, `event_data`, `created_at` |
 | `document_metadata` | Per-document metadata (was `summaries`) | `collection` + `filename` (composite PK), `summary`, `tags` (`TEXT`, JSON list; nullable), `doc_class` (`TEXT`; nullable), `display_title` (`TEXT`; nullable), `folder_path` (`TEXT`; nullable — the BFF's materialised `project_folders.path`, ADR-0049), `provenance` (`TEXT`, JSON object; nullable — who wrote a published Piloti document and who released it, ADR-0054; deleted with the chunks by `unregister_summary`) |
 
@@ -888,7 +888,8 @@ LLM budgets and the usage ledger (ADR-0015).
   policy per (org, scope, subject).
 - `llm_usage_events`: one row per LLM generation — org/user/project/
   conversation/job attribution, `agent_group` (the call's role, NULL for an
-  agent turn), `activity` (0101: `'ingest'` or NULL), `requested_model`
+  agent turn), `activity` (0101: `'ingest'`; 0107: `'dictation'`; else NULL),
+  `audio_seconds` (0107: seconds a transcription call processed), `requested_model`
   vs served `model`, OpenRouter `generation_id`, token counts (incl. cached +
   reasoning), `cost_usd numeric(14,8)` exactly as OpenRouter reported,
   `cost_source`, `is_byok`, and `message_id` (migration 0098): the chat
@@ -904,6 +905,9 @@ LLM budgets and the usage ledger (ADR-0015).
   `cost_usd`, `events`. Incremented in the same transaction as every ledger
   insert; budget enforcement reads these rows instead of aggregating the
   ledger per WebSocket upgrade. Backfilled from the ledger by the migration.
+  Rows of an unbilled activity (`dictation`) are never added to it, and
+  migration 0107's `llm_usage_events_dictation_unbilled_check` refuses a
+  dictation row with a non-zero `price_usd` or `credits`.
 
 ## skills / jobs / job_runs (migrations 0041, 0043, 0044) — jobs and job_runs LEGACY since 0086
 
@@ -1165,7 +1169,7 @@ flush idempotent.
 | `organization_id` | `text` | Nullable; no FK (ops data outlives tenants) |
 | `conversation_id` | `text` | Client-side chat id; no FK, survives conversation deletion |
 | `turn_id` | `text` | Shared with `agent_profiler_spans.turn_id` — links a defect to its execution timeline |
-| `job_id` | `text` | Async deep-research job id, when the turn ran in a Dask worker |
+| `job_id` | `text` | Async deep-research job id, when the turn ran in a research worker |
 | `agent` | `text` | `shallow` \| `deep` |
 | `kind` | `text` | `turn_verified` \| `citations_removed` \| `quote_unverified` \| `answer_ungrounded` \| `registry_empty` \| `citation_fallback` \| `confidence_capped` |
 | `severity` | `text` | `ok` \| `info` \| `warn` \| `error` — derived from `kind` on the backend, never caller-supplied |
@@ -1257,7 +1261,7 @@ omits it to collapse.
 | `id` | `uuid` | PK, `defaultRandom()` | |
 | `organization_id` | `text` | NOT NULL | A user in two orgs has two inboxes; counts never mix |
 | `recipient_user_id` | `text` | NOT NULL | WorkOS user this is FOR |
-| `type` | `text` | NOT NULL | The item kind. **The list lives in `INBOX_ITEM_TYPES` (`frontends/ui/src/lib/db/schema/inbox.ts`) and is exhaustive over two registries by construction**, so it is not restated here — this row said four types long after there were eight. Today: the four collaboration ones, `storage.quota_warning`, `document.assigned_to_you`, `job.completed` / `job.failed`, `document.review_requested` (ADR-0054, actionable), and `upload.completed` / `document.quarantined` (ADR-0083). |
+| `type` | `text` | NOT NULL | The item kind. **The list lives in `INBOX_ITEM_TYPES` (`frontends/ui/src/lib/db/schema/inbox.ts`) and is exhaustive over two registries by construction**, so it is not restated here — this row said four types long after there were eight. Today: the four collaboration ones, `storage.quota_warning`, `document.assigned_to_you`, `job.completed` / `job.failed`, `document.review_requested` (ADR-0054, actionable), and `upload.completed` / `document.quarantined` (ADR-0085). |
 | `resource_type` / `resource_id` | `text` | NOT NULL | What it points AT — resolved through the sharing registry |
 | `anchor_id` | `text` | | Exact spot inside the resource (a message id), for a deep link |
 | `actor_user_id` | `text` | | Who caused it; NULL for system items |

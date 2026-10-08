@@ -122,7 +122,7 @@ def begin_trace_contributions() -> contextvars.Token:
     Follows the ``cards/registry.py`` token discipline: the caller holds the
     token and passes it to :func:`end_trace_contributions`, which restores
     whatever was bound before. Starting fresh (rather than inheriting) is what
-    keeps a reused Dask worker process from handing job N's tags to job N+1
+    keeps a reused research worker process from handing job N's tags to job N+1
     across tenants.
     """
     return _CONTRIBUTED.set({"metadata": {}, "tags": []})
@@ -189,7 +189,7 @@ def reset_contributions() -> None:
 
     Production code binds per job/turn via :func:`begin_trace_contributions`
     and restores via :func:`end_trace_contributions` in ``finally``, so a
-    reused Dask worker cannot hand job N's tags to job N+1. This helper stays
+    reused research worker cannot hand job N's tags to job N+1. This helper stays
     for tests that need a blank slate without holding a token.
     """
     _CONTRIBUTED.set(None)

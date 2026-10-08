@@ -1,5 +1,5 @@
 /**
- * The name gate (ADR-0083): does a file's path name something the office does
+ * The name gate (ADR-0085): does a file's path name something the office does
  * not want uploaded?
  *
  * Pure and client-safe. The browser runs it before upload, so an excluded file

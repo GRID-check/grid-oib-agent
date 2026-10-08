@@ -83,22 +83,16 @@ export const platform: typeof en.platform = {
     bulkDelete: 'Entfernen',
     bulkDeleteTitle: '{count, plural, one {# Dokument} other {# Dokumente}} entfernen?',
     bulkDeleteDescription:
-      'Hochgeladene Dokumente werden samt allen indexierten Inhalten gelöscht; mitgelieferte Basisdokumente werden aus dem Korpus ausgeschlossen und bei der nächsten Synchronisierung nicht erneut ingestiert. Antworten können sich auf keines davon mehr stützen.',
+      'Die Dokumente werden samt gespeicherten Dateien und allen indexierten Inhalten gelöscht. Antworten können sich auf keines davon mehr stützen. Wird eine Datei erneut hochgeladen, ist sie wieder im Korpus.',
     bulkDeleteConfirm: '{count, plural, one {# Dokument} other {# Dokumente}} entfernen',
     bulkDeleteDone: '{count, plural, one {# Dokument entfernt} other {# Dokumente entfernt}}',
     bulkDeleteFailed:
       '{count, plural, one {# Dokument konnte} other {# Dokumente konnten}} nicht entfernt werden',
     // Detailbereich.
     detailClose: 'Schließen',
-    detailOrigin: 'Herkunft',
     detailChunks: 'Indexierte Abschnitte',
     detailSize: 'Größe',
     detailIngestedAt: 'Indexiert am',
-    origin: {
-      corpus: 'Mit dem Korpus ausgeliefert',
-      uploaded: 'Hochgeladen',
-      index_only: 'Nur im Index — keine Quelldatei',
-    },
     // Leerzustand.
     emptyTitle: 'Noch keine Basisdokumente',
     emptyDescription:
@@ -413,7 +407,7 @@ export const platform: typeof en.platform = {
       'Beendet jede Tiefenrecherche, die wartet oder läuft, in allen Organisationen, und schließt jeden Lauf als abgebrochen.',
     whatTitle: 'Was passiert',
     whatBody:
-      'Jeder wartende oder laufende Job im Job-Store wird als abgebrochen markiert. Wartende Jobs werden verworfen, bevor ein Worker sie übernimmt; laufende Worker sehen den Status und hören auf, unter Dask werden ihre Tasks zwangsweise beendet. Danach wird jeder Lauf als abgebrochen geschlossen: sein Block zeigt nicht mehr „läuft“, und wer ihn beauftragt hat, erhält eine Benachrichtigung.',
+      'Jeder wartende oder laufende Job im Job-Store wird als abgebrochen markiert. Wartende Jobs werden verworfen, bevor ein Worker sie übernimmt; laufende Worker sehen den Status und hören auf. Danach wird jeder Lauf als abgebrochen geschlossen: sein Block zeigt nicht mehr „läuft“, und wer ihn beauftragt hat, erhält eine Benachrichtigung.',
     whenTitle: 'Wann Sie das brauchen',
     whenBody:
       'Wenn Worker hängen, in einer Schleife Tokens verbrauchen oder alle Plätze belegen, sodass nichts Neues starten kann. Läufe, die sich nicht mehr melden, räumt der Ghost-Reaper ohnehin auf; dies ist für die, die sich noch melden und trotzdem aufhören müssen.',
@@ -820,6 +814,7 @@ export const platform: typeof en.platform = {
     revenueMonth: 'Umsatz diesen Monat',
     marginHint: 'Rohmarge {margin}',
     ingestShare: 'davon Ingestion {amount}',
+    dictationShare: 'davon Spracheingabe {amount}',
     ownKeyExcluded: 'Ohne {amount} auf eigenen Schlüsseln von Organisationen',
     requestsMonth: '{count} Anfragen diesen Monat',
   },
@@ -902,18 +897,11 @@ export const platform: typeof en.platform = {
     delete: 'Entfernen',
     deleteTitle: '{name} entfernen?',
     deleteDescription:
-      'Dies löscht die hochgeladene PDF, ihren Registry-Eintrag und alle indexierten Inhalte. Chats können sich nicht mehr darauf stützen.',
+      'Dies löscht die PDF und alle indexierten Inhalte. Chats können sich nicht mehr darauf stützen. Wird die Datei erneut hochgeladen, ist sie wieder im Korpus.',
     deleteConfirm: 'Dokument entfernen',
     deleteCancel: 'Abbrechen',
     deleteSuccess: '{name} aus dem Basis-Korpus entfernt',
     deleteFailed: '{name} konnte nicht entfernt werden',
-    // Entfernen eines mitgelieferten Basisdokuments (aus dem aktiven Korpus ausgeschlossen).
-    corpusDelete: 'Aus Korpus entfernen',
-    corpusDeleteTitle: '{name} aus dem Korpus entfernen?',
-    corpusDeleteDescription:
-      'Dies entfernt ein mitgeliefertes Basisgesetz aus dem aktiven Korpus: Die indexierten Inhalte werden gelöscht und bei der nächsten Synchronisierung nicht erneut ingestiert. Piloti prüft Antworten nicht mehr dagegen.',
-    corpusDeleteConfirm: 'Aus Korpus entfernen',
-    corpusDeleteSuccess: '{name} aus dem Korpus entfernt',
     loadError: 'Die Wissensbasis konnte nicht geladen werden.',
     retry: 'Erneut versuchen',
     chunkCount: '{count} Abschnitte',
