@@ -7,7 +7,7 @@ import { outsideHiddenFolders } from '@/lib/documents/repository'
 
 export interface ProjectOverviewReader {
   /**
-   * Folders whose documents this reader may not see (ADR-0086), from
+   * Folders whose documents this reader may not see (ADR-0087), from
    * `getHiddenFolderIds`. Required, not optional: the overview shows filenames
    * and counts, and a caller that forgot to ask would show every restricted
    * folder's documents to everyone who can open the project.

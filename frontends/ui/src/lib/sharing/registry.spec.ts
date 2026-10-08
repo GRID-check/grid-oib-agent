@@ -40,7 +40,7 @@ describe('SHAREABLE_REGISTRY', () => {
   })
 })
 
-describe('a document is changed by writing in its folder (ADR-0087)', () => {
+describe('a document is changed by writing in its folder (ADR-0088)', () => {
   const tenancy = (folderId: string | null, projectId: string | null = 'proj_1') =>
     ({ organizationId: 'org_1', projectId, folderId, visibility: 'project', createdBy: 'u', filename: 'a.pdf', displayName: null }) as never
 

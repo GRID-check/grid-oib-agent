@@ -76,7 +76,7 @@ const ONE_FACT_ONE_WORD: Record<string, string[]> = {
   /**
    * A file of an upload matched what the project already holds, byte for
    * byte, so it was not sent. The folder-upload plan labels the row before the
-   * upload, and the upload summary counts the same files after it (ADR-0085).
+   * upload, and the upload summary counts the same files after it (ADR-0086).
    */
   'upload: identical file, not sent again': [
     'files.folderUpload.action.unchanged',

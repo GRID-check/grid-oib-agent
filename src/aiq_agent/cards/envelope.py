@@ -147,7 +147,7 @@ REFUSED_RETIRED_TYPE = "retired_type"
 REFUSED_CONFINED = "confined"
 
 #: Card types a turn whose scope holds a restricted folder's collection may not
-#: compose (ADR-0086): accepting one writes something the whole project reads.
+#: compose (ADR-0087): accepting one writes something the whole project reads.
 #: A ``project_profile_patch`` writes the project profile. (``memory_proposal``
 #: is a system card, and the ``remember`` tool never pushes one for a restricted
 #: finding.)
@@ -159,7 +159,7 @@ def _turn_is_confined() -> bool:
 
     The scope read is already narrowed to what the turn may draw on
     (:func:`aiq_agent.knowledge.scoping.get_scoped_collections_from_context`);
-    the bound use adds what the conversation recorded (ADR-0086, ADR-0087).
+    the bound use adds what the conversation recorded (ADR-0087, ADR-0088).
     """
     from aiq_agent.knowledge.restricted_collections import restricted_collections_in
     from aiq_agent.knowledge.restricted_use import current_restricted_use

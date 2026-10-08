@@ -1,5 +1,5 @@
 /**
- * The reads the folder-access decision makes (ADR-0086, ADR-0087). Kept apart
+ * The reads the folder-access decision makes (ADR-0087, ADR-0088). Kept apart
  * from the documents repository so the decision point owns its own SQL.
  *
  * The tree includes deleted folders (migration 0110): in the Papierkorb, and

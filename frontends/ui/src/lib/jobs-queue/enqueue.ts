@@ -31,7 +31,7 @@ export async function enqueueJob(
     priority?: BffJobPriority
     /** The id to give the job, when the caller stamps it on rows in the same transaction. */
     jobId?: string
-    /** Not claimed before this. */
+    /** Hold the job until then: a job handing its work on after a failure waits out a backoff. */
     notBefore?: Date
   },
   /** The caller's transaction, when the job must commit or roll back with its other writes. */

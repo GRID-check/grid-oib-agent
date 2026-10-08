@@ -10,7 +10,7 @@ informed: everyone working in this repo
 
 ## Context and Problem Statement
 
-ADR-0086 gave a folder one switch: open, or restricted to some WorkOS roles.
+ADR-0087 gave a folder one switch: open, or restricted to some WorkOS roles.
 Whoever could see a restricted folder could do everything in it their project
 permission allowed. The product owner, 6 October 2026: "the whole file access,
 simply restricted or not restricted, is way too simple; I want read write
@@ -18,7 +18,7 @@ access control." An office wants the site manager to read the contracts the
 managing director edits, and every member to read the fee folder that only
 accounting may change.
 
-ADR-0086 also decided who may read a conversation that drew on a restricted
+ADR-0087 also decided who may read a conversation that drew on a restricted
 folder by a per-conversation mark and by role lists copied at the time. When a
 folder's list changed, conversations and memory either stayed locked for
 people who may now read the folder or were left open to people who may no
@@ -31,7 +31,7 @@ longer read it.
 * Writing is a second axis and must not change what anyone reads.
 * What was derived from a folder (a chat's record, a remembered note) follows the folder's
   access as it is NOW, without a job that rewrites it.
-* Roles stay in WorkOS (ADR-0007, ADR-0086).
+* Roles stay in WorkOS (ADR-0007, ADR-0087).
 
 ## Considered Options
 
@@ -42,7 +42,7 @@ longer read it.
 
 ## Decision Outcome
 
-Chosen option: per-role read/write grants, because they extend ADR-0086's
+Chosen option: per-role read/write grants, because they extend ADR-0087's
 roles without a second source of truth, keep retrieval's per-collection
 boundary, and give one rule a test table can pin.
 
@@ -84,7 +84,7 @@ were, or whose subtree the mover reads in full, is unaffected.
 **Retrieval keys on READ.** A folder restricts reading when it has its own list
 without `*`. Only such a folder gets its own collection
 (`<project collection>_r<12 hex>`), and a document lives in the collection of
-its nearest read-restricting folder, exactly as in ADR-0086. A list with `*`
+its nearest read-restricting folder, exactly as in ADR-0087. A list with `*`
 decides only who may write; changing who may write moves nothing.
 
 **Every write path asks one function**, `requireFolderWrite` (project ceiling,
@@ -160,13 +160,13 @@ project, a document's creator or the organization blocks the purge.
 **What is derived from restricted content records SOURCE FOLDER IDS** and is
 judged against the current grants when it is read:
 
-* a conversation's use, per person (`conversation_restricted_folders`, migration 0111): content
+* a conversation's use, per person (`conversation_restricted_folders`, migration 0112): content
   from a folder not every member may read enters the model's context only after the BFF
   admitted that use against the asker and everyone the conversation is shared with, under the
   advisory lock every widening takes (`POST /api/internal/conversations/[id]/restricted-use`).
   The agent narrows each turn's scope to what may be drawn on, admits each tool round before
   the model reads it, and keeps restricted collections out of every listing. Sharing allows a
-  person who may read every recorded folder now. This replaces ADR-0086's per-socket
+  person who may read every recorded folder now. This replaces ADR-0087's per-socket
   confinement check and its `4412` close.
 
   **The admission (amended 6 October 2026).** Every tool call REPORTS the collections it returns
@@ -190,7 +190,7 @@ judged against the current grants when it is read:
   folder's collection only when the asker and the conversation's audience may read the folder
   now. Without an envelope (a job worker) that route never answers for a restricted folder's
   collection;
-* restricted memory (`project_memory.restricted_folder_ids`, migration 0112), shown to a person
+* restricted memory (`project_memory.restricted_folder_ids`, migration 0113), shown to a person
   who may read all of its folders now, and served into a chat only after its folders are
   admitted for that conversation.
 
@@ -250,7 +250,7 @@ recorded folders.
   shape (level CHECK, role CHECK, 1–20 entries by a deferred constraint trigger, RLS).
 * Good, because a change of a folder's list takes effect for conversations and memory derived
   from it at the next read, with no revocation job.
-* Bad, because the 0110 down migration drops every access list: an older build knows no folder
+* Bad, because the 0111 down migration drops every access list: an older build knows no folder
   access, so every folder has to inherit again in the product first, or the documents filed in a
   `_r…` collection leave everybody's scope.
 * Bad, because roles are looked up in WorkOS per person and organization at most once a minute;
@@ -262,7 +262,7 @@ recorded folders.
   `tests/aiq_agent/knowledge/test_collection_read_inventory.py`, and a tool that reads must name
   the test proving it reports. A tool bound outside Piloti's `ToolNode` gets no admission at
   all; deep research is one, and stays safe only because a run's scope never holds a restricted
-  collection (ADR-0086).
+  collection (ADR-0087).
 * Bad, because `GET /api/internal/document-file` still answers by name for an open collection
   when no envelope is presented (a job worker has none to forward); the envelope check binds the
   chat tool, which always echoes one, and the internal token is the same secret that signs
@@ -434,7 +434,7 @@ recorded folders.
 ### Per-user grants on a folder
 
 * Good, because "this one person" needs no role.
-* Bad, because offices already think in roles (ADR-0086), and a person-by-person list goes stale
+* Bad, because offices already think in roles (ADR-0087), and a person-by-person list goes stale
   as people join and leave; WorkOS has no per-user grant to mirror it.
 * Bad, because the retrieval collection is per folder, not per person, so per-user grants would
   still collapse to "who may read" per folder.
@@ -443,7 +443,7 @@ recorded folders.
 
 * Good, because it is a managed authorization service with relations and inheritance.
 * Bad, because FGA is additive: "a child folder is narrower than its parent" needs exclusions,
-  which WorkOS lists as coming soon (the same reason ADR-0086 rejected it).
+  which WorkOS lists as coming soon (the same reason ADR-0087 rejected it).
 * Bad, because every folder and every change would be mirrored into WorkOS, a second source of
   truth for the tree, and every listing would call out per folder.
 
@@ -454,14 +454,14 @@ recorded folders.
 
 ## More Information
 
-* Supersedes the parts of [ADR-0086](0086-folder-access-follows-workos-roles-and-a-restricted-folder-is-its-own-collection.md)
+* Supersedes the parts of [ADR-0087](0087-folder-access-follows-workos-roles-and-a-restricted-folder-is-its-own-collection.md)
   that decided who may see a folder (roles on `restricted_roles`), the per-conversation mark and
-  the per-socket confinement check, and restricted memory keyed by collection. ADR-0086's
+  the per-socket confinement check, and restricted memory keyed by collection. ADR-0087's
   retrieval collection per restricted folder, its egress refusals and its IFC rule stand.
 * User guide: [`sensitive-data-and-access.md`](../user-guides/sensitive-data-and-access.md#who-may-read-and-edit-a-folder).
 * The download log is built: [`user-guides/download-log.md`](../user-guides/download-log.md) (what it records,
   retention, who reads it, the works-council note), the table in
-  [`database/schema.md`](../database/schema.md#document_access_log-migration-0113-adr-0085), and
+  [`database/schema.md`](../database/schema.md#document_access_log-migration-0114-adr-0085), and
   `lib/download-log/service.ts` — `recordDocumentAccess` is called by every function that hands a
   document's bytes to a person, held to the list by `coverage.spec.ts`.
 * Decided by the product owner on 6 Oct 2026 (`plans/2026-10-06-folder-access-lifecycle.md`):

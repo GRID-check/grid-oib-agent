@@ -1,6 +1,6 @@
 /**
- * Who may read and who may write which folders of a project (ADR-0086,
- * ADR-0087) — the one place that decides.
+ * Who may read and who may write which folders of a project (ADR-0087,
+ * ADR-0088) — the one place that decides.
  *
  * A folder either inherits its parent's access (`accessMode: 'inherit'`; a root
  * folder inherits the project) or has its own access list (`'custom'`): grants

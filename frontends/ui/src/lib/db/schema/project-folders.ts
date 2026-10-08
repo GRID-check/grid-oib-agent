@@ -68,7 +68,7 @@ export const projectFolders = pgTable('project_folders', {
   /**
    * Whether the folder inherits its parent's access (`inherit`, the default; a
    * root folder inherits the project) or has its own access list (`custom`,
-   * rows in `project_folder_grants`), migration 0110, ADR-0087. A custom list
+   * rows in `project_folder_grants`), migration 0111, ADR-0088. A custom list
    * holds 1–20 grants (deferred constraint trigger). `lib/authz/folder-access.ts`
    * is the one place that decides what it means.
    */

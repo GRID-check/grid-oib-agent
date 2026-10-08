@@ -713,6 +713,8 @@ services:
       # share surfaces and the mention picker do not exist and the
       # /api/inbox|sharing|mentions|stream routes 403.
       - GRID_COLLABORATION_ENABLED=${GRID_COLLABORATION_ENABLED:-false}
+      - GRID_MAIL_IMPORT_ENABLED=${GRID_MAIL_IMPORT_ENABLED:-false}
+      - GRID_MAIL_IMPORT_MAX_BYTES=${GRID_MAIL_IMPORT_MAX_BYTES:-}
       # IFC/BIM models (ADR-0045). ON by default; set false to withdraw the
       # feature without turning on flag enforcement for everything else.
       - GRID_IFC_MODELS_ENABLED=${GRID_IFC_MODELS_ENABLED:-true}
@@ -779,8 +781,9 @@ services:
     # has that BFF run them a bounded slice at a time, so a job survives a
     # restart and never runs inside the frontend that proxies chat. The kinds:
     # project reindex, failed-ingestion rescan, IFC extraction, Office-to-PDF
-    # rendition (through gotenberg) and the filing of a finished research
-    # report. Without this service none of them runs. On Kubernetes this is a
+    # rendition (through gotenberg), the filing of a finished research
+    # report, and the filing of an imported Outlook archive (ADR-0085).
+    # Without this service none of them runs. On Kubernetes this is a
     # Deployment scaled by KEDA on the queue; here it is one replica.
     #
     # The frontend's own environment, by alias: the jobs call the same services

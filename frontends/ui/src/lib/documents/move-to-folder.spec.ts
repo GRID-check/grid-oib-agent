@@ -197,7 +197,7 @@ describe('moveDocumentToFolder', () => {
   })
 })
 
-describe('moveDocumentToFolder across a restriction (ADR-0086)', () => {
+describe('moveDocumentToFolder across a restriction (ADR-0087)', () => {
   const access = (overrides: Partial<ProjectFolderAccess>): ProjectFolderAccess => ({
     hiddenFolderIds: new Set(),
     isVisible: () => true,
@@ -243,7 +243,7 @@ describe('moveDocumentToFolder across a restriction (ADR-0086)', () => {
     expect(fetchSpy).not.toHaveBeenCalled()
   })
 
-  // Restricted folders do not hold IFC models (ADR-0086): the model's building
+  // Restricted folders do not hold IFC models (ADR-0087): the model's building
   // data is keyed by project, so the move would hide the file and leave the
   // building open.
   it('refuses to move an IFC model into a restricted folder, with a 409', async () => {
@@ -273,7 +273,7 @@ describe('moveDocumentToFolder across a restriction (ADR-0086)', () => {
     expect(result.ok).toBe(true)
     expect(db.updates[0].folderId).toBe('folder-1')
   })
-  it('asks for a write on BOTH folders, and moves nothing out of or into one the session may only read (ADR-0087)', async () => {
+  it('asks for a write on BOTH folders, and moves nothing out of or into one the session may only read (ADR-0088)', async () => {
     db.selects = [[{ ...DOCUMENT, folderId: 'folder-vertraege' }], [{ id: 'folder-1', path: 'Brandschutz' }]]
     vi.mocked(requireFolderWrite).mockRejectedValueOnce(folderReadOnlyError())
 
