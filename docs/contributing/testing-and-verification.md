@@ -37,9 +37,10 @@ Then run `task verify:fast` before you push.
 
 ## Traps the task list cannot tell you about
 
-**Spec type errors block the production build.** The UI `tsconfig` includes test
-files, so a type error in a `.spec.tsx` fails `next build`, not just the test
-run. A green `task fe:types` is what tells you the build will typecheck.
+**`next build` does not typecheck the specs; `task fe:types` does.** The build
+reads `frontends/ui/tsconfig.build.json` (`typescript.tsconfigPath` in
+`next.config.ts`), which leaves specs and test helpers out of its roots, so a
+type error in a test fails `fe:types` and never the production build.
 
 **`task db:test:rls` is a required merge check and is not part of `task
 verify`.** It needs PostgreSQL server binaries, so it runs separately. Run it
@@ -52,10 +53,10 @@ on a developer's machine. Each of those files also carries a
 `GRID_RLS_SUITE_REQUIRED` guard so the CI job fails if the database goes
 missing instead of skipping green.
 
-**Backend tests need `PYTHONPATH=src`.** Without it pytest resolves `aiq_agent`
-from whatever the venv has installed, possibly another worktree, and validates
-the wrong code while appearing to pass. `Taskfile.yml` sets it. Call `pytest`
-directly and you own it again.
+**Backend tests run against this checkout's `src/`.** Without a guard, pytest
+resolves `aiq_agent` from whatever the venv has installed, possibly another
+worktree, and validates the wrong code while appearing to pass. `pyproject.toml`'s
+`pythonpath` puts `src/` first, so a bare `pytest` is safe as well as the Taskfile.
 
 **The base-corpus tests run on SQLite by default, and the Postgres paths need
 `GRID_TEST_CORPUS_DB`.** `tests/test_corpus_store.py`, `test_oib_sync.py`,
@@ -83,6 +84,23 @@ while the suite is sharded six ways (`fe:test:shard`) and stitched back together
 by `fe:test:merge` for the coverage comment. Run in series on one runner, the
 tests were about 63% of the job's wall clock. Locally `task fe:verify` runs lint,
 types, tests and build in order instead.
+
+A push to `develop` or `release/**` whose tree a green pull request run already
+tested does not run the jobs again. CI and Security still start and conclude
+`success` (the deploy gate reads exactly that), but `changes` finds the PR
+run's `ci-green-<tree>` / `security-green-<tree>` marker and every job skips. A
+squash merge onto a base that did not move lands that tree; a base that moved
+lands a different one and runs in full. The decision and every reason to refuse
+a marker (a cancelled, failed or still-running run, a fork, another workflow, a
+workflow file that differs from the pushed one, an expired marker, an API
+error) live in [`ci/reuse_green_run.py`](../../ci/reuse_green_run.py) and
+[`tests/test_reuse_green_run.py`](../../tests/test_reuse_green_run.py);
+[`tests/test_ci_change_detection.py`](../../tests/test_ci_change_detection.py)
+evaluates every job's condition to pin that a hit skips all of them and a miss
+skips none. What a reused push gives up: Semgrep's full-tree report (advisory
+on push anyway), and a trivy re-scan against an advisory database up to the
+marker's seven days newer, which on push only ever ran when the image pins
+changed. The weekly scan covers both.
 
 Three required checks are not in `task verify` at all: `db:test:rls` (it needs
 PostgreSQL server binaries), `pkg:test` (four minutes, on a directory most
@@ -261,9 +279,7 @@ mode and the dev-indicator badge that lands in your shot:
 There is no coverage workflow and no committed gallery. Both were removed: the
 gallery was 348 MB of git history that nothing ever compared, and the workflow
 only checked that a PNG file had appeared, never what was in it. A reviewer
-looking at an attachment is the check. The **Visual evidence** workflow that
-asked for the block in the PR body is paused (its check step is commented out
-in `.github/workflows/visual-evidence.yml`).
+looking at an attachment is the check.
 
 ## Mobile evidence
 
@@ -311,8 +327,8 @@ its passage; this asks what the reader waited for and what they got.
   the totals), tool calls, reasoning tokens and the largest single-call
   spike (seconds follow reasoning tokens at ~85 tok/s, and the spike is where
   run-to-run variance comes from), `first_text_s` (seconds until the reader
-  saw the answering call's prose), the pipeline's own signals (a flagged quote, a quote patch, the terminal frame
-  replacing the settled text, a gated summary, a dropped mindmap, prose outside
+  saw the answering call's prose), the pipeline's own signals (a flagged
+  quote, a quote patch, the terminal frame replacing the settled text, a gated summary, a dropped mindmap, prose outside
   the envelope, a salvaged envelope, an escalation to deep research), and
   every check. The signals are `_LOG_SIGNALS` in
   [`scripts/turn_census/suite.py`](../../scripts/turn_census/suite.py).
@@ -323,8 +339,8 @@ its passage; this asks what the reader waited for and what they got.
   and re-checks it against the question set as it is now, re-reading each
   run's recording beside it, without paying for the runs again.
 - **Flags:** `--only <id> …` runs the named questions (an unknown id, or
-  one that needs a project, exits 2 and says which). `--runs N` sets runs per question (default 2), `--workers N` how many run
-  at once (default 3). `--override KEY VALUE` sets a config value for every
+  one that needs a project, exits 2 and says which). `--runs N` sets runs per
+  question (default 2), `--workers N` how many run at once (default 3). `--override KEY VALUE` sets a config value for every
   run, in `nat run` dot notation, and repeats. `--all`, `--baseline`,
   `--report` and `--ingest` are described above and below.
 
@@ -349,23 +365,8 @@ It needs `OPENROUTER_API_KEY` (or `OPENROUTER_KEY`) and the corpus
 (`-- --ingest` queues the corpus's ingest jobs and runs them in the suite's own process first). Every run costs model calls: the core set at two runs is twelve
 turns, about four minutes three at a time.
 
-**The CI run is paused.** `.github/workflows/answer-suite.yml` is commented
-out behind a stub that only runs by hand, so the `answer-suite` label no longer
-starts anything: run the suite yourself, before and after, as above, and put
-the report in the PR. What the workflow did, for when it is restored (the
-header of that file says how):
-
-On a PR, the `answer-suite` label made CI run it: the base and the head, the head's
-report with its baseline deltas as one sticky comment, re-run on every push
-while the label stays on. It needs the repository secrets `OPENROUTER_API_KEY`
-and `OIB_CORPUS_URL`, and fails fast without them. The corpus is the
-operator's and never committed; the deployment serves it for exactly this at
-`https://<app domain>/api/internal/oib-corpus` (the PDFs production ingests,
-as one .tar.gz), with the deployment's `GRID_CORPUS_EXPORT_TOKEN` in the
-`OIB_CORPUS_TOKEN` secret. The ingest is cached on the corpus version (`OIB_CORPUS_VERSION`, a
-repository variable to bump when the corpus changes) and the ingestion code.
-Opt-in rather than on every PR because every run is paid model calls. Its
-bookkeeping is also covered offline by
+Run it yourself, before and after, as above, and put the report in the PR.
+Its bookkeeping is also covered offline by
 [`tests/test_answer_suite.py`](../../tests/test_answer_suite.py). The
 September 2026 measurements it grew out of are in
 [turns-per-answer-audit-2026-09.md](../architecture/turns-per-answer-audit-2026-09.md).
