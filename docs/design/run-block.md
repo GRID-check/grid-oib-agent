@@ -159,8 +159,11 @@ things sit beside it rather than instead of it:
   `unterbrochen` with a banner that says it was the reader's choice.
 - **„Dokument hinzufügen"**, while the run is *researching*, when a caller
   offers it: a dialog over the thread lists the project's and the Archiv's
-  documents, and one press names one as Grundlage. The addition travels as a
-  job event (`POST /v1/jobs/async/job/{id}/documents`), the research tool
+  documents, and one press names one as Grundlage. The addition goes through
+  the run primitive (`POST /api/projects/{id}/runs/{runId}/documents`), which
+  refuses a document from a folder not every project member may read
+  (ADR-0086), and travels as a job event
+  (`POST /v1/jobs/async/job/{id}/documents`), the research tool
   plans it into its next batch, and the receipt shows the row at once, unread
   until a round reaches it. A row already named offers no second add.
 - **„Bericht fortschreiben"**, on a finished or interrupted run, when a caller

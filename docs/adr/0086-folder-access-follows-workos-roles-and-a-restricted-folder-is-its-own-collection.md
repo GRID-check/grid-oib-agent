@@ -144,6 +144,16 @@ envelope is also refused on the envelope's own restricted collections:
   the document is cleared for everything the thread could have drawn on.
   Generated documents go to the root folder „Berichte", so in practice this
   refuses unless „Berichte" is itself the project's one restricted folder.
+- a run's Unterlagen (`requirePlanDocumentsOpen`, `details.action`
+  `planDocument`), in `commissionResearchRun` on both lists and in
+  `addRunDocument`. This door is about the document, not the conversation: a
+  cleared member can pick a restricted document from their own inventory in an
+  open thread, and its name and title then reach every member through the
+  run's plan, its job stream and the report's „Nicht gelesene Unterlagen",
+  which ADR-0084 opens to every `project:chat` member. A plan document is a
+  file name, so it is resolved against every project document by that name,
+  restricted folders and archived rows included, and refused when any of them
+  sits in a folder not every member may read; an Archiv entry is not checked.
 
 The agent does not offer what will be refused: a turn whose signed scope holds a
 restricted collection withdraws deep research and tasks for the turn, its

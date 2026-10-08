@@ -30,6 +30,17 @@ against the folders' current access; `lib/conversations/restricted-egress.ts`):
 Filing is allowed only into a living folder whose path carries every folder
 the conversation recorded.
 
+**A run's Unterlagen** are refused the same way, with `details.action`
+`planDocument`, whichever conversation they come from: `POST /api/projects/{id}/runs`
+and `POST /api/internal/tasks` (`op: research`) when `documents` names one on
+either list, and `POST /api/projects/{id}/runs/{runId}/documents`. A document
+counts when any project document by that file name, archived ones included,
+sits in a folder not every member may read; an Archiv entry is not checked
+(`requirePlanDocumentsOpen`). The name and title would otherwise reach every
+member through the run's plan, its job stream and the report's „Nicht gelesene
+Unterlagen" (ADR-0084). Refused before a run row exists or the backend hears of
+the document.
+
 ## Writes in a read-only folder (ADR-0087)
 
 Every route that writes in a folder (upload, new folder, rename, move, delete,
