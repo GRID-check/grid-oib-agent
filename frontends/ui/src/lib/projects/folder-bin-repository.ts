@@ -625,7 +625,7 @@ export const BIN_LIST_LIMIT = 200
 /**
  * The project's bin entries, newest first: each deleted folder's root, with
  * what it holds as the reader may count it. A held file of somebody else is
- * not in the number (ADR-0085): a count that moves when a colleague's upload
+ * not in the number (ADR-0086): a count that moves when a colleague's upload
  * lands in a binned folder says it is there.
  */
 export async function listBinEntries(

@@ -158,7 +158,7 @@ export const makeDocument = (overrides: Partial<Document> = {}): Document => ({
   folderId: null,
   ...overrides,
   // The verdict on record is about the bytes the row holds unless a test says
-  // otherwise (migration 0122): a fixture that sets a digest has been screened
+  // otherwise (migration 0123): a fixture that sets a digest has been screened
   // as that digest.
   screenedHash: 'screenedHash' in overrides ? (overrides.screenedHash ?? null) : (overrides.contentHash ?? null),
   visibility: overrides.visibility ?? 'project',

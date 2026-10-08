@@ -273,7 +273,7 @@ export function DocumentLifecyclePanel({
         setListing(previous)
         if (error instanceof DocumentLifecycleError && isHeldRefusal(error)) {
           // Not a stand that moved: the file is still held by its screening
-          // (ADR-0085), and the draft stays a draft until it passes.
+          // (ADR-0086), and the draft stays a draft until it passes.
           toast.error(t('lifecycle.errors.held'))
         } else if (error instanceof DocumentLifecycleError && error.status === 409) {
           toast.error(t('lifecycle.errors.conflict'))

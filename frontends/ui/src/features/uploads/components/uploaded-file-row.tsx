@@ -194,7 +194,7 @@ export function UploadedFileRow({
         )}
         {document.outcome === 'failed' && document.screening === null && (
           // Its reading ended before the check had a verdict, so colleagues do
-          // not see it until a reviewer releases it (ADR-0085); a retry of an
+          // not see it until a reviewer releases it (ADR-0086); a retry of an
           // IFC too large to read fails the same way.
           <RequestReleaseButton documentId={document.id} name={name} />
         )}

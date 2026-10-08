@@ -394,7 +394,7 @@ async function readObjectText(
 /**
  * The version's text, read for a session that may read its document; nothing
  * is recorded here. `forModel` when a model reads the text rather than the
- * person: a held document (ADR-0085) reaches no model, whoever's session
+ * person: a held document (ADR-0086) reaches no model, whoever's session
  * fetches it, its uploader and its reviewers included, and neither do a
  * version's bytes the verdict on record did not judge.
  */
@@ -434,7 +434,7 @@ export async function readVersionContent(
  * and the reviewer never receives these bytes, so there is no hand-over to
  * record. `coverage.spec.ts` lists the exemption with this reason. A model
  * reads it, so a document whose screening has not passed answers 404 here
- * (ADR-0085), for its reviewer as much as anyone.
+ * (ADR-0086), for its reviewer as much as anyone.
  */
 export async function readVersionTextForTask(
   session: AuthorizedSession,
@@ -535,7 +535,7 @@ export async function readVersionForService(
   ) {
     throw new NotFoundError('Version not found')
   }
-  // A held document (ADR-0085) never reaches a model, not even as the subject
+  // A held document (ADR-0086) never reaches a model, not even as the subject
   // its own uploader opened a chat about: nobody's own uploads count here.
   const document = await findDocumentInOrg(version.documentId, organizationId, SCREENED_ONLY)
   // The verdict is about the item's bytes; these are the version's.

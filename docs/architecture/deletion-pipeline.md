@@ -124,7 +124,7 @@ keeps the `document_metadata` row with the Dokumentart, title and folder a
 person set on it. A re-upload that fails to index leaves the previous version in
 place and takes back out any of its own chunks that were already inserted; one
 the upload screen quarantines takes the previous version's chunks out at once,
-since the quarantine holds the whole document until a reviewer acts (ADR-0085); two
+since the quarantine holds the whole document until a reviewer acts (ADR-0086); two
 re-uploads of one name at once are serialised, so the later one is what stays
 ([document ingestion](../technical-reference/document-ingestion.md#a-re-upload-replaces-the-previous-version-once-it-has-indexed)).
 

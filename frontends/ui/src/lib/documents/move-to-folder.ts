@@ -63,7 +63,7 @@ export async function moveDocumentToFolder(
 
   // The document is read FIRST and without a shelf permission check, because
   // the shelf it is on is what the permission is checked against. It is read
-  // org-scoped and through the hold (ADR-0085), so a document in another
+  // org-scoped and through the hold (ADR-0086), so a document in another
   // tenant, or a held file this session neither uploaded nor reviews, is
   // simply not found.
   const document = await findDocumentForSession(session, input.documentId)

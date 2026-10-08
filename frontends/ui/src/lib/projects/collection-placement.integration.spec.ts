@@ -302,7 +302,7 @@ describe.skipIf(!url)('collection placement against Postgres', () => {
 
   // A quarantined row moves with its folder, so the file lands in the right
   // collection once a reviewer releases it, and stays quarantined: only a
-  // release takes it out (ADR-0085, migration 0121's trigger), so it is
+  // release takes it out (ADR-0086, migration 0122's trigger), so it is
   // re-pointed without the hand-off to the re-read job, which would set it
   // `processing`. The release dispatches it into the collection it is in.
   it('moves a quarantined row without handing it to the re-read, and it stays quarantined', async () => {

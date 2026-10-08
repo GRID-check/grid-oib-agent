@@ -187,7 +187,7 @@ export async function requirePlanDocumentsOpen(
   // No folder has its own list, so every folder is read by every member.
   if (!folders.some((folder) => folder.accessMode === 'custom')) return
   const tree = folderTree(folders)
-  // Every row by that name, held ones included (ADR-0085): the answer is only
+  // Every row by that name, held ones included (ADR-0086): the answer is only
   // ever a refusal, and a held file in a restricted folder is still there.
   const rows = await findProjectDocumentsByFilenames(projectId, organizationId, names, {
     includeArchived: true,

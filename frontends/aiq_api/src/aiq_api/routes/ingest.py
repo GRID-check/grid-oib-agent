@@ -192,7 +192,7 @@ def _job_config(request: IngestRequest, organization_id: str | None, dispatch_ke
     elif request.preview_ref and request.thumbnail_upload_url:
         # An office original indexed from its own bytes (a spreadsheet) has a
         # thumbnail only through its rendition. The job downloads it and draws
-        # it once the file's screening has passed (ADR-0085); drawn here, in a
+        # it once the file's screening has passed (ADR-0086); drawn here, in a
         # background task, it was a derivative of a file nobody had screened.
         # A file read from its rendition draws from that one download instead.
         config["preview_paths"] = [DeferredObjectDownload(request.preview_ref, suffix=".pdf")]

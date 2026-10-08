@@ -144,7 +144,7 @@ describe('getProjectOverviewData', () => {
   })
 
   it("leaves somebody else's held file out of the count, the total size and the recent list", async () => {
-    // ADR-0085. The recent list names the file; for a reader who neither
+    // ADR-0086. The recent list names the file; for a reader who neither
     // uploaded it nor reviews the quarantine, a file the screening has not
     // passed is not there: the one predicate, `documentVisibleTo`.
     await getProjectOverviewData(PROJECT_ID, ORG_ID, { hiddenFolderIds: [], reader: memberReader('user-member') })

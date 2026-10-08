@@ -440,7 +440,7 @@ async def test_a_spreadsheet_preview_is_left_to_the_job_which_draws_it_after_the
     """An office original indexed from its own bytes (a workbook) has a
     thumbnail only through its rendition. The route used to draw it in a
     background task, before the job had read a word of the file, so a workbook
-    the content gate quarantined already had a thumbnail (ADR-0085). Now the
+    the content gate quarantined already had a thumbnail (ADR-0086). Now the
     route fetches and PUTs nothing: the rendition is the job's deferred
     download (``preview_paths``), drawn only once the screen passes. The URL
     stays out of the config's repr."""

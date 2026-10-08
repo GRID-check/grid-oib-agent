@@ -1014,7 +1014,7 @@ falling back to the content-aware SVG sketch (`DocumentKindThumbnail`).
 2. The PUT URL is passed to the backend's `/v1/ingest` as
    `thumbnail_upload_url`.
 3. The ingest job draws the thumbnail once the file's upload screen has
-   passed, never before (ADR-0085): page 0 of a PDF after its text screen, or
+   passed, never before (ADR-0086): page 0 of a PDF after its text screen, or
    an image itself once it passes on its name, via `pypdfium2`/PIL → 400px
    JPEG. A quarantined file gets none. For a Word or presentation file,
    `.xls` or `.ods`, the PDF is the rendition from `extraction_ref`
@@ -1032,7 +1032,7 @@ falling back to the content-aware SVG sketch (`DocumentKindThumbnail`).
   browser-facing GET URL for `_thumb.jpg`. Returns `{ url: string | null }`;
   `null` means no thumbnail exists (a type with none, an office original whose
   conversion failed, or a render that failed) or the file is held, its
-  screening not passed (ADR-0085), whoever asks.
+  screening not passed (ADR-0086), whoever asks.
 
 **Frontend:**
 - `ThumbnailWithFallback` (file-browser-pane.tsx) and

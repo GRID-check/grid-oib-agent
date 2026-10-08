@@ -34,7 +34,7 @@ export const SESSION_DOCUMENT_LIST_LIMIT = 100
 export async function listSessionDocuments(
   conversationId: string,
   organizationId: string,
-  /** Who reads the chat's attachments (ADR-0085); see `ListProjectDocumentsOptions.reader`. */
+  /** Who reads the chat's attachments (ADR-0086); see `ListProjectDocumentsOptions.reader`. */
   reader: DocumentReader,
   limit = SESSION_DOCUMENT_LIST_LIMIT,
 ): Promise<DocumentListRow[]> {
@@ -112,7 +112,7 @@ export async function listSessionDocumentsForCleanup(
   )
 }
 
-/** Load one session document by id, scoped to its organization, as `reader` may see it (ADR-0085). */
+/** Load one session document by id, scoped to its organization, as `reader` may see it (ADR-0086). */
 export async function findSessionDocument(
   documentId: string,
   organizationId: string,

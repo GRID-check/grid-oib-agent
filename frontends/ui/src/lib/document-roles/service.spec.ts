@@ -36,7 +36,7 @@ const repo = vi.hoisted(() => ({
   hiddenDocumentIds: [] as string[],
   /**
    * Documents held by their upload screening and uploaded by somebody else
-   * (ADR-0085): a member's reader does not see them, as the real SQL does not.
+   * (ADR-0086): a member's reader does not see them, as the real SQL does not.
    */
   heldDocumentIds: [] as string[],
   // A project whose intake was never saved: the column holds `{}`, which
@@ -46,7 +46,7 @@ const repo = vi.hoisted(() => ({
   profile: emptyProfile() as ProjectProfile | null,
 }))
 
-// How the session reads the project's held files (ADR-0085): a member here.
+// How the session reads the project's held files (ADR-0086): a member here.
 vi.mock('@/lib/upload-screening/quarantine-reviewers', () => ({
   shelfReaderFor: vi.fn(async () => ({ kind: 'member', userId: 'user-1' })),
 }))
@@ -277,8 +277,8 @@ describe('revokeDocumentRole', () => {
   })
 
   // The binding is answered the way its document is: a colleague's held upload
-  // (ADR-0085) and a file in a folder this session is not cleared for
-  // (ADR-0086) are not there for it, to list or to remove.
+  // (ADR-0086) and a file in a folder this session is not cleared for
+  // (ADR-0087) are not there for it, to list or to remove.
   it('answers 404 for a binding to a held file the session may not see, and removes nothing', async () => {
     repo.bindings = [binding({ id: 'binding-held', documentId: 'doc-held' })]
     repo.heldDocumentIds = ['doc-held']

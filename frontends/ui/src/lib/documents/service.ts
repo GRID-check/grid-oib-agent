@@ -453,7 +453,7 @@ export async function dispatchIngest(
   // Read from the row rather than threaded through every caller; a failed read
   // books the spend to the organization alone, never fails the dispatch.
   const attribution = await findDocumentInOrg(documentId, organizationId, internalRead('ingest')).catch(() => null)
-  // The content gate's rules (ADR-0085). Every path into the index passes this
+  // The content gate's rules (ADR-0086). Every path into the index passes this
   // line — upload, re-ingest, re-index, Archiv, chat, the IFC digest — so the
   // gate is not something a new caller has to remember. A policy that cannot
   // be read sends nothing: the row fails with a retry offered.
@@ -560,7 +560,7 @@ export async function listDocumentsPage(
 
   // `limit` is deliberately not passed: the repository's own default is the
   // page size, and a second copy of it here could drift from the real one.
-  // A file in quarantine is listed for its uploader and its reviewers only (ADR-0085).
+  // A file in quarantine is listed for its uploader and its reviewers only (ADR-0086).
   const reader = await shelfReaderFor(session, { scope: 'project', projectId })
   const page = await listProjectDocumentPage(projectId, session.organizationId, {
     hiddenFolderIds: await getHiddenFolderIds(session, projectId),
@@ -2232,7 +2232,7 @@ export async function deleteDocument(
   documentId: string,
   request: Request
 ): Promise<void> {
-  // Through the hold (ADR-0085): a member who may not see a held file is told
+  // Through the hold (ADR-0086): a member who may not see a held file is told
   // it does not exist, rather than allowed to delete it.
   const doc = await findDocumentForSession(session, documentId)
   if (!doc || doc.scope !== 'project' || doc.projectId === null) throw new NotFoundError()
@@ -2499,7 +2499,7 @@ export async function getDocumentPreview(
   // full-size upload down to the box it is rendered in. Null for PDFs, SVGs and
   // the exotic formats above, whose callers fall back to `url` unoptimized.
   //
-  // Null for a held file too (ADR-0085). That URL is a bearer capability the
+  // Null for a held file too (ADR-0086). That URL is a bearer capability the
   // optimizer fetches without a session, so `streamDocumentImage` serves only
   // screened files through it: the session that minted it (a reviewer, the
   // uploader) is not there to be asked again. The pane falls back to `url`,
@@ -2670,7 +2670,7 @@ export async function getDocumentThumbnail(
 ): Promise<{ url: string | null }> {
   const doc = await getAccessibleDocument(session, documentId)
   if (!doc.storageKey) return { url: null }
-  // No derivative of a held file (ADR-0085), for its uploader and its reviewers
+  // No derivative of a held file (ADR-0086), for its uploader and its reviewers
   // too: the ingest draws one only after the screen passes, and one left from
   // earlier bytes or an earlier verdict is not this file's to show.
   if (!hasPassedScreening(doc)) return { url: null }
@@ -2732,7 +2732,7 @@ export async function getDocumentThumbnail(
  * tenant-scoped exactly as the session path is.
  *
  * What may have changed since the mint is asked again: the folder, and the
- * hold (ADR-0085). A re-upload keeps the document's id, so a URL minted for a
+ * hold (ADR-0086). A re-upload keeps the document's id, so a URL minted for a
  * member before the new bytes were held would otherwise go on serving their
  * thumbnail, or for an image the image itself, until it expired.
  */
@@ -2752,7 +2752,7 @@ export async function streamDocumentImage(
 
   const { organizationId, userId, variant } = verified.claims
   // Screened files only, whatever the variant and whoever the URL names
-  // (ADR-0085). The claims carry a person, not their standing: a reviewer's or
+  // (ADR-0086). The claims carry a person, not their standing: a reviewer's or
   // an uploader's right to a held file is a session check this sessionless
   // fetch cannot repeat, so neither `getDocumentPreview` nor
   // `getDocumentThumbnail` mints one of these URLs for a held file, and one
@@ -2819,7 +2819,7 @@ export async function getDocumentStatus(session: AuthorizedSession, documentId: 
   // Pending rows are lazily reconciled with the backend's ingestion state;
   // without this they would stay 'pending' forever (no completion callback).
   const [reconciled] = await reconcileDocumentStatuses([doc], session.organizationId)
-  // The rule again, on the row the reconcile handed back (ADR-0085): a file
+  // The rule again, on the row the reconcile handed back (ADR-0086): a file
   // re-read under an earlier pass can come back `quarantined`, and the read
   // above only let it through on that earlier verdict.
   if (!hasPassedScreening(reconciled) && !(await maySeeHeld(session, reconciled))) throw new NotFoundError()

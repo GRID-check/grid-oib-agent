@@ -53,14 +53,14 @@ function sourceDeletedAtOf(metadata: unknown): string | null {
 export async function toListedDocuments(
   session: AuthorizedSession,
   rows: DocumentListRow[],
-  /** The reader the rows' query was narrowed by (`shelfReaderFor`, ADR-0085). */
+  /** The reader the rows' query was narrowed by (`shelfReaderFor`, ADR-0086). */
   reader: ShelfReader,
 ): Promise<ListedDocument[]> {
   // Pending rows are lazily reconciled with the backend's ingestion state;
   // without this they would stay 'pending' forever (no completion callback).
   // A row the query let through on an earlier verdict (a re-index of a file
   // that passed before) can come back `quarantined`: it is narrowed again here,
-  // by the same rule, after the verdict (ADR-0085).
+  // by the same rule, after the verdict (ADR-0086).
   const reconciled = keepReadable(await reconcileDocumentStatuses(rows, session.organizationId), reader)
 
   const listed = reconciled.map(({ metadata, createdBy: _createdBy, screeningOutcome: _screening, screenedHash: _screened, ...row }) => ({

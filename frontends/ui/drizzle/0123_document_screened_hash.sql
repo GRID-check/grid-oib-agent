@@ -1,4 +1,4 @@
--- 0122: a verdict names the bytes it judged (ADR-0085, amended 2026-10-08).
+-- 0122: a verdict names the bytes it judged (ADR-0086, amended 2026-10-08).
 --
 -- `screening_outcome` was a fact about "the current bytes" that every writer of
 -- `storage_key`/`content_hash` had to remember to reset. The upload's replace

@@ -646,7 +646,7 @@ describe.skipIf(!url)('the Papierkorb against live Postgres (migration 0115)', (
       expect((await queueRow(folder.verwaltung))[0]?.status).toBe('restored')
     })
 
-    it("counts a colleague's held upload only for the people who may see it (ADR-0085)", async () => {
+    it("counts a colleague's held upload only for the people who may see it (ADR-0086)", async () => {
       // Still being screened, uploaded by somebody else: not the project's yet.
       await inOrg(() =>
         db.execute(sql`
@@ -825,7 +825,7 @@ describe.skipIf(!url)('the Papierkorb against live Postgres (migration 0115)', (
   describe('a binned document is not handed to anyone (the download log’s readers all ask the folder rule first)', () => {
     it('refuses every reader, admins included, and a capability URL’s re-check, as not found', async () => {
       const documents = inTenant(await import('@/lib/documents/access'))
-      // Screened, with a verdict about the bytes it holds (ADR-0085).
+      // Screened, with a verdict about the bytes it holds (ADR-0086).
       await inOrg(() => db.execute(sql`UPDATE documents SET screening_outcome = 'clean' WHERE id = ${doc.archiv}::uuid`))
       await bin.moveFolderToBin(pl, { projectId, folderId: folder.plaene })
       for (const session of [pl, gf, manager, admin]) {
@@ -837,7 +837,7 @@ describe.skipIf(!url)('the Papierkorb against live Postgres (migration 0115)', (
       // judged its bytes, though the restore reads it again.
       await bin.restoreFolderFromBin(pl, { projectId, folderId: folder.plaene })
       await expect(documents.getAccessibleDocument(pl, doc.archiv)).resolves.toMatchObject({ id: doc.archiv })
-      // One with no verdict passes the hold only at rest (ADR-0085), so it is
+      // One with no verdict passes the hold only at rest (ADR-0086), so it is
       // its uploader's and its reviewers' while it is read again, and everyone's after.
       await expect(documents.getAccessibleDocument(pl, doc.plan)).rejects.toMatchObject({ status: 404 })
       await expect(documents.getAccessibleDocument(manager, doc.plan)).resolves.toMatchObject({ id: doc.plan })

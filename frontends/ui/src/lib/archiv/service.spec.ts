@@ -279,7 +279,7 @@ describe('listArchiv', () => {
     await listArchiv(session, { includeArchived: true, authoredBy: 'agent' })
 
     // A member who does not curate the Büroablage is listed only the
-    // held files they uploaded (ADR-0085).
+    // held files they uploaded (ADR-0086).
     expect(listArchivDocuments).toHaveBeenCalledWith('org-1', {
       includeArchived: true,
       authoredBy: 'agent',

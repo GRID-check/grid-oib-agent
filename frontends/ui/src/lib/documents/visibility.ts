@@ -1,5 +1,5 @@
 /**
- * The one visibility predicate over `documents` (ADR-0085, amended 2026-10-08).
+ * The one visibility predicate over `documents` (ADR-0086, amended 2026-10-08).
  *
  * A person's upload is held back from its upload until its screening passes:
  * only its uploader and the quarantine's reviewers may see it, list it, probe
@@ -45,7 +45,7 @@ function passedScreening(): SQL {
     or(
       ne(documents.authoredBy, 'user'),
       and(
-        // The verdict judged the bytes the row holds now (migration 0122).
+        // The verdict judged the bytes the row holds now (migration 0123).
         sql`${documents.screenedHash} IS NOT DISTINCT FROM ${documents.contentHash}`,
         or(
           and(isNotNull(documents.screeningOutcome), inArray(documents.screeningOutcome, [...SCREENING_PASSED_OUTCOMES])),

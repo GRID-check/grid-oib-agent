@@ -1,5 +1,5 @@
 /**
- * Who may look at a held document (ADR-0085), asked of a session.
+ * Who may look at a held document (ADR-0086), asked of a session.
  *
  * A person's upload is held back until the content gate passes it, and a
  * quarantined one until a reviewer releases it: it is not the project's yet, so
@@ -49,7 +49,7 @@ export async function mayReviewQuarantine(session: AuthorizedSession, doc: Revie
 }
 
 /**
- * Whether this session may see this held document (ADR-0085): its uploader, or
+ * Whether this session may see this held document (ADR-0086): its uploader, or
  * one of its reviewers. Asked only of a row that is held; the shelf's own rule
  * still applies on top of it.
  */
@@ -61,7 +61,7 @@ export async function maySeeHeld(
 }
 
 /**
- * The reader a listing of `place` takes for this session (ADR-0085): a
+ * The reader a listing of `place` takes for this session (ADR-0086): a
  * reviewer of that place's quarantine, who sees every row, or a member, who
  * sees the screened rows and the held rows they uploaded.
  *

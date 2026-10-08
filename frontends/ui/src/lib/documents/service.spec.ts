@@ -2048,7 +2048,7 @@ describe('getDocumentStatus', () => {
 
   // A file re-read under an earlier pass comes back `quarantined` from the
   // reconcile; the read let it through on the earlier verdict, so the rule is
-  // asked again of what the reconcile returned (ADR-0085).
+  // asked again of what the reconcile returned (ADR-0086).
   describe('when the reconcile quarantines the file', () => {
     const reread = makeDocument({ status: 'pending', screeningOutcome: 'clean', createdBy: 'someone-else' })
 

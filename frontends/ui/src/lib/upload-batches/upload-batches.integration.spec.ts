@@ -164,7 +164,7 @@ describe.skipIf(!url)('upload batches against Postgres', () => {
     // the row in flight before and resolved job-1 must not land on job-2's
     // dispatch, though the status it saw is the row's status again. Through
     // the release and the dispatch after it, the one way out of quarantine
-    // (migration 0121).
+    // (migration 0122).
     await inTenant(ORG, () => db.execute(sql`UPDATE documents SET content_hash = 'sha256:lohn' WHERE id = ${id}::uuid`))
     expect(
       await documentsRepo.markScreeningReleased(id, ORG, {

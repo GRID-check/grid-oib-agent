@@ -755,7 +755,7 @@ export async function reconcileDocumentStatuses<T extends ReconcilableDocument>(
         ? { screeningOutcome: resolution.screeningOutcome }
         : {}
     // And the bytes it judged, as `setDocumentReconciledStatus` writes them
-    // (migration 0122): the digest the dispatch recorded.
+    // (migration 0123): the digest the dispatch recorded.
     const dispatchedHash = recordedIngestHash(row.metadata)
     const judged =
       resolution?.status === 'completed' && 'screenedHash' in row && dispatchedHash !== null
