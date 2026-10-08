@@ -15,7 +15,7 @@ The root ``CLAUDE.md`` of this repository was exactly that for its whole life â€
 the ten bytes ``AGENTS.md\\n`` â€” so every Claude session ran with the root guide
 silently absent. It is the second time this repo has shipped a committed text
 file containing a path that never resolved; the first was ten "symlinks" under
-``.claude/skills/`` (see docs/contributing/gotchas.md).
+``.claude/skills/``, committed as mode 100644 rather than 120000.
 
 A missing guide has no symptom, which is what makes it worth a gate rather than
 a gotcha entry.

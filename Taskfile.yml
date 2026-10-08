@@ -29,11 +29,6 @@ vars:
   # are Python packaging facts rather than shell facts: a virtualenv puts its
   # executables in `Scripts/` on Windows and `bin/` everywhere else. Stated once
   # here so no task has to know about it.
-  #
-  # `uv run` would sidestep the whole question, but not in this repo: it
-  # resolves an environment without the `sources/` workspace packages, so the
-  # knowledge-layer tests fail to import. The venv that `uv sync --group dev`
-  # builds is the one that works.
   VENV_BIN: '{{if eq OS "windows"}}.venv/Scripts{{else}}.venv/bin{{end}}'
   EXE: '{{if eq OS "windows"}}.exe{{end}}'
   PY: '{{.VENV_BIN}}/python{{.EXE}}'
