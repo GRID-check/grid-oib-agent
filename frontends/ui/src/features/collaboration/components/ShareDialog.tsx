@@ -110,7 +110,7 @@ const MAX_CANDIDATES = 6
 
 /**
  * Someone who cannot be invited: not in the project yet, or unable to read a
- * folder the chat drew on (ADR-0085). Shown, disabled, with the reason.
+ * folder the chat drew on (ADR-0087). Shown, disabled, with the reason.
  */
 const isBlocked = (candidate: ShareCandidate): boolean =>
   candidate.needsProjectAccess || candidate.lacksFolderAccess === true

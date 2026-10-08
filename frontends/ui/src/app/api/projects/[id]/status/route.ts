@@ -1,5 +1,5 @@
 /**
- * Close or reopen a project (ADR-0086). Thin handler; who may, and the audit
+ * Close or reopen a project (ADR-0088). Thin handler; who may, and the audit
  * trail, live in `setProjectStatus` (`@/lib/projects/service`).
  */
 

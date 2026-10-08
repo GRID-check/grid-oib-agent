@@ -60,7 +60,7 @@ class TestDecoding:
     def test_each_encoding_is_read_whole(self, data, encoding):
         text, used = decode_text(data)
         assert used == encoding
-        assert text.lstrip("﻿").startswith("Geschoßfläche")
+        assert text.lstrip("\ufeff").startswith("Geschoßfläche")
 
     def test_bytes_no_codepage_defines_fall_back_to_latin1_not_to_nothing(self):
         # 0x81 is undefined in cp1252 and invalid UTF-8.

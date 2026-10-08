@@ -54,7 +54,7 @@ interface ProjectSettingsProps {
   /** Accounts a Steckbrief person may be linked to. */
   steckbriefAccounts?: readonly SteckbriefAccount[]
   /**
-   * Folders whose roles were deleted since (ADR-0085), for a project manager;
+   * Folders whose roles were deleted since (ADR-0087), for a project manager;
    * empty or omitted shows nothing.
    */
   foldersWithoutRole?: readonly FolderWithoutRole[]
@@ -67,7 +67,7 @@ interface ProjectSettingsProps {
   canManageProject?: boolean
   /**
    * Whether the user manages who is a member. Like {@link canManageProject},
-   * except that it stays true in a closed project (ADR-0086), which is
+   * except that it stays true in a closed project (ADR-0088), which is
    * read-only for everything but its members and its status.
    */
   canManageMembers?: boolean
@@ -233,7 +233,7 @@ export function ProjectSettings({
       </StaggerItem>
 
       {/* Uploads — who brought how many files in when, and how they ended
-          (ADR-0083, ticket „Verlauf/Protokoll"). Read-only reference beside
+          (ADR-0085, ticket „Verlauf/Protokoll"). Read-only reference beside
           the roster; each uploader's own rows open their summary. */}
       <StaggerItem>
         <section aria-label={tUploads('history.title')} className="space-y-4">
@@ -261,7 +261,7 @@ export function ProjectSettings({
         </StaggerItem>
       )}
 
-      {/* Close or reopen (ADR-0086): the one change a closed project allows. */}
+      {/* Close or reopen (ADR-0088): the one change a closed project allows. */}
       {canChangeStatus && (
         <StaggerItem>
           <ProjectLifecycleCard projectId={data.id} status={data.status} closedAt={data.closedAt} />

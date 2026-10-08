@@ -214,7 +214,7 @@ _CHAT_SCREENING_TIMEOUT_SECONDS = 3.0
 
 @dataclass(frozen=True)
 class ChatScreening:
-    """What a chat socket masks a message with (ADR-0083, "Chat messages are screened too").
+    """What a chat socket masks a message with (ADR-0085, "Chat messages are screened too").
 
     ``rules`` is ``None`` when the office switched screening off or emptied both
     lists. ``from_office`` is False for the fail-closed fallback, which a socket

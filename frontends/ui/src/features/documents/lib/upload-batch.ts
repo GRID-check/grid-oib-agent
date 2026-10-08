@@ -1,5 +1,5 @@
 /**
- * The browser's half of an upload batch (migration 0108, ADR-0083): open one
+ * The browser's half of an upload batch (migration 0109, ADR-0085): open one
  * before the first file goes, seal it after the last answer.
  *
  * Neither call may fail an upload. The files are what the person asked for;

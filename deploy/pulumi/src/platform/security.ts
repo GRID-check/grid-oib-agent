@@ -7,9 +7,9 @@ import * as k8s from "@pulumi/kubernetes";
  * container so a compromised process can't escalate, keep host capabilities, or
  * escape the default seccomp sandbox.
  *
- * `readOnlyRootFilesystem` is intentionally left off: the backend writes
- * `/app/data`, the frontend keeps a Next.js runtime cache, and the workers write
- * a `/tmp` liveness marker. The four levers below are the ones that harden
+ * `readOnlyRootFilesystem` is intentionally left off: the backend caches the
+ * base corpus under `/tmp`, the frontend keeps a Next.js runtime cache, and the
+ * workers write a `/tmp` liveness marker. The four levers below are the ones that harden
  * without breaking those writes.
  */
 export function hardenedContainerSecurityContext(): k8s.types.input.core.v1.SecurityContext {

@@ -9,17 +9,17 @@ Unified API plugin for the AI-Q blueprint: **Knowledge API** (collections, docum
 
 ```bash
 # Loads API keys from deploy/.env; NeMo Agent toolkit auto-creates:
-# - Local Dask cluster
 # - SQLite database at .tmp/job_store.db
-dotenv -f deploy/.env run nat serve --config configs/config_oib_openrouter.yml
+GRID_ROLE=api dotenv -f deploy/.env run nat serve --config configs/config_oib_openrouter.yml
 ```
 
-### Production (PostgreSQL + Dask Cluster)
+`GRID_ROLE` is required and has no default (ADR-0082): `api` serves the HTTP routes, `chat` the chat socket (run it on another port beside the `api` process when the UI is in use, as `scripts/start_e2e.sh` does). Ingestion is claimed by `GRID_ROLE=ingest-worker python deploy/entrypoint.py`; without one, set `GRID_INGEST_QUEUE=off` and `api` runs ingest jobs itself.
+
+### Production (PostgreSQL)
 
 ```bash
-export NAT_DASK_SCHEDULER_ADDRESS="tcp://scheduler:8786"
 export NAT_JOB_STORE_DB_URL="postgresql://user:pass@host:5432/dbname"
-dotenv -f deploy/.env run nat serve --config configs/config_oib_openrouter.yml
+GRID_ROLE=api dotenv -f deploy/.env run nat serve --config configs/config_oib_openrouter.yml
 ```
 
 ## Architecture
@@ -31,10 +31,10 @@ dotenv -f deploy/.env run nat serve --config configs/config_oib_openrouter.yml
 │                                                                 │
 │   nat.front_ends.fastapi/                                       │
 │   ├── job_store.py      # JobStore, JobStatus, JobInfo         │
-│   ├── async_job.py      # Dask task patterns                   │
-│   └── config.py         # db_url, scheduler_address            │
+│   ├── async_job.py      # async job patterns                   │
+│   └── config.py         # db_url                               │
 │                                                                 │
-│   Provides: Job tracking, Dask scheduling, SQLite/PostgreSQL   │
+│   Provides: Job tracking, SQLite/PostgreSQL                    │
 └─────────────────────────────────────────────────────────────────┘
                               │
                               ▼
@@ -161,7 +161,7 @@ Events streamed during job execution:
 | Mode | Async Jobs | Database | Notes |
 |------|------------|----------|-------|
 | **CLI** (`nat run`) | No | None | Agents run via WebSocket |
-| **Web** (`nat serve`) | Yes | `./jobs.db` (or `front_end.db_url`) | Auto-creates Dask + SQLite |
+| **Web** (`nat serve`) | Yes | `./jobs.db` (or `front_end.db_url`) | Auto-creates SQLite |
 | **Production** | Yes | PostgreSQL | Set `NAT_JOB_STORE_DB_URL` or `front_end.db_url` |
 
 ### NAT Config File
@@ -186,7 +186,6 @@ functions:
 
 | Variable | Purpose | Default |
 |----------|---------|---------|
-| `NAT_DASK_SCHEDULER_ADDRESS` | Dask scheduler | Auto-created local |
 | `NAT_JOB_STORE_DB_URL` | Job store + event store database | `sqlite+aiosqlite:///./jobs.db` (or via front_end.db_url) |
 
 
@@ -347,7 +346,6 @@ When the `aiq_debug` package is installed, the plugin registers a debug console 
 | Feature | NAT `/generate/async` | `/v1/jobs/async` |
 |---------|----------------------|------------|
 | Job tracking | JobStore | Same JobStore |
-| Dask scheduling | Yes | Yes |
 | Database | SQLite/Postgres | Same |
 | **Agent-agnostic** | No | Yes |
 | **SSE streaming** | No | Real-time events |

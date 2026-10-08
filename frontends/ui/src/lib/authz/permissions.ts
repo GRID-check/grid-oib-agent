@@ -36,7 +36,7 @@ export const ORG_PERMISSIONS = {
   complianceManage: 'org:compliance:manage',
   /** View the org's audit trail (native WorkOS Audit Logs viewer/exports). */
   auditView: 'org:audit:view',
-  /** Read the download log: who took which document out (ADR-0085). Reading it is audited. */
+  /** Read the download log: who took which document out (ADR-0087). Reading it is audited. */
   downloadLogView: 'org:downloads:view',
   /** Manage the org-wide document Archiv (upload/delete/reingest/retag). */
   archivManage: 'org:archiv:manage',

@@ -118,7 +118,7 @@ describe('GET /api/auth/websocket-scope gate-then-fanout', () => {
     buildProposalDecisionsBlock.mockResolvedValue('decisions')
   })
 
-  it('asks for an INTERACTIVE CHAT scope, the only one that may carry restricted folders (ADR-0084)', async () => {
+  it('asks for an INTERACTIVE CHAT scope, the only one that may carry restricted folders (ADR-0086)', async () => {
     await upgrade('?projectId=proj_q&conversationId=s_mine')
 
     expect(buildCollectionScopeFromRequest).toHaveBeenCalledWith(SESSION, {
@@ -128,7 +128,7 @@ describe('GET /api/auth/websocket-scope gate-then-fanout', () => {
     })
   })
 
-  it('names no document of a restricted folder in the legacy inline project context and serves open memory only, whatever the scope carries (ADR-0084, ADR-0085)', async () => {
+  it('names no document of a restricted folder in the legacy inline project context and serves open memory only, whatever the scope carries (ADR-0086, ADR-0087)', async () => {
     // Listing is not use: the shared, cached prompt view names no restricted
     // document for anyone, and restricted memory reaches a turn only through
     // the live per-turn digest, which admits its folders for the conversation.

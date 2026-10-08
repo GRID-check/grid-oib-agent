@@ -1,6 +1,6 @@
 /**
  * Commissioning from inside a thread is offered only where a run may file:
- * never in a closed project (ADR-0086), whose BFF refuses the run with 403
+ * never in a closed project (ADR-0088), whose BFF refuses the run with 403
  * `project-closed`. Null hides „Klären" and „Bericht fortschreiben".
  */
 import type { ReactNode } from 'react'

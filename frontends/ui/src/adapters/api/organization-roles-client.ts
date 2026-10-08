@@ -1,5 +1,5 @@
 /**
- * Organization roles client (ADR-0084): the office's roles and its own custom
+ * Organization roles client (ADR-0086): the office's roles and its own custom
  * roles, through their first-party BFF routes.
  *
  *   - list   → `GET    /api/organization/roles`
@@ -43,7 +43,7 @@ const RoleResponseSchema = z.object({ role: OrganizationRoleSchema })
 export type OrganizationRole = z.infer<typeof OrganizationRoleSchema>
 export type AssignablePermission = z.infer<typeof AssignablePermissionSchema>
 export type OrganizationRoles = z.infer<typeof OrganizationRolesSchema>
-/** The folders that name a role: `total` always, `folders` only for someone who may read them (ADR-0085). */
+/** The folders that name a role: `total` always, `folders` only for someone who may read them (ADR-0087). */
 export type RoleUsage = z.infer<typeof RoleUsageSchema>
 export type RoleFolderUse = z.infer<typeof RoleFolderUseSchema>
 

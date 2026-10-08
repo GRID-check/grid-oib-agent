@@ -159,7 +159,7 @@ async function purgeProject(tx, entry, deps) {
 
   //    Every OTHER collection the project's own documents name. A document
   //    filed under a restricted folder lives in that folder's collection,
-  //    `<project collection>_r<12 hex>` (ADR-0084), not in the project's, so a
+  //    `<project collection>_r<12 hex>` (ADR-0086), not in the project's, so a
   //    purge given only the project's name left every restricted folder's
   //    chunks — the files a restriction exists for — readable in Chroma after
   //    the rows that named them were gone. Read here, before step 4 cascades
@@ -167,7 +167,7 @@ async function purgeProject(tx, entry, deps) {
   //
   //    DISTINCT over the rows rather than derived from the folders: a document
   //    records the collection it was ingested into, and a re-classification
-  //    moves the row only after the old collection was purged (ADR-0084), so
+  //    moves the row only after the old collection was purged (ADR-0086), so
   //    the rows name every collection that still holds this project's chunks.
   const documentCollections = /** @type {{ collection_name: string | null }[]} */ (
     await tx`
@@ -202,7 +202,7 @@ async function purgeProject(tx, entry, deps) {
     await purgeBackendCollection(deps, fetchImpl, sessionCollection, [])
   }
 
-  // 1c. The restricted folders' collections (ADR-0084). Same contract as 1b:
+  // 1c. The restricted folders' collections (ADR-0086). Same contract as 1b:
   //     one call each, a hold re-checked before each, and a failure throws
   //     before anything below has run, so the rows naming them drive the retry.
   //     Session collections are not in this set (their rows have no
@@ -303,16 +303,19 @@ async function purgeProject(tx, entry, deps) {
   }
 
   await assertNoHold(tx, entry)
-  // 3. WorkOS FGA resource (+ role assignments). Already-gone is success.
-  try {
-    await workos.authorization.deleteResourceByExternalId({
-      organizationId: orgId,
-      resourceTypeSlug: 'project',
-      externalId: projectId,
-      cascadeDelete: true,
-    })
-  } catch (error) {
-    if (!isNotFound(error)) throw error
+  // 3. WorkOS FGA resource (+ role assignments). Already-gone is success. No
+  //    WorkOS environment means no resource was ever created (`PurgeDeps.workos`).
+  if (workos) {
+    try {
+      await workos.authorization.deleteResourceByExternalId({
+        organizationId: orgId,
+        resourceTypeSlug: 'project',
+        externalId: projectId,
+        cascadeDelete: true,
+      })
+    } catch (error) {
+      if (!isNotFound(error)) throw error
+    }
   }
 
   // 4. grid_app rows: the collaboration rows FIRST, then conversations
