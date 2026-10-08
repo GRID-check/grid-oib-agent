@@ -1,5 +1,5 @@
 /**
- * The OIB base corpus as one .tar.gz, for CI: the answer-suite run
+ * The OIB base corpus as one .tar.gz for the answer-suite run
  * (`task be:eval:answer-suite`) ingests it to run the reference
  * questions against the corpus production indexes.
  *

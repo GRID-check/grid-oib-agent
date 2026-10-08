@@ -184,10 +184,23 @@ def _as_program_sees_it(lines: list[tuple[int, str]], path: str, block_lines: se
     return out
 
 
+_COMPLETE_BLOCK = re.compile(r"/\*.*?\*/")
+
+
 def _is_script_comment(text: str, in_block: bool) -> bool:
-    if text.startswith(("//", "/*", "*/")):
+    """A line is a comment only when nothing of it is code once comments are removed.
+
+    `/* note */ export const X = 1` is code: dropping the line would hide a change
+    to `X` from the release-note check.
+    """
+    if text.startswith("//"):
         return True
-    return in_block and text.startswith("*")
+    if in_block and text.startswith("*") and not text.startswith("*/"):
+        return True
+    if text.startswith("*/"):
+        text = text[2:]
+    rest = _COMPLETE_BLOCK.sub("", text).strip()
+    return not rest or rest.startswith("/*")
 
 
 def _unescape(text: str) -> str:

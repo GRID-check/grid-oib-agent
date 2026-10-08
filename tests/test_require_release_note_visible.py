@@ -122,3 +122,20 @@ def test_a_binary_change_is_visible_because_it_cannot_be_read(check):
 
 def test_an_empty_diff_is_no_change(check):
     assert not check.visible_change(TS, "")
+
+
+def test_code_after_an_inline_block_comment_is_visible(check):
+    # The line is a comment and code: changing LIMIT changes the program.
+    diff = hunk(
+        "-/* istanbul ignore next */ export const LIMIT = 1", "+/* istanbul ignore next */ export const LIMIT = 2"
+    )
+
+    assert check.visible_change(TS, diff)
+
+
+def test_an_inline_block_comment_alone_is_no_change(check):
+    assert not check.visible_change(TS, hunk("-/* old */", "+/* new */"))
+
+
+def test_code_after_a_closing_block_comment_is_visible(check):
+    assert check.visible_change(TS, hunk("-*/ return 1", "+*/ return 2"))
