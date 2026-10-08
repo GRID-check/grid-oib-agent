@@ -76,8 +76,8 @@ const count = (n: number) => (n === 1 ? t.monthCountOne : t.monthCount.replace('
       ) : (
         <>
           <div data-reveal class="mt-14 space-y-12">
-            {open.map((release) => (
-              <ChangelogRelease release={release} locale={locale} />
+            {open.map((release, i) => (
+              <ChangelogRelease release={release} locale={locale} newest={i === 0} />
             ))}
           </div>
 

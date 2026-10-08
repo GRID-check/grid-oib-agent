@@ -1,7 +1,7 @@
 /**
  * @vitest-environment node
  *
- * The Project Memory panel's service (ADR-0084, ADR-0085): a restricted note is
+ * The Project Memory panel's service (ADR-0086, ADR-0087): a restricted note is
  * listed, edited and deleted only by a session that may read all of its source
  * folders now, and such a reader is told which folders it came from. For anyone else it
  * is absent — the listing never asks for it, and an edit or delete by id
@@ -45,7 +45,7 @@ import { makeMemoryItem } from '@/test-utils/db-fixtures'
 import { deleteProjectMemoryItem, listProjectMemory, updateProjectMemoryItem } from './memory-service'
 import { editProjectMemoryItem, getProjectMemory, removeProjectMemoryItem } from './service'
 
-/** The source folder of a restricted note (ADR-0085). */
+/** The source folder of a restricted note (ADR-0087). */
 const CONTRACTS = 'aaaaaaaa-0000-4000-8000-000000000001'
 
 const SESSION: AuthorizedSession = {
@@ -85,7 +85,7 @@ describe('getProjectMemory', () => {
     expect(items.find((item) => item.id === 'restricted')).not.toHaveProperty('sourceDeletedAt')
   })
 
-  it('says when the folder a note came from was purged, for „Quelle gelöscht am …" (ADR-0085)', async () => {
+  it('says when the folder a note came from was purged, for „Quelle gelöscht am …" (ADR-0087)', async () => {
     vi.mocked(readableFolderIdsFor).mockResolvedValue([CONTRACTS])
     vi.mocked(customFolderNames).mockResolvedValue(new Map([[CONTRACTS, 'Verträge']]))
     vi.mocked(purgedFolderDates).mockResolvedValue(new Map([[CONTRACTS, new Date('2026-10-20T03:00:00Z')]]))

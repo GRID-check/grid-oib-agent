@@ -48,7 +48,7 @@ export type SessionDocumentRow = z.infer<typeof SessionDocumentRowSchema>
 export function sessionDocumentFileStatus(status: string): DocumentFileStatus {
   const facts = documentStatusFacts(status)
   if (facts?.phase === 'in-flight') return 'ingesting'
-  // A quarantined attachment (ADR-0083) is not readable either, and saying
+  // A quarantined attachment (ADR-0085) is not readable either, and saying
   // „success" would tell the chat it can be asked about.
   return facts?.variant === 'destructive' || facts?.variant === 'warning' ? 'failed' : 'success'
 }

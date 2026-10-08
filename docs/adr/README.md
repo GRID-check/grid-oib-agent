@@ -141,11 +141,13 @@ Consequences, where a reader looks for them.
 | [0080](0080-chat-drops-affinity-for-the-conversation-bus.md) | Chat drops conversation affinity for the conversation bus, and the backend scales on turn occupancy | Proposed |
 | [0081](0081-every-model-call-passes-one-priority-aware-provider-limiter.md) | Every model call passes one priority-aware provider limiter that adapts to 429s | Proposed |
 | [0082](0082-backend-roles-are-split-by-job-and-named-after-it.md) | Backend roles are split by job, and named after it | Proposed |
-| [0083](0083-uploads-are-screened-locally-and-matches-wait-in-quarantine.md) | Uploads are screened locally before any model sees them, and matches wait in quarantine | Accepted |
-| [0084](0084-folder-access-follows-workos-roles-and-a-restricted-folder-is-its-own-collection.md) | Folder access follows WorkOS roles, and a restricted folder is its own retrieval collection (partly superseded by 0085) | Accepted |
-| [0085](0085-folder-access-is-read-write-per-role.md) | Folder access is read/write per role | Accepted |
-| [0086](0086-a-closed-project-is-read-only-and-open-to-the-office.md) | A closed project is read-only and open to the whole office | Accepted |
-| [0087](0087-the-steckbrief-keeps-people-apart-from-the-profile.md) | The Steckbrief keeps its people apart from the profile | Accepted |
+| [0083](0083-postgres-connections-go-through-a-transaction-pooler.md) | Postgres connections go through a transaction pooler; session features take a direct connection | Proposed |
+| [0084](0084-the-backend-authorizes-a-job-by-the-scope-the-bff-signed.md) | The backend authorizes a job by the scope the BFF signed | Proposed |
+| [0085](0085-uploads-are-screened-locally-and-matches-wait-in-quarantine.md) | Uploads are screened locally before any model sees them, and matches wait in quarantine | Accepted |
+| [0086](0086-folder-access-follows-workos-roles-and-a-restricted-folder-is-its-own-collection.md) | Folder access follows WorkOS roles, and a restricted folder is its own retrieval collection (partly superseded by 0085) | Accepted |
+| [0087](0087-folder-access-is-read-write-per-role.md) | Folder access is read/write per role | Accepted |
+| [0088](0088-a-closed-project-is-read-only-and-open-to-the-office.md) | A closed project is read-only and open to the whole office | Accepted |
+| [0089](0089-the-steckbrief-keeps-people-apart-from-the-profile.md) | The Steckbrief keeps its people apart from the profile | Accepted |
 | [0088](0088-ausmisten-proposes-from-metadata-and-bins-through-a-subfolder.md) | „Ausmisten" proposes from metadata, and bins through a subfolder of each document's folder | Accepted |
 
 > Note: 0027, 0039, 0044 and 0047 were each independently used twice, every

@@ -29,6 +29,7 @@ from aiq_agent.knowledge.schema import FileProgress
 from aiq_agent.knowledge.schema import FileStatus
 from aiq_agent.knowledge.schema import IngestionJobStatus
 from aiq_agent.knowledge.schema import JobState
+from aiq_agent.knowledge.schema import stable_file_id
 
 # ---------------------------------------------------------------------------
 # Per-page PDF reading
@@ -477,7 +478,11 @@ def test_a_prepared_job_is_vouched_for_by_the_process_that_runs_it(tmp_path, mon
 
         assert ran == [prepared.job_id]
         assert running._live_job_ids() == [prepared.job_id]
-        assert [f.file_name for f in running._files.values()] == ["a.txt"]
+        # The file's id is derived, so the process that runs the job and the one
+        # that prepared it name the file alike.
+        assert [(d.file_name, d.file_id) for d in running._jobs[prepared.job_id].file_details] == [
+            ("a.txt", stable_file_id("proj_1", "a.txt"))
+        ]
     finally:
         ingest_status_store._initialized.discard(url)
 

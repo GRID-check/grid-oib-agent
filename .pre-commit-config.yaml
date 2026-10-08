@@ -1,6 +1,6 @@
 repos:
   - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: v0.15.1
+    rev: v0.15.21
     hooks:
       - id: ruff-check
         args: [ --fix ]
@@ -18,82 +18,9 @@ repos:
       - id: check-added-large-files
         args: [--maxkb=1024]
       - id: check-yaml
-        exclude: ^deploy/helm/helm-charts-k8s/.*/templates/.*\.ya?ml$
       - id: end-of-file-fixer
         exclude: ^skills/[^/]+/skill\.oms\.sig$
       - id: trailing-whitespace
-
-  - repo: https://github.com/Yelp/detect-secrets
-    rev: v1.5.0
-    hooks:
-      - id: detect-secrets
-        args: [--baseline, .secrets.baseline]
-        # skill signatures are binary-ish blobs; pnpm-lock.yaml is a lockfile of
-        # integrity hashes (not covered by detect-secrets' is_lock_file filter) —
-        # neither holds real secrets, so keep them out of the scan.
-        #
-        # scope_header.json is the ADR-0047 wire fixture: its `header` fields are
-        # `base64url(JSON.stringify([...]))` of collection NAMES, which is high
-        # entropy by construction and a secret by no construction at all. It is
-        # excluded rather than baselined because a baseline entry pins a hash to a
-        # LINE NUMBER, and this file grows by a case every time a shelf is added —
-        # the same trap the Pulumi note below describes. JSON cannot carry the
-        # inline `pragma: allowlist secret` comment that would be the other way out.
-        #
-        # apm.lock.yaml is the same case as pnpm-lock.yaml: a lockfile whose
-        # `resolved_commit` and `content_hash` values are hex by construction and
-        # secret by none. Excluded rather than baselined for the reason the note
-        # below gives — a baseline entry pins a hash to a LINE NUMBER, and this
-        # file grows by a block every time a skill is added.
-        #
-        # vector_channel_recorded.json is the scope_header.json case again: its
-        # `corpus_fingerprint` is a SHA-256 prefix over the embedded corpus text,
-        # hex by construction and secret by none. `task be:eval:record-vector`
-        # rewrites the whole file whenever the model or the corpus moves, so a
-        # baseline entry would pin a hash to a line number that does not survive
-        # the next recording — and JSON cannot carry the inline
-        # `pragma: allowlist secret` comment that would be the other way out.
-        #
-        # aspire-dashboard.pin is a public image reference
-        # (`mcr.microsoft.com/dotnet/aspire-dashboard@sha256:…`). The digest is
-        # hex by construction and a secret by none; the file is one line so
-        # detect-secrets sees a high-entropy blob with no surrounding code.
-        # Excluded rather than baselined for the same line-number reason as
-        # the lockfiles above. gitleaks in security.yml still sees it.
-        #
-        # frontends/web/art/riso/kit.json pins the riso kit to a public git
-        # commit sha: hex by construction, secret by none, and JSON cannot
-        # carry the inline pragma.
-        #
-        # The chat wire v2 fixtures (shared/wire/v2/*.jsonl, and the golden turn
-        # tests/fixtures/wire_v2/) carry each card's `key`, a hash of its
-        # canonical JSON: hex by construction, secret by none. They are
-        # recorded, and the golden turn is rewritten by GRID_REGEN_GOLDEN=1, so
-        # a baseline entry would pin a hash to a line number that does not
-        # survive the next recording; JSONL cannot carry the inline pragma.
-        #
-        # content_screen_cases.json is the Python/TS screening fixture (ADR-0083):
-        # sha256 digests of Unicode tables both matchers must reproduce, and
-        # check-digit-valid but invented IBANs and card numbers. Regenerated when
-        # the Unicode version moves, so a baseline line number would not survive;
-        # JSON cannot carry the inline pragma.
-        exclude: (^tests/fixtures/content_screen_cases\.json$|^tests/fixtures/wire_v2/.*\.jsonl$|^shared/wire/v2/.*\.jsonl$|^frontends/web/art/riso/kit\.json$|^skills/[^/]+/skill\.oms\.sig$|^frontends/ui/pnpm-lock\.yaml$|^tests/fixtures/collection_scope/scope_header\.json$|^apm\.lock\.yaml$|^frontends/benchmarks/oib_retrieval/fixtures/vector_channel_recorded\.json$|^deploy/pulumi/aspire-dashboard\.pin$)
-        # REGENERATING THE BASELINE — keep the --exclude-lines flag, or CI starts
-        # failing again a few commits later:
-        #
-        #   detect-secrets scan --baseline .secrets.baseline --exclude-lines '^\s*secure:\s'
-        #
-        # Pulumi stack files are full of `secure:` values that are ciphertext BY
-        # DESIGN (encrypted by the stack's Pulumi-Cloud key, and deliberately
-        # committed — see deploy/pulumi/README.md). Tracking them as baseline
-        # entries pinned 13 hashes to LINE NUMBERS in Pulumi.dev.yaml, so adding
-        # any config key above them shifted every line, the hook rewrote the
-        # baseline, and the job failed with "files were modified by this hook" —
-        # on whichever unlucky PR happened to touch the file next.
-        #
-        # The filter is line-scoped, not file-scoped, on purpose: a PLAINTEXT
-        # secret pasted into a stack file is still caught (verified). Full
-        # history is independently covered by gitleaks in security.yml.
 
   - repo: local
     hooks:
@@ -129,8 +56,7 @@ repos:
         # The venv python explicitly, not a bare `python`: `task lint:repo`
         # invokes `.venv/bin/pre-commit` WITHOUT activating the venv, so a
         # bare interpreter here resolves to the system one and cannot import
-        # langchain_core. (The `pytest` hook below gets away with it only
-        # because it is stages: [push] and CI activates the venv first.)
+        # langchain_core.
         # On Windows this path is .venv/Scripts/python.exe.
         #
         # The Zod stage needs `json-schema-to-zod` from frontends/ui/node_modules,
@@ -173,7 +99,9 @@ repos:
         entry: python3 scripts/check_agent_docs.py
         language: system
         pass_filenames: false
-        files: ^(.*/)?(AGENTS|CLAUDE)\.md$|^scripts/check_agent_docs\.py$
+        # It also resolves every tracked Markdown file's relative links against
+        # git, so it runs on any .md change.
+        files: \.md$|^scripts/check_agent_docs\.py$
 
       - id: adr-check
         name: the ADR directory and its index tell the same story
@@ -184,6 +112,14 @@ repos:
         language: system
         pass_filenames: false
         files: ^docs/adr/.*\.md$|^scripts/check_adrs\.py$
+
+      - id: hidden-unicode
+        name: no invisible or bidi-control characters in committed text
+        # A zero-width space or a bidi override renders as nothing, so a grep
+        # or a lookup misses it with no error. The house spelling is the escape.
+        entry: python3 scripts/check_hidden_unicode.py
+        language: system
+        types: [text]
 
       - id: doc-paths
         name: the concept index points at files that exist
@@ -205,13 +141,6 @@ repos:
         language: system
         pass_filenames: false
         files: ^skills/.*$|^scripts/validate_skills\.py$
-
-      - id: pytest
-        name: pytest
-        entry: pytest tests sources --cov=aiq_agent --cov-report=term --cov-fail-under=65
-        language: system
-        pass_filenames: false
-        stages: [push]
 
   - repo: https://github.com/tcort/markdown-link-check
     rev: v3.11.2

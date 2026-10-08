@@ -66,8 +66,8 @@ project_memory
   source_message_id       uuid  null
   source_document_id      uuid  null              -- when grounded in an uploaded doc
   supersedes_id     uuid  null  fk → project_memory(id)   -- updates, not appends
-  restricted_folder_ids uuid[] null               -- ADR-0085: the source folders it depends on;
-                                                  -- NULL = open (§3.6, migration 0111)
+  restricted_folder_ids uuid[] null               -- ADR-0087: the source folders it depends on;
+                                                  -- NULL = open (§3.6, migration 0112)
   salience          real  default 0.5             -- retrieval/budget ranking
   pinned            bool  default false           -- always-inject core memory
   embedding_synced  bool  default false           -- has it been pushed to the vector store
@@ -233,7 +233,7 @@ Safety limits (see [memory-reflection-audit.md](./memory-reflection-audit.md)):
   requires a `project_id`; an org-only conversation is skipped.
 - **Substantive answers only** — meta/error/insufficiency and deep-research
   job-stub turns are skipped (nothing durable to record).
-- **Restricted memory from a restricted turn** (ADR-0084, §3.6) — a turn whose
+- **Restricted memory from a restricted turn** (ADR-0086, §3.6) — a turn whose
   signed scope holds a restricted folder's collection (`<project collection>_r<12 hex>`)
   still reflects; each finding is written as restricted memory when it depends
   on restricted content, through the same decision the `remember` tool uses.
@@ -289,7 +289,7 @@ backed by two partial UNIQUE indexes on normalized content (migration
 pragmatic slice of the §3.2 gate; embed-based consolidation remains a follow-up.
 See [memory-reflection-audit.md](./memory-reflection-audit.md).
 
-### 3.6 Restricted memory (ADR-0084, ADR-0085)
+### 3.6 Restricted memory (ADR-0086, ADR-0087)
 "Restricted shouldn't feel like amnesia, it should feel like a first thought"
 (product owner, 2026-10-02). A turn whose scope holds restricted-folder
 collections `R` it may draw on remembers as any other turn does; what it writes
@@ -382,7 +382,7 @@ nobody could be served.
 
 A folder later opened to every member opens its notes; a folder narrowed shows
 them to fewer people; a deleted folder's tombstone keeps answering with the
-access it had (ADR-0085). Nothing is rewritten when access changes. The per-query `mem_<project>` namespace of §3.3 is not built;
+access it had (ADR-0087). Nothing is rewritten when access changes. The per-query `mem_<project>` namespace of §3.3 is not built;
 recall runs inside the digest query over the row's own vector, under the same
 filter. Whoever builds that namespace must keep restricted notes out of it or
 filter them the same way.

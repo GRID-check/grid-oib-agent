@@ -138,7 +138,7 @@ export async function setProjectStatusInOrg(
               status: 'closed',
               closedAt: change.at,
               closedBy: change.closedBy,
-              // The Steckbrief's Abschluss (ADR-0087): the month it was closed
+              // The Steckbrief's Abschluss (ADR-0089): the month it was closed
               // in, unless someone set one. GREATEST keeps it from landing
               // before a Beginn set in the future.
               endedOn: sql`COALESCE(${projects.endedOn}, GREATEST(date_trunc('month', ${change.at.toISOString()}::timestamptz)::date, ${projects.startedOn}))`,

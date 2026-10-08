@@ -1,5 +1,5 @@
 /**
- * The pure core of folder access (ADR-0085): the rule over a path, the project
+ * The pure core of folder access (ADR-0087): the rule over a path, the project
  * ceiling, which folders restrict reading and which collection a document
  * belongs in. No I/O and no session: `./folder-access` loads the tree and
  * re-exports everything here, and that is the module callers import.
@@ -113,7 +113,7 @@ export function effectiveFolderLevel(tree: FolderTree, clearance: FolderClearanc
   if (!target) return 'none'
   if (clearance.seesEverything) return 'write'
   // A purged folder's derived content follows the organization's setting
-  // (ADR-0085); `unchanged` reads the kept grants below.
+  // (ADR-0087); `unchanged` reads the kept grants below.
   const purgedPolicy = target.purgedAt ? (target.purgedContent ?? 'unchanged') : 'unchanged'
   if (purgedPolicy === 'project') return 'read'
   if (purgedPolicy === 'admins' || purgedPolicy === 'remove') return 'none'

@@ -10,7 +10,7 @@ import {
   orderedRollout,
   secretChecksumAnnotations,
 } from "../platform/rollout";
-import { AppSecrets, AppWiring, backendEnv } from "./config";
+import { AppSecrets, AppWiring, chatEnv } from "./config";
 import { PORT, UID } from "../constants";
 
 export interface Backend {
@@ -22,20 +22,21 @@ export interface Backend {
 }
 
 /**
- * The agent (aiq-agent): FastAPI web tier + an in-process Dask cluster + an
- * embedded ChromaDB vector store, all on one persistent data volume.
+ * The chat tier (aiq-agent, `GRID_ROLE=chat`, ADR-0082): the chat socket and the
+ * answers running on it, plus NAT's own routes. Every other backend route is the
+ * api tier's (`api.ts`, the `aiq-api` Service). It keeps no files: the vectors
+ * live in the shared Chroma server, the base corpus in SeaweedFS and a Postgres
+ * table (ADR-0082 step A2), and what it caches on its own disk
+ * (`GRID_BASE_CORPUS_CACHE_DIR`, under /tmp) it can lose at any restart.
  *
- * Replica count depends on the execution mode:
- *   - "dask" (default): a HARD SINGLETON (replicas=1) — embedded Chroma +
- *     in-pod Dask + in-process state pin work to one process. Scales VERTICALLY
- *     (CPU/memory + Dask worker/thread knobs, bounded by admission caps).
- *   - "db": the chat/retrieval path is replica-safe (shared Chroma, Postgres
- *     DSNs, shared cache, DB-persisted ingest status, advisory-locked reapers),
- *     so it runs `backend.replicas` replicas. Research executes on the separate
- *     agent-worker tier. Caveat: the platform base-corpus upload writes to a
- *     per-replica uploads PVC — see docs/deployment/kubernetes.md §6.3.
+ * The chat and retrieval path is replica-safe (shared Chroma, Postgres DSNs,
+ * shared cache, DB-persisted ingest status, advisory-locked reapers), so it runs
+ * `backend.replicas` replicas. Research executes on the separate agent-worker tier.
  *
- * Kept as a StatefulSet (stable identity + per-replica RWO PVC on Lightbits).
+ * Still a StatefulSet, though nothing here needs one any more: chat affinity
+ * hashes a conversation onto a pod ordinal (ADR-0028, ADR-0080), and that
+ * routing needs the stable per-pod DNS and ordinals only a StatefulSet gives.
+ * It becomes a Deployment when the chat tier stops depending on it (ADR-0082).
  */
 export function installBackend(
   w: AppWiring,
@@ -45,7 +46,7 @@ export function installBackend(
 ): Backend {
   const labels = commonLabels("aiq-agent");
   const autoscaled = backendAutoscaled(cfg);
-  const multiReplica = cfg.jobExecution === "db" && (cfg.backend.replicas > 1 || autoscaled);
+  const multiReplica = cfg.backend.replicas > 1 || autoscaled;
   // The grace period is the chat drain plus the endpoint drain and slack: a
   // terminating replica finishes the turns it claimed (ADR-0080).
   const profile = backendRollout(cfg.backend.drainSeconds);
@@ -60,22 +61,15 @@ export function installBackend(
         // (aiq-agent-<i>.aiq-agent-headless), which the frontend uses for
         // conversation affinity so a chat pins to its owning replica.
         serviceName: "aiq-agent-headless",
-        // Singleton in dask mode; multi-replica chat tier in db mode (safe with
-        // conversation affinity, ADR-0028, or the conversation bus, ADR-0080).
-        // The floor when KEDA scales it (backend-scaling.ts).
-        replicas: cfg.jobExecution === "db" ? cfg.backend.replicas : 1,
+        // Multi-replica chat tier (safe with conversation affinity, ADR-0028, or
+        // the conversation bus, ADR-0080). The floor when KEDA scales it
+        // (backend-scaling.ts).
+        replicas: cfg.backend.replicas,
         selector: { matchLabels: labels },
         // One pod at a time, highest ordinal first, and each replacement must
         // stay Ready for minReadySeconds before the next is touched — the
         // ordering the conversation-affinity routing (ADR-0028) depends on.
         ...orderedRollout(profile),
-        // StatefulSet PVCs must survive the StatefulSet: the /app/data volume
-        // holds the base OIB corpus + (in dask mode) the only Chroma store, and
-        // the provider's StorageClasses all reclaim `Delete`, so a controller
-        // that cascaded a PVC delete would irreversibly destroy that data. Retain
-        // on both delete and scale-down (matches the k8s default; pinned so a
-        // future default flip to Delete can't silently start wiping volumes).
-        persistentVolumeClaimRetentionPolicy: { whenDeleted: "Retain", whenScaled: "Retain" },
         template: {
           metadata: {
             labels,
@@ -91,13 +85,9 @@ export function installBackend(
             // the affinity headless service route here), then uvicorn gets its
             // SIGTERM with room to finish streaming responses in flight.
             terminationGracePeriodSeconds: shutdown.terminationGracePeriodSeconds,
-            // The image runs as UID 1000 and needs to write /app/data (Chroma +
-            // uploads); fsGroup makes the PVC group-writable, replacing the
-            // compose chown init container.
-            securityContext: { runAsNonRoot: true, runAsUser: UID.backend, runAsGroup: UID.backend, fsGroup: UID.backend },
-            // In db mode the web tier runs >1 replica — spread across nodes so an
-            // upgrade node-drain / node loss can't take every chat replica down.
-            // (Singleton dask mode: the array is empty, a harmless no-op.)
+            securityContext: { runAsNonRoot: true, runAsUser: UID.backend, runAsGroup: UID.backend },
+            // The chat tier may run >1 replica — spread across nodes so an upgrade
+            // node-drain / node loss can't take every chat replica down.
             ...(multiReplica ? { topologySpreadConstraints: spreadAcrossNodes(labels) } : {}),
             containers: [
               {
@@ -106,12 +96,11 @@ export function installBackend(
                 imagePullPolicy: appPullPolicy(cfg, backendImage(cfg)),
                 securityContext: hardenedContainerSecurityContext(),
                 ports: [{ containerPort: PORT.backend, name: "http" }],
-                env: backendEnv(w),
-                volumeMounts: [{ name: "data", mountPath: "/app/data" }],
+                env: chatEnv(w),
                 resources: toResourceRequirements(cfg.backend.resources),
                 lifecycle: shutdown.lifecycle,
-                // Boot spins up Dask + opens Chroma and may run a volume-based
-                // OIB sync — generous startup window before liveness kicks in.
+                // Boot opens the Chroma client — generous
+                // startup window before liveness kicks in.
                 startupProbe: {
                   httpGet: { path: "/health", port: PORT.backend },
                   periodSeconds: 10,
@@ -132,30 +121,19 @@ export function installBackend(
             ],
           },
         },
-        volumeClaimTemplates: [
-          {
-            metadata: { name: "data" },
-            spec: {
-              accessModes: ["ReadWriteOnce"],
-              storageClassName: cfg.storage.className,
-              resources: { requests: { storage: cfg.backend.dataStorageSize } },
-            },
-          },
-        ],
       },
     },
     {
       provider: w.provider,
       dependsOn: [secrets.secret, ...dependsOn],
-      // Immutable volumeClaimTemplates — see seaweedfs.ts; grow via PVC patch.
       // KEDA owns the replica count once its ScaledObject exists, so a count
       // this program wrote would be reverted on the next `pulumi up`.
-      ignoreChanges: ["spec.volumeClaimTemplates", ...(autoscaled ? ["spec.replicas"] : [])],
+      ignoreChanges: autoscaled ? ["spec.replicas"] : [],
       // Fixed-name StatefulSet: replaces must delete first (see chroma.ts).
       deleteBeforeReplace: true,
-      // First boot = multi-GB image pull + Dask/Chroma init + optional corpus
-      // sync; the startupProbe alone allows 10 min. Give the await headroom so
-      // a healthy-but-slow first deploy doesn't fail on Pulumi's default 10m.
+      // First boot = multi-GB image pull + startup work; the startupProbe alone
+      // allows 10 min. Give the await headroom so a healthy-but-slow first
+      // deploy doesn't fail on Pulumi's default 10m.
       // An update also waits out every replica's drain, one pod at a time.
       customTimeouts: {
         create: "25m",
@@ -182,8 +160,9 @@ export function installBackend(
     { provider: w.provider },
   );
 
-  // Load-balanced ClusterIP for callers that don't need affinity (BACKEND_URL,
-  // internal REST, the migration/health checks).
+  // Load-balanced ClusterIP for callers that don't need affinity: the frontend's
+  // WebSocket proxy when it has no pod address (BACKEND_CHAT_URL), and KEDA's
+  // occupancy scaler. HTTP callers use the api tier's Service, not this one.
   const service = new k8s.core.v1.Service(
     "aiq-agent",
     {
@@ -198,7 +177,7 @@ export function installBackend(
 
   // PDB only when the tier is genuinely multi-replica (db mode). On a singleton
   // a maxUnavailable:1 PDB is a no-op, but adding it conditionally keeps the
-  // intent explicit and avoids churn on the dask-mode stack.
+  // intent explicit and avoids churn on a single-replica stack.
   const pdb = multiReplica
     ? installPdb("aiq-agent", w.namespace, w.provider, labels, [statefulSet])
     : undefined;

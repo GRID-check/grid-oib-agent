@@ -3,7 +3,7 @@
 Who took which document out of Piloti, and who opened one in a folder the office
 gave its own access list. This page says what is recorded and why, how long it
 is kept, who sees it, and what an office with a works council should settle
-before it relies on it. The decision behind it is ADR-0085 and its plan,
+before it relies on it. The decision behind it is ADR-0087 and its plan,
 [`plans/2026-10-06-folder-access-lifecycle.md`](../../plans/2026-10-06-folder-access-lifecycle.md)
 (decision 4).
 
@@ -112,5 +112,5 @@ Developers: the one writer is `recordDocumentAccess`
 (`frontends/ui/src/lib/download-log/service.ts`), and
 `download-log/coverage.spec.ts` fails when a new function reads or presigns an
 object, or a new route reaches one, without being classified there. Table and
-purge: [`database/schema.md`](../database/schema.md#document_access_log-migration-0112-adr-0085);
+purge: [`database/schema.md`](../database/schema.md#document_access_log-migration-0113-adr-0085);
 routes: [`api/bff-routes.md`](../api/bff-routes.md).

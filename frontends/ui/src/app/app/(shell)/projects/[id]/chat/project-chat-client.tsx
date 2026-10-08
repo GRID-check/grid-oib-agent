@@ -31,8 +31,6 @@ export interface ProjectChatClientProps {
    * research labels (WorkOS `research-in-chat-history`, FB-10).
    */
   showResearchInHistory: boolean
-  /** Qdrant collection scoping the Deep Research section's job fetch (FB-10). */
-  projectCollection: string | null
   /** Project name for the thread-header breadcrumb + composer scope chip. */
   projectName: string | null
 }
@@ -42,7 +40,6 @@ const ProjectChatContent = ({
   showConfidenceChip,
   showAnswerFeedback,
   showResearchInHistory,
-  projectCollection,
   projectName,
   canCollaborate = false,
   canChatInProject = true,
@@ -288,7 +285,6 @@ const ProjectChatContent = ({
       showConfidenceChip={showConfidenceChip}
       showAnswerFeedback={showAnswerFeedback}
       showResearchInHistory={showResearchInHistory}
-      projectCollection={projectCollection}
       projectName={projectName}
       canCollaborate={canCollaborate}
       canChatInProject={canChatInProject}

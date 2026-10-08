@@ -114,7 +114,7 @@ export const DOCUMENT_STATUS_FACTS = {
 
   // --- Held back: the bytes are here and a person has to decide. -----------
   /**
-   * The content gate matched (ADR-0083): the ingest job read the file's text
+   * The content gate matched (ADR-0085): the ingest job read the file's text
    * locally, found something the office's screening names, and stopped before
    * any model saw it. Nothing is indexed. Terminal, so nothing polls it; a
    * reviewer releases it (a re-dispatch with screening skipped for these exact

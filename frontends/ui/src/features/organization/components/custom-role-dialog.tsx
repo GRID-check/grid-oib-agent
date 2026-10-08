@@ -1,7 +1,7 @@
 'use client'
 
 /**
- * Create or edit one custom role (ADR-0084): a name, an optional description,
+ * Create or edit one custom role (ADR-0086): a name, an optional description,
  * and permissions from the organization tier.
  *
  * A permission the editor does not hold is shown and disabled, with the reason

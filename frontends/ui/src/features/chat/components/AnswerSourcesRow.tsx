@@ -78,7 +78,7 @@ const MAX_ANSWER_SOURCES = 8
 /**
  * The quiet meta line after a chip: which pages, or which host. A project file
  * cited in a closed project's chat also names the project and that it is
- * closed (ADR-0086): a project chat cites its own project's files.
+ * closed (ADR-0088): a project chat cites its own project's files.
  */
 const useClosedProjectNote = (): string | null => {
   const tProjects = useTranslations('projects')

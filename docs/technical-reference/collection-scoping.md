@@ -12,8 +12,8 @@ When a user asks a question, the AI needs to know which knowledge sources to sea
 - The org-wide Archiv collection (`archiv_{orgId}`, when the Archiv feature is enabled for the org — ADR-0024)
 - The active project collection (`proj_{projectId}`, if working in a project)
 - The restricted-folder collections the session is cleared for
-  (`<project collection>_r<12 hex>`, interactive chat turns only — ADR-0084, see
-  [Restricted folders](#restricted-folders-adr-0084-adr-0085))
+  (`<project collection>_r<12 hex>`, interactive chat turns only — ADR-0086, see
+  [Restricted folders](#restricted-folders-adr-0086-adr-0085))
 - The session collection (`s_{conversationId}`, if in a conversation)
 
 This page is about which collections a request READS. What writes into the
@@ -121,10 +121,10 @@ async function buildCollectionScopeFromRequest(
 
 ---
 
-## Restricted folders (ADR-0084, ADR-0085)
+## Restricted folders (ADR-0086, ADR-0087)
 
 A folder whose own access list does not include every project member
-(`project_folder_grants` without `*`, migration 0109) restricts READING. A
+(`project_folder_grants` without `*`, migration 0110) restricts READING. A
 document under it lives in the collection of its nearest such folder,
 `<project collection>_r<12 hex of the folder id>` (`restrictedCollectionName`
 in `lib/authz/folder-access-rule.ts`). Who may WRITE never moves anything:
@@ -152,7 +152,7 @@ the session may read the folder (`lib/proxy/collection-authz.ts`).
 ### Per person, by what the conversation used
 
 A conversation is restricted by what it USED, recorded per source folder in
-`conversation_restricted_folders` (migration 0110): content from a folder not
+`conversation_restricted_folders` (migration 0111): content from a folder not
 every member may read entered the model's context. Being able to search a
 folder is not use. Each use is ADMITTED by the BFF
 (`POST /api/internal/conversations/[id]/restricted-use`) before the content
@@ -310,7 +310,7 @@ read **once, at job submit time**, in `piloti/conversation_register.py`, and
 carried through as a `collection_scope` field on the job payload rather than
 as a live header.
 
-When the Dask worker later runs the job, `frontends/aiq_api/src/aiq_api/jobs/runner.py:641`
+When the research worker later runs the job, `frontends/aiq_api/src/aiq_api/jobs/runner.py:641`
 re-injects it into the worker's own request context **only when present**:
 
 ```python

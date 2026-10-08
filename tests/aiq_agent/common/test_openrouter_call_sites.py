@@ -37,7 +37,9 @@ RAW_CLIENT_HOMES = {
 }
 
 #: Talking to a model endpoint directly. The module must also use an adapter.
-MODEL_ENDPOINT = re.compile(r"/chat/completions|[\"']/rerank[\"']|/api/alpha/decisions|\.responses\.[\w.]*create\(")
+MODEL_ENDPOINT = re.compile(
+    r"/chat/completions|/audio/transcriptions|[\"']/rerank[\"']|/api/alpha/decisions|\.responses\.[\w.]*create\("
+)
 ADAPTERS = re.compile(
     r"request_body\(|PLATFORM_FIXED\.apply\(|\.apply\(\{|openai_client\(|pinned_(?:async_)?http_client\("
 )

@@ -43,7 +43,7 @@ const bundeslandCacheKey = (projectId: string, organizationId: string | null | u
  *
  * The view is one per project, read by every member and by scheduled and
  * deep-research runs, and it names no document in a restricted folder, for
- * anyone (ADR-0084): listing is not use, and a chat finds a restricted
+ * anyone (ADR-0086): listing is not use, and a chat finds a restricted
  * document by searching for it.
  */
 export async function loadProjectPromptView(

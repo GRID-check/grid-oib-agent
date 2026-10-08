@@ -71,6 +71,7 @@ describe('/api/jobs/async/[...path]', () => {
         projectId: 'proj-1',
         conversationId: 'conv-1',
         projectCollectionName: undefined,
+        verifiedConversationId: undefined,
       })
       const fetchMock = vi.fn().mockResolvedValue(
         new Response(createStream(), {
@@ -105,6 +106,7 @@ describe('/api/jobs/async/[...path]', () => {
         projectId: undefined,
         conversationId: 'conv-1',
         projectCollectionName: undefined,
+        verifiedConversationId: undefined,
       })
       const fetchMock = vi.fn().mockResolvedValue(
         new Response(JSON.stringify({ agents: [] }), {
@@ -124,7 +126,7 @@ describe('/api/jobs/async/[...path]', () => {
       expect(getHeader(fetchMock.mock.calls[0][1], 'X-Grid-Collection-Scope')).toBe('anon-scope')
     })
 
-    it('refuses to submit research in a closed project, and forwards nothing (ADR-0086)', async () => {
+    it('refuses to submit research in a closed project, and forwards nothing (ADR-0088)', async () => {
       process.env.REQUIRE_AUTH = 'true'
       mockRequireAuthorizedSession.mockResolvedValue(baseSession)
       mockBuildCollectionScopeFromRequest.mockResolvedValue({
@@ -134,6 +136,7 @@ describe('/api/jobs/async/[...path]', () => {
         projectId: 'proj-1',
         conversationId: 'conv-1',
         projectCollectionName: undefined,
+        verifiedConversationId: undefined,
       })
       vi.mocked(findProjectTenancy).mockResolvedValueOnce({ organizationId: 'org_1', deletedAt: null, status: 'closed' })
       const fetchMock = vi.fn()
@@ -178,6 +181,7 @@ describe('/api/jobs/async/[...path]', () => {
         projectId: 'proj-1',
         conversationId: 'conv-1',
         projectCollectionName: undefined,
+        verifiedConversationId: undefined,
       })
       const fetchMock = vi.fn().mockResolvedValue(
         new Response(JSON.stringify({ job_id: 'job-1' }), {
@@ -233,6 +237,7 @@ describe('/api/jobs/async/[...path]', () => {
         projectId: 'proj-1',
         conversationId: undefined,
         projectCollectionName: undefined,
+        verifiedConversationId: undefined,
       })
       const fetchMock = vi.fn().mockResolvedValue(
         new Response(JSON.stringify({ status: 'cancelled' }), {

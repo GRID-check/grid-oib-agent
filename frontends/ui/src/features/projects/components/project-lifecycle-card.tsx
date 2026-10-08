@@ -1,7 +1,7 @@
 'use client'
 
 /**
- * Close a project, or reopen it (ADR-0086) — the settings card for whoever
+ * Close a project, or reopen it (ADR-0088) — the settings card for whoever
  * holds `project:manage`. Both directions ask once; neither deletes anything.
  * The server decides and audits (`PUT /api/projects/[id]/status`); this card
  * only asks and then refreshes the page, whose every section reads the new
