@@ -34,8 +34,9 @@ as confined, a result withheld.
 
 Content from OTHER projects (ADR-0085) takes a different road to the same
 record. A cross-project lookup is answered by the BFF, which records the
-projects and restricted folders an answer draws on before it returns it, and
-refuses unless the conversation is its asker's alone. The tool then notes what
+projects and restricted folders an answer draws on before it returns it,
+searching only what every reader of the conversation may open (its audience)
+and refusing when that audience changed mid-lookup. The tool then notes what
 it was handed (:func:`note_cross_project_hand_out`) on the turn's
 :class:`CrossProjectTurn`, and the admission lets exactly those collections
 through. A restricted collection of another project the turn was not handed is
