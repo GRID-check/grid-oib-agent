@@ -50,22 +50,40 @@ def _clean_cell(value: Any) -> str:
     return str(value).replace("|", "\\|").replace("\n", " ").strip()[:MAX_CELL_CHARS]
 
 
-def _sheet_rows(sheet: Any) -> tuple[list[tuple[int, list[str]]], int]:
-    """``([(spreadsheet row number, cells)], rows over the cap)``; empty rows skipped."""
+def _cells_cut(row: tuple[Any, ...]) -> int:
+    """Cells of a row the bounds drop or shorten: past the column cap, or longer than a cell may be.
+
+    Counted because what is cut is read by nothing, the upload screen included, so a
+    file that lost some can only claim a partial check (ADR-0083).
+    """
+    beyond = sum(1 for value in row[MAX_TABLE_COLS:] if value not in (None, ""))
+    shortened = sum(
+        1 for value in row[:MAX_TABLE_COLS] if value is not None and len(str(value).strip()) > MAX_CELL_CHARS
+    )
+    return beyond + shortened
+
+
+def _sheet_rows(sheet: Any) -> tuple[list[tuple[int, list[str]]], int, int]:
+    """``([(spreadsheet row number, cells)], rows over the cap, cells cut)``; empty rows skipped."""
     rows: list[tuple[int, list[str]]] = []
     over_cap = 0
+    cut = 0
     for number, row in enumerate(sheet.iter_rows(values_only=True), start=1):
         cells = [_clean_cell(cell) for cell in row[:MAX_TABLE_COLS]]
-        if not any(cells):
+        if not any(cells) and not any(value not in (None, "") for value in row[MAX_TABLE_COLS:]):
             continue
         if len(rows) >= MAX_TABLE_ROWS:
             over_cap += 1
             continue
-        rows.append((number, cells))
-    return rows, over_cap
+        cut += _cells_cut(row)
+        if any(cells):
+            rows.append((number, cells))
+    return rows, over_cap, cut
 
 
-def _sheet_units(title: str, rows: list[tuple[int, list[str]]], over_cap: int) -> list[tuple[str, str, dict]]:
+def _sheet_units(
+    title: str, rows: list[tuple[int, list[str]]], over_cap: int, cut: int = 0
+) -> list[tuple[str, str, dict]]:
     """A sheet as row groups under its header row, each named by sheet and row range.
 
     The header (the first non-empty row) is repeated in every group, so no chunk is a
@@ -87,6 +105,8 @@ def _sheet_units(title: str, rows: list[tuple[int, list[str]]], over_cap: int) -
         if part == len(groups) and over_cap:
             text += f"\n\n[Tabelle gekürzt: {over_cap} weitere Zeilen nach den ersten {MAX_TABLE_ROWS} nicht indexiert]"
             extra["rows_over_cap"] = over_cap
+        if part == len(groups) and cut:
+            extra["content_cut"] = cut
         units.append((title, text, extra))
     return units
 
@@ -99,9 +119,9 @@ def _extract_xlsx(file_path: str) -> list[tuple[str, str, dict]]:
     workbook = load_workbook(file_path, read_only=True, data_only=True)
     try:
         for sheet in workbook.worksheets:
-            rows, over_cap = _sheet_rows(sheet)
+            rows, over_cap, cut = _sheet_rows(sheet)
             if rows:
-                units.extend(_sheet_units(sheet.title, rows, over_cap))
+                units.extend(_sheet_units(sheet.title, rows, over_cap, cut))
     finally:
         workbook.close()
     return units
@@ -190,6 +210,11 @@ def _documents(units: list[tuple], file_name: str, file_size: int, content_type:
 def rows_over_cap(documents: list[Any]) -> int:
     """How many spreadsheet rows the cap left out, summed over a file's Documents."""
     return sum(int((getattr(doc, "metadata", None) or {}).get("rows_over_cap") or 0) for doc in documents)
+
+
+def content_cut(documents: list[Any]) -> int:
+    """How many cells the column and cell-length bounds dropped or shortened, over a file's Documents."""
+    return sum(int((getattr(doc, "metadata", None) or {}).get("content_cut") or 0) for doc in documents)
 
 
 def extract_rendition_companions(file_path: str, file_name: str, file_size: int) -> list[Any]:

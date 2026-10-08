@@ -71,7 +71,13 @@ repos:
         # recorded, and the golden turn is rewritten by GRID_REGEN_GOLDEN=1, so
         # a baseline entry would pin a hash to a line number that does not
         # survive the next recording; JSONL cannot carry the inline pragma.
-        exclude: (^tests/fixtures/wire_v2/.*\.jsonl$|^shared/wire/v2/.*\.jsonl$|^frontends/web/art/riso/kit\.json$|^skills/[^/]+/skill\.oms\.sig$|^frontends/ui/pnpm-lock\.yaml$|^tests/fixtures/collection_scope/scope_header\.json$|^apm\.lock\.yaml$|^frontends/benchmarks/oib_retrieval/fixtures/vector_channel_recorded\.json$|^deploy/pulumi/aspire-dashboard\.pin$)
+        #
+        # content_screen_cases.json is the Python/TS screening fixture (ADR-0083):
+        # sha256 digests of Unicode tables both matchers must reproduce, and
+        # check-digit-valid but invented IBANs and card numbers. Regenerated when
+        # the Unicode version moves, so a baseline line number would not survive;
+        # JSON cannot carry the inline pragma.
+        exclude: (^tests/fixtures/content_screen_cases\.json$|^tests/fixtures/wire_v2/.*\.jsonl$|^shared/wire/v2/.*\.jsonl$|^frontends/web/art/riso/kit\.json$|^skills/[^/]+/skill\.oms\.sig$|^frontends/ui/pnpm-lock\.yaml$|^tests/fixtures/collection_scope/scope_header\.json$|^apm\.lock\.yaml$|^frontends/benchmarks/oib_retrieval/fixtures/vector_channel_recorded\.json$|^deploy/pulumi/aspire-dashboard\.pin$)
         # REGENERATING THE BASELINE — keep the --exclude-lines flag, or CI starts
         # failing again a few commits later:
         #

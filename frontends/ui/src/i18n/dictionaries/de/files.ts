@@ -254,6 +254,8 @@ export const files: typeof en.files = {
     timeout: 'Das Lesen hat zu lange gedauert und wurde abgebrochen. Erneut lesen. Sehr große Dateien besser aufteilen.',
     empty: 'In dieser Datei war kein Text zu finden. Sie ist vielleicht passwortgeschützt, beschädigt oder leer.',
     deleted: 'Die Datei wurde gelöscht, während Piloti sie las.',
+    quarantined:
+      'Diese Datei enthält etwas, das Ihr Büro als sensibel eingestuft hat. Piloti hat sie keinem Modell gezeigt. Die Büro- oder Projektadministration gibt sie frei oder löscht sie.',
     unknown: 'Piloti konnte dieses Dokument nicht lesen, daher findet die Suche es nicht.',
     details: 'Details',
   },

@@ -274,6 +274,8 @@ export const files = {
     timeout: 'Reading took too long and was stopped. Try again. Splitting a very large file helps.',
     empty: 'No text was found in this file. It may be password-protected, damaged or empty.',
     deleted: 'The file was deleted while Piloti was reading it.',
+    quarantined:
+      'This file contains something your office marks as sensitive. Piloti showed it to no model. An office or project admin releases or deletes it.',
     unknown: "Piloti couldn't read this document, so search can't find it.",
     details: 'Details',
   },

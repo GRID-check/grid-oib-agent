@@ -4,7 +4,15 @@ from typing import Any
 from typing import Literal
 
 from pydantic import BaseModel
+from pydantic import ConfigDict
 from pydantic import Field
+from pydantic import field_validator
+
+#: Bounds of an office's screening terms. The ingest job applies the same ones
+#: (``aiq_agent.common.content_screen``) to whatever reaches it.
+SCREENING_MAX_TERMS = 200
+SCREENING_MIN_TERM_CHARS = 2
+SCREENING_MAX_TERM_CHARS = 80
 
 
 class CreateCollectionRequest(BaseModel):
@@ -19,6 +27,47 @@ class DeleteFilesRequest(BaseModel):
     """Request body for batch file deletion."""
 
     file_ids: list[str] = Field(..., description="List of file IDs to delete")
+
+
+class ScreeningPolicy(BaseModel):
+    """What an ingest job screens the document's locally extracted text for, before any model sees it.
+
+    A match fails the file with an ``error_message`` starting ``quarantined:``
+    (``knowledge_layer.llamaindex.screening``). Terms match case-, umlaut- and
+    whitespace-insensitively at a word start; the detectors count checksum-valid
+    matches only.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    content_terms: list[str] = Field(
+        default_factory=list,
+        max_length=SCREENING_MAX_TERMS,
+        description=(
+            f"Terms that quarantine a document, each {SCREENING_MIN_TERM_CHARS}..{SCREENING_MAX_TERM_CHARS} "
+            "characters after stripping; empty entries are dropped."
+        ),
+    )
+    detectors: list[Literal["iban", "at_svnr", "credit_card"]] = Field(
+        default_factory=list,
+        description="Identifiers that quarantine a document: IBAN, Austrian social-security number, card number.",
+    )
+
+    @field_validator("content_terms")
+    @classmethod
+    def _strip_terms(cls, terms: list[str]) -> list[str]:
+        stripped = [term.strip() for term in terms]
+        kept = [term for term in stripped if term]
+        for term in kept:
+            if not SCREENING_MIN_TERM_CHARS <= len(term) <= SCREENING_MAX_TERM_CHARS:
+                raise ValueError(
+                    f"each screening term must be {SCREENING_MIN_TERM_CHARS}..{SCREENING_MAX_TERM_CHARS} characters"
+                )
+        return kept
+
+    @property
+    def is_empty(self) -> bool:
+        return not self.content_terms and not self.detectors
 
 
 class IngestRequest(BaseModel):
@@ -106,6 +155,15 @@ class IngestRequest(BaseModel):
     producer: str | None = Field(
         None,
         description="Which pipeline wrote an agent-authored document (`documents.authored_by_producer`).",
+    )
+    screening: ScreeningPolicy | None = Field(
+        None,
+        description=(
+            "The organization's upload screening. The job checks the text it extracts locally "
+            "against it before its first model call, and fails a matching file with an "
+            "`error_message` starting `quarantined:`. Absent, null or empty: not screened "
+            "(the OIB base-corpus sync sends none)."
+        ),
     )
 
 
