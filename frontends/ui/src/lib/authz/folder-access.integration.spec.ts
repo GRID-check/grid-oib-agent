@@ -254,7 +254,7 @@ describe.skipIf(!url)('read/write folder access against Postgres', () => {
 })
 
 /**
- * Restricted folders do not hold IFC models (ADR-0086). The unit specs prove
+ * Restricted folders do not hold IFC models (ADR-0087). The unit specs prove
  * the BIM read paths pass the hidden folders on and the guard asks for the
  * count; this proves the two queries that receive them.
  */

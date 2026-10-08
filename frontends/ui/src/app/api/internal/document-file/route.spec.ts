@@ -47,7 +47,7 @@ describe('GET /api/internal/document-file', () => {
     expect(findDocumentStorageKey).not.toHaveBeenCalled()
   })
 
-  it('404s for a restricted folder\'s collection without looking it up, whatever its case (ADR-0087)', async () => {
+  it('404s for a restricted folder\'s collection without looking it up, whatever its case (ADR-0088)', async () => {
     vi.mocked(findDocumentStorageKey).mockResolvedValue({
       storageKey: 'org/o1/project/p1/doc/d1/plan.png',
       storageBucket: null,

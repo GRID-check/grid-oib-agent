@@ -210,7 +210,7 @@ describe('POST /api/internal/bim/source', () => {
       expect(getSignedUrl).not.toHaveBeenCalled()
     })
 
-    // ADR-0086: the agent's routes carry no session to clear, and a model's
+    // ADR-0087: the agent's routes carry no session to clear, and a model's
     // building data is keyed by project, so every restricted subtree is hidden.
     it('leaves every restricted folder out of the model list', async () => {
       vi.mocked(getRestrictedFolderIds).mockResolvedValueOnce(['folder-verwaltung'])

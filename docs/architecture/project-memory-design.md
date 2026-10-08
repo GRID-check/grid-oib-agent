@@ -221,7 +221,7 @@ Safety limits (see [memory-reflection-audit.md](./memory-reflection-audit.md)):
   requires a `project_id`; an org-only conversation is skipped.
 - **Substantive answers only** — meta/error/insufficiency and deep-research
   job-stub turns are skipped (nothing durable to record).
-- **Nothing from a restricted folder** (ADR-0086) — a turn whose signed scope
+- **Nothing from a restricted folder** (ADR-0087) — a turn whose signed scope
   holds a restricted folder's collection (`<project collection>_r<12 hex>`)
   that it may draw on writes no memory at all: the stage skips with
   `restricted_content`, and the `remember` tool refuses (project and org scope

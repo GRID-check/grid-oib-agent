@@ -64,13 +64,13 @@ interface ProjectFileWorkspaceProps {
   initialFilesComplete?: boolean
   /**
    * Whether this reader may change who may read and write a folder
-   * (`project:manage`, resolved on the server, ADR-0087). Shows „Zugriff…" in the
+   * (`project:manage`, resolved on the server, ADR-0088). Shows „Zugriff…" in the
    * folder menu; the route checks again.
    */
   canManageFolderAccess?: boolean
   /**
    * What the reader may do at the project root, as the server read it for the
-   * first paint (ADR-0087). Absent means `write`; the folder listing refreshes it.
+   * first paint (ADR-0088). Absent means `write`; the folder listing refreshes it.
    */
   initialRootAccess?: 'read' | 'write'
   /** Whether the Outlook archive import is offered (`isMailImportEnabled`, ADR-0085). Off by default. */
@@ -82,7 +82,7 @@ interface ProjectFileWorkspaceProps {
  *
  * Everything this adds is a fact about a PROJECT: the shelf's endpoints, the
  * project's chat (so a file can be asked about), collaboration, per-role folder
- * access (ADR-0087), the preview the project shell hosts, and the section header
+ * access (ADR-0088), the preview the project shell hosts, and the section header
  * the controls portal into.
  */
 export function ProjectFileWorkspace({

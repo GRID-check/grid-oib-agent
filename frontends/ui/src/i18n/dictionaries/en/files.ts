@@ -357,7 +357,7 @@ export const files = {
     breadcrumb: 'Folder path',
     movedFolder: '“{name}” moved to “{parent}”.',
     moveFolderError: 'The folder could not be moved. Please try again.',
-    /** Folder access (ADR-0086): restricting a folder to roles. */
+    /** Folder access (ADR-0087): restricting a folder to roles. */
     access: {
       menu: 'Access…',
       restrictedTo: 'Own access: {roles}',
@@ -389,7 +389,7 @@ export const files = {
         'If who may read changes, Piloti moves the folder’s documents and reads them again. For a large folder that takes a few minutes; meanwhile the documents show as “Reading”.',
       ifcNotice:
         'Folders not every project member may read cannot hold building models (IFC) yet. Keep IFC models in folders everyone may read.',
-      /** The 409 from the IFC guard (ADR-0086): restricting, uploading or moving into a restricted folder. */
+      /** The 409 from the IFC guard (ADR-0087): restricting, uploading or moving into a restricted folder. */
       ifcRefused:
         'Building models (IFC) cannot be filed in a folder not everyone may read yet: their building data is not protected by folder access. Keep IFC models in folders everyone may read.',
       readOnlyBadge: 'Read only',

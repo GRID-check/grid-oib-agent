@@ -249,7 +249,7 @@ export function FileWorkspace({
   // office file read from its PDF rendition).
   useSettleTrackedUploads(files, activeUploads)
 
-  // A level the reader may only read (ADR-0087) takes no dropped files. The
+  // A level the reader may only read (ADR-0088) takes no dropped files. The
   // server refuses either way; this keeps the surface from offering it.
   const { isDragging, isUnsupportedDrag, dragHandlers } = useFileDragDrop({
     onDrop: handleUpload,
@@ -284,7 +284,7 @@ export function FileWorkspace({
 
   const pickFilesRef = useRef<(() => void) | null>(null)
   const pickFolderRef = useRef<(() => void) | null>(null)
-  // No upload into a level the reader may only read (ADR-0087).
+  // No upload into a level the reader may only read (ADR-0088).
   const uploader = (props: Partial<Parameters<typeof ProjectUppyUpload>[0]>) =>
     canManage && writableHere ? (
       <ProjectUppyUpload
@@ -487,7 +487,7 @@ export function FileWorkspace({
         onReleaseChange={shelfUpload.decision.setReleased}
       />
 
-      {/* Who may read and write a folder (ADR-0087), a project's only. Saving
+      {/* Who may read and write a folder (ADR-0088), a project's only. Saving
           moves and re-reads the folder's documents, so both listings are read
           again. */}
       {shelf.folderAccess && (
@@ -543,7 +543,7 @@ export function FileWorkspace({
 }
 
 /**
- * Who may write where on this shelf (ADR-0087), as the listing reported it.
+ * Who may write where on this shelf (ADR-0088), as the listing reported it.
  *
  * A project's folders carry an `access` per reader and the listing says what
  * the reader may do at the root; a level they may only read offers no upload,

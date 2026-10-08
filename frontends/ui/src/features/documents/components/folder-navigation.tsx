@@ -88,7 +88,7 @@ export function FolderBreadcrumbRow({
   onCreateFolder?: FolderNavProps['onCreateFolder']
   children?: ReactNode
   /**
-   * The reader may only read the level they stand in (ADR-0087): „Nur lesen"
+   * The reader may only read the level they stand in (ADR-0088): „Nur lesen"
    * takes the place of „Neuer Ordner".
    */
   readOnly?: boolean
@@ -320,12 +320,12 @@ interface FolderTileProps {
   canAcceptFolder?: (draggedFolderId: string, targetFolderId: string | null) => boolean
   /**
    * The entries of this folder's own access list, each a role's name with what
-   * it may do (ADR-0087); absent or empty for a folder that inherits. Draws the
+   * it may do (ADR-0088); absent or empty for a folder that inherits. Draws the
    * lock, and names the roles in the open button's accessible name.
    */
   restrictedRoleNames?: readonly string[]
   /**
-   * The reader may only read here (ADR-0087): „Nur lesen" beside the name, and
+   * The reader may only read here (ADR-0088): „Nur lesen" beside the name, and
    * nothing can be dropped on the tile. The server refuses a write anyway.
    */
   readOnly?: boolean
