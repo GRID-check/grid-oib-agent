@@ -49,7 +49,7 @@ import { useLocale, useTranslations } from '@/i18n'
 
 interface ProjectSettingsProps {
   data: ProjectOverviewData
-  /** The Steckbrief (ADR-0089): address, period, people. Omitted, the card is not shown. */
+  /** The Steckbrief (ADR-0090): address, period, people. Omitted, the card is not shown. */
   steckbrief?: SteckbriefView
   /** Accounts a Steckbrief person may be linked to. */
   steckbriefAccounts?: readonly SteckbriefAccount[]
@@ -194,7 +194,7 @@ export function ProjectSettings({
         </div>
       </StaggerItem>
 
-      {/* The Steckbrief: what stays once the project is closed (ADR-0089). */}
+      {/* The Steckbrief: what stays once the project is closed (ADR-0090). */}
       {steckbrief && (
         <StaggerItem>
           <ProjectSteckbrief projectId={data.id} steckbrief={steckbrief} accounts={steckbriefAccounts} />

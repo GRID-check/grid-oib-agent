@@ -334,7 +334,7 @@ export const AUDIT_SCHEMAS = /** @type {const} */ ({
     targets: [{ type: 'project' }],
     metadata: { name: 'string' },
   },
-  // The Steckbrief (ADR-0089). A person is named by id only: the audit log
+  // The Steckbrief (ADR-0090). A person is named by id only: the audit log
   // outlives an erasure, and a name in it would not.
   'project.period.changed': {
     targets: [{ type: 'project' }],
