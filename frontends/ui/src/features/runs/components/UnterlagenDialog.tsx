@@ -37,7 +37,7 @@ export type UnterlagenRole = 'grundlage' | 'ausgeschlossen' | null
 export interface PickerDocument extends PlanDocument {
   /**
    * In a folder not every project member may read: shown, so the reader is
-   * not left wondering where it went, and never added (ADR-0086).
+   * not left wondering where it went, and never added (ADR-0087).
    */
   restricted?: boolean
 }

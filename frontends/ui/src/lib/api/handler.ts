@@ -301,7 +301,7 @@ export function errorResponse(error: unknown, request: Request): Response {
     )
   }
   // Something was filed into a folder that went to the Papierkorb between the
-  // write check and the insert (migration 0114's trigger): the folder is gone.
+  // write check and the insert (migration 0115's trigger): the folder is gone.
   if (findPostgresCode(error) === FOLDER_DELETED_SQLSTATE) {
     return errorPayload(
       { error: 'Folder not found', code: 'NOT_FOUND', details: { reason: FOLDER_DELETED_REASON } },

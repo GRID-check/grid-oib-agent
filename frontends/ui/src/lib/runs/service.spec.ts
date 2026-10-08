@@ -759,7 +759,7 @@ describe('addRunDocument', () => {
    * where the document's name and title would land. A cleared member picking a
    * document from a restricted folder is refused, and the backend hears nothing.
    */
-  describe('a document from a restricted folder (ADR-0086)', () => {
+  describe('a document from a restricted folder (ADR-0087)', () => {
     const PERSONAL = 'folder-personal'
     const OPEN = 'folder-plaene'
     const TREE: AccessFolder[] = [

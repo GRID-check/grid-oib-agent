@@ -147,7 +147,7 @@ def get_document_version_content(
     A version that is not this conversation's subject comes back ``404``, which
     the caller reads as "no subject to load". ``user_id`` is the turn's signed
     asker: a version in a folder not every member may read is sent only once the
-    BFF has admitted that folder for the conversation (ADR-0086, ADR-0087), and
+    BFF has admitted that folder for the conversation (ADR-0087, ADR-0088), and
     without an asker it answers ``404`` too.
 
     Raises :class:`FilingError` for every refusal and every transport failure,

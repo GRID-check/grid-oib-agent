@@ -1,6 +1,6 @@
 /**
- * Who may read and who may write which folders of a project (ADR-0086,
- * ADR-0087) — the one place that decides.
+ * Who may read and who may write which folders of a project (ADR-0087,
+ * ADR-0088) — the one place that decides.
  *
  * A folder either inherits its parent's access (`accessMode: 'inherit'`; a root
  * folder inherits the project) or has its own access list (`'custom'`): grants
@@ -20,7 +20,7 @@
  * of its NEAREST such folder. Only a session that may read that folder gets the
  * collection in its signed scope. Write never affects retrieval.
  *
- * Deleted folders stay in the tree (migration 0110): in the Papierkorb, then as
+ * Deleted folders stay in the tree (migration 0111): in the Papierkorb, then as
  * purged tombstones (0114). They are hidden from every listing and from
  * placement, what is filed in them is hidden from everyone, and
  * {@link effectiveFolderLevel} still answers for them, because content derived
@@ -407,7 +407,7 @@ export async function sourceFoldersOfCollections(
 }
 
 /**
- * When each purged folder of the project was purged (ADR-0087): what a surface
+ * When each purged folder of the project was purged (ADR-0088): what a surface
  * shows as „Quelle gelöscht am …" under content drawn from it. Labels, never a
  * decision: who may see that content is {@link effectiveFolderLevel}'s.
  */

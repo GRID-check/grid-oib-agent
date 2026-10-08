@@ -1,6 +1,6 @@
 'use client'
 
-/** A project's uploads, newest first (ticket „Verlauf/Protokoll", ADR-0085). */
+/** A project's uploads, newest first (ticket „Verlauf/Protokoll", ADR-0086). */
 
 import { useCallback, useEffect, useState } from 'react'
 import { listProjectUploads, type UploadHistoryEntry } from '@/adapters/api/upload-batches-client'

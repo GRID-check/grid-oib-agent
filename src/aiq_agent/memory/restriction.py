@@ -1,4 +1,4 @@
-"""Which restricted folders a memory depends on (ADR-0086).
+"""Which restricted folders a memory depends on (ADR-0087).
 
 A turn whose signed scope holds restricted-folder collections (``R``) may have
 put restricted content in front of the model: through what it retrieved, and
@@ -215,7 +215,7 @@ _DIGEST_LINE = re.compile(r'^\s*-\s*\[([^\]]*)\]\s*"(.*)"\s*$')
 
 
 def restricted_digest_notes(digest: str | None) -> tuple[str, ...]:
-    """The contents of the digest lines tagged ``restricted`` (ADR-0086)."""
+    """The contents of the digest lines tagged ``restricted`` (ADR-0087)."""
     notes = []
     for line in (digest or "").splitlines():
         match = _DIGEST_LINE.match(line)

@@ -49,7 +49,7 @@ export interface FolderNavigation {
    */
   readOnly?: boolean
   /**
-   * Open the folder's access dialog (ADR-0087). Present only for a reader who
+   * Open the folder's access dialog (ADR-0088). Present only for a reader who
    * manages the project; absent hides „Zugriff…" from the folder menu. A
    * project's folders only: the Archiv's are governed by who manages it.
    */
@@ -57,7 +57,7 @@ export interface FolderNavigation {
   /** Role slugs → names, for the lock on a folder with its own list. Slugs show as themselves without it. */
   roleNames?: (slugs: readonly string[]) => string[]
   /**
-   * What the reader may do at the project root (ADR-0087): `read` hides the
+   * What the reader may do at the project root (ADR-0088): `read` hides the
    * root's upload and new-folder affordances. Absent reads as `write`; each
    * folder carries its own `access`. The server decides either way.
    */
@@ -213,7 +213,7 @@ export function FileBrowserPane({
 
   const currentFolderId = folderNav?.currentFolderId ?? null
   // A level the reader may only read offers no upload and no new folder
-  // (ADR-0087); a notice says why. The server refuses either way.
+  // (ADR-0088); a notice says why. The server refuses either way.
   const writableHere = mayWriteAt(folderNav, currentFolderId)
   const [createFolderIn, setCreateFolderIn] = useState<string | null | undefined>(undefined)
   const [editingFolderId, setEditingFolderId] = useState<string | null>(null)
@@ -374,7 +374,7 @@ export function FileBrowserPane({
   const canAcceptFolder = useCallback(
     (draggedId: string, targetId: string | null): boolean => {
       if (draggedId === targetId) return false
-      // A move is a write into the target (ADR-0087): a read-only one never lights up.
+      // A move is a write into the target (ADR-0088): a read-only one never lights up.
       if (!mayWriteAt(folderNav, targetId)) return false
       const all = folderNav?.folders ?? []
       const dragged = all.find((folder) => folder.id === draggedId)

@@ -1,5 +1,5 @@
 /**
- * Setting who may read and who may write a project folder (ADR-0087).
+ * Setting who may read and who may write a project folder (ADR-0088).
  *
  * A folder inherits its parent's access, or has its own list: WorkOS roles
  * (and `*`, every project member), each with `read` or `write`. Nesting only
@@ -100,7 +100,7 @@ export interface FolderWithoutValidRole {
 }
 
 /**
- * The project's folders left without a valid role (ADR-0087): their own list
+ * The project's folders left without a valid role (ADR-0088): their own list
  * names only roles deleted from the organization since, so organization admins
  * are the only ones who read them. For the project settings to flag, with a
  * link to each.
@@ -155,7 +155,7 @@ export async function setFolderAccess(
 
   const grants = input.access.mode === 'custom' ? await validatedGrants(session.organizationId, input.access.grants) : null
   // Folders not every member may read do not hold IFC models until their
-  // building data is partitioned (ADR-0086): refused before anything changes.
+  // building data is partitioned (ADR-0087): refused before anything changes.
   await assertRestrictionKeepsIfcOpen(session.organizationId, input.projectId, input.folderId, grants)
 
   const db = getDb()

@@ -113,7 +113,7 @@ vi.mock('../persistence', () => ({
   markSessionHasCollection: (...args: unknown[]) => mockMarkSessionHasCollection(...args),
 }))
 
-// The office's upload screening (ADR-0085): Piloti's suggested list, read
+// The office's upload screening (ADR-0086): Piloti's suggested list, read
 // without a request, so the gate is exercised and nothing else changes.
 vi.mock('@/adapters/api/upload-screening-policy', async () => {
   const { SUGGESTED_SCREENING_POLICY } = await import('@/lib/upload-screening/policy')
@@ -1035,7 +1035,7 @@ describe('useFileUpload — chat attachments', () => {
     expect(mockClient.getCollection).not.toHaveBeenCalled()
     expect(mockClient.createCollection).not.toHaveBeenCalled()
     expect(xhr.requests.some((request) => request.url.includes('/api/v1/'))).toBe(false)
-    // The only request besides the upload is the upload's own batch (ADR-0085).
+    // The only request besides the upload is the upload's own batch (ADR-0086).
     expect(fetchMock.mock.calls.map(([url]) => String(url)).filter((url) => !url.startsWith('/api/upload-batches'))).toEqual([])
     // The marker that tells a later visit to list this chat's attachments.
     expect(mockMarkSessionHasCollection).toHaveBeenCalledWith(CHAT)
@@ -1142,7 +1142,7 @@ describe('useFileUpload — chat attachments', () => {
 })
 
 /**
- * ADR-0085: every upload is one batch — opened before the first file, named on
+ * ADR-0086: every upload is one batch — opened before the first file, named on
  * each upload, sealed after the last answer — so its uploader can be told when
  * everything was read. The batch records what the screening kept back by term
  * and count only.
