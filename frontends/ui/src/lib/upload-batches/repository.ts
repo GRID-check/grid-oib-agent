@@ -109,6 +109,33 @@ export async function completeSettledBatches(
   )
 }
 
+/**
+ * Undo a completion whose uploader could not be told (`settleUploadBatches`),
+ * so the batch is open again and the next settle, or the sweep, completes it
+ * and tells them. Guarded on the completion time that call wrote: it reopens
+ * only what it completed itself.
+ */
+export async function reopenCompletedBatches(
+  organizationId: string,
+  batchIds: readonly string[],
+  completedAt: Date
+): Promise<void> {
+  if (batchIds.length === 0) return
+  const db = getDb()
+  await withTenant({ organizationId }, () =>
+    db
+      .update(uploadBatches)
+      .set({ completedAt: null })
+      .where(
+        and(
+          inArray(uploadBatches.id, [...batchIds]),
+          eq(uploadBatches.organizationId, organizationId),
+          eq(uploadBatches.completedAt, completedAt)
+        )
+      )
+  )
+}
+
 /** The batch ids the given documents carry, for settling after their status moved. */
 export async function batchIdsOfDocuments(organizationId: string, documentIds: readonly string[]): Promise<string[]> {
   if (documentIds.length === 0) return []

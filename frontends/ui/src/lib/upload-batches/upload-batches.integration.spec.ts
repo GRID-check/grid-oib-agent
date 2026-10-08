@@ -207,6 +207,25 @@ describe.skipIf(!url)('upload batches against Postgres', () => {
     ).rejects.toThrow()
   })
 
+  it('reopens a completion its uploader was not told of, and only the one it wrote', async () => {
+    const batch = '7c1f0f8e-0b6a-4f41-9d3b-5a0b2f9e1a03'
+    await repo.insertUploadBatch({ id: batch, organizationId: ORG, createdBy: USER, scope: 'project', projectId, expectedCount: 1 })
+    await insertDocument('reopen.pdf', 'completed', { batch })
+    expect(await repo.sealUploadBatch(ORG, batch, USER, { unchanged: 0, failed: 0 }, new Date())).toBe(true)
+    const completedAt = new Date()
+    expect((await repo.completeSettledBatches(ORG, [batch], completedAt)).map((row) => row.id)).toEqual([batch])
+
+    // Another organization, or another completion time, reopens nothing.
+    await repo.reopenCompletedBatches(OTHER_ORG, [batch], completedAt)
+    await repo.reopenCompletedBatches(ORG, [batch], new Date(completedAt.getTime() + 1))
+    expect((await repo.findUploadBatch(ORG, batch))?.completedAt).not.toBeNull()
+
+    await repo.reopenCompletedBatches(ORG, [batch], completedAt)
+    expect((await repo.findUploadBatch(ORG, batch))?.completedAt).toBeNull()
+    // Open again, so the next settle completes it and tells the uploader.
+    expect((await repo.completeSettledBatches(ORG, [batch], new Date())).map((row) => row.id)).toEqual([batch])
+  })
+
   it('refuses a completed-but-unsealed batch at the CHECK, whatever the writer', async () => {
     await expect(
       inTenant(ORG, () =>
