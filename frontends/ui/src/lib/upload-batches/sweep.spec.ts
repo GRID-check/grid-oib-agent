@@ -7,6 +7,7 @@ vi.mock('@/lib/db/tenant-context', () => ({
 vi.mock('./repository', () => ({
   listOpenBatchesBetween: vi.fn(),
   listInFlightBatchDocuments: vi.fn(),
+  latestBatchDocumentAt: vi.fn(),
   sealAbandonedBatch: vi.fn().mockResolvedValue(undefined),
 }))
 vi.mock('./settle', () => ({ settleUploadBatches: vi.fn() }))
@@ -20,7 +21,7 @@ import type { UploadBatch } from '@/lib/db/schema'
 import { reconcileDocumentStatuses } from '@/lib/documents/reconcile-status'
 import { pruneSpentQuarantines, sweepOwedQuarantines } from '@/lib/upload-screening/quarantine-audit'
 import { makeDocument } from '@/test-utils/db-fixtures'
-import { listInFlightBatchDocuments, listOpenBatchesBetween, sealAbandonedBatch } from './repository'
+import { latestBatchDocumentAt, listInFlightBatchDocuments, listOpenBatchesBetween, sealAbandonedBatch } from './repository'
 import { settleUploadBatches } from './settle'
 import { ABANDONED_AFTER_MS, sweepUploadBatches } from './sweep'
 
@@ -45,6 +46,7 @@ const batch = (id: string, ageMs: number, sealed: boolean): UploadBatch => ({
 beforeEach(() => {
   vi.clearAllMocks()
   vi.mocked(listInFlightBatchDocuments).mockResolvedValue([])
+  vi.mocked(latestBatchDocumentAt).mockResolvedValue(null)
   vi.mocked(settleUploadBatches).mockResolvedValue([])
   vi.mocked(sweepOwedQuarantines).mockResolvedValue(0)
   vi.mocked(pruneSpentQuarantines).mockResolvedValue(0)
@@ -60,6 +62,20 @@ describe('sweepUploadBatches', () => {
     expect(sealAbandonedBatch).toHaveBeenCalledTimes(1)
     expect(sealAbandonedBatch).toHaveBeenCalledWith('org-1', 'abandoned', NOW)
     expect(result).toMatchObject({ checked: 2, sealed: 1 })
+  })
+
+  it('leaves an old batch open while files still come into it, and seals it once they stop', async () => {
+    vi.mocked(listOpenBatchesBetween).mockResolvedValue([
+      batch('importing', 3 * ABANDONED_AFTER_MS, false),
+      batch('stopped', 3 * ABANDONED_AFTER_MS, false),
+    ])
+    vi.mocked(latestBatchDocumentAt).mockImplementation(async (_org, id) =>
+      id === 'importing' ? new Date(NOW.getTime() - 60_000) : new Date(NOW.getTime() - ABANDONED_AFTER_MS - 60_000)
+    )
+    const result = await sweepUploadBatches(NOW)
+    expect(sealAbandonedBatch).toHaveBeenCalledTimes(1)
+    expect(sealAbandonedBatch).toHaveBeenCalledWith('org-1', 'stopped', NOW)
+    expect(result).toMatchObject({ sealed: 1 })
   })
 
   it('reconciles what is still in flight, then settles, and counts what completed', async () => {

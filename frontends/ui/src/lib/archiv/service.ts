@@ -91,12 +91,16 @@ export async function listArchiv(
  * Document-centric semantic search over the org's shared Archiv. Any org member
  * may read; resolves the org's `archiv_<orgId>` collection, runs the
  * deterministic vector search on the backend, and joins the hits to the
- * Archiv's file rows by filename. Fail-open: a backend error/timeout yields
- * `{ hits: [] }`, never a crash.
+ * Archiv's file rows by collection and filename. Fail-open: a backend
+ * error/timeout yields `{ hits: [] }`, never a crash.
  *
  * The join looks the hit names up directly rather than reading the listing:
  * the listing is paged, and a hit on a document past its first page would
  * otherwise be dropped as if the search had not found it.
+ *
+ * The Archiv is one collection (`archiv_<orgId>`), and every row the lookup
+ * returns is filed in it, so the join's collection key is always met by the
+ * right row.
  */
 export async function searchArchivDocuments(
   session: AuthorizedSession,

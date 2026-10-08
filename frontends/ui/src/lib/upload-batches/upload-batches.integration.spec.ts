@@ -270,6 +270,37 @@ describe.skipIf(!url)('upload batches against Postgres', () => {
     expect((await repo.completeSettledBatches(ORG, [batch], new Date())).map((row) => row.id)).toEqual([batch])
   })
 
+  it("tells when a job's batch last took a file in, and seals it announcing what it took", async () => {
+    const JOB_BATCH = '7c1f0f8e-0b6a-4f41-9d3b-5a0b2f9e1a02'
+    await repo.insertUploadBatch({
+      id: JOB_BATCH,
+      organizationId: ORG,
+      createdBy: USER,
+      scope: 'project',
+      projectId,
+      expectedCount: 0,
+      excluded: [],
+    })
+    expect(await repo.latestBatchDocumentAt(ORG, JOB_BATCH)).toBeNull()
+    await inTenant(ORG, () =>
+      db.execute(sql`
+        INSERT INTO documents
+          (organization_id, created_by, filename, storage_key, collection_name, status, scope, project_id,
+           upload_batch_id, created_at)
+        VALUES
+          (${ORG}, ${USER}, 'mail-1.md', 'k/mail-1.md', 'coll_uploads', 'pending', 'project', ${projectId}::uuid,
+           ${JOB_BATCH}::uuid, '2026-10-01T10:00:00Z'),
+          (${ORG}, ${USER}, 'mail-2.md', 'k/mail-2.md', 'coll_uploads', 'pending', 'project', ${projectId}::uuid,
+           ${JOB_BATCH}::uuid, '2026-10-01T11:00:00Z')
+      `)
+    )
+    expect((await repo.latestBatchDocumentAt(ORG, JOB_BATCH))?.toISOString()).toBe('2026-10-01T11:00:00.000Z')
+    expect(await repo.latestBatchDocumentAt(OTHER_ORG, JOB_BATCH)).toBeNull()
+
+    expect(await repo.sealUploadBatch(ORG, JOB_BATCH, USER, { unchanged: 0, failed: 0, expected: 2 }, new Date())).toBe(true)
+    expect(await repo.findUploadBatch(ORG, JOB_BATCH)).toMatchObject({ expectedCount: 2, sealedAt: expect.any(Date) })
+  })
+
   it('refuses a completed-but-unsealed batch at the CHECK, whatever the writer', async () => {
     await expect(
       inTenant(ORG, () =>
