@@ -300,7 +300,7 @@ class AvailableDocument(BaseModel):
     """One searchable document the agent may list in this turn.
 
     Identity is ``(collection, file_name)`` (ADR-0047): the same filename can
-    sit on the Büroarchiv and in a project as two different documents. ``shelf``
+    sit on the Büroablage and in a project as two different documents. ``shelf``
     is where it sits (``archiv`` / ``project`` / ``session`` / ``base``) and is
     stamped at aggregation from the signed scope — never guessed back from the
     filename. Missing shelf is unknown, not ``base``.

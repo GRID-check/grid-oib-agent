@@ -714,8 +714,8 @@ export const files: typeof en.files = {
       published: 'Veröffentlicht',
       rejected: 'Abgelehnt',
       superseded: 'Ersetzt',
-      // NICHT „Archiviert“. Das Archiv dieses Produkts ist das Büroarchiv, in
-      // das man eine Datei legt, DAMIT sie projektübergreifendes Bürowissen
+      // NICHT „Archiviert“. Die Büroablage (früher „Archiv“) ist der Ort, an
+      // den man eine Datei legt, DAMIT sie projektübergreifendes Bürowissen
       // wird. Dieser Zustand ist das Gegenteil: Die Datei verlässt den
       // Arbeitsstand, und ihre Einträge in der Wissensbasis werden gelöscht.
       // Ein Wort für beides hieße, dasselbe Verb für eine Sache und ihr
@@ -893,7 +893,7 @@ export const files: typeof en.files = {
     welcomeAbout:
       'Dieser Chat dreht sich um {name}. Fragen Sie danach — die Antwort zitiert die Unterlage und das Recht.',
     subjectHint:
-      'Piloti sucht in dieser Unterlage. Andere Projektakten und das Büroarchiv bleiben außen vor.',
+      'Piloti sucht in dieser Unterlage. Andere Projektakten und die Büroablage bleiben außen vor.',
     subjectClear: 'Nicht mehr auf diese Datei beschränken',
     loadingPeople: 'Personen werden geladen…',
     noPeople: 'Noch niemand in diesem Projekt',

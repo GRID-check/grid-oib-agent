@@ -1,9 +1,9 @@
 /**
  * Which knowledge shelves a turn may read.
  *
- * Project documents and the Büroarchiv both ride the knowledge layer, which is
+ * Project documents and the Büroablage both ride the knowledge layer, which is
  * not a toggleable data source. The composer chips ("Projektunterlagen" /
- * "Büroarchiv") used to only switch RIS/web off and still searched every
+ * "Büroablage") used to only switch RIS/web off and still searched every
  * shelf — so a project question mixed in Archiv hits (#436) and "summarize
  * this upload" walked the whole corpus (#429).
  *

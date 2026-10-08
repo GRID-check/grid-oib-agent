@@ -15,12 +15,12 @@ export const uploadBatches: typeof en.uploadBatches = {
     // Wohin der Upload ging, wenn sich der Projektname nicht lesen lässt.
     place: {
       project: 'Projekt',
-      archiv: 'Archiv',
+      archiv: 'Büroablage',
       session: 'Chat',
     },
     open: {
       project: 'Dateien öffnen',
-      archiv: 'Archiv öffnen',
+      archiv: 'Büroablage öffnen',
       session: 'Chat öffnen',
     },
     state: {
@@ -48,14 +48,14 @@ export const uploadBatches: typeof en.uploadBatches = {
       title: 'Dateien',
       root: {
         project: 'Projektordner',
-        archiv: 'Archiv',
+        archiv: 'Büroablage',
         session: 'Chat',
       },
       empty: 'Keine Datei dieses Uploads ist bei Piloti angekommen.',
       pages: '{count, plural, one {# Seite} other {# Seiten}}',
       reasonsLabel: 'Warum sie zurückgehalten wird',
       openInFiles: 'In Dateien öffnen',
-      openInArchiv: 'Im Archiv öffnen',
+      openInArchiv: 'In der Büroablage öffnen',
     },
     notFound: {
       title: 'Übersicht nicht gefunden',

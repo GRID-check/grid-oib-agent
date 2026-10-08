@@ -108,7 +108,7 @@ export const organization: typeof en.organization = {
     access: { download: 'Download', open: 'Geöffnet' },
     columns: { when: 'Wann', person: 'Person', action: 'Was', document: 'Dokument', place: 'Wo' },
     place: {
-      archiv: 'Archiv',
+      archiv: 'Büroablage',
       session: 'Chat-Anhang',
       project: 'Projekt',
       root: 'Projektebene',
@@ -271,8 +271,8 @@ export const organization: typeof en.organization = {
         hint: 'Wer welches Dokument heruntergeladen hat. Das Lesen wird selbst protokolliert.',
       },
       archiv_manage: {
-        name: 'Archiv verwalten',
-        hint: 'Dokumente im Büro-Archiv hochladen, löschen und neu einlesen. Lesen dürfen alle.',
+        name: 'Büroablage verwalten',
+        hint: 'Dokumente in der Büroablage hochladen, löschen und neu einlesen. Lesen dürfen alle.',
       },
       skills_manage: {
         name: 'Skills verwalten',
@@ -539,7 +539,7 @@ export const organization: typeof en.organization = {
     overQuota: 'Kontingent erreicht — neue Uploads werden abgelehnt, bis Platz frei wird',
     nearQuota: 'Fast voll — neue Uploads werden bald abgelehnt',
     projectDocuments: 'Projektdokumente',
-    archivDocuments: 'Organisations-Archiv',
+    archivDocuments: 'Büroablage',
     /** Count-neutral: wird auch bei genau einem Dokument gerendert. */
     documentCount: 'Dokumente: {count}',
     setByPlatform:
@@ -692,7 +692,7 @@ export const organization: typeof en.organization = {
       'Hält die Inhaltsprüfung eine Datei zurück, erscheint sie hier. Sie sehen die Dateien, die Sie freigeben dürfen.',
     whereProject: 'Projekt {name}',
     whereProjectUnknown: 'Ein Projekt',
-    whereArchiv: 'Archiv',
+    whereArchiv: 'Büroablage',
     whereSession: 'Chat-Anhang',
     reasonsLabel: 'Gründe',
     noReason: 'Grund nicht lesbar',

@@ -558,7 +558,7 @@ def _names_agent_authored_document(reference: AnswerMetaReference | None, ctx: G
 
     ``reference.document`` is free text a model produced, so the comparison is
     on normalised names and matches in BOTH directions: the reference may carry
-    the document plus an annotation („Brandschutzkonzept Haus B (Büroarchiv)"),
+    the document plus an annotation („Brandschutzkonzept Haus B (Büroablage)"),
     or be the bare slug of a longer stored title. Deliberately eager — the cost
     of a false positive is a headline the reader loses while the prose keeps
     every word of the answer, and the cost of a false negative is a normative

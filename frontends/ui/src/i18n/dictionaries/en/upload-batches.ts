@@ -12,12 +12,12 @@ export const uploadBatches = {
     // Where the upload went, when the project's name cannot be read.
     place: {
       project: 'Project',
-      archiv: 'Archiv',
+      archiv: 'Office filing',
       session: 'Chat',
     },
     open: {
       project: 'Open files',
-      archiv: 'Open Archiv',
+      archiv: 'Open Office filing',
       session: 'Open chat',
     },
     state: {
@@ -45,14 +45,14 @@ export const uploadBatches = {
       title: 'Files',
       root: {
         project: 'Project folder',
-        archiv: 'Archiv',
+        archiv: 'Office filing',
         session: 'Chat',
       },
       empty: 'No file from this upload reached Piloti.',
       pages: '{count, plural, one {# page} other {# pages}}',
       reasonsLabel: 'Why it is held back',
       openInFiles: 'Open in Files',
-      openInArchiv: 'Open in the Archiv',
+      openInArchiv: 'Open in Office filing',
     },
     notFound: {
       title: 'Summary not found',

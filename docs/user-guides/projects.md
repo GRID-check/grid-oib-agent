@@ -16,7 +16,7 @@ Each card is split into a raised header — project name, an **Active** or **Clo
 
 The header row carries the page title, a search field, and the **New project** button. Searching collapses both sections into a single **Matches** list — with a query on screen, "continue where you left off" is not the question being asked.
 
-When the organization-wide Archiv is enabled for your org, a full-width **Archiv** entry card appears below the grid and opens `/app/archiv` — the office's shared, org-wide knowledge.
+When the Büroablage is enabled for your org, a full-width **Büroablage** entry card appears below the grid and opens `/app/archiv` — the office's shared, org-wide knowledge.
 
 Organization admins additionally see a **Recently deleted** section at the bottom, from which soft-deleted projects can be restored during the grace period.
 
@@ -41,7 +41,7 @@ Opening a project (`/app/projects/{id}`) lands you in **Ask Piloti** — the pro
 | **History** | `/app/projects/{id}/history` | All conversations and deep-research runs; rows reopen in chat |
 | **Jobs** | `/app/projects/{id}/jobs` | This project's scheduled prompts, and their run history (feature-flagged) |
 | **Skills** | `/app/projects/{id}/skills` | The organization's skill toolbox (feature-flagged) |
-| **Archiv** | `/app/archiv` | The org-wide office archive (feature-flagged) |
+| **Büroablage** | `/app/archiv` | The office's org-wide shared files (feature-flagged) |
 | **Inbox** | `/app/inbox` | Mentions, shares, and operational notices (feature-flagged) |
 | **Settings** | `/app/projects/{id}/settings` | Project parameters, members, memory, insights, danger zone (pinned at the bottom of the sidebar) |
 
@@ -206,7 +206,7 @@ Source: `frontends/ui/src/lib/authz/projects.ts:7`, `frontends/ui/src/app/api/pr
 
 Go to `/app/projects` (the wordmark in the sidebar links there). The projects home shows all projects in your organization as a card grid; clicking a card opens the project in the section you last used, and each card's gear icon opens that project's settings directly.
 
-On desktop, project sections (Chat, Files, History, Jobs, Skills, Archiv, Settings) are reached via the left sidebar rail; on small screens the rail is replaced by a slim top bar whose menu button opens the same navigation as a drawer.
+On desktop, project sections (Chat, Files, History, Jobs, Skills, Büroablage, Settings) are reached via the left sidebar rail; on small screens the rail is replaced by a slim top bar whose menu button opens the same navigation as a drawer.
 
 **Resizing the rail.** Drag the rail's outer edge to set its width, anywhere between 200px and 420px; drag it in past the minimum and it folds to the 64px icon rail, drag back out and it returns to the width it had. A click on that edge still folds and unfolds it, as does the control in the rail's brand row. The edge is also a keyboard splitter: Tab to it, then ← / → resize by 16px (with Shift, 64px), Home and End go to the bounds, one more ← at the minimum folds it, and Enter or Space toggles. Both the width and the folded state are per-browser, kept in `localStorage` (`grid.sidebar.width`, `grid.sidebar.collapsed`), so they follow you between sections and sessions but not between devices.
 

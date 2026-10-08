@@ -754,7 +754,7 @@ export const files = {
       rejected: 'Rejected',
       superseded: 'Superseded',
       /**
-       * NOT "archived". This product's Archiv is the office archive, where a
+       * NOT "archived". Office filing (Büroablage, once "Archiv") is where a
        * document is placed so that it BECOMES cross-project office knowledge.
        * This state is the opposite: the file leaves the working set and its
        * knowledge-base entries are purged. One word for both would be the same
@@ -942,7 +942,7 @@ export const files = {
     welcomeAbout:
       'This thread is about {name}. Ask it something — answers will cite the file and the law.',
     subjectHint:
-      'Piloti searches this document. Other project files and the office archive stay out.',
+      'Piloti searches this document. Other project files and Office filing stay out.',
     subjectClear: 'Stop focusing on this file',
     loadingPeople: 'Loading people…',
     noPeople: 'No one in this project yet',

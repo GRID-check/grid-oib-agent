@@ -396,7 +396,7 @@ describe('an inline citation marker', () => {
       await user.click(screen.getByRole('button', { name: /Source 1: Brandschutzkonzept/i }))
       const peek = await screen.findByRole('dialog')
 
-      expect(within(peek).getByRole('link', { name: 'Open in archive' })).toHaveAttribute(
+      expect(within(peek).getByRole('link', { name: 'Open in Office filing' })).toHaveAttribute(
         'href',
         '/app/archiv'
       )

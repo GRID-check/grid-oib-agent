@@ -41,11 +41,11 @@ describe('includeShelvesForTurn', () => {
     }
   })
 
-  test('the Projektunterlagen chip keeps law + session, not the Büroarchiv', () => {
+  test('the Projektunterlagen chip keeps law + session, not the Büroablage', () => {
     expect(includeShelvesForTurn({ preset: 'project' })).toEqual(['project', 'session', 'base'])
   })
 
-  test('the Büroarchiv chip keeps law + session, not project files', () => {
+  test('the Büroablage chip keeps law + session, not project files', () => {
     expect(includeShelvesForTurn({ preset: 'office' })).toEqual(['archiv', 'session', 'base'])
   })
 

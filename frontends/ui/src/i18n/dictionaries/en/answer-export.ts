@@ -384,7 +384,7 @@ export const answerExport = {
     file_name: 'File',
     snippet: 'Matching passage',
     page: 'Page',
-    /** Which corpus the hit came from — the project's files or the Büroarchiv. */
+    /** Which corpus the hit came from — the project's files or the Büroablage. */
     source: 'Origin',
     score: 'Relevance',
     // CalculationCard

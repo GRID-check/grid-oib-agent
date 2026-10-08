@@ -190,10 +190,10 @@ Description: {{ step.description }}
         assert "Handle with care" in result
 
     def test_empty_docs_still_show_in_scope_empty_archiv(self, monkeypatch):
-        """An authorized empty Büroarchiv must render as empty, not vanish."""
+        """An authorized empty Büroablage must render as empty, not vanish."""
         from aiq_agent.knowledge import inventory as inventory_mod
 
         monkeypatch.setattr(inventory_mod, "in_scope_shelves_from_context", lambda: [Shelf.ARCHIV, Shelf.BASE])
         rendered = render_prompt_template("{{ document_inventory }}", available_documents=[])
-        assert "### Büroarchiv" in rendered
+        assert "### Büroablage" in rendered
         assert "empty" in rendered.lower()

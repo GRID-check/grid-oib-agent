@@ -4511,7 +4511,7 @@ class LlamaIndexIngestor(TTLCleanupMixin, BaseIngestor):
                     # Prefer a human-set stored class over the filename guess;
                     # stamped into every chunk's metadata below and persisted to
                     # the summaries row after ingestion. The guess is for the
-                    # base corpus only: on a project, session or Büroarchiv
+                    # base corpus only: on a project, session or Büroablage
                     # upload a guessed "sonstiges" is not harmless — it labelled
                     # every user document a "Basisdokument" in the Herleitung.
                     from aiq_agent.common.norm_registry import guess_doc_class

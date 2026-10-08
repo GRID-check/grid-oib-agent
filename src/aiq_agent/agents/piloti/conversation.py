@@ -485,7 +485,7 @@ class ConversationGraph:
     async def _research_node(self, state: ConversationState) -> dict[str, Any]:
         trimmed = self._trimmed(state)
         logger.debug("research_node: available_documents = %s", state.available_documents)
-        # A shelf named in the question ("was hast du im Büroarchiv") is the
+        # A shelf named in the question ("was hast du in der Büroablage") is the
         # one the inventory prints in full this turn — a ContextVar read by
         # the prompt renderer; the graph runs in this task.
         set_listing_shelf(shelf_hint_from_query(get_latest_user_query(state.messages) or ""))

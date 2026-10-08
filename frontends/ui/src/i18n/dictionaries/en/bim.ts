@@ -7,7 +7,7 @@ export const bim = {
     structure: 'Structure',
     quantities: 'Quantities',
     revisions: 'Revisions',
-    // The Büroarchiv has no project — so no Gebäudeklasse and no Hauptnutzung
+    // The Büroablage has no project — so no Gebäudeklasse and no Hauptnutzung
     // to check against. Disabled rather than hidden: a missing tab reads as
     // the Prüfbuch having been lost.
     complianceNeedsProject: 'Available inside a project',

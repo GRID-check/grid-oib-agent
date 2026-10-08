@@ -21,7 +21,7 @@ export const research: typeof en.research = {
     },
     loggedOutTitle: 'Piloti wird verfügbar, sobald Ihre Organisation verifiziert ist.',
     loggedOutBody:
-      'Melden Sie sich an, um den Projekt-Arbeitsbereich freizuschalten: Ihre Unterlagen, das Büroarchiv und den Vorschriftenkorpus.',
+      'Melden Sie sich an, um den Projekt-Arbeitsbereich freizuschalten: Ihre Unterlagen, die Büroablage und den Vorschriftenkorpus.',
     signInSso: 'Mit SSO anmelden',
     welcomeTitle: 'Wie kann Piloti bei Ihrem Projekt helfen?',
   },
@@ -88,7 +88,7 @@ export const research: typeof en.research = {
     /** Wortmarken der Provenienz-Straten — immer mit Icon und Farbe zusammen. */
     strata: {
       law: 'Baurecht',
-      office: 'Büroarchiv',
+      office: 'Büroablage',
       project: 'Projektwissen',
       auto: 'Web',
     },
@@ -97,7 +97,7 @@ export const research: typeof en.research = {
       all: 'Alle Quellen',
       law: 'Baurecht & Richtlinien',
       project: 'Projektunterlagen',
-      office: 'Büroarchiv',
+      office: 'Büroablage',
     },
     /**
      * Die Wissensschicht ist keine umschaltbare Quelle — sie geht bei jedem Zug
@@ -107,7 +107,7 @@ export const research: typeof en.research = {
     knowledge: {
       projectName: 'Projektwissen',
       projectDescription: 'Ihre Projektunterlagen in diesem Projekt.',
-      officeName: 'Büroarchiv',
+      officeName: 'Büroablage',
       officeDescription: 'Freigegebene Unterlagen Ihres Büros.',
     },
   },

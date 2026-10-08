@@ -10,7 +10,7 @@
  * ## Never a naked integer
  *
  * The old trigger rendered a count. The count was wrong (the knowledge layer is
- * stripped from the list yet appended to every turn) and, on the Büroarchiv
+ * stripped from the list yet appended to every turn) and, on the Büroablage
  * preset, it read **0** — the user names the office archive and the composer
  * reports zero sources. Worse, a bare number says nothing about *what* is in
  * scope. So the trigger renders one of four shapes instead, resolved by
