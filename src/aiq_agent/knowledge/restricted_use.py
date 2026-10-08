@@ -141,10 +141,11 @@ class CrossProjectTurn:
     """
 
     #: The conversation drew on another project in a way that narrows its
-    #: readers (an active project, or a restricted folder): an earlier turn did
-    #: (the BFF says so at turn start) or a lookup of this turn did. Every door a
-    #: whole project reads is shut, memory included. A closed project's open
-    #: folders never set it.
+    #: readers (an active project, or a restricted folder of ANY other project,
+    #: a closed one included): an earlier turn did (the BFF says so at turn
+    #: start, from the conversation's record, ``drewOnOtherProjects``) or a
+    #: lookup of this turn did. Every door a whole project reads is shut, memory
+    #: included. A closed project's open folders never set it.
     drew_on_others: bool = False
     #: The collections of other projects whose content the BFF recorded and
     #: handed to this turn: what the admission lets through, and what may be

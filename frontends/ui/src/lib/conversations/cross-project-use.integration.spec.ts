@@ -27,6 +27,10 @@
  *   - a CLOSED project restricts nobody: anyone may read and be shared the
  *     chat, memory may be written; reopened, it restricts again; a restricted
  *     folder of it still refuses memory;
+ *   - a restricted FOLDER of a closed project still shuts the chat's doors
+ *     (`drewOnOtherProjects`, memory) while the project itself restricts
+ *     nobody, a binned folder's tombstone included; the conversation's own
+ *     project's folders and another organization's rows never count there;
  *   - the erasure takes both records, and another organization sees neither.
  */
 
@@ -165,6 +169,38 @@ describe.skipIf(!url)('cross-project use against Postgres (migration 0125)', () 
       db.execute<{ n: number }>(sql`select count(*)::int as n from message_restricted_use where message_id = ${messageId}`)
     )
     return Number(Array.from(rows)[0]?.n)
+  }
+  /** A folder of `projectId` with its own access list (the role `org-gf`), as a folder closed to most of the office. */
+  const restrictedFolder = async (projectId: string, name: string) => {
+    const [row] = Array.from(
+      await inOrg(ORG, () =>
+        db.execute<{ id: string }>(sql`
+          with folder as (
+            insert into project_folders (organization_id, project_id, name, path, access_mode, access_changed_by, access_changed_at)
+            values (${ORG}, ${projectId}::uuid, ${name}, ${name}, 'custom', ${OWNER}, now())
+            returning id, project_id
+          ), grants as (
+            insert into project_folder_grants (organization_id, project_id, folder_id, role_slug, level)
+            select ${ORG}, project_id, id, 'org-gf', 'read' from folder
+          )
+          select id from folder`)
+      )
+    )
+    return String(row.id)
+  }
+  /** A project that is closed now with a restricted folder (a closed project takes no new folder, so it closes last). */
+  const closedProjectWithRestrictedFolder = async (name: string) => {
+    const [project] = Array.from(
+      await inOrg(ORG, () =>
+        db.execute<{ id: string }>(sql`
+          insert into projects (organization_id, name, created_by, collection_name)
+          values (${ORG}, ${name}, ${OWNER}, ${`proj_xp_${name.replace(/\W/g, '_')}_${STAMP}`}) returning id`)
+      )
+    )
+    const projectId = String(project.id)
+    const folderId = await restrictedFolder(projectId, name)
+    await setStatus(projectId, 'closed')
+    return { projectId, folderId }
   }
   const shareWith = (conversationId: string, userId: string) =>
     inOrg(ORG, () =>
@@ -332,6 +368,50 @@ describe.skipIf(!url)('cross-project use against Postgres (migration 0125)', () 
     } finally {
       await setStatus(ids.other, 'active')
     }
+  })
+
+  describe('a restricted folder of another project, whose project may be closed', () => {
+    it('shuts the chat’s doors although the closed project restricts nobody, and memory is refused', async () => {
+      const id = await chat()
+      const { projectId, folderId: folder } = await closedProjectWithRestrictedFolder(`Honorare ${chatSeq}`)
+      await admit(id, [folder], projectId)
+
+      expect(await inOrg(ORG, () => use.recordedSourceProjects(id, ORG))).toEqual([])
+      expect(await inOrg(ORG, () => crossUse.drewOnOtherProjects(id, ORG))).toBe(true)
+      expect(await reasonOf(inOrg(ORG, () => crossUse.requireMayRememberFrom(id, ORG)))).toBe('CROSS_PROJECT_MEMORY')
+    })
+
+
+    it('keeps counting when the folder is in the Papierkorb: a tombstone keeps the access it had', async () => {
+      const id = await chat()
+      const { projectId, folderId: folder } = await closedProjectWithRestrictedFolder(`Gelöscht ${chatSeq}`)
+      await admit(id, [folder], projectId)
+      await inOrg(ORG, () =>
+        db.execute(sql`update project_folders set deleted_at = now(), deleted_by = ${OWNER} where id = ${folder}::uuid`)
+      )
+
+      expect(await inOrg(ORG, () => crossUse.drewOnOtherProjects(id, ORG))).toBe(true)
+    })
+
+    it('does not count a restricted folder of the conversation’s own project: its memory rules govern that', async () => {
+      const id = await chat()
+      const own = await restrictedFolder(ids.own, `Intern ${chatSeq}`)
+      await admit(id, [own], ids.closed)
+
+      expect(await inOrg(ORG, () => use.recordedRestrictedFolders(id, ORG))).toEqual([own])
+      expect(await inOrg(ORG, () => crossUse.drewOnOtherProjects(id, ORG))).toBe(false)
+      await expect(inOrg(ORG, () => crossUse.requireMayRememberFrom(id, ORG))).resolves.toBeUndefined()
+    })
+
+    it('never counts another organization’s record, whichever organization asks', async () => {
+      const id = await chat()
+      const { projectId, folderId: folder } = await closedProjectWithRestrictedFolder(`Fremd ${chatSeq}`)
+      await admit(id, [folder], projectId)
+
+      expect(await inOrg(OTHER_ORG, () => crossUse.drewOnOtherProjects(id, OTHER_ORG))).toBe(false)
+      expect(await inOrg(OTHER_ORG, () => crossUse.drewOnOtherProjects(id, ORG))).toBe(false)
+      expect(await inOrg(ORG, () => crossUse.drewOnOtherProjects(id, ORG))).toBe(true)
+    })
   })
 
   it('keeps the card decisions of a chat that drew on a running project out of the project digest, not of a closed one', async () => {
