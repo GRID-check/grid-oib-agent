@@ -37,6 +37,9 @@ const COLUMNS = [
   'topics',
   'question',
   'answer',
+  // The voter's own words on a down-vote. The reason chip says which bucket;
+  // this says what was actually wrong, and was stored but never exported.
+  'comment',
   // What the voter says a good answer would have contained. The column name is
   // a contract: the answer-suite converter reads it by name.
   'expected_answer',
@@ -93,6 +96,7 @@ export const GET = apiRoute(
           turn.topics.join(' '),
           turn.question,
           turn.answer,
+          turn.comment,
           turn.expectedAnswer,
         ]
           .map(csvCell)

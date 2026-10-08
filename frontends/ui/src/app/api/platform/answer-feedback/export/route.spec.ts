@@ -40,6 +40,7 @@ vi.mock('@/lib/feedback/service', () => ({
           topics: ['brandschutz', 'energie'],
           question: 'Welcher U-Wert gilt für Außenwände, und warum?',
           answer: 'Höchstens 0,35 W/(m²·K).',
+          comment: 'Der Wert gilt nur für Neubau, nicht für Sanierung.',
           expectedAnswer: 'U-Wert 0,35 laut OIB-RL 6',
         },
       ],
@@ -123,6 +124,16 @@ describe('GET /api/platform/answer-feedback/export', () => {
 
     expect(header.split(',').at(-1)).toBe('expected_answer')
     expect(row).toContain('"U-Wert 0,35 laut OIB-RL 6"')
+  })
+
+  /** Stored on every down-vote with text, and invisible until it was a column. */
+  it("carries the voter's comment in its own column, just before expected_answer", async () => {
+    isOwner.value = true
+    const body = await (await GET(request())).text()
+    const [header, row] = body.split('\n')
+
+    expect(header.split(',').slice(-2)).toEqual(['comment', 'expected_answer'])
+    expect(row).toContain('"Der Wert gilt nur für Neubau, nicht für Sanierung.","U-Wert 0,35 laut OIB-RL 6"')
   })
 
   describe('?summary=weekly', () => {
