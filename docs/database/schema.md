@@ -866,10 +866,12 @@ carry access:
 | `restricted_folder_ids` (both tables) | `uuid[]` | NULL, canonical, 1..20 when set | the document's restricting folders when it was read |
 | `permit_requirements.embedding` / `embedding_model` | `real[]` / `text` | NULL | ranked only against the current model's vectors |
 
-The stored restriction is a snapshot. The search (`searchPermitRequirements`)
-joins the document and serves a record only while the document is still in
-`collection_name`, neither quarantined nor archived, and not in the Papierkorb;
-then it filters by the reader's clearance as project memory is filtered.
+The stored restriction is a snapshot of where the document was read, and no
+reader consults it for access. The search (`searchPermitRequirements`) joins
+the document, judges its LIVE `folder_id` against the folder tree and the
+reader's clearance (`lib/permits/live-access.ts`), records that live
+restriction at hand-out, and serves nothing whose document is quarantined,
+archived or in the Papierkorb.
 Proven in `src/lib/permits/repository.integration.spec.ts` under
 `scripts/rls-test-db.sh`.
 

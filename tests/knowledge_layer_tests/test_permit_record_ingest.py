@@ -72,12 +72,31 @@ def test_a_bescheid_is_extracted_over_its_pages_and_stored_for_its_document(call
     ]
 
 
-@pytest.mark.parametrize("tags", [["Gutachten"], [], None])
-def test_a_document_the_tags_do_not_call_a_bescheid_is_not_read_and_its_old_record_is_dropped(calls, forgotten, tags):
-    # A re-typed or re-uploaded document must stop answering as a permit: its record goes, without a model call.
-    _ingestor(enabled=False, llm=None)._remember_permit(CONFIG, "proj_1", "f.pdf", tags, [_page("1", "x")])
+def test_a_document_the_tags_type_as_something_else_is_not_read_and_its_old_record_is_dropped(calls, forgotten):
+    # A re-typed document must stop answering as a permit: its record goes, without a model call.
+    _ingestor(enabled=False, llm=None)._remember_permit(CONFIG, "proj_1", "f.pdf", ["Gutachten"], [_page("1", "x")])
     assert calls == []
     assert forgotten == [("d1", "proj_1", "f.pdf")]
+
+
+@pytest.mark.parametrize("tags", [None, []])
+def test_no_tag_decision_is_no_reason_to_drop_a_record(calls, forgotten, tags):
+    # None: the tagger timed out or failed, the classifier abstained, or summaries are off. Placement
+    # re-ingests on every move, so dropping here would erase a real Bescheid's record whenever the
+    # tagger was slow. An empty list decided nothing either.
+    _ingestor()._remember_permit(CONFIG, "proj_1", "Bescheid.pdf", tags, [_page("1", "x")])
+    assert forgotten == []
+    assert calls == []
+
+
+def test_a_bff_that_never_answers_the_drop_does_not_stall_the_ingest(monkeypatch):
+    monkeypatch.setattr(adapter_module, "PERMIT_RECORD_DROP_TIMEOUT_SECONDS", 0.2)
+    monkeypatch.setattr("aiq_agent.knowledge.permit_records_client.store_permit_record", lambda *a, **k: time.sleep(5))
+
+    started = time.monotonic()
+    _ingestor()._remember_permit(CONFIG, "proj_1", "f.pdf", ["Gutachten"], [_page("1", "x")])
+
+    assert time.monotonic() - started < 2
 
 
 @pytest.mark.parametrize(
