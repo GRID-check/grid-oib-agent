@@ -3,12 +3,15 @@ import { type ReactElement, type ReactNode } from 'react'
 import { render, screen, fireEvent, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { http, HttpResponse } from 'msw'
+import { strToU8, zipSync } from 'fflate'
 import { server } from '@/mocks/server'
 import { ProjectFileWorkspace } from './project-file-workspace'
 import { FilePreviewHost } from './file-preview-host'
+import { SETTLING_POLL_MS } from '../hooks/use-settling-refresh'
 import { useFilePreviewStore } from '../stores/file-preview-store'
 import { useProjectDocuments } from '../hooks/use-project-documents'
 import type { DocumentWireRow } from '../lib/file-item'
+import { handOverDroppedFiles, takeDroppedFiles } from '../lib/dropped-file-handover'
 
 function renderWorkspace(ui: ReactElement) {
   return render(
@@ -71,6 +74,9 @@ vi.mock('sonner', () => ({
   toast: {
     success: (...args: unknown[]) => toastSuccess(...args),
     error: (...args: unknown[]) => toastError(...args),
+    // The "reading the ZIP…" toast, which stays up while an archive is unpacked.
+    loading: vi.fn(() => 'reading'),
+    dismiss: vi.fn(),
   },
 }))
 
@@ -117,6 +123,42 @@ vi.mock('@/shared/context', () => ({
     },
   }),
 }))
+
+/**
+ * The shelf the upload planner's name probe answers from
+ * (`POST /api/documents/name-matches`). Empty unless a test puts its corpus
+ * here: the plan is asked of the server, never of the listing on screen.
+ */
+let probeShelf: DocumentWireRow[] = []
+/** Every name list the probe was asked about, in order. */
+let probedNames: string[][] = []
+
+beforeEach(() => {
+  probeShelf = []
+  probedNames = []
+  server.use(
+    http.post('/api/documents/name-matches', async ({ request }) => {
+      const { names } = (await request.json()) as { names: string[] }
+      probedNames.push(names)
+      const fold = (name: string) => name.normalize('NFC').trim().toLowerCase()
+      const wanted = new Set(names.map(fold))
+      const documents = probeShelf
+        .filter((doc) => doc.authoredBy !== 'agent')
+        .filter((doc) => [doc.filename, doc.displayName].some((name) => name && wanted.has(fold(name))))
+        .map((doc) => ({
+          id: doc.id,
+          filename: doc.filename,
+          displayName: doc.displayName ?? null,
+          fileSize: doc.fileSize,
+          contentHash: doc.contentHash ?? null,
+          folderId: doc.folderId ?? null,
+          authoredBy: doc.authoredBy ?? 'user',
+          lifecycle: doc.lifecycle ?? 'active',
+        }))
+      return HttpResponse.json({ documents })
+    }),
+  )
+})
 
 /** Minimal DataTransfer stand-in for jsdom drag events. */
 function makeDataTransfer(files: File[]) {
@@ -186,6 +228,36 @@ describe('ProjectFileWorkspace', () => {
     fireEvent.drop(dropzone, { dataTransfer })
     // Same contract as the button: files still flow to uploadFiles, which validates.
     await waitFor(() => expect(mockUploadFiles).toHaveBeenCalledWith([badFile]))
+  })
+
+  it('uploads a drop made elsewhere in the project once it arrives, and only once', async () => {
+    server.use(http.get('/api/projects/:projectId/folders', () => HttpResponse.json({ folders: [] })))
+    takeDroppedFiles('proj-1')
+    const file = new File(['x'], 'plan.pdf', { type: 'application/pdf' })
+    handOverDroppedFiles('proj-1', [file])
+
+    const { unmount } = renderWorkspace(
+      <ProjectFileWorkspace projectId="proj-1" projectName="Test" collectionName="test-coll" />
+    )
+
+    await waitFor(() => expect(mockUploadFiles).toHaveBeenCalledWith([file]))
+    unmount()
+    renderWorkspace(<ProjectFileWorkspace projectId="proj-1" projectName="Test" collectionName="test-coll" />)
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    expect(mockUploadFiles).toHaveBeenCalledTimes(1)
+  })
+
+  it('holds a handed-over drop while the folders it is planned against failed to load', async () => {
+    server.use(http.get('/api/projects/:projectId/folders', () => new HttpResponse(null, { status: 500 })))
+    takeDroppedFiles('proj-1')
+    const file = new File(['x'], 'plan.pdf', { type: 'application/pdf' })
+    handOverDroppedFiles('proj-1', [file])
+
+    renderWorkspace(<ProjectFileWorkspace projectId="proj-1" projectName="Test" collectionName="test-coll" />)
+
+    await waitFor(() => expect(screen.getByText(/folders/i)).toBeInTheDocument())
+    expect(mockUploadFiles).not.toHaveBeenCalled()
+    expect(takeDroppedFiles('proj-1')).toEqual([file])
   })
 })
 
@@ -265,6 +337,7 @@ describe('ProjectFileWorkspace — a dropped folder', () => {
     files: DocumentWireRow[] = [existing],
     folders: Array<{ id: string; parentId: string | null; name: string; path: string }> = [],
   ) {
+    probeShelf = files
     return renderWorkspace(
       <ProjectFileWorkspace
         projectId="proj-1"
@@ -324,6 +397,33 @@ describe('ProjectFileWorkspace — a dropped folder', () => {
     expect(new Set(targets)).toEqual(
       new Set(['folder-for-Wohnbau/Plaene', 'folder-for-Wohnbau/Statik']),
     )
+  })
+
+  it('unpacks a picked zip into the same plan a dropped folder gets', async () => {
+    renderWithCorpus()
+    const zip = new File(
+      [zipSync({ 'Statik/Bericht.pdf': strToU8('%PDF'), 'Statik/Plaene/EG.pdf': strToU8('%PDF') }) as BlobPart],
+      'Statik.zip',
+      { type: 'application/zip' }
+    )
+    const input = screen.getByTestId('project-upload-input') as HTMLInputElement
+    Object.defineProperty(input, 'files', { value: [zip], configurable: true })
+    fireEvent.change(input)
+
+    await userEvent.click(await screen.findByTestId('folder-upload-confirm'))
+
+    await waitFor(() => expect(ensureRequests).toHaveLength(1))
+    expect(ensureRequests[0]).toEqual({ parentId: null, paths: ['Statik', 'Statik/Plaene'] })
+    await waitFor(() => expect(mockUploadFiles).toHaveBeenCalledTimes(1))
+    const [sent, options] = mockUploadFiles.mock.calls[0] as [
+      File[],
+      { folderIdFor: (file: File) => string | null },
+    ]
+    expect(sent.map((file) => file.name).sort()).toEqual(['Bericht.pdf', 'EG.pdf'])
+    expect(sent.map((file) => options.folderIdFor(file)).sort()).toEqual([
+      'folder-for-Statik',
+      'folder-for-Statik/Plaene',
+    ])
   })
 
   it('leaves the existing documents alone when the reader unticks the update', async () => {
@@ -410,6 +510,186 @@ describe('ProjectFileWorkspace — a dropped folder', () => {
 
     await waitFor(() => expect(mockUploadFiles).toHaveBeenCalledWith([file]))
     expect(screen.queryByTestId('folder-upload-dialog')).not.toBeInTheDocument()
+  })
+})
+
+/**
+ * A REVISED FILE UNDER THE SAME NAME (U1).
+ *
+ * The same drop used to do two different things depending on the browser: one
+ * that had uploaded to the project before refused it as „bereits hinzugefügt"
+ * (its localStorage remembered the name), a fresh one replaced the live
+ * document without a word. Both now ask, and both ask from the listing.
+ */
+describe('ProjectFileWorkspace — a picked file the project already holds', () => {
+  const existing: DocumentWireRow = {
+    id: 'doc-eg',
+    filename: 'EG.pdf',
+    displayName: null,
+    fileSize: 10,
+    contentType: 'application/pdf',
+    status: 'ready',
+    folderId: null,
+    createdAt: '2026-06-14T09:00:00.000Z',
+    errorMessage: null,
+    summary: null,
+    pageCount: null,
+    chunkCount: null,
+    contentTypes: null,
+    tags: null,
+    assignees: [],
+    authoredBy: 'user' as const,
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+    searchParams = new URLSearchParams()
+    resetPreviewStore()
+    server.use(
+      http.get('/api/documents', () => HttpResponse.json({ documents: [existing] })),
+      http.get('/api/projects/:projectId/folders', () => HttpResponse.json({ folders: [] })),
+    )
+  })
+
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  function renderWithCorpus(files: DocumentWireRow[] = [existing]) {
+    probeShelf = files
+    return renderWorkspace(
+      <ProjectFileWorkspace
+        projectId="proj-1"
+        projectName="Test"
+        collectionName="test-coll"
+        initialFiles={files}
+        initialFolders={[]}
+      />,
+    )
+  }
+
+  function pick(file: File) {
+    // The empty state draws a second upload control; either is the same path.
+    const input = screen.getAllByTestId('project-upload-input')[0] as HTMLInputElement
+    Object.defineProperty(input, 'files', { value: [file], configurable: true })
+    fireEvent.change(input)
+  }
+
+  it('asks „new version of X?" and uploads it on yes', async () => {
+    renderWithCorpus()
+    const revised = new File(['revised bytes'], 'EG.pdf', { type: 'application/pdf' })
+    pick(revised)
+
+    const dialog = await screen.findByTestId('folder-upload-dialog')
+    await waitFor(() => expect(dialog).toHaveAttribute('data-kind', 'single-update'))
+    expect(within(dialog).getByText('Upload a new version of “EG.pdf”?')).toBeInTheDocument()
+    // Nothing leaves on the strength of the gesture alone.
+    expect(mockUploadFiles).not.toHaveBeenCalled()
+
+    const confirm = within(dialog).getByTestId('folder-upload-confirm')
+    expect(confirm).toHaveTextContent('Upload as new version')
+    await userEvent.click(confirm)
+
+    await waitFor(() => expect(mockUploadFiles).toHaveBeenCalledTimes(1))
+    const [sent, options] = mockUploadFiles.mock.calls[0] as [
+      File[],
+      { folderIdFor: (file: File) => string | null },
+    ]
+    // The same upload path a replacement always took — the server keeps the
+    // document's id and records the bytes as its next version.
+    expect(sent).toEqual([revised])
+    expect(options.folderIdFor(revised)).toBeNull()
+  })
+
+  it('sends nothing when the reader cancels', async () => {
+    renderWithCorpus()
+    pick(new File(['revised bytes'], 'EG.pdf', { type: 'application/pdf' }))
+
+    const dialog = await screen.findByTestId('folder-upload-dialog')
+    await waitFor(() => expect(dialog).toHaveAttribute('data-kind', 'single-update'))
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Cancel' }))
+
+    await waitFor(() => expect(screen.queryByTestId('folder-upload-dialog')).not.toBeInTheDocument())
+    expect(mockUploadFiles).not.toHaveBeenCalled()
+  })
+
+  it('says „unchanged – already here" for identical bytes and uploads nothing', async () => {
+    const digest = `sha256:${'a'.repeat(64)}`
+    renderWithCorpus([{ ...existing, fileSize: 4, contentHash: digest }])
+    vi.stubGlobal('crypto', {
+      ...globalThis.crypto,
+      subtle: { digest: async () => new Uint8Array(32).fill(0xaa).buffer },
+    })
+    pick(new File(['same'], 'EG.pdf', { type: 'application/pdf' }))
+
+    const dialog = await screen.findByTestId('folder-upload-dialog')
+    await waitFor(() => expect(dialog).toHaveAttribute('data-kind', 'single-unchanged'))
+    expect(within(dialog).getByText('Unchanged – already here')).toBeInTheDocument()
+    expect(within(dialog).queryByTestId('folder-upload-confirm')).not.toBeInTheDocument()
+
+    await userEvent.click(within(dialog).getByTestId('folder-upload-close'))
+    expect(mockUploadFiles).not.toHaveBeenCalled()
+  })
+
+  it('compares against the whole shelf while „Von Piloti" narrows the listing', async () => {
+    const searches: string[] = []
+    server.use(
+      http.get('/api/documents', ({ request }) => {
+        const search = new URL(request.url).search
+        searches.push(search)
+        // The narrowed listing holds no human upload; the shelf does.
+        return HttpResponse.json({ documents: search.includes('authoredBy=agent') ? [] : [existing] })
+      }),
+    )
+    renderWithCorpus()
+
+    await userEvent.click(screen.getByTestId('file-filter-menu-trigger'))
+    await userEvent.click(await screen.findByLabelText('By Piloti'))
+    await waitFor(() => expect(searches.at(-1)).toContain('authoredBy=agent'))
+    await userEvent.keyboard('{Escape}')
+
+    pick(new File(['revised bytes'], 'EG.pdf', { type: 'application/pdf' }))
+
+    const dialog = await screen.findByTestId('folder-upload-dialog')
+    await waitFor(() => expect(dialog).toHaveAttribute('data-kind', 'single-update'))
+    expect(mockUploadFiles).not.toHaveBeenCalled()
+  })
+
+  // The listing on screen is paged and leaves archived documents out; the
+  // upload versions a same-name document either way. So the plan asks the
+  // server by name, and a match the browser never loaded is still asked about.
+  it('asks about a same-name document the loaded listing does not hold', async () => {
+    renderWithCorpus([])
+    probeShelf = [{ ...existing, lifecycle: 'archived' }]
+    const revised = new File(['revised bytes'], 'EG.pdf', { type: 'application/pdf' })
+    pick(revised)
+
+    const dialog = await screen.findByTestId('folder-upload-dialog')
+    await waitFor(() => expect(dialog).toHaveAttribute('data-kind', 'single-update'))
+    expect(probedNames.at(-1)).toEqual(['EG.pdf'])
+    // Archived, and the new version stays out of the list with it — said, not
+    // discovered afterwards.
+    expect(within(dialog).getByTestId('folder-upload-archived')).toBeInTheDocument()
+    expect(mockUploadFiles).not.toHaveBeenCalled()
+  })
+
+  it('sends a name the shelf does not hold straight to the upload', async () => {
+    renderWithCorpus()
+    const fresh = new File(['x'], 'Neu.pdf', { type: 'application/pdf' })
+    pick(fresh)
+
+    await waitFor(() => expect(mockUploadFiles).toHaveBeenCalledWith([fresh]))
+    expect(probedNames).toEqual([['Neu.pdf']])
+    expect(screen.queryByTestId('folder-upload-dialog')).not.toBeInTheDocument()
+  })
+
+  it('says so when the comparison could not be made, and sends nothing', async () => {
+    server.use(http.post('/api/documents/name-matches', () => HttpResponse.json({}, { status: 500 })))
+    renderWithCorpus()
+    pick(new File(['x'], 'EG.pdf', { type: 'application/pdf' }))
+
+    await waitFor(() => expect(toastError).toHaveBeenCalled())
+    expect(mockUploadFiles).not.toHaveBeenCalled()
   })
 })
 
@@ -964,8 +1244,10 @@ describe('ProjectFileWorkspace — renaming and deleting a document', () => {
  * extraction is detached and has no ingest job for the orchestrator to poll.
  */
 describe('ProjectFileWorkspace — a settling document settles on screen', () => {
-  /** How many times the corpus has been asked for, across the poll. */
+  /** How many times the whole corpus has been asked for. */
   let documentCalls = 0
+  /** How many times the settling row's own status has been asked for. */
+  let statusCalls = 0
 
   /** The list, served with whatever status the test has moved it to. */
   const corpus = (status: string, filename = 'Haus-A.ifc') =>
@@ -984,10 +1266,14 @@ describe('ProjectFileWorkspace — a settling document settles on screen', () =>
       ],
     })
 
+  const statusOf = (status: string, filename = 'Haus-A.ifc') =>
+    HttpResponse.json({ id: 'doc-ifc', filename, status })
+
   beforeEach(() => {
     vi.clearAllMocks()
     searchParams = new URLSearchParams()
     documentCalls = 0
+    statusCalls = 0
     resetPreviewStore()
   })
 
@@ -995,13 +1281,17 @@ describe('ProjectFileWorkspace — a settling document settles on screen', () =>
     vi.useRealTimers()
   })
 
-  it('re-asks while a model is being read, and stops once it is', async () => {
+  it('re-asks the settling row by id — not the whole corpus — and stops once it is terminal', async () => {
     server.use(
       http.get('/api/projects/:projectId/folders', () => HttpResponse.json({ folders: [] })),
       http.get('/api/documents', () => {
         documentCalls += 1
-        // Still extracting on the first read; done by the time the poll fires.
-        return corpus(documentCalls === 1 ? 'processing' : 'ready')
+        return corpus('processing')
+      }),
+      http.get('/api/documents/:id/status', ({ params }) => {
+        statusCalls += 1
+        expect(params.id).toBe('doc-ifc')
+        return statusOf('ready')
       })
     )
     vi.useFakeTimers({ shouldAdvanceTime: true })
@@ -1010,34 +1300,38 @@ describe('ProjectFileWorkspace — a settling document settles on screen', () =>
     await waitFor(() => expect(documentCalls).toBe(1))
 
     await vi.advanceTimersByTimeAsync(4_100)
-    await waitFor(() => expect(documentCalls).toBe(2))
+    await waitFor(() => expect(statusCalls).toBe(1))
+    await waitFor(() => expect(screen.getByText('Citable')).toBeInTheDocument())
+    // Twenty pages of listing every four seconds was the cost of one PDF being
+    // read; the poll never drains the listing again.
+    expect(documentCalls).toBe(1)
 
-    // Everything is terminal now, so the polling stops rather than asking
-    // forever about a corpus that cannot change on its own.
-    const settled = documentCalls
+    // Everything is terminal now, so the polling stops.
     await vi.advanceTimersByTimeAsync(12_000)
-    expect(documentCalls).toBe(settled)
+    expect(statusCalls).toBe(1)
+    expect(documentCalls).toBe(1)
   })
 
   it('keeps at most one poll in flight, however slow the endpoint is', async () => {
     // `setInterval` fired again whether or not the previous refresh had come
     // back, so a slow endpoint accumulated requests and let an older response
-    // land after a newer one — overwriting a document that had just finished
-    // with its earlier "still reading" row.
+    // land after a newer one.
     let inFlight = 0
     let peak = 0
     const gate: { release: (() => void) | null } = { release: null }
     server.use(
       http.get('/api/projects/:projectId/folders', () => HttpResponse.json({ folders: [] })),
-      http.get('/api/documents', async () => {
+      http.get('/api/documents', () => {
         documentCalls += 1
+        return corpus('processing')
+      }),
+      http.get('/api/documents/:id/status', async () => {
+        statusCalls += 1
         inFlight += 1
         peak = Math.max(peak, inFlight)
-        // The first response returns at once; every poll after it hangs until
-        // this test lets it go.
-        if (documentCalls > 1) await new Promise<void>((resolve) => (gate.release = resolve))
+        await new Promise<void>((resolve) => (gate.release = resolve))
         inFlight -= 1
-        return corpus('processing')
+        return statusOf('processing')
       })
     )
     vi.useFakeTimers({ shouldAdvanceTime: true })
@@ -1045,9 +1339,9 @@ describe('ProjectFileWorkspace — a settling document settles on screen', () =>
     renderWorkspace(<ProjectFileWorkspace projectId="proj-1" projectName="Test" collectionName="test-coll" />)
     await waitFor(() => expect(documentCalls).toBe(1))
 
-    // Three poll windows pass while the second request is still hanging.
+    // Three poll windows pass while the first status read is still hanging.
     await vi.advanceTimersByTimeAsync(13_000)
-    expect(documentCalls).toBe(2)
+    expect(statusCalls).toBe(1)
     expect(peak).toBe(1)
 
     gate.release?.()
@@ -1058,8 +1352,9 @@ describe('ProjectFileWorkspace — a settling document settles on screen', () =>
       http.get('/api/projects/:projectId/folders', () => HttpResponse.json({ folders: [] })),
       http.get('/api/documents', () => {
         documentCalls += 1
-        return corpus(documentCalls === 1 ? 'processing' : 'ready')
-      })
+        return corpus('processing')
+      }),
+      http.get('/api/documents/:id/status', () => statusOf('ready'))
     )
     vi.useFakeTimers({ shouldAdvanceTime: true })
 
@@ -1080,8 +1375,9 @@ describe('ProjectFileWorkspace — a settling document settles on screen', () =>
       http.get('/api/projects/:projectId/folders', () => HttpResponse.json({ folders: [] })),
       http.get('/api/documents', () => {
         documentCalls += 1
-        return corpus(documentCalls === 1 ? 'processing' : 'ready', 'Bescheid.pdf')
-      })
+        return corpus('processing', 'Bescheid.pdf')
+      }),
+      http.get('/api/documents/:id/status', () => statusOf('ready', 'Bescheid.pdf'))
     )
     vi.useFakeTimers({ shouldAdvanceTime: true })
 
@@ -1096,6 +1392,33 @@ describe('ProjectFileWorkspace — a settling document settles on screen', () =>
       )
     )
   })
+
+  it('reloads quietly, with one stable callback, when an upload finishes on any surface', async () => {
+    // The orchestrator tells every subscriber, so a chat attachment finishing
+    // lands here too; a skeleton over the grid for it is a flash for nothing.
+    const gate: { release: (() => void) | null } = { release: null }
+    server.use(
+      http.get('/api/projects/:projectId/folders', () => HttpResponse.json({ folders: [] })),
+      http.get('/api/documents', async () => {
+        documentCalls += 1
+        if (documentCalls > 1) await new Promise<void>((resolve) => (gate.release = resolve))
+        return corpus('ready', 'Bescheid.pdf')
+      })
+    )
+
+    renderWorkspace(<ProjectFileWorkspace projectId="proj-1" projectName="Test" collectionName="test-coll" />)
+    expect(await findFileButton(/Bescheid\.pdf/)).toBeInTheDocument()
+
+    const onComplete = vi.mocked(useProjectDocuments).mock.calls.at(-1)?.[0]?.onComplete
+    onComplete?.()
+    await waitFor(() => expect(documentCalls).toBe(2))
+    expect(await findFileButton(/Bescheid\.pdf/)).toBeInTheDocument()
+
+    const callbacks = new Set(vi.mocked(useProjectDocuments).mock.calls.map(([options]) => options?.onComplete))
+    expect(callbacks.size).toBe(1)
+
+    gate.release?.()
+  })
 })
 
 /**
@@ -1103,12 +1426,12 @@ describe('ProjectFileWorkspace — a settling document settles on screen', () =>
  *
  * `useSettlingRefresh` serialises its OWN polls, so at most one poll is in
  * flight — but nothing coordinated that poll with a FOREGROUND load (mount,
- * upload settled, `onComplete`, retry). A slow poll carrying `processing` could
- * land after a newer foreground load had already brought back `ready`, putting
- * the "Wird verarbeitet…" badge back on a document the user had just been told was
- * citable — and, because the row read as unsettled again, restarting the poll
- * that was supposed to have stopped. The Archiv workspace carries the twin of
- * this test over its own loader.
+ * upload settled, `onComplete`, retry). A slow status read carrying
+ * `processing` could land after a newer load had already brought back `ready`,
+ * putting the "Wird gelesen…" badge back on a document the user had just been
+ * told was citable — and, because the row read as unsettled again, restarting
+ * the poll that was supposed to have stopped. The Archiv workspace carries the
+ * twin of this test.
  */
 describe('ProjectFileWorkspace — only the newest answer may win', () => {
   beforeEach(() => {
@@ -1140,10 +1463,8 @@ describe('ProjectFileWorkspace — only the newest answer may win', () => {
   /**
    * Let the released response travel msw → fetch → React, WITHOUT letting the
    * 4 s settling poll fire. If a stale answer regressed the badge, a restarted
-   * poll would immediately fetch the real `ready` again and heal it — the test
-   * would then pass while the user still saw the flicker. Well under one poll
-   * interval of fake time, spent in many small awaits, is what separates the
-   * two.
+   * poll would heal it and the test would pass while the user still saw the
+   * flicker.
    */
   const flushWithoutPolling = async () => {
     for (let i = 0; i < 20; i++) await vi.advanceTimersByTimeAsync(50)
@@ -1151,36 +1472,36 @@ describe('ProjectFileWorkspace — only the newest answer may win', () => {
 
   it('ignores a poll response that resolves after a newer foreground load', async () => {
     let documentCalls = 0
+    let statusCalls = 0
     const gate: { release: (() => void) | null } = { release: null }
     server.use(
       http.get('/api/projects/:projectId/folders', () => HttpResponse.json({ folders: [] })),
-      http.get('/api/documents', async () => {
+      http.get('/api/documents', () => {
         documentCalls += 1
-        const call = documentCalls
-        // The POLL (call 2) is held open until a newer foreground load (call 3)
-        // has already answered `ready`, then answers the stale `processing`.
-        if (call === 2) {
-          await new Promise<void>((resolve) => (gate.release = resolve))
-          return corpus('processing')
-        }
-        return corpus(call === 1 ? 'processing' : 'ready')
+        return corpus(documentCalls === 1 ? 'processing' : 'ready')
+      }),
+      // The POLL is held open until a newer load has already answered
+      // `ready`, then answers the stale `processing`.
+      http.get('/api/documents/:id/status', async () => {
+        statusCalls += 1
+        await new Promise<void>((resolve) => (gate.release = resolve))
+        return HttpResponse.json({ id: 'doc-ifc', filename: 'Haus-A.ifc', status: 'processing' })
       })
     )
     vi.useFakeTimers({ shouldAdvanceTime: true })
 
     renderWorkspace(<ProjectFileWorkspace projectId="proj-1" projectName="Test" collectionName="test-coll" />)
-    expect(await screen.findByText('Processing')).toBeInTheDocument()
+    expect(await screen.findByText('Reading')).toBeInTheDocument()
 
     // The settling poll goes out and hangs.
     await vi.advanceTimersByTimeAsync(4_100)
-    await waitFor(() => expect(documentCalls).toBe(2))
+    await waitFor(() => expect(statusCalls).toBe(1))
 
-    // Meanwhile the upload orchestrator finishes and asks for the corpus again —
-    // a foreground load, uncoordinated with the poll already in flight.
+    // Meanwhile the upload orchestrator finishes and asks for the corpus again.
     const onComplete = vi.mocked(useProjectDocuments).mock.calls.at(-1)?.[0]?.onComplete
     expect(onComplete).toBeTypeOf('function')
     onComplete?.()
-    await waitFor(() => expect(documentCalls).toBe(3))
+    await waitFor(() => expect(documentCalls).toBe(2))
     await waitFor(() => expect(screen.getByText('Citable')).toBeInTheDocument())
 
     // Now the stale poll answers. It is older than what is on screen, so it
@@ -1189,12 +1510,12 @@ describe('ProjectFileWorkspace — only the newest answer may win', () => {
     await flushWithoutPolling()
 
     expect(screen.getByText('Citable')).toBeInTheDocument()
-    expect(screen.queryByText('Processing')).not.toBeInTheDocument()
+    expect(screen.queryByText('Reading')).not.toBeInTheDocument()
 
-    // …and it must not resurrect the poll either: the corpus is terminal, so
-    // nothing more is asked for.
+    // …and it must not resurrect the poll either.
     await vi.advanceTimersByTimeAsync(8_000)
-    expect(documentCalls).toBe(3)
+    expect(statusCalls).toBe(1)
+    expect(documentCalls).toBe(2)
   })
 })
 
@@ -1584,6 +1905,10 @@ describe('ProjectFileWorkspace — the open file is on the URL', () => {
     searchParams = new URLSearchParams()
   })
 
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
   function renderAt(query = '') {
     searchParams = new URLSearchParams(query)
     return renderWorkspace(
@@ -1656,5 +1981,187 @@ describe('ProjectFileWorkspace — the open file is on the URL', () => {
     await waitFor(() =>
       expect(screen.getByTestId('file-card').querySelector('[aria-current="true"]')).toBeNull(),
     )
+  })
+  it('brings the open modal along when the listing behind it refreshes', async () => {
+    let documentCalls = 0
+    server.use(
+      http.get('/api/documents', () => {
+        documentCalls += 1
+        return HttpResponse.json({
+          documents: [{ ...doc, status: 'ready', summary: 'Ein Grundriss.', pageCount: 2, tags: ['Grundriss'] }],
+        })
+      }),
+      // The modal's own status read has not caught up; it must not erase what
+      // the listing brought.
+      http.get('/api/documents/:id/status', () =>
+        HttpResponse.json({ id: 'doc-eg', filename: 'EG.pdf', status: 'processing', summary: null }),
+      ),
+      http.get('/api/projects/:projectId/folders', () => HttpResponse.json({ folders: [] })),
+    )
+    searchParams = new URLSearchParams('doc=doc-eg')
+    renderWorkspace(
+      <ProjectFileWorkspace
+        projectId="proj-1"
+        projectName="Test"
+        collectionName="test-coll"
+        initialFiles={[{ ...doc, status: 'processing' }]}
+      />,
+    )
+    await waitFor(() => expect(useFilePreviewStore.getState().file?.id).toBe('doc-eg'))
+
+    // An upload elsewhere finished: the listing is read again.
+    vi.mocked(useProjectDocuments).mock.calls.at(-1)?.[0]?.onComplete?.()
+    await waitFor(() => expect(documentCalls).toBe(1))
+
+    await waitFor(() =>
+      expect(useFilePreviewStore.getState().file).toMatchObject({
+        status: 'ready',
+        summary: 'Ein Grundriss.',
+        pageCount: 2,
+        tags: ['Grundriss'],
+      }),
+    )
+  })
+
+  it('never moves the open modal back to settling on a stale listing', async () => {
+    // The modal's own poll said `ready`; a drain that went out before it
+    // answers `processing` afterwards. The badge must not flip back.
+    let documentCalls = 0
+    server.use(
+      http.get('/api/documents', () => {
+        documentCalls += 1
+        return HttpResponse.json({ documents: [{ ...doc, status: 'processing' }] })
+      }),
+      http.get('/api/documents/:id/status', () =>
+        HttpResponse.json({ id: 'doc-eg', filename: 'EG.pdf', status: 'ready' }),
+      ),
+      http.get('/api/projects/:projectId/folders', () => HttpResponse.json({ folders: [] })),
+    )
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    searchParams = new URLSearchParams('doc=doc-eg')
+    renderWorkspace(
+      <ProjectFileWorkspace
+        projectId="proj-1"
+        projectName="Test"
+        collectionName="test-coll"
+        initialFiles={[{ ...doc, status: 'processing' }]}
+      />,
+    )
+    await waitFor(() => expect(useFilePreviewStore.getState().file?.id).toBe('doc-eg'))
+    // One settling tick: the modal's own status read says `ready`.
+    await vi.advanceTimersByTimeAsync(SETTLING_POLL_MS)
+    await waitFor(() => expect(useFilePreviewStore.getState().file?.status).toBe('ready'))
+
+    vi.mocked(useProjectDocuments).mock.calls.at(-1)?.[0]?.onComplete?.()
+    await waitFor(() => expect(documentCalls).toBe(1))
+    await waitFor(() => expect(screen.getAllByText('Reading').length).toBeGreaterThan(0))
+
+    expect(useFilePreviewStore.getState().file?.status).toBe('ready')
+  })
+})
+
+/**
+ * A project larger than one page of the listing.
+ *
+ * `GET /api/documents` used to answer the newest 500 and stop, silently: the
+ * oldest plans of a big project were not on screen, search and filters could
+ * not find them, and a dropped folder labelled them „Neu". The listing is paged
+ * now, and the workspace reads it to the end — or says, visibly, where it
+ * stopped.
+ */
+describe('ProjectFileWorkspace — a corpus larger than one page', () => {
+  const row = (id: string, filename: string): DocumentWireRow => ({
+    id,
+    filename,
+    displayName: null,
+    fileSize: 10,
+    contentType: 'application/pdf',
+    status: 'ready',
+    folderId: null,
+    createdAt: '2026-06-14T09:00:00.000Z',
+    errorMessage: null,
+    summary: null,
+    pageCount: null,
+    chunkCount: null,
+    contentTypes: null,
+    tags: null,
+    assignees: [],
+    authoredBy: 'user' as const,
+  })
+  const newest = row('doc-new', 'Neu-Plan.pdf')
+  const oldest = row('doc-old', 'EG.pdf')
+
+  let cursors: Array<string | null>
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+    searchParams = new URLSearchParams()
+    resetPreviewStore()
+    cursors = []
+    server.use(
+      http.get('/api/documents', ({ request }) => {
+        const cursor = new URL(request.url).searchParams.get('cursor')
+        cursors.push(cursor)
+        return cursor === 'page-2'
+          ? HttpResponse.json({ documents: [oldest], nextCursor: null })
+          : HttpResponse.json({ documents: [newest], nextCursor: 'page-2' })
+      }),
+      http.get('/api/projects/:projectId/folders', () => HttpResponse.json({ folders: [] })),
+    )
+  })
+
+  it('follows the cursor until the last page, so the oldest document is there too', async () => {
+    renderWorkspace(<ProjectFileWorkspace projectId="proj-1" projectName="Test" collectionName="test-coll" />)
+
+    expect(await findFileButton(/EG\.pdf/)).toBeInTheDocument()
+    expect(await findFileButton(/Neu-Plan\.pdf/)).toBeInTheDocument()
+    expect(cursors).toEqual([null, 'page-2'])
+    expect(screen.queryByText(/showing the newest/i)).not.toBeInTheDocument()
+  })
+
+  it('reads the rest after a first-page seed, and a dropped folder then knows the old file', async () => {
+    probeShelf = [newest, oldest]
+    renderWorkspace(
+      <ProjectFileWorkspace
+        projectId="proj-1"
+        projectName="Test"
+        collectionName="test-coll"
+        initialFiles={[newest]}
+        initialFilesComplete={false}
+        initialFolders={[]}
+      />,
+    )
+    // The seed paints at once, without a skeleton over it …
+    expect(await findFileButton(/Neu-Plan\.pdf/)).toBeInTheDocument()
+    expect(screen.queryByTestId('file-browser-skeleton')).not.toBeInTheDocument()
+    // … and the page it did not carry arrives behind it.
+    expect(await findFileButton(/EG\.pdf/)).toBeInTheDocument()
+
+    const file = new File(['x'.repeat(10)], 'EG.pdf', { type: 'application/pdf' })
+    Object.defineProperty(file, 'webkitRelativePath', { value: 'Wohnbau/EG.pdf', configurable: true })
+    const input = screen.getByTestId('project-upload-folder-input') as HTMLInputElement
+    Object.defineProperty(input, 'files', { value: [file], configurable: true })
+    fireEvent.change(input)
+
+    // The U2 symptom: compared against the newest page alone, this said „Neu".
+    // The plan asks the server by name now; the shelf holds both.
+    const dialog = await screen.findByTestId('folder-upload-dialog')
+    await waitFor(() => expect(within(dialog).getByTestId('folder-upload-count-update')).toHaveTextContent('1'))
+    expect(within(dialog).getByTestId('folder-upload-count-new')).toHaveTextContent('0')
+  })
+
+  it('stops at the page ceiling and says so, rather than pretending to be whole', async () => {
+    let requests = 0
+    server.use(
+      http.get('/api/documents', () => {
+        requests += 1
+        return HttpResponse.json({ documents: [row(`doc-${requests}`, `plan-${requests}.pdf`)], nextCursor: `c${requests}` })
+      }),
+    )
+
+    renderWorkspace(<ProjectFileWorkspace projectId="proj-1" projectName="Test" collectionName="test-coll" />)
+
+    expect(await screen.findByText(/showing the newest 20 documents/i)).toBeInTheDocument()
+    expect(requests).toBe(20)
   })
 })

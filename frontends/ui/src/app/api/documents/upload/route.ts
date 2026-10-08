@@ -4,6 +4,7 @@
  */
 
 import { apiRoute, parseFormData } from '@/lib/api/handler'
+import { DOCUMENT_UPLOAD_LIMIT } from '@/lib/limits'
 import { BadRequestError } from '@/lib/api/errors'
 import { uploadDocument } from '@/lib/documents/service'
 
@@ -32,5 +33,8 @@ export const POST = apiRoute(
       request
     )
   },
-  { authz: { enforcedBy: 'uploadDocument (requireProjectAccess project:documents:write)' } }
+  {
+    authz: { enforcedBy: 'uploadDocument (requireProjectAccess project:documents:write)' },
+    limits: { rule: DOCUMENT_UPLOAD_LIMIT },
+  }
 )

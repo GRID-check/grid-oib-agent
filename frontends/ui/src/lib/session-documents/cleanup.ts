@@ -1,6 +1,9 @@
 /**
  * Erasing a conversation's private attachments.
  *
+ * The row-by-row purge and the whole-collection erase both live here; the
+ * conversation delete calls them in that order.
+ *
  * Its own module, deliberately small, because two callers need it and one of
  * them must not pull in the other. `conversations/service` calls this when a
  * chat is discarded; `session-documents/service` is what creates those rows and
@@ -18,6 +21,7 @@
 
 import 'server-only'
 import { getBackendUrl } from '@/lib/backend-proxy'
+import type { Document } from '@/lib/db/schema'
 import {
   collectionFileRef,
   type CollectionFileRef,
@@ -76,6 +80,64 @@ export async function purgeCollectionChunks(
     return { ok: true }
   } catch (error) {
     return { ok: false, reason: `chunk purge of ${collectionName}: ${describeError(error)}` }
+  }
+}
+
+/**
+ * The second chunk purge, after the rows are deleted: closes the window in
+ * which an ingest that checked before the row delete keeps what it inserted
+ * after the first purge. Grouped per collection, like the first.
+ *
+ * **Logged, never surfaced.** The rows are gone, so a failure here has nothing
+ * left to keep for a retry and must not turn a completed delete into an error.
+ * The orphaned-vector sweep (`lib/platform/vector-reconcile.ts`) is the net,
+ * and for a whole chat the `s_` collection erase that follows is as well.
+ */
+export async function purgeChunksAgain(docs: readonly Document[]): Promise<void> {
+  const byCollection = new Map<string, CollectionFileRef[]>()
+  for (const doc of docs) {
+    const ref = collectionFileRef(doc)
+    if (!ref) continue
+    byCollection.set(doc.collectionName, [...(byCollection.get(doc.collectionName) ?? []), ref])
+  }
+  for (const [collectionName, refs] of byCollection) {
+    const again = await purgeCollectionChunks(collectionName, refs)
+    if (!again.ok) {
+      console.warn('[session-documents] second chunk purge after the row delete failed:', again.reason)
+    }
+  }
+}
+
+/**
+ * Erase a chat's whole retrieval collection (`s_<id>`), idempotently.
+ *
+ * The per-row purge above removes the chunks of every file that has a row. It
+ * cannot reach what no row names: attachments uploaded before session files
+ * were rows (straight at the ingestor through the v1 proxy), a row lost to an
+ * earlier partial failure, and the collection itself with its summaries. So the
+ * conversation delete ends its external erasure here, after the rows are gone.
+ *
+ * **A collection that does not exist is success.** Most chats never had an
+ * attachment, and a retry after a completed erase finds nothing. The backend's
+ * `DELETE /v1/collections/<name>` answers 500 for a missing collection rather
+ * than 404, so the existence is asked first: 404 means already gone, and 503
+ * means no knowledge layer is configured, so no collection can exist either.
+ * Any other failure is a failure: the caller keeps the conversation so a
+ * repeated delete can try again.
+ */
+export async function deleteSessionCollection(collectionName: string): Promise<ExternalCleanupResult> {
+  const url = `${getBackendUrl()}/v1/collections/${encodeURIComponent(collectionName)}`
+  try {
+    const probe = await fetch(url, { method: 'GET', signal: AbortSignal.timeout(BACKEND_FETCH_TIMEOUT_MS) })
+    if (probe.status === 404 || probe.status === 503) return { ok: true }
+    if (!probe.ok) {
+      return { ok: false, reason: `collection probe of ${collectionName} answered ${probe.status}` }
+    }
+    const response = await fetch(url, { method: 'DELETE', signal: AbortSignal.timeout(BACKEND_FETCH_TIMEOUT_MS) })
+    if (response.ok || response.status === 404) return { ok: true }
+    return { ok: false, reason: `collection delete of ${collectionName} answered ${response.status}` }
+  } catch (error) {
+    return { ok: false, reason: `collection delete of ${collectionName}: ${describeError(error)}` }
   }
 }
 
@@ -178,6 +240,13 @@ export async function purgeSessionDocuments(
     // objects are still in the BUCKET — and those bytes would then be nameless.
     await deleteSessionDocumentsByIds(erasedIds, organizationId, conversationId)
     result.purged += erasedIds.length
+
+    // Once more, now that these rows are gone: an ingest of one of them that
+    // asked `GET /api/internal/document-exists` before its row went saw it,
+    // and kept chunks it inserted after the first purge (ADR-0054,
+    // correction 18). Any check from here on reads „gone“ and discards its
+    // own. Only the rows this pass erased, whose first purge succeeded.
+    await purgeChunksAgain(docs.filter((doc) => erasedIds.includes(doc.id)))
 
     // A short conversation is the common case and it is done in one pass; only
     // a full page can possibly have more behind it. Retained rows occupy the

@@ -1,9 +1,9 @@
 'use client'
 
 /**
- * Dev preview for the base-knowledge SELECTION toolbar — the bar that replaces the
- * search row once documents are ticked, carrying the bulk actions: change document
- * type, re-index, remove.
+ * Dev preview for the base-knowledge SELECTION toolbar: the bar that replaces the
+ * search row once documents are ticked, carrying the bulk actions (change document
+ * type, re-index, remove). Pinned to German, the primary product language.
  *
  * It is its own target because those controls are unreachable from a static page: they
  * render only once rows are selected, and the screenshot harness waits on a selector
@@ -18,46 +18,50 @@
  * crashed preview quietly commits.
  */
 
+import type { JSX } from 'react'
 import { useEffect } from 'react'
+import { notFound } from 'next/navigation'
+import { PageHeader } from '@/components/ui/page-header'
 import { BaseKnowledge } from '@/app/app/(shell)/platform/base-knowledge'
+import { I18nProvider, useTranslations } from '@/i18n'
 
 const FILES = [
   {
     fileName: 'oib-richtlinie-2.pdf',
     state: 'ingested',
-    origin: 'corpus',
     sizeBytes: 1_975_942,
     chunkCount: 214,
     ingestedSha256: null,
     currentSha256: null,
     ingestedAt: '2026-08-12T09:14:00Z',
     summary: null,
+    docClassSuggestion: null,
     docClass: 'oib_richtlinie',
     displayTitle: 'OIB-Richtlinie 2 — Brandschutz, Ausgabe 2023',
   },
   {
     fileName: 'oib-richtlinie-6.pdf',
     state: 'ingested',
-    origin: 'corpus',
     sizeBytes: 1_402_118,
     chunkCount: 64,
     ingestedSha256: null,
     currentSha256: null,
     ingestedAt: '2026-08-12T09:15:00Z',
     summary: null,
+    docClassSuggestion: null,
     docClass: 'oib_richtlinie',
     displayTitle: 'OIB-Richtlinie 6 — Energieeinsparung, Ausgabe 2023',
   },
   {
     fileName: 'oenorm-b-1600.pdf',
     state: 'ingested',
-    origin: 'uploaded',
     sizeBytes: 812_004,
     chunkCount: 38,
     ingestedSha256: null,
     currentSha256: null,
     ingestedAt: '2026-08-13T11:02:00Z',
     summary: null,
+    docClassSuggestion: null,
     docClass: 'norm_extern',
     displayTitle: 'ÖNORM B 1600 — Barrierefreies Bauen',
   },
@@ -72,7 +76,7 @@ const STATUS = {
     ingested: FILES.length,
     stale: 0,
     pending: 0,
-    snapshot: 0,
+    failed: 0,
     removed: 0,
     inconsistent: 0,
     totalChunks: FILES.reduce((sum, file) => sum + file.chunkCount, 0),
@@ -86,12 +90,18 @@ if (typeof window !== 'undefined' && process.env.NODE_ENV === 'development') {
     w.__platformKnowledgeSelectionShim = true
     const real = window.fetch.bind(window)
     window.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
-      const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url
+      const url =
+        typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url
       if (url.startsWith('/api/knowledge-base')) {
         return Response.json(STATUS)
       }
       if (url.startsWith('/api/platform/knowledge/reingest')) {
-        return Response.json({ status: 'pending', queued: [FILES[0].fileName], unknown: [], message: '' })
+        return Response.json({
+          status: 'pending',
+          queued: [FILES[0].fileName],
+          unknown: [],
+          message: '',
+        })
       }
       return real(input, init)
     }
@@ -102,7 +112,9 @@ if (typeof window !== 'undefined' && process.env.NODE_ENV === 'development') {
 function useSelectFirstRows(): void {
   useEffect(() => {
     const tick = window.setInterval(() => {
-      const boxes = document.querySelectorAll<HTMLElement>('tbody [role="checkbox"], tbody input[type="checkbox"]')
+      const boxes = document.querySelectorAll<HTMLElement>(
+        'tbody [role="checkbox"], tbody input[type="checkbox"]'
+      )
       if (boxes.length < 2) return
       window.clearInterval(tick)
       boxes[0].click()
@@ -112,18 +124,28 @@ function useSelectFirstRows(): void {
   }, [])
 }
 
-export default function PlatformKnowledgeSelectionDevPage(): JSX.Element {
+function Preview(): JSX.Element {
+  const t = useTranslations('platform')
   useSelectFirstRows()
   return (
-    <main className="mx-auto flex max-w-4xl flex-col gap-6 p-8" data-testid="platform-knowledge-selection-preview">
-      <div>
-        <h1 className="text-lg font-semibold">Platform — Base knowledge, selection actions</h1>
-        <p className="mt-1 text-sm text-muted-foreground">
-          Two documents ticked, so the toolbar swaps to the bulk bar: change document type, re-index the selected
-          documents, remove them.
-        </p>
-      </div>
+    <main
+      className="mx-auto flex max-w-5xl flex-col gap-6 px-4 py-8 md:px-8"
+      data-testid="platform-knowledge-selection-preview"
+    >
+      <PageHeader
+        title={t('sections.knowledge.title')}
+        subtitle={t('sections.knowledge.subtitle')}
+      />
       <BaseKnowledge />
     </main>
+  )
+}
+
+export default function PlatformKnowledgeSelectionDevPage(): JSX.Element {
+  if (process.env.NODE_ENV !== 'development') notFound()
+  return (
+    <I18nProvider initialLocale="de" fixedLocale>
+      <Preview />
+    </I18nProvider>
   )
 }

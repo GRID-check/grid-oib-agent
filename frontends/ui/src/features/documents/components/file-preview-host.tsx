@@ -8,6 +8,7 @@
  * the Files modal still use the same pane as a dialog.
  */
 
+import type { JSX } from 'react'
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { usePathname } from 'next/navigation'
 import { usePanelRef } from 'react-resizable-panels'
@@ -21,8 +22,11 @@ import { Spinner } from '@/components/ui/spinner'
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from '@/components/ui/resizable'
 import { useSettlingRefresh } from '../hooks/use-settling-refresh'
 import { useDocumentActions, type DocumentScope } from './document-actions'
-import { isCitableStatus, isFailedStatus } from './document-status'
+import { failedWithPreviousVersion, isCitableStatus, isFailedStatus, isSettlingStatus } from './document-status'
 import { FilePreviewPane } from './file-preview-pane'
+import { fileItemFromStatus } from '../lib/document-question'
+import { refreshedFileFields } from '../lib/file-item'
+import { STATUS_FIELDS } from '../lib/document-status-reads'
 import type { FileItem } from './project-file-workspace'
 import {
   FILE_PEEK_WIDTH_DEFAULT,
@@ -30,6 +34,17 @@ import {
   FILE_PEEK_WIDTH_MIN,
   useFilePreviewStore,
 } from '../stores/file-preview-store'
+
+/**
+ * Extra status reads a just-finished document gets for its summary to arrive.
+ * Three at the settling cadence is twelve seconds on top of the read that
+ * turned it terminal — most of the BFF's 15 s collection-listing cache, which
+ * is what a late summary is waiting out. A belt: the BFF refreshes that
+ * listing on the terminal transition itself.
+ */
+export const METADATA_GRACE_POLLS = 3
+
+type StatusBody = Parameters<typeof fileItemFromStatus>[0]
 
 export function FilePreviewHost({
   presentation,
@@ -53,11 +68,25 @@ export function FilePreviewHost({
   const patchFile = useFilePreviewStore((state) => state.patchFile)
   const fileId = file?.id ?? null
   const fileStatus = file?.status ?? null
+  const fileSummary = file?.summary ?? null
+  /**
+   * How many more polls a document that just finished may take to deliver its
+   * summary. Set by the poll that watched it turn terminal without one, keyed
+   * by id so a different document never inherits it; a document OPENED
+   * already finished never enters this (nothing was watched settling).
+   */
+  const [metadataGrace, setMetadataGrace] = useState<{ id: string; left: number } | null>(null)
+  const awaitingMetadata =
+    fileId !== null &&
+    metadataGrace?.id === fileId &&
+    metadataGrace.left > 0 &&
+    isCitableStatus(fileStatus) &&
+    fileSummary === null
   // A list of one, for the shared settling poll below. Memoised so the poll's
   // effect is not re-armed on every render of the pane.
   const settlingItems = useMemo(
-    () => (fileId ? [{ status: fileStatus }] : []),
-    [fileId, fileStatus],
+    () => (fileId ? [{ status: fileStatus, pending: awaitingMetadata }] : []),
+    [fileId, fileStatus, awaitingMetadata],
   )
   const panelRef = useRef<HTMLDivElement>(null)
   const openerRef = useRef<HTMLElement | null>(null)
@@ -188,6 +217,11 @@ export function FilePreviewHost({
    * than the missing answer it is meant to be. Same hook the document lists
    * use, over a list of one: it polls only while the status can still change
    * and stops the moment it is terminal.
+   *
+   * Everything the status read carries lands, not only the status. Patching
+   * the status alone turned the badge green over an empty summary, no page
+   * count and no tags, and then stopped asking — the reader had to close and
+   * reopen the file to see what indexing had produced.
    */
   const refreshStatus = useCallback(async () => {
     const id = fileId
@@ -196,11 +230,35 @@ export function FilePreviewHost({
       const res = await fetch(`/api/documents/${id}/status`)
       if (!res.ok) return
       const data: unknown = await res.json()
-      const status = (data as { status?: unknown } | null)?.status
+      if (!data || typeof data !== 'object') return
+      const body = data as Record<string, unknown>
+      if (typeof body.status !== 'string') return
       // Guard the id: a slow answer for the PREVIOUS document must not land on
       // the one the reader has since opened.
-      if (typeof status === 'string' && useFilePreviewStore.getState().file?.id === id) {
-        patchFile({ status })
+      const current = useFilePreviewStore.getState().file
+      if (current?.id !== id) return
+      // Only what this payload is the authority for, and only what it
+      // actually carried: an older body without `versionCount` is silence,
+      // not a reset. The count matters because a re-upload is exactly what
+      // puts a peek back into this poll, and the failure that follows is only
+      // explained correctly ("still citing the previous version") with it.
+      const fresh = fileItemFromStatus({ ...(body as StatusBody), id, filename: current.filename })
+      const fields = STATUS_FIELDS.filter((field) => field in body)
+      const patch = refreshedFileFields(current, fresh, fields)
+      if (patch) patchFile(patch)
+      const summary = patch && 'summary' in patch ? patch.summary : current.summary
+      // The BFF enriches a read that turns a row terminal from a fresh
+      // listing, so this should be the exception; when it is not, a few more
+      // polls rather than a finished document shown without its summary until
+      // it is reopened. Bounded: some documents never get one.
+      if (isSettlingStatus(body.status)) {
+        // Being read (again, after a re-upload): whatever grace an earlier
+        // run used up does not apply to this one.
+        setMetadataGrace(null)
+      } else if (isCitableStatus(body.status) && summary == null) {
+        setMetadataGrace((prev) =>
+          prev?.id === id ? { id, left: prev.left - 1 } : { id, left: METADATA_GRACE_POLLS },
+        )
       }
     } catch {
       // Offline or a hiccup — the poll's next tick asks again.
@@ -743,9 +801,15 @@ function PeekToolbar({
           <Spinner size="xs" aria-hidden className="text-muted-foreground mt-0.5 shrink-0" />
         )}
         <p className="text-muted-foreground min-w-0 flex-1 text-pretty leading-snug">
-          {isFailedStatus(file.status)
-            ? t('preview.peekFailedHint')
-            : t('preview.peekIndexingHint')}
+          {/* A failed NEW version is not a file Piloti cannot cite: the
+              previous version's passages stay in the index, so the sentence
+              that says "cannot cite" would be wrong about the one thing the
+              strip exists to say. Same rule as the pane's failure panel. */}
+          {failedWithPreviousVersion(file)
+            ? t('preview.peekFailedPreviousVersionHint')
+            : isFailedStatus(file.status)
+              ? t('preview.peekFailedHint')
+              : t('preview.peekIndexingHint')}
         </p>
         {/* NO DEAD ENDS. "Piloti cannot cite this file" was a statement with
             nothing after it — the worst kind of message, because it tells the

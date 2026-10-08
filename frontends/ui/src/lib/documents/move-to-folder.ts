@@ -1,5 +1,5 @@
 /**
- * Re-file a project document into another folder — or out of every folder.
+ * Re-file a document into another folder — or out of every folder.
  *
  * Folders could be created, renamed, moved and deleted, and a document could be
  * filed into one AT UPLOAD and never again: `documents.folder_id` was written
@@ -8,27 +8,40 @@
  * the one dead end left in the filing model, and it gets worse the more the
  * folder tree can be reorganised.
  *
+ * One path for both shelves that have folders (ADR-0078): a project's Dateien
+ * and the org-wide Archiv. The document's own row says which shelf it is on, the
+ * shelf says who may move it (`@/lib/documents/shelf-authz`) and which folders
+ * are valid destinations (`findShelfFolder`), and nothing else differs. A
+ * session attachment is on neither and is refused.
+ *
  * Deliberately its own module and its own route rather than a field on
- * `PATCH /api/documents/{id}`: that route is SCOPE-AWARE (it renames an org-wide
- * Archiv document too, resolving the permission from the row), and folders are a
- * project-only concept. An Archiv document has no folder to move it to, and a
- * request to move one is a mistake worth refusing rather than quietly ignoring.
+ * `PATCH /api/documents/{id}`: that route renames and tags, resolving the
+ * permission from the row, and a filing move needs the destination check and
+ * the backend mirror below.
  */
 
 import { and, eq } from 'drizzle-orm'
 import { getDb } from '@/lib/db'
-import { documents, projectFolders } from '@/lib/db/schema'
-import { requireProjectAccess } from '@/lib/authz/projects'
+import { documents } from '@/lib/db/schema'
 import { getBackendUrl } from '@/lib/backend-proxy'
 import type { AuthorizedSession } from '@/lib/auth/types'
 import { collectionFileRef, collectionFileUrl, type CollectionFileRef } from '@/lib/documents/collection-file-ref'
+import { documentShelf, type DocumentShelf } from './shelf'
+import { requireShelfWrite } from './shelf-authz'
+import { findShelfFolder } from './shelf-folders'
 
 /** Same ceiling the other backend mirrors in `@/lib/documents/service` use. */
 const BACKEND_MIRROR_TIMEOUT_MS = 10_000
 
+/** What the caller is told when the destination is not a folder of the document's shelf. */
+const FOLDER_NOT_FOUND: Record<DocumentShelf['kind'], string> = {
+  project: 'Folder not found in this project.',
+  archiv: 'Folder not found in the Archiv.',
+}
+
 export interface MoveDocumentInput {
   documentId: string
-  /** The destination. `null` files the document at the project root. */
+  /** The destination. `null` files the document at the shelf root. */
   folderId: string | null
 }
 
@@ -43,13 +56,14 @@ export async function moveDocumentToFolder(
 ): Promise<{ ok: true; document: MoveDocumentResult } | { ok: false; error: string }> {
   const db = getDb()
 
-  // The document is read FIRST and without an FGA check, because the project it
-  // belongs to is what the permission is checked against — and it is read
+  // The document is read FIRST and without a permission check, because the shelf
+  // it is on is what the permission is checked against — and it is read
   // org-scoped, so a document in another tenant is simply not found.
   const [document] = await db
     .select({
       id: documents.id,
       projectId: documents.projectId,
+      scope: documents.scope,
       folderId: documents.folderId,
       filename: documents.filename,
       collectionName: documents.collectionName,
@@ -64,26 +78,21 @@ export async function moveDocumentToFolder(
     .limit(1)
 
   if (!document) return { ok: false, error: 'Document not found.' }
-  if (!document.projectId) {
-    // A session attachment or an org-wide Archiv document. Neither is filed.
-    return { ok: false, error: 'Only project documents live in folders.' }
+  const shelf = documentShelf(document)
+  if (!shelf) {
+    // A session attachment. It is filed nowhere, and the database agrees.
+    return { ok: false, error: 'Only project and Archiv documents live in folders.' }
   }
 
-  await requireProjectAccess(session, document.projectId, ['project:documents:write', 'project:edit'])
+  await requireShelfWrite(session, shelf)
 
-  // The destination has to belong to the SAME project. Without this the folder
-  // id is an unguessable-but-forgeable pointer into another project's tree, and
-  // the document would vanish from the listing that filters by folder.
+  // The destination has to be a folder of the SAME shelf (and tenant). Without
+  // this the folder id is an unguessable-but-forgeable pointer into another
+  // tree, and the document would vanish from the listing that filters by folder.
   let destinationPath: string | null = null
   if (input.folderId) {
-    const [folder] = await db
-      .select({ id: projectFolders.id, path: projectFolders.path })
-      .from(projectFolders)
-      .where(
-        and(eq(projectFolders.id, input.folderId), eq(projectFolders.projectId, document.projectId)),
-      )
-      .limit(1)
-    if (!folder) return { ok: false, error: 'Folder not found in this project.' }
+    const folder = await findShelfFolder(shelf, session.organizationId, input.folderId)
+    if (!folder) return { ok: false, error: FOLDER_NOT_FOUND[shelf.kind] }
     destinationPath = folder.path
   }
 
@@ -118,7 +127,7 @@ export async function moveDocumentToFolder(
  * `knowledge_search folder=` filter naming the folder the file just left — a
  * document findable under a folder it is no longer in.
  *
- * The subtree mirror in `@/lib/projects/folder-service` cannot express this:
+ * The subtree mirror in `@/lib/documents/shelf-folders` cannot express this:
  * that one rewrites a path PREFIX, and a document leaving `Brandschutz` for
  * `Statik` shares no prefix with where it was. Hence the per-document endpoint.
  *

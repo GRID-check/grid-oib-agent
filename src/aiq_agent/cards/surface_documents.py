@@ -19,10 +19,10 @@ import asyncio
 import logging
 from typing import Literal
 
-from nat.builder.builder import Builder
-from nat.builder.function_info import FunctionInfo
-from nat.cli.register_workflow import register_function
-from nat.data_models.function import FunctionBaseConfig
+from nat.plugin_api import Builder
+from nat.plugin_api import FunctionBaseConfig
+from nat.plugin_api import FunctionInfo
+from nat.plugin_api import register_function
 
 logger = logging.getLogger(__name__)
 
@@ -47,9 +47,9 @@ _SHELF_OF_SOURCE: dict[str, str] = {"projekt": "project", "buero": "archiv"}
 # Two of the three convert exactly. `CLEAR_WINNER_GAP` does not — a difference
 # on a log scale is not a difference on a linear one — and is flagged below.
 #
-# All three are BACKEND-CONDITIONAL. Only the `llamaindex` backend reports a
-# cosine; `foundational_rag` reports clamped reranker logits, which are not in
-# cosine space and for which none of these numbers is calibrated.
+# All three are calibrated for the `llamaindex` backend's cosine, the only
+# backend there is (ADR-0072). A retriever that scored in another space
+# (reranker logits, say) would need its own numbers.
 # ---------------------------------------------------------------------------
 
 # Weak hits are how a citation-health screenshot pulls in every IFC in the
@@ -303,8 +303,9 @@ _TOOL_DESCRIPTION = (
     "Asking for files of a KIND ('hab ich sonst noch Grundrisse', 'welche Fotos "
     "vom Bestand') is a browse: `mode=many` on that shelf, so they can open them.\n"
     "WHEN NOT TO CALL — to say what is on a shelf ('welche Dateien hast du im "
-    "Büroarchiv'), answer from the knowledge-base inventory instead; where it "
-    "gives a count rather than names, say the count and offer to search. To read, "
+    "Büroarchiv'), answer from the knowledge-base inventory, or from `list_files` "
+    "where the inventory is incomplete or the question filters by folder, name or "
+    "date; file names written in the answer already open on click. To read, "
     "quote, or cite a passage, use `knowledge_search`. "
     "The UI already peeks the cited file; do not also call this tool after citing. "
     "Do not use this for OIB / RIS / web questions.\n"

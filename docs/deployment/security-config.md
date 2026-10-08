@@ -16,6 +16,14 @@ REQUIRE_AUTH=true
 
 When auth is disabled, the system runs with a default unauthenticated user context. The Python backend receives no JWT tokens and operates in anonymous mode.
 
+The backend reads the same variable. With `REQUIRE_AUTH=true` it enforces:
+
+- **Job access by signed scope** ([ADR-0084](../adr/0084-the-backend-authorizes-a-job-by-the-scope-the-bff-signed.md)). A research job is returned to the principal that submitted it, and to a caller whose signed envelope places the job inside what the BFF checked: the same organization, plus either the job's project (read and steer: cancel, write-now, add a document) or the job's conversation (read only). The BFF signs a project only after it checked `project:chat` on it, and a conversation only after it checked `viewer` on an existing one. The envelope must be signed with `GRID_INTERNAL_API_TOKEN`, carry `issuedAt` within six hours, and name the same user as the bearer token. A job whose `job_access` row has no organization is reachable by its owner only. Every other caller gets the same 404 as for a job that does not exist, and the run listing returns the same set. Members who may view a project but not chat in it cannot open the live stream of someone else's run; the ADR records this as a known limit.
+- **The signed envelope.** A WorkOS-authenticated request to any route not on the exempt list must carry a valid `X-Grid-Request-Context` envelope (`aiq_api/context_envelope.py`). The job routes are on it, because they authorize by themselves: without an envelope a caller reaches only the jobs it owns, and a valid one can widen that to the project or conversation it signs (ADR-0084).
+- **Document search scope.** `/v1/collections/{name}/search` refuses a request that carries no signed scope.
+
+The Kubernetes deployment sets the flag on every backend tier (chat, api, agent-worker, ingest-worker), from the same value as the frontend. With `REQUIRE_AUTH=false` every caller can read every job, so use it only in a throwaway environment.
+
 ### WorkOS Configuration
 
 When `REQUIRE_AUTH=true`, these variables must be set:
@@ -43,6 +51,28 @@ The `WORKOS_COOKIE_PASSWORD` is used to encrypt the AuthKit session cookie. Requ
 - Minimum 32 characters (recommended: 64 hex chars from `openssl rand -hex 32`)
 - Must be stable across deployments — changing it invalidates all sessions
 - Store it securely (not in version control)
+
+### The chat socket's context headers
+
+The WebSocket proxy (`frontends/ui/server.js`) tells the backend who the caller
+is and what the organization decided: model overrides, the remaining budget, the
+data sources it switched off. It does so twice, as individual `x-grid-*` headers
+and as the signed `X-Grid-Request-Context` envelope (HMAC-SHA256 under
+`GRID_INTERNAL_API_TOKEN`). Two rules keep a client from choosing those values
+for itself:
+
+- The proxy removes every inbound `x-grid-*` header, `authorization` and
+  `x-internal-token` from the upgrade before it writes its own
+  (`src/lib/proxy/ws-upgrade-headers.js`). Until 2026-09 it only overwrote the
+  fields the scope response had, so a cookie-authenticated client outside a
+  browser could send its own model overrides, budget or disabled sources.
+- The backend reads those three fields, and the user a cost is booked to, from
+  the signed envelope whenever one arrived (`get_signed_request_context`), and
+  falls back to the individual headers only without one (a job worker, the CLI).
+
+`GRID_INTERNAL_API_TOKEN` must therefore be set in production: without it the
+backend accepts an envelope on its shape alone, and the signature protects
+nothing.
 
 ## SeaweedFS
 
@@ -139,13 +169,10 @@ resolver (`AIQ_EMBED_API_KEY`, else the key inferred from `AIQ_EMBED_BASE_URL`).
 ### What's Needed For VLM Features
 
 Vision-Language Model features (table extraction, image extraction, chart
-extraction) need only the extraction flags; the model and host default to
-OpenRouter:
+extraction) are on by default (`AIQ_EXTRACT_*`, set `false` to disable one);
+they need only a VLM key, and the model and host default to OpenRouter:
 
 ```bash
-AIQ_EXTRACT_TABLES=true
-AIQ_EXTRACT_IMAGES=true
-AIQ_EXTRACT_CHARTS=true
 # defaults, shown for completeness
 AIQ_VLM_MODEL=openai/gpt-6-luna
 AIQ_VLM_BASE_URL=https://openrouter.ai/api/v1

@@ -50,7 +50,7 @@ function makeTx({
     }
     const text = strings.join('$').replace(/\s+/g, ' ').trim()
     executed.push({ text, values })
-    if (text.startsWith('SELECT') && text.includes('FROM legal_holds')) {
+    if (text.startsWith('SELECT') && text.includes('grid_legal_hold_blocks')) {
       holdChecks += 1
       return Promise.resolve(holdOnCheck[holdChecks] ?? holdRows)
     }
@@ -80,6 +80,7 @@ function makeDeps(overrides = {}) {
     bucket: 'grid-documents',
     fetchImpl: vi.fn().mockResolvedValue({ ok: true }),
     deleteStoragePrefix: vi.fn().mockResolvedValue(3),
+    abortMultipartUploads: vi.fn().mockResolvedValue(0),
     workos: {
       authorization: {
         deleteResourceByExternalId: vi.fn().mockResolvedValue(undefined),
@@ -126,6 +127,24 @@ describe('purgeProject', () => {
     expect(deletes.at(-1).text).toContain('FROM projects')
   })
 
+  it('purges everything but the FGA resource in a deployment without WorkOS', async () => {
+    const { tx, executed } = makeTx({
+      projectRow: { id: 'p1', collection_name: 'proj_abc', name: 'Alpha' },
+      conversationRows: [],
+    })
+    const deps = makeDeps({ workos: null })
+
+    await purgeProject(tx, entry, deps)
+
+    expect(deps.fetchImpl).toHaveBeenCalled()
+    expect(deps.deleteStoragePrefix).toHaveBeenCalledWith('grid-documents', 'org/org1/project/p1/')
+    // A half-sent mail import is not an object; the sweep aborts it too (ADR-0085).
+    const bucketRead = executed.find((step) => step.text.startsWith('SELECT DISTINCT storage_bucket'))
+    expect(bucketRead.text).toContain('FROM mail_imports')
+    expect(deps.abortMultipartUploads).toHaveBeenCalledWith('grid-documents', 'org/org1/project/p1/')
+    expect(executed.filter((q) => q.text.startsWith('DELETE')).at(-1).text).toContain('FROM projects')
+  })
+
   it('falls back to payload pointers when the project row is already gone', async () => {
     const { tx } = makeTx({ projectRow: null, conversationRows: [] })
     const deps = makeDeps()
@@ -153,7 +172,7 @@ describe('purgeProject', () => {
     const { tx, executed } = makeTx({
       projectRow: { id: 'p1', collection_name: 'proj_abc' },
       conversationRows: [{ id: 'c1' }],
-      holdRows: [{ '?column?': 1 }],
+      holdRows: [{ held: true }],
     })
     const deps = makeDeps()
 
@@ -240,7 +259,7 @@ describe('purgeProject', () => {
       documentBucketRows: [{ storage_bucket: 'grid-org-org1-abcdef123456' }],
       // Checks 1 and 2 are the pre-flight and post-backend ones; 3 guards the
       // first bucket, 4 the second. Placing the hold at 4 lets one sweep run.
-      holdOnCheck: { 4: [{ '?column?': 1 }] },
+      holdOnCheck: { 4: [{ held: true }] },
     })
 
     const deps = makeDeps()
@@ -445,7 +464,7 @@ describe('session attachments', () => {
         { conversation_id: 's_c1', collection_name: 's_c1', storage_bucket: null },
       ],
       // 1 is the pre-flight check; 2 guards the first session collection.
-      holdOnCheck: { 2: [{ '?column?': 1 }] },
+      holdOnCheck: { 2: [{ held: true }] },
     })
     const deps = makeDeps()
 
@@ -575,5 +594,22 @@ describe('collaboration rows', () => {
     ]) {
       expect(deletes.some((call) => call.text.includes(name))).toBe(true)
     }
+  })
+})
+
+describe('background jobs', () => {
+  it('erases the project’s queued jobs, in its own organization, before the project row goes', async () => {
+    const { tx, executed } = makeTx({
+      projectRow: { id: 'p1', collection_name: 'proj_p1' },
+      conversationRows: [],
+    })
+
+    await purgeProject(tx, entry, makeDeps())
+
+    const deletes = executed.filter((call) => call.text.startsWith('DELETE'))
+    const jobs = deletes.findIndex((call) => call.text.includes('DELETE FROM bff_job_queue'))
+    expect(jobs).toBeGreaterThanOrEqual(0)
+    expect(jobs).toBeLessThan(deletes.findIndex((call) => call.text.startsWith('DELETE FROM projects')))
+    expect(deletes[jobs].values).toEqual([entry.organization_id, 'p1'])
   })
 })

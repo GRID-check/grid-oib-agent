@@ -1,0 +1,181 @@
+# Held-out set, written blind to the classifier wording (2026-09-26). Do not tune on it.
+- file_name: download (7).pdf
+  text: |
+    Österreichisches Institut für Bautechnik
+    Richtlinie 5
+    Schallschutz
+    Ausgabe: Mai 2023
+    0 Vorbemerkungen
+    Die zitierten Normen und sonstigen technischen Regelwerke gelten in der im Dokument "Zitierte Normen und
+    sonstige technische Regelwerke" angeführten Fassung. Von den Anforderungen dieser Richtlinie kann gemäß den
+    landesrechtlichen Bestimmungen abgewichen werden, wenn der Bauwerber nachweist, dass das gleiche Schutzniveau
+    erreicht wird. 1 Begriffsbestimmungen ... 2 Baulicher Schallschutz 2.1 Anforderungen an den Schallschutz von
+    Außenbauteilen
+  doc_class: oib_richtlinie
+
+- file_name: Garagen_Parkdecks_2023.pdf
+  text: |
+    Richtlinie 2.2
+    Brandschutz bei Garagen, überdachten Stellplätzen und Parkdecks
+    Ausgabe: Mai 2023
+    Inhaltsverzeichnis: 0 Vorbemerkungen, 1 Begriffsbestimmungen, 2 Überdachte Stellplätze, 3 Garagen mit einer
+    Nutzfläche von mehr als 50 m² bis 250 m², 4 Garagen mit einer Nutzfläche von mehr als 250 m², 5 Parkdecks,
+    6 Garagen mit einer Nutzfläche von mehr als 10.000 m² je Geschoß. 3.1 Wände, Decken und Stützen müssen ...
+  doc_class: oib_richtlinie
+
+- file_name: Abweichungen_BS_Konzepte_Leitfaden.pdf
+  text: |
+    Leitfaden
+    Abweichungen im Brandschutz und Brandschutzkonzepte
+    Ausgabe: Mai 2023
+    Dieser Leitfaden soll eine Hilfestellung bieten, in welcher Form Abweichungen von den Anforderungen der
+    Richtlinie 2 bzw. 2.1 bis 2.3 nachgewiesen werden können und wie ein Brandschutzkonzept aufzubauen ist.
+    Er richtet sich an Planende, Sachverständige und Behörden. 1 Allgemeines 1.1 Grundsätze für Abweichungen:
+    Das Schutzniveau der Richtlinie gilt als erreicht, wenn ...
+  doc_class: oib_leitfaden
+
+- file_name: EB_RL5_2023_web.pdf
+  text: |
+    Erläuternde Bemerkungen zu Richtlinie 5 "Schallschutz", Ausgabe Mai 2023
+    I. Allgemeines
+    Die Richtlinie 5 wurde gegenüber der Ausgabe 2019 im Wesentlichen redaktionell überarbeitet. Die folgenden
+    Bemerkungen sollen die Beweggründe für einzelne Festlegungen nachvollziehbar machen.
+    II. Zu den einzelnen Bestimmungen
+    Zu Punkt 2.2: Die Anforderungen an den Schallschutz von Außenbauteilen orientieren sich am maßgeblichen
+    Außenlärmpegel, weil ...
+  doc_class: oib_erlaeuterung
+
+- file_name: Definitionen_Stand2023.pdf
+  text: |
+    Begriffsbestimmungen
+    Ausgabe: Mai 2023
+    Absturzsicherung: Bauteil, das Personen vor dem Absturz bewahren soll.
+    Aufenthaltsraum: Raum, der zum längeren Aufenthalt von Personen bestimmt ist (z.B. Wohn- und Schlafraum,
+    Wohnküche, Arbeitsraum, Unterrichtsraum).
+    Bauteil: ...
+    Brandabschnitt: Bereich, der durch brandabschnittsbildende Wände und/oder Decken von Teilen eines Gebäudes
+    getrennt ist.
+    Fluchtniveau: Höhendifferenz zwischen der Fußbodenoberkante des höchstgelegenen oberirdischen Geschoßes ...
+  doc_class: oib_begriffe
+
+- file_name: normenliste_mai23.pdf
+  text: |
+    Zitierte Normen und sonstige technische Regelwerke
+    Ausgabe: Mai 2023
+    Dieses Dokument enthält eine Aufstellung aller in den Richtlinien 1 bis 6 zitierten Normen und sonstigen
+    technischen Regelwerke mit dem jeweils maßgeblichen Ausgabedatum.
+    ÖNORM B 1600 Barrierefreies Bauen – Planungsgrundlagen, Ausgabe 2012-02-15 (zitiert in RL 4)
+    ÖNORM B 8110-3 Wärmeschutz im Hochbau – Teil 3: Ermittlung der operativen Temperatur ..., 2020-02-15 (RL 6)
+    ÖNORM EN 13501-1 Klassifizierung von Bauprodukten und Bauarten zu ihrem Brandverhalten ...
+  doc_class: oib_referenz
+
+- file_name: Aenderungen_2019_2023_RL2.pdf
+  text: |
+    Richtlinie 2 – Brandschutz
+    Gegenüberstellung der Ausgaben April 2019 und Mai 2023
+    Die nachstehende Synopse zeigt links den bisherigen und rechts den neuen Text; Streichungen sind durchgestrichen,
+    Ergänzungen unterstrichen dargestellt.
+    Punkt 3.1.2 alt: "... in Gebäuden der Gebäudeklasse 4 ..." | neu: "... in Gebäuden der Gebäudeklassen 4 und 5
+    mit nicht mehr als sechs oberirdischen Geschoßen ..."
+    Tabelle 1b: Zeile 3 geändert, neue Fußnote (5) eingefügt.
+  doc_class: oib_aenderung
+
+- file_name: B1600_2012.pdf
+  text: |
+    ÖNORM B 1600
+    Ausgabe: 2012-02-15
+    Barrierefreies Bauen – Planungsgrundlagen
+    Design for all – Planning principles
+    ICS 11.180.01; 91.040.01
+    Ersatz für ÖNORM B 1600:2011-04
+    Austrian Standards Institute. Medieninhaber und Hersteller: Austrian Standards plus GmbH, Wien.
+    Vorwort: Diese ÖNORM wurde vom Komitee 015 "Barrierefreies Bauen" ausgearbeitet. 1 Anwendungsbereich:
+    Diese ÖNORM legt Planungsgrundlagen für das barrierefreie Bauen fest ...
+  doc_class: norm_extern
+
+- file_name: EC5_Teil1-2_NA.pdf
+  text: |
+    ÖNORM EN 1995-1-2
+    Ausgabe: 2011-09-01
+    Eurocode 5: Bemessung und Konstruktion von Holzbauten – Teil 1-2: Allgemeine Regeln – Tragwerksbemessung
+    für den Brandfall (konsolidierte Fassung)
+    Nationales Vorwort: Diese Europäische Norm EN 1995-1-2:2004 hat den Status einer Österreichischen Norm.
+    Die national festzulegenden Parameter sind in ÖNORM B 1995-1-2 enthalten. 1 Allgemeines 1.1 Anwendungsbereich
+    (1) Dieser Teil behandelt den Entwurf von Holztragwerken für den außergewöhnlichen Fall eines Brandes ...
+  doc_class: norm_extern
+
+- file_name: din18040-1.pdf
+  text: |
+    DIN 18040-1
+    Barrierefreies Bauen – Planungsgrundlagen – Teil 1: Öffentlich zugängliche Gebäude
+    Ausgabe Oktober 2010
+    DIN Deutsches Institut für Normung e.V.
+    Inhalt: 1 Anwendungsbereich, 2 Normative Verweisungen, 3 Begriffe, 4 Infrastruktur 4.1 Äußere Erschließung
+    auf dem Grundstück 4.2 Innere Erschließung des Gebäudes ... Diese Norm gilt für die barrierefreie Planung,
+    Ausführung und Ausstattung von öffentlich zugänglichen Gebäuden und deren Außenanlagen.
+  doc_class: norm_extern
+
+- file_name: WBO_konsolidiert_2025.pdf
+  text: |
+    Bauordnung für Wien
+    Gesamte Rechtsvorschrift, Fassung vom 01.03.2025
+    LGBl. Nr. 11/1930 zuletzt geändert durch LGBl. Nr. 37/2023
+    I. Teil – Flächenwidmungspläne und Bebauungspläne
+    § 1. (1) Zur geordneten und nachhaltigen Gestaltung und Entwicklung des Stadtgebietes sind Flächenwidmungspläne
+    und Bebauungspläne aufzustellen ...
+    § 2. (1) Vor der Festsetzung oder Abänderung ...
+  doc_class: gesetz
+
+- file_name: Techn_BV_Stmk.pdf
+  text: |
+    Verordnung der Steiermärkischen Landesregierung vom 12. Oktober 2023, mit der bautechnische Anforderungen
+    festgelegt werden (Steiermärkische Bautechnikverordnung 2023)
+    Auf Grund des § 82 Abs. 1 des Steiermärkischen Baugesetzes, LGBl. Nr. 59/1995, wird verordnet:
+    § 1 Gegenstand: Mit dieser Verordnung werden die Anforderungen an Bauwerke zur Erfüllung der bautechnischen
+    Anforderungen gemäß § 43 ff Stmk. BauG festgelegt.
+    § 2 Verbindlicherklärung: Den Bestimmungen dieser Verordnung wird durch Einhaltung der in der Anlage angeführten
+    Richtlinien entsprochen ...
+  doc_class: gesetz
+
+- file_name: AStV_ris.pdf
+  text: |
+    Verordnung des Bundesministers für Arbeit, Gesundheit und Soziales, mit der Anforderungen an Arbeitsstätten
+    und an Gebäuden auf Baustellen festgelegt und die Bauarbeiterschutzverordnung geändert wird
+    (Arbeitsstättenverordnung – AStV)
+    StF: BGBl. II Nr. 368/1998
+    1. Abschnitt Allgemeine Bestimmungen
+    § 1. Anwendungsbereich (1) Diese Verordnung gilt für Arbeitsstätten in Gebäuden und für Arbeitsstätten im Freien ...
+  doc_class: gesetz
+
+- file_name: Folien_Fachtagung_Holzbau_GK5.pdf
+  text: |
+    Mehrgeschoßiger Holzbau in GK 5 – was ist neu?
+    Fachtagung Bauphysik & Brandschutz, Salzburg, 14. März 2024
+    DI Dr. Martin Egger
+    Folie 2: Agenda – Entwicklung der Anforderungen seit 2015, Kapselkriterien, Praxisbeispiele
+    Folie 3: Bis zu sechs Geschoße sind in Holz möglich – aber: nichtbrennbare Bekleidung in Treppenhäusern
+    Folie 4: Fallbeispiel Wohnbau Seestadt Aspern – 7 Geschoße, Abweichung mit Sprinkleranlage
+  doc_class: sonstiges
+
+- file_name: Checkliste_Einreichung_Buero_v4.xlsx
+  text: |
+    Checkliste Einreichunterlagen – internes Büroformular
+    [ ] Ansuchen um Baubewilligung unterschrieben (Bauwerber + Grundeigentümer)
+    [ ] Grundbuchsauszug nicht älter als 6 Wochen
+    [ ] Einreichpläne 3-fach, vom Planverfasser unterfertigt
+    [ ] Baubeschreibung
+    [ ] Energieausweis
+    [ ] Stellplatznachweis
+    [ ] Nachweis Kanalanschluss / Einleitungsbewilligung
+    Bearbeiter: ___  Datum: ___
+  doc_class: sonstiges
+
+- file_name: Artikel_Bauzeitung_Barrierefrei.pdf
+  text: |
+    Barrierefreiheit: Wo Planer immer noch stolpern
+    Von Sabine Huber | Österreichische Bauzeitung, Ausgabe 18/2025
+    Seit Jahren gelten klare Regeln für barrierefreies Bauen, doch in der Praxis zeigen sich bei Abnahmen immer
+    wieder dieselben Mängel: zu steile Rampen, fehlende Bewegungsflächen vor Türen, Schwellen bei Terrassentüren.
+    Wir haben mit drei Sachverständigen gesprochen, welche Fehler am häufigsten vorkommen und wie man sie schon in
+    der Entwurfsphase vermeidet.
+  doc_class: sonstiges

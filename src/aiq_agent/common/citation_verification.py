@@ -45,6 +45,7 @@ from urllib.parse import urlparse
 from urllib.parse import urlunparse
 
 from aiq_agent.common.grounding_block import GroundingHit
+from aiq_agent.common.grounding_block import SourceRegion
 from aiq_agent.common.grounding_block import get_grounding_block
 from aiq_agent.common.source_kinds import SCOPE_QUALIFIERS
 from aiq_agent.common.source_kinds import TOOL_RESULT_SOURCE_TYPE
@@ -130,6 +131,12 @@ class SourceEntry:
     # session-registry cache like the other fields.
     rank: str | None = None
     binding_status: str = "unbekannt"
+    # WHERE ON THE PAGE the passage sits, as boxes the viewer draws (issue #433).
+    # Stated by the producer for a passage read off a picture of the page (a
+    # plan's Grundriss, a photo), never for running text, which the viewer
+    # locates by matching ``chunk_text`` instead. Several chunks of one page
+    # merge their boxes on dedup, so a page cited for two depictions marks both.
+    regions: list[SourceRegion] = field(default_factory=list)
 
 
 @dataclass
@@ -321,6 +328,20 @@ class _ParsedURL:
 # ---------------------------------------------------------------------------
 
 
+#: How many boxes one page's source carries. A sheet analysed into more
+#: depictions than this is marked on its best-scoring ones, which arrive first.
+_MAX_REGIONS_PER_SOURCE = 6
+
+
+def _merge_regions(entry: SourceEntry, regions: list[SourceRegion]) -> None:
+    """Fold ``regions`` into ``entry``'s, dropping repeats and holding the cap."""
+    for region in regions:
+        if len(entry.regions) >= _MAX_REGIONS_PER_SOURCE:
+            return
+        if region not in entry.regions:
+            entry.regions.append(region)
+
+
 class SourceRegistry:
     """Registry of sources captured from tool call results.
 
@@ -415,6 +436,7 @@ class SourceRegistry:
                             existing.punkt = entry.punkt
                         if entry.score is not None and (existing.score is None or entry.score > existing.score):
                             existing.score = entry.score
+                        _merge_regions(existing, entry.regions)
                         break
         if added:
             self._all.append(entry)
@@ -647,6 +669,11 @@ def _registry_from_cached_entries(entries: Any) -> SourceRegistry:
                             score=item.get("score"),
                             rank=item.get("rank"),
                             binding_status=item.get("binding_status", "unbekannt"),
+                            regions=[
+                                region
+                                for region in map(SourceRegion.from_cached, item.get("regions") or [])
+                                if region is not None
+                            ],
                         )
                     )
                 except Exception:
@@ -988,6 +1015,7 @@ def _entry_from_hit(hit: GroundingHit, tool_name: str) -> SourceEntry:
         chunk_text=hit.body.strip() or None,
         punkt=(hit.punkt or "").strip() or None,
         score=hit.score,
+        regions=list(hit.regions[:_MAX_REGIONS_PER_SOURCE]),
     )
 
 
@@ -1383,6 +1411,15 @@ register_source_parser(lambda name: "ris_lookup" in name, _parse_knowledge_layer
 # structured path reads its block by hash and would otherwise recover passages
 # the text path cannot (ADR-0061).
 register_source_parser(lambda name: "read_passage" in name, _parse_knowledge_layer)
+# ``list_files`` is an INDEX, never evidence: a row proves a file exists, not
+# what it says. It sits in the knowledge data source, so its output is captured
+# like a search result, and with no parser it fell to the non-URL fallback and
+# registered one citable source keyed "list_files" — a citation that resolves to
+# a directory listing. Nothing it returns may ground a claim. ``endswith`` covers
+# a group-qualified name (``knowledge__list_files``); registered after the
+# knowledge parser, which a name containing "knowledge" reaches first and which
+# also finds no ``Citation:`` line in a listing.
+register_source_parser(lambda name: name.endswith("list_files"), lambda content, tool_name: [])
 
 # ---------------------------------------------------------------------------
 # Citation parsing and source-section layout normalization
@@ -2495,6 +2532,10 @@ def source_entry_to_wire(entry: SourceEntry, *, number: int | None = None) -> di
         # SSE frame and into ``messages.metadata``, and the client only needs
         # enough to locate a sentence in a document it already has.
         "snippet": _wire_snippet(entry.chunk_text),
+        # WHERE ON THE PAGE, for a passage read off a picture of it: boxes the
+        # viewer draws over the page (issue #433). Absent for running text,
+        # which the viewer finds by matching ``snippet`` instead.
+        "regions": [region.to_wire() for region in entry.regions] or None,
     }
     return {key: value for key, value in payload.items() if value is not None}
 
@@ -3084,6 +3125,17 @@ def _quote_coverage(norm_quote: str, norm_chunk: str) -> float:
             prev_b_end = block.b + block.size
         best = max(best, best_run / quote_len)
     return best
+
+
+def quote_coverage(quote: str, passage: str) -> float:
+    """How much of ``quote`` one contiguous run of ``passage`` holds (0-1): the verifier's own test.
+
+    :func:`_quote_coverage` on raw text. A quote at or above
+    ``QUOTE_MATCH_THRESHOLD`` is one the prose may keep between quote marks,
+    and the same bar is what stamps a quote line „Wortlaut belegt"
+    (``common/quote_stamps.py``).
+    """
+    return _quote_coverage(_normalize_for_quote_match(quote), _normalize_for_quote_match(passage))
 
 
 def closeness(quote: str, passage: str) -> float:
@@ -3736,8 +3788,11 @@ _BODY_URL_RE = re.compile(r"\w+://[^\s<>\"'\]]+")
 # preceded it stranded in front of the punctuation that followed, so
 # "eine jaehrliche Begehung [3]." reaches the reader as "Begehung .". Spaces and
 # tabs only, never a newline, so punctuation is never pulled up onto the
-# previous line.
-_SPACE_BEFORE_PUNCTUATION_RE = re.compile(r"[ \t]+(?=[.,;:!?])")
+# previous line, and never a line's leading indentation. A colon glued to a
+# letter or another colon is not punctuation: it opens a Markdown directive
+# (`:energy-class[B]`, `:current`, an indented `:::details`), and pulling the space
+# out of „Klasse :energy-class[B]" welds the marker onto the word before it.
+_SPACE_BEFORE_PUNCTUATION_RE = re.compile(r"(?<=\S)[ \t]+(?=[.,;!?]|:(?![^\W\d_]|:))")
 
 
 @dataclass
@@ -3835,7 +3890,9 @@ def sanitize_report(report_text: str) -> ReportSanitizationResult:
         segment = _BODY_URL_RE.sub(_replace_body_url, segment)
         # Clean up leftover empty parentheses and extra spaces
         segment = re.sub(r"\(\s*\)", "", segment)
-        segment = re.sub(r"  +", " ", segment)
+        # Runs inside a line only: leading indentation nests a list item or a
+        # directive block (`   :::details`) under the one above it.
+        segment = re.sub(r"(?<=\S)  +", " ", segment)
         return _SPACE_BEFORE_PUNCTUATION_RE.sub("", segment)
 
     # Prose only — every rule here is about how a SENTENCE should read, and none

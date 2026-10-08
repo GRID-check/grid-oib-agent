@@ -241,6 +241,7 @@ trapping, Escape and scroll locking are identical; what differs is intent.
 | `Sheet` (side) | The DETAIL of a row the reader just selected. The list stays put behind it and keeps updating. | `task-detail.tsx`, `schedule-detail.tsx`, `skill-detail.tsx` |
 | `PageSheet` | A whole PLACE, independent of wherever the reader is standing. Route-backed, reached from the org nav. | Postfach, Archiv, chat history |
 | `Popover` | A transient choice attached to the control that opened it. Never a panel with its own header and scroll region. | the `/` command picker, filter menus |
+| `HoverPeekPanel` | A glance at what a reference in running text stands for: hover or focus to see, click or tap to pin, Escape or an outside click to close (`useHoverPopover`). Mounted on first engagement and BESIDE its trigger, never around it, so a page of references costs nothing until one is looked at and the trigger never remounts. | citation chips, `[N]` markers, Herleitung source cards, file references, @-mentions |
 | `Collapsible` | More of THIS row, in place. No scrim, nothing dimmed. | the wizard's „Erweitert", the document lifecycle panel |
 | No overlay | A multi-step flow that owns its section, or a second pane you read the first pane AGAINST. | `ScheduleWizard` inline in Tasks, the file peek |
 
@@ -522,6 +523,14 @@ times stops being a physical cue and becomes texture.
   row by 350ms. Never on a list the reader opened to reach one specific row.
 - Height changes (accordions, thinking steps): CSS grid-rows or Radix
   Collapsible, `--motion-base`.
+- **The live Herleitung moves only its frontier edges.** While a turn is
+  live, the connectors into the newest row are React Flow's built-in
+  `animated` edges (the library's marching `dashdraw` dash); nothing else in the
+  graph moves. Nodes, source cards and connectors simply appear, and a settled
+  graph has no animated edge. The cost is accepted and bounded: one marching
+  edge measured ~245 ms of main thread per second on a 4x throttled phone, so
+  the flag is limited to the frontier edges and to live turns
+  (`renderedEdges` in `ReasoningFlow.tsx`, preview `/dev/herleitung?variant=live`).
 - Hover: `transition-colors` on interactive rows and links; never transform on
   hover for dense UI. The raised card's lift is the documented exception, and it
   is a tween.

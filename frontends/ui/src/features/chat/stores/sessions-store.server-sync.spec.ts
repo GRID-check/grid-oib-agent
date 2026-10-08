@@ -3,7 +3,7 @@
  * the server-persisted history, and keeping the server rows in step with
  * local deletes/renames so history can't resurrect as empty ghosts.
  */
-import { describe, it, expect, beforeEach, vi } from 'vitest'
+import { afterEach, describe, it, expect, beforeEach, vi } from 'vitest'
 
 const mockLayoutState = vi.hoisted(() => ({
   enabledDataSourceIds: ['web_search'],
@@ -32,12 +32,16 @@ const mockConversationsClient = vi.hoisted(() => ({
   listMessages: vi.fn(),
   createMessage: vi.fn(),
   createMessages: vi.fn(),
+  // No frames in the replay stream: a turn nobody is still working on.
+  newestFrameAge: vi.fn().mockResolvedValue(null),
 }))
 vi.mock('@/adapters/api/conversations-client', () => ({
   conversationsClient: mockConversationsClient,
 }))
 
 import { useChatStore } from '../store'
+import { isAwaitingServerMessages, markAwaitingServerMessages } from './chat-storage'
+import { isConversationOnServer } from '../lib/conversation-on-server'
 import type { ChatMessage, Conversation } from '../types'
 
 let uniqueCounter = 0
@@ -130,7 +134,7 @@ describe('selectConversation message repopulation', () => {
     expect(useChatStore.getState().currentConversation?.messages).toEqual([localMessage])
   })
 
-  it('never overwrites messages that arrived while the fetch was in flight', async () => {
+  it('keeps messages that arrived while the fetch was in flight, with the history under them', async () => {
     const conv = makeConversation()
     useChatStore.setState({ conversations: [conv] })
 
@@ -146,14 +150,53 @@ describe('selectConversation message repopulation', () => {
     // A live message lands before the server responds.
     useChatStore.getState().addUserMessage('typed while fetching')
 
-    resolveFetch([serverRow(conv.id, 'm1', 'user', 'stale server copy')])
+    resolveFetch([
+      serverRow(conv.id, 'm1', 'user', 'earlier question'),
+      serverRow(conv.id, 'm2', 'assistant', 'earlier answer'),
+    ])
     // Flush the hydration continuation (macrotask so all microtasks drain).
     await new Promise((resolve) => setTimeout(resolve, 0))
     await new Promise((resolve) => setTimeout(resolve, 0))
 
+    // Dropping the server rows here hid the history for good: the awaiting
+    // flag was cleared, so nothing ever fetched it again.
     const messages = useChatStore.getState().currentConversation!.messages
-    expect(messages).toHaveLength(1)
-    expect(messages[0].content).toBe('typed while fetching')
+    expect(messages.map((m) => m.content)).toEqual([
+      'earlier question',
+      'earlier answer',
+      'typed while fetching',
+    ])
+    expect(
+      useChatStore.getState().conversations.find((c) => c.id === conv.id)?.messages
+    ).toHaveLength(3)
+    expect(isAwaitingServerMessages(conv.id)).toBe(false)
+  })
+
+  it('fetches the history of an awaiting chat that already holds a follow-up', async () => {
+    const followUp: ChatMessage = {
+      id: 'local-follow-up',
+      role: 'user',
+      content: 'follow-up',
+      timestamp: new Date('2026-07-02T09:00:00.000Z'),
+      messageType: 'user',
+    }
+    const conv = makeConversation({ messages: [followUp] })
+    useChatStore.setState({ conversations: [conv] })
+    markAwaitingServerMessages(conv.id)
+    mockConversationsClient.listMessages.mockResolvedValue([
+      serverRow(conv.id, 'm1', 'user', 'earlier question'),
+    ])
+
+    useChatStore.getState().selectConversation(conv.id)
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    await new Promise((resolve) => setTimeout(resolve, 0))
+
+    expect(mockConversationsClient.listMessages).toHaveBeenCalledWith(conv.id)
+    expect(useChatStore.getState().currentConversation!.messages.map((m) => m.content)).toEqual([
+      'earlier question',
+      'follow-up',
+    ])
+    expect(isAwaitingServerMessages(conv.id)).toBe(false)
   })
 })
 
@@ -221,6 +264,29 @@ describe('loadServerConversations merge', () => {
     expect(merged.title).toBe('Locally generated title')
     expect(merged.createdAt).toBeInstanceOf(Date)
     expect(merged.updatedAt).toBeInstanceOf(Date)
+  })
+
+  it('marks a conversation the server lists without its messages until they are fetched', async () => {
+    const id = uniqueId('s_server_only')
+    mockConversationsClient.list.mockResolvedValue([
+      {
+        id,
+        title: 'Vom anderen Gerät',
+        createdBy: 'user-1',
+        projectId: null,
+        createdAt: '2026-07-01T09:00:00.000Z',
+        updatedAt: '2026-07-02T09:00:00.000Z',
+      },
+    ])
+
+    await useChatStore.getState().loadServerConversations()
+    // Its empty message list means "not here yet": nothing may treat it as a
+    // thread nobody wrote in (the upload-only cleanup deleted it).
+    expect(isAwaitingServerMessages(id)).toBe(true)
+
+    mockConversationsClient.listMessages.mockResolvedValue([serverRow(id, 'm1', 'user', 'Frage')])
+    await useChatStore.getState().hydrateConversationMessages(id)
+    expect(isAwaitingServerMessages(id)).toBe(false)
   })
 
   it('carries jobId through the merge, so job threads stay out of the chat list', async () => {
@@ -380,19 +446,18 @@ describe('loadServerConversations merge', () => {
   })
 })
 
+const message = (id: string): ChatMessage => ({
+  id,
+  role: 'user',
+  content: `msg ${id}`,
+  timestamp: new Date(),
+  messageType: 'user',
+})
+
 describe('_appendMessage conversation ensure', () => {
   it('creates the server conversation only once for concurrent appends', async () => {
     const conv = makeConversation({ title: 'Race chat' })
     useChatStore.setState({ conversations: [conv], currentConversation: conv })
-    mockConversationsClient.list.mockResolvedValue([])
-
-    const message = (id: string): ChatMessage => ({
-      id,
-      role: 'user',
-      content: `msg ${id}`,
-      timestamp: new Date(),
-      messageType: 'user',
-    })
 
     await Promise.all([
       useChatStore.getState()._appendMessage(message('m1')),
@@ -402,88 +467,124 @@ describe('_appendMessage conversation ensure', () => {
     expect(mockConversationsClient.create).toHaveBeenCalledTimes(1)
     expect(mockConversationsClient.createMessage).toHaveBeenCalledTimes(2)
   })
+
+  it('creates without listing first: the create is the idempotent check', async () => {
+    // The list was capped at 200 rows and a failure unrelated to this chat (a 429
+    // on the list) meant the message was never stored.
+    mockConversationsClient.list.mockRejectedValue(new Error('429'))
+    const conv = makeConversation({ title: 'Direct chat', projectId: 'p1' })
+    useChatStore.setState({ conversations: [conv], currentConversation: conv })
+
+    await useChatStore.getState()._appendMessage(message('m1'))
+
+    expect(mockConversationsClient.list).not.toHaveBeenCalled()
+    expect(mockConversationsClient.create).toHaveBeenCalledWith(conv.id, 'Direct chat', 'p1', null)
+    expect(mockConversationsClient.createMessage).toHaveBeenCalledWith(
+      conv.id,
+      expect.objectContaining({ id: 'm1' })
+    )
+  })
+
+  it('retries the create on the next append when it failed', async () => {
+    const conv = makeConversation()
+    useChatStore.setState({ conversations: [conv], currentConversation: conv })
+    mockConversationsClient.create.mockRejectedValueOnce(new Error('503'))
+
+    await useChatStore.getState()._appendMessage(message('m1'))
+    expect(mockConversationsClient.createMessage).not.toHaveBeenCalled()
+
+    await useChatStore.getState()._appendMessage(message('m2'))
+    expect(mockConversationsClient.create).toHaveBeenCalledTimes(2)
+    expect(mockConversationsClient.createMessage).toHaveBeenCalledTimes(1)
+  })
 })
 
-describe('hydration-aware interrupted state', () => {
-  // A turn that LOOKS interrupted: the last meaningful local message is the
-  // user turn carrying thinking steps, with no assistant reply and no pending
-  // prompt. This is the exact shape that used to unconditionally show the
-  // "response interrupted" banner.
-  const interruptedConversation = () => {
-    const interruptedUser = {
-      id: 'u1',
-      role: 'user',
-      content: 'What is the height limit?',
-      timestamp: new Date('2026-07-01T10:00:00.000Z'),
-      messageType: 'user',
-      thinkingSteps: [{ id: 'ts1' }],
-    } as unknown as ChatMessage
-    return makeConversation({ messages: [interruptedUser] })
-  }
+describe('a chat minted in this page', () => {
+  it('is not on the server until its create succeeds, and is afterwards', async () => {
+    const id = useChatStore.getState().ensureSession()!
+    expect(isConversationOnServer(id)).toBe(false)
 
-  it('renders the server-persisted assistant reply and skips the banner', async () => {
-    const conv = interruptedConversation()
-    useChatStore.setState({ conversations: [conv], currentConversation: conv })
-    // Server has the finished response the disconnected client never received.
-    mockConversationsClient.listMessages.mockResolvedValue([
-      serverRow(conv.id, 'u1', 'user', 'What is the height limit?'),
-      serverRow(conv.id, 'assistant-recovered', 'assistant', 'The limit is 12 m.'),
+    mockConversationsClient.create.mockRejectedValueOnce(new Error('429'))
+    await useChatStore.getState()._appendMessage(message('m1'))
+    expect(isConversationOnServer(id)).toBe(false)
+
+    await useChatStore.getState()._appendMessage(message('m2'))
+    expect(isConversationOnServer(id)).toBe(true)
+  })
+
+  it('a conversation the server listed was never minted here, so it is on the server', async () => {
+    mockConversationsClient.list.mockResolvedValue([
+      { id: 's_listed', createdBy: 'user-1', title: 'Alt', createdAt: '2026-07-01', updatedAt: '2026-07-01' },
     ])
+    await useChatStore.getState().loadServerConversations()
+    expect(isConversationOnServer('s_listed')).toBe(true)
+  })
+})
+
+describe('a turn a reload cut off', () => {
+  const question = (overrides: Partial<ChatMessage> = {}): ChatMessage => ({
+    id: 'u1',
+    role: 'user',
+    content: 'What is the height limit?',
+    timestamp: new Date('2026-07-01T10:00:00.000Z'),
+    messageType: 'user',
+    ...overrides,
+  })
+
+  it('is left for the socket to attach from its first event, the question being the turn', () => {
+    const conv = makeConversation({ messages: [question()] })
+    useChatStore.setState({ conversations: [conv], currentConversation: conv, resumableTurn: null, turns: {} })
 
     useChatStore.getState().restoreSessionState(conv)
 
-    await vi.waitFor(() => {
-      const messages = useChatStore.getState().currentConversation!.messages
-      expect(messages.some((m) => m.id === 'assistant-recovered')).toBe(true)
-    })
+    expect(useChatStore.getState().resumableTurn).toEqual({ conversationId: conv.id, turnId: 'u1' })
+    // The stream is asked first; the server's copy only when it no longer holds the turn.
+    expect(mockConversationsClient.listMessages).not.toHaveBeenCalled()
+    expect(useChatStore.getState().isStreaming).toBe(false)
+  })
 
-    const messages = useChatStore.getState().currentConversation!.messages
-    // The recovered assistant reply is rendered, and NO interrupted error card.
-    expect(messages.find((m) => m.id === 'assistant-recovered')).toMatchObject({
+  it('resumes the turn of an open prompt by the turn the prompt belongs to', () => {
+    const prompt: ChatMessage = {
+      id: 'p1',
       role: 'assistant',
-      content: 'The limit is 12 m.',
-    })
-    expect(messages.some((m) => m.messageType === 'error')).toBe(false)
-  })
-
-  it('shows the interrupted banner when the server has no assistant reply', async () => {
-    const conv = interruptedConversation()
-    useChatStore.setState({ conversations: [conv], currentConversation: conv })
-    // Server only has the user turn — the response was genuinely lost.
-    mockConversationsClient.listMessages.mockResolvedValue([
-      serverRow(conv.id, 'u1', 'user', 'What is the height limit?'),
-    ])
+      content: 'Welcher Kern?',
+      timestamp: new Date('2026-07-01T10:01:00.000Z'),
+      messageType: 'prompt',
+      promptId: 'i1',
+      promptParentId: 'u1',
+    }
+    const conv = makeConversation({ messages: [question(), prompt] })
+    useChatStore.setState({ conversations: [conv], currentConversation: conv, resumableTurn: null, turns: {} })
 
     useChatStore.getState().restoreSessionState(conv)
 
-    await vi.waitFor(() => {
-      const messages = useChatStore.getState().currentConversation!.messages
-      expect(messages.some((m) => m.messageType === 'error')).toBe(true)
-    })
-
-    const errorCard = useChatStore
-      .getState()
-      .currentConversation!.messages.find((m) => m.messageType === 'error')
-    expect(errorCard?.errorData?.errorCode).toBe('agent.response_interrupted')
+    expect(useChatStore.getState().resumableTurn).toEqual({ conversationId: conv.id, turnId: 'u1' })
   })
 
-  it('shows the interrupted banner when the server refetch fails', async () => {
-    const conv = interruptedConversation()
-    useChatStore.setState({ conversations: [conv], currentConversation: conv })
-    mockConversationsClient.listMessages.mockRejectedValue(new Error('network down'))
+  it("leaves a colleague's open question to its asker", () => {
+    const conv = makeConversation({ messages: [question({ authorUserId: 'user-2' })] })
+    useChatStore.setState({ conversations: [conv], currentConversation: conv, resumableTurn: null, turns: {} })
 
     useChatStore.getState().restoreSessionState(conv)
 
-    await vi.waitFor(() => {
-      const messages = useChatStore.getState().currentConversation!.messages
-      expect(messages.some((m) => m.messageType === 'error')).toBe(true)
-    })
+    expect(useChatStore.getState().resumableTurn).toBeNull()
+  })
+
+  it('carries on a turn still running here instead of resuming it', () => {
+    const conv = makeConversation({ messages: [question()] })
+    useChatStore.setState({ conversations: [conv], currentConversation: conv, resumableTurn: null, turns: {} })
+    useChatStore.getState().beginTurn(conv.id, 'u1')
+    useChatStore.setState({ isStreaming: false })
+
+    useChatStore.getState().restoreSessionState(conv)
+
+    expect(useChatStore.getState().isStreaming).toBe(true)
+    expect(useChatStore.getState().resumableTurn).toBeNull()
   })
 })
 
-describe('a turn a reload cut off, resumable from the replay stream', () => {
-  // The question this browser sent carries the turn id it went out under.
-  const cutOffConversation = () =>
+describe('waiting for the server’s answer to a turn this page lost', () => {
+  const lostTurn = () =>
     makeConversation({
       messages: [
         {
@@ -492,70 +593,83 @@ describe('a turn a reload cut off, resumable from the replay stream', () => {
           content: 'What is the height limit?',
           timestamp: new Date('2026-07-01T10:00:00.000Z'),
           messageType: 'user',
-          wsParentId: 'msg_1',
-          thinkingSteps: [{ id: 'ts1', userMessageId: 'u1' }],
-        } as unknown as ChatMessage,
+        } as ChatMessage,
       ],
     })
 
-  it('is left for the socket to resume, with no banner, when the server has no answer yet', async () => {
-    const conv = cutOffConversation()
+  afterEach(() => {
+    vi.useRealTimers()
+    mockConversationsClient.newestFrameAge.mockResolvedValue(null)
+  })
+
+  it('keeps waiting while the turn still beats, and takes the answer when it lands', async () => {
+    vi.useFakeTimers()
+    const conv = lostTurn()
     useChatStore.setState({ conversations: [conv], currentConversation: conv })
-    mockConversationsClient.listMessages.mockResolvedValue([
-      serverRow(conv.id, 'u1', 'user', 'What is the height limit?'),
-    ])
+    mockConversationsClient.newestFrameAge.mockResolvedValue(5_000)
+    mockConversationsClient.listMessages
+      .mockResolvedValueOnce([serverRow(conv.id, 'u1', 'user', 'q')])
+      .mockResolvedValueOnce([serverRow(conv.id, 'u1', 'user', 'q')])
+      .mockResolvedValue([
+        serverRow(conv.id, 'u1', 'user', 'q'),
+        serverRow(conv.id, 'a1', 'assistant', 'The limit is 12 m.'),
+      ])
 
-    useChatStore.getState().restoreSessionState(conv)
+    const outcome = useChatStore.getState()._awaitServerAnswer(conv.id, 'u1')
+    expect(useChatStore.getState().isRecoveryPending).toBe(true)
+    await vi.advanceTimersByTimeAsync(20_000)
 
-    await vi.waitFor(() => {
-      expect(useChatStore.getState().resumableTurn).toEqual({
-        conversationId: conv.id,
-        userMessageId: 'u1',
-        wsParentId: 'msg_1',
-      })
-    })
+    expect(await outcome).toBe('recovered')
+    expect(useChatStore.getState().isRecoveryPending).toBe(false)
     const messages = useChatStore.getState().currentConversation!.messages
-    expect(messages.some((m) => m.messageType === 'error')).toBe(false)
+    expect(messages.some((m) => m.id === 'a1')).toBe(true)
   })
 
-  it('resumeTurn reopens it as the current, streaming turn and drops the kept steps', () => {
-    const conv = cutOffConversation()
-    useChatStore.setState({
-      conversations: [conv],
-      currentConversation: conv,
-      thinkingSteps: conv.messages[0]!.thinkingSteps!,
-      resumableTurn: { conversationId: conv.id, userMessageId: 'u1', wsParentId: 'msg_1' },
-    })
+  it('says nothing is coming once the turn has gone quiet', async () => {
+    const conv = lostTurn()
+    useChatStore.setState({ conversations: [conv], currentConversation: conv })
+    mockConversationsClient.newestFrameAge.mockResolvedValue(5 * 60_000)
+    mockConversationsClient.listMessages.mockResolvedValue([serverRow(conv.id, 'u1', 'user', 'q')])
 
-    const turn = useChatStore.getState().resumeTurn(conv.id)
-
-    const state = useChatStore.getState()
-    expect(turn?.wsParentId).toBe('msg_1')
-    expect(state.resumableTurn).toBeNull()
-    expect(state.isStreaming).toBe(true)
-    expect(state.currentUserMessageId).toBe('u1')
-    expect(state.currentTurnWsParentId).toBe('msg_1')
-    expect(state.thinkingSteps).toEqual([])
-    expect(state.currentConversation!.messages[0]!.thinkingSteps).toBeUndefined()
+    expect(await useChatStore.getState()._awaitServerAnswer(conv.id, 'u1')).toBe('nothing')
+    expect(useChatStore.getState().isRecoveryPending).toBe(false)
   })
 
-  it('resumeTurn refuses once a newer question owns the conversation', () => {
-    const conv = cutOffConversation()
-    const newer = {
-      ...conv,
-      messages: [
-        ...conv.messages,
-        { id: 'u2', role: 'user', content: 'Und?', timestamp: new Date(), messageType: 'user' },
-      ],
-    } as typeof conv
-    useChatStore.setState({
-      conversations: [newer],
-      currentConversation: newer,
-      resumableTurn: { conversationId: conv.id, userMessageId: 'u1', wsParentId: 'msg_1' },
-    })
+  it('runs one wait per conversation: a second caller is told it is superseded', async () => {
+    const conv = lostTurn()
+    useChatStore.setState({ conversations: [conv], currentConversation: conv })
+    mockConversationsClient.newestFrameAge.mockResolvedValue(5 * 60_000)
+    mockConversationsClient.listMessages.mockResolvedValue([serverRow(conv.id, 'u1', 'user', 'q')])
 
-    expect(useChatStore.getState().resumeTurn(conv.id)).toBeNull()
-    expect(useChatStore.getState().resumableTurn).toBeNull()
-    expect(useChatStore.getState().isStreaming).toBe(false)
+    const first = useChatStore.getState()._awaitServerAnswer(conv.id, 'u1')
+    const second = useChatStore.getState()._awaitServerAnswer(conv.id, 'u1')
+
+    // Only the first may accuse; two `nothing`s would print the banner twice.
+    expect(await second).toBe('superseded')
+    expect(await first).toBe('nothing')
+    // Once it has settled, a later turn may wait again.
+    expect(await useChatStore.getState()._awaitServerAnswer(conv.id, 'u1')).toBe('nothing')
+  })
+
+  it('keeps the checking line up until the last of two waits ends', async () => {
+    vi.useFakeTimers()
+    const conv = lostTurn()
+    const other = makeConversation({ id: 'conv-other', messages: lostTurn().messages })
+    useChatStore.setState({ conversations: [conv, other], currentConversation: conv })
+    mockConversationsClient.listMessages.mockResolvedValue([serverRow(conv.id, 'u1', 'user', 'q')])
+    // The first conversation's turn has gone quiet; the other's still beats.
+    mockConversationsClient.newestFrameAge.mockImplementation(async (id: string) =>
+      id === conv.id ? 5 * 60_000 : 5_000
+    )
+
+    const quiet = useChatStore.getState()._awaitServerAnswer(conv.id, 'u1')
+    const beating = useChatStore.getState()._awaitServerAnswer(other.id, 'u1')
+    expect(await quiet).toBe('nothing')
+    expect(useChatStore.getState().isRecoveryPending).toBe(true)
+
+    mockConversationsClient.newestFrameAge.mockResolvedValue(5 * 60_000)
+    await vi.advanceTimersByTimeAsync(5_000)
+    expect(await beating).toBe('nothing')
+    expect(useChatStore.getState().isRecoveryPending).toBe(false)
   })
 })

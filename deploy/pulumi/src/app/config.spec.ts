@@ -82,4 +82,48 @@ describe("frontendEnv", () => {
     expect(configSource).toContain('name: "GRID_SKILLS_ENABLED"');
     expect(configSource).not.toContain('name: "GRID_WORKFLOWS_ENABLED"');
   });
+
+  it("emits the mail import gate under the name the BFF reads", () => {
+    // `isMailImportEnabled` in frontends/ui/src/lib/authz/feature-flags.ts.
+    const reader = readFileSync(
+      join(repoRoot, "frontends", "ui", "src", "lib", "authz", "feature-flags.ts"),
+      "utf8",
+    );
+    expect(reader).toContain("process.env.GRID_MAIL_IMPORT_ENABLED");
+    expect(configSource).toContain('name: "GRID_MAIL_IMPORT_ENABLED"');
+  });
+
+  it("hands the BFF the GitHub token and the repo it files bug reports into", () => {
+    // The names the BFF reads (`lib/github/issues.ts`, `lib/product-feedback/github.ts`).
+    expect(configSource).toContain('sref("GRID_GITHUB_TOKEN")');
+    expect(configSource).toContain('name: "GRID_FEEDBACK_ISSUES_REPO"');
+  });
+});
+
+/**
+ * Extraction is on because the CODE says so, not because a deployment
+ * remembered a flag. Production once set only AIQ_EXTRACT_IMAGES: uncaptioned
+ * tables were indexed as garbled page text, and every raster the VLM typed as a
+ * chart was analysed, paid for, and dropped. The rule is now "no flag set in a
+ * deployment = on", which holds only while the adapter reads each flag as an
+ * off-switch. Both halves are checked here, across the process boundary.
+ */
+describe("backendEnv extraction switches", () => {
+  const adapterSource = readFileSync(
+    join(repoRoot, "sources", "knowledge_layer", "src", "llamaindex", "adapter.py"),
+    "utf8",
+  );
+  const switches = ["AIQ_EXTRACT_TABLES", "AIQ_EXTRACT_IMAGES", "AIQ_EXTRACT_CHARTS"];
+
+  it("sets none of them, so none can be left off by omission", () => {
+    for (const name of switches) {
+      expect(configSource).not.toContain(`"${name}"`);
+    }
+  });
+
+  it("relies on the adapter reading each as on-unless-false", () => {
+    for (const name of switches) {
+      expect(adapterSource).toContain(`_env_switch("${name}")`);
+    }
+  });
 });

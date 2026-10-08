@@ -29,6 +29,7 @@ from tests.fixtures.drafting_turns import REVISE
 from tests.fixtures.drafting_turns import SEEDED_DRAFT_PATH
 from tests.fixtures.drafting_turns import assert_turn_shape
 from tests.fixtures.drafting_turns import draft_cards
+from tests.fixtures.drafting_turns import traced_tool_name
 
 
 async def _run_with_captured_registry(agent, state):
@@ -755,7 +756,7 @@ class TestPilotiAgent:
         # stays with the schematic cards.
         assert "```mermaid" in formatting
         assert "not only when asked" in formatting
-        assert "`process_map`" in formatting and "`condition_tree`" in formatting
+        assert "`:::procedure`" in formatting and "`:::cases`" in formatting
         assert "schematic card" in formatting
         # The box-art ban must survive the rewrite: the third field
         # transcript drew box-drawing characters where a diagram was asked.
@@ -764,7 +765,7 @@ class TestPilotiAgent:
         assert "flowchart TD" in formatting
         # And the consequence, so an edit that keeps the rule and drops the
         # reason still fails: a listing where a drawing was promised.
-        assert "monospace listing" in formatting
+        assert "reach the reader as a listing" in formatting
         assert "│" in formatting
 
     def test_project_memory_is_framed_as_fallible_not_binding(self, mock_llm_provider, real_tool):
@@ -2562,9 +2563,9 @@ class TestADirectReplyMayStillEmitACard:
     def test_the_direct_reply_shape_names_the_card_rule_and_its_limit(self):
         contract = self._render().split("<output_contract>")[1].split("</output_contract>")[0]
         direct_shape = contract.split("An off-topic decline")[0]
-        assert "A card only when the reply carries real subject matter" in direct_shape
+        assert "earns the structure its content calls for" in direct_shape
         # ...and closed again for the turns with nothing to show.
-        assert "so emit none" in direct_shape
+        assert "carry no card" in direct_shape
 
     def test_the_hand_off_shape_escalates_a_commissioned_report_at_once(self):
         contract = self._render().split("<output_contract>")[1].split("</output_contract>")[0]
@@ -2643,7 +2644,7 @@ class TestADirectReplyMayStillEmitACard:
         assert "not every question is a legal question" in rendered
         assert "commit to it; re-plan only" not in rendered
         rules = rendered.split("<research_rules>")[1].split("</research_rules>")[0]
-        assert "retrieved or measured this turn" in rules
+        assert "measured this turn, or retrieved this turn or in the previous one" in rules
         assert "never describe a document you did not open" in rules
         assert "Herleitung checkpoint" in rules
         assert "`conclusion` argument" in rules
@@ -2882,7 +2883,7 @@ class TestTheModelCardsAreActuallyAskedFor:
 
     def test_the_card_does_not_replace_the_written_answer(self):
         rendered = self._render()
-        assert "always write the prose reply too" in rendered
+        assert "the prose answers on its own" in rendered
 
 
 # ---------------------------------------------------------------------------
@@ -3248,30 +3249,6 @@ class TestTruncationIsObservable:
             sanitize.side_effect = lambda content: MagicMock(sanitized_report=content)
             yield
 
-    @pytest.fixture
-    def steps(self):
-        """Every custom step pushed during the test, as parsed payloads."""
-        import json
-
-        from nat.builder.context import ContextState
-        from nat.utils.reactive.subject import Subject
-
-        state = ContextState.get()
-        state.active_span_id_stack.set(["root"])
-        state._event_stream.set(Subject())
-        seen: list[dict] = []
-
-        def _on_next(step) -> None:
-            payload = step.payload
-            body = getattr(payload.data, "input", None)
-            if isinstance(body, str) and str(payload.event_type).endswith("START"):
-                seen.append({"step": payload.name, **json.loads(body)})
-
-        state.event_stream.get().subscribe(_on_next)
-        yield seen
-        state.active_span_id_stack.set(["root"])
-        state._event_stream.set(Subject())
-
     async def _truncated_run(self):
         llm = MagicMock()
         llm.bind_tools = MagicMock(return_value=llm)
@@ -3330,31 +3307,31 @@ class TestTruncationIsObservable:
         assert "Lichteinfall" not in line
 
     @pytest.mark.asyncio
-    async def test_the_turn_records_the_truncation_as_telemetry(self, steps):
+    async def test_the_turn_records_the_truncation_as_telemetry(self, emitted):
         await self._truncated_run()
 
-        records = [step for step in steps if step.get("slot") == "budget"]
+        records = [step for step in emitted.steps if step.id == "status:budget"]
         assert records, (
             "evidence-gathering was cut off and the turn emitted no truncation telemetry — "
-            f"nothing here can answer how often it happens; steps were {[s.get('step') for s in steps]}"
+            f"nothing here can answer how often it happens; steps were {[step.id for step in emitted.steps]}"
         )
         record = records[0]
-        assert record["truncated"] is True
-        assert (record["ceiling"], record["research_budget"]) == (5, 5)
-        # Nothing was reserved, so the record carries no such field to read.
-        assert "reserved" not in record
         # `spent` and `rounds` are the same number now: the budget is one unit
         # per ROUND, so a greedy parallel batch cannot outspend its own round.
-        # Both stay on the payload so a record counted across the change reads
-        # the same way.
-        assert record["spent"] == 5
-        assert record["rounds"] == 5
-        assert record["tools"][:2] == ["use_skill", "use_skill"]
+        # Both stay on the record so one counted across the change reads the
+        # same way. Nothing was reserved, so there is no such field to read.
+        assert record.detail == {
+            "truncated": True,
+            "ceiling": 5,
+            "research_budget": 5,
+            "spent": 5,
+            "rounds": 5,
+            "tools": ["use_skill", "use_skill", "knowledge_search", "find_elements", "light_incidence"],
+        }
         # Technical channel, and therefore no `key`: whether the READER is told
         # the answer stopped early is a product decision, and a live key would
         # make it silently.
-        assert record["channel"] == "technical"
-        assert "key" not in record
+        assert (record.channel, record.key) == ("technical", None)
 
     @pytest.mark.asyncio
     async def test_the_answer_carries_the_fact_out_of_the_graph(self):
@@ -3390,7 +3367,7 @@ class TestTruncationIsObservable:
         assert finished.research_truncated is None
 
     @pytest.mark.asyncio
-    async def test_a_turn_that_finishes_inside_its_budget_records_nothing(self, steps):
+    async def test_a_turn_that_finishes_inside_its_budget_records_nothing(self, emitted):
         llm = MagicMock()
         llm.bind_tools = MagicMock(return_value=llm)
         llm.bind = MagicMock(return_value=llm)
@@ -3401,7 +3378,7 @@ class TestTruncationIsObservable:
 
         await agent.run(ResearchAgentState(messages=[HumanMessage(content="Kurz gefragt")]))
 
-        assert [s for s in steps if s.get("slot") == "budget"] == []
+        assert [step for step in emitted.steps if step.id == "status:budget"] == []
 
 
 class TestAssistantCheckpoint:
@@ -3485,7 +3462,7 @@ class TestTheWorkingDirectoryBlock:
         """The cut itself. Each of these was a sentence about how to hold a
         tool, charged on every call of every turn (ADR-0060 (d))."""
         block = _entwuerfe_block()
-        for teaching in ("`write_file`", "`edit_file`", "`file_draft`", "`submit_draft`", "`reviewer`"):
+        for teaching in ("`write_file`", "`edit_file`", "`file_draft`", "`submit=true`", "`reviewer`"):
             assert teaching not in block, teaching
 
     def test_the_block_follows_the_tools_and_not_a_second_switch(self):
@@ -3557,16 +3534,18 @@ class TestTheDraftingRulesLiveInTheTools:
         assert "ENTWURF" in _FILE_DRAFT_DESCRIPTION
         assert "niemand hat ihn freigegeben" in _FILE_DRAFT_DESCRIPTION
 
-    def test_submit_draft_needs_a_filed_draft_and_an_explicit_request(self):
-        from aiq_agent.tools.documents.register import _SUBMIT_DRAFT_DESCRIPTION
+    def test_submitting_needs_an_explicit_request(self):
+        """`submit_draft` merged into `file_draft(submit=true)`; its rules came with it."""
+        from aiq_agent.tools.documents.register import _FILE_DRAFT_DESCRIPTION
 
-        assert "bereits im Projekt abgelegten Entwurf" in _SUBMIT_DRAFT_DESCRIPTION
-        assert "Nur aufrufen, wenn die Nutzerin um Freigabe" in _SUBMIT_DRAFT_DESCRIPTION
+        assert "Nur mit `submit=true` aufrufen, wenn die Nutzerin um Freigabe" in _FILE_DRAFT_DESCRIPTION
+        # „ablegen" alone must not flip the flag.
+        assert "„ablegen“ allein ist keine solche Bitte" in _FILE_DRAFT_DESCRIPTION
         # The reviewer name is passed through and never guessed…
-        assert "unverändert" in _SUBMIT_DRAFT_DESCRIPTION
+        assert "unverändert" in _FILE_DRAFT_DESCRIPTION
         # …and without one the draft goes to the project's editors, which the
         # answer has to be able to say.
-        assert "an die Bearbeiter des Projekts" in _SUBMIT_DRAFT_DESCRIPTION
+        assert "an die Bearbeiter des Projekts" in _FILE_DRAFT_DESCRIPTION
 
 
 class TestTheDelegationRulesLiveInTheTool:
@@ -3719,7 +3698,7 @@ def _bind_signed_turn(monkeypatch, *, conversation_id: str) -> None:
     import json
     from types import SimpleNamespace
 
-    import nat.builder.context as nat_context
+    from nat.plugin_api import Context
 
     secret = "graph-turn-secret"  # noqa: S105 - test fixture value  # pragma: allowlist secret
     payload = json.dumps(
@@ -3746,7 +3725,7 @@ def _bind_signed_turn(monkeypatch, *, conversation_id: str) -> None:
         conversation_id = None
 
     _Ctx.conversation_id = conversation_id
-    monkeypatch.setattr(nat_context.Context, "get", staticmethod(lambda: _Ctx()))
+    monkeypatch.setattr(Context, "get", staticmethod(lambda: _Ctx()))
 
 
 class TestATurnThatWritesADraft:
@@ -3948,53 +3927,53 @@ class TestATurnThatWritesADraft:
 def _file_verb_descriptions() -> dict[str, str]:
     from aiq_agent.tools.files import register as files_register
 
-    return {
-        "move_document": files_register._MOVE_DESCRIPTION,
-        "rename_document": files_register._RENAME_DESCRIPTION,
-        "create_folder": files_register._CREATE_FOLDER_DESCRIPTION,
-        "assign_document": files_register._ASSIGN_DESCRIPTION,
-    }
+    # One tool since the merge; the rules below are what its description must
+    # still carry for every operation it proposes.
+    return {"propose_file_change": files_register._DESCRIPTION}
 
 
 class TestTheTidyingRulesLiveInTheTools:
-    """`<aufraeumen>` is gone; the four descriptions carry what it said.
+    """`<aufraeumen>` is gone; the tool's description carries what it said.
 
-    The block taught four tools how to behave, in a paragraph charged on every
-    call of every turn. A tool owns its whole contract (ADR-0060 (d)), and
-    these four already said most of it — the assertions below are what the
-    move had to leave intact, plus the one rule two of them lacked.
+    The block taught the tidying verbs how to behave, in a paragraph charged on
+    every call of every turn. A tool owns its whole contract (ADR-0060 (d)); the
+    four verbs are one tool with an `operation` now, and the assertions below
+    are what its description has to keep.
     """
 
     def test_the_prompt_no_longer_teaches_tidying(self):
         assert "<aufraeumen>" not in _render_researcher_prompt(drafting_enabled=True)
 
-    def test_every_verb_says_it_changes_nothing(self):
+    def test_the_tool_says_it_changes_nothing(self):
         """The one failure this rule exists to prevent: „ist verschoben"."""
         for name, description in _file_verb_descriptions().items():
-            assert "SCHLÄGT VOR" in description, name
+            assert "SCHLÄGT" in description and "VOR" in description, name
+            assert "ändert selbst nichts" in description, name
             assert "Karte" in description, name
 
-    def test_every_verb_says_the_user_decides(self):
+    def test_the_tool_says_the_user_decides(self):
         for name, description in _file_verb_descriptions().items():
-            decides = "die Nutzerin annimmt oder verwirft" in description or "Die Nutzerin entscheidet" in description
-            assert decides, name
+            assert "die Nutzerin annimmt oder verwirft" in description, name
 
-    def test_every_verb_is_asked_for_and_not_volunteered(self):
-        """The rule the block carried and `move_document` / `create_folder`
-        lacked: these answer a request, they are not a tidy-up nobody asked
-        for."""
+    def test_it_is_asked_for_and_not_volunteered(self):
+        """These answer a request; they are not a tidy-up nobody asked for."""
         for name, description in _file_verb_descriptions().items():
-            assert "Nur vorschlagen" in description or "nur vorschlagen" in description, name
+            assert "Nur vorschlagen, wenn die Nutzerin darum bittet" in description, name
 
-    def test_no_verb_offers_one_that_is_not_bound(self):
-        """`set_doc_class` is gone; a description still naming it teaches a tool
-        call that fails, and a Dokumentart the reader could never accept."""
+    def test_it_offers_no_operation_that_is_not_bound(self):
+        """`set_doc_class` is gone; a description still naming it teaches a call
+        that fails, and a Dokumentart the reader could never accept."""
         for name, description in _file_verb_descriptions().items():
-            assert "set_doc_class" not in description, name
+            assert "set_doc_class" not in description and "doc_class" not in description, name
 
-    def test_a_name_is_taken_from_the_inventory_and_never_invented(self):
-        moved = _file_verb_descriptions()["move_document"]
-        assert "genau so, wie er in der Dateiübersicht steht" in moved
+    def test_every_operation_is_described(self):
+        (description,) = _file_verb_descriptions().values()
+        for operation in ("`move`", "`rename`", "`create_folder`", "`assign`"):
+            assert operation in description
+
+    def test_a_name_is_taken_from_the_overview_and_never_invented(self):
+        (description,) = _file_verb_descriptions().values()
+        assert "genau so, wie ihn die Übersicht oder `list_files` zeigt" in description
 
 
 class TestTheThreeDraftingTurnShapes:
@@ -4213,6 +4192,7 @@ def _scripted_tool_names(scripted_llm) -> list[str]:
     for call in scripted_llm.ainvoke.await_args_list:
         for message in call.args[0]:
             for tool_call in getattr(message, "tool_calls", None) or []:
-                if tool_call["name"] not in names:
-                    names.append(tool_call["name"])
+                name = traced_tool_name(tool_call["name"], tool_call.get("args"))
+                if name not in names:
+                    names.append(name)
     return names

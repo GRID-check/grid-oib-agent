@@ -47,6 +47,7 @@
  * than about the file.
  */
 
+import type { JSX } from 'react'
 import { useMemo } from 'react'
 import Link from 'next/link'
 import { ArrowUpRight, Boxes } from 'lucide-react'

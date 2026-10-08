@@ -10,9 +10,16 @@
  */
 
 import 'server-only'
-import { and, desc, eq, inArray, isNull } from 'drizzle-orm'
+import { and, desc, eq, inArray, isNull, sql } from 'drizzle-orm'
 import { getDb } from '@/lib/db'
-import { deletionQueue, legalHolds, type LegalHold, type NewLegalHold } from '@/lib/db/schema'
+import { withTenant } from '@/lib/db/tenant-context'
+import {
+  deletionQueue,
+  legalHolds,
+  type DeletionEntityType,
+  type LegalHold,
+  type NewLegalHold,
+} from '@/lib/db/schema'
 
 /** Hard cap for unpaginated org-wide compliance lists. */
 export const COMPLIANCE_LIST_LIMIT = 200
@@ -29,6 +36,31 @@ export async function listOpenHoldsInOrg(
     .where(and(eq(legalHolds.organizationId, organizationId), isNull(legalHolds.releasedAt)))
     .orderBy(desc(legalHolds.createdAt))
     .limit(limit)
+}
+
+/**
+ * Whether an active legal hold covers erasing this entity.
+ *
+ * The predicate is the database's `grid_legal_hold_blocks` (migration 0093) and
+ * nothing else: the purger's claim and the delete triggers call the same
+ * function, so this tier cannot answer "free" for an entity the purger would
+ * refuse. Run in the entity's own tenant, which is the set of holds that can
+ * cover it (`legal_holds` is tenant-scoped under row-level security).
+ */
+export async function isCoveredByActiveHold(
+  organizationId: string,
+  entityType: DeletionEntityType,
+  entityId: string,
+): Promise<boolean> {
+  const db = getDb()
+  const rows = await withTenant({ organizationId }, () =>
+    db.execute<{ held: boolean }>(
+      sql`select grid_legal_hold_blocks(${entityType}, ${entityId}, ${organizationId}) as held`,
+    ),
+  )
+  // Coerced at the boundary: postgres-js returns a real boolean for a boolean
+  // column, and anything else is not a "yes".
+  return Array.from(rows)[0]?.held === true
 }
 
 export async function insertHold(

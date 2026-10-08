@@ -1,23 +1,16 @@
 ---
 features:
   - >
-    Piloti zeichnet, wenn Sie danach fragen: „stell es als Diagramm dar",
-    „Schaubild", „Grafik" — jede solche Bitte wird jetzt mit einer echten
-    Zeichnung beantwortet, nie mehr mit Textkunst aus Strichen und Pfeilen.
+    Ask for a diagram, a Schaubild or a Grafik and Piloti answers with a real
+    drawing, never with text art made of dashes and arrows.
   - >
-    Der Bericht der Tiefenrecherche zeichnet jetzt ebenfalls: Ablauf, Reihenfolge
-    und Abhängigkeit erscheinen als echte Grafik im Bericht und im
-    heruntergeladenen PDF, statt als Textkunst aus Strichen und Pfeilen.
+    „Erstelle ein Dokument über …“ now starts a deep research whose finished
+    report is filed in the project under Berichte. If you only want a thorough
+    answer, you still get it in the chat.
   - >
-    „Erstelle ein Dokument über …" startet jetzt die Tiefenrecherche, deren
-    fertiger Bericht im Projekt unter „Berichte" abgelegt wird — auch bei
-    einem Thema, das sonst als kurze Frage beantwortet würde. Wer nur eine
-    gründliche Antwort will, bekommt weiterhin die Antwort im Chat.
+    Deep research reports now draw too: sequences and dependencies appear as
+    real graphics in the report and in the downloaded PDF.
 fixes:
   - >
-    Diagramme in Antworten kommen unverändert an: die Quellenprüfung hat
-    bisher in seltenen Fällen Links und Einrückung innerhalb einer Zeichnung
-    umgeschrieben und sie damit beschädigt.
-  - >
-    Eine Zeichnung, deren Codeblock ohne Kennzeichnung ankommt, wird jetzt
-    trotzdem als Diagramm erkannt und gezeichnet statt als Code angezeigt.
+    Diagrams in answers arrive intact. The source check could rewrite links and
+    indentation inside a drawing and break it.

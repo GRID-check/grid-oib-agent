@@ -147,7 +147,9 @@ as an accelerator.**
 ## Open Questions / Follow-ups
 
 - Per-type/per-channel preferences, digests and email (spec IB-11, IB-12) — the split is
-  in place; the delivery work is deferred to phase 2.
+  in place; the delivery work is deferred to phase 2. Each type now declares its email
+  default in the registry, and `lib/inbox/delivery.ts` is the tested seam a sender plugs
+  into; no sender exists yet (docs/architecture/product-feedback.md).
 - Retention enforcement runs on the existing deletion/purge worker cadence; the exact
   schedule per type is set in the registry and can be tuned once real volume exists.
 - Reminders/escalation for unanswered actionable items (spec MN-17) reuse this model.

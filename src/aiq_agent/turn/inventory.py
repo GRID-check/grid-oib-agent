@@ -19,7 +19,8 @@ from dataclasses import field
 
 from aiq_agent.common.profiler import profiled_span
 from aiq_agent.common.source_kinds import Shelf
-from aiq_agent.common.turn_status import emit_documents_waiting
+from aiq_agent.common.turn_status import documents_waiting_step
+from aiq_agent.common.wire_v2 import StatusStep
 from aiq_agent.knowledge import get_available_documents_async
 from aiq_agent.knowledge import ingest_status_store
 from aiq_agent.knowledge.inventory import allocate_inventory_detailed
@@ -122,18 +123,8 @@ def _base_families(docs: Iterable) -> list:
     return oib_families(names)
 
 
-async def aggregate_documents_across_collections(
-    collections: Iterable[ScopedCollection],
-    fetch_one: FetchOne,
-    max_documents: int | None = None,
-) -> list:
-    """Concurrently load document summaries for each collection and merge them.
-
-    Each row is stamped with the collection it came from and the shelf the scope
-    stated. Identity is ``(collection, file_name)`` — the same filename on the
-    Büroarchiv and in a project is two documents (ADR-0047). The cap keeps
-    user-shelf files first so the OIB corpus cannot evict the archive;
-    ``0``/negative disables it.
+async def _stamped_rows(collections: Iterable[ScopedCollection], fetch_one: FetchOne) -> list:
+    """Every row of every collection, stamped with its collection and shelf. No cap.
 
     Fail-open per collection: a ``fetch_one`` that raises contributes an empty
     list rather than failing the whole aggregation.
@@ -148,12 +139,15 @@ async def aggregate_documents_across_collections(
 
     # gather preserves input order, so stamping still follows the scope order.
     per_collection = await asyncio.gather(*(_guarded(entry) for entry in collections))
-    aggregated = [
+    return [
         stamp_document(doc, collection=entry.collection, shelf=entry.shelf)
         for entry, docs in per_collection
         for doc in docs or []
     ]
 
+
+def _cap_for_prompt(aggregated: list, max_documents: int | None = None) -> list:
+    """The rows the PROMPT block lists: user shelves first, bounded, drops recorded."""
     # BEFORE the cap. Which parts a Richtlinie has is derived from the base
     # shelf, and the cap drops base rows first — so a family list taken after
     # it would lose members on exactly the projects with the most files, and
@@ -162,25 +156,43 @@ async def aggregate_documents_across_collections(
 
     limit = available_documents_limit() if max_documents is None else max_documents
     before = len(aggregated)
-    aggregated, dropped = allocate_inventory_detailed(aggregated, limit)
+    kept, dropped = allocate_inventory_detailed(aggregated, limit)
     # Tell the MODEL, not only the operator: the contextvar is what puts
     # "and N more" into the rendered block, so the agent can say a listing is
     # incomplete instead of presenting a truncated shelf as the whole shelf.
     set_inventory_drops(dropped)
-    if limit and limit > 0 and before > len(aggregated):
-        logger.info("Capping available_documents from %d to %d (GRID_AVAILABLE_DOCUMENTS_MAX)", before, len(aggregated))
-    return aggregated
+    if limit and limit > 0 and before > len(kept):
+        logger.info("Capping available_documents from %d to %d (GRID_AVAILABLE_DOCUMENTS_MAX)", before, len(kept))
+    return kept
 
 
-async def load_available_documents(scope: list[ScopedCollection], fetch_one: FetchOne) -> list | None:
-    """The scope's document summaries, or None when there are none."""
-    aggregated = await aggregate_documents_across_collections(scope, fetch_one)
+async def aggregate_documents_across_collections(
+    collections: Iterable[ScopedCollection],
+    fetch_one: FetchOne,
+    max_documents: int | None = None,
+) -> list:
+    """Concurrently load document summaries for each collection and merge them.
+
+    Each row is stamped with the collection it came from and the shelf the scope
+    stated. Identity is ``(collection, file_name)`` — the same filename on the
+    Büroarchiv and in a project is two documents (ADR-0047). The cap keeps
+    user-shelf files first so the OIB corpus cannot evict the archive;
+    ``0``/negative disables it.
+    """
+    return _cap_for_prompt(await _stamped_rows(collections, fetch_one), max_documents)
+
+
+async def load_available_documents(scope: list[ScopedCollection], fetch_one: FetchOne) -> tuple[list | None, list]:
+    """The scope's document summaries for the prompt (capped, or None when there
+    are none), and every row the scope holds (uncapped, for the tools)."""
+    every_row = await _stamped_rows(scope, fetch_one)
+    aggregated = _cap_for_prompt(list(every_row))
     names = [entry.collection for entry in scope]
     if not aggregated:
         logger.info("No document summaries in DB for collections %s", names)
-        return None
+        return None, every_row
     logger.info("Loaded %d document summaries across collections %s", len(aggregated), names)
-    return aggregated
+    return aggregated, every_row
 
 
 async def await_ingest_settling(
@@ -196,16 +208,14 @@ async def await_ingest_settling(
 
     ``read`` is ``ingest_status_store.in_flight_files`` (sync, never raises,
     run on a thread); a parameter so the loop can be driven by a test without
-    a database. Emits one status line when the wait begins — the reader is
-    told why the first byte is late — and returns whatever is STILL pending at
-    the end: empty when everything finished, the remaining names otherwise.
+    a database. Returns whatever is STILL pending at the end: empty when
+    everything finished, the remaining names otherwise.
     """
     if not pending:
         return pending
     budget = ingest_wait_seconds() if timeout_seconds is None else timeout_seconds
     if budget <= 0:
         return pending
-    emit_documents_waiting(file_count=sum(len(names) for names in pending.values()))
 
     loop = asyncio.get_running_loop()
     deadline = loop.time() + budget
@@ -249,6 +259,16 @@ class Inventory:
     #: How many rows the cap dropped per shelf, carried out for the same reason:
     #: it is what puts "and N more" into the rendered block.
     inventory_drops: dict = field(default_factory=dict)
+    #: The uploads still indexing, per collection, when the inventory was read.
+    #: :func:`wait_for_uploads` holds for them.
+    pending: dict[str, list[str]] = field(default_factory=dict)
+    #: EVERY row the scope holds, before the prompt cap. The cap bounds what the
+    #: model READS on every call; it must not bound what a tool can RESOLVE. A
+    #: project's 51st file was listed as "und N weitere" and then refused by
+    #: every tool that resolves a name against the turn's rows, so „benenn den
+    #: Bauteilkatalog um" failed on exactly the projects with the most files.
+    #: Not compared: it is derived from the same read as ``available_documents``.
+    all_documents: tuple = field(default=(), compare=False)
 
 
 async def load_inventory(
@@ -256,63 +276,96 @@ async def load_inventory(
     *,
     fetch_one: FetchOne | None = None,
     read_in_flight: ReadInFlight | None = None,
-    timeout_seconds: float | None = None,
 ) -> Inventory:
-    """The inventory for ``scope``, holding (bounded) for an upload still indexing.
+    """The inventory for ``scope``, and the uploads in it still being indexed.
 
-    Fail-open: this is one member of the turn's setup gather, so an inventory
-    that cannot be built costs the INVENTORY (the model answers without the
-    file list, exactly as it does for a scope with no documents) and never the
-    turn or its sibling branches. The per-collection reads already degrade on
-    their own; this catches what is left — the in-flight read, and the wait.
+    It does not wait for them: this is one member of the turn's setup gather,
+    and the wait is announced first. ``_run`` yields :func:`pending_uploads`,
+    then awaits :func:`wait_for_uploads`.
+
+    Fail-open: an inventory that cannot be built costs the INVENTORY (the model
+    answers without the file list, exactly as it does for a scope with no
+    documents) and never the turn or its sibling branches. The per-collection
+    reads already degrade on their own; this catches what is left.
     """
+    fetch_one = fetch_one or get_available_documents_async
+    read_in_flight = read_in_flight or ingest_status_store.in_flight_files
     try:
-        return await _load_inventory(
-            scope, fetch_one=fetch_one, read_in_flight=read_in_flight, timeout_seconds=timeout_seconds
+        (documents, families, drops, every_row), pending = await asyncio.gather(
+            spanned("setup.available_documents", _documents_and_families(scope, fetch_one)),
+            spanned("setup.ingest_status", asyncio.to_thread(read_in_flight, [entry.collection for entry in scope])),
         )
     except Exception:  # noqa: BLE001 - see above; an answer without the inventory beats no answer
         logger.warning("Document inventory load failed; continuing without one", exc_info=True)
         return Inventory(None, None)
+    return Inventory(documents, in_flight_names(pending) or None, families, drops, pending, every_row)
 
 
-async def _load_inventory(
+def pending_uploads(inventory: Inventory) -> StatusStep | None:
+    """The step that says the turn is holding for an upload, or ``None`` when it will not hold.
+
+    The reader is told why the first byte is late before the wait starts.
+    """
+    if not inventory.pending or ingest_wait_seconds() <= 0:
+        return None
+    return documents_waiting_step(file_count=sum(len(names) for names in inventory.pending.values()))
+
+
+async def wait_for_uploads(
     scope: list[ScopedCollection],
+    inventory: Inventory,
     *,
     fetch_one: FetchOne | None = None,
     read_in_flight: ReadInFlight | None = None,
     timeout_seconds: float | None = None,
 ) -> Inventory:
-    """The in-flight read runs INSIDE the gather with the summaries read — it is
-    independent of it and small, and gather already waits for the slowest
-    member. Only the wait loop runs after. A file that settled while we waited
-    was absent from the summaries table when the inventory was built, so the
-    inventory is rebuilt once.
+    """HOLD THE TURN, bounded, for the uploads the inventory found still indexing.
+
+    A file attached seconds ago is invisible to retrieval until its job
+    finishes, and an answer written without it is wrong in the one way the
+    reader cannot see. A file that settled while we waited was absent from the
+    summaries table when the inventory was built, so the inventory is rebuilt
+    once. Its own span: the hold is the one setup cost that is minutes rather
+    than milliseconds. Fail-open like :func:`load_inventory`: a failed wait
+    keeps the inventory it was given.
     """
-    # Resolved at call time, not bound as defaults, so a test can patch the
-    # module's reads without standing up a database.
-    fetch_one = fetch_one or get_available_documents_async
-    read_in_flight = read_in_flight or ingest_status_store.in_flight_files
+    if not inventory.pending:
+        return inventory
+    try:
+        with profiled_span("setup.ingest_wait"):
+            return await _hold(
+                scope,
+                inventory,
+                fetch_one=fetch_one or get_available_documents_async,
+                read_in_flight=read_in_flight or ingest_status_store.in_flight_files,
+                timeout_seconds=timeout_seconds,
+            )
+    except Exception:  # noqa: BLE001 - the inventory already read beats no answer
+        logger.warning("Waiting for uploads failed; continuing with the inventory as read", exc_info=True)
+        return inventory
+
+
+async def _hold(
+    scope: list[ScopedCollection],
+    inventory: Inventory,
+    *,
+    fetch_one: FetchOne,
+    read_in_flight: ReadInFlight,
+    timeout_seconds: float | None,
+) -> Inventory:
     names = [entry.collection for entry in scope]
-    (documents, families, drops), pending = await asyncio.gather(
-        spanned("setup.available_documents", _documents_and_families(scope, fetch_one)),
-        spanned("setup.ingest_status", asyncio.to_thread(read_in_flight, names)),
-    )
-    if not pending:
-        return Inventory(documents, None, families, drops)
-    # HOLD THE TURN. A file attached seconds ago is invisible to retrieval
-    # until its job finishes, and an answer written without it is wrong in the
-    # one way the reader cannot see. Its own span: the hold is a decision, and
-    # the one setup cost that is minutes rather than milliseconds.
-    with profiled_span("setup.ingest_wait"):
-        settled = await await_ingest_settling(names, pending, read=read_in_flight, timeout_seconds=timeout_seconds)
-        if settled != pending:
-            documents, families, drops = await _documents_and_families(scope, fetch_one)
-    return Inventory(documents, in_flight_names(settled) or None, families, drops)
+    pending = inventory.pending
+    settled = await await_ingest_settling(names, pending, read=read_in_flight, timeout_seconds=timeout_seconds)
+    if settled == pending:
+        return inventory
+    documents, families, drops, every_row = await _documents_and_families(scope, fetch_one)
+    return Inventory(documents, in_flight_names(settled) or None, families, drops, settled, every_row)
 
 
 async def _documents_and_families(
     scope: list[ScopedCollection], fetch_one: FetchOne
-) -> tuple[list | None, tuple, dict]:
-    """The documents, and the families and cap drops the same read derived, read in the task that set them."""
-    documents = await load_available_documents(scope, fetch_one)
-    return documents, tuple(get_norm_families()), dict(get_inventory_drops())
+) -> tuple[list | None, tuple, dict, tuple]:
+    """The documents, the families and cap drops the same read derived (read in
+    the task that set them), and every row before the cap."""
+    documents, every_row = await load_available_documents(scope, fetch_one)
+    return documents, tuple(get_norm_families()), dict(get_inventory_drops()), tuple(every_row)

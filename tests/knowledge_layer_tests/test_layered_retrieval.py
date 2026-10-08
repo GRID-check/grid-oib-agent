@@ -223,7 +223,7 @@ class TestMergeResults:
         assert [(c.file_name, c.score) for c in merged.chunks] == [("a.pdf", 0.5), ("d.pdf", 0.7)]
 
     def test_unranked_layer_falls_back_to_its_position_in_the_result_list(self):
-        # Backends that stamp no retrieval_rank (foundational_rag, anything predating
+        # Results that stamp no retrieval_rank (test doubles, anything predating
         # the field) must keep behaving as if the returned order were the rank.
         r1 = _result([_chunk(0.5, "a.pdf"), _chunk(0.9, "b.pdf")])
         merged = _merge_results([r1], query="q", top_k=5, backend_name="llamaindex", max_per_document=0)
@@ -260,9 +260,9 @@ class TestMergeResults:
         assert merged.chunks == []
 
     def test_backend_preserved_from_successful_result(self):
-        r1 = _result([_chunk(0.6)], backend="foundational_rag")
+        r1 = _result([_chunk(0.6)], backend="fake")
         merged = _merge_results([r1], query="q", top_k=5, backend_name="fallback")
-        assert merged.backend == "foundational_rag"
+        assert merged.backend == "fake"
 
 
 class TestMergeEmbeddingMismatch:

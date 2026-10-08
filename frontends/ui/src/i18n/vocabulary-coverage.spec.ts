@@ -66,6 +66,11 @@ const ONE_FACT_ONE_WORD: Record<string, string[]> = {
     'files.uploads.row.processing',
     'files.status.processing',
     'files.filters.status.processing',
+    // The chat's attachment card and its line in the thread. It said „Wird
+    // verarbeitet..." after the file surfaces had settled on „Wird gelesen",
+    // so one upload read as two different states depending on where you
+    // looked.
+    'research.fileSourceCard.statusIngesting',
   ],
 
   /** A document's processing broke. */
@@ -74,6 +79,36 @@ const ONE_FACT_ONE_WORD: Record<string, string[]> = {
     'files.status.failed',
     'files.filters.status.failed',
   ],
+
+  /**
+   * The sentence under a document that could not be read, where a person is
+   * deciding whether to rely on it. The file preview said „Lesen
+   * fehlgeschlagen" while the chat's source peek for the same row said „Die
+   * Verarbeitung dieser Datei ist fehlgeschlagen".
+   */
+  'document: reading failed, said on a peek': ['files.preview.peekFailedHint', 'chat.fileReference.failed'],
+
+  /**
+   * Start reading a document again.
+   *
+   * The project's action menu said „Erneut einlesen", the preview pane's
+   * button „Verarbeitung erneut starten", English „Retry indexing" beside
+   * „Retry ingestion": one button, four names, next to a status that said
+   * „Wird verarbeitet". The verb is the one the status uses, „lesen".
+   */
+  'document: read it again': [
+    'files.actions.reingest',
+    'files.preview.retryIngestion',
+    'archiv.actions.reingest',
+    'archiv.actions.reingestConfirmAction',
+  ],
+
+  /**
+   * The drawing kind that `inferDocumentKind` returns for „Schnitt" AND
+   * „Ansicht". The Archiv said only „Schnitt", so an elevation filed there was
+   * labelled as something it is not, and the two libraries disagreed.
+   */
+  'document kind: section or elevation': ['files.filters.kind.section', 'archiv.library.kind.section'],
 }
 
 const LOCALES = { en, de } as const

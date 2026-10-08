@@ -1,5 +1,13 @@
-"""Document management endpoints."""
+"""Document management endpoints.
 
+Every ingestor and metadata-store call here is synchronous: Chroma reads, SQL
+through a sync engine, the ingest-status store. The handlers are coroutines on
+the API's one event loop, so each such call goes through ``asyncio.to_thread``.
+Called inline, one slow Chroma listing stalled every other request the worker
+was serving, chat streams included, not only the listing.
+"""
+
+import asyncio
 import logging
 import os
 import tempfile
@@ -25,6 +33,7 @@ from aiq_agent.knowledge.schema import AvailableDocument
 from aiq_agent.knowledge.schema import FileInfo
 from aiq_agent.knowledge.schema import IngestionJobStatus
 
+from ..jobs import ingest_dispatch
 from ..models.requests import DeleteFilesRequest
 from ..models.requests import UploadResponse
 from .collections import _require_ingestor
@@ -62,6 +71,19 @@ def _merge_summaries(files: list[FileInfo], summaries: list[AvailableDocument]) 
     return files
 
 
+def _job_statuses(ingestor: BaseIngestor, job_ids: list[str]) -> dict[str, Any]:
+    """Each job's status, or None when unknown or failing. One thread hop for the batch, not one per id."""
+    statuses: dict[str, Any] = {}
+    for job_id in job_ids:
+        try:
+            status = ingestor.get_job_status(job_id)
+            statuses[job_id] = status.model_dump(mode="json") if status is not None else None
+        except Exception:
+            statuses[job_id] = None
+    ingest_dispatch.stamp_queue_ahead(statuses)
+    return statuses
+
+
 def add_document_routes(router: APIRouter):
     """Add document management routes to the FastAPI app."""
 
@@ -86,7 +108,7 @@ def add_document_routes(router: APIRouter):
             raise HTTPException(status_code=400, detail="No files provided")
 
         # Verify collection exists
-        collection = ingestor.get_collection(collection_name)
+        collection = await asyncio.to_thread(ingestor.get_collection, collection_name)
         if collection is None:
             raise HTTPException(status_code=404, detail=f"Collection '{collection_name}' not found")
 
@@ -108,7 +130,8 @@ def add_document_routes(router: APIRouter):
 
             # Submit ingestion job (job will clean up temp files after processing)
             # Pass original filenames so file_details uses correct names
-            job_id = ingestor.submit_job(
+            job_id = await asyncio.to_thread(
+                ingestor.submit_job,
                 temp_paths,
                 collection_name,
                 config={
@@ -118,7 +141,7 @@ def add_document_routes(router: APIRouter):
             )
 
             # Get the job to extract file_ids for the response
-            job_status = ingestor.get_job_status(job_id)
+            job_status = await asyncio.to_thread(ingestor.get_job_status, job_id)
             file_ids = [fd.file_id for fd in job_status.file_details]
 
             logger.info(f"Submitted ingestion job {job_id} for {len(files)} file(s)")
@@ -159,12 +182,12 @@ def add_document_routes(router: APIRouter):
     ) -> list[FileInfo]:
         """List all documents in a collection."""
         # Verify collection exists
-        collection = ingestor.get_collection(collection_name)
+        collection = await asyncio.to_thread(ingestor.get_collection, collection_name)
         if collection is None:
             raise HTTPException(status_code=404, detail=f"Collection '{collection_name}' not found")
 
         try:
-            files = ingestor.list_files(collection_name)
+            files = await asyncio.to_thread(ingestor.list_files, collection_name)
         except Exception as e:
             logger.error(f"Failed to list documents: {e}")
             raise HTTPException(status_code=500, detail=str(e))
@@ -192,13 +215,11 @@ def add_document_routes(router: APIRouter):
     ) -> dict:
         """Return the rendered-drawing / image / chart descriptions ingestion
         produced for a document (the "detailed information" the summary is
-        distilled from). Fail-open: returns an empty list when the backend does
-        not support it or the document has no visual chunks."""
-        getter = getattr(ingestor, "get_document_visual_details", None)
-        if getter is None:
-            return {"details": []}
+        distilled from). Fail-open: returns an empty list when the lookup fails
+        or the document has no visual chunks."""
         try:
-            return {"details": getter(collection_name, file_name)}
+            details = await asyncio.to_thread(ingestor.get_document_visual_details, collection_name, file_name)
+            return {"details": details}
         except Exception as e:
             logger.warning("Failed to fetch visual details for %s/%s: %s", collection_name, file_name, e)
             return {"details": []}
@@ -263,7 +284,7 @@ def add_document_routes(router: APIRouter):
                 },
             )
 
-        updated = update_document_tags(collection_name, file_name, deduped)
+        updated = await asyncio.to_thread(update_document_tags, collection_name, file_name, deduped)
         if not updated:
             raise HTTPException(
                 status_code=404,
@@ -311,7 +332,7 @@ def add_document_routes(router: APIRouter):
         """
         new_title = (request.display_title or "").strip() or None
 
-        updated = set_document_display_title(collection_name, file_name, new_title)
+        updated = await asyncio.to_thread(set_document_display_title, collection_name, file_name, new_title)
         if not updated:
             raise HTTPException(
                 status_code=404,
@@ -364,7 +385,7 @@ def add_document_routes(router: APIRouter):
         """
         new_path = (request.folder_path or "").strip() or None
 
-        updated = set_document_folder_path(collection_name, file_name, new_path)
+        updated = await asyncio.to_thread(set_document_folder_path, collection_name, file_name, new_path)
         if not updated:
             raise HTTPException(
                 status_code=404,
@@ -419,7 +440,9 @@ def add_document_routes(router: APIRouter):
         the BFF, which has already checked ``project:documents:write`` on the
         project that owns this collection before it addresses this route.
         """
-        updated = rewrite_document_folder_paths(collection_name, request.from_path, request.to_path)
+        updated = await asyncio.to_thread(
+            rewrite_document_folder_paths, collection_name, request.from_path, request.to_path
+        )
         return {
             "collection_name": collection_name,
             "from_path": request.from_path,
@@ -439,7 +462,7 @@ def add_document_routes(router: APIRouter):
     ) -> dict[str, Any]:
         """Delete files from a collection by ID."""
         # Verify collection exists
-        collection = ingestor.get_collection(collection_name)
+        collection = await asyncio.to_thread(ingestor.get_collection, collection_name)
         if collection is None:
             raise HTTPException(status_code=404, detail=f"Collection '{collection_name}' not found")
 
@@ -452,7 +475,7 @@ def add_document_routes(router: APIRouter):
             }
 
         try:
-            result = ingestor.delete_files(request.file_ids, collection_name)
+            result = await asyncio.to_thread(ingestor.delete_files, request.file_ids, collection_name)
             total_deleted = result.get("total_deleted", 0)
             failed = result.get("failed", [])
 
@@ -480,7 +503,7 @@ def add_document_routes(router: APIRouter):
     ) -> IngestionJobStatus:
         """Get the status of an ingestion job."""
         try:
-            status = ingestor.get_job_status(job_id)
+            status = await asyncio.to_thread(ingestor.get_job_status, job_id)
             if status is None:
                 raise HTTPException(status_code=404, detail=f"Job '{job_id}' not found")
 
@@ -510,11 +533,4 @@ def add_document_routes(router: APIRouter):
         or failing job ids map to null (the caller falls back to the
         collection file list), mirroring the single endpoint's 404.
         """
-        statuses: dict[str, Any] = {}
-        for job_id in request.job_ids:
-            try:
-                status = ingestor.get_job_status(job_id)
-                statuses[job_id] = status.model_dump(mode="json") if status is not None else None
-            except Exception:
-                statuses[job_id] = None
-        return {"statuses": statuses}
+        return {"statuses": await asyncio.to_thread(_job_statuses, ingestor, request.job_ids)}

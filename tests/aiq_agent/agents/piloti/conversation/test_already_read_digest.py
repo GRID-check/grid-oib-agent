@@ -17,6 +17,7 @@ from aiq_agent.agents.piloti.conversation import TURN_SCOPED_FIELDS
 from aiq_agent.agents.piloti.conversation import ConversationGraph
 from aiq_agent.agents.piloti.models import ConversationState
 from aiq_agent.agents.piloti.models import ResearchAgentState
+from tests.aiq_agent.agents.piloti.conversation import turn
 
 DIGEST = ["oib-rl_2_ausgabe_mai_2023.pdf | oib_knowledge | Seiten 12 | Punkte 3.5.2 | Turn 1"]
 
@@ -65,18 +66,18 @@ class TestDigestTravelsTheGraph:
         )
         thread = "digest-forward"
 
-        await agent.run(ConversationState(messages=[HumanMessage(content="Was gilt?")]), thread_id=thread)
+        await turn(agent, ConversationState(messages=[HumanMessage(content="Was gilt?")]), thread_id=thread)
         assert seen == [None]
 
         agent.research_fn = _digest_answering(DIGEST)
-        await agent.run(ConversationState(messages=[HumanMessage(content="Und weiter?")]), thread_id=thread)
+        await turn(agent, ConversationState(messages=[HumanMessage(content="Und weiter?")]), thread_id=thread)
 
         async def capturing(state_input):
             seen.append(state_input.already_read_digest)
             return _answer(state_input.messages, "Antwort.")
 
         agent.research_fn = capturing
-        await agent.run(ConversationState(messages=[HumanMessage(content="Und noch?")]), thread_id=thread)
+        await turn(agent, ConversationState(messages=[HumanMessage(content="Und noch?")]), thread_id=thread)
 
         assert seen[-1] == DIGEST
 
@@ -90,11 +91,11 @@ class TestDigestTravelsTheGraph:
         )
         thread = "digest-persist"
 
-        first = await agent.run(ConversationState(messages=[HumanMessage(content="Was gilt?")]), thread_id=thread)
+        first = await turn(agent, ConversationState(messages=[HumanMessage(content="Was gilt?")]), thread_id=thread)
         assert first.already_read_digest == DIGEST
 
         agent.research_fn = _plain_answering("Gern geschehen!")
-        second = await agent.run(ConversationState(messages=[HumanMessage(content="danke")]), thread_id=thread)
+        second = await turn(agent, ConversationState(messages=[HumanMessage(content="danke")]), thread_id=thread)
 
         assert second.already_read_digest == DIGEST
 
@@ -120,7 +121,7 @@ class TestDigestTravelsTheGraph:
             return ClarifyResult(research_context="Kontext", outcome="approved")
 
         agent = ConversationGraph(research_fn=escalating, deep_research_fn=deep, clarifier_fn=clarifier)
-        result = await agent.run(ConversationState(messages=[HumanMessage(content="Vergleich?")]))
+        result = await turn(agent, ConversationState(messages=[HumanMessage(content="Vergleich?")]))
 
         assert result.already_read_digest == DIGEST
 
@@ -138,7 +139,7 @@ class TestDigestTravelsTheGraph:
         agent = ConversationGraph(research_fn=research, deep_research_fn=_unused, clarifier_fn=None)
         state = ConversationState(messages=[HumanMessage(content="Was gilt?")], already_read_digest=list(DIGEST))
 
-        result = await agent.run(state, thread_id="caller-digest")
+        result = await turn(agent, state, thread_id="caller-digest")
 
         assert seen == [DIGEST]
         assert result.already_read_digest == DIGEST
@@ -157,11 +158,13 @@ class TestDigestTravelsTheGraph:
         )
         thread = "digest-merge"
 
-        await agent.run(
+        await turn(
+            agent,
             ConversationState(messages=[HumanMessage(content="Was gilt?")], already_read_digest=list(DIGEST)),
             thread_id=thread,
         )
-        await agent.run(
+        await turn(
+            agent,
             ConversationState(messages=[HumanMessage(content="Und noch?")], already_read_digest=caller_line),
             thread_id=thread,
         )

@@ -13,13 +13,19 @@ name = "aiq-agent"
 version = "2.0.0"
 description = "NVIDIA AI-Q Blueprint - An enterprise-grade agent for intelligent research assistance"
 readme = "README.md"
-requires-python = ">=3.14,<3.15"
+# 3.14.1, not 3.14: uv lets a pre-release interpreter satisfy `>=3.14`, and on
+# 3.14.0rc2 pydantic calls `typing._eval_type` with `prefer_fwd_module`, a
+# keyword that landed after rc2, so every backend test died at import.
+requires-python = ">=3.14.1,<3.15"
 license = {text = "Apache-2.0"}
 dependencies = [
-    "nvidia-nat-core==1.7.0",
-    "nvidia-nat[langchain,async_endpoints,phoenix,mcp]==1.7.0",
-    "nvidia-nat-eval==1.7.0",
-    "nvidia-nat-profiler==1.7.0",
+    "nvidia-nat-core==1.9.0",
+    "nvidia-nat[async-endpoints,phoenix,mcp]==1.9.0",
+    # `[openai]` only: every LLM runs as `_type: openai`, and `[langchain]` on
+    # the meta package is `[all]`, nine provider stacks we never import.
+    "nvidia-nat-langchain[openai]==1.9.0",
+    "nvidia-nat-eval==1.9.0",
+    "nvidia-nat-profiler==1.9.0",
     "deepagents>=0.6.12",
     "langgraph-checkpoint-postgres>=3.0.0",
     "langgraph-checkpoint-sqlite>=2.0.0",
@@ -41,7 +47,7 @@ dependencies = [
     "pillow>=12.2.0,<13",
     "pygments>=2.20.0,<3",
     "a2ui-core==0.1.1",
-    # Arrives through nvidia-nat[langchain]; the floor is ours. Below 1.6.6 a
+    # Arrives through nvidia-nat-langchain[openai]; the floor is ours. Below 1.6.6 a
     # STREAMED Responses call drops the model's encrypted reasoning items, so
     # every tool round thinks from scratch and nothing fails
     # (docs/contributing/gotchas.md, a0ec99d2).
@@ -58,7 +64,7 @@ dev = [
     "ruff~=0.15.21",
     "yapf>=0.40.0",
     "mypy>=2.3.0",
-    "fakeredis>=2.20.0",
+    "fakeredis[lua]>=2.20.0",
 ]
 docs = [
     "sphinx>=7.0",
@@ -97,10 +103,6 @@ aiq_deep_researcher = "aiq_agent.agents.deep_researcher.register"
 aiq_data_source_registry = "aiq_agent.common.data_source_registry"
 aiq_project_memory = "aiq_agent.memory.register"
 aiq_cards = "aiq_agent.cards.register"
-# RETIRED as a chat tool: the `aiq_compliance_checker` entry point
-# ("aiq_agent.agents.compliance_checker.register") was removed so NAT never
-# loads the `compliance_check` function and no agent is offered the tool. The
-# package stays in place and importable for its helpers.
 aiq_bim = "aiq_agent.tools.bim.register"
 # The spatial half of the BIM surface (`ifc_measure`). A second entry point
 # rather than an import from `register`: NAT discovers plugins by loading the
@@ -108,15 +110,13 @@ aiq_bim = "aiq_agent.tools.bim.register"
 # independently loadable — and `ifc_query` keeps working on a deployment where
 # the spatial engine (ifcopenshell, shapely) is not installed at all.
 aiq_bim_measure = "aiq_agent.tools.bim.measure_register"
-# The four write-side workspace tools (move/rename/create_folder/assign). One
-# entry point for all four: they share their resolver and their card, have no
-# optional dependency between them, and a deployment that loads one loads the
-# reason for the other three.
+# The write-side workspace tool, `propose_file_change` (move, rename,
+# create_folder, assign as one `operation` argument).
 aiq_files = "aiq_agent.tools.files.register"
-# The working directory's two doors into the project (`file_draft`,
-# `submit_draft`). Its OTHER four verbs are stock DeepAgents tools bound
-# directly by Piloti's register and are not NAT functions at all, so
-# this entry point covers exactly the two that call the BFF.
+# The working directory's door into the project (`file_draft`, which files a
+# draft and, with `submit`, sends it for review). Its OTHER four verbs are stock
+# DeepAgents tools bound directly by Piloti's register and are not NAT
+# functions at all, so this entry point covers exactly the one that calls the BFF.
 aiq_documents = "aiq_agent.tools.documents.register"
 # Delegation (`create_task`). Its own entry point rather than a member of
 # `aiq_documents`: the two call different BFF routes with different contracts,
@@ -142,9 +142,16 @@ testpaths = ["tests", "sources/**/tests"]
 addopts = "--import-mode=importlib"
 # Makes `from tests.conftest import ...` (the shared provider-contract double)
 # resolve the same way under every invocation — `python -m pytest`, the bare
-# `pytest` console script the pre-push hook uses, and an IDE runner — instead of
+# `pytest` console script, and an IDE runner — instead of
 # depending on which of those happens to put the repo root on sys.path.
-pythonpath = ["."]
+#
+# `src` is the same guard for `aiq_agent`. The venv installs it editable from
+# whichever checkout ran `uv sync`, so a bare `pytest` in a worktree without its
+# own venv tested the MAIN checkout's code while everything passed. This puts
+# the checkout's own `src/` ahead of that install (the editable `.pth` is
+# appended to sys.path, so it loses). `knowledge_layer` is a finder-style
+# editable and is NOT covered by this; see docs/contributing/gotchas.md.
+pythonpath = [".", "src"]
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "session"
 markers = [
@@ -172,7 +179,9 @@ select = [
   # Enable partial pylint support
   "PL",
   # Enable pyupgrade support
-  "UP"
+  "UP",
+  # banned-api: NAT internals that `nat.plugin_api` re-exports (below)
+  "TID251",
 ]
 
 extend-ignore = [
@@ -192,6 +201,25 @@ extend-ignore = [
   "PLW0603",
   "PLE1205"
 ]
+
+# NAT's stable plugin surface is `nat.plugin_api` (1.9, ADR-0068). These are the
+# internal modules it re-exports from. A name `plugin_api` does not export may
+# still come from here, with `# noqa: TID251` saying it is internal.
+[tool.ruff.lint.flake8-tidy-imports.banned-api]
+"nat.builder.builder".msg = "Import from nat.plugin_api"
+"nat.builder.context".msg = "Import from nat.plugin_api"
+"nat.builder.evaluator".msg = "Import from nat.plugin_api"
+"nat.builder.framework_enum".msg = "Import from nat.plugin_api"
+"nat.builder.function".msg = "Import from nat.plugin_api"
+"nat.builder.function_info".msg = "Import from nat.plugin_api"
+"nat.cli.register_workflow".msg = "Import from nat.plugin_api"
+"nat.data_models.component_ref".msg = "Import from nat.plugin_api"
+"nat.data_models.evaluator".msg = "Import from nat.plugin_api"
+"nat.data_models.function".msg = "Import from nat.plugin_api"
+"nat.data_models.interactive".msg = "Import from nat.plugin_api"
+# NAT's socket and HTTP frame models. The chat wire is `aiq_agent.common.wire_v2`
+# (ADR-0068); nothing here reads or writes a NAT frame.
+"nat.data_models.api_server".msg = "The chat wire is aiq_agent.common.wire_v2 (ADR-0068), not NAT's frame models"
 
 # Notebooks: allow long lines (shell/code) and imports after other statements
 [tool.ruff.lint.per-file-ignores]
@@ -243,8 +271,7 @@ dev = [
     "ruff~=0.15.21",
     "yapf>=0.40.0",
     "mypy>=2.3.0",
-    "fakeredis>=2.20.0",
-    "dask[distributed]>=2024.1.0",
+    "fakeredis[lua]>=2.20.0",
     # Workspace packages for testing
     "tavily-web-search",
     "ris-adapter",
@@ -252,6 +279,7 @@ dev = [
     "aiq-api",
     "aiq-research-cli",
     "aiq-debug",
+    "pytest-xdist>=3.8.0",
 ]
 
 [tool.uv]
@@ -263,16 +291,9 @@ override-dependencies = [
     "pygments>=2.20.0,<3",
     "pyopenssl>=26.0.0,<27",
     "tornado>=6.5.5",
-    "litellm>=1.83.7,<2",
-    "mako>=1.3.12,<2",
     "banks>=2.4.2,<3",
     "lxml>=6.1.0,<7",
     "nltk>=3.9.4,<4",
-    # `oci` (via `nvidia-nat[langchain]`) pins crc32c==2.7.1, whose newest
-    # wheels stop at cp313: on 3.14 every install fell back to the sdist, which
-    # needs MSVC on Windows and a compiler everywhere else. 2.9.post0 ships
-    # cp314 wheels for every platform with the same public API.
-    "crc32c>=2.9.post0,<3",
     "pyasn1>=0.6.3,<0.7",
 ]
 

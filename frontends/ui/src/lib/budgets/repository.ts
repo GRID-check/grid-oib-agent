@@ -22,6 +22,7 @@ import {
   budgetPolicies,
   llmUsageEvents,
   llmUsageRollups,
+  UNBILLED_USAGE_ACTIVITIES,
   type BudgetPolicy,
   type BudgetScope,
   type BudgetUnit,
@@ -205,9 +206,16 @@ interface RollupIncrement {
   events: number
 }
 
-function buildRollupIncrements(events: NewLlmUsageEvent[]): RollupIncrement[] {
+/**
+ * The rollup increments a batch adds. An unbilled activity (voice dictation)
+ * adds none: the rollup is what every budget reads, and a member is never
+ * blocked by spend they are not billed for. Its ledger row still carries the
+ * real cost for the platform views, which read the ledger.
+ */
+export function buildRollupIncrements(events: NewLlmUsageEvent[]): RollupIncrement[] {
   const byKey = new Map<string, RollupIncrement>()
   for (const event of events) {
+    if (event.activity && UNBILLED_USAGE_ACTIVITIES.has(event.activity)) continue
     const day = utcDayOf(event.createdAt ?? undefined)
     const userId = event.userId ?? ''
     const projectId = event.projectId ?? ''
@@ -303,6 +311,19 @@ export interface SpendWindow {
   credits: number
   tokens: number
   events: number
+  /**
+   * What document ingestion cost the PLATFORM in this window: `activity =
+   * 'ingest'` rows not on a tenant's own key (migration 0101). Present only
+   * where the window was summed from the ledger itself; the rollup the
+   * budgets read does not know which spend was ingestion.
+   */
+  ingestCostUsd?: number
+  /**
+   * What voice dictation cost the PLATFORM in this window: `activity =
+   * 'dictation'` rows not on a tenant's own key (migration 0107). Ledger-summed
+   * windows only, like `ingestCostUsd`; dictation never reaches the rollup.
+   */
+  dictationCostUsd?: number
 }
 
 export const EMPTY_SPEND_WINDOW: SpendWindow = {
@@ -312,6 +333,8 @@ export const EMPTY_SPEND_WINDOW: SpendWindow = {
   credits: 0,
   tokens: 0,
   events: 0,
+  ingestCostUsd: 0,
+  dictationCostUsd: 0,
 }
 const EMPTY_WINDOW = EMPTY_SPEND_WINDOW
 
@@ -360,7 +383,13 @@ export async function sumRollupTotals(
 function windowColumns(dayStartIso: string) {
   const isToday = sql`${llmUsageEvents.createdAt} >= ${dayStartIso}`
   const ownKey = sql`${llmUsageEvents.isByok} = true`
+  const platformIngest = sql`${llmUsageEvents.activity} = 'ingest' and ${llmUsageEvents.isByok} is not true`
+  const platformDictation = sql`${llmUsageEvents.activity} = 'dictation' and ${llmUsageEvents.isByok} is not true`
   return {
+    monthIngestCostUsd: sql<string>`coalesce(sum(${llmUsageEvents.costUsd}) filter (where ${platformIngest}), 0)`,
+    dayIngestCostUsd: sql<string>`coalesce(sum(${llmUsageEvents.costUsd}) filter (where ${isToday} and ${platformIngest}), 0)`,
+    monthDictationCostUsd: sql<string>`coalesce(sum(${llmUsageEvents.costUsd}) filter (where ${platformDictation}), 0)`,
+    dayDictationCostUsd: sql<string>`coalesce(sum(${llmUsageEvents.costUsd}) filter (where ${isToday} and ${platformDictation}), 0)`,
     monthCostUsd: sql<string>`coalesce(sum(${llmUsageEvents.costUsd}), 0)`,
     monthOwnKeyCostUsd: sql<string>`coalesce(sum(${llmUsageEvents.costUsd}) filter (where ${ownKey}), 0)`,
     monthPriceUsd: sql<string>`coalesce(sum(${llmUsageEvents.priceUsd}), 0)`,
@@ -389,6 +418,11 @@ interface WindowRow {
   dayCredits: string
   dayTokens: string
   dayEvents: string
+  /** Only the ledger-summed windows carry these (`windowColumns`); the rollup does not. */
+  monthIngestCostUsd?: string
+  dayIngestCostUsd?: string
+  monthDictationCostUsd?: string
+  dayDictationCostUsd?: string
 }
 
 /** Coerce at the repository boundary: raw `sql<T>` columns arrive as strings. */
@@ -401,6 +435,8 @@ function toWindows(row: WindowRow): { day: SpendWindow; month: SpendWindow } {
       credits: num(row.dayCredits),
       tokens: num(row.dayTokens),
       events: num(row.dayEvents),
+      ...(row.dayIngestCostUsd !== undefined ? { ingestCostUsd: num(row.dayIngestCostUsd) } : {}),
+      ...(row.dayDictationCostUsd !== undefined ? { dictationCostUsd: num(row.dayDictationCostUsd) } : {}),
     },
     month: {
       costUsd: num(row.monthCostUsd),
@@ -409,6 +445,8 @@ function toWindows(row: WindowRow): { day: SpendWindow; month: SpendWindow } {
       credits: num(row.monthCredits),
       tokens: num(row.monthTokens),
       events: num(row.monthEvents),
+      ...(row.monthIngestCostUsd !== undefined ? { ingestCostUsd: num(row.monthIngestCostUsd) } : {}),
+      ...(row.monthDictationCostUsd !== undefined ? { dictationCostUsd: num(row.monthDictationCostUsd) } : {}),
     },
   }
 }
@@ -422,6 +460,8 @@ export const sumSpendWindows = (windows: SpendWindow[]): SpendWindow =>
       credits: total.credits + w.credits,
       tokens: total.tokens + w.tokens,
       events: total.events + w.events,
+      ingestCostUsd: (total.ingestCostUsd ?? 0) + (w.ingestCostUsd ?? 0),
+      dictationCostUsd: (total.dictationCostUsd ?? 0) + (w.dictationCostUsd ?? 0),
     }),
     EMPTY_WINDOW,
   )
@@ -560,6 +600,8 @@ export async function aggregateDailySpend(options: {
       credits: sql<string>`coalesce(sum(${llmUsageEvents.credits}), 0)`,
       tokens: sql<string>`coalesce(sum(${llmUsageEvents.totalTokens}), 0)`,
       events: sql<string>`count(*)`,
+      ingestCostUsd: sql<string>`coalesce(sum(${llmUsageEvents.costUsd}) filter (where ${llmUsageEvents.activity} = 'ingest' and ${llmUsageEvents.isByok} is not true), 0)`,
+      dictationCostUsd: sql<string>`coalesce(sum(${llmUsageEvents.costUsd}) filter (where ${llmUsageEvents.activity} = 'dictation' and ${llmUsageEvents.isByok} is not true), 0)`,
     })
     .from(llmUsageEvents)
     .where(and(...conditions))
@@ -573,5 +615,59 @@ export async function aggregateDailySpend(options: {
     credits: num(row.credits),
     tokens: num(row.tokens),
     events: num(row.events),
+    ingestCostUsd: num(row.ingestCostUsd),
+    dictationCostUsd: num(row.dictationCostUsd),
   }))
+}
+
+/** What one chat answer cost, summed over the ledger rows stamped with its id (migration 0098). */
+export interface AnswerUsageRow {
+  calls: number
+  credits: number
+  promptTokens: number
+  completionTokens: number
+  reasoningTokens: number
+  totalTokens: number
+}
+
+/**
+ * Sum the frozen `credits` and the tokens of one answer's generations. The
+ * credits are the ones written at record time (ADR-0053), so the answer shows
+ * what was billed, not a re-pricing. `null` when no row names the answer
+ * (an answer from before 0098, or a turn that made no model call).
+ */
+export async function sumAnswerUsage(
+  organizationId: string,
+  conversationId: string,
+  messageId: string,
+): Promise<AnswerUsageRow | null> {
+  const db = getDb()
+  const [row] = await db
+    .select({
+      calls: sql<string>`count(*)`,
+      credits: sql<string>`coalesce(sum(${llmUsageEvents.credits}), 0)`,
+      promptTokens: sql<string>`coalesce(sum(${llmUsageEvents.promptTokens}), 0)`,
+      completionTokens: sql<string>`coalesce(sum(${llmUsageEvents.completionTokens}), 0)`,
+      reasoningTokens: sql<string>`coalesce(sum(${llmUsageEvents.reasoningTokens}), 0)`,
+      totalTokens: sql<string>`coalesce(sum(${llmUsageEvents.totalTokens}), 0)`,
+    })
+    .from(llmUsageEvents)
+    .where(
+      and(
+        eq(llmUsageEvents.organizationId, organizationId),
+        eq(llmUsageEvents.conversationId, conversationId),
+        eq(llmUsageEvents.messageId, messageId),
+      ),
+    )
+  const calls = Number.parseInt(String(row?.calls ?? '0'), 10) || 0
+  if (calls === 0) return null
+  const asNumber = (value: unknown): number => Number.parseFloat(String(value ?? '0')) || 0
+  return {
+    calls,
+    credits: asNumber(row?.credits),
+    promptTokens: asNumber(row?.promptTokens),
+    completionTokens: asNumber(row?.completionTokens),
+    reasoningTokens: asNumber(row?.reasoningTokens),
+    totalTokens: asNumber(row?.totalTokens),
+  }
 }

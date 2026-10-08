@@ -1,58 +1,81 @@
 'use client'
 
 /**
- * A card's place in a streamed answer, before and as the card arrives
- * (ADR-0066).
+ * A card's place in a streamed answer (ADR-0066). The model writes `[[card:N]]`
+ * seconds before the card, so the marker holds a place and the card arrives
+ * INTO it: one frame from marker to card, a placeholder until A2UI has drawn
+ * the card (`DrawnProvider`), then the card fading in over the placeholder
+ * while the frame grows to the card's height (motion's `height: 'auto'`).
  *
- * The model writes `[[card:N]]` in the prose and the card object only after the
- * prose closes, seconds later. A marker that rendered nothing until then left
- * the prose below it to be shoved down by the card's full height the moment it
- * landed, which was the largest jump a streamed answer made. So the marker
- * holds a place (`PendingCardSlot`), and the card GROWS out of it
- * (`CardArrival`) instead of being inserted: a movement the eye can follow,
- * not a jump it has to recover from.
- *
- * The placeholder's height is representative, not a reservation: a card's
- * height is unknown until the card exists. It is the height of the shortest
- * common card, so what remains is growth, never a collapse.
+ * Only a card the reader watches arrive animates, once per `messageId:index`:
+ * a remounted slot (the Markdown renderer keys blocks by position), a reload, a
+ * finished answer and reduced motion show it at once. `live` comes through
+ * context, so the settle hands no slot a new renderer.
  */
 
-import { useState, type ReactNode } from 'react'
-import { motion } from 'motion/react'
-import { Skeleton } from '@/components/ui/skeleton'
-import { motionDeliberate } from '@/components/motion'
+import { createContext, useCallback, useContext, useState, type ReactNode } from 'react'
+import { AnimatePresence, motion, useReducedMotion } from 'motion/react'
+import { motionDeliberate, motionInstant } from '@/components/motion'
+import { CARD_PLACEHOLDER_HEIGHT, CardPlaceholder } from '@/features/grid-cards/components/CardPlaceholder'
+import { DrawnProvider } from '@/features/a2ui/catalog'
+import { cn } from '@/lib/utils'
 
-/** The placeholder's height in px: a one-row table or a callout-sized card. */
-export const PENDING_CARD_HEIGHT = 96
+/** The cards that have arrived on this page, as `messageId:index`: it outlives a remounted slot. */
+const arrived = new Set<string>()
 
-/** Where a card the prose has placed will be drawn, while it is still being written. */
-export const PendingCardSlot = () => (
-  <div className="block! mb-3" data-testid="pending-card-slot" aria-busy="true">
-    <Skeleton className="w-full rounded-lg" style={{ height: PENDING_CARD_HEIGHT }} />
-  </div>
-)
+const LiveContext = createContext(false)
 
-/**
- * The card, grown from the placeholder when it arrived while the answer was
- * still streaming; drawn at once when it was already there (a reload, a
- * finished answer). The choice is made once, at mount, so the terminal frame
- * that ends the stream does not re-run the entrance.
- */
-export const CardArrival = ({ live, children }: { live: boolean; children: ReactNode }) => {
-  const [arrivedLive] = useState(live)
-  const [growing, setGrowing] = useState(live)
+/** Whether the answer the slots below belong to is still arriving. */
+export const CardSlotLiveProvider = LiveContext.Provider
+
+/** `arrivalKey` is `messageId:index`; `children` the card, absent until it arrives. */
+export const CardSlot = ({ arrivalKey, children }: { arrivalKey: string; children?: ReactNode }) => {
+  const live = useContext(LiveContext)
+  const reducedMotion = useReducedMotion()
+  const [arrives] = useState(() => live && !reducedMotion && !arrived.has(arrivalKey))
+  const [drawn, setDrawn] = useState(false)
+  const [standing, setStanding] = useState(!arrives)
+  const reveal = useCallback(() => {
+    arrived.add(arrivalKey)
+    setDrawn(true)
+  }, [arrivalKey])
+
+  const hasCard = children !== undefined && children !== null
+  if (!hasCard && !live) return null
+  const shown = hasCard && (drawn || !arrives)
+  const transition = arrives ? motionDeliberate : motionInstant
+
   return (
+    // `mb-3` is the paragraph rhythm of the markdown body: the card replaced a
+    // paragraph. `block!` beats the streaming caret's `*:last-child]:inline`
+    // rule, which would collapse a card that ends a still-arriving answer.
+    // Clipped until the card stands, so its popovers are not cut off after.
     <motion.div
-      className="block! mb-3"
-      initial={arrivedLive ? { height: PENDING_CARD_HEIGHT, opacity: 0 } : false}
-      animate={{ height: 'auto', opacity: 1 }}
-      transition={motionDeliberate}
-      // Clipped only while it grows: a card's own popovers and focus rings
-      // must not be cut off once it stands.
-      style={growing ? { overflow: 'hidden' } : undefined}
-      onAnimationComplete={() => setGrowing(false)}
+      className={cn('block! relative mb-3', !standing && 'overflow-hidden')}
+      data-testid={hasCard ? undefined : 'pending-card-slot'}
+      aria-busy={shown ? undefined : true}
+      initial={false}
+      animate={{ height: shown ? 'auto' : CARD_PLACEHOLDER_HEIGHT }}
+      transition={transition}
+      onAnimationComplete={() => setStanding(shown)}
     >
-      {children}
+      {hasCard && (
+        <motion.div initial={false} animate={{ opacity: shown ? 1 : 0 }} transition={transition}>
+          <DrawnProvider value={arrives ? reveal : null}>{children}</DrawnProvider>
+        </motion.div>
+      )}
+      <AnimatePresence initial={false}>
+        {!shown && (
+          <motion.div
+            key="placeholder"
+            className="pointer-events-none absolute inset-0"
+            exit={{ opacity: 0 }}
+            transition={transition}
+          >
+            <CardPlaceholder height="100%" />
+          </motion.div>
+        )}
+      </AnimatePresence>
     </motion.div>
   )
 }

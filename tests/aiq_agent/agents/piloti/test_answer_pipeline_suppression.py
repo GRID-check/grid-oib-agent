@@ -3,8 +3,8 @@
 Covers ``answer_pipeline._suppress_cards`` — the mechanical floor that drops
 unearned ``emit_card`` cards on a short, non-ruling answer without a verdict:
 
-1. **legal_basis veto** — the card is the answer's proof, not its trailer, so
-   any ``legal_basis`` card in the registry snapshot vetoes the suppression.
+1. **The proof lives in the prose** — the Fundstelle a short answer rests on
+   is a cited quote line, which suppression never touches.
 2. **Callout survival** — below the takeaway floor the trailer shrinks to the
    callout alone; the ``[[callout]]`` marker resolves against exactly that
    field, so dropping it would silence a warning the gates deliberately kept.
@@ -102,35 +102,27 @@ class TestShouldSuppressMetaCards:
         assert _should_suppress_meta_cards(SHORT_PROSE, meta) is True
 
 
-class TestLegalBasisVeto:
-    """The proof survives: a ``legal_basis`` card vetoes the suppression."""
+class TestTheProofLivesInTheProse:
+    """The Fundstelle a short answer rests on is a cited quote line in the prose.
 
-    def test_a_legal_basis_card_keeps_cards_markers_and_meta(self, card_registry):
-        from aiq_agent.cards.catalog import SYSTEM_CARD_TYPES
+    The retired ``legal_basis`` card once vetoed suppression, because clearing
+    the registry under it deleted the answer's proof. The proof is the prose's
+    own `> „…“ [N]` line now, and suppression never touches the prose: the
+    content card goes, the quote stays.
+    """
 
-        assert "legal_basis" not in SYSTEM_CARD_TYPES
+    def test_a_quote_line_survives_while_the_card_goes(self, card_registry):
         meta = _gated({"kind": "direct", "callout": _CALLOUT}, prose_chars=300)
-        assert _should_suppress_meta_cards(SHORT_PROSE, meta) is True
-        card_registry.add({"type": "legal_basis", "law": "OIB-Richtlinie 2"})
-        content = SHORT_PROSE + "\n\n[[card:1]]\n"
+        card_registry.add({"type": "ifc_model_picker", "title": "Modell"})
+        quote = "> „Brandabschnitte dürfen höchstens 1.200 m² umfassen.“ [1]"
+        content = SHORT_PROSE + "\n\n" + quote + "\n\n[[card:1]]\n"
 
-        kept_content, kept_meta, suppressed = _suppress_cards(content, meta)
+        kept_content, _, suppressed = _suppress_cards(content, meta)
 
-        assert suppressed is False
-        assert kept_meta == meta
-        assert "[[card:1]]" in kept_content
-        assert len(card_registry) == 1
-
-    def test_the_veto_holds_among_other_cards(self, card_registry):
-        meta = _gated({"kind": "direct", "callout": _CALLOUT}, prose_chars=300)
-        card_registry.add({"type": "typed_table", "title": "Tabelle"})
-        card_registry.add({"type": "legal_basis", "law": "OIB-Richtlinie 2"})
-
-        _, kept_meta, suppressed = _suppress_cards(SHORT_PROSE, meta)
-
-        assert suppressed is False
-        assert kept_meta == meta
-        assert len(card_registry) == 2
+        assert suppressed is True
+        assert quote in kept_content
+        assert "[[card:1]]" not in kept_content
+        assert len(card_registry) == 0
 
 
 class TestCalloutSurvival:

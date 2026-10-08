@@ -1,4 +1,4 @@
-# Twenty-nine questions a Wiener Planungsbüro actually asks, for the loop eval and the answer suite.
+# Thirty-one questions a Wiener Planungsbüro actually asks, for the loop eval and the answer suite.
 #
 # WHAT THIS SET IS FOR
 # --------------------
@@ -54,7 +54,10 @@
 #             mentions:     values that must appear (a list inside the list is
 #                           alternatives, e.g. [EI2 30, EI₂ 30])
 #             not_mentions: phrases that must not (a false claim seen live)
-#             shape:        tabs | table | diagram, or a list of acceptable ones
+#             shape:        tabs | table | diagram | a dialect block (check,
+#                           cases, metrics, procedure, compare, actions,
+#                           not-found, subsumption, details) | plain (no block
+#                           at all: the negative set), or a list of acceptable ones
 #             kind_also:    kinds the suite accepts besides `kind`, when a
 #                           second reading is as right (a list the law
 #                           prescribes is a walkthrough AND a ruling); the
@@ -336,3 +339,40 @@ questions:
       # REI 60: Tabelle 3, row 1.1, GK 4.
       mentions: ["REI 60"]
       shape: [tabs, table]
+
+  # Down-voted answers, each the question as a user typed it. Source: answer
+  # feedback export 2026-10-06. Not in `core` (every core run is paid model
+  # calls); run them with `--only`. Not run for `web` answers: a question
+  # whose answer rests on a web page ("Anschlussdetails ... Alucobond") has
+  # no `family`, and the suite skips a family-less question as one that needs
+  # a project, so it cannot be a case here.
+  - id: bruestung-absturzhoehe-museum
+    question: Welche Absturzhöhe bei den Brüstungen muss ich bei meinem Museum beachten?
+    family: OIB-RL 4
+    punkt: "4.2.1"
+    kind: ruling
+    expect:
+      # Source: answer feedback 2026-10-06 (the answer was the canned "nichts
+      # gefunden"). OIB-RL 4 (Ausgabe Mai 2023) Pkt. 4.2.1, p. 12: Höhe der
+      # Absturzsicherung mindestens 1,00 m, ab mehr als 12 m Absturzhöhe 1,10 m
+      # (read off the PDF for the retrieval golden set, `de-absturzsicherung-hoehe`).
+      mentions: ["1,10", ["1,00", "100 cm"]]
+      not_mentions: ["nichts gefunden"]
+      kind_also: [walkthrough]
+
+  - id: mensa-schule-pflicht
+    question: Muss ich in einer Schule eine Mensa haben nach Baurecht?
+    family: Bauordnung
+    punkt: null
+    paragraph: null
+    kind: walkthrough
+    expect:
+      # Source: answer feedback 2026-10-06. The right answer is that no general
+      # building-law obligation is established. The schema cannot say "must not
+      # rest the verdict on OIB-RL 5": `not_mentions` is a substring test, so it
+      # bans any mention, including "OIB-RL 5 regelt das nicht". The bad answer
+      # leaned on Schallschutz, so that word and the Richtlinie's name are the
+      # proxy. A positive "no obligation" check would be a phrase guessed, not
+      # read off the corpus, so there is none.
+      not_mentions: ["OIB-RL 5", "Schallschutz"]
+      kind_also: [ruling]

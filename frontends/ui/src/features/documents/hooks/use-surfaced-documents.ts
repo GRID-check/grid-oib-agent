@@ -3,6 +3,12 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import type { FileItem } from '../components/project-file-workspace'
 import { onDocumentsChanged, useDocumentsGeneration } from '@/lib/documents/document-changes'
+import { fetchListingPages, ListingFetchError } from '../lib/fetch-listing-pages'
+import {
+  documentNameLookupKey,
+  resetDocumentsByNameCache,
+  resolveDocumentsByName,
+} from '../lib/documents-by-name'
 
 /**
  * One document surfaced by the backend `surface_documents` tool: a real indexed
@@ -76,9 +82,10 @@ const indexCache = new Map<string, Promise<SurfacedIndex>>()
 const cacheKey = (projectId: string | null, conversationId: string | null): string =>
   `${projectId ?? '__no-project__'}|${conversationId ?? '__no-conversation__'}`
 
-/** Test hook — clears the module cache between specs. */
+/** Test hook — clears the module caches between specs. */
 export const resetSurfacedDocumentsCache = (): void => {
   indexCache.clear()
+  resetDocumentsByNameCache()
 }
 
 // Same reason as the citation index: a card that names a file uploaded during
@@ -86,23 +93,23 @@ export const resetSurfacedDocumentsCache = (): void => {
 onDocumentsChanged(resetSurfacedDocumentsCache)
 
 /**
- * Fetch one corpus' document list. `softStatuses` are fail-open (e.g. Archiv 403
- * feature gate) — no rows, but NOT an error. Any other non-ok status or a
- * network reject IS a genuine error the caller surfaces as retryable.
+ * Fetch one corpus' WHOLE document list, following the listing's cursor —
+ * {@link storedFileIndex} asks "which of my files could this text be naming",
+ * which is a question about every file, not the newest page. `softStatuses`
+ * are fail-open (e.g. Archiv 403 feature gate) — no rows, but NOT an error. Any
+ * other non-ok status or a network reject IS a genuine error the caller
+ * surfaces as retryable.
  */
 async function fetchCorpus(
   url: string,
   softStatuses: number[]
 ): Promise<{ rows: unknown; failed: boolean }> {
   try {
-    const r = await fetch(url)
-    if (r.ok) {
-      const body = await r.json().catch(() => null)
-      return { rows: (body as { documents?: unknown } | null)?.documents ?? null, failed: false }
-    }
-    return { rows: null, failed: !softStatuses.includes(r.status) }
-  } catch {
-    return { rows: null, failed: true }
+    const { documents } = await fetchListingPages<unknown>(url)
+    return { rows: documents, failed: false }
+  } catch (error) {
+    const status = error instanceof ListingFetchError ? error.status : null
+    return { rows: null, failed: status === null || !softStatuses.includes(status) }
   }
 }
 
@@ -137,13 +144,33 @@ function indexByFilename(rows: unknown): Map<string, FileItem> {
 const corpusLookup = (corpus: Map<string, FileItem>, fileName: string): FileItem | undefined =>
   corpus.get(fileName.trim().toLowerCase())
 
+/**
+ * The live row of ONE named document, asked of the server by name — never
+ * looked up in a listing page, which stops at the newest 500.
+ */
 export async function resolveStoredDocument(
   projectId: string | null,
   fileName: string,
   source: 'projekt' | 'buero',
 ): Promise<FileItem | null> {
-  const index = await loadSurfacedIndex(projectId, null)
+  const index = await loadNamedIndex(projectId, [fileName])
   return corpusLookup(source === 'buero' ? index.buero : index.projekt, fileName) ?? null
+}
+
+/**
+ * The surfaced index over just `names`, resolved by name (`documents-by-name.ts`).
+ * Same shape and same most-recent-wins rule as the listing-backed index, so
+ * the resolution below reads it unchanged.
+ */
+async function loadNamedIndex(projectId: string | null, names: readonly string[]): Promise<SurfacedIndex> {
+  const named = await resolveDocumentsByName(projectId, names)
+  const answers = [...named.values()]
+  return {
+    projekt: indexByFilename(answers.flatMap((answer) => answer.projekt)),
+    buero: indexByFilename(answers.flatMap((answer) => answer.buero)),
+    session: new Map(),
+    error: answers.some((answer) => answer.error),
+  }
 }
 
 /** One openable file, with the corpus it was found in. */
@@ -230,29 +257,21 @@ function loadSurfacedIndex(
 /**
  * Resolve the `document_grid` card's surfaced documents to their live rows.
  *
- * Fetches the project's document list and the org Büroarchiv list once (cached),
- * then joins each surfaced file name to its row within the corpus the backend
- * tagged (`source`) — never crossing corpora when the source is known, so a
+ * Asks the server for exactly the surfaced names (`documents-by-name.ts`, cached
+ * per name and batched across the cards of one render), then joins each
+ * surfaced file name to its row within the corpus the backend tagged (`source`) — never crossing corpora when the source is known, so a
  * same-named file in the other store can't be opened by mistake. Fail-open: a
  * failed fetch yields unresolved entries (rendered as lean, non-clickable
  * cards), never a crash. Order is preserved (best match first).
  *
- * TODO(backend): the document lists are bounded (`DOCUMENT_LIST_LIMIT`, 500 per
- * corpus), so in a corpus larger than that a legitimately-surfaced file beyond
- * the window resolves as unresolved. Fine at current sizes; a targeted
- * by-filename resolve endpoint (e.g. `GET /api/documents/resolve?name=…`) would
- * remove the cap. Until then the frontend degrades honestly — an unresolved file
- * renders an actionable "open in the archive/files" card, never a dead tile.
+ * By name rather than from the listing: the listing is paged, and a
+ * legitimately surfaced file older than its first page used to render as
+ * unresolved. An unresolved file still renders an actionable "open in the
+ * archive/files" card, never a dead tile.
  */
 export function useSurfacedDocuments(
   documents: SurfacedDocument[],
-  projectId: string | null,
-  /**
-   * The conversation whose private attachments join the index. Omit it and the
-   * `session` corpus is empty and unfetched — which is what every card surface
-   * wants, since `surface_documents` cannot name that shelf.
-   */
-  conversationId: string | null = null
+  projectId: string | null
 ): { resolved: ResolvedSurfacedDocument[]; isLoading: boolean; error: boolean; retry: () => void } {
   const [index, setIndex] = useState<SurfacedIndex | null>(null)
   // Bumped by `retry` to re-run the load effect after evicting the cache.
@@ -262,12 +281,19 @@ export function useSurfacedDocuments(
   // clearing the module cache alone would not reach it until a remount.
   const generation = useDocumentsGeneration()
 
+  // The names, as one stable string: `documents` is a fresh array on every
+  // render of a streaming card, and the lookup must not re-run for the same set.
+  const namesKey = useMemo(
+    () => JSON.stringify([...new Set(documents.map((doc) => documentNameLookupKey(doc.file_name)))].sort()),
+    [documents]
+  )
+
   useEffect(() => {
     let cancelled = false
     // Back to the loading state on (re)load so callers show a skeleton, not the
     // previous (possibly dead) resolution.
     setIndex(null)
-    loadSurfacedIndex(projectId, conversationId)
+    loadNamedIndex(projectId, JSON.parse(namesKey) as string[])
       .then((loaded) => {
         if (!cancelled) setIndex(loaded)
       })
@@ -279,12 +305,13 @@ export function useSurfacedDocuments(
     return () => {
       cancelled = true
     }
-  }, [projectId, conversationId, reloadTick, generation])
+  }, [projectId, namesKey, reloadTick, generation])
 
+  // A failed lookup is never cached (`documents-by-name.ts`), so a retry is
+  // just a re-run.
   const retry = useCallback(() => {
-    indexCache.delete(cacheKey(projectId, conversationId))
     setReloadTick((t) => t + 1)
-  }, [projectId, conversationId])
+  }, [])
 
   // Memoized so the resolved rows (and the file objects the grid remaps from
   // them) keep a stable identity across renders while nothing changed — no

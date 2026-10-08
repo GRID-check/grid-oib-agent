@@ -104,7 +104,7 @@ def _preferred_cards_block(skill: Skill) -> str | None:
     is paid for on every turn by every skill, and a card preference is worth
     nothing until the skill is actually in play. The phrasing stays a preference
     on purpose — an author naming three cards must not be able to force a
-    ``comparison_table`` onto an answer that has nothing to compare.
+    ``calculation`` onto an answer that has nothing to compute.
 
     That same reasoning is why the full SHAPES ride along here rather than in the
     always-on ``emit_card`` catalog. A skill that names its cards is the moment we
@@ -155,16 +155,10 @@ def _inline_skill(skill: Skill) -> str:
     other miss is repaired by the small model (``cards/envelope.py``), so the
     full shapes ``use_skill`` appends would be paid on every call for nothing.
 
-    Only chat inlines (deep research keeps every body behind ``use_skill``, see
-    :attr:`SkillRuntime.inlined`), so the line drops the types chat writes as
-    Markdown (``MARKDOWN_CARD_TYPES``): the envelope neither indexes nor shapes
-    them, and the answer writes them as Markdown, so naming one would ask
-    for a card chat does not make.
+    :func:`preferred_cards` has already dropped every name the model may not
+    be asked for.
     """
-    # Imported lazily, as in ``_preferred_cards_block``.
-    from aiq_agent.cards.catalog import MARKDOWN_CARD_TYPES
-
-    cards = [card for card in preferred_cards(skill.metadata) if card not in MARKDOWN_CARD_TYPES]
+    cards = list(preferred_cards(skill.metadata))
     body = skill.body.strip()
     if cards:
         types = ", ".join(f"`{card}`" for card in cards)
@@ -362,11 +356,7 @@ class SkillRuntime:
                 )
             runtime._record_activation(skill_name)
             cards_block = _preferred_cards_block(skill)
-            body = f"{skill.body}\n\n{cards_block}" if cards_block else skill.body
-            from .events import emit_skill_loaded
-
-            emit_skill_loaded(skill, body_chars=len(body))
-            return body
+            return f"{skill.body}\n\n{cards_block}" if cards_block else skill.body
 
         use_skill.description = _TOOL_DESCRIPTION
         return [use_skill]

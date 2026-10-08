@@ -10,12 +10,16 @@ token-guarded internal channel as the retrieval settings
 
 Resolution order per call:
 
-  1. the platform owner's effort for the agent group (if a known level)
-  2. the ``reasoning_effort`` the role's ``llms:`` entry was built with
+  1. the effort the asker chose for this turn (the composer's Aufwand dial,
+     ``UserMessage.reasoning_effort``), for the chat answer's group only
+  2. the platform owner's effort for the agent group (if a known level)
+  3. the ``reasoning_effort`` the role's ``llms:`` entry was built with
 
-Platform-only by design — no org layer, no per-request header. A tenant
-choosing its own MODEL is a product feature; a tenant dialling its own
-reasoning spend is not. Fail-open by design: a BFF outage must never take chat
+The dial is per chat and starts at the organization's default
+(``settings.chatReasoningEffort``, Organisation → Einstellungen); the backend
+never reads that default, because the composer always sends the level it shows.
+A turn with no stated level (the CLI, an older client, a job) keeps the
+platform/YAML level. Fail-open by design: a BFF outage must never take chat
 down, so every error path leaves the YAML value in place.
 
 The values are OpenRouter's UNIFIED vocabulary and are passed through verbatim
@@ -29,6 +33,7 @@ import logging
 import os
 import threading
 import time
+from contextvars import ContextVar
 
 logger = logging.getLogger(__name__)
 
@@ -46,6 +51,17 @@ _REQUEST_TIMEOUT_SECONDS = 5.0
 # stale or hand-edited row can never push a provider-native tier name (e.g.
 # DeepSeek's "max", which OpenRouter rejects) into a request.
 _EFFORTS: frozenset[str] = frozenset({"none", "minimal", "low", "medium", "high", "xhigh"})
+
+# The levels the composer's dial offers, a subset of `_EFFORTS` mirrored from
+# `CHAT_EFFORTS` in the BFF catalog. `none` is left out: the chat answer's
+# envelope is a contract the model has to reason its way into, and at `none`
+# it loses it. The wire schema (`UserMessage.reasoning_effort`) is the gate.
+CHAT_EFFORTS: tuple[str, ...] = ("minimal", "low", "medium", "high", "xhigh")
+
+# The asker's level for the turn in flight, set once per turn by
+# `turn.payload.extract_turn_inputs` (always, so a turn without one clears the
+# previous turn's) and read by `request_llm_context`.
+_turn_effort: ContextVar[str | None] = ContextVar("grid_turn_reasoning_effort", default=None)
 
 
 class _CacheEntry:
@@ -154,3 +170,13 @@ def get_reasoning_efforts() -> dict[str, str]:
     needs nothing captured at submit time, unlike the per-org model overrides).
     """
     return dict(_resolve())
+
+
+def set_turn_reasoning_effort(effort: str | None) -> None:
+    """Record the level the asker chose for this turn; ``None`` clears it."""
+    _turn_effort.set(effort if effort in CHAT_EFFORTS else None)
+
+
+def get_turn_reasoning_effort() -> str | None:
+    """The asker's level for the turn in flight, or ``None`` when none was stated."""
+    return _turn_effort.get()

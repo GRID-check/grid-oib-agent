@@ -107,28 +107,16 @@
  *     streaming, column re-packing) keep the graph visible — the old gate was
  *     keyed on orientation and fired a full fade-out/in on every flip.
  *
- * ## Entrances fire once per CARD, not once per mount
+ * ## What moves
  *
- * The source cards animate in. Which column NODE a card lives in is a function
- * of the container width and the card count, so one new source re-packs the fan
- * and moves most cards to a different column — React unmounts them there and
- * mounts them here, and a CSS enter animation replays on mount. The fix is not
- * to fight the re-pack but to key the entrance on card IDENTITY: `ReasoningFlow`
- * remembers which cards have already animated and hands the columns an
- * `enterOrder` holding only the ones that have not. See `animatedRef`.
+ * Only React Flow's own `animated` edge: while the turn is live, the
+ * connectors INTO the newest row march (`.react-flow__edge.animated`, the
+ * library's `dashdraw`). Everything else simply appears. See `renderedEdges`.
  */
 
 'use client'
 
-import {
-  type FC,
-  useCallback,
-  useEffect,
-  useLayoutEffect,
-  useMemo,
-  useRef,
-  useState,
-} from 'react'
+import { type FC, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { ChevronDown } from 'lucide-react'
 import {
   ReactFlow,
@@ -150,10 +138,10 @@ import '@xyflow/react/dist/style.css'
 import type { Translator } from '@/i18n'
 import { useTranslations } from '@/i18n'
 import { cn } from '@/lib/utils'
-import { motionBase, staggerMaxSteps, staggerStepSeconds } from '@/components/motion'
 import { useLayoutStore } from '@/features/layout/store'
 import { TechnicalSteps } from './TechnicalSteps'
-import type { ThinkingStep, CitationSource } from '../../types'
+import type { CitationSource } from '../../types'
+import type { StoredThinkingStep } from '@/lib/conversations/message-provenance'
 import { deriveTraceLanes } from '../../lib/trace-lanes'
 import { buildCitationModel, citedLoci, totalHits, type CitedDocument, type CitationLocus } from '../../lib/citations'
 import { documentShortName } from '../../lib/document-names'
@@ -169,7 +157,7 @@ import {
   type DeepResearchCutoff,
 } from '../../lib/turn-events'
 import { stepNameLabel } from '../../lib/executed-steps'
-import { retrievalRounds, roundFan, type FanCard } from '../../lib/retrieval-rounds'
+import { retrievalRounds, roundFan, type FanCard, type RetrievalRound } from '../../lib/retrieval-rounds'
 import type { RetrievalLedger } from '@/lib/conversations/message-retrieval-ledger'
 import type { ChoicePrompt } from './citations'
 
@@ -199,19 +187,6 @@ type HandleSpec = { id: string; left: string }
 const CENTRE_BOTTOM: HandleSpec = { id: 'c-bottom', left: '50%' }
 const CENTRE_TOP: HandleSpec = { id: 'c-top', left: '50%' }
 const CENTRE_OUT: HandleSpec = { id: 'out', left: '50%' }
-
-/**
- * The card entrance, in ms. There is deliberately no literal duration here:
- * the animation itself is pure CSS (`duration-base` plus an inline per-card
- * delay in the column node below), so both truths live in the kit
- * (`components/motion` — `motionBase` is the JS half of `--motion-base`,
- * `staggerStepSeconds`/`staggerMaxSteps` the cascade vocabulary).
- * `animatedRef` has to know when the animation it started is over, so the
- * settle window and the per-slot delay below are DERIVED from those kit
- * values instead of restating them — one truth, not two.
- */
-const ENTER_MS = Math.round((motionBase.duration as number) * 1000)
-const ENTER_STAGGER_MS = Math.round(staggerStepSeconds * 1000)
 
 const Eyebrow: FC<{ children: React.ReactNode }> = ({ children }) => (
   <SectionLabel as="div">{children}</SectionLabel>
@@ -243,13 +218,6 @@ type SourceColumnData = {
   cards: FanCard[]
   hitLabel: (count: number) => string
   gapLabel: string
-  /**
-   * Cascade slot per card id, for the cards that have NOT played their entrance
-   * yet. A card missing from the map has already animated — in this column, or
-   * in whichever one it sat in before the fan re-packed — and renders with no
-   * enter animation at all.
-   */
-  enterOrder: ReadonlyMap<string, number>
   /** Single-column (phone) layout — the cards get the grouped container. */
   grouped: boolean
   groupLabel: string
@@ -354,9 +322,7 @@ type RoundData = {
 const FramingFlowNode: FC<NodeProps<Node<FramingData>>> = ({ data }) => (
   <div className="w-[var(--banner-w)] max-w-full rounded-xl border bg-card px-4 py-3 text-left shadow-xs">
     <Eyebrow>
-      <span className="inline-flex items-center gap-1.5">
-        {data.label}
-      </span>
+      <span className="inline-flex items-center gap-1.5">{data.label}</span>
     </Eyebrow>
     <p className="mt-1 text-sm leading-relaxed text-foreground">{data.question}</p>
     {data.escalation && <p className="mt-1.5 text-xs leading-relaxed text-warning">{data.escalation}</p>}
@@ -449,14 +415,7 @@ const SourceColumnFlowNode: FC<NodeProps<Node<SourceColumnData>>> = ({ data }) =
   const stack = (
     <div role="list" aria-label={data.groupLabel} className="flex w-full flex-col">
       {data.cards.map((fanCard, i) => {
-        // Only a card that has never animated gets the entrance. Everything else
-        // is here because the fan re-packed — it was on screen a frame ago, and
-        // replaying its entrance is the flash this graph used to be full of.
-        // Keyed on the DOCUMENT, so a file two rounds both returned animates
-        // once; a bare ledger slot has no card identity and never animates.
         const card = fanCard.card
-        const slot = card ? data.enterOrder.get(card.id) : undefined
-        const entering = slot !== undefined
         return (
           <div key={fanCard.key} className="flex flex-col">
             {i > 0 && (
@@ -466,24 +425,7 @@ const SourceColumnFlowNode: FC<NodeProps<Node<SourceColumnData>>> = ({ data }) =
                 style={{ backgroundColor: EDGE_STROKE }}
               />
             )}
-            <div
-              className={
-                entering
-                  ? 'animate-in fade-in-0 slide-in-from-bottom-2 duration-base ease-entrance motion-reduce:animate-none'
-                  : undefined
-              }
-              style={
-                entering
-                  ? {
-                      // Capped at `staggerMaxSteps`: the cascade is a reading
-                      // cue, not a queue — slots past the cap start together
-                      // with the last capped one (see the kit's stagger docs).
-                      animationDelay: `${Math.min(slot, staggerMaxSteps) * ENTER_STAGGER_MS}ms`,
-                      animationFillMode: 'backwards',
-                    }
-                  : undefined
-              }
-            >
+            <div>
               {card ? (
                 <SourceCard
                   document={card}
@@ -512,9 +454,6 @@ const SourceColumnFlowNode: FC<NodeProps<Node<SourceColumnData>>> = ({ data }) =
     >
       <Handle id="in" type="target" position={Position.Top} style={{ ...H, left: '50%' }} />
       {data.grouped ? (
-        // No entrance on the container itself — the cards inside carry it, and
-        // this wrapper re-mounts whenever the width crosses GROUPED_MAX_W, which
-        // faded the whole box back in on top of them on every such resize.
         <div className="rounded-xl border bg-muted px-3 py-3">
           <Eyebrow>{data.groupLabel}</Eyebrow>
           <div className="mt-2">{stack}</div>
@@ -541,9 +480,9 @@ const FindingsFlowNode: FC<NodeProps<Node<FindingsData>>> = ({ data }) => (
     ))}
     <Eyebrow>
       <span className="inline-flex items-center gap-1.5">
-        {data.pending && (
-          <span aria-hidden="true" className="size-1.5 animate-pulse rounded-full bg-brand" />
-        )}
+        {/* Still: the connectors marching into this node are the graph's one
+            loop (see `renderedEdges`), and a pulse here would be a second. */}
+        {data.pending && <span aria-hidden="true" className="size-1.5 rounded-full bg-brand" />}
         {data.label}
       </span>
     </Eyebrow>
@@ -615,7 +554,7 @@ const nodeTypes = {
 }
 
 export interface ReasoningFlowProps {
-  steps: ThinkingStep[]
+  steps: StoredThinkingStep[]
   userQuestion: string
   answerConfidence?: 'low' | 'medium' | 'high'
   citations?: CitationSource[]
@@ -630,8 +569,14 @@ export interface ReasoningFlowProps {
    * filename match, which is what every turn before the ledger had.
    */
   retrievalLedger?: RetrievalLedger
-  /** Turn is still streaming — edges animate and the graph keeps growing. */
+  /** Turn is still streaming — the connectors into the newest row march and the graph keeps growing. */
   live?: boolean
+  /**
+   * The citation model of these steps and citations, when the caller has built
+   * it already (ChatThinking counts its sources from it). Built here otherwise;
+   * building it twice per step cost the phone twice.
+   */
+  sourceCards?: CitedDocument[]
 }
 
 // ── layout constants ──────────────────────────────────────────────────────────
@@ -653,10 +598,7 @@ const ROW_GAP = 40
  * Container bottom padding below the last row.
  *
  * Must clear what renders OUTSIDE a node's border box, because React Flow's
- * pane clips: the card enter animation starts 8px lower (`slide-in-from-bottom-2`)
- * and `shadow-xs` bleeds a few px further. Sized to the content alone, the
- * bottom row visibly clipped for the whole animation — most obvious while a
- * turn streams, when cards enter continuously.
+ * pane clips: `shadow-xs` bleeds a few px past the last row.
  */
 const PAD = 24
 /** Floor for the content width, so a not-yet-measured container still builds. */
@@ -778,7 +720,7 @@ function trunkEdge(anchor: 'source' | 'target'): FC<EdgeProps> {
       // the trunk as two near-parallel lines. Keep it well under TRUNK_ELBOW.
       offset: TRUNK_ELBOW / 2,
     })
-    return <BaseEdge path={path} markerEnd={markerEnd} style={style} />
+    return <BaseEdge path={path} markerEnd={markerEnd} style={style} interactionWidth={0} />
   }
   TrunkEdge.displayName = anchor === 'source' ? 'SplitEdge' : 'MergeEdge'
   return TrunkEdge
@@ -1047,17 +989,13 @@ export function buildGraph(
   layout: FanLayout,
   cards: CitedDocument[],
   /**
-   * Cascade slot for each card that has not played its entrance yet. Empty by
-   * default: a graph built without it animates nothing, which is the right
-   * answer both for a structural test and for a rebuild that added no cards.
-   */
-  enterOrder: ReadonlyMap<string, number> = new Map(),
-  /**
    * Which checkpoint layers are folded, and how to unfold one. Absent means
    * "nothing is folded and the control does nothing" — the right answer for a
    * structural test that is not about folding.
    */
-  folding: SpineFolding = { folded: new Set<number>(), onToggle: () => {} }
+  folding: SpineFolding = { folded: new Set<number>(), onToggle: () => {} },
+  /** `retrievalRounds(props.steps)`, when the caller has parsed it already. */
+  rounds: RetrievalRound[] = retrievalRounds(props.steps)
 ): BuiltGraph {
   const { columns, colW, gap, fanX, grouped } = layout
   const hasSources = cards.length > 0 && columns.length > 0
@@ -1205,7 +1143,6 @@ export function buildGraph(
   // is the thought, never the query (PF-12). A missing Thought is an empty
   // body, not a caption we invent. Tools sit on the checkpoint as the
   // architect-facing names of what that round actually did.
-  const rounds = retrievalRounds(props.steps)
   const spine = rounds.length >= 2
   const roundIds = spine ? rounds.map((_, i) => `round-${i}`) : []
   const hitLabel = (count: number) =>
@@ -1253,7 +1190,6 @@ export function buildGraph(
         cards: indices.map((idx) => roundCards[idx]!),
         hitLabel,
         gapLabel: t('thinking.gapHit'),
-        enterOrder,
         grouped: packed.grouped,
         groupLabel: t('thinking.sourcesFanOut'),
         live: Boolean(props.live),
@@ -1312,7 +1248,6 @@ export function buildGraph(
         }),
         hitLabel,
         gapLabel: t('thinking.gapHit'),
-        enterOrder,
         grouped,
         groupLabel: t('thinking.sourcesFanOut'),
         live: Boolean(props.live),
@@ -1379,6 +1314,77 @@ export function buildGraph(
   return { nodes, edges, rows }
 }
 
+/**
+ * Is a rebuilt node's data the same as what the node already shows? Compared
+ * by value, because `buildGraph` builds every node afresh. Functions count as
+ * equal: the ones in node data are labels and handlers rebuilt from the same
+ * translations and props, and they do not change what a node draws; the fold
+ * toggle reads the round count through a ref for that reason. Exported for its
+ * own spec.
+ */
+export function sameNodeData(a: unknown, b: unknown): boolean {
+  if (a === b) return true
+  if (typeof a === 'function' && typeof b === 'function') return true
+  if (typeof a !== 'object' || typeof b !== 'object' || a === null || b === null) return false
+  if (a instanceof Map || b instanceof Map) {
+    if (!(a instanceof Map && b instanceof Map) || a.size !== b.size) return false
+    for (const [key, value] of a) if (!b.has(key) || !sameNodeData(value, b.get(key))) return false
+    return true
+  }
+  if (a instanceof Set || b instanceof Set) {
+    if (!(a instanceof Set && b instanceof Set) || a.size !== b.size) return false
+    for (const value of a) if (!b.has(value)) return false
+    return true
+  }
+  if (a instanceof Date || b instanceof Date) {
+    return a instanceof Date && b instanceof Date && a.getTime() === b.getTime()
+  }
+  if (Array.isArray(a) || Array.isArray(b)) {
+    if (!(Array.isArray(a) && Array.isArray(b)) || a.length !== b.length) return false
+    return a.every((value, i) => sameNodeData(value, b[i]))
+  }
+  const aFields: Record<string, unknown> = { ...a }
+  const bFields: Record<string, unknown> = { ...b }
+  const keys = Object.keys(aFields)
+  if (keys.length !== Object.keys(bFields).length) return false
+  return keys.every((key) => key in bFields && sameNodeData(aFields[key], bFields[key]))
+}
+
+// Module constants, not literals in the JSX: React Flow compares these by
+// identity, and a new object on every ReasoningFlow render re-rendered its
+// GraphView, FlowRenderer and ZoomPane each time (React performance audit, 2026-09).
+const DEFAULT_VIEWPORT = { x: 0, y: 0, zoom: 1 }
+const PRO_OPTIONS = { hideAttribution: true }
+
+/**
+ * The edges as React Flow draws them: the connectors INTO `newestRow` get the
+ * library's own `animated` flag (the marching `dashdraw` dash), every other
+ * connector stays solid. Pass an empty row for a settled graph. Exported for
+ * its spec.
+ */
+export function animateFrontier(edges: Edge[], newestRow: readonly string[]): Edge[] {
+  if (newestRow.length === 0) return edges
+  const frontier = new Set(newestRow)
+  return edges.map((e) => (frontier.has(e.target) ? { ...e, animated: true } : e))
+}
+
+/**
+ * Keep the previous edge object wherever a rebuilt edge says the same thing.
+ * `buildGraph` makes every edge afresh, and React Flow re-renders an edge
+ * whose object changed; this is the edge half of what `sameNodeData` does for
+ * the nodes. Exported for its spec.
+ */
+export function keepEdgeIdentity(prev: readonly Edge[], next: Edge[]): Edge[] {
+  if (prev.length === 0) return next
+  const prevById = new Map(prev.map((e) => [e.id, e]))
+  const kept = next.map((e) => {
+    const old = prevById.get(e.id)
+    return old && sameNodeData(old, e) ? old : e
+  })
+  const unchanged = kept.length === prev.length && kept.every((e, i) => e === prev[i])
+  return unchanged ? (prev as Edge[]) : kept
+}
+
 const FlowInner: FC<{ built: BuiltGraph; layout: FanLayout; live: boolean }> = ({ built, layout, live }) => {
   const t = useTranslations('chat')
   const { nodes, edges, rows } = built
@@ -1423,9 +1429,18 @@ const FlowInner: FC<{ built: BuiltGraph; layout: FanLayout; live: boolean }> = (
           const rowY = rowYRef.current[rowIndexById.get(n.id) ?? -1]
           return { ...n, position: { x: n.position.x, y: rowY ?? rowYRef.current.at(-1) ?? 0 } }
         }
+        // Nothing about the node changed: keep the very object, so React Flow
+        // neither re-renders nor re-measures it. Every node used to be a new
+        // object on every step, and each arriving round re-rendered and
+        // re-measured the whole graph: a 65–70 ms task per round on a 4×
+        // throttled phone (Herleitung audit, 2026-09).
+        if (old.position.x === n.position.x && old.type === n.type && sameNodeData(old.data, n.data)) {
+          return old
+        }
         return { ...old, ...n, position: { x: n.position.x, y: old.position.y } }
       })
-      return next
+      const unchanged = next.length === prev.length && next.every((n, i) => n === prev[i])
+      return unchanged ? prev : next
     })
   }, [nodes, rowIndexById])
 
@@ -1457,19 +1472,23 @@ const FlowInner: FC<{ built: BuiltGraph; layout: FanLayout; live: boolean }> = (
     if (changed.length > 0) updateNodeInternals(changed)
   }, [handleSigs, updateNodeInternals])
 
-  // While the turn streams, the connectors are dashed; a finished turn draws
-  // them solid. They used to march (React Flow's `animated`), which animates
-  // `stroke-dashoffset`: no compositor can run that, so the graph repainted
-  // every frame for the whole turn, about half of what a live turn cost a 4×
-  // throttled phone at rest (measured on `/dev/chat-turn`). The dash alone
-  // still says "not finished".
-  const renderedEdges = useMemo(
-    () =>
-      live
-        ? edges.map((e) => ({ ...e, style: { ...e.style, strokeDasharray: '5 4' } }))
-        : edges,
-    [edges, live]
-  )
+  // The connectors are solid. While the turn streams, the ones into the newest
+  // row are React Flow's own `animated` edges, and nothing else in the graph
+  // moves. That dash loop repaints on the main thread (a marching connector
+  // measured ~245 ms of main thread per second on a 4x throttled phone,
+  // Herleitung audit, 2026-09), so it is held to the frontier and to a live
+  // turn: a settled graph draws no animated edge at all.
+  const frontierKey = live ? (rows.at(-1) ?? []).join('|') : ''
+  // The last edges handed to React Flow, so an unchanged edge keeps its object
+  // (`keepEdgeIdentity`). Rewritten only when the memo recomputes, and the
+  // write is idempotent, so a double render lands on the same array.
+  const keptEdgesRef = useRef<Edge[]>([])
+  const renderedEdges = useMemo(() => {
+    const newestRow = frontierKey ? frontierKey.split('|') : []
+    const kept = keepEdgeIdentity(keptEdgesRef.current, animateFrontier(edges, newestRow))
+    keptEdgesRef.current = kept
+    return kept
+  }, [edges, frontierKey])
 
   const rowsKey = useMemo(() => rows.map((r) => r.join('|')).join('/'), [rows])
 
@@ -1524,12 +1543,17 @@ const FlowInner: FC<{ built: BuiltGraph; layout: FanLayout; live: boolean }> = (
       })
       return moved ? next : prev
     })
-    setHeight(Math.max(120, Math.ceil(Math.max(0, y - ROW_GAP)) + PAD))
+    // A live graph only grows. At the second round the fan's nodes are replaced
+    // by the spine's, and until those are measured the rows came out short: the
+    // graph shrank 697 → 408 px and grew to 1009 px, and the page jumped with it
+    // (Herleitung audit, 2026-09). Once the turn ends it takes its real height.
+    const measuredHeight = Math.max(120, Math.ceil(Math.max(0, y - ROW_GAP)) + PAD)
+    setHeight((previous) => (live && previous !== null ? Math.max(previous, measuredHeight) : measuredHeight))
     setLaidOut(true)
     // rows is covered by rowsKey (a stable string). contentW/colW are the widths
     // the nodes are sized against, so both edges of a reflow get a pass.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [initialized, rowsKey, rfNodes, layout.contentW, layout.colW])
+  }, [initialized, rowsKey, rfNodes, layout.contentW, layout.colW, live])
 
   return (
     <div
@@ -1537,8 +1561,9 @@ const FlowInner: FC<{ built: BuiltGraph; layout: FanLayout; live: boolean }> = (
       style={{
         height: height ?? undefined,
         minHeight: height ? undefined : 160,
+        // The gate hides the provisional first layout and nothing else: it
+        // lifts in one frame.
         opacity: laidOut ? 1 : 0,
-        transition: 'opacity 150ms ease-out',
         ['--banner-w' as string]: `${layout.contentW}px`,
         ['--source-w' as string]: `${layout.colW}px`,
       }}
@@ -1546,18 +1571,19 @@ const FlowInner: FC<{ built: BuiltGraph; layout: FanLayout; live: boolean }> = (
       // React Flow's stylesheet takes and this graph never uses. See the rule in
       // globals.css — without it the whole Herleitung is a dead zone under a
       // finger, and it is the tallest thing in a turn.
-      className="reasoning-flow-scrollable w-full"
+      className="reasoning-flow-scrollable w-full overflow-hidden"
       data-testid="reasoning-flow"
       role="group"
       aria-label={t('thinking.reasoningGraphLabel')}
     >
       <ReactFlow
+        style={height ? { height } : undefined}
         nodes={rfNodes}
         edges={renderedEdges}
         nodeTypes={nodeTypes}
         edgeTypes={edgeTypes}
         onNodesChange={onNodesChange}
-        defaultViewport={{ x: 0, y: 0, zoom: 1 }}
+        defaultViewport={DEFAULT_VIEWPORT}
         minZoom={1}
         maxZoom={1}
         nodesDraggable={false}
@@ -1578,7 +1604,7 @@ const FlowInner: FC<{ built: BuiltGraph; layout: FanLayout; live: boolean }> = (
         panOnDrag={false}
         panOnScroll={false}
         preventScrolling={false}
-        proOptions={{ hideAttribution: true }}
+        proOptions={PRO_OPTIONS}
       />
     </div>
   )
@@ -1595,6 +1621,7 @@ export const ReasoningFlow: FC<ReasoningFlowProps> = (props) => {
     escalationReason,
     retrievalLedger,
     live,
+    sourceCards,
   } = props
   const t = useTranslations('chat')
   const showTechnicalReasoning = useLayoutStore((s) => s.showTechnicalReasoning)
@@ -1618,8 +1645,8 @@ export const ReasoningFlow: FC<ReasoningFlowProps> = (props) => {
    * alone and had no way to reach the other.
    */
   const cards = useMemo(
-    () => buildCitationModel({ traceLanes: deriveTraceLanes(steps), citations }),
-    [steps, citations]
+    () => sourceCards ?? buildCitationModel({ traceLanes: deriveTraceLanes(steps), citations }),
+    [sourceCards, steps, citations]
   )
   const layout = useMemo(() => planFan(width || FALLBACK_W, cards.length), [width, cards.length])
 
@@ -1639,68 +1666,34 @@ export const ReasoningFlow: FC<ReasoningFlowProps> = (props) => {
    * terms (`ChatThinking`), which is the persistence that matters.
    */
   const [foldOverrides, setFoldOverrides] = useState<ReadonlyMap<number, boolean>>(new Map())
-  const roundCount = useMemo(() => retrievalRounds(steps).length, [steps])
+  // Parsed once per step change and handed to `buildGraph`, which needs the
+  // rounds themselves; the fold state only needs how many there are.
+  const rounds = useMemo(() => retrievalRounds(steps), [steps])
+  const roundCount = rounds.length
+  // Read at click time, not captured: a node whose data did not change keeps
+  // the handler it was built with (`sameNodeData`), across later rounds too.
+  const roundCountRef = useRef(roundCount)
+  useEffect(() => {
+    roundCountRef.current = roundCount
+  }, [roundCount])
+  const toggleFold = useCallback(
+    (index: number) =>
+      setFoldOverrides((prev) => {
+        const next = new Map(prev)
+        next.set(index, !(prev.get(index) ?? defaultFoldedRounds(roundCountRef.current).has(index)))
+        return next
+      }),
+    []
+  )
   const folding = useMemo<SpineFolding>(() => {
     const byDefault = defaultFoldedRounds(roundCount)
     const folded = new Set<number>()
     for (let i = 0; i < roundCount; i++) {
       if (foldOverrides.get(i) ?? byDefault.has(i)) folded.add(i)
     }
-    return {
-      folded,
-      onToggle: (index: number) =>
-        setFoldOverrides((prev) => {
-          const next = new Map(prev)
-          next.set(index, !(prev.get(index) ?? defaultFoldedRounds(roundCount).has(index)))
-          return next
-        }),
-    }
-  }, [foldOverrides, roundCount])
+    return { folded, onToggle: toggleFold }
+  }, [foldOverrides, roundCount, toggleFold])
 
-  /**
-   * Card ids that have already played their enter animation.
-   *
-   * Which column NODE a card lives in is a function of the container width and
-   * the card count, and `buildCitationModel` sorts, so one late source both
-   * re-balances the columns and can land anywhere in the list. React tears the
-   * card's DOM down in its old column and mounts it in the new one, replaying
-   * the CSS entrance — a single new source made the whole fan flash, and every
-   * card flashed again on a resize.
-   *
-   * Keying the entrance on card identity fixes both, and a third thing: the
-   * cascade offset used to be the card's index in the WHOLE fan, so the eighth
-   * source of a turn sat invisible for 420ms before appearing. A late arrival is
-   * now slot 0 of its own batch.
-   *
-   * A card counts as entered only once its animation has had time to run.
-   * Marking it the moment it rendered would be enough to survive a re-pack — but
-   * this map has to go stale for a REASON, and "the card list did not change" is
-   * not one: a resize alone re-packs the columns, and with the batch still
-   * listed here every card would flash again on every resize.
-   */
-  const animatedRef = useRef<Set<string>>(new Set())
-  const [entered, setEntered] = useState(0)
-  const enterOrder = useMemo(() => {
-    const order = new Map<string, number>()
-    let slot = 0
-    for (const c of cards) if (!animatedRef.current.has(c.id)) order.set(c.id, slot++)
-    return order
-    // `entered` is the settle signal, not a value this reads — it invalidates
-    // the memo once the batch below has finished playing.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [cards, entered])
-  useEffect(() => {
-    if (enterOrder.size === 0) return
-    const settle =
-      Math.min(Math.max(...enterOrder.values()), staggerMaxSteps) * ENTER_STAGGER_MS + ENTER_MS
-    const timer = setTimeout(() => {
-      for (const id of enterOrder.keys()) animatedRef.current.add(id)
-      setEntered((n) => n + 1)
-    }, settle)
-    // Cards streaming in mid-cascade cancel this and fold into the next batch,
-    // so an entrance is never cut short and no card is left unmarked.
-    return () => clearTimeout(timer)
-  }, [enterOrder])
   // Memoised on the fields that actually shape the graph — NOT on the props
   // object, whose identity changes on every parent render and would rebuild
   // (and re-measure) the whole graph each time.
@@ -1725,8 +1718,8 @@ export const ReasoningFlow: FC<ReasoningFlowProps> = (props) => {
         t,
         layout,
         cards,
-        enterOrder,
-        folding
+        folding,
+        rounds
       ),
     [
       steps,
@@ -1741,8 +1734,8 @@ export const ReasoningFlow: FC<ReasoningFlowProps> = (props) => {
       t,
       layout,
       cards,
-      enterOrder,
       folding,
+      rounds,
     ]
   )
 

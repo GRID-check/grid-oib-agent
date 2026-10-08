@@ -83,6 +83,26 @@ async def test_generate_summary_success(app):
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("zdr", [True, False])
+async def test_the_request_follows_the_organizations_zdr_setting(app, monkeypatch, zdr):
+    monkeypatch.setenv("LLM_BASE_URL", "https://openrouter.ai/api/v1")
+    mock_post = AsyncMock(return_value=_summary_response("Ein Projekt."))
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        with (
+            patch("httpx.AsyncClient", _fake_async_client(mock_post)),
+            patch("aiq_agent.common.model_overrides.resolve_org_zdr_only", return_value=zdr),
+            patch("aiq_agent.common.llm_credentials.resolve_org_llm_credential", return_value=None),
+        ):
+            await client.post(
+                "/v1/generate-summary", json={"profile_text": "Büro."}, headers={"x-grid-organization-id": "org_1"}
+            )
+
+    sent = mock_post.call_args.kwargs["json"]
+    assert ("provider" in sent and sent["provider"]["zdr"] is True) is zdr
+
+
+@pytest.mark.asyncio
 async def test_generate_summary_empty_profile_text(app):
     """Test that empty/whitespace profile_text short-circuits without calling the LLM."""
     mock_post = AsyncMock()
@@ -311,9 +331,9 @@ def test_placeholder_openrouter_key_does_not_select_the_openrouter_endpoint(monk
     for name in ("SUMMARY_LLM_MODEL", "SUMMARY_LLM_BASE_URL", "SUMMARY_LLM_API_KEY", "LLM_MODEL", "LLM_BASE_URL"):
         monkeypatch.delenv(name, raising=False)
 
-    model, api_key, base_url = _llm_settings()
+    cred = _llm_settings()
 
-    assert "openrouter.ai" not in base_url
-    assert base_url == "https://api.openai.com/v1"
-    assert model == "gpt-4o-mini"
-    assert api_key == "sk-some-other-provider"  # pragma: allowlist secret
+    assert "openrouter.ai" not in cred.base_url
+    assert cred.base_url == "https://api.openai.com/v1"
+    assert cred.model == "gpt-4o-mini"
+    assert cred.api_key == "sk-some-other-provider"  # pragma: allowlist secret

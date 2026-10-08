@@ -1,5 +1,6 @@
 'use client'
 
+import type { JSX } from 'react'
 import type { ComponentProps, ReactNode } from 'react'
 import { motion, motionQuick, springPress } from '@/components/motion'
 import { cn } from '@/lib/utils'

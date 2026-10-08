@@ -6,8 +6,10 @@ NullHandler, no export attempts against a collector that does not exist.
 
 import logging
 
+import pytest
 import yaml
 
+from aiq_agent.observability import metrics as grid_metrics
 from aiq_agent.observability.otlp_logging_method import OtlpLoggingMethodConfig
 from aiq_agent.observability.otlp_logging_method import _logs_endpoint
 from aiq_agent.observability.otlp_logging_method import otlp_logging_method
@@ -27,6 +29,32 @@ async def test_missing_endpoint_yields_a_null_handler():
     # the tracing exporter crashed NAT startup on exactly this).
     async with otlp_logging_method(OtlpLoggingMethodConfig(), None) as handler:
         assert isinstance(handler, logging.NullHandler)
+
+
+@pytest.fixture(autouse=True)
+def metrics_calls(monkeypatch):
+    """The metrics provider is global and set once per process: record the calls, never make them."""
+    calls: list[tuple] = []
+    monkeypatch.setattr(
+        grid_metrics, "install_meter_provider", lambda endpoint, **kw: calls.append(("install", endpoint))
+    )
+    return calls
+
+
+async def test_the_metrics_provider_is_installed_on_the_logs_endpoint(metrics_calls):
+    config = OtlpLoggingMethodConfig(endpoint="http://otel-collector:4318/v1/traces")
+
+    async with otlp_logging_method(config, None):
+        assert metrics_calls == [("install", "http://otel-collector:4318/v1/traces")]
+
+    assert metrics_calls == [("install", "http://otel-collector:4318/v1/traces")]
+
+
+async def test_without_an_endpoint_no_metrics_provider_is_asked_for(metrics_calls):
+    async with otlp_logging_method(OtlpLoggingMethodConfig(), None):
+        pass
+
+    assert metrics_calls == []
 
 
 async def test_configured_endpoint_yields_an_otlp_handler():
@@ -59,3 +87,47 @@ def test_shipped_config_wires_the_otlp_logging_method():
     assert otlp["endpoint"] == "${OTEL_EXPORTER_OTLP_ENDPOINT:-}", (
         "logging endpoint must default to empty so the handler no-ops when the observability tier is not deployed"
     )
+
+
+def test_resource_names_the_build_the_record_came_from():
+    # err2issue reads service.version into the issue's "Version" row; without
+    # it a regression on a closed issue could not be told from a stale pod.
+    from aiq_agent.observability.otlp_logging_method import _resource_attributes
+
+    attributes = _resource_attributes({"OTEL_SERVICE_NAME": "grid-agent-worker", "GRID_GIT_SHA": " abc123 "})
+    assert attributes == {"service.name": "grid-agent-worker", "service.version": "abc123"}
+
+
+def test_resource_omits_the_version_when_the_image_carries_none():
+    from aiq_agent.observability.otlp_logging_method import _resource_attributes
+
+    assert _resource_attributes({"GRID_GIT_SHA": ""}) == {"service.name": "aiq-agent"}
+
+
+def test_a_failed_build_exports_its_cause_not_its_itemization(caplog):
+    # NAT's own logger, driven for real, so a change in how it reports a failed
+    # build shows up here rather than as eleven issues again (#742-#752).
+    from aiq_agent.observability.otlp_logging_method import _NatBuildFailureItemizationFilter
+    from nat.builder.workflow_builder import _log_build_failure
+
+    with caplog.at_level(logging.ERROR, logger="nat.builder.workflow_builder"):
+        try:
+            raise RuntimeError("database system is shutting down")
+        except RuntimeError as exc:
+            _log_build_failure(
+                "<workflow>", "workflow", [("summary_llm", "llms")], [("knowledge_search", "functions")], exc
+            )
+
+    assert len(caplog.records) > 3, "NAT itemizes a failed build; if this changed, revisit the filter"
+    exported = [r for r in caplog.records if _NatBuildFailureItemizationFilter().filter(r)]
+    assert len(exported) == 1
+    assert exported[0].exc_info is not None
+    assert "database system is shutting down" in exported[0].getMessage()
+
+
+def test_other_nat_errors_are_still_exported():
+    from aiq_agent.observability.otlp_logging_method import _NatBuildFailureItemizationFilter
+
+    record = logging.LogRecord("nat.runtime", logging.ERROR, __file__, 1, "- summary_llm (llms)", (), None)
+    record.funcName = "run"
+    assert _NatBuildFailureItemizationFilter().filter(record)

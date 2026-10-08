@@ -5,12 +5,18 @@ one-sentence project summary from the structured profile prompt view text
 sent by the UI's ``/api/projects/[id]/generate-summary`` BFF route.
 """
 
+import asyncio
 import logging
 import os
 
 import httpx
 from fastapi import APIRouter
 from fastapi import Header
+
+from aiq_agent.common import provider_limiter
+from aiq_agent.common.credential_resolution import ResolvedCredential
+from aiq_agent.common.openrouter import DataPolicy
+from aiq_agent.common.openrouter import limited_async_http_client
 
 from ..models.requests import GenerateSummaryRequest
 from ..models.requests import GenerateSummaryResponse
@@ -26,16 +32,20 @@ SYSTEM_PROMPT = (
 )
 
 
-def _llm_settings(organization_id: str | None = None) -> tuple[str, str, str]:
-    """Resolve the model/api_key/base_url for the summary LLM call.
+def _llm_settings(organization_id: str | None = None, *, data_policy: DataPolicy | None = None) -> ResolvedCredential:
+    """Resolve the endpoint (model, key, base URL, data policy) for the summary LLM call.
 
     Goes through the shared credential resolver so this route reaches the org's
-    BYOK credential like every other LLM call, then the same env chain as before:
-    ``SUMMARY_LLM_*`` → generic ``LLM_*`` → the OpenRouter/OpenAI default used by
-    ``config_oib_openrouter.yml`` (without which every summary silently degrades
-    to ""). Model + base URL keep their two-level env fallback; the resolver adds
-    BYOK (org key + base, model unchanged) and provider inference on top.
-    Fail-open: a BYOK miss falls back to the env chain.
+    BYOK credential and ZDR policy like every other LLM call, then the same env
+    chain as before: ``SUMMARY_LLM_*`` → generic ``LLM_*`` → the OpenRouter/OpenAI
+    default used by ``config_oib_openrouter.yml`` (without which every summary
+    silently degrades to ""). Model + base URL keep their two-level env fallback;
+    the resolver adds BYOK (org key + base, model unchanged) and provider
+    inference on top. Fail-open for the key: a BYOK miss falls back to the env
+    chain. Callers send their body through ``request_body``.
+
+    ``data_policy`` is for the cross-tenant routes sharing this resolver
+    (feedback digest, lesson distill): see ``resolve_llm_credential``.
     """
     from aiq_agent.common.credential_resolution import read_api_key_env
     from aiq_agent.common.credential_resolution import resolve_llm_credential
@@ -62,10 +72,11 @@ def _llm_settings(organization_id: str | None = None) -> tuple[str, str, str]:
         default_base_url=base_url,
         default_model=model,
         organization_id=organization_id,
+        data_policy=data_policy,
     )
     if not cred.api_key:
         logger.warning("No API key for summary LLM (BYOK / SUMMARY_LLM_API_KEY / LLM_API_KEY / OPENROUTER_API_KEY)")
-    return cred.model, cred.api_key, cred.base_url
+    return cred
 
 
 def add_generate_summary_routes(router: APIRouter) -> None:
@@ -91,31 +102,33 @@ def add_generate_summary_routes(router: APIRouter) -> None:
         if not profile_text:
             return GenerateSummaryResponse(summary="")
 
-        model, api_key, base_url = _llm_settings(x_grid_organization_id)
-        if not api_key:
+        cred = await asyncio.to_thread(_llm_settings, x_grid_organization_id)
+        if not cred.api_key:
             # No credentials resolved — do not send a request that is guaranteed
             # to fail (401/403). Surface a diagnosable code instead.
             return GenerateSummaryResponse(summary="", error="llm_not_configured")
 
-        headers = {"Content-Type": "application/json", "Authorization": f"Bearer {api_key}"}
+        headers = {"Content-Type": "application/json", "Authorization": f"Bearer {cred.api_key}"}
 
         # Mirrors consistency_check.py so both endpoints localise identically.
         language = "German" if request.locale.lower().startswith("de") else "English"
         user_content = f"Write the summary in {language}.\n\n{profile_text}"
 
-        payload = {
-            "model": model,
-            "temperature": 0.3,
-            "max_tokens": 150,
-            "messages": [
-                {"role": "system", "content": SYSTEM_PROMPT},
-                {"role": "user", "content": user_content},
-            ],
-        }
+        payload = cred.request_body(
+            {
+                "model": cred.model,
+                "temperature": 0.3,
+                "max_tokens": 150,
+                "messages": [
+                    {"role": "system", "content": SYSTEM_PROMPT},
+                    {"role": "user", "content": user_content},
+                ],
+            }
+        )
 
         try:
-            async with httpx.AsyncClient(timeout=30.0) as client:
-                response = await client.post(f"{base_url}/chat/completions", json=payload, headers=headers)
+            async with limited_async_http_client(cls=provider_limiter.INTERACTIVE, timeout=30.0) as client:
+                response = await client.post(f"{cred.base_url}/chat/completions", json=payload, headers=headers)
                 response.raise_for_status()
                 data = response.json()
         except httpx.HTTPStatusError as exc:

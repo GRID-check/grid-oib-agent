@@ -30,6 +30,7 @@ import {
 import { Spinner } from '@/components/ui/spinner'
 import { useAuth } from '@/adapters/auth'
 import { useChatStore } from '@/features/chat'
+import { useConversationOnServer } from '@/features/chat/lib/conversation-on-server'
 import { hasLiveRun } from '@/features/chat/lib/session-activity'
 import { AccessChip, namedAudienceCount } from '@/features/collaboration/components/AccessChip'
 import { InboxBadge } from '@/features/collaboration/components/InboxBadge'
@@ -111,8 +112,16 @@ export const ChatToolbar: FC<ChatToolbarProps> = memo(function ChatToolbar({
   // Sharing state for this thread. One request per conversation, shared by the
   // strip, the chip and the dialog — the hook is fully inert while the feature is
   // off or there is no reachable conversation (no fetch, no live subscription).
+  // A chat started here is on the server only once its first message has been
+  // stored, and the header appears with that message — asking before the create
+  // lands is answered 404.
+  const isConversationOnServer = useConversationOnServer(conversationId)
   const isSharingReachable = Boolean(
-    isCollaborationEnabled && isAuthenticated && isChatStarted && conversationId,
+    isCollaborationEnabled &&
+      isAuthenticated &&
+      isChatStarted &&
+      conversationId &&
+      isConversationOnServer,
   )
   const sharing = useSharing('conversation', conversationId ?? null, isSharingReachable)
   const [isShareOpen, setIsShareOpen] = useState(false)

@@ -29,8 +29,8 @@
 #   3. Set TAVILY_API_KEY if you want web_search/advanced_web_search live
 #      (the deep_research_agent tool list below requires it to be usable,
 #      though a case can still run using knowledge_search/RIS alone).
-#   4. The OIB knowledge base should be ingested (see AGENTS.md "Docker-first
-#      quick start" / scripts/ingest_oib.py) — cases (a)/(b) depend on
+#   4. The OIB knowledge base should be ingested (upload the PDFs with
+#      scripts/upload_oib_corpus.py) — cases (a)/(b) depend on
 #      knowledge_search actually finding OIB-RL 2/4 content to answer from.
 #
 # RUN:
@@ -163,7 +163,6 @@ functions:
 
   knowledge_search:
     _type: knowledge_retrieval
-    backend: llamaindex
     collection_name: ${COLLECTION_NAME:-oib_knowledge}
     include_base_collection: true
     include_session_collection: true

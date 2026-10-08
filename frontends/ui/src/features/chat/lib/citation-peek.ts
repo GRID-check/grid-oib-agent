@@ -66,8 +66,8 @@ export const latestFinishedAssistantMessage = (
 
 /**
  * Build the turn's citation model the same way the answer surface does, then
- * apply {@link peekableCitedFile}. Cards and the written Quellen list are
- * folded in so a filename that only survived in prose still resolves.
+ * apply {@link peekableCitedFile}. The written Quellen list is folded in so a
+ * filename that only survived in prose still resolves.
  */
 export const peekableFileForMessage = (message: ChatMessage): PeekableCitedFile | null => {
   const { entries } = splitAnswerBody(message.content ?? '')
@@ -75,7 +75,6 @@ export const peekableFileForMessage = (message: ChatMessage): PeekableCitedFile 
     buildCitationModel({
       citations: message.citations,
       entries,
-      cards: message.cards,
     }),
   )
 }

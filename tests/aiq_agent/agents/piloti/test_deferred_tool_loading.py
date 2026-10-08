@@ -18,6 +18,8 @@ from aiq_agent.agents.piloti.tool_search import ToolSearchSettings
 from aiq_agent.common import LLMProvider
 from aiq_agent.common.deferred_tool_loading import DeferredToolBinding
 from aiq_agent.common.deferred_tool_loading import DeferredToolLoadingSettings
+from aiq_agent.common.deferred_tool_loading import record_model_verdict
+from aiq_agent.common.deferred_tool_loading import reset_model_capability_cache
 
 
 @tool
@@ -71,7 +73,14 @@ class FakeOpenRouterLLM:
 
 @pytest.fixture
 def llm():
-    return FakeOpenRouterLLM()
+    # These tests are about how the agent binds a model that defers, so the
+    # probe has measured this one's saving; the gate itself is tested in
+    # tests/aiq_agent/common/test_deferred_tool_loading.py.
+    reset_model_capability_cache()
+    fake = FakeOpenRouterLLM()
+    record_model_verdict(fake.model_name, True, source="test: probe measured the saving")
+    yield fake
+    reset_model_capability_cache()
 
 
 @pytest.fixture

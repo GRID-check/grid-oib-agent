@@ -1,5 +1,6 @@
 'use client'
 
+import type { JSX } from 'react'
 import type { ReactNode } from 'react'
 import { ArrowDownNarrowWide, ArrowUpNarrowWide, SlidersHorizontal } from 'lucide-react'
 
@@ -21,6 +22,7 @@ import {
   type AssignmentFilter,
   type FileFilters,
   type FileStatusGroup,
+  type TagOption,
 } from '../lib/file-filters'
 import { defaultDirectionFor, type FileSort, type FileSortKey } from '../lib/file-sort'
 
@@ -69,6 +71,11 @@ export interface FileFilterMenuProps {
    * reader could do to enable it short of clearing a search they meant.
    */
   sortDisabled?: boolean
+  /**
+   * The tags the loaded documents carry. Absent or empty hides the section —
+   * a filter over nothing is a control that does nothing.
+   */
+  tagOptions?: readonly TagOption[]
   /** Fixture escape hatch: renders the popover open for the visual registry. */
   defaultOpen?: boolean
 }
@@ -91,6 +98,7 @@ export function FileFilterMenu({
   sort,
   onSortChange,
   sortDisabled = false,
+  tagOptions = [],
   defaultOpen,
 }: FileFilterMenuProps): JSX.Element {
   const t = useTranslations('files')
@@ -102,6 +110,12 @@ export function FileFilterMenu({
     onFiltersChange({
       ...filters,
       statuses: toggleIn(filters.statuses, group, FILE_STATUS_GROUPS),
+    })
+
+  const setTags = (key: string) =>
+    onFiltersChange({
+      ...filters,
+      tags: toggleIn(filters.tags, key, tagOptions.map((option) => option.key)),
     })
 
   const DirectionIcon = sort.direction === 'asc' ? ArrowUpNarrowWide : ArrowDownNarrowWide
@@ -275,6 +289,23 @@ export function FileFilterMenu({
             />
           ))}
         </FilterSection>
+
+        {tagOptions.length > 0 && (
+          <>
+            <Separator />
+            <FilterSection label={t('filters.tagLabel')}>
+              {tagOptions.map((option, index) => (
+                <CheckRow
+                  key={option.key}
+                  id={`file-filter-tag-${index}`}
+                  checked={filters.tags.includes(option.key)}
+                  onChange={() => setTags(option.key)}
+                  label={option.label}
+                />
+              ))}
+            </FilterSection>
+          </>
+        )}
 
         <Separator />
         {/* Disabled, not hidden: a reset that appears only once something is on

@@ -8,10 +8,10 @@
  * So each card is rendered as a titled table or a labelled block: the same
  * facts, in the form Word can carry, edit and search.
  *
- * ## One walker, not forty renderers
+ * ## One walker, not a renderer per type
  *
- * The catalogue has forty card types and grows — it was twenty-seven when this
- * was written, which is the argument making itself. Forty bespoke renderers
+ * The catalogue has twenty-two card types (it peaked at forty-five before
+ * ADR-0069 moved the tables into Markdown). A bespoke renderer per type
  * would mean the export silently loses a card type on the day the
  * next one ships — the exact failure this feature exists to prevent, because a
  * finding missing from an exported file reads as a finding the answer never
@@ -69,7 +69,7 @@ import type { Translator } from '@/i18n/translate'
 import { answerExport as canonicalDictionary } from '@/i18n/dictionaries/en/answer-export'
 import type { GridCard } from '@/shared/cards/schemas'
 import { compact, type DocBlock, type DocRun, type HeadingLevel } from './blocks'
-import { diagramBlocks, markdownToBlocks, type MarkdownToBlocksOptions } from './markdown'
+import { markdownToBlocks, type MarkdownToBlocksOptions } from './markdown'
 
 /** A stored card: validated upstream, but read here as untrusted jsonb. */
 type CardRecord = Record<string, unknown>
@@ -134,14 +134,6 @@ const VOCABULARIES = new Map<string, Set<string>>(
  *     `ifc_schedule` with a `storey` set still has no areas in it, and guessing
  *     from the payload would start exporting these the day one of them grows a
  *     scalar field.
- *   - `diagram` — a drawing this export cannot draw. Mermaid lays a graph out
- *     against a DOM and this runs server-side, which is the same constraint
- *     that put diagram rendering in the browser to begin with. Exported the way
- *     a mermaid FENCE already is (`diagramBlocks` in `./markdown.ts`): the
- *     labelled source, so the reader holding only the file can tell a drawing
- *     from prose and can regenerate it, unless the format supplies a
- *     placeholder to print instead. Walking it instead would print the
- *     mermaid under „Origin“ as if the answer had meant to state it.
  *   - `chrome` — the app addressing the reader, not the answer recording a
  *     finding. Emitted as nothing at all.
  *   - `composite` — a `surface` (ADR-0065): cards composed side by side or in
@@ -149,7 +141,7 @@ const VOCABULARIES = new Map<string, Set<string>>(
  *     order, each tab's title set above its card — every variant the reader
  *     could open on screen is on the page.
  */
-type ExportKind = 'content' | 'live' | 'diagram' | 'chrome' | 'composite'
+type ExportKind = 'content' | 'live' | 'chrome' | 'composite'
 
 /**
  * ⚠️ ADDING A CARD TYPE? YOU MUST CLASSIFY IT HERE. ⚠️
@@ -169,11 +161,6 @@ type ExportKind = 'content' | 'live' | 'diagram' | 'chrome' | 'composite'
  * this whole feature exists to prevent, so the doubtful case exports.
  */
 export const CARD_EXPORT: Record<GridCard['type'], ExportKind> = {
-  // Three questions this answer did NOT answer, offered as composer prefills.
-  // The card charter says of this one that it "must never be screenshotted into
-  // a submission" (docs/design/grid-card-charter.md §B1) — it is the one card
-  // that is not evidence.
-  follow_ups: 'chrome',
   // A picker: tiles that open one of the project's IFC models in the viewer. It
   // carries no file names at all (the renderer resolves them from the live
   // model list), so on paper it is a heading asking which model you meant.
@@ -204,12 +191,6 @@ export const CARD_EXPORT: Record<GridCard['type'], ExportKind> = {
   // putting them. The same reasoning as the two proposals above it.
   file_operation_proposal: 'chrome',
 
-  // The drawing whose source the model wrote. Same treatment as a mermaid fence
-  // in the prose, deliberately: a reader must not get two different things for
-  // the same picture depending on whether the model reached for a card or a
-  // fence (`markdown.ts`, commit f21dcb5c).
-  diagram: 'diagram',
-
   // Read live from the project's model; exported as a title plus `liveCard`.
   ifc_viewer: 'live',
   ifc_compliance: 'live',
@@ -218,21 +199,7 @@ export const CARD_EXPORT: Record<GridCard['type'], ExportKind> = {
   ifc_diff: 'live',
 
   // Findings. Walked field by field.
-  summary: 'content',
-  legal_basis: 'content',
-  requirement_checklist: 'content',
-  comparison_table: 'content',
-  verdict_header: 'content',
-  condition_tree: 'content',
-  typed_table: 'content',
-  norm_chain: 'content',
-  key_takeaways: 'content',
-  callout: 'content',
   calculation: 'content',
-  process_map: 'content',
-  document_checklist: 'content',
-  deadline_timeline: 'content',
-  change_impact: 'content',
   building_section: 'content',
   stair_diagram: 'content',
   dimension_diagram: 'content',
@@ -240,14 +207,7 @@ export const CARD_EXPORT: Record<GridCard['type'], ExportKind> = {
   egress_diagram: 'content',
   daylight_incidence: 'content',
   guardrail_check: 'content',
-  density_check: 'content',
   fire_access_plan: 'content',
-  acoustic_check: 'content',
-  fire_compartment: 'content',
-  thermal_envelope: 'content',
-  energy_performance: 'content',
-  elevator_requirement: 'content',
-  parking_requirement: 'content',
   document_grid: 'content',
   surface: 'composite',
 }
@@ -287,12 +247,8 @@ export const SKIPPED_FIELDS = new Set([
  * in, and the only place that order still exists once jsonb has sorted the keys.
  */
 const FIELD_ORDER: Record<string, string[]> = {
-  summary: ['content', 'key_points'],
-  legal_basis: ['law', 'article', 'section', 'summary', 'original_text'],
   project_profile_patch: ['rationale', 'patch'],
   memory_proposal: ['kind', 'confidence', 'content'],
-  requirement_checklist: ['items', 'reference', 'note'],
-  comparison_table: ['options', 'rows', 'recommendation', 'reference', 'note'],
   building_section: ['storeys', 'markers', 'reference', 'note'],
   stair_diagram: ['riser_count', 'riser_height', 'tread_depth', 'width', 'comfort_note', 'reference'],
   dimension_diagram: ['shape', 'dimensions', 'reference', 'note'],
@@ -324,15 +280,6 @@ const FIELD_ORDER: Record<string, string[]> = {
     'reference',
     'note',
   ],
-  density_check: [
-    'parcel_area_m2',
-    'footprint_area_m2',
-    'gross_floor_area_m2',
-    'coverage',
-    'density',
-    'reference',
-    'note',
-  ],
   fire_access_plan: [
     'gebaeudeklasse',
     'parcel_width_m',
@@ -346,24 +293,7 @@ const FIELD_ORDER: Record<string, string[]> = {
     'reference',
     'note',
   ],
-  acoustic_check: ['sound_class', 'checks', 'note'],
-  fire_compartment: ['storey_label', 'gebaeudeklasse', 'compartments', 'reference', 'note'],
-  thermal_envelope: ['components', 'reference', 'note'],
-  energy_performance: ['energy_class', 'hwb', 'fgee', 'reference', 'note'],
-  elevator_requirement: [
-    'storeys_served',
-    'entrance_level_index',
-    'is_required',
-    'requirement_note',
-    'cabin_width',
-    'cabin_depth',
-    'door_width',
-    'reference',
-    'note',
-  ],
-  parking_requirement: ['car_spaces', 'bicycle_spaces', 'basis', 'reference', 'note'],
   document_grid: ['query', 'documents'],
-  typed_table: ['columns', 'rows', 'reference', 'note'],
 }
 
 /** Above this, a string is prose and gets its own paragraph rather than a cell. */
@@ -616,10 +546,10 @@ const objectTable = (path: string, rows: CardRecord[], t: Translator): DocBlock 
 /**
  * An array of arrays as a table, one row per entry.
  *
- * `typed_table.rows` is the shape: `list[list[str]]`, one cell per column, and
- * the walker's other two array branches both miss it — the entries are neither
- * scalars nor records, so before this existed the card exported its column
- * headers and not one of its rows. `head` comes from a sibling field that names
+ * `list[list[str]]`, one cell per column: the walker's other two array
+ * branches both miss it — the entries are neither scalars nor records, so
+ * without this a card of that shape would export its column headers and not
+ * one of its rows. `head` comes from a sibling field that names
  * the columns (see {@link headerFieldFor}); without one the matrix is still
  * exported, headerless, because unnamed data beats no data.
  */
@@ -638,10 +568,9 @@ const isMatrix = (value: unknown): value is unknown[][] =>
  * The sibling field that names a matrix's columns, if the card has one.
  *
  * A shape rule, not a card-type list: a matrix `n` cells wide is headed by a
- * sibling array of exactly `n` labelled objects. `typed_table` is the only card
- * in the catalogue built that way today (its `_square_rows` validator is what
- * makes the widths agree), and a second one would be picked up without this
- * function learning its name.
+ * sibling array of exactly `n` labelled objects. No card in today's catalogue
+ * is built that way (the table cards became Markdown tables, ADR-0069); a stored
+ * or future one is picked up without this function learning its name.
  */
 const headerFieldFor = (card: CardRecord, matrix: unknown[][]): string | null => {
   const width = Math.max(...matrix.map((row) => row.length))
@@ -729,9 +658,8 @@ const orderedFields = (card: CardRecord, type: string): string[] => {
 /**
  * The heading for one card.
  *
- * `title` when the card carries one, otherwise the card type's own name — which
- * `legal_basis` needs, because it is the one card in the catalogue with no
- * title field at all.
+ * `title` when the card carries one, otherwise the card type's own name, for a
+ * stored card whose type has no title field.
  */
 const cardHeading = (card: CardRecord, type: string, t: Translator): string => {
   const title = typeof card.title === 'string' ? card.title.trim() : ''
@@ -759,35 +687,13 @@ export function cardBlocks(value: unknown, t: Translator, options: CardBlocksOpt
   if (typeof type !== 'string') return []
 
   const kind = exportKindOf(type)
-  // Nothing at all — not even the heading. A „Weiterführende Fragen“ heading
-  // with no questions under it would still put the app's own chrome inside the
-  // findings section.
+  // Nothing at all — not even the heading. A heading over a proposal whose
+  // outcome the file cannot report would still put the app's own chrome inside
+  // the findings section.
   if (kind === 'chrome') return []
   if (kind === 'composite') return surfaceBlocks(card, t, options)
 
   const heading: DocBlock = { kind: 'heading', level: options.headingLevel ?? 3, text: cardHeading(card, type, t) }
-
-  if (kind === 'diagram') {
-    const source = typeof card.source === 'string' ? card.source.trim() : ''
-    const caption = typeof card.caption === 'string' ? card.caption.trim() : ''
-    const reference = isReference(card.reference) ? referenceText(card.reference) : ''
-    return compact([
-      heading,
-      // Printed exactly as a fence in the prose is, label first and placeholder
-      // included; the card's own caption follows the drawing it describes.
-      ...diagramBlocks('mermaid', source, options.diagramPlaceholder),
-      caption ? { kind: 'paragraph', runs: [{ text: caption }] } : null,
-      // The Fundstelle, in the two-paragraph form the walker gives every other
-      // card's reference — a procedure differs by Bundesland, so a drawing of
-      // one without it is a procedure from nowhere.
-      ...(reference
-        ? [
-            { kind: 'paragraph' as const, runs: [{ text: fieldLabel('diagram.reference', 'reference', t, card), bold: true }] },
-            { kind: 'paragraph' as const, runs: [{ text: reference }], style: 'body' as const },
-          ]
-        : []),
-    ])
-  }
 
   if (kind === 'live') {
     const note = typeof card.note === 'string' ? card.note.trim() : ''
@@ -802,7 +708,7 @@ export function cardBlocks(value: unknown, t: Translator, options: CardBlocksOpt
   const fields = orderedFields(card, type)
 
   // Which field heads which matrix, resolved before the walk so the header
-  // field is not ALSO printed as a table of its own — `typed_table` would
+  // field is not ALSO printed as a table of its own — a headed matrix would
   // otherwise carry its column names twice, once as data and once as a header.
   const headerFields = new Map<string, string>()
   const consumed = new Set<string>()
@@ -848,7 +754,7 @@ export function cardBlocks(value: unknown, t: Translator, options: CardBlocksOpt
         body.flush()
         // A headed matrix needs no label of its own: the card's title stands
         // over it and the header row names every column, so the field's own
-        // name („Kriterien“ over a `typed_table`) would only mis-describe it.
+        // name would only mis-describe it.
         if (!head) body.block({ kind: 'paragraph', runs: [{ text: label, bold: true }] })
         body.block(matrixTable(field, head, t))
         continue

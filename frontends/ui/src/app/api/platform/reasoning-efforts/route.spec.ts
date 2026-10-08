@@ -77,6 +77,24 @@ describe('/api/platform/reasoning-efforts', () => {
     )
   })
 
+  it('GET leaves a retired group out, so the page never sends it back', async () => {
+    listPlatformReasoningEfforts.mockResolvedValue([
+      {
+        agentGroup: 'intent',
+        effort: 'low',
+        note: null,
+        updatedBy: 'owner-1',
+        updatedByEmail: 'owner@grid.com',
+        updatedAt: new Date('2026-08-01T00:00:00Z'),
+      },
+    ])
+    const { GET } = await import('./route')
+    const body = (await (await GET(new Request('http://localhost/api/platform/reasoning-efforts'))).json()) as {
+      efforts: Record<string, unknown>
+    }
+    expect(body.efforts).toEqual({})
+  })
+
   it('GET returns the registry, the pinned efforts and the workflow fallback', async () => {
     const { GET } = await import('./route')
     const res = await GET(new Request('http://localhost/api/platform/reasoning-efforts'))

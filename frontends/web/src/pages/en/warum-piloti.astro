@@ -1,0 +1,25 @@
+---
+import BaseLayout from '../../layouts/BaseLayout.astro'
+import WhyPiloti from '../../components/organisms/WhyPiloti.astro'
+import EndInvite from '../../components/molecules/EndInvite.astro'
+import { ui } from '../../i18n/ui'
+import { SHARE_ART, pageLd } from '../../lib/seo'
+
+const t = ui.en.seo.pages.warum
+---
+
+<BaseLayout
+  locale="en"
+  title={t.title}
+  description={t.description}
+  ogArt={SHARE_ART.warum}
+  jsonLd={pageLd('en', t.title, Astro.url.pathname, Astro.site)}
+>
+  <WhyPiloti locale="en" />
+  <EndInvite locale="en" page="warum" />
+</BaseLayout>
+
+<script>
+  import { initReveals } from '../../scripts/reveal'
+  initReveals()
+</script>

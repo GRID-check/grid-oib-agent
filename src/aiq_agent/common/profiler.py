@@ -563,8 +563,8 @@ async def flush_after_answer(*ledgers: Any, timeout_seconds: float | None = None
             continue
         if future is not None:
             futures.append(future)
-    # Per-turn usage rollup in dollars: the batches above are per CALL, with
-    # no turn id anywhere — per-turn waste is not a GROUP BY. The tracker's
+    # Per-turn usage rollup in dollars: the batches above are per CALL (named
+    # by the chat answer, not by the turn of a job). The tracker's
     # totals ride the trace metadata via usage_rollup (one record per turn,
     # alongside the citation-health ledger pattern), so waste IS measurable
     # per turn in Langfuse. Best-effort like everything else here; runs even

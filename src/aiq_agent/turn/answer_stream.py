@@ -1,26 +1,29 @@
 """The answer's prose on the wire while the final call is still writing it.
 
-One sink per turn, bound in a ContextVar before the graph runs. The answering
-LLM call streams (``bind(stream=True)``), a callback reads its tokens through
-:class:`~aiq_agent.common.answer_prose_stream.AnswerProseStream`, and what may
-be shown goes into the sink's queue. The turn generator relays the queue as
-delta chunks while the turn runs. The ``[N]`` markers go out as the model
-writes them; when the ``answer`` string closes, the prose and its sources
-section are settled (verified, renumbered) and go out as ONE snapshot that
-replaces the bubble's text and names its sources, before the cards and the
-pipeline. The terminal chunk then carries the verified answer and replaces it
-once more, with the same numbers (ADR-0066,
+The answering LLM call streams (``bind(stream=True)``), a callback reads its
+tokens through :class:`~aiq_agent.common.answer_prose_stream.AnswerProseStream`,
+and what may be shown goes out as wire bodies through the graph's own writer
+(``turn_status.emit``, chat wire v2 §b): ``TEXT_MESSAGE_START``, coalesced
+``TEXT_MESSAGE_CONTENT``, ``TEXT_MESSAGE_END`` when the ``answer`` string
+closes, then ONE ``STATE_SNAPSHOT`` of the settled (verified, renumbered)
+prose and its sources, the masthead before the first word, and a ``card`` or
+``card_refused`` per card. ``RUN_FINISHED`` then carries the verified answer
+and replaces it once more, with the same numbers (ADR-0066,
 ``docs/design/streaming-chat-answer.md``).
 
-Fail-open everywhere: no sink, an LLM that cannot stream, or a callback that
-raises, and the turn is exactly the buffered turn it was.
+The one piece of per-turn state is :class:`LiveProse`, bound in a ContextVar
+before the graph runs, the way ``cards/registry.py`` binds its registry: the
+answer's message id, and whether prose already went out this turn.
+
+Fail-open everywhere: nothing bound, an LLM that cannot stream, or a callback
+that raises, and the turn is exactly the buffered turn it was.
 """
 
 from __future__ import annotations
 
 import asyncio
 import logging
-from collections.abc import AsyncIterator
+import time
 from collections.abc import Iterator
 from contextlib import contextmanager
 from contextvars import ContextVar
@@ -32,40 +35,30 @@ from langchain_core.callbacks import AsyncCallbackHandler
 from langchain_core.callbacks.manager import AsyncCallbackManager
 from langchain_core.runnables.config import ensure_config
 
+from aiq_agent.common import turn_status
 from aiq_agent.common.answer_prose_stream import AnswerProseStream
+from aiq_agent.common.wire_v2 import AnswerRetractedBody
+from aiq_agent.common.wire_v2 import AnswerSnapshot
+from aiq_agent.common.wire_v2 import CardBody
+from aiq_agent.common.wire_v2 import CardRefusedBody
+from aiq_agent.common.wire_v2 import CardRefusedValue
+from aiq_agent.common.wire_v2 import CardValue
+from aiq_agent.common.wire_v2 import EmptyValue
+from aiq_agent.common.wire_v2 import EventBody
+from aiq_agent.common.wire_v2 import MastheadBody
+from aiq_agent.common.wire_v2 import MastheadValue
+from aiq_agent.common.wire_v2 import StateSnapshotBody
+from aiq_agent.common.wire_v2 import TextMessageContentBody
+from aiq_agent.common.wire_v2 import TextMessageEndBody
+from aiq_agent.common.wire_v2 import TextMessageStartBody
+from aiq_agent.common.wire_v2 import card_key
 
 logger = logging.getLogger(__name__)
 
 
-#: How long the relay waits after a token for the ones behind it: at most
-#: twenty frames a second, well below what a reader sees as stutter.
+#: At most one ``TEXT_MESSAGE_CONTENT`` per window: a frame per token was 78
+#: frames for a four-line answer, and a reader cannot tell 50 ms apart.
 RELAY_WINDOW_S = 0.05
-
-
-@dataclass(frozen=True)
-class Snapshot:
-    """The streamed prose settled: its text so far, replacing, the sources it cites, its masthead."""
-
-    content: str
-    sources: list[dict[str, Any]]
-    answer_meta: dict[str, Any] | None = None
-
-
-@dataclass(frozen=True)
-class Masthead:
-    """The fields that stand above the prose, gated, before its first word."""
-
-    answer_meta: dict[str, Any]
-
-
-@dataclass(frozen=True)
-class Cards:
-    """The answer's cards so far, in envelope order; ``None`` holds a refused card's place."""
-
-    cards: list[dict[str, Any] | None]
-
-
-Item = str | Snapshot | Masthead | Cards
 
 
 class Live(Protocol):
@@ -80,98 +73,34 @@ class Live(Protocol):
 
     def settle(self, prose: str, sources_text: str, fields: dict[str, Any] | None) -> Any: ...
 
+    def tool_cards(self) -> list[dict[str, Any]]: ...
+
+    def place(self, text: str) -> str: ...
+
     def card(self, payload: Any) -> dict[str, Any] | None: ...
 
 
-class AnswerStreamSink:
-    """The turn's live prose: pushed by the callback, relayed by the generator."""
+@dataclass
+class LiveProse:
+    """The turn's live answer: the id its bodies carry, and whether any prose went out.
 
-    def __init__(self) -> None:
-        self._queue: asyncio.Queue[Item] = asyncio.Queue()
-        #: Whether any prose went out. Once it has, no later call of the turn
-        #: streams: a second answer appended to the bubble would read as one.
-        self.streamed = False
+    Once prose has gone out, no later call of the turn streams: a second answer
+    appended to the bubble would read as one. A retraction resets it.
+    """
 
-    def push(self, delta: str) -> None:
-        if delta:
-            self.streamed = True
-            self._queue.put_nowait(delta)
-
-    def retract(self) -> None:
-        """Take back what this call showed: the call turned out to be a tool round, not the answer.
-
-        An empty snapshot clears the bubble's text, citations, masthead and
-        cards, in the asker's store and the observer's reducer alike, and a
-        later call of the turn may stream again.
-        """
-        self._queue.put_nowait(Snapshot(content="", sources=[], answer_meta=None))
-        self.streamed = False
-
-    def put(self, item: Snapshot | Masthead | Cards) -> None:
-        self.streamed = True
-        self._queue.put_nowait(item)
-
-    async def relay(self, task: asyncio.Task[Any]) -> AsyncIterator[Item]:
-        """Yield queued prose and snapshots, in order, until ``task`` is done.
-
-        What queues up within :data:`RELAY_WINDOW_S` of a token goes out as
-        ONE delta: a frame per token was 78 frames for a four-line answer, on
-        the socket and on the observer bus alike. A snapshot is never merged:
-        it replaces, where a delta appends.
-        """
-        while not task.done():
-            first = await self._next(task)
-            if first is None:
-                break
-            # Let the next few tokens join this one: a frame per token is a
-            # frame per few characters, and the reader cannot tell 50 ms apart.
-            await asyncio.sleep(RELAY_WINDOW_S)
-            for item in _coalesced([first, *self._drain()]):
-                yield item
-        for item in _coalesced(self._drain()):
-            yield item
-
-    async def _next(self, task: asyncio.Task[Any]) -> Item | None:
-        """The next queued item, or None once ``task`` finished first.
-
-        The ``Queue.get`` is cancelled on every way out, a cancelled relay
-        included: ``asyncio.wait`` leaves it pending, and a pending get outlives
-        the turn ("Task was destroyed but it is pending").
-        """
-        waiter = asyncio.ensure_future(self._queue.get())
-        try:
-            done, _ = await asyncio.wait({waiter, task}, return_when=asyncio.FIRST_COMPLETED)
-        finally:
-            waiter.cancel()
-        return waiter.result() if waiter in done else None
-
-    def _drain(self) -> list[Item]:
-        items: list[Item] = []
-        while not self._queue.empty():
-            items.append(self._queue.get_nowait())
-        return items
+    message_id: str
+    streamed: bool = False
 
 
-def _coalesced(items: list[Item]) -> list[Item]:
-    """Adjacent text joined into one delta; every other item kept where it fell."""
-    out: list[Item] = []
-    for item in items:
-        if isinstance(item, str) and out and isinstance(out[-1], str):
-            out[-1] += item
-        else:
-            out.append(item)
-    return out
-
-
-_SINK: ContextVar[AnswerStreamSink | None] = ContextVar("answer_stream_sink", default=None)
+_PROSE: ContextVar[LiveProse | None] = ContextVar("live_prose", default=None)
 
 
 def answer_streaming_enabled() -> bool:
     """Whether the platform owner lets the answer stream (Platform → Retrieval, ``chat.answer_streaming``).
 
     On unless switched off: an unset or unreachable setting streams, the
-    default since ADR-0066. Off, no sink is bound, so the answering call is the
-    buffered call and the answer arrives whole with the terminal frame; the
+    default since ADR-0066. Off, nothing is bound, so the answering call is the
+    buffered call and the answer arrives whole with ``RUN_FINISHED``; the
     reasoning steps still go out live. Blocking I/O on a cache miss: call it
     through ``asyncio.to_thread``.
     """
@@ -181,35 +110,39 @@ def answer_streaming_enabled() -> bool:
 
 
 @contextmanager
-def bound_answer_stream(sink: AnswerStreamSink) -> Iterator[AnswerStreamSink]:
-    """Bind ``sink`` for everything started inside, the graph's tasks included."""
-    token = _SINK.set(sink)
+def bound_live_prose(message_id: str) -> Iterator[LiveProse]:
+    """Bind the turn's :class:`LiveProse` for everything started inside, the graph's tasks included."""
+    prose = LiveProse(message_id)
+    token = _PROSE.set(prose)
     try:
-        yield sink
+        yield prose
     finally:
-        _SINK.reset(token)
+        _PROSE.reset(token)
 
 
 class _ProseTokenHandler(AsyncCallbackHandler):
-    """Reads one LLM call's tokens into the sink: masthead, prose, settled prose, cards."""
+    """Reads one LLM call's tokens into wire bodies: masthead, prose, settled prose, cards."""
 
-    def __init__(self, sink: AnswerStreamSink, live: Live | None) -> None:
-        self._sink = sink
+    def __init__(self, prose: LiveProse, live: Live | None) -> None:
+        self._prose = prose
         self._live = live
         self._reader: AnswerProseStream | None = None
-        self._masthead_read = False
-        self._settled = False
+        self._reset()
+
+    def _reset(self) -> None:
+        self._masthead_read = self._settled = self._started = self._ended = False
         #: Whether this call put anything on the wire; only then is there
         #: something to take back.
         self._shown = False
-        self._cards: list[dict[str, Any] | None] = []
+        self._cards = 0
+        self._pending = ""
+        self._flushed_at: float | None = None
 
     async def on_chat_model_start(self, *args: Any, **kwargs: Any) -> None:
         # A fresh reader per call (the envelope ladder retries on a rejected
         # parameter); none at all once the turn has shown prose.
-        self._reader = None if self._sink.streamed else AnswerProseStream()
-        self._masthead_read = self._settled = self._shown = False
-        self._cards = []
+        self._reader = None if self._prose.streamed else AnswerProseStream()
+        self._reset()
 
     async def on_llm_new_token(self, token: Any, **kwargs: Any) -> None:
         reader = self._reader
@@ -220,13 +153,21 @@ class _ProseTokenHandler(AsyncCallbackHandler):
             self._masthead_read = True
             self._show_masthead(reader.masthead)
         if delta:
-            self._shown = True
-            self._sink.push(delta)
+            self._append(self._placed(delta))
         if reader.closed and not self._settled:
             self._settled = True
+            self._end()
             await self._settle_prose(reader)
-        if self._settled:
-            self._show_cards(reader.take_cards())
+            # The tools' cards head the list, and go out with the settled
+            # prose even when the envelope has none of its own: the reader
+            # draws an unplaced card once the prose is complete.
+            tool_cards = self._guarded("tool cards", lambda live: live.tool_cards()) or []
+            for card in tool_cards if reader.emitted else ():
+                self._show_card(card)
+            self._cards = len(tool_cards)
+            self._show_envelope_cards(reader.take_cards())
+        elif self._settled:
+            self._show_envelope_cards(reader.take_cards())
 
     async def on_llm_end(self, response: Any, **kwargs: Any) -> None:
         """A call that also asked for tools was a round, not the answer: take back what it showed.
@@ -237,13 +178,46 @@ class _ProseTokenHandler(AsyncCallbackHandler):
         self._reader = None
         if self._shown and _calls_tools(response):
             logger.info("answer_stream: the streamed call asked for tools; retracting its prose")
-            self._sink.retract()
+            self._write(AnswerRetractedBody(value=EmptyValue()))
+            self._prose.streamed = False
+            return
+        self._end()
+
+    def _append(self, delta: str) -> None:
+        """Prose, coalesced: out at once when the window since the last flush has passed."""
+        if not self._started:
+            self._started = True
+            self._write(TextMessageStartBody(message_id=self._prose.message_id))
+        self._pending += delta
+        now = time.monotonic()
+        if self._flushed_at is None or now - self._flushed_at >= RELAY_WINDOW_S:
+            self._flush()
+
+    def _flush(self) -> None:
+        if not self._pending:
+            return
+        body = TextMessageContentBody(message_id=self._prose.message_id, delta=self._pending)
+        self._pending = ""
+        self._flushed_at = time.monotonic()
+        turn_status.emit(body)
+
+    def _end(self) -> None:
+        """The ``answer`` string closed (or the call ended): what is held goes out, then END."""
+        if self._started and not self._ended:
+            self._ended = True
+            self._write(TextMessageEndBody(message_id=self._prose.message_id))
+
+    def _write(self, body: EventBody) -> None:
+        """Any body but a delta: the held prose goes out first, so order holds."""
+        self._flush()
+        self._shown = self._prose.streamed = True
+        turn_status.emit(body)
 
     def _show_masthead(self, fields: dict[str, Any]) -> None:
         """The masthead above the first word, gated as far as it can be without the prose."""
         meta = self._guarded("masthead", lambda live: live.masthead(fields))
         if meta:
-            self._put(Masthead(answer_meta=meta))
+            self._write(MastheadBody(value=MastheadValue(answer_meta=meta)))
 
     async def _settle_prose(self, reader: AnswerProseStream) -> None:
         """Verify what streamed, and send it back settled; fail-open to pending markers.
@@ -257,37 +231,43 @@ class _ProseTokenHandler(AsyncCallbackHandler):
         live = self._live
         try:
             settled = await asyncio.to_thread(live.settle, reader.emitted, reader.sources_text, reader.masthead)
-        except Exception:  # noqa: BLE001 - the terminal frame carries it anyway
+        except Exception:  # noqa: BLE001 - RUN_FINISHED carries it anyway
             logger.warning("answer_stream: the live settle failed", exc_info=True)
-            settled = None
-        if settled is not None:
-            self._put(
-                Snapshot(
-                    content=settled.content,
-                    sources=list(settled.sources),
-                    answer_meta=getattr(settled, "answer_meta", None),
-                )
-            )
-
-    def _show_cards(self, payloads: list[dict[str, Any]]) -> None:
-        """Each card as it closes; its place is kept even when it is refused."""
-        if not payloads:
             return
-        for payload in payloads:
-            self._cards.append(self._guarded("card", lambda live, payload=payload: live.card(payload)))
-        if any(card is not None for card in self._cards):
-            self._put(Cards(cards=list(self._cards)))
+        if settled is None:
+            return
+        snapshot = AnswerSnapshot(
+            text=self._placed(settled.content), sources=list(settled.sources), answer_meta=settled.answer_meta
+        )
+        self._write(StateSnapshotBody(snapshot=snapshot))
 
-    def _put(self, item: Snapshot | Masthead | Cards) -> None:
-        self._shown = True
-        self._sink.put(item)
+    def _placed(self, text: str) -> str:
+        """``text`` with its card markers at the positions the live list gives them (``Live.place``)."""
+        if "[[card:" not in text:
+            return text
+        placed = self._guarded("placement", lambda live: live.place(text))
+        return placed if isinstance(placed, str) else text
+
+    def _show_envelope_cards(self, payloads: list[dict[str, Any]]) -> None:
+        """Each envelope card as it closes, after the tools'; a refused one keeps its index."""
+        for payload in payloads:
+            card = self._guarded("card", lambda live, payload=payload: live.card(payload))
+            if card is None:
+                self._write(CardRefusedBody(value=CardRefusedValue(index=self._cards)))
+                self._cards += 1
+            else:
+                self._show_card(card)
+
+    def _show_card(self, card: dict[str, Any]) -> None:
+        self._write(CardBody(value=CardValue(index=self._cards, key=card_key(card), card=card)))
+        self._cards += 1
 
     def _guarded(self, what: str, call: Any) -> Any:
         if self._live is None:
             return None
         try:
             return call(self._live)
-        except Exception:  # noqa: BLE001 - the terminal frame carries it anyway
+        except Exception:  # noqa: BLE001 - RUN_FINISHED carries it anyway
             logger.warning("answer_stream: the live %s failed", what, exc_info=True)
             return None
 
@@ -327,18 +307,18 @@ def token_text(token: Any) -> str:
 def streaming_call(
     llm: Any, messages_config: dict[str, Any] | None = None, *, live: Live | None = None
 ) -> tuple[Any, dict[str, Any] | None]:
-    """``(llm, config)`` for the answering call: streaming when the turn has a sink.
+    """``(llm, config)`` for the answering call: streaming when the turn has live prose bound.
 
     ``live`` gates what streams ahead of the pipeline (the masthead, the
     settled prose, the cards); without it the prose streams alone, its
-    markers pending until the terminal frame.
+    markers pending until ``RUN_FINISHED``.
 
     The handler is ADDED to the call's inherited callback manager, never
     passed as the call's own callbacks: those replace the inherited ones, and
     NAT's profiler, which bills the call, rides on them.
     """
-    sink = _SINK.get()
-    if sink is None or sink.streamed or not hasattr(llm, "bind"):
+    prose = _PROSE.get()
+    if prose is None or prose.streamed or not hasattr(llm, "bind"):
         return llm, None
     config = ensure_config(messages_config)
     inherited = config.get("callbacks")
@@ -348,5 +328,5 @@ def streaming_call(
         manager = AsyncCallbackManager(handlers=list(inherited), inheritable_handlers=list(inherited))
     else:
         manager = inherited.copy()
-    manager.add_handler(_ProseTokenHandler(sink, live), inherit=True)
+    manager.add_handler(_ProseTokenHandler(prose, live), inherit=True)
     return llm.bind(stream=True), {**config, "callbacks": manager}

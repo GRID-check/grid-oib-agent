@@ -30,6 +30,18 @@ all three images.
   newer push (the concurrency group killed its CI) and the newer tip brings its
   own chain. A merge train used to paint that third case red, which is how a
   real deploy failure stops being noticed.
+- **Reused PR results**: CI and Security still run on every push and still
+  have to conclude `success` for the gate, but a push whose tree a green
+  `pull_request` run already tested skips every job and passes in seconds. A
+  squash merge onto a `develop` that did not move since the PR's last run is
+  exactly that case. The PR run's final gate (`CI OK`, `Security OK`) uploads a
+  marker artifact named `ci-green-<tree>` / `security-green-<tree>` (7 days);
+  on push, `changes` runs
+  [`ci/reuse_green_run.py`](../../ci/reuse_green_run.py), which counts a
+  marker only when its run completed with `success`, was a `pull_request` run
+  of the same workflow from this repository (not a fork), and ran a workflow
+  file identical to the pushed commit's. Anything else, an API error included,
+  runs everything as before. The weekly Security scan never reuses.
 
 ## One-time setup
 
@@ -102,6 +114,16 @@ Before `pulumi up` touches the cluster, `deploy.yml` plans once and checks that
 plan twice:
 - **`scripts/validate-crs.mjs`** — schema-validates every CustomResource against
   the real upstream CRD schemas (tsc cannot type `apiextensions.CustomResource`).
+  KEDA's `keda.sh/v1alpha1` resources use the CRDs of the release the program
+  installs, including every tier's `TriggerAuthentication` and `ScaledObject`.
+  That release is one constant, `KEDA_CHART_VERSION` in
+  `deploy/pulumi/src/platform/keda.ts` (the chart is pinned to it, and the
+  script reads it from there), so the plan is always checked against the
+  operator it will meet. Like CNPG, these schemas are fetched once and cached
+  under `deploy/pulumi/.schemas-cache/`, keyed by release URL and kind set. A
+  schema download or validation failure blocks deployment; `ALLOW_SKIP` does not
+  bypass a registered validator. Upgrading KEDA is changing that constant: read
+  the release notes for `fallback` and the `postgresql` scaler first.
 - **CrossGuard policy pack** (`deploy/pulumi/policy`, `--policy-pack ./policy`) —
   rollout safety (surge-only updates, readiness soaks, progress deadlines,
   shutdown budgets), CPU/memory bounds on every container, and pull-policy
@@ -125,15 +147,29 @@ depends on changed (backend / frontend / web filters; blog content lives under
 rebuilds only `grid-web`). `release/**` pushes, version tags and manual
 `workflow_dispatch` always build all three.
 
-On a `workflow_run` deploy, `deploy.yml` asks the triggering Publish Images run
-which jobs it actually built (GitHub API, by job name) and pins **per service**:
+`deploy.yml` pins **per service**
+([`resolve-image-refs.sh`](../../deploy/pulumi/scripts/resolve-image-refs.sh)):
 
-- rebuilt services are pinned to the commit's `sha-<40-hex>` tag;
-- services that were **not** rebuilt keep the image reference already stored in
-  the stack config — `grid-oib:backendImage` / `grid-oib:frontendImage` /
-  `grid-oib:webImage`, falling back to the previously set `grid-oib:imageTag`,
-  then `latest` (a first partial deploy after this change therefore still
-  serves the last globally pinned image).
+- a service the triggering Publish Images run built (its `Build & push <service>
+  image` job succeeded) is pinned to the commit's `sha-<40-hex>` tag;
+- a service it did **not** build is pinned to the newest commit on develop's
+  first-parent line, at or before the deployed one, whose `sha-<commit>` tag
+  GHCR actually has (a manifest `HEAD` per commit, up to 200 commits back). A
+  commit whose publish failed has no tag and is stepped over. A bare dispatch
+  (no `imageTag`) resolves all three this way.
+
+Then the **downgrade guard**: each resolved commit must be the deployed commit
+or a descendant of it, where "deployed" is the stack output `deployedImages`
+that every `pulumi up` records. A resolved image older than the running one
+fails the job with both refs named; only an operator rollback may go
+backwards, and it logs a warning. A deployed ref that is not a `sha-` tag, or a
+commit the checkout does not know, is a warning, not a failure. Each service's
+move is logged as `<service>: <deployed ref> -> <resolved ref>`.
+
+The committed stack file cannot say what is deployed: CI's `pulumi config set`
+never reaches git, so `pulumi config get grid-oib:backendImage` on a fresh
+checkout is empty and `imageTag` reads `latest` whatever is running. That is why
+the guard reads the stack output.
 
 The gates are unchanged — CI + Security green, tag-shape validation, preflight,
 plan validation and the policy pack all still run for every deploy. Manual
@@ -141,10 +177,36 @@ rollback dispatches (operator-supplied `imageTag`) still pin **all three**
 services to that tag, after the workflow verifies the tag is published for
 every image — see "Rolling back".
 
+## Rolling out ADR-0071
+
+[ADR-0071](../adr/0071-word-and-presentation-files-are-indexed-from-their-rendition.md)
+moved Word, presentation, `.xls` and `.ods` indexing onto the PDF the BFF
+converts. The two tiers must not be skewed the wrong way round:
+
+- **New backend, old BFF**: the old BFF sends no `extraction_ref`, so the
+  backend refuses those files as `office_rendition_required` and marks them
+  failed.
+- **New BFF, old backend**: harmless. The old backend ignores the unknown
+  `extraction_ref` field and reads the original as it used to.
+
+A single `pulumi up` rolls `frontend` and `aiq-agent` in parallel, so the first
+case can last as long as the frontend's surge rollout. Office uploads in that
+window fail with a retryable reason. After the deploy, open the affected files
+and use "Erneut lesen"; it converts again and ingests through the new path.
+
+Closing the window means a frontend-only deploy first, and the pipeline has no
+such step: a manual dispatch pins all three images, and a local `pulumi up`
+from a fresh checkout does not know the deployed pins (see "Partial deploys").
+Pick a quiet moment instead, or accept the retries.
+
+Gotenberg must be running (`gotenbergEnabled`, default on) before the new
+backend takes traffic. With it off, every Word and presentation upload fails.
+
 ## Rolling back
-Deploys pin rebuilt services to immutable `sha-<40-hex>` image tags (non-rebuilt
-services keep their current image), so a rollback is a deploy of an older tag —
-not a revert:
+Deploys pin every service to an immutable `sha-<40-hex>` image tag, so a
+rollback is a deploy of an older tag — not a revert. It is also the only way a
+service moves to an older commit: an automatic deploy that resolves one fails
+the downgrade guard.
 
 1. Actions → **Deploy (staging)** → *Run workflow*.
 2. Set **`imageTag`** to the previous good build's tag (`sha-` + the full commit
@@ -172,9 +234,17 @@ rollback can never quietly take the data tier with it.
 Traps this pipeline has actually hit. Each one broke a real run — the code that
 avoids them looks odd without the reason, so don't "simplify" it back.
 
+- **A new custom-resource group needs a plan validator too.** Adding KEDA's
+  ingest autoscaler without registering `keda.sh/v1alpha1` let the manifest
+  tests pass but stopped staging at `no validator wired`. The regression suite
+  now sends the ingest module's emitted resources through the same validator
+  CLI that deployment runs. Register a validator when adding a CR group;
+  setting `ALLOW_SKIP=1` only hides the missing check.
+
 - **A shallow checkout with `persist-credentials: false` cannot diff a push.**
-  `paths-filter` compares against `github.event.before`; that commit is absent
-  from a depth-1 clone, so the action falls back to `git fetch` — which has no
+  `paths-filter` compares against the diff base (the PR's base on a pull request,
+  `github.event.before` on a push); that commit is absent from a depth-1 clone,
+  so the action falls back to `git fetch` — which has no
   token and dies with `could not read Username for 'https://github.com'`. The
   "Detect changes" job therefore uses `fetch-depth: 0`: the base commit is
   already local, so nothing is fetched and no credential is persisted. Applies
@@ -188,9 +258,16 @@ avoids them looks odd without the reason, so don't "simplify" it back.
 - **There is no `/repos/{owner}/{repo}/packages/...` REST endpoint.** It 404s.
   Packages live under `/orgs/{org}/...` or `/users/{user}/...`, which differ by
   owner type and need pagination over every sha ever published. The rollback
-  check asks GHCR itself instead — a manifest `HEAD` with a scoped pull token,
+  check and the image resolver ask GHCR itself instead
+  (`find-published-tag.sh`) — a manifest `HEAD` with a scoped pull token,
   the same lookup the kubelet performs. It needs `packages: read` on the job
   token, which `deploy.yml` declares.
+- **The Actions run list is not a record of what was built.** Its filters
+  (`?branch=develop&status=success`) are served from a search index with
+  limits, and on 09-28 it twice returned a list without the newest backend
+  build: the deploy pinned a 09-11 backend, the UI spoke wire v2 to it, and
+  every chat hung. Resolve images from git history and the registry, which is
+  what `resolve-image-refs.sh` does, and never from that list.
 - **GHCR repository paths are lowercase; `$GITHUB_REPOSITORY_OWNER` is not.**
   The owner login is `GRID-check`, `docker/metadata-action` lowercases the image
   name on push, and containerd rejects a mixed-case reference outright

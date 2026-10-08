@@ -122,7 +122,9 @@ def test_the_reserved_metadata_survives_the_crossing(resolved: dict[str, Skill])
     voice = resolved[STANDARD]
     assert skill_hidden(voice.metadata) is True
     assert skill_title(voice) == "Piloti-Stimme"
-    assert preferred_cards(voice.metadata) == ("legal_basis", "calculation")
+    # The captured row still names `legal_basis`, a type that no longer
+    # exists: tenant data over the wire loses the stale name, not the skill.
+    assert preferred_cards(voice.metadata) == ("calculation",)
 
 
 def test_a_row_the_platform_did_not_hide_stays_on_the_live_line(resolved: dict[str, Skill]) -> None:

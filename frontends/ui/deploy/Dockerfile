@@ -33,6 +33,7 @@
 #
 #   docker run -p 3000:3000 \
 #     -e BACKEND_URL=http://backend:8000 \
+#     -e BACKEND_CHAT_URL=http://backend-chat:8000 \
 #     -e REQUIRE_AUTH=true \
 #     -e WORKOS_CLIENT_ID=client_xxx \
 #     -e WORKOS_API_KEY=sk_test_xxx \
@@ -44,6 +45,7 @@
 #
 #   docker run -p 3000:3000 \
 #     -e BACKEND_URL=http://backend:8000 \
+#     -e BACKEND_CHAT_URL=http://backend-chat:8000 \
 #     -e REQUIRE_AUTH=false \
 #     aiq-blueprint-ui:latest
 #
@@ -52,7 +54,8 @@
 # -----------------------------------------------------------------------------
 #
 # Backend:
-#   BACKEND_URL                     - Backend API URL (default: http://localhost:8000)
+#   BACKEND_URL                     - Backend api role URL: every HTTP call (default: http://localhost:8000)
+#   BACKEND_CHAT_URL                - Backend chat role URL for the WebSocket (required, no default)
 #
 # Authentication:
 #   REQUIRE_AUTH                    - Set to 'true' to require WorkOS AuthKit login (default: false)
@@ -190,6 +193,14 @@ COPY --from=builder --chown=nextjs:nodejs /app/src/shared/config/request-body-li
 COPY --from=builder --chown=nextjs:nodejs /app/src/lib/limits/rules.js ./src/lib/limits/rules.js
 COPY --from=builder --chown=nextjs:nodejs /app/src/lib/limits/factory.js ./src/lib/limits/factory.js
 COPY --from=builder --chown=nextjs:nodejs /app/src/lib/limits/ws-frames.js ./src/lib/limits/ws-frames.js
+# Same reason: `server.js` requires it to strip client-sent x-grid-* headers from
+# the WebSocket upgrade. `server-js-runtime-copies.spec.ts` fails when a
+# `server.js` require has no COPY line here.
+COPY --from=builder --chown=nextjs:nodejs /app/src/lib/proxy/ws-upgrade-headers.js ./src/lib/proxy/ws-upgrade-headers.js
+# And this one to classify and log WebSocket teardown after the upgrade.
+COPY --from=builder --chown=nextjs:nodejs /app/src/lib/proxy/ws-teardown.js ./src/lib/proxy/ws-teardown.js
+# And this one to pick which aiq-agent address a chat socket dials (ADR-0080).
+COPY --from=builder --chown=nextjs:nodejs /app/src/lib/proxy/backend-target.js ./src/lib/proxy/backend-target.js
 COPY --from=builder --chown=nextjs:nodejs /app/drizzle.config.ts ./drizzle.config.ts
 COPY --from=builder --chown=nextjs:nodejs /app/drizzle ./drizzle
 

@@ -44,8 +44,8 @@ const { layers, satellites = [], kicker, title, caption, alt } = Astro.props
 
 const W = 960
 const CX = W / 2
-const HALF_W = 218
-const HALF_H = 58
+const HALF_W = 196
+const HALF_H = 52
 const THICK = 13
 const GAP = 128
 const TOP = 92
@@ -233,4 +233,37 @@ const sats = satellites.map((sat) => {
       ))
     }
   </svg>
+
+  {/* Below xl: the stack as a top-to-bottom flow, satellites feeding in above their layer. */}
+  <div slot="mobile" class="fpm-flow">
+    {
+      slabs.map((slab, i) => (
+        <>
+          {i > 0 && <div class="fpm-arrow" />}
+          {sats.some((s) => Math.min(s.layer, slabs.length - 1) === i) && (
+            <>
+              <div class="fpm-row">
+                {sats
+                  .filter((s) => Math.min(s.layer, slabs.length - 1) === i)
+                  .map((s) => (
+                    <div class="fpm-box fpm-box--dash">
+                      <span class="fpm-label">{s.label}</span>
+                      {s.sub && <span class="fpm-sub">{s.sub}</span>}
+                    </div>
+                  ))}
+              </div>
+              <div class="fpm-arrow fpm-arrow--dash" />
+            </>
+          )}
+          <div class:list={['fpm-box', slab.accent ? 'fpm-box--tint' : 'fpm-box--soft']}>
+            <span class="fpm-label">
+              <span class="fpm-no">{String(i + 1).padStart(2, '0')}</span>
+              {slab.label}
+            </span>
+            {slab.sublabel && <span class="fpm-sub">{slab.sublabel}</span>}
+          </div>
+        </>
+      ))
+    }
+  </div>
 </FigureFrame>

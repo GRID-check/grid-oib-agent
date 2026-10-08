@@ -3,7 +3,7 @@ Universal Schema for Knowledge Layer.
 
 This module defines the "Golden Record" - strict Pydantic models that all
 adapters must output. This ensures agents always see a consistent format
-regardless of the underlying backend (LlamaIndex, Foundational RAG, and so on).
+whatever adapter produced them (the llamaindex backend, or a test fake).
 
 Schema Rules (enforced by all adapters):
 1. Five Pillars: content_type MUST be exactly "text", "table", "chart", "image", or "drawing"
@@ -13,6 +13,7 @@ Schema Rules (enforced by all adapters):
 5. Link Rot: image_url MUST be presigned URL, not internal S3 path
 """
 
+import uuid
 from datetime import datetime
 from enum import StrEnum
 from typing import Any
@@ -41,7 +42,7 @@ class Chunk(BaseModel):
     """
     The Atomic Unit of Knowledge (The 'Golden Record').
 
-    This schema unifies data from ANY backend (NV-Ingest, LlamaIndex, and so on)
+    This schema is what every adapter outputs (llamaindex, and the test fakes)
     so the Agent always sees a consistent format.
     """
 
@@ -157,6 +158,22 @@ class FileStatus(StrEnum):
     FAILED = "failed"
 
 
+#: Namespace of ``stable_file_id``. Fixed for good: changing it renames every file.
+_FILE_ID_NAMESPACE = uuid.UUID("6f1c0a52-3b7e-4d8a-9c41-5e2d7a90b3f6")
+
+
+def stable_file_id(collection_name: str, file_name: str) -> str:
+    """The id of a file: a function of where it lives and what it is called, nothing else.
+
+    A file is identified by ``(collection, file name)`` everywhere else (its
+    chunks, its summary row, a delete), so its id is too. Any process derives
+    the same id without asking another, which is what lets the ``api`` process
+    list a file the ``ingest-worker`` indexed, and delete it by the id it listed.
+    A random id per call, or per ingest, could not be handed from one to the other.
+    """
+    return str(uuid.uuid5(_FILE_ID_NAMESPACE, f"{collection_name}\x00{file_name}"))
+
+
 class CollectionInfo(BaseModel):
     """
     Metadata about a collection/index.
@@ -221,6 +238,21 @@ class FileProgress(BaseModel):
     progress_percent: float = Field(0.0, ge=0.0, le=100.0, description="Processing progress (0-100).")
     error_message: str | None = Field(default=None, description="Error message if processing failed.")
     chunks_created: int = Field(0, ge=0, description="Number of chunks created from this file.")
+    pages_failed: int = Field(
+        0,
+        ge=0,
+        description="PDF pages that could not be read and are missing from the index (below the failure threshold).",
+    )
+    metadata: dict[str, Any] = Field(
+        default_factory=dict,
+        description=(
+            "Extraction counts for this file that the chunk count does not show, e.g. "
+            "`images_over_cap`: embedded images left unanalysed by AIQ_MAX_IMAGES_PER_DOCUMENT; "
+            "`pages_transcribed`, `pages_transcription_failed`, `pages_over_ocr_cap`, "
+            "`pages_not_transcribed_no_vlm`: scanned or garbled PDF pages and what became of them; "
+            "`drawing_pages_over_cap`: drawing pages past AIQ_MAX_RENDERED_PAGES."
+        ),
+    )
 
 
 class IngestionJobStatus(BaseModel):
@@ -295,6 +327,10 @@ class AvailableDocument(BaseModel):
             project root (or a shelf that has no folders at all). It is a PATH,
             not an id: it reads as itself, and a prefix match gives the folder's
             whole subtree.
+        added_at: Optional ``YYYY-MM-DD`` the document was first indexed under
+            this name (the row's ``created_at``; a re-ingest keeps it). A
+            string, not a datetime, because the row rides the checkpointed turn
+            state and the prompt cache key.
         collection: The RAG collection this row was loaded from.
         shelf: Wire shelf (ADR-0047). Rendering-only labels live on
             ``SHELF_QUALIFIERS``; do not infer this from ``collection``.
@@ -306,5 +342,6 @@ class AvailableDocument(BaseModel):
     doc_class: str | None = None
     display_title: str | None = None
     folder_path: str | None = None
+    added_at: str | None = None
     collection: str | None = None
     shelf: str | None = None

@@ -4,10 +4,19 @@
  * *under* every tenant's configuration, not a tenant capability.
  *
  * GET — the agent-group registry, the current platform default per group, and
- *       the workflow YAML model each group falls back to when no default is set.
- * PUT — validates every chosen model against the live OpenRouter catalog and
- *       the group's capability requirements, then replaces the default set.
- *       Groups omitted from the body are cleared back to the YAML model.
+ *       the workflow YAML model each group falls back to when no default is set,
+ *       each with `zdrSafe` checked against the LIVE ZDR list (null when the list
+ *       cannot be read) — a default saved while ZDR-capable can lose its last
+ *       ZDR endpoint later, and every ZDR organization inheriting it then has
+ *       that group's requests refused.
+ * PUT — validates every chosen model against the live OpenRouter catalog, the
+ *       group's capability requirements AND a zero-data-retention endpoint that
+ *       serves the group, then replaces the default set. Every organization is
+ *       ZDR unless it opted out, so a default without one is refused (422,
+ *       `not_zdr` / `zdr_endpoint_lacks_capability`), and a ZDR-list outage
+ *       refuses the save (503, `details.reason: 'zdr_list_unavailable'`)
+ *       rather than pinning the fleet to an unchecked model. Groups omitted
+ *       from the body are cleared back to the YAML model.
  *
  * A save takes effect on the next turn for every organization that has not
  * overridden that group itself — no redeploy, no per-tenant action.
@@ -19,19 +28,23 @@ import { parseJsonBody } from '@/lib/api/handler'
 import { platformApiRoute } from '@/lib/api/platform-handler'
 import { PLATFORM_PERMISSIONS } from '@/lib/authz/permissions'
 import { getPlatformOrganizationId } from '@/lib/authz/platform'
-import { ServiceUnavailableError, UnprocessableError } from '@/lib/api/errors'
+import { UnprocessableError } from '@/lib/api/errors'
 import { recordAuditEvent } from '@/lib/audit/service'
 import {
   AGENT_GROUPS,
   AGENT_GROUP_IDS,
   OPENROUTER_MODEL_ID_PATTERN,
+  getAgentGroup,
+  isAgentGroupId,
 } from '@/lib/model-config/agent-groups'
-import { getWorkflowGroupDefaults } from '@/lib/model-config/backend-defaults'
+import { getWorkflowGroupDefaults, splitGroupDefault, type GroupDefaults } from '@/lib/model-config/backend-defaults'
 import {
-  baseModelId,
+  catalogUnavailableError,
   fetchModelCatalog,
-  fetchZdrModelIds,
+  fetchZdrEndpoints,
+  hasZdrEndpoint,
   validateOverrides,
+  type ZdrIndex,
 } from '@/lib/model-config/openrouter'
 import {
   listPlatformModelDefaults,
@@ -60,15 +73,19 @@ export const GET = platformApiRoute(
     // platform owner may have no active organization at all (the break-glass
     // first-run case), which is why the factory's platform scope is what this
     // reads under.
-    const [rows, workflowDefaults] = await Promise.all([
+    const [rows, workflowDefaults, zdr] = await Promise.all([
       listPlatformModelDefaults(),
       // Best-effort: an unreachable backend just means the UI cannot name the
       // YAML fallback, which must not block managing the defaults themselves.
       getWorkflowGroupDefaults(),
+      zdrIndexOrNull(),
     ])
 
+    // A retired group's row stays in the table; the page sends back what it
+    // loads, so returning it would make every save a 400. Dropped here, the
+    // next save omits it and `savePlatformModelDefaults` deletes the row.
     const defaults = Object.fromEntries(
-      rows.map((row) => [
+      rows.filter((row) => isAgentGroupId(row.agentGroup)).map((row) => [
         row.agentGroup,
         {
           model: row.model,
@@ -76,14 +93,19 @@ export const GET = platformApiRoute(
           updatedBy: row.updatedBy,
           updatedByEmail: row.updatedByEmail,
           updatedAt: row.updatedAt,
-          // Surfaced so the owner can see when a default is not selectable for
-          // Zero-Data-Retention tenants (see the PUT handler below).
-          zdrSafe: zdrSafeFromSnapshot(row.modelSnapshot),
+          // Live, not the save-time snapshot: a model can lose its last ZDR
+          // endpoint after it was pinned.
+          zdrSafe: liveZdrSafe(row.model, row.agentGroup, zdr),
         },
       ])
     )
 
-    return NextResponse.json({ agentGroups: AGENT_GROUPS, defaults, workflowDefaults })
+    return NextResponse.json({
+      agentGroups: AGENT_GROUPS,
+      defaults,
+      workflowDefaults,
+      workflowDefaultsZdrSafe: workflowZdrSafe(workflowDefaults, zdr),
+    })
   },
   { permission: PLATFORM_PERMISSIONS.settingsView }
 )
@@ -100,43 +122,24 @@ export const PUT = platformApiRoute(
     // Server-side revalidation against the live platform catalog — the picker
     // is never trusted, and a catalog outage rejects the save rather than
     // pinning the whole fleet to an unvalidated model id.
-    let catalog
-    try {
-      catalog = await fetchModelCatalog()
-    } catch (error) {
-      console.error('[Platform Model Defaults] Model catalog unavailable:', error)
-      throw new ServiceUnavailableError('The model catalog is unavailable; try again later')
-    }
-    const validation = validateOverrides(catalog, flat, true)
+    // Server-side revalidation against the live platform catalog AND the ZDR
+    // list — the picker is never trusted, and an outage of either rejects the
+    // save rather than pinning the whole fleet to an unchecked model id.
+    const [catalog, zdr] = await Promise.all([fetchModelCatalog(), fetchZdrEndpoints()]).catch((error: unknown) => {
+      console.error('[Platform Model Defaults] Model catalog or ZDR list unavailable:', error)
+      throw catalogUnavailableError(error)
+    })
+    const validation = validateOverrides(catalog, flat, true, zdr)
     if (!validation.ok) {
       throw new UnprocessableError('Model validation failed', validation.errors)
     }
-
-    // Zero-Data-Retention orgs inherit this default like anyone else, and a
-    // model without a ZDR endpoint cannot serve them. Recorded per group rather
-    // than rejected: the platform owner may legitimately pick a non-ZDR default
-    // and let those few tenants pin their own model. Best-effort — the ZDR
-    // listing being down must not block a routine model bump.
-    let zdrModelIds: Set<string> | null = null
-    try {
-      zdrModelIds = await fetchZdrModelIds()
-    } catch (error) {
-      console.warn('[Platform Model Defaults] Could not resolve the ZDR model listing:', error)
-    }
-    const modelSnapshot = Object.fromEntries(
-      Object.entries(validation.snapshot).map(([group, model]) => [
-        group,
-        { ...model, _zdr: { safe: zdrModelIds ? zdrModelIds.has(baseModelId(model.id)) : null } },
-      ])
-    )
-
     // `platform_model_defaults` grants the runtime role SELECT only, on purpose
     // (ADR-0041) — a tenant-facing bug must not be able to rewrite fleet-wide
     // configuration. Writing it is exactly what the platform tier is for, and
     // the factory has already put this handler in that scope.
     const rows = await savePlatformModelDefaults({
       defaults: flat,
-      modelSnapshot,
+      modelSnapshot: validation.snapshot,
       note: input.note ?? null,
       actorUserId: session.userId,
       actorEmail: session.email ?? null,
@@ -177,7 +180,6 @@ export const PUT = platformApiRoute(
             updatedBy: row.updatedBy,
             updatedByEmail: row.updatedByEmail,
             updatedAt: row.updatedAt,
-            zdrSafe: zdrSafeFromSnapshot(row.modelSnapshot),
           },
         ])
       ),
@@ -186,11 +188,31 @@ export const PUT = platformApiRoute(
   { permission: PLATFORM_PERMISSIONS.settingsManage }
 )
 
-/** `true`/`false` when the ZDR listing was reachable at save time, else null. */
-function zdrSafeFromSnapshot(snapshot: unknown): boolean | null {
-  if (!snapshot || typeof snapshot !== 'object') return null
-  const zdr = (snapshot as { _zdr?: unknown })._zdr
-  if (!zdr || typeof zdr !== 'object') return null
-  const safe = (zdr as { safe?: unknown }).safe
-  return typeof safe === 'boolean' ? safe : null
+/** The ZDR list, or null when it cannot be read — GET reports that as "unknown", never as safe. */
+async function zdrIndexOrNull(): Promise<ZdrIndex | null> {
+  try {
+    return await fetchZdrEndpoints()
+  } catch (error) {
+    console.warn('[Platform Model Defaults] ZDR list unavailable; ZDR status unknown:', error)
+    return null
+  }
+}
+
+/** Whether `modelId` has a ZDR endpoint serving the group; null when unknown. */
+function liveZdrSafe(modelId: string, groupId: string, zdr: ZdrIndex | null): boolean | null {
+  const group = getAgentGroup(groupId)
+  if (!zdr || !group) return null
+  return hasZdrEndpoint(modelId, zdr, group)
+}
+
+/** The same for each group's workflow YAML model(s); a multi-LLM group is safe only if all are. */
+function workflowZdrSafe(workflowDefaults: GroupDefaults, zdr: ZdrIndex | null): Record<string, boolean | null> {
+  return Object.fromEntries(
+    Object.entries(workflowDefaults).map(([groupId, value]) => {
+      const ids = splitGroupDefault(value)
+      if (ids.length === 0) return [groupId, null]
+      const verdicts = ids.map((id) => liveZdrSafe(id, groupId, zdr))
+      return [groupId, verdicts.includes(null) ? null : verdicts.every(Boolean)]
+    })
+  )
 }

@@ -26,9 +26,9 @@
  *                      by a `[[card:1]]` marker: marker placement, and the gap a
  *                      card leaves in the reading rhythm on both sides.
  *   • `two-cards`    — two cards in one turn, the rule nobody had seen tested:
- *                      a `condition_tree` placed inline and a `process_map` left
- *                      unplaced, so it lands in the fallback block between the
- *                      prose and the provenance footer.
+ *                      a `building_section` placed inline and a `calculation`
+ *                      left unplaced, so it lands in the fallback block between
+ *                      the prose and the provenance footer.
  *   • `follow-ups-rail` — the SAME answer twice: once as it lands, and once
  *                      with the post-answer follow-ups rail below it
  *                      (`docs/architecture/post-answer-stages.md` §8, §9). The
@@ -49,14 +49,6 @@
  *                      The footers must otherwise line up: the chip lands in a
  *                      meta row that is already on screen, which is what lets it
  *                      arrive seconds late without reserving anything.
- *   • `verdict-lede` — the `verdict_header` + lede pair, the conflict the
- *                      `piloti-cards` skill adjudicates ("the card carries the
- *                      value, the prose carries the sentence that qualifies it,
- *                      never the same words"). Two turns: the card at the TOP
- *                      (its marker opens the body, which suppresses the lede by
- *                      design — the card IS the lede), and the misuse beneath
- *                      it, the card placed after an opening paragraph so the
- *                      lede fires too and the ruling is stated twice.
  *   • `anatomy`      — the envelope's NATIVE anatomy, flat: verdict masthead
  *                      above the prose, callout anchored inside it by its
  *                      `[[callout]]` marker, takeaways closing the answer.
@@ -97,20 +89,20 @@ import { UserMessage } from '@/features/chat/components/UserMessage'
 import { ChatThinking } from '@/features/chat/components/ChatThinking'
 import { AgentResponse } from '@/features/chat/components/AgentResponse'
 import { FollowUpsRail } from '@/features/chat/components/FollowUpsRail'
-import type { ThinkingStep, CitationSource } from '@/features/chat/types'
+import type { CitationSource } from '@/features/chat/types'
+import type { StoredThinkingStep } from '@/lib/conversations/message-provenance'
 import type { GridCard } from '@/shared/cards/schemas'
 import type { MessageStages } from '@/lib/conversations/message-stages'
 import type { AnswerMeta } from '@/lib/conversations/message-answer-meta'
+import { useChatStore } from '@/features/chat/store'
 
-const step: ThinkingStep = {
+const step: StoredThinkingStep = {
   id: 'kb',
   userMessageId: 'msg-1',
-  category: 'tools',
-  functionName: 'knowledge_retrieval',
-  displayName: 'Knowledge Retrieval',
-  content: '',
+  kind: 'sources',
+  tool: 'knowledge_search',
   isComplete: true,
-  timestamp: new Date('2024-01-15T14:30:00'),
+  timestamp: '2024-01-15T14:30:00Z',
   traceLanes: [
     {
       key: 'baurecht_oib',
@@ -236,6 +228,7 @@ function CompletedTurn() {
       <AgentResponse
         content={answer}
         timestamp={new Date('2024-01-15T14:30:12')}
+        answerDurationMs={12_400}
         citations={citations}
         answerConfidence="high"
         answerConfidenceReason="OIB-RL 2 direkt als Quelle belegt"
@@ -604,18 +597,6 @@ const variantsCards: GridCard[] = [
       },
     ],
   } as unknown as GridCard,
-  {
-    type: 'legal_basis',
-    law: 'OIB-Richtlinie 2',
-    lane: 'baurecht_oib',
-    edition: 'Ausgabe Mai 2023',
-    article: '5.1.4',
-    section: 'Tabelle 3',
-    summary:
-      'Für den zusätzlichen Fluchtweg ist ein unabhängiger Weg zu einem weiteren Treppenhaus oder einer weiteren Außentreppe gemäß Tabelle 3 vorgesehen.',
-    original_text:
-      'ein unabhängiger Fluchtweg zu einem weiteren Treppenhaus oder einer weiteren Außentreppe jeweils gemäß Tabelle 3 erreichbar sein',
-  } as GridCard,
 ]
 
 const variantsCitations: CitationSource[] = [1, 2, 3].map((number) => ({
@@ -635,88 +616,38 @@ const variantsCitations: CitationSource[] = [1, 2, 3].map((number) => ({
 /* --- variant: two-cards --------------------------------------------------- */
 
 const twoCardsQuestion =
-  'Welche Feuerwiderstandsklasse brauchen die tragenden Bauteile in GK 4 — und wie läuft die Bewilligung in Wien ab?'
+  'Welche Gebäudeklasse hat unser Wohnhaus — und hält der Treppenlauf die Schrittmaßregel ein?'
 
-const twoCardsAnswer = `Tragende Bauteile der Gebäudeklasse 4 sind in **REI 60** auszuführen; in Kellergeschossen gilt unabhängig von der Gebäudeklasse REI 90 [1].
+const twoCardsAnswer = `Das Wohnhaus liegt mit einem obersten Fluchtniveau von 9,20 m in **Gebäudeklasse 4**; die Grenze zu GK 5 liegt bei 11 m [1].
 
-Die Anforderung hängt allein an der Gebäudeklasse, nicht an der Nutzung des Geschoßes:
+Maßgeblich ist das Fluchtniveau des obersten Geschoßes mit Aufenthaltsräumen, gemessen über dem tiefsten Punkt des angrenzenden Geländes:
 
 [[card:1]]
 
-Ihr Projekt liegt mit einem obersten Fluchtniveau von 9,80 m unter der Grenze von 11 m und damit in GK 4. Verschiebt sich das Fluchtniveau im Zuge der Planung über diese Grenze, gilt die Zeile darunter [1].
+Verschiebt sich das Fluchtniveau im Zuge der Planung über 11 m, gelten die Anforderungen der Gebäudeklasse 5 [1].
 
-Der Nachweis gehört in den Einreichplan: das Verfahren selbst verschiebt die Feuerwiderstandsklasse nicht, es prüft sie nur an einer bestimmten Stelle [2].
+Der Treppenlauf hält die Schrittmaßregel ein; die Rechnung steht unter der Antwort.
 
 ${FIRE_SOURCES}`
 
 const twoCards: GridCard[] = [
   {
-    type: 'condition_tree',
-    title: 'Erforderliche Feuerwiderstandsklasse tragender Bauteile',
-    question: 'Gebäudeklasse',
-    branches: [
-      { condition: 'GK 1–3', outcome: 'REI 30 (bzw. R 30)' },
-      {
-        condition: 'GK 4',
-        outcome: 'REI 60',
-        active: true,
-        reference: {
-          document: 'OIB-Richtlinie 2',
-          section: 'Tabelle 1b',
-          excerpt:
-            'Tragende Bauteile in Gebäuden der Gebäudeklasse 4 sind in REI 60 auszuführen; in Kellergeschossen gilt REI 90.',
-        },
-      },
-      {
-        condition: 'GK 5',
-        outcome: 'REI 90',
-        reference: { document: 'OIB-Richtlinie 2', section: 'Tabelle 1b' },
-      },
+    type: 'building_section',
+    title: 'Gebäudeschnitt – Höhenprüfung GK 4',
+    storeys: [
+      { label: 'KG', height_m: 2.5, below_grade: true },
+      { label: 'EG', height_m: 3.2 },
+      { label: '1.OG', height_m: 3.0 },
+      { label: '2.OG', height_m: 3.0 },
+      { label: '3.OG', height_m: 3.0 },
+    ],
+    markers: [
+      { label: 'Fluchtniveau', height_m: 9.2, kind: 'fluchtniveau' },
+      { label: 'GK4-Grenze', height_m: 11, kind: 'threshold' },
     ],
     reference: OIB2,
   } as GridCard,
-  {
-    type: 'process_map',
-    title: 'Baubewilligungsverfahren – Wien',
-    current_step: 2,
-    steps: [
-      {
-        label: 'Einreichung',
-        summary: 'Einreichunterlagen werden bei der Baubehörde eingebracht.',
-        actor: 'Bauwerber',
-        requires: ['Einreichplan', 'Baubeschreibung', 'Energieausweis'],
-        produces: ['Aktenzeichen'],
-        reference: { document: 'Wiener Bauordnung', section: '§ 63' },
-      },
-      {
-        label: 'Bauverhandlung',
-        summary: 'Mündliche Verhandlung mit Nachbarn und Amtssachverständigen.',
-        actor: 'Baubehörde',
-        duration: 'binnen sechs Wochen',
-        produces: ['Verhandlungsschrift'],
-        reference: { document: 'Wiener Bauordnung', section: '§ 70' },
-      },
-      {
-        label: 'Baubewilligung',
-        summary: 'Bescheid mit den Auflagen aus der Verhandlung.',
-        actor: 'Baubehörde',
-        produces: ['Baubewilligungsbescheid'],
-      },
-      {
-        label: 'Baubeginnsanzeige',
-        summary: 'Der Baubeginn ist der Behörde anzuzeigen.',
-        actor: 'Bauwerber',
-        requires: ['rechtskräftige Baubewilligung'],
-      },
-      {
-        label: 'Fertigstellungsanzeige',
-        summary: 'Nach Fertigstellung, mit den Ausführungsbestätigungen.',
-        actor: 'Bauwerber',
-        requires: ['Ausführungsbestätigungen der Fachplaner'],
-      },
-    ],
-    reference: { document: 'Wiener Bauordnung', section: '§§ 60 ff.' },
-  } as GridCard,
+  ...ledeCards,
 ]
 
 /* --- variant: follow-ups -------------------------------------------------- */
@@ -727,24 +658,9 @@ const followUpsAnswer = `Das Fluchtniveau ist der **Fußboden des obersten Gesch
 
 Gemessen wird lotrecht: vom tiefsten Punkt des Geländes an der Gebäudeaußenseite bis zur Oberkante des Fußbodens im obersten Geschoß mit Aufenthaltsräumen. Dachgeschoße zählen mit, sobald sie Aufenthaltsräume enthalten; ein reiner Technik- oder Abstellraum darüber bleibt außer Betracht.
 
-[[card:1]]
-
 Bei Hanglagen ist der tiefste Geländepunkt maßgeblich, nicht der Eingang. Das ist der häufigste Grund, warum ein Projekt in der Einreichung eine Klasse höher landet als in der Vorbemessung angenommen [2].
 
-[[card:2]]
-
 ${STAIR_SOURCES}`
-
-const followUpsCards: GridCard[] = [
-  {
-    type: 'callout',
-    kind: 'achtung',
-    title: 'Hanglage',
-    text: 'Bei geneigtem Gelände ist der tiefste Punkt an der Gebäudeaußenseite maßgeblich — nicht das Eingangsniveau.',
-    detail:
-      'Ein Grundstück mit 2,50 m Gefälle über die Gebäudelänge hebt das Fluchtniveau um denselben Betrag und kann ein Projekt allein dadurch von GK 4 in GK 5 verschieben.',
-  } as GridCard,
-]
 
 /**
  * What the `follow_ups` STAGE delivered for this turn — the payload shape of
@@ -800,77 +716,6 @@ const memoryStage: MessageStages = {
     ],
   },
 }
-
-/* --- variant: verdict-lede ------------------------------------------------ */
-
-const verdictQuestion = 'Wie hoch muss das Geländer an der Loggia im 4. Obergeschoß sein?'
-
-/**
- * The card at the TOP. Its marker opens the body, and `NON_PROSE_OPENER` in
- * AgentResponse therefore suppresses the lede — the verdict card IS the lede,
- * and the first paragraph is free to qualify it instead of repeating it.
- */
-const verdictTopAnswer = `[[card:1]]
-
-Maßgeblich ist die Absturzhöhe, nicht das Geschoß: gemessen wird von der Oberkante des begehbaren Belags bis zur tiefer liegenden Fläche. Ihre Loggia liegt bei rund 11,4 m und damit knapp unter der Grenze von 12 m, weshalb die Höhe vor der Einreichung am Schnitt zu prüfen ist [1].
-
-Die Füllung ist getrennt zu beurteilen: Öffnungen dürfen 12 cm nicht überschreiten, und im Bereich zwischen 20 und 60 cm über dem Belag sind waagrechte Elemente unzulässig, weil sie als Leiter wirken [1].
-
-Für Wien ergänzt § 109 BO die Anforderung um die Ausführung der Verankerung, die im Einreichplan darzustellen ist [2].
-
-${STAIR_SOURCES}`
-
-/**
- * The same card placed AFTER an opening paragraph. The body now opens with
- * prose and clears the length threshold, so the lede fires as well — and the
- * ruling is stated twice, once as a sentence and once as a 2xl figure. This is
- * the misuse the `piloti-cards` skill rules out; it is here so the reviewer can
- * see what it costs rather than take the rule on trust.
- */
-const verdictAfterLedeAnswer = `Das Geländer an der Loggia muss mindestens **1,10 m** hoch sein, weil die Absturzhöhe unter 12 m liegt [1].
-
-[[card:1]]
-
-Maßgeblich ist die Absturzhöhe, nicht das Geschoß: gemessen wird von der Oberkante des begehbaren Belags bis zur tiefer liegenden Fläche. Ihre Loggia liegt bei rund 11,4 m, also knapp unter der Grenze, ab der 1,20 m verlangt werden [1].
-
-Die Füllung ist getrennt zu beurteilen: Öffnungen dürfen 12 cm nicht überschreiten, und im Bereich zwischen 20 und 60 cm über dem Belag sind waagrechte Elemente unzulässig, weil sie als Leiter wirken [1].
-
-Für Wien ergänzt § 109 BO die Ausführung der Verankerung, die im Einreichplan darzustellen ist [2].
-
-${STAIR_SOURCES}`
-
-const verdictCard: GridCard = {
-  type: 'verdict_header',
-  subject: 'Erforderliche Geländerhöhe',
-  verdict: '1,10 m',
-  confidence: 'medium',
-  confidence_reason:
-    'Die Absturzhöhe liegt mit rund 11,4 m knapp unter der 12-m-Grenze; sie ist am Schnitt zu bestätigen.',
-  reference: { document: 'OIB-Richtlinie 4', section: 'Pkt. 4.1', edition: 'Ausgabe Mai 2023' },
-} as GridCard
-
-/**
- * Deliberately carries NONE of the verdict's words: the header holds the value,
- * so the takeaways hold the things it cannot — where the height is measured
- * from, and the two rules about the Füllung that the number says nothing about.
- * A first takeaway reading „Absturzhöhe 11,4 m → 1,10 m" would state the ruling
- * a second time in the same answer, which is the failure the turn below shows.
- */
-const takeawaysCard: GridCard = {
-  type: 'key_takeaways',
-  title: 'Geländer Loggia – das Wichtigste',
-  items: [
-    {
-      text: 'Gemessen wird ab Oberkante des begehbaren Belags',
-      detail: 'Bezugsfläche ist die tiefer liegende Fläche, nicht das Geschoßniveau.',
-    },
-    { text: 'Öffnungen der Füllung höchstens 12 cm' },
-    {
-      text: 'Keine waagrechten Elemente zwischen 20 und 60 cm über dem Belag',
-      detail: 'In diesem Band wirken sie als Aufstiegshilfe für Kinder.',
-    },
-  ],
-} as GridCard
 
 /* --- variant: anatomy ----------------------------------------------------- */
 
@@ -962,13 +807,33 @@ Für Wien konkretisiert § 111 BO die Ausführung: die Breite ist über den gesa
 
 ${STAIR_SOURCES}`
 
+/**
+ * Gives the down-voted panel what "Gründlicher neu beantworten" needs to show:
+ * the question it answered and a send path. The send is a no-op here; the
+ * preview is about where the action sits in the footer, beside the thumbs.
+ */
+function SeedRetryAction() {
+  useEffect(() => {
+    useChatStore.setState({
+      chatSendFn: () => undefined,
+      currentConversation: {
+        id: 'conv-feedback-down',
+        messages: [
+          { id: 'msg-feedback-down-q', role: 'user', messageType: 'user', content: feedbackQuestion },
+          { id: 'msg-feedback-down', role: 'assistant', messageType: 'assistant', content: feedbackAnswer },
+        ],
+      } as never,
+    })
+  }, [])
+  return null
+}
+
 const ANSWER_VARIANTS = [
   'feedback-open',
   'lede-card',
   'two-cards',
   'follow-ups-rail',
   'memory-chip',
-  'verdict-lede',
   'anatomy',
   'structured',
   'variants',
@@ -991,6 +856,7 @@ function AnswerLayer({ variant }: { variant: AnswerVariant }) {
     // empty left half, and hung the chips and the note off the right end.
     return (
       <>
+        <SeedRetryAction />
         <AnswerTurn
           label="↓ AT REST — the footnote is one 24px line: copy, export, the question, two thumbs"
           question={feedbackQuestion}
@@ -1001,7 +867,7 @@ function AnswerLayer({ variant }: { variant: AnswerVariant }) {
           conversationId="conv-feedback-rest"
         />
         <AnswerTurn
-          label="↓ NOT HELPFUL, REASON CHOSEN — the disclosure takes the next line, the row above it does not move"
+          label="↓ NOT HELPFUL, REASON CHOSEN — 'Gründlicher neu beantworten' sits beside the thumbs; the disclosure takes the next line, the row above it does not move"
           question={feedbackQuestion}
           answer={feedbackAnswer}
           citations={stairCitations}
@@ -1104,7 +970,7 @@ function AnswerLayer({ variant }: { variant: AnswerVariant }) {
   if (variant === 'two-cards') {
     return (
       <AnswerTurn
-        label="↓ TWO CARDS — condition_tree placed inline, process_map unplaced → fallback block above the footer"
+        label="↓ TWO CARDS — building_section placed inline, calculation unplaced → fallback block above the footer"
         question={twoCardsQuestion}
         answer={twoCardsAnswer}
         cards={twoCards}
@@ -1125,7 +991,6 @@ function AnswerLayer({ variant }: { variant: AnswerVariant }) {
           label="↓ AS THE ANSWER LANDS — the stage has not answered yet, and nothing is held open for it"
           question={followUpsQuestion}
           answer={followUpsAnswer}
-          cards={followUpsCards}
           citations={stairCitations}
           confidenceReason="Definition und Messregel direkt aus OIB-RL 4 belegt"
           messageId="msg-follow-ups-before"
@@ -1134,7 +999,6 @@ function AnswerLayer({ variant }: { variant: AnswerVariant }) {
           label="↓ TWO SECONDS LATER — the rail appended BELOW the answer card, outside it, in the same column"
           question={followUpsQuestion}
           answer={followUpsAnswer}
-          cards={followUpsCards}
           citations={stairCitations}
           confidenceReason="Definition und Messregel direkt aus OIB-RL 4 belegt"
           messageId="msg-follow-ups-after"
@@ -1144,60 +1008,35 @@ function AnswerLayer({ variant }: { variant: AnswerVariant }) {
     )
   }
 
-  if (variant === 'memory-chip') {
-    // Two answers of ONE thread. The chip used to be fed by a poll of the whole
-    // conversation's memory, mounted by every rendered answer, so BOTH panels
-    // would have carried it and both would have read the same number. It is now
-    // a fact about the turn: the first recorded nothing, the second recorded
-    // two things, and only the second says so.
-    //
-    // The second thing to read here is the meta row. The chip arrives seconds
-    // after the answer, and it may do that without any „reserve the space"
-    // treatment only because it lands in a row that is already on screen —
-    // confidence, copy, thumbs and timestamp are in it from the start. Cover
-    // the chip: the two footers must line up.
-    return (
-      <>
-        <AnswerTurn
-          label="↓ NOTHING WAS RECORDED — the stage ran and declined, which is its most common correct outcome"
-          question={memoryQuestion}
-          answer={memoryAnswer}
-          citations={stairCitations}
-          confidenceReason="Definition des Aufenthaltsraums direkt aus OIB-RL 4 belegt"
-          messageId="msg-memory-empty"
-        />
-        <AnswerTurn
-          label="↓ TWO WERE — the same footer, one chip wider; the popover names each item and where it came from"
-          question={memoryQuestion}
-          answer={memoryAnswer}
-          citations={stairCitations}
-          confidenceReason="Definition des Aufenthaltsraums direkt aus OIB-RL 4 belegt"
-          messageId="msg-memory-noted"
-          stages={memoryStage}
-        />
-      </>
-    )
-  }
-
+  // 'memory-chip': two answers of ONE thread. The chip used to be fed by a poll of the whole
+  // conversation's memory, mounted by every rendered answer, so BOTH panels
+  // would have carried it and both would have read the same number. It is now
+  // a fact about the turn: the first recorded nothing, the second recorded
+  // two things, and only the second says so.
+  //
+  // The second thing to read here is the meta row. The chip arrives seconds
+  // after the answer, and it may do that without any „reserve the space"
+  // treatment only because it lands in a row that is already on screen —
+  // confidence, copy, thumbs and timestamp are in it from the start. Cover
+  // the chip: the two footers must line up.
   return (
     <>
       <AnswerTurn
-        label="↓ VERDICT AT TOP — the marker opens the body, so the lede is suppressed: the card IS the lede"
-        question={verdictQuestion}
-        answer={verdictTopAnswer}
-        cards={[verdictCard, takeawaysCard]}
+        label="↓ NOTHING WAS RECORDED — the stage ran and declined, which is its most common correct outcome"
+        question={memoryQuestion}
+        answer={memoryAnswer}
         citations={stairCitations}
-        confidenceReason="Absturzhöhe liegt knapp unter der 12-m-Grenze"
-        messageId="msg-verdict-top"
+        confidenceReason="Definition des Aufenthaltsraums direkt aus OIB-RL 4 belegt"
+        messageId="msg-memory-empty"
       />
       <AnswerTurn
-        label="↓ VERDICT AFTER THE LEDE — prose opens the body, so the lede fires too and the ruling is stated twice"
-        question={verdictQuestion}
-        answer={verdictAfterLedeAnswer}
-        cards={[verdictCard]}
+        label="↓ TWO WERE — the same footer, one chip wider; the popover names each item and where it came from"
+        question={memoryQuestion}
+        answer={memoryAnswer}
         citations={stairCitations}
-        confidenceReason="Absturzhöhe liegt knapp unter der 12-m-Grenze"
-        messageId="msg-verdict-lede"
+        confidenceReason="Definition des Aufenthaltsraums direkt aus OIB-RL 4 belegt"
+        messageId="msg-memory-noted"
+        stages={memoryStage}
       />
     </>
   )

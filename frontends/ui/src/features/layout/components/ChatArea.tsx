@@ -21,6 +21,7 @@ import {
   useState,
   useMemo,
 } from 'react'
+import { ShimmerText } from '@/components/ui/shimmer-text'
 import { ArrowDown, FileText, Lock } from 'lucide-react'
 import { useShallow } from 'zustand/react/shallow'
 import { Button } from '@/components/ui/button'
@@ -35,7 +36,10 @@ import {
   useElapsedSeconds,
   formatElapsed,
 } from '@/features/chat'
-import type { ChatMessage, StatusType } from '@/features/chat'
+import type { ChatMessage } from '@/features/chat'
+import type { StoredThinkingStep } from '@/lib/conversations/message-provenance'
+import { useAnswerRevealStore } from '@/features/chat/stores/answer-reveal-store'
+import type { ChoicePrompt } from '@/features/chat/components/reasoning'
 // Imported from its own module rather than the `@/features/chat` barrel so the
 // shared-thread additions do not depend on that barrel's mock in existing specs.
 import type { UserMessageAuthor } from '@/features/chat/components/UserMessage'
@@ -125,7 +129,6 @@ export const ChatArea: FC<ChatAreaProps> = memo(function ChatArea({
     currentConversation,
     isStreaming,
     currentUserMessageId,
-    currentStatus,
     hasHydrated,
     isRecoveryPending,
   } = useChatStore(
@@ -133,19 +136,25 @@ export const ChatArea: FC<ChatAreaProps> = memo(function ChatArea({
       currentConversation: s.currentConversation,
       isStreaming: s.isStreaming,
       currentUserMessageId: s.currentUserMessageId,
-      currentStatus: s.currentStatus,
       hasHydrated: s.hasHydrated,
       isRecoveryPending: s.isRecoveryPending,
     }))
   )
+  // The stream ends before the answer's text is all on screen: the answer
+  // finishes what its pace held back, then settles. The Herleitung stays live
+  // until then, so it collapses in the same frame the answer settles, not
+  // while the text is still growing (`answer-reveal-store.ts`).
+  const answerRevealing = useAnswerRevealStore((s) => s.revealingId !== null)
+  const turnLive = isStreaming || answerRevealing
 
-  const respondToPrompt = useChatStore((s) => s.respondToPrompt)
+  const respondToInteractionFn = useChatStore((s) => s.respondToInteractionFn)
   // The project this thread is scoped to. Read here for one reason: the
   // „Als Aktenvermerk schreiben" chip is only offered where a draft has
   // somewhere to be filed (ledger 23).
   const activeProjectId = useChatStore((s) => s.projectId)
   const setComposerPrefill = useChatStore((s) => s.setComposerPrefill)
-  const getThinkingStepsForMessage = useChatStore((s) => s.getThinkingStepsForMessage)
+  const stableStepsRef = useRef(new Map<string, StoredThinkingStep[]>())
+  const stableChoicePromptRef = useRef(new WeakMap<ChatMessage, ChoicePrompt>())
   const dismissErrorCard = useChatStore((s) => s.dismissErrorCard)
   const retryLastUserMessage = useChatStore((s) => s.retryLastUserMessage)
   const t = useTranslations('research')
@@ -224,8 +233,8 @@ export const ChatArea: FC<ChatAreaProps> = memo(function ChatArea({
     wire is `onFrame` on the hook itself, below.
   */
   useEffect(() => {
-    if (isForeignTurn && spectatedTurn?.failed) clearTurnInFlight()
-  }, [isForeignTurn, spectatedTurn?.failed, clearTurnInFlight])
+    if (isForeignTurn && spectatedTurn?.phase === 'failed') clearTurnInFlight()
+  }, [isForeignTurn, spectatedTurn?.phase, clearTurnInFlight])
 
   // One label, two renderings (the static banner and the live stream), so the
   // observer's headline cannot change wording just because frames started
@@ -527,22 +536,23 @@ export const ChatArea: FC<ChatAreaProps> = memo(function ChatArea({
   const hydratedIds = hydratedIdsRef.current
 
   /**
-   * Helper to get thinking steps for a user message.
-   * First checks ephemeral store (for active session), then falls back
-   * to persisted steps embedded in the message (for restored sessions).
-   * Filters out deep research steps: a run's progress is the run block's
-   * (`RunBlockMessage`), not the turn's thinking trace.
+   * The Herleitung of a user message: the steps the turn's fold wrote onto it,
+   * live or restored alike. A deep-research step is the run block's
+   * (`RunBlockMessage`), not the turn's.
    */
-  const getStepsForUserMessage = (messageId: string) => {
-    // First try ephemeral store (for active session)
-    // getThinkingStepsForMessage already filters out deep research steps
-    const storeSteps = getThinkingStepsForMessage(messageId)
-    if (storeSteps.length > 0) return storeSteps
-
-    // Fall back to persisted steps in message (for restored sessions)
-    // Filter out deep research steps here as well
-    const message = currentConversation?.messages.find((m) => m.id === messageId)
-    return (message?.thinkingSteps || []).filter((step) => !step.isDeepResearch)
+  const getStepsForUserMessage = (messageId: string): StoredThinkingStep[] => {
+    const steps = (currentConversation?.messages.find((m) => m.id === messageId)?.thinkingSteps ?? []).filter(
+      (step) => step.scope !== 'deep'
+    )
+    // The filter builds a new array per call. Hand back the previous one while
+    // its steps are the same objects, so the memoised ChatThinking of a turn that
+    // did not change skips the render every delta flush of the live answer.
+    const previous = stableStepsRef.current.get(messageId)
+    if (previous && previous.length === steps.length && previous.every((step, i) => step === steps[i])) {
+      return previous
+    }
+    stableStepsRef.current.set(messageId, steps)
+    return steps
   }
 
   // ── Stick-to-bottom scroll controller ──────────────────────────────────────
@@ -632,7 +642,19 @@ export const ChatArea: FC<ChatAreaProps> = memo(function ChatArea({
   // On conversation switch, jump straight to the newest message and re-engage
   // auto-follow (no smooth animation across a full thread swap). Also release
   // any stale top-anchor spacer so a swapped-in thread starts flush at bottom.
+  //
+  // Not when the conversation is the one this send just created. The first
+  // question of a new chat brings the conversation id in the same commit that
+  // anchors the question (the layout effect below runs first), and a reset
+  // here undid the anchor: the view chased the bottom of the growing
+  // Herleitung, the question 2,900 px above it on a phone (Herleitung audit,
+  // 2026-09).
+  const shownConversationIdRef = useRef<string | undefined>(undefined)
   useEffect(() => {
+    const id = currentConversation?.id
+    const createdBySend = shownConversationIdRef.current === undefined && anchoredRef.current
+    shownConversationIdRef.current = id
+    if (createdBySend) return
     isAtBottomRef.current = true
     setShowScrollButton(false)
     anchoredRef.current = false
@@ -680,11 +702,15 @@ export const ChatArea: FC<ChatAreaProps> = memo(function ChatArea({
     scrollToBottom('smooth')
   }, [scrollToBottom])
 
-  const handlePromptRespond = useCallback(
-    (promptId: string, response: string) => {
-      respondToPrompt(promptId, response)
+  // A choice picked in the Herleitung's branches node answers the open
+  // question with the option's id, as the prompt card's own pick does.
+  const handleChoiceRespond = useCallback(
+    (promptId: string, label: string) => {
+      const prompt = currentConversation?.messages.find((m) => m.promptId === promptId)
+      const option = prompt?.promptOptions?.find((candidate) => candidate.label === label)
+      if (option) respondToInteractionFn?.(option.id)
     },
-    [respondToPrompt]
+    [currentConversation, respondToInteractionFn]
   )
 
   // Retry an errored answer: resend the last user message through the live send
@@ -719,11 +745,9 @@ export const ChatArea: FC<ChatAreaProps> = memo(function ChatArea({
     if (!isStreaming) return false
     const last = displayableMessages[displayableMessages.length - 1]
     if (!last) return false
-    if (last.id === currentUserMessageId) {
-      return getThinkingStepsForMessage(currentUserMessageId).length === 0
-    }
+    if (last.id === currentUserMessageId) return !last.thinkingSteps?.length
     return last.messageType === 'prompt' && !!last.isPromptResponded
-  }, [isStreaming, currentUserMessageId, displayableMessages, getThinkingStepsForMessage])
+  }, [isStreaming, currentUserMessageId, displayableMessages])
 
   return (
     // Mentions in message text resolve to a person through this, so a pill can
@@ -815,7 +839,14 @@ export const ChatArea: FC<ChatAreaProps> = memo(function ChatArea({
               and a spacer inside the observed box resized it again at the same
               depth, a "ResizeObserver loop" error once per frame. */}
                   <div ref={contentRef} className="flex flex-col gap-4">
-                    <AnimatePresence initial={false}>
+                    {/* `presenceAffectsLayout={false}`: nothing in the list uses
+                        layout animation, and with the default each row got a new
+                        PresenceContext on every render, which re-rendered every
+                        `motion.*` inside every earlier answer through context,
+                        past MessageRenderer's memo: 920 fibers and 69 ms per delta
+                        flush in a 40-message thread on a 4× throttled phone
+                        (React performance audit, 2026-09). */}
+                    <AnimatePresence initial={false} presenceAffectsLayout={false}>
                       {displayableMessages.map((message, index) => {
                         const isUserMessage =
                           message.messageType === 'user' || message.role === 'user'
@@ -825,7 +856,7 @@ export const ChatArea: FC<ChatAreaProps> = memo(function ChatArea({
                         // Derive post-thinking state for user messages with thinking steps.
                         // Priority: isThinking (active) > isWaiting (HITL) > isInterrupted > done
                         const isCurrentlyStreaming =
-                          isStreaming && message.id === currentUserMessageId
+                          turnLive && message.id === currentUserMessageId
                         const shouldCheckPostState =
                           isUserMessage && hasThinkingSteps && !isCurrentlyStreaming
                         const remaining = shouldCheckPostState
@@ -864,18 +895,26 @@ export const ChatArea: FC<ChatAreaProps> = memo(function ChatArea({
                         const choicePromptMsg = turnMessages.find(
                           (m) =>
                             m.messageType === 'prompt' &&
-                            m.promptType === 'choice' &&
+                            m.promptInputType === 'choice' &&
                             (m.promptOptions?.length ?? 0) > 0
                         )
-                        const choicePrompt = choicePromptMsg
-                          ? {
+                        // One object per prompt message, so ChatThinking's memo holds.
+                        let choicePrompt: ChoicePrompt | undefined
+                        if (choicePromptMsg) {
+                          choicePrompt = stableChoicePromptRef.current.get(choicePromptMsg)
+                          if (!choicePrompt) {
+                            choicePrompt = {
                               promptId: choicePromptMsg.promptId ?? choicePromptMsg.id,
                               text: choicePromptMsg.content,
-                              options: choicePromptMsg.promptOptions ?? [],
+                              options: (choicePromptMsg.promptOptions ?? []).map((option) => option.label),
                               isResponded: !!choicePromptMsg.isPromptResponded,
-                              selected: choicePromptMsg.promptResponse,
+                              selected: choicePromptMsg.promptOptions?.find(
+                                (option) => option.id === choicePromptMsg.promptResponse
+                              )?.label,
                             }
-                          : undefined
+                            stableChoicePromptRef.current.set(choicePromptMsg, choicePrompt)
+                          }
+                        }
 
                         // Whether this turn earns the „Als Aktenvermerk schreiben"
                         // chip — a walkthrough or a ruling, in a project, long enough
@@ -935,7 +974,6 @@ export const ChatArea: FC<ChatAreaProps> = memo(function ChatArea({
                                 commissionRun ? commissionFromFinding : undefined
                               }
                               onContinueRun={commissionRun ? continueRun : undefined}
-                              onPromptRespond={handlePromptRespond}
                               onErrorDismiss={dismissErrorCard}
                               onErrorRetry={handleErrorRetry}
                               showConfidenceChip={showConfidenceChip}
@@ -960,11 +998,8 @@ export const ChatArea: FC<ChatAreaProps> = memo(function ChatArea({
                               <div className="w-full">
                                 <ChatThinking
                                   steps={messageSteps}
-                                  isThinking={isStreaming && message.id === currentUserMessageId}
-                                  autoOpen={
-                                    (isStreaming && message.id === currentUserMessageId) ||
-                                    isWaiting
-                                  }
+                                  isThinking={isCurrentlyStreaming}
+                                  autoOpen={isCurrentlyStreaming || isWaiting}
                                   isWaiting={isWaiting}
                                   isInterrupted={isInterrupted}
                                   isRecoveryPending={isRecoveryPending}
@@ -974,7 +1009,7 @@ export const ChatArea: FC<ChatAreaProps> = memo(function ChatArea({
                                   answerConfidence={agentMsg?.answerConfidence}
                                   citations={agentMsg?.citations}
                                   choicePrompt={choicePrompt}
-                                  onChoiceRespond={handlePromptRespond}
+                                  onChoiceRespond={handleChoiceRespond}
                                   escalationReason={agentMsg?.escalationReason}
                                   retrievalLedger={agentMsg?.retrievalLedger}
                                 />
@@ -993,8 +1028,8 @@ export const ChatArea: FC<ChatAreaProps> = memo(function ChatArea({
                         reserving space only because nothing sits below it to
                         move. The other half of that guarantee (nothing below it
                         in the THREAD either, the answer no longer streaming, the
-                        reader not already typing) is enforced where the frame
-                        arrives, in `applyStageFrame`. */}
+                        reader not already typing) is enforced where the stage
+                        arrives, in `lib/turn-projection.ts`. */}
                             {/* One more chip beside them, decided in the browser: the
                         offer to file this answer as an Aktenvermerk. It rides the
                         rail rather than getting a surface of its own, because it
@@ -1066,7 +1101,7 @@ export const ChatArea: FC<ChatAreaProps> = memo(function ChatArea({
                     )}
 
                     {/* Latency-gap typing indicator (before the first token arrives) */}
-                    {showTypingPlaceholder && <TypingIndicator status={currentStatus} />}
+                    {showTypingPlaceholder && <TypingIndicator />}
 
                     {/* The agent is working for SOMEONE in this thread (spec CC-13). Without
                 this an observer sees a thread where nothing appears to be happening
@@ -1168,7 +1203,6 @@ interface MessageRendererProps {
   conversationId?: string | null
   /** The active project — the run block reads its live ledger through it. */
   projectId?: string | null
-  onPromptRespond: (promptId: string, response: string) => void
   onErrorDismiss?: (messageId: string) => void
   /** Resend the last user message + dismiss this error card (retry affordance). */
   onErrorRetry?: (messageId: string) => void
@@ -1201,7 +1235,6 @@ const MessageRendererComponent: FC<MessageRendererProps> = ({
   message,
   conversationId,
   projectId,
-  onPromptRespond,
   onErrorDismiss,
   onErrorRetry,
   showConfidenceChip = true,
@@ -1232,20 +1265,12 @@ const MessageRendererComponent: FC<MessageRendererProps> = ({
       )
 
     case 'prompt':
-      // Guard against missing promptType
-      if (!message.promptType) {
-        return null
-      }
       return (
         <AgentPrompt
-          id={message.id}
-          type={message.promptType}
           content={message.content}
           options={message.promptOptions}
-          placeholder={message.promptPlaceholder}
           isResponded={message.isPromptResponded}
           response={message.promptResponse}
-          onRespond={onPromptRespond}
           timestamp={message.timestamp}
           // `promptFor` is present only on a prompt restored from the server
           // (ADR-0037). Absent means a live prompt, where this browser holds the
@@ -1264,6 +1289,7 @@ const MessageRendererComponent: FC<MessageRendererProps> = ({
         <AgentResponse
           content={message.content}
           timestamp={message.timestamp}
+          answerDurationMs={message.answerDurationMs}
           cards={message.cards}
           citations={message.citations}
           conversationId={conversationId}
@@ -1294,6 +1320,8 @@ const MessageRendererComponent: FC<MessageRendererProps> = ({
           showAnswerFeedback={showAnswerFeedback}
           isStreaming={message.isStreaming}
           routingDecision={message.routingDecision}
+          retrievalLedger={message.retrievalLedger}
+          quoteStamps={message.quoteStamps}
         />
       )
       // A message that carries a run ledger IS a run (ADR-0062): the block
@@ -1416,7 +1444,6 @@ const areMessageRendererPropsEqual = (
   prev.author?.name === next.author?.name &&
   prev.author?.avatarUrl === next.author?.avatarUrl &&
   prev.author?.isYou === next.author?.isYou &&
-  prev.onPromptRespond === next.onPromptRespond &&
   prev.onErrorDismiss === next.onErrorDismiss &&
   prev.onErrorRetry === next.onErrorRetry
 
@@ -1474,9 +1501,7 @@ const TurnInFlightBanner: FC<{ label: string }> = ({ label }) => (
     role="status"
     data-testid="turn-in-flight"
   >
-    <span className="animate-text-shimmer text-foreground text-xs font-medium motion-reduce:animate-none">
-      {label}
-    </span>
+    <ShimmerText className="text-xs font-medium">{label}</ShimmerText>
   </div>
 )
 
@@ -1485,20 +1510,9 @@ const TurnInFlightBanner: FC<{ label: string }> = ({ label }) => (
  * user message until the first token / thinking step arrives. Left-aligned to
  * match assistant bubbles.
  */
-// Streaming statuses that have a human label; other StatusType values fall back
-// to the generic "typing" copy.
-const TYPING_STATUS_KEYS: Partial<Record<StatusType, string>> = {
-  thinking: 'thinking',
-  searching: 'searching',
-  planning: 'planning',
-  researching: 'researching',
-  writing: 'writing',
-}
-
-const TypingIndicator: FC<{ status?: StatusType | null }> = ({ status }) => {
+const TypingIndicator: FC = () => {
   const t = useTranslations('research')
-  const statusKey = status ? TYPING_STATUS_KEYS[status] : undefined
-  const label = statusKey ? t(`chatArea.status.${statusKey}`) : t('chatArea.typing')
+  const label = t('chatArea.status.thinking')
   // This bubble is only mounted before the first step arrives, so counting from
   // mount gives the true "time since send" for the earliest, quietest wait.
   const elapsed = useElapsedSeconds(true)
@@ -1512,8 +1526,8 @@ const TypingIndicator: FC<{ status?: StatusType | null }> = ({ status }) => {
         {/* CSS, not a JS loop: transform and opacity run on the compositor,
             so the dots cost the main thread nothing while a phone waits. */}
         <span className="animate-typing-dot bg-muted-foreground/70 size-1.5 rounded-full" />
-        <span className="animate-typing-dot bg-muted-foreground/70 size-1.5 rounded-full [animation-delay:120ms]" />
-        <span className="animate-typing-dot bg-muted-foreground/70 size-1.5 rounded-full [animation-delay:240ms]" />
+        <span className="animate-typing-dot bg-muted-foreground/70 size-1.5 rounded-full [animation-delay:160ms]" />
+        <span className="animate-typing-dot bg-muted-foreground/70 size-1.5 rounded-full [animation-delay:320ms]" />
       </span>
       <span
         className="text-muted-foreground/70 hidden text-xs motion-reduce:inline"
@@ -1523,9 +1537,7 @@ const TypingIndicator: FC<{ status?: StatusType | null }> = ({ status }) => {
       </span>
       {/* Always word the wait (shimmering), and surface elapsed seconds once
           past a couple of seconds so a slow first token never feels stalled. */}
-      <span className="animate-text-shimmer text-xs font-medium motion-reduce:animate-none">
-        {label}
-      </span>
+      <ShimmerText className="text-xs font-medium">{label}</ShimmerText>
       {elapsed > 2 && (
         <span className="text-muted-foreground/80 text-xs tabular-nums">
           {formatElapsed(elapsed)}

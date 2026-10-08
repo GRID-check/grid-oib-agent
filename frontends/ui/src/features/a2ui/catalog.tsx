@@ -51,14 +51,16 @@ export const CardRendererProvider = CardRendererContext.Provider
 /**
  * Called once A2UI has drawn a real component. A layout effect, so it runs in
  * the commit that mounted the component, before the browser paints: the host
- * swaps its direct copy for A2UI's without a frame of either the placeholder
- * or both copies.
+ * takes its placeholder down and shows A2UI's drawing without a frame of
+ * A2UI's own "[Loading root...]". `A2uiCard` passes the same news to whatever
+ * holds the card's place above it (a streamed card's `CardSlot`).
  */
 const DrawnContext = createContext<(() => void) | null>(null)
 export const DrawnProvider = DrawnContext.Provider
+export const useDrawnReporter = () => useContext(DrawnContext)
 
 function useReportDrawn() {
-  const report = useContext(DrawnContext)
+  const report = useDrawnReporter()
   useLayoutEffect(() => report?.(), [report])
 }
 
@@ -225,19 +227,14 @@ export function pilotiCatalog(): Catalog<ReactComponentImplementation> {
 /**
  * Card types that may not be a leaf of a surface. Mirrors
  * `SURFACE_EXCLUDED_LEAVES` in `src/aiq_agent/cards/models.py`, which refuses
- * them when the surface is written: system cards are pushed by tools, the
- * envelope's own fields are not cards, and an interactive card's decision is
+ * them when the surface is written: system cards are pushed by tools, and an
+ * interactive card's decision is
  * keyed by its position in the message (`card-decision.ts`), which a card
  * inside a surface does not have. The catalog still registers them, because a
  * card outside a surface is drawn through it too, so the refusal lives here.
  */
 export const SURFACE_EXCLUDED_LEAVES: ReadonlySet<string> = new Set([
   'surface',
-  'summary',
-  'verdict_header',
-  'key_takeaways',
-  'callout',
-  'follow_ups',
   'memory_proposal',
   'document_grid',
   'document_draft',

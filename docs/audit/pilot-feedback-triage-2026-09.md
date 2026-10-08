@@ -105,8 +105,12 @@ uses it. Pure frontend work, no backend at all — with one hazard, that an
 internal drag must be told apart from an OS file drag, which the workspace
 already listens for.
 
-**Office-Viewer (docx/xlsx/pptx).** Accepted at upload, no viewer, and the only
-honest fix adds a conversion dependency. ADR first.
+~~**Office-Viewer (docx/xlsx/pptx).**~~ Accepted at upload, no viewer, and the
+only honest fix adds a conversion dependency. ADR first. Closed 2026-09-29 by
+[ADR-0070](../adr/0070-office-files-are-viewed-through-a-pdf-rendition.md): a
+Gotenberg sidecar converts the file to a PDF sibling that opens in the existing
+viewer, and Download still returns the original. Citations to a Word document
+or an Excel sheet open at page 1.
 
 **Die Kartentypografie ist immer noch kleiner als der Fließtext.** The charter's
 ramp tops out at 13.5px Body against 16px prose, so a migrated card is

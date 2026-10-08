@@ -12,8 +12,8 @@ Covers:
 - ``_parse_drawing_fields`` — parsing the structured drawing-VLM response.
 - ``_summary_from_drawing_fields`` — building a watermark-free document summary
   from rendered-page descriptions.
-- ``processing.render_visual_pages_no_vlm`` — the visual-page heuristic (text-sparse OR
-  path-heavy) with pypdfium2 mocked.
+- ``processing.render_visual_pages_no_vlm`` — the drawing check (text-sparse AND
+  path-heavy, ``page_triage``) with pypdfium2 mocked.
 - The ``_run_ingestion`` drawing branch end-to-end (heavy collaborators mocked):
   a watermark-only PDF is rendered, captioned, and summarised from the drawing
   — never from the watermark.

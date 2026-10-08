@@ -10,6 +10,8 @@ Routes:
     POST /v1/jobs/async/job/{job_id}/cancel               - Cancel running job
     GET  /v1/jobs/async/job/{job_id}/state                - Get artifacts from event store
     GET  /v1/jobs/async/job/{job_id}/report               - Get final report
+    GET  /v1/internal/jobs/{job_id}/outcome               - A job's verdict for the BFF's run reconciler
+                                                            (service token, never on the external allowlist)
 """
 
 from __future__ import annotations
@@ -25,6 +27,7 @@ from typing import Any
 from fastapi import Body
 from fastapi import FastAPI
 from fastapi import HTTPException
+from fastapi import Request
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from pydantic import ConfigDict
@@ -35,9 +38,12 @@ from aiq_agent.common.data_source_registry import get_all_tool_refs
 from aiq_agent.common.data_source_registry import get_source_id_for_tool
 from aiq_agent.common.db_utils import redact_db_url
 from aiq_agent.common.job_admission import JobAdmissionError
-from nat.builder.framework_enum import LLMFrameworkEnum
+from nat.plugin_api import LLMFrameworkEnum
 
+from ..jobs.access import JobCaller
+from ..jobs.access import job_visibility_clause
 from ..jobs.access import require_verified_principal
+from ..jobs.access import signed_job_scope
 from ..registry import AGENT_REGISTRY
 from ..registry import get_agent_config
 
@@ -45,8 +51,11 @@ if TYPE_CHECKING:
     from nat.builder.workflow_builder import WorkflowBuilder
     from nat.front_ends.fastapi.fastapi_front_end_plugin_worker import FastApiFrontEndPluginWorker
 
+from ..jobs.outcome_notify import notify_job_outcome_from_access
 from ..jobs.runner import DOCUMENT_ADDED_EVENT_TYPE
 from ..jobs.runner import WRITE_NOW_EVENT_TYPE
+from ..jobs.runner import _update_status_if_not_terminal
+from .internal_auth import _require_internal_token
 
 logger = logging.getLogger(__name__)
 
@@ -292,8 +301,8 @@ class JobReportResponse(BaseModel):
 
     ## Why ``cards`` rides on the report response
 
-    ``lib/pdf/legal-basis.ts`` renders a „Rechtsgrundlagen" section into the
-    filed report PDF out of the answer's ``legal_basis`` cards, and
+    The filed report PDF (``frontends/ui/src/lib/pdf/report-document.ts``) is
+    built from the report and the run's cards, and
     ``fileResearchReport`` (``frontends/ui/src/lib/documents/research-report.ts``)
     takes them as an optional argument its only caller could not fill: the BFF
     files the report at the moment it reads it off THIS route, and this route
@@ -321,9 +330,11 @@ class JobReportResponse(BaseModel):
     ``legalBasisSection``'s own narrowing) — not a third time in between, where
     the only new behaviour available to it is failure.
 
-    ## Why every card type and not only ``legal_basis``
+    ## Why every card type
 
-    The PDF reads ``legal_basis`` today, but the same run's cards already reach
+    The „Rechtsgrundlagen" section now reads the report's own quote lines
+    (``frontends/ui/src/lib/answer-export/excerpts.ts``), not a card; the
+    retired ``legal_basis`` card no longer exists. The run's cards already reach
     the client whole by two other paths — over the socket as the answer streams,
     and on the conversation message row ``write_job_turn`` writes
     (``metadata["cards"]``). A report response carrying a filtered subset would
@@ -392,6 +403,74 @@ def _report_sources(raw: Any) -> list[dict] | None:
     return sources or None
 
 
+class InternalJobOutcomeResponse(BaseModel):
+    """A job's verdict as the BFF's run reconciler reads it (internal only).
+
+    Everything the run's own terminal writes would have carried, rebuilt from
+    the job store: the status and error for ``/api/internal/jobs/{id}/outcome``,
+    the report and cards for filing, and the run message's content and metadata
+    for ``/api/internal/runs/by-job/{id}/report``.
+    """
+
+    job_id: str
+    status: str = Field(..., description="submitted, running, success, failure or interrupted")
+    error: str | None = None
+    report: str | None = None
+    cards: list[dict] | None = None
+    message: dict[str, Any] | None = Field(
+        None, description="What the run message should hold: {content, metadata}; null while the job runs"
+    )
+
+
+def _job_caller(request: Request) -> JobCaller:
+    """The verified principal, and the job scope its request's signed envelope grants (ADR-0084)."""
+    principal = require_verified_principal()
+    return JobCaller(principal=principal, scope=signed_job_scope(request.headers, principal))
+
+
+def _job_status_value(status: Any) -> str:
+    """The job store's status as its lowercase wire word, enum or string alike."""
+    return str(getattr(status, "value", status)).lower()
+
+
+async def internal_job_outcome(
+    job_store: Any, db_url: str, job_id: str, organization_id: str
+) -> InternalJobOutcomeResponse:
+    """The job's verdict for one organization, or a 404.
+
+    The tenant is checked against the job's ``job_access`` row, written at
+    submit: the service token names no organization, and a reconciler that
+    asked about another tenant's job id must learn nothing about it, not even
+    that it exists.
+    """
+    from ..jobs.access import get_job_access
+    from ..jobs.conversation_output import run_message_for_outcome
+
+    job = await job_store.get_job(job_id)
+    access = await asyncio.get_running_loop().run_in_executor(None, get_job_access, job_id, db_url) if job else None
+    if not job or not access or access.get("organization_id") != organization_id:
+        raise HTTPException(404, f"Job not found: {job_id}")
+
+    status = _job_status_value(job.status)
+    output: dict[str, Any] | None = None
+    if job.output:
+        try:
+            parsed = json.loads(job.output) if isinstance(job.output, str) else job.output
+            output = parsed if isinstance(parsed, dict) else None
+        except (json.JSONDecodeError, TypeError):
+            output = None
+
+    report = output.get("report") if output and status == "success" else None
+    return InternalJobOutcomeResponse(
+        job_id=job_id,
+        status=status,
+        error=job.error if status in ("failure", "interrupted") else None,
+        report=report if isinstance(report, str) and report else None,
+        cards=_report_cards(output.get("cards")) if output and report else None,
+        message=run_message_for_outcome(job_id=job_id, status=status, output=output),
+    )
+
+
 class ResearchRunItem(BaseModel):
     """A single research run (async job) summary."""
 
@@ -452,10 +531,9 @@ async def register_job_routes(app: FastAPI, builder: WorkflowBuilder, worker: Fa
     """
     Register agent-agnostic async job routes.
 
-    Uses NAT's JobStore for job metadata and Dask for distributed execution.
-    The /v1/data_sources endpoint is always registered regardless of Dask availability.
+    Uses NAT's JobStore for job metadata. Research runs on the database-claimed
+    queue (ADR-0021). The /v1/data_sources endpoint is always registered.
     """
-    import logging as std_logging
     import os
 
     from .builder_state import set_active_builder
@@ -466,15 +544,15 @@ async def register_job_routes(app: FastAPI, builder: WorkflowBuilder, worker: Fa
 
     from aiq_agent.common.data_source_registry import get_all_sources
     from nat.front_ends.fastapi.async_jobs.job_store import JobStatus
+    from nat.front_ends.fastapi.async_jobs.job_store import JobStore
 
+    from ..jobs import queue
     from ..jobs.access import authorize_job_access
     from ..jobs.access import ensure_job_access_table
     from ..jobs.access import get_job_project_collection
     from ..jobs.event_store import EventStore
     from ..jobs.submit import DuplicateJobIdError
     from ..jobs.submit import MissingPrincipalError
-    from ..jobs.submit import SchedulerNotConfiguredError
-    from ..jobs.submit import job_execution_mode
     from ..jobs.submit import submit_agent_job as submit_authorized_job
 
     if not get_all_sources():
@@ -537,40 +615,17 @@ async def register_job_routes(app: FastAPI, builder: WorkflowBuilder, worker: Fa
 
     logger.info("Registered /v1/data_sources and /v1/jobs/async/agents routes")
 
-    db_execution = job_execution_mode() == "db"
-    dask_available = getattr(worker, "_dask_available", False)
-    job_store = getattr(worker, "_job_store", None)
-
-    # In db-execution mode (ADR-0021) the web tier runs no Dask cluster, so the
-    # routes must still register with a DB-only job store. Otherwise the routes
-    # require Dask + a job store as before.
-    if not db_execution and (not dask_available or not job_store):
-        logger.warning(
-            "Dask not available - async job submission routes require NAT_DASK_SCHEDULER_ADDRESS"
-            " and NAT_JOB_STORE_DB_URL"
-        )
-        return
-
-    scheduler_address = getattr(worker, "_scheduler_address", None) or os.environ.get("NAT_DASK_SCHEDULER_ADDRESS")
     db_url = getattr(worker, "_db_url", None) or os.environ.get("NAT_JOB_STORE_DB_URL", "sqlite:///./data/jobs.db")
 
-    if job_store is None:
-        # DB-only store: JobStore only *stores* the scheduler address (no Dask
-        # client is built at construction), so status/persistence work without a
-        # cluster. Submission enqueues a claimable row; workers execute it.
-        from nat.front_ends.fastapi.async_jobs.job_store import JobStore
-
-        job_store = JobStore(scheduler_address=scheduler_address or "", db_url=db_url)
-    # submit_agent_job resolves these from the environment only; publish the
-    # worker-provided values so a NAT-config-only deployment (no env vars)
-    # doesn't register routes whose every submission then fails.
-    if scheduler_address:
-        os.environ.setdefault("NAT_DASK_SCHEDULER_ADDRESS", scheduler_address)
-    if db_url:
-        os.environ.setdefault("NAT_JOB_STORE_DB_URL", db_url)
+    # The job store the routes read and write. Research runs on the database-claimed
+    # queue (ADR-0021), so there is no scheduler: JobStore only stores the address
+    # it is given, and every call here goes to the database.
+    job_store = JobStore(scheduler_address="", db_url=db_url)
+    # submit_agent_job resolves the database from the environment only; publish the
+    # worker-provided value so a NAT-config-only deployment (no env vars) doesn't
+    # register routes whose every submission then fails.
+    os.environ.setdefault("NAT_JOB_STORE_DB_URL", db_url)
     config_path = getattr(worker, "_config_file_path", None) or os.environ.get("NAT_CONFIG_FILE", "")
-    log_level = getattr(worker, "_log_level", std_logging.INFO)
-    use_threads = getattr(worker, "_use_dask_threads", False)
 
     if not config_path:
         logger.error("Config file path not available - NAT_CONFIG_FILE not set")
@@ -580,49 +635,12 @@ async def register_job_routes(app: FastAPI, builder: WorkflowBuilder, worker: Fa
     default_expiry_seconds = getattr(front_end_config, "expiry_seconds", 86400) if front_end_config else 86400
 
     logger.info(
-        "Registering async job routes: scheduler=%s, db=%s, expiry=%ds",
-        scheduler_address,
+        "Registering async job routes: db=%s, expiry=%ds",
         redact_db_url(db_url),
         default_expiry_seconds,
     )
     await asyncio.get_running_loop().run_in_executor(None, ensure_job_access_table, db_url)
-
-    @app.get("/health", tags=["health"], summary="Health check")
-    async def health_check():
-        """Health check endpoint that validates DB connectivity."""
-        from sqlalchemy import text
-
-        from ..jobs.event_store import EventStore
-
-        # `sha` is the deployed commit (GRID_GIT_SHA, stamped into the image
-        # at build time), or "unknown". The boot log prints it too, but a pilot
-        # report arrives after that line has rotated — this answers "what is
-        # that deployment running" over HTTP, which is what makes the report
-        # actionable. It also reaches the BFF's own `/api/health`, which is a
-        # pass-through of this body. A commit sha of a private repository is
-        # not a credential and not tenant data.
-        from ..startup_banner import deployed_sha
-
-        result = {"status": "ok", "sha": deployed_sha(), "dask_available": dask_available, "db": "ok"}
-
-        # Check DB connectivity using any cached async engine
-        try:
-            cache = EventStore._async_engine_cache
-            if cache:
-                engine = next(iter(cache.values()))[0]
-                async with engine.connect() as conn:
-                    await asyncio.wait_for(conn.execute(text("SELECT 1")), timeout=3.0)
-            else:
-                result["db"] = "no_engine"
-        except Exception:
-            logger.warning("Health check DB ping failed", exc_info=True)
-            result["status"] = "degraded"
-            result["db"] = "unreachable"
-            from fastapi.responses import JSONResponse
-
-            return JSONResponse(status_code=503, content=result)
-
-        return result
+    await asyncio.get_running_loop().run_in_executor(None, queue.ensure_research_queue_table, db_url)
 
     @app.post(
         "/v1/jobs/async/submit",
@@ -636,7 +654,6 @@ async def register_job_routes(app: FastAPI, builder: WorkflowBuilder, worker: Fa
             400: {"description": "Unknown agent type or invalid request"},
             409: {"description": "A job with the supplied job_id already exists"},
             422: {"description": "One or more unknown or agent-unavailable data source IDs"},
-            503: {"description": "Dask scheduler not available"},
         },
     )
     async def submit_job(
@@ -666,7 +683,7 @@ async def register_job_routes(app: FastAPI, builder: WorkflowBuilder, worker: Fa
             len(req.data_sources) if req.data_sources is not None else "none",
         )
 
-        # Propagate auth token to Dask worker for requires_auth data sources
+        # Propagate the auth token to the research worker for requires_auth data sources
         from aiq_agent.auth import get_auth_token
 
         auth_token = get_auth_token()
@@ -687,9 +704,6 @@ async def register_job_routes(app: FastAPI, builder: WorkflowBuilder, worker: Fa
             # Caller-supplied job_id collides with an existing job; letting the
             # submission proceed would rewrite the original job's ownership.
             raise HTTPException(409, str(e))
-        except SchedulerNotConfiguredError as e:
-            # Server misconfiguration, not an authorization failure.
-            raise HTTPException(503, str(e))
         except MissingPrincipalError as e:
             # Static, user-safe message defined in jobs/submit.py.
             raise HTTPException(403, str(e))
@@ -724,10 +738,9 @@ async def register_job_routes(app: FastAPI, builder: WorkflowBuilder, worker: Fa
         description="Get the current status of an async job by its ID.",
         responses={404: {"description": "Job not found"}},
     )
-    async def get_job_status(job_id: str) -> JobStatusResponse:
+    async def get_job_status(job_id: str, request: Request) -> JobStatusResponse:
         """Get the current status of a job."""
-        principal = require_verified_principal()
-        job = await authorize_job_access(job_store, db_url, job_id, principal)
+        job = await authorize_job_access(job_store, db_url, job_id, _job_caller(request), "read")
 
         return JobStatusResponse(
             job_id=job_id,
@@ -746,10 +759,9 @@ async def register_job_routes(app: FastAPI, builder: WorkflowBuilder, worker: Fa
         ),
         responses={404: {"description": "Job not found"}},
     )
-    async def stream_job_events(job_id: str) -> StreamingResponse:
+    async def stream_job_events(job_id: str, request: Request) -> StreamingResponse:
         """SSE stream for job events from beginning."""
-        principal = require_verified_principal()
-        await authorize_job_access(job_store, db_url, job_id, principal)
+        await authorize_job_access(job_store, db_url, job_id, _job_caller(request), "read")
 
         return StreamingResponse(
             _sse_generator(job_store, job_id, db_url, start_event_id=0),
@@ -764,10 +776,9 @@ async def register_job_routes(app: FastAPI, builder: WorkflowBuilder, worker: Fa
         description="Resume an SSE stream from a specific event ID. Use for reconnection after network interruption.",
         responses={404: {"description": "Job not found"}},
     )
-    async def stream_job_events_from(job_id: str, last_event_id: int) -> StreamingResponse:
+    async def stream_job_events_from(job_id: str, last_event_id: int, request: Request) -> StreamingResponse:
         """SSE stream for job events from specific event ID (for reconnection)."""
-        principal = require_verified_principal()
-        await authorize_job_access(job_store, db_url, job_id, principal)
+        await authorize_job_access(job_store, db_url, job_id, _job_caller(request), "read")
 
         return StreamingResponse(
             _sse_generator(job_store, job_id, db_url, start_event_id=last_event_id),
@@ -785,47 +796,31 @@ async def register_job_routes(app: FastAPI, builder: WorkflowBuilder, worker: Fa
             404: {"description": "Job not found"},
         },
     )
-    async def cancel_job(job_id: str) -> dict:
+    async def cancel_job(job_id: str, request: Request) -> dict:
         """Cancel a submitted or running job."""
-        principal = require_verified_principal()
-        job = await authorize_job_access(job_store, db_url, job_id, principal)
+        job = await authorize_job_access(job_store, db_url, job_id, _job_caller(request), "control")
 
         # SUBMITTED is cancellable too: a job stuck before its first status
         # transition would otherwise be un-cancellable while still consuming
-        # admission-control quota (count_active_jobs counts non-terminal jobs).
+        # its organization's running-job quota.
         if job.status not in (JobStatus.RUNNING.value, JobStatus.SUBMITTED.value):
             raise HTTPException(400, f"Job not cancellable: {job_id} (status: {job.status})")
 
-        await job_store.update_status(job_id, JobStatus.INTERRUPTED, error="cancelled by user")
+        # Conditional, like every other terminal writer: the run may have
+        # finished between the read above and this write, and an unconditional
+        # write would relabel its SUCCESS as a cancel (and, with the report
+        # below, tell the BFF so). The loser of that race gets the same 400 as
+        # a job that had already ended.
+        written = await _update_status_if_not_terminal(
+            job_store, job_id, JobStatus.INTERRUPTED, error="cancelled by user"
+        )
+        if not written:
+            raise HTTPException(400, f"Job not cancellable: {job_id} (already finished)")
 
-        def _record_cancellation_event() -> None:
-            # EventStore construction and store() are blocking DB I/O — keep
-            # them off the event loop like the rest of this module.
-            event_store = EventStore(db_url, job_id)
-            event_store.store(
-                {
-                    "type": "job.cancellation_requested",
-                    "data": {"reason": "cancelled by user"},
-                }
-            )
+        await _stop_interrupted_job(db_url, job_id, reason="cancelled by user")
+        logger.info("Cancel requested for job %s: status updated", job_id)
 
-        await asyncio.get_running_loop().run_in_executor(None, _record_cancellation_event)
-
-        if job_execution_mode() == "db":
-            # DB-claimed execution (ADR-0021): removing the queue row drops an
-            # unclaimed job so no worker ever runs it; a running worker sees the
-            # INTERRUPTED status via its CancellationMonitor and stops on its own.
-            # No scheduler is involved, so the Dask cancel is skipped.
-            from ..jobs import queue
-
-            await asyncio.get_running_loop().run_in_executor(None, queue.mark_done, db_url, job_id)
-            task_cancelled = False
-        else:
-            task_cancelled = await _cancel_dask_task(scheduler_address, job_id)
-
-        logger.info("Cancel requested for job %s: status updated, task_cancelled=%s", job_id, task_cancelled)
-
-        return {"job_id": job_id, "status": JobStatus.INTERRUPTED.value, "task_cancelled": task_cancelled}
+        return {"job_id": job_id, "status": JobStatus.INTERRUPTED.value}
 
     @app.post(
         "/v1/jobs/async/job/{job_id}/write-now",
@@ -840,10 +835,9 @@ async def register_job_routes(app: FastAPI, builder: WorkflowBuilder, worker: Fa
             404: {"description": "Job not found"},
         },
     )
-    async def write_now(job_id: str) -> dict:
+    async def write_now(job_id: str, request: Request) -> dict:
         """Ask a running job to write its report now."""
-        principal = require_verified_principal()
-        job = await authorize_job_access(job_store, db_url, job_id, principal)
+        job = await authorize_job_access(job_store, db_url, job_id, _job_caller(request), "control")
 
         if job.status != JobStatus.RUNNING.value:
             raise HTTPException(400, f"Job is not running: {job_id} (status: {job.status})")
@@ -868,10 +862,9 @@ async def register_job_routes(app: FastAPI, builder: WorkflowBuilder, worker: Fa
             404: {"description": "Job not found"},
         },
     )
-    async def add_document(job_id: str, body: JobDocumentRequest) -> dict:
+    async def add_document(job_id: str, body: JobDocumentRequest, request: Request) -> dict:
         """Add one document to the Grundlage of a running job."""
-        principal = require_verified_principal()
-        job = await authorize_job_access(job_store, db_url, job_id, principal)
+        job = await authorize_job_access(job_store, db_url, job_id, _job_caller(request), "control")
 
         if job.status != JobStatus.RUNNING.value:
             raise HTTPException(400, f"Job is not running: {job_id} (status: {job.status})")
@@ -893,10 +886,9 @@ async def register_job_routes(app: FastAPI, builder: WorkflowBuilder, worker: Fa
         description="Get tool calls, outputs, and sources collected during job execution.",
         responses={404: {"description": "Job not found"}},
     )
-    async def get_job_state(job_id: str) -> JobStateResponse:
+    async def get_job_state(job_id: str, request: Request) -> JobStateResponse:
         """Get artifacts from event store."""
-        principal = require_verified_principal()
-        await authorize_job_access(job_store, db_url, job_id, principal)
+        await authorize_job_access(job_store, db_url, job_id, _job_caller(request), "read")
 
         artifacts = await _get_job_artifacts(db_url, job_id)
         return JobStateResponse(
@@ -914,10 +906,9 @@ async def register_job_routes(app: FastAPI, builder: WorkflowBuilder, worker: Fa
         description="Get the final research report from a completed job.",
         responses={404: {"description": "Job not found"}},
     )
-    async def get_job_report(job_id: str) -> JobReportResponse:
+    async def get_job_report(job_id: str, request: Request) -> JobReportResponse:
         """Get the final report from a completed job."""
-        principal = require_verified_principal()
-        job = await authorize_job_access(job_store, db_url, job_id, principal)
+        job = await authorize_job_access(job_store, db_url, job_id, _job_caller(request), "read")
 
         report = None
         cards = None
@@ -951,6 +942,40 @@ async def register_job_routes(app: FastAPI, builder: WorkflowBuilder, worker: Fa
             project_collection=project_collection,
         )
 
+    @app.post(
+        "/v1/internal/jobs/kill-active",
+        tags=["async jobs", "internal"],
+        summary="Kill every submitted or running job, across every organization (internal)",
+        description=(
+            "Service-token guarded; the BFF's platform maintenance button is the one caller. Each job gets "
+            "the cancel route's treatment: INTERRUPTED and its queue row dropped, "
+            "and the verdict reported so the BFF closes its run row."
+        ),
+        responses={403: {"description": "Missing or invalid internal token"}},
+    )
+    async def kill_active_jobs(request: Request) -> dict:
+        """Interrupt every non-terminal job and stop its worker."""
+        _require_internal_token(request)
+        return await _kill_active_jobs(job_store, db_url)
+
+    @app.get(
+        "/v1/internal/jobs/{job_id}/outcome",
+        response_model=InternalJobOutcomeResponse,
+        tags=["async jobs", "internal"],
+        summary="A job's verdict for the BFF's run reconciler (internal)",
+        description=(
+            "Service-token guarded. The run reconciler holds no user token and no signed envelope, "
+            "so the user-scoped status route cannot answer it."
+        ),
+        responses={403: {"description": "Missing or invalid internal token"}, 404: {"description": "Job not found"}},
+    )
+    async def get_internal_job_outcome(
+        job_id: str, organization_id: str, request: Request
+    ) -> InternalJobOutcomeResponse:
+        """The job's status, error, report and run-message content, for one organization."""
+        _require_internal_token(request)
+        return await internal_job_outcome(job_store, db_url, job_id, organization_id)
+
     @app.get(
         "/v1/jobs/async/jobs",
         response_model=ResearchRunsResponse,
@@ -958,11 +983,13 @@ async def register_job_routes(app: FastAPI, builder: WorkflowBuilder, worker: Fa
         summary="List research runs",
         description=(
             "List async job runs (research runs), optionally filtered by project collection, "
-            "conversation, and/or status. Scoped to the caller's own jobs, consistent with "
-            "single-job access checks elsewhere in this API."
+            "conversation, and/or status. Scoped to the runs a single-job read would open: the "
+            "caller's own, and those in the project or conversation its signed envelope names "
+            "(ADR-0084)."
         ),
     )
     async def list_research_runs(
+        request: Request,
         project_collection: str | None = None,
         conversation_id: str | None = None,
         status: str | None = None,
@@ -970,22 +997,20 @@ async def register_job_routes(app: FastAPI, builder: WorkflowBuilder, worker: Fa
         offset: int = 0,
     ) -> ResearchRunsResponse:
         """List research runs matching the given filters, newest first."""
-        principal = require_verified_principal()
+        caller = _job_caller(request)
 
         clamped_limit = max(1, min(limit, 200))
         clamped_offset = max(0, offset)
 
-        # Mirrors authorize_job_access: ownership is only enforced when REQUIRE_AUTH=true.
-        enforce_owner = os.environ.get("REQUIRE_AUTH", "false").lower() == "true"
+        # Mirrors authorize_job_access: access is only enforced when REQUIRE_AUTH=true.
+        visible_to = caller if os.environ.get("REQUIRE_AUTH", "false").lower() == "true" else None
 
         loop = asyncio.get_running_loop()
         rows, total = await loop.run_in_executor(
             None,
             _find_research_runs,
             db_url,
-            enforce_owner,
-            principal.type,
-            principal.sub,
+            visible_to,
             project_collection,
             conversation_id,
             status,
@@ -1011,22 +1036,111 @@ async def register_job_routes(app: FastAPI, builder: WorkflowBuilder, worker: Fa
     # table is otherwise created lazily on first EventStore write).
     EventStore._ensure_table_exists(db_url)
 
-    # Start the ghost job reaper background task
-    asyncio.create_task(_reap_ghost_jobs(job_store, db_url, scheduler_address))
+    # Housekeeping runs only through these routes, one cycle per call, on a
+    # schedule outside the process (the housekeeping CronJobs; Compose's
+    # housekeeping service). ADR-0082 step A1.
+    _add_housekeeping_routes(app, job_store, db_url, default_expiry_seconds)
 
-    # Start periodic cleanup of expired jobs (NAT's job_info table) and old events (job_events table).
-    # NAT provides periodic_cleanup as a Dask task for job_info, but it must be explicitly submitted.
-    # We also run a local asyncio task for job_events cleanup since NAT doesn't manage that table.
-    _start_periodic_cleanup(job_store, scheduler_address, db_url, default_expiry_seconds, log_level, use_threads)
 
-    # Age-based retention for the interactive chat checkpoint store. Chat threads
-    # have no terminal event, so they accumulate forever without this (P0 #1,
-    # chat side — see checkpoint_retention.py). Runs regardless of execution mode.
-    _start_checkpoint_reaper()
+KILL_REASON = "killed by platform operator"
+# One press of the button, bounded like every other list here. A fleet with
+# more live jobs than this is killed by pressing again.
+KILL_BATCH = 1000
+
+
+async def _stop_interrupted_job(db_url: str, job_id: str, *, reason: str) -> None:
+    """Stop the worker of a job whose INTERRUPTED status the caller just wrote, and report it.
+
+    Shared by the cancel route and the platform kill. Dropping the queue row
+    keeps a job no worker has claimed from ever running; a running worker sees
+    the INTERRUPTED status through its CancellationMonitor and stops on its own
+    (ADR-0021).
+    """
+    from ..jobs import queue
+    from ..jobs.event_store import EventStore
+
+    loop = asyncio.get_running_loop()
+
+    def _record_cancellation_event() -> None:
+        # EventStore construction and store() are blocking DB I/O; keep them
+        # off the event loop like the rest of this module.
+        EventStore(db_url, job_id).store({"type": "job.cancellation_requested", "data": {"reason": reason}})
+
+    await loop.run_in_executor(None, _record_cancellation_event)
+    await loop.run_in_executor(None, queue.mark_done, db_url, job_id)
+
+    # The caller wrote the verdict, so it reports it. A running worker reports
+    # the same INTERRUPTED again when its abort lands, which the BFF absorbs;
+    # but a job no worker ever claimed (its queue row was just dropped) has no
+    # runner left to report anything, and the BFF's run row would stay `running`
+    # forever. No error text, exactly like the runner's own report, so the two
+    # reports write the same row.
+    await notify_job_outcome_from_access(job_id=job_id, db_url=db_url, status="interrupted")
+
+
+def _find_active_job_ids(db_url: str, statuses: tuple[str, ...], limit: int) -> list[str]:
+    """Every job in one of ``statuses``, oldest first. Sync; run it in an executor."""
+    from sqlalchemy import bindparam
+    from sqlalchemy import inspect
+    from sqlalchemy import text
+
+    from ..jobs.event_store import EventStore
+
+    engine = EventStore._get_or_create_sync_engine(db_url)
+    if not inspect(engine).has_table("job_info"):
+        return []
+    # A literal statement with an expanding bind: no SQL is built from strings.
+    query = text(
+        "SELECT job_id FROM job_info WHERE status IN :statuses ORDER BY created_at, job_id LIMIT :limit"
+    ).bindparams(bindparam("statuses", expanding=True))
+    with engine.connect() as conn:
+        rows = conn.execute(query, {"statuses": list(statuses), "limit": limit})
+        return [row[0] for row in rows]
+
+
+async def _kill_active_jobs(job_store, db_url: str) -> dict:
+    """Interrupt every SUBMITTED or RUNNING job and stop its worker.
+
+    Each job goes through the cancel route's conditional write, so a job that
+    finishes while the sweep runs keeps its own verdict and is counted as
+    already finished. One job's failure is logged and counted; it never stops
+    the others from being killed.
+    """
+    from nat.front_ends.fastapi.async_jobs.job_store import JobStatus
+
+    loop = asyncio.get_running_loop()
+    statuses = (JobStatus.RUNNING.value, JobStatus.SUBMITTED.value)
+    job_ids = await loop.run_in_executor(None, _find_active_job_ids, db_url, statuses, KILL_BATCH)
+
+    killed: list[str] = []
+    already_finished = 0
+    failed: list[dict[str, str]] = []
+    for job_id in job_ids:
+        try:
+            written = await _update_status_if_not_terminal(job_store, job_id, JobStatus.INTERRUPTED, error=KILL_REASON)
+            if not written:
+                already_finished += 1
+                continue
+            await _stop_interrupted_job(db_url, job_id, reason=KILL_REASON)
+            killed.append(job_id)
+        except Exception as exc:
+            logger.warning("kill-active: job %s could not be killed: %s", job_id, exc)
+            failed.append({"job_id": job_id, "error": str(exc)})
+
+    logger.warning(
+        "kill-active: killed %d job(s), %d had already finished, %d failed", len(killed), already_finished, len(failed)
+    )
+    return {
+        "found": len(job_ids),
+        "killed": killed,
+        "already_finished": already_finished,
+        "failed": failed,
+        "truncated": len(job_ids) >= KILL_BATCH,
+    }
 
 
 GHOST_JOB_TIMEOUT_SECONDS = 300  # 5 minutes without events = ghost job
-GHOST_REAPER_INTERVAL_SECONDS = 60  # check every 60 seconds
+GHOST_JOB_ERROR = "Job timed out (no heartbeat received from worker)"
 
 
 def _find_stale_jobs(db_url: str, active_statuses: tuple[str, ...]) -> list[str]:
@@ -1077,12 +1191,10 @@ def _find_stale_jobs(db_url: str, active_statuses: tuple[str, ...]) -> list[str]
         stale_ids = [row[0] for row in result]
 
         # Second predicate: active jobs that never produced a single event.
-        # The INNER JOIN above can't match them, but they are exactly the
-        # crash classes the reaper exists for: a worker that died during agent
-        # setup (RUNNING, before the first heartbeat/callback event), or a job
-        # stuck in SUBMITTED whose Dask task was never picked up. Timestamps
-        # come from job_info since these jobs have no events at all. Without
-        # this they hold admission-control slots forever.
+        # The INNER JOIN above can't match them, but they are exactly the crash
+        # class the reaper exists for: a worker that died during agent setup
+        # (RUNNING, before the first heartbeat/callback event). Timestamps come
+        # from job_info since these jobs have no events at all.
         if db_url.startswith("postgres"):
             eventless_query = text(
                 "SELECT ji.job_id FROM job_info ji "
@@ -1121,9 +1233,7 @@ def _format_created_at(value: Any) -> str | None:
 
 def _find_research_runs(
     db_url: str,
-    enforce_owner: bool,
-    owner_auth_type: str | None,
-    owner_subject: str | None,
+    visible_to: JobCaller | None,
     project_collection: str | None,
     conversation_id: str | None,
     status: str | None,
@@ -1136,11 +1246,12 @@ def _find_research_runs(
     Runs in a thread via run_in_executor to avoid blocking the event loop with DB I/O.
     Mirrors the raw-SQL, sync-engine query pattern used by ``_find_stale_jobs`` above.
 
-    When ``enforce_owner`` is True (REQUIRE_AUTH=true), results are scoped to the
-    given owner_auth_type/owner_subject pair -- the same principal match performed
-    by ``authorize_job_access``. When False (auth disabled), ownership is not
-    enforced, consistent with how ``authorize_job_access`` treats no-auth
-    deployments.
+    With ``visible_to`` (REQUIRE_AUTH=true), results are the runs that caller may
+    read: its own, and those its signed scope reaches (``job_visibility_clause``,
+    the listing's form of the rule ``authorize_job_access`` applies). The
+    filters below narrow that set and never widen it. With None (auth disabled),
+    access is not enforced, consistent with how ``authorize_job_access`` treats
+    no-auth deployments.
     """
     from sqlalchemy import inspect
     from sqlalchemy import text
@@ -1160,10 +1271,10 @@ def _find_research_runs(
     conditions: list[str] = []
     params: dict[str, Any] = {}
 
-    if enforce_owner:
-        conditions.append("ja.owner_auth_type = :owner_auth_type AND ja.owner_subject = :owner_subject")
-        params["owner_auth_type"] = owner_auth_type
-        params["owner_subject"] = owner_subject
+    if visible_to is not None:
+        visibility, visibility_params = job_visibility_clause(visible_to)
+        conditions.append(visibility)
+        params.update(visibility_params)
     if project_collection is not None:
         conditions.append("ja.project_collection = :project_collection")
         params["project_collection"] = project_collection
@@ -1200,45 +1311,35 @@ def _find_research_runs(
     return [dict(row) for row in rows], total
 
 
-async def _reap_stale_jobs_once(job_store, db_url: str, scheduler_address: str | None = None) -> list[str]:
-    """Run a single reap cycle: mark stale jobs FAILURE and cancel their Dask tasks.
+async def _reap_stale_jobs_once(job_store, db_url: str) -> list[str]:
+    """Run a single reap cycle: mark stale jobs FAILURE so their workers stop.
 
     Returns the list of reaped job IDs. Factored out of _reap_ghost_jobs for
     testability.
     """
-    loop = asyncio.get_running_loop()
+    from aiq_agent.knowledge.leader_lock import leader_lock_async
 
     # Only one replica runs the cycle (advisory lock), so N web replicas don't
-    # redundantly re-detect and re-mark the same ghosts.
-    lock = await loop.run_in_executor(None, _acquire_reaper_lock, db_url)
-    if lock is _REAPER_LOCK_SKIP:
-        return []
-    try:
-        return await _do_reap_cycle(job_store, db_url, scheduler_address, loop)
-    finally:
-        await loop.run_in_executor(None, _release_reaper_lock, lock)
+    # redundantly re-detect and re-mark the same ghosts. A session lock, so it is
+    # taken on the direct AIQ_LOCK_DB_URL connection, never on db_url (ADR-0083).
+    async with leader_lock_async(_PG_REAPER_LOCK_ID) as is_leader:
+        if not is_leader:
+            return []
+        return await _do_reap_cycle(job_store, db_url, asyncio.get_running_loop())
 
 
-async def _do_reap_cycle(job_store, db_url: str, scheduler_address: str | None, loop) -> list[str]:
+async def _do_reap_cycle(job_store, db_url: str, loop) -> list[str]:
     from nat.front_ends.fastapi.async_jobs.job_store import JobStatus
 
     from ..jobs.event_store import EventStore
-    from ..jobs.runner import _update_status_if_not_terminal
-    from ..jobs.submit import job_execution_mode
 
-    if job_execution_mode() == "db":
-        # In db-execution mode a SUBMITTED job is a HEALTHY queued row waiting
-        # for a free worker (it legitimately has zero events until claimed), so
-        # it must NOT be reaped — the whole point of the queue is to absorb
-        # bursts. Crashed CLAIMED jobs are recovered by the queue's own
-        # heartbeat reclaim / reap_exhausted, not here. Only genuinely abandoned
-        # RUNNING jobs (no events for the ghost window) are reaped.
-        stale_statuses = (JobStatus.RUNNING.value,)
-    else:
-        # Dask mode: SUBMITTED jobs are reaped too — they may have ZERO events
-        # (never picked up by a worker) yet still consume admission quota.
-        stale_statuses = (JobStatus.RUNNING.value, JobStatus.SUBMITTED.value)
-    stale_job_ids = await loop.run_in_executor(None, _find_stale_jobs, db_url, stale_statuses)
+    # A SUBMITTED job is a HEALTHY queued row waiting for a free worker (it
+    # legitimately has zero events until claimed), so it must NOT be reaped — the
+    # whole point of the queue is to absorb bursts. Crashed CLAIMED jobs are
+    # recovered by the queue's own heartbeat reclaim / reap_exhausted, not here.
+    # Only genuinely abandoned RUNNING jobs (no events for the ghost window) are
+    # reaped.
+    stale_job_ids = await loop.run_in_executor(None, _find_stale_jobs, db_url, (JobStatus.RUNNING.value,))
 
     reaped: list[str] = []
     for stale_job_id in stale_job_ids:
@@ -1252,7 +1353,7 @@ async def _do_reap_cycle(job_store, db_url: str, scheduler_address: str | None, 
                 job_store,
                 stale_job_id,
                 JobStatus.FAILURE,
-                error="Job timed out (no heartbeat received from worker)",
+                error=GHOST_JOB_ERROR,
             )
             if not written:
                 logger.info(
@@ -1265,49 +1366,26 @@ async def _do_reap_cycle(job_store, db_url: str, scheduler_address: str | None, 
                 {
                     "type": "job.error",
                     "data": {
-                        "error": "Job timed out (no heartbeat received from worker)",
+                        "error": GHOST_JOB_ERROR,
                         "error_type": "GhostJobTimeout",
                     },
                 }
             )
-            # Stop the worker like the cancel route does: writing FAILURE alone
-            # leaves the Dask task running, wasting resources (terminal-status
-            # stickiness in the runner prevents it from flipping the status,
-            # and its CancellationMonitor stops it once it polls the FAILURE).
-            if scheduler_address:
-                await _cancel_dask_task(scheduler_address, stale_job_id)
+            # The worker stops by itself: its CancellationMonitor polls the
+            # FAILURE it just wrote and aborts the run.
+            # The run is dead or will lose every later write, so nothing else
+            # will tell the BFF; its run row closes on this report.
+            await notify_job_outcome_from_access(
+                job_id=stale_job_id,
+                db_url=db_url,
+                status="failure",
+                error=GHOST_JOB_ERROR,
+            )
             reaped.append(stale_job_id)
         except Exception as e:
             logger.warning("Failed to reap ghost job %s: %s", stale_job_id, e)
 
     return reaped
-
-
-async def _reap_ghost_jobs(job_store, db_url: str, scheduler_address: str | None = None) -> None:
-    """
-    Background task that periodically marks stale RUNNING/SUBMITTED jobs as FAILURE.
-
-    A job is considered "ghost" if it has been non-terminal for over
-    GHOST_JOB_TIMEOUT_SECONDS with no new events in the job_events table
-    (falling back to job_info timestamps for jobs that never produced events).
-    This catches Dask worker crashes and OOM kills that bypass Python exception
-    handling, as well as SUBMITTED jobs that were never picked up.
-    """
-    logger.info(
-        "Ghost job reaper started (timeout=%ds, interval=%ds)",
-        GHOST_JOB_TIMEOUT_SECONDS,
-        GHOST_REAPER_INTERVAL_SECONDS,
-    )
-
-    while True:
-        try:
-            await asyncio.sleep(GHOST_REAPER_INTERVAL_SECONDS)
-            await _reap_stale_jobs_once(job_store, db_url, scheduler_address)
-        except asyncio.CancelledError:
-            logger.info("Ghost job reaper stopped")
-            break
-        except Exception as e:
-            logger.warning("Ghost job reaper error: %s", e)
 
 
 def _int_env(name: str, default: int) -> int:
@@ -1321,10 +1399,8 @@ def _int_env(name: str, default: int) -> int:
         return default
 
 
-_cleanup_task: asyncio.Task | None = None
 """Module-level reference for graceful shutdown cancellation."""
 
-_checkpoint_reaper_task: asyncio.Task | None = None
 """Module-level reference for the chat checkpoint reaper (shutdown cancellation)."""
 
 # Advisory lock ID for PostgreSQL — ensures only one pod runs cleanup at a time.
@@ -1333,260 +1409,83 @@ _PG_ADVISORY_LOCK_ID = 0x41495143_4C45414E  # "AIQCLEAN" in hex
 # Distinct lock for the ghost-job reaper so N web replicas don't double-reap.
 _PG_REAPER_LOCK_ID = _PG_ADVISORY_LOCK_ID + 1
 
-# Sentinel: postgres, but another replica holds the reaper lock this cycle.
-_REAPER_LOCK_SKIP = object()
+
+def _checkpoint_retention_seconds() -> int:
+    return _int_env("GRID_CHAT_CHECKPOINT_RETENTION_SECONDS", 1209600)  # 14d
 
 
-def _acquire_reaper_lock(db_url: str):
-    """Session-level advisory lock so only one replica runs a reap cycle.
-
-    Returns None on SQLite (single process — no lock needed), an open connection
-    holding the lock on success, or ``_REAPER_LOCK_SKIP`` when another replica
-    holds it. The lock auto-releases if this connection drops (crash-safe).
-    """
-    if not db_url.startswith("postgres"):
-        return None
-    from sqlalchemy import text
-
-    from ..jobs.event_store import EventStore
-
-    conn = EventStore._get_or_create_sync_engine(db_url).connect()
-    try:
-        got = conn.execute(text("SELECT pg_try_advisory_lock(:id)"), {"id": _PG_REAPER_LOCK_ID}).scalar()
-    except Exception:
-        # Don't leak the connection if the lock query itself failed.
-        conn.close()
-        raise
-    if not got:
-        conn.close()
-        return _REAPER_LOCK_SKIP
-    return conn
+def _job_info_delete_grace_seconds() -> int:
+    """How long an expired, terminal job's rows are kept before the event cleanup deletes them."""
+    return _int_env("GRID_JOB_INFO_DELETE_GRACE_SECONDS", 604800)  # 7d
 
 
-def _release_reaper_lock(conn) -> None:
-    if conn is None or conn is _REAPER_LOCK_SKIP:
-        return
-    from sqlalchemy import text
+def _add_housekeeping_routes(app: FastAPI, job_store, db_url: str, expiry_seconds: int) -> None:
+    """One cycle of each housekeeping job, behind the internal token.
 
-    try:
-        conn.execute(text("SELECT pg_advisory_unlock(:id)"), {"id": _PG_REAPER_LOCK_ID})
-        conn.close()
-    except Exception:
-        # If unlock failed, the SESSION-level advisory lock is still held. A
-        # plain close() returns the connection to the pool WITH the lock held,
-        # which would wedge the reaper cluster-wide. invalidate() drops the
-        # underlying DBAPI connection so Postgres ends the session and releases
-        # the lock.
-        logger.warning("Reaper advisory unlock failed; invalidating connection to release the lock", exc_info=True)
-        conn.invalidate()
-
-
-def _start_periodic_cleanup(
-    job_store,
-    scheduler_address: str,
-    db_url: str,
-    expiry_seconds: int,
-    log_level: int,
-    use_threads: bool,
-) -> None:
-    """
-    Start periodic cleanup of expired jobs and old events.
-
-    Submits NAT's periodic_cleanup as a Dask task (handles job_info expiry)
-    and starts a local asyncio task for coordinated event cleanup.
-    """
-    global _cleanup_task
-
-    from ..jobs.submit import job_execution_mode
-
-    # Detect db-execution mode DIRECTLY (ADR-0021) rather than probing
-    # job_store.dask_client. In db mode the store is constructed with an EMPTY
-    # scheduler address, so its lazily-built `dask_client` property raises
-    # ValueError("missing port number in address '' ") on first access — and
-    # getattr(..., None) only suppresses AttributeError, so probing it crashes
-    # startup. The reaper path (_do_reap_cycle) already gates on this same signal.
-    db_execution = job_execution_mode() == "db"
-
-    # Cleanup interval: half the expiry time, clamped to [60s, 3600s]
-    cleanup_interval = max(60, min(expiry_seconds // 2, 3600))
-
-    # Submit NAT's periodic_cleanup as a long-running Dask task for job_info table.
-    # In db-execution mode (ADR-0021) there is no Dask client; job_info expiry is
-    # instead handled by the shared-Postgres event/expiry paths, so skip cleanly.
-    if db_execution:
-        logger.info("No Dask client (db execution) - skipping NAT periodic_cleanup Dask submit")
-    else:
-        try:
-            from dask.distributed import fire_and_forget
-
-            from nat.front_ends.fastapi.async_jobs import periodic_cleanup
-
-            cleanup_future = job_store.dask_client.submit(
-                periodic_cleanup,
-                scheduler_address=scheduler_address,
-                db_url=db_url,
-                sleep_time_sec=cleanup_interval,
-                configure_logging=not use_threads,
-                log_level=log_level,
-            )
-            fire_and_forget(cleanup_future)
-            logger.info(
-                "Submitted periodic job cleanup task to Dask (interval=%ds, expiry=%ds)",
-                cleanup_interval,
-                expiry_seconds,
-            )
-        except Exception as e:
-            logger.warning("Failed to submit periodic cleanup to Dask: %s", e)
-
-    # Start local asyncio task for job_events table cleanup (NAT doesn't manage this table).
-    # Uses pg_try_advisory_xact_lock on PostgreSQL so only one pod runs cleanup per cycle.
-    # In db-execution mode (no Dask client) NAT's job_info expiry never runs, so this loop
-    # also ages out job_info/job_access under the same lock (ADR-0021; expire_terminal_jobs).
-    # Cancel any previously-started task before overwriting the reference.
-    expire_job_info = db_execution
-    delete_grace_seconds = _int_env("GRID_JOB_INFO_DELETE_GRACE_SECONDS", 604800)  # 7d
-    if _cleanup_task and not _cleanup_task.done():
-        _cleanup_task.cancel()
-    _cleanup_task = asyncio.create_task(
-        _cleanup_old_events_loop(db_url, expiry_seconds, cleanup_interval, expire_job_info, delete_grace_seconds)
-    )
-
-
-async def _cancel_task(task: asyncio.Task | None, label: str) -> None:
-    if task and not task.done():
-        task.cancel()
-        try:
-            await task
-        except asyncio.CancelledError:
-            pass
-        logger.info("%s cancelled", label)
-
-
-async def stop_periodic_cleanup() -> None:
-    """Cancel the cleanup + checkpoint-reaper background tasks. Call from shutdown."""
-    global _cleanup_task, _checkpoint_reaper_task
-    await _cancel_task(_cleanup_task, "Event cleanup task")
-    await _cancel_task(_checkpoint_reaper_task, "Chat checkpoint reaper")
-    _cleanup_task = None
-    _checkpoint_reaper_task = None
-
-
-# Chat checkpoint reaper cadence. Idle threads accumulate slowly (one thread per
-# conversation), so an hourly sweep is ample.
-CHECKPOINT_REAPER_INTERVAL_SECONDS = 3600
-
-
-def _start_checkpoint_reaper() -> None:
-    """Start the chat checkpoint age reaper if a checkpoint DSN is configured."""
-    import os
-
-    global _checkpoint_reaper_task
-    dsn = os.environ.get("AIQ_CHECKPOINT_DB")
-    retention_seconds = _int_env("GRID_CHAT_CHECKPOINT_RETENTION_SECONDS", 1209600)  # 14d
-    if not dsn:
-        logger.info("No AIQ_CHECKPOINT_DB configured - chat checkpoint reaper not started")
-        return
-    if _checkpoint_reaper_task and not _checkpoint_reaper_task.done():
-        _checkpoint_reaper_task.cancel()
-    _checkpoint_reaper_task = asyncio.create_task(
-        _reap_idle_checkpoints_loop(dsn, retention_seconds, CHECKPOINT_REAPER_INTERVAL_SECONDS)
-    )
-
-
-async def _reap_idle_checkpoints_loop(dsn: str, retention_seconds: int, interval_seconds: int) -> None:
-    """Periodically drop chat checkpoint threads idle beyond the retention window.
-
-    One replica does the work per cycle (Postgres advisory lock inside
-    ``reap_idle_threads``); the rest no-op. Best-effort — a failed sweep is logged
-    and retried next cycle, never propagated.
-    """
-    from ..jobs.checkpoint_retention import reap_idle_threads
-
-    logger.info(
-        "Chat checkpoint reaper started (retention=%ds, interval=%ds)",
-        retention_seconds,
-        interval_seconds,
-    )
-    loop = asyncio.get_running_loop()
-    # Immediate sweep on startup catches threads that aged out during downtime.
-    try:
-        await loop.run_in_executor(None, reap_idle_threads, dsn, retention_seconds)
-    except Exception as e:
-        logger.warning("Chat checkpoint reaper startup run failed: %s", e)
-    while True:
-        try:
-            await asyncio.sleep(interval_seconds)
-            await loop.run_in_executor(None, reap_idle_threads, dsn, retention_seconds)
-        except asyncio.CancelledError:
-            logger.info("Chat checkpoint reaper stopped")
-            break
-        except Exception as e:
-            logger.warning("Chat checkpoint reaper error: %s", e)
-
-
-async def _cleanup_old_events_loop(
-    db_url: str,
-    retention_seconds: int,
-    interval_seconds: int,
-    expire_job_info: bool = False,
-    delete_grace_seconds: int = 604800,
-) -> None:
-    """
-    Background task that periodically deletes old events from the job_events table
-    and removes events for jobs already marked as expired in job_info.
-
-    On PostgreSQL, uses pg_try_advisory_xact_lock so only one pod runs cleanup per cycle
-    when multiple pods share the same database.
-
-    When ``expire_job_info`` is set (db-execution mode, where NAT's Dask expiry never
-    runs) each cycle also ages out terminal ``job_info``/``job_access`` rows under the
-    same lock (ADR-0021).
+    The first three take the same Postgres advisory lock as their loop did, so a
+    call that overlaps a running cycle (a slow previous call) skips and reports
+    nothing done. The base-corpus cycle instead waits on the cross-replica
+    ``oib-sync`` lock and then finds nothing left to queue. It ingests nothing itself: it
+    records the ingest jobs that finished and queues one for each file that needs it.
     """
 
-    is_postgres = db_url.startswith("postgres")
+    @app.post("/v1/maintenance/housekeeping/ghost-jobs", tags=["maintenance"], include_in_schema=False)
+    async def housekeeping_ghost_jobs(request: Request) -> dict:
+        _require_internal_token(request)
+        reaped = await _reap_stale_jobs_once(job_store, db_url)
+        return {"reaped": reaped}
 
-    logger.info(
-        "Event cleanup task started (retention=%ds, interval=%ds, advisory_lock=%s, expire_job_info=%s)",
-        retention_seconds,
-        interval_seconds,
-        is_postgres,
-        expire_job_info,
-    )
+    @app.post("/v1/maintenance/housekeeping/job-events", tags=["maintenance"], include_in_schema=False)
+    async def housekeeping_job_events(request: Request) -> dict:
+        _require_internal_token(request)
+        return await _run_event_cleanup(
+            db_url, expiry_seconds, db_url.startswith("postgres"), _job_info_delete_grace_seconds()
+        )
 
-    # Run once immediately on startup to catch anything that aged out during downtime.
-    try:
-        await _run_event_cleanup(db_url, retention_seconds, is_postgres, expire_job_info, delete_grace_seconds)
-    except asyncio.CancelledError:
-        raise
-    except Exception as e:
-        logger.warning("Event cleanup startup run failed: %s", e)
+    @app.post("/v1/maintenance/housekeeping/chat-checkpoints", tags=["maintenance"], include_in_schema=False)
+    async def housekeeping_chat_checkpoints(request: Request) -> dict:
+        import os
 
-    while True:
-        try:
-            await asyncio.sleep(interval_seconds)
-            await _run_event_cleanup(db_url, retention_seconds, is_postgres, expire_job_info, delete_grace_seconds)
-        except asyncio.CancelledError:
-            logger.info("Event cleanup task stopped")
-            break
-        except Exception as e:
-            logger.warning("Event cleanup error: %s", e)
+        from ..jobs.checkpoint_retention import reap_idle_threads
+
+        _require_internal_token(request)
+        dsn = os.environ.get("AIQ_CHECKPOINT_DB")
+        if not dsn:
+            return {"threads_reaped": 0, "skipped": "AIQ_CHECKPOINT_DB is not set"}
+        retention_seconds = _checkpoint_retention_seconds()
+        return {"threads_reaped": await asyncio.to_thread(reap_idle_threads, dsn, retention_seconds)}
+
+    @app.post("/v1/maintenance/housekeeping/base-corpus", tags=["maintenance"], include_in_schema=False)
+    async def housekeeping_base_corpus(request: Request) -> dict:
+        from aiq_agent import oib_sync
+
+        _require_internal_token(request)
+        result = await asyncio.to_thread(oib_sync.sync)
+        return {
+            "enqueued": result.enqueued,
+            "ingested_recorded": result.ingested_recorded,
+            "failed": result.failed,
+            "total": result.total,
+        }
 
 
 async def _run_event_cleanup(
     db_url: str,
     retention_seconds: int,
     is_postgres: bool,
-    expire_job_info: bool = False,
     delete_grace_seconds: int = 604800,
-) -> None:
+) -> dict[str, int]:
     """
     Execute one cleanup cycle: time-based event pruning + removal of events for expired jobs.
+
+    Returns what the cycle removed; all zeros when another pod held the lock.
 
     On PostgreSQL, acquires a transaction-level advisory lock (pg_try_advisory_xact_lock)
     so concurrent pods skip the cycle rather than doing redundant work. The lock is
     automatically released on commit/rollback, avoiding leak risks.
     """
     from ..jobs.access import cleanup_job_access
+    from ..jobs.access import ensure_job_access_table
     from ..jobs.access import expire_terminal_jobs
     from ..jobs.event_store import EventStore
 
@@ -1596,6 +1495,8 @@ async def _run_event_cleanup(
         from sqlalchemy import text
 
         engine = EventStore._get_or_create_sync_engine(db_url)
+        # Before the connection below holds locks: the DDL runs on a connection of its own.
+        ensure_job_access_table(db_url)
 
         with engine.connect() as conn:
             # On PostgreSQL, acquire a transaction-level advisory lock. If another pod
@@ -1609,12 +1510,11 @@ async def _run_event_cleanup(
                 if not locked:
                     return (0, 0, 0, 0, 0)
 
-            # 0. db-execution mode only: mark terminal job_info rows expired (past
-            # their per-row expiry) and hard-delete rows past the delete grace. Runs
-            # FIRST so the newly-marked rows are reclaimed by steps 2/3 this cycle.
-            job_marked, job_deleted = (
-                expire_terminal_jobs(db_url, delete_grace_seconds, conn=conn) if expire_job_info else (0, 0)
-            )
+            # 0. Mark terminal job_info rows expired (past their per-row expiry) and
+            # hard-delete rows past the delete grace: this is
+            # the only job_info expiry there is. Runs FIRST so the newly-marked rows
+            # are reclaimed by steps 2/3 this cycle.
+            job_marked, job_deleted = expire_terminal_jobs(db_url, delete_grace_seconds, conn=conn)
 
             # 1. Time-based: delete events older than retention period
             if is_postgres:
@@ -1641,9 +1541,8 @@ async def _run_event_cleanup(
             conn.commit()
             return (time_deleted, expired_deleted, access_deleted, job_marked, job_deleted)
 
-    time_deleted, expired_deleted, access_deleted, job_marked, job_deleted = await loop.run_in_executor(
-        None, _do_cleanup
-    )
+    counts = await loop.run_in_executor(None, _do_cleanup)
+    time_deleted, expired_deleted, access_deleted, job_marked, job_deleted = counts
 
     if time_deleted > 0 or expired_deleted > 0 or access_deleted > 0 or job_marked > 0 or job_deleted > 0:
         logger.info(
@@ -1655,41 +1554,13 @@ async def _run_event_cleanup(
             job_marked,
             job_deleted,
         )
-
-
-async def _cancel_dask_task(scheduler_address: str, job_id: str) -> bool:
-    """
-    Cancel a Dask task by job ID.
-
-    Args:
-        scheduler_address: Dask scheduler address.
-        job_id: Job ID to cancel.
-
-    Returns:
-        True if a Dask cancellation request was sent, False otherwise.
-    """
-    if not scheduler_address:
-        # db-execution mode (ADR-0021): no Dask scheduler. Cancellation is the
-        # job_info status flip the caller already made; nothing to cancel here.
-        return False
-    try:
-        from distributed import Client
-        from distributed import Future
-
-        async with Client(scheduler_address, asynchronous=True) as client:
-            # NAT JobStore submits job futures with key ``{job_id}-job``. Targeting
-            # the key directly avoids using Dask Variable.get as a maybe-exists
-            # check, which logs scheduler-side timeout errors when the variable is
-            # absent or slow to resolve.
-            future = Future(f"{job_id}-job", client)
-            await client.cancel([future], asynchronous=True, force=True)
-            logger.info("Sent cancellation request for Dask task %s", future.key)
-            return True
-    except (ConnectionError, TimeoutError, OSError) as e:
-        logger.warning("Failed to cancel Dask task for job %s: %s", job_id, e)
-    except Exception as e:
-        logger.warning("Unexpected error cancelling Dask task for job %s: %s", job_id, e)
-    return False
+    return dict(
+        zip(
+            ("old_events", "expired_job_events", "access_rows", "job_info_expired", "job_info_deleted"),
+            counts,
+            strict=True,
+        )
+    )
 
 
 def _extract_event_metadata(event: dict) -> tuple[dict, dict]:
@@ -1956,11 +1827,15 @@ async def _sse_generator_postgres(
             sequence_id = event_id
         return f"id: {sequence_id}\nevent: {event_type}\ndata: {json.dumps(data)}\n\n"
 
-    # LISTEN/NOTIFY needs a persistent session — incompatible with PgBouncer
-    # transaction pooling. Use AIQ_LISTEN_DB_URL to point directly at PostgreSQL.
+    # LISTEN/NOTIFY needs a persistent session, which the transaction pooler in
+    # front of `db_url` does not give (ADR-0083): the LISTEN lands on a server
+    # connection the client does not keep, and no notification ever arrives. So
+    # there is no default to `db_url`; AIQ_LISTEN_DB_URL is the direct DSN, and
+    # `require_direct_dsns` (called when the web process starts) already refused
+    # to boot without it, so this is an assertion and not a runtime path.
     import os
 
-    listen_db_url = os.environ.get("AIQ_LISTEN_DB_URL", db_url)
+    listen_db_url = os.environ["AIQ_LISTEN_DB_URL"]
     # Strip +psycopg2 before +psycopg (it's a prefix of the former) — this
     # codebase standardizes on postgresql+psycopg:// URLs, which asyncpg
     # rejects; a leftover driver suffix silently degrades every SSE stream

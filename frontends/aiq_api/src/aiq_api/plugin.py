@@ -1,53 +1,78 @@
 """
 NAT plugin registration for unified AI-Q API.
 
-Combines Knowledge API (collections/documents) and Async Job API (agent jobs/SSE streaming).
+One plugin, two web roles (``GRID_ROLE``, ``roles.WebRole``, ADR-0082 step B):
+
+* ``chat`` mounts the chat socket, the chat-occupancy route KEDA reads, and
+  NAT's own routes, and drains running chat turns at shutdown.
+* ``api`` mounts the Knowledge API (collections/documents, the LLM utilities,
+  admin), the Async Job API (agent jobs, SSE streaming, housekeeping) and the
+  debug console, and closes its SSE streams at shutdown.
+
+Both mount ``/health`` and the same auth and context-envelope middleware. A
+route belongs to exactly one role; ``frontends/aiq_api/tests/test_roles.py``
+holds that.
 
 Knowledge Layer Configuration:
     The Knowledge API uses the same ingestor instance as the knowledge_retrieval tool.
-    Configure the backend via the knowledge_retrieval function in your workflow YAML:
+    Configure it via the knowledge_retrieval function in your workflow YAML:
 
     functions:
       knowledge_search:
         _type: knowledge_retrieval
-        backend: foundational_rag
-        rag_url: http://localhost:8081/v1
-        ingest_url: http://localhost:8082/v1
+        collection_name: oib_knowledge
 
-    The API plugin will automatically use the configured backend. If no tool is
-    configured, it falls back to environment variables (KNOWLEDGE_INGESTOR_BACKEND)
-    or the default backend (llamaindex).
+    The backend is llamaindex, the only one (ADR-0072). If no tool is
+    configured, the API falls back to KNOWLEDGE_INGESTOR_BACKEND or llamaindex.
 """
 
 import asyncio
+import functools
 import logging
 import os
 import signal
 from collections.abc import Callable
+from collections.abc import Mapping
+from typing import Any
 
 from fastapi import APIRouter
 from fastapi import FastAPI
 from pydantic import Field
+from pydantic import model_validator
 from typing_extensions import override
 
 from aiq_agent.common.log_redaction import install_presigned_url_scrubbing
+from aiq_agent.knowledge.leader_lock import require_direct_dsns
 from aiq_agent.stages.delivery import register_stage_frame_sink
 from aiq_api.auth.middleware import AuthMiddleware
 from aiq_api.context_envelope import GridContextEnvelopeMiddleware
 from nat.builder.workflow_builder import WorkflowBuilder
-from nat.cli.register_workflow import register_front_end
+from nat.cli.register_workflow import register_front_end  # noqa: TID251
 from nat.data_models.config import Config
+from nat.data_models.step_adaptor import StepAdaptorConfig
+from nat.data_models.step_adaptor import StepAdaptorMode
 from nat.front_ends.fastapi.fastapi_front_end_config import FastApiFrontEndConfig
 from nat.front_ends.fastapi.fastapi_front_end_plugin import FastApiFrontEndPlugin
 from nat.front_ends.fastapi.fastapi_front_end_plugin_worker import FastApiFrontEndPluginWorker
 from nat.front_ends.fastapi.fastapi_front_end_plugin_worker import FastApiFrontEndPluginWorkerBase
+from nat.runtime.session import SessionManager
 
+from .chat_socket import chat_socket_endpoint
+from .chat_socket import configure_websocket_auth
+from .chat_socket import drain_chat_turns
+from .chat_socket import send_stage
+from .health import install_health_route
+from .inflight import InFlightMiddleware
 from .jobs.connection_manager import get_connection_manager
 from .jobs.event_store import EventStore
+from .roles import WebRole
+from .roles import web_role
 from .routes.cards import add_card_catalog_routes
+from .routes.chat_occupancy import add_chat_occupancy_routes
 from .routes.collections import add_collection_routes
 from .routes.config_info import add_config_info_routes
 from .routes.consistency_check import add_consistency_check_routes
+from .routes.dictation import add_dictation_routes
 from .routes.document_search import add_document_search_routes
 from .routes.documents import add_document_routes
 from .routes.drafts import add_draft_routes
@@ -57,6 +82,7 @@ from .routes.generate_summary import add_generate_summary_routes
 from .routes.ingest import add_ingest_routes
 from .routes.jobs import register_job_routes
 from .routes.lesson_distill import add_lesson_distill_routes
+from .routes.mail_archive import add_mail_archive_routes
 from .routes.maintenance import add_maintenance_routes
 from .routes.norms import add_norm_routes
 from .routes.note_embeddings import add_note_embedding_routes
@@ -65,25 +91,23 @@ from .routes.ris import add_ris_routes
 from .routes.skill_review import add_skill_review_routes
 from .routes.skills import add_skill_routes
 from .startup_banner import log_boot_line
-from .websocket_reconnect import configure_websocket_auth
-from .websocket_reconnect import install_reconnectable_handler
-from .websocket_reconnect import send_stage_frame
 
 logger = logging.getLogger(__name__)
 
-install_reconnectable_handler()
+#: Where the chat socket is mounted: the path `server.js`, the scope route and
+#: conversation affinity already use.
+CHAT_SOCKET_PATH = "/websocket"
 
-# The post-answer stage frame channel (docs/architecture/post-answer-stages.md
-# §2.7). `aiq_agent` owns the graph and may not import a WebSocket; this tier
-# owns the socket and publishes the sink to it, the same inversion
+# The post-answer stage channel (docs/architecture/post-answer-stages.md §2.7).
+# `aiq_agent` owns the graph and may not import a WebSocket; this tier owns the
+# socket and publishes the sink to it, the same inversion
 # `register_context_appender` uses in the opposite direction.
 #
-# Registered at IMPORT of this module, next to the handler patch, because that is
-# what "the front end starts up" means: a process that never loads this front end
-# — a CLI run, a Dask job worker — leaves the sink unset, and a `frame` stage
-# there still runs, is still bounded and still records its outcome. It simply has
-# nobody to tell.
-register_stage_frame_sink(send_stage_frame)
+# Registered at IMPORT of this module, because that is what "the front end
+# starts up" means: a process that never loads this front end — a CLI run, a
+# research worker — leaves the sink unset, and a `frame` stage there still runs,
+# is still bounded and still records its outcome. It simply has nobody to tell.
+register_stage_frame_sink(send_stage)
 
 
 _validators: list = []
@@ -162,10 +186,44 @@ class AIQAPIConfig(FastApiFrontEndConfig, name="aiq_api"):
         le=604800,
         description="Job expiry time in seconds (default: 24 hours)",
     )
+    # The chat wire is ours (ADR-0068): NAT mounts no WebSocket route, and its
+    # step adaptor, which fed that route, is off. Steps still reach the
+    # exporters, which subscribe to the step manager and not to the adaptor.
+    workflow: FastApiFrontEndConfig.EndpointBase = FastApiFrontEndConfig().workflow.model_copy(
+        update={"websocket_path": None}
+    )
+    step_adaptor: StepAdaptorConfig = StepAdaptorConfig(mode=StepAdaptorMode.OFF)
+
+    @model_validator(mode="after")
+    def _no_nat_websocket(self) -> "AIQAPIConfig":
+        """`/websocket` is the chat socket's; a NAT socket route beside it would run the old wire."""
+        paths = [self.workflow.websocket_path, *(endpoint.websocket_path for endpoint in self.endpoints)]
+        if any(paths):
+            raise ValueError("aiq_api serves the chat socket itself; leave every websocket_path unset")
+        return self
 
 
 # Track if shutdown signal has been received (for force exit on second Ctrl+C)
 _shutdown_signal_received = False
+
+
+async def drain_owned_work(role: WebRole) -> None:
+    """The role's drain at shutdown: let what it holds finish, then close what it opened.
+
+    ``chat`` holds running chat turns, and waits for them: they keep publishing
+    to the conversation stream while the pod's grace period runs, which is what
+    lets a reader on another replica stream them to the end (ADR-0080). It holds
+    no SSE stream, so it closes none. ``api`` is the reverse: its long-lived
+    connections are the SSE job streams, closed on a short timeout, and it runs
+    no chat turn. Ingestion is claimed by its own tier and is held by neither.
+    """
+    if role is WebRole.CHAT:
+        await drain_chat_turns()
+    else:
+        logger.info("Shutting down SSE connections...")
+        await get_connection_manager().shutdown(timeout=5.0)
+    await EventStore.dispose_all_engines_async()
+    logger.info("Shutdown complete (%s)", role.value)
 
 
 def _create_shutdown_signal_handler(
@@ -201,17 +259,87 @@ def _create_shutdown_signal_handler(
     return handler
 
 
+#: The routers the ``chat`` role mounts on its router. The chat socket and NAT's
+#: own routes are the rest of what it serves (``AIQAPIWorker._add_chat_routes``).
+CHAT_ROUTERS: tuple[Callable[[APIRouter], None], ...] = (
+    # The chat tier's scaling signal, read by KEDA (ADR-0080). Internal-token
+    # only, so it stays off the external allowlist like the maintenance routes.
+    add_chat_occupancy_routes,
+)
+
+#: The app-level registrars the ``api`` role mounts beside its router: they need
+#: the app, the workflow builder and the worker, not a router alone.
+API_APP_REGISTRARS = (register_job_routes,)
+
+
+def api_routers(llm_configs: Mapping[str, Any]) -> tuple[Callable[[APIRouter], None], ...]:
+    """The routers the ``api`` role mounts on its router.
+
+    A function and not a constant because one of them reads the loaded
+    workflow's ``llms`` (the org model-config UI's defaults, ADR-0014).
+    """
+    return (
+        add_collection_routes,
+        add_document_routes,
+        add_document_search_routes,
+        add_generate_summary_routes,
+        add_generate_conversation_title_routes,
+        add_dictation_routes,
+        add_consistency_check_routes,
+        add_feedback_digest_routes,
+        add_lesson_distill_routes,
+        add_note_embedding_routes,
+        add_ingest_routes,
+        # Reads an Outlook archive the BFF staged, for its mail import (ADR-0085).
+        # Internal-token only, off the external allowlist.
+        add_mail_archive_routes,
+        add_oib_routes,
+        add_norm_routes,
+        # A RIS document as text, so a RIS citation opens INSIDE Piloti rather
+        # than in a browser tab (#622). Same client, same allow-list, same cache
+        # as the agent's own ris_fetch_document.
+        add_ris_routes,
+        add_maintenance_routes,
+        # The working directory's cleanup door. Internal-token only, like the
+        # maintenance purges: a conversation's drafts live in the LangGraph
+        # store, which the BFF cannot reach, so its conversation deletion calls
+        # this or the bytes outlive the conversation.
+        add_draft_routes,
+        # Internal skills submit route (Agent Skills, successor of the ADR-0023
+        # workflows submit route): same router/middleware treatment as
+        # maintenance, so it stays off the external allowlist.
+        add_skill_routes,
+        # Advisory LLM critique of a skill draft. Sits with the other
+        # best-effort LLM routes rather than the submit route: it writes nothing
+        # and always answers 200.
+        add_skill_review_routes,
+        # Workflow-default model names for the org model-config UI (ADR-0014).
+        functools.partial(add_config_info_routes, llm_configs=llm_configs),
+        # The card catalog for the platform surface: what the agent can render.
+        add_card_catalog_routes,
+    )
+
+
 class AIQAPIWorker(FastApiFrontEndPluginWorker):
     """
-    Worker that adds unified AI-Q API routes to the FastAPI app.
+    Worker that adds the AI-Q routes of one web role to the FastAPI app.
 
-    Combines:
+    ``api``:
     - Knowledge API routes (collections, documents) - uses factory singleton
-    - Async Job API routes (agent jobs, SSE streaming)
+    - Async Job API routes (agent jobs, SSE streaming, housekeeping)
+
+    ``chat``:
+    - The chat socket (ADR-0068) and NAT's own routes
     """
 
     _original_sigint_handler: Callable | signal.Handlers | None = None
     _original_sigterm_handler: Callable | signal.Handlers | None = None
+
+    def __init__(self, config: Config):
+        # Before anything connects to anything: a process that does not know its
+        # role stops here, with the one variable to set in the message.
+        self._role = web_role()
+        super().__init__(config)
 
     @override
     def build_app(self) -> FastAPI:
@@ -228,50 +356,29 @@ class AIQAPIWorker(FastApiFrontEndPluginWorker):
         # see startup_banner's module docstring, including why the flags this
         # tier reports are its own rather than the frontend's.
         log_boot_line()
+        logger.info("Web role: %s", self._role.value)
+
+        # A web process on Postgres needs the direct lock DSN (session advisory
+        # locks), and the api role also the direct LISTEN DSN, because it serves
+        # the job SSE streams. The chat role serves none: its stream is the
+        # socket, over Dragonfly. Fail the boot, not every request (ADR-0083).
+        require_direct_dsns(listen=self._role is WebRole.API)
 
         app = super().build_app()
 
-        app.title = "AI-Q API"
-        app.description = "Async research jobs, knowledge management, and agent orchestration."
+        if self._role is WebRole.API:
+            app.title = "AI-Q API"
+            app.description = "Async research jobs, knowledge management, and agent orchestration."
+        else:
+            app.title = "AI-Q Chat"
+            app.description = "The chat socket and the answers running on it."
         app.version = "1.0.0"
 
-        knowledge_router = APIRouter()
-        add_collection_routes(knowledge_router)
-        add_document_routes(knowledge_router)
-        add_document_search_routes(knowledge_router)
-        add_generate_summary_routes(knowledge_router)
-        add_generate_conversation_title_routes(knowledge_router)
-        add_consistency_check_routes(knowledge_router)
-        add_feedback_digest_routes(knowledge_router)
-        add_lesson_distill_routes(knowledge_router)
-        add_note_embedding_routes(knowledge_router)
-        add_ingest_routes(knowledge_router)
-        add_oib_routes(knowledge_router)
-        add_norm_routes(knowledge_router)
-        # A RIS document as text, so a RIS citation opens INSIDE Piloti rather
-        # than in a browser tab (#622). Same client, same allow-list, same cache
-        # as the agent's own ris_fetch_document.
-        add_ris_routes(knowledge_router)
-        add_maintenance_routes(knowledge_router)
-        # The working directory's cleanup door. Internal-token only, like the
-        # maintenance purges: a conversation's drafts live in the LangGraph
-        # store, which the BFF cannot reach, so its conversation deletion calls
-        # this or the bytes outlive the conversation.
-        add_draft_routes(knowledge_router)
-        # Internal skills submit route (Agent Skills, successor of the ADR-0023
-        # workflows submit route): same router/middleware treatment as
-        # maintenance, so it stays off the external allowlist.
-        add_skill_routes(knowledge_router)
-        # Advisory LLM critique of a skill draft. Sits with the other
-        # best-effort LLM routes rather than the submit route: it writes nothing
-        # and always answers 200.
-        add_skill_review_routes(knowledge_router)
-        # Workflow-default model names for the org model-config UI (ADR-0014).
-        add_config_info_routes(knowledge_router, self.config.llms)
-        # The card catalog for the platform surface: what the agent can render.
-        add_card_catalog_routes(knowledge_router)
-        app.include_router(knowledge_router)
-        logger.info("Knowledge API routes registered")
+        router = APIRouter()
+        for add_router_routes in api_routers(self.config.llms) if self._role is WebRole.API else CHAT_ROUTERS:
+            add_router_routes(router)
+        app.include_router(router)
+        logger.info("%s routes registered", self._role.value)
 
         require_auth = os.getenv("REQUIRE_AUTH", "false").lower() == "true"
         validators = _validators + _load_validators_from_entry_points()
@@ -291,7 +398,12 @@ class AIQAPIWorker(FastApiFrontEndPluginWorker):
         # full enforcement design (matrix, WebSocket handling, exemptions).
         app.add_middleware(GridContextEnvelopeMiddleware, require_auth=require_auth, validators=validators)
         app.add_middleware(AuthMiddleware, validators=validators, require_auth=require_auth)
-        configure_websocket_auth(validators=validators, require_auth=require_auth)
+        # Added last, so outermost: it counts every HTTP request this process
+        # takes, the ones auth refuses included, which is the load the scaling
+        # signal must see. See aiq_api.inflight.
+        app.add_middleware(InFlightMiddleware, role=self._role.value)
+        if self._role is WebRole.CHAT:
+            configure_websocket_auth(validators=validators, require_auth=require_auth)
         logger.info(
             "AuthMiddleware registered (require_auth=%s, validators=%s)",
             require_auth,
@@ -302,22 +414,32 @@ class AIQAPIWorker(FastApiFrontEndPluginWorker):
 
     @override
     async def add_routes(self, app: FastAPI, builder: WorkflowBuilder):
-        await super().add_routes(app, builder)
+        if self._role is WebRole.CHAT:
+            await self._add_chat_routes(app, builder)
+        else:
+            await self._add_api_routes(app, builder)
+
+        # One /health for both roles, ours and not NAT's: the sha and the role,
+        # no database ping (aiq_api.health). Last, so it replaces the NAT route
+        # `super().add_routes` mounted on chat.
+        install_health_route(app, self._role)
 
         # Presigned URLs are live bearer credentials to a tenant's objects, and
         # this tier handles them on every ingest. Scrubbing is installed on the
         # HANDLERS, once, rather than relied on at each call site: the leaks that
         # actually happened came through exception strings
         # (`str(httpx.HTTPStatusError)` embeds the request URL) and tracebacks,
-        # i.e. from code that never mentioned a URL. Installed after
-        # `super().add_routes` so the host's own handlers are in place first.
+        # i.e. from code that never mentioned a URL. Installed after the routes
+        # so the host's own handlers are in place first.
         install_presigned_url_scrubbing()
 
-        # =====================================================================
-        # Async Job API routes
-        # =====================================================================
-        await register_job_routes(app, builder, self)
-        logger.info("Async Job API routes registered")
+        # The workflow is built and every route registered: this replica serves
+        # from here, and the meter provider exists to take the boot readings.
+        # Both roles, so the chat tier's cold start is a series too.
+        from aiq_agent.observability import boot_timing
+
+        boot_timing.BootClock(self._role.value).ready()
+        boot_timing.flush()
 
         # Non-blocking startup handshake against the frontend's internal API:
         # surfaces a GRID_INTERNAL_API_TOKEN mismatch / unreachable BFF at deploy
@@ -330,20 +452,29 @@ class AIQAPIWorker(FastApiFrontEndPluginWorker):
         self._install_signal_handlers()
 
         @app.on_event("shutdown")
-        async def shutdown_sse_connections():
-            """Gracefully close all active SSE connections and background tasks on shutdown."""
-            logger.info("Shutting down SSE connections...")
-            connection_manager = get_connection_manager()
-            await connection_manager.shutdown(timeout=5.0)
-
-            from .routes.jobs import stop_periodic_cleanup
-
-            await stop_periodic_cleanup()
-
-            await EventStore.dispose_all_engines_async()
-            logger.info("SSE shutdown complete")
-
+        async def drain_role():
+            """Let this role's work finish, then close what it opened (``drain_owned_work``)."""
+            await drain_owned_work(self._role)
             self._restore_signal_handlers()
+
+    async def _add_chat_routes(self, app: FastAPI, builder: WorkflowBuilder) -> None:
+        """What only ``chat`` serves: NAT's own routes and the chat socket."""
+        await super().add_routes(app, builder)
+
+        # The chat socket (ADR-0068), on the worker's own session manager so
+        # NAT shuts it down with the others.
+        session_manager = await self._create_chat_session_manager(builder)
+        app.add_api_websocket_route(CHAT_SOCKET_PATH, chat_socket_endpoint(session_manager))
+
+    async def _add_api_routes(self, app: FastAPI, builder: WorkflowBuilder) -> None:
+        """What only ``api`` serves beside its router: the job routes and the debug console.
+
+        NAT's own routes (generate, chat, execution, evaluate, monitor, static,
+        MCP) belong to ``chat`` alone: nothing calls them on this tier.
+        """
+        for register in API_APP_REGISTRARS:
+            await register(app, builder, self)
+        logger.info("Async Job API routes registered")
 
         enable_debug = os.environ.get("AIQ_ENABLE_DEBUG", "true").lower() not in {"0", "false", "no", "off"}
         if enable_debug:
@@ -356,6 +487,23 @@ class AIQAPIWorker(FastApiFrontEndPluginWorker):
                 pass
         else:
             logger.info("Debug console disabled by AIQ_ENABLE_DEBUG")
+
+    async def _create_chat_session_manager(self, builder: WorkflowBuilder) -> SessionManager:
+        """The chat socket's session manager, with NAT's concurrency gate off (``max_concurrency=0``).
+
+        NAT's default gate (8) is an ``asyncio.Semaphore`` held for the whole
+        ``Session.run``: a turn waiting on a person's answer kept its place for
+        up to ``GRID_HITL_RESPONSE_TIMEOUT_SECONDS``, and the ninth turn queued
+        behind them unseen, after ``RUN_STARTED``, while its heartbeat kept the
+        reader's spinner alive. Nobody chose that number. The chosen gate is
+        ADR-0040's admission (``aiq_agent.common.turn_admission``,
+        ``GRID_MAX_ACTIVE_TURNS``), held around every chat turn, which refuses
+        a turn it has no slot for at once with a retry hint instead of queueing
+        it. Registered with the worker's others so NAT shuts it down with them.
+        """
+        session_manager = await SessionManager.create(config=self._config, shared_builder=builder, max_concurrency=0)
+        self._session_managers.append(session_manager)
+        return session_manager
 
     def _schedule_internal_api_check(self):
         """Fire-and-forget the internal-API startup handshake (never fatal).

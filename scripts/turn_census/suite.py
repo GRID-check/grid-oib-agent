@@ -25,7 +25,8 @@ Per run it records what the provider billed and what the reader got:
 
 No backend, no BFF: a question about an office's own files needs a project and
 is skipped, and says so. Needs OPENROUTER_API_KEY and the corpus ingested into
-AIQ_CHROMA_DIR (`--ingest` runs the sync first). Every run costs model calls.
+AIQ_CHROMA_DIR (`--ingest` queues the corpus's ingest jobs from the table in
+AIQ_SUMMARY_DB and the object store, and claims and runs them in this process). Every run costs model calls.
 
     python scripts/turn_census/suite.py                        # the core set, 2 runs each
     python scripts/turn_census/suite.py --all --runs 3 --out /tmp/suite/after
@@ -288,18 +289,13 @@ def _card_strings(value: Any) -> list[str]:
     return []
 
 
-#: Card types that are a table to the reader, whatever their cells hold.
-_TABLE_CARDS = frozenset({"typed_table", "comparison_table"})
-
-
 def _has_shape(shape: str, prose: str, cards: list[Any]) -> bool:
-    """Whether the delivered answer has this shape: variant tabs, a table, a drawing.
+    """Whether the delivered answer has this shape: variant tabs, a table, a drawing, a dialect block, or none.
 
     Read off the prose AND the cards, as the reader sees them: a Markdown table
-    inside a surface's `Text`, a typed table, a `diagram` card all count.
+    or a ```mermaid fence inside a surface's `Text` counts like one in the prose.
     """
     cards = [card for card in cards if isinstance(card, dict)]
-    types = {card.get("type") for card in cards}
     text = "\n".join([prose, *_card_strings(cards)])
     if shape == "tabs":
         return any(
@@ -307,10 +303,31 @@ def _has_shape(shape: str, prose: str, cards: list[Any]) -> bool:
             for card in cards
         )
     if shape == "table":
-        return bool(types & _TABLE_CARDS) or bool(re.search(r"^\s*\|.*\|\s*$", text, re.MULTILINE))
+        return bool(re.search(r"^\s*\|.*\|\s*$", text, re.MULTILINE))
     if shape == "diagram":
-        return "diagram" in types or "```mermaid" in text
+        return "```mermaid" in text
+    blocks = _directive_blocks(text)
+    if shape == "plain":
+        # The negative set: a short factual question answered with no block at all.
+        return not blocks
+    if shape in _DIALECT_BLOCKS:
+        return shape in blocks
     return False
+
+
+#: The answer dialect's block names (``common/answer_dialect.DIRECTIVE_BLOCKS``),
+#: spelled out so the suite reads the renderer's vocabulary without importing
+#: the agent into the harness process.
+_DIALECT_BLOCKS = frozenset(
+    {"check", "procedure", "cases", "metrics", "compare", "details", "actions", "not-found", "subsumption"}
+)
+_DIRECTIVE_OPENER = re.compile(r"^[ \t]*:{3,}[ \t]*([A-Za-z][\w-]*)", re.MULTILINE)
+
+
+def _directive_blocks(text: str) -> set[str]:
+    """The dialect's block names an answer opens, outside code fences."""
+    outside = re.sub(r"^[ \t]*(`{3,}|~{3,}).*?^[ \t]*\1[ \t]*$", "", text, flags=re.MULTILINE | re.DOTALL)
+    return {name for name in _DIRECTIVE_OPENER.findall(outside) if name in _DIALECT_BLOCKS}
 
 
 def check(question: dict, run: Run, envelope: dict | None) -> dict[str, bool]:
@@ -441,24 +458,23 @@ def render(
 # --- Running -----------------------------------------------------------------
 
 
-def corpus_families(registry_path: Path | None = None) -> set[str] | None:
-    """The Richtlinien the ingested corpus holds (``{"2", "2.1", …}``), or None.
+def corpus_families() -> set[str] | None:
+    """The Richtlinien the corpus holds (``{"2", "2.1", …}``), or None.
 
-    The corpus is the operator's (`data/oib/README.md`), and a question about a
-    Richtlinie it lacks cannot be answered from it whatever the agent does: the
-    first full sweep ran Schallschutz against a corpus without OIB-RL 5 and
-    reported the agent as wrong. None when the sync registry cannot be read,
-    which skips nothing.
+    The corpus is the operator's (the ``oib_corpus_files`` table), and a question
+    about a Richtlinie it lacks cannot be answered from it whatever the agent
+    does: the first full sweep ran Schallschutz against a corpus without OIB-RL 5
+    and reported the agent as wrong. None when the table cannot be read, which
+    skips nothing.
     """
+    from aiq_agent import corpus_store
     from aiq_agent.common.norm_registry import oib_family_member
 
-    if registry_path is None:
-        from aiq_agent.oib_sync import REGISTRY_PATH as registry_path
     try:
-        names = json.loads(Path(registry_path).read_text(encoding="utf-8"))
-    except (OSError, ValueError):
+        names = corpus_store.list_files()
+    except Exception:  # noqa: BLE001 - no database configured is "unknown", not a failure
         return None
-    return {member for name in names if (member := oib_family_member(Path(name).name))}
+    return {member for name in names if (member := oib_family_member(name))}
 
 
 def lacking_family(question: dict, families: set[str] | None) -> str | None:
@@ -480,14 +496,61 @@ def source_commit() -> str:
     return f"{sha}-dirty" if git("status", "--porcelain", "--untracked-files=no").stdout.strip() else sha
 
 
+def _ingest_corpus(poll_seconds: float = 5.0, timeout_seconds: float = 3600.0) -> str | None:
+    """Queue the corpus's ingest jobs and run them here; None when done, else why not.
+
+    The base corpus is ingested by jobs on the durable ingest queue (ADR-0082), and
+    ``oib_sync.sync()`` only queues them. Nothing else claims them on a developer machine,
+    so for this run this process is the ingest worker: it attaches a claiming source to the
+    ingestor, then syncs until no file waits on a job. A file whose job failed is reported,
+    not retried: the sync does not queue it again.
+    """
+    from aiq_agent import corpus_store
+    from aiq_agent import oib_sync
+    from aiq_api.jobs import ingest_dispatch
+
+    print("queueing the corpus:", oib_sync.sync())
+    if not ingest_dispatch.attach(oib_sync._get_oib_ingestor(), claim=True):
+        return (
+            "the ingest queue is off or has no database (GRID_INGEST_QUEUE, AIQ_SUMMARY_DB): "
+            "nothing can ingest the corpus"
+        )
+    unfinished = (oib_sync.JobProgress.WAITING, oib_sync.JobProgress.RUNNING)
+    deadline = time.monotonic() + timeout_seconds
+    while time.monotonic() < deadline:
+        result = oib_sync.sync()
+        rows = corpus_store.list_files()
+        waiting = [
+            name
+            for name, row in rows.items()
+            if row.needs_ingestion(oib_sync.CHUNK_FORMAT_VERSION) and oib_sync.progress_of(row) in unfinished
+        ]
+        if not waiting:
+            print("ingested the corpus:", result)
+            return f"{result.failed} file(s) could not be ingested" if result.failed else None
+        print(f"ingesting: {len(waiting)} file(s) left")
+        time.sleep(poll_seconds)
+    return f"the corpus was not ingested within {timeout_seconds:.0f} s"
+
+
 def _corpus_ready() -> bool:
+    """Whether the OIB collection holds chunks, asked through the client the ingest itself opens.
+
+    ``--ingest`` opens Chroma in THIS process with the adapter's settings, and
+    Chroma refuses a second client on the same path with other settings. A
+    bare ``PersistentClient`` here raised that, the error was swallowed, and a
+    corpus ingested a second earlier read as "not ingested" (the first answer
+    suite run in CI). The reason is printed now, so the next one is not silent.
+    """
     try:
-        import chromadb
+        from knowledge_layer.llamaindex.adapter import _make_chroma_client
 
         from aiq_agent.oib_sync import CHROMA_DIR
+        from aiq_agent.oib_sync import COLLECTION_NAME
 
-        return chromadb.PersistentClient(str(CHROMA_DIR)).get_collection("oib_knowledge").count() > 0
-    except Exception:
+        return _make_chroma_client(str(CHROMA_DIR)).get_collection(COLLECTION_NAME).count() > 0
+    except Exception as exc:  # noqa: BLE001 - any failure is "not ready", said out loud
+        print(f"corpus check failed: {type(exc).__name__}: {exc}", file=sys.stderr)
         return False
 
 
@@ -645,12 +708,13 @@ def _preflight(out: Path, ingest: bool) -> int:
         )
         return 2
     if ingest:
-        from aiq_agent import oib_sync
-
-        print("ingesting the corpus:", oib_sync.sync())
+        problem = _ingest_corpus()
+        if problem:
+            print(problem, file=sys.stderr)
     if not _corpus_ready():
         print(
-            "The OIB corpus is not ingested into AIQ_CHROMA_DIR. Put the PDFs in data/oib and run with --ingest.",
+            "The OIB corpus is not ingested into AIQ_CHROMA_DIR. Upload the PDFs "
+            "(scripts/upload_oib_corpus.py) and run with --ingest.",
             file=sys.stderr,
         )
         return 2

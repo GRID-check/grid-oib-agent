@@ -41,15 +41,17 @@
 
 import 'server-only'
 import type { BudgetPolicy, BudgetScope, BudgetUnit, NewLlmUsageEvent } from '@/lib/db/schema'
+import { UNBILLED_USAGE_ACTIVITIES } from '@/lib/db/schema'
 import { getCached, invalidateCached, invalidateCachedPrefix } from '@/lib/cache'
 import { canManageBudgets } from '@/lib/authz/organizations'
 import { requireProjectAccess } from '@/lib/authz/projects'
 import { resolveSubjectMembership } from '@/lib/authz/project-membership'
 import { findProjectTenancy } from '@/lib/projects/repository'
 import { recordAuditEvent } from '@/lib/audit/service'
-import { BadRequestError, ForbiddenError, UnprocessableError } from '@/lib/api/errors'
+import { BadRequestError, ConflictError, ForbiddenError, UnprocessableError } from '@/lib/api/errors'
 import type { AuthorizedSession } from '@/lib/auth/types'
 import { isOrgOnOwnKey } from '@/lib/llm-credentials/service'
+import { requireResourceAccess } from '@/lib/sharing/access'
 import {
   creditsToCostUsd,
   getEffectivePricing,
@@ -59,6 +61,7 @@ import {
 } from '@/lib/pricing/service'
 import * as repository from './repository'
 import type {
+  AnswerUsageRow,
   DailySpendRow,
   MemberSpend,
   ModelSpend,
@@ -173,6 +176,8 @@ export async function setBudgetPolicy(params: {
   monthlyLimit: number | null
   actorUserId: string
   note?: string | null
+  /** Reject a draft opened before the organization's key mode changed. */
+  expectedUnit?: BudgetUnit
 }): Promise<BudgetPolicy> {
   const { organizationId, scope, subjectId } = params
   if (scope === 'organization' && subjectId !== null) {
@@ -188,6 +193,9 @@ export async function setBudgetPolicy(params: {
   }
 
   const unit = await getOrgBudgetUnit(organizationId)
+  if (params.expectedUnit !== undefined && params.expectedUnit !== unit) {
+    throw new ConflictError('Organization budget unit changed; reload before saving')
+  }
   if (scope !== 'organization') {
     const org = await getOrgBudget(organizationId, unit)
     const pairs: Array<[number | null, number | null, string]> = [
@@ -255,7 +263,8 @@ export type UsageEventInput = Omit<NewLlmUsageEvent, 'priceUsd' | 'credits' | 'p
  * Price and append ledger rows. Each row is priced ONCE, here, from the
  * pricing active at this moment, and carries that version's id — a later
  * price change never rewrites what a tenant was shown (ADR-0053). A row on
- * the tenant's own key is priced at nothing. The write-through daily rollup
+ * the tenant's own key is priced at nothing, and so is an unbilled activity
+ * (voice dictation), which also never reaches the rollup. The write-through daily rollup
  * (ADR-0019) is incremented in the same transaction by the repository.
  *
  * A pricing lookup failure prices at the boot floor rather than dropping the
@@ -266,7 +275,12 @@ export async function recordUsageEvents(events: UsageEventInput[]): Promise<numb
   const pricing = await getEffectivePricingOrBootFloor()
   return repository.insertUsageEventsWithRollups(
     events.map((event) => {
-      const priced = priceUsage(Number.parseFloat(String(event.costUsd ?? '0')) || 0, event.isByok ?? null, pricing)
+      // Nobody is billed for an unbilled activity (voice dictation); its real
+      // cost stays in `costUsd`. Migration 0107's CHECK refuses anything else.
+      const priced =
+        event.activity && UNBILLED_USAGE_ACTIVITIES.has(event.activity)
+          ? { priceUsd: 0, credits: 0 }
+          : priceUsage(Number.parseFloat(String(event.costUsd ?? '0')) || 0, event.isByok ?? null, pricing)
       return {
         ...event,
         priceUsd: priced.priceUsd.toFixed(8),
@@ -808,3 +822,27 @@ export async function getUsageOverview(
 
 /** Re-exported so platform surfaces can convert cost with the active rate. */
 export type { EffectivePricing }
+
+
+/** What an answer cost, in the unit this organization sees (`getOrgBudgetUnit`). */
+export interface AnswerUsage extends AnswerUsageRow {
+  unit: BudgetUnit
+}
+
+/**
+ * The cost of one answer for its details line: the credits billed for it, or
+ * on the organization's own key the tokens (the platform bills nothing there).
+ * Readable by anyone who may read the conversation.
+ */
+export async function getAnswerUsage(
+  session: AuthorizedSession,
+  conversationId: string,
+  messageId: string,
+): Promise<AnswerUsage | null> {
+  await requireResourceAccess(session, 'conversation', conversationId, 'viewer')
+  const [row, unit] = await Promise.all([
+    repository.sumAnswerUsage(session.organizationId, conversationId, messageId),
+    getOrgBudgetUnit(session.organizationId),
+  ])
+  return row ? { ...row, unit } : null
+}

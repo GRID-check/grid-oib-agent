@@ -24,6 +24,7 @@
  * @see src/aiq_agent/common/norm_registry.py — how entries are consumed
  */
 
+import type { JSX } from 'react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { toast } from 'sonner'
 import { z } from 'zod'
@@ -191,7 +192,11 @@ function createEntryFormSchema(t: Translator) {
     })
     .superRefine((values, ctx) => {
       if (values.rank === '') {
-        ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['rank'], message: t('norms.kinds.required') })
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ['rank'],
+          message: t('norms.kinds.required'),
+        })
         return
       }
       if (!isLawRank(values.rank)) return
@@ -329,13 +334,13 @@ function Step({
       <div className="flex items-baseline gap-2">
         <span
           aria-hidden
-          className="flex size-5 shrink-0 items-center justify-center rounded-full bg-muted text-xs font-semibold text-muted-foreground"
+          className="bg-muted text-muted-foreground flex size-5 shrink-0 items-center justify-center rounded-full text-xs font-semibold"
         >
           {index}
         </span>
         <div className="flex flex-col gap-0.5">
           <SectionLabel as="h3">{title}</SectionLabel>
-          {description && <p className="text-xs text-muted-foreground">{description}</p>}
+          {description && <p className="text-muted-foreground text-xs">{description}</p>}
         </div>
       </div>
       <div className="flex flex-col gap-4 sm:pl-7">{children}</div>
@@ -344,16 +349,24 @@ function Step({
 }
 
 /** One confirmed fact taken from RIS — read, not maintained. */
-function Fact({ label, value, href }: { label: string; value: string; href?: string }): JSX.Element {
+function Fact({
+  label,
+  value,
+  href,
+}: {
+  label: string
+  value: string
+  href?: string
+}): JSX.Element {
   return (
     <div className="flex flex-col gap-0.5">
-      <span className="text-xs uppercase tracking-wide text-muted-foreground">{label}</span>
+      <span className="text-muted-foreground text-xs uppercase tracking-wide">{label}</span>
       {href ? (
         <a
           href={href}
           target="_blank"
           rel="noreferrer"
-          className="inline-flex items-center gap-1 break-all font-mono text-xs text-info hover:underline"
+          className="text-info inline-flex items-center gap-1 break-all font-mono text-xs hover:underline"
         >
           {value}
           <ExternalLink className="size-3 shrink-0" aria-hidden />
@@ -383,6 +396,13 @@ export interface NormEntryEditorProps {
   onCancel: () => void
   onRequestDelete: () => void
   isNew: boolean
+  /**
+   * Show the entry without letting it change: every control is disabled and
+   * the footer offers only Close. Read-only platform staff need the source
+   * URL, rank and scope of a norm as much as an editor does, and used to get
+   * no way to open a row at all.
+   */
+  readOnly?: boolean
   t: Translator
 }
 
@@ -394,6 +414,7 @@ export function NormEntryEditor({
   onCancel,
   onRequestDelete,
   isNew,
+  readOnly = false,
   t,
 }: NormEntryEditorProps): JSX.Element {
   const [candidates, setCandidates] = useState<VerifyCandidate[] | null>(null)
@@ -468,13 +489,14 @@ export function NormEntryEditor({
       // pointer yet — otherwise step 2 would show an empty "confirmed" panel.
       if (isLawRank(next) && !form.state.values.document_number.trim()) setSearching(true)
     },
-    [form],
+    [form]
   )
 
   const handleVerify = useCallback(() => {
     const values = form.state.values
     const titleQuery = values.verify_title_query.trim() || values.title.trim()
-    const application = values.application.trim() || defaultApplication(values.rank, values.bundesland)
+    const application =
+      values.application.trim() || defaultApplication(values.rank, values.bundesland)
     if (!titleQuery || !application) {
       toast.error(t('norms.verify.missingInput'))
       return
@@ -537,10 +559,11 @@ export function NormEntryEditor({
       setSearching(false)
       toast.success(t('norms.verify.applied'))
     },
-    [form, verifiedAt, t],
+    [form, verifiedAt, t]
   )
 
-  const applicationLabel = form.state.values.application.trim() || defaultApplication(rank, bundesland)
+  const applicationLabel =
+    form.state.values.application.trim() || defaultApplication(rank, bundesland)
 
   /* ---------------------------------------------------------------- render */
 
@@ -550,7 +573,9 @@ export function NormEntryEditor({
         <field.TextField
           label={t('norms.fields.bundesland')}
           description={
-            rank === 'landesgesetz' ? t('norms.fields.bundeslandRequired') : t('norms.fields.bundeslandHint')
+            rank === 'landesgesetz'
+              ? t('norms.fields.bundeslandRequired')
+              : t('norms.fields.bundeslandHint')
           }
           placeholder={t('norms.fields.bundeslandPlaceholder')}
           required={rank === 'landesgesetz'}
@@ -595,339 +620,210 @@ export function NormEntryEditor({
         }}
         className="flex flex-col gap-6"
       >
-        {/* ---------------------------------------------- 1 — kind of source */}
-        <Step index={1} title={t('norms.kinds.legend')} description={t('norms.kinds.hint')} testId="norm-editor-kind">
-          <RadioGroup
-            value={rank || undefined}
-            onValueChange={(value) => chooseRank(value as NormRank)}
-            aria-label={t('norms.kinds.legend')}
-            className="flex flex-col gap-1.5"
+        {/* A disabled fieldset disables every native control inside it, the
+            Radix triggers included (they are buttons), with no per-field prop. */}
+        <fieldset disabled={readOnly} className="contents">
+          {/* ---------------------------------------------- 1 — kind of source */}
+          <Step
+            index={1}
+            title={t('norms.kinds.legend')}
+            description={t('norms.kinds.hint')}
+            testId="norm-editor-kind"
           >
-            {NORM_RANKS.map((value) => {
-              const selected = rank === value
-              const itemId = `norm-rank-${value}`
-              return (
-                <label
-                  key={value}
-                  htmlFor={itemId}
-                  className={cn(
-                    'flex cursor-pointer items-start gap-3 rounded-lg border px-3 py-2 text-left transition-colors duration-quick ease-out focus-within:ring-2 focus-within:ring-ring/60',
-                    selected ? 'border-primary bg-accent' : 'hover:bg-muted',
-                  )}
-                >
-                  <RadioGroupItem id={itemId} value={value} className="mt-0.5" />
-                  <span className="flex flex-col gap-0.5">
-                    <span className="text-sm font-medium">{t(`norms.kinds.${value}.label`)}</span>
-                    <span className="text-xs text-muted-foreground">{t(`norms.kinds.${value}.description`)}</span>
-                  </span>
-                </label>
-              )
-            })}
-          </RadioGroup>
-          {rank === '' && <FieldError>{t('norms.kinds.required')}</FieldError>}
-        </Step>
-
-        {rank !== '' && (
-          <>
-            {/* -------------------------------------------------- 2 — find it */}
-            {isLaw ? (
-              <Step
-                index={2}
-                title={t('norms.steps.find')}
-                description={t('norms.steps.findHint')}
-                testId="norm-editor-find"
-              >
-                {searching ? (
-                  <div className="flex flex-col gap-3 rounded-xl border bg-muted p-3">
-                    <form.AppField name="verify_title_query">
-                      {(field) => (
-                        <field.TextField
-                          label={t('norms.verify.searchLabel')}
-                          description={t('norms.verify.searchHint')}
-                          placeholder={t('norms.verify.searchPlaceholder')}
-                        />
-                      )}
-                    </form.AppField>
-
-                    {rank !== 'bundesgesetz' && bundeslandField}
-
-                    <div className="flex flex-wrap items-center justify-between gap-2">
-                      <span className="text-xs text-muted-foreground">
-                        {t('norms.verify.scope', { application: applicationLabel })}
+            <RadioGroup
+              value={rank || undefined}
+              onValueChange={(value) => chooseRank(value as NormRank)}
+              aria-label={t('norms.kinds.legend')}
+              className="flex flex-col gap-1.5"
+            >
+              {NORM_RANKS.map((value) => {
+                const selected = rank === value
+                const itemId = `norm-rank-${value}`
+                return (
+                  <label
+                    key={value}
+                    htmlFor={itemId}
+                    className={cn(
+                      'duration-quick focus-within:ring-ring/60 flex cursor-pointer items-start gap-3 rounded-lg border px-3 py-2 text-left transition-colors ease-out focus-within:ring-2',
+                      selected ? 'border-primary bg-accent' : 'hover:bg-muted'
+                    )}
+                  >
+                    <RadioGroupItem id={itemId} value={value} className="mt-0.5" />
+                    <span className="flex flex-col gap-0.5">
+                      <span className="text-sm font-medium">{t(`norms.kinds.${value}.label`)}</span>
+                      <span className="text-muted-foreground text-xs">
+                        {t(`norms.kinds.${value}.description`)}
                       </span>
-                      <Button type="button" variant="outline" size="sm" onClick={handleVerify} disabled={isVerifying}>
-                        {isVerifying ? <Spinner className="size-3.5" /> : <Search className="size-3.5" aria-hidden />}
-                        {t('norms.verify.action')}
-                      </Button>
-                    </div>
+                    </span>
+                  </label>
+                )
+              })}
+            </RadioGroup>
+            {rank === '' && <FieldError>{t('norms.kinds.required')}</FieldError>}
+          </Step>
 
-                    {candidates !== null && (
-                      <div
-                        className="divide-y divide-border overflow-hidden rounded-lg border bg-popover"
-                        data-testid="norm-verify-candidates"
-                      >
-                        {candidates.length === 0 ? (
-                          <p className="px-3 py-2 text-sm text-muted-foreground">{t('norms.verify.noCandidates')}</p>
-                        ) : (
-                          candidates.map((candidate) => (
-                            <button
-                              key={`${candidate.document_number}:${candidate.citation_url}`}
-                              type="button"
-                              onClick={() => applyCandidate(candidate)}
-                              aria-label={t('norms.verify.candidate', { title: candidate.title })}
-                              className="flex w-full flex-col items-start gap-0.5 px-3 py-2 text-left transition-colors duration-quick ease-out hover:bg-accent focus-visible:bg-accent focus-visible:outline-none motion-reduce:transition-none"
-                            >
-                              <span className="text-sm">{candidate.title}</span>
-                              <span className="font-mono text-xs text-muted-foreground">
-                                {candidate.document_number}
-                              </span>
-                            </button>
-                          ))
+          {rank !== '' && (
+            <>
+              {/* -------------------------------------------------- 2 — find it */}
+              {isLaw ? (
+                <Step
+                  index={2}
+                  title={t('norms.steps.find')}
+                  description={t('norms.steps.findHint')}
+                  testId="norm-editor-find"
+                >
+                  {searching ? (
+                    <div className="bg-muted flex flex-col gap-3 rounded-xl border p-3">
+                      <form.AppField name="verify_title_query">
+                        {(field) => (
+                          <field.TextField
+                            label={t('norms.verify.searchLabel')}
+                            description={t('norms.verify.searchHint')}
+                            placeholder={t('norms.verify.searchPlaceholder')}
+                          />
+                        )}
+                      </form.AppField>
+
+                      {rank !== 'bundesgesetz' && bundeslandField}
+
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <span className="text-muted-foreground text-xs">
+                          {t('norms.verify.scope', { application: applicationLabel })}
+                        </span>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          onClick={handleVerify}
+                          disabled={isVerifying}
+                        >
+                          {isVerifying ? (
+                            <Spinner className="size-3.5" />
+                          ) : (
+                            <Search className="size-3.5" aria-hidden />
+                          )}
+                          {t('norms.verify.action')}
+                        </Button>
+                      </div>
+
+                      {candidates !== null && (
+                        <div
+                          className="divide-border bg-popover divide-y overflow-hidden rounded-lg border"
+                          data-testid="norm-verify-candidates"
+                        >
+                          {candidates.length === 0 ? (
+                            <p className="text-muted-foreground px-3 py-2 text-sm">
+                              {t('norms.verify.noCandidates')}
+                            </p>
+                          ) : (
+                            candidates.map((candidate) => (
+                              <button
+                                key={`${candidate.document_number}:${candidate.citation_url}`}
+                                type="button"
+                                onClick={() => applyCandidate(candidate)}
+                                aria-label={t('norms.verify.candidate', { title: candidate.title })}
+                                className="duration-quick hover:bg-accent focus-visible:bg-accent flex w-full flex-col items-start gap-0.5 px-3 py-2 text-left transition-colors ease-out focus-visible:outline-none motion-reduce:transition-none"
+                              >
+                                <span className="text-sm">{candidate.title}</span>
+                                <span className="text-muted-foreground font-mono text-xs">
+                                  {candidate.document_number}
+                                </span>
+                              </button>
+                            ))
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  ) : (
+                    <div
+                      className="bg-muted flex flex-col gap-3 rounded-xl border p-3"
+                      data-testid="norm-editor-confirmed"
+                    >
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <span className="inline-flex items-center gap-1.5 text-sm font-medium">
+                          <BadgeCheck className="text-success size-3.5" aria-hidden />
+                          {t('norms.verify.confirmedTitle')}
+                        </span>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          onClick={() => setSearching(true)}
+                        >
+                          <Search className="size-3.5" aria-hidden />
+                          {t('norms.verify.again')}
+                        </Button>
+                      </div>
+                      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                        <Fact label={t('norms.fields.documentNumber')} value={documentNumber} />
+                        <Fact
+                          label={t('norms.fields.verifiedAt')}
+                          value={verifiedAtValue || t('norms.row.unverified')}
+                        />
+                        {citationUrl && (
+                          <Fact
+                            label={t('norms.fields.citationUrl')}
+                            value={citationUrl}
+                            href={citationUrl}
+                          />
+                        )}
+                        {fullLawUrl && (
+                          <Fact
+                            label={t('norms.fields.fullLawUrl')}
+                            value={fullLawUrl}
+                            href={fullLawUrl}
+                          />
                         )}
                       </div>
-                    )}
-                  </div>
-                ) : (
-                  <div
-                    className="flex flex-col gap-3 rounded-xl border bg-muted p-3"
-                    data-testid="norm-editor-confirmed"
-                  >
-                    <div className="flex flex-wrap items-center justify-between gap-2">
-                      <span className="inline-flex items-center gap-1.5 text-sm font-medium">
-                        <BadgeCheck className="size-3.5 text-success" aria-hidden />
-                        {t('norms.verify.confirmedTitle')}
-                      </span>
-                      <Button type="button" variant="outline" size="sm" onClick={() => setSearching(true)}>
-                        <Search className="size-3.5" aria-hidden />
-                        {t('norms.verify.again')}
-                      </Button>
-                    </div>
-                    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                      <Fact label={t('norms.fields.documentNumber')} value={documentNumber} />
-                      <Fact
-                        label={t('norms.fields.verifiedAt')}
-                        value={verifiedAtValue || t('norms.row.unverified')}
-                      />
-                      {citationUrl && (
-                        <Fact label={t('norms.fields.citationUrl')} value={citationUrl} href={citationUrl} />
-                      )}
-                      {fullLawUrl && (
-                        <Fact label={t('norms.fields.fullLawUrl')} value={fullLawUrl} href={fullLawUrl} />
+                      {isStale(verifiedAtValue) && (
+                        <p className="text-warning inline-flex items-center gap-1.5 text-xs font-medium">
+                          <CircleAlert className="size-3.5" aria-hidden />
+                          {t('norms.verify.stale')}
+                        </p>
                       )}
                     </div>
-                    {isStale(verifiedAtValue) && (
-                      <p className="inline-flex items-center gap-1.5 text-xs font-medium text-warning">
-                        <CircleAlert className="size-3.5" aria-hidden />
-                        {t('norms.verify.stale')}
-                      </p>
-                    )}
-                  </div>
-                )}
+                  )}
 
-                {!documentNumber.trim() && (
-                  <p role="alert" className="text-xs font-medium text-destructive" data-testid="norm-editor-ris-missing">
-                    {t('norms.errors.lawNeedsRis')}
-                  </p>
-                )}
+                  {!documentNumber.trim() && (
+                    <p
+                      role="alert"
+                      className="text-destructive text-xs font-medium"
+                      data-testid="norm-editor-ris-missing"
+                    >
+                      {t('norms.errors.lawNeedsRis')}
+                    </p>
+                  )}
 
-                {diff.length > 0 && (
-                  // `border-info` / `bg-info-subtle` are static `@utility` blocks in
-                  // globals.css with no `--modifier()`, so `border-info/40` and
-                  // `bg-info-subtle/40` matched nothing: this "we changed these
-                  // fields" panel rendered with no fill and the neutral border, so it
-                  // did not read as a callout at all. `-subtle` IS the diluted info
-                  // tint — the tokens as defined are the intent.
-                  <div className="flex flex-col gap-1 rounded-lg border border-info bg-info-subtle p-2 text-xs">
-                    <span className="font-medium text-info">{t('norms.verify.appliedTitle')}</span>
-                    {diff.map((d) => (
-                      <span key={d.field} className="font-mono break-all text-muted-foreground">
-                        {d.field}: {d.from || '—'} → {d.to || '—'}
+                  {diff.length > 0 && (
+                    // `border-info` / `bg-info-subtle` are static `@utility` blocks in
+                    // globals.css with no `--modifier()`, so `border-info/40` and
+                    // `bg-info-subtle/40` matched nothing: this "we changed these
+                    // fields" panel rendered with no fill and the neutral border, so it
+                    // did not read as a callout at all. `-subtle` IS the diluted info
+                    // tint — the tokens as defined are the intent.
+                    <div className="border-info bg-info-subtle flex flex-col gap-1 rounded-lg border p-2 text-xs">
+                      <span className="text-info font-medium">
+                        {t('norms.verify.appliedTitle')}
                       </span>
-                    ))}
-                  </div>
-                )}
-
-                {titleField}
-              </Step>
-            ) : (
-              <Step
-                index={2}
-                title={t('norms.steps.source')}
-                description={t('norms.steps.sourceHint')}
-                testId="norm-editor-source"
-              >
-                <p className="text-xs text-muted-foreground">{t('norms.verify.notInRis')}</p>
-                {titleField}
-                <form.AppField name="source_url">
-                  {(field) => (
-                    <field.TextField
-                      label={t('norms.fields.sourceUrl')}
-                      description={t('norms.fields.sourceUrlHint')}
-                      placeholder={t('norms.fields.sourceUrlPlaceholder')}
-                    />
+                      {diff.map((d) => (
+                        <span key={d.field} className="text-muted-foreground break-all font-mono">
+                          {d.field}: {d.from || '—'} → {d.to || '—'}
+                        </span>
+                      ))}
+                    </div>
                   )}
-                </form.AppField>
-                {bundeslandField}
-              </Step>
-            )}
 
-            {/* ------------------------------------------------- 3 — agent use */}
-            <Step
-              index={3}
-              title={t('norms.steps.usage')}
-              description={t('norms.steps.usageHint')}
-              testId="norm-editor-usage"
-            >
-              <form.AppField name="short">
-                {(field) => (
-                  <field.TextField
-                    label={t('norms.fields.short')}
-                    required
-                    description={t('norms.fields.shortHint')}
-                    placeholder={t('norms.fields.shortPlaceholder')}
-                  />
-                )}
-              </form.AppField>
-
-              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                <form.AppField name="topics">
-                  {(field) => (
-                    <field.TextField
-                      label={t('norms.fields.topics')}
-                      description={t('norms.fields.topicsHint')}
-                      placeholder={t('norms.fields.topicsPlaceholder')}
-                    />
-                  )}
-                </form.AppField>
-                <form.AppField name="relevance">
-                  {(field) => (
-                    <field.TextField
-                      label={t('norms.fields.relevance')}
-                      description={t('norms.fields.relevanceHint')}
-                      placeholder={t('norms.fields.relevancePlaceholder')}
-                    />
-                  )}
-                </form.AppField>
-              </div>
-
-              {/* Same defect as the applied-diff panel above: `border-info/40` and
-                  `bg-info-subtle/30` compiled to nothing, so this binding-note
-                  panel had no tint to separate it from the surrounding form. Both
-                  call sites picked a different arbitrary alpha (40 / 30) off the
-                  same token, which is guesswork rather than a scale — the two now
-                  agree on the `-subtle` token. */}
-              <div className="flex flex-col gap-1.5 rounded-xl border border-info bg-info-subtle p-3">
-                <span className="inline-flex w-fit items-center gap-1.5 text-xs font-medium text-info">
-                  <Sparkles className="size-3.5" aria-hidden />
-                  {t('norms.fields.bindingNoteBadge')}
-                </span>
-                <form.AppField name="binding_note">
-                  {(field) => (
-                    <field.TextAreaField
-                      label={t('norms.fields.bindingNote')}
-                      description={t('norms.fields.bindingNoteHint')}
-                      placeholder={t('norms.fields.bindingNotePlaceholder')}
-                      rows={3}
-                    />
-                  )}
-                </form.AppField>
-              </div>
-
-              <p className="text-xs text-muted-foreground">
-                {t('norms.fields.idDerived', { id: idValue || '—' })}
-              </p>
-              {duplicateId && (
-                <p role="alert" className="text-xs font-medium text-destructive">
-                  {t('norms.errors.duplicateId', { id: idValue.trim() })}
-                </p>
-              )}
-            </Step>
-
-            {/* ---------------------------------------------------- Advanced */}
-            <Collapsible open={advancedOpen} onOpenChange={setAdvancedOpen}>
-              <CollapsibleTrigger asChild>
-                <Button type="button" variant="ghost" size="sm" className="w-fit px-2 text-muted-foreground">
-                  <ChevronDown
-                    className={cn(
-                      'size-3.5 transition-transform duration-quick ease-out motion-reduce:transition-none',
-                      advancedOpen && 'rotate-180',
-                    )}
-                    aria-hidden
-                  />
-                  {t('norms.steps.advanced')}
-                </Button>
-              </CollapsibleTrigger>
-              <CollapsibleContent className="flex flex-col gap-4 pt-3" data-testid="norm-editor-advanced">
-                <p className="text-xs text-muted-foreground">{t('norms.steps.advancedHint')}</p>
-
-                <form.AppField name="id">
-                  {(field) => (
-                    <field.TextField
-                      label={t('norms.fields.id')}
-                      required
-                      description={t('norms.fields.idHint')}
-                      placeholder={t('norms.fields.idPlaceholder')}
-                      disabled={!isNew}
-                    />
-                  )}
-                </form.AppField>
-
-                <form.AppField name="aliases">
-                  {(field) => (
-                    <field.TextField
-                      label={t('norms.fields.aliases')}
-                      description={t('norms.fields.aliasesHint')}
-                      placeholder={t('norms.fields.aliasesPlaceholder')}
-                    />
-                  )}
-                </form.AppField>
-
-                {/* bundesland lives in step 2 for every rank that can carry one;
-                    a federal act still needs it reachable to clear a stale value. */}
-                {rank === 'bundesgesetz' && bundeslandField}
-
-                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                  <form.AppField name="application">
-                    {(field) => (
-                      <field.TextField
-                        label={t('norms.fields.application')}
-                        description={t('norms.fields.applicationHint')}
-                        placeholder={t('norms.fields.applicationPlaceholder')}
-                      />
-                    )}
-                  </form.AppField>
-                  <form.AppField name="document_number">
-                    {(field) => (
-                      <field.TextField
-                        label={t('norms.fields.documentNumber')}
-                        description={t('norms.fields.documentNumberHint')}
-                        placeholder={t('norms.fields.documentNumberPlaceholder')}
-                      />
-                    )}
-                  </form.AppField>
-                </div>
-
-                <form.AppField name="citation_url">
-                  {(field) => (
-                    <field.TextField
-                      label={t('norms.fields.citationUrl')}
-                      description={t('norms.fields.citationUrlHint')}
-                      placeholder={t('norms.fields.citationUrlPlaceholder')}
-                    />
-                  )}
-                </form.AppField>
-
-                <form.AppField name="full_law_url">
-                  {(field) => (
-                    <field.TextField
-                      label={t('norms.fields.fullLawUrl')}
-                      description={t('norms.fields.fullLawUrlHint')}
-                      placeholder={t('norms.fields.fullLawUrlPlaceholder')}
-                    />
-                  )}
-                </form.AppField>
-
-                {isLaw && (
+                  {titleField}
+                </Step>
+              ) : (
+                <Step
+                  index={2}
+                  title={t('norms.steps.source')}
+                  description={t('norms.steps.sourceHint')}
+                  testId="norm-editor-source"
+                >
+                  <p className="text-muted-foreground text-xs">{t('norms.verify.notInRis')}</p>
+                  {titleField}
                   <form.AppField name="source_url">
                     {(field) => (
                       <field.TextField
@@ -937,107 +833,296 @@ export function NormEntryEditor({
                       />
                     )}
                   </form.AppField>
-                )}
+                  {bundeslandField}
+                </Step>
+              )}
 
-                <form.AppField name="verified_at">
+              {/* ------------------------------------------------- 3 — agent use */}
+              <Step
+                index={3}
+                title={t('norms.steps.usage')}
+                description={t('norms.steps.usageHint')}
+                testId="norm-editor-usage"
+              >
+                <form.AppField name="short">
                   {(field) => (
                     <field.TextField
-                      label={t('norms.fields.verifiedAt')}
-                      description={t('norms.fields.verifiedAtHint')}
-                      placeholder={t('norms.fields.verifiedAtPlaceholder')}
+                      label={t('norms.fields.short')}
+                      required
+                      description={t('norms.fields.shortHint')}
+                      placeholder={t('norms.fields.shortPlaceholder')}
                     />
                   )}
                 </form.AppField>
 
-                <form.AppField name="review_note">
-                  {(field) => (
-                    <field.TextAreaField
-                      label={t('norms.fields.reviewNote')}
-                      description={t('norms.fields.reviewNoteHint')}
-                      rows={2}
-                    />
-                  )}
-                </form.AppField>
-
-                <div className="flex flex-col gap-4 rounded-xl border bg-muted p-3">
-                  <div className="flex flex-col gap-0.5">
-                    <span className="text-sm font-medium">{t('norms.verify.seedTitle')}</span>
-                    <span className="text-xs text-muted-foreground">{t('norms.verify.seedHint')}</span>
-                  </div>
-                  {!isLaw && (
-                    <form.AppField name="verify_title_query">
-                      {(field) => (
-                        <field.TextField
-                          label={t('norms.fields.titleQuery')}
-                          description={t('norms.fields.titleQueryHint')}
-                          placeholder={t('norms.fields.titleQueryPlaceholder')}
-                        />
-                      )}
-                    </form.AppField>
-                  )}
-                  <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                    <form.AppField name="verify_gesetzesnummer">
-                      {(field) => (
-                        <field.TextField
-                          label={t('norms.fields.gesetzesnummer')}
-                          description={t('norms.fields.gesetzesnummerHint')}
-                          placeholder={t('norms.fields.gesetzesnummerPlaceholder')}
-                        />
-                      )}
-                    </form.AppField>
-                    <form.AppField name="verify_expect">
-                      {(field) => (
-                        <field.TextField
-                          label={t('norms.fields.expect')}
-                          description={t('norms.fields.expectHint')}
-                          placeholder={t('norms.fields.optional')}
-                        />
-                      )}
-                    </form.AppField>
-                  </div>
-                  <form.AppField name="verify_exclude">
+                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                  <form.AppField name="topics">
                     {(field) => (
                       <field.TextField
-                        label={t('norms.fields.exclude')}
-                        description={t('norms.fields.excludeHint')}
-                        placeholder={t('norms.fields.excludePlaceholder')}
+                        label={t('norms.fields.topics')}
+                        description={t('norms.fields.topicsHint')}
+                        placeholder={t('norms.fields.topicsPlaceholder')}
+                      />
+                    )}
+                  </form.AppField>
+                  <form.AppField name="relevance">
+                    {(field) => (
+                      <field.TextField
+                        label={t('norms.fields.relevance')}
+                        description={t('norms.fields.relevanceHint')}
+                        placeholder={t('norms.fields.relevancePlaceholder')}
                       />
                     )}
                   </form.AppField>
                 </div>
-              </CollapsibleContent>
-            </Collapsible>
-          </>
-        )}
 
-        <SheetFooter className="flex-row items-center justify-between gap-2 sm:justify-between">
-          {!isNew ? (
-            <Button
-              type="button"
-              variant="ghost"
-              className="text-destructive hover:bg-destructive/10 hover:text-destructive"
-              onClick={onRequestDelete}
-            >
-              <Trash2 className="size-3.5" aria-hidden />
-              {t('norms.sheet.delete')}
-            </Button>
-          ) : (
-            <span />
+                {/* Same defect as the applied-diff panel above: `border-info/40` and
+                  `bg-info-subtle/30` compiled to nothing, so this binding-note
+                  panel had no tint to separate it from the surrounding form. Both
+                  call sites picked a different arbitrary alpha (40 / 30) off the
+                  same token, which is guesswork rather than a scale — the two now
+                  agree on the `-subtle` token. */}
+                <div className="border-info bg-info-subtle flex flex-col gap-1.5 rounded-xl border p-3">
+                  <span className="text-info inline-flex w-fit items-center gap-1.5 text-xs font-medium">
+                    <Sparkles className="size-3.5" aria-hidden />
+                    {t('norms.fields.bindingNoteBadge')}
+                  </span>
+                  <form.AppField name="binding_note">
+                    {(field) => (
+                      <field.TextAreaField
+                        label={t('norms.fields.bindingNote')}
+                        description={t('norms.fields.bindingNoteHint')}
+                        placeholder={t('norms.fields.bindingNotePlaceholder')}
+                        rows={3}
+                      />
+                    )}
+                  </form.AppField>
+                </div>
+
+                <p className="text-muted-foreground text-xs">
+                  {t('norms.fields.idDerived', { id: idValue || '—' })}
+                </p>
+                {duplicateId && (
+                  <p role="alert" className="text-destructive text-xs font-medium">
+                    {t('norms.errors.duplicateId', { id: idValue.trim() })}
+                  </p>
+                )}
+              </Step>
+
+              {/* ---------------------------------------------------- Advanced */}
+              <Collapsible open={advancedOpen} onOpenChange={setAdvancedOpen}>
+                <CollapsibleTrigger asChild>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    className="text-muted-foreground w-fit px-2"
+                  >
+                    <ChevronDown
+                      className={cn(
+                        'duration-quick size-3.5 transition-transform ease-out motion-reduce:transition-none',
+                        advancedOpen && 'rotate-180'
+                      )}
+                      aria-hidden
+                    />
+                    {t('norms.steps.advanced')}
+                  </Button>
+                </CollapsibleTrigger>
+                <CollapsibleContent
+                  className="flex flex-col gap-4 pt-3"
+                  data-testid="norm-editor-advanced"
+                >
+                  <p className="text-muted-foreground text-xs">{t('norms.steps.advancedHint')}</p>
+
+                  <form.AppField name="id">
+                    {(field) => (
+                      <field.TextField
+                        label={t('norms.fields.id')}
+                        required
+                        description={t('norms.fields.idHint')}
+                        placeholder={t('norms.fields.idPlaceholder')}
+                        disabled={!isNew}
+                      />
+                    )}
+                  </form.AppField>
+
+                  <form.AppField name="aliases">
+                    {(field) => (
+                      <field.TextField
+                        label={t('norms.fields.aliases')}
+                        description={t('norms.fields.aliasesHint')}
+                        placeholder={t('norms.fields.aliasesPlaceholder')}
+                      />
+                    )}
+                  </form.AppField>
+
+                  {/* bundesland lives in step 2 for every rank that can carry one;
+                    a federal act still needs it reachable to clear a stale value. */}
+                  {rank === 'bundesgesetz' && bundeslandField}
+
+                  <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                    <form.AppField name="application">
+                      {(field) => (
+                        <field.TextField
+                          label={t('norms.fields.application')}
+                          description={t('norms.fields.applicationHint')}
+                          placeholder={t('norms.fields.applicationPlaceholder')}
+                        />
+                      )}
+                    </form.AppField>
+                    <form.AppField name="document_number">
+                      {(field) => (
+                        <field.TextField
+                          label={t('norms.fields.documentNumber')}
+                          description={t('norms.fields.documentNumberHint')}
+                          placeholder={t('norms.fields.documentNumberPlaceholder')}
+                        />
+                      )}
+                    </form.AppField>
+                  </div>
+
+                  <form.AppField name="citation_url">
+                    {(field) => (
+                      <field.TextField
+                        label={t('norms.fields.citationUrl')}
+                        description={t('norms.fields.citationUrlHint')}
+                        placeholder={t('norms.fields.citationUrlPlaceholder')}
+                      />
+                    )}
+                  </form.AppField>
+
+                  <form.AppField name="full_law_url">
+                    {(field) => (
+                      <field.TextField
+                        label={t('norms.fields.fullLawUrl')}
+                        description={t('norms.fields.fullLawUrlHint')}
+                        placeholder={t('norms.fields.fullLawUrlPlaceholder')}
+                      />
+                    )}
+                  </form.AppField>
+
+                  {isLaw && (
+                    <form.AppField name="source_url">
+                      {(field) => (
+                        <field.TextField
+                          label={t('norms.fields.sourceUrl')}
+                          description={t('norms.fields.sourceUrlHint')}
+                          placeholder={t('norms.fields.sourceUrlPlaceholder')}
+                        />
+                      )}
+                    </form.AppField>
+                  )}
+
+                  <form.AppField name="verified_at">
+                    {(field) => (
+                      <field.TextField
+                        label={t('norms.fields.verifiedAt')}
+                        description={t('norms.fields.verifiedAtHint')}
+                        placeholder={t('norms.fields.verifiedAtPlaceholder')}
+                      />
+                    )}
+                  </form.AppField>
+
+                  <form.AppField name="review_note">
+                    {(field) => (
+                      <field.TextAreaField
+                        label={t('norms.fields.reviewNote')}
+                        description={t('norms.fields.reviewNoteHint')}
+                        rows={2}
+                      />
+                    )}
+                  </form.AppField>
+
+                  <div className="bg-muted flex flex-col gap-4 rounded-xl border p-3">
+                    <div className="flex flex-col gap-0.5">
+                      <span className="text-sm font-medium">{t('norms.verify.seedTitle')}</span>
+                      <span className="text-muted-foreground text-xs">
+                        {t('norms.verify.seedHint')}
+                      </span>
+                    </div>
+                    {!isLaw && (
+                      <form.AppField name="verify_title_query">
+                        {(field) => (
+                          <field.TextField
+                            label={t('norms.fields.titleQuery')}
+                            description={t('norms.fields.titleQueryHint')}
+                            placeholder={t('norms.fields.titleQueryPlaceholder')}
+                          />
+                        )}
+                      </form.AppField>
+                    )}
+                    <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                      <form.AppField name="verify_gesetzesnummer">
+                        {(field) => (
+                          <field.TextField
+                            label={t('norms.fields.gesetzesnummer')}
+                            description={t('norms.fields.gesetzesnummerHint')}
+                            placeholder={t('norms.fields.gesetzesnummerPlaceholder')}
+                          />
+                        )}
+                      </form.AppField>
+                      <form.AppField name="verify_expect">
+                        {(field) => (
+                          <field.TextField
+                            label={t('norms.fields.expect')}
+                            description={t('norms.fields.expectHint')}
+                            placeholder={t('norms.fields.optional')}
+                          />
+                        )}
+                      </form.AppField>
+                    </div>
+                    <form.AppField name="verify_exclude">
+                      {(field) => (
+                        <field.TextField
+                          label={t('norms.fields.exclude')}
+                          description={t('norms.fields.excludeHint')}
+                          placeholder={t('norms.fields.excludePlaceholder')}
+                        />
+                      )}
+                    </form.AppField>
+                  </div>
+                </CollapsibleContent>
+              </Collapsible>
+            </>
           )}
-          <div className="flex items-center gap-2">
-            {!isNew && (
-              <Badge variant="outline" className="hidden sm:inline-flex">
-                {t(`norms.rankShort.${entry.rank}`)}
-              </Badge>
-            )}
+        </fieldset>
+
+        {readOnly ? (
+          <SheetFooter className="flex-row justify-end">
             <Button type="button" variant="outline" onClick={onCancel}>
-              {t('norms.sheet.cancel')}
+              {t('norms.sheet.close')}
             </Button>
-            <form.AppForm>
-              <form.SubmitButton>{t('norms.sheet.apply')}</form.SubmitButton>
-            </form.AppForm>
-          </div>
-        </SheetFooter>
+          </SheetFooter>
+        ) : (
+          <SheetFooter className="flex-row items-center justify-between gap-2 sm:justify-between">
+            {!isNew ? (
+              <Button
+                type="button"
+                variant="ghost"
+                className="text-destructive hover:bg-destructive/10 hover:text-destructive"
+                onClick={onRequestDelete}
+              >
+                <Trash2 className="size-3.5" aria-hidden />
+                {t('norms.sheet.delete')}
+              </Button>
+            ) : (
+              <span />
+            )}
+            <div className="flex items-center gap-2">
+              {!isNew && (
+                <Badge variant="outline" className="hidden sm:inline-flex">
+                  {t(`norms.rankShort.${entry.rank}`)}
+                </Badge>
+              )}
+              <Button type="button" variant="outline" onClick={onCancel}>
+                {t('norms.sheet.cancel')}
+              </Button>
+              <form.AppForm>
+                <form.SubmitButton>{t('norms.sheet.apply')}</form.SubmitButton>
+              </form.AppForm>
+            </div>
+          </SheetFooter>
+        )}
       </form>
     </>
   )

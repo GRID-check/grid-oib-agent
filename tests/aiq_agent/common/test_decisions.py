@@ -8,6 +8,8 @@ relies on: ``None`` on any failure, and a record that says why.
 from __future__ import annotations
 
 import json
+import re
+from pathlib import Path
 from unittest.mock import patch
 
 import httpx
@@ -20,6 +22,18 @@ from aiq_agent.common.decisions import decide
 from aiq_agent.common.decisions import decide_many
 from aiq_agent.common.decisions import noul
 from aiq_agent.common.decisions import score
+from aiq_agent.common.wire_v2 import StatusStep
+
+_REPO_ROOT = Path(__file__).resolve().parents[3]
+
+
+def _bff_cost_sources() -> set[str]:
+    """`COST_SOURCES` as the BFF declares it, the vocabulary its internal usage route accepts."""
+    schema = (_REPO_ROOT / "frontends/ui/src/lib/db/schema/budgets.ts").read_text()
+    declared = re.search(r"export const COST_SOURCES = \[([^\]]*)\]", schema)
+    assert declared is not None
+    return set(re.findall(r"'([a-z_]+)'", declared.group(1)))
+
 
 ANSWERS = {
     "needs_evidence": {"type": "noul", "noul": 0.93},
@@ -61,21 +75,18 @@ def _ok(request: httpx.Request) -> httpx.Response:
 
 @pytest.fixture(autouse=True)
 def _endpoint_available(monkeypatch):
-    """A key resolves, no ZDR, breaker closed, decisions enabled."""
+    """A key resolves, breaker closed, decisions enabled."""
     decisions.reset_breaker()
     monkeypatch.delenv(decisions.ENABLED_ENV, raising=False)
     monkeypatch.delenv(decisions.URL_ENV, raising=False)
-    with (
-        patch.object(decisions, "_zdr_only_blocking", return_value=False),
-        patch.object(
-            decisions,
-            "_resolve_endpoint_blocking",
-            return_value=(
-                decisions._Endpoint(
-                    url="https://openrouter.ai/api/alpha/decisions", api_key="k", model="typesafe/jev-1.13"
-                ),
-                None,
+    with patch.object(
+        decisions,
+        "_resolve_endpoint_blocking",
+        return_value=(
+            decisions._Endpoint(
+                url="https://openrouter.ai/api/alpha/decisions", api_key="k", model="typesafe/jev-1.13"
             ),
+            None,
         ),
     ):
         yield
@@ -86,6 +97,20 @@ def _endpoint_available(monkeypatch):
 def records():
     with patch.object(decisions, "_record") as record:
         yield record
+
+
+class TestTheRecord:
+    def test_a_decision_is_one_technical_step_of_flat_numbers(self, emitted):
+        """The record is typed detail an operator counts, never the reader's text."""
+        decisions.record_skipped("turn", "no_key", "because")
+        assert emitted.steps == [
+            StatusStep(
+                id="status:decision:turn",
+                slot="decision:turn",
+                channel="technical",
+                detail={"skipped": "no_key", "detail": "because"},
+            )
+        ]
 
 
 class TestTheWire:
@@ -108,13 +133,16 @@ class TestTheWire:
             "criteria": {"true": "yes", "false": "no"},
         }
         assert seen[0].headers["authorization"] == "Bearer k"
+        # Pinned for every organization: the decision model is the platform's.
+        assert body["provider"]["zdr"] is True
+        assert body["provider"]["data_collection"] == "deny"
         assert decision.noul("needs_evidence") == 0.93
         assert decision.choice("corpus") == ("baurecht", {"baurecht": 0.8, "projekt": 0.2})
         assert decision.score("urgency") == 1.4
         assert decision.input_tokens == 476 and decision.cost_usd == 0.00002
         slot, values = records.call_args.args
-        assert slot == "turn" and values["answers"]["needs_evidence"] == 0.93
-        assert values["answers"]["corpus"] == {"choice": "baurecht", "p": 0.8}
+        assert slot == "turn" and values["needs_evidence"] == 0.93
+        assert (values["corpus"], values["corpus.p"]) == ("baurecht", 0.8)
 
     async def test_an_unanswered_question_is_none_not_a_guess(self):
         decision = await decide("s", QUESTIONS, slot="t", transport=_transport(_ok))
@@ -160,11 +188,6 @@ class TestFailOpen:
         assert not called
         assert records.call_args.args[1] == {"skipped": "disabled"}
 
-    async def test_zdr_skips(self, records):
-        with patch.object(decisions, "_zdr_only_blocking", return_value=True):
-            assert await decide("s", QUESTIONS, slot="t", transport=_transport(_ok)) is None
-        assert records.call_args.args[1] == {"skipped": "zdr"}
-
     async def test_a_byok_key_on_another_host_skips(self):
         with patch("aiq_agent.common.credential_resolution.resolve_llm_credential") as resolve:
             resolve.return_value.api_key = "k"
@@ -182,6 +205,30 @@ class TestFailOpen:
             await decisions._endpoint(None)
             await decisions._endpoint("org-given")
         assert [c.args[0] for c in resolve.call_args_list] == ["org-ctx", "org-given"]
+
+    async def test_a_zdr_organization_is_decided_for_not_skipped(self, records):
+        """Every decision is pinned, so a ZDR org no longer loses them to a skip."""
+        seen: list[httpx.Request] = []
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            seen.append(request)
+            return _ok(request)
+
+        with patch("aiq_agent.common.model_overrides.resolve_org_zdr_only", return_value=True):
+            decision = await decide("s", QUESTIONS, slot="t", transport=_transport(handler))
+        assert decision is not None
+        assert json.loads(seen[0].content)["provider"]["zdr"] is True
+
+    def test_decide_blocking_runs_from_sync_code_and_inside_a_loop(self, records):
+        with patch.object(httpx, "AsyncHTTPTransport", side_effect=lambda: _transport(_ok)):
+            assert decisions.decide_blocking("s", QUESTIONS, slot="t").noul("needs_evidence") == 0.93
+
+            async def inside():
+                return decisions.decide_blocking("s", QUESTIONS, slot="t")
+
+            import asyncio
+
+            assert asyncio.run(inside()).noul("needs_evidence") == 0.93
 
     async def test_the_breaker_opens_after_repeated_server_failures(self, records):
         transport = _transport(lambda r: httpx.Response(503))
@@ -229,4 +276,8 @@ class TestTheCostIsOnTheLedger:
             await decide("s", QUESTIONS, slot="t", transport=_transport(_ok))
         record.assert_called_once()
         kwargs = record.call_args.kwargs
-        assert kwargs["role"] == "decision" and kwargs["prompt_tokens"] == 476 and kwargs["cost_source"] == "provider"
+        assert kwargs["role"] == "decision" and kwargs["prompt_tokens"] == 476
+        # A value outside the ledger's vocabulary, as "provider" was, has the
+        # internal endpoint refuse the whole batch. Read from the BFF schema.
+        assert kwargs["cost_source"] == "usage_field"
+        assert kwargs["cost_source"] in _bff_cost_sources()

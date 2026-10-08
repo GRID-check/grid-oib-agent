@@ -12,9 +12,11 @@
  * Not linked from anywhere and 404s outside development.
  */
 
-import { useEffect } from 'react'
+import type { JSX } from 'react'
 import { notFound } from 'next/navigation'
 import { PlatformRetrievalSettings } from '@/app/app/(shell)/platform/retrieval/platform-retrieval-settings'
+import { PageHeader } from '@/components/ui/page-header'
+import { useTranslations } from '@/i18n'
 import { RETRIEVAL_SETTINGS } from '@/lib/retrieval-settings/catalog'
 
 // The real catalog, not a copy of it: a renamed key or a reworded description
@@ -50,56 +52,51 @@ const SETTINGS: SettingFixture[] = DEFINITIONS.map((definition) => {
   }
 })
 
-/** Install the fixture responder; returns the undo, or undefined if not needed. */
-function installShim(): (() => void) | undefined {
-  if (typeof window === 'undefined' || process.env.NODE_ENV !== 'development') return undefined
+const PREVIEW_PATH = '/dev/platform-retrieval'
+
+/**
+ * Install the fixture responder ONCE at module scope and never tear it down;
+ * scope comes from the pathname check inside. A teardown on unmount restores
+ * `window.fetch` between StrictMode's two mounts, so the card's second fetch
+ * escaped to the real API and the preview showed the error state.
+ */
+function installShim(): void {
+  if (typeof window === 'undefined' || process.env.NODE_ENV !== 'development') return
   const w = window as unknown as { __platformRetrievalSettingsShim?: boolean }
-  if (w.__platformRetrievalSettingsShim) return undefined
+  if (w.__platformRetrievalSettingsShim) return
   w.__platformRetrievalSettingsShim = true
   const real = window.fetch.bind(window)
   window.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
-    const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url
-    if (url.startsWith('/api/platform/retrieval-settings')) {
+    const url =
+      typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url
+    if (
+      window.location.pathname.startsWith(PREVIEW_PATH) &&
+      url.startsWith('/api/platform/retrieval-settings')
+    ) {
+      if (init?.method === 'PUT') return Response.json({ ok: true })
       return Response.json({ definitions: DEFINITIONS, settings: SETTINGS })
     }
     return real(input, init)
   }
-  return () => {
-    window.fetch = real
-    w.__platformRetrievalSettingsShim = false
-  }
 }
 
-// Installed at module scope rather than from the page's effect: the card fetches
-// from an effect of its own, and a child's effects run BEFORE the parent's, so a
-// shim armed on mount would arrive after the first request had already left for
-// the real API. The page still tears it down on unmount (below) so a client
-// navigation away from the preview does not leave `window.fetch` patched for
-// the rest of the session.
-let uninstallShim = installShim()
+installShim()
 
 export default function PlatformRetrievalDevPage(): JSX.Element {
-  useEffect(() => {
-    // Re-arm when returning to the preview after a previous unmount tore it down.
-    uninstallShim ??= installShim()
-    return () => {
-      uninstallShim?.()
-      uninstallShim = undefined
-    }
-  }, [])
-
+  const t = useTranslations('platform')
   if (process.env.NODE_ENV !== 'development') {
     notFound()
   }
 
   return (
-    <main className="mx-auto flex max-w-3xl flex-col gap-6 p-8" data-testid="platform-retrieval-preview">
-      <div>
-        <h1 className="text-lg font-semibold">Platform — Retrieval</h1>
-        <p className="mt-1 text-sm text-muted-foreground">
-          Platform-owner surface: how many chunks and results each retrieval tool fetches per query, for every organization at once.
-        </p>
-      </div>
+    <main
+      className="mx-auto flex max-w-4xl flex-col gap-6 px-4 py-8 md:px-8"
+      data-testid="platform-retrieval-preview"
+    >
+      <PageHeader
+        title={t('sections.retrieval.title')}
+        subtitle={t('sections.retrieval.subtitle')}
+      />
       <PlatformRetrievalSettings />
     </main>
   )

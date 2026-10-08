@@ -22,8 +22,14 @@ vi.mock('@/lib/cache', () => ({
   invalidateCached: vi.fn().mockResolvedValue(undefined),
 }))
 
+vi.mock('@/lib/document-roles/repository', () => ({
+  deleteBindingsOutsideBauwerke: vi.fn().mockResolvedValue(0),
+}))
+
 import { requireProjectAccess } from '@/lib/authz/projects'
 import { invalidateCached } from '@/lib/cache'
+import { deleteBindingsOutsideBauwerke } from '@/lib/document-roles/repository'
+import { bauwerkIds } from '@/lib/document-roles/service'
 import {
   findProjectProfileInOrg,
   setProjectProfileSummaryInOrg,
@@ -181,6 +187,27 @@ describe('saveProjectProfile optimistic concurrency (If-Match)', () => {
   it('keeps the legacy in-request check when no version is supplied', async () => {
     await saveProjectProfile(session, 'proj-1', storedProfile)
     expect(updateProjectProfileIfVersion).toHaveBeenCalledTimes(1)
+  })
+
+  it('drops the bindings of removed buildings inside the profile write, not after it', async () => {
+    await saveProjectProfile(session, 'proj-1', storedProfile, 5)
+
+    // Handed to the versioned update, which runs it in its own transaction
+    // under the row lock: committed with the profile or not at all.
+    const inTransaction = vi.mocked(updateProjectProfileIfVersion).mock.calls[0][4]
+    expect(inTransaction).toBeDefined()
+    expect(deleteBindingsOutsideBauwerke).not.toHaveBeenCalled()
+
+    const tx = {} as never
+    await inTransaction?.(tx, storedState)
+    expect(deleteBindingsOutsideBauwerke).toHaveBeenCalledWith('proj-1', bauwerkIds(storedProfile), tx)
+  })
+
+  it('touches no binding when the save is refused', async () => {
+    await expect(saveProjectProfile(session, 'proj-1', storedProfile, 4)).rejects.toThrow()
+
+    expect(updateProjectProfileIfVersion).not.toHaveBeenCalled()
+    expect(deleteBindingsOutsideBauwerke).not.toHaveBeenCalled()
   })
 })
 

@@ -5,7 +5,9 @@
  * The platform default-model endpoint. The contract worth pinning down: only
  * the platform owner may write it, the catalog validates every choice
  * server-side, and an omitted group is a *clear*, not a no-op — that is how a
- * group goes back to the workflow config.
+ * group goes back to the workflow config. Every organization is ZDR unless it
+ * opted out, so a default must have a ZDR endpoint serving its group, and an
+ * unreadable ZDR list refuses the save.
  */
 
 import { beforeEach, describe, expect, it, vi } from 'vitest'
@@ -34,7 +36,8 @@ vi.mock('@/lib/authz/platform', async (importOriginal) => {
 const recordAuditEvent = vi.fn().mockResolvedValue(undefined)
 vi.mock('@/lib/audit/service', () => ({ recordAuditEvent: (e: unknown) => recordAuditEvent(e) }))
 
-vi.mock('@/lib/model-config/backend-defaults', () => ({
+vi.mock('@/lib/model-config/backend-defaults', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/lib/model-config/backend-defaults')>()),
   getWorkflowGroupDefaults: vi
     .fn()
     .mockResolvedValue({ deep_research: 'deepseek/deepseek-v4-flash' }),
@@ -62,13 +65,16 @@ const catalog = [
 ]
 
 const fetchModelCatalog = vi.fn().mockResolvedValue(catalog)
-const fetchZdrModelIds = vi.fn().mockResolvedValue(new Set(['vendor/capable']))
+type ZdrIndex = import('@/lib/model-config/openrouter').ZdrIndex
+const zdrIndex = (...ids: string[]): ZdrIndex =>
+  new Map(ids.map((modelId) => [modelId, [{ modelId, supportedParameters: ['tools'], contextLength: 200000 }]]))
+const fetchZdrEndpoints = vi.fn<() => Promise<ZdrIndex>>().mockResolvedValue(zdrIndex('vendor/capable'))
 vi.mock('@/lib/model-config/openrouter', async (importOriginal) => {
   const original = await importOriginal<typeof import('@/lib/model-config/openrouter')>()
   return {
     ...original,
     fetchModelCatalog: () => fetchModelCatalog(),
-    fetchZdrModelIds: () => fetchZdrModelIds(),
+    fetchZdrEndpoints: () => fetchZdrEndpoints(),
   }
 })
 
@@ -80,6 +86,7 @@ vi.mock('@/lib/model-config/platform-defaults', () => ({
 }))
 
 import { PlatformAccessDeniedError } from '@/lib/authz/platform'
+import { ZdrListUnavailableError } from '@/lib/model-config/openrouter'
 import { GET, PUT } from './route'
 
 // The route goes through `platformApiRoute`, which reads `request.method` for
@@ -109,12 +116,12 @@ describe('/api/platform/model-defaults', () => {
           updatedBy: session.userId,
           updatedByEmail: session.email,
           updatedAt: new Date('2026-07-29T00:00:00Z'),
-          modelSnapshot: { _zdr: { safe: true } },
+          modelSnapshot: null,
         }))
       )
     listPlatformModelDefaults.mockReset().mockResolvedValue([])
     fetchModelCatalog.mockReset().mockResolvedValue(catalog)
-    fetchZdrModelIds.mockReset().mockResolvedValue(new Set(['vendor/capable']))
+    fetchZdrEndpoints.mockReset().mockResolvedValue(zdrIndex('vendor/capable'))
     recordAuditEvent.mockReset().mockResolvedValue(undefined)
   })
 
@@ -132,6 +139,25 @@ describe('/api/platform/model-defaults', () => {
     }
     expect(body.agentGroups.map((g) => g.id)).toContain('deep_research')
     expect(body.workflowDefaults.deep_research).toBe('deepseek/deepseek-v4-flash')
+  })
+
+  it('leaves a retired group out of GET, so a save can round-trip what it loaded', async () => {
+    const row = (agentGroup: string) => ({
+      agentGroup,
+      model: 'vendor/capable',
+      note: null,
+      updatedBy: session.userId,
+      updatedByEmail: session.email,
+      updatedAt: new Date('2026-07-29T00:00:00Z'),
+      modelSnapshot: null,
+    })
+    listPlatformModelDefaults.mockResolvedValue([row('deep_research'), row('intent')])
+
+    const body = (await (await get()).json()) as { defaults: Record<string, { model: string }> }
+    expect(Object.keys(body.defaults)).toEqual(['deep_research'])
+
+    const defaults = Object.fromEntries(Object.entries(body.defaults).map(([g, v]) => [g, { model: v.model }]))
+    expect((await put({ defaults })).status).toBe(200)
   })
 
   it('saves a validated default and audits the fleet-wide change', async () => {
@@ -170,22 +196,109 @@ describe('/api/platform/model-defaults', () => {
     )
   })
 
-  it('records whether a chosen default can serve zero-data-retention tenants', async () => {
-    await put({ defaults: { deep_research: { model: 'vendor/capable' } } })
-    const input = savePlatformModelDefaults.mock.calls[0][0] as {
-      modelSnapshot: Record<string, { _zdr: { safe: boolean | null } }>
+  it('refuses a default without a zero-data-retention endpoint (422, not_zdr)', async () => {
+    catalog.push({
+      id: 'vendor/no-zdr',
+      name: 'No ZDR',
+      contextLength: 200000,
+      promptPrice: 0,
+      completionPrice: 0,
+      inputModalities: ['text'],
+      supportedParameters: ['tools'],
+    })
+    try {
+      const response = await put({ defaults: { deep_research: { model: 'vendor/no-zdr' } } })
+      expect(response.status).toBe(422)
+      const body = (await response.json()) as { details: Record<string, { code: string }[]> }
+      expect(body.details.deep_research.map((r) => r.code)).toEqual(['not_zdr'])
+      expect(savePlatformModelDefaults).not.toHaveBeenCalled()
+    } finally {
+      catalog.pop()
     }
-    expect(input.modelSnapshot.deep_research._zdr.safe).toBe(true)
   })
 
-  it('still saves when the ZDR listing is unreachable, recording the unknown', async () => {
-    fetchZdrModelIds.mockRejectedValue(new Error('zdr listing down'))
+  it('refuses the save when the ZDR list cannot be read (503, fail closed)', async () => {
+    fetchZdrEndpoints.mockRejectedValue(new ZdrListUnavailableError('zdr listing down'))
     const response = await put({ defaults: { deep_research: { model: 'vendor/capable' } } })
-    expect(response.status).toBe(200)
-    const input = savePlatformModelDefaults.mock.calls[0][0] as {
-      modelSnapshot: Record<string, { _zdr: { safe: boolean | null } }>
+    expect(response.status).toBe(503)
+    const body = (await response.json()) as { details?: { reason?: string } }
+    expect(body.details?.reason).toBe('zdr_list_unavailable')
+    expect(savePlatformModelDefaults).not.toHaveBeenCalled()
+  })
+
+  it('stores the catalog snapshot as validated, with no constant ZDR flag nobody reads', async () => {
+    await put({ defaults: { deep_research: { model: 'vendor/capable' } } })
+    const input = savePlatformModelDefaults.mock.calls[0][0] as { modelSnapshot: Record<string, object> }
+    expect(input.modelSnapshot.deep_research).toMatchObject({ id: 'vendor/capable' })
+    expect(input.modelSnapshot.deep_research).not.toHaveProperty('_zdr')
+  })
+
+  it('the picker lists only models with a ZDR endpoint serving the group', async () => {
+    const { GET: search } = await import('./models/route')
+    catalog.push({
+      id: 'vendor/no-zdr',
+      name: 'No ZDR',
+      contextLength: 200000,
+      promptPrice: 0,
+      completionPrice: 0,
+      inputModalities: ['text'],
+      supportedParameters: ['tools'],
+    })
+    try {
+      const res = await search(new Request('http://localhost/api/platform/model-defaults/models?group=deep_research&q='))
+      const body = (await res.json()) as { models: { id: string }[] }
+      expect(body.models.map((m) => m.id)).toEqual(['vendor/capable'])
+    } finally {
+      catalog.pop()
     }
-    expect(input.modelSnapshot.deep_research._zdr.safe).toBeNull()
+  })
+
+  it('the picker answers 503 zdr_list_unavailable rather than the unfiltered catalog', async () => {
+    const { GET: search } = await import('./models/route')
+    fetchZdrEndpoints.mockRejectedValue(new ZdrListUnavailableError('down'))
+    const res = await search(new Request('http://localhost/api/platform/model-defaults/models?group=deep_research&q='))
+    expect(res.status).toBe(503)
+    expect(((await res.json()) as { details?: { reason?: string } }).details?.reason).toBe('zdr_list_unavailable')
+  })
+
+  it('GET checks a saved default against the LIVE ZDR list, not its save-time snapshot', async () => {
+    listPlatformModelDefaults.mockResolvedValue([
+      {
+        agentGroup: 'deep_research',
+        model: 'vendor/capable',
+        note: null,
+        updatedBy: session.userId,
+        updatedByEmail: session.email,
+        updatedAt: new Date('2026-07-29T00:00:00Z'),
+        modelSnapshot: null,
+      },
+    ])
+    // The model lost its last ZDR endpoint after it was pinned.
+    fetchZdrEndpoints.mockResolvedValue(zdrIndex('vendor/other'))
+    const body = (await (await get()).json()) as {
+      defaults: Record<string, { zdrSafe: boolean | null }>
+      workflowDefaultsZdrSafe: Record<string, boolean | null>
+    }
+    expect(body.defaults.deep_research.zdrSafe).toBe(false)
+    // The workflow model (deepseek/deepseek-v4-flash) is not on the list either.
+    expect(body.workflowDefaultsZdrSafe.deep_research).toBe(false)
+  })
+
+  it('GET reports ZDR status as unknown (null), never safe, when the list cannot be read', async () => {
+    listPlatformModelDefaults.mockResolvedValue([
+      {
+        agentGroup: 'deep_research',
+        model: 'vendor/capable',
+        note: null,
+        updatedBy: session.userId,
+        updatedByEmail: session.email,
+        updatedAt: new Date('2026-07-29T00:00:00Z'),
+        modelSnapshot: null,
+      },
+    ])
+    fetchZdrEndpoints.mockRejectedValue(new ZdrListUnavailableError('down'))
+    const body = (await (await get()).json()) as { defaults: Record<string, { zdrSafe: boolean | null }> }
+    expect(body.defaults.deep_research.zdrSafe).toBeNull()
   })
 
   it('rejects an unknown agent group', async () => {

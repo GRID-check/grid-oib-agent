@@ -44,11 +44,11 @@ from ris_adapter.client import RisError
 from ris_adapter.client import RisHit
 from ris_adapter.client import build_document_url
 
-from nat.builder.builder import Builder
-from nat.builder.function_info import FunctionInfo
-from nat.cli.register_workflow import register_function
-from nat.data_models.component_ref import LLMRef
-from nat.data_models.function import FunctionBaseConfig
+from nat.plugin_api import Builder
+from nat.plugin_api import FunctionBaseConfig
+from nat.plugin_api import FunctionInfo
+from nat.plugin_api import LLMRef
+from nat.plugin_api import register_function
 
 try:
     from aiq_agent.common.norm_registry import NormEntry
@@ -243,21 +243,24 @@ def _apply_org_llm_policy(llm):
     Mirrors how other auxiliary LLM calls (e.g. memory reflection) integrate:
     the org's runtime model override for the DEEP_RESEARCH_ROUTER agent group
     (the planner is the same kind of lightweight routing/planning task) and
-    the org's BYOK credential (ADR-0022) are applied per call. Both wrappers
-    fail open to the YAML-configured model, and this import degrades
-    gracefully when the adapter is used outside the Grid agent.
+    the org's BYOK credential (ADR-0022) are applied per call, credential
+    first so the ZDR pin inside ``apply_model_override`` lands only on a model
+    that still points at OpenRouter. A failure falls back to the YAML-configured
+    model PINNED to zero-data-retention endpoints, never the bare one; this
+    import degrades gracefully when the adapter is used outside the Grid agent.
     """
     try:
         from aiq_agent.common import apply_model_override
         from aiq_agent.common import apply_org_credential
+        from aiq_agent.common import apply_zdr_routing
         from aiq_agent.common.model_overrides import AgentGroup
-
-        return apply_org_credential(apply_model_override(llm, AgentGroup.DEEP_RESEARCH_ROUTER))
     except ImportError:
         return llm
+    try:
+        return apply_model_override(apply_org_credential(llm), AgentGroup.DEEP_RESEARCH_ROUTER)
     except Exception:
         logger.warning("ris_search: could not apply org LLM policy to the planner", exc_info=True)
-        return llm
+        return apply_zdr_routing(llm)
 
 
 def _make_planner(llm):
@@ -855,7 +858,7 @@ def _safe_document_name(reference: str, title: str) -> str:
 def _resolve_session_collection() -> str | None:
     """Return the per-session knowledge collection name, or None outside a session."""
     from aiq_agent.knowledge.base import SESSION_COLLECTION_PREFIX
-    from nat.builder.context import Context
+    from nat.plugin_api import Context
 
     try:
         ctx = Context.get()

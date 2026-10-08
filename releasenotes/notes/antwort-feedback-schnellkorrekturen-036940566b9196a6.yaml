@@ -1,0 +1,16 @@
+---
+# One entry per user-visible change. This text is PUBLISHED, in English and in
+# German machine translation, to https://piloti.at/changelog — write it for the
+# architect using Piloti, not for the reviewer of your diff.
+improvements:
+  - >
+    After a thumbs-down, the note field now opens straight away, so you can
+    say what went wrong without first picking a reason.
+fixes:
+  - >
+    When Piloti finds nothing to answer from, it no longer advises you to stop
+    narrowing the question to one file unless you had actually chosen a file
+    or shelf. If a search function is unavailable, it now says that instead.
+  - >
+    Answers no longer occasionally end in a block of raw technical data after
+    the list of sources.

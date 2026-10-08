@@ -16,7 +16,7 @@
  * | Too many requests from this address? | L1 | Envoy Gateway, `deploy/pulumi` |
  * | Too many actions from this member? | **L2** | **here** |
  * | Too many frames on this socket? | L2b | `server.js` (same primitive) |
- * | Is there capacity to run this now? | L3 | `GRID_MAX_ACTIVE_JOBS*` |
+ * | Is there capacity to run this now? | L3 | `GRID_MAX_ACTIVE_JOBS_PER_ORG` (research) |
  * | May this spend money? | L4 | ADR-0015 budgets |
  */
 
@@ -29,6 +29,9 @@ export {
   BIM_QUERY_LIMIT,
   BIM_EXPORT_LIMIT,
   DEFAULT_MUTATION_LIMIT,
+  DICTATION_LIMIT,
+  DOCUMENT_UPLOAD_LIMIT,
+  FEEDBACK_REPORT_LIMIT,
   LIMIT_CATALOG,
   MAX_MENTIONS_PER_MESSAGE,
   MAX_MESSAGES_PER_REQUEST,

@@ -8,7 +8,7 @@
  *     (the versioned envelope `lib/citations/persistence` decodes) and
  *     `provenance` (camelCase, bounded by {@link sanitizeProvenance});
  *   * the **Python backend**, over the internal service-token route, when the
- *     client dropped mid-turn (`websocket_reconnect.persist_assistant_message`)
+ *     client dropped mid-turn or pressed Stop (`chat_socket.persist_turn_result`)
  *     or when the jobs runner materialises a finished run. That writer posts the
  *     wire spelling it already holds: `sources`, `read_sources`,
  *     `answer_confidence`,
@@ -90,11 +90,14 @@ const BACKEND_ANSWER_KEYS = [
   // The report's findings, same extraction, same camelCase landing key.
   'findings',
   // The backend's account of the turn's retrieval rounds, written by the
-  // socket-persistence path (`websocket_reconnect.persist_assistant_message`)
+  // socket-persistence path (`chat_socket.persist_turn_result`)
   // when the client had gone. Without this entry the snake_case key would stay
   // in the row forever and a later tightening of this list would delete the
   // ledger for exactly the turns it was added for.
   'retrieval_ledger',
+  // The server's check of each quote line (`quote_stamps`), same landing as the
+  // ledger: bounded into `provenance.quoteStamps`.
+  'quote_stamps',
   // Written by the same socket-persistence path when the client had gone:
   // the routing (a `meta` turn must not reload as a researched answer with
   // the "Ohne Quellenbeleg" gap row), the ask that sent a turn to deep
@@ -103,6 +106,11 @@ const BACKEND_ANSWER_KEYS = [
   'escalation_reason',
   'skills_activated',
   'skills_hidden',
+  // The asker pressed Stop (`RUN_FINISHED{outcome: 'cancelled'}`): the row
+  // holds the prose so far, and a reload must say it was stopped rather than
+  // render a fragment as a finished answer. Same spelling in both dialects,
+  // listed so it is bounded into `provenance` and not left loose on the row.
+  'stopped',
 ] as const
 
 /**
@@ -269,7 +277,7 @@ function normalizeSource(input: unknown): StoredCitationSource | null {
  * One stored READ-BUT-UNCITED source, in the wire spelling the reader decodes.
  *
  * Identity + placement only — the same eleven fields the live wire schema
- * keeps (`wireReadSourceSchema` in `adapters/api/schemas.ts`). A document the
+ * kept (the read-source schema of the pre-v2 socket client). A document the
  * answer never cited must never carry prose into storage: `content`,
  * `snippet`, `punkt` and `score` would let an uncited document ground the
  * passage surfaces (the viewer highlight, the "Zitierte Stelle" box) that read
@@ -398,6 +406,7 @@ export function provenanceFromBackendMetadata(
   // stopped still knows something true, and dropping it here would make the
   // reopened thread quieter than the run actually was.
   if (metadata.research_truncated === true) candidate.researchTruncated = true
+  if (metadata.stopped === true) candidate.stopped = true
   if (typeof metadata.truncation_reason === 'string') {
     candidate.truncationReason = metadata.truncation_reason
   }
@@ -415,6 +424,7 @@ export function provenanceFromBackendMetadata(
   // `sanitizeProvenance` like everything else here, which re-derives the
   // tallies rather than trusting them.
   candidate.retrievalLedger = metadata.retrieval_ledger
+  candidate.quoteStamps = metadata.quote_stamps
 
   // The enums are re-checked there, not here: `sanitizeProvenance` is the single
   // gate on this column and a second copy of the value lists would drift.

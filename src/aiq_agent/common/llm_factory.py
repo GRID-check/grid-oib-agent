@@ -16,6 +16,10 @@ automatically:
   ``session_id`` + ``prompt_cache_key`` derived from the request's own stable
   prefix, so the 3-6 calls of one turn land on the endpoint that cached it
   instead of being spread across a model's providers.
+- the fleet's provider limiter (see :mod:`aiq_agent.common.provider_limiter`):
+  every call to an OpenRouter-bound model holds one fleet-wide slot, in the
+  priority class of the task that makes it, for as long as the call or its
+  stream lasts. A 429 gives the slot back and waits its Retry-After outside it.
 - ``use_previous_response_id=False`` on the Responses path (see
   :func:`disable_previous_response_id`): OpenRouter's Responses API is
   stateless and rejects the field, while NAT turns it on for every
@@ -38,14 +42,17 @@ https://openrouter.ai/docs/guides/features/plugins/response-healing
 from __future__ import annotations
 
 import logging
+from contextlib import nullcontext
 from typing import Any
 
+from aiq_agent.common import provider_limiter
 from aiq_agent.common.message_contract import normalize_chat_request
-from nat.builder.framework_enum import LLMFrameworkEnum
+from aiq_agent.common.openrouter import targets_openrouter
+from nat.plugin_api import LLMFrameworkEnum
+from nat.utils.exception_handlers.automatic_retries import patch_with_retry
 
 logger = logging.getLogger(__name__)
 
-_OPENROUTER_HOST = "openrouter.ai"
 _RESPONSE_HEALING_PLUGIN = {"id": "response-healing"}
 
 #: Marks a chat-model class as already carrying the request contract, so
@@ -55,6 +62,21 @@ _CONTRACT_MARKER = "__grid_request_contract__"
 #: One contract subclass per base chat-model class, not per instance — keeps
 #: ``type(llm)`` stable and cheap across the fleet's many resolutions.
 _CONTRACT_SUBCLASSES: dict[type, type] = {}
+
+#: A rate limit that arrives INSIDE a Responses stream, as an ``error`` event.
+#: langchain-openai raises it as a bare ``ValueError("rate_limit_exceeded: …")``
+#: that carries no status code and no "429", so NAT's default filters (status
+#: codes, "Too Many Requests", "429") let it through and the turn ends on the
+#: generic error (GRID-check/grid-oib-agent#826). Matched on the provider's
+#: error code, which is what OpenRouter puts in front of the message.
+_STREAMED_RATE_LIMIT_MESSAGES = ("rate_limit_exceeded",)
+
+
+def retry_messages(configured: list[str] | None) -> list[str]:
+    """The config's retry substrings plus the streamed rate-limit code, once each."""
+    merged = list(configured or [])
+    merged.extend(m for m in _STREAMED_RATE_LIMIT_MESSAGES if m not in merged)
+    return merged
 
 
 def _llm_base_url(llm: Any) -> str:
@@ -100,7 +122,7 @@ def llm_targets_openrouter(llm: Any) -> bool:
     Shared with the per-request ZDR seam (``model_overrides``) so both use the
     same base-URL detection.
     """
-    return _OPENROUTER_HOST in _llm_base_url(llm)
+    return targets_openrouter(_llm_base_url(llm))
 
 
 def apply_openrouter_structured_defaults(llm: Any) -> Any:
@@ -111,7 +133,7 @@ def apply_openrouter_structured_defaults(llm: Any) -> Any:
     dropping them); the defaults are identical for every caller, so sharing a
     resolved instance is safe.
     """
-    if _OPENROUTER_HOST not in _llm_base_url(llm):
+    if not llm_targets_openrouter(llm):
         return llm
     if not hasattr(llm, "extra_body"):
         return llm
@@ -201,6 +223,25 @@ def prepare_request(llm: Any, messages: Any, kwargs: dict[str, Any]) -> Any:
     return normalized
 
 
+def _model_label(llm: Any) -> str | None:
+    name = getattr(llm, "model_name", None) or getattr(llm, "model", None)
+    return str(name) if name else None
+
+
+def _provider_slot(llm: Any):
+    """The fleet slot one call to ``llm`` holds; nothing for a model that is not on the OpenRouter key."""
+    if not llm_targets_openrouter(llm):
+        return nullcontext()
+    return provider_limiter.slot(model=_model_label(llm))
+
+
+def _provider_slot_async(llm: Any):
+    """:func:`_provider_slot` for the async entry points."""
+    if not llm_targets_openrouter(llm):
+        return nullcontext()
+    return provider_limiter.aslot(model=_model_label(llm))
+
+
 def _contract_subclass(base: type) -> type:
     """Build (once per base class) a subclass that normalizes outgoing requests.
 
@@ -211,6 +252,10 @@ def _contract_subclass(base: type) -> type:
     ``create_agent``) delegates down to these four. Wrapping ``ainvoke`` instead
     would be bypassed by the streaming and structured-output paths, which is
     where the failures actually happened.
+
+    It is also the one seam every chat call passes, so it is where the call takes
+    its fleet slot (``provider_limiter``): inside NAT's retry wrapper, so each
+    retry queues up again after the 429 that caused it has been waited out.
     """
     cached = _CONTRACT_SUBCLASSES.get(base)
     if cached is not None:
@@ -220,20 +265,24 @@ def _contract_subclass(base: type) -> type:
 
     def _generate(self, messages, stop=None, run_manager=None, **kwargs):
         prepared = prepare_request(self, messages, kwargs)
-        return base._generate(self, prepared, stop=stop, run_manager=run_manager, **kwargs)
+        with _provider_slot(self):
+            return base._generate(self, prepared, stop=stop, run_manager=run_manager, **kwargs)
 
     async def _agenerate(self, messages, stop=None, run_manager=None, **kwargs):
         prepared = prepare_request(self, messages, kwargs)
-        return await base._agenerate(self, prepared, stop=stop, run_manager=run_manager, **kwargs)
+        async with _provider_slot_async(self):
+            return await base._agenerate(self, prepared, stop=stop, run_manager=run_manager, **kwargs)
 
     def _stream(self, messages, stop=None, run_manager=None, **kwargs):
         prepared = prepare_request(self, messages, kwargs)
-        yield from base._stream(self, prepared, stop=stop, run_manager=run_manager, **kwargs)
+        with _provider_slot(self):
+            yield from base._stream(self, prepared, stop=stop, run_manager=run_manager, **kwargs)
 
     async def _astream(self, messages, stop=None, run_manager=None, **kwargs):
         prepared = prepare_request(self, messages, kwargs)
-        async for chunk in base._astream(self, prepared, stop=stop, run_manager=run_manager, **kwargs):
-            yield chunk
+        async with _provider_slot_async(self):
+            async for chunk in base._astream(self, prepared, stop=stop, run_manager=run_manager, **kwargs):
+                yield chunk
 
     namespace: dict[str, Any] = {_CONTRACT_MARKER: True, "_generate": _generate, "_agenerate": _agenerate}
     # LangChain decides whether a model can stream by comparing these attributes
@@ -294,7 +343,19 @@ async def get_langchain_llm(builder: Any, ref: Any) -> Any:
     applied later at the per-request seam in ``model_overrides`` (which copies
     the instance), never here.
     """
-    llm = await builder.get_llm(ref, wrapper_type=LLMFrameworkEnum.LANGCHAIN)
+    wrapped = await builder.get_llm(ref, wrapper_type=LLMFrameworkEnum.LANGCHAIN)
+    # NAT 1.9 returns the chat model inside a `RunnableConfigurableFields` (its
+    # per-call `model_name` switch) and retry-patches that wrapper. Every
+    # hardening here, and every per-request copy in `model_overrides`, needs the
+    # chat model itself: on the wrapper they fail or no-op silently. So take it
+    # out and retry-patch it with the same settings NAT used.
+    config = builder.get_llm_config(ref)
+    llm = patch_with_retry(
+        wrapped.default,
+        retries=config.num_retries,
+        retry_codes=config.retry_on_status_codes,
+        retry_on_messages=retry_messages(config.retry_on_errors),
+    )
     hardened = disable_previous_response_id(apply_openrouter_structured_defaults(llm))
     return enforce_chat_request_contract(hardened)
 

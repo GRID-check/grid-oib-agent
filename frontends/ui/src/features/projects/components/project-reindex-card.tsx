@@ -13,6 +13,7 @@
  * upload path notices and every document keeps serving chunks cut by the old rules.
  */
 
+import type { JSX } from 'react'
 import { useState } from 'react'
 import { RefreshCw } from 'lucide-react'
 import { toast } from 'sonner'
@@ -35,23 +36,9 @@ export function ProjectReindexCard({ projectId }: ProjectReindexCardProps): JSX.
     try {
       const response = await fetch(`/api/projects/${projectId}/reindex`, { method: 'POST' })
       if (!response.ok) throw new Error(String(response.status))
-      const result = (await response.json()) as {
-        queued: number
-        skipped: number
-        failed: string[]
-      }
-
-      if (result.queued === 0 && result.failed.length === 0) {
-        toast.info(t('project.reindexNothing'))
-      } else if (result.queued > 0) {
-        toast.success(t('project.reindexDone', { count: result.queued }))
-      }
-      // Reported separately and never folded into the success count: these are the
-      // documents whose old chunks could not be removed, so they were deliberately
-      // left alone rather than re-dispatched into a duplicate.
-      if (result.failed.length > 0) {
-        toast.error(t('project.reindexPartial', { count: result.failed.length }))
-      }
+      // 202: the job is queued and runs on its own, so there is no count to
+      // show. The documents' own status is where each one reports.
+      toast.success(t('project.reindexStarted'))
     } catch {
       toast.error(t('project.reindexFailed'))
     } finally {

@@ -24,11 +24,6 @@ Test coverage:
         - Artifact emission with workflow metadata
         - Input/output extraction
 
-    TestSubmitDeepResearchJob:
-        - Raises RuntimeError without NAT_DASK_SCHEDULER_ADDRESS
-        - Successful job submission with required env vars
-        - Custom job ID handling
-
     TestEventStore:
         - Event storage and retrieval
         - Cursor-based pagination with after_id
@@ -55,13 +50,14 @@ from unittest.mock import patch
 
 import pytest
 
-from aiq_agent.auth import Principal
 from aiq_api.jobs.callbacks import ArtifactType
 from aiq_api.jobs.callbacks import DeepResearchEventCallback
 from aiq_api.jobs.callbacks import EventCategory
 from aiq_api.jobs.callbacks import EventData
 from aiq_api.jobs.callbacks import EventState
 from aiq_api.jobs.callbacks import IntermediateStepEvent
+from tests.conftest import NAT_LLM_CONFIG
+from tests.conftest import nat_langchain_client
 
 
 @pytest.fixture(name="event_store_cache_guard", autouse=True)
@@ -72,33 +68,6 @@ def fixture_event_store_cache_guard():
     EventStore.dispose_all_engines()
     yield
     EventStore.dispose_all_engines()
-
-
-def _job_arg(job_args, name: str):
-    """One positional worker argument, resolved BY NAME.
-
-    ``job_args`` is the positional tuple Dask hands ``run_agent_job``, and these
-    tests used to index it with magic negative offsets plus a comment listing
-    what followed. Every insertion into the worker signature then broke an
-    unrelated assertion and the comment drifted — which is exactly what happened
-    when ``platform_lessons`` was added. The order is still the contract; this
-    just reads it off ``run_agent_job``'s own signature instead of hard-coding a
-    number, so an insertion moves the index automatically and a REMOVAL (a real
-    contract break) still fails loudly with a KeyError.
-
-    ``*parent_trace_context`` expands to two positional values, so the tail is
-    counted from the end — which is stable as long as nothing is appended after
-    the named argument, and unlike a literal offset it is derived rather than
-    remembered.
-    """
-    import inspect
-
-    from aiq_api.jobs.runner import run_agent_job
-
-    params = list(inspect.signature(run_agent_job).parameters)
-    if name not in params:
-        raise KeyError(f"run_agent_job has no parameter {name!r} — the worker contract changed")
-    return job_args[len(job_args) - (len(params) - params.index(name))]
 
 
 class TestIntermediateStepEvent:
@@ -378,236 +347,6 @@ class TestDeepResearchEventCallback:
         assert call_args["name"] == "gpt-4"
 
 
-class TestSubmitDeepResearchJob:
-    """Tests for the submit_deep_research_job function."""
-
-    principal = Principal(type="test", sub="user-1", email="test@example.com", name="Test User")
-
-    @pytest.mark.asyncio
-    async def test_submit_without_scheduler_raises(self):
-        """Test submit_deep_research_job raises without NAT_DASK_SCHEDULER_ADDRESS."""
-        from aiq_api.jobs.submit import submit_deep_research_job
-
-        with patch.dict("os.environ", {}, clear=True):
-            with pytest.raises(RuntimeError, match="NAT_DASK_SCHEDULER_ADDRESS"):
-                await submit_deep_research_job(
-                    input_text="test query",
-                    owner="test@example.com",
-                )
-
-    @pytest.mark.asyncio
-    async def test_submit_with_scheduler(self):
-        """Test submit_deep_research_job submits job successfully."""
-        from aiq_api.jobs.submit import submit_deep_research_job
-
-        mock_job_store = MagicMock()
-        mock_job_store.ensure_job_id.return_value = "test-job-id"
-        mock_job_store.submit_job = AsyncMock(return_value=None)
-
-        with patch.dict(
-            "os.environ",
-            {
-                "NAT_DASK_SCHEDULER_ADDRESS": "tcp://localhost:8786",
-                "NAT_JOB_STORE_DB_URL": "sqlite:///./test.db",
-                "NAT_CONFIG_PATH": "/path/to/config.yml",
-            },
-        ):
-            with patch("nat.front_ends.fastapi.async_jobs.job_store.JobStore", return_value=mock_job_store):
-                with patch("aiq_api.jobs.submit.get_current_principal", return_value=self.principal):
-                    with patch("aiq_api.jobs.submit.create_job_access"):
-                        result = await submit_deep_research_job(
-                            input_text="test query",
-                            owner="test@example.com",
-                        )
-
-        assert result == "test-job-id"
-        mock_job_store.submit_job.assert_called_once()
-
-    @pytest.mark.asyncio
-    async def test_submit_agent_job_passes_data_sources(self):
-        """Test submit_agent_job forwards data_sources into worker args."""
-        from aiq_api.jobs.submit import submit_agent_job
-
-        mock_job_store = MagicMock()
-        mock_job_store.ensure_job_id.return_value = "test-job-id"
-        mock_job_store.submit_job = AsyncMock(return_value=None)
-
-        with patch.dict(
-            "os.environ",
-            {
-                "NAT_DASK_SCHEDULER_ADDRESS": "tcp://localhost:8786",
-                "NAT_JOB_STORE_DB_URL": "sqlite:///./test.db",
-            },
-        ):
-            with patch("nat.front_ends.fastapi.async_jobs.job_store.JobStore", return_value=mock_job_store):
-                with patch("aiq_api.jobs.submit.get_current_principal", return_value=self.principal):
-                    with patch("aiq_api.jobs.submit.create_job_access"):
-                        result = await submit_agent_job(
-                            agent_type="deep_researcher",
-                            input_text="test query",
-                            owner="test@example.com",
-                            data_sources=["web_search"],
-                        )
-
-        assert result == "test-job-id"
-        mock_job_store.submit_job.assert_called_once()
-        job_args = mock_job_store.submit_job.call_args.kwargs["job_args"]
-        assert _job_arg(job_args, "data_sources") == ["web_search"]
-
-    @pytest.mark.asyncio
-    async def test_submit_agent_job_passes_user_info_and_clarifier_result(self):
-        """user_info and clarifier_result ride along as structured worker args."""
-        from aiq_api.jobs.submit import submit_agent_job
-
-        mock_job_store = MagicMock()
-        mock_job_store.ensure_job_id.return_value = "test-job-id"
-        mock_job_store.submit_job = AsyncMock(return_value=None)
-
-        with patch.dict(
-            "os.environ",
-            {
-                "NAT_DASK_SCHEDULER_ADDRESS": "tcp://localhost:8786",
-                "NAT_JOB_STORE_DB_URL": "sqlite:///./test.db",
-            },
-        ):
-            with patch("nat.front_ends.fastapi.async_jobs.job_store.JobStore", return_value=mock_job_store):
-                with patch("aiq_api.jobs.submit.get_current_principal", return_value=self.principal):
-                    with patch("aiq_api.jobs.submit.create_job_access"):
-                        await submit_agent_job(
-                            agent_type="deep_researcher",
-                            input_text="test query",
-                            owner="test@example.com",
-                            user_info={"name": "Ada", "email": "ada@example.com"},
-                            clarifier_result="User confirmed scope: OIB 4 only.",
-                        )
-
-        job_args = mock_job_store.submit_job.call_args.kwargs["job_args"]
-        # Tail order: ..., user_info, clarifier_result,
-        # memory_reflection_enabled, memory_reflection_llm.
-        assert _job_arg(job_args, "user_info") == {"name": "Ada", "email": "ada@example.com"}
-        assert _job_arg(job_args, "clarifier_result") == "User confirmed scope: OIB 4 only."
-
-    @pytest.mark.asyncio
-    async def test_submit_with_custom_job_id(self):
-        """Test submit_deep_research_job uses custom job ID."""
-        from aiq_api.jobs.submit import submit_deep_research_job
-
-        mock_job_store = MagicMock()
-        mock_job_store.ensure_job_id.return_value = "custom-job-id"
-        mock_job_store.submit_job = AsyncMock(return_value=None)
-
-        with patch.dict(
-            "os.environ",
-            {
-                "NAT_DASK_SCHEDULER_ADDRESS": "tcp://localhost:8786",
-            },
-        ):
-            with patch("nat.front_ends.fastapi.async_jobs.job_store.JobStore", return_value=mock_job_store):
-                with patch("aiq_api.jobs.submit.get_current_principal", return_value=self.principal):
-                    with patch("aiq_api.jobs.submit.create_job_access"):
-                        result = await submit_deep_research_job(
-                            input_text="test query",
-                            owner="test@example.com",
-                            job_id="custom-job-id",
-                        )
-
-        assert result == "custom-job-id"
-        mock_job_store.ensure_job_id.assert_called_with("custom-job-id")
-
-    @pytest.mark.asyncio
-    async def test_submit_requires_verified_principal(self):
-        """Test submit_agent_job fails closed when no verified principal is available."""
-        from aiq_api.jobs.submit import submit_agent_job
-
-        mock_job_store = MagicMock()
-
-        with patch.dict(
-            "os.environ",
-            {
-                "NAT_DASK_SCHEDULER_ADDRESS": "tcp://localhost:8786",
-                "REQUIRE_AUTH": "true",
-            },
-        ):
-            with patch("nat.front_ends.fastapi.async_jobs.job_store.JobStore", return_value=mock_job_store):
-                with patch("aiq_api.jobs.submit.get_current_principal", return_value=None):
-                    with pytest.raises(RuntimeError, match="Verified current principal required"):
-                        await submit_agent_job(
-                            agent_type="deep_researcher",
-                            input_text="test query",
-                            owner="test@example.com",
-                        )
-
-        mock_job_store.submit_job.assert_not_called()
-
-    @pytest.mark.asyncio
-    async def test_submit_uses_compatibility_principal_when_auth_disabled(self):
-        """Test submit_agent_job still works without verified principal when auth is disabled."""
-        from aiq_api.jobs.submit import submit_agent_job
-
-        mock_job_store = MagicMock()
-        mock_job_store.ensure_job_id.return_value = "test-job-id"
-        mock_job_store.submit_job = AsyncMock(return_value=None)
-
-        with patch.dict(
-            "os.environ",
-            {
-                "NAT_DASK_SCHEDULER_ADDRESS": "tcp://localhost:8786",
-                "NAT_JOB_STORE_DB_URL": "sqlite:///./test.db",
-                "REQUIRE_AUTH": "false",
-            },
-        ):
-            with patch("nat.front_ends.fastapi.async_jobs.job_store.JobStore", return_value=mock_job_store):
-                with patch("aiq_api.jobs.submit.get_current_principal", return_value=None):
-                    with patch(
-                        "aiq_api.jobs.submit.create_job_access",
-                    ) as create_job_access:
-                        result = await submit_agent_job(
-                            agent_type="deep_researcher",
-                            input_text="test query",
-                            owner="test@example.com",
-                        )
-
-        assert result == "test-job-id"
-        create_job_access.assert_called_once()
-        principal = create_job_access.call_args.args[1]
-        assert principal.type == "internal"
-        assert principal.sub == "test@example.com"
-        assert principal.email == "test@example.com"
-
-    @pytest.mark.asyncio
-    async def test_submit_rolls_back_when_job_access_persistence_fails(self):
-        """Test submit_agent_job rolls back partial submission on access persistence failure."""
-        from aiq_api.jobs.submit import submit_agent_job
-
-        mock_job_store = MagicMock()
-        mock_job_store.ensure_job_id.return_value = "test-job-id"
-        mock_job_store.submit_job = AsyncMock(return_value=None)
-
-        with patch.dict(
-            "os.environ",
-            {
-                "NAT_DASK_SCHEDULER_ADDRESS": "tcp://localhost:8786",
-                "NAT_JOB_STORE_DB_URL": "sqlite:///./test.db",
-            },
-        ):
-            with patch("nat.front_ends.fastapi.async_jobs.job_store.JobStore", return_value=mock_job_store):
-                with patch("aiq_api.jobs.submit.get_current_principal", return_value=self.principal):
-                    with patch(
-                        "aiq_api.jobs.submit.create_job_access",
-                        side_effect=RuntimeError("db write failed"),
-                    ):
-                        with patch("aiq_api.jobs.submit.rollback_job_submission") as rollback_job_submission:
-                            with pytest.raises(RuntimeError, match="db write failed"):
-                                await submit_agent_job(
-                                    agent_type="deep_researcher",
-                                    input_text="test query",
-                                    owner="test@example.com",
-                                )
-
-        mock_job_store.submit_job.assert_called_once()
-        rollback_job_submission.assert_called_once_with("test-job-id", "sqlite:///./test.db")
-
-
 class TestRunAgentStateFields:
     """_run_agent forwards structured context onto state-based agents."""
 
@@ -651,7 +390,7 @@ class TestRunAgentStateFields:
     async def test_run_agent_carries_the_organization_onto_the_deep_state(self):
         """The tenant a deep job resolves its skills for arrives on the state.
 
-        There are no request headers inside a Dask worker, so the organization
+        There are no request headers inside a research worker, so the organization
         cannot be read from the context the way the synchronous chat path reads
         it — it is captured at submit time and handed over here. Without it the
         run resolves no organization skills at all, which is how the platform's
@@ -1167,12 +906,10 @@ class TestCancellationMonitor:
         from aiq_api.jobs.runner import CancellationMonitor
 
         monitor = CancellationMonitor(
-            scheduler_address="tcp://localhost:8786",
             db_url="sqlite:///test.db",
             job_id="test-job",
         )
 
-        assert monitor.scheduler_address == "tcp://localhost:8786"
         assert monitor.job_id == "test-job"
         assert not monitor.is_cancelled
 
@@ -1181,7 +918,6 @@ class TestCancellationMonitor:
         from aiq_api.jobs.runner import CancellationMonitor
 
         monitor = CancellationMonitor(
-            scheduler_address="tcp://localhost:8786",
             db_url="sqlite:///test.db",
             job_id="test-job",
         )
@@ -1195,7 +931,6 @@ class TestCancellationMonitor:
         from aiq_api.jobs.runner import CancellationMonitor
 
         monitor = CancellationMonitor(
-            scheduler_address="tcp://localhost:8786",
             db_url="sqlite:///test.db",
             job_id="test-job",
         )
@@ -1209,7 +944,6 @@ class TestCancellationMonitor:
         from aiq_api.jobs.runner import CancellationMonitor
 
         monitor = CancellationMonitor(
-            scheduler_address="tcp://localhost:8786",
             db_url="sqlite:///test.db",
             job_id="test-job",
         )
@@ -1544,9 +1278,9 @@ class TestAsyncJobRunnerAgentFactory:
         }
 
         async def get_llm(llm_ref, wrapper_type):
-            return llms[llm_ref]
+            return nat_langchain_client(llms[llm_ref])
 
-        builder = MagicMock()
+        builder = MagicMock(get_llm_config=MagicMock(return_value=NAT_LLM_CONFIG))
         builder.get_llm = AsyncMock(side_effect=get_llm)
         fn_config = DeepResearchAgentConfig(
             orchestrator_llm="orchestrator",
@@ -1578,9 +1312,9 @@ class TestAsyncJobRunnerAgentFactory:
 
         async def get_llm(llm_ref, wrapper_type):
             assert llm_ref == "shared"
-            return shared_llm
+            return nat_langchain_client(shared_llm)
 
-        builder = MagicMock()
+        builder = MagicMock(get_llm_config=MagicMock(return_value=NAT_LLM_CONFIG))
         builder.get_llm = AsyncMock(side_effect=get_llm)
         fn_config = SimpleNamespace(
             source_router_llm="shared",
@@ -1928,7 +1662,7 @@ class TestDeepResearchReflection:
 
         from aiq_api.jobs.runner import _run_deep_research_reflection
 
-        builder = MagicMock()
+        builder = MagicMock(get_llm_config=MagicMock(return_value=NAT_LLM_CONFIG))
         builder.get_llm = AsyncMock(return_value=MagicMock())
         report = "R" * 80
 
@@ -1970,7 +1704,7 @@ class TestDeepResearchReflection:
         """Feature flag off → no LLM built, no reflection."""
         from aiq_api.jobs.runner import _run_deep_research_reflection
 
-        builder = MagicMock()
+        builder = MagicMock(get_llm_config=MagicMock(return_value=NAT_LLM_CONFIG))
         builder.get_llm = AsyncMock()
 
         with patch(
@@ -1998,7 +1732,7 @@ class TestDeepResearchReflection:
         """No reflection LLM configured → no-op."""
         from aiq_api.jobs.runner import _run_deep_research_reflection
 
-        builder = MagicMock()
+        builder = MagicMock(get_llm_config=MagicMock(return_value=NAT_LLM_CONFIG))
         builder.get_llm = AsyncMock()
 
         with patch(
@@ -2026,7 +1760,7 @@ class TestDeepResearchReflection:
         """Org-only job (no project) → reflection has nothing it may write."""
         from aiq_api.jobs.runner import _run_deep_research_reflection
 
-        builder = MagicMock()
+        builder = MagicMock(get_llm_config=MagicMock(return_value=NAT_LLM_CONFIG))
         builder.get_llm = AsyncMock()
 
         with patch(
@@ -2056,7 +1790,7 @@ class TestDeepResearchReflection:
 
         from aiq_api.jobs.runner import _run_deep_research_reflection
 
-        builder = MagicMock()
+        builder = MagicMock(get_llm_config=MagicMock(return_value=NAT_LLM_CONFIG))
         builder.get_llm = AsyncMock(return_value=MagicMock())
 
         with (
@@ -2093,7 +1827,7 @@ class TestDeepResearchReflection:
 
         from aiq_api.jobs.runner import _run_deep_research_reflection
 
-        builder = MagicMock()
+        builder = MagicMock(get_llm_config=MagicMock(return_value=NAT_LLM_CONFIG))
         builder.get_llm = AsyncMock(return_value=MagicMock())
         started = asyncio.Event()
 
@@ -2333,7 +2067,7 @@ class TestCitedSourceRegistryResolution:
     """A knowledge-base citation must be markable as cited INSIDE A JOB.
 
     ``_get_source_registry`` used to read the session-scoped contextvar only,
-    and nothing binds that inside a Dask worker — only the synchronous chat
+    and nothing binds that inside a research worker — only the synchronous chat
     paths call ``set_session_registry``. So in a deep-research job the lookup
     always returned None, ``_emit_cited_documents`` early-returned, and no OIB
     document could ever be marked cited: the live panel showed a run's four

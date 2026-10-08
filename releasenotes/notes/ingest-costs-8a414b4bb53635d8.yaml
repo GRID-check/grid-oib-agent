@@ -1,0 +1,12 @@
+---
+fixes:
+  - >
+    Reading and indexing an uploaded document now counts toward usage, booked
+    to its project and to whoever uploaded it. Until now an office's spend
+    left out everything an upload cost, though an upload in progress is still
+    never stopped by a budget.
+operators:
+  - >
+    Platform → Overview shows what ingestion cost: the cost tiles name its
+    share and the organization table has an "Ingestion this month" column.
+    Database migration 0101 adds the column it reads.

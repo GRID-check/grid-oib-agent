@@ -19,7 +19,13 @@ vi.mock('@/lib/bim/service', () => ({
   deleteBimDerivedObjects: (...args: unknown[]) => deleteBimDerivedObjects(...args),
 }))
 
-import { deleteDerivedObjects } from './object-cleanup'
+const listDocumentVersionObjects = vi.fn()
+vi.mock('./version-repository', () => ({
+  listDocumentVersionObjects: (...args: unknown[]) => listDocumentVersionObjects(...args),
+}))
+
+import { UpstreamError } from '@/lib/api/errors'
+import { deleteDerivedObjects, eraseDocumentObjectsOrKeepRow } from './object-cleanup'
 
 const doc = {
   storageKey: 'org/org-1/project/proj-1/doc/doc-1/plan.pdf',
@@ -51,15 +57,47 @@ beforeEach(() => {
   vi.clearAllMocks()
   send.mockResolvedValue({})
   deleteBimDerivedObjects.mockResolvedValue(undefined)
+  listDocumentVersionObjects.mockResolvedValue([])
   vi.spyOn(console, 'error').mockImplementation(() => undefined)
 })
 
 describe('deleteDerivedObjects', () => {
-  it('removes the thumbnail and the BIM derivatives but leaves the file', async () => {
+  it('removes the thumbnail, the rendition and the BIM derivatives but leaves the file', async () => {
     await expect(deleteDerivedObjects(doc)).resolves.toEqual({ ok: true })
 
-    expect(deletedKeys()).toEqual(['org/org-1/project/proj-1/doc/doc-1/_thumb.jpg'])
+    expect(deletedKeys()).toEqual([
+      'org/org-1/project/proj-1/doc/doc-1/_thumb.jpg',
+      'org/org-1/project/proj-1/doc/doc-1/_render.pdf',
+    ])
     expect(deleteBimDerivedObjects).toHaveBeenCalledWith(doc.storageKey, 'test-bucket')
+  })
+
+  // A Word file turned PDF is the Word file's content; leaving it behind after
+  // "delete" is the same disclosure as leaving the original (ADR-0070).
+  it('reports a rendition it could not remove instead of moving on', async () => {
+    send.mockImplementation(async (command: unknown) => {
+      if (command instanceof DeleteObjectCommand && command.input.Key?.endsWith('/_render.pdf')) {
+        throw new Error('SeaweedFS 500')
+      }
+      return {}
+    })
+
+    const result = await deleteDerivedObjects(doc)
+
+    expect(result.ok).toBe(false)
+    expect(result.reason).toMatch(/rendition/)
+    expect(deleteBimDerivedObjects).not.toHaveBeenCalled()
+  })
+
+  it('treats a rendition that was never written as already gone', async () => {
+    send.mockImplementation(async (command: unknown) => {
+      if (command instanceof DeleteObjectCommand && command.input.Key?.endsWith('/_render.pdf')) {
+        throw Object.assign(new Error('missing'), { name: 'NoSuchKey' })
+      }
+      return {}
+    })
+
+    await expect(deleteDerivedObjects(doc)).resolves.toEqual({ ok: true })
   })
 
   it('reports a failure it could not complete', async () => {
@@ -83,6 +121,7 @@ describe('deleteDerivedObjects', () => {
     expect(listed?.input).toMatchObject({ Bucket: 'test-bucket', Prefix: IMG_PREFIX })
     expect(deletedKeys()).toEqual([
       'org/org-1/project/proj-1/doc/doc-1/_thumb.jpg',
+      'org/org-1/project/proj-1/doc/doc-1/_render.pdf',
       `${IMG_PREFIX}0.jpg`,
       `${IMG_PREFIX}1.jpg`,
     ])
@@ -112,5 +151,64 @@ describe('deleteDerivedObjects', () => {
     expect(result.ok).toBe(false)
     expect(result.reason).toMatch(/stored rasters/)
     expect(deleteBimDerivedObjects).not.toHaveBeenCalled()
+  })
+})
+
+/**
+ * The project and Archiv deletes used to erase the live object by hand — the
+ * file, `_thumb.jpg` and `_bim/`, never the `_img/` rasters — and to swallow
+ * every failure before deleting the row. They share this now.
+ */
+describe('eraseDocumentObjectsOrKeepRow', () => {
+  const live = { id: 'doc-1', ...doc }
+
+  it('erases the live file, its thumbnail, its rendition, its _img/ rasters and its _bim/ derivatives', async () => {
+    storedRasters([`${IMG_PREFIX}0.jpg`, `${IMG_PREFIX}1.jpg`])
+
+    await eraseDocumentObjectsOrKeepRow(live, 'org-1')
+
+    expect(deletedKeys()).toEqual([
+      doc.storageKey,
+      'org/org-1/project/proj-1/doc/doc-1/_thumb.jpg',
+      'org/org-1/project/proj-1/doc/doc-1/_render.pdf',
+      `${IMG_PREFIX}0.jpg`,
+      `${IMG_PREFIX}1.jpg`,
+    ])
+    expect(deleteBimDerivedObjects).toHaveBeenCalledWith(doc.storageKey, doc.storageBucket)
+  })
+
+  it("erases every superseded version's objects too, and does not stop on one that fails", async () => {
+    const v2Key = 'org/org-1/project/proj-1/doc/doc-1/v2/plan.pdf'
+    listDocumentVersionObjects.mockResolvedValue([
+      { storageKey: doc.storageKey, storageBucket: doc.storageBucket },
+      { storageKey: v2Key, storageBucket: doc.storageBucket },
+    ])
+    send.mockImplementation(async (command: unknown) => {
+      if (command instanceof DeleteObjectCommand && command.input.Key === v2Key) {
+        throw Object.assign(new Error('boom'), { $metadata: { httpStatusCode: 500 } })
+      }
+      return {}
+    })
+
+    await expect(eraseDocumentObjectsOrKeepRow(live, 'org-1')).resolves.toBeUndefined()
+
+    expect(listDocumentVersionObjects).toHaveBeenCalledWith('doc-1', 'org-1')
+    expect(deletedKeys()).toContain(v2Key)
+    expect(deletedKeys()).toContain(doc.storageKey)
+  })
+
+  it('throws, so the caller keeps the row, when the live file could not be erased', async () => {
+    send.mockRejectedValue(Object.assign(new Error('SlowDown'), { $metadata: { httpStatusCode: 503 } }))
+
+    await expect(eraseDocumentObjectsOrKeepRow(live, 'org-1')).rejects.toBeInstanceOf(UpstreamError)
+  })
+
+  it('throws when only a derivative could not be erased — a raster is the document too', async () => {
+    send.mockImplementation(async (command: unknown) => {
+      if (command instanceof ListObjectsV2Command) throw new Error('listing refused')
+      return {}
+    })
+
+    await expect(eraseDocumentObjectsOrKeepRow(live, 'org-1')).rejects.toBeInstanceOf(UpstreamError)
   })
 })

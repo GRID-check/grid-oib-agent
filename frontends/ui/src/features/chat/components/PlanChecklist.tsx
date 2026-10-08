@@ -10,6 +10,7 @@
  * as JSON (`clarify.parse_plan_reply`).
  */
 
+import type { JSX } from 'react'
 import { useState, type FC } from 'react'
 import { BookOpen, Plus, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'

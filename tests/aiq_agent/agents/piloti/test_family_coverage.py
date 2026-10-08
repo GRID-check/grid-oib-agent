@@ -15,7 +15,6 @@ and only a run that does both can fail on a mismatch between them.
 
 from __future__ import annotations
 
-import json
 from unittest.mock import AsyncMock
 from unittest.mock import MagicMock
 from unittest.mock import patch
@@ -96,26 +95,9 @@ def _bypass_citation_pipeline():
 
 
 @pytest.fixture
-def steps():
-    """Every custom step pushed during the test, as parsed payloads."""
-    from nat.builder.context import ContextState
-    from nat.utils.reactive.subject import Subject
-
-    state = ContextState.get()
-    state.active_span_id_stack.set(["root"])
-    state._event_stream.set(Subject())
-    seen: list[dict] = []
-
-    def _on_next(step) -> None:
-        payload = step.payload
-        body = getattr(payload.data, "input", None)
-        if isinstance(body, str) and str(payload.event_type).endswith("START"):
-            seen.append({"step": payload.name, **json.loads(body)})
-
-    state.event_stream.get().subscribe(_on_next)
-    yield seen
-    state.active_span_id_stack.set(["root"])
-    state._event_stream.set(Subject())
+def steps(emitted):
+    """Every body the producers wrote during the test (``tests/conftest.py``)."""
+    return emitted
 
 
 @pytest.fixture
@@ -138,9 +120,9 @@ def _search(call_id: str, query: str) -> AIMessage:
 
 def _coverage(steps: list[dict]) -> list[tuple[str, int, int]]:
     return [
-        (step["family"], step["listed"], step["opened"])
-        for step in steps
-        if str(step.get("slot", "")).startswith("coverage")
+        (step.detail["family"], step.detail["listed"], step.detail["opened"])
+        for step in steps.steps
+        if step.id.startswith("status:coverage")
     ]
 
 
@@ -187,21 +169,21 @@ class TestCoverageIsCounted:
 
         await agent.run(ResearchAgentState(messages=[HumanMessage(content="OIB 2?")]))
 
-        (record,) = [step for step in steps if str(step.get("slot", "")).startswith("coverage")]
-        assert record["channel"] == turn_status.CHANNEL_TECHNICAL
-        assert set(record) == {"step", "kind", "channel", "slot", "family", "listed", "opened"}
-        assert "oib-rl" not in json.dumps(record)
+        (record,) = [step for step in steps.steps if step.id.startswith("status:coverage")]
+        assert record.channel == turn_status.CHANNEL_TECHNICAL
+        assert set(record.detail) == {"family", "listed", "opened"}
+        assert "oib-rl" not in record.model_dump_json()
 
     async def test_each_family_gets_its_own_step_name(self, scripted_agent, steps):
-        """Two families under one step name collapse into one under the
-        frontend's dedupe, the same trap `status:checkpoint:N` avoids."""
+        """Two families under one step id collapse into one row, the same
+        trap `status:checkpoint:N` avoids."""
         set_norm_families(oib_families([*CORPUS, "oib-rl_4_ausgabe_mai_2023.pdf"]))
         RETURNS.update({"a": CORPUS[0], "b": "oib-rl_4_ausgabe_mai_2023.pdf"})
         agent = scripted_agent(_search("1", "a"), _search("2", "b"), AIMessage(content="Die Antwort [1]."))
 
         await agent.run(ResearchAgentState(messages=[HumanMessage(content="OIB 2 und 4?")]))
 
-        names = [step["step"] for step in steps if str(step.get("slot", "")).startswith("coverage")]
+        names = [step.id for step in steps.steps if step.id.startswith("status:coverage")]
         assert names == ["status:coverage:2", "status:coverage:4"]
 
 

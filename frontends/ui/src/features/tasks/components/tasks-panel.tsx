@@ -26,6 +26,7 @@
  * mounted panels would fight over.
  */
 
+import type { JSX } from 'react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import Link from 'next/link'
 import { ArrowLeft, CalendarRange, ListChecks, MessageSquare, Plus } from 'lucide-react'
@@ -60,7 +61,6 @@ interface TasksPanelProps {
    * history to the project's live job statuses. Null disables the join; rows
    * keep their recorded state.
    */
-  projectCollection: string | null
   /** Whether this member may create/edit/run/delete tasks (`project:skills:manage`). */
   canManageJobs: boolean
   /**
@@ -122,7 +122,6 @@ function syncStateToUrl(taskId: string | null, scheduleId: string | null, view: 
 
 export function TasksPanel({
   projectId,
-  projectCollection,
   canManageJobs,
   canChatInProject = true,
   initialView = 'list',
@@ -597,7 +596,6 @@ export function TasksPanel({
       />
       <ScheduleDetail
         projectId={projectId}
-        projectCollection={projectCollection}
         job={resolvedSchedule}
         open={selectedSchedule !== null}
         canManage={canManageJobs}

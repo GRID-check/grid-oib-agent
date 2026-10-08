@@ -3,13 +3,14 @@
 Stages over ``(messages, registry)``, in this order: DSML strip, envelope
 split, grouped-citation expansion and control-marker extraction
 (``_extract``), envelope card registration, citation and quote verification
-with the turn's ONE repair, the single-source fallback citation,
-sanitisation, the restated-mindmap drop, re-citing the composed cards, the
-``answer_meta`` gates, card suppression, callout resolution and the
-normative-claim brake. Not all pure: card registration, re-citing and
-suppression write the turn's card registry. :func:`finalize_answer` runs them and returns a
-:class:`FinalAnswer`; the agent copies its signal fields onto the state
-(``ledger.assemble_result``).
+with the turn's ONE repair, the single-source fallback citation, the dialect
+validator (``common/answer_dialect``), sanitisation, the restated-mindmap
+drop, re-citing the composed cards, the ``answer_meta`` gates, card
+suppression, callout resolution, the normative-claim brake, and last the
+quote-line stamps (``common/quote_stamps``). Not all pure: card registration,
+re-citing and suppression write the turn's card registry.
+:func:`finalize_answer` runs them and returns a :class:`FinalAnswer`; the
+agent copies its signal fields onto the state (``ledger.assemble_result``).
 """
 
 from __future__ import annotations
@@ -19,6 +20,7 @@ import logging
 import re
 from collections.abc import Awaitable
 from collections.abc import Callable
+from collections.abc import Collection
 from collections.abc import Sequence
 from dataclasses import dataclass
 from dataclasses import field
@@ -35,6 +37,8 @@ from pydantic import ValidationError
 from aiq_agent.common import citation_events
 from aiq_agent.common import content_to_text
 from aiq_agent.common import get_source_id_for_tool
+from aiq_agent.common.answer_dialect import DialectResult
+from aiq_agent.common.answer_dialect import validate_dialect
 from aiq_agent.common.answer_envelope import TAKEAWAYS_MIN_PROSE_CHARS
 from aiq_agent.common.answer_envelope import AnswerMeta
 from aiq_agent.common.answer_envelope import extract_answer_envelope
@@ -54,9 +58,11 @@ from aiq_agent.common.citation_verification import sanitize_report
 from aiq_agent.common.citation_verification import source_origin_token
 from aiq_agent.common.citation_verification import verify_citations
 from aiq_agent.common.citation_verification import verify_quoted_spans
+from aiq_agent.common.quote_stamps import stamp_quote_lines
 from aiq_agent.common.tool_validation import validate_tool_availability
 from aiq_agent.common.turn_status import emit_answer_repair
 from aiq_agent.common.turn_status import emit_citation_check
+from aiq_agent.observability.langfuse_trace_attributes import record_trace_metadata
 
 from .answer_shape import drop_restated_mindmaps
 from .dsml import strip_and_salvage_dsml_tool_calls
@@ -126,6 +132,10 @@ class FinalAnswer:
     skills_applied: tuple[str, ...] = ()
     cited: tuple[CitedSource, ...] = ()
     removed_citations: tuple[dict[str, Any], ...] = ()
+    #: One stamp per quote line of ``content``, in document order (``common/quote_stamps.py``).
+    quote_stamps: tuple[dict[str, Any], ...] = ()
+    #: What the dialect validator repaired (``common/answer_dialect.py``), one entry per repair.
+    dialect_repairs: tuple[dict[str, str], ...] = ()
 
 
 # --------------------------------------------------------------------------
@@ -308,7 +318,30 @@ def _handed_markers(messages: Sequence[Any]) -> set[int]:
     return handed
 
 
-def _renumber_envelope_markers(content: str, *, handed: set[int], positions: dict[int, int], count: int) -> str:
+def _envelope_index(number: int, handed: Collection[int]) -> int | None:
+    """Which card of the envelope's ``cards`` array the model's ``[[card:N]]`` names; ``None`` for a tool's own.
+
+    The one reading of the taught rule (``cards/envelope._MARKER_RULE``), for
+    the terminal's renumbering and the live stream's alike
+    (:meth:`LiveAnswer.place`): a number a tool handed out is a registry
+    position already; past the highest handed one, N is array card
+    ``N - offset``; at or below it, a model that ignored the offset wrote an
+    array number, the only reading left.
+    """
+    if number in handed:
+        return None
+    offset = max(handed, default=0)
+    return number - offset if number > offset else number
+
+
+def _renumber_envelope_markers(
+    content: str,
+    *,
+    handed: set[int],
+    positions: dict[int, int],
+    count: int,
+    fallbacks: dict[int, str] | None = None,
+) -> str:
     """The envelope's card markers moved from array numbers to registry positions.
 
     The taught rule (``cards/envelope._MARKER_RULE``) numbers the ``cards``
@@ -321,24 +354,35 @@ def _renumber_envelope_markers(content: str, *, handed: set[int], positions: dic
     and wrote a number at or below it is read as an array number, the only
     reading left. The marker of a card that was DROPPED is removed, so the
     reader never meets a marker with nothing behind it and no later card
-    slides onto its neighbour's place. A marker past the array is left alone,
-    as it always was.
+    slides onto its neighbour's place; a dropped card that left content behind
+    (``fallbacks``: a retired type laid out as Markdown) puts that content at
+    its marker instead, or after the prose when the answer placed none. A
+    marker past the array is left alone, as it always was.
     """
     if count == 0:
         return content
-    offset = max(handed, default=0)
+    fallbacks = dict(fallbacks or {})
+    placed: set[int] = set()
 
     def substitute(match: re.Match[str]) -> str:
-        number = int(match.group(1))
-        if number in handed:
-            return match.group(0)
-        index = number - offset if number > offset else number
-        if not 1 <= index <= count:
+        index = _envelope_index(int(match.group(1)), handed)
+        if index is None or not 1 <= index <= count:
             return match.group(0)
         position = positions.get(index)
-        return f"[[card:{position}]]" if position is not None else ""
+        if position is not None:
+            return f"[[card:{position}]]"
+        if index in fallbacks and index not in placed:
+            placed.add(index)
+            return f"\n\n{fallbacks[index]}\n\n"
+        return ""
 
-    return _CARD_MARKER_NUMBER_RE.sub(substitute, content)
+    content = _CARD_MARKER_NUMBER_RE.sub(substitute, content)
+    if not fallbacks:
+        return content
+    trailing = [fallbacks[index] for index in sorted(fallbacks) if index not in placed]
+    if trailing:
+        content = content.rstrip() + "\n\n" + "\n\n".join(trailing)
+    return re.sub(r"\n{3,}", "\n\n", content)
 
 
 async def _register_envelope_cards(
@@ -358,6 +402,7 @@ async def _register_envelope_cards(
     markers are moved to those positions. Fail-open throughout: no registry
     bound (a CLI run) means the answer ships without cards, as it always did.
     """
+    from aiq_agent.cards.catalog import retired_card_markdown
     from aiq_agent.cards.envelope import envelope_card_objects
     from aiq_agent.cards.registry import get_card_registry
 
@@ -376,13 +421,19 @@ async def _register_envelope_cards(
         *(_checked_envelope_card(payload, index, content, card_repair) for index, payload in enumerate(raw))
     )
     positions: dict[int, int] = {}
+    fallbacks: dict[int, str] = {}
     for index, validated in enumerate(checked):
         if validated is None:
+            # A retired type's content is laid out as Markdown rather than lost (guardrail 8).
+            markdown = retired_card_markdown(raw[index])
+            if markdown:
+                fallbacks[index + 1] = markdown
+                logger.info("answer envelope's retired '%s' card laid out as Markdown", raw[index].get("type"))
             continue
         registry.add(validated)
         positions[index + 1] = len(registry)
         logger.info("answer envelope registered a '%s' card as card %d", validated["type"], len(registry))
-    return _renumber_envelope_markers(content, handed=handed, positions=positions, count=len(raw))
+    return _renumber_envelope_markers(content, handed=handed, positions=positions, count=len(raw), fallbacks=fallbacks)
 
 
 async def _checked_envelope_card(
@@ -397,8 +448,9 @@ async def _checked_envelope_card(
 
     validated, refusal = validate_model_card(payload)
     card_type = refusal.card_type if refusal is not None else str(validated["type"])
-    # Only a SHAPE miss is repairable: a system or envelope type is refused
-    # whatever its fields, and a non-object has no fields to fix.
+    # Only a SHAPE miss is repairable: a system or retired type is refused
+    # whatever its fields (a retired one is laid out as Markdown by the
+    # caller), and a non-object has no fields to fix.
     if validated is None and refusal is not None and refusal.kind == REFUSED_SHAPE and card_repair is not None:
         repaired = await card_repair(payload, refusal.for_repair(), content)
         if repaired is not None:
@@ -438,6 +490,11 @@ def _source_lookup_attempted(messages: Sequence[Any]) -> bool:
 def looked_up_this_turn(messages: Sequence[Any]) -> bool:
     """Whether a data-source tool ran since the last human message: the gate on the single-source fallback."""
     return _source_lookup_attempted(this_turn(messages))
+
+
+def handed_this_turn(messages: Sequence[Any]) -> frozenset[int]:
+    """The ``[[card:N]]`` numbers a tool handed the model since the last human message."""
+    return frozenset(_handed_markers(this_turn(messages)))
 
 
 @dataclass(frozen=True)
@@ -626,7 +683,12 @@ def _recite_surface_cards(
 
 
 def settle_streamed_citations(
-    prose: str, sources_text: str, registry: SourceRegistry, *, lookup_attempted: bool = True
+    prose: str,
+    sources_text: str,
+    registry: SourceRegistry,
+    *,
+    lookup_attempted: bool = True,
+    kind: str | None = None,
 ) -> SettledStream | None:
     """The streamed prose with its ``[N]`` markers settled, and the sources they name.
 
@@ -639,8 +701,9 @@ def settle_streamed_citations(
     is before the cards and the pipeline: the pending markers on screen become
     the answer's own citations, numbered as the terminal frame will number
     them (ADR-0066). ``lookup_attempted`` is the terminal's own gate on the
-    fallback (a data-source tool ran this turn). ``None`` when there is
-    nothing to settle.
+    fallback (a data-source tool ran this turn). ``kind`` is the envelope's,
+    for the dialect's budget, which the terminal applies too. ``None`` when
+    there is nothing to settle.
     """
     from .ledger import wire_sources  # ledger imports this module
 
@@ -653,7 +716,9 @@ def settle_streamed_citations(
     # when the marker arrived. The single-source fallback likewise: without it
     # the reader saw an empty source heading the terminal then replaced.
     grounding = _ground(verified, registry, lookup_attempted=lookup_attempted)
-    sanitized = sanitize_report(grounding.content)
+    # The dialect held as the terminal holds it, so a block unwrapped there is
+    # not drawn here first.
+    sanitized = sanitize_report(validate_dialect(grounding.content, kind).text)
     # And the shape pass the terminal runs next: a mindmap that only redraws a
     # table in the answer goes here, where it went seconds later before.
     content, _ = drop_restated_mindmaps(sanitized.sanitized_report)
@@ -694,19 +759,30 @@ class LiveAnswer:
     - the prose, when the ``answer`` string closes: verified, renumbered, and
       the masthead gated again, now against the prose;
     - each card, when its object closes: the one card validator, its ``[N]``
-      held to the settled numbers. Only while no tool has registered a card
-      this turn: the reader places ``[[card:N]]`` against the message's card
-      list, which such a card would shift.
+      held to the settled numbers.
+
+    The live card list is the terminal's order: the cards tools registered
+    this turn first (:meth:`tool_cards`, as they stand in the registry), then
+    the envelope's, which the pipeline registers after them. The model numbers
+    its ``[[card:N]]`` against its own array, so :meth:`place` moves each
+    marker the stream shows to the position its card will hold, the move
+    ``_register_envelope_cards`` makes on the finished answer. Only a card the
+    terminal DROPS moves the ones after it; the live list keeps its place
+    empty, and the terminal renumbers text and cards together.
 
     ``settle`` runs in a worker thread with the turn's context copied
     (``asyncio.to_thread`` in ``turn/answer_stream.py``): no loop-bound
     objects, no awaiting.
     """
 
-    def __init__(self, registry: SourceRegistry, *, lookup_attempted: bool = True) -> None:
+    def __init__(
+        self, registry: SourceRegistry, *, lookup_attempted: bool = True, handed: Collection[int] = ()
+    ) -> None:
         self._registry = registry
         self._lookup_attempted = lookup_attempted
+        self._handed = frozenset(handed)
         self._settled: SettledStream | None = None
+        self._tool_cards: list[dict[str, Any]] | None = None
 
     def masthead(self, fields: dict[str, Any], prose: str = "") -> dict[str, Any] | None:
         from aiq_agent.common.answer_envelope import MASTHEAD_FIELDS
@@ -732,7 +808,11 @@ class LiveAnswer:
 
     def settle(self, prose: str, sources_text: str, fields: dict[str, Any] | None) -> SettledStream | None:
         settled = settle_streamed_citations(
-            prose, sources_text, self._registry, lookup_attempted=self._lookup_attempted
+            prose,
+            sources_text,
+            self._registry,
+            lookup_attempted=self._lookup_attempted,
+            kind=(fields or {}).get("kind"),
         )
         if settled is None:
             return None
@@ -740,14 +820,37 @@ class LiveAnswer:
         self._settled = replace(settled, answer_meta=meta)
         return self._settled
 
+    def tool_cards(self) -> list[dict[str, Any]]:
+        """The cards tools registered this turn, in registry order: the head of the terminal's list.
+
+        Read once per answering call, the first time it is asked: no tool runs
+        while the call writes, and the markers placed before the cards arrive
+        must count the same cards the frame then carries.
+        """
+        if self._tool_cards is None:
+            from aiq_agent.cards.registry import get_card_registry
+
+            registry = get_card_registry()
+            self._tool_cards = registry.snapshot() if registry is not None else []
+        return list(self._tool_cards)
+
+    def place(self, text: str) -> str:
+        """``text`` with each envelope ``[[card:N]]`` moved behind the tool cards, where the terminal puts it."""
+        tools = len(self.tool_cards())
+        if not tools and not self._handed:
+            return text
+
+        def substitute(match: re.Match[str]) -> str:
+            index = _envelope_index(int(match.group(1)), self._handed)
+            return match.group(0) if index is None or index < 1 else f"[[card:{tools + index}]]"
+
+        return _CARD_MARKER_NUMBER_RE.sub(substitute, text)
+
     def card(self, payload: Any) -> dict[str, Any] | None:
+        """One envelope card as it closes, validated, its ``[N]`` recited; a tool's card never comes through here."""
         from aiq_agent.cards.envelope import validate_model_card
-        from aiq_agent.cards.registry import get_card_registry
         from aiq_agent.cards.surface_citations import recite_surface
 
-        registry = get_card_registry()
-        if registry is not None and len(registry.snapshot()) > 0:
-            return None
         card, _refusal = validate_model_card(payload)
         if card is None:
             return None
@@ -841,16 +944,6 @@ _CARD_SUPPRESS_MIN_PROSE_CHARS = 400
 #: suppressed so the reader never meets a marker with nothing behind it.
 _CARD_MARKER_RE = re.compile(r"\[\[card:\d+\]\]")
 
-#: The one model-emitted card suppression must never eat. ``legal_basis`` is
-#: not a system card — the model emits it through ``emit_card`` like any other
-#: content card, so ``SYSTEM_CARD_TYPES`` cannot cover it — but it is the
-#: answer's PROOF, not its trailer: the Fundstelle margin the reader checks the
-#: verdict against. Clearing the registry under it would keep the headline
-#: number and delete what makes it checkable, so any ``legal_basis`` card in
-#: the registry snapshot vetoes the whole suppression, exactly like a system
-#: card does.
-_LEGAL_BASIS_CARD_TYPE = "legal_basis"
-
 
 def _should_suppress_meta_cards(content: str, gated_meta: dict[str, Any] | None) -> bool:
     """Whether a short overview's trailer cards should be dropped.
@@ -891,15 +984,16 @@ def _suppress_cards(content: str, gated_meta: dict[str, Any] | None) -> tuple[st
     a warning or Frist the reader must see whatever the prose length — and to
     nothing when there is no callout either.
 
-    Two vetoes, both read off the registry snapshot before anything is
-    cleared. System cards are the product, not the trailer: ``document_draft``
+    One veto, read off the registry snapshot before anything is cleared.
+    System cards are the product, not the trailer: ``document_draft``
     (and every other ``SYSTEM_CARD_TYPES`` member) is pushed by the tool that
     did the work, and a short drafting answer (kind=direct, <400 chars, no
     verdict) matches the suppression floor exactly. Clearing the registry
     there would eat the announcement of the work just done, so any system
     card in the registry vetoes the whole suppression — cards, markers and
-    meta all stay. ``legal_basis`` vetoes the same way (see
-    ``_LEGAL_BASIS_CARD_TYPE``): it is the proof the verdict rests on.
+    meta all stay. The answer's proof needs no veto: the Fundstelle the verdict
+    rests on is a cited blockquote in the prose (the retired ``legal_basis``
+    card's content), and suppression never touches the prose.
     """
     if not _should_suppress_meta_cards(content, gated_meta):
         return content, gated_meta, False
@@ -907,9 +1001,10 @@ def _suppress_cards(content: str, gated_meta: dict[str, Any] | None) -> tuple[st
         from aiq_agent.cards.catalog import SYSTEM_CARD_TYPES
         from aiq_agent.cards.registry import get_card_registry as _get_registry_for_guard
 
-        _veto_types = SYSTEM_CARD_TYPES | {_LEGAL_BASIS_CARD_TYPE}
         _guard_registry = _get_registry_for_guard()
-        if _guard_registry is not None and any(card.get("type") in _veto_types for card in _guard_registry.snapshot()):
+        if _guard_registry is not None and any(
+            card.get("type") in SYSTEM_CARD_TYPES for card in _guard_registry.snapshot()
+        ):
             logger.info("Piloti: answer cards suppressed: veto card present, keeping cards and meta")
             return content, gated_meta, False
     except Exception:
@@ -953,6 +1048,14 @@ def _suppress_cards(content: str, gated_meta: dict[str, Any] | None) -> tuple[st
     # marker with it and silence a warning the gates deliberately kept.
     kept = {key: value for key, value in (gated_meta or {}).items() if key in ("v", "callout")}
     return content, (kept if "callout" in kept else None), True
+
+
+def _held_to_dialect(content: str, meta: AnswerMeta | None) -> DialectResult:
+    """The answer held to the dialect and its kind's budget, the census on the trace (``common/answer_dialect``)."""
+    dialect = validate_dialect(content, meta.kind if meta is not None else None)
+    if dialect.census or dialect.repairs:
+        record_trace_metadata(answer_dialect=dialect.as_trace())
+    return dialect
 
 
 def _trailer_captures(turn_sources: Sequence[SourceEntry] | None) -> list[SourceEntry]:
@@ -1007,7 +1110,8 @@ async def finalize_answer(
         _require_retrieval(lookup_attempted, tools)
         grounding = _Grounding(extracted.content)
 
-    sanitized = sanitize_report(grounding.content)
+    dialect = _held_to_dialect(grounding.content, extracted.meta)
+    sanitized = sanitize_report(dialect.text)
     content, _ = drop_restated_mindmaps(sanitized.sanitized_report)
     cited = _renumbered(grounding.cited, sanitized.renumber_map)
     _recite_surface_cards(sanitized.renumber_map, cited, grounding.removed_citations)
@@ -1019,6 +1123,10 @@ async def finalize_answer(
     )
     content, meta, _cards_suppressed = _suppress_cards(content, meta)
     content = resolve_callout_marker(content, has_callout=bool(meta and "callout" in meta))
+    # Stamped on the text the reader gets, with the [N] it shows. Off the loop,
+    # like the quote check it repeats: each line reads the registry's passages.
+    pairs = [(source.entry, source.number) for source in cited]
+    stamps = await asyncio.to_thread(stamp_quote_lines, content, pairs, registry.all_sources())
     final_messages = list(messages)
     final_messages[index] = messages[index].model_copy(update={"content": content})
     return FinalAnswer(
@@ -1040,4 +1148,6 @@ async def finalize_answer(
         skills_applied=_skills_applied(extracted.meta),
         cited=cited,
         removed_citations=grounding.removed_citations,
+        quote_stamps=tuple(stamps),
+        dialect_repairs=tuple(dialect.repairs),
     )

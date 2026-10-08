@@ -11,7 +11,15 @@
  * Session/bearer resolution (incl. the `?token=` fallback for EventSource
  * streams) is shared with the v1 proxy via `@/lib/proxy/proxy-request`.
  *
+ * Authorization (ADR-0084): every method resolves the scope the caller named
+ * (`?projectId=`, `?conversationId=`, or the body's) through
+ * `buildCollectionScopeFromRequest`, which checks `CHAT_PERMISSIONS` on the
+ * project and `viewer` on the conversation, and sends it as the signed
+ * envelope. The backend lets the job's owner through, and anyone else only to a
+ * job inside that project (read and steer) or conversation (read).
+ *
  * Handles:
+ * - GET /api/jobs/async/jobs?projectId= - List research runs, filtered to the checked project
  * - GET /api/jobs/async/agents - List available agents
  * - POST /api/jobs/async/submit - Submit a new job
  * - GET /api/jobs/async/job/{job_id} - Get job status
@@ -34,16 +42,16 @@
 import { NextResponse } from 'next/server'
 import { tenantSlotRoute } from '@/lib/db/tenant-context'
 import { buildCollectionScopeFromRequest } from '@/lib/collection-scope-request'
-import type { ScopedCollection } from '@/lib/collection-scope'
 import { FEATURE_FLAGS, requireFeature } from '@/lib/authz/feature-flags'
 import { isAuthzError } from '@/lib/auth-utils'
 import { getEffectiveModelOverrides } from '@/lib/model-config/service'
 import { loadProjectBundesland } from '@/lib/project-profile/prompt-view'
 import { resolveOrgInstructions } from '@/lib/org-instructions/service'
 import {
-  buildGridRequestContextWireHeaders,
-  type GridRequestContextInput,
-} from '@/lib/request-context'
+  signJobRequestContext,
+  type AuthorizedJobScope,
+  type JobSubmitContext,
+} from '@/lib/jobs/request-envelope'
 import {
   buildAuthHeaders,
   backendErrorEnvelope,
@@ -52,44 +60,58 @@ import {
   proxyErrorEnvelope,
   sseStreamResponse,
 } from '@/lib/backend-proxy'
-import { parseBodyContext, parseQueryContext } from '@/lib/proxy/collection-authz'
+import { parseQueryContext, resolveRequestContext } from '@/lib/proxy/collection-authz'
 import { buildProxyUrl, resolveSessionAndBearer } from '@/lib/proxy/proxy-request'
 import type { AuthorizedSession, GridSession } from '@/lib/auth/types'
-import { fileResearchReport } from '@/lib/documents/research-report'
+import {
+  findFiledResearchReport,
+  findReportFilingRefusal,
+  queueResearchReportFiling,
+} from '@/lib/documents/research-report'
+import { requesterOf } from '@/lib/jobs-queue/types'
 import { findProjectIdByCollectionName } from '@/lib/projects/repository'
 
 /**
- * Per-org runtime model overrides ({agentGroup: openrouterModelId}) plus the
- * signed context envelope (backlog T3-9 follow-up, 2026-07-16, user-mandated)
- * for the async-submit proxy — same header/encoding server.js forwards on
- * the WebSocket upgrade (x-grid-model-overrides, base64url JSON), decoded by
- * the backend (model_overrides.py). Without the overrides header, submit
- * falls through to the WS-only override path and jobs silently run on
- * YAML-default models even when the org has configured overrides; without
- * the envelope, the backend's enforcement middleware rejects the submit
- * outright for an authenticated caller (REQUIRE_AUTH=true).
+ * The signed context envelope (backlog T3-9 follow-up, 2026-07-16,
+ * user-mandated; ADR-0084) for every request this proxy forwards, plus, on a
+ * submit, the per-org runtime model overrides ({agentGroup: openrouterModelId})
+ * — same header/encoding server.js forwards on the WebSocket upgrade
+ * (x-grid-model-overrides, base64url JSON), decoded by the backend
+ * (model_overrides.py). Without the overrides header, submit falls through to
+ * the WS-only override path and jobs silently run on YAML-default models even
+ * when the org has configured overrides.
  *
- * Routed through the shared `GridRequestContext` builder
- * (`@/lib/request-context`, backlog T3-9) so this path's headers can never
- * drift from every other producer/consumer. Always returns at least the
- * envelope headers (never just `{}`) so the caller can unconditionally
- * spread the result into the fetch headers.
+ * The envelope goes on every method, not only the submit: the backend
+ * authorizes a job by the scope it signs (`aiq_api/jobs/access.py`). It lets the
+ * owner through on the bearer alone and anyone else only inside the project or
+ * conversation this tier checked, so a teammate's stream, status, report and
+ * cancel all need it. Without it the caller reaches only the jobs it owns.
  *
- * The model-overrides lookup is best-effort: a failure must not block job
- * submission — the rest of the context (org/user/project/scope, still
- * enough to satisfy the envelope requirement) is still sent, matching the
- * fail-open contract of every other override consumer.
+ * Built by `signJobRequestContext` (`@/lib/jobs/request-envelope`), the one
+ * builder every job request uses. Always returns at least the envelope headers
+ * (never just `{}`) so the caller can unconditionally spread the result into the
+ * fetch headers.
  */
 async function resolveGridContextHeaders(
   session: GridSession | null,
-  extra: { projectId?: string; collectionScope?: ReadonlyArray<string | ScopedCollection> }
+  scope: AuthorizedJobScope,
+  { submit }: { submit: boolean }
 ): Promise<Record<string, string>> {
-  const input: GridRequestContextInput = {
-    organizationId: session?.organizationId ?? null,
-    userId: session?.userId ?? null,
-    projectId: extra.projectId ?? null,
-    collectionScope: extra.collectionScope ?? null,
-  }
+  const submitContext = submit ? await resolveSubmitContext(session, scope.projectId) : {}
+  return signJobRequestContext(session, scope, submitContext)
+}
+
+/**
+ * What a submit configures its run with. Every lookup here is best-effort: a
+ * failure must not block job submission — the rest of the context
+ * (org/user/project/scope, still enough to satisfy the envelope requirement) is
+ * still sent, matching the fail-open contract of every other override consumer.
+ */
+async function resolveSubmitContext(
+  session: GridSession | null,
+  projectId: string | undefined
+): Promise<JobSubmitContext> {
+  const input: JobSubmitContext = {}
 
   if (session?.organizationId) {
     try {
@@ -110,13 +132,13 @@ async function resolveGridContextHeaders(
     }
   }
 
-  if (extra.projectId) {
+  if (projectId) {
     // Structured jurisdiction fact (backlog T3-9 follow-up, 2026-07-16,
     // user-mandated) — rides the envelope's `bundesland` field. Best-effort:
     // a lookup failure must not block job submission; the backend falls back
     // to prompt-text parsing of `project_context` (unaffected either way).
     try {
-      const bundesland = await loadProjectBundesland(extra.projectId, session?.organizationId)
+      const bundesland = await loadProjectBundesland(projectId, session?.organizationId)
       if (bundesland) {
         input.bundesland = bundesland
       }
@@ -125,7 +147,33 @@ async function resolveGridContextHeaders(
     }
   }
 
-  return buildGridRequestContextWireHeaders(input, process.env.GRID_INTERNAL_API_TOKEN)
+  return input
+}
+
+/**
+ * The run listing's query, with the project filter taken from the scope this
+ * tier authorized rather than from the client.
+ *
+ * The client names a project by `projectId`, which `buildCollectionScopeFromRequest`
+ * checked; the backend filters by collection. Translating here means the
+ * collection the backend narrows to is the one the envelope signs, and a
+ * `project_collection` the client sent is never forwarded: it named a project
+ * nobody checked.
+ */
+function listingSearchParams(
+  searchParams: URLSearchParams,
+  scope: AuthorizedJobScope
+): URLSearchParams {
+  const params = new URLSearchParams(searchParams)
+  params.delete('project_collection')
+  const requestedProject = params.get('projectId')
+  params.delete('projectId')
+  params.delete('conversationId')
+  const signedProject = scope.scopedCollections.find((entry) => entry.shelf === 'project')
+  if (requestedProject && scope.projectId === requestedProject && signedProject) {
+    params.set('project_collection', signedProject.collection)
+  }
+  return params
 }
 
 const LOG_LABEL = 'Deep Research API'
@@ -184,8 +232,32 @@ interface ReportFilingResult {
  * report, and the messages that carry them name buckets, permissions and
  * limits. Those belong in the log, which already has them. A boolean is the
  * whole of what the surface can honestly act on.
+ *
+ * ## Why `queued` exists (ADR-0079)
+ *
+ * The PDF is no longer rendered inside this request. A report that is not filed
+ * yet is handed to a `file_research_report` job on the `bff-jobs` pool and the
+ * answer says so (`filingQueued`): the promise is being kept, not broken, and
+ * the document appears in Berichte when the job has run, retried by the queue
+ * if it fails. A report that IS filed already answers `filed`, as it always
+ * did, from one probe and no render.
+ *
+ * ## Why `refused` is its own end, and an answer of this request
+ *
+ * A reader who may not file here (no permission, the feature switched off) used
+ * to get a job queued on every read: the job was refused, had no row to say so
+ * on and ended cleanly, and the next read queued it again and answered
+ * `filingQueued`, for ever. The permission is asked BEFORE queueing now
+ * (`findReportFilingRefusal`), so a refusal is what the reader is told
+ * (`filingFailed`, the promise broken) and nothing is queued; the reason is in
+ * the log. It leaves the same body as `failed`: the reader cannot act on the
+ * difference.
  */
-type ReportFilingOutcome = { status: 'filed'; filed: ReportFilingResult } | { status: 'failed' }
+type ReportFilingOutcome =
+  | { status: 'filed'; filed: ReportFilingResult }
+  | { status: 'queued' }
+  | { status: 'refused' }
+  | { status: 'failed' }
 
 /** The report endpoint's body, as `JobReportResponse` on the backend defines it. */
 function readReportMarkdown(data: unknown): string | null {
@@ -297,26 +369,46 @@ async function fileReportIfCommissioned(
   if (!commissionedProjectId) return null
 
   try {
-    // Narrowed the way every other proxy-layer call to a session-taking service
-    // narrows it (`collection-scope-request.ts`): the organization is what makes
-    // a session authorized, and it has just been checked.
-    const filed = await fileResearchReport({
-      session: session as AuthorizedSession,
+    const filed = await findFiledResearchReport({
+      organizationId: session.organizationId,
       projectId: commissionedProjectId,
       runId,
-      report,
-      cards: readReportCards(data),
-      request: req,
     })
-    return {
-      status: 'filed',
-      filed: { documentId: filed.documentId, filename: filed.filename, alreadyFiled: filed.alreadyFiled },
+    if (filed) {
+      return {
+        status: 'filed',
+        filed: { documentId: filed.documentId, filename: filed.filename, alreadyFiled: true },
+      }
     }
+
+    const refusal = await findReportFilingRefusal(session as AuthorizedSession, commissionedProjectId)
+    if (refusal) {
+      console.warn(`[${LOG_LABEL}] the reader may not file the report of run ${runId}: ${refusal}`)
+      return { status: 'refused' }
+    }
+
+    // Narrowed the way every other proxy-layer call to a session-taking service
+    // narrows it (`collection-scope-request.ts`): the organization is what makes
+    // a session authorized, and it has just been checked. The reader is the
+    // requester the job files as (identity and permissions, no access token),
+    // exactly as this route used to file in the reader's own session.
+    await queueResearchReportFiling({
+      organizationId: session.organizationId,
+      payload: {
+        runId,
+        projectId: commissionedProjectId,
+        report,
+        cards: readReportCards(data),
+        taskRunId: null,
+        requester: requesterOf(session as AuthorizedSession),
+      },
+    })
+    return { status: 'queued' }
   } catch (error) {
     // Logged with the reason, reported without it. The log is where an operator
     // finds the bucket, the permission or the limit; the response carries only
     // what the reader can act on.
-    console.error(`[${LOG_LABEL}] failed to file the report as a document:`, error)
+    console.error(`[${LOG_LABEL}] failed to queue the report's filing:`, error)
     return { status: 'failed' }
   }
 }
@@ -324,6 +416,25 @@ async function fileReportIfCommissioned(
 /**
  * Handle GET requests (status, stream, state, report)
  */
+/**
+ * One log line for a backend refusal, at the severity it has.
+ *
+ * A cancel that lands after the job finished (`400 Job not cancellable: <id>
+ * (status: success|failure)`) is the backend's verdict, not a failure: the
+ * Sessions panel's stop is confirmed in a dialog, the run can end while it is
+ * open, and the panel re-reads the list either way. The warn guard for #632
+ * went onto GET and DELETE while the live cancel is a POST
+ * (`cancelJob` → `/job/{id}/cancel`), so it never ran; one helper for every
+ * method is what keeps that from happening twice.
+ */
+function logBackendError(method: 'GET' | 'POST' | 'DELETE', status: number, errorText: string): void {
+  if (status === 400 && errorText.includes('Job not cancellable')) {
+    console.warn(`[Deep Research API] ${method} cancel race: job already terminal:`, errorText.slice(0, 200))
+    return
+  }
+  console.error(`[Deep Research API] ${method} backend error:`, status, errorText)
+}
+
 export const GET = tenantSlotRoute(async function GET(
   req: Request,
   { params }: { params: Promise<{ path: string[] }> }
@@ -356,25 +467,26 @@ export const GET = tenantSlotRoute(async function GET(
     const authHeaders = buildAuthHeaders(authHeader)
     traceRequest('WorkOS access token present:', !!authHeaders.Authorization)
 
-    // Only the scope header. The reader's project used to be destructured here
-    // and handed to `fileReportIfCommissioned`; that it is now unused is the
-    // check on the claim that a report's destination comes from the run — the
-    // linter fails the build if it is ever consulted again without being read.
-    const { headerValue } = await buildCollectionScopeFromRequest(
-      session,
-      parseQueryContext(searchParams)
-    )
+    // The reader's scope goes to the backend, signed, because the backend
+    // authorizes the job by it. It is never handed to `fileReportIfCommissioned`:
+    // a report's destination comes from the run, not from whoever reads it.
+    const scope = await buildCollectionScopeFromRequest(session, parseQueryContext(searchParams))
+    const gridContextHeaders = await resolveGridContextHeaders(session, scope, { submit: false })
 
     // The token query param is consumed for auth and forwarded via headers.
-    const upstreamUrl = buildProxyUrl(JOBS_BASE_PATH, upstreamPath, searchParams, ['token'])
+    const upstreamParams =
+      path.length === 1 && path[0] === 'jobs' ? listingSearchParams(searchParams, scope) : searchParams
+    const upstreamUrl = buildProxyUrl(JOBS_BASE_PATH, upstreamPath, upstreamParams, ['token'])
 
-    // Forward the request to the backend
+    // Forward the request to the backend. The scope header is set LAST, from
+    // the same value the envelope encodes, as on the POST below.
     const response = await fetch(upstreamUrl, {
       method: 'GET',
       headers: {
         ...authHeaders,
+        ...gridContextHeaders,
         Accept: isStreamRequest ? 'text/event-stream' : 'application/json',
-        'X-Grid-Collection-Scope': headerValue,
+        'X-Grid-Collection-Scope': scope.headerValue,
       },
       ...(isStreamRequest ? { signal: req.signal } : {}),
     })
@@ -382,15 +494,7 @@ export const GET = tenantSlotRoute(async function GET(
     // Handle error responses
     if (!response.ok) {
       const errorText = await response.text()
-      // #632: cancel-after-terminal race — the client already parses this via
-      // `readTerminalVerdictFromCancelError` and treats it as a verdict, not a
-      // failure. Warn so err2issue stops filing an ERROR per double-clicked
-      // cancel on an already-finished job.
-      if (response.status === 400 && errorText.includes('Job not cancellable')) {
-        console.warn('[Deep Research API] Cancel race: job already terminal:', errorText.slice(0, 200))
-      } else {
-        console.error('[Deep Research API] Backend error:', response.status, errorText)
-      }
+      logBackendError('GET', response.status, errorText)
 
       return backendErrorEnvelope(response.status, errorText)
     }
@@ -423,12 +527,15 @@ export const GET = tenantSlotRoute(async function GET(
     // into a chat message and thrown away with the run's file system.
     const filing = await fileReportIfCommissioned(req, path, session, data)
 
-    // Three shapes, and the third is the point: `filed` when it landed,
-    // `filingFailed` when a promise was made and broken, and the untouched body
-    // when no promise was made at all (no project, no report, not a report
-    // request). A client that has never heard of either key keeps working.
+    // Four shapes: `filed` when it landed, `filingQueued` when a job is
+    // rendering it, `filingFailed` when a promise was made and broken, and the
+    // untouched body when no promise was made at all (no project, no report, not
+    // a report request). A client that has never heard of these keys keeps working.
     if (filing?.status === 'filed') return NextResponse.json({ ...data, filed: filing.filed })
-    if (filing?.status === 'failed') return NextResponse.json({ ...data, filingFailed: true })
+    if (filing?.status === 'queued') return NextResponse.json({ ...data, filingQueued: true })
+    if (filing?.status === 'failed' || filing?.status === 'refused') {
+      return NextResponse.json({ ...data, filingFailed: true })
+    }
     return NextResponse.json(data)
   } catch (error) {
     if (isAuthzError(error)) {
@@ -486,15 +593,16 @@ export const POST = tenantSlotRoute(async function POST(
       if (gated) return gated
     }
 
-    const { headerValue, scopedCollections, projectId } = await buildCollectionScopeFromRequest(
+    // Body first, then the query: a submit names its project in the body, a
+    // cancel (no body) in `?projectId=`.
+    const scope = await buildCollectionScopeFromRequest(
       session,
-      parseBodyContext(parsedBody)
+      resolveRequestContext(new URL(req.url).searchParams, parsedBody)
     )
     // The shelf-bearing entries, not the bare names: the signed envelope is the
     // copy `scoping.py` trusts for an authenticated turn (ADR-0047).
-    const gridContextHeaders = await resolveGridContextHeaders(session, {
-      projectId,
-      collectionScope: scopedCollections,
+    const gridContextHeaders = await resolveGridContextHeaders(session, scope, {
+      submit: path[0] === 'submit',
     })
 
     // Forward the request to the backend.
@@ -511,7 +619,7 @@ export const POST = tenantSlotRoute(async function POST(
         'Content-Type': 'application/json',
         ...authHeaders,
         ...gridContextHeaders,
-        'X-Grid-Collection-Scope': headerValue,
+        'X-Grid-Collection-Scope': scope.headerValue,
       },
       ...(body ? { body } : {}),
     })
@@ -519,7 +627,7 @@ export const POST = tenantSlotRoute(async function POST(
     // Handle error responses
     if (!response.ok) {
       const errorText = await response.text()
-      console.error('[Deep Research API] Backend error:', response.status, errorText)
+      logBackendError('POST', response.status, errorText)
 
       return backendErrorEnvelope(response.status, errorText)
     }
@@ -556,10 +664,8 @@ export const DELETE = tenantSlotRoute(async function DELETE(
     const authHeaders = buildAuthHeaders(authHeader)
     traceRequest('DELETE WorkOS access token present:', !!authHeaders.Authorization)
 
-    const { headerValue } = await buildCollectionScopeFromRequest(
-      session,
-      parseQueryContext(searchParams)
-    )
+    const scope = await buildCollectionScopeFromRequest(session, parseQueryContext(searchParams))
+    const gridContextHeaders = await resolveGridContextHeaders(session, scope, { submit: false })
 
     const upstreamUrl = buildProxyUrl(JOBS_BASE_PATH, path, searchParams, ['token'])
 
@@ -567,20 +673,15 @@ export const DELETE = tenantSlotRoute(async function DELETE(
       method: 'DELETE',
       headers: {
         ...authHeaders,
+        ...gridContextHeaders,
         Accept: 'application/json',
-        'X-Grid-Collection-Scope': headerValue,
+        'X-Grid-Collection-Scope': scope.headerValue,
       },
     })
 
     if (!response.ok) {
       const errorText = await response.text()
-      // Same cancel-after-terminal race as GET (#632): a DELETE that lands
-      // after the job finished is a verdict, not a failure.
-      if (response.status === 400 && errorText.includes('Job not cancellable')) {
-        console.warn('[Deep Research API] DELETE cancel race: job already terminal:', errorText.slice(0, 200))
-      } else {
-        console.error('[Deep Research API] DELETE Backend error:', response.status, errorText)
-      }
+      logBackendError('DELETE', response.status, errorText)
 
       return backendErrorEnvelope(response.status, errorText)
     }

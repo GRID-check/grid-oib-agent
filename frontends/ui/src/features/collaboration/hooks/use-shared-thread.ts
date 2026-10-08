@@ -6,7 +6,7 @@
  *
  * Chat is local-first. The chat store persists conversations to browser storage
  * and `hydrateConversationMessages` bails when a conversation already has
- * messages, so the local copy always wins — which is correct for one author and
+ * messages it loaded, so the local copy always wins — which is correct for one author and
  * incorrect by construction for two, because a browser cannot know what a
  * colleague just wrote. ADR-0033 inverts the source of truth for **shared**
  * conversations only, and this hook is the single place that inversion happens.
@@ -47,6 +47,10 @@ import { useChatStore } from '@/features/chat/store'
 import type { ChatMessage } from '@/features/chat/types'
 import type { MessagesSlice } from '@/features/chat/stores/messages-store'
 import { mapServerMessagesToChatMessages } from '@/features/chat/lib/server-message-mapper'
+import {
+  isConversationOnServer,
+  useConversationOnServer,
+} from '@/features/chat/lib/conversation-on-server'
 import type { ConversationEngagement, Message } from '@/lib/db/schema'
 import {
   publishThreadRole,
@@ -481,6 +485,22 @@ export function useSharedThread(options: UseSharedThreadOptions): UseSharedThrea
       // never invalidate it — so a revalidation for the thread you just left
       // wrote its access facts over the thread you are now in.
       const current = generation ?? ++seq.current
+
+      // A chat this page minted and has not stored yet: the server has no row,
+      // so the read could only answer 404. It is private by construction —
+      // nobody else can have been given a conversation that does not exist —
+      // which is exactly what that 404 used to be taken to mean, so publish
+      // that without asking. The read follows once the create lands (the
+      // `onServer` effect below).
+      if (!isConversationOnServer(conversationId)) {
+        sharedRef.current = false
+        setShared(false)
+        setMyRole(null)
+        setLoading(false)
+        publishThreadSharing(conversationId, false)
+        return 'ok'
+      }
+
       if (replace) setLoading(true)
       try {
         const response = await fetch(`/api/conversations/${encodeURIComponent(conversationId)}`)
@@ -655,6 +675,7 @@ export function useSharedThread(options: UseSharedThreadOptions): UseSharedThrea
     // (revision 1) to a fresh one (revision 0) read as "declared stale" and
     // fired a second, racing load on every switch.
     lastRevisionRef.current = revisionRef.current
+    lastOnServerRef.current = onServerRef.current
     void loadAndRevalidate(true)
     // Switching conversation (or unmounting) abandons a retry in flight —
     // otherwise a retry for the thread you just left writes over the one you
@@ -692,6 +713,26 @@ export function useSharedThread(options: UseSharedThreadOptions): UseSharedThrea
     lastRevisionRef.current = revision
     void loadAndRevalidate(false)
   }, [revision, loadAndRevalidate])
+
+  /*
+    Read once the server has the conversation.
+
+    A new chat's reads are skipped until its first message has created the row
+    (`load` above); this is the read that was skipped. Not `replace`, for the
+    same reason as the revision re-read: the thread on screen is the one this
+    page just wrote, and the turn it started is running. Skipped when the
+    conversation was already on the server when it opened, so an existing
+    thread still reads exactly once.
+  */
+  const onServer = useConversationOnServer(conversationId)
+  const onServerRef = useRef(onServer)
+  onServerRef.current = onServer
+  const lastOnServerRef = useRef(onServer)
+  useEffect(() => {
+    if (onServer === lastOnServerRef.current) return
+    lastOnServerRef.current = onServer
+    if (onServer) void loadAndRevalidate(false)
+  }, [onServer, loadAndRevalidate])
 
   const onEvent = useCallback(
     (event: CollaborationEvent) => {

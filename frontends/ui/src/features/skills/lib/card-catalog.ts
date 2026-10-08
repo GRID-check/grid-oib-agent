@@ -24,29 +24,22 @@ import { gridCardSchema } from '@/shared/cards/schemas'
 /**
  * Card types emitted only by a tool, never by the model.
  *
- * Kept in sync with `SYSTEM_CARD_TYPES` in `src/aiq_agent/cards/catalog.py`.
- * A denylist rather than a derived value because nothing in the generated Zod
- * schemas records the distinction — and unlike the card list itself, it does
- * not grow every time a card is added. `card-catalog.spec.ts` asserts every
- * name still resolves to a real union member, so removing a system card
- * upstream fails here instead of leaving a dead entry behind.
- *
- * `follow_ups` joined when the card was retired for the post-answer stage:
- * until then the picker went on offering a type the backend read path silently
- * dropped from every saved `grid-cards` value.
- */
-export const SYSTEM_CARD_TYPES = ['memory_proposal', 'document_grid', 'follow_ups'] as const
-
-/**
- * Card types materialized platform-side from the `answer_meta` trailer of the
- * answer contract, never emitted through a tool call by the answering model.
- *
- * Kept in sync with `ENVELOPE_CARD_TYPES` in `src/aiq_agent/cards/catalog.py`,
+ * Kept in sync with `SYSTEM_CARD_TYPES` in `src/aiq_agent/cards/catalog.py`,
  * whose `model_facing_card_types()` — the set the backend validates a saved
- * `grid-cards` value against — excludes them. Offering one here would let an
- * author save a preference the read path drops on every resolve.
+ * `grid-cards` value against — excludes them. A denylist rather than a derived
+ * value because nothing in the generated Zod schemas records the distinction —
+ * and unlike the card list itself, it does not grow every time a card is added.
+ * `card-catalog.spec.ts` asserts every name still resolves to a real union
+ * member, so removing a system card upstream fails here instead of leaving a
+ * dead entry behind.
  */
-export const ENVELOPE_CARD_TYPES = ['summary', 'verdict_header', 'key_takeaways', 'callout'] as const
+export const SYSTEM_CARD_TYPES = [
+  'memory_proposal',
+  'document_grid',
+  'document_draft',
+  'task_created',
+  'file_operation_proposal',
+] as const
 
 export interface CardCatalogEntry {
   /** The card's `type` literal — what is stored in `grid-cards`. */
@@ -61,7 +54,7 @@ function firstParagraph(text: string): string {
 }
 
 function buildCardCatalog(): CardCatalogEntry[] {
-  const withheld = new Set<string>([...SYSTEM_CARD_TYPES, ...ENVELOPE_CARD_TYPES])
+  const withheld = new Set<string>(SYSTEM_CARD_TYPES)
   const entries: CardCatalogEntry[] = []
   // `optionsMap` is keyed by the discriminator value zod itself resolved, so it
   // is correct even for the one card whose `type` literal is wrapped in a

@@ -1,4 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import type { SQL } from 'drizzle-orm'
+import { PgDialect } from 'drizzle-orm/pg-core'
 
 vi.mock('server-only', () => ({}))
 
@@ -11,10 +13,12 @@ vi.mock('server-only', () => ({}))
  * A mock that only checked "an insert happened" would pass on a version of this
  * function with no lock at all, which is the version that was already shipped.
  */
-function fakeDb(usedBytes: number, versionBytes = 0) {
+function fakeDb(usedBytes: number, versionBytes = 0, rowExists = true) {
   const statements: string[] = []
   const inserted: unknown[] = []
   const updated: unknown[] = []
+  /** The usage read's WHERE, rendered as the SQL Postgres would receive. */
+  const whereArgs: string[] = []
 
   const tx = {
     execute: vi.fn(async (query: { queryChunks?: unknown[] }) => {
@@ -23,7 +27,8 @@ function fakeDb(usedBytes: number, versionBytes = 0) {
     }),
     select: vi.fn(() => ({
       from: vi.fn(() => ({
-        where: vi.fn(async () => {
+        where: vi.fn(async (condition: SQL) => {
+          whereArgs.push(new PgDialect().sqlToQuery(condition).sql)
           statements.push('SELECT sum')
           // `versionBytes` rides in the SAME select (a correlated subquery), so
           // the whole usage read stays one round trip inside the lock.
@@ -40,11 +45,15 @@ function fakeDb(usedBytes: number, versionBytes = 0) {
     })),
     update: vi.fn(() => ({
       set: vi.fn((values: unknown) => ({
-        where: vi.fn(async () => {
-          statements.push('UPDATE')
-          updated.push(values)
-          return []
-        }),
+        where: vi.fn(() => ({
+          // The update names what it matched, so a deleted row is visible.
+          returning: vi.fn(async () => {
+            statements.push('UPDATE')
+            if (!rowExists) return []
+            updated.push(values)
+            return [{ id: 'doc-1' }]
+          }),
+        })),
       })),
     })),
   }
@@ -53,6 +62,7 @@ function fakeDb(usedBytes: number, versionBytes = 0) {
     statements,
     inserted,
     updated,
+    whereArgs,
     tx,
     db: { transaction: vi.fn(async (cb: (t: typeof tx) => unknown) => cb(tx)) },
   }
@@ -65,6 +75,7 @@ vi.mock('@/lib/db/tenant-context', () => ({
 }))
 
 import { insertDocumentWithinQuota, replaceDocumentWithinQuota } from './repository'
+import { ReplacedDocumentGoneError } from '@/lib/documents/unique-conflicts'
 import type { NewDocument } from '@/lib/db/schema'
 
 const row = (fileSize: number): NewDocument =>
@@ -111,7 +122,7 @@ describe('the version overhead is part of the ceiling', () => {
     await expect(insertDocumentWithinQuota(row(1_000), 10_000)).resolves.toEqual({ ok: true })
   })
 
-  it('counts it on the REPLACE path too, minus the row being replaced', async () => {
+  it('counts it on the REPLACE path too', async () => {
     const fake = fakeDb(2_000, 6_000)
     getDb.mockReturnValue(fake.db)
 
@@ -205,11 +216,13 @@ describe('insertDocumentWithinQuota', () => {
  * The re-upload path's quota arithmetic, which is the half that can be wrong in
  * a way nobody notices.
  *
- * A replace points an EXISTING row at new bytes, and that row is already
- * counted in `sum(file_size)`. Charging the full new size against a total that
- * still includes the old copy would refuse a corrected plan for space the
- * correction itself frees — and it would do so with a plausible
- * "no storage space left", which is the worst kind of wrong answer.
+ * A replace points an EXISTING row at new bytes. Before ADR-0054 the old bytes
+ * were deleted, so the row was excluded from the sum and the new size charged
+ * in its place. Since then the old bytes STAY, as the superseded version, and
+ * excluding the row counted them nowhere during the admission: the item was
+ * left out, and the version overhead compares against the item's key, which is
+ * still the old one until this update. Every re-upload was admitted as if it
+ * left nothing behind.
  */
 describe('replaceDocumentWithinQuota', () => {
   beforeEach(() => vi.clearAllMocks())
@@ -243,18 +256,27 @@ describe('replaceDocumentWithinQuota', () => {
     expect(replaceLock).toBe(other.statements[0])
   })
 
-  it('excludes the row being replaced from the usage it is measured against', async () => {
-    // The recorded sum here already omits the 9_000-byte row being replaced —
-    // that is what the `ne(documents.id, …)` predicate is for. A 9_500-byte
-    // replacement of a 9_000-byte file is a 500-byte increase and must be
-    // admitted, even though 9_000 + 9_500 would exceed the quota.
-    const fake = fakeDb(0)
+  it('charges the FULL new size, because the replaced bytes stay as the superseded version', async () => {
+    // 9_000 bytes stored, all of them the file being replaced. After the commit
+    // the org holds the old 9_000 (now the superseded version) AND the new
+    // 9_500. The old arithmetic called this a 500-byte increase and admitted it.
+    const fake = fakeDb(9_000)
     getDb.mockReturnValue(fake.db)
 
     await expect(
       replaceDocumentWithinQuota('org-1', 'doc-1', next(9_500), 10_000)
-    ).resolves.toEqual({ ok: true })
-    expect(fake.updated).toHaveLength(1)
+    ).resolves.toEqual({ ok: false, usedBytes: 9_000 })
+    expect(fake.updated).toHaveLength(0)
+  })
+
+  it('measures the whole organization, the row being replaced included', async () => {
+    const fake = fakeDb(0)
+    getDb.mockReturnValue(fake.db)
+    await replaceDocumentWithinQuota('org-1', 'doc-1', next(1), 10)
+    // The only filter is the tenant: no `id <> $doc` exclusion any more.
+    expect(fake.whereArgs).toHaveLength(1)
+    expect(fake.whereArgs[0]).not.toMatch(/"id" <>/)
+    expect(fake.whereArgs[0]).toMatch(/"organization_id" = \$1/)
   })
 
   it('still refuses a replacement that genuinely does not fit', async () => {
@@ -275,6 +297,18 @@ describe('replaceDocumentWithinQuota', () => {
     await replaceDocumentWithinQuota('org-1', 'doc-1', next(1), null)
 
     expect(fake.statements).toEqual([expect.stringContaining('pg_advisory_xact_lock'), 'UPDATE'])
+  })
+
+  it('reports a row deleted since the caller probed it, instead of admitting nothing', async () => {
+    // Zero rows matched: the document was deleted between the upload's name
+    // probe and this update. "ok" here left the new object named by no row.
+    const fake = fakeDb(0, 0, false)
+    getDb.mockReturnValue(fake.db)
+
+    const outcome = replaceDocumentWithinQuota('org-1', 'doc-1', next(1), 10)
+
+    await expect(outcome).rejects.toBeInstanceOf(ReplacedDocumentGoneError)
+    await expect(outcome).rejects.toMatchObject({ status: 409, documentId: 'doc-1' })
   })
 
   it('updates inside the transaction, not outside it', async () => {

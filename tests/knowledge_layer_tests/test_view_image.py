@@ -23,8 +23,8 @@ from sources.knowledge_layer.src.view_image import view_knowledge_image
 _JPEG_BYTES = b"\xff\xd8\xff\xe0test-jpeg-payload"
 
 
-def _config(tmp_path) -> ViewKnowledgeImageToolConfig:
-    return ViewKnowledgeImageToolConfig(pdf_dirs=[str(tmp_path)])
+def _config(_tmp_path) -> ViewKnowledgeImageToolConfig:
+    return ViewKnowledgeImageToolConfig()
 
 
 def _patch_env(monkeypatch, *, enabled: bool = True, vlm_key: str = "sk-test") -> None:
@@ -68,7 +68,7 @@ async def _invoke(
 
     monkeypatch.setattr(
         "sources.knowledge_layer.src.view_image._find_pdf",
-        lambda _dirs, _name: pdf_path,
+        lambda _name: pdf_path,
     )
 
     config = _config(tmp_path)
@@ -144,16 +144,6 @@ def test_is_enabled_respects_flag(monkeypatch) -> None:
 
     monkeypatch.setenv("AIQ_VIEW_IMAGES_ENABLED", "true")
     assert _is_enabled() is True
-
-
-def test_find_pdf_case_insensitive_recursive(tmp_path) -> None:
-    nested = tmp_path / "nested"
-    nested.mkdir()
-    (nested / "OIB-3-Brandschutz.PDF").write_bytes(b"pdf")
-
-    assert _find_pdf([str(tmp_path)], "oib-3-brandschutz.pdf") is not None
-    assert _find_pdf([str(tmp_path)], "nonexistent.pdf") is None
-    assert _find_pdf([str(tmp_path / "missing-dir")], "x.pdf") is None
 
 
 def test_render_page_round_trips_jpeg(monkeypatch, tmp_path) -> None:
@@ -269,6 +259,75 @@ def test_render_page_from_bytes_round_trips_jpeg(monkeypatch) -> None:
 
     assert (width, height) == (8, 8)
     assert jpeg_bytes.startswith(b"\xff\xd8")
+
+
+def test_render_page_makes_every_pdfium_call_under_the_process_lock(monkeypatch) -> None:
+    """Open, read, render and every close hold ``pdfium_lock``; the JPEG encode does not."""
+    import sys
+    from types import ModuleType
+
+    from knowledge_layer.llamaindex import pdfium_lock as lock_module
+    from PIL import Image
+
+    held = lock_module._LOCK._is_owned
+    calls: list[tuple[str, bool]] = []
+
+    class _FakeBitmap:
+        def to_pil(self):
+            calls.append(("to_pil", held()))
+            return Image.new("RGB", (8, 8), "white")
+
+        def close(self):
+            calls.append(("bitmap.close", held()))
+
+    class _FakePage:
+        def get_size(self):
+            calls.append(("get_size", held()))
+            return (50.0, 50.0)
+
+        def render(self, *, scale):
+            calls.append(("render", held()))
+            return _FakeBitmap()
+
+        def close(self):
+            calls.append(("page.close", held()))
+
+    class _FakeDoc:
+        def __init__(self, _source):
+            calls.append(("open", held()))
+
+        def __getitem__(self, index):
+            return _FakePage()
+
+        def close(self):
+            calls.append(("doc.close", held()))
+
+    fake_pdfium = ModuleType("pypdfium2")
+    fake_pdfium.PdfDocument = _FakeDoc
+    monkeypatch.setitem(sys.modules, "pypdfium2", fake_pdfium)
+
+    original_save = Image.Image.save
+
+    def _save(self, *args, **kwargs):
+        calls.append(("encode", held()))
+        return original_save(self, *args, **kwargs)
+
+    monkeypatch.setattr(Image.Image, "save", _save)
+
+    _render_page_from_bytes(b"pdf", 1, 2048)
+
+    assert [name for name, _ in calls] == [
+        "open",
+        "get_size",
+        "render",
+        "to_pil",
+        "bitmap.close",
+        "page.close",
+        "doc.close",
+        "encode",
+    ]
+    assert all(locked for name, locked in calls if name != "encode")
+    assert dict(calls)["encode"] is False
 
 
 def _patch_seaweed_chain(
@@ -568,3 +627,41 @@ async def test_per_turn_cap_stops_the_tool_before_any_work(monkeypatch, tmp_path
 
     # Outside a turn the tool is not capped.
     assert isinstance(await _invoke(monkeypatch, tmp_path, pdf_path="x.pdf"), list)
+
+
+# =============================================================================
+# _find_pdf: a base-corpus PDF is whatever the corpus table lists
+# =============================================================================
+
+
+def test_find_pdf_fetches_a_base_corpus_file_that_is_not_local(monkeypatch, tmp_path) -> None:
+    from aiq_agent import corpus_store
+    from tests.object_corpus_fakes import install
+
+    install(monkeypatch, tmp_path)
+    corpus_store.put("OIB-3.pdf", b"%PDF from the object store")
+    (tmp_path / "cache" / "OIB-3.pdf").unlink()  # another replica uploaded it
+
+    found = _find_pdf("OIB-3.pdf")
+
+    assert found == str(tmp_path / "cache" / "OIB-3.pdf")
+    assert (tmp_path / "cache" / "OIB-3.pdf").read_bytes() == b"%PDF from the object store"
+
+
+def test_find_pdf_for_a_file_the_corpus_does_not_list_is_none(monkeypatch, tmp_path) -> None:
+    from tests.object_corpus_fakes import install
+
+    install(monkeypatch, tmp_path)
+
+    assert _find_pdf("unknown.pdf") is None
+
+
+def test_find_pdf_is_fail_open_when_the_corpus_lookup_breaks(monkeypatch) -> None:
+    from aiq_agent import corpus_store
+
+    def broken(_name):
+        raise RuntimeError("database down")
+
+    monkeypatch.setattr(corpus_store, "ensure_local", broken)
+
+    assert _find_pdf("OIB-3.pdf") is None

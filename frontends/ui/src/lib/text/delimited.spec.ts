@@ -29,7 +29,7 @@ describe('parseDelimited', () => {
   })
 
   it('strips a BOM instead of welding it to the first header cell', () => {
-    const { rows } = parseDelimited('﻿Bauteil,U-Wert\nWand,0.20\n')
+    const { rows } = parseDelimited('\uFEFFBauteil,U-Wert\nWand,0.20\n')
     expect(rows[0]).toEqual(['Bauteil', 'U-Wert'])
   })
 

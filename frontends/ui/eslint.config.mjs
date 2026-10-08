@@ -42,26 +42,21 @@ const gridRules = {
  * its own exemption list would instead report "clean" while eleven cards still
  * carried an off-ramp size.
  *
- * Sprint 1 (charter §C): follow_ups, key_takeaways, verdict_header, summary,
- * callout, the two proposal cards.
+ * Sprint 1 (charter §C): key_takeaways, verdict_header, callout, the two
+ * proposal cards.
  *
- * Sprint 2: the shared schematic chrome and the two table cards. `kit.tsx`
- * earns its place first because it is the chrome for NINE cards — eyebrow,
+ * Sprint 2: the shared schematic chrome. `kit.tsx`
+ * earns its place first because it is the chrome for eight cards — eyebrow,
  * title, note and norm footer — so one migration moves all of them onto the
  * ramp at once, and every schematic card migrated after it starts from a
  * compliant shell.
  */
 const CARDS_ON_THE_TYPE_RAMP = [
-  'src/features/grid-cards/components/FollowUpsCard.tsx',
   'src/features/grid-cards/components/KeyTakeawaysCard.tsx',
   'src/features/grid-cards/components/VerdictHeaderCard.tsx',
-  'src/features/grid-cards/components/SummaryCard.tsx',
   'src/features/grid-cards/components/CalloutCard.tsx',
   'src/features/grid-cards/components/ProposalShell.tsx',
-  'src/features/grid-cards/components/DiagramCard.tsx',
   'src/features/grid-cards/schematics/kit.tsx',
-  'src/features/grid-cards/components/ComparisonTableCard.tsx',
-  'src/features/grid-cards/components/TypedTableCard.tsx',
 ]
 
 /** @type {import('eslint').Linter.Config[]} */
@@ -108,6 +103,42 @@ export default [
     // See eslint-rules/card-type-scale.mjs and grid-card-charter.md §A2.
     files: CARDS_ON_THE_TYPE_RAMP,
     rules: { 'grid/card-type-scale': 'error' },
+  },
+  {
+    // drizzle's `tx.rollback()` THROWS `TransactionRollbackError`; it does not
+    // return. `promoteVersionToPublished` called it and then `return null`, the
+    // null was unreachable, and a lost publish race answered 500 instead of 409.
+    // Throw a sentinel of your own inside the transaction and catch it outside
+    // (`LostCompareAndSwap` in lib/documents/version-repository.ts).
+    files: ['src/**/*.{ts,tsx}'],
+    ignores: ['src/**/*.spec.{ts,tsx}'],
+    rules: {
+      'no-restricted-syntax': [
+        'error',
+        {
+          selector: "CallExpression[callee.property.name='rollback'][arguments.length=0]",
+          message:
+            "drizzle's tx.rollback() throws TransactionRollbackError, so nothing after it runs. Throw a sentinel inside the transaction and catch it outside (see LostCompareAndSwap).",
+        },
+        {
+          // Every `error.code === '23505'` in this tree compared against
+          // drizzle's `Failed query` wrapper, whose code is undefined — the
+          // driver's error is its `cause` — so each race backstop behind one was
+          // dead in production and its loser got a 500.
+          selector: "Literal[value='23505']",
+          message:
+            "drizzle wraps the driver error: `error.code` is undefined and the SQLSTATE is on `cause`. Use isUniqueViolation(error, '<constraint>') from @/lib/db/errors.",
+        },
+        {
+          // pdf.js drains its text stream with `for await`, and Safari before 27
+          // cannot iterate a ReadableStream: every cited passage went unmarked
+          // there while the page rendered fine.
+          selector: "CallExpression[callee.property.name='getTextContent']",
+          message:
+            "page.getTextContent() iterates a ReadableStream with for-await, which Safari before 27 cannot do. Use readPageTextItems(page) from features/knowledge/lib/pdfjs-runtime.",
+        },
+      ],
+    },
   },
   {
     files: ['src/**/*.{ts,tsx}'],

@@ -1,6 +1,7 @@
 /**
  * @vitest-environment node
  */
+import { createRequire } from 'node:module'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 async function freshModule() {
@@ -27,6 +28,21 @@ describe('logsUrl', () => {
   it('leaves an explicit /v1/logs path alone', async () => {
     const { logsUrl } = await freshModule()
     expect(logsUrl('http://otel-collector:4318/v1/logs')).toBe('http://otel-collector:4318/v1/logs')
+  })
+})
+
+describe('resourceAttributes', () => {
+  it('names the build a record came from', async () => {
+    const { resourceAttributes } = await freshModule()
+    expect(resourceAttributes({ OTEL_SERVICE_NAME: 'grid-scheduler', GRID_GIT_SHA: ' abc123 ' })).toEqual({
+      'service.name': 'grid-scheduler',
+      'service.version': 'abc123',
+    })
+  })
+
+  it('omits the version when the image carries none', async () => {
+    const { resourceAttributes } = await freshModule()
+    expect(resourceAttributes({ GRID_GIT_SHA: '' })).toEqual({ 'service.name': 'grid-ui' })
   })
 })
 
@@ -104,6 +120,57 @@ describe('classifyConsoleRecord', () => {
       ...WARN,
       attributes: { 'grid.severity.reclassified': 'expected-404' },
     })
+  })
+
+  it('records a render the browser abandoned as WARN (#578)', async () => {
+    const { classifyConsoleRecord } = await freshModule()
+    const body = "⨯ Error: The destination stream closed early.\n    at ignore-listed frames {\n  digest: '1392313014'\n}"
+    expect(classifyConsoleRecord('error', body)).toEqual({
+      ...WARN,
+      attributes: { 'grid.severity.reclassified': 'client-disconnect' },
+    })
+  })
+
+  it('matches #578 as err2issue recorded it, once err2issue\'s own "Error: " prefix is taken off', async () => {
+    // err2issue titles and quotes every record as `<type>: <body>` with the
+    // type `Error`: #800's body was `[job-scheduler] run reconcile failed: …`
+    // and the issue shows `Error: [job-scheduler] run reconcile failed: …`.
+    // So the recorded `Error: ⨯ Error: The destination stream closed early.`
+    // is the body `⨯ Error: …`, the shape the rule is anchored to. A body
+    // that really began with `Error: ⨯` would be a different call shape, and
+    // the join test below pins the one Next actually makes.
+    const { classifyConsoleRecord } = await freshModule()
+    const recorded = "Error: ⨯ Error: The destination stream closed early.\n    at ignore-listed frames {\n  digest: '1392313014'\n}"
+    const body = recorded.replace(/^Error: /, '')
+    expect(classifyConsoleRecord('error', body).attributes).toEqual({ 'grid.severity.reclassified': 'client-disconnect' })
+  })
+
+  it('keeps an application error that merely mentions a closed stream at ERROR', async () => {
+    const { classifyConsoleRecord } = await freshModule()
+    const ERROR = { severityNumber: 17, severityText: 'ERROR' }
+    expect(classifyConsoleRecord('error', '[pdf] upload failed: The destination stream closed early.')).toEqual(ERROR)
+  })
+
+  it('records a page render the database outage broke as WARN; the API line files the outage', async () => {
+    const { classifyConsoleRecord } = await freshModule()
+    const body = [
+      '⨯ Error: Failed query: select "organization_id", "deleted_at" from "projects" where "projects"."id" = $1 limit $2',
+      'params: 38d1bb85-5d06-40a5-b88d-1b74043b11a4,1',
+      "  digest: '1660884884',",
+      '  [cause]: Error: connect EHOSTUNREACH 10.111.223.83:5432 - Local (0.0.0.0:0)',
+      "    errno: -113,\n    code: 'EHOSTUNREACH',",
+    ].join('\n')
+    expect(classifyConsoleRecord('error', body)).toEqual({
+      ...WARN,
+      attributes: { 'grid.severity.reclassified': 'database-unavailable-render' },
+    })
+  })
+
+  it('keeps a page render whose query the database rejected at ERROR', async () => {
+    const { classifyConsoleRecord } = await freshModule()
+    const ERROR = { severityNumber: 17, severityText: 'ERROR' }
+    const body = "⨯ Error: Failed query: insert into x\n  [cause]: PostgresError: duplicate key\n    code: '23505'"
+    expect(classifyConsoleRecord('error', body)).toEqual(ERROR)
   })
 
   it('leaves every other ApiError status and code at ERROR', async () => {
@@ -222,6 +289,46 @@ describe('initOtelLogs', () => {
         undefined,
       ])
       expect(passthrough).toHaveBeenCalledTimes(3)
+    } finally {
+      console.error = origError
+    }
+  })
+
+  it("records #578 through Next's own error logger at WARN", async () => {
+    // The production call, not a string written to look like it: Next's
+    // server logs a failed render with `Log.error(err)`
+    // (`base-server.js` logError), which is `console.error('⨯', err)` — the
+    // prefix a separate argument, colourless without a TTY, as in a pod. The
+    // bridge formats both into the body the anchored rule reads.
+    const { logs } = await import('@opentelemetry/api-logs')
+    logs.disable()
+    vi.stubEnv('OTEL_EXPORTER_OTLP_ENDPOINT', 'http://127.0.0.1:1/v1/logs')
+    vi.stubEnv('NO_COLOR', '1')
+    const { initOtelLogs } = await freshModule()
+
+    // Next's logger reads the colour setting once, at load: load it fresh.
+    const require = createRequire(import.meta.url)
+    for (const id of ['next/dist/lib/picocolors', 'next/dist/build/output/log']) {
+      delete require.cache[require.resolve(id)]
+    }
+    const nextLog = require('next/dist/build/output/log')
+
+    const passthrough = vi.fn()
+    const origError = console.error
+    console.error = passthrough
+    try {
+      expect(initOtelLogs()).toBe(true)
+      const emit = vi.spyOn(logs.getLogger('grid-console'), 'emit')
+
+      // What React hands Next when the browser leaves mid-render.
+      const aborted = Object.assign(new Error('The destination stream closed early.'), { digest: '1392313014' })
+      nextLog.error(aborted)
+
+      expect(passthrough).toHaveBeenCalledWith('⨯', aborted)
+      const [record] = emit.mock.calls.at(-1)
+      expect(record.body.startsWith('⨯ Error: The destination stream closed early.\n')).toBe(true)
+      expect(record.severityNumber).toBe(13)
+      expect(record.attributes).toEqual({ 'grid.severity.reclassified': 'client-disconnect' })
     } finally {
       console.error = origError
     }

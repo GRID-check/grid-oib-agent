@@ -20,6 +20,7 @@ import {
   useCallback,
   useEffect,
   useId,
+  useLayoutEffect,
   useMemo,
   useState,
 } from 'react'
@@ -28,13 +29,14 @@ import { Chip } from '@/components/ui/chip'
 import { SectionLabel } from '@/components/ui/section-label'
 import type { PluggableList } from 'unified'
 import { useLocale, useTranslations } from '@/i18n'
+import { AnswerCost } from './AnswerCost'
 import type { Translator } from '@/i18n'
 import { MarkdownRenderer } from '@/shared/components/MarkdownRenderer'
 import { remarkCitationMarkers } from '@/features/layout/lib/citation-markers'
 import { remarkFileReferences } from '@/features/layout/lib/file-reference-markers'
 import { formatTime } from '@/shared/utils/format-time'
+import { formatDurationElapsed } from '@/lib/format'
 import { GridCardItem, GridCards } from '@/features/grid-cards/components/GridCards'
-import { CardSetProvider } from '@/features/grid-cards/card-set'
 import {
   CALLOUT_SLOT_INDEX,
   hasPlacedCalloutMarker,
@@ -49,6 +51,7 @@ import { ANSWER_DEGRADED_REASONS, TRUNCATION_REASONS } from '@/lib/conversations
 import type { MessageStages } from '@/lib/conversations/message-stages'
 import type { CardInteractions } from '@/features/grid-cards/card-decision'
 import { useChatStore } from '../store'
+import { useAnswerRevealStore } from '../stores/answer-reveal-store'
 import { useAnswerFileReferences } from '../hooks/use-answer-file-references'
 import { usePacedText } from '../hooks/use-paced-text'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
@@ -57,6 +60,7 @@ import {
   answerDocuments,
   answerSourceAnchorPrefix,
   buildCitationModel,
+  proseLength,
   splitAnswerBody,
 } from '../lib/citations'
 import { AnswerCitations } from './AnswerCitations'
@@ -69,13 +73,20 @@ import { turnMemoryItems, type TurnMemoryItem } from '../lib/turn-memory'
 import { answerMetaToAnatomy, summaryDuplicatesBody } from '../lib/answer-meta-cards'
 import { AnatomyBlock, AnatomyMasthead } from './AnswerAnatomy'
 import { FindingsMatrix } from './FindingsMatrix'
-import { EvidenceBlock } from './EvidenceBlock'
 import type { AnswerKind, AnswerMeta } from '@/lib/conversations/message-answer-meta'
 import type { Finding, Findings } from '@/lib/conversations/message-findings'
 import { ConfidenceChip, type AnswerConfidence } from './ConfidenceChip'
 import { AnswerFeedback } from './AnswerFeedback'
+import { RetryThoroughButton } from './RetryThoroughButton'
 import { AnswerActions } from './AnswerActions'
-import { CardArrival, PendingCardSlot } from './CardSlotArrival'
+import { CardSlot, CardSlotLiveProvider } from './CardSlotArrival'
+import type { RetrievalLedger } from '@/lib/conversations/message-retrieval-ledger'
+import type { QuoteStamp } from '@/lib/conversations/message-quote-stamps'
+import { projectKeysIn } from '@/lib/text/answer-directives'
+import { AnswerDataProvider, type AnswerData } from '@/shared/components/MarkdownRenderer/answer-block-context'
+import { AnswerProjectStrip } from '@/shared/components/MarkdownRenderer/project-binding'
+import { useProjectFacts } from '../hooks/use-project-facts'
+import { isNotRegulated, searchedSources } from '../lib/answer-data'
 
 /**
  * The first paragraph of a long answer, typeset as a lede.
@@ -150,6 +161,8 @@ export interface AgentResponseProps {
   content: string
   /** Timestamp of the response (Date or ISO string from persisted state) */
   timestamp?: Date | string
+  /** How long the answer took, question sent to answer final, in milliseconds. */
+  answerDurationMs?: number
   /** Display variant - 'default' has box styling, 'inline' has no box (for use inside containers) */
   variant?: 'default' | 'inline'
   /**
@@ -315,6 +328,20 @@ export interface AgentResponseProps {
    * one, which carries its own. A file the answer names still links.
    */
   readOnly?: boolean
+  /**
+   * The backend's account of the turn's retrieval rounds. Read here for the
+   * „Gesucht in" pane of a `:::not-found`, which lists what the turn searched
+   * from this record and never from the model's words.
+   */
+  retrievalLedger?: RetrievalLedger
+  /** The server's check of each quote line (`TurnResult.quote_stamps`), for „Wortlaut belegt [N]". */
+  quoteStamps?: QuoteStamp[]
+  /**
+   * The project profile `:project[key]` binds, when the caller has it (a
+   * preview, a spec). Omitted, the open project's profile is fetched once for
+   * the thread (`useProjectFacts`).
+   */
+  projectProfile?: unknown
 }
 
 /** Role-tab label for the default answer card. Envelope `kind` wins. */
@@ -330,12 +357,32 @@ function answerRoleTab(
   return 'result'
 }
 
-/** Blinking caret shown at the tail of a still-streaming answer (C6). */
-const StreamingCaret: FC = () => (
+/**
+ * Blinking caret shown at the tail of a still-streaming answer (C6). It fades
+ * out while the finish reveals the last words (`fading`), so by the time the
+ * answer settles and it is removed there is nothing left to disappear. The
+ * fade is on a wrapper: the blink already animates the caret's own opacity,
+ * and two animations of one property on one element fight.
+ *
+ * `veil`: the newest words come out of a short gradient trailing the caret,
+ * drawn in the card's colour, so each word the reveal adds starts faint and
+ * darkens as the next ones push it out, like ink settling. It moves with the
+ * caret and animates nothing, so it costs no more than the caret does. A
+ * fade per word (a span per word, each with its own entrance) cost a 4×
+ * throttled phone 10 fps and 200 ms of main thread a second on a prose-heavy
+ * answer, the long tasks included (docs/design/streaming-chat-answer.md).
+ * Only on the card, whose colour it is drawn in.
+ */
+const StreamingCaret: FC<{ fading?: boolean; veil?: boolean }> = ({ fading = false, veil = false }) => (
   <span
     aria-hidden="true"
-    className="bg-foreground/70 ml-0.5 inline-block h-[1.05em] w-[2px] translate-y-[0.15em] animate-pulse rounded-full align-baseline motion-reduce:animate-none"
-  />
+    className={`relative inline-block transition-opacity duration-base ease-out ${fading ? 'opacity-0' : 'opacity-100'}`}
+  >
+    {veil && (
+      <span className="to-card pointer-events-none absolute -top-[0.1em] right-full -bottom-[0.15em] w-[2.5em] bg-gradient-to-r from-transparent" />
+    )}
+    <span className="bg-foreground/70 ml-0.5 inline-block h-[1.05em] w-[2px] translate-y-[0.15em] animate-pulse rounded-full align-baseline motion-reduce:animate-none" />
+  </span>
 )
 
 /**
@@ -645,26 +692,7 @@ const ReadSourcesSection: FC<{ readSources?: CitationSource[] }> = ({ readSource
  * inside. Feedback stays out on purpose: rating the answer must not cost a
  * click first.
  */
-const AnswerDetails: FC<{
-  hasConfidence: boolean
-  answerConfidence?: AnswerConfidence
-  answerConfidenceCappedReason?: AnswerConfidenceCappedReason
-  answerConfidenceReason?: string
-  memoryItems: TurnMemoryItem[]
-  skillsActivated?: string[]
-  skillsHidden?: string[]
-  showReasoning?: boolean
-  researchTruncated?: true
-  truncationReason?: string
-  degradedReasons?: string[]
-  citationsRemoved?: { count: number; reasons: string[] }
-  readSources?: CitationSource[]
-  hasAnswerSources: boolean
-  timestamp?: Date | string
-  /** Set on the trigger's own line: the footer's copy actions before it, feedback after. */
-  before?: ReactNode
-  after?: ReactNode
-}> = ({
+const AnswerDetails = memo(function AnswerDetails({
   hasConfidence,
   answerConfidence,
   answerConfidenceCappedReason,
@@ -680,9 +708,35 @@ const AnswerDetails: FC<{
   readSources,
   hasAnswerSources,
   timestamp,
+  answerDurationMs,
+  conversationId,
+  messageId,
   before,
   after,
-}) => {
+}: {
+  hasConfidence: boolean
+  answerConfidence?: AnswerConfidence
+  answerConfidenceCappedReason?: AnswerConfidenceCappedReason
+  answerConfidenceReason?: string
+  memoryItems: TurnMemoryItem[]
+  skillsActivated?: string[]
+  skillsHidden?: string[]
+  showReasoning?: boolean
+  researchTruncated?: true
+  truncationReason?: string
+  degradedReasons?: string[]
+  citationsRemoved?: { count: number; reasons: string[] }
+  readSources?: CitationSource[]
+  hasAnswerSources: boolean
+  timestamp?: Date | string
+  answerDurationMs?: number
+  /** Both needed for the answer's cost line; without either it is omitted. */
+  conversationId?: string | null
+  messageId?: string
+  /** Set on the trigger's own line: the footer's copy actions before it, feedback after. */
+  before?: ReactNode
+  after?: ReactNode
+}) {
   const t = useTranslations('chat')
   // Without the locale `formatTime` uses the RUNTIME default, so a German user on
   // an en-US browser got "03:35 PM" beside cards that all say "15:35".
@@ -747,14 +801,23 @@ const AnswerDetails: FC<{
           <AnswerDegradedNote degradedReasons={degradedReasons} />
           <CitationsRemovedNote citationsRemoved={citationsRemoved} />
           <ReadSourcesSection readSources={readSources} />
-          {timestamp && (
-            <span className="text-subtle text-xs">{formatTime(timestamp, locale)}</span>
+          {(Boolean(timestamp) || Boolean(answerDurationMs)) && (
+            <span className="text-subtle text-xs" data-testid="answer-time">
+              {timestamp && formatTime(timestamp, locale)}
+              {timestamp && answerDurationMs ? ' · ' : null}
+              {answerDurationMs
+                ? t('answerDetails.duration', {
+                    duration: formatDurationElapsed(answerDurationMs / 1000, locale),
+                  })
+                : null}
+            </span>
           )}
+          {conversationId && messageId ? <AnswerCost conversationId={conversationId} messageId={messageId} /> : null}
         </div>
       </CollapsibleContent>
     </Collapsible>
   )
-}
+})
 
 /**
  * Agent response bubble component for completed responses
@@ -762,6 +825,7 @@ const AnswerDetails: FC<{
 const AgentResponseComponent: FC<AgentResponseProps> = ({
   content,
   timestamp,
+  answerDurationMs,
   variant = 'default',
   cards,
   citations,
@@ -789,6 +853,9 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
   isStreaming = false,
   routingDecision,
   readOnly = false,
+  retrievalLedger,
+  quoteStamps,
+  projectProfile,
 }) => {
   const t = useTranslations('chat')
   const storeProjectId = useChatStore((s) => s.projectId)
@@ -798,6 +865,22 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
   // message id). Reading stays: a named file still links.
   const projectId = readOnly ? null : storeProjectId
   const cardMessageId = readOnly ? undefined : messageId
+  // What the answer's blocks read from the record rather than the prose: the
+  // project's values, where the turn searched, the server's quote checks.
+  // „ergänzen" and „Als Aufgabe" only fill the composer, and not in somebody
+  // else's turn (readOnly).
+  const projectFacts = useProjectFacts(storeProjectId, projectProfile)
+  const setComposerPrefill = useChatStore((s) => s.setComposerPrefill)
+  const answerData = useMemo(
+    (): AnswerData => ({
+      project: projectFacts ?? undefined,
+      prefill: readOnly ? undefined : setComposerPrefill,
+      searched: searchedSources(retrievalLedger),
+      quoteStamps,
+      notRegulated: isNotRegulated(answerMeta),
+    }),
+    [projectFacts, readOnly, setComposerPrefill, retrievalLedger, quoteStamps, answerMeta]
+  )
   // An answer that ends in a written "## Quellen" list used to state its sources
   // TWICE — that list AND the "Belegt durch" chips, each holding half the truth
   // (numbers/titles/pages vs. provenance color, authority and click-through).
@@ -809,17 +892,45 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
   // The prose streams while the model writes it (ADR-0066), in bursts. It is
   // shown at a steady pace a beat behind what has arrived (`usePacedText`,
   // rules in `../lib/stream-pace.ts`), so it reads as being written rather
-  // than lurching forward a sentence at a time. "Still arriving" lasts until
-  // the shown text has caught up: the caret trails it, the footer stays
-  // reserved at its height, and nothing that acts on a WHOLE answer — the copy
-  // actions, the cards no marker claimed — is offered over half of one.
-  const shownContent = usePacedText(content, isStreaming)
-  const stillArriving = isStreaming || shownContent.length < content.length
+  // than lurching forward a sentence at a time. When the turn ends, the text
+  // it held back is finished in a few hundred ms, and only then does the
+  // answer settle. Everything that belongs to a WHOLE answer (the caret going,
+  // the footer, citations turning real) follows `live`, not `isStreaming`, so
+  // it all lands in the one frame the text is complete. The unplaced cards
+  // may land earlier (`unplacedIsFinal`): a live frame carries cards only once
+  // the prose is complete, so they wait only for the reveal to catch up.
+  // Only the prose is paced: a written „## Quellen" section is lifted into the
+  // source rows, never drawn as text, and pacing it held the settle back by
+  // half a second after the last visible word. It joins the text once the
+  // prose is all shown.
+  const prose = useMemo(() => content.slice(0, proseLength(content)), [content])
+  const paced = usePacedText(prose, isStreaming)
+  const settled = paced.settled
+  const shownContent = paced.text.length >= prose.length ? content : paced.text
+  const live = !settled
+  // The finish: the stream is over, the rest of the text is being revealed.
+  const finishing = live && !isStreaming
+  // Outside the answer, the Herleitung's collapse waits for the same moment.
+  const beginReveal = useAnswerRevealStore((s) => s.begin)
+  const endReveal = useAnswerRevealStore((s) => s.end)
+  useLayoutEffect(() => {
+    if (!messageId || !live) return
+    beginReveal(messageId)
+    return () => endReveal(messageId)
+  }, [messageId, live, beginReveal, endReveal])
   const {
     body,
     entries: sourceEntries,
-    numbers: citationNumbers,
+    numbers: splitNumbers,
   } = useMemo(() => splitAnswerBody(shownContent), [shownContent])
+  // The numbers keep one identity while they stay the same: the split makes a
+  // new set for every reveal step, and a new set is a new plugin list, which
+  // re-parses every block of the answer instead of the one that grew.
+  const citationNumbersKey = [...splitNumbers].join(',')
+  const citationNumbers = useMemo(
+    (): ReadonlySet<number> => new Set(citationNumbersKey ? citationNumbersKey.split(',').map(Number) : []),
+    [citationNumbersKey]
+  )
 
   // The lede is suppressed when the envelope carries a summary or a topic:
   // the masthead's standfirst or title holds that emphasis, and a 17px
@@ -838,9 +949,7 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
   // The answer's structured anatomy, rendered FLAT (`AnswerAnatomy.tsx`) as
   // answer typography: the verdict as the masthead above the prose, the
   // takeaways closing it, the callout beside the paragraph its `[[callout]]`
-  // marker anchors it to — or after the prose when unanchored. The shape set
-  // feeds every CardSetProvider so cross-card rules (charter §A2) see the
-  // anatomy too, even though it never joins the `cards` array.
+  // marker anchors it to — or after the prose when unanchored.
   const anatomy = useMemo(() => answerMetaToAnatomy(answerMeta), [answerMeta])
   // A summary that restates the body's opening is the same statement twice,
   // so the masthead drops it (see `summaryDuplicatesBody` in the module
@@ -854,6 +963,9 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
         : anatomy?.summary,
     [anatomy, body]
   )
+  // The Projektbezug strip: the project facts the answer binds, drawn from the
+  // profile under the masthead, only where the answer binds one.
+  const stripKeys = useMemo(() => (body.includes(':project[') ? projectKeysIn(body) : []), [body])
   const ledeClass = opensWithLede(body) && !effectiveSummary && !anatomy?.topic ? LEDE_CLASS : ''
   // The files this answer NAMES, as opposed to the ones it cites. A sentence
   // like „Beginnen Sie mit pd8280-2.pdf" is pointing at a document the reader
@@ -864,25 +976,25 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
     projectId: storeProjectId,
     // The conversation whose private attachments a named file may live in.
     conversationId: conversationId ?? null,
-    isStreaming: stillArriving,
+    isStreaming: live,
   })
+  // A new list re-parses every block of the answer, so it is rebuilt only when
+  // what the plugins read changes: a boolean for the callout, not the anatomy.
+  const hasCallout = Boolean(anatomy?.callout)
   const markerPlugins = useMemo(
     (): PluggableList => [
       // While it streams, a marker with no source yet is a pending pill, not
       // a stray "[2]": the settled text names its source within seconds.
-      [remarkCitationMarkers, { numbers: citationNumbers, anchorPrefix, pending: stillArriving }],
+      [remarkCitationMarkers, { numbers: citationNumbers, anchorPrefix, pending: live }],
       // While it streams, a card marker holds its card's place until the card,
       // written after the prose, arrives to fill it.
-      [
-        remarkCardMarkers,
-        { count: cardCount, callout: Boolean(anatomy?.callout), pending: stillArriving },
-      ],
+      [remarkCardMarkers, { count: cardCount, callout: hasCallout, pending: live }],
       // AFTER the citation pass, so a filename that happens to sit inside a
       // marker's label is left alone: the pass skips `link` subtrees, and by
       // this point every `[N]` already is one.
       [remarkFileReferences, { fileNames: fileReferences.fileNames }],
     ],
-    [citationNumbers, anchorPrefix, stillArriving, cardCount, anatomy, fileReferences.fileNames]
+    [citationNumbers, anchorPrefix, live, cardCount, hasCallout, fileReferences.fileNames]
   )
   // What a run of Markdown INSIDE a card (a tab's `Text`) parses with: the
   // citations only. Its `[2]` is this answer's source 2; card markers are not
@@ -894,25 +1006,14 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
   // The cards the prose did NOT claim. Read off the same body the renderer
   // parses, because the block below has to be built before that parse happens.
   const fallbackCardIndices = useMemo(() => unplacedCardIndices(body, cardCount), [body, cardCount])
-  // An UNPLACED `legal_basis` card is not a fallback-grid item: it surfaces
-  // flat above the prose as the answer's RECHTSGRUNDLAGE block
-  // (`EvidenceBlock`), and leaves the fallback indices so it can never render
-  // twice. The first unplaced one only — a second keeps its framed fallback.
-  // Gated on the finished stream like the fallback block itself: "unplaced" is
-  // read off the body SO FAR, and a marker that has not arrived yet must still
-  // be able to claim the card.
-  const evidenceIndex = useMemo(
-    () => fallbackCardIndices.find((index) => cards?.[index]?.type === 'legal_basis'),
-    [cards, fallbackCardIndices]
-  )
-  const fallbackGridIndices = useMemo(
-    () =>
-      evidenceIndex === undefined
-        ? fallbackCardIndices
-        : fallbackCardIndices.filter((index) => index !== evidenceIndex),
-    [fallbackCardIndices, evidenceIndex]
-  )
-  const evidenceCard = evidenceIndex !== undefined ? cards?.[evidenceIndex] : undefined
+  // Whether "unplaced" is final, so the cards no marker claimed may be drawn.
+  // A live frame carries cards only once the envelope's `answer` string has
+  // closed (the backend reads them after it, ADR-0066), so a streaming answer
+  // that holds cards has all of its prose; once the pace has shown all of it,
+  // no marker is still to come. Waiting for the terminal instead held every
+  // unplaced card back until verification and the pipeline were done: 22 s
+  // after the card was written on the recorded `oib2` turn.
+  const unplacedIsFinal = !live || ((cards?.length ?? 0) > 0 && shownContent === content)
   // The after-prose anatomy: the callout leaves this block the moment the
   // prose claims it with a marker — same pre-render reading as the card
   // fallback above, and for the same reason.
@@ -927,13 +1028,15 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
   // is provenance (where it stands), not decoration — washes/alarms spend the
   // hue budget elsewhere, never by muting the source signal. Grey chips read
   // as broken, so there is no muted variant and no spend counting here.
-  const cardSet = useMemo(() => [...(cards ?? []), ...(anatomy?.all ?? [])], [cards, anatomy])
   // What a `[[card:N]]` marker in the prose draws. A card the answer has not
-  // reached yet (N past the end of `cards`) holds a skeleton while the answer
+  // reached yet (N past the end of `cards`) holds a place while the answer
   // streams, since the cards are written after the prose, and nothing once it
-  // is done. A hole INSIDE `cards` (a card the validator refused, or one an
+  // is done (`CardSlot` reads which from `CardSlotLiveProvider`, so this
+  // renderer keeps its identity when the answer settles and no card re-renders
+  // for it). A hole INSIDE `cards` (a card the validator refused, or one an
   // observer may not see) is never coming, so it draws nothing at any time:
   // a hole is better than a crash, a raw `[[card:2]]` or a skeleton forever.
+  const arrivalPrefix = messageId ?? fallbackId
   const renderCardSlot = useCallback(
     (index: number) => {
       // The callout's slot: the one anatomy block the prose may anchor.
@@ -941,46 +1044,35 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
         if (!anatomy?.callout) return null
         return (
           <div className="block! mb-3">
-            <CardSetProvider cards={cardSet}>
-              <AnatomyBlock card={anatomy.callout} />
-            </CardSetProvider>
+            <AnatomyBlock card={anatomy.callout} />
           </div>
         )
       }
       const card = cards?.[index]
+      const arrivalKey = `${arrivalPrefix}:${index}`
       // Still arriving: the card is written after the prose, so its marker
-      // holds the place it will grow from rather than nothing (ADR-0066).
-      if (!card) return stillArriving && index >= (cards?.length ?? 0) ? <PendingCardSlot /> : null
-      // `mb-3` is the paragraph rhythm of the markdown body: the card replaced
-      // a paragraph, so it has to leave the same gap behind it. `block!` beats
-      // the streaming caret's `*:last-child]:inline` rule, which would collapse
-      // a card that ends the answer for as long as the answer is still arriving.
+      // holds the place it will arrive into rather than nothing (ADR-0066).
+      if (!card) return index >= (cards?.length ?? 0) ? <CardSlot arrivalKey={arrivalKey} /> : null
       return (
-        <CardArrival live={stillArriving}>
-          {/* The whole answer's cards, not just this one: a card placed inline
-              by a marker still has to know what ELSE the answer is carrying —
-              `summary` and `verdict_header` must not both claim the top of it
-              (grid-card-charter.md §A2). See `grid-cards/card-set.tsx`. */}
-          <CardSetProvider cards={cardSet}>
-            <GridCardItem
-              card={card}
-              index={index}
-              projectId={projectId}
-              messageId={cardMessageId}
-              decisionsMustPersist={readOnly}
-            />
-          </CardSetProvider>
-        </CardArrival>
+        <CardSlot arrivalKey={arrivalKey}>
+          <GridCardItem
+            card={card}
+            index={index}
+            projectId={projectId}
+            messageId={cardMessageId}
+            decisionsMustPersist={readOnly}
+          />
+        </CardSlot>
       )
     },
-    [cards, cardSet, projectId, cardMessageId, anatomy?.callout, stillArriving, readOnly]
+    [cards, projectId, cardMessageId, anatomy?.callout, arrivalPrefix, readOnly]
   )
   // ONE derivation for the whole answer: the inline `[N]` markers in the prose
   // and the provenance chips below are the same citations seen twice, and two
   // derivations of one citation is exactly the defect the model removes.
   const documents = useMemo(
-    () => buildCitationModel({ citations, entries: sourceEntries, cards }),
-    [citations, sourceEntries, cards]
+    () => buildCitationModel({ citations, entries: sourceEntries }),
+    [citations, sourceEntries]
   )
   // The SAME predicate the sources row uses to decide between chips and the
   // "Ohne Quellenbeleg" gap row — so the truncation line never promises
@@ -1022,7 +1114,7 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
   // hand over, so both are excluded rather than given a button that copies ''.
   const hasAnswerActions =
     !readOnly &&
-    !stillArriving &&
+    !live &&
     Boolean(content) &&
     content.trim().length > 0 &&
     content !== 'null'
@@ -1031,7 +1123,7 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
   // Streaming still has no chips/thumbs, but the row is reserved at chip
   // height so the footer does not jump when they land. An idle answer with
   // nothing to hold still omits the row (no empty band).
-  const reserveMetaRow = hasMetaRow || stillArriving
+  const reserveMetaRow = hasMetaRow || live
   // What the single footer disclosure would actually hold. The copy actions
   // and the feedback stay visible beside its trigger, so a bare answer shows
   // the action and no empty trigger line. Read sources count only when at
@@ -1044,6 +1136,7 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
   const hasDetailsContent =
     hasConfidence ||
     Boolean(timestamp) ||
+    Boolean(answerDurationMs) ||
     memoryItems.length > 0 ||
     (skillsActivated?.length ?? 0) > 0 ||
     Boolean(researchTruncated) ||
@@ -1068,12 +1161,40 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
     [projectId, messageId]
   )
 
+  // Memoised elements: the footer's `AnswerDetails` is memoised, and a new
+  // element on every reveal tick re-rendered it and the feedback buttons with
+  // it, about 3 ms of each 16 ms tick on a 4× throttled phone (React
+  // performance audit, 2026-09).
+  const answerActions = useMemo(
+    () =>
+      hasAnswerActions ? (
+        <AnswerActions
+          content={content}
+          body={body}
+          documents={documents}
+          conversationId={conversationId}
+          messageId={messageId}
+        />
+      ) : null,
+    [hasAnswerActions, content, body, documents, conversationId, messageId]
+  )
+  const feedback = useMemo(
+    () =>
+      hasFeedback && messageId ? (
+        <>
+          <RetryThoroughButton messageId={messageId} conversationId={conversationId} />
+          <AnswerFeedback compact messageId={messageId} conversationId={conversationId} />
+        </>
+      ) : null,
+    [hasFeedback, messageId, conversationId]
+  )
+
   // Guard against null, undefined, empty, or literal "null" string content
   // when no cards are present. Cards can render even with empty text.
   // A streaming answer whose masthead arrived before its first word is not
   // empty: the masthead stands while the prose is still being written.
   const hasLiveMasthead =
-    stillArriving && Boolean(anatomy && (anatomy.verdict || anatomy.summary || anatomy.topic))
+    live && Boolean(anatomy && (anatomy.verdict || anatomy.summary || anatomy.topic))
   if ((!content || !content.trim() || content === 'null') && !hasCards && !hasLiveMasthead) {
     return null
   }
@@ -1081,7 +1202,8 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
   // Inline variant - no box styling (for use inside containers like thinking process)
   if (variant === 'inline') {
     return (
-      <DiagramFilingProvider target={diagramFilingTarget}>
+      <AnswerDataProvider value={answerData}>
+    <DiagramFilingProvider target={diagramFilingTarget}>
         <NestedMarkdownPluginsProvider plugins={nestedPlugins}>
           <AnswerCitations
             documents={documents}
@@ -1091,18 +1213,17 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
             <div className="flex w-full flex-col gap-2 overflow-hidden break-words">
               {/* The answer's masthead — verdict/topic and/or summary, flat above the prose. */}
               {anatomy && (anatomy.verdict || effectiveSummary || anatomy.topic) && (
-                <CardSetProvider cards={cardSet}>
-                  <AnatomyMasthead
-                    verdict={anatomy.verdict}
-                    summary={effectiveSummary}
-                    topic={anatomy.topic}
-                    context={anatomy.context}
-                    kind={answerMeta?.kind}
-                    confidence={answerConfidence}
-                    confidenceReason={answerConfidenceReason}
-                  />
-                </CardSetProvider>
+                <AnatomyMasthead
+                  verdict={anatomy.verdict}
+                  summary={effectiveSummary}
+                  topic={anatomy.topic}
+                  context={anatomy.context}
+                  kind={answerMeta?.kind}
+                  confidence={answerConfidence}
+                  confidenceReason={answerConfidenceReason}
+                />
               )}
+              <AnswerProjectStrip keys={stripKeys} />
               {findings && (
                 <FindingsMatrix
                   findings={findings}
@@ -1115,53 +1236,42 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
             streaming, the markdown block + its last child are forced inline so
             the caret trails the final glyph instead of dropping to a new line.
             Cards the answer placed with a marker are spliced into this body. */}
-              <MarkdownSlotProvider render={renderCardSlot}>
-                <div className={proseClass(stillArriving, ledeClass)}>
-                  <MarkdownRenderer
-                    content={body}
-                    isStreaming={stillArriving}
-                    remarkPlugins={markerPlugins}
-                  />
-                  {stillArriving && <StreamingCaret />}
-                </div>
-              </MarkdownSlotProvider>
-              {/* An unplaced legal basis — flat, right after the prose it grounds: the
-            answer comes first (the prompt's own first rule), then the Fundstelle
-            it argued from. Never in the fallback grid. */}
-              {!stillArriving && evidenceCard?.type === 'legal_basis' && (
-                <div className={LATE_BLOCK_ENTER}>
-                  <CardSetProvider cards={cardSet}>
-                    <EvidenceBlock card={evidenceCard} />
-                  </CardSetProvider>
-                </div>
-              )}
+              <CardSlotLiveProvider value={live}>
+                <MarkdownSlotProvider render={renderCardSlot}>
+                  <div className={proseClass(live, ledeClass)}>
+                    <MarkdownRenderer
+                      content={body}
+                      isStreaming={live}
+                      remarkPlugins={markerPlugins}
+                    />
+                    {live && <StreamingCaret fading={finishing} />}
+                  </div>
+                </MarkdownSlotProvider>
+              </CardSlotLiveProvider>
 
               {/* Cards no marker claimed. AFTER the body, never before it: an answer
             that opens with three diagrams has pushed itself below the fold.
-            Withheld until the reveal finishes, because "unplaced" is read off
-            the body SO FAR: a card whose `[[card:N]]` has not been typed out yet
-            looks unplaced, would render here, and would then jump up the answer
-            the moment its marker arrives.
+            Withheld until "unplaced" is final (`unplacedIsFinal`): it is read
+            off the body SO FAR, and a card whose `[[card:N]]` has not been
+            shown yet would render here and then jump up the answer.
             `mt-1` because this column's `gap-2` is 8px and the markdown body's
             paragraph rhythm is 12px, so without it an UNPLACED card hugged the
             prose 4px tighter than a placed one — visible the moment an answer
             carries both. */}
               {/* The anatomy below the prose: the callout (unless its marker placed
             it inline), then the takeaways. */}
-              {!stillArriving && anatomyBelow.length > 0 && (
+              {!live && anatomyBelow.length > 0 && (
                 <div className={`mt-1 flex flex-col gap-3 ${LATE_BLOCK_ENTER}`}>
-                  <CardSetProvider cards={cardSet}>
-                    {anatomyBelow.map((card) => (
-                      <AnatomyBlock key={card.type} card={card} />
-                    ))}
-                  </CardSetProvider>
+                  {anatomyBelow.map((card) => (
+                    <AnatomyBlock key={card.type} card={card} />
+                  ))}
                 </div>
               )}
-              {!stillArriving && cards && fallbackGridIndices.length > 0 && (
+              {unplacedIsFinal && cards && fallbackCardIndices.length > 0 && (
                 <div className={`mt-1 ${LATE_BLOCK_ENTER}`}>
                   <GridCards
                     cards={cards}
-                    indices={fallbackGridIndices}
+                    indices={fallbackCardIndices}
                     projectId={projectId}
                     messageId={cardMessageId}
                     decisionsMustPersist={readOnly}
@@ -1174,7 +1284,7 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
                 documents={documents}
                 anchorPrefix={anchorPrefix}
                 routingDecision={routingDecision}
-                isStreaming={stillArriving}
+                isStreaming={live}
               />
 
               {/* No copy actions here, deliberately. This variant is the box-less
@@ -1196,6 +1306,8 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
                 >
                   {hasDetailsContent && (
                     <AnswerDetails
+                      conversationId={conversationId}
+                      messageId={messageId}
                       hasConfidence={hasConfidence}
                       answerConfidence={answerConfidence}
                       answerConfidenceCappedReason={answerConfidenceCappedReason}
@@ -1211,6 +1323,7 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
                       readSources={readSources}
                       hasAnswerSources={hasAnswerSources}
                       timestamp={timestamp}
+                      answerDurationMs={answerDurationMs}
                     />
                   )}
                   {hasFeedback && messageId && (
@@ -1222,22 +1335,9 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
           </AnswerCitations>
         </NestedMarkdownPluginsProvider>
       </DiagramFilingProvider>
+    </AnswerDataProvider>
     )
   }
-
-  const answerActions = hasAnswerActions ? (
-    <AnswerActions
-      content={content}
-      body={body}
-      documents={documents}
-      conversationId={conversationId}
-      messageId={messageId}
-    />
-  ) : null
-  const feedback =
-    hasFeedback && messageId ? (
-      <AnswerFeedback compact messageId={messageId} conversationId={conversationId} />
-    ) : null
 
   // Default variant — the click-dummy "Ergebnis" card: a role tab over a
   // tinted shell whose white inner block carries the composed answer, then a
@@ -1257,6 +1357,7 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
         ? t('roles.answer')
         : t('roles.result')
   return (
+    <AnswerDataProvider value={answerData}>
     <DiagramFilingProvider target={diagramFilingTarget}>
       <NestedMarkdownPluginsProvider plugins={nestedPlugins}>
         <AnswerCitations
@@ -1307,18 +1408,17 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
               <div className="bg-card flex flex-col gap-2 break-words border-b px-[22px] pb-[17px] pt-[18px]">
                 {/* The answer's masthead — verdict/topic and/or summary, flat above the prose. */}
                 {anatomy && (anatomy.verdict || effectiveSummary || anatomy.topic) && (
-                  <CardSetProvider cards={cardSet}>
-                    <AnatomyMasthead
-                      verdict={anatomy.verdict}
-                      summary={effectiveSummary}
-                      topic={anatomy.topic}
-                      context={anatomy.context}
-                      kind={answerMeta?.kind}
-                      confidence={answerConfidence}
-                      confidenceReason={answerConfidenceReason}
-                    />
-                  </CardSetProvider>
+                  <AnatomyMasthead
+                    verdict={anatomy.verdict}
+                    summary={effectiveSummary}
+                    topic={anatomy.topic}
+                    context={anatomy.context}
+                    kind={answerMeta?.kind}
+                    confidence={answerConfidence}
+                    confidenceReason={answerConfidenceReason}
+                  />
                 )}
+                <AnswerProjectStrip keys={stripKeys} />
                 {findings && (
                   <FindingsMatrix
                     findings={findings}
@@ -1329,26 +1429,18 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
                 )}
                 {/* Response Content rendered as markdown (with streaming caret).
               Cards the answer placed with a marker are spliced into this body. */}
-                <MarkdownSlotProvider render={renderCardSlot}>
-                  <div className={proseClass(stillArriving, ledeClass)}>
-                    <MarkdownRenderer
-                      content={body}
-                      isStreaming={stillArriving}
-                      remarkPlugins={markerPlugins}
-                    />
-                    {stillArriving && <StreamingCaret />}
-                  </div>
-                </MarkdownSlotProvider>
-                {/* An unplaced legal basis — flat, right after the prose it grounds: the
-              answer comes first (the prompt's own first rule), then the Fundstelle
-              it argued from. Never in the fallback grid. */}
-                {!stillArriving && evidenceCard?.type === 'legal_basis' && (
-                  <div className={LATE_BLOCK_ENTER}>
-                    <CardSetProvider cards={cardSet}>
-                      <EvidenceBlock card={evidenceCard} />
-                    </CardSetProvider>
-                  </div>
-                )}
+                <CardSlotLiveProvider value={live}>
+                  <MarkdownSlotProvider render={renderCardSlot}>
+                    <div className={proseClass(live, ledeClass)}>
+                      <MarkdownRenderer
+                        content={body}
+                        isStreaming={live}
+                        remarkPlugins={markerPlugins}
+                      />
+                      {live && <StreamingCaret fading={finishing} veil />}
+                    </div>
+                  </MarkdownSlotProvider>
+                </CardSlotLiveProvider>
 
                 {/* Cards no marker claimed. AFTER the body, never before it: an answer
               that opens with three diagrams has pushed itself below the fold.
@@ -1359,20 +1451,18 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
               /dev/chat-turn?variant=two-cards shows. */}
                 {/* The anatomy below the prose: the callout (unless its marker placed
               it inline), then the takeaways. */}
-                {!stillArriving && anatomyBelow.length > 0 && (
+                {!live && anatomyBelow.length > 0 && (
                   <div className={`mt-1 flex flex-col gap-3 ${LATE_BLOCK_ENTER}`}>
-                    <CardSetProvider cards={cardSet}>
-                      {anatomyBelow.map((card) => (
-                        <AnatomyBlock key={card.type} card={card} />
-                      ))}
-                    </CardSetProvider>
+                    {anatomyBelow.map((card) => (
+                      <AnatomyBlock key={card.type} card={card} />
+                    ))}
                   </div>
                 )}
-                {!stillArriving && cards && fallbackGridIndices.length > 0 && (
+                {unplacedIsFinal && cards && fallbackCardIndices.length > 0 && (
                   <div className={`mt-1 ${LATE_BLOCK_ENTER}`}>
                     <GridCards
                       cards={cards}
-                      indices={fallbackGridIndices}
+                      indices={fallbackCardIndices}
                       projectId={projectId}
                       messageId={cardMessageId}
                       decisionsMustPersist={readOnly}
@@ -1392,7 +1482,7 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
                   documents={documents}
                   anchorPrefix={anchorPrefix}
                   routingDecision={routingDecision}
-                  isStreaming={stillArriving}
+                  isStreaming={live}
                   withDivider={false}
                 />
                 {reserveMetaRow && (
@@ -1411,6 +1501,8 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
                   disclosure takes the next one full-width. */}
                     {hasDetailsContent ? (
                       <AnswerDetails
+                        conversationId={conversationId}
+                        messageId={messageId}
                         hasConfidence={hasConfidence}
                         answerConfidence={answerConfidence}
                         answerConfidenceCappedReason={answerConfidenceCappedReason}
@@ -1426,6 +1518,7 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
                         readSources={readSources}
                         hasAnswerSources={hasAnswerSources}
                         timestamp={timestamp}
+                        answerDurationMs={answerDurationMs}
                         before={answerActions}
                         after={feedback}
                       />
@@ -1444,6 +1537,7 @@ const AgentResponseComponent: FC<AgentResponseProps> = ({
         </AnswerCitations>
       </NestedMarkdownPluginsProvider>
     </DiagramFilingProvider>
+    </AnswerDataProvider>
   )
 }
 

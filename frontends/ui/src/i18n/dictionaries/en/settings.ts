@@ -48,11 +48,8 @@ export const settings = {
       'Rebuild the indexed content of every document in this project. Nothing you uploaded is deleted — only the derived chunks answers are grounded on. Use this after a change to how documents are indexed.',
     reindexAction: 'Re-index project',
     reindexBusy: 'Re-indexing…',
-    reindexDone:
-      '{count, plural, one {# document is} other {# documents are}} being re-indexed. The status updates as each one finishes.',
-    reindexNothing: 'Nothing to re-index — no document in this project has stored content yet',
-    reindexPartial:
-      '{count, plural, one {# document was} other {# documents were}} left unchanged because the old index could not be cleared first',
+    reindexStarted:
+      'Re-indexing started. It runs in the background and carries on after a restart; the status of each document updates as it finishes.',
     reindexFailed: 'Re-indexing could not be started',
     membersDescriptionManage:
       'Assign project roles to organization members. Organization admins always have access.',

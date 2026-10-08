@@ -1,0 +1,93 @@
+---
+import { releaseAnchor, releaseTitle, sectionTitle, type ChangelogRelease } from '../../lib/changelog'
+import { ui, type Locale } from '../../i18n/ui'
+
+interface Props {
+  release: ChangelogRelease
+  locale: Locale
+  /** `h2` for an open release, `h3` inside a folded month (whose summary is the h2). */
+  headingAs?: 'h2' | 'h3'
+  /** The first release on the page: its new features and improvements stay open, however many. */
+  newest?: boolean
+}
+const { release, locale, headingAs: Heading = 'h2', newest = false } = Astro.props
+const t = ui[locale].changelog
+const Section = Heading === 'h2' ? 'h3' : 'h4'
+// A week can carry seventy notes. Past eight, every section folds to its title
+// and count, one click from the list, and the summary (when the week has one)
+// is the reading. The newest week is the exception: its new features and
+// improvements are what a visitor came for, so they stay open. Fixes fold in
+// every week: the page is about what Piloti can do, and the list of what used
+// to go wrong is there for whoever looks for it.
+const FOLD_ABOVE = 8
+const ALWAYS_OPEN_IN_NEWEST = new Set(['features', 'improvements'])
+const total = release.sections.reduce((n, s) => n + s.notes.length, 0)
+const fold = total > FOLD_ABOVE
+const folded = (key: string) =>
+  key === 'fixes' || (fold && !(newest && ALWAYS_OPEN_IN_NEWEST.has(key)))
+---
+
+<article
+  id={releaseAnchor(release)}
+  class="grid scroll-mt-28 gap-6 border-t border-ink/15 pt-8 md:grid-cols-[11rem_1fr]"
+>
+  <header class="flex items-start justify-between gap-4 md:flex-col md:justify-start md:gap-5">
+    <div>
+      <Heading class="font-mono text-2xs uppercase tracking-widest text-accent-600">
+        <a href={`#${releaseAnchor(release)}`} class="text-inherit no-underline hover:underline">
+          {
+            release.date ? (
+              <time datetime={release.date}>{releaseTitle(release, locale, t.unreleased)}</time>
+            ) : (
+              releaseTitle(release, locale, t.unreleased)
+            )
+          }
+        </a>
+      </Heading>
+      {
+        release.kind === 'version' && (
+          <p class="mt-1 text-2xs uppercase tracking-widest text-ink-faint">{t.versionLabel}</p>
+        )
+      }
+    </div>
+  </header>
+
+  <div class="min-w-0">
+    {release.summary && <p class="mb-7 max-w-[38em] text-base leading-relaxed text-ink">{release.summary[locale]}</p>}
+    <div class:list={[release.sections.every((s) => folded(s.key)) ? 'space-y-1' : 'space-y-7']}>
+      {
+        release.sections.map((section) =>
+          folded(section.key) ? (
+            <details class="group">
+              <summary class="flex min-h-11 cursor-pointer list-none items-center gap-3 text-lg font-semibold text-ink [&::-webkit-details-marker]:hidden">
+                <span aria-hidden="true" class="font-mono text-sm text-accent-600 transition-transform group-open:rotate-90">›</span>
+                <Section class="m-0 text-inherit">{sectionTitle(section.key, locale)}</Section>
+                <span class="font-mono text-2xs font-normal text-ink-faint">{section.notes.length}</span>
+              </summary>
+              <ul class="mt-3 max-w-[40em] space-y-3">
+                {section.notes.map((note) => (
+                  <li class="flex gap-3 text-[0.9375rem] leading-relaxed text-ink-soft">
+                    <span aria-hidden="true" class="mt-2.5 h-1 w-1 shrink-0 rounded-full bg-accent-600" />
+                    <span>{note[locale]}</span>
+                  </li>
+                ))}
+              </ul>
+            </details>
+          ) : (
+          <div>
+            <Section class="text-lg font-semibold text-ink">{sectionTitle(section.key, locale)}</Section>
+            <ul class="mt-3 max-w-[40em] space-y-3">
+              {section.notes.map((note) => (
+                <li class="flex gap-3 text-[0.9375rem] leading-relaxed text-ink-soft">
+                  <span aria-hidden="true" class="mt-2.5 h-1 w-1 shrink-0 rounded-full bg-accent-600" />
+                  <span>{note[locale]}</span>
+                </li>
+              ))}
+            </ul>
+          </div>
+          )
+        )
+      }
+    </div>
+  </div>
+</article>

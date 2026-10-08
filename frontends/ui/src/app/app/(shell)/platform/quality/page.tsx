@@ -1,29 +1,20 @@
 /**
- * Platform → quality. Answer quality from three angles: how well answers were
- * grounded (citation health), what users thought of them (answer feedback), and
- * the per-turn execution timeline behind any turn that was not.
+ * Platform → answer quality. One workspace with three views (ratings, citation
+ * checks, runtime); see `QualityWorkspace` for why it is tabbed and why the URL
+ * carries the view and the window.
  *
- * Owner gate, shell chrome and section nav live in the shared `layout.tsx`;
- * this page only names its section and renders it.
+ * Owner gate, shell chrome and section nav live in the shared `layout.tsx`.
  */
 
-import { PageHeader } from '@/components/ui/page-header'
-import { getTranslations } from '@/i18n/server'
-import { CitationHealth } from '@/features/platform/components/citation-health'
-import { AgentProfiler } from '@/features/platform/components/agent-profiler'
-import { AnswerFeedbackHealth } from '@/features/platform/components/answer-feedback-health'
+import type { JSX } from 'react'
+import { Suspense } from 'react'
+import { QualityWorkspace } from '@/features/platform/components/quality-workspace'
 
-export default async function PlatformQualityPage(): Promise<JSX.Element> {
-  const t = await getTranslations('platform')
-
+export default function PlatformQualityPage(): JSX.Element {
+  // `useSearchParams` in the workspace needs a Suspense boundary above it.
   return (
-    <div className="flex flex-col gap-6">
-      <PageHeader title={t('sections.quality.title')} subtitle={t('sections.quality.subtitle')} />
-      <CitationHealth />
-      {/* What the people who read the answers thought — the other half of
-          'answer quality', and until now the half nobody could see. */}
-      <AnswerFeedbackHealth />
-      <AgentProfiler />
-    </div>
+    <Suspense fallback={null}>
+      <QualityWorkspace />
+    </Suspense>
   )
 }

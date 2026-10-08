@@ -1,0 +1,6 @@
+---
+improvements:
+  - >
+    The Herleitung builds up more calmly while Piloti works: new steps and
+    sources simply appear, and only the lines into the step in progress move.
+    A finished Herleitung does not move at all.

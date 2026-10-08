@@ -49,6 +49,14 @@ describe('citation persistence', () => {
     expect(citationNumbers(doc!)).toEqual([1, 2])
   })
 
+  it('keeps a plan\u2019s regions, so a reload still marks the drawing (#433)', () => {
+    const regions = [{ box: [0.1, 0.2, 0.5, 0.6] as [number, number, number, number], label: 'Grundriss EG' }]
+    const [restored] = decodeCitations(encodeCitations([{ ...source(4, 1), regions }]), WHEN)!
+    expect(restored!.regions).toEqual(regions)
+    const [doc] = buildCitationModel({ citations: [restored!] })
+    expect(doc!.loci[0]!.regions).toEqual(regions)
+  })
+
   it('carries the version explicitly rather than leaving it to be guessed', () => {
     expect(encodeCitations([source(5, 1)])!.v).toBe(CITATIONS_PAYLOAD_VERSION)
   })

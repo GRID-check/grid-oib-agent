@@ -1,5 +1,6 @@
 'use client'
 
+import type { JSX } from 'react'
 import { type ReactNode } from 'react'
 import { X } from 'lucide-react'
 
@@ -64,7 +65,10 @@ export function DataToolbar({
       // list's own row geometry (`px-4 py-3`) with the row-hover fill, so it
       // reads as the list's own state rather than a card laid over it.
       <div
-        className={cn('flex flex-wrap items-center gap-2 rounded-md bg-accent/40 px-4 py-3', className)}
+        className={cn(
+          'bg-accent/40 flex flex-wrap items-center gap-2 rounded-md px-4 py-3',
+          className
+        )}
         data-testid="data-toolbar-selection"
       >
         <p className="text-sm font-medium tabular-nums">{selectionLabel(selectedCount)}</p>
@@ -91,7 +95,15 @@ export function DataToolbar({
         label={searchLabel}
         clearLabel={clearLabel}
       />
-      {filters}
+      {/* On a phone the search takes its own row and the filters share the
+          next rows, two to a row in equal slices. Left as loose siblings, each filter
+          kept the width its caller gave it, two of those overran 390px, and
+          every filter wrapped onto a row of its own. */}
+      {filters ? (
+        <div className="flex min-w-0 flex-wrap items-center gap-2 max-sm:w-full max-sm:*:min-w-36 max-sm:*:flex-1">
+          {filters}
+        </div>
+      ) : null}
       {actions ? <div className="flex items-center gap-1.5">{actions}</div> : null}
     </div>
   )

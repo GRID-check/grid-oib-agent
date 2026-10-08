@@ -1,7 +1,9 @@
+import type { JSX } from 'react'
 import * as React from 'react'
 import type { LucideIcon } from 'lucide-react'
 
 import { cn } from '@/lib/utils'
+import { Skeleton } from '@/components/ui/skeleton'
 
 export type StatCardIconTone = 'muted' | 'success' | 'warning' | 'info' | 'destructive' | 'office'
 export type StatCardIconSize = 'md' | 'sm'
@@ -56,8 +58,19 @@ export function StatCardIcon({
 /**
  * StatCard — the documented numeric stat tile (`grid-design-language.md`
  * §"Component patterns": Stat). One primitive so the ~11 hand-rolled stat sites
- * render the number consistently in `text-2xl … tabular-nums` with a muted
- * label below, instead of drifting on `tabular-nums` and padding.
+ * render the number consistently in `text-2xl … tabular-nums` instead of
+ * drifting on `tabular-nums` and padding.
+ *
+ * Reading order is label, figure, hint: the label row (with the optional icon
+ * well) on top, the number below it. The icon used to sit BESIDE a three-line
+ * value/label/hint stack, vertically centred, so in a five-up row it floated
+ * mid-tile and took the width the label then wrapped into one word per line.
+ * On top it costs one line and no width, and every tile in a row puts its
+ * figure on the same baseline.
+ *
+ * The tile is `h-full` so a grid row of tiles is one height whatever each hint
+ * says, and {@link StatCardSkeleton} is the same box, so loading and loaded
+ * share one height without each surface reserving a `min-h-[…]` literal.
  *
  * @example
  * <StatCard label="Projekte" value={12} hint="+2 diese Woche" />
@@ -65,27 +78,48 @@ export function StatCardIcon({
 export interface StatCardProps extends React.HTMLAttributes<HTMLDivElement> {
   label: React.ReactNode
   value: React.ReactNode
-  /** Optional supporting line rendered under the label. */
+  /** Optional supporting line rendered under the figure. */
   hint?: React.ReactNode
-  /** Optional leading icon disc. */
+  /** Optional leading icon (a lucide glyph), drawn in a small well beside the label. */
   icon?: React.ReactNode
 }
 
-export function StatCard({ label, value, hint, icon, className, ...props }: StatCardProps): JSX.Element {
+const STAT_CARD_CLASS = 'flex h-full min-h-28 flex-col rounded-lg border bg-card p-5 shadow-xs'
+
+export function StatCard({
+  label,
+  value,
+  hint,
+  icon,
+  className,
+  ...props
+}: StatCardProps): JSX.Element {
   return (
-    <div className={cn('rounded-lg border bg-card p-5 shadow-xs', className)} {...props}>
-      <div className={cn(icon && 'flex items-center gap-3')}>
+    <div className={cn(STAT_CARD_CLASS, className)} {...props}>
+      <div className="text-muted-foreground flex min-w-0 items-center gap-2 text-sm">
         {icon ? (
-          <div className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-muted text-muted-foreground">
+          <span
+            className="bg-muted flex size-7 shrink-0 items-center justify-center rounded-md [&_svg]:size-3.5"
+            aria-hidden
+          >
             {icon}
-          </div>
+          </span>
         ) : null}
-        <div className="min-w-0">
-          <div className="text-2xl font-semibold tracking-tight tabular-nums">{value}</div>
-          <div className="mt-1 text-sm text-muted-foreground">{label}</div>
-          {hint && <div className="mt-1 text-xs text-muted-foreground">{hint}</div>}
-        </div>
+        <span className="min-w-0 truncate">{label}</span>
       </div>
+      <div className="mt-3 text-2xl font-semibold tabular-nums tracking-tight">{value}</div>
+      {hint && <div className="text-muted-foreground mt-1 text-pretty text-xs">{hint}</div>}
+    </div>
+  )
+}
+
+/** The loading stand-in for one {@link StatCard}: the same box, shimmering. */
+export function StatCardSkeleton({ className }: { className?: string }): JSX.Element {
+  return (
+    <div className={cn(STAT_CARD_CLASS, className)} aria-hidden>
+      <Skeleton className="h-4 w-24" />
+      <Skeleton className="mt-4 h-6 w-16" />
+      <Skeleton className="mt-2 h-3 w-32" />
     </div>
   )
 }

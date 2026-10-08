@@ -24,12 +24,16 @@ records, so ``citation_verification`` keeps its text parsers for them.
 from __future__ import annotations
 
 import hashlib
+import json
 import logging
+import math
 import re
+import uuid
 from collections import OrderedDict
 from collections.abc import Iterator
 from contextvars import ContextVar
 from contextvars import Token
+from dataclasses import dataclass
 
 from pydantic import BaseModel
 from pydantic import ConfigDict
@@ -38,6 +42,10 @@ from aiq_agent.common.provenance import AGENT_AUTHOR
 from aiq_agent.common.provenance import AgentProvenance
 from aiq_agent.common.provenance import provenance_label
 from aiq_agent.common.source_kinds import Shelf
+from aiq_agent.common.turn_status import current_retrieval_round
+from aiq_agent.common.turn_status import emit_step
+from aiq_agent.common.wire_v2 import SourcesStep
+from aiq_agent.common.wire_v2 import TraceLane
 
 logger = logging.getLogger(__name__)
 
@@ -45,6 +53,55 @@ logger = logging.getLogger(__name__)
 #: renderer adds it and every reader takes it back off, so a quote is never
 #: matched against it.
 TRUNCATION_MARKER = "... [truncated]"
+
+
+@dataclass(frozen=True)
+class SourceRegion:
+    """Where on a page a passage sits, as a box the viewer can draw (issue #433).
+
+    ``box`` is ``(x0, y0, x1, y1)`` normalised 0-1 over the page AS THE VIEWER
+    SHOWS IT: a whole rendered PDF page, or a whole uploaded image, top-left
+    origin. That is the frame the visual analysis read the picture in, so the
+    box needs no conversion, and it is why a region is only ever produced for
+    those two frames (``knowledge_layer.register._hit_regions``). An embedded
+    raster's box is relative to the raster, whose placement on the page is not
+    stored, so it gets none rather than a box in the wrong place.
+
+    The box is the model's approximation of one depiction on the sheet (a
+    Grundriss, a Schnitt), not a measurement and not the single object a query
+    named. ``label`` is that depiction's title as read off the sheet, when it
+    had one.
+
+    A dataclass, not a model, because it rides on ``SourceEntry`` and
+    ``dataclasses.asdict`` is how the session registry is cached.
+    """
+
+    box: tuple[float, float, float, float]
+    label: str | None = None
+
+    def to_wire(self) -> dict[str, object]:
+        """The citation wire's spelling: ``{"box": [...], "label": ...}``, label omitted when unknown."""
+        payload: dict[str, object] = {"box": list(self.box)}
+        if self.label:
+            payload["label"] = self.label
+        return payload
+
+    @classmethod
+    def from_cached(cls, value: object) -> SourceRegion | None:
+        """Rebuild one from its ``asdict`` form, or ``None`` for anything malformed."""
+        if not isinstance(value, dict):
+            return None
+        box = value.get("box")
+        if not isinstance(box, (list, tuple)) or len(box) != 4:
+            return None
+        try:
+            x0, y0, x1, y1 = (float(part) for part in box)
+        except (TypeError, ValueError):
+            return None
+        if not all(math.isfinite(part) for part in (x0, y0, x1, y1)):
+            return None
+        label = value.get("label")
+        return cls(box=(x0, y0, x1, y1), label=label if isinstance(label, str) and label else None)
 
 
 class GroundingHit(BaseModel):
@@ -107,6 +164,13 @@ class GroundingHit(BaseModel):
     #: Whether :attr:`body` was cut, which appends the truncation marker. The
     #: marker is protocol and not evidence, so the reader drops it again.
     body_truncated: bool = False
+    #: Where on the page the passage sits, for the viewer to mark (issue #433).
+    #: Deliberately NOT rendered as a header line: it is geometry for the
+    #: reader's viewer, and nothing the model could reason with, so the text the
+    #: model reads stays byte-for-byte what it was. It reaches the registry by
+    #: the record lookup; a block read back by the text parser (a replayed turn)
+    #: carries none, and the viewer then opens at the page as before.
+    regions: tuple[SourceRegion, ...] = ()
 
     @property
     def authored_by(self) -> str | None:
@@ -134,8 +198,13 @@ class GroundingBlock(BaseModel):
     #: block so the hash the reader looks up is the hash of the whole text.
     degraded_banner: str
     hits: tuple[GroundingHit, ...]
-    #: The ``## Trace-Lanes`` JSON, built by the producer from these same hits.
-    lanes: str
+    #: The fan-out, built by the producer from these same hits. The renderer
+    #: emits it as the tool's ``sources`` step and writes it as the
+    #: ``## Trace-Lanes`` line.
+    lanes: tuple[TraceLane, ...]
+    #: The basename of the tool that returned this block (``knowledge_search``,
+    #: ``read_passage``, ``ris_lookup``): the ``sources`` step names it.
+    tool: str
     #: What is rendered after the lanes and outside the grammar: ``read_passage``
     #: puts its ``## Gliederung`` index here, and the one line that replaces the
     #: index for a document with no Punkte. Empty when neither applies. It is
@@ -143,12 +212,25 @@ class GroundingBlock(BaseModel):
     #: records up by the hash of the WHOLE text, so a producer that appended
     #: these bytes itself fell back to the text parser.
     trailer: str = ""
+    #: Why the hits do NOT answer the question, when a judge that read them
+    #: against it said so (``knowledge_layer.requery.judge_coverage``). Rendered
+    #: as the ``Abdeckung: unzureichend — …`` line under the preamble, so the
+    #: model reads the verdict before the passages rather than inferring it
+    #: from a score. The reason names how many hits were judged, and the claim
+    #: covers those only. ``None`` renders nothing: an unjudged block and a
+    #: covered one read as they always did.
+    coverage_gap: str | None = None
 
 
 # ---------------------------------------------------------------------------
 # The renderer
 # ---------------------------------------------------------------------------
 
+
+#: The line that says a block's passages do not answer the question. The
+#: prompt names it (``piloti_static.md`` <research_rules>), so it is one
+#: constant rather than a spelling each producer picks.
+COVERAGE_GAP_LABEL = "Abdeckung: unzureichend —"
 
 #: The heading of the fan-out JSON every rendered block carries.
 TRACE_LANES_MARKER = "## Trace-Lanes"
@@ -159,10 +241,9 @@ _TRACE_LANES_RE = re.compile(rf"\n*{re.escape(TRACE_LANES_MARKER)}\n[^\n]*\n*")
 def strip_trace_lanes(text: str) -> str:
     """The block without its ``## Trace-Lanes`` line: what the MODEL reads.
 
-    The lanes JSON is for the Herleitung — the frontend reads it off the tool
-    step NAT recorded when the tool returned — and for the citation registry,
-    which reads the records the renderer filed under the block's bytes before
-    anything strips them. The model reads neither; it reads the passages and
+    The lanes reach the Herleitung as the ``sources`` step the renderer emits,
+    and the citation registry reads the records the renderer filed under the
+    block's bytes before anything strips them. The Piloti model reads neither; it reads the passages and
     the ``Citation:`` keys. Yet the line travelled in every ``ToolMessage``, so
     a search with sixteen hits put ~1 000 tokens of ``{"lanes": …}`` into the
     transcript and re-sent them on every later call of the turn, and into the
@@ -178,22 +259,53 @@ def strip_trace_lanes(text: str) -> str:
 def render_grounding_block(block: GroundingBlock) -> str:
     """The block as the text a model reads, filed under the hash of that text.
 
-    The one place the grammar's line order and spacing live. Recording is done
-    HERE rather than by the callers, so a producer cannot emit a block and
-    forget to make it readable back.
+    The one place the grammar's line order and spacing live. Recording and the
+    ``sources`` step are done HERE rather than by the callers, so a producer
+    cannot emit a block and forget to make it readable back, or leave it out of
+    the Herleitung. That step is one producer site for every evidence tool, and
+    it is built from the records, never read back out of the text.
     """
     lines: list[str] = block.preamble.split("\n") if block.preamble else []
+    if block.coverage_gap:
+        lines.append(f"{COVERAGE_GAP_LABEL} {_line(block.coverage_gap)}")
     lines.append("")
     for index, hit in enumerate(block.hits, 1):
         lines.extend(_hit_lines(index, hit))
     lines.append("## Trace-Lanes")
-    lines.append(block.lanes)
+    lines.append(_lanes_line(block.lanes))
     lines.append("")
     if block.trailer:
         lines.append(block.trailer)
     rendered = block.degraded_banner + "\n".join(lines)
     record_grounding_block(block, rendered)
+    if block.lanes:
+        round_index = current_retrieval_round()
+        step_id = f"sources:{round_index}:{block.tool}:{uuid.uuid4().hex[:8]}"
+        emit_step(SourcesStep(id=step_id, round=round_index, tool=block.tool, lanes=list(block.lanes)))
     return rendered
+
+
+def _lanes_line(lanes: tuple[TraceLane, ...]) -> str:
+    """The ``## Trace-Lanes`` JSON in the spelling the model has always read.
+
+    Deep research's model still reads this line (F2 in chat-wire-v2.md), so
+    its keys stay what they were until that change runs the answer suite.
+    """
+    return json.dumps(
+        {
+            "lanes": [
+                {
+                    "key": lane.key,
+                    "label": lane.label,
+                    "kind": lane.kind,
+                    "hitCount": lane.hit_count,
+                    "sources": [source.model_dump(exclude_none=True) for source in lane.sources],
+                }
+                for lane in lanes
+            ]
+        },
+        ensure_ascii=False,
+    )
 
 
 def _hit_lines(index: int, hit: GroundingHit) -> list[str]:

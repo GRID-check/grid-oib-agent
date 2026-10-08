@@ -54,3 +54,112 @@ const inline = new Set<string>(INLINE_PREVIEW_CONTENT_TYPES)
 /** Whether the object-store preview route will serve this type inline. */
 export const isInlinePreviewable = (contentType: string | null | undefined): boolean =>
   contentType != null && inline.has(contentType.trim().toLowerCase())
+
+/**
+ * Office formats the BFF converts to a PDF RENDITION for viewing (ADR-0070).
+ *
+ * A third way of being shown, and a different promise from the two lists
+ * above: these bytes are never served inline themselves. The preview and file
+ * routes serve `<dir>/_render.pdf`, a PDF the BFF made from them through
+ * Gotenberg, and the ORIGINAL stays exactly as uploaded — the download route
+ * still hands out the Word, Excel or PowerPoint file and nothing else. Keyed by
+ * extension as well as by type because the stored type is whatever the browser
+ * sent, and an empty one is stored as NULL.
+ */
+export const OFFICE_RENDITION_CONTENT_TYPES = [
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  'application/vnd.ms-word.document.macroenabled.12',
+  'application/msword',
+  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  'application/vnd.ms-excel.sheet.macroenabled.12',
+  'application/vnd.ms-excel',
+  'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+  'application/vnd.ms-powerpoint.presentation.macroenabled.12',
+  'application/vnd.ms-powerpoint',
+  'application/vnd.oasis.opendocument.text',
+  'application/vnd.oasis.opendocument.spreadsheet',
+  'application/vnd.oasis.opendocument.presentation',
+  'application/rtf',
+  'text/rtf',
+] as const
+
+/** The extensions of {@link OFFICE_RENDITION_CONTENT_TYPES}, lower case, with the dot. */
+export const OFFICE_RENDITION_EXTENSIONS = [
+  '.docx',
+  '.docm',
+  '.doc',
+  '.xlsx',
+  '.xlsm',
+  '.xls',
+  '.pptx',
+  '.pptm',
+  '.ppt',
+  '.odt',
+  '.ods',
+  '.odp',
+  '.rtf',
+] as const
+
+const officeTypes = new Set<string>(OFFICE_RENDITION_CONTENT_TYPES)
+const officeExtensions = new Set<string>(OFFICE_RENDITION_EXTENSIONS)
+
+/**
+ * Whether this file is shown through a PDF rendition rather than its own bytes.
+ *
+ * True when EITHER the stored type or the filename's extension names an office
+ * format. A filename alone is enough on purpose: a `.docx` stored as NULL or
+ * `application/octet-stream` is still a Word file, and LibreOffice reads the
+ * bytes, not the label.
+ */
+export function isOfficeRenditionSource(file: {
+  contentType?: string | null
+  filename?: string | null
+}): boolean {
+  const type = file.contentType?.split(';', 1)[0]?.trim().toLowerCase()
+  if (type && officeTypes.has(type)) return true
+  const name = file.filename?.trim().toLowerCase() ?? ''
+  const dot = name.lastIndexOf('.')
+  return dot >= 0 && officeExtensions.has(name.slice(dot))
+}
+
+/**
+ * Office formats whose TEXT the backend indexes from the PDF rendition, not the
+ * original (ADR-0071).
+ *
+ * The rendition carries what the original's text-only readers never saw: the
+ * pictures in a deck or a Word file, and real page numbers a citation can open
+ * at. `.xls` and `.ods` are here because they have no extractor of their own and
+ * would otherwise fall back to raw bytes. `.xlsx` and `.xlsm` are deliberately
+ * absent: openpyxl keeps a sheet's rows and columns, and LibreOffice splits one
+ * sheet across as many printed pages as its width needs.
+ *
+ * The BFF dispatch decides with this list and the citation resolver trusts a
+ * locus page for the same formats, so both import it from here. The backend has
+ * no list of its own: it reads the rendition iff the request carries one.
+ */
+export const RENDITION_INDEXED_EXTENSIONS = [
+  '.docx',
+  '.docm',
+  '.doc',
+  '.odt',
+  '.rtf',
+  '.pptx',
+  '.pptm',
+  '.ppt',
+  '.odp',
+  '.xls',
+  '.ods',
+] as const
+
+const renditionIndexedExtensions = new Set<string>(RENDITION_INDEXED_EXTENSIONS)
+
+/**
+ * Whether this file's chunks come from its rendition, so a locus page is a
+ * rendition page. Keyed by extension only: the dispatch and the resolver both
+ * hold the filename, and the stored type is whatever the browser sent.
+ */
+export function isIndexedFromRendition(filename: string | null | undefined): boolean {
+  const name = filename?.trim().toLowerCase() ?? ''
+  const dot = name.lastIndexOf('.')
+  return dot >= 0 && renditionIndexedExtensions.has(name.slice(dot))
+}

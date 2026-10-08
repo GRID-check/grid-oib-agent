@@ -43,8 +43,12 @@ afterEach(() => {
 
 describe('validateCollectionName', () => {
   it('passes through paths that are not collection-scoped', async () => {
-    expect(await validateCollectionName(['documents'], session, {}, deps())).toBeNull()
-    expect(await validateCollectionName(['collections'], session, {}, deps())).toBeNull()
+    expect(await validateCollectionName(['documents'], session, {}, { deps: deps() })).toBeNull()
+  })
+
+  it('refuses to list every collection (404): the listing spans tenants', async () => {
+    const response = await validateCollectionName(['collections'], session, {}, { deps: deps() })
+    expect(response?.status).toBe(404)
   })
 
   it('rejects uploads to the base corpus (400 INVALID_COLLECTION)', async () => {
@@ -52,9 +56,7 @@ describe('validateCollectionName', () => {
     const response = await validateCollectionName(
       ['collections', 'base_corpus'],
       session,
-      {},
-      deps()
-    )
+      {}, { deps: deps() })
     expect(response?.status).toBe(400)
     expect((await errorBody(response as Response)).error.code).toBe('INVALID_COLLECTION')
   })
@@ -63,22 +65,20 @@ describe('validateCollectionName', () => {
     const response = await validateCollectionName(
       ['collections', 'oib_knowledge'],
       session,
-      {},
-      deps()
-    )
+      {}, { deps: deps() })
     expect(response?.status).toBe(400)
   })
 
   it('rejects proj_* collections without an org session (403)', async () => {
     const d = deps()
-    const response = await validateCollectionName(['collections', 'proj_abc'], null, {}, d)
+    const response = await validateCollectionName(['collections', 'proj_abc'], null, {}, { deps: d })
     expect(response?.status).toBe(403)
     expect(d.findProjectIdByCollection).not.toHaveBeenCalled()
   })
 
   it('rejects proj_* collections not found in the caller org (404)', async () => {
     const d = deps({ findProjectIdByCollection: vi.fn().mockResolvedValue(null) })
-    const response = await validateCollectionName(['collections', 'proj_abc'], session, {}, d)
+    const response = await validateCollectionName(['collections', 'proj_abc'], session, {}, { deps: d })
     expect(response?.status).toBe(404)
     expect(d.findProjectIdByCollection).toHaveBeenCalledWith('proj_abc', 'org-1')
     expect(d.requireProjectAccess).not.toHaveBeenCalled()
@@ -86,7 +86,7 @@ describe('validateCollectionName', () => {
 
   it('requires a document write on the owning project and allows when granted', async () => {
     const d = deps()
-    const response = await validateCollectionName(['collections', 'proj_abc'], session, {}, d)
+    const response = await validateCollectionName(['collections', 'proj_abc'], session, {}, { deps: d })
     expect(response).toBeNull()
     // Any-of, not the bare umbrella: proxy collection routes are corpus writes,
     // so the permission is `project:documents:write`, with the deprecated
@@ -99,7 +99,7 @@ describe('validateCollectionName', () => {
 
   it('maps a project access denial to 404 (no existence leak)', async () => {
     const d = deps({ requireProjectAccess: vi.fn().mockRejectedValue(new NotFoundError()) })
-    const response = await validateCollectionName(['collections', 'proj_abc'], session, {}, d)
+    const response = await validateCollectionName(['collections', 'proj_abc'], session, {}, { deps: d })
     expect(response?.status).toBe(404)
   })
 
@@ -108,17 +108,13 @@ describe('validateCollectionName', () => {
       await validateCollectionName(
         ['collections', 's_conv-1'],
         session,
-        { conversationId: 'conv-1' },
-        deps()
-      )
+        { conversationId: 'conv-1' }, { deps: deps() })
     ).toBeNull()
     expect(
       await validateCollectionName(
         ['collections', 's_conv-1'],
         session,
-        { conversationId: 's_conv-1' },
-        deps()
-      )
+        { conversationId: 's_conv-1' }, { deps: deps() })
     ).toBeNull()
   })
 
@@ -126,17 +122,15 @@ describe('validateCollectionName', () => {
     const mismatched = await validateCollectionName(
       ['collections', 's_conv-1'],
       session,
-      { conversationId: 'conv-2' },
-      deps()
-    )
+      { conversationId: 'conv-2' }, { deps: deps() })
     expect(mismatched?.status).toBe(400)
 
-    const missing = await validateCollectionName(['collections', 's_conv-1'], session, {}, deps())
+    const missing = await validateCollectionName(['collections', 's_conv-1'], session, {}, { deps: deps() })
     expect(missing?.status).toBe(400)
   })
 
   it('rejects any other collection name (400)', async () => {
-    const response = await validateCollectionName(['collections', 'random'], session, {}, deps())
+    const response = await validateCollectionName(['collections', 'random'], session, {}, { deps: deps() })
     expect(response?.status).toBe(400)
     expect((await errorBody(response as Response)).error.code).toBe('INVALID_COLLECTION')
   })
@@ -158,7 +152,7 @@ describe('validateCollectionName', () => {
 
   it('accepts the caller-org Archiv collection for a manager', async () => {
     expect(
-      await validateCollectionName(['collections', 'archiv_org-1'], archivManager, {}, deps())
+      await validateCollectionName(['collections', 'archiv_org-1'], archivManager, {}, { deps: deps() })
     ).toBeNull()
   })
 
@@ -166,9 +160,7 @@ describe('validateCollectionName', () => {
     const response = await validateCollectionName(
       ['collections', 'archiv_org-1'],
       archivMember,
-      {},
-      deps()
-    )
+      {}, { deps: deps() })
     expect(response?.status).toBe(403)
   })
 
@@ -176,14 +168,12 @@ describe('validateCollectionName', () => {
     const response = await validateCollectionName(
       ['collections', 'archiv_org-2'],
       archivManager,
-      {},
-      deps()
-    )
+      {}, { deps: deps() })
     expect(response?.status).toBe(403)
   })
 
   it('rejects the Archiv collection without an org session (403)', async () => {
-    const response = await validateCollectionName(['collections', 'archiv_org-1'], null, {}, deps())
+    const response = await validateCollectionName(['collections', 'archiv_org-1'], null, {}, { deps: deps() })
     expect(response?.status).toBe(403)
   })
 })
@@ -225,5 +215,141 @@ describe('request context extraction', () => {
       projectId: 'query-p',
       conversationId: 'query-c',
     })
+  })
+})
+
+/**
+ * A chat's attachment collection through the proxy. Its files are document rows
+ * now (ADR-0047 Phase 2): uploaded and deleted through `/api/session/documents`,
+ * and the collection erased by the conversation delete. A raw upload here skipped
+ * the file-type gate and the storage quota, and a raw file delete removed chunks
+ * while the row naming them stayed, so the proxy writes nothing into an `s_`
+ * collection, whoever asks.
+ */
+describe('validateCollectionName — a chat collection is read-only', () => {
+  const CHAT = 's_11111111_2222_4333_8444_555555555555'
+  const chatContext = { conversationId: CHAT }
+
+  it('refuses a raw upload (403) and names the first-party route', async () => {
+    const response = await validateCollectionName(
+      ['collections', CHAT, 'documents'],
+      session,
+      chatContext,
+      { method: 'POST', deps: deps() }
+    )
+    expect(response?.status).toBe(403)
+    expect(((await response?.json()) as { error: { message: string } }).error.message).toContain(
+      '/api/session/documents/upload'
+    )
+  })
+
+  it('refuses a raw upload in anonymous mode too', async () => {
+    const response = await validateCollectionName(
+      ['collections', CHAT, 'documents'],
+      null,
+      chatContext,
+      { method: 'POST', deps: deps() }
+    )
+    expect(response?.status).toBe(403)
+  })
+
+  it('refuses a chunk-only file delete (403): the row would outlive its chunks', async () => {
+    const response = await validateCollectionName(
+      ['collections', CHAT, 'documents'],
+      session,
+      chatContext,
+      { method: 'DELETE', deps: deps() }
+    )
+    expect(response?.status).toBe(403)
+  })
+
+  it('refuses creating a chat collection and deleting a whole one (403)', async () => {
+    const created = await validateCollectionName(
+      ['collections'],
+      session,
+      { collectionName: CHAT },
+      { method: 'POST', deps: deps() }
+    )
+    expect(created?.status).toBe(403)
+
+    const deleted = await validateCollectionName(['collections', CHAT], session, {}, { method: 'DELETE', deps: deps() })
+    expect(deleted?.status).toBe(403)
+  })
+
+  it('still lets the active conversation read its collection', async () => {
+    expect(
+      await validateCollectionName(['collections', CHAT, 'documents'], session, chatContext, {
+        method: 'GET',
+        deps: deps(),
+      })
+    ).toBeNull()
+  })
+
+  it('refuses a read of another conversation’s collection (400)', async () => {
+    const response = await validateCollectionName(
+      ['collections', CHAT, 'documents'],
+      session,
+      { conversationId: 's_99999999_2222_4333_8444_555555555555' },
+      { method: 'GET', deps: deps() }
+    )
+    expect(response?.status).toBe(400)
+  })
+})
+
+describe('validateCollectionName — what the proxy never does', () => {
+  const archivManager = {
+    organizationId: 'org-1',
+    userId: 'user-1',
+    permissions: ['org:archiv:manage'],
+  } as unknown as GridSession
+
+  it.each([
+    ['proj_abc', session],
+    ['archiv_org-1', archivManager],
+  ])('refuses to delete the whole %s collection (403), before any lookup', async (name, who) => {
+    const d = deps()
+    const response = await validateCollectionName(['collections', name], who, {}, { method: 'DELETE', deps: d })
+    expect(response?.status).toBe(403)
+    expect(d.findProjectIdByCollection).not.toHaveBeenCalled()
+  })
+
+  it.each([
+    ['proj_abc', session, '/api/documents/upload'],
+    ['archiv_org-1', archivManager, '/api/archiv/documents/upload'],
+  ])(
+    'refuses a raw upload into %s (403): the first-party route writes the row and runs the admission',
+    async (name, who, route) => {
+      const response = await validateCollectionName(
+        ['collections', name, 'documents'],
+        who,
+        {},
+        { method: 'POST', deps: deps() }
+      )
+      expect(response?.status).toBe(403)
+      expect(((await response?.json()) as { error: { message: string } }).error.message).toContain(route)
+    }
+  )
+
+  it.each([
+    ['proj_abc', session, '/api/documents/[id]'],
+    ['archiv_org-1', archivManager, '/api/archiv/documents/[id]'],
+  ])(
+    'refuses a chunk-only file delete in %s (403): the row, the object and the audit entry would stay',
+    async (name, who, route) => {
+      const response = await validateCollectionName(
+        ['collections', name, 'documents'],
+        who,
+        {},
+        { method: 'DELETE', deps: deps() }
+      )
+      expect(response?.status).toBe(403)
+      expect(((await response?.json()) as { error: { message: string } }).error.message).toContain(route)
+    }
+  )
+
+  it('still lets a project writer read the project collection', async () => {
+    expect(
+      await validateCollectionName(['collections', 'proj_abc'], session, {}, { method: 'GET', deps: deps() })
+    ).toBeNull()
   })
 })

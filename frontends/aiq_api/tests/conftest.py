@@ -1,6 +1,6 @@
 """Register a lightweight ``aiq_api`` package before submodule imports.
 
-Skips ``aiq_api/__init__.py`` (plugin pulls NAT/Dask) so tests can load
+Skips ``aiq_api/__init__.py`` (plugin pulls NAT) so tests can load
 ``aiq_api.auth`` and peers from ``src/`` without the full runtime stack.
 """
 
@@ -43,3 +43,30 @@ def stub_private_dns(monkeypatch):
         return [(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("10.42.0.7", port or 0))]
 
     monkeypatch.setattr(socket, "getaddrinfo", fake_getaddrinfo)
+
+
+@pytest.fixture(autouse=True)
+def _no_retry_pauses(monkeypatch):
+    """The internal-write retry pauses 5 s and 20 s between attempts; tests do not.
+
+    Every backend→BFF write goes through ``internal_retry.send_with_retry``, so
+    a test that doubles a failing BFF would otherwise wait 25 s per call. The
+    attempts still happen; only the pauses are skipped.
+    """
+    from aiq_api import internal_retry
+
+    async def _instant(_seconds: float) -> None:
+        return None
+
+    monkeypatch.setattr(internal_retry, "_sleep", _instant)
+
+
+@pytest.fixture(autouse=True)
+def _no_live_decisions(monkeypatch):
+    """The decision model (ADR-0064) is off unless a test turns it on.
+
+    Same guard as ``tests/conftest.py``: the feedback digest now labels its
+    down-votes on it, and a developer's OpenRouter key would otherwise send a
+    test's fixtures to the live endpoint.
+    """
+    monkeypatch.setenv("GRID_DECISIONS_ENABLED", "false")

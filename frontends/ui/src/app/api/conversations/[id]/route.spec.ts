@@ -30,6 +30,10 @@ vi.mock('@/lib/auth/require-auth', () => ({
 }))
 
 vi.mock('@/lib/authz/projects', () => ({ requireProjectAccess: vi.fn() }))
+// No legal hold in play here; the gate is `compliance/holds`, the predicate SQL.
+vi.mock('@/lib/compliance/repository', () => ({
+  isCoveredByActiveHold: vi.fn().mockResolvedValue(false),
+}))
 vi.mock('@/lib/sharing/repository', () => ({
   findGrantForSubject: vi.fn(),
   countGrantsForResource: vi.fn(),
@@ -62,6 +66,7 @@ vi.mock('@/lib/conversations/repository', () => ({
   // attached to it, so an upload racing the discard has something to refuse on
   // (ADR-0047 Phase 2).
   markConversationDeleting: vi.fn().mockResolvedValue({ id: 'conv_1' }),
+  recordConversationErased: vi.fn().mockResolvedValue(1),
   mergeMessageMetadata: vi.fn(),
   updateConversationMetaInOrg: vi.fn(),
   updateConversationTitleInOrg: vi.fn(),

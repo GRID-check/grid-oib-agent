@@ -7,7 +7,6 @@ network. The breaker/throttle state is module-global and reset per test.
 
 from __future__ import annotations
 
-import functools
 import json
 import logging
 from types import SimpleNamespace
@@ -44,16 +43,46 @@ def _reranker(**kwargs) -> CrossEncoderReranker:
 
 
 def _serve(monkeypatch, handler) -> list[httpx.Request]:
-    """Route the reranker's internal AsyncClient through a MockTransport."""
+    """Route the reranker's internal AsyncClient through a MockTransport.
+
+    The patch replaces ``httpx.AsyncClient`` with a ``functools.partial``, which
+    is not a class. The reranker records its usage through ``cost_tracking``,
+    which imports ``openai`` on first use, and ``openai`` subclasses
+    ``httpx.AsyncClient`` at import. Run alone, that first import landed inside
+    the patch and failed with ``TypeError: the first argument must be callable``;
+    it passed only when an earlier test had imported ``openai`` already. Importing
+    it here, before the patch, makes the result independent of test order.
+    """
+    import openai  # noqa: F401
+
     seen: list[httpx.Request] = []
 
     def _handler(request: httpx.Request) -> httpx.Response:
         seen.append(request)
         return handler(request)
 
-    transport = httpx.MockTransport(_handler)
-    monkeypatch.setattr(httpx, "AsyncClient", functools.partial(httpx.AsyncClient, transport=transport))
+    _route_async_clients(monkeypatch, httpx.MockTransport(_handler))
     return seen
+
+
+def _route_async_clients(monkeypatch, transport: httpx.MockTransport) -> None:
+    """Serve every request an ``httpx.AsyncClient`` sends during the test from this transport.
+
+    Patches the socket transport underneath the clients, never ``httpx.AsyncClient``:
+    the reranker's client is built on the provider limiter's transport (ADR-0081),
+    which must stay in the path so the slot is taken the way it is in production,
+    and ``httpx.AsyncClient`` must stay a class. The reranker's first call imports
+    ``cost_tracking``, which imports ``langchain_openai`` and so ``openai``, whose
+    ``_base_client`` subclasses ``httpx.AsyncClient`` at import time; with a
+    ``functools.partial`` in its place that ``class`` statement raises
+    ``TypeError: the first argument must be callable``, and only when ``openai``
+    was not already imported.
+    """
+
+    async def _serve(self, request: httpx.Request) -> httpx.Response:
+        return await transport.handle_async_request(request)
+
+    monkeypatch.setattr(httpx.AsyncHTTPTransport, "handle_async_request", _serve)
 
 
 def _ok(payload: dict) -> httpx.Response:
@@ -91,12 +120,34 @@ async def test_ranking_parse_drops_dup_out_of_range_and_string_scores(monkeypatc
     assert ranked is not None
     assert [c.chunk_id for c in ranked] == ["c", "a", "b"]
     body = json.loads(seen[0].content.decode())
+    provider = body.pop("provider")
     assert body == {
         "model": "cohere/rerank-v3.5",
         "query": "query",
         "documents": ["text", "text", "text"],
         "top_n": 3,
     }
+    # The reranker is the platform's: every rerank is pinned, whatever the org's setting.
+    assert provider["zdr"] is True and provider["data_collection"] == "deny"
+
+
+async def test_without_the_zdr_seam_the_rerank_is_skipped_not_sent_unpinned(monkeypatch) -> None:
+    """The package imports without aiq_agent; then no rerank goes out, rather than an unpinned one."""
+    import sys
+
+    seen = _serve(monkeypatch, lambda request: _ok({"results": []}))
+    monkeypatch.setitem(sys.modules, "aiq_agent.common.openrouter", None)
+
+    assert await _reranker().rerank("query", [_chunk("a"), _chunk("b")], top_n=2) is None
+    assert seen == []
+
+
+def test_the_default_reranker_is_one_with_a_zdr_endpoint(monkeypatch) -> None:
+    """Every rerank is pinned, so a default without a ZDR endpoint would refuse every call."""
+    from knowledge_layer import cross_encoder
+
+    monkeypatch.setattr(cross_encoder, "DEFAULT_MODEL", "")
+    assert cross_encoder.CrossEncoderReranker(api_key="k").model == "qwen/qwen3-reranker-8b"
 
 
 async def test_timeout_returns_none(monkeypatch) -> None:
@@ -182,8 +233,7 @@ async def test_breaker_trips_after_consecutive_failures_and_recovers(monkeypatch
     monkeypatch.setattr(ce, "_BREAKER_THRESHOLD", 3)
     monkeypatch.setattr(ce, "_BREAKER_COOLDOWN_SECONDS", 300.0)
 
-    transport = httpx.MockTransport(_fail)
-    monkeypatch.setattr(httpx, "AsyncClient", functools.partial(httpx.AsyncClient, transport=transport))
+    _route_async_clients(monkeypatch, httpx.MockTransport(_fail))
     reranker = _reranker()
     chunks = [_chunk("a"), _chunk("b")]
 
@@ -193,9 +243,7 @@ async def test_breaker_trips_after_consecutive_failures_and_recovers(monkeypatch
     assert [r for r in caplog.records if "disabling it for" in r.getMessage()]
 
     # Tripped: a healthy provider is not even called.
-    monkeypatch.setattr(
-        httpx, "AsyncClient", functools.partial(httpx.AsyncClient, transport=httpx.MockTransport(_succeed))
-    )
+    _route_async_clients(monkeypatch, httpx.MockTransport(_succeed))
     before = len(calls)
     assert await reranker.rerank("query", chunks) is None
     assert len(calls) == before
@@ -334,6 +382,10 @@ async def test_an_org_with_no_key_of_its_own_still_reranks(monkeypatch, tracker)
     """A BYOK lookup that resolves nothing must not take reranking down."""
     from aiq_agent.common import credential_resolution
 
+    # The platform key is the one the reranker was built with; a key in the
+    # environment (a cloud dev session carries a real one) must not stand in.
+    monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
+    monkeypatch.delenv("OPENROUTER_KEY", raising=False)
     seen = _serve(monkeypatch, _ranked)
     monkeypatch.setattr(ce, "_organization_id_in_scope", lambda: "org_plain")
     monkeypatch.setattr(

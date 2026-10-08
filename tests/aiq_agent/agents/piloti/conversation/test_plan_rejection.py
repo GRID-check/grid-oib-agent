@@ -33,6 +33,7 @@ from aiq_agent.agents.piloti.markers import ESCALATION_MARKER
 from aiq_agent.agents.piloti.models import ClarifyResult
 from aiq_agent.agents.piloti.models import ConversationState
 from aiq_agent.agents.piloti.models import ResearchAgentState
+from tests.aiq_agent.agents.piloti.conversation import turn
 
 PROCEDURAL_QUESTION = "Wie läuft das Baubewilligungsverfahren in Wien ab?"
 SHALLOW_ANSWER = "Das Verfahren läuft in fünf Schritten ab [1]."
@@ -110,7 +111,8 @@ class TestRejectionDegradesToAnAnswer:
         calls, research, deep, clarifier = parts
         agent = _build(research, deep, clarifier)
 
-        result = await agent.run(
+        result = await turn(
+            agent,
             ConversationState(messages=[HumanMessage(content=PROCEDURAL_QUESTION)]),
             thread_id="reject-1",
         )
@@ -137,7 +139,8 @@ class TestRejectionDegradesToAnAnswer:
             return _research_result(state_input.messages, escalating=_is_fresh_question(state_input.messages))
 
         agent = _build(capturing_research, deep, clarifier)
-        await agent.run(
+        await turn(
+            agent,
             ConversationState(messages=[HumanMessage(content=PROCEDURAL_QUESTION)]),
             thread_id="reject-2",
         )
@@ -159,7 +162,8 @@ class TestRejectionDegradesToAnAnswer:
         calls, research, deep, clarifier = parts
         agent = _build(research, deep, clarifier)
 
-        result = await agent.run(
+        result = await turn(
+            agent,
             ConversationState(messages=[HumanMessage(content=PROCEDURAL_QUESTION)]),
             thread_id="reject-3",
         )
@@ -192,7 +196,8 @@ class TestCancellationEndsTheTurnWithAReceipt:
         calls, research, deep, clarifier = cancelling_parts
         agent = _build(research, deep, clarifier)
 
-        result = await agent.run(
+        result = await turn(
+            agent,
             ConversationState(messages=[HumanMessage(content=PROCEDURAL_QUESTION)]),
             thread_id="cancel-1",
         )
@@ -212,7 +217,8 @@ class TestCancellationEndsTheTurnWithAReceipt:
         calls, research, deep, clarifier = cancelling_parts
         agent = _build(research, deep, clarifier)
 
-        result = await agent.run(
+        result = await turn(
+            agent,
             ConversationState(messages=[HumanMessage(content=PROCEDURAL_QUESTION)]),
             thread_id="cancel-2",
         )
@@ -227,13 +233,15 @@ class TestCancellationEndsTheTurnWithAReceipt:
         calls, research, deep, clarifier = cancelling_parts
         agent = _build(research, deep, clarifier)
 
-        result = await agent.run(
+        result = await turn(
+            agent,
             ConversationState(messages=[HumanMessage(content=PROCEDURAL_QUESTION)]),
             thread_id="cancel-3",
         )
         assert result.deep_research_declined is True
 
-        result = await agent.run(
+        result = await turn(
+            agent,
             ConversationState(messages=[HumanMessage(content=PROCEDURAL_QUESTION)]),
             thread_id="cancel-3",
         )
@@ -250,7 +258,8 @@ class TestRejectionIsRemembered:
         calls, research, deep, clarifier = parts
         agent = _build(research, deep, clarifier)
 
-        result = await agent.run(
+        result = await turn(
+            agent,
             ConversationState(messages=[HumanMessage(content=PROCEDURAL_QUESTION)]),
             thread_id="sticky-1",
         )
@@ -264,13 +273,15 @@ class TestRejectionIsRemembered:
         calls, research, deep, clarifier = parts
         agent = _build(research, deep, clarifier)
 
-        await agent.run(
+        await turn(
+            agent,
             ConversationState(messages=[HumanMessage(content=PROCEDURAL_QUESTION)]),
             thread_id="sticky-2",
         )
         assert calls["clarifier"] == 1
 
-        result = await agent.run(
+        result = await turn(
+            agent,
             ConversationState(messages=[HumanMessage(content="Und wie lange dauert die Bauverhandlung?")]),
             thread_id="sticky-2",
         )
@@ -290,14 +301,16 @@ class TestRejectionIsRemembered:
             return ClarifyResult(research_context="planned", outcome="approved")
 
         agent = _build(research, deep, clarifier)
-        await agent.run(
+        await turn(
+            agent,
             ConversationState(messages=[HumanMessage(content=PROCEDURAL_QUESTION)]),
             thread_id="thread-a",
         )
         assert calls["deep"] == 0
 
         agent2 = _build(research, deep, approving_clarifier)
-        await agent2.run(
+        await turn(
+            agent2,
             ConversationState(messages=[HumanMessage(content="Umfassende Studie zum Holzbau in der DACH-Region")]),
             thread_id="thread-b",
         )
@@ -320,12 +333,14 @@ class TestRejectionIsRemembered:
         agent = _build(escalating_research, deep, clarifier)
 
         # Turn 1: the plan is rejected; the fallback answer asks to escalate.
-        await agent.run(
+        await turn(
+            agent,
             ConversationState(messages=[HumanMessage(content=PROCEDURAL_QUESTION)]),
             thread_id="escalate-1",
         )
         # Turn 2: same conversation, the shallow answer asks to escalate again.
-        result = await agent.run(
+        result = await turn(
+            agent,
             ConversationState(messages=[HumanMessage(content="Und die Fristen?")]),
             thread_id="escalate-1",
         )

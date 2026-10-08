@@ -19,7 +19,7 @@ import { platformApiRoute } from '@/lib/api/platform-handler'
 import { PLATFORM_PERMISSIONS } from '@/lib/authz/permissions'
 import { getPlatformOrganizationId } from '@/lib/authz/platform'
 import { recordAuditEvent } from '@/lib/audit/service'
-import { AGENT_GROUPS, AGENT_GROUP_IDS } from '@/lib/model-config/agent-groups'
+import { AGENT_GROUPS, AGENT_GROUP_IDS, isAgentGroupId } from '@/lib/model-config/agent-groups'
 import { getWorkflowGroupReasoningEfforts } from '@/lib/model-config/backend-defaults'
 import { REASONING_EFFORTS } from '@/lib/reasoning-settings/catalog'
 import {
@@ -42,8 +42,10 @@ export const GET = platformApiRoute(
       getWorkflowGroupReasoningEfforts(),
     ])
 
+    // Retired groups dropped, as in the model-defaults GET: the page sends back
+    // what it loads, and the PUT rejects an unknown group.
     const efforts = Object.fromEntries(
-      rows.map((row) => [
+      rows.filter((row) => isAgentGroupId(row.agentGroup)).map((row) => [
         row.agentGroup,
         {
           effort: row.effort,

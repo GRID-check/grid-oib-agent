@@ -1,0 +1,7 @@
+---
+security:
+  - >
+    Files attached to a chat now go through the same checks as project files:
+    file types that are not allowed are refused, and the file counts towards
+    your office's storage. Each file shows its own upload progress and, if
+    refused, the reason.

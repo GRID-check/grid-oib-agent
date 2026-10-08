@@ -11,13 +11,24 @@ vi.mock('@/lib/auth/require-auth', () => ({
 // Anonymous mode: no session/db lookups for collection scoping.
 vi.mock('@/lib/proxy/collection-authz', () => ({
   parseQueryContext: vi.fn(() => ({})),
-  parseBodyContext: vi.fn(() => ({})),
+  // Body first, then the query, like the real one; enough to see a cancel's
+  // `?projectId=` reach the scope builder.
+  resolveRequestContext: vi.fn((searchParams: URLSearchParams, body?: Record<string, unknown>) => ({
+    projectId:
+      (typeof body?.projectId === 'string' ? body.projectId : undefined) ??
+      searchParams.get('projectId') ??
+      undefined,
+  })),
 }))
 
 vi.mock('@/lib/collection-scope-request', () => ({
-  buildCollectionScopeFromRequest: vi
-    .fn()
-    .mockResolvedValue({ headerValue: 'scope', scope: [], projectId: undefined }),
+  buildCollectionScopeFromRequest: vi.fn().mockResolvedValue({
+    headerValue: 'scope',
+    scope: [],
+    scopedCollections: [],
+    projectId: undefined,
+    verifiedConversationId: undefined,
+  }),
 }))
 
 // Org model overrides lookup used by the POST handler to build
@@ -38,19 +49,26 @@ vi.mock('@/lib/project-profile/prompt-view', () => ({
 // the user's answer — and not the filing's own behaviour, which
 // `lib/documents/generated.spec.ts` owns.
 vi.mock('@/lib/documents/research-report', () => ({
-  fileResearchReport: vi.fn(),
+  findFiledResearchReport: vi.fn(),
+  findReportFilingRefusal: vi.fn(),
+  queueResearchReportFiling: vi.fn(),
 }))
 vi.mock('@/lib/projects/repository', () => ({
   findProjectIdByCollectionName: vi.fn(),
 }))
 
-import { GET, POST } from './route'
+import { DELETE, GET, POST } from './route'
 import { requireAuthorizedSession } from '@/lib/auth/require-auth'
 import { getEffectiveModelOverrides } from '@/lib/model-config/service'
 import { buildCollectionScopeFromRequest } from '@/lib/collection-scope-request'
 import { loadProjectBundesland } from '@/lib/project-profile/prompt-view'
-import { fileResearchReport } from '@/lib/documents/research-report'
+import {
+  findFiledResearchReport,
+  findReportFilingRefusal,
+  queueResearchReportFiling,
+} from '@/lib/documents/research-report'
 import { findProjectIdByCollectionName } from '@/lib/projects/repository'
+import { verifyGridRequestContextEnvelope } from '@/lib/request-context'
 
 const originalRequireAuth = process.env.REQUIRE_AUTH
 const originalInternalToken = process.env.GRID_INTERNAL_API_TOKEN
@@ -274,6 +292,7 @@ describe('/api/jobs/async/[...path] proxy — signed X-Grid-Request-Context enve
       projectId: 'proj-1',
       projectCollectionName: 'proj_abc',
       conversationId: undefined,
+      verifiedConversationId: undefined,
     })
     vi.mocked(getEffectiveModelOverrides).mockResolvedValue(null)
     vi.mocked(loadProjectBundesland).mockResolvedValue(null)
@@ -330,6 +349,8 @@ describe('/api/jobs/async/[...path] proxy — signed X-Grid-Request-Context enve
         { collection: 'oib_knowledge', shelf: 'base' },
         { collection: 'proj_abc', shelf: 'project' },
       ],
+      // The backend refuses an envelope without one as a grant (ADR-0084).
+      issuedAt: expect.any(Number),
     })
   })
 
@@ -462,17 +483,16 @@ describe('/api/jobs/async/[...path] proxy — filing a commissioned report', () 
       projectId: 'proj-1',
       projectCollectionName: 'proj_abc',
       conversationId: undefined,
+      verifiedConversationId: undefined,
     })
     vi.mocked(findProjectIdByCollectionName).mockResolvedValue('proj-1')
-    vi.mocked(fileResearchReport).mockResolvedValue({
-      documentId: 'doc-1',
-      filename: 'bericht-2026-08-20.pdf',
-      folderId: 'folder-1',
-      alreadyFiled: false,
-    })
+    vi.mocked(findFiledResearchReport).mockResolvedValue(null)
+    vi.mocked(findReportFilingRefusal).mockResolvedValue(null)
+    vi.mocked(queueResearchReportFiling).mockResolvedValue({ jobId: 'bff-job-1' })
     fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(reportResponse(REPORT_BODY))
     vi.spyOn(console, 'log').mockImplementation(() => undefined)
     vi.spyOn(console, 'error').mockImplementation(() => undefined)
+    vi.spyOn(console, 'warn').mockImplementation(() => undefined)
   })
 
   afterEach(() => {
@@ -484,24 +504,73 @@ describe('/api/jobs/async/[...path] proxy — filing a commissioned report', () 
     }
   })
 
-  it('files the finished report and tells the client where it landed', async () => {
+  it('queues the filing of the finished report and tells the client it is on its way', async () => {
     const res = await GET(
       getRequest('https://grid.example/api/jobs/async/job/job-1/report?projectId=proj-1'),
       streamParams(['job', 'job-1', 'report'])
     )
 
     expect(res.status).toBe(200)
-    expect(fileResearchReport).toHaveBeenCalledWith(
-      expect.objectContaining({ projectId: 'proj-1', runId: 'job-1', report: REPORT_BODY.report })
-    )
+    // The PDF is rendered by a `bff-jobs` pod (ADR-0079), as the reader.
+    expect(queueResearchReportFiling).toHaveBeenCalledWith({
+      organizationId: 'org-1',
+      payload: expect.objectContaining({
+        projectId: 'proj-1',
+        runId: 'job-1',
+        report: REPORT_BODY.report,
+        taskRunId: null,
+        requester: expect.objectContaining({ userId: session.userId, organizationMembershipId: session.organizationMembershipId }),
+      }),
+    })
     const body = await res.json()
     // Additive: everything the report response already carried is untouched.
+    expect(body).toMatchObject(REPORT_BODY)
+    expect(body.filingQueued).toBe(true)
+    expect(body.filed).toBeUndefined()
+    expect(body.filingFailed).toBeUndefined()
+  })
+
+  it('answers a reader who may not file with the broken promise, and queues nothing, however often it is read', async () => {
+    vi.mocked(findReportFilingRefusal).mockResolvedValue('ForbiddenError: Agent-authored documents are disabled')
+    fetchSpy.mockImplementation(async () => reportResponse(REPORT_BODY)) // a fresh body per read
+
+    for (let read = 0; read < 3; read += 1) {
+      const res = await GET(
+        getRequest('https://grid.example/api/jobs/async/job/job-1/report?projectId=proj-1'),
+        streamParams(['job', 'job-1', 'report'])
+      )
+      const body = await res.json()
+      expect(body).toMatchObject(REPORT_BODY)
+      expect(body.filingFailed).toBe(true)
+      expect(body.filingQueued).toBeUndefined()
+    }
+
+    expect(queueResearchReportFiling).not.toHaveBeenCalled()
+    expect(console.error).not.toHaveBeenCalled() // a refusal is an answer, not a fault
+  })
+
+  it('tells the client where a report that is already filed landed, without a job', async () => {
+    vi.mocked(findFiledResearchReport).mockResolvedValue({
+      documentId: 'doc-1',
+      filename: 'bericht-2026-08-20.pdf',
+      folderId: 'folder-1',
+      alreadyFiled: true,
+    })
+
+    const res = await GET(
+      getRequest('https://grid.example/api/jobs/async/job/job-1/report?projectId=proj-1'),
+      streamParams(['job', 'job-1', 'report'])
+    )
+
+    expect(queueResearchReportFiling).not.toHaveBeenCalled()
+    const body = await res.json()
     expect(body).toMatchObject(REPORT_BODY)
     expect(body.filed).toEqual({
       documentId: 'doc-1',
       filename: 'bericht-2026-08-20.pdf',
-      alreadyFiled: false,
+      alreadyFiled: true,
     })
+    expect(body.filingQueued).toBeUndefined()
   })
 
   // ---------------------------------------------------------------------
@@ -521,6 +590,7 @@ describe('/api/jobs/async/[...path] proxy — filing a commissioned report', () 
       projectId: 'proj-the-reader-is-looking-at',
       projectCollectionName: 'proj_wien',
       conversationId: undefined,
+      verifiedConversationId: undefined,
     })
     vi.mocked(findProjectIdByCollectionName).mockResolvedValue('proj-the-run-belongs-to')
 
@@ -530,8 +600,8 @@ describe('/api/jobs/async/[...path] proxy — filing a commissioned report', () 
     )
 
     expect(findProjectIdByCollectionName).toHaveBeenCalledWith('proj_abc', 'org-1')
-    expect(fileResearchReport).toHaveBeenCalledWith(
-      expect.objectContaining({ projectId: 'proj-the-run-belongs-to' })
+    expect(queueResearchReportFiling).toHaveBeenCalledWith(
+      expect.objectContaining({ payload: expect.objectContaining({ projectId: 'proj-the-run-belongs-to' }) })
     )
   })
 
@@ -549,11 +619,12 @@ describe('/api/jobs/async/[...path] proxy — filing a commissioned report', () 
       streamParams(['job', 'job-1', 'report'])
     )
 
-    expect(fileResearchReport).not.toHaveBeenCalled()
+    expect(queueResearchReportFiling).not.toHaveBeenCalled()
     const body = await res.json()
     expect(body.filed).toBeUndefined()
-    // Not a broken promise either: none was made.
+    // Not a broken promise either: none was made, and nothing is on its way.
     expect(body.filingFailed).toBeUndefined()
+    expect(body.filingQueued).toBeUndefined()
   })
 
   it('files nothing when the run\u2019s collection belongs to no project in this organization', async () => {
@@ -566,7 +637,7 @@ describe('/api/jobs/async/[...path] proxy — filing a commissioned report', () 
       streamParams(['job', 'job-1', 'report'])
     )
 
-    expect(fileResearchReport).not.toHaveBeenCalled()
+    expect(queueResearchReportFiling).not.toHaveBeenCalled()
     expect((await res.json()).filed).toBeUndefined()
   })
 
@@ -579,7 +650,9 @@ describe('/api/jobs/async/[...path] proxy — filing a commissioned report', () 
       streamParams(['job', 'job-1', 'report'])
     )
 
-    expect(fileResearchReport).toHaveBeenCalledWith(expect.objectContaining({ cards }))
+    expect(queueResearchReportFiling).toHaveBeenCalledWith(
+      expect.objectContaining({ payload: expect.objectContaining({ cards }) })
+    )
   })
 
   it('passes no cards rather than an empty list when the run produced none', async () => {
@@ -592,7 +665,7 @@ describe('/api/jobs/async/[...path] proxy — filing a commissioned report', () 
       streamParams(['job', 'job-1', 'report'])
     )
 
-    expect(vi.mocked(fileResearchReport).mock.calls[0][0].cards).toBeUndefined()
+    expect(vi.mocked(queueResearchReportFiling).mock.calls[0][0].payload.cards).toBeUndefined()
   })
 
   it('files the report anyway when `cards` is malformed', async () => {
@@ -606,14 +679,16 @@ describe('/api/jobs/async/[...path] proxy — filing a commissioned report', () 
     )
 
     expect(res.status).toBe(200)
-    expect(fileResearchReport).toHaveBeenCalledWith(expect.objectContaining({ cards: undefined }))
+    expect(queueResearchReportFiling).toHaveBeenCalledWith(
+      expect.objectContaining({ payload: expect.objectContaining({ cards: undefined }) })
+    )
   })
 
   it('says so when a promise to file was made and broken', async () => {
     // The starting banner told the reader the report would be filed under
     // „Berichte". A plain success after a failed filing sends them to look for
     // a document that is not there, with the only record in a server log.
-    vi.mocked(fileResearchReport).mockRejectedValue(new Error('quota exceeded'))
+    vi.mocked(queueResearchReportFiling).mockRejectedValue(new Error('quota exceeded'))
 
     const res = await GET(
       getRequest('https://grid.example/api/jobs/async/job/job-1/report?projectId=proj-1'),
@@ -647,7 +722,7 @@ describe('/api/jobs/async/[...path] proxy — filing a commissioned report', () 
   })
 
   it('still returns the report when filing fails — the answer is not the filing’s to lose', async () => {
-    vi.mocked(fileResearchReport).mockRejectedValue(new Error('quota exceeded'))
+    vi.mocked(queueResearchReportFiling).mockRejectedValue(new Error('quota exceeded'))
 
     const res = await GET(
       getRequest('https://grid.example/api/jobs/async/job/job-1/report'),
@@ -670,7 +745,7 @@ describe('/api/jobs/async/[...path] proxy — filing a commissioned report', () 
       streamParams(['job', 'job-1', 'report'])
     )
 
-    expect(fileResearchReport).not.toHaveBeenCalled()
+    expect(queueResearchReportFiling).not.toHaveBeenCalled()
   })
 
   it('files nothing on the status endpoint — only a report is a document', async () => {
@@ -681,7 +756,7 @@ describe('/api/jobs/async/[...path] proxy — filing a commissioned report', () 
       streamParams(['job', 'job-1'])
     )
 
-    expect(fileResearchReport).not.toHaveBeenCalled()
+    expect(queueResearchReportFiling).not.toHaveBeenCalled()
   })
 
   it('files the run\u2019s report even when the reader\u2019s own context resolves no project', async () => {
@@ -699,6 +774,7 @@ describe('/api/jobs/async/[...path] proxy — filing a commissioned report', () 
       projectId: undefined,
       projectCollectionName: undefined,
       conversationId: undefined,
+      verifiedConversationId: undefined,
     })
 
     await GET(
@@ -706,8 +782,8 @@ describe('/api/jobs/async/[...path] proxy — filing a commissioned report', () 
       streamParams(['job', 'job-1', 'report'])
     )
 
-    expect(fileResearchReport).toHaveBeenCalledWith(
-      expect.objectContaining({ projectId: 'proj-1', runId: 'job-1' })
+    expect(queueResearchReportFiling).toHaveBeenCalledWith(
+      expect.objectContaining({ payload: expect.objectContaining({ projectId: 'proj-1', runId: 'job-1' }) })
     )
   })
 
@@ -726,6 +802,191 @@ describe('/api/jobs/async/[...path] proxy — filing a commissioned report', () 
       streamParams(['job', 'job-1', 'report'])
     )
 
-    expect(fileResearchReport).not.toHaveBeenCalled()
+    expect(queueResearchReportFiling).not.toHaveBeenCalled()
+  })
+})
+
+describe('/api/jobs/async/[...path] proxy — every method carries the signed envelope (ADR-0084)', () => {
+  // The backend lets a job's owner through on the bearer alone and anyone else
+  // only inside the project or conversation this envelope signs, so a teammate's
+  // stream, status, report and cancel are refused without it.
+  const SECRET = 'test-secret' // pragma: allowlist secret
+  let fetchSpy: ReturnType<typeof vi.spyOn>
+
+  const session = {
+    userId: 'user-1',
+    organizationId: 'org-1',
+    email: 'user@grid.example',
+    name: 'Test User',
+    accessToken: 'token-abc',
+    organizationMembershipId: 'membership-1',
+    role: 'member',
+    permissions: [] as string[],
+    featureFlags: null,
+  }
+
+  const sentHeaders = (call = 0): Record<string, string> =>
+    (fetchSpy.mock.calls[call][1] as RequestInit).headers as Record<string, string>
+
+  /** The envelope as the BFF's own verifier reads it: signed, in its window, naming the checked scope. */
+  const verifiedEnvelope = (call = 0) => {
+    const headers = sentHeaders(call)
+    return verifyGridRequestContextEnvelope(
+      headers['X-Grid-Request-Context'],
+      headers['X-Grid-Request-Context-Sig'],
+      SECRET
+    )
+  }
+
+  beforeEach(() => {
+    process.env.REQUIRE_AUTH = 'true'
+    process.env.GRID_INTERNAL_API_TOKEN = SECRET
+    vi.mocked(requireAuthorizedSession).mockResolvedValue(session)
+    vi.mocked(buildCollectionScopeFromRequest).mockResolvedValue({
+      headerValue: 'scope',
+      scope: ['oib_knowledge', 'proj_abc'],
+      scopedCollections: [
+        { collection: 'oib_knowledge', shelf: 'base' },
+        { collection: 'proj_abc', shelf: 'project' },
+      ],
+      projectId: 'proj-1',
+      projectCollectionName: 'proj_abc',
+      conversationId: 'conv-1',
+      verifiedConversationId: 'conv-1',
+    })
+    vi.mocked(getEffectiveModelOverrides).mockResolvedValue(null)
+    fetchSpy = vi.spyOn(globalThis, 'fetch').mockImplementation(
+      async () =>
+        new Response(JSON.stringify({ job_id: 'job-1', status: 'running' }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        })
+    )
+    vi.spyOn(console, 'log').mockImplementation(() => undefined)
+  })
+
+  afterEach(() => {
+    vi.restoreAllMocks()
+    if (originalRequireAuth === undefined) delete process.env.REQUIRE_AUTH
+    else process.env.REQUIRE_AUTH = originalRequireAuth
+    if (originalInternalToken === undefined) delete process.env.GRID_INTERNAL_API_TOKEN
+    else process.env.GRID_INTERNAL_API_TOKEN = originalInternalToken
+  })
+
+  it.each([
+    [['job', 'job-1']],
+    [['job', 'job-1', 'stream']],
+    [['job', 'job-1', 'report']],
+    [['job', 'job-1', 'state']],
+  ])('signs the checked project and conversation on GET %j', async (path) => {
+    await GET(getRequest(`https://grid.example/api/jobs/async/${path.join('/')}?projectId=proj-1`), streamParams(path))
+
+    expect(verifiedEnvelope()).toMatchObject({
+      organizationId: 'org-1',
+      userId: 'user-1',
+      projectId: 'proj-1',
+      conversationId: 'conv-1',
+    })
+    const payload = JSON.parse(Buffer.from(sentHeaders()['X-Grid-Request-Context'], 'base64url').toString('utf8'))
+    expect(payload.collectionScope).toContainEqual({ collection: 'proj_abc', shelf: 'project' })
+    expect(sentHeaders().Authorization).toBe('Bearer token-abc')
+  })
+
+  it('signs it on DELETE', async () => {
+    await DELETE(
+      new Request('https://grid.example/api/jobs/async/job/job-1/cancel?projectId=proj-1', { method: 'DELETE' }),
+      postParams(['job', 'job-1', 'cancel'])
+    )
+
+    expect(verifiedEnvelope()).toMatchObject({ organizationId: 'org-1', userId: 'user-1', projectId: 'proj-1' })
+  })
+
+  it('signs a cancel’s `?projectId=` without loading what only a submit configures', async () => {
+    await POST(
+      postRequest('https://grid.example/api/jobs/async/job/job-1/cancel?projectId=proj-1'),
+      postParams(['job', 'job-1', 'cancel'])
+    )
+
+    expect(buildCollectionScopeFromRequest).toHaveBeenCalledWith(session, { projectId: 'proj-1' })
+    expect(verifiedEnvelope()).toMatchObject({ projectId: 'proj-1' })
+    expect(getEffectiveModelOverrides).not.toHaveBeenCalled()
+  })
+
+  it('signs nothing as a conversation the scope builder did not find and authorize', async () => {
+    vi.mocked(buildCollectionScopeFromRequest).mockResolvedValue({
+      headerValue: 'scope',
+      scope: ['oib_knowledge', 's_conv-new'],
+      scopedCollections: [{ collection: 'oib_knowledge', shelf: 'base' }],
+      projectId: undefined,
+      projectCollectionName: undefined,
+      conversationId: 'conv-new',
+      verifiedConversationId: undefined,
+    })
+
+    await GET(getRequest('https://grid.example/api/jobs/async/job/job-1?conversationId=conv-new'), streamParams(['job', 'job-1']))
+
+    expect(verifiedEnvelope()?.conversationId).toBeNull()
+  })
+
+  it('filters the run listing to the checked project and never forwards a client collection', async () => {
+    await GET(
+      getRequest('https://grid.example/api/jobs/async/jobs?projectId=proj-1&project_collection=proj_other&status=running'),
+      streamParams(['jobs'])
+    )
+
+    const upstream = new URL(String(fetchSpy.mock.calls[0][0]))
+    expect(upstream.pathname).toBe('/v1/jobs/async/jobs')
+    expect(upstream.searchParams.get('project_collection')).toBe('proj_abc')
+    expect(upstream.searchParams.get('status')).toBe('running')
+    expect(upstream.searchParams.has('projectId')).toBe(false)
+    expect(verifiedEnvelope()).toMatchObject({ projectId: 'proj-1' })
+  })
+
+  it('forwards no project filter when the listing names no project', async () => {
+    await GET(
+      getRequest('https://grid.example/api/jobs/async/jobs?project_collection=proj_other'),
+      streamParams(['jobs'])
+    )
+
+    const upstream = new URL(String(fetchSpy.mock.calls[0][0]))
+    expect(upstream.searchParams.has('project_collection')).toBe(false)
+  })
+})
+
+describe('/api/jobs/async/[...path] proxy — a cancel the backend refuses because the run ended (#632)', () => {
+  // The Sessions panel's stop goes out as POST /job/{id}/cancel. The first
+  // fix for #632 guarded GET and DELETE only, so this path kept filing an
+  // ERROR per refused cancel. Both terminal statuses the backend names.
+  beforeEach(() => {
+    delete process.env.REQUIRE_AUTH
+    vi.spyOn(console, 'log').mockImplementation(() => undefined)
+  })
+
+  afterEach(() => {
+    vi.restoreAllMocks()
+    if (originalRequireAuth !== undefined) process.env.REQUIRE_AUTH = originalRequireAuth
+  })
+
+  it.each(['success', 'failure'])('warns, never errors, for a job already at %s', async (terminal) => {
+    const detail = `{"detail":"Job not cancellable: job-1 (status: ${terminal})"}`
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(detail, { status: 400 }))
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+    const error = vi.spyOn(console, 'error').mockImplementation(() => undefined)
+
+    const res = await POST(postRequest('https://grid.example/api/jobs/async/job/job-1/cancel'), postParams(['job', 'job-1', 'cancel']))
+
+    expect(res.status).toBe(400)
+    expect(error).not.toHaveBeenCalled()
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('cancel race'), expect.stringContaining(terminal))
+  })
+
+  it('still errors for any other backend refusal', async () => {
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response('{"detail":"boom"}', { status: 500 }))
+    vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+    const error = vi.spyOn(console, 'error').mockImplementation(() => undefined)
+
+    await POST(postRequest('https://grid.example/api/jobs/async/job/job-1/cancel'), postParams(['job', 'job-1', 'cancel']))
+
+    expect(error).toHaveBeenCalledWith(expect.stringContaining('POST backend error'), 500, '{"detail":"boom"}')
   })
 })

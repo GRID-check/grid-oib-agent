@@ -31,6 +31,7 @@ from aiq_agent.common.turn_status import DEGRADED_NO_REPORT_FILE
 from aiq_agent.common.turn_status import begin_lane_capture
 from aiq_agent.common.turn_status import end_lane_capture
 from aiq_agent.common.turn_status import get_lane_captures
+from aiq_agent.common.turn_status import step_scope
 from aiq_agent.observability.langfuse_trace_attributes import begin_trace_contributions
 from aiq_agent.observability.langfuse_trace_attributes import end_trace_contributions
 from aiq_agent.project_context import get_organization_id_from_context
@@ -314,7 +315,7 @@ class DeepResearcherAgent:
 
         Per run, for the reason the source registry is (ADR-0018): the runtime
         owns one run's activation list and this instance is shared across runs
-        and tenants. The organization comes off the STATE first — in a Dask
+        and tenants. The organization comes off the STATE first — in a research
         worker ``get_organization_id_from_context()`` reads no headers because
         there is no request — and falls back to the request context for the
         synchronous path and evaluation runs. Every resolved skill is an OFFER:
@@ -322,7 +323,7 @@ class DeepResearcherAgent:
         judges applies, and nothing here can put a body in front of it.
 
         The resolver is a SYNCHRONOUS HTTP call to the BFF. Run on the loop it
-        stalled the Dask worker's heartbeat for as long as the BFF took to
+        stalled the research worker's heartbeat for as long as the BFF took to
         answer, and the ghost reaper failed healthy jobs for it
         (``docs/contributing/gotchas.md``), so it runs in a worker thread.
         ``resolve_served_skills`` never raises: an empty skill set produces an
@@ -366,10 +367,15 @@ class DeepResearcherAgent:
         return config or None, stream_kwargs
 
     async def run(self, state: DeepResearchAgentState) -> DeepResearchAgentState:
+        """Execute deep research, every step it emits drawn as deep research's (``scope: deep``)."""
+        with step_scope("deep"):
+            return await self._run(state)
+
+    async def _run(self, state: DeepResearchAgentState) -> DeepResearchAgentState:
         """Execute deep research with multi-phase workflow.
 
         Two contextvars are bound for the run and reset in ``finally``, because
-        a Dask worker process is reused across jobs and tenants. The SESSION
+        a research worker process is reused across jobs and tenants. The SESSION
         registry, only when nothing is bound: the live citation stream reads it
         to tell a source the run retrieved from one the model merely named, and
         in a worker nothing else binds one — while in conversation mode the
@@ -387,7 +393,7 @@ class DeepResearcherAgent:
         contributions_token = begin_trace_contributions()
         # The run's lane hits, recorded per round by the tools the researchers
         # call. Bound HERE and reset in ``finally`` for the reason the trace
-        # contributions are: a Dask worker is reused across jobs and tenants,
+        # contributions are: a research worker is reused across jobs and tenants,
         # and a capture left open would hang job N+1's hits under job N.
         lane_token = begin_lane_capture()
         write_now_token = begin_write_now_record()

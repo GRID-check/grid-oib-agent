@@ -1,8 +1,11 @@
 'use client'
 
+import type { JSX } from 'react'
 import { Fragment, useCallback, useMemo, useState, type ReactNode } from 'react'
-import type { FileItem, FolderItem } from './project-file-workspace'
-import { Search, SearchX, FilterX, FolderOpen, Sparkles, UploadCloud } from 'lucide-react'
+import type { FileItem, FolderItem } from '../file-types'
+import type { CardExtras } from '../lib/file-shelf'
+import { Search, SearchX, FilterX, FolderOpen, Sparkles } from 'lucide-react'
+import { RisoPrint } from '@/components/brand/riso-print'
 import { Button } from '@/components/ui/button'
 import { EmptyState } from '@/components/ui/empty-state'
 import { SectionLabel } from '@/components/ui/section-label'
@@ -39,6 +42,11 @@ export interface FolderNavigation {
   onCreateFolder: (name: string, parentId?: string) => Promise<boolean>
   onRenameFolder: (folderId: string, name: string) => Promise<boolean>
   onDeleteFolder: (folderId: string) => Promise<boolean>
+  /**
+   * A viewer who may look and not touch: the tree is walkable, and there is no
+   * „Neuer Ordner", no rename or delete, no context menu on a tile.
+   */
+  readOnly?: boolean
 }
 
 interface FileBrowserPaneProps {
@@ -70,16 +78,14 @@ interface FileBrowserPaneProps {
    */
   filterEmptyNotice?: { title: string; description: string; onClear: () => void } | null
   /**
-   * Move a document into a folder by dragging it there. Absent on a surface
-   * with no folders (the Archiv), which is also what turns the drag OFF: a card
-   * that lifts under the finger where nothing can receive it promises a move
-   * this surface cannot make.
+   * Move a document into a folder by dragging it there. Absent turns the drag
+   * OFF (a read-only viewer): a card that lifts under the finger where nothing
+   * can receive it promises a move this surface cannot make.
    */
   onDropDocumentInFolder?: (documentId: string, folderId: string | null) => void
   /**
    * Re-parent one folder into another by dragging it there. Absent turns the
-   * folder drag off entirely — the Archiv is flat, so a folder tile that lifted
-   * under the finger would promise a move that surface cannot make.
+   * folder drag off entirely, for the same reason as the document drag.
    */
   onDropFolderInFolder?: (draggedFolderId: string, parentId: string | null) => void
   /** Upload control rendered inside the first-run empty state. */
@@ -88,8 +94,8 @@ interface FileBrowserPaneProps {
   uploadCard?: ReactNode
   /**
    * Folder drill-down: breadcrumb path on top, folder cards/rows beside the
-   * files, create/rename/delete in place. Omitted by callers without folders
-   * (the Archiv is flat by design, ADR-0024).
+   * files, create/rename/delete in place. Omitted by callers that have no
+   * folder listing to show (a fixture, a failed folder read).
    */
   folderNav?: FolderNavigation
   /**
@@ -113,6 +119,11 @@ interface FileBrowserPaneProps {
    */
   view?: 'cards' | 'list'
   showAssignment?: boolean
+  /**
+   * A shelf's own mark on a card: the Büroarchiv's gold kind chip and the line
+   * saying where it came from. Cards only — a row has no room for either.
+   */
+  cardExtras?: (file: FileItem) => CardExtras
   /** Per-file rename / delete / download — shown on the card and the list row. */
   renderActions?: (file: FileItem) => ReactNode
   /** Wrap a file card (right-click host). */
@@ -139,6 +150,7 @@ export function FileBrowserPane({
   onDropDocumentInFolder,
   onDropFolderInFolder,
   renderActions,
+  cardExtras,
   wrapFile,
   wrapFileRow,
   onViewChange,
@@ -198,7 +210,7 @@ export function FileBrowserPane({
         view,
         sort,
         onNewFolder:
-          folderNav && !semantic.active && query.trim() === ''
+          folderNav && !folderNav.readOnly && !semantic.active && query.trim() === ''
             ? () => setCreateFolderIn(currentFolderId)
             : undefined,
         onUploadFiles: onPickFiles,
@@ -229,7 +241,10 @@ export function FileBrowserPane({
         onSelect={() => onSelectFile(file.id)}
         locale={locale}
         match={extra.match}
-        footerLead={showAssignment ? <AssignmentFaces assignees={file.assignees} /> : undefined}
+        footerLead={
+          showAssignment ? <AssignmentFaces assignees={file.assignees} /> : undefined
+        }
+        {...cardExtras?.(file)}
         actions={renderActions?.(file)}
         draggable={Boolean(onDropDocumentInFolder)}
       />
@@ -248,12 +263,12 @@ export function FileBrowserPane({
       onDropDocument: onDropDocumentInFolder,
       onDropFolder: onDropFolderInFolder,
       canAcceptFolder,
-      actions: folderNav ? <FolderActionsTrigger /> : undefined,
+      actions: folderNav ? (folderNav.readOnly ? <Fragment /> : <FolderActionsTrigger />) : undefined,
       editing: editingFolderId === folder.id,
       onEditingChange: (next: boolean) => setEditingFolderId(next ? folder.id : null),
     }
     const tile = asRow ? <FolderRow {...props} /> : <FolderCard {...props} />
-    if (!folderNav) return tile
+    if (!folderNav || folderNav.readOnly) return tile
     return (
       <FolderObjectMenu
         folder={folder}
@@ -469,7 +484,7 @@ export function FileBrowserPane({
     return (
       <div className="flex h-full items-center justify-center p-8">
         <EmptyState
-          icon={UploadCloud}
+          art={<RisoPrint id="vignetten/planschrank/empty" />}
           title={t('browser.noDocumentsTitle')}
           description={t('browser.noDocumentsDescription')}
           action={uploadControl}
@@ -500,7 +515,7 @@ export function FileBrowserPane({
           folders={folderNav.folders}
           currentFolderId={folderNav.currentFolderId}
           onNavigate={folderNav.onNavigate}
-          onCreateFolder={folderNav.onCreateFolder}
+          onCreateFolder={folderNav.readOnly ? undefined : folderNav.onCreateFolder}
           onDropDocument={onDropDocumentInFolder}
           onDropFolder={onDropFolderInFolder}
           canAcceptFolder={canAcceptFolder}
@@ -734,7 +749,7 @@ export function FileBrowserPane({
         </motion.div>
       )}
       </ActionMenu>
-      {folderNav && (
+      {folderNav && !folderNav.readOnly && (
         <NewFolderDialog
           open={createFolderIn !== undefined}
           onOpenChange={(open) => {

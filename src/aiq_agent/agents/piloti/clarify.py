@@ -14,8 +14,8 @@ questions (the model may search first, and may offer pickable options), then —
 when plan approval is on — show a research plan and take the user's verdict,
 revising it while the reply is feedback. The dialog is a loop rather than a
 LangGraph because that is all it ever was: no checkpoint, no persistence, no
-node name that reaches a reader. What the reader DOES see is one trace row, and
-:data:`TRACE_STEP_NAME` still emits it under the name the frontend already maps.
+node name that reaches a reader. What the reader DOES see is one trace row, a
+``clarification`` step.
 
 Nothing is rebuilt to serve a request. The models, tools and limits are
 resolved once at boot into a :class:`ClarifyDeps`; a request that varies
@@ -66,25 +66,24 @@ from aiq_agent.common import filter_tools_by_sources
 from aiq_agent.common import get_all_tool_refs
 from aiq_agent.common import get_langchain_llm
 from aiq_agent.common import get_latest_user_query
-from aiq_agent.common import get_model_overrides_from_context
-from aiq_agent.common import get_org_llm_credential_from_context
-from aiq_agent.common import get_reasoning_efforts
-from aiq_agent.common import get_zdr_only_from_context
 from aiq_agent.common import is_verbose
 from aiq_agent.common import load_prompt
 from aiq_agent.common import render_prompt_template
 from aiq_agent.common import strict_json_response_format
+from aiq_agent.common.agent_tools import load_agent_tools
 from aiq_agent.common.plan_documents import MAX_PLAN_DOCUMENTS
 from aiq_agent.common.plan_documents import PlanDocuments
 from aiq_agent.common.plan_documents import documents_from_plan
-from aiq_agent.common.turn_status import push_custom_step
+from aiq_agent.common.request_llm_context import RequestLLMContext
+from aiq_agent.common.request_llm_context import read_request_llm_context
+from aiq_agent.common.turn_status import emit_step
+from aiq_agent.common.wire_v2 import ClarificationStep
 from aiq_agent.project_context import get_organization_id_from_context
-from nat.builder.builder import Builder
-from nat.builder.context import Context
-from nat.builder.framework_enum import LLMFrameworkEnum
-from nat.data_models.component_ref import FunctionGroupRef
-from nat.data_models.component_ref import FunctionRef
-from nat.data_models.component_ref import LLMRef
+from nat.plugin_api import Builder
+from nat.plugin_api import Context
+from nat.plugin_api import FunctionGroupRef
+from nat.plugin_api import FunctionRef
+from nat.plugin_api import LLMRef
 
 from .models.clarify import ClarificationResponse
 from .models.clarify import ClarifyRequest
@@ -104,17 +103,6 @@ CLARIFICATION_PROMPT = load_prompt(PROMPTS_DIR, "research_clarification")
 PLAN_GENERATION_PROMPT = load_prompt(PROMPTS_DIR, "plan_generation")
 """Read once, at import. A deployment that ships without a prompt file fails
 here, loudly, instead of running degraded on an inline stub nobody reviews."""
-
-TRACE_STEP_NAME = "clarifier_agent"
-"""The name this step announces itself under in the turn's step stream.
-
-It is the name the old NAT function emitted, and the frontend maps it to
-"Klärung" (``intermediate-step-parser.ts``). Kept verbatim on purpose: turns
-persisted before this change carry it in their stored steps, so the frontend
-has to keep the entry regardless — and a second name for the same moment would
-mean two dictionary entries and a trace that reads differently either side of a
-deploy.
-"""
 
 SKIP_COMMANDS = frozenset({"skip", "done", "exit", "quit", "proceed", "continue", "no", "n", ""})
 """Replies to a clarification QUESTION that mean "stop asking and get on with it"."""
@@ -675,8 +663,10 @@ async def clarify(request: ClarifyRequest, deps: ClarifyDeps) -> ClarifyResult:
     query = get_latest_user_query(list(request.messages))
     logger.info("User's query: %s...", str(query)[:100] if query else "")
     # The one row this step contributes to the reader's trace, emitted before
-    # the first question blocks the turn rather than after the dialog ends.
-    push_custom_step(TRACE_STEP_NAME, {"kind": "clarification", "max_turns": deps.max_turns})
+    # the first question blocks the turn rather than after the dialog ends. A
+    # clarifier configured to ask nothing has no question to announce.
+    if deps.max_turns:
+        emit_step(ClarificationStep(id="clarification", max_turns=deps.max_turns))
     log = await gather_clarification(request, deps)
     if not deps.enable_plan_approval:
         return ClarifyResult(research_context=log)
@@ -709,14 +699,7 @@ async def ask_through_nat(question: str, options: Sequence[str] = ()) -> str:
 
 async def resolve_tools(settings: ClarifierSettings, builder: Builder) -> list[BaseTool]:
     """The tool set the step boots with: the configured refs, else the whole registry."""
-    tools = await builder.get_tools(
-        tool_names=settings.tools or get_all_tool_refs(),
-        wrapper_type=LLMFrameworkEnum.LANGCHAIN,
-    )
-    if not settings.exclude_tools:
-        return list(tools)
-    excluded = set(settings.exclude_tools)
-    return [t for t in tools if getattr(t, "name", "") not in excluded]
+    return await load_agent_tools(builder, settings.tools or get_all_tool_refs(), settings.exclude_tools)
 
 
 def _clarifier_llm(llm: BaseChatModel, tools: Sequence[BaseTool]) -> Any:
@@ -758,18 +741,24 @@ def build_deps(
     )
 
 
-def _request_planner(
-    planner_llm: BaseChatModel | None, model_overrides: Any, org_credential: Any
-) -> BaseChatModel | None:
-    """This request's planner: the boot one under the org's override and credential.
+def _request_planner(planner_llm: BaseChatModel | None, context: RequestLLMContext) -> BaseChatModel | None:
+    """This request's planner: the boot one under the org's credential, override and ZDR policy.
 
-    ``None`` stays ``None`` — no configured planner means :func:`build_deps`
-    falls back to the (already overridden) clarifier LLM.
+    Every dial comes from ``context``, already read off the loop; passing each
+    explicitly keeps ``apply_model_override`` from calling its blocking getters
+    here. The credential goes first so the ZDR pin lands only on a model that
+    still points at OpenRouter. ``None`` stays ``None`` — no configured planner
+    means :func:`build_deps` falls back to the (already overridden) clarifier LLM.
     """
     if planner_llm is None:
         return None
-    overridden = apply_model_override(planner_llm, AgentGroup.CLARIFIER, model_overrides)
-    return apply_org_credential(overridden, org_credential)
+    return apply_model_override(
+        apply_org_credential(planner_llm, context.credential),
+        AgentGroup.CLARIFIER,
+        context.model_overrides,
+        zdr_only=context.zdr_only,
+        reasoning_effort=context.reasoning_efforts.get(AgentGroup.CLARIFIER.value, ""),
+    )
 
 
 @dataclass(frozen=True)
@@ -811,7 +800,7 @@ class Clarifier:
             boot=build_deps(provider, tools, planner_llm, settings, ask_user, callbacks),
         )
 
-    def deps_for(self, request: ClarifyRequest) -> ClarifyDeps:
+    async def deps_for(self, request: ClarifyRequest) -> ClarifyDeps:
         """What this request varies from the boot deps, or the boot deps themselves.
 
         Two sources of variation, both per-org: the runtime model override
@@ -824,21 +813,16 @@ class Clarifier:
         selected = filter_tools_by_sources(list(self.tools), request.data_sources)
         if all_mapped_tools_filtered_out(list(self.tools), selected, request.data_sources):
             logger.warning("Clarifier received data_sources with no matching tools")
-        overrides = get_model_overrides_from_context()
-        credential = get_org_llm_credential_from_context()
-        active = (
-            self.provider.with_model_overrides(overrides)
-            .with_reasoning_efforts(get_reasoning_efforts())
-            .with_credential(credential)
-            .with_zdr(get_zdr_only_from_context())
-        )
+        # Off the loop: each dial can fall back to a blocking BFF call.
+        context = await read_request_llm_context()
+        active = context.apply(self.provider)
         if active is self.provider and selected == list(self.tools):
             return self.boot
-        planner = _request_planner(self.planner_llm, overrides, credential)
+        planner = _request_planner(self.planner_llm, context)
         return build_deps(active, selected, planner, self.settings, self.ask_user, self.callbacks)
 
     async def __call__(self, request: ClarifyRequest) -> ClarifyResult:
-        return await clarify(request, self.deps_for(request))
+        return await clarify(request, await self.deps_for(request))
 
 
 async def build_clarifier(settings: ClarifierSettings, builder: Builder) -> ClarifyFn:

@@ -36,6 +36,12 @@ const EXPECTED: Record<string, string> = {
   'cards/route.ts GET': 'settingsView',
   'citation-health/export/route.ts GET': 'organizationsView',
   'citation-health/route.ts GET': 'organizationsView',
+  // Product feedback (bugs, ideas) sent TO the platform. Filed with lessons,
+  // not with organization data: it is the platform's own work queue, read on
+  // view and triaged on manage.
+  'feedback/[reportId]/route.ts GET': 'settingsView',
+  'feedback/[reportId]/route.ts PATCH': 'settingsManage',
+  'feedback/route.ts GET': 'settingsView',
   'knowledge/documents/[fileName]/display-title/route.ts PATCH': 'settingsManage',
   'knowledge/documents/[fileName]/doc-class/route.ts PATCH': 'settingsManage',
   'knowledge/documents/[fileName]/route.ts DELETE': 'settingsManage',
@@ -48,6 +54,8 @@ const EXPECTED: Record<string, string> = {
   'lessons/[lessonId]/route.ts PATCH': 'settingsManage',
   'lessons/route.ts GET': 'settingsView',
   'lessons/route.ts POST': 'settingsManage',
+  // Kills every running deep research in every organization.
+  'maintenance/kill-runs/route.ts POST': 'settingsManage',
   'maintenance/reconcile-vectors/route.ts POST': 'settingsManage',
   'model-defaults/models/route.ts GET': 'settingsView',
   'model-defaults/route.ts GET': 'settingsView',
@@ -60,6 +68,9 @@ const EXPECTED: Record<string, string> = {
   'norms/verify/route.ts POST': 'settingsManage',
   'organizations/[organizationId]/storage/route.ts GET': 'organizationsView',
   'organizations/[organizationId]/storage/route.ts PUT': 'organizationsManage',
+  'organizations/[organizationId]/upload-limit/route.ts PUT': 'organizationsManage',
+  'organizations/[organizationId]/budgets/route.ts GET': 'organizationsView',
+  'organizations/[organizationId]/budgets/route.ts PUT': 'organizationsManage',
   'overview/route.ts GET': 'organizationsView',
   // The price list (ADR-0053): platform-owned configuration.
   'pricing/route.ts GET': 'settingsView',

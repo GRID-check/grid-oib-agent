@@ -13,6 +13,7 @@
  * Not linked from anywhere and 404s outside development.
  */
 
+import type { JSX } from 'react'
 import { notFound } from 'next/navigation'
 import { IfcCompliancePanel } from '@/features/bim/components/ifc-compliance-panel'
 import type { BimRuleResult, BimRuleResultWithConfirmation } from '@/lib/bim/rules'

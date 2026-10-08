@@ -15,12 +15,17 @@ vi.mock('./repository', () => ({
   findRunInProject: vi.fn(),
   listRunsInProject: vi.fn(),
   updateRun: vi.fn(),
+  closeActiveRun: vi.fn(),
   listRejectedReviewsForDefinition: vi.fn(),
+  findRunById: vi.fn(),
 }))
 vi.mock('@/lib/audit/service', () => ({ recordAuditEvent: vi.fn() }))
 vi.mock('@/lib/auth/pinned-session', () => ({ resolvePinnedRequesterSession: vi.fn() }))
 vi.mock('@/lib/authz/projects', () => ({ requireProjectAccess: vi.fn() }))
-vi.mock('@/lib/documents/research-report', () => ({ fileResearchReport: vi.fn() }))
+vi.mock('@/lib/documents/research-report', () => ({
+  fileResearchReport: vi.fn(),
+  queueResearchReportFiling: vi.fn(),
+}))
 vi.mock('@/lib/documents/agent-document', () => ({ fileAgentDocumentDraft: vi.fn() }))
 vi.mock('@/lib/documents/lifecycle', () => ({
   replaceVersionContent: vi.fn(),
@@ -29,6 +34,7 @@ vi.mock('@/lib/documents/lifecycle', () => ({
 vi.mock('@/lib/documents/revision', () => ({ openDraftForRevision: vi.fn() }))
 vi.mock('@/lib/documents/repository', () => ({ findDocumentInOrg: vi.fn() }))
 vi.mock('@/lib/inbox/service', () => ({ emitInboxItems: vi.fn() }))
+vi.mock('@/lib/runs/service', () => ({ settleRunLedger: vi.fn() }))
 
 import { ForbiddenError, NotFoundError } from '@/lib/api/errors'
 import { recordAuditEvent } from '@/lib/audit/service'
@@ -39,17 +45,20 @@ import type { TaskRun } from '@/lib/db/schema'
 import { fileAgentDocumentDraft } from '@/lib/documents/agent-document'
 import { replaceVersionContent, transitionDocumentVersion } from '@/lib/documents/lifecycle'
 import { findDocumentInOrg } from '@/lib/documents/repository'
-import { fileResearchReport } from '@/lib/documents/research-report'
+import { fileResearchReport, queueResearchReportFiling } from '@/lib/documents/research-report'
 import { openDraftForRevision } from '@/lib/documents/revision'
 import { emitInboxItems } from '@/lib/inbox/service'
+import { settleRunLedger } from '@/lib/runs/service'
 import type { SkillSnapshot } from '@/lib/skills/types'
 import * as repository from './repository'
+import type { FileResearchReportPayload } from '@/lib/jobs-queue/types'
 import {
   completeRunForOutcome,
   PREVIOUS_DECISIONS_HEADER,
   previousDecisionsBlock,
   recordRunOutcome,
   reviewTask,
+  runReportFilingJob,
 } from './service'
 
 const emptySkill = {} as SkillSnapshot
@@ -105,11 +114,12 @@ beforeEach(() => {
     folderId: null,
     alreadyFiled: false,
   })
+  vi.mocked(queueResearchReportFiling).mockResolvedValue({ jobId: 'bff-job-1' })
   vi.spyOn(console, 'error').mockImplementation(() => undefined)
 })
 
 describe('completeRunForOutcome', () => {
-  it('files a run that has no definition behind it — an escalated question', async () => {
+  it('queues the filing of a run that has no definition behind it — an escalated question', async () => {
     // The commissioned run of a chat escalation (ADR-0062): one row, no
     // standing intent. Everything the outcome path needs is on the run itself,
     // and the inbox row says so with a null job id rather than inventing one.
@@ -117,73 +127,56 @@ describe('completeRunForOutcome', () => {
 
     const result = await completeRunForOutcome(escalated, { status: 'success', report: '# Bericht' })
 
-    expect(result.filed).toEqual({
-      documentId: 'doc-9',
-      filename: 'wochenbericht-brandschutz-2026-09-02.pdf',
-    })
+    // Not filed here: the document is the job's to make.
+    expect(result.filed).toBeNull()
     expect(result.run.status).toBe('succeeded')
+    expect(result.run.filingStatus).toBe('queued')
 
     await recordRunOutcome(escalated, { status: 'success', report: '# Bericht' })
     const emitted = vi.mocked(emitInboxItems).mock.calls.at(-1)?.[0]?.[0]
-    expect(emitted?.payload).toMatchObject({ jobId: null, runId: 'run-1', runMessageId: 'msg-1' })
+    expect(emitted?.payload).toMatchObject({ jobId: null, runId: 'run-1', runMessageId: 'msg-1', filedDocumentId: null })
   })
 
-  it('files a finished deep-research report as the requester and records where', async () => {
+  it('queues the filing of a finished deep-research report instead of rendering it here', async () => {
     const result = await completeRunForOutcome(run, { status: 'success', report: '# Bericht', cards: [{ type: 'legal_basis' }] })
 
-    expect(resolvePinnedRequesterSession).toHaveBeenCalledWith({
-      userId: 'user_owner',
-      email: 'owner@grid.test',
+    expect(queueResearchReportFiling).toHaveBeenCalledWith({
       organizationId: 'org_1',
+      payload: {
+        runId: 'backend-job-1',
+        projectId: 'proj-1',
+        report: '# Bericht',
+        cards: [{ type: 'legal_basis' }],
+        taskRunId: 'run-1',
+        // The run's own pinned requester files it, resolved when the job runs.
+        requester: null,
+      },
     })
-    expect(fileResearchReport).toHaveBeenCalledWith({
-      session: pinned,
-      projectId: 'proj-1',
-      runId: 'backend-job-1',
-      report: '# Bericht',
-      cards: [{ type: 'legal_basis' }],
-    })
-    expect(result.filed).toEqual({ documentId: 'doc-9', filename: 'wochenbericht-brandschutz-2026-09-02.pdf' })
-    expect(repository.updateRun).toHaveBeenLastCalledWith('run-1', 'org_1', {
-      filingStatus: 'filed',
-      filingDetail: null,
-      filedDocumentId: 'doc-9',
-    })
-    expect(result.run.status).toBe('succeeded')
-  })
-
-  it('refuses, and records why, when the requester is no longer a member', async () => {
-    vi.mocked(resolvePinnedRequesterSession).mockResolvedValueOnce(null)
-
-    const result = await completeRunForOutcome(run, { status: 'success', report: '# Bericht' })
-
+    // Nothing is rendered, and nobody is resolved, in the outcome callback.
     expect(fileResearchReport).not.toHaveBeenCalled()
+    expect(resolvePinnedRequesterSession).not.toHaveBeenCalled()
     expect(result.filed).toBeNull()
-    expect(repository.updateRun).toHaveBeenLastCalledWith(
-      'run-1',
-      'org_1',
-      expect.objectContaining({ filingStatus: 'refused', filedDocumentId: null })
-    )
+    expect(result.run.status).toBe('succeeded')
+    expect(result.run.filingStatus).toBe('queued')
   })
 
-  it.each([
-    ['a permission the requester does not hold', new NotFoundError('Project not found')],
-    ['a feature that is off for the organization', new ForbiddenError('disabled')],
-  ])('treats %s as a refusal, never as a failure', async (_label, error) => {
-    vi.mocked(fileResearchReport).mockRejectedValueOnce(error)
+  it('says `queued` before the job exists, so a job that ends at once is never overwritten', async () => {
+    await completeRunForOutcome(run, { status: 'success', report: '# Bericht' })
 
-    const result = await completeRunForOutcome(run, { status: 'success', report: '# Bericht' })
-
-    expect(result.filed).toBeNull()
-    expect(repository.updateRun).toHaveBeenLastCalledWith(
-      'run-1',
-      'org_1',
-      expect.objectContaining({ filingStatus: 'refused' })
-    )
+    const order = [
+      vi.mocked(repository.updateRun).mock.invocationCallOrder.at(-1) ?? 0,
+      vi.mocked(queueResearchReportFiling).mock.invocationCallOrder[0],
+    ]
+    expect(order[0]).toBeLessThan(order[1])
+    expect(repository.updateRun).toHaveBeenLastCalledWith('run-1', 'org_1', {
+      filingStatus: 'queued',
+      filingDetail: null,
+      filedDocumentId: null,
+    })
   })
 
-  it('records a broken filing as failed with the operator detail, and still closes the run', async () => {
-    vi.mocked(fileResearchReport).mockRejectedValueOnce(new Error('report exceeds the PDF ceiling'))
+  it('records a filing it could not queue as failed, with the reason, and still closes the run', async () => {
+    vi.mocked(queueResearchReportFiling).mockRejectedValueOnce(new Error('database gone'))
 
     const result = await completeRunForOutcome(run, { status: 'success', report: '# Bericht' })
 
@@ -191,8 +184,31 @@ describe('completeRunForOutcome', () => {
     expect(repository.updateRun).toHaveBeenLastCalledWith(
       'run-1',
       'org_1',
-      expect.objectContaining({ filingStatus: 'failed', filingDetail: 'Error: report exceeds the PDF ceiling' })
+      expect.objectContaining({
+        filingStatus: 'failed',
+        filingDetail: 'could not queue the filing: Error: database gone',
+      })
     )
+  })
+
+  it('records a run that has no backend job id as failed rather than queueing nothing', async () => {
+    const unsubmitted = { ...run, backendJobId: null } as TaskRun
+    vi.mocked(repository.updateRun).mockResolvedValueOnce({ ...unsubmitted, status: 'succeeded' } as TaskRun)
+
+    const result = await completeRunForOutcome(unsubmitted, { status: 'success', report: '# Bericht' })
+
+    expect(queueResearchReportFiling).not.toHaveBeenCalled()
+    expect(result.run.filingStatus).toBe('failed')
+  })
+
+  it('queues nothing for a run whose report a worker’s earlier attempt already filed', async () => {
+    const filed = { ...run, filingStatus: 'filed', filedDocumentId: 'doc-9' } as TaskRun
+    vi.mocked(repository.updateRun).mockResolvedValueOnce(filed)
+
+    const result = await completeRunForOutcome(run, { status: 'success', report: '# Bericht' })
+
+    expect(queueResearchReportFiling).not.toHaveBeenCalled()
+    expect(result.run.filedDocumentId).toBe('doc-9')
   })
 
   it('closes a failed run without filing anything', async () => {
@@ -213,6 +229,131 @@ describe('completeRunForOutcome', () => {
 
     expect(fileResearchReport).not.toHaveBeenCalled()
     expect(result.filed).toBeNull()
+  })
+})
+
+describe('runReportFilingJob (file_research_report)', () => {
+  const payload = (over: Partial<FileResearchReportPayload> = {}): FileResearchReportPayload => ({
+    runId: 'backend-job-1',
+    projectId: 'proj-1',
+    report: '# Bericht',
+    cards: [{ type: 'legal_basis' }],
+    taskRunId: 'run-1',
+    requester: null,
+    ...over,
+  })
+  const last = { last: true }
+  const notLast = { last: false }
+
+  beforeEach(() => {
+    vi.mocked(repository.findRunById).mockResolvedValue(run)
+  })
+
+  it('files as the run’s pinned requester, resolved now, and records where', async () => {
+    await runReportFilingJob('org_1', payload(), notLast)
+
+    expect(resolvePinnedRequesterSession).toHaveBeenCalledWith({
+      userId: 'user_owner',
+      email: 'owner@grid.test',
+      organizationId: 'org_1',
+    })
+    expect(fileResearchReport).toHaveBeenCalledWith({
+      session: pinned,
+      projectId: 'proj-1',
+      runId: 'backend-job-1',
+      report: '# Bericht',
+      cards: [{ type: 'legal_basis' }],
+    })
+    expect(repository.updateRun).toHaveBeenLastCalledWith('run-1', 'org_1', {
+      filingStatus: 'filed',
+      filingDetail: null,
+      filedDocumentId: 'doc-9',
+    })
+  })
+
+  it('files as the reader whose identity the job carries, and resolves nobody', async () => {
+    const requester = {
+      userId: 'user_reader',
+      email: 'reader@grid.test',
+      organizationMembershipId: 'om_7',
+      role: 'member',
+      permissions: ['project:documents:write'],
+      featureFlags: ['agent-authored-documents'],
+    }
+
+    await runReportFilingJob('org_1', payload({ requester, taskRunId: null }), notLast)
+
+    expect(resolvePinnedRequesterSession).not.toHaveBeenCalled()
+    expect(vi.mocked(fileResearchReport).mock.calls[0][0].session).toMatchObject({
+      userId: 'user_reader',
+      organizationId: 'org_1',
+      organizationMembershipId: 'om_7',
+      permissions: ['project:documents:write'],
+      // What the filing's feature gate reads under enforcement.
+      featureFlags: ['agent-authored-documents'],
+      accessToken: '',
+    })
+    // A read with no run row has no row to record on.
+    expect(repository.updateRun).not.toHaveBeenCalled()
+  })
+
+  it('refuses, and records why, when the requester is no longer a member, and does not retry', async () => {
+    vi.mocked(resolvePinnedRequesterSession).mockResolvedValueOnce(null)
+
+    await expect(runReportFilingJob('org_1', payload(), notLast)).resolves.toBeUndefined()
+
+    expect(fileResearchReport).not.toHaveBeenCalled()
+    expect(repository.updateRun).toHaveBeenLastCalledWith(
+      'run-1',
+      'org_1',
+      expect.objectContaining({ filingStatus: 'refused', filedDocumentId: null })
+    )
+  })
+
+  it.each([
+    ['a permission the requester does not hold', new NotFoundError('Project not found')],
+    ['a feature that is off for the organization', new ForbiddenError('disabled')],
+  ])('treats %s as a refusal, never as a failure, and finishes the job', async (_label, error) => {
+    vi.mocked(fileResearchReport).mockRejectedValueOnce(error)
+
+    await expect(runReportFilingJob('org_1', payload(), notLast)).resolves.toBeUndefined()
+
+    expect(repository.updateRun).toHaveBeenLastCalledWith(
+      'run-1',
+      'org_1',
+      expect.objectContaining({ filingStatus: 'refused' })
+    )
+  })
+
+  it('hands a broken filing back to the queue and keeps the row `queued` while a retry is left', async () => {
+    vi.mocked(fileResearchReport).mockRejectedValueOnce(new Error('object store down'))
+
+    await expect(runReportFilingJob('org_1', payload(), notLast)).rejects.toThrow('object store down')
+
+    expect(repository.updateRun).not.toHaveBeenCalled()
+  })
+
+  it('records the failure, with the operator detail, on the attempt after which the queue gives up', async () => {
+    vi.mocked(fileResearchReport).mockRejectedValueOnce(new Error('report exceeds the PDF ceiling'))
+
+    await expect(runReportFilingJob('org_1', payload(), last)).rejects.toThrow('report exceeds the PDF ceiling')
+
+    expect(repository.updateRun).toHaveBeenLastCalledWith(
+      'run-1',
+      'org_1',
+      expect.objectContaining({ filingStatus: 'failed', filingDetail: 'Error: report exceeds the PDF ceiling' })
+    )
+  })
+
+  it('files the same report twice as one document: the filing is idempotent on the run', async () => {
+    await runReportFilingJob('org_1', payload(), notLast)
+    await runReportFilingJob('org_1', payload(), notLast)
+
+    // The key is the backend job id, which is what `fileGeneratedDocument` probes on.
+    expect(vi.mocked(fileResearchReport).mock.calls.map(([call]) => call.runId)).toEqual([
+      'backend-job-1',
+      'backend-job-1',
+    ])
   })
 })
 
@@ -438,6 +579,37 @@ describe('recordRunOutcome', () => {
     })
   })
 
+  it('settles the run’s block before it closes the row, whoever reported the ending', async () => {
+    // The reaper's and the cancel route's reports carry no ledger op: there is
+    // no worker left to send one. Before, the row closed and the block read
+    // „läuft" for good.
+    const row = delegated()
+    const order: string[] = []
+    vi.mocked(settleRunLedger).mockImplementation(async () => {
+      order.push('block')
+      return true
+    })
+    const update = vi.mocked(repository.updateRun).getMockImplementation()
+    vi.mocked(repository.updateRun).mockImplementation(async (...args) => {
+      order.push('row')
+      return update!(...args)
+    })
+
+    await recordRunOutcome(row, { status: 'interrupted' })
+
+    expect(settleRunLedger).toHaveBeenCalledWith(expect.objectContaining({ id: 'run-1' }), { status: 'interrupted' })
+    // Block first: a failure between the two leaves the row active, and the
+    // retry (the worker's, or the reconciler's) does both.
+    expect(order[0]).toBe('block')
+    expect(order).toContain('row')
+  })
+
+  it('closes nothing when the block cannot be written, so the report is retried whole', async () => {
+    vi.mocked(settleRunLedger).mockRejectedValueOnce(new Error('db down'))
+    await expect(recordRunOutcome(delegated(), { status: 'failure' })).rejects.toThrow('db down')
+    expect(repository.updateRun).not.toHaveBeenCalled()
+  })
+
   it('tells the requester about a failure too, and files nothing', async () => {
     vi.mocked(emitInboxItems).mockResolvedValue(1)
     await recordRunOutcome(delegated(), { status: 'failure', error: 'Budget exhausted' })
@@ -445,5 +617,51 @@ describe('recordRunOutcome', () => {
     const [[emission]] = vi.mocked(emitInboxItems).mock.calls
     expect(emission[0].type).toBe('job.failed')
     expect(fileAgentDocumentDraft).not.toHaveBeenCalled()
+  })
+
+  describe('onlyIfActive — the run reconciler’s mode', () => {
+    it('closes through the conditional write and then does everything the worker’s report does', async () => {
+      vi.mocked(emitInboxItems).mockResolvedValue(1)
+      vi.mocked(repository.closeActiveRun).mockImplementation(
+        async (_id, _org, patch) => ({ ...run, ...patch }) as TaskRun,
+      )
+
+      const result = await recordRunOutcome(run, { status: 'success', report: '# Bericht' }, { onlyIfActive: true })
+
+      expect(result.closed).toBe(true)
+      expect(repository.closeActiveRun).toHaveBeenCalledWith(
+        'run-1',
+        'org_1',
+        expect.objectContaining({ status: 'succeeded', error: null }),
+      )
+      expect(recordAuditEvent).toHaveBeenCalledTimes(1)
+      expect(queueResearchReportFiling).toHaveBeenCalledTimes(1)
+      expect(emitInboxItems).toHaveBeenCalledTimes(1)
+    })
+
+    it('does nothing past the close when the row had already ended — the requester hears once', async () => {
+      vi.mocked(repository.closeActiveRun).mockResolvedValue(null)
+
+      const result = await recordRunOutcome(run, { status: 'success', report: '# Bericht' }, { onlyIfActive: true })
+
+      expect(result).toEqual({ notified: false, filed: null, closed: false })
+      expect(repository.updateRun).not.toHaveBeenCalled()
+      expect(recordAuditEvent).not.toHaveBeenCalled()
+      expect(fileResearchReport).not.toHaveBeenCalled()
+      expect(emitInboxItems).not.toHaveBeenCalled()
+    })
+
+    it('settles the block even when the row had already ended — a closed run is never left „läuft"', async () => {
+      vi.mocked(repository.closeActiveRun).mockResolvedValue(null)
+      await recordRunOutcome(run, { status: 'failure', error: 'Job timed out' }, { onlyIfActive: true })
+      expect(settleRunLedger).toHaveBeenCalledWith(run, { status: 'failure', error: 'Job timed out' })
+    })
+
+    it('the worker’s own report still closes unconditionally, so a retried report reaches the inbox', async () => {
+      vi.mocked(emitInboxItems).mockResolvedValue(1)
+      const result = await recordRunOutcome({ ...run, status: 'succeeded' } as TaskRun, { status: 'success' })
+      expect(repository.closeActiveRun).not.toHaveBeenCalled()
+      expect(result).toMatchObject({ notified: true, closed: true })
+    })
   })
 })

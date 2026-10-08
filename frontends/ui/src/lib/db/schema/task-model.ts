@@ -240,6 +240,14 @@ export const taskRuns = pgTable(
     startedAt: timestamp('started_at', { withTimezone: true }),
     finishedAt: timestamp('finished_at', { withTimezone: true }),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+    /**
+     * When the run reconciler last asked the job store about this still-active
+     * run (migration 0096, `lib/runs/reconcile.ts`). Set by the claim itself,
+     * which is what keeps two replicas off one run. NULL until the first check.
+     * The partial index behind the claim (`idx_task_runs_reconcile_due`) is on
+     * an expression, so it lives only in the migration.
+     */
+    reconcileCheckedAt: timestamp('reconcile_checked_at', { withTimezone: true }),
   },
   (table) => ({
     // Created with `("definition_id","created_at" DESC)` in the migration so the
@@ -274,7 +282,7 @@ export const taskRuns = pgTable(
     ),
     filingKnown: check(
       'task_runs_filing_status_known',
-      sql`${table.filingStatus} IS NULL OR ${table.filingStatus} IN ('filed', 'refused', 'failed')`
+      sql`${table.filingStatus} IS NULL OR ${table.filingStatus} IN ('queued', 'filed', 'refused', 'failed')`
     ),
     /** A review is a decision by somebody, at some time — all three or none. */
     reviewComplete: check(

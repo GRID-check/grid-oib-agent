@@ -5,15 +5,25 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   addDocumentToBackendJob,
   cancelBackendJob,
+  fetchBackendJobOutcome,
   JobCancelError,
+  JobProbeError,
   JobSubmitError,
   JobSubmitSkippedError,
   submitJob,
+  writeNowBackendJob,
+  type JobControlCaller,
   type JobSubmitPayload,
 } from './backend-client'
 
 const headersOf = (init: RequestInit | undefined): Record<string, string> =>
   (init as RequestInit).headers as Record<string, string>
+
+/** A person steering a run: their token, and the envelope over the project their caller authorized. */
+const caller: JobControlCaller = {
+  accessToken: 'tok',
+  contextHeaders: { 'X-Grid-Request-Context': 'signed-scope', 'X-Grid-Request-Context-Sig': 'sig' },
+}
 
 const payload: JobSubmitPayload = {
   input: 'Fasse die Woche zusammen.',
@@ -79,7 +89,12 @@ describe('submitJob', () => {
 
   it('accepts the backend snake_case job_id (SkillSubmitResponse)', async () => {
     fetchMock.mockResolvedValue(new Response(JSON.stringify({ job_id: 'job-2' }), { status: 200 }))
-    await expect(submitJob(payload, {})).resolves.toEqual({ jobId: 'job-2' })
+    await expect(submitJob(payload, {})).resolves.toEqual({ jobId: 'job-2', queued: false })
+  })
+
+  it('reports a job the backend queued for a free worker', async () => {
+    fetchMock.mockResolvedValue(new Response(JSON.stringify({ job_id: 'job-3', queued: true }), { status: 200 }))
+    await expect(submitJob(payload, {})).resolves.toEqual({ jobId: 'job-3', queued: true })
   })
 
   it('maps a 429 to SkippedError carrying Retry-After', async () => {
@@ -103,16 +118,27 @@ describe('cancelBackendJob', () => {
     fetchMock.mockResolvedValue(
       new Response(JSON.stringify({ job_id: 'job 1', status: 'interrupted' }), { status: 200 }),
     )
-    await expect(cancelBackendJob('job 1', 'tok')).resolves.toBeUndefined()
+    await expect(cancelBackendJob('job 1', caller)).resolves.toBeUndefined()
     const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit]
     expect(url).toBe('http://backend:8000/v1/jobs/async/job/job%201/cancel')
     expect(init.method).toBe('POST')
     expect(headersOf(init).Authorization).toBe('Bearer tok')
   })
 
+  it('carries the signed envelope, which is what lets a teammate steer the run (ADR-0084)', async () => {
+    fetchMock.mockResolvedValue(new Response('{}', { status: 200 }))
+    await cancelBackendJob('job-1', caller)
+    await writeNowBackendJob('job-1', caller)
+    for (const [, init] of fetchMock.mock.calls as [string, RequestInit][]) {
+      expect(headersOf(init)['X-Grid-Request-Context']).toBe('signed-scope')
+      expect(headersOf(init)['X-Grid-Request-Context-Sig']).toBe('sig')
+    }
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+  })
+
   it('sends no bearer when the session has none (REQUIRE_AUTH=false)', async () => {
     fetchMock.mockResolvedValue(new Response('{}', { status: 200 }))
-    await cancelBackendJob('job-1', null)
+    await cancelBackendJob('job-1', { accessToken: null, contextHeaders: {} })
     const [, init] = fetchMock.mock.calls[0] as [string, RequestInit]
     expect(headersOf(init)).not.toHaveProperty('Authorization')
   })
@@ -122,13 +148,13 @@ describe('cancelBackendJob', () => {
     fetchMock.mockImplementation(
       async () => new Response('Job not cancellable: job-1 (status: success)', { status: 400 }),
     )
-    await expect(cancelBackendJob('job-1', 'tok')).rejects.toBeInstanceOf(JobCancelError)
-    await expect(cancelBackendJob('job-1', 'tok')).rejects.toMatchObject({
+    await expect(cancelBackendJob('job-1', caller)).rejects.toBeInstanceOf(JobCancelError)
+    await expect(cancelBackendJob('job-1', caller)).rejects.toMatchObject({
       status: 400,
       message: 'Job not cancellable: job-1 (status: success)',
     })
     fetchMock.mockRejectedValue(new TypeError('network down'))
-    await expect(cancelBackendJob('job-1', 'tok')).rejects.toMatchObject({ status: 503 })
+    await expect(cancelBackendJob('job-1', caller)).rejects.toMatchObject({ status: 503 })
   })
 })
 
@@ -136,12 +162,13 @@ describe('addDocumentToBackendJob', () => {
   it('posts the document as JSON to the job’s documents door, as the caller', async () => {
     fetchMock.mockResolvedValue(new Response('{}', { status: 200 }))
     await expect(
-      addDocumentToBackendJob('job 1', { name: 'Einreichplan.pdf', shelf: 'project' }, 'tok'),
+      addDocumentToBackendJob('job 1', { name: 'Einreichplan.pdf', shelf: 'project' }, caller),
     ).resolves.toBeUndefined()
     const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit]
     expect(url).toBe('http://backend:8000/v1/jobs/async/job/job%201/documents')
     expect(init.method).toBe('POST')
     expect(headersOf(init).Authorization).toBe('Bearer tok')
+    expect(headersOf(init)['X-Grid-Request-Context']).toBe('signed-scope')
     expect(headersOf(init)['Content-Type']).toBe('application/json')
     expect(JSON.parse(init.body as string)).toEqual({ name: 'Einreichplan.pdf', shelf: 'project' })
   })
@@ -149,7 +176,64 @@ describe('addDocumentToBackendJob', () => {
   it('carries the backend’s refusal the way the cancel does', async () => {
     fetchMock.mockResolvedValue(new Response('Job not running: job-1', { status: 400 }))
     await expect(
-      addDocumentToBackendJob('job-1', { name: 'Einreichplan.pdf' }, 'tok'),
+      addDocumentToBackendJob('job-1', { name: 'Einreichplan.pdf' }, caller),
     ).rejects.toMatchObject({ status: 400, message: 'Job not running: job-1' })
+  })
+})
+
+describe('fetchBackendJobOutcome', () => {
+  const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status })
+
+  it('asks the internal route with the service token and the run’s organization', async () => {
+    fetchMock.mockResolvedValue(json({ job_id: 'job/1', status: 'running', message: null }))
+
+    const outcome = await fetchBackendJobOutcome('job/1', 'org 1')
+
+    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit]
+    expect(url).toBe('http://backend:8000/v1/internal/jobs/job%2F1/outcome?organization_id=org%201')
+    expect(headersOf(init)['x-grid-internal-token']).toBe('secret')
+    expect(headersOf(init).Authorization).toBeUndefined()
+    expect(outcome).toEqual({ status: 'running', error: null, report: null, cards: null, message: null })
+  })
+
+  it('hands back the verdict and the rebuilt run message', async () => {
+    fetchMock.mockResolvedValue(
+      json({
+        status: 'success',
+        error: null,
+        report: '# Bericht',
+        cards: [{ type: 'x' }],
+        message: { content: '# Bericht', metadata: { job_id: 'job-1' } },
+      }),
+    )
+    expect(await fetchBackendJobOutcome('job-1', 'org_1')).toEqual({
+      status: 'success',
+      error: null,
+      report: '# Bericht',
+      cards: [{ type: 'x' }],
+      message: { content: '# Bericht', metadata: { job_id: 'job-1' } },
+    })
+  })
+
+  it('answers null for the backend’s 404: no such job, or not this organization’s', async () => {
+    fetchMock.mockResolvedValue(new Response('Job not found', { status: 404 }))
+    expect(await fetchBackendJobOutcome('job-1', 'org_1')).toBeNull()
+  })
+
+  it('throws rather than guess: a 5xx, a transport failure, a status it does not know', async () => {
+    fetchMock.mockResolvedValueOnce(new Response('boom', { status: 500 }))
+    await expect(fetchBackendJobOutcome('job-1', 'org_1')).rejects.toBeInstanceOf(JobProbeError)
+
+    fetchMock.mockRejectedValueOnce(new Error('ECONNREFUSED'))
+    await expect(fetchBackendJobOutcome('job-1', 'org_1')).rejects.toMatchObject({ status: 503 })
+
+    fetchMock.mockResolvedValueOnce(json({ status: 'not_found' }))
+    await expect(fetchBackendJobOutcome('job-1', 'org_1')).rejects.toMatchObject({ status: 502 })
+  })
+
+  it('refuses to ask without the internal token', async () => {
+    vi.stubEnv('GRID_INTERNAL_API_TOKEN', '')
+    await expect(fetchBackendJobOutcome('job-1', 'org_1')).rejects.toMatchObject({ status: 503 })
+    expect(fetchMock).not.toHaveBeenCalled()
   })
 })

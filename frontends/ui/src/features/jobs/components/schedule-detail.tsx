@@ -20,6 +20,7 @@
  * does not belong on a surface a person scans.
  */
 
+import type { JSX } from 'react'
 import { useEffect, useState } from 'react'
 import { CalendarClock, Pencil, Play, Sparkles, Trash2 } from 'lucide-react'
 import { toast } from 'sonner'
@@ -50,7 +51,6 @@ const PREVIEW_COUNT = 3
 
 interface ScheduleDetailProps {
   projectId: string
-  projectCollection: string | null
   /** The schedule the drawer is showing, or null when it is shut or gone. */
   job: Job | null
   open: boolean
@@ -71,7 +71,6 @@ interface ScheduleDetailProps {
 
 export function ScheduleDetail({
   projectId,
-  projectCollection,
   job,
   open,
   canManage,
@@ -97,7 +96,6 @@ export function ScheduleDetail({
         {job ? (
           <ScheduleDetailBody
             projectId={projectId}
-            projectCollection={projectCollection}
             job={job}
             canManage={canManage}
             onChanged={onChanged}
@@ -129,7 +127,6 @@ export function ScheduleDetail({
 
 function ScheduleDetailBody({
   projectId,
-  projectCollection,
   job,
   canManage,
   onChanged,
@@ -137,7 +134,6 @@ function ScheduleDetailBody({
   onEdit,
 }: {
   projectId: string
-  projectCollection: string | null
   job: Job
   canManage: boolean
   onChanged: ((job: Job) => void) | undefined
@@ -302,7 +298,6 @@ function ScheduleDetailBody({
           <JobRunHistory
             key={historyToken}
             projectId={projectId}
-            projectCollection={projectCollection}
             jobId={job.id}
           />
         </div>

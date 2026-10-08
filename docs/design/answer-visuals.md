@@ -12,14 +12,18 @@ that are evidence.
 | The reader wants to… | The shape of the content | Drawn as | Why not prose |
 |---|---|---|---|
 | copy the value | one value with its condition | the verdict masthead | the value must be findable in a second |
-| know which case is theirs | cases that exclude each other, one factor | `condition_tree`, or a table by Lage | the reader must see the case they are NOT in, too |
-| check a design | criteria × status × Fundstelle | a table whose Status cells are marks | status must be scannable down a column |
-| follow a Verfahren | steps in order, with forks and returns | **flow** (a `flowchart` fence) | a return loop cannot be written as a list |
+| know which case is theirs | cases that exclude each other, one factor | a `:::cases` table, this project's row with Status `trifft zu` (tinted) | the reader must see the case they are NOT in, too |
+| check a design | criteria × value × limit × status × Fundstelle | a `:::check` table: Status cells are marks, a value against a `≥`/`≤` limit is a bar, an open row offers „Dazu fragen" | status must be scannable down a column |
+| read a few key numbers | two to four values with their limits | `:::metrics` tiles | the numbers are the answer |
+| follow a straight Verfahren | steps in order, no fork | a `:::procedure` list, the current step marked `:current`, each step's Unterlagen folded in `:::details` | where the project stands must be visible |
+| follow a Verfahren that forks | steps in order, with forks and returns | **flow** (a `flowchart` fence, Fristen on the edges) | a return loop cannot be written as a list |
+| check the wording | the sentence the answer turns on | a cited quote line `> „…“ [N]`, verified against the source | the reader checks the ruling against the text |
 | know who hands what to whom | parties × messages in order | **handoff** (a `sequenceDiagram` fence) | the parties are the structure, not the verbs |
 | see how a Regelwerk hangs together | a tree: parts, and what each covers | **map** (a `mindmap` fence) | an overview is a tree before it is a text |
 | plan the weeks | phases on dates a document states | **schedule** (a `gantt` fence) | overlap and sequence are the content |
 | see a split | shares of one whole | **shares** (a `pie` fence) | proportions compared by length, not angle |
-| compare variants | the same card, twice | a `surface` with Tabs | the reader switches, not scrolls |
+| weigh variants | a few attributes per variant | a `:::compare` table, a column per variant, the recommended one marked | the difference is read across a row |
+| compare variants | a list of their own per variant | a `surface` with Tabs | the reader switches, not scrolls |
 | see geometry | measured dimensions | the schematic cards, drawn to scale | a measurement must match its drawing |
 
 ## How a diagram is drawn
@@ -68,7 +72,7 @@ exclusive, so `2026-10-01, 14d` reads „01.10.–14.10.".
 
 ## What stays SVG
 
-The fifteen schematic cards (a section, a stair, a setback, …) are drawings
+The eight schematic cards (a section, a stair, a setback, …) are drawings
 to scale, computed from their parameters: geometry is what SVG is for. A
 filed diagram is an SVG and a PDF, because a file must stand on its own. It
 is made only when the reader files it: a map is drawn from its model
@@ -133,8 +137,9 @@ new evidence:
 - **The eyebrow on every card.** The charter demotes it to a caption on
   purpose; the first 40px of geometry identify a card.
 - **The 46ch callout.** A margin note at a reading measure, not a banner.
-- **The tinted active branch in `condition_tree` / `process_map`.** Charter:
-  it is what a screenshot of the card keeps as "this project's branch".
+- **The tinted row of this project's case (`trifft zu`) and step (`aktuell`).**
+  It took over from the retired `condition_tree` / `process_map` cards' tinted
+  branch. Charter: it is what a screenshot keeps as "this project's branch".
 
 ## Live census, September 2026
 
@@ -146,7 +151,7 @@ could not show:
 | Found live | Cause | Now |
 |---|---|---|
 | Every `summary` restated the prose's opening paragraph, directly above it (content-word overlap 0.46–0.53) | The prose is told to open with the answer, and the summary is shown above it; the prompt's "consequence, not restatement" rule was not followed | Gated: a summary on a reply of two sentences or fewer, or sharing ≥ 40% of its words with the opening, is dropped (`answer_envelope._summary_redundant`) |
-| The overview drew a mindmap of the table's rows, and after the prompt asked for a level beneath the parts, a level repeating each part's number | The worked example itself drew the table's parts as a flowchart | The example now draws what each part covers; a mindmap whose words are ≥ 70% a table's words is removed (`piloti/answer_shape.py`) |
+| The overview drew a mindmap of the table's rows, and after the prompt asked for a level beneath the parts, a level repeating each part's number | The worked example itself drew the table's parts as a flowchart | The example now draws what each part covers; a mindmap whose words are ≥ 70% a table's words is removed (`piloti/answer_shape.py`). **Still half of overviews (12 of 24, 2026-09-28):** the table had grown a „what it covers" column, so the level beneath repeated it, and three prompt lines asked for the pair (Überblick „als Tabelle und … als mindmap", „a drawing sits beside the table", an example with both). The prompt now makes the mindmap replace a table of the same parts, never sit beside it, and the example has no mindmap: 0 of 24. The filter stays as the backstop |
 | Every row cited twice: `Betriebsbauten [2] \| [2]` | Nothing said the Fundstelle column is the row's only citation | Prompt says so; the table pass drops the repeated trailing `[N]` |
 | The variants answer was one table, a row per design, a paragraph per cell | The rule "variants with a body of their own → tabs" was too abstract | Rule names its trigger (two or more requirements per variant) and the shape it replaces. **Rerun: the model answered with `Tabs`, one `Text` table per variant.** A table with sentence cells stacks at every width |
 | One reply in three wrote the whole answer twice, loose and inside the fence | — | The fence already wins; `answer_prose_outside_envelope` now logs every occurrence so the cost is counted |

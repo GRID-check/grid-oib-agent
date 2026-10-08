@@ -1,0 +1,20 @@
+---
+fixes:
+  - >
+    An answer whose sources are renumbered at the end no longer jumps back and
+    retypes itself. The finished answer appears as the derivation folds away,
+    and the first words appear at once.
+  - >
+    Tables fill in cell by cell while Piloti writes, instead of stalling row
+    by row.
+  - >
+    The note on what Piloti is working on no longer flickers and is readable
+    on a phone again.
+  - >
+    The buttons in the derivation, for folding levels and viewing a source,
+    respond to clicks and taps again. On the first question of a new chat the
+    page no longer chases the growing derivation.
+  - >
+    Chat stays smooth on a phone even with a long history: an answer being
+    written no longer redraws earlier answers with every word, and typing no
+    longer saves the whole history in the browser.

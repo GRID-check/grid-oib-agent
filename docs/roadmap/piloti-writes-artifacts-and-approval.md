@@ -109,9 +109,10 @@ existing file; the tool description does not repeat DeepAgents' unenforced
 "you must read before editing" line.
 
 *Since the ADR-0060 amendment:* those rules live in the tool descriptions that
-own them (`write_file`, `edit_file`, `ls`, `file_draft`, `submit_draft`), and
-the block keeps the two sentences no description can carry — what „mach daraus
-ein File" refers to, and that filing needs a project.
+own them (`write_file`, `edit_file`, `ls`, and `file_draft`, whose `submit`
+argument absorbed `submit_draft`), and the block keeps the two sentences no
+description can carry — what „mach daraus ein File" refers to, and that filing
+needs a project.
 
 **Deep research later.** The same backend can replace the in-memory
 `/shared/` route in `deepagents_runtime.py:168`, so a report draft persists
@@ -201,7 +202,12 @@ permission from the row:
 
 Content updates are whole-body with `If-Match` on the existing
 `content_hash`; the API never exposes string replacement. Editing happens in
-the working directory; filing is a whole document.
+the working directory; filing is a whole document. `If-Match` is enforced by the
+database, not by the read before it: the swap's `WHERE` carries the state, the
+storage key and the hash that were read, and every write stores its bytes first
+under a key of its own (`v<n>/<write id>/`), so the second of two writers
+holding one digest matches no row, gets `409`, and its object is deleted
+(`writeVersionContent`, `swapVersionContent`).
 
 **Typed client.** `lib/documents/lifecycle-client.ts` with the zod schemas in
 `lib/documents/lifecycle-types.ts` (no `server-only`, no drizzle), imported by
@@ -317,7 +323,8 @@ directory and cannot file; the tool says so.
   focus-file filter fails open to the whole corpus when no chunk matches
   (`register.py:769-781`).
 - **The agent can tidy.** `move_document`, `rename_document`,
-  `create_folder`, `assign_document` as draft-door tools (`set_doc_class` waits for
+  `create_folder`, `assign_document` as draft-door tools (since merged into one
+  tool, `propose_file_change`, with an `operation` argument; `set_doc_class` waits for
   a project-scoped doc_class route; a proposal nobody can apply does not ship)
   that render proposal cards; accepting executes through the existing
   services in the user's session.

@@ -1,4 +1,5 @@
 import { describe, test, expect } from 'vitest'
+import { checkDraggedFilesSupported } from './validation'
 import {
   validateFileUpload,
   isValidFileExtension,
@@ -165,6 +166,36 @@ describe('validation', () => {
         expect(result.fileErrors).toHaveLength(1)
         expect(result.fileErrors[0].code).toBe('DUPLICATE_FILE')
         expect(result.fileErrors[0].message).toContain('already exists in this session')
+      })
+
+      test('never refuses a known name on a durable shelf — that is a new version, asked about elsewhere', () => {
+        // The set is this browser's memory of its own uploads. Refusing on it
+        // made a revised plan „bereits hinzugefügt" in one browser and a silent
+        // replacement in another.
+        const context: ValidationContext = {
+          existingTotalSize: 1024,
+          existingFileCount: 1,
+          existingFileNames: new Set(['existing.pdf']),
+          durableCorpus: true,
+        }
+
+        const result = validateFileUpload([createFile('existing.pdf')], context)
+
+        expect(result.fileErrors).toEqual([])
+        expect(result.validFiles.map((file) => file.name)).toEqual(['existing.pdf'])
+      })
+
+      test('still refuses the same name twice in one batch on a durable shelf', () => {
+        const context: ValidationContext = {
+          existingTotalSize: 0,
+          existingFileCount: 0,
+          existingFileNames: new Set(),
+          durableCorpus: true,
+        }
+
+        const result = validateFileUpload([createFile('a.pdf'), createFile('a.pdf')], context)
+
+        expect(result.fileErrors[0].reason).toBe('duplicate-in-batch')
       })
     })
 
@@ -653,5 +684,27 @@ describe('the batch caps are the session\'s, not the corpus\'s', () => {
     const result = validateFileUpload([bigFile('huge.pdf', 5000)], context(true))
 
     expect(result.validFiles).toHaveLength(0)
+  })
+})
+
+describe('a dragged zip', () => {
+  const dragOf = (type: string): DataTransfer =>
+    ({ items: [{ kind: 'file', type }] }) as unknown as DataTransfer
+
+  test('is unsupported in a chat, where an archive is not a document', () => {
+    expect(checkDraggedFilesSupported(dragOf('application/zip'))).toBe(false)
+  })
+
+  test.each(['application/zip', 'application/x-zip-compressed', 'APPLICATION/ZIP'])(
+    'is welcome on a shelf that unpacks it (%s)',
+    (type) => {
+      expect(checkDraggedFilesSupported(dragOf(type), undefined, { allowZip: true })).toBe(true)
+    }
+  )
+
+  test('does not make everything else welcome', () => {
+    expect(
+      checkDraggedFilesSupported(dragOf('application/x-msdownload'), undefined, { allowZip: true })
+    ).toBe(false)
   })
 })

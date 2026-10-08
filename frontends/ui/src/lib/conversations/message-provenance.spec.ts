@@ -15,11 +15,10 @@ import { sanitizeProvenance } from './message-provenance'
 const step = (overrides: Record<string, unknown> = {}) => ({
   id: 's1',
   userMessageId: 'm1',
-  functionName: 'oib_lookup',
-  displayName: 'OIB-Richtlinie durchsucht',
-  category: 'tools',
   timestamp: '2026-07-30T09:00:00.000Z',
   isComplete: true,
+  kind: 'tool',
+  tool: 'knowledge_search',
   ...overrides,
 })
 
@@ -39,11 +38,10 @@ describe('sanitizeProvenance', () => {
         {
           id: 's1',
           userMessageId: 'm1',
-          functionName: 'oib_lookup',
-          displayName: 'OIB-Richtlinie durchsucht',
-          category: 'tools',
           timestamp: '2026-07-30T09:00:00.000Z',
           isComplete: true,
+          kind: 'tool',
+          tool: 'knowledge_search',
         },
       ],
       answerConfidence: 'high',
@@ -137,7 +135,11 @@ describe('sanitizeProvenance', () => {
 
   it('drops a step with no identity, which nothing could render or key', () => {
     const result = sanitizeProvenance({
-      thinkingSteps: [step(), { displayName: 'orphan' }, step({ id: '', userMessageId: 'm1' })],
+      thinkingSteps: [
+        step(),
+        { kind: 'tool', tool: 'orphan' },
+        step({ id: '', userMessageId: 'm1' }),
+      ],
     })
     expect(result!.thinkingSteps).toHaveLength(1)
   })
@@ -235,6 +237,165 @@ describe('why the run stopped, and what it cost', () => {
     expect(sanitizeProvenance({ degradedReasons: [] })).toBeNull()
     expect(sanitizeProvenance({ degradedReasons: ['quantum_flux'] })).toBeNull()
     expect(sanitizeProvenance({ degradedReasons: 'no_report_file' })).toBeNull()
+  })
+})
+
+describe('a stored step is the wire v2 shape and nothing else', () => {
+  it('keeps each kind with the fields it carries', () => {
+    const lanes = [
+      { key: 'baurecht_oib', label: 'OIB-Richtlinie', hitCount: 2, sources: [], signal: 'law' },
+    ]
+    const result = sanitizeProvenance({
+      thinkingSteps: [
+        step({
+          id: 'status:retrieval:0',
+          kind: 'retrieval',
+          tool: undefined,
+          round: 0,
+          turnEvent: { key: 'status.retrieval.plain' },
+        }),
+        step({
+          id: 'status:checkpoint:0',
+          kind: 'status',
+          tool: undefined,
+          slot: 'checkpoint:0',
+          detail: { round: 0, hasConclusion: true, source: 'argument', tools: ['a', 'b'] },
+        }),
+        step({ id: 'sources:0:knowledge_search:1', kind: 'sources', round: 0, traceLanes: lanes }),
+        step({
+          id: 'skill:oib-brandschutznachweis',
+          kind: 'skill',
+          tool: undefined,
+          skill: 'oib-brandschutznachweis',
+        }),
+        step({ id: 'clarification', kind: 'clarification', tool: undefined }),
+        step({ id: 'tool:call_1', scope: 'deep' }),
+      ],
+    })
+    expect(result!.thinkingSteps).toEqual([
+      {
+        id: 'status:retrieval:0',
+        userMessageId: 'm1',
+        timestamp: '2026-07-30T09:00:00.000Z',
+        isComplete: true,
+        kind: 'retrieval',
+        round: 0,
+        turnEvent: { key: 'status.retrieval.plain' },
+      },
+      {
+        id: 'status:checkpoint:0',
+        userMessageId: 'm1',
+        timestamp: '2026-07-30T09:00:00.000Z',
+        isComplete: true,
+        kind: 'status',
+        slot: 'checkpoint:0',
+        detail: { round: 0, hasConclusion: true, source: 'argument', tools: ['a', 'b'] },
+      },
+      {
+        id: 'sources:0:knowledge_search:1',
+        userMessageId: 'm1',
+        timestamp: '2026-07-30T09:00:00.000Z',
+        isComplete: true,
+        kind: 'sources',
+        round: 0,
+        tool: 'knowledge_search',
+        traceLanes: lanes,
+      },
+      {
+        id: 'skill:oib-brandschutznachweis',
+        userMessageId: 'm1',
+        timestamp: '2026-07-30T09:00:00.000Z',
+        isComplete: true,
+        kind: 'skill',
+        skill: 'oib-brandschutznachweis',
+      },
+      {
+        id: 'clarification',
+        userMessageId: 'm1',
+        timestamp: '2026-07-30T09:00:00.000Z',
+        isComplete: true,
+        kind: 'clarification',
+      },
+      {
+        id: 'tool:call_1',
+        userMessageId: 'm1',
+        timestamp: '2026-07-30T09:00:00.000Z',
+        isComplete: true,
+        kind: 'tool',
+        tool: 'knowledge_search',
+        scope: 'deep',
+      },
+    ])
+  })
+
+  it('refuses the pre-v2 shape: no kind, no step', () => {
+    // Migration 0097 rewrote every stored row. A `functionName` step reaching
+    // this gate is a writer bug, and interpreting it would be the read-time
+    // branch the cut deleted.
+    const legacy = {
+      id: 's1',
+      userMessageId: 'm1',
+      functionName: 'status:retrieval:0',
+      displayName: '',
+      category: 'tasks',
+      timestamp: '2026-07-30T09:00:00.000Z',
+      isComplete: true,
+    }
+    expect(sanitizeProvenance({ thinkingSteps: [legacy] })).toBeNull()
+    expect(sanitizeProvenance({ thinkingSteps: [step({ kind: 'llm' })] })).toBeNull()
+  })
+
+  it('drops the old display fields and anything a step must never carry', () => {
+    const result = sanitizeProvenance({
+      thinkingSteps: [
+        step({
+          functionName: 'x',
+          displayName: 'y',
+          category: 'tools',
+          isTopLevel: true,
+          isDeepResearch: true,
+          payload: 'p',
+        }),
+      ],
+    })
+    expect(Object.keys(result!.thinkingSteps![0]).sort()).toEqual(
+      ['id', 'isComplete', 'kind', 'timestamp', 'tool', 'userMessageId'].sort()
+    )
+  })
+
+  it('bounds a technical detail: scalars and short lists only', () => {
+    const detail = Object.fromEntries(Array.from({ length: 30 }, (_, i) => [`k${i}`, i]))
+    const result = sanitizeProvenance({
+      thinkingSteps: [
+        step({
+          kind: 'status',
+          slot: 'budget',
+          detail: { ...detail, nested: { a: 1 }, nan: Number.NaN },
+        }),
+        step({ id: 's2', kind: 'status', slot: 'budget', detail: { nested: { a: 1 } } }),
+      ],
+    })
+    expect(Object.keys(result!.thinkingSteps![0].detail!)).toHaveLength(16)
+    expect(result!.thinkingSteps![1]).not.toHaveProperty('detail')
+  })
+
+  it('refuses a negative or fractional round', () => {
+    const result = sanitizeProvenance({
+      thinkingSteps: [
+        step({ kind: 'retrieval', round: -1 }),
+        step({ id: 's2', kind: 'retrieval', round: 1.5 }),
+      ],
+    })
+    expect(result!.thinkingSteps![0]).not.toHaveProperty('round')
+    expect(result!.thinkingSteps![1]).not.toHaveProperty('round')
+  })
+})
+
+describe('a stopped answer says so after a reload', () => {
+  it('keeps the mark, and only literal true', () => {
+    expect(sanitizeProvenance({ stopped: true })).toEqual({ stopped: true })
+    expect(sanitizeProvenance({ stopped: 'yes' })).toBeNull()
+    expect(sanitizeProvenance({ stopped: false })).toBeNull()
   })
 })
 
@@ -362,5 +523,17 @@ describe('the retrieval ledger survives storage', () => {
   it('drops garbage instead of storing it', () => {
     expect(sanitizeProvenance({ retrievalLedger: 'oib' })).toBeNull()
     expect(sanitizeProvenance({ retrievalLedger: [{ key: 'no-index' }] })).toBeNull()
+  })
+})
+
+describe('the answer duration survives storage', () => {
+  it('keeps a plausible duration, rounded to whole milliseconds', () => {
+    expect(sanitizeProvenance({ answerDurationMs: 12_400.6 })).toEqual({ answerDurationMs: 12_401 })
+  })
+
+  it('drops a duration that is not one', () => {
+    for (const answerDurationMs of [0, -5, Number.NaN, '12000', 30 * 24 * 60 * 60 * 1000]) {
+      expect(sanitizeProvenance({ answerDurationMs })).toBeNull()
+    }
   })
 })

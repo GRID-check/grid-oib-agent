@@ -3,6 +3,15 @@
  */
 import { describe, test, expect, vi, beforeEach, afterEach } from 'vitest'
 import { UploadOrchestrator } from './orchestrator'
+import { onDocumentsChanged } from '@/lib/documents/document-changes'
+import { getStoreTranslator } from '@/i18n/store-translator'
+import type { TrackedFile } from './types'
+
+const mockToast = vi.hoisted(() => ({ info: vi.fn(), error: vi.fn() }))
+vi.mock('sonner', () => ({ toast: mockToast }))
+
+/** The localized notice, resolved the way the orchestrator resolves it. */
+const STILL_READING = getStoreTranslator('files')('uploads.stillReading')
 
 // Mock the documents client
 const mockClient = {
@@ -18,6 +27,12 @@ vi.mock('@/adapters/api', () => ({
   createDocumentsClient: () => mockClient,
 }))
 
+// A chat's attachments are listed first-party, never through the proxy client.
+const mockListSessionDocuments = vi.fn()
+vi.mock('@/adapters/api/session-documents-client', () => ({
+  listSessionDocuments: (...args: unknown[]) => mockListSessionDocuments(...args),
+}))
+
 // Mock the stores
 const mockDocumentsStore = {
   clearFilesForCollection: vi.fn(),
@@ -29,8 +44,9 @@ const mockDocumentsStore = {
   setError: vi.fn(),
   clearError: vi.fn(),
   updateFilesFromJobStatus: vi.fn(),
+  updateTrackedFile: vi.fn(),
   setLoadingFiles: vi.fn(),
-  trackedFiles: [],
+  trackedFiles: [] as TrackedFile[],
   isUploading: false,
   isPolling: false,
   shownBannersForJobs: {},
@@ -76,6 +92,7 @@ vi.mock('./persistence', () => ({
   sessionHasKnownCollection: (id: string) => mockSessionHasKnownCollection(id),
   markSessionHasCollection: (id: string) => mockMarkSessionHasCollection(id),
   unmarkSessionCollection: (id: string) => mockUnmarkSessionCollection(id),
+  removePersistedJobForCollection: vi.fn(),
 }))
 
 describe('UploadOrchestrator', () => {
@@ -88,6 +105,7 @@ describe('UploadOrchestrator', () => {
     mockMarkSessionHasCollection.mockReturnValue(undefined)
     mockUnmarkSessionCollection.mockReturnValue(undefined)
     mockGetPersistedJobForCollection.mockReturnValue(null)
+    mockDocumentsStore.trackedFiles = []
     UploadOrchestrator.cleanup()
   })
 
@@ -107,12 +125,88 @@ describe('UploadOrchestrator', () => {
     })
   })
 
-  describe('setCallbacks', () => {
-    test('sets callbacks for upload events', () => {
-      const onComplete = vi.fn()
-      const onError = vi.fn()
+  describe('subscribe', () => {
+    const completedJob = {
+      job_id: 'job-1',
+      status: 'completed',
+      file_details: [{ file_id: 'file-1', file_name: 'test.pdf', status: 'completed', progress_percent: 100 }],
+    }
 
-      UploadOrchestrator.setCallbacks({ onComplete, onError })
+    test('every subscriber hears a completion, not only the last to subscribe', async () => {
+      mockClient.getJobStatus.mockResolvedValue(completedJob)
+      mockClient.listFiles.mockResolvedValue([])
+      const composer = vi.fn()
+      const filesTab = vi.fn()
+      const offComposer = UploadOrchestrator.subscribe({ onComplete: composer })
+      const offFilesTab = UploadOrchestrator.subscribe({ onComplete: filesTab })
+
+      UploadOrchestrator.startPolling('job-1', 'session-1')
+      await vi.advanceTimersByTimeAsync(5000)
+
+      expect(composer).toHaveBeenCalledTimes(1)
+      expect(filesTab).toHaveBeenCalledTimes(1)
+      offComposer()
+      offFilesTab()
+    })
+
+    test('an unsubscribed listener is not called, and the rest still are', async () => {
+      mockClient.getJobStatus.mockResolvedValue({
+        job_id: 'job-1',
+        status: 'failed',
+        error_message: 'Upload failed',
+        file_details: [],
+      })
+      const gone = vi.fn()
+      const stays = vi.fn()
+      const offGone = UploadOrchestrator.subscribe({ onError: gone })
+      const offStays = UploadOrchestrator.subscribe({ onError: stays })
+      offGone()
+
+      UploadOrchestrator.startPolling('job-1', 'session-1')
+      await vi.advanceTimersByTimeAsync(5000)
+
+      expect(gone).not.toHaveBeenCalled()
+      expect(stays).toHaveBeenCalledWith(new Error('Upload failed'))
+      offStays()
+    })
+
+    test('a subscriber that throws does not keep the next one from hearing', async () => {
+      mockClient.getJobStatus.mockResolvedValue(completedJob)
+      mockClient.listFiles.mockResolvedValue([])
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+      const after = vi.fn()
+      const offThrows = UploadOrchestrator.subscribe({
+        onComplete: () => {
+          throw new Error('boom')
+        },
+      })
+      const offAfter = UploadOrchestrator.subscribe({ onComplete: after })
+
+      UploadOrchestrator.startPolling('job-1', 'session-1')
+      await vi.advanceTimersByTimeAsync(5000)
+
+      expect(after).toHaveBeenCalledTimes(1)
+      offThrows()
+      offAfter()
+      warn.mockRestore()
+    })
+
+    test('a terminal job tells the document listings, success or failure', async () => {
+      const changed = vi.fn()
+      const off = onDocumentsChanged(changed)
+      mockClient.getJobStatus.mockResolvedValue({
+        job_id: 'job-1',
+        status: 'failed',
+        error_message: 'Upload failed',
+        file_details: [],
+      })
+
+      UploadOrchestrator.startPolling('job-1', 'session-1')
+      expect(changed).not.toHaveBeenCalled()
+      await vi.advanceTimersByTimeAsync(5000)
+
+      expect(changed).toHaveBeenCalledTimes(1)
+      off()
     })
   })
 
@@ -482,13 +576,144 @@ describe('UploadOrchestrator', () => {
       expect(mockDocumentsStore.setError).toHaveBeenCalledWith('Upload failed')
     })
 
-    test('stops polling when job not found', async () => {
-      mockClient.getJobStatus.mockResolvedValue(null)
+    /**
+     * Losing track of a job is not a failed upload. The document rows it wrote
+     * are still being read, so the tray rows are followed by their documents'
+     * status (and a mounted workspace's listing) instead of turning red.
+     */
+    describe('when the orchestrator stops following a job', () => {
+      const tray = (overrides: Partial<TrackedFile>): TrackedFile => ({
+        id: 'row-1',
+        fileName: 'Einreichplan.pdf',
+        fileSize: 1,
+        status: 'ingesting',
+        progress: 0,
+        jobId: 'job-1',
+        serverFileId: 'doc-1',
+        collectionName: 'session-1',
+        ...overrides,
+      })
 
-      UploadOrchestrator.startPolling('job-1', 'session-1')
-      await vi.advanceTimersByTimeAsync(5000)
+      beforeEach(() => {
+        mockDocumentsStore.trackedFiles = [
+          tray({}),
+          tray({ id: 'row-done', status: 'success' }),
+          tray({ id: 'row-other-job', jobId: 'job-2' }),
+        ]
+      })
 
-      expect(mockDocumentsStore.setError).toHaveBeenCalledWith('Job not found')
+      const expectHandedOver = () => {
+        expect(mockDocumentsStore.setError).not.toHaveBeenCalled()
+        expect(mockDocumentsStore.updateTrackedFile).toHaveBeenCalledTimes(1)
+        expect(mockDocumentsStore.updateTrackedFile).toHaveBeenCalledWith('row-1', {
+          jobId: undefined,
+          status: 'ingesting',
+        })
+        expect(mockToast.error).not.toHaveBeenCalled()
+        expect(mockToast.info).toHaveBeenCalledWith(STILL_READING, expect.anything())
+        expect(mockDocumentsStore.setPolling).toHaveBeenLastCalledWith(false)
+      }
+
+      test('an unknown job hands its rows to the listing', async () => {
+        mockClient.getJobStatus.mockResolvedValue(null)
+        const onError = vi.fn()
+        const off = UploadOrchestrator.subscribe({ onError })
+
+        UploadOrchestrator.startPolling('job-1', 'session-1')
+        await vi.advanceTimersByTimeAsync(5000)
+
+        expectHandedOver()
+        expect(onError).not.toHaveBeenCalled()
+        off()
+      })
+
+      test('an exhausted poll budget hands its rows to the listing, not "timed out"', async () => {
+        mockClient.getJobStatus.mockResolvedValue({
+          job_id: 'job-1',
+          collection_name: 'session-1',
+          status: 'processing',
+          file_details: [],
+        })
+
+        UploadOrchestrator.startPolling('job-1', 'session-1')
+        // 420 polls at 5 s, then the check that ends the budget.
+        await vi.advanceTimersByTimeAsync(421 * 5000)
+
+        expect(mockClient.getJobStatus).toHaveBeenCalledTimes(420)
+        expectHandedOver()
+
+        await vi.advanceTimersByTimeAsync(60_000)
+        expect(mockClient.getJobStatus).toHaveBeenCalledTimes(420)
+      })
+
+      test('status reads that keep failing end in the same hand-over', async () => {
+        mockClient.getJobStatus.mockRejectedValue(new Error('Network error'))
+
+        UploadOrchestrator.startPolling('job-1', 'session-1')
+        await vi.advanceTimersByTimeAsync(421 * 5000)
+
+        expectHandedOver()
+      })
+
+      test('keeps following a handed-over row by its document status, slowly, until it lands', async () => {
+        // Nothing else settles it when no Files page is mounted: a project
+        // upload from the chat's side panel spun forever.
+        mockDocumentsStore.updateTrackedFile.mockImplementation((id: string, patch: Partial<TrackedFile>) => {
+          mockDocumentsStore.trackedFiles = mockDocumentsStore.trackedFiles.map((file) =>
+            file.id === id ? { ...file, ...patch } : file
+          )
+        })
+        mockClient.getJobStatus.mockResolvedValue(null)
+        let status = 'processing'
+        const fetchMock = vi.fn(async () => new Response(JSON.stringify({ id: 'doc-1', status }), { status: 200 }))
+        vi.stubGlobal('fetch', fetchMock)
+        const onComplete = vi.fn()
+        const off = UploadOrchestrator.subscribe({ onComplete })
+        const changed = vi.fn()
+        const offChanged = onDocumentsChanged(changed)
+        try {
+          UploadOrchestrator.startPolling('job-1', 'session-1')
+          await vi.advanceTimersByTimeAsync(5000)
+          expect(fetchMock).not.toHaveBeenCalled()
+
+          // Slow: a minute, not the job poll's five seconds.
+          await vi.advanceTimersByTimeAsync(60_000)
+          expect(fetchMock).toHaveBeenCalledTimes(1)
+          expect(fetchMock).toHaveBeenCalledWith('/api/documents/doc-1/status', expect.anything())
+          expect(mockDocumentsStore.trackedFiles.find((f) => f.id === 'row-1')?.status).toBe('ingesting')
+          expect(onComplete).not.toHaveBeenCalled()
+
+          status = 'completed'
+          await vi.advanceTimersByTimeAsync(60_000)
+          expect(mockDocumentsStore.trackedFiles.find((f) => f.id === 'row-1')).toMatchObject({
+            status: 'success',
+            progress: 100,
+          })
+          expect(onComplete).toHaveBeenCalledTimes(1)
+          expect(changed).toHaveBeenCalled()
+
+          // Terminal: nothing more is asked.
+          await vi.advanceTimersByTimeAsync(180_000)
+          expect(fetchMock).toHaveBeenCalledTimes(2)
+        } finally {
+          off()
+          offChanged()
+          vi.unstubAllGlobals()
+          mockDocumentsStore.updateTrackedFile.mockReset()
+        }
+      })
+
+      test('the next queued job is still polled', async () => {
+        mockClient.getJobStatus.mockResolvedValue(null)
+
+        UploadOrchestrator.enqueueJobs([
+          { jobId: 'job-1', collectionName: 'session-1', files: [] },
+          { jobId: 'job-2', collectionName: 'session-1', files: [] },
+        ])
+        await vi.advanceTimersByTimeAsync(5000)
+
+        expect(mockClient.getJobStatus).toHaveBeenCalledWith('job-2', expect.any(AbortSignal))
+      })
     })
 
     test('handles polling errors', async () => {
@@ -509,6 +734,147 @@ describe('UploadOrchestrator', () => {
       await vi.advanceTimersByTimeAsync(5000)
 
       expect(mockDocumentsStore.setError).not.toHaveBeenCalled()
+    })
+  })
+
+  /**
+   * A chat's attachments are document rows (ADR-0047 Phase 2). They are read
+   * through `GET /api/session/documents`, and polled by re-listing, because
+   * that listing reconciles every in-flight row. Nothing goes through the proxy.
+   */
+  describe('the session shelf', () => {
+    const CHAT = 's_11111111_2222_4333_8444_555555555555'
+    const row = (status: 'ingesting' | 'success') => ({
+      file_id: 'doc-1',
+      file_name: 'plan.pdf',
+      collection_name: CHAT,
+      status,
+      chunk_count: 0,
+      metadata: {},
+    })
+
+    test('lists a chat through the session documents route, not the proxy', async () => {
+      mockSessionHasKnownCollection.mockReturnValue(true)
+      mockListSessionDocuments.mockResolvedValue([row('success')])
+
+      await UploadOrchestrator.handleSessionChange(CHAT, 'session')
+
+      expect(mockListSessionDocuments).toHaveBeenCalledWith(CHAT)
+      expect(mockClient.getCollection).not.toHaveBeenCalled()
+      expect(mockClient.listFiles).not.toHaveBeenCalled()
+      expect(mockDocumentsStore.setFilesFromServer).toHaveBeenCalledWith(CHAT, [row('success')])
+    })
+
+    test('does not resume a proxy job persisted for a chat', async () => {
+      mockSessionHasKnownCollection.mockReturnValue(true)
+      mockGetPersistedJobForCollection.mockReturnValue({
+        jobId: 'job-legacy',
+        collectionName: CHAT,
+        files: [],
+        timestamp: Date.now(),
+      } as never)
+      mockListSessionDocuments.mockResolvedValue([])
+
+      await UploadOrchestrator.handleSessionChange(CHAT, 'session')
+
+      expect(mockClient.getJobStatus).not.toHaveBeenCalled()
+      expect(mockListSessionDocuments).toHaveBeenCalledWith(CHAT)
+    })
+
+    test('forgets the marker when the conversation is not on the server', async () => {
+      mockSessionHasKnownCollection.mockReturnValue(true)
+      mockListSessionDocuments.mockResolvedValue(null)
+
+      await UploadOrchestrator.handleSessionChange(CHAT, 'session')
+
+      expect(mockUnmarkSessionCollection).toHaveBeenCalledWith(CHAT)
+    })
+
+    test('polls by re-listing until nothing is in flight', async () => {
+      mockListSessionDocuments
+        .mockResolvedValueOnce([row('ingesting')])
+        .mockResolvedValueOnce([row('success')])
+      await UploadOrchestrator.handleSessionChange(CHAT, 'session')
+
+      UploadOrchestrator.pollSessionDocuments(CHAT)
+      expect(mockDocumentsStore.setPolling).toHaveBeenLastCalledWith(true)
+
+      await vi.advanceTimersByTimeAsync(5000)
+      await vi.advanceTimersByTimeAsync(5000)
+
+      expect(mockListSessionDocuments).toHaveBeenCalledTimes(2)
+      expect(mockListSessionDocuments).toHaveBeenCalledWith(CHAT, expect.any(AbortSignal))
+      expect(mockDocumentsStore.setFilesFromServer).toHaveBeenLastCalledWith(CHAT, [row('success')])
+      expect(mockDocumentsStore.setPolling).toHaveBeenLastCalledWith(false)
+      expect(mockClient.getJobStatus).not.toHaveBeenCalled()
+
+      await vi.advanceTimersByTimeAsync(5000)
+      expect(mockListSessionDocuments).toHaveBeenCalledTimes(2)
+    })
+
+    test('a chat whose attachments finish reading tells the document listings once', async () => {
+      const changed = vi.fn()
+      const off = onDocumentsChanged(changed)
+      mockListSessionDocuments
+        .mockResolvedValueOnce([row('ingesting')])
+        .mockResolvedValueOnce([row('success')])
+      await UploadOrchestrator.handleSessionChange(CHAT, 'session')
+
+      UploadOrchestrator.pollSessionDocuments(CHAT)
+      await vi.advanceTimersByTimeAsync(5000)
+      expect(changed).not.toHaveBeenCalled()
+      await vi.advanceTimersByTimeAsync(5000)
+
+      expect(changed).toHaveBeenCalledTimes(1)
+      off()
+    })
+
+    test('a reload with an attachment still being read resumes polling on its own', async () => {
+      mockSessionHasKnownCollection.mockReturnValue(true)
+      mockListSessionDocuments
+        .mockResolvedValueOnce([row('ingesting')])
+        .mockResolvedValueOnce([row('success')])
+
+      await UploadOrchestrator.handleSessionChange(CHAT, 'session')
+      await vi.advanceTimersByTimeAsync(5000)
+
+      expect(mockListSessionDocuments).toHaveBeenCalledTimes(2)
+      expect(mockDocumentsStore.setFilesFromServer).toHaveBeenLastCalledWith(CHAT, [row('success')])
+    })
+
+    test('past the poll budget it keeps re-listing, slower, and says so once', async () => {
+      mockListSessionDocuments.mockResolvedValue([row('ingesting')])
+      await UploadOrchestrator.handleSessionChange(CHAT, 'session')
+      mockListSessionDocuments.mockClear()
+      UploadOrchestrator.pollSessionDocuments(CHAT)
+
+      await vi.advanceTimersByTimeAsync(420 * 5000)
+      expect(mockListSessionDocuments).toHaveBeenCalledTimes(420)
+      expect(mockToast.info).not.toHaveBeenCalled()
+
+      await vi.advanceTimersByTimeAsync(5000)
+      expect(mockToast.info).toHaveBeenCalledTimes(1)
+      expect(mockToast.info).toHaveBeenCalledWith(STILL_READING, expect.anything())
+      expect(mockDocumentsStore.setError).not.toHaveBeenCalled()
+
+      await vi.advanceTimersByTimeAsync(60_000)
+      expect(mockListSessionDocuments).toHaveBeenCalledTimes(422)
+      expect(mockToast.info).toHaveBeenCalledTimes(1)
+
+      mockListSessionDocuments.mockResolvedValue([row('success')])
+      await vi.advanceTimersByTimeAsync(60_000)
+      expect(mockDocumentsStore.setPolling).toHaveBeenLastCalledWith(false)
+    })
+
+    test('switching chats stops the poll', async () => {
+      mockListSessionDocuments.mockResolvedValue([row('ingesting')])
+      await UploadOrchestrator.handleSessionChange(CHAT, 'session')
+      UploadOrchestrator.pollSessionDocuments(CHAT)
+
+      await UploadOrchestrator.handleSessionChange('s_other', 'session')
+      await vi.advanceTimersByTimeAsync(10000)
+
+      expect(mockListSessionDocuments).not.toHaveBeenCalledWith(CHAT, expect.any(AbortSignal))
     })
   })
 })

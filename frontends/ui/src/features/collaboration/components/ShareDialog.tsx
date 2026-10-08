@@ -41,6 +41,7 @@
  *      rule 4, where derived access is changed by changing the rule above it.
  */
 
+import type { JSX } from 'react'
 import { useMemo, useState } from 'react'
 import type { ReactNode } from 'react'
 import { AlertTriangle, Info, MoreHorizontal, Search, ShieldCheck, UserMinus, UserPlus, X } from 'lucide-react'

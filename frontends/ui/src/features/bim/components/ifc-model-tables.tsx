@@ -16,6 +16,7 @@
  * rows it could not see.
  */
 
+import type { JSX } from 'react'
 import { useMemo, useState } from 'react'
 import { AlertTriangle, Download, Ruler, Sparkles, Table2 } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
@@ -126,7 +127,7 @@ export function IfcRoomSchedule({
     // `truncated` travels into the file: the banner above the table says the
     // sums are not building figures, and the downloaded version was the one
     // copy of this Flächenaufstellung with no warning on it.
-    const blob = new Blob([`﻿${roomScheduleToCsv(schedule, { truncated })}`], {
+    const blob = new Blob([`\uFEFF${roomScheduleToCsv(schedule, { truncated })}`], {
       type: 'text/csv;charset=utf-8',
     })
     const url = URL.createObjectURL(blob)

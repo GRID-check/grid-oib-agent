@@ -93,6 +93,22 @@ export const AUDIT_SCHEMAS = /** @type {const} */ ({
     targets: [{ type: 'organization' }],
     metadata: { quotaBytes: 'number' },
   },
+  // Per-organization upload limit: the largest single non-model file the
+  // tenant may upload. Its own action for the reason the quota has one: it
+  // refuses uploads, so "who lowered it, and to what" must stand alone. `0` is
+  // the wire form of "back to the deployment default".
+  'org.upload_limit.updated': {
+    targets: [{ type: 'organization' }],
+    metadata: { maxUploadFileBytes: 'number' },
+  },
+  // An org-wide retry of every ingestion that failed to read (behind
+  // "Rescan failed ingestions" in Organization > Enterprise). The counts
+  // are the outcome, so the trail can answer who re-read the tenant's
+  // estate and what came of it.
+  'org.documents.reingested': {
+    targets: [{ type: 'organization' }],
+    metadata: { total: 'number', queued: 'number', skipped: 'number', failed: 'number', truncated: 'boolean' },
+  },
   'budget.policy.set': {
     targets: [{ type: 'budget_policy' }],
     metadata: {

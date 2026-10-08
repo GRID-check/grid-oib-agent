@@ -61,7 +61,7 @@ describe('mapServerMessageToChatMessage', () => {
         metadata: {
           messageType: 'error',
           errorData: { errorCode: 'system.unknown', errorMessage: 'boom' },
-          cards: [{ type: 'summary', title: 'Kurzfassung' }],
+          cards: [{ type: 'memory_proposal', title: 'Merken?', content: 'REI 90', kind: 'preference' }],
           enabledDataSources: ['web_search'],
           messageFiles: [{ id: 'f1', fileName: 'a.pdf' }],
         },
@@ -71,7 +71,7 @@ describe('mapServerMessageToChatMessage', () => {
     expect(mapped!.messageType).toBe('error')
     expect(mapped!.errorData).toEqual({ errorCode: 'system.unknown', errorMessage: 'boom' })
     expect(mapped!.cards).toEqual([
-      { type: 'summary', title: 'Kurzfassung', content: null, key_points: null },
+      { type: 'memory_proposal', title: 'Merken?', content: 'REI 90', kind: 'preference', confidence: 'medium' },
     ])
     expect(mapped!.enabledDataSources).toEqual(['web_search'])
     expect(mapped!.messageFiles).toEqual([{ id: 'f1', fileName: 'a.pdf' }])
@@ -92,13 +92,13 @@ describe('mapServerMessageToChatMessage', () => {
       serverMessage({
         role: 'assistant',
         metadata: {
-          cards: [{ kind: 'from-a-future-build' }, { type: 'summary', title: 'Kurzfassung' }],
+          cards: [{ kind: 'from-a-future-build' }, { type: 'memory_proposal', title: 'Merken?', content: 'REI 90', kind: 'preference' }],
         },
       })
     )
     expect(mapped!.cards).toHaveLength(2)
     expect(mapped!.cards?.[0]).toBeUndefined()
-    expect(mapped!.cards?.[1]).toMatchObject({ type: 'summary' })
+    expect(mapped!.cards?.[1]).toMatchObject({ type: 'memory_proposal' })
   })
 
   it('restores interactive-card decisions so a settled card cannot be re-answered', () => {
@@ -243,13 +243,14 @@ describe('mapServerMessageToChatMessage — the answer’s provenance', () => {
       {
         id: 's1',
         userMessageId: 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee',
-        functionName: 'oib_lookup',
-        displayName: 'OIB-Richtlinie durchsucht',
-        category: 'tools',
         timestamp: '2026-07-01T10:00:05.000Z',
         isComplete: true,
-        isTopLevel: true,
-        traceLanes: [{ kind: 'oib', label: 'OIB 2.3' }],
+        kind: 'sources',
+        tool: 'knowledge_search',
+        round: 0,
+        traceLanes: [
+          { key: 'oib', label: 'OIB 2.3', kind: 'baurecht', signal: 'law', hitCount: 1, sources: [{ name: 'oib-rl-2.pdf' }] },
+        ],
       },
     ],
     answerConfidence: 'high',
@@ -260,18 +261,37 @@ describe('mapServerMessageToChatMessage — the answer’s provenance', () => {
     showViewReport: true,
   }
 
-  it('restores the Herleitung, with its timestamps as Dates', () => {
+  it('restores the Herleitung in the stored v2 shape', () => {
     const mapped = mapServerMessageToChatMessage(serverMessage({ metadata: { provenance } }))
 
     expect(mapped!.thinkingSteps).toHaveLength(1)
     const step = mapped!.thinkingSteps![0]
-    expect(step.displayName).toBe('OIB-Richtlinie durchsucht')
-    // A Date, because that is what the step shape declares and what the renderer
-    // sorts on — an ISO string here silently breaks ordering.
-    expect(step.timestamp).toBeInstanceOf(Date)
-    expect(step.timestamp.toISOString()).toBe('2026-07-01T10:00:05.000Z')
-    // The sources fan-out is the part of a step a reader actually reads.
-    expect(step.traceLanes).toEqual([{ kind: 'oib', label: 'OIB 2.3' }])
+    // The stored v2 shape, exactly what the turn fold writes: a restored step
+    // and a live one are one shape, and the timestamp stays the ISO string.
+    expect(step).toEqual(provenance.thinkingSteps[0])
+  })
+
+  it('drops a step in the pre-v2 shape rather than interpreting it', () => {
+    // Migration 0097 rewrote every stored row; there is no second reader.
+    const mapped = mapServerMessageToChatMessage(
+      serverMessage({
+        metadata: {
+          provenance: {
+            thinkingSteps: [
+              { id: 's1', userMessageId: 'm1', functionName: 'status:synthesis', displayName: '', category: 'tasks', timestamp: '2026-07-01T10:00:05.000Z', isComplete: true },
+            ],
+          },
+        },
+      }),
+    )
+    expect(mapped!.thinkingSteps).toBeUndefined()
+  })
+
+  it('restores a stopped answer as stopped', () => {
+    const mapped = mapServerMessageToChatMessage(
+      serverMessage({ role: 'assistant', metadata: { provenance: { stopped: true } } }),
+    )
+    expect(mapped!.stopped).toBe(true)
   })
 
   it('restores the confidence self-assessment and the routing decision', () => {
@@ -369,6 +389,22 @@ describe('mapServerMessageToChatMessage — the answer’s provenance', () => {
       }),
     )
     expect(bad!.retrievalLedger).toBeUndefined()
+  })
+
+  it('restores the quote stamps from either spelling, bounded again', () => {
+    const stamp = { text: 'Wände sind in REI 90 auszuführen.', status: 'verbatim', number: 1, file_name: 'oib.pdf', page: 4 }
+    const fromProvenance = mapServerMessageToChatMessage(
+      serverMessage({ role: 'assistant', metadata: { provenance: { ...provenance, quoteStamps: [stamp] } } }),
+    )
+    expect(fromProvenance!.quoteStamps).toEqual([
+      { text: 'Wände sind in REI 90 auszuführen.', status: 'verbatim', number: 1, fileName: 'oib.pdf', page: 4 },
+    ])
+    const fromWire = mapServerMessageToChatMessage(serverMessage({ role: 'assistant', metadata: { quote_stamps: [stamp] } }))
+    expect(fromWire!.quoteStamps?.[0].status).toBe('verbatim')
+    const bad = mapServerMessageToChatMessage(
+      serverMessage({ role: 'assistant', metadata: { provenance: { quoteStamps: [{ text: 'x', status: 'sure' }] } } }),
+    )
+    expect(bad!.quoteStamps).toBeUndefined()
   })
 
   it('restores the run ledger on a run’s own message, bounded again on the way out', () => {
@@ -590,11 +626,13 @@ describe('mapServerMessageToChatMessage — a post-answer stage', () => {
 
 describe('mapServerMessageToChatMessage — a human-in-the-loop prompt', () => {
   const prompt = {
-    promptType: 'choice',
     promptId: 'p-1',
     promptParentId: 'parent-1',
-    promptInputType: 'radio',
-    promptOptions: ['Nur Kern B', 'Beide Kerne'],
+    promptInputType: 'choice',
+    promptOptions: [
+      { id: 'b', label: 'Nur Kern B' },
+      { id: 'both', label: 'Beide Kerne' },
+    ],
     promptPlaceholder: 'Welcher Kern?',
     promptFor: 'user_matthias',
   }
@@ -605,8 +643,11 @@ describe('mapServerMessageToChatMessage — a human-in-the-loop prompt', () => {
     )
 
     expect(mapped!.messageType).toBe('prompt')
-    expect(mapped!.promptType).toBe('choice')
-    expect(mapped!.promptOptions).toEqual(['Nur Kern B', 'Beide Kerne'])
+    expect(mapped!.promptInputType).toBe('choice')
+    expect(mapped!.promptOptions).toEqual([
+      { id: 'b', label: 'Nur Kern B' },
+      { id: 'both', label: 'Beide Kerne' },
+    ])
     expect(mapped!.promptPlaceholder).toBe('Welcher Kern?')
     // The addressee is what lets every other reader be shown it read-only.
     expect(mapped!.promptFor).toBe('user_matthias')
@@ -622,23 +663,27 @@ describe('mapServerMessageToChatMessage — a human-in-the-loop prompt', () => {
         metadata: {
           messageType: 'prompt',
           prompt,
-          promptState: { response: 'Beide Kerne', respondedAt: '2026-07-01T10:05:00.000Z' },
+          promptState: { response: 'both', respondedAt: '2026-07-01T10:05:00.000Z' },
         },
       }),
     )
 
-    expect(mapped!.promptResponse).toBe('Beide Kerne')
+    expect(mapped!.promptResponse).toBe('both')
     expect(mapped!.isPromptResponded).toBe(true)
   })
 
-  it('ignores a promptType it does not know, rather than rendering an unknown card', () => {
+  it('keeps only the two input shapes and options that are `{id, label}`', () => {
     const mapped = mapServerMessageToChatMessage(
       serverMessage({
         role: 'assistant',
-        metadata: { messageType: 'prompt', prompt: { ...prompt, promptType: 'telepathy' } },
+        metadata: {
+          messageType: 'prompt',
+          prompt: { ...prompt, promptInputType: 'radio', promptOptions: ['Nur Kern B', { id: 'x' }] },
+        },
       }),
     )
-    expect(mapped!.promptType).toBeUndefined()
+    expect(mapped!.promptInputType).toBeUndefined()
+    expect(mapped!.promptOptions).toBeUndefined()
   })
 
   it('ignores an empty answer — that is still a question, not a decision', () => {

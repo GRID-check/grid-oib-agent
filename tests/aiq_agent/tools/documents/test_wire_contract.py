@@ -100,10 +100,30 @@ class TestTheRequestBodies:
             ),
         )
         await filing_tools.run_file_draft(DRAFT)
-        await filing_tools.run_submit_draft(DRAFT)
+        await filing_tools.run_file_draft(DRAFT, submit=True)
 
         assert calls[1][0]["op"] == "submit"
         _validator(schema, "internalDocumentVersionRequest").validate(calls[1][0])
+
+    async def test_filing_and_submitting_in_one_call_validates(self, schema, _one_store, monkeypatch, calls) -> None:
+        """``submit=True`` on an unfiled draft posts two bodies; both are the route's."""
+        await _write(_one_store)
+        monkeypatch.setattr(
+            filing_tools,
+            "post_document_version",
+            _responder(
+                [
+                    {"documentId": "doc-1", "version": _version("ver-1", "draft", "h1")},
+                    {"documentId": "doc-1", "version": _version("ver-1", "in_review", "h1")},
+                ],
+                calls,
+            ),
+        )
+        await filing_tools.run_file_draft(DRAFT, submit=True)
+
+        assert [payload["op"] for payload, _ in calls] == ["create", "submit"]
+        for payload, _ in calls:
+            _validator(schema, "internalDocumentVersionRequest").validate(payload)
 
     async def test_submit_with_a_named_reviewer_validates(self, schema, _one_store, monkeypatch, calls) -> None:
         """The reviewer NAME is a wire field like any other, so the fixture pins it.
@@ -126,7 +146,7 @@ class TestTheRequestBodies:
             ),
         )
         await filing_tools.run_file_draft(DRAFT)
-        await filing_tools.run_submit_draft(DRAFT, "Anna Berger")
+        await filing_tools.run_file_draft(DRAFT, submit=True, reviewer="Anna Berger")
 
         payload = calls[1][0]
         assert payload["op"] == "submit" and payload["reviewer"] == "Anna Berger"

@@ -13,7 +13,7 @@
  */
 
 import { type FC } from 'react'
-import type { GridCard } from '@/shared/cards/schemas'
+import type { AnatomyShape, AnatomyVerdict } from '../lib/answer-meta-cards'
 import { CalloutCard } from '@/features/grid-cards/components/CalloutCard'
 import { KeyTakeawaysCard } from '@/features/grid-cards/components/KeyTakeawaysCard'
 import { VerdictHeaderCard } from '@/features/grid-cards/components/VerdictHeaderCard'
@@ -27,7 +27,7 @@ import type { AnswerKind } from '@/lib/conversations/message-answer-meta'
  */
 function showsVerdictMasthead(
   kind: AnswerKind | undefined,
-  verdict: GridCard | undefined
+  verdict: AnatomyVerdict | undefined
 ): boolean {
   return (
     Boolean(verdict) &&
@@ -57,7 +57,7 @@ function showsVerdictMasthead(
  * that repeats its headline is decoration, not orientation.
  */
 export const AnatomyMasthead: FC<{
-  verdict?: GridCard
+  verdict?: AnatomyVerdict
   summary?: string
   topic?: string
   context?: string
@@ -99,7 +99,7 @@ export const AnatomyMasthead: FC<{
  * One after-prose anatomy shape (from `answerMetaToAnatomy`), drawn flat.
  * The verdict never comes through here — it is the masthead's, above.
  */
-export const AnatomyBlock: FC<{ card: GridCard }> = ({ card }) => {
+export const AnatomyBlock: FC<{ card: AnatomyShape }> = ({ card }) => {
   if (card.type === 'callout') {
     return (
       <FadeIn distance={4}>

@@ -18,29 +18,26 @@ from aiq_agent.common import AgentGroup
 from aiq_agent.common import LLMProvider
 from aiq_agent.common import LLMRole
 from aiq_agent.common import VerboseTraceCallback
-from aiq_agent.common import _create_chat_response
 from aiq_agent.common import all_mapped_tools_filtered_out
 from aiq_agent.common import filter_tools_by_sources
 from aiq_agent.common import format_user_facing_tool_error
 from aiq_agent.common import get_all_tool_refs
 from aiq_agent.common import get_checkpointer
 from aiq_agent.common import get_langchain_llm
-from aiq_agent.common import get_model_overrides_from_context
-from aiq_agent.common import get_org_llm_credential_from_context
-from aiq_agent.common import get_reasoning_efforts
-from aiq_agent.common import get_zdr_only_from_context
 from aiq_agent.common import is_verbose
 from aiq_agent.common import validate_tool_availability
-from nat.builder.builder import Builder
-from nat.builder.context import Context
-from nat.builder.framework_enum import LLMFrameworkEnum
-from nat.builder.function_info import FunctionInfo
-from nat.cli.register_workflow import register_function
-from nat.data_models.api_server import ChatResponse
-from nat.data_models.component_ref import FunctionGroupRef
-from nat.data_models.component_ref import FunctionRef
-from nat.data_models.component_ref import LLMRef
-from nat.data_models.function import FunctionBaseConfig
+from aiq_agent.common.agent_tools import load_agent_tools
+from aiq_agent.common.request_llm_context import RequestLLMContext
+from aiq_agent.common.request_llm_context import read_request_llm_context
+from nat.plugin_api import Builder
+from nat.plugin_api import Context
+from nat.plugin_api import FunctionBaseConfig
+from nat.plugin_api import FunctionGroupRef
+from nat.plugin_api import FunctionInfo
+from nat.plugin_api import FunctionRef
+from nat.plugin_api import LLMFrameworkEnum
+from nat.plugin_api import LLMRef
+from nat.plugin_api import register_function
 
 from .agent import DEFAULT_MAX_CONCURRENT_SOURCE_TOOL_CALLS
 from .agent import DEFAULT_MAX_RESEARCH_CONCURRENCY
@@ -121,7 +118,7 @@ class DeepResearchAgentConfig(FunctionBaseConfig, name="deep_research_agent"):
         "deep-research runs (LangGraph thread_id = job_id), enabling resume of a re-invoked job after a "
         "worker crash. None (default) keeps current behavior: an in-memory-only graph with no execution-"
         "state durability. Mirrors the workflow-level chat checkpoint_db pattern, but opt-in "
-        "here since deep-research jobs run in ephemeral Dask worker processes.",
+        "here since deep-research jobs run in ephemeral research worker processes.",
     )
 
     @field_validator("skills", mode="before")
@@ -189,11 +186,7 @@ def resolve_deep_research_runtime_config(
 
 
 async def _resolve_tools(builder: Builder, tool_refs: list[str], exclude_tools: list[str]) -> list:
-    resolved = await builder.get_tools(tool_names=tool_refs, wrapper_type=LLMFrameworkEnum.LANGCHAIN)
-    if not exclude_tools:
-        return resolved
-    excluded = set(exclude_tools)
-    return [t for t in resolved if getattr(t, "name", "") not in excluded]
+    return await load_agent_tools(builder, tool_refs, exclude_tools)
 
 
 async def _explicit_tools(builder: Builder, config: DeepResearchAgentConfig) -> list | None:
@@ -343,6 +336,7 @@ def _agent_for_request(
     prebuilt: DeepResearcherAgent,
     tools: list,
     selected_tools: list,
+    llm_context: RequestLLMContext,
 ) -> DeepResearcherAgent:
     """The prebuilt agent, or a per-request one when something differs.
 
@@ -354,12 +348,7 @@ def _agent_for_request(
     async job_id NAT carries (set by ``aiq_api/jobs/runner.py``; a per-request
     uuid in ``DeepAgentsRuntime`` when None), so it is always rebuilt.
     """
-    provider = (
-        blueprint.provider.with_model_overrides(get_model_overrides_from_context())
-        .with_reasoning_efforts(get_reasoning_efforts())
-        .with_credential(get_org_llm_credential_from_context())
-        .with_zdr(get_zdr_only_from_context())
-    )
+    provider = llm_context.apply(blueprint.provider)
     if provider is blueprint.provider and blueprint.sandbox is None and selected_tools == tools:
         return prebuilt
     return blueprint.build(selected_tools, llm_provider=provider, job_id=Context.get().workflow_run_id)
@@ -369,7 +358,9 @@ async def run_deep_research(state: DeepResearchAgentState, lazy: LazyTools) -> D
     """Run deep research for one request against the resolved tool set."""
     tools, agent = await lazy.get()
     selected_tools = filter_tools_by_sources(tools, state.data_sources)
-    active_agent = _agent_for_request(lazy.blueprint, agent, tools, selected_tools)
+    # Read off the loop: each per-org dial can fall back to a blocking BFF call.
+    llm_context = await read_request_llm_context()
+    active_agent = _agent_for_request(lazy.blueprint, agent, tools, selected_tools, llm_context)
     if all_mapped_tools_filtered_out(tools, selected_tools, state.data_sources):
         logger.warning("Deep research received data_sources with no matching tools")
     # At least one tool must be available, or the agent would reason about
@@ -431,13 +422,11 @@ class DeepResearchWorkflowConfig(FunctionBaseConfig, name="deep_research_workflo
 async def deep_research_workflow(config: DeepResearchWorkflowConfig, builder: Builder):
     """Wrapper workflow that accepts string queries for evaluation."""
     deep_research_agent_fn = await builder.get_function("deep_research_agent")
-    workflow_id = config.name or config.type
 
-    async def _run(query: str, project_context: str | None = None) -> ChatResponse:
+    async def _run(query: str, project_context: str | None = None) -> str:
         """Run deep research on a query string."""
         state = DeepResearchAgentState(messages=[HumanMessage(content=query)], project_context=project_context)
         result = await deep_research_agent_fn.ainvoke(state)
-        response_content = result.messages[-1].content
-        return _create_chat_response(response_content, response_id="research_response", model=workflow_id)
+        return str(result.messages[-1].content)
 
     yield FunctionInfo.from_fn(_run, description="Deep research workflow for evaluation (accepts string query).")

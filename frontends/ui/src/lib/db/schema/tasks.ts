@@ -49,8 +49,8 @@ import { jobRuns, jobs } from './jobs'
  *
  *   - `deep-research` · `chat` — a job fired on its timer; the value is
  *     `jobs.output`.
- *   - `compliance_check` — the compliance checker over the project (the engine
- *     exists: `agents/compliance_checker/`).
+ *   - `compliance_check` — a norm check over the project, run by the general
+ *     agent with its retrieval tools (`TASK_ENGINES` in `lib/tasks/delegation.ts`).
  *   - `einreichcheck` — the builtin Einreichcheck skill, whose "Done" section
  *     is literally the work list.
  *   - `document` — write a document and file it as a draft version.
@@ -87,13 +87,17 @@ export { TASK_STATUSES, type TaskStatus, TASK_REVIEWS, type TaskReview }
 
 /**
  * Whether the result was filed into the project, as the requester.
+ *   - `queued`   — a `file_research_report` job (ADR-0079) has the report and
+ *                  has not finished; a deep-research run's PDF is rendered on a
+ *                  `bff-jobs` pod and retried there. Task rows (the legacy
+ *                  table) never carry it; `task_runs` does (migration 0105).
  *   - `filed`    — a document row exists; `filedDocumentId` names it.
  *   - `refused`  — the requester may not file here (left the organization,
  *                  lacks the permission, or the feature is off for the org).
  *   - `failed`   — filing was attempted and broke; `filingDetail` says how.
  * Null when there was nothing to file (a chat task, a failed run).
  */
-export const TASK_FILING_STATUSES = ['filed', 'refused', 'failed'] as const
+export const TASK_FILING_STATUSES = ['queued', 'filed', 'refused', 'failed'] as const
 export type TaskFilingStatus = (typeof TASK_FILING_STATUSES)[number]
 
 /**

@@ -18,6 +18,7 @@ import { stripJsonNullBytes } from '@/lib/text/jsonb'
 import {
   conversationReads,
   conversations,
+  deletionQueue,
   messages,
   resourceShares,
   type Conversation,
@@ -196,6 +197,44 @@ export async function listConversationIdsForProject(
  * One grouped query for the whole page, not one per project. Returns ISO
  * strings keyed by project id; projects with no activity are simply absent.
  */
+/**
+ * "This person wrote it": the attribution rule {@link lastProjectActivityByUser}
+ * documents, as one predicate over `messages` joined to `conversations`, so the
+ * two readers of it cannot drift.
+ */
+function writtenBy(userId: string) {
+  return or(
+    eq(messages.authorUserId, userId),
+    and(isNull(messages.authorUserId), eq(messages.role, 'user'), eq(conversations.createdBy, userId)),
+  )
+}
+
+/**
+ * Whether the user has written anything in this organization, in any project,
+ * ever — including in conversations since deleted, because having used the
+ * product is a fact about the person, not about what they kept.
+ *
+ * The product tours read it as "is this person new here": someone who has
+ * already asked Piloti something does not need to be shown where to ask. One
+ * `LIMIT 1` probe, not a count.
+ */
+export async function hasWrittenInOrganization(organizationId: string, userId: string): Promise<boolean> {
+  const db = getDb()
+  const rows = await db
+    .select({ one: sql<number>`1` })
+    .from(messages)
+    .innerJoin(
+      conversations,
+      and(
+        eq(conversations.id, messages.conversationId),
+        eq(conversations.organizationId, messages.organizationId),
+      ),
+    )
+    .where(and(eq(messages.organizationId, organizationId), writtenBy(userId)))
+    .limit(1)
+  return rows.length > 0
+}
+
 export async function lastProjectActivityByUser(
   organizationId: string,
   userId: string,
@@ -223,14 +262,7 @@ export async function lastProjectActivityByUser(
         eq(conversations.organizationId, organizationId),
         inArray(conversations.projectId, [...projectIds]),
         isNull(conversations.deletedAt),
-        or(
-          eq(messages.authorUserId, userId),
-          and(
-            isNull(messages.authorUserId),
-            eq(messages.role, 'user'),
-            eq(conversations.createdBy, userId),
-          ),
-        ),
+        writtenBy(userId),
       ),
     )
     .groupBy(conversations.projectId)
@@ -366,7 +398,8 @@ export async function updateConversationMetaInOrg(
 }
 
 /**
- * Stamp a conversation as DELETING, before anything is actually erased.
+ * Stamp a conversation as DELETING, before anything is actually erased, and
+ * queue its erasure for the purger in the same transaction.
  *
  * `deleted_at` already means "this conversation is gone" everywhere it is read
  * — `resolveResourceAccess` answers 404 on it (`lib/sharing/access.ts`) — so
@@ -377,7 +410,14 @@ export async function updateConversationMetaInOrg(
  * mark set BEFORE the sweep gives the upload path something to refuse on.
  *
  * The mark is also what survives a cleanup that FAILS: the conversation and its
- * document rows both stay, which is the only state a retry can work from.
+ * document rows both stay, which is the only state a retry can work from. The
+ * `deletion_queue` row is what makes that retry happen without a person: the
+ * purger claims it once `purge_after` has passed and calls back into the same
+ * erasure (`POST /api/internal/conversations/[id]/erase`). A request that
+ * erases the chat itself closes the row (`recordConversationErased`) long
+ * before then. One active row per conversation
+ * (`deletion_queue_active_entity_idx`), so a repeated delete re-stamps the mark
+ * and leaves the queued retry, its attempts and its backoff alone.
  *
  * Returns null when no such row exists in this organization (caller maps to
  * 404). Idempotent — re-stamping a conversation already being deleted is how a
@@ -386,14 +426,67 @@ export async function updateConversationMetaInOrg(
 export async function markConversationDeleting(
   conversationId: string,
   organizationId: string,
+  requestedBy: string,
 ): Promise<Conversation | null> {
   const db = getDb()
-  const [row] = await db
-    .update(conversations)
-    .set({ deletedAt: new Date(), updatedAt: new Date() })
-    .where(and(eq(conversations.id, conversationId), eq(conversations.organizationId, organizationId)))
-    .returning()
-  return row ?? null
+  return db.transaction(async (tx) => {
+    const now = new Date()
+    const [row] = await tx
+      .update(conversations)
+      .set({ deletedAt: now, updatedAt: now })
+      .where(and(eq(conversations.id, conversationId), eq(conversations.organizationId, organizationId)))
+      .returning()
+    if (!row) return null
+    await tx
+      .insert(deletionQueue)
+      .values({
+        entityType: 'conversation',
+        entityId: conversationId,
+        displayName: row.title?.trim() || 'Chat',
+        organizationId,
+        requestedBy,
+        purgeAfter: new Date(now.getTime() + CONVERSATION_ERASURE_RETRY_DELAY_MS),
+      })
+      .onConflictDoNothing()
+    return row
+  })
+}
+
+/**
+ * How long the request that marked a conversation has to erase it before the
+ * purger's first retry may claim it. Long enough that the in-request erase of a
+ * chat with many attachments is not raced by the purger (both are idempotent,
+ * so a race would cost work, not data); short enough that a chat whose erase
+ * failed because the agent service was down starts retrying within minutes.
+ */
+export const CONVERSATION_ERASURE_RETRY_DELAY_MS = 10 * 60_000
+
+/**
+ * Close the queued erasure of a conversation that is now erased.
+ *
+ * Touches `pending` rows (the request erased it before the purger's turn) and
+ * `failed` ones (the purger gave up, a person deleted it again, and this time it
+ * worked), never a `purging` row: that one belongs to the purger, which marks
+ * it itself when its call returns. Returns how many rows it closed.
+ */
+export async function recordConversationErased(
+  conversationId: string,
+  organizationId: string,
+): Promise<number> {
+  const db = getDb()
+  const rows = await db
+    .update(deletionQueue)
+    .set({ status: 'purged', purgedAt: new Date(), lastError: null })
+    .where(
+      and(
+        eq(deletionQueue.entityType, 'conversation'),
+        eq(deletionQueue.entityId, conversationId),
+        eq(deletionQueue.organizationId, organizationId),
+        inArray(deletionQueue.status, ['pending', 'failed']),
+      ),
+    )
+    .returning({ id: deletionQueue.id })
+  return rows.length
 }
 
 /**
@@ -543,6 +636,11 @@ export async function insertMessages(values: NewMessage[]): Promise<Message[]> {
   return db.insert(messages).values(safe).onConflictDoNothing().returning()
 }
 
+/** Keys to merge, or a function of the stored metadata that returns them (null: write nothing). */
+export type MetadataPatch =
+  | Record<string, unknown>
+  | ((current: Record<string, unknown>) => Record<string, unknown> | null)
+
 /**
  * Merge keys into one message's `metadata` jsonb, scoped to its conversation
  * (callers must have resolved that conversation org-scoped first — without the
@@ -566,12 +664,18 @@ export async function insertMessages(values: NewMessage[]): Promise<Message[]> {
  * Last-writer-wins still applies PER ENTRY, which is correct: the same card can
  * only be decided once.
  *
+ * `patch` may instead be a function of the stored metadata, called under the
+ * lock: a writer whose patch DEPENDS on what is stored (a ledger folded one op
+ * further, a value written only while the stored one allows it) must compute it
+ * there, or it computes from a snapshot another writer has already replaced.
+ * It returns null to write nothing, and the stored row is returned unchanged.
+ *
  * Returns null when the message does not exist in that conversation (404).
  */
 export async function mergeMessageMetadata(
   conversationId: string,
   messageId: string,
-  patch: Record<string, unknown>,
+  patch: MetadataPatch,
   deepMergeKeys: readonly string[] = [],
 ): Promise<Message | null> {
   const db = getDb()
@@ -585,11 +689,13 @@ export async function mergeMessageMetadata(
     if (!existing) return null
 
     const current = (existing.metadata ?? {}) as Record<string, unknown>
-    const merged: Record<string, unknown> = { ...current, ...patch }
+    const entries = typeof patch === 'function' ? patch(current) : patch
+    if (!entries) return existing
+    const merged: Record<string, unknown> = { ...current, ...entries }
 
     for (const key of deepMergeKeys) {
       const before = current[key]
-      const after = patch[key]
+      const after = entries[key]
       if (isPlainObject(before) && isPlainObject(after)) {
         merged[key] = { ...before, ...after }
       }

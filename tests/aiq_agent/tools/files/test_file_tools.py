@@ -1,4 +1,4 @@
-"""The four write-side workspace tools: what they resolve, and what they refuse.
+"""The write-side workspace tool: what it resolves, and what it refuses.
 
 Every test here drives the inner function NAT yields, with the turn's inventory
 and a card registry bound the way a real turn binds them. Two properties are
@@ -22,14 +22,8 @@ from aiq_agent.cards.registry import set_card_registry
 from aiq_agent.knowledge.inventory import set_turn_documents
 from aiq_agent.knowledge.schema import AvailableDocument
 from aiq_agent.tools.files import resolve
-from aiq_agent.tools.files.register import AssignDocumentConfig
-from aiq_agent.tools.files.register import CreateFolderConfig
-from aiq_agent.tools.files.register import MoveDocumentConfig
-from aiq_agent.tools.files.register import RenameDocumentConfig
-from aiq_agent.tools.files.register import assign_document
-from aiq_agent.tools.files.register import create_folder
-from aiq_agent.tools.files.register import move_document
-from aiq_agent.tools.files.register import rename_document
+from aiq_agent.tools.files.register import ProposeFileChangeConfig
+from aiq_agent.tools.files.register import propose_file_change
 
 INVENTORY = [
     AvailableDocument(
@@ -71,13 +65,13 @@ def turn(monkeypatch):
     set_turn_documents(None)
 
 
-async def _call(registration, config, **params) -> str:
-    async with registration(config, MagicMock()) as info:
-        return await info.single_fn(info.input_schema(**params))
+async def _propose(operation: str, **params) -> str:
+    async with propose_file_change(ProposeFileChangeConfig(), MagicMock()) as info:
+        return await info.single_fn(info.input_schema(operation=operation, **params))
 
 
 async def _move(**params) -> str:
-    return await _call(move_document, MoveDocumentConfig(), **params)
+    return await _propose("move", **params)
 
 
 # ── Resolution: the part that must never guess ──────────────────────────────
@@ -163,12 +157,7 @@ class TestProposalsNeverWrite:
     async def test_a_different_operation_opens_its_own_card(self, registry):
         """A move and a rename are two decisions and must be answerable apart."""
         await _move(document="Grundriss OG.pdf", target_folder="Einreichung")
-        await _call(
-            rename_document,
-            RenameDocumentConfig(),
-            document="Grundriss OG.pdf",
-            new_display_name="Grundriss Obergeschoss",
-        )
+        await _propose("rename", document="Grundriss OG.pdf", new_name="Grundriss Obergeschoss")
 
         assert [card["operation"] for card in registry.snapshot()] == ["move", "rename"]
 
@@ -200,7 +189,7 @@ class TestProposalsNeverWrite:
         assert "create_folder" in result
 
     async def test_a_new_folder_carries_its_parent_and_its_full_path(self, registry):
-        result = await _call(create_folder, CreateFolderConfig(), name="Fotos", parent="Einreichung")
+        result = await _propose("create_folder", new_name="Fotos", target_folder="Einreichung")
 
         (card,) = registry.snapshot()
         assert card["operation"] == "create_folder"
@@ -209,18 +198,18 @@ class TestProposalsNeverWrite:
         assert "Einreichung/Fotos" in result
 
     async def test_a_folder_name_is_one_segment(self, registry):
-        result = await _call(create_folder, CreateFolderConfig(), name="Einreichung/Fotos")
+        result = await _propose("create_folder", new_name="Einreichung/Fotos")
         assert registry.snapshot() == []
         assert "ohne Schrägstriche" in result
 
     async def test_a_folder_that_exists_is_not_proposed_again(self, registry):
-        result = await _call(create_folder, CreateFolderConfig(), name="Pläne", parent="Einreichung")
+        result = await _propose("create_folder", new_name="Pläne", target_folder="Einreichung")
         assert registry.snapshot() == []
         assert "gibt es bereits" in result
 
     async def test_an_assignment_carries_the_person_as_the_user_named_them(self, registry):
         """This tier has no member roster; the reader's session resolves it."""
-        result = await _call(assign_document, AssignDocumentConfig(), document="Grundriss OG.pdf", member="Anna Berger")
+        result = await _propose("assign", document="Grundriss OG.pdf", member="Anna Berger")
         (card,) = registry.snapshot()
         assert card["operations"][0]["member"] == "Anna Berger"
         assert "NOCH NICHTS geändert" in result
@@ -244,3 +233,14 @@ class TestRefusals:
         result = await _move(document="Grundriss OG.pdf", target_folder="Einreichung")
         assert registry.snapshot() == []
         assert "keine Projekt- oder Büroarchiv-Dateien" in result
+
+
+class TestOneToolFourOperations:
+    async def test_an_unknown_operation_is_refused_and_names_the_four(self, registry):
+        result = await _propose("delete", document="Grundriss OG.pdf")
+        assert registry.snapshot() == []
+        assert "move, rename, create_folder, assign" in result
+
+    async def test_the_operation_is_read_whatever_its_case(self, registry):
+        await _propose(" Move ", document="Grundriss OG.pdf", target_folder="Einreichung")
+        assert [card["operation"] for card in registry.snapshot()] == ["move"]

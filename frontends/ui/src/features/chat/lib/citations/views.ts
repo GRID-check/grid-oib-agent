@@ -84,10 +84,10 @@ export const answerSourceAnchorPrefix = (messageId: string): string =>
  */
 export const answerDocuments = (docs: CitedDocument[]): CitedDocument[] => {
   // A document with NO loci is not "uncited" — it has no retrieved evidence for
-  // `isCited` to be a statement about. That is what a `legal_basis` card is: the
-  // model naming a law it leaned on, with no passage behind it. Filtering on
-  // `isCited` alone dropped every such card the moment the turn also had one
-  // real citation, which is exactly the mixed answer where it matters most.
+  // `isCited` to be a statement about: a law the answer named with no passage
+  // behind it. Filtering on `isCited` alone dropped every such source the moment
+  // the turn also had one real citation, which is exactly the mixed answer
+  // where it matters most.
   const claimed = docs.filter((doc) => isCited(doc) || doc.loci.length === 0)
   return claimed.length > 0 ? claimed : docs
 }
@@ -181,6 +181,19 @@ export const splitAnswerBody = (markdown: string): AnswerBodySplit => {
 }
 
 const EMPTY_NUMBERS: ReadonlySet<number> = new Set()
+
+/**
+ * How much of `markdown` is prose the reader sees as text: all of it, or,
+ * when it ends in a written sources section that {@link splitAnswerBody}
+ * lifts into the source rows, the part before that section. What a reveal has
+ * to pace; the section is never drawn as text, so pacing it only delays the
+ * end of the answer.
+ */
+export const proseLength = (markdown: string): number => {
+  const split = splitReportSources(markdown)
+  if (split.entries.length === 0 || !markdown.startsWith(split.body)) return markdown.length
+  return split.body.length
+}
 
 /** The reader's words for a provenance tab: the `chat.sourceTabs` dictionary block. */
 export interface SourceTabLabels {

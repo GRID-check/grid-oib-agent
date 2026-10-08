@@ -52,6 +52,7 @@ import { AnimatePresence, motion, motionQuick, motionEntrance, springPress } fro
 import { useWebSocketChat, useChatStore, useIsCurrentSessionBusy } from '@/features/chat'
 import { composerCapabilities } from '@/features/collaboration/lib/composer-capabilities'
 import { resolveAddressee, sendMessageOptions } from '@/features/collaboration/lib/composer-routing'
+import { EffortDial } from '@/features/chat/components/effort-dial'
 import { useLayoutStore } from '../store'
 import { computePresetSourceIds } from '../lib/source-presets'
 // Withheld with the Datenbasis picker below — restore together.
@@ -59,7 +60,8 @@ import { computePresetSourceIds } from '../lib/source-presets'
 import { FileSourcesTab } from './FileSourcesTab'
 import { UploadDestinationNote } from './UploadDestination'
 import { useAppConfig } from '@/shared/context'
-import { useTranslations } from '@/i18n'
+import { useLocale, useTranslations } from '@/i18n'
+import { DictationButton, insertTranscript, type ComposerCaret } from '@/features/dictation'
 import { useFileUpload, useFileDragDrop } from '@/features/documents'
 import type { TrackedFile } from '@/features/documents'
 import { trackedFileToFileItem } from '@/features/documents/types'
@@ -69,6 +71,8 @@ import type { ResolvedSubjectIdentity } from '@/features/documents/components/co
 import { useFilePreviewStore } from '@/features/documents/stores/file-preview-store'
 import { useFilePeekBesideChat } from '@/features/documents/components/file-preview-host'
 import { dropFileSubject } from '@/features/documents/lib/open-file-peek'
+import { failedWhileReading } from '@/features/documents/lib/ingest-failure'
+import { useIngestFailureText } from '@/features/documents/components/ingest-failure-notice'
 import { AddresseeIndicator } from '@/features/collaboration/components/AddresseeIndicator'
 import {
   MentionPicker,
@@ -184,10 +188,12 @@ const FileChip: FC<{
   const isPending = file.status === 'uploading' || file.status === 'ingesting'
   const isFailed = file.status === 'failed'
   const isSuccess = file.status === 'success'
+  const ingestFailure = useIngestFailureText(isFailed && failedWhileReading(file) ? file.errorMessage : null)
+  // Uploading and reading are both pending, but only one of them is an upload.
   const statusTitle = isPending
-    ? t('inputArea.fileUploadingStatus')
+    ? t(file.status === 'ingesting' ? 'fileSourceCard.statusIngesting' : 'inputArea.fileUploadingStatus')
     : isFailed
-      ? file.errorMessage || t('inputArea.fileFailedStatus')
+      ? (ingestFailure?.sentence ?? (file.errorMessage || t('inputArea.fileFailedStatus')))
       : t('inputArea.fileReadyStatus')
 
   const statusIcon = isPending ? (
@@ -318,7 +324,16 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
   const tChat = useTranslations('chat')
   const tCollab = useTranslations('collaboration')
   const tFiles = useTranslations('files')
+  const { locale } = useLocale()
   const [message, setMessage] = useState('')
+  // Voice dictation: where the caret last was (null until the textarea has had
+  // one), and the inline error a failed dictation shows. A failure never
+  // touches `message`.
+  const dictationCaretRef = useRef<ComposerCaret | null>(null)
+  const [dictationError, setDictationError] = useState<string | null>(null)
+  const rememberDictationCaret = useCallback((e: { currentTarget: HTMLTextAreaElement }) => {
+    dictationCaretRef.current = { start: e.currentTarget.selectionStart, end: e.currentTarget.selectionEnd }
+  }, [])
 
   // ——— @-mentions (spec MN-3, MN-4) ————————————————————————————————————————
   // The mentions the user actually PICKED, as structured references. Never derived
@@ -433,7 +448,9 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
   // keystroke lazily creates a session, so that id transition doesn't wipe text.
   const loadedDraftSessionRef = useRef<string | undefined>(undefined)
 
-  // File upload hook - provides session files and handles validation internally
+  // File upload hook - provides session files and handles validation internally.
+  // Attachments go through `/api/session/documents` (type gate, quota, a row).
+  const chatProjectId = useChatStore((state) => state.projectId)
   const {
     uploadFiles,
     sessionFiles,
@@ -444,6 +461,7 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
     clearError,
   } = useFileUpload({
     collectionName: currentConversationId,
+    conversationProjectId: chatProjectId,
   })
 
   // Count of files still uploading/ingesting for the current session. Drives
@@ -955,6 +973,20 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
   })
   syncSlashQueryRef.current = slash.syncQuery
 
+  // A transcript goes in at the caret, or at the end when there was none, and
+  // never over existing text. Through `replaceComposerText`, so the draft, the
+  // session and the pickers see it exactly as they see typing.
+  const handleTranscript = useCallback(
+    (transcript: string) => {
+      const inserted = insertTranscript(message, transcript, dictationCaretRef.current)
+      if (!inserted) return
+      setDictationError(null)
+      dictationCaretRef.current = { start: inserted.caret, end: inserted.caret }
+      replaceComposerText(inserted.value, inserted.caret)
+    },
+    [message, replaceComposerText]
+  )
+
   // Restore the caret after a mention insertion rewrote the text.
   useEffect(() => {
     const caret = pendingCaretRef.current
@@ -1297,12 +1329,18 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
 
       // Attached files now surface as inline chips above the composer, so there
       // is no panel to auto-open — the chips give instant feedback in place.
+      // The server row BEFORE the bytes, with the chat's title, project and
+      // subject, which the send path would write (`ensureServerConversation`,
+      // idempotent per id). An attachment is authorized on its conversation
+      // (`collaborator`). `/api/session/documents/upload` would create a
+      // missing row too, but only with the project, so it is the fallback.
+      await ensureConversationExists()
       // Pass the (possibly just-created) session explicitly: the hook's
       // memoized collectionName still reflects the previous render, so the
       // first upload in a fresh session would otherwise abort.
       await uploadFiles(files, { collectionOverride: sessionId })
     },
-    [ensureSession, uploadFiles, cannotContribute, isUploading, isBusy]
+    [ensureSession, ensureConversationExists, uploadFiles, cannotContribute, isUploading, isBusy]
   )
 
   const { isDragging, isUnsupportedDrag, dragHandlers } = useFileDragDrop({
@@ -1643,6 +1681,12 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
               onKeyUp={(e) => syncMentionQueryFromElement(e.currentTarget)}
               onClick={(e) => syncMentionQueryFromElement(e.currentTarget)}
               onPaste={handlePaste}
+              // Remembered for dictation, which reads it after the textarea has
+              // lost focus to the microphone button. Blur too, not only select:
+              // a caret set by script or assistive tech fires no select event,
+              // and pressing the microphone always blurs the field.
+              onSelect={rememberDictationCaret}
+              onBlur={rememberDictationCaret}
               placeholder={getPlaceholder()}
               disabled={disabled}
               rows={1}
@@ -1707,9 +1751,9 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
               )}
             </AnimatePresence>
 
-            {/* Upload Error Display */}
+            {/* Upload and dictation errors: one inline slot, the upload's first. */}
             <AnimatePresence initial={false}>
-              {uploadError && (
+              {(uploadError || dictationError) && (
                 <motion.div
                   key="upload-error"
                   initial={{ opacity: 0, y: 8 }}
@@ -1719,10 +1763,13 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
                 >
                   <Alert variant="destructive" className="mt-2">
                     <AlertDescription className="flex w-full items-start justify-between gap-2">
-                      <span>{uploadError}</span>
+                      <span>{uploadError || dictationError}</span>
                       <button
                         type="button"
-                        onClick={clearError}
+                        onClick={() => {
+                          clearError()
+                          setDictationError(null)
+                        }}
                         aria-label={t('dismissError')}
                         className="focus-visible:ring-ring/60 duration-quick shrink-0 rounded-md p-1 opacity-70 transition-opacity ease-out hover:opacity-100 focus-visible:outline-none focus-visible:ring-2"
                       >
@@ -1920,6 +1967,20 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
                   className="hidden"
                   tabIndex={-1}
                   onChange={handleFileChange}
+                />
+
+                {/* How hard Piloti thinks, for this chat. A HITL response is
+                    not a question, so the dial has nothing to say there. */}
+                {!isResponseMode && (
+                  <EffortDial conversationId={currentConversationId} disabled={cannotContribute} />
+                )}
+
+                {/* Voice dictation */}
+                <DictationButton
+                  locale={locale}
+                  disabled={cannotContribute || disabled}
+                  onTranscript={handleTranscript}
+                  onError={setDictationError}
                 />
 
                 {/* Attach files */}

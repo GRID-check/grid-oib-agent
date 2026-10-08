@@ -34,11 +34,10 @@ import time
 import weakref
 from collections import OrderedDict
 from collections.abc import Mapping
-from datetime import UTC
-from datetime import datetime
 from typing import Any
 
 from aiq_agent.common.model_overrides import AgentGroup
+from aiq_agent.common.wire_v2 import StageValue
 from aiq_agent.stages.delivery import deliver_stage_frame
 from aiq_agent.stages.registry import iter_stages
 from aiq_agent.stages.spec import StageContext
@@ -65,7 +64,7 @@ _background_tasks: set[asyncio.Task] = set()
 _handler_tasks: set[asyncio.Task] = set()
 
 #: Semaphores are loop-bound; keyed weakly per loop, because the chat process
-#: and the Dask workers run separate event loops.
+#: and the research workers run separate event loops.
 _semaphores: weakref.WeakKeyDictionary[asyncio.AbstractEventLoop, asyncio.Semaphore] = weakref.WeakKeyDictionary()
 
 #: Bounded LRU of ``(conversation_id, ws_parent_id, stage_id)`` keys already
@@ -73,10 +72,6 @@ _semaphores: weakref.WeakKeyDictionary[asyncio.AbstractEventLoop, asyncio.Semaph
 #: long-lived process, not an audit log.
 _MAX_REMEMBERED_KEYS = 1024
 _claimed_keys: OrderedDict[tuple[str, str, str], None] = OrderedDict()
-
-#: Contract version of the stage frame envelope; bump on a breaking change.
-STAGE_FRAME_VERSION = 1
-STAGE_FRAME_TYPE = "grid_stage_message"
 
 
 def _loop_semaphore(loop: asyncio.AbstractEventLoop) -> asyncio.Semaphore:
@@ -106,29 +101,19 @@ def _claim(spec: StageSpec, facts: TurnFacts) -> bool:
     return True
 
 
-def build_stage_frame(spec: StageSpec, facts: TurnFacts, outcome: StageOutcome) -> dict[str, Any]:
-    """The wire frame for one stage outcome (contract §4.1).
+def stage_value(spec: StageSpec, outcome: StageOutcome) -> StageValue:
+    """The ``stage`` event's value for one outcome (chat wire v2, ``CUSTOM stage``).
 
-    ``parent_id`` is the correlation key and the only one: it is the id both
-    halves genuinely share. A frame whose ``parent_id`` matches no message is
-    dropped client-side. ``status`` rides even when there is nothing to show —
-    ``empty`` is not the same fact as "no frame arrived", and only the former
-    lets a client stop reserving space. A ``failed`` frame carries no reason:
-    failure reasons are machine keys for the ledger, not user-facing text.
+    The handler stamps it with the turn's envelope, so the turn it belongs to
+    is the envelope's ``turn_id``. ``status`` rides even when there is nothing
+    to show: ``empty`` is not the same fact as "no event arrived", and only the
+    former lets a client stop reserving space. A ``failed`` value carries no
+    reason: failure reasons are machine keys for the ledger, not user-facing
+    text.
     """
     status = "failed" if outcome.status == "timeout" else outcome.status
-    frame: dict[str, Any] = {
-        "type": STAGE_FRAME_TYPE,
-        "v": STAGE_FRAME_VERSION,
-        "conversation_id": facts.conversation_id,
-        "parent_id": facts.ws_parent_id,
-        "stage": spec.id,
-        "status": status,
-        "timestamp": datetime.now(UTC).isoformat().replace("+00:00", "Z"),
-    }
-    if outcome.status == "ready" and outcome.payload is not None:
-        frame["payload"] = outcome.payload
-    return frame
+    payload = outcome.payload if outcome.status == "ready" else None
+    return StageValue(stage=spec.id, status=status, payload=payload)
 
 
 def _resolve_llm(spec: StageSpec, llms: Mapping[AgentGroup, Any] | None) -> Any:
@@ -136,20 +121,29 @@ def _resolve_llm(spec: StageSpec, llms: Mapping[AgentGroup, Any] | None) -> Any:
 
     Applied HERE — synchronously, at schedule time — and not inside the task,
     because both transforms read the request context, which is torn down by the
-    time the task runs. Fails open to the un-transformed model: a stage running
-    on the workflow default is better than a stage that does not run.
+    time the task runs. The credential first, so the ZDR pin inside
+    ``apply_model_override`` lands only on a model that still points at
+    OpenRouter. A failure falls back to the configured model PINNED to
+    zero-data-retention endpoints, never to the bare one: a stage running on the
+    workflow default is better than a stage that does not run, and a stage that
+    does not run is better than one that sends unpinned.
     """
     base = (llms or {}).get(spec.agent_group)
     if base is None:
         return None
-    try:
-        from aiq_agent.common import apply_model_override
-        from aiq_agent.common import apply_org_credential
+    from aiq_agent.common import apply_model_override
+    from aiq_agent.common import apply_org_credential
+    from aiq_agent.common import apply_zdr_routing
 
-        llm = apply_org_credential(apply_model_override(base, spec.agent_group))
+    try:
+        llm = apply_model_override(apply_org_credential(base), spec.agent_group)
     except Exception:
         logger.warning("Stage %s: model override/credential swap failed; using the configured model", spec.id)
-        llm = base
+        try:
+            llm = apply_zdr_routing(base)
+        except Exception:
+            logger.error("Stage %s: could not pin the configured model to ZDR; not running", spec.id)
+            return None
     if spec.max_output_tokens is not None:
         try:
             llm = llm.bind(max_tokens=spec.max_output_tokens)
@@ -242,6 +236,15 @@ def _track(task: asyncio.Task, *, handler: bool) -> asyncio.Task:
     return task
 
 
+def _answer_message_id(facts: TurnFacts) -> str | None:
+    """The id of the answer this stage follows, or ``None`` off the WebSocket path."""
+    if not facts.ws_parent_id:
+        return None
+    from aiq_agent.turn.response import answer_message_id
+
+    return answer_message_id(facts.conversation_id, facts.ws_parent_id)
+
+
 def _identity(facts: TurnFacts) -> dict[str, str | None]:
     return {"organization_id": facts.organization_id, "conversation_id": facts.conversation_id}
 
@@ -295,6 +298,8 @@ async def _run_stage(spec: StageSpec, ctx: StageContext) -> StageOutcome:
                         "user_id": facts.user_id,
                         "project_id": facts.project_id,
                         "conversation_id": facts.conversation_id,
+                        # A stage's spend is part of what the answer cost.
+                        "message_id": _answer_message_id(facts),
                     },
                     # Empty on purpose: a post-answer stage is never hard-stopped
                     # by a budget it did not spend against, but its spend is
@@ -337,7 +342,7 @@ async def _run_stage(spec: StageSpec, ctx: StageContext) -> StageOutcome:
         duration_ms=max(0, round((time.monotonic() - started) * 1000)),
     )
     if spec.delivery == "frame" and status in {"ready", "empty", "failed", "timeout"}:
-        await deliver_stage_frame(facts.conversation_id, build_stage_frame(spec, facts, outcome))
+        await deliver_stage_frame(facts.conversation_id, facts.ws_parent_id, stage_value(spec, outcome))
     return outcome
 
 

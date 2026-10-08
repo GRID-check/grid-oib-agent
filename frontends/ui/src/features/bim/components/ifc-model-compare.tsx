@@ -15,6 +15,7 @@
  * somebody opened the page.
  */
 
+import type { JSX } from 'react'
 import { useEffect, useRef, useState } from 'react'
 import { ArrowRight, GitCompare } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'

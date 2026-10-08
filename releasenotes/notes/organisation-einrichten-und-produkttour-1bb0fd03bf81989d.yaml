@@ -1,0 +1,13 @@
+---
+features:
+  - >
+    After creating an organization, a short tour walks through the project
+    overview, and after the first project a second tour shows Frag Piloti,
+    Dateien, the Archiv and how answers show their sources. Both can be skipped
+    and restarted from the account menu.
+  - >
+    People who are invited or join an existing project also get the tours, once
+    each, on their first visit.
+  - >
+    The page for setting up an organization is simpler: one field, one button
+    and three lines on what happens next, with sign-out always at the top right.

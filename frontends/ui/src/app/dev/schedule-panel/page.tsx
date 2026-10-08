@@ -21,6 +21,7 @@
  * development.
  */
 
+import type { JSX } from 'react'
 import { notFound } from 'next/navigation'
 import { I18nProvider } from '@/i18n'
 import { TasksPanel } from '@/features/tasks/components/tasks-panel'
@@ -42,7 +43,6 @@ export default function SchedulePanelPreview(): JSX.Element {
       >
         <TasksPanel
           projectId="p1"
-          projectCollection="proj_1"
           canManageJobs
           initialView="timetable"
         />

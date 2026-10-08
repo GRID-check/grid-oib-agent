@@ -49,6 +49,7 @@ from pydantic import Field
 from pydantic import field_validator
 from pydantic import model_validator
 
+from aiq_agent.common.message_utils import response_text
 from aiq_agent.common.model_overrides import AgentGroup
 
 # The same canned non-answers memory reflection's gate refuses. Imported rather
@@ -553,8 +554,7 @@ async def _handler(ctx: StageContext) -> dict[str, Any] | StageEmpty | None:
         logger.warning("Follow-ups structured-output request failed (%s); retrying without response_format", exc)
         response = await ctx.llm.ainvoke(messages)
 
-    content = getattr(response, "content", response)
-    parsed = extract_json(content if isinstance(content, str) else str(content))
+    parsed = extract_json(response_text(response))
     raw = parsed.get("items") if isinstance(parsed, dict) else None
     if not raw:
         return StageEmpty("model_declined")

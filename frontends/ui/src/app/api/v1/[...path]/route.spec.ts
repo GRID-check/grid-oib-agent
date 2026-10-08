@@ -20,7 +20,7 @@ vi.mock('@/lib/collection-scope-request', () => ({
 }))
 
 vi.mock('@/lib/proxy/proxy-request', () => ({
-  buildProxyUrl: vi.fn(() => 'http://aiq-agent:8000/v1/data_sources'),
+  buildProxyUrl: vi.fn(() => 'http://aiq-api:8000/v1/data_sources'),
 }))
 
 import { DELETE, GET, POST } from './route'
@@ -48,8 +48,23 @@ describe('/api/v1/[...path] proxy — control-plane path blocking', () => {
     ['DELETE', DELETE, ['admin', 'oib', 'sync']],
     ['POST', POST, ['maintenance', 'purge-project-resources']],
     ['POST', POST, ['maintenance', 'reconcile-summaries']],
+    // NAT's agent-turn endpoints ran outside the signed envelope: an agent turn
+    // with no organization, budget or source policy, for a browser cookie.
+    ['POST', POST, ['chat', 'completions']],
+    ['POST', POST, ['chat', 'stream']],
+    ['POST', POST, ['chat']],
+    ['POST', POST, ['workflow']],
+    ['POST', POST, ['workflow', 'stream']],
+    // The job SUBMIT has its own route with the envelope (`/api/jobs/async`).
+    ['POST', POST, ['jobs', 'async', 'submit']],
+    // Served by the backend, not asked for by any product client.
+    ['POST', POST, ['ingest']],
+    ['GET', GET, ['collections']],
+    ['POST', POST, ['collections', 's_x', 'search']],
+    ['GET', GET, ['collections', 's_x', 'documents', 'plan.pdf', 'visual-details']],
+    ['DELETE', DELETE, ['data_sources']],
   ])(
-    '%s blocks the internal control-plane path %s with 404 and never forwards upstream',
+    '%s refuses %s with 404 and never forwards upstream',
     async (_method, handler, path) => {
       const fetchSpy = vi.spyOn(globalThis, 'fetch')
 
@@ -84,6 +99,6 @@ describe('/api/v1/[...path] proxy — control-plane path blocking', () => {
     expect(res.status).toBe(200)
     expect(await res.json()).toEqual({ items: [] })
     expect(fetchSpy).toHaveBeenCalledTimes(1)
-    expect(fetchSpy.mock.calls[0][0]).toBe('http://aiq-agent:8000/v1/data_sources')
+    expect(fetchSpy.mock.calls[0][0]).toBe('http://aiq-api:8000/v1/data_sources')
   })
 })

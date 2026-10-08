@@ -3,7 +3,7 @@ import type { FileUploadConfig } from '@/shared/context'
 // types + constants with no server-only import, so the client bundle can read
 // it too and the accept-list cannot drift from the pipeline that consumes it.
 import { IFC_EXTENSIONS, IFC_MIME_TYPES } from '@/lib/bim/types'
-import { BYTES_PER_MB, maxIfcBytesFrom } from './request-body-limit'
+import { BYTES_PER_MB, maxDocumentBytesFrom, maxIfcBytesFrom } from './request-body-limit'
 
 // Doctrine (see AGENTS.md): flags are product decisions, env vars are real
 // infrastructure dependencies, a capability is DERIVED from the dependency, and
@@ -26,7 +26,6 @@ import { BYTES_PER_MB, maxIfcBytesFrom } from './request-body-limit'
 // no capability half — extraction runs in this process, so there is no
 // dependency that could be missing (see FEATURE_FLAGS.ifcModels).
 const DEFAULT_ACCEPTED_TYPES = '.pdf,.docx,.txt,.md,.csv,.xlsx,.pptx'
-const DEFAULT_MAX_SIZE_MB = 100
 const DEFAULT_MAX_FILE_COUNT = 10
 const DEFAULT_EXPIRATION_CHECK_INTERVAL_HOURS = 0
 
@@ -101,6 +100,23 @@ const parsePositiveNumber = (value: string | undefined): number | null => {
   return parsed
 }
 
+/**
+ * The MIME type a browser reports for a file of this name, or `''` when none is
+ * registered.
+ *
+ * For files that did not come from a picker. A file the browser hands over
+ * carries its own `type`, and the BFF stores it: the preview routes decide
+ * whether a document CAN be previewed from that stored value
+ * (`PREVIEW_CONTENT_TYPES`), so a file made in memory with no type uploads fine
+ * and then answers "Preview not available" for ever. Reading it from the same
+ * table the accept-list is built from keeps the two from drifting.
+ */
+export const mimeTypeForFileName = (fileName: string): string => {
+  const dot = fileName.lastIndexOf('.')
+  if (dot < 0) return ''
+  return EXTENSION_TO_MIME[fileName.slice(dot).toLowerCase()]?.[0] ?? ''
+}
+
 export const buildAcceptedMimeTypes = (acceptedTypes: string): string[] => {
   const mimeTypes = new Set<string>()
   const extensions = acceptedTypes
@@ -119,9 +135,22 @@ export const buildAcceptedMimeTypes = (acceptedTypes: string): string[] => {
   return Array.from(mimeTypes)
 }
 
+export interface FileUploadConfigOptions {
+  imageUploadEnabled?: boolean
+  vlmAvailable?: boolean
+  ifcUploadEnabled?: boolean
+  /**
+   * The organization's effective per-file limit in bytes
+   * (`getEffectiveMaxUploadBytes`), when the caller has an organization. Absent
+   * means the deployment default from `FILE_UPLOAD_MAX_SIZE_MB`, which is what a
+   * public page or a session without an organization gets.
+   */
+  maxFileSizeBytes?: number
+}
+
 export const getFileUploadConfigFromEnv = (
-  env: NodeJS.ProcessEnv = process.env,
-  options: { imageUploadEnabled?: boolean; vlmAvailable?: boolean; ifcUploadEnabled?: boolean } = {}
+  env: Record<string, string | undefined> = process.env,
+  options: FileUploadConfigOptions = {}
 ): FileUploadConfig => {
   // `imageUploadEnabled` defaults TRUE (flag fails open when enforcement is
   // off); `vlmAvailable` defaults FALSE (fail-closed — a caller that doesn't
@@ -151,7 +180,6 @@ export const getFileUploadConfigFromEnv = (
   const imageUploadBlockedReason: FileUploadConfig['imageUploadBlockedReason'] =
     imageUploadEnabled && !vlmAvailable ? 'vlm-unavailable' : null
 
-  const maxTotalSizeMB = parsePositiveNumber(env.FILE_UPLOAD_MAX_SIZE_MB) ?? DEFAULT_MAX_SIZE_MB
   const maxFileCount =
     parsePositiveNumber(env.FILE_UPLOAD_MAX_FILE_COUNT) ?? DEFAULT_MAX_FILE_COUNT
   const fileExpirationCheckIntervalHours =
@@ -159,7 +187,13 @@ export const getFileUploadConfigFromEnv = (
     DEFAULT_EXPIRATION_CHECK_INTERVAL_HOURS
   // Decimal, so the ceiling enforced is the number the administrator typed and
   // the number the refusal message prints. See BYTES_PER_MB.
-  const maxSizeBytes = maxTotalSizeMB * BYTES_PER_MB
+  const deploymentMaxBytes = maxDocumentBytesFrom(env)
+  const maxSizeBytes = options.maxFileSizeBytes ?? deploymentMaxBytes
+  // The chat-session batch total follows the same env number, and must never
+  // sit below the per-file limit: an organization raised to 200 MB would
+  // otherwise admit a 150 MB attachment per file and refuse it as a batch.
+  // Lowering the per-file limit leaves the batch total alone.
+  const maxTotalBytes = Math.max(deploymentMaxBytes, maxSizeBytes)
 
   // A `.ifc` gets its own, much larger ceiling, shared with the extractor via
   // `maxIfcBytesFrom` so the two layers cannot disagree. An ordinary
@@ -175,10 +209,10 @@ export const getFileUploadConfigFromEnv = (
   return {
     acceptedTypes,
     acceptedMimeTypes: buildAcceptedMimeTypes(acceptedTypes),
-    maxTotalSizeMB,
+    maxTotalSizeMB: maxTotalBytes / BYTES_PER_MB,
     maxFileSize: maxSizeBytes,
     maxIfcFileSize,
-    maxTotalSize: maxSizeBytes,
+    maxTotalSize: maxTotalBytes,
     maxFileCount,
     fileExpirationCheckIntervalHours,
     imageUploadBlockedReason,

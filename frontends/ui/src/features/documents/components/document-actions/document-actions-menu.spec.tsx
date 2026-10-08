@@ -121,6 +121,29 @@ describe('DocumentActionsMenu — deleting', () => {
     await waitFor(() => expect(screen.getByTestId('document-delete-confirm')).toBeInTheDocument())
     expect(onDeleted).not.toHaveBeenCalled()
   })
+
+  it('says a legal hold keeps the document, instead of a generic failure', async () => {
+    const toastError = vi.spyOn((await import('sonner')).toast, 'error')
+    server.use(
+      http.delete('/api/documents/:id', () =>
+        HttpResponse.json(
+          { error: 'held', code: 'CONFLICT', details: { reason: 'legal_hold', entityType: 'document' } },
+          { status: 409 }
+        )
+      )
+    )
+    const onDeleted = vi.fn()
+    const user = userEvent.setup()
+    render(<DocumentActionsMenu document={DOCUMENT} scope="files" onDeleted={onDeleted} />)
+
+    await openMenu(user)
+    await user.click(await screen.findByRole('menuitem', { name: /delete/i }))
+    await user.click(await screen.findByTestId('document-delete-confirm'))
+
+    await waitFor(() => expect(toastError).toHaveBeenCalledWith(expect.stringMatching(/legal hold|rechtlichen Sperre/i)))
+    expect(onDeleted).not.toHaveBeenCalled()
+    toastError.mockRestore()
+  })
 })
 
 describe('DocumentActionsMenu — renaming', () => {
@@ -214,9 +237,10 @@ describe('DocumentActionsMenu — renaming', () => {
       expect(await screen.findByTestId('document-action-reingest')).toBeInTheDocument()
     })
 
-    it('does not offer it for a healthy document', async () => {
-      // A "try again" on a document that is fine is an invitation to re-run an
-      // expensive pipeline for nothing.
+    it('does not offer it for a document whose state is unknown', async () => {
+      // No status, nothing to go on: a "try again" there is an invitation to
+      // re-run an expensive pipeline for nothing. (An INDEXED document is
+      // offered a re-read, behind a confirm — see below.)
       const user = userEvent.setup()
       render(<DocumentActionsMenu document={DOCUMENT} scope="files" />)
       await user.click(screen.getByTestId('document-actions-trigger'))
@@ -252,6 +276,46 @@ describe('DocumentActionsMenu — renaming', () => {
       await waitFor(() => expect(onReingested).toHaveBeenCalledWith('doc-1', 'pending'))
       expect(asked).toBe(1)
     })
+  })
+})
+
+describe('DocumentActionsMenu — re-reading an indexed document', () => {
+  const INDEXED = { ...DOCUMENT, status: 'completed' }
+
+  it('asks first, then sends it through ingestion', async () => {
+    // Re-reading a file that works is not a repair of anything the reader can
+    // see, and it costs a full read, so it confirms rather than fires.
+    let asked = 0
+    server.use(
+      http.post('/api/documents/doc-1/reingest', () => {
+        asked += 1
+        return HttpResponse.json({ status: 'pending' })
+      }),
+    )
+    const user = userEvent.setup()
+    const onReingested = vi.fn()
+    render(<DocumentActionsMenu document={INDEXED} scope="archiv" onReingested={onReingested} />)
+
+    await user.click(screen.getByTestId('document-actions-trigger'))
+    await user.click(await screen.findByTestId('document-action-reingest'))
+
+    expect(await screen.findByTestId('document-reingest-confirm')).toBeInTheDocument()
+    expect(asked).toBe(0)
+
+    await user.click(screen.getByTestId('document-reingest-confirm'))
+    await waitFor(() => expect(onReingested).toHaveBeenCalledWith('doc-1', 'pending'))
+    expect(asked).toBe(1)
+  })
+
+  it('does not offer it on an agent-authored document', async () => {
+    const user = userEvent.setup()
+    render(
+      <DocumentActionsMenu document={{ ...INDEXED, authoredBy: 'agent' }} scope="files" />
+    )
+    await user.click(screen.getByTestId('document-actions-trigger'))
+
+    expect(await screen.findByTestId('document-action-download')).toBeInTheDocument()
+    expect(screen.queryByTestId('document-action-reingest')).not.toBeInTheDocument()
   })
 })
 

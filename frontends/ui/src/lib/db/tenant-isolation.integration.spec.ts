@@ -264,6 +264,116 @@ describe.skipIf(!url)('tenant isolation against live Postgres', () => {
     expect(cause.message).toMatch(/row-level security/i)
   })
 
+  /**
+   * Product feedback (0100): a tenant sees only the reports written from it,
+   * the platform bypass sees all of them, and the CHECKs hold the bounds the
+   * form counts against.
+   */
+  it('keeps product feedback inside its tenant, and its CHECKs hold', async () => {
+    for (const org of [ORG_A, ORG_B]) {
+      await withTenant({ organizationId: org, userId: `user_${org}` }, () =>
+        db.execute(
+          sql`insert into product_feedback (organization_id, user_id, kind, message)
+              values (${org}, ${'user_' + org}, 'bug', ${'report from ' + org})`
+        )
+      )
+    }
+
+    const seenByA = await withTenant({ organizationId: ORG_A }, () =>
+      db.execute(sql`select organization_id from product_feedback`)
+    )
+    expect([...seenByA].map((row) => row.organization_id)).toEqual([ORG_A])
+
+    const seenByPlatform = await withPlatformAccess('test: feedback triage list', () =>
+      db.execute(
+        sql`select organization_id from product_feedback where organization_id in (${ORG_A}, ${ORG_B})`
+      )
+    )
+    expect(new Set([...seenByPlatform].map((row) => row.organization_id))).toEqual(new Set([ORG_A, ORG_B]))
+
+    // The triage list's keyset cursor is a JS Date (milliseconds); a stored
+    // microsecond would let the next page skip a report in the same millisecond.
+    const subMillisecond = await withPlatformAccess('test: feedback precision', () =>
+      db.execute(
+        sql`select count(*)::int as n from product_feedback
+            where organization_id in (${ORG_A}, ${ORG_B})
+              and date_trunc('milliseconds', created_at) <> created_at`
+      )
+    )
+    expect(Number([...subMillisecond][0]?.n)).toBe(0)
+
+    const blank = await rejectionCause(() =>
+      withTenant({ organizationId: ORG_A }, () =>
+        db.execute(
+          sql`insert into product_feedback (organization_id, user_id, kind, message)
+              values (${ORG_A}, 'u', 'bug', '   ')`
+        )
+      )
+    )
+    expect(blank.message).toMatch(/product_feedback_message_not_blank/)
+
+    const unattributed = await rejectionCause(() =>
+      withTenant({ organizationId: ORG_A }, () =>
+        db.execute(sql`update product_feedback set status = 'resolved' where organization_id = ${ORG_A}`)
+      )
+    )
+    expect(unattributed.message).toMatch(/product_feedback_triage_attributed/)
+
+    await withPlatformAccess('test teardown: feedback', () =>
+      db.execute(sql`delete from product_feedback where organization_id in (${ORG_A}, ${ORG_B})`)
+    )
+  })
+
+  it('keeps mail imports inside their tenant, and the cursor and ending CHECKs hold', async () => {
+    for (const org of [ORG_A, ORG_B]) {
+      await withTenant({ organizationId: org, userId: `user_${org}` }, () =>
+        db.execute(
+          sql`insert into mail_imports (organization_id, project_id, user_id, filename, size_bytes, staging_bucket, staging_key)
+              select ${org}, id, ${'user_' + org}, 'Postfach.pst', 1000, 'grid-documents', ${'org/' + org + '/mail-imports/x/archive'}
+              from projects where organization_id = ${org} limit 1`
+        )
+      )
+    }
+
+    const seenByA = await withTenant({ organizationId: ORG_A }, () =>
+      db.execute(sql`select organization_id from mail_imports`)
+    )
+    expect([...seenByA].map((row) => row.organization_id)).toEqual([ORG_A])
+
+    const seenBySweep = await withPlatformAccess('test: mail import sweep', () =>
+      db.execute(sql`select organization_id from mail_imports where organization_id in (${ORG_A}, ${ORG_B})`)
+    )
+    expect(new Set([...seenBySweep].map((row) => row.organization_id))).toEqual(new Set([ORG_A, ORG_B]))
+
+    // The in-flight mail is always the one at the cursor.
+    const behind = await rejectionCause(() =>
+      withTenant({ organizationId: ORG_A }, () =>
+        db.execute(sql`update mail_imports set inflight_position = 3, next_position = 4 where organization_id = ${ORG_A}`)
+      )
+    )
+    expect(behind.message).toMatch(/mail_imports_inflight_at_cursor/)
+
+    // An ended import says when; a running one does not.
+    const undated = await rejectionCause(() =>
+      withTenant({ organizationId: ORG_A }, () =>
+        db.execute(sql`update mail_imports set status = 'failed' where organization_id = ${ORG_A}`)
+      )
+    )
+    expect(undated.message).toMatch(/mail_imports_completed_at/)
+
+    // Only an import that ended carries a reason.
+    const reasonWhileRunning = await rejectionCause(() =>
+      withTenant({ organizationId: ORG_A }, () =>
+        db.execute(sql`update mail_imports set error_code = 'quota' where organization_id = ${ORG_A}`)
+      )
+    )
+    expect(reasonWhileRunning.message).toMatch(/mail_imports_error_code_ended/)
+
+    await withPlatformAccess('test teardown: mail imports', () =>
+      db.execute(sql`delete from mail_imports where organization_id in (${ORG_A}, ${ORG_B})`)
+    )
+  })
+
   it('updates and deletes nothing in another tenant', async () => {
     await withTenant({ organizationId: ORG_A }, async () => {
       await db.execute(sql`update projects set name = 'overwritten' where organization_id = ${ORG_B}`)
@@ -487,6 +597,199 @@ describe.skipIf(!url)('tenant isolation against live Postgres', () => {
     await withPlatformAccess('test cleanup', async () => {
       await db.execute(sql`delete from messages where conversation_id = ${conversationId}`)
       await db.execute(sql`delete from conversations where id = ${conversationId}`)
+    })
+  })
+  /**
+   * Folders belong to a SHELF and a TENANT, and the database holds both
+   * (migration 0102, ADR-0078). The Archiv has no project to carry "same project
+   * implies same tenant", so the tenant is a column, the policy reads it, and
+   * composite keys tie a parent and a document to the folder's own shelf.
+   */
+  describe('folders of a shelf', () => {
+    const ARCHIV_FOLDER_A = `00000000-0000-4000-8000-0000000a0001`
+    const PROJECT_FOLDER_A = `00000000-0000-4000-8000-0000000a0002`
+    const DOC_ARCHIV_A = `00000000-0000-4000-8000-0000000d0001`
+    const DOC_ARCHIV_B = `00000000-0000-4000-8000-0000000d0002`
+    const DOC_PROJECT_A = `00000000-0000-4000-8000-0000000d0003`
+    let projectA: string
+
+    const insertDocument = (
+      org: string,
+      values: { id: string; scope: 'project' | 'archiv'; projectId: string | null; folderId?: string },
+    ) =>
+      db.execute(
+        sql`insert into documents (id, organization_id, project_id, scope, folder_id, filename, storage_key, collection_name, created_by, status)
+            values (${values.id}, ${org}, ${values.projectId}, ${values.scope}, ${values.folderId ?? null},
+                    ${values.id + '.pdf'}, ${'k/' + values.id}, ${values.scope === 'archiv' ? 'archiv_' + org : 'coll_' + org}, 'u', 'uploaded')`,
+      )
+
+    beforeAll(async () => {
+      await withTenant({ organizationId: ORG_A }, async () => {
+        const [project] = [
+          ...(await db.execute(sql`select id from projects where organization_id = ${ORG_A}`)),
+        ]
+        projectA = String(project.id)
+        await db.execute(
+          sql`insert into project_folders (id, organization_id, scope, project_id, name, path)
+              values (${ARCHIV_FOLDER_A}, ${ORG_A}, 'archiv', NULL, 'Normen', 'Normen'),
+                     (${PROJECT_FOLDER_A}, ${ORG_A}, 'project', ${projectA}, 'Plaene', 'Plaene')`,
+        )
+        await insertDocument(ORG_A, { id: DOC_ARCHIV_A, scope: 'archiv', projectId: null })
+        await insertDocument(ORG_A, { id: DOC_PROJECT_A, scope: 'project', projectId: projectA })
+      })
+      await withTenant({ organizationId: ORG_B }, () =>
+        insertDocument(ORG_B, { id: DOC_ARCHIV_B, scope: 'archiv', projectId: null }),
+      )
+    })
+
+    afterAll(async () => {
+      await withPlatformAccess('test cleanup', async () => {
+        await db.execute(
+          sql`delete from documents where id in (${DOC_ARCHIV_A}, ${DOC_ARCHIV_B}, ${DOC_PROJECT_A})`,
+        )
+        await db.execute(sql`delete from project_folders where organization_id in (${ORG_A}, ${ORG_B})`)
+      })
+    })
+
+    it('hides an Archiv folder from another tenant, even to a query with no WHERE', async () => {
+      const seenByB = await withTenant({ organizationId: ORG_B }, () =>
+        db.execute(sql`select id from project_folders`),
+      )
+      expect([...seenByB]).toEqual([])
+
+      const seenByA = await withTenant({ organizationId: ORG_A }, () =>
+        db.execute(sql`select id from project_folders order by path`),
+      )
+      expect([...seenByA].map((row) => row.id)).toEqual([ARCHIV_FOLDER_A, PROJECT_FOLDER_A])
+    })
+
+    it('refuses to write an Archiv folder into another tenant', async () => {
+      const cause = await rejectionCause(() =>
+        withTenant({ organizationId: ORG_B }, () =>
+          db.execute(
+            sql`insert into project_folders (organization_id, scope, name, path)
+                values (${ORG_A}, 'archiv', 'planted', 'planted')`,
+          ),
+        ),
+      )
+      expect(cause.message).toMatch(/row-level security/i)
+    })
+
+    it('refuses a folder whose parent is another tenant\'s Archiv folder', async () => {
+      const cause = await rejectionCause(() =>
+        withTenant({ organizationId: ORG_B }, () =>
+          db.execute(
+            sql`insert into project_folders (organization_id, scope, parent_id, name, path)
+                values (${ORG_B}, 'archiv', ${ARCHIV_FOLDER_A}, 'child', 'Normen/child')`,
+          ),
+        ),
+      )
+      expect(cause.message).toMatch(/project_folders_parent_id_organization_id_scope_fkey/)
+    })
+
+    it('refuses to file another tenant\'s Archiv document into this tenant\'s folder', async () => {
+      const cause = await rejectionCause(() =>
+        withTenant({ organizationId: ORG_B }, () =>
+          db.execute(sql`update documents set folder_id = ${ARCHIV_FOLDER_A} where id = ${DOC_ARCHIV_B}`),
+        ),
+      )
+      // Either the policy (the folder is invisible to B) or the key; the folder
+      // never attaches.
+      expect(cause.message).toMatch(/row-level security|violates foreign key/i)
+    })
+
+    it('files an Archiv document into an Archiv folder, and nothing else into it', async () => {
+      await withTenant({ organizationId: ORG_A }, () =>
+        db.execute(sql`update documents set folder_id = ${ARCHIV_FOLDER_A} where id = ${DOC_ARCHIV_A}`),
+      )
+
+      const intoArchiv = await rejectionCause(() =>
+        withTenant({ organizationId: ORG_A }, () =>
+          db.execute(sql`update documents set folder_id = ${ARCHIV_FOLDER_A} where id = ${DOC_PROJECT_A}`),
+        ),
+      )
+      expect(intoArchiv.message).toMatch(/violates foreign key/i)
+
+      const intoProject = await rejectionCause(() =>
+        withTenant({ organizationId: ORG_A }, () =>
+          db.execute(sql`update documents set folder_id = ${PROJECT_FOLDER_A} where id = ${DOC_ARCHIV_A}`),
+        ),
+      )
+      expect(intoProject.message).toMatch(/documents_folder_id_organization_id_scope_fkey/)
+    })
+
+    it('refuses to file a session attachment, whatever the folder', async () => {
+      const conversationId = `conv_folder_${ORG_A}`
+      await withTenant({ organizationId: ORG_A }, () =>
+        db.execute(
+          sql`insert into conversations (id, organization_id, created_by, project_id)
+              values (${conversationId}, ${ORG_A}, 'u', ${projectA})`,
+        ),
+      )
+      const cause = await rejectionCause(() =>
+        withTenant({ organizationId: ORG_A }, () =>
+          db.execute(
+            sql`insert into documents (organization_id, scope, conversation_id, folder_id, filename, storage_key, collection_name, created_by, status)
+                values (${ORG_A}, 'session', ${conversationId}, ${ARCHIV_FOLDER_A}, 's.pdf', 'k/s', ${'s_' + conversationId}, 'u', 'uploaded')`,
+          ),
+        ),
+      )
+      expect(cause.message).toMatch(/documents_folder_requires_project|violates foreign key/i)
+      await withPlatformAccess('test cleanup', () =>
+        db.execute(sql`delete from conversations where id = ${conversationId}`),
+      )
+    })
+
+    it('keeps the three owner columns telling one story', async () => {
+      const archivWithProject = await rejectionCause(() =>
+        withTenant({ organizationId: ORG_A }, () =>
+          db.execute(
+            sql`insert into project_folders (organization_id, scope, project_id, name, path)
+                values (${ORG_A}, 'archiv', ${projectA}, 'x', 'x')`,
+          ),
+        ),
+      )
+      expect(archivWithProject.message).toMatch(/project_folders_scope_owner_check/)
+
+      const projectWithout = await rejectionCause(() =>
+        withTenant({ organizationId: ORG_A }, () =>
+          db.execute(
+            sql`insert into project_folders (organization_id, scope, name, path)
+                values (${ORG_A}, 'project', 'x', 'x')`,
+          ),
+        ),
+      )
+      expect(projectWithout.message).toMatch(/project_folders_scope_owner_check/)
+
+      const sessionScope = await rejectionCause(() =>
+        withTenant({ organizationId: ORG_A }, () =>
+          db.execute(
+            sql`insert into project_folders (organization_id, scope, name, path)
+                values (${ORG_A}, 'session', 'x', 'x')`,
+          ),
+        ),
+      )
+      expect(sessionScope.message).toMatch(/project_folders_scope_check/)
+    })
+
+    it('allows one Archiv folder per name per parent, per tenant', async () => {
+      const duplicate = await rejectionCause(() =>
+        withTenant({ organizationId: ORG_A }, () =>
+          db.execute(
+            sql`insert into project_folders (organization_id, scope, name, path)
+                values (${ORG_A}, 'archiv', 'Normen', 'Normen')`,
+          ),
+        ),
+      )
+      expect(duplicate.message).toMatch(/uniq_project_folders_parent_name/)
+
+      // The same name in another tenant's Archiv is a different folder.
+      await withTenant({ organizationId: ORG_B }, () =>
+        db.execute(
+          sql`insert into project_folders (organization_id, scope, name, path)
+              values (${ORG_B}, 'archiv', 'Normen', 'Normen')`,
+        ),
+      )
     })
   })
 })

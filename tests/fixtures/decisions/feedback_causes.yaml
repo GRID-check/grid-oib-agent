@@ -1,0 +1,68 @@
+# Hand-labelled, written for ADR-0064 use 9 (2026-09-25). Not captured payloads:
+# down-votes in the shape the answer-feedback table stores them (the question, the
+# reason chip, the optional comment). `cause` is what an operator reading it would
+# file it under. Re-run with `task be:eval:decisions:offpath`.
+- question: Welchen Feuerwiderstand brauchen tragende Wände in GK 4?
+  reason: inaccurate
+  comment: In GK 4 ist es R 60, nicht R 90. Die Tabelle wurde falsch gelesen.
+  cause: wrong_value
+- question: Wie hoch muss das Geländer sein?
+  reason: inaccurate
+  comment: Ab 12 m Absturzhöhe sind es 1,10 m, das fehlt komplett.
+  cause: incomplete
+- question: Wie viele Stellplätze brauchen wir in Innsbruck?
+  reason: wrong_source
+  comment: Das ist die Wiener Regelung, wir sind in Tirol!
+  cause: wrong_rule
+- question: Welche Unterlagen brauchen wir für die Einreichung?
+  reason: other
+  comment: Viel zu lang, ich wollte nur eine Liste.
+  cause: form
+- question: Was sagt die OIB 2 zu Fluchtwegen?
+  reason: too_slow
+  comment: Hat fast zwei Minuten gedauert.
+  cause: slow
+- question: Wie breit muss die Stiege sein?
+  reason: wrong_source
+  comment: Die Quelle ist die alte Ausgabe 2019, die gilt nicht mehr.
+  cause: wrong_rule
+- question: Brauchen wir eine Brandmeldeanlage im Bürogebäude?
+  reason: inaccurate
+  comment: Er hat über Wohngebäude geantwortet, ich habe nach einem Büro gefragt.
+  cause: misunderstood
+- question: Was steht im Bescheid zu den Auflagen?
+  reason: other
+  comment: Er findet den Bescheid nicht, obwohl er im Projektordner liegt.
+  cause: not_found
+- question: U-Wert Außenwand Neubau?
+  reason: wrong_source
+  comment: Keine Quelle angegeben, ich kann das nicht prüfen.
+  cause: no_source
+- question: Welche Gebäudeklasse haben wir?
+  reason: inaccurate
+  comment: Es sind 4 Geschoße, nicht 3. Steht doch im Projekt.
+  cause: wrong_value
+- question: Schallschutz zwischen Wohnungen?
+  reason: other
+  comment: Die Tabelle ist unübersichtlich, die Zahlen stehen irgendwo im Text.
+  cause: form
+- question: Was gilt für die Tiefgarage?
+  reason: inaccurate
+  comment: Die CO-Anlage wurde nicht erwähnt, und die Entrauchung auch nicht.
+  cause: incomplete
+- question: Ist das bewilligungsfrei?
+  reason: other
+  comment: Antwort bricht mitten im Satz ab.
+  cause: broken
+- question: Abstand zur Nachbargrenze in NÖ?
+  reason: wrong_source
+  comment: Zitiert die OIB statt der NÖ Bauordnung.
+  cause: wrong_rule
+- question: Was steht im Brandschutzkonzept?
+  reason: other
+  comment: Er sagt, er hat keinen Zugriff auf die Datei.
+  cause: not_found
+- question: Wie lang darf der Fluchtweg sein?
+  reason: too_slow
+  comment: null
+  cause: slow

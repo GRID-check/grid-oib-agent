@@ -13,15 +13,11 @@ import { getBackendUrl } from '@/lib/backend-proxy'
 import { BadRequestError, NotFoundError, UpstreamError } from '@/lib/api/errors'
 
 /** Lifecycle of a corpus file relative to what the RAG has indexed. */
-export type KnowledgeFileState = 'ingested' | 'stale' | 'pending' | 'snapshot' | 'removed' | 'inconsistent'
-
-/** Where the file's source lives: repo corpus, admin upload, or index-only. */
-export type KnowledgeFileOrigin = 'corpus' | 'uploaded' | 'index_only'
+export type KnowledgeFileState = 'ingested' | 'stale' | 'pending' | 'failed' | 'removed' | 'inconsistent'
 
 export interface KnowledgeFile {
   fileName: string
   state: KnowledgeFileState
-  origin: KnowledgeFileOrigin
   sizeBytes: number | null
   chunkCount: number
   ingestedSha256: string | null
@@ -29,6 +25,11 @@ export interface KnowledgeFile {
   ingestedAt: string | null
   summary: string | null
   docClass: string | null
+  /**
+   * A Dokumentart the decision model read from the text when the file name gave
+   * no hint (ADR-0064, use 8). Offered, never applied; cleared once a person sets one.
+   */
+  docClassSuggestion: string | null
   /** Effective user-facing name: stored admin override, else derived default. */
   displayTitle: string | null
 }
@@ -38,7 +39,7 @@ export interface KnowledgeBaseSummary {
   ingested: number
   stale: number
   pending: number
-  snapshot: number
+  failed: number
   removed: number
   inconsistent: number
   totalChunks: number
@@ -57,7 +58,6 @@ const KNOWLEDGE_STATUS_TIMEOUT_MS = 30_000
 interface BackendFileEntry {
   file_name?: unknown
   state?: unknown
-  origin?: unknown
   size_bytes?: unknown
   chunk_count?: unknown
   ingested_sha256?: unknown
@@ -65,11 +65,11 @@ interface BackendFileEntry {
   ingested_at?: unknown
   summary?: unknown
   doc_class?: unknown
+  doc_class_suggestion?: unknown
   display_title?: unknown
 }
 
-const FILE_STATES: KnowledgeFileState[] = ['ingested', 'stale', 'pending', 'snapshot', 'removed', 'inconsistent']
-const FILE_ORIGINS: KnowledgeFileOrigin[] = ['corpus', 'uploaded', 'index_only']
+const FILE_STATES: KnowledgeFileState[] = ['ingested', 'stale', 'pending', 'failed', 'removed', 'inconsistent']
 
 function asString(value: unknown): string | null {
   return typeof value === 'string' ? value : null
@@ -83,13 +83,9 @@ function mapFile(entry: BackendFileEntry): KnowledgeFile {
   const state = FILE_STATES.includes(entry.state as KnowledgeFileState)
     ? (entry.state as KnowledgeFileState)
     : 'pending'
-  const origin = FILE_ORIGINS.includes(entry.origin as KnowledgeFileOrigin)
-    ? (entry.origin as KnowledgeFileOrigin)
-    : 'index_only'
   return {
     fileName: asString(entry.file_name) ?? 'unknown',
     state,
-    origin,
     sizeBytes: typeof entry.size_bytes === 'number' ? entry.size_bytes : null,
     chunkCount: asCount(entry.chunk_count),
     ingestedSha256: asString(entry.ingested_sha256),
@@ -97,6 +93,7 @@ function mapFile(entry: BackendFileEntry): KnowledgeFile {
     ingestedAt: asString(entry.ingested_at),
     summary: asString(entry.summary),
     docClass: asString(entry.doc_class),
+    docClassSuggestion: asString(entry.doc_class_suggestion),
     displayTitle: asString(entry.display_title),
   }
 }
@@ -135,7 +132,7 @@ export async function getKnowledgeBaseStatus(): Promise<KnowledgeBaseStatus> {
       ingested: asCount(summary.ingested),
       stale: asCount(summary.stale),
       pending: asCount(summary.pending),
-      snapshot: asCount(summary.snapshot),
+      failed: asCount(summary.failed),
       removed: asCount(summary.removed),
       inconsistent: asCount(summary.inconsistent),
       totalChunks: asCount(summary.total_chunks),
@@ -318,9 +315,9 @@ export async function updateKnowledgeBaseDisplayTitle(
 }
 
 /**
- * Remove a base-corpus document. An admin upload is deleted outright; a
- * repo-shipped document is removed from the active corpus (its chunks are
- * dropped and a persistent exclusion keeps a sync from re-ingesting it).
+ * Delete a base-corpus document: its indexed chunks, its stored file and its
+ * corpus entry. There is one kind of removal and it deletes; uploading the same
+ * file again adds it back.
  */
 export async function deleteKnowledgeBaseDocument(fileName: string): Promise<void> {
   const name = requirePdfBasename(fileName)
@@ -421,6 +418,36 @@ export async function reingestKnowledgeBaseDocuments(fileNames: string[]): Promi
     unknown: Array.isArray(body?.unknown) ? body.unknown.map(String) : [],
     message: asString(body?.message) ?? '',
   }
+}
+
+/**
+ * The whole base corpus as one .tar.gz. Its only consumer was the answer-suite
+ * CI workflow, which has been removed; the export stays until someone decides
+ * to delete it. The backend builds it from exactly the PDFs its sync ingests
+ * and refuses without a configured admin token; this passes the stream through.
+ */
+export async function streamKnowledgeBaseCorpus(): Promise<Response> {
+  let res: Response
+  try {
+    res = await fetch(`${getBackendUrl()}/v1/admin/oib/corpus.tar.gz`, {
+      headers: adminHeaders(),
+      // Tens of MB, tarred before the first byte: minutes, not seconds.
+      signal: AbortSignal.timeout(600_000),
+    })
+  } catch (error) {
+    throw new UpstreamError('Knowledge backend unreachable', error instanceof Error ? error.message : undefined)
+  }
+  if (!res.ok || !res.body) {
+    throw new UpstreamError(`Knowledge backend returned ${res.status}`)
+  }
+  return new Response(res.body, {
+    status: 200,
+    headers: {
+      'Content-Type': 'application/gzip',
+      'Content-Disposition': 'attachment; filename="oib-corpus.tar.gz"',
+      'Cache-Control': 'no-store',
+    },
+  })
 }
 
 /**

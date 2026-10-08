@@ -76,9 +76,11 @@ Running in the application instead buys four things SQL cannot do:
    OpenRouter".
 2. **Validate**, against the live catalog, exactly as the admin PUT does — rather
    than asserting capabilities in a comment.
-3. **Record `model_snapshot`**, including `_zdr.safe`, so ZDR tenants inheriting
-   the default can be warned. A SQL seed would leave it NULL and silently
-   disable that control.
+3. **Refuse a default without zero data retention.** Every org is ZDR unless it
+   opted out, so the bootstrap model must have a ZDR endpoint that serves each
+   group (checked against the live `/endpoints/zdr` list, exactly as the admin
+   PUT checks it); an unreadable ZDR list skips the bootstrap with a log line
+   rather than writing an unchecked default. A SQL seed could do neither.
 4. **Invalidate the cache and write an audit event**
    (`platform.model_defaults.bootstrapped`, actor `system:bootstrap`), so the
    change reaches traffic at once and a decision no human made is still visible
@@ -103,13 +105,51 @@ determine what a turn costs and how good it is.
 | | Model | Thinking level |
 |---|---|---|
 | Table | `platform_model_defaults` | `platform_reasoning_efforts` (0030) |
-| Org override | yes, per group, wins | **no — platform only** |
+| Org override | yes, per group, wins | no; the org sets only where a chat's dial starts |
+| Per chat | no | **yes**: the composer's Aufwand dial, chat answer only |
 | Validated against | the live OpenRouter catalog | a closed vocabulary we own |
-| Reaches the backend via | the `x-grid-model-overrides` header (or the org-id fallback) | `GET /api/internal/reasoning-efforts`, TTL-cached |
+| Reaches the backend via | the signed `X-Grid-Request-Context` envelope's `modelOverrides`; the `x-grid-model-overrides` header only when no envelope arrived (a job worker); else the org-id fallback | `GET /api/internal/reasoning-efforts`, TTL-cached |
 | Falls back to | the YAML `model_name` | the YAML `reasoning_effort` for that role |
 
-There is deliberately no org layer for effort: a tenant choosing its own model is
-a product feature, a tenant dialling its own reasoning spend is not. And no
+### The Aufwand dial (per chat)
+
+The reader turns the level up or down per chat, in the composer
+(`features/chat/components/effort-dial`). Five stops, `minimal` to `xhigh`;
+`none` is not one, because without reasoning the model loses the answer
+envelope. A chat starts at the organization's default
+(`settings.chatReasoningEffort`, Organisation → Einstellungen, product default
+`medium`) and remembers its own level in the reader's browser
+(`stores/effort-store.ts`), not on the conversation row: a shared thread must
+not change speed under a colleague.
+
+Every question carries the level (`user_message.reasoning_effort`), so the
+backend never reads the org default. `turn/payload.extract_turn_inputs` puts it
+in a per-turn ContextVar (`reasoning_settings.set_turn_reasoning_effort`), and
+`request_llm_context.with_turn_effort` lays it over the platform efforts for
+the answering group (`shallow_research`) only. The clarifier, the card pass and
+the post-answer stages keep their platform levels. A turn that states no level
+(the CLI, a job) keeps the platform/YAML level.
+
+**The prompt cache is kept per level.** Measured 2026-09-28 against
+`openai/gpt-6-luna` through OpenRouter, with the real 11.9k-token static prompt.
+Six calls on a fresh prefix, first call excluded:
+
+| Sequence | Cache hits |
+|---|---|
+| same level every call | 14/15 |
+| a different level every call | 6/15 |
+| a different level every call, with `prompt_cache_key` | 6/15 |
+| alternating two levels already used | 24/24 |
+
+So a level change costs one uncached call per new level on a prefix, and going
+back to a level already used hits again. The effort never enters the prompt
+bytes, and every round of one turn runs at one level, so a turn never pays
+twice. The static half is shared by every tenant, so each level's cache warms
+fleet-wide.
+
+The platform owner's per-group level (the table above) is still the only lever
+over the other groups: a tenant choosing how long *its* answers take is a
+product feature, a tenant tuning the clarifier or the card pass is not. And no
 catalog round-trip on save — the accepted values are a closed vocabulary, and
 whether a given model honours a level is OpenRouter's business (it maps a
 requested effort to the nearest level each model supports, server-side, which is
@@ -126,11 +166,17 @@ DeepSeek's `max`, which OpenRouter rejects) into a request. Parity is pinned by
 `tests/fixtures/reasoning_efforts_catalog.json` from both languages.
 
 Applied at the same two seams as the model. Every user-facing agent (chat,
-the clarifier agent, deep research, the compliance check) resolves its LLMs
+the clarifier agent, deep research) resolves its LLMs
 through `LLMProvider`, so the effort has its own provider method,
-`with_reasoning_efforts(get_reasoning_efforts())`, chained right after
-`with_model_overrides` in each `_active_provider`/`_agent_for_request`, and in
-the detached worker (`aiq_api/jobs/runner.py`) after the captured overrides.
+`with_reasoning_efforts(...)`, chained right after `with_model_overrides` in
+`RequestLLMContext.apply` (`common/request_llm_context.py`, which chat's
+`_active_provider`, `Clarifier.deps_for` and deep research's
+`_agent_for_request` all go through), and in the detached worker
+(`aiq_api/jobs/runner.py`) after the captured overrides. The four per-request
+lookups (overrides, efforts, BYOK credential, ZDR) are read there by
+`read_request_llm_context`, each on its own `asyncio.to_thread` hop: every one
+can fall back to a blocking BFF call, and on the loop a cold miss stalled every
+turn on the replica.
 Directly held LLMs (the clarifier planner, the reflection stage, the RIS
 router) get it inside `apply_model_override`. A dial that reaches only the
 second seam is the bug this paragraph used to describe as impossible: it was
@@ -153,10 +199,21 @@ BYOK caveat (ADR-0022): a platform default is an OpenRouter `author/slug`, and
 a BYOK credential swaps the key and base URL but never the model. An org on a
 non-OpenRouter BYOK key therefore inherits an id its provider does not know —
 exactly as it previously inherited the YAML's OpenRouter id — and is expected
-to pin its own models. Zero-Data-Retention orgs are the other edge: the save
-path records per group whether the chosen default has a ZDR endpoint
-(`model_snapshot._zdr.safe`) and the admin UI flags the ones that do not, but a
-non-ZDR default is allowed — those tenants pin their own model instead.
+to pin its own models.
+
+Zero data retention is the default for every organization (ADR-0074): only an
+explicit `settings.zdrOnly === false` turns it off. Because every org inherits
+the platform defaults under ZDR, a platform default without a ZDR endpoint is
+refused at save, and the platform page checks saved defaults against the live
+ZDR list (a stored snapshot would go stale). The pin itself
+is applied in one place, `src/aiq_agent/common/openrouter.py`: the per-request
+dials above carry it for the models an org chooses (`RequestLLMContext.apply`,
+`apply_model_override`, the worker's `provider.with_zdr` after BYOK), and every
+model the platform fixes (embeddings, reranker, decision model, `summary_llm`,
+`rerank_llm`, `card_repair_llm`) is pinned on every request whatever the org's
+setting. The ZDR bit fails CLOSED: a BFF error or a missing
+`GRID_INTERNAL_API_TOKEN` pins it, while the model overrides in the same lookup
+still fail open to the YAML models.
 
 ## Agent groups
 
@@ -174,7 +231,6 @@ capability requirements) mirrored by `AgentGroup` in
 | `memory_reflection` | `memory_reflection_llm` (= `card_llm` in the reference config) | text input, ≥32k |
 | `follow_ups` | `follow_ups_llm` | text input, ≥32k, reasoning off |
 | `ingest_vlm` | the ingestion VLM (image captioning + rendered-drawing description) | **image input** (`requiresImageInput`) — vision models only |
-| `compliance_check` | `compliance_llm` | text input, ≥32k |
 
 The id `shallow_research` is a PERSISTED KEY and is deliberately not
 renamed. The chat agent it covers is now called Piloti — the
@@ -218,7 +274,7 @@ selected model rides the standard override header/stored-config path.
 platform_model_defaults
   agent_group      text PK      -- 'shallow_research', …
   model            text         -- catalog-validated OpenRouter id
-  model_snapshot   jsonb        -- catalog metadata + _zdr.safe (audit only)
+  model_snapshot   jsonb        -- catalog metadata at save (audit only; older rows carry an unread _zdr.safe)
   note             text
   updated_by / updated_by_email / created_at / updated_at
 ```
@@ -228,7 +284,7 @@ the deployment rather than a tenant (ADR-0016). One row per group; **no row = th
 YAML**, which is what the first-boot bootstrap above exists to prevent for the
 groups it can safely fill. Rows it writes carry the sentinel actor
 `system:bootstrap` rather than a WorkOS user id; everything else about them —
-the catalog-validated model, the `model_snapshot` with `_zdr.safe` — is
+the catalog- and ZDR-validated model, the `model_snapshot` — is
 identical to a row an owner saved, because it goes through the same
 `savePlatformModelDefaults` path. A save REPLACES the set: groups omitted from the payload are deleted,
 which is how a group is handed back to the workflow config. Not versioned like
@@ -261,8 +317,13 @@ org_model_configs                      org_model_config_versions
 | Method | Path | Purpose |
 |---|---|---|
 | GET | `/api/platform/model-defaults` | registry + current default per group + the YAML fallback each group has |
-| PUT | `/api/platform/model-defaults` | validate against the platform catalog → replace the default set (200 / 422 / 503-catalog-down) |
-| GET | `/api/platform/model-defaults/models?group&q` | capability-filtered catalog search, annotated with `zdrSafe` |
+| PUT | `/api/platform/model-defaults` | validate against the platform catalog AND the ZDR list → replace the default set (200 / 422 with reason codes, incl. `not_zdr` / `zdr_endpoint_lacks_capability` / 503-catalog-or-ZDR-list-down, `details.reason: 'zdr_list_unavailable'` for the latter) |
+| GET | `/api/platform/model-defaults/models?group&q` | capability-filtered catalog search, **only models with a ZDR endpoint serving the group**; 503 rather than the unfiltered catalog when the ZDR list is down |
+
+GET reports `zdrSafe` per pinned default and `workflowDefaultsZdrSafe` per YAML
+fallback, both checked against the **live** ZDR list (null = the list could not
+be read), so a default that lost its last ZDR endpoint after it was saved is
+flagged: every ZDR org inheriting it has that group's requests refused.
 
 Deliberately **not** behind the per-org `modelConfiguration` feature flag: this
 is the layer *under* every tenant's configuration, not a tenant capability. The
@@ -274,11 +335,24 @@ tenant's BYOK provider listing.
 
 | Method | Path | Purpose |
 |---|---|---|
-| GET | `/api/organization/model-config` | agent-group registry + active version |
-| PUT | `/api/organization/model-config` | validate against live catalog → new version + activate (201 / 422 / 503-catalog-down) |
+| GET | `/api/organization/model-config` | agent-group registry + active version + `zdrOnly` (effective, on unless opted out) + `zdrApplicable` (false for a BYOK key on a non-OpenRouter provider) + `zdrCoverage` (while ZDR is in force: `{status: 'checked'\|'unknown', blockedGroups: [{group, modelId, source: 'org'\|'platform'\|'workflow', reason}], unresolvedGroups}`) |
+| PUT | `/api/organization/model-config` | validate against live catalog (+ a ZDR endpoint serving each group while ZDR is in force) → new version + activate (201 / 422 with per-group reason codes / 503-catalog-or-ZDR-list-down) |
+| PUT | `/api/organization/model-config/zdr` | the ZDR switch, the **only** writer of `settings.zdrOnly`; never refuses turning ZDR on; returns `{zdrOnly, zdrApplicable, zdrCoverage}`, the last two best-effort after the write (null / `status: 'unknown'`, never an error once the switch has moved) |
 | GET | `/api/organization/model-config/versions` | history |
-| POST | `/api/organization/model-config/versions/{id}/activate` | rollback / re-activate; `{id}='none'` → defaults |
-| GET | `/api/organization/model-config/models?group&q` | capability-filtered catalog search |
+| POST | `/api/organization/model-config/versions/{id}/activate` | rollback / re-activate; `{id}='none'` → defaults. While ZDR is in force (and applicable to the org's credential) each model must have a ZDR endpoint serving its group — the ZDR check only, not the save's catalog/capability checks (422 `not_zdr` / `zdr_endpoint_lacks_capability`, 503 when the ZDR list is down); `'none'` is never refused |
+| GET | `/api/organization/model-config/models?group&q` | capability-filtered catalog search; under ZDR only models with a ZDR endpoint serving the group (503 `zdr_list_unavailable`, never the unfiltered catalog, when the list is down); an org that opted out sees every model with `zdrSafe` marks |
+
+A refusal's `details` is `{group: [{code, message, params?}]}` with `code` one
+of `lib/model-config/rejections.ts` `MODEL_REJECTION_CODES`; the admin cards
+render the code in the reader's language, never the English `message`.
+
+ZDR matching reads only each endpoint's `model_id` from `/endpoints/zdr` and
+matches ids **exactly**: `foo/bar:free` is not ZDR because `foo/bar` is. Only
+the routing-only shortcuts `:nitro` and `:floor` share their base model's
+endpoints. A model also needs one ZDR endpoint whose `supported_parameters`
+and `context_length` meet the group's requirements (tools, minimum context);
+image input is checked on the model, since the endpoint listing carries no
+modality.
 
 "The default" shown in the UI is resolved in `backend-defaults.ts`, and which
 one you get depends on which question is being asked:
@@ -305,7 +379,8 @@ org admin saves → org_model_config_versions (+ pointer)
                                      │           ├─ getEffectiveModelOverrides()
 WS upgrade: /api/auth/websocket-scope merges both┘   (org wins per group)
                                      │  response.modelOverrides = {group: modelId}
-server.js  ──  x-grid-model-overrides: base64url(JSON)  ──▶  aiq backend
+server.js  ──  envelope.modelOverrides (signed) + x-grid-model-overrides  ──▶  aiq backend
+             (inbound x-grid-* stripped first)   the envelope wins when present
                                      │
    model_overrides.py: parse + sanitize (unknown group / bad id dropped, fail-open {})
                                      │
@@ -315,7 +390,7 @@ server.js  ──  x-grid-model-overrides: base64url(JSON)  ──▶  aiq backe
    directly-held LLMs (clarifier planner, reflection schedule)
    wrapped via apply_model_override(llm, group)
                                      │
- async deep research: submit_agent_job auto-captures the map → Dask runner
+ async deep research: submit_agent_job auto-captures the map → research runner
    applies it to the worker's provider AND re-injects the header;
    the effort is resolved live in the worker (platform-wide, nothing captured)
 ```
@@ -368,7 +443,7 @@ Key properties:
   back, so no tool schema is re-bound and no prompt is re-read. The deep agent
   still rebuilds.
 - Async jobs — both deep research and the post-answer memory-reflection
-  stage — re-apply the map inside the Dask worker rather than inheriting it:
+  stage — re-apply the map inside the research worker rather than inheriting it:
   request contextvars don't survive into a background job, so
   `jobs/runner.py` both (a) applies the sanitized overrides to the
   worker-side `LLMProvider` at build time and (b) re-injects the
@@ -391,7 +466,7 @@ them up:
 |---|---|---|
 | Interactive WS chat | `server.js` resolves the org's **effective** overrides at WS upgrade (`GET /api/auth/websocket-scope` → `getEffectiveModelOverrides`: platform defaults with the org's own choices layered over them) and forwards `x-grid-model-overrides`. When the turn kicks off an async deep-research job, that job is submitted **in-process** by `piloti/conversation_register.py`, which captures the map from the live WS request context (`get_model_overrides_from_context()`) rather than re-resolving it. | Yes |
 | Scheduled / manual job runs (ADR-0046) | `fireJob()` (`frontends/ui/src/lib/jobs/service.ts`) resolves the org's **effective** overrides (`getEffectiveModelOverrides`) and passes them explicitly as `model_overrides` in the `POST /v1/internal/skills/submit` payload. | Yes |
-| Generic REST async-job proxy: `POST /api/jobs/async/submit` → backend `POST /v1/jobs/async/submit` | **Fixed 2026-07-16** (`0bdfb72`, `a78f5d4`). `frontends/ui/src/app/api/jobs/async/[...path]/route.ts` now resolves the caller's effective overrides (`getEffectiveModelOverrides`) and forwards them — via the shared `GridRequestContext` builder, so both the legacy `x-grid-model-overrides` header and the signed `X-Grid-Request-Context` envelope carry them. Belt-and-suspenders on the backend: `get_model_overrides_from_context()` (`common/model_overrides.py`) reads the header/envelope first; when neither is present it falls back to a **just-in-time resolution of the effective selection** — `resolve_org_model_overrides()` calls the BFF's internal `GET /api/internal/model-overrides` endpoint, which itself returns the merged platform-plus-org map (the org's own choices win per group) (`GRID_INTERNAL_API_TOKEN`-guarded), cached in two tiers — a 10 s in-process memo and the shared cache key `modelconfig:{org}` (ADR-0020, 60 s), which the BFF deletes on a config save or rollback, a ZDR toggle, and a platform-defaults save (`lib/model-config/backend-key.ts`), so a save reaches every backend replica within ~10 s — and fail-open to `{}` (YAML defaults) on any error, with errors negative-cached for 1 s in-process only, never written to the shared tier — mirroring the BYOK credential-resolution pattern. | **Yes**, via header-first-then-org-resolution precedence. See also `docs/api/bff-routes.md` and `docs/api/python-endpoints.md`. |
+| Generic REST async-job proxy: `POST /api/jobs/async/submit` → backend `POST /v1/jobs/async/submit` | **Fixed 2026-07-16** (`0bdfb72`, `a78f5d4`). `frontends/ui/src/app/api/jobs/async/[...path]/route.ts` now resolves the caller's effective overrides (`getEffectiveModelOverrides`) and forwards them — via the shared `GridRequestContext` builder, so both the legacy `x-grid-model-overrides` header and the signed `X-Grid-Request-Context` envelope carry them. Belt-and-suspenders on the backend: `get_model_overrides_from_context()` (`common/model_overrides.py`) reads the header/envelope first; when neither is present it falls back to a **just-in-time resolution of the effective selection** — `resolve_org_model_overrides()` calls the BFF's internal `GET /api/internal/model-overrides` endpoint, which itself returns the merged platform-plus-org map (the org's own choices win per group) (`GRID_INTERNAL_API_TOKEN`-guarded), cached in two tiers — a 10 s in-process memo and the shared cache key `modelconfig:{org}` (ADR-0020, 60 s), which the BFF deletes on a config save or rollback, a ZDR toggle, and a platform-defaults save (`lib/model-config/backend-key.ts`), so a save reaches every backend replica within ~10 s — and fail-open to `{}` (YAML defaults) on any error while the ZDR bit resolved in the same lookup fails closed (pinned, ADR-0074), with errors negative-cached for 1 s in-process only, never written to the shared tier — mirroring the BYOK credential-resolution pattern. | **Yes**, via header-first-then-org-resolution precedence. See also `docs/api/bff-routes.md` and `docs/api/python-endpoints.md`. |
 
 The JIT fallback (`resolve_org_model_overrides` / `/api/internal/model-overrides`)
 also covers any future endpoint the BFF doesn't front, or a turn where the
@@ -430,8 +505,8 @@ for the platform rows):
 | Event | Writer |
 |---|---|
 | `model_config.version.activated` | org save and rollback / re-activate |
-| `model_config.zdr.updated` | ZDR toggle |
-| `org.settings.updated` | org settings save (check `fields` for `zdrOnly`/`webSearchEnabled`) |
+| `model_config.zdr.updated` | ZDR toggle (`metadata.zdrOnly` and `metadata.previous`, the effective value before) |
+| `org.settings.updated` | org settings save (`fields` lists what changed, `settings.<key>` per nested key; never `zdrOnly`, which that save refuses with a 400) |
 | `platform.model_defaults.updated` | platform-owner save |
 | `platform.model_defaults.bootstrapped` | first-boot bootstrap (`system:bootstrap`) |
 
@@ -458,9 +533,12 @@ invalidation: confirm `REDIS_URL` on both sides, then look for
 |---|---|
 | Catalog unreachable on save | 503, nothing written |
 | Catalog unreachable on picker | 503, picker shows error |
+| ZDR list unreachable (org or platform save, rollback, picker under ZDR) | 503 `details.reason: 'zdr_list_unavailable'`, nothing written and nothing offered; the org card's coverage reads "unknown", never "all clear" |
 | Header missing/malformed at runtime | JIT org-side resolution, then the YAML models (fail-open) |
 | `platform_model_defaults` unreadable | the org's own overrides still apply; everything else falls to the YAML models |
-| Platform default not ZDR-capable | recorded at save (`_zdr.safe: false`) and flagged in the UI; ZDR orgs must pin their own model |
+| Platform default not ZDR-capable | refused at save (every org is ZDR unless it opted out); a saved default that later loses its ZDR endpoint is flagged on the platform page |
+| ZDR setting unreadable at runtime (BFF down, no `GRID_INTERNAL_API_TOKEN`) | the request is pinned anyway (fail closed); a model without a ZDR endpoint is refused while it lasts |
+| Model has no ZDR endpoint for a ZDR org | OpenRouter refuses (404 "No endpoints found matching your data policy"); chat answers `ZDR_MODEL_REFUSED_MESSAGE`, a job fails with it, and the org model card lists the affected groups |
 | Overridden model rejected upstream by OpenRouter | LLM error surfaces in chat; admin rolls back the version |
 | Version rollback race (two admins) | last write wins on the pointer; both versions remain in history |
 

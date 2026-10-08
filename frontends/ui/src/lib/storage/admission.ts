@@ -25,9 +25,8 @@
  */
 
 import 'server-only'
-import { DeleteObjectCommand } from '@aws-sdk/client-s3'
-import { s3Client } from '@/lib/s3'
 import type { NewDocument } from '@/lib/db/schema'
+import { discardObject } from './discard'
 import { admitDocumentWithinQuota, admitReplacementWithinQuota } from './service'
 
 /**
@@ -87,22 +86,5 @@ export async function admitReplacementOrDiscard(
   } catch (error) {
     await discardObject(bucket, storageKey)
     throw error
-  }
-}
-
-async function discardObject(bucket: string, storageKey: string): Promise<void> {
-  try {
-    await s3Client.send(new DeleteObjectCommand({ Bucket: bucket, Key: storageKey }))
-  } catch (error) {
-    // Swallowed on purpose: the caller is already failing the request for a
-    // reason the user can act on, and turning a quota refusal into a 500 would
-    // hide it. The object becomes an orphan the purge will collect with its
-    // project.
-    console.error(
-      '[storage] failed to remove the object for a refused upload',
-      // The bucket and key, never the presigned URL — see
-      // aiq_agent.common.log_redaction for the same rule on the Python side.
-      { bucket, storageKey, cause: error instanceof Error ? error.name : 'unknown' },
-    )
   }
 }

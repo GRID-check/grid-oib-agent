@@ -3,16 +3,20 @@
  */
 import { describe, test, expect } from 'vitest'
 import {
+  animateFrontier,
   buildGraph,
   defaultFoldedRounds,
+  keepEdgeIdentity,
   planFan,
   type ReasoningFlowProps,
   type SpineFolding,
+  sameNodeData,
 } from './ReasoningFlow'
 import type { CitedDocument } from '../../lib/citations'
 import type { FanCard } from '../../lib/retrieval-rounds'
 import type { RetrievalLedger } from '@/lib/conversations/message-retrieval-ledger'
-import type { ThinkingStep } from '../../types'
+import type { StoredThinkingStep } from '@/lib/conversations/message-provenance'
+import { storedStep } from '@/test-utils/wire-v2-steps'
 import { de, en } from '@/i18n/dictionaries'
 import { createTranslator, getByPath } from '@/i18n/translate'
 import type { Translator } from '@/i18n'
@@ -37,44 +41,36 @@ const retrievalStep = (
   query: string,
   reason?: string,
   tools: string[] = ['knowledge_search']
-): ThinkingStep => ({
-  id: `r${index}`,
-  userMessageId: 'u1',
-  category: 'agents',
-  functionName: `status:retrieval:${index}`,
-  displayName: `status:retrieval:${index}`,
-  content: JSON.stringify({
-    kind: 'status',
-    channel: 'live',
-    slot: `retrieval:${index}`,
+): StoredThinkingStep =>
+  storedStep({
+    id: `status:retrieval:${index}`,
+    kind: 'retrieval',
+    round: index,
     key: 'status.retrieval.withQuery',
     values: { corpus: 'knowledge', query },
     tools,
     ...(reason ? { reason } : {}),
-  }),
-  timestamp: new Date(),
-  isComplete: true,
-})
+  })
 
-const toolHit = (id: string, file: string, round?: number): ThinkingStep => ({
-  id: `t-${id}`,
-  userMessageId: 'u1',
-  category: 'tools',
-  functionName: 'knowledge_search',
-  displayName: 'knowledge_search',
-  content: '',
-  timestamp: new Date(),
-  isComplete: true,
-  traceLanes: [
-    {
-      key: 'baurecht_oib',
-      label: 'OIB-Richtlinie',
-      hitCount: 1,
-      sources: [{ name: `${file}.pdf`, round }],
-      signal: 'law',
-    },
-  ],
-})
+const toolHit = (id: string, file: string, round?: number): StoredThinkingStep =>
+  storedStep({
+    id: `sources:${id}`,
+    kind: 'sources',
+    tool: 'knowledge_search',
+    lanes: [
+      {
+        key: 'baurecht_oib',
+        label: 'OIB-Richtlinie',
+        kind: 'baurecht',
+        hit_count: 1,
+        sources: [{ name: `${file}.pdf`, ...(round !== undefined ? { round } : {}) }],
+      },
+    ],
+  })
+
+/** A technical status record, as `turn_status` writes it. */
+const technicalStep = (slot: string, detail: Record<string, unknown>): StoredThinkingStep =>
+  storedStep({ id: `status:${slot}`, kind: 'status', slot, channel: 'technical', detail })
 
 /** A desktop chat column; a phone viewport. */
 const DESKTOP_W = 680
@@ -220,9 +216,9 @@ describe('buildGraph — parallel wiring (P1-4)', () => {
   test('each checkpoint hangs the files THAT fetch returned', () => {
     const steps = [
       retrievalStep(0, 'OIB 2'),
-      toolHit('oib', 'a'),
+      toolHit('oib', 'a', 0),
       retrievalStep(1, 'Grundriss', 'Die Richtlinie staffelt nach GK — der Plan fehlt.'),
-      toolHit('plan', 'b'),
+      toolHit('plan', 'b', 1),
     ]
     const g = buildGraph(
       { ...base, steps, answerConfidence: 'high' },
@@ -258,32 +254,15 @@ describe('buildGraph — parallel wiring (P1-4)', () => {
   })
 
   test('a merged knowledge_search step still hangs each fetch\'s files on its checkpoint', () => {
-    const merged: ThinkingStep = {
-      id: 'merged',
-      userMessageId: 'u1',
-      category: 'tools',
-      functionName: 'knowledge_search',
-      displayName: 'knowledge_search',
-      content: '',
-      timestamp: new Date(),
-      isComplete: true,
-      traceLanes: [
-        {
-          key: 'baurecht_oib',
-          label: 'OIB-Richtlinie',
-          hitCount: 1,
-          sources: [{ name: 'a.pdf', round: 0 }],
-          signal: 'law',
-        },
-        {
-          key: 'projekt',
-          label: 'Projektwissen',
-          hitCount: 1,
-          sources: [{ name: 'b.pdf', round: 1 }],
-          signal: 'project',
-        },
+    const merged = storedStep({
+      id: 'sources:merged',
+      kind: 'sources',
+      tool: 'knowledge_search',
+      lanes: [
+        { key: 'baurecht_oib', label: 'OIB-Richtlinie', kind: 'baurecht', hit_count: 1, sources: [{ name: 'a.pdf', round: 0 }] },
+        { key: 'projekt', label: 'Projektwissen', kind: 'projekt', hit_count: 1, sources: [{ name: 'b.pdf', round: 1 }] },
       ],
-    }
+    })
     const g = buildGraph(
       {
         ...base,
@@ -591,49 +570,55 @@ describe('buildGraph — only the handles a layout needs (P2-8)', () => {
   })
 })
 
-describe('buildGraph — a card animates once, not once per re-pack', () => {
-  test('only cards in enterOrder carry a cascade slot, and it starts at 0 per batch', () => {
-    // The fan re-packs on every card-count change, which moves cards between
-    // column NODES; React remounts them there and the CSS entrance replays. The
-    // columns therefore animate by card IDENTITY: `enterOrder` holds only the
-    // cards that have never entered, numbered from 0 within that batch.
-    const cards = [card('a'), card('b'), card('c')]
-    const fresh = buildGraph({ ...base, answerConfidence: 'high' }, t, planFan(DESKTOP_W, 3), cards, new Map([['c', 0]]))
-    const orders = fresh.nodes
-      .filter((n) => n.type === 'sourceColumn')
-      .map((n) => (n.data as unknown as { enterOrder: ReadonlyMap<string, number> }).enterOrder)
-    // Every column reads the same map, so a card's slot does not depend on
-    // which column the re-pack happened to put it in.
-    for (const o of orders) expect(o.get('c')).toBe(0)
-    for (const o of orders) expect(o.has('a')).toBe(false)
+describe('the only motion: React Flow\'s animated edges into the newest row', () => {
+  const liveSpine = (): ReasoningFlowProps => ({
+    ...base,
+    live: true,
+    steps: [
+      retrievalStep(0, 'q0', 'Grundregel steht.'),
+      toolHit('h0', 'a', 0),
+      retrievalStep(1, 'q1', 'Treppenraum offen.'),
+      toolHit('h1', 'b', 1),
+    ],
   })
 
-  test('a graph built without an enterOrder animates nothing', () => {
-    const g = buildGraph({ ...base, answerConfidence: 'high' }, t, planFan(DESKTOP_W, 2), [card('a'), card('b')])
-    const order = (g.nodes.find((n) => n.type === 'sourceColumn')!.data as unknown as {
-      enterOrder: ReadonlyMap<string, number>
-    }).enterOrder
-    expect(order.size).toBe(0)
+  test('while live, exactly the edges into the newest row are animated', () => {
+    const cards = [card('a'), card('b')]
+    const g = buildGraph(liveSpine(), t, planFan(DESKTOP_W, 2), cards)
+    const newest = g.rows.at(-1)!
+    const edges = animateFrontier(g.edges, newest)
+    const into = edges.filter((e) => newest.includes(e.target))
+    expect(into.length).toBeGreaterThan(0)
+    for (const e of into) expect(e.animated).toBe(true)
+    for (const e of edges.filter((e) => !newest.includes(e.target))) expect(e.animated).toBeUndefined()
+  })
+
+  test('a settled graph has no animated edge', () => {
+    const cards = [card('a'), card('b')]
+    const g = buildGraph({ ...liveSpine(), live: false, answerConfidence: 'high' }, t, planFan(DESKTOP_W, 2), cards)
+    expect(g.edges.length).toBeGreaterThan(0)
+    // Settled is an empty newest row, which is what ReasoningFlow passes.
+    expect(animateFrontier(g.edges, []).some((e) => e.animated)).toBe(false)
+    // …and `buildGraph` itself never marks one.
+    expect(g.edges.some((e) => e.animated)).toBe(false)
+  })
+
+  test('an unchanged edge keeps its object across a rebuild', () => {
+    const cards = [card('a'), card('b')]
+    const first = animateFrontier(buildGraph(liveSpine(), t, planFan(DESKTOP_W, 2), cards).edges, [])
+    const again = keepEdgeIdentity(first, animateFrontier(buildGraph(liveSpine(), t, planFan(DESKTOP_W, 2), cards).edges, []))
+    expect(again).toBe(first)
+    const target = first[0]!.target
+    const marked = keepEdgeIdentity(first, animateFrontier(first, [target]))
+    for (const [i, e] of marked.entries()) {
+      if (e.target === target) expect(e).not.toBe(first[i])
+      else expect(e).toBe(first[i])
+    }
   })
 })
 
 describe('a turn that was CUT OFF says so where the fan converges', () => {
-  const budgetStep = (tools: string[]) => ({
-    id: 's-budget',
-    userMessageId: 'u1',
-    category: 'tools' as const,
-    functionName: 'status:budget',
-    displayName: 'status:budget',
-    content: JSON.stringify({
-      kind: 'status',
-      channel: 'technical',
-      slot: 'budget',
-      truncated: true,
-      tools,
-    }),
-    timestamp: new Date(),
-    isComplete: true,
-  })
+  const budgetStep = (tools: string[]) => technicalStep('budget', { truncated: true, tools })
 
   const findings = (g: ReturnType<typeof buildGraph>) =>
     g.nodes.find((n) => n.id === 'findings')?.data as
@@ -644,7 +629,7 @@ describe('a turn that was CUT OFF says so where the fan converges', () => {
     // The worst case: cut off before it found anything. Without this the graph
     // simply stops after the framing card with nothing anywhere saying why.
     const props: ReasoningFlowProps = { ...base, steps: [budgetStep(['knowledge_search'])] }
-    const g = buildGraph(props, t, planFan(DESKTOP_W, 0), [], new Map())
+    const g = buildGraph(props, t, planFan(DESKTOP_W, 0), [])
     expect(g.nodes.find((n) => n.id === 'findings')).toBeDefined()
     expect(findings(g)?.truncation?.step).toBe('thinking.stepName.corpus')
   })
@@ -657,13 +642,13 @@ describe('a turn that was CUT OFF says so where the fan converges', () => {
       ...base,
       steps: [budgetStep(['use_skill', 'find_elements', 'light_incidence'])],
     }
-    const g = buildGraph(props, t, planFan(DESKTOP_W, 0), [], new Map())
+    const g = buildGraph(props, t, planFan(DESKTOP_W, 0), [])
     expect(findings(g)?.truncation).toMatchObject({ step: 'light_incidence', mono: true })
   })
 
   test('truncated with no tool named falls back to saying less', () => {
     const props: ReasoningFlowProps = { ...base, steps: [budgetStep([])] }
-    const g = buildGraph(props, t, planFan(DESKTOP_W, 0), [], new Map())
+    const g = buildGraph(props, t, planFan(DESKTOP_W, 0), [])
     expect(findings(g)?.truncation).toEqual({
       before: 'thinking.node.findingsTruncated',
       after: '',
@@ -673,13 +658,13 @@ describe('a turn that was CUT OFF says so where the fan converges', () => {
 
   test('a turn that finished its research carries no truncation line', () => {
     const props: ReasoningFlowProps = { ...base, answerConfidence: 'high' }
-    const g = buildGraph(props, t, planFan(DESKTOP_W, 0), [], new Map())
+    const g = buildGraph(props, t, planFan(DESKTOP_W, 0), [])
     expect(findings(g)?.truncation).toBeUndefined()
   })
 
   test('while the turn is still live the graph claims nothing about the ending', () => {
     const props: ReasoningFlowProps = { ...base, steps: [budgetStep(['knowledge_search'])], live: true }
-    const g = buildGraph(props, t, planFan(DESKTOP_W, 0), [], new Map())
+    const g = buildGraph(props, t, planFan(DESKTOP_W, 0), [])
     expect(findings(g)?.truncation).toBeUndefined()
   })
 })
@@ -694,29 +679,18 @@ describe('a turn that was CUT OFF says so where the fan converges', () => {
  * built on?" — and "less than it looks like" is an answer to that question.
  */
 describe('a deep run that was cut off or degraded says so under the assessment', () => {
-  const statusStep = (id: string, slot: string, payload: Record<string, unknown>): ThinkingStep => ({
-    id,
-    userMessageId: 'u1',
-    category: 'tools' as const,
-    functionName: `status:${slot}`,
-    displayName: `status:${slot}`,
-    content: JSON.stringify({ kind: 'status', channel: 'technical', slot, ...payload }),
-    timestamp: new Date(),
-    isComplete: true,
-  })
-
   const cutoffStep = (payload: Record<string, unknown>) =>
-    statusStep('s-deep', 'budget:deep', { truncated: true, agent: 'deep', ...payload })
+    technicalStep('budget:deep', { truncated: true, agent: 'deep', ...payload })
   const degradedStep = (reasons: string[]) =>
-    statusStep('s-degraded', 'degraded', { degraded: true, agent: 'deep', reasons })
+    technicalStep('degraded', { degraded: true, agent: 'deep', reasons })
 
   const limits = (g: ReturnType<typeof buildGraph>) =>
     (g.nodes.find((n) => n.id === 'findings')?.data as
       | { limits?: { label: string; lines: Array<{ text: string; warn: boolean }> } }
       | undefined)?.limits
 
-  const build = (steps: ThinkingStep[], translator: Translator = t) =>
-    buildGraph({ ...base, steps }, translator, planFan(DESKTOP_W, 0), [], new Map())
+  const build = (steps: StoredThinkingStep[], translator: Translator = t) =>
+    buildGraph({ ...base, steps }, translator, planFan(DESKTOP_W, 0), [])
 
   test('a cut-off turn with no verdict and no sources still gets an assessment node', () => {
     // Same case the truncation line exists for, reached down the other road: a
@@ -775,7 +749,7 @@ describe('a deep run that was cut off or degraded says so under the assessment',
   test('a clean turn carries no limits block — there is no "all clear" row', () => {
     // Presence is the fact. A row saying nothing went wrong would be true on
     // almost every turn, which makes it a constant rather than an event.
-    const g = buildGraph({ ...base, answerConfidence: 'high' }, t, planFan(DESKTOP_W, 0), [], new Map())
+    const g = buildGraph({ ...base, answerConfidence: 'high' }, t, planFan(DESKTOP_W, 0), [])
     expect(limits(g)).toBeUndefined()
   })
 
@@ -784,8 +758,7 @@ describe('a deep run that was cut off or degraded says so under the assessment',
       { ...base, steps: [degradedStep(['no_valid_citations'])], live: true },
       t,
       planFan(DESKTOP_W, 0),
-      [],
-      new Map()
+      []
     )
     expect(limits(g)).toBeUndefined()
   })
@@ -847,7 +820,7 @@ describe('a deep run that was cut off or degraded says so under the assessment',
 describe('a checkpoint layer folds its own fan (ledger 19)', () => {
   /** n rounds, each returning one file, wired to n cards. */
   const spine = (n: number, folding?: SpineFolding) => {
-    const steps: ThinkingStep[] = []
+    const steps: StoredThinkingStep[] = []
     for (let i = 0; i < n; i++) {
       steps.push(retrievalStep(i, `query ${i}`, `Folgerung ${i}`))
       steps.push(toolHit(`h${i}`, `s${i}`, i))
@@ -858,7 +831,6 @@ describe('a checkpoint layer folds its own fan (ledger 19)', () => {
       t,
       planFan(DESKTOP_W, 1),
       cards,
-      new Map(),
       folding
     )
   }
@@ -945,7 +917,6 @@ describe('a checkpoint layer folds its own fan (ledger 19)', () => {
         translator,
         planFan(DESKTOP_W, 4),
         cards,
-        new Map(),
         { folded: new Set([0]), onToggle: () => {} }
       )
       const folded = roundData(g, 0)
@@ -961,7 +932,6 @@ describe('a checkpoint layer folds its own fan (ledger 19)', () => {
       createTranslator(de, 'chat') as Translator,
       planFan(DESKTOP_W, 4),
       cards,
-      new Map(),
       { folded: new Set([0]), onToggle: () => {} }
     )
     expect(roundData(g, 0).toggleLabel).toBe('Schritt 1 aufklappen')
@@ -992,7 +962,6 @@ describe('a checkpoint layer folds its own fan (ledger 19)', () => {
         translator,
         planFan(DESKTOP_W, 2),
         [paged, card('b')],
-        new Map(),
         { folded: new Set([0]), onToggle: () => {} }
       )
       expect(roundData(g, 0).foldSummary).toBe(dictionary === de ? 'a · S. 3' : 'a · p. 3')
@@ -1015,7 +984,6 @@ describe('a checkpoint layer folds its own fan (ledger 19)', () => {
       translator,
       planFan(DESKTOP_W, 2),
       [card('OIB-RL_2'), card('Brandschutzkonzept')],
-      new Map(),
       { folded: new Set([0]), onToggle: () => {} }
     )
     const summary = roundData(g, 0).foldSummary
@@ -1048,7 +1016,6 @@ describe('a checkpoint layer folds its own fan (ledger 19)', () => {
         translator,
         planFan(DESKTOP_W, 1),
         [retrieved],
-        new Map(),
         { folded: new Set([0]), onToggle: () => {} }
       )
       expect(roundData(g, 0).foldSummary).toBe('a')
@@ -1061,7 +1028,6 @@ describe('a checkpoint layer folds its own fan (ledger 19)', () => {
       t,
       planFan(DESKTOP_W, 2),
       [card('a'), card('b')],
-      new Map(),
       { folded: new Set(), onToggle: () => {} }
     )
     expect(roundData(g, 0).foldable).toBe(false)
@@ -1101,7 +1067,7 @@ describe('a checkpoint layer folds its own fan (ledger 19)', () => {
  */
 describe('a ledger round draws its own fan', () => {
   /** Three rounds: a search, the opens it led to, then a pass back over one file. */
-  const steps: ThinkingStep[] = [
+  const steps: StoredThinkingStep[] = [
     retrievalStep(0, 'Fluchtweglänge GK4'),
     toolHit('a0', 'a', 0),
     toolHit('b0', 'b', 0),
@@ -1299,12 +1265,33 @@ describe('a ledger round draws its own fan', () => {
       createTranslator(de, 'chat') as Translator,
       planFan(DESKTOP_W, 2),
       [cited],
-      new Map(),
       folding
     )
     const round1 = g.nodes.find((n) => n.id === 'round-1')!.data as { foldSummary: string }
     // The answer cited page 4; this round read page 12. The fold says 12.
     expect(round1.foldSummary).toContain('S. 12')
     expect(round1.foldSummary).not.toContain('S. 4')
+  })
+})
+
+describe('sameNodeData: a rebuilt node that draws the same keeps its object', () => {
+  test('equal by value, however freshly built', () => {
+    const build = () => ({
+      cards: [{ id: 'a', hits: 2 }],
+      order: new Map([['a', 0]]),
+      folded: new Set([1]),
+      label: 'Quellen',
+      onToggle: () => {},
+    })
+    expect(sameNodeData(build(), build())).toBe(true)
+  })
+
+  test('any change a node would draw is a change', () => {
+    const base = { cards: [{ id: 'a', hits: 2 }], order: new Map([['a', 0]]), label: 'Quellen' }
+    expect(sameNodeData(base, { ...base, cards: [{ id: 'a', hits: 3 }] })).toBe(false)
+    expect(sameNodeData(base, { ...base, order: new Map([['a', 1]]) })).toBe(false)
+    expect(sameNodeData(base, { ...base, label: 'Treffer' })).toBe(false)
+    expect(sameNodeData(base, { ...base, extra: true })).toBe(false)
+    expect(sameNodeData({ at: new Date(1) }, { at: new Date(2) })).toBe(false)
   })
 })

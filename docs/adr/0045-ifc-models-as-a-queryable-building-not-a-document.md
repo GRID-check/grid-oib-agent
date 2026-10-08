@@ -108,13 +108,13 @@ project and by file name, and the endpoint resolves them.
 
 ## What this costs
 
-- **Extraction runs in the request process**, detached from the request. A model
+- **Extraction runs in a BFF process**, off the request. A model
   is capped at 250 MB (`BIM_MAX_IFC_BYTES`) and 200 000 persisted elements
   (`BIM_ELEMENT_LIMIT`); the counts stay exact past the cap, the element rows
-  stop. A process restart mid-parse leaves the document at `processing` and the
-  model at `extracting` — visible in both places and recoverable through the
-  ordinary re-ingest action. Moving extraction to a worker is the next step if
-  model sizes grow.
+  stop. It was a detached promise in the upload's pod, where a restart mid-parse
+  left the document at `processing` and the model at `extracting`. ADR-0079
+  moved it to a `bim_extract` job on the `bff-jobs` pool: a restart gives the
+  claim back and another worker parses the model again.
 - **The digest is a summary, not a serialization.** Per-element rows are in
   Postgres where they can be queried; dumping them into a vector index would
   bury the rest of the corpus.

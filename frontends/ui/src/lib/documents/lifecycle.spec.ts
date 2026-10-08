@@ -99,16 +99,11 @@ vi.mock('@/lib/tasks/delegation', () => ({ delegateTask: vi.fn() }))
  */
 vi.mock('./version-content', () => ({
   BACKEND_PURGE_TIMEOUT_MS: 10_000,
-  admitVersionBytes: vi.fn(),
   readVersionContent: vi.fn().mockResolvedValue('# Aktenvermerk'),
   renderVersionBytes: vi.fn(),
-  resolveVersionBucket: vi.fn().mockResolvedValue('grid-org-1'),
-  storeVersionBytes: vi.fn(),
-  versionStorageKey: (document: { storageKey: string }, versionNumber: number) =>
-    versionNumber <= 1
-      ? document.storageKey
-      : document.storageKey.replace(/\/([^/]+)$/, `/v${versionNumber}/$1`),
+  writeVersionContent: vi.fn(),
 }))
+vi.mock('@/lib/storage/discard', () => ({ discardObject: vi.fn() }))
 vi.mock('@/lib/s3', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/lib/s3')>()),
   s3Client: { send: vi.fn() },
@@ -116,11 +111,14 @@ vi.mock('@/lib/s3', async (importOriginal) => ({
 }))
 
 import { getAccessibleDocument } from './access'
+import { findDocumentInOrg } from './repository'
+import { discardObject } from '@/lib/storage/discard'
 import { purgeIngestedChunks } from './collection-file-ref'
 import { dispatchDocument } from './service'
 import { resolvePeople } from '@/lib/sharing/directory'
 import { requireProjectAccess } from '@/lib/authz/projects'
 import { recordAuditEvent } from '@/lib/audit/service'
+import { ConflictError } from '@/lib/api/errors'
 import { publishToUsers } from '@/lib/events/bus'
 import { emitInboxItems, resolveInboxItemsFor } from '@/lib/inbox/service'
 import { listReviewCandidates, resolveReviewers } from './reviewers'
@@ -136,14 +134,13 @@ import {
   listDocumentVersions,
   promoteVersionToPublished,
 } from './version-repository'
-import {
-  admitVersionBytes,
-  renderVersionBytes,
-  storeVersionBytes,
-} from './version-content'
+import { renderVersionBytes, writeVersionContent } from './version-content'
+import { DocumentDeletedError, OpenVersionExistsError } from './unique-conflicts'
 import {
   createDocumentVersion,
   forkDraftVersion,
+  recordUploadedVersion,
+  recordUploadedVersionOrDiscard,
   replaceVersionContent,
   transitionDocumentVersion,
 } from './lifecycle'
@@ -242,8 +239,12 @@ beforeEach(() => {
   vi.mocked(findOpenVersion).mockResolvedValue(null)
   // `clearMocks` clears CALLS, not implementations, so a rejection set in one
   // test would leak into every later one.
-  vi.mocked(admitVersionBytes).mockReset()
-  vi.mocked(storeVersionBytes).mockReset()
+  // The byte half answers with the row it swapped: the stamp on the version read.
+  vi.mocked(writeVersionContent).mockReset()
+  vi.mocked(writeVersionContent).mockImplementation(async ({ version: read, stamp }) => ({
+    ...read,
+    ...stamp,
+  }) as DocumentVersion)
   vi.mocked(renderVersionBytes).mockResolvedValue({
     bytes: Buffer.from('# Aktenvermerk', 'utf8'),
     contentType: 'text/markdown',
@@ -420,7 +421,6 @@ describe('transitionDocumentVersion — guards', () => {
       vi.mocked(findDocumentVersion).mockResolvedValue(
         version({ state: 'draft', contentHash: null }),
       )
-      vi.mocked(compareAndSwapVersionState).mockResolvedValue(version({ state: 'draft' }))
 
       await expect(
         replaceVersionContent(session, 'doc_1', 'ver_1', 'neu', ifMatch),
@@ -530,7 +530,7 @@ describe('transitionDocumentVersion — effects', () => {
 
   it('submits an Unvergeben draft rather than refusing it', async () => {
     // A Piloti draft is unassigned by construction (ADR-0047), and the draft
-    // card, the panel and `submit_draft` all submit without naming anybody.
+    // card, the panel and `file_draft` with `submit` all submit without naming anybody.
     // Refusing that made the lifecycle unreachable for the documents it exists
     // for.
     vi.mocked(findDocumentVersion).mockResolvedValue(version({ state: 'draft' }))
@@ -1032,6 +1032,32 @@ describe('forkDraftVersion', () => {
     })
   })
 
+  it('answers the loser of two concurrent forks with the same 409, naming the winner', async () => {
+    // Both forks passed the probe (nothing open yet), and the index refused the
+    // second insert. The repository maps THAT refusal; the service re-reads
+    // the winner so the loser is told what the sequential caller is told.
+    vi.mocked(findOpenVersion)
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce(version({ id: 'ver_winner', state: 'draft' }))
+    vi.mocked(findPublishedVersion).mockResolvedValue(version({ state: 'published' }))
+    vi.mocked(insertDocumentVersion).mockRejectedValue(new OpenVersionExistsError('doc_1'))
+
+    await expect(forkDraftVersion(session, 'doc_1')).rejects.toMatchObject({
+      status: 409,
+      code: 'CONFLICT',
+      details: { versionId: 'ver_winner', state: 'draft' },
+    })
+  })
+
+  it('lets any other insert failure through unmapped', async () => {
+    vi.mocked(findOpenVersion).mockResolvedValue(null)
+    vi.mocked(findPublishedVersion).mockResolvedValue(version({ state: 'published' }))
+    const other = new Error('Failed query', { cause: { code: '23505', constraint_name: 'other' } })
+    vi.mocked(insertDocumentVersion).mockRejectedValue(other)
+
+    await expect(forkDraftVersion(session, 'doc_1')).rejects.toBe(other)
+  })
+
   it('shares the published version’s key until the content is replaced', async () => {
     // A copy would charge the quota twice for a file nobody has changed yet.
     vi.mocked(findPublishedVersion).mockResolvedValue(version({ state: 'published' }))
@@ -1050,37 +1076,75 @@ describe('forkDraftVersion', () => {
   })
 })
 
+describe('recordUploadedVersionOrDiscard', () => {
+  const stored = {
+    storageKey: 'org/org_1/project/proj_1/doc/doc_1/v2/abcdef012345/plan.pdf',
+    storageBucket: null,
+    contentType: 'application/pdf',
+    fileSize: 1234,
+    contentHash: 'sha256:new',
+  }
+
+  it('refuses with a 409 and takes the stored object back when the document is already gone', async () => {
+    // The upload wrote the row; a delete committed before this looked.
+    vi.mocked(findDocumentInOrg).mockResolvedValueOnce(null)
+
+    await expect(recordUploadedVersionOrDiscard(session, 'doc_1', undefined, stored)).rejects.toBeInstanceOf(
+      DocumentDeletedError,
+    )
+    expect(discardObject).toHaveBeenCalledWith(expect.any(String), stored.storageKey)
+    expect(insertPublishedVersion).not.toHaveBeenCalled()
+    // Nothing downstream of a version happens for a document that is gone.
+    expect(dispatchDocument).not.toHaveBeenCalled()
+    expect(recordAuditEvent).not.toHaveBeenCalled()
+  })
+
+  it('does the same when the delete lands between the lookup and the insert', async () => {
+    vi.mocked(findDocumentInOrg).mockResolvedValueOnce(document)
+    vi.mocked(insertPublishedVersion).mockRejectedValueOnce(new DocumentDeletedError('doc_1'))
+
+    await expect(recordUploadedVersionOrDiscard(session, 'doc_1', undefined, stored)).rejects.toMatchObject({
+      status: 409,
+      details: { reason: 'deleted_during_upload' },
+    })
+    expect(discardObject).toHaveBeenCalledWith(expect.any(String), stored.storageKey)
+  })
+
+  it('lets any other failure through without discarding a byte', async () => {
+    vi.mocked(findDocumentInOrg).mockResolvedValueOnce(document)
+    const boom = new Error('boom')
+    vi.mocked(insertPublishedVersion).mockRejectedValueOnce(boom)
+
+    await expect(recordUploadedVersionOrDiscard(session, 'doc_1', undefined, stored)).rejects.toBe(boom)
+    expect(discardObject).not.toHaveBeenCalled()
+  })
+
+  it('leaves the lenient form returning null for the shelf that reads no answer', async () => {
+    // The session shelf still calls `recordUploadedVersion` directly; the new
+    // foreign key must not turn its race into a 500.
+    vi.mocked(findDocumentInOrg).mockResolvedValueOnce(document)
+    vi.mocked(insertPublishedVersion).mockRejectedValueOnce(new DocumentDeletedError('doc_1'))
+
+    await expect(recordUploadedVersion(session, 'doc_1', undefined, stored)).resolves.toBeNull()
+    expect(discardObject).not.toHaveBeenCalled()
+  })
+})
+
 describe('replaceVersionContent', () => {
   it('refuses a stale If-Match with a conflict, and stores nothing', async () => {
     vi.mocked(findDocumentVersion).mockResolvedValue(version({ state: 'draft' }))
     await expect(
       replaceVersionContent(session, 'doc_1', 'ver_1', 'neu', 'sha256:stale'),
     ).rejects.toMatchObject({ status: 409 })
-    const s3 = await import('@/lib/s3')
-    expect(vi.mocked(s3.s3Client.send)).not.toHaveBeenCalled()
+    expect(writeVersionContent).not.toHaveBeenCalled()
   })
 
-  it('writes the draft’s own key and records the new digest', async () => {
-    vi.mocked(findDocumentVersion).mockResolvedValue(version({ state: 'draft' }))
-    vi.mocked(compareAndSwapVersionState).mockResolvedValue(version({ state: 'draft' }))
-
-    await replaceVersionContent(session, 'doc_1', 'ver_1', '# Aktenvermerk', 'sha256:abc')
-
-    expect(compareAndSwapVersionState).toHaveBeenCalledWith(
-      'ver_1',
-      'org_1',
-      'draft',
-      expect.objectContaining({
-        state: 'draft',
-        contentHash: expect.stringMatching(/^sha256:[0-9a-f]{64}$/),
-      }),
-    )
-  })
-
-  it('renders through the producer, admits the bytes, swaps, and only THEN writes', async () => {
-    // Four steps and the order is the whole of it: writing before the swap
-    // meant a caller that LOST the race had already overwritten the winner's
-    // object, because both were aiming at the same key.
+  it('renders through the producer, then hands the byte half the row AS READ', async () => {
+    // The row as read is the expectation the swap asserts (state, key and
+    // hash): that is what lets the second of two writers holding one If-Match
+    // lose. `version-content.spec.ts` owns what happens with it.
+    const read = version({ state: 'draft', contentHash: 'sha256:abc' })
+    vi.mocked(findDocumentVersion).mockResolvedValue(read)
     const order: string[] = []
     vi.mocked(renderVersionBytes).mockImplementation(async () => {
       order.push('render')
@@ -1090,44 +1154,49 @@ describe('replaceVersionContent', () => {
         contentHash: 'sha256:neu',
       }
     })
-    vi.mocked(admitVersionBytes).mockImplementation(async () => {
-      order.push('admit')
+    vi.mocked(writeVersionContent).mockImplementation(async ({ version: v, stamp }) => {
+      order.push('write')
+      return { ...v, ...stamp } as DocumentVersion
     })
-    vi.mocked(compareAndSwapVersionState).mockImplementation(async () => {
-      order.push('swap')
-      return version({ state: 'draft' })
-    })
-    vi.mocked(storeVersionBytes).mockImplementation(async () => {
-      order.push('store')
-    })
-    vi.mocked(findDocumentVersion).mockResolvedValue(version({ state: 'draft' }))
 
     await replaceVersionContent(session, 'doc_1', 'ver_1', '# Aktenvermerk', 'sha256:abc')
 
-    expect(order).toEqual(['render', 'admit', 'swap', 'store'])
-    // The RENDERED bytes are what the row records, never the caller's body.
-    expect(compareAndSwapVersionState).toHaveBeenCalledWith(
-      'ver_1',
-      'org_1',
-      'draft',
-      expect.objectContaining({ contentHash: 'sha256:neu', fileSize: 11 }),
+    expect(order).toEqual(['render', 'write'])
+    expect(writeVersionContent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        organizationId: 'org_1',
+        version: read,
+        // The RENDERED bytes are what the row records, never the caller's body.
+        rendered: expect.objectContaining({ contentHash: 'sha256:neu' }),
+        stamp: expect.objectContaining({ state: 'draft' }),
+      }),
     )
   })
 
-  it('writes nothing and swaps nothing when the quota refuses the delta', async () => {
+  it('lets the loser of a write race through as a 409, and runs no effect for it', async () => {
     vi.mocked(findDocumentVersion).mockResolvedValue(version({ state: 'draft' }))
-    vi.mocked(admitVersionBytes).mockRejectedValue(new Error('no room'))
+    vi.mocked(writeVersionContent).mockRejectedValue(
+      new ConflictError('The version changed while you were writing'),
+    )
+
+    await expect(
+      replaceVersionContent(session, 'doc_1', 'ver_1', 'neu', 'sha256:abc'),
+    ).rejects.toMatchObject({ status: 409 })
+    expect(recordAuditEvent).not.toHaveBeenCalled()
+  })
+
+  it('writes nothing when the quota refuses', async () => {
+    vi.mocked(findDocumentVersion).mockResolvedValue(version({ state: 'draft' }))
+    vi.mocked(writeVersionContent).mockRejectedValue(new Error('no room'))
 
     await expect(
       replaceVersionContent(session, 'doc_1', 'ver_1', 'sehr lang', 'sha256:abc'),
     ).rejects.toThrow(/no room/)
-    expect(compareAndSwapVersionState).not.toHaveBeenCalled()
-    expect(storeVersionBytes).not.toHaveBeenCalled()
+    expect(recordAuditEvent).not.toHaveBeenCalled()
   })
 
   it('carries the machine flag into the guards, so the door is one field', async () => {
     vi.mocked(findDocumentVersion).mockResolvedValue(version({ state: 'draft' }))
-    vi.mocked(compareAndSwapVersionState).mockResolvedValue(version({ state: 'draft' }))
 
     await replaceVersionContent(session, 'doc_1', 'ver_1', 'neu', 'sha256:abc', {
       actingHuman: false,
@@ -1136,22 +1205,21 @@ describe('replaceVersionContent', () => {
     // `update` is an `either` row, so nothing is refused today — which is
     // exactly why the flag has to arrive: the door is the `actor` field, and a
     // caller that lies about who it is bypasses it the moment a row changes.
-    expect(compareAndSwapVersionState).toHaveBeenCalled()
+    expect(writeVersionContent).toHaveBeenCalled()
   })
 
   it('clears the reviewer’s words, because they were about the bytes just replaced', async () => {
-    vi.mocked(findDocumentVersion).mockResolvedValue(
-      version({ state: 'changes_requested', reviewComment: 'GK stimmt nicht' }),
-    )
-    vi.mocked(compareAndSwapVersionState).mockResolvedValue(version({ state: 'draft' }))
+    const read = version({ state: 'changes_requested', reviewComment: 'GK stimmt nicht' })
+    vi.mocked(findDocumentVersion).mockResolvedValue(read)
 
     await replaceVersionContent(session, 'doc_1', 'ver_1', 'korrigiert', 'sha256:abc')
 
-    expect(compareAndSwapVersionState).toHaveBeenCalledWith(
-      'ver_1',
-      'org_1',
-      'changes_requested',
-      expect.objectContaining({ state: 'draft', reviewComment: null }),
+    expect(writeVersionContent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        // Expected state is the one READ, so a decision taken meanwhile wins.
+        version: expect.objectContaining({ state: 'changes_requested' }),
+        stamp: expect.objectContaining({ state: 'draft', reviewComment: null }),
+      }),
     )
   })
 })

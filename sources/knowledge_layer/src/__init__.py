@@ -4,9 +4,9 @@ Knowledge Layer - Pluggable document ingestion and retrieval.
 This package provides NAT tool registrations for knowledge retrieval that can be used
 across multiple applications.
 
-Available Backends:
-- llamaindex: LlamaIndex + ChromaDB (lightweight, local)
-- foundational_rag: Hosted NVIDIA RAG Blueprint (production, multi-user)
+Backend: llamaindex (LlamaIndex + ChromaDB), the one production backend
+(ADR-0072). The retriever/ingestor factory stays pluggable so tests can
+register fakes.
 
 Note: NAT tool registrations require NAT to be installed.
 The adapter modules can be used standalone without NAT.
@@ -14,6 +14,8 @@ The adapter modules can be used standalone without NAT.
 
 # Eagerly import NAT functions to trigger @register_function decorators
 try:
+    from .browse import ListFilesConfig
+    from .browse import list_files
     from .read_passage import ReadPassageConfig
     from .read_passage import read_passage
     from .register import KnowledgeRetrievalConfig
@@ -22,6 +24,8 @@ try:
     from .view_image import view_knowledge_image
 
     __all__ = [
+        "ListFilesConfig",
+        "list_files",
         "KnowledgeRetrievalConfig",
         "knowledge_retrieval",
         "ReadPassageConfig",

@@ -23,8 +23,7 @@ This module emits ONE balanced NAT step pair per search, named
   `redaction_attributes`). That is by design: the operator's choice removes
   the picking record along with the prose, never leaves one behind.
 
-Mechanics mirror `aiq_agent.common.turn_status.push_custom_step`: a
-FUNCTION_START/FUNCTION_END pair sharing one UUID, pushed through the real
+Mechanics: a FUNCTION_START/FUNCTION_END pair sharing one UUID, pushed through the real
 `IntermediateStepManager`, so span-stack bookkeeping stays exactly balanced.
 Fail-open by contract — telemetry must never take a turn down.
 """
@@ -130,10 +129,10 @@ def emit_retrieval_span(*, tool_name: str, search_input: dict[str, Any], picks: 
     other span renders input/output in Langfuse. Never raises.
     """
     try:
-        from nat.builder.context import Context
         from nat.data_models.intermediate_step import IntermediateStepPayload
         from nat.data_models.intermediate_step import IntermediateStepType
         from nat.data_models.intermediate_step import StreamEventData
+        from nat.plugin_api import Context
 
         body_input = json.dumps(search_input, ensure_ascii=False, separators=(",", ":"))
         body_output = json.dumps(picks, ensure_ascii=False, separators=(",", ":"))
@@ -157,7 +156,7 @@ def emit_retrieval_span(*, tool_name: str, search_input: dict[str, Any], picks: 
             if started:
                 try:
                     # Same UUID, immediately: closes the span this call opened so the next
-                    # real END still pops exactly one frame (see push_custom_step).
+                    # real END still pops exactly one frame.
                     manager.push_intermediate_step(
                         IntermediateStepPayload(
                             UUID=step_id,

@@ -96,6 +96,28 @@ import os
 import sys
 import warnings
 
+#: uvicorn's WebSocket implementation, named because its default is the wrong
+#: one. ``auto`` picks websockets' legacy protocol, whose ``ping()`` returns
+#: ``asyncio.shield(pong_waiter)``: when a peer closes while a keepalive ping is
+#: unanswered, the keepalive task (and with it the shield) is cancelled first
+#: and the waiter fails afterwards, which Python 3.12+ logs at ERROR as
+#: "ConnectionClosed... exception in shielded future" (#758). The sans-I/O
+#: implementation keeps its pings on a timer and has no such future.
+#: ``tests/test_websocket_implementation.py`` holds both to that.
+WS_IMPLEMENTATION = "websockets-sansio"
+
+#: Server keepalive: ping every ``WS_PING_INTERVAL`` seconds, and close with
+#: 1011 "keepalive ping timeout" (logged only at TRACE) when the pong is more
+#: than ``WS_PING_TIMEOUT`` seconds late. uvicorn's default timeout is 20 s, and
+#: a throttled background tab, a mobile radio waking up or a short event-loop
+#: stall on either side can exceed that without the peer being gone, which
+#: dropped a chat socket mid-turn. The chat client recovers by replaying
+#: ``/frames?after=``, but a socket that is still there should not be killed.
+#: A dead peer is still found within 80 s. ``tests/test_websocket_implementation.py``
+#: holds ``main()`` to both.
+WS_PING_INTERVAL = 20.0
+WS_PING_TIMEOUT = 60.0
+
 # Suppress warnings unless PYTHONWARNINGS is explicitly set
 if not os.environ.get("PYTHONWARNINGS"):
     warnings.filterwarnings("ignore")
@@ -137,10 +159,13 @@ def load_nat_config(config_file: str):
     pytest's plugins. `load_config` alone is not enough.
     """
     from aiq_agent.observability import ensure_registered as register_grid_telemetry
+    from aiq_agent.observability.boot_timing import BootClock
+    from aiq_api.roles import web_role
     from nat.runtime.loader import load_config
 
     register_grid_telemetry()
-    return load_config(config_file)
+    with BootClock(web_role().value).phase("load_config"):
+        return load_config(config_file)
 
 
 def main():
@@ -270,6 +295,9 @@ def main():
         port=port,
         factory=True,
         loop="asyncio",
+        ws=WS_IMPLEMENTATION,
+        ws_ping_interval=WS_PING_INTERVAL,
+        ws_ping_timeout=WS_PING_TIMEOUT,
     )
 
 

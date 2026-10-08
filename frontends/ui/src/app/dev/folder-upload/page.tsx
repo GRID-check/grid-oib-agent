@@ -39,6 +39,7 @@
  * spinner over an empty dialog.
  */
 
+import type { JSX } from 'react'
 import { notFound, useSearchParams } from 'next/navigation'
 import { FolderUploadDialog } from '@/features/documents/components/folder-upload-dialog'
 import {

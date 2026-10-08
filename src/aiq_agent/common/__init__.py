@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import asyncio
-import datetime
 import logging
 import os
 
@@ -14,12 +13,6 @@ from langgraph.checkpoint.serde.jsonplus import JsonPlusSerializer
 from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
 from psycopg.rows import dict_row
 from psycopg_pool import AsyncConnectionPool
-
-from nat.data_models.api_server import ChatResponse
-from nat.data_models.api_server import ChatResponseChoice
-from nat.data_models.api_server import ChoiceMessage
-from nat.data_models.api_server import Usage
-from nat.data_models.api_server import UserMessageContentRoleType
 
 from .budget_guard import BudgetGuardCallback
 from .budget_guard import RunBudgetExceededError
@@ -187,65 +180,6 @@ def is_verbose(config_verbose: bool) -> bool:
     return config_verbose
 
 
-def _create_chat_response(
-    content: str,
-    response_id: str = "conversational_response",
-    model: str | None = None,
-    *,
-    usage: Usage | None = None,
-) -> ChatResponse:
-    """Create a standardized ChatResponse object.
-
-    ``usage`` carries the turn's provider totals when the caller has them
-    (see :func:`attach_tracker_usage`); it defaults to an empty ``Usage()``
-    so the five turn-finalize call sites that have no tracker in scope keep
-    their shape. An empty usage renders as empty ``usageDetails`` downstream,
-    so any site that DOES hold the tracker must pass it.
-    """
-    return ChatResponse(
-        id=response_id,
-        model=model or "unknown-model",
-        choices=[
-            ChatResponseChoice(
-                index=0,
-                message=ChoiceMessage(content=content, role=UserMessageContentRoleType.ASSISTANT),
-                finish_reason="stop",
-            )
-        ],
-        created=datetime.datetime.now(datetime.UTC),
-        usage=usage if usage is not None else Usage(),
-    )
-
-
-def attach_tracker_usage(response: ChatResponse, tracker: object | None) -> ChatResponse:
-    """Stamp a cost tracker's turn totals onto a wire response. Never raises.
-
-    The provider usage enters through ``GridCostTracker`` (OpenRouter's usage
-    object, cost included); without this call the response keeps the empty
-    ``Usage()`` from :func:`_create_chat_response` and the turn's generation
-    observation is unattributable. A tracker with no recorded calls leaves
-    the response untouched — absent usage stays absent rather than zeroed.
-    Duck-typed (``prompt_tokens``/``completion_tokens``/``events_recorded``)
-    like ``stages.runner._cost_metadata`` so tests need no real tracker.
-    """
-    try:
-        if tracker is None:
-            return response
-        prompt_tokens = max(0, int(getattr(tracker, "prompt_tokens", 0) or 0))
-        completion_tokens = max(0, int(getattr(tracker, "completion_tokens", 0) or 0))
-        calls = max(0, int(getattr(tracker, "events_recorded", 0) or 0))
-        if calls <= 0 and prompt_tokens <= 0 and completion_tokens <= 0:
-            return response
-        response.usage = Usage(
-            prompt_tokens=prompt_tokens,
-            completion_tokens=completion_tokens,
-            total_tokens=prompt_tokens + completion_tokens,
-        )
-    except Exception:
-        logger.debug("Could not attach tracker usage to the wire response", exc_info=True)
-    return response
-
-
 def is_postgres_dsn(value: str) -> bool:
     """Return True when the checkpoint DSN is a Postgres URL."""
     try:
@@ -331,8 +265,15 @@ async def get_checkpointer(checkpoint_db: str) -> BaseCheckpointSaver:
             return checkpointer
 
         if is_postgres_dsn(checkpoint_db):
+            # Lazy: `aiq_agent.knowledge` imports from this package.
+            from aiq_agent.knowledge.leader_lock import keyed_lock_async
+
             checkpointer = AsyncPostgresSaver(get_checkpoint_pool(checkpoint_db), serde=_build_checkpointer_serde())
-            await checkpointer.setup()
+            # Every role runs `setup()` at start and it is not safe against that: it creates tables and
+            # indexes one statement at a time (CREATE INDEX CONCURRENTLY), so a transaction lock cannot
+            # hold it. A session lock on the direct DSN does (ADR-0083).
+            async with keyed_lock_async("langgraph-setup:checkpointer"):
+                await checkpointer.setup()
             logger.info("Postgres checkpointer initialized via async pool.")
         else:
             conn = await aiosqlite.connect(checkpoint_db)

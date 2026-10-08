@@ -30,6 +30,7 @@
  * section is lifted into a real reference list instead of being left as prose.
  */
 
+import { legalBasisBlocks } from '@/lib/answer-export/excerpts'
 import { marked } from 'marked'
 import { z } from 'zod'
 import {
@@ -88,7 +89,7 @@ export const pdfRequestSchema = z
      * without a byline to carry it.
      */
     aiProvenance: z.string().optional(),
-    /** Printed instead of a mermaid fence's or a `diagram` card's source — see `diagramBlocks`. */
+    /** Printed instead of a mermaid fence's source — see `diagramBlocks`. */
     diagramPlaceholder: z.string().optional(),
     /**
      * Facts the caller knows and the prose does not — Standort, Bundesland,
@@ -202,6 +203,9 @@ const reportSections = (
     ],
     body: [
       ...markdownToBlocks(lifted.body, { diagramPlaceholder: request.diagramPlaceholder }),
+      // „Rechtsgrundlagen": the passages the report quoted, under the sources
+      // its own list names (`answer-export/excerpts.ts`).
+      ...legalBasisBlocks(lifted.body, references, t),
       ...(references.length > 0
         ? ([
             { kind: 'heading', level: 2, text: t('sources') },

@@ -14,8 +14,9 @@
 
 import { describe, expect, test } from 'vitest'
 import { de } from '@/i18n/dictionaries'
-import type { TraceLaneCard } from '../trace-lanes'
+import type { TraceLaneCard } from '@/lib/conversations/message-provenance'
 import { deriveTraceLanes } from '../trace-lanes'
+import { storedStep } from '@/test-utils/wire-v2-steps'
 import { buildCitationModel } from './build'
 import { citedPages, documentPages, isCited, readPages } from './model'
 import { documentTabLabel, totalHits } from './views'
@@ -30,22 +31,24 @@ const lane = (overrides: Partial<TraceLaneCard>): TraceLaneCard => ({
   ...overrides,
 })
 
-const kbPayload = `
-Found 3 relevant document(s):
-
---- Result 1 ---
-Source: Brandschutzkonzept.pdf
-Collection: proj_1
-Page: 4
-Citation: Brandschutzkonzept.pdf, p.4
-Content Type: text
-Relevance Score: 0.91
-
-Ein Absatz.
-
-## Trace-Lanes
-{"lanes":[{"key":"projekt","label":"Projektwissen","kind":"projekt","hitCount":2,"sources":[{"name":"Brandschutzkonzept.pdf","detail":"p.4"},{"name":"Mustervorlage.pdf","detail":"p.1"}]}]}
-`
+/** A live `sources` step: what one knowledge search returned, as the fold stores it. */
+const kbSources = storedStep({
+  id: 'sources:0:knowledge_search:1',
+  kind: 'sources',
+  tool: 'knowledge_search',
+  lanes: [
+    {
+      key: 'projekt',
+      label: 'Projektwissen',
+      kind: 'projekt',
+      hit_count: 2,
+      sources: [
+        { name: 'Brandschutzkonzept.pdf', detail: 'p.4' },
+        { name: 'Mustervorlage.pdf', detail: 'p.1' },
+      ],
+    },
+  ],
+})
 
 /** The reader's words, from the German dictionary the card renders with. */
 const t = (key: string): string =>
@@ -74,7 +77,7 @@ describe('the fan-out is the model, grouped by document', () => {
     expect(oib2.tint).toBe('oib')
     expect(oib2.authority).toBe('OIB')
     expect(oib2.loci).toHaveLength(2)
-    // READ, not CITED. The `## Trace-Lanes` fan-out is the Herleitung's claim —
+    // READ, not CITED. The `sources` step fan-out is the Herleitung's claim —
     // "these are the passages the turn looked at" — and every locus it
     // contributes carries `isCited: false`. `citedPages` used to return them
     // anyway, so a document retrieved at three pages and cited at one printed
@@ -98,7 +101,7 @@ describe('the fan-out is the model, grouped by document', () => {
   })
 
   test('an authoritative title from the wire wins over the client derivation', () => {
-    // The backend `## Trace-Lanes` ships the stored (admin-editable)
+    // The backend's `sources` step ships the stored (admin-editable)
     // display_title alongside the filename.
     const [doc] = buildCitationModel({
       traceLanes: [
@@ -133,12 +136,8 @@ describe('the fan-out is the model, grouped by document', () => {
     ).toBeUndefined()
   })
 
-  test('one card per document from a live tool payload', () => {
-    const docs = buildCitationModel({
-      traceLanes: deriveTraceLanes([
-        { functionName: 'knowledge_retrieval', category: 'tools', content: kbPayload },
-      ]),
-    })
+  test('one card per document from a live sources step', () => {
+    const docs = buildCitationModel({ traceLanes: deriveTraceLanes([kbSources]) })
     expect(docs.map((doc) => doc.title).sort()).toEqual(['Brandschutzkonzept', 'Mustervorlage'])
     // Retrieved is not cited: nothing here claims the answer used these.
     expect(docs.every((doc) => !isCited(doc))).toBe(true)
@@ -185,7 +184,7 @@ describe('robustness at the edges', () => {
   })
 
   test('a label-only trace hit and the cited source it names are ONE document', () => {
-    // The RIS case: `## Trace-Lanes` knows the norm only by its name, while the
+    // The RIS case: the `sources` step knows the norm only by its name, while the
     // answer's citation of it arrives with a real RIS URL. Two identities, one
     // document — it used to render twice, once cited and once "retrieved, not cited".
     const docs = buildCitationModel({

@@ -1,14 +1,15 @@
-"""Unit tests for KB ## Trace-Lanes emit (Herleitung UI)."""
+"""The knowledge layer's lane fan-out: typed lanes from the records, and the ``sources`` step."""
 
 from __future__ import annotations
 
-import json
 from types import SimpleNamespace
 
 import pytest
 
+from aiq_agent.common.wire_v2 import TraceLane
+from aiq_agent.common.wire_v2 import TraceLaneSource
 from sources.knowledge_layer.src.register import _format_results
-from sources.knowledge_layer.src.register import _trace_lanes_json
+from sources.knowledge_layer.src.register import _trace_lanes_for_chunks
 
 
 @pytest.fixture(autouse=True)
@@ -50,11 +51,8 @@ def _chunk(
 
 def test_trace_lanes_sources_carry_the_shelf_the_hit_stated():
     """The fan-out is the only channel an uncited document has for its shelf."""
-    payload = json.loads(
-        _trace_lanes_json([_chunk(file_name="Konzept.pdf", page=1, collection="proj_abc", shelf="project")])
-    )
-    (lane,) = payload["lanes"]
-    assert lane["sources"][0]["shelf"] == "project"
+    (lane,) = _trace_lanes_for_chunks([_chunk(file_name="Konzept.pdf", page=1, collection="proj_abc", shelf="project")])
+    assert lane.sources[0].shelf == "project"
 
 
 def test_trace_lanes_lane_is_decided_by_the_stated_shelf_not_a_collection_guess():
@@ -64,71 +62,60 @@ def test_trace_lanes_lane_is_decided_by_the_stated_shelf_not_a_collection_guess(
     ``sonstiges`` is a valid class and the collection said nothing. The shelf
     the hit already carries settles it.
     """
-    payload = json.loads(
-        _trace_lanes_json(
-            [_chunk(file_name="Plan.pdf", page=2, collection="c_9f2a", shelf="project", doc_class="sonstiges")]
-        )
+    (lane,) = _trace_lanes_for_chunks(
+        [_chunk(file_name="Plan.pdf", page=2, collection="c_9f2a", shelf="project", doc_class="sonstiges")]
     )
-    (lane,) = payload["lanes"]
-    assert lane["key"] == "projekt"
+    assert lane.key == "projekt"
 
 
-def test_trace_lanes_json_groups_by_lane():
+def test_trace_lanes_group_by_lane():
     chunks = [
         _chunk(file_name="OIB-RL_2_Brandschutz.pdf", page=12, collection="oib_knowledge"),
         _chunk(file_name="Konzept.pdf", page=1, collection="proj_abc"),
         _chunk(file_name="Vorlage.pdf", collection="archiv_org1"),
     ]
-    payload = json.loads(_trace_lanes_json(chunks))
-    keys = [lane["key"] for lane in payload["lanes"]]
-    assert keys == ["baurecht_oib", "projekt", "buero"]
-    oib = next(lane for lane in payload["lanes"] if lane["key"] == "baurecht_oib")
-    assert oib["label"] == "OIB-Richtlinie"
-    assert oib["hitCount"] == 1
+    lanes = _trace_lanes_for_chunks(chunks)
+    assert [lane.key for lane in lanes] == ["baurecht_oib", "projekt", "buero"]
     # `name` is document identity (dedup / preview resolution); `title` is the
     # user-facing display name the Herleitung fan-out renders.
-    assert oib["sources"][0] == {
-        "name": "OIB-RL_2_Brandschutz.pdf",
-        "title": "OIB-Richtlinie 2",
-        "detail": "p.12",
-    }
+    assert lanes[0] == TraceLane(
+        key="baurecht_oib",
+        label="OIB-Richtlinie",
+        kind="baurecht",
+        hit_count=1,
+        sources=[TraceLaneSource(name="OIB-RL_2_Brandschutz.pdf", title="OIB-Richtlinie 2", detail="p.12")],
+    )
 
 
 def test_trace_lanes_sources_carry_the_display_title():
     """The fan-out must never make a user read a raw corpus filename."""
-    chunks = [_chunk(file_name="oib-rl_2.3_ausgabe_mai_2023.pdf", page=4, collection="oib_knowledge")]
-    payload = json.loads(_trace_lanes_json(chunks))
-    source = payload["lanes"][0]["sources"][0]
-    assert source["name"] == "oib-rl_2.3_ausgabe_mai_2023.pdf"
-    assert source["title"] == "OIB-Richtlinie 2.3, Ausgabe Mai 2023"
+    (lane,) = _trace_lanes_for_chunks(
+        [_chunk(file_name="oib-rl_2.3_ausgabe_mai_2023.pdf", page=4, collection="oib_knowledge")]
+    )
+    assert (lane.sources[0].name, lane.sources[0].title) == (
+        "oib-rl_2.3_ausgabe_mai_2023.pdf",
+        "OIB-Richtlinie 2.3, Ausgabe Mai 2023",
+    )
 
 
-def test_trace_lanes_omits_title_when_it_would_repeat_the_filename():
+def test_trace_lanes_omit_title_when_it_would_repeat_the_filename():
     """A project upload's filename IS its user-meaningful name — no redundancy."""
-    chunks = [_chunk(file_name="Konzept.pdf", page=1, collection="proj_abc")]
-    payload = json.loads(_trace_lanes_json(chunks))
-    source = payload["lanes"][0]["sources"][0]
-    assert source["name"] == "Konzept.pdf"
-    assert "title" not in source
+    (lane,) = _trace_lanes_for_chunks([_chunk(file_name="Konzept.pdf", page=1, collection="proj_abc")])
+    assert (lane.sources[0].name, lane.sources[0].title) == ("Konzept.pdf", None)
 
 
 def test_trace_lanes_sources_carry_the_retrieval_round():
-    """The Herleitung assigns files by this stamp after the store merges fetches."""
-    from aiq_agent.common.turn_status import _retrieval_round
-    from aiq_agent.common.turn_status import emit_retrieval
+    """The Herleitung assigns files by this stamp."""
+    from aiq_agent.common.turn_status import retrieval_round_scope
 
-    emit_retrieval([{"name": "knowledge_search_tool", "args": {"query": "q"}}], round_index=1)
-    try:
-        payload = json.loads(
-            _trace_lanes_json([_chunk(file_name="Konzept.pdf", page=1, collection="proj_abc", shelf="project")])
+    with retrieval_round_scope(1):
+        (lane,) = _trace_lanes_for_chunks(
+            [_chunk(file_name="Konzept.pdf", page=1, collection="proj_abc", shelf="project")]
         )
-        assert payload["lanes"][0]["sources"][0]["round"] == 1
-    finally:
-        _retrieval_round.set(None)
+    assert lane.sources[0].round == 1
 
 
 def test_emitted_hits_are_captured_for_the_per_round_ledger():
-    """Emitted hits land in the capture with the active round's stamp."""
     """The ledger reads the capture, never the prose: same emission, both ships."""
     from aiq_agent.common.turn_status import begin_lane_capture
     from aiq_agent.common.turn_status import end_lane_capture
@@ -138,9 +125,9 @@ def test_emitted_hits_are_captured_for_the_per_round_ledger():
     token = begin_lane_capture()
     try:
         with retrieval_round_scope(0):
-            _trace_lanes_json([_chunk(file_name="OIB-RL_2.pdf", page=12, collection="oib_knowledge")])
+            _trace_lanes_for_chunks([_chunk(file_name="OIB-RL_2.pdf", page=12, collection="oib_knowledge")])
         with retrieval_round_scope(1):
-            _trace_lanes_json([_chunk(file_name="OIB-RL_2.pdf", page=31, collection="oib_knowledge")])
+            _trace_lanes_for_chunks([_chunk(file_name="OIB-RL_2.pdf", page=31, collection="oib_knowledge")])
         hits = get_lane_captures()
     finally:
         end_lane_capture(token)
@@ -148,6 +135,20 @@ def test_emitted_hits_are_captured_for_the_per_round_ledger():
         (0, "OIB-RL_2.pdf", "p.12"),
         (1, "OIB-RL_2.pdf", "p.31"),
     ]
+
+
+def test_a_search_result_is_one_sources_step_built_from_its_records(emitted):
+    """Through the real producer: the step carries the lanes the records made, and the tool that ran."""
+    from aiq_agent.common.turn_status import READ_PASSAGE_TOOL
+    from aiq_agent.common.turn_status import lane_tool_scope
+    from aiq_agent.common.turn_status import retrieval_round_scope
+
+    chunks = [_chunk(file_name="OIB-RL_4.pdf", page=3, collection="oib_knowledge")]
+    with retrieval_round_scope(2), lane_tool_scope(READ_PASSAGE_TOOL):
+        _format_results(SimpleNamespace(success=True, chunks=chunks, error_message=None), "q")
+        lanes = list(_trace_lanes_for_chunks(chunks))
+    (step,) = emitted.steps
+    assert (step.kind, step.round, step.tool, step.lanes) == ("sources", 2, "read_passage", lanes)
 
 
 def test_format_results_appends_trace_lanes_block():
@@ -182,38 +183,31 @@ _PILOTI = {
 
 
 def test_a_published_piloti_document_gets_its_own_lane_inside_the_office_kind():
-    payload = json.loads(
-        _trace_lanes_json(
-            [
-                _chunk(
-                    file_name="Brandschutzkonzept Haus B.md",
-                    page=1,
-                    collection="proj_abc",
-                    shelf="project",
-                    provenance=_PILOTI,
-                )
-            ]
-        )
+    (lane,) = _trace_lanes_for_chunks(
+        [
+            _chunk(
+                file_name="Brandschutzkonzept Haus B.md",
+                page=1,
+                collection="proj_abc",
+                shelf="project",
+                provenance=_PILOTI,
+            )
+        ]
     )
-    (lane,) = payload["lanes"]
     # The shelf says project. Without the provenance rule this lane would be
     # "projekt"/"Projektwissen" and nothing would say who wrote the document.
-    assert (lane["key"], lane["label"], lane["kind"]) == ("buero_piloti", "Piloti-Dokument", "buero")
+    assert (lane.key, lane.label, lane.kind) == ("buero_piloti", "Piloti-Dokument", "buero")
 
 
 def test_the_fan_out_carries_the_provenance_as_data_not_as_a_sentence():
     """So a frontend can render the approver in the reader's own locale."""
-    payload = json.loads(
-        _trace_lanes_json([_chunk(file_name="Konzept.md", page=1, shelf="project", provenance=_PILOTI)])
-    )
-    source = payload["lanes"][0]["sources"][0]
-    assert source["provenance"] == _PILOTI
-    assert source["shelf"] == "project"
+    (lane,) = _trace_lanes_for_chunks([_chunk(file_name="Konzept.md", page=1, shelf="project", provenance=_PILOTI)])
+    assert (lane.sources[0].provenance, lane.sources[0].shelf) == (_PILOTI, "project")
 
 
-def test_an_unmarked_hit_carries_no_provenance_key_at_all():
-    payload = json.loads(_trace_lanes_json([_chunk(file_name="Konzept.pdf", page=1, shelf="project")]))
-    assert "provenance" not in payload["lanes"][0]["sources"][0]
+def test_an_unmarked_hit_carries_no_provenance_at_all():
+    (lane,) = _trace_lanes_for_chunks([_chunk(file_name="Konzept.pdf", page=1, shelf="project")])
+    assert lane.sources[0].provenance is None
 
 
 def test_the_grounding_block_states_who_released_the_document_in_one_line():

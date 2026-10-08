@@ -88,6 +88,23 @@ export const INBOX_ITEM_TYPES = [
    * resolve sits in a badge for good.
    */
   'document.review_requested',
+  /**
+   * Informational, platform tier: a member somewhere in the fleet sent product
+   * feedback (a bug, an idea, praise or a question). Addressed to the platform
+   * owners and written into the PLATFORM organization, not the reporter's —
+   * the reporter's tenant has no business knowing who runs the platform, and
+   * the owners read it from whichever organization they are working in (the
+   * inbox's platform lane, `@/lib/inbox/service`).
+   */
+  'feedback.submitted',
+  /**
+   * Informational, operational tier: an Outlook archive the recipient started
+   * importing has been filed, or the import stopped (ADR-0085). Addressed to the
+   * person who started it, pointing at the project and anchored on the folder
+   * the import filed under, which is where the row lands.
+   */
+  'mail_import.completed',
+  'mail_import.failed',
 ] as const
 export type InboxItemType = (typeof INBOX_ITEM_TYPES)[number]
 
@@ -107,7 +124,12 @@ export type InboxItemType = (typeof INBOX_ITEM_TYPES)[number]
  * and an access resolver. That registry — not a cast, and not a branch inside
  * the read path — is what lets an org-scoped item exist.
  */
-export const INBOX_TARGET_TYPES = [...SHAREABLE_RESOURCE_TYPES, 'organization', 'project'] as const
+export const INBOX_TARGET_TYPES = [
+  ...SHAREABLE_RESOURCE_TYPES,
+  'organization',
+  'project',
+  'product_feedback',
+] as const
 export type InboxTargetType = (typeof INBOX_TARGET_TYPES)[number]
 
 export const inboxItems = pgTable(

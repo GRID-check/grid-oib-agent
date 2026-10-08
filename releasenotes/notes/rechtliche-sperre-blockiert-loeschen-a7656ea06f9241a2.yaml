@@ -1,0 +1,10 @@
+---
+incident:
+  - >
+    A legal hold now prevents every deletion: a held document, Archiv document,
+    chat or chat attachment can no longer be deleted. The hold applies when it
+    is on the item, its project or chat, the person who created it, or your
+    organisation.
+  - >
+    Permanently deleting a project now waits if even one document or chat in it
+    is on hold.

@@ -1,0 +1,100 @@
+'use client'
+
+import { useCallback, useRef, useState } from 'react'
+import { digestFiles } from '../lib/content-digest'
+import {
+  buildFolderUploadPlan,
+  isFolderUpload,
+  needsUploadDecision,
+  type FolderUploadPlan,
+  type FolderUploadPlanInput,
+  type PlanDocument,
+} from '../lib/folder-upload-plan'
+
+/**
+ * Where the plan's documents come from: a list the caller already has, or —
+ * what both shelves use — a probe asked with the dropped names
+ * (`name-probe-client.ts`), which answers from the database what the upload
+ * will match, whatever the browser happens to have loaded.
+ */
+export type PlanDocumentSource =
+  | readonly PlanDocument[]
+  | ((names: readonly string[]) => Promise<readonly PlanDocument[]>)
+
+/** What the dialog is about: a directory tree, or files picked or dropped loose. */
+export type UploadDecisionKind = 'folder' | 'files'
+
+export interface UploadDecision {
+  /**
+   * Plan an upload against the shelf and either send it straight away
+   * (`sendDirect`) or open the dialog. A function source is called with the
+   * dropped names, so the comparison is against every document the upload
+   * could touch rather than against the page of the listing on screen.
+   */
+  propose: (
+    input: Omit<FolderUploadPlanInput, 'documents' | 'digests'> & { documents: PlanDocumentSource },
+    sendDirect: (files: File[]) => void
+  ) => Promise<void>
+  plan: FolderUploadPlan | null
+  kind: UploadDecisionKind
+  open: boolean
+  setOpen: (open: boolean) => void
+  pending: boolean
+  setPending: (pending: boolean) => void
+}
+
+/**
+ * One answer to "a document of this name is already here", for every durable
+ * shelf.
+ *
+ * A same-name upload replaces the live document with a new version (ADR-0054),
+ * and whether it asked first used to depend on what THIS browser remembered:
+ * a tab that had uploaded to the project before refused the file as „bereits
+ * hinzugefügt", a fresh one replaced the document without a word. The shelf
+ * itself is the one fact both browsers share, so the decision is made from it
+ * — asked of the server by name (`name-probe-client.ts`), because the listing
+ * on screen is paged, filtered and leaves archived documents out, and a match
+ * it did not carry used to be versioned without a word.
+ *
+ * Files that match nothing go out at once; anything that would touch an
+ * existing document opens the plan dialog first. A folder always opens it.
+ */
+export function useUploadDecision(): UploadDecision {
+  const [plan, setPlan] = useState<FolderUploadPlan | null>(null)
+  const [kind, setKind] = useState<UploadDecisionKind>('files')
+  const [open, setOpen] = useState(false)
+  const [pending, setPending] = useState(false)
+  /**
+   * The plan's own generation, so a second drop while the first is still being
+   * hashed cannot land on top of it. Hashing a folder of models is seconds
+   * long, which is ample time to drop another.
+   */
+  const generation = useRef(0)
+
+  const propose = useCallback<UploadDecision['propose']>(async (input, sendDirect) => {
+    const current = ++generation.current
+    const isFolder = isFolderUpload(input.files)
+    const documents =
+      typeof input.documents === 'function'
+        ? await input.documents([...new Set(input.files.map((file) => file.name))])
+        : input.documents
+    if (current !== generation.current) return
+    const base: FolderUploadPlanInput = { ...input, documents }
+    // First pass names the plausible duplicates; only those are read into
+    // memory. Everything else is an upload either way.
+    const first = buildFolderUploadPlan(base)
+    if (!isFolder && !needsUploadDecision(first)) {
+      sendDirect([...input.files])
+      return
+    }
+    setKind(isFolder ? 'folder' : 'files')
+    setPlan(null)
+    setPending(false)
+    setOpen(true)
+    const digests = await digestFiles(first.hashCandidates)
+    if (current !== generation.current) return
+    setPlan(buildFolderUploadPlan({ ...base, digests }))
+  }, [])
+
+  return { propose, plan, kind, open, setOpen, pending, setPending }
+}

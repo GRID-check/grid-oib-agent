@@ -1,5 +1,6 @@
 'use client'
 
+import type { JSX } from 'react'
 import { useEffect, useRef, useState } from 'react'
 import { ListChecks, Sparkles } from 'lucide-react'
 
@@ -29,7 +30,6 @@ import { parseAutomationTab, tabForDeepLink, type AutomationTab } from '../lib/a
 
 interface AutomationPanelProps {
   projectId: string
-  projectCollection: string
   /** May create/edit/delete org skills (`org:skills:manage`). */
   canManageOrgSkills: boolean
   /** May create/edit/run/delete this project's tasks (`project:skills:manage`). */
@@ -67,7 +67,6 @@ function tabHref(next: AutomationTab): string {
 
 export function AutomationPanel({
   projectId,
-  projectCollection,
   canManageOrgSkills,
   canManageJobs,
   canChatInProject = true,
@@ -128,7 +127,6 @@ export function AutomationPanel({
       <TabsContent value="tasks" className="min-h-0 overflow-hidden">
         <TasksPanel
           projectId={projectId}
-          projectCollection={projectCollection}
           canManageJobs={canManageJobs}
           canChatInProject={canChatInProject}
           initialView={initialView}

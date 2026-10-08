@@ -21,7 +21,7 @@ const digest = (overrides: Record<string, unknown> = {}) => ({
 const stubFetch = (body: unknown, ok = true): void => {
   vi.stubGlobal(
     'fetch',
-    vi.fn(async () => new Response(JSON.stringify(body), { status: ok ? 200 : 500 })),
+    vi.fn(async () => new Response(JSON.stringify(body), { status: ok ? 200 : 500 }))
   )
 }
 
@@ -39,7 +39,31 @@ describe('FeedbackDigest', () => {
     const strengths = await screen.findByTestId('feedback-digest-strengths')
     const concerns = screen.getByTestId('feedback-digest-concerns')
     expect(within(strengths).getByText('Energy questions are answered well.')).toBeInTheDocument()
-    expect(within(concerns).getByText('Escape-route answers are cited wrongly.')).toBeInTheDocument()
+    expect(
+      within(concerns).getByText('Escape-route answers are cited wrongly.')
+    ).toBeInTheDocument()
+  })
+
+  it('lists the sampled unhelpful votes by cause when they were labelled', async () => {
+    stubFetch(
+      digest({
+        causes: [
+          { cause: 'wrong_rule', count: 3 },
+          { cause: 'form', count: 1 },
+        ],
+      })
+    )
+    render(<FeedbackDigest search="days=30" />)
+
+    const causes = await screen.findByTestId('feedback-digest-causes')
+    expect(causes).toHaveTextContent('wrong regulation 3 · form 1')
+  })
+
+  it('shows no cause line for a digest without causes', async () => {
+    stubFetch(digest())
+    render(<FeedbackDigest search="days=30" />)
+    await screen.findByTestId('feedback-digest-strengths')
+    expect(screen.queryByTestId('feedback-digest-causes')).not.toBeInTheDocument()
   })
 
   /**
@@ -52,7 +76,9 @@ describe('FeedbackDigest', () => {
     render(<FeedbackDigest search="days=30" />)
 
     const strengths = await screen.findByTestId('feedback-digest-strengths')
-    expect(within(strengths).getByText(/Nothing in this window stands out as working well/)).toBeInTheDocument()
+    expect(
+      within(strengths).getByText(/Nothing in this window stands out as working well/)
+    ).toBeInTheDocument()
   })
 
   /**
@@ -80,7 +106,7 @@ describe('FeedbackDigest', () => {
     await waitFor(() => expect(lastUrl()).toContain('refresh=1'))
   })
 
-  it('asks for the digest in the reader\'s language', async () => {
+  it("asks for the digest in the reader's language", async () => {
     stubFetch(digest())
     render(<FeedbackDigest search="days=30" />)
 
@@ -100,8 +126,8 @@ describe('FeedbackDigest', () => {
         () =>
           new Promise<Response>((resolve) => {
             answer.push((body) => resolve(new Response(JSON.stringify(body), { status: 200 })))
-          }),
-      ),
+          })
+      )
     )
 
     const { rerender } = render(<FeedbackDigest search="days=30" />)
@@ -116,7 +142,7 @@ describe('FeedbackDigest', () => {
 
     answer[0](digest({ headline: 'The last thirty days went well.' }))
     await waitFor(() =>
-      expect(screen.getByText('The last seven days went well.')).toBeInTheDocument(),
+      expect(screen.getByText('The last seven days went well.')).toBeInTheDocument()
     )
     expect(screen.queryByText('The last thirty days went well.')).not.toBeInTheDocument()
   })
@@ -141,16 +167,16 @@ describe('FeedbackDigest — when there are no sentences', () => {
     render(<FeedbackDigest search="days=30" />)
 
     expect(await screen.findByTestId('feedback-digest-empty')).toHaveTextContent(
-      /nothing to summarise yet/,
+      /nothing to summarise yet/
     )
   })
 
-  it('says the failure is the summary\'s alone, so the figures are still trusted', async () => {
+  it("says the failure is the summary's alone, so the figures are still trusted", async () => {
     stubFetch({ error: 'boom' }, false)
     render(<FeedbackDigest search="days=30" />)
 
     expect(await screen.findByTestId('feedback-digest-empty')).toHaveTextContent(
-      /figures below are unaffected/,
+      /figures below are unaffected/
     )
   })
 })

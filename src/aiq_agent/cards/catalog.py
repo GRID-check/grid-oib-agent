@@ -24,37 +24,20 @@ from typing import Literal
 from pydantic import BaseModel
 from pydantic_core import PydanticUndefined
 
-# Card types the MODEL MAY NOT EMIT. They remain valid union members for
-# validation/serialization/rendering — every card ever stored keeps parsing and
-# keeps rendering — and only their description in the model-facing catalog is
-# suppressed. Every emission path reads this set: `emit_card`
-# (`cards/register.py`), post-hoc batch generation (`validate_cards` in
+# Card types the MODEL MAY NOT EMIT because a TOOL owns them. They remain valid
+# union members for validation/serialization/rendering, and only their
+# description in the model-facing catalog is suppressed. Every emission path
+# reads this set: the envelope's `cards` and `emit_card` (`validate_model_card`
+# in `cards/envelope.py`), post-hoc batch generation (`validate_cards` in
 # `cards/models.py`) and the DSML salvage (`piloti/dsml.py`).
 #
-# Two kinds of member, one mechanism:
-#
-#   * SYSTEM-emitted — a tool on a sanctioned path owns the card and the model
-#     must not be able to fabricate it (`memory_proposal` from `remember`,
-#     `document_grid` from `surface_documents`, `document_draft` from the
-#     working directory's `write_file`/`edit_file`, whose card names a file
-#     that has to exist, `task_created` from `create_task`, whose card names a
-#     task row the BFF has already written, `file_operation_proposal` from the
-#     four write-side workspace tools, whose card names files the reader
-#     actually has).
-#   * RETIRED — the content moved off the card path entirely and the card only
-#     survives so that stored ones keep rendering. `follow_ups` was the first:
-#     the post-answer `follow_ups` STAGE now computes the questions after the
-#     answer is written, gated by deterministic Python rather than by the
-#     model's opinion of its own answer, and delivers them as a
-#     `grid_stage_message` frame rendered BELOW the answer
-#     (`aiq_agent/stages/follow_ups.py`, docs/architecture/post-answer-stages.md
-#     §7.10). An old thread still renders its stored chips inside the answer
-#     where they were; a new one renders them below it.
-#
-# Retiring rather than deleting is deliberate and is what this constant is for:
-# dropping the type from the union would make `validateGridCards`
-# (`shared/cards/schemas.ts`) reject every stored `follow_ups` card, so every
-# historical thread would lose its chips and log a warning per card.
+# A tool on a sanctioned path owns each card and the model must not be able to
+# fabricate it (`memory_proposal` from `remember`, `document_grid` from
+# `surface_documents`, `document_draft` from the working directory's
+# `write_file`/`edit_file`, whose card names a file that has to exist,
+# `task_created` from `create_task`, whose card names a task row the BFF has
+# already written, `file_operation_proposal` from the four write-side workspace
+# tools, whose card names files the reader actually has).
 SYSTEM_CARD_TYPES = frozenset(
     {
         "memory_proposal",
@@ -66,31 +49,139 @@ SYSTEM_CARD_TYPES = frozenset(
         # to stop the model writing on its own.
         "task_created",
         "file_operation_proposal",
-        "follow_ups",
     }
 )
 
-# Card types that stopped being cards — the RHETORICAL shapes, the ones almost
-# every answer could carry. A verdict, the takeaways and the single callout are
-# the answer's own anatomy, not exhibits attached beside it, so they left the
-# card system entirely: the chat answer envelope (```answer_json) carries them as
-# optional fields, validated and gated platform-side
-# (`agents/piloti/answer_meta.py` — a verdict must be a short
-# VALUE, a takeaway block is earned by length, one callout at most), and they
-# travel on the answer itself, beside ``answer_confidence``, never in the
-# ``cards`` array. `summary` has no trailer field — its role is covered by the
-# lede and the takeaways — and is simply retired.
-#
-# NO generator produces these as cards any more: `emit_card`, the DSML salvage,
-# `describe_card`, a skill's `grid-cards` preference AND the post-hoc batch
-# pass all withhold or refuse them, exactly like SYSTEM_CARD_TYPES. They remain
-# union members only so every card stored on a historical thread keeps parsing
-# and rendering. A separate constant from SYSTEM_CARD_TYPES because the REASON
-# differs and the refusal message must too: a system card has a sanctioned
-# tool that emits it, an envelope shape has a trailer field that replaced it —
-# and the model that correctly recognised "this answer has a verdict" is
-# redirected there rather than merely refused.
-ENVELOPE_CARD_TYPES = frozenset({"summary", "verdict_header", "key_takeaways", "callout"})
+#: Card types that no longer exist, each with what carries its content now. They
+#: were deleted from the `GridCard` union (an answer is Markdown prose; a card
+#: must carry an interaction, geometry drawn to scale, a computed number or a
+#: live model binding that Markdown cannot), so no channel can register one.
+#: This map only makes the refusal useful: a model that reaches for one by name
+#: is told the Markdown (or the card) that replaced it, instead of a validator's
+#: "unknown discriminator" that would send it to the repair model.
+#:
+#: Plain GFM, no `:::` block: these refusals reach deep research (`emit_card`)
+#: and the repair model, and the deep writer's PDF prints a `:::` line as text
+#: until Phase B. The chat envelope never shows them: a retired card there is
+#: turned into its Markdown instead (:func:`retired_card_markdown`), and the
+#: chat's own prompt maps each shape to its block.
+RETIRED_CARD_REPLACEMENTS: dict[str, str] = {
+    "summary": "the answer's first sentence, or the `summary` field of your ```answer_json envelope",
+    "verdict_header": "the `verdict` field of your ```answer_json envelope",
+    "key_takeaways": "the `takeaways` field of your ```answer_json envelope",
+    "callout": "the `callout` field of your ```answer_json envelope",
+    "follow_ups": "nothing: follow-up questions are computed after the answer",
+    "typed_table": "a Markdown table in the answer",
+    "comparison_table": "a Markdown table with a column per variant",
+    "requirement_checklist": "a Markdown table with a Status column (Anforderung | Ist | Soll | Status | Fundstelle)",
+    "document_checklist": "a table with a Status column (erforderlich, bedingt, vorhanden, fehlt)",
+    "deadline_timeline": "a numbered list, each Frist in bold as the Bestimmung words it",
+    "norm_chain": "a table of the instruments, or a ```mermaid flowchart TD with the binding one on top",
+    "change_impact": "a table with a row per consequence and its Fundstelle",
+    "diagram": "a ```mermaid fence in the answer",
+    "condition_tree": "a table of the cases, this project's case named once it is known",
+    "process_map": "a numbered list, one step per line; a ```mermaid flowchart TD if it forks",
+    "legal_basis": "a cited blockquote in the answer: > „<the passage verbatim>“ [N]",
+    "fire_compartment": (
+        "a table with a Status column (Anforderung | Ist | Soll | Status | Fundstelle); "
+        "a calculation card where the area is worked out"
+    ),
+    "thermal_envelope": "a table with a Status column (Bauteil | Ist | Soll | Status | Fundstelle), the U-Wert in Ist",
+    "energy_performance": "a table of the figures against their limits, the Energieeffizienzklasse named",
+    "acoustic_check": "a table with a Status column (Bauteil | Ist | Soll | Status | Fundstelle), the Nachweis in Ist",
+    "parking_requirement": (
+        "a table of the figures against their limits; a calculation card where the count is worked out"
+    ),
+    "density_check": "a setback_plan card with `coverage` / `density`",
+    "elevator_requirement": "a dimension_diagram card with shape `lift_cabin`",
+}
+RETIRED_CARD_TYPES: frozenset[str] = frozenset(RETIRED_CARD_REPLACEMENTS)
+
+
+def retired_refusal(card_type: str) -> str:
+    """The one sentence every channel refuses a retired card type with: what to write instead."""
+    return f"card type '{card_type}' no longer exists: write {RETIRED_CARD_REPLACEMENTS[card_type]} instead."
+
+
+#: Keys of a retired payload whose text is a verbatim passage: a quote line.
+_QUOTE_KEYS = ("original_text", "quote", "excerpt")
+#: Keys whose text heads the Markdown: a bold line.
+_TITLE_KEYS = ("title", "law", "subject")
+#: Nothing a reader lost with the card: the discriminator and styling hints.
+_SKIPPED_KEYS = frozenset({"type", "lane", "highlight_index", "current_step", "v"})
+#: Up to this long a text field is a label on the title line, past it a paragraph.
+_LABEL_CHARS = 40
+
+
+def _cell(value: Any) -> str:
+    """One table cell: a scalar as text, anything else as its scalars joined, pipes escaped."""
+    if isinstance(value, dict):
+        value = " · ".join(_cell(item) for item in value.values() if item not in (None, "", [], {}))
+    elif isinstance(value, list):
+        value = ", ".join(_cell(item) for item in value if item not in (None, "", [], {}))
+    return str(value).replace("|", "\\|").replace("\n", " ").strip() if value is not None else ""
+
+
+def _table(header: list[str], rows: list[list[Any]]) -> list[str]:
+    width = len(header)
+    lines = ["| " + " | ".join(_cell(cell) for cell in header) + " |", "|" + "---|" * width]
+    for row in rows:
+        cells = [_cell(cell) for cell in row][:width]
+        lines.append("| " + " | ".join(cells + [""] * (width - len(cells))) + " |")
+    return lines
+
+
+def retired_card_markdown(payload: object) -> str | None:
+    """A retired card's content as the Markdown that replaced it, or ``None`` when it holds none.
+
+    A model that reaches for a retired type on chat put content in it — the
+    quote of a ``legal_basis``, the rows of a ``typed_table``, the steps of a
+    ``process_map`` — that may be nowhere else in the answer. Dropping the card
+    would delete that content (guardrail 8), so it is laid out as plain
+    Markdown at the card's marker instead: its title as a bold line, a
+    verbatim passage as a quote line (which the quote check then holds to its
+    source like any other), a list of records as a table, text as a paragraph.
+    Generic by shape rather than per type: the types are gone, and so are
+    their models.
+    """
+    if not isinstance(payload, dict) or payload.get("type") not in RETIRED_CARD_TYPES:
+        return None
+    parts: list[str] = []
+    title = next(
+        (payload[key] for key in _TITLE_KEYS if isinstance(payload.get(key), str) and payload[key].strip()), None
+    )
+    # Short labels (an edition, a Punkt) ride on the title line; a sentence is its own paragraph.
+    labels = [
+        value.strip()
+        for key, value in payload.items()
+        if key not in _SKIPPED_KEYS
+        and key not in _TITLE_KEYS
+        and key not in _QUOTE_KEYS
+        and isinstance(value, str)
+        and value.strip()
+        and len(value) <= _LABEL_CHARS
+    ]
+    if title or labels:
+        parts.append(" · ".join(([f"**{title.strip()}**"] if title else []) + labels))
+    columns = payload.get("columns")
+    rows = payload.get("rows")
+    if isinstance(columns, list) and isinstance(rows, list) and rows and all(isinstance(row, list) for row in rows):
+        header = [column.get("label", "") if isinstance(column, dict) else column for column in columns]
+        parts.append("\n".join(_table(header, rows)))
+    for key, value in payload.items():
+        if key in _SKIPPED_KEYS or key in _TITLE_KEYS or key in ("columns", "rows") or value in (None, "", [], {}):
+            continue
+        if key in _QUOTE_KEYS and isinstance(value, str):
+            parts.append(f"> „{value.strip()}“")
+        elif isinstance(value, str) and len(value) > _LABEL_CHARS:
+            parts.append(value.strip())
+        elif isinstance(value, list) and value and all(isinstance(item, dict) for item in value):
+            header = list(dict.fromkeys(name for item in value for name in item if name not in _SKIPPED_KEYS))
+            parts.append("\n".join(_table(header, [[item.get(name) for name in header] for item in value])))
+        elif isinstance(value, list) and value:
+            parts.append("\n".join(f"- {_cell(item)}" for item in value))
+    return "\n\n".join(parts) if parts else None
+
 
 # Card types that ASK THE USER TO DECIDE something and act on the answer. They
 # are a different kind of object from the rest of the catalog: a presentational
@@ -108,8 +199,8 @@ ENVELOPE_CARD_TYPES = frozenset({"summary", "verdict_header", "key_takeaways", "
 #   - every terminal outcome it can reach must be a member of `CARD_DECISIONS`;
 #   - it must also be in SURFACE_EXCLUDED_LEAVES: a leaf inside a surface has
 #     no message position for its decision to be keyed by. `cards/models.py`
-#     derives that set from this one (and from SYSTEM_CARD_TYPES and
-#     ENVELOPE_CARD_TYPES), so Python needs no edit; the frontend's copy in
+#     derives that set from this one (and from SYSTEM_CARD_TYPES), so Python
+#     needs no edit; the frontend's copy in
 #     `frontends/ui/src/features/a2ui/catalog.tsx` is kept by hand, and
 #     `tests/aiq_agent/cards/test_surface_excluded_parity.py` holds it to the
 #     derived set.
@@ -118,22 +209,11 @@ ENVELOPE_CARD_TYPES = frozenset({"summary", "verdict_header", "key_takeaways", "
 # (a memory write, a profile patch). If the action is idempotent and cheap,
 # prefer a presentational card — there is then nothing to remember.
 #
-# `diagram` was briefly a member and is deliberately not one. It was added for a
-# filing button beside the drawing („Im Projekt ablegen" → two `documents` rows),
-# and the release review cut that button from v1: the card SHOWS a drawing and
-# offers nothing, so there is no answer to persist. The route, the SVG validator,
-# the PDF conversion and migration 0065 stay in the tree unreached, and the day
-# the button comes back this set is the first thing that has to change — together
-# with `CARD_INTERACTIVITY` in `card-decision.ts`, which
-# `tests/aiq_agent/cards/test_interactive_card_parity.py` holds to this one.
-#
-# There is no second set here (a `CONSENT_CARD_TYPES` briefly existed for the
-# same reason and left with the button). "Must the frontend persist an answer?"
-# and "does emitting it cost the reader a decision?" only ever named different
-# sets while `diagram` sat between them, and two constants that are equal by
-# construction are two things to keep in sync, of which one stops being
-# maintained. A card that is genuinely one and not the other is the reason to
-# split them again — and then the split has to be argued at that card.
+# `diagram` was briefly a member for a filing button the release review cut; the
+# card is gone now (RETIRED_CARD_TYPES), and a ```mermaid fence in the prose
+# carries what it drew. There is no second set here (a `CONSENT_CARD_TYPES`
+# briefly existed and left with the button): two constants equal by
+# construction are two things to keep in sync.
 #
 # `document_draft` joined when `file_draft` gave it something to act on. It is a
 # borderline case worth stating: the card is emitted by a WRITE that already
@@ -170,66 +250,56 @@ CHAT_ONLY_CARD_TYPES = frozenset({"surface"})
 # their model is broken when it is not.
 MODEL_BACKED_CARD_TYPES = frozenset({"ifc_viewer", "ifc_element", "ifc_compliance", "ifc_schedule", "ifc_diff"})
 
-# The shared card DOCTRINE: which trigger takes which card, and when to emit none.
+# The shared card DOCTRINE: what Markdown carries, which trigger takes which card, and when to emit
+# none.
 #
-# It lives here, with the shapes, because BOTH surfaces that ask a model for a card need it and
-# neither may hold its own copy. "Emit a card only when it adds real value" was the whole
-# instruction once, and fifteen working diagram renderers sat unused behind it, because a
-# disclaimer is not an instruction. A second copy of the cure is a second thing to keep in sync,
-# and the copy that stops being maintained is the one that goes back to being a disclaimer.
+# It lives here, with the shapes, because every surface that asks a model for a card needs it and
+# none may hold its own copy: the chat envelope (`cards/envelope.py`), `emit_card` for deep research
+# (`cards/register.py`) and the post-hoc batch pass (`cards/prompt.py`). A rule kept twice disagrees
+# with itself.
 #
-# The CRAFT now rides WITH the triggers, one indented block per row, because the two halves are
-# one decision: "a Verfahren -> process_map" and "stations must carry what each step requires" are
-# the question and the answer to it, and split across two files they drift apart without either
-# copy looking wrong. They were split — the trigger here, the craft in the `<cards>` section of
-# `piloti/prompts/piloti.j2` — and the prompt's copy had grown its own sharpened triggers, its own
-# budget and its own restatement test beside the ones below. A rule that exists twice will disagree
-# with itself, so `emit_card`'s description is now the ONE statement of when a card is earned,
-# which one, and how it is filled well.
+# The CRAFT rides WITH the triggers, one indented block per row, because the trigger and how the
+# card is filled well are one decision. `include_craft=False` renders the rows alone, for the
+# post-hoc surface, which has its own short craft in `prompt.py`.
 #
-# What stays OUT of this module, and out of the tool, is what only the answering PROMPT can say:
-# the `[[card:N]]` placement marker contract and the redirect for the three envelope shapes
-# (verdict, key takeaways, callout, which are `answer_json` fields rather than cards). Both are
-# facts about the answer being written, and post-hoc generation is handed a finished report. The
-# `ENVELOPE_NOTE` constant that used to carry the second one stood here; the refusal in
-# `register.py` still names the right channel when a model reaches for one anyway.
+# What stays OUT of this module is what only the answering PROMPT can say: the `[[card:N]]`
+# placement contract, and the envelope's own fields (verdict, takeaways, callout).
 #
-# `include_craft=False` renders the rows alone, for the post-hoc surface: it has its own
-# post-hoc-truthful short craft in `prompt.py` — a TEST over a finished report rather than an
-# instruction about writing one — and the two must not both be paid on the same call.
+# MARKDOWN FIRST leads, on every surface. An answer is Markdown prose; a table, a list, a flowchart
+# fence and a verified blockquote carry what the retired cards (RETIRED_CARD_TYPES) carried, and a
+# card is left for what Markdown cannot hold: an interaction, geometry drawn to scale, a number the
+# card computes, a live binding to the building model, variants in tabs. So the table below is
+# short, and a match is a REASON, not an obligation: the clause about carrying more than the
+# sentence beside it puts the restatement test (anti-goal D.8) in the invitation itself.
 #
-# The HEAD of this table is calibrated, and both directions of miscalibration have now been seen in
-# the field. It once said "an answer that turns on a DIMENSION gets its card by default" — a default
-# scoped to six of the twenty-odd rows below, which left `process_map` matching its trigger almost
-# word for word and still coming back as a numbered prose list. Generalising that default is the
-# fix, and the first attempt at it overcorrected: "a match IS a card, by default and unasked", plus
-# an instruction that not emitting was an exception needing a justification, read as an obligation
-# across every row. The product owner's reading of the fleet is that emission is broadly fine, so
-# the general rate was never the problem and pushing on it can only buy restatement — the one thing
-# anti-goal D.8 exists to forbid.
-#
-# So a match is a REASON, not an obligation, and the clause about carrying more than the sentence
-# beside it puts the restatement test in the invitation itself rather than leaving it all to
-# `_CARD_RESTRAINT`. The cards actually observed missing are pushed where it costs nothing
-# general: `process_map` (and `calculation`, `callout`, `key_takeaways`) by the "Emit for …"
-# imperative each already carries in the always-on L1 index. `follow_ups` was the other one and it
-# is no longer a card the model emits at all — it moved to the post-answer stage, so its push, its
-# rule and its trigger row all left with it.
-#
-# The NAMING clause is the one thing the dial-back took out that had to come back. Its predecessor
-# read "if you can NAME the card that fits, emit it: knowing which one fits and writing the answer
-# as prose anyway is this tool's one failure mode" — and it went out with the obligation framing it
-# happened to sit next to, which is why it is restated here on its own. It carries no duty; it
-# closes a gap the rest of the table cannot reach. Every other sentence here is about RECOGNISING
-# the card, and the two transcripts that produced this pass show recognition working and emission
-# not following it: asked again in plainer words, the model named the right card and built it well
-# on the first attempt. The step being lost is between knowing and doing, so that is the step this
-# sentence names — not "you must", but "you have already decided".
+# The NAMING clause closes the one gap the table cannot reach: field transcripts showed the model
+# recognising the right card and then writing prose anyway. Not "you must", but "you have already
+# decided".
+_MARKDOWN_FIRST = """\
+MARKDOWN FIRST. The answer's own Markdown carries rows of values, cases and options (a table; a
+Status column renders its words as marks, and `trifft zu` marks the row that holds for this
+project), a Verfahren or a run of Fristen (a numbered list, or a ```mermaid flowchart TD when it
+forks), and the wording an answer turns on (a cited blockquote > „…“ [N]). A card is only for what
+Markdown cannot carry: an interaction, geometry drawn to scale from measurements, a number the card
+computes (calculation), or a live binding to the building model."""
+
+#: The chat's MARKDOWN FIRST: the same rule in the blocks the chat prompt teaches
+#: (`piloti_static.md` <formatting> RICH BLOCKS), so the envelope's contract and
+#: the prompt read one way. Only the chat draws the blocks and a `surface`.
+_MARKDOWN_FIRST_CHAT = """\
+MARKDOWN FIRST. The answer's own Markdown carries what the retired cards carried, in the blocks
+RICH BLOCKS teaches: criteria each with a status (`:::check`), the cases of one project factor
+(`:::cases`), a few figures against their limits (`:::metrics`), variants side by side
+(`:::compare`), a Verfahren or a run of Fristen (`:::procedure`, or a ```mermaid flowchart TD when it
+forks), what is still to do (`:::actions`), and the wording an answer turns on (a quote line
+> „…“ [N]). A card is only for what Markdown cannot carry: an interaction, geometry drawn to scale
+from measurements, a number the card computes (calculation), a live binding to the building model,
+or variants in tabs (surface)."""
+
 _CARD_TRIGGER_HEAD = """\
-WHEN TO EMIT ONE. This table maps content to card. A row that matches your answer is a reason to
-reach for that card rather than mere permission — a measurement, an ordered Verfahren or a set of
-criteria written out as prose makes the reader rebuild in their head what the card would have
-shown them. Emit it where the match is clear and the card
+WHEN TO EMIT ONE. A row that matches your answer is a reason to reach for that card — a stair, a
+clear width or an escape route written out as prose makes the reader rebuild in their head the
+drawing the card would have shown them. Emit it where the match is clear and the card
 carries more than the sentence beside it. Naming the card IS the decision: once you can say which
 card this answer is, emitting it is the step that follows, not a second judgement."""
 
@@ -246,71 +316,29 @@ emit it INSTEAD of writing the file names as a prose bullet list. It renders the
 as tiles the user clicks to open the viewer directly — you supply only the heading, never the file
 names, so there is nothing to get wrong. You do not need to call ifc_query first to list them."""
 
-# `_FOLLOW_UPS_RULE` stood here. It is gone rather than moved: the post-answer
-# `follow_ups` stage carries what it said, and the two exceptions it named
-# ("a conversational or off-topic turn" / "an answer that already ends by asking
-# the user something") became GATE CONDITIONS in `stages/follow_ups.py` —
-# `routing_meta`, `intent_out_of_scope` and `answer_ends_in_question` — because a
-# condition the gate enforces is a number on a dashboard while the same condition
-# in a prompt is a hope. Nothing on the card path needs it any more: the model
-# cannot emit the card at all (`SYSTEM_CARD_TYPES` above).
-
 #: ``(trigger, card, craft)``. The trigger says WHICH card; the craft, indented under it, says how
-#: that card is filled well — the two halves of one decision, so they are read together and cannot
-#: be maintained apart. `include_craft=False` renders the rows alone.
-#:
-#: A card type with no craft entry is one the renderer already constrains: the fifteen schematic
-#: cards draw to scale from `DimensionCheck` rows, so getting the fields in is the whole of getting
-#: the card right. Craft is spent on the GENERIC shapes, where the same content fits three cards
-#: and only one of them takes work off the reader.
+#: that card is filled well. A card type with no craft entry is one the renderer already constrains:
+#: the schematic cards draw to scale from `DimensionCheck` rows, so getting the fields in is the
+#: whole of getting the card right.
 _CARD_TRIGGERS: tuple[tuple[str, str, str], ...] = (
     ("a riser, tread or stair width", "stair_diagram", ""),
     ("a clear width, ramp or turning circle", "dimension_diagram", ""),
     ("an escape route with segments", "egress_diagram", ""),
     ("a fall height, railing or opening", "guardrail_check", ""),
-    ("a U-value, HWB or energy class", "thermal_envelope / energy_performance", ""),
-    ("a fire compartment area", "fire_compartment", ""),
     (
-        "the Richtlinie or norm the answer rests on",
-        "legal_basis",
-        "One instrument carrying the answer is this card, not a norm_chain. The decisive passage "
-        "goes in `original_text` as short verbatim — the sentence the answer turns on, never the "
-        "paragraph around it.",
+        "a distance to a parcel edge, or Bebauungsgrad, Bebauungsdichte or GFZ",
+        "setback_plan",
+        "For coverage and GFZ, give `coverage` / `density` with the Bebauungsplan's limit in `required` "
+        "and leave `value` empty: the card derives it from the areas (`parcel_area_m2`, "
+        "`footprint_area_m2` where the plot is not the drawn rectangle, `gross_floor_area_m2` for the "
+        "GFZ). A pure density question leaves `sides` empty; a limit the Bebauungsplan did not give "
+        "you stays out.",
     ),
     (
-        "a chain of norms, one binding, the rest interpreting",
-        "norm_chain",
-        "Only where the binding gradient is itself the content, i.e. your own answer says "
-        '„bindend ist davon nur …". One instrument is a chain with one link, so legal_basis or a '
-        "plain citation.",
-    ),
-    ("three or more pass/fail criteria", "requirement_checklist", ""),
-    (
-        "two or more options weighed against each other",
-        "comparison_table",
-        "comparison_table, condition_tree and typed_table all look like a table of cases and are "
-        "routinely confused. One question separates them: does exactly ONE row hold for this "
-        "project (condition_tree), do ALL rows hold at once (typed_table), or does the reader "
-        "CHOOSE one (comparison_table)?",
-    ),
-    (
-        "an answer turning on ONE factor whose cases exclude each other, at most one of them the reader's",
-        "condition_tree",
-        "Mark the active branch only where you know which case holds; not knowing means marking "
-        "none, and three marked branches look like a decision nobody made. A tree whose branches "
-        "can hold at once is a typed_table, and a tree with one branch is a sentence.",
-    ),
-    (
-        "rows that are all true at once (parts of one building, not cases of one project)",
-        "typed_table",
-        "Lage, Anforderung and Fundstelle in columns is the shape: the same sentences the reader "
-        "no longer has to align by hand.",
-    ),
-    (
-        "a tabular answer no purpose-built card covers",
-        "typed_table",
-        "Figures scattered through the prose land here — or in calculation, where the answer "
-        "worked the number out rather than collecting it.",
+        "a barrier-free lift: cabin width, cabin depth, door",
+        "dimension_diagram",
+        "shape `lift_cabin`, with Kabinenbreite, Kabinentiefe and lichte Türbreite as its dimensions. "
+        "Whether a lift is required at all is a sentence with its Fundstelle, not a field.",
     ),
     (
         "a number the answer WORKED OUT rather than looked up",
@@ -321,59 +349,7 @@ _CARD_TRIGGERS: tuple[tuple[str, str, str], ...] = (
         'renders „nicht berechenbar". Never for a number merely cited: one operand is the '
         "sentence beside it, typeset twice.",
     ),
-    (
-        'a Verfahren, Ablauf or „wie läuft das ab"',
-        "process_map",
-        "Stations must CARRY something: what each step requires, what it produces, who acts, and a "
-        'Frist worded exactly as the Bauordnung words it („binnen sechs Wochen"), never as a '
-        "computed date. Mark `current_step` only where the conversation established it — a guess "
-        "tells the reader they hold a Bewilligung they may not have. Under three stations is not "
-        "an Ablauf, over eight nobody reads, and a fork on one condition is a condition_tree.",
-    ),
-    (
-        "ANY ask for a Diagramm, Schaubild, Grafik, chart or mermaid gets a DRAWING card — the shaped one\n"
-        "    when a row above fits (an Ablauf -> process_map, one deciding factor -> condition_tree), else",
-        "diagram",
-        "",
-    ),
-    ("a path that forks and REJOINS, several Stellen exchanging in order, a Nachweis others depend on", "diagram", ""),
-    (
-        '„welche Unterlagen brauche ich" — the list is STATES, not names',
-        "document_checklist",
-        "States, not names: always required versus conditional, and on WHAT condition — a "
-        "conditional row without its condition is the prose list with a label on it. Then who "
-        "issues it, and `status` only where the conversation supplied one; the card totals its "
-        "rows, so a guessed status falsifies the balance above it.",
-    ),
-    (
-        "several Fristen in sequence — the order and what starts each clock is the answer",
-        "deadline_timeline",
-        "Every period verbatim from the Bestimmung, never a computed date; a deadline whose "
-        "trigger event you do not know is left out rather than dated.",
-    ),
-    (
-        '„was passiert, wenn X sich ändert" — what a move COSTS, not which case applies',
-        "change_impact",
-        "One factor that moves, then each consequence with its OWN Fundstelle (leave out any "
-        'without one) and its direction. „unverändert" is half the answer: name the requirement '
-        "one would expect to move and hold that it does not.",
-    ),
 )
-
-#: The craft of a row the chat envelope keeps, reworded where it points at a card that contract
-#: no longer offers (:data:`MARKDOWN_CARD_TYPES`): there, that content is a table in the answer.
-_MARKDOWN_FIRST_CRAFT: dict[str, str] = {
-    "legal_basis": (
-        "One instrument carrying the answer is this card; several, one binding and the rest "
-        "interpreting, are a table in the answer. The decisive passage goes in `original_text` as "
-        "short verbatim — the sentence the answer turns on, never the paragraph around it."
-    ),
-    "condition_tree": (
-        "Mark the active branch only where you know which case holds; not knowing means marking "
-        "none, and three marked branches look like a decision nobody made. Cases that can hold at "
-        "once are a table in the answer, and a tree with one branch is a sentence."
-    ),
-}
 
 #: Withheld from the post-hoc surface, row and craft together (`include_ifc_triggers=False`).
 _MODEL_PICKER_ROW = (
@@ -383,85 +359,22 @@ _MODEL_PICKER_ROW = (
 )
 
 # The anti-fabrication rule: the reason a card can be worse than no card at all, and the ONE
-# instruction here that outranks a trigger. It is stated on its own, away from the volume rule,
-# because the two were one paragraph and read as one mood — and a model that discounts "two is
-# plenty" as tone discounts "never fabricate" with it. Both surfaces pay for this one; the post-hoc
-# path states it a second time, in stronger terms, because there it is the only thing standing
-# between a report and an invented limit (see `prompt.py`).
+# instruction here that outranks a trigger. Stated on its own, away from the volume rule, so a
+# model that discounts "two is plenty" as tone does not discount "never fabricate" with it. The
+# post-hoc path states it a second time, in stronger terms (see `prompt.py`).
 _CARD_HONESTY = """\
 WHAT MAY GO ON ONE. Never fabricate a field, a reference or a number to fill a card out — a card
 with an invented limit in it is worse than the prose alone, because it is the part that gets
 screenshotted into a submission. A value you do not have is left out or marked "needs_input", never
 estimated to make the card look finished. This rule outranks every trigger above."""
 
-# The volume rule, and only that — a CEILING, said as a ceiling. It briefly read as "a budget and
-# it is there to be SPENT", which is the one framing this rule must not have: the charter names
-# this constant as where anti-goal D.8 ("no card that restates the prose beside it") is enforced,
-# and a rule that invites spending cannot enforce a restatement veto. What it keeps from that pass
-# are the two cases where none is right.
-#
-# The `follow_ups` exemption ("follow_ups does not count against it") went with the card. It existed
-# to stop a model spending one of its two slots on the chips; a model that cannot emit them has
-# nothing to exempt, and a clause naming a card the catalog no longer describes is an invitation to
-# go looking for it.
-#
-# The restatement veto is real and it stays. What it needed was a SCOPE, because as written it read
-# on the wrong cases: an answer whose prose already enumerates its cases shares every fact with the
-# card that would show them, so "says what the prose says" vetoed exactly the answers a card helps
-# most. Both field transcripts are that shape. The discriminator is form against facts — a table of
-# three Lagen with their Anforderung and Fundstelle is not three sentences said again, it is three
-# sentences the reader no longer has to align by hand — so sharing facts with the paragraph is
-# stated here as never sufficient on its own. Same words in the same shape still loses the card.
-#
-# It no longer carries the anti-fabrication rule, which moved to `_CARD_HONESTY`: sharing a
-# paragraph meant a model discounting "two is plenty" as tone discounted "never fabricate" with it.
+# The volume rule, and only that — a CEILING, said as a ceiling (anti-goal D.8: no card that
+# restates the prose beside it).
 _CARD_RESTRAINT = """\
-WHEN NOT TO. Two content cards is a turn's ceiling and one is often the right number.
-None is right in two cases: a one-line factual answer, where the card
-only repeats the sentence above it, and a card that would say what the prose beside it
-says in the same words — cut the card, keep the sentence. That second case is about FORM, not
-facts: three Lagen with their Anforderung and Fundstelle as a table is not a restatement of three
-sentences, it is the same facts in a shape prose cannot hold. Shared facts alone never cut a card."""
-
-#: Content cards whose whole content the answer's own Markdown already holds.
-#: The chat answer writes these IN its prose (``piloti_static.md`` <formatting>):
-#: a table with a Status column renders its status words as marks, so a
-#: checklist, a comparison, a document list or rows of Lage/Anforderung/
-#: Fundstelle need no second channel, no shape in the prompt and no repair.
-#: ``diagram`` joined on 2026-09-24: its payload IS a mermaid source, and a
-#: ```mermaid fence in the answer draws through the same renderer, files
-#: through the same idempotent button, and sits where it belongs in the prose
-#: instead of after it. It could not before: the envelope parser ended the
-#: block at the fence's own backticks and showed the reader raw JSON
-#: (``answer_envelope._envelope_blocks``).
-#: They stay valid card types — old messages render them, deep research's
-#: ``emit_card`` still offers them — but the chat envelope no longer teaches
-#: them (``render_card_doctrine(markdown_first=True)``).
-MARKDOWN_CARD_TYPES: frozenset[str] = frozenset(
-    {
-        "typed_table",
-        "comparison_table",
-        "requirement_checklist",
-        "document_checklist",
-        "deadline_timeline",
-        "norm_chain",
-        "change_impact",
-        "diagram",
-    }
-)
-
-_MARKDOWN_FIRST = """\
-MARKDOWN FIRST. Tables, checks, comparisons, document lists, Fristen in sequence, a norm hierarchy,
-what-if consequences and drawings of relations are written in the answer itself (<formatting> says
-how): a table with a Status column already renders as a checklist, and a ```mermaid fence already
-renders as a drawing the reader can file. A card is for what those cannot carry: a schematic drawn
-to scale from measurements, the Fundstelle as a quotable excerpt, a decision on one factor with
-this project's branch marked, a Verfahren with its Fristen and where this project stands."""
-
-_CARD_RESTRAINT_MARKDOWN_FIRST = """\
-WHEN NOT TO. One card is usually the right number, two the ceiling, none the normal case for a
-walkthrough. A card that shows what a table in the prose already shows is a restatement: keep the
-table, cut the card."""
+WHEN NOT TO. One card is usually the right number, two the ceiling, none the normal case. A
+one-line factual answer earns none: the card would only repeat the sentence above it. A card that
+shows what a table or a sentence in the prose already shows is a restatement: keep the prose, cut
+the card."""
 
 # One worked example per hard-to-nest card, so the model sees the exact shape
 # instead of discovering it through repeated validation failures. Keys are the
@@ -587,92 +500,6 @@ CARD_EXAMPLES: dict[str, dict] = {
             "edition": "Ausgabe Mai 2023",
         },
     },
-    "fire_compartment": {
-        "type": "fire_compartment",
-        "title": "Brandabschnitte – Regelgeschoss",
-        "storey_label": "2.OG",
-        "gebaeudeklasse": "GK 5",
-        "compartments": [
-            {
-                "label": "BA 1",
-                "use": "Wohnen",
-                "area": {
-                    "label": "BA 1",
-                    "value": 1200,
-                    "required": 1600,
-                    "unit": "m²",
-                    "comparator": "<=",
-                    "status": "pass",
-                },
-            },
-            {
-                "label": "BA 2",
-                "use": "Büro",
-                "area": {
-                    "label": "BA 2",
-                    "value": 1850,
-                    "required": 1600,
-                    "unit": "m²",
-                    "comparator": "<=",
-                    "status": "fail",
-                },
-            },
-        ],
-        "reference": {"document": "OIB-Richtlinie 2", "section": "Pkt. 3.1", "edition": "Ausgabe Mai 2023"},
-    },
-    "thermal_envelope": {
-        "type": "thermal_envelope",
-        "title": "Wärmeschutz – U-Werte der Gebäudehülle",
-        "components": [
-            {
-                "label": "Außenwand",
-                "kind": "wall",
-                "u_value": {
-                    "label": "Außenwand",
-                    "value": 0.28,
-                    "required": 0.35,
-                    "unit": "W/(m²K)",
-                    "comparator": "<=",
-                    "status": "pass",
-                },
-            },
-            {
-                "label": "Fenster",
-                "kind": "window",
-                "u_value": {
-                    "label": "Fenster",
-                    "value": 1.4,
-                    "required": 1.4,
-                    "unit": "W/(m²K)",
-                    "comparator": "<=",
-                    "status": "pass",
-                },
-            },
-        ],
-        "reference": {"document": "OIB-Richtlinie 6", "section": "Tabelle 3", "edition": "Ausgabe Mai 2023"},
-    },
-    "parking_requirement": {
-        "type": "parking_requirement",
-        "title": "Stellplatznachweis – Wohnbau",
-        "basis": "1 Stpl. je 100 m² BGF",
-        "car_spaces": {
-            "label": "Kfz-Stellplätze",
-            "value": 8,
-            "required": 10,
-            "unit": "Stpl.",
-            "comparator": ">=",
-            "status": "fail",
-        },
-        "bicycle_spaces": {
-            "label": "Fahrradabstellplätze",
-            "value": 20,
-            "required": 16,
-            "unit": "Stpl.",
-            "comparator": ">=",
-            "status": "pass",
-        },
-        "reference": {"document": "Wiener Garagengesetz", "section": "§ 48"},
-    },
     "project_profile_patch": {
         "type": "project_profile_patch",
         "title": "Projektkontext aktualisieren: Fluchtniveau",
@@ -683,136 +510,6 @@ CARD_EXAMPLES: dict[str, dict] = {
         "patch": [{"op": "add", "path": "/facts/fluchtniveau", "value": ">22m"}],
         "preview": [{"label": "Escape level", "before": "11–22m", "after": "> 22m"}],
     },
-    # `lane` and `edition` are the whole reason this card carries an example.
-    # Neither is guessable from the shape line alone: `lane` is a controlled
-    # vocabulary whose members read as opaque keys, and `edition` is the field
-    # that separates a citation an architect can look up from one they cannot.
-    "legal_basis": {
-        "type": "legal_basis",
-        "law": "OIB-Richtlinie 2",
-        "lane": "baurecht_oib",
-        "edition": "Ausgabe Mai 2023",
-        "article": "3.1.1",
-        "section": "Tabelle 1a",
-        "summary": "Die maximale Brandabschnittsfläche für oberirdische Geschosse in GK 4 beträgt 1.200 m².",
-        "original_text": (
-            "Brandabschnitte dürfen eine Nettogrundfläche von höchstens 1.200 m² und eine "
-            "Längenausdehnung von höchstens 60 m aufweisen."
-        ),
-    },
-    "requirement_checklist": {
-        "type": "requirement_checklist",
-        "title": "Anforderungen GK 4 – Brandschutz",
-        "items": [
-            {
-                "label": "Tragende Bauteile REI 60",
-                "status": "pass",
-                "detail": "Stahlbetondecken erfüllen REI 90.",
-                "reference": {"document": "OIB-Richtlinie 2", "section": "Tabelle 1b"},
-            },
-            {
-                "label": "Zweiter Fluchtweg oder Anleiterbarkeit",
-                "status": "needs_input",
-                "detail": "Anleiterbarkeit der Nordfassade noch nicht geklärt.",
-            },
-        ],
-        "reference": {"document": "OIB-Richtlinie 2", "edition": "Ausgabe Mai 2023"},
-    },
-    "verdict_header": {
-        "type": "verdict_header",
-        "verdict": "1,10 m",
-        "subject": "Erforderliche Geländerhöhe",
-        "reference": {"document": "OIB-Richtlinie 4", "section": "Pkt. 4.3", "edition": "Ausgabe Mai 2023"},
-        "confidence": "high",
-    },
-    "condition_tree": {
-        "type": "condition_tree",
-        "title": "Erforderliche Feuerwiderstandsklasse tragender Bauteile",
-        "question": "Gebäudeklasse",
-        "branches": [
-            {"condition": "GK 1–3", "outcome": "REI 30 (bzw. R 30)"},
-            {"condition": "GK 4", "outcome": "REI 60", "active": True},
-            {"condition": "GK 5", "outcome": "REI 90"},
-        ],
-        "reference": {"document": "OIB-Richtlinie 2", "section": "Tabelle 1b", "edition": "Ausgabe Mai 2023"},
-    },
-    "typed_table": {
-        "type": "typed_table",
-        "title": "Mindestmaße barrierefreie Erschließung",
-        "columns": [
-            {"label": "Bauteil", "type": "text"},
-            {"label": "Mindestmaß", "type": "mass"},
-            {"label": "Grundlage", "type": "norm"},
-            {"label": "Erfüllt", "type": "verdict"},
-        ],
-        "rows": [
-            ["Türdurchgangsbreite", "90 cm", "ÖNORM B 1600 Pkt. 5.1", "erfüllt"],
-            ["Rampenneigung", "6 %", "OIB-Richtlinie 4 Pkt. 3.2", "nicht erfüllt"],
-        ],
-        "reference": {"document": "ÖNORM B 1600", "edition": "Ausgabe 2020"},
-    },
-    "norm_chain": {
-        "type": "norm_chain",
-        "title": "Normenkette – Absturzsicherung",
-        "links": [
-            {
-                "label": "Wiener Bautechnikverordnung",
-                "rank": "verordnung",
-                "note": "erklärt die OIB-Richtlinien für verbindlich",
-            },
-            {"label": "OIB-Richtlinie 4", "rank": "oib_richtlinie", "note": "regelt die erforderliche Geländerhöhe"},
-            {"label": "ÖNORM B 1600", "rank": "oenorm", "note": "konkretisiert die barrierefreie Ausführung"},
-        ],
-    },
-    "comparison_table": {
-        "type": "comparison_table",
-        "title": "GK 4 vs. GK 5 – wesentliche Anforderungen",
-        "options": ["GK 4", "GK 5"],
-        "rows": [
-            {"label": "Fluchtniveau", "values": ["≤ 11 m", "≤ 22 m"], "highlight_index": 0},
-            {"label": "Tragende Bauteile", "values": ["REI 60", "REI 90"], "highlight_index": 0},
-        ],
-        "recommendation": "Mit Fluchtniveau 9,8 m bleibt das Projekt in GK 4.",
-        "reference": {"document": "OIB-Richtlinie 2", "section": "Tabelle 1b", "edition": "Ausgabe Mai 2023"},
-    },
-    # The `detail` is the field this example exists for: without one to copy,
-    # the model writes the qualification into `text` and the block stops being
-    # scannable, which is the only thing this card is for. Note the third
-    # takeaway carries none — a takeaway that needs no footnote should not get
-    # an expander that opens onto a restatement.
-    "key_takeaways": {
-        "type": "key_takeaways",
-        "title": "Gebäudeklasse 4 – was daraus folgt",
-        "items": [
-            {
-                "text": "Fluchtniveau 9,80 m → Gebäudeklasse 4",
-                "detail": "Maßgeblich ist das oberste Fluchtniveau; die Grenze zu GK 5 liegt bei 11 m.",
-            },
-            {
-                "text": "Tragende Bauteile mindestens REI 60",
-                "detail": "In Kellergeschossen gilt REI 90, unabhängig von der Gebäudeklasse.",
-            },
-            {"text": "Barrierefreier Aufzug ab drei oberirdischen Geschossen"},
-        ],
-    },
-    # Shows the shape at its smallest useful size — a kind, one sentence, and
-    # the background folded behind it. A title is deliberately absent: the
-    # example the model copies should not suggest that every callout needs one.
-    "callout": {
-        "type": "callout",
-        "kind": "frist",
-        "text": "Die Bauverhandlung ist binnen sechs Wochen nach Einreichung anzuberaumen.",
-        "detail": "Die Frist ruht, solange die Behörde eine Ergänzung des Einreichplans verlangt hat.",
-    },
-    # The example carries the two properties that decide whether this card is
-    # worth a click: every question names something the answer itself put on the
-    # table (das Fluchtniveau, die GK-4-Einstufung, REI 60), and the four are
-    # four DIFFERENT moves — measure it, apply it to my project, compare the
-    # neighbouring class, act on it. Four rewordings of "Wie ist das mit der
-    # Gebäudeklasse?" would validate just as happily, which is exactly why the
-    # example has to show the spread rather than describe it. Note also that
-    # every `question` is a full sentence with a question mark: it is sent as
-    # written, so a topic label would arrive in the composer as a fragment.
     # The example the model copies has to make the one hard rule obvious: there
     # is NO result field. It shows the Schrittmaßregel because that is the
     # arithmetic every Austrian architect knows by heart — 2 × 17 + 30 = 64
@@ -851,214 +548,6 @@ CARD_EXAMPLES: dict[str, dict] = {
             "reference": {"document": "OIB-Richtlinie 4", "section": "Pkt. 3.2", "edition": "Ausgabe Mai 2023"},
         },
     },
-    # Two things this example exists to teach. The steps carry their `requires`
-    # and `produces` — a map that only names the stations is the numbered list
-    # it replaces, and the click then opens onto nothing. And `current_step` is
-    # SET here, so the model sees that a project's position is a field it may
-    # fill; the description is where it learns to omit it rather than guess.
-    "process_map": {
-        "type": "process_map",
-        "title": "Baubewilligungsverfahren – Wien",
-        "current_step": 2,
-        "steps": [
-            {
-                "label": "Einreichung",
-                "summary": "Einreichunterlagen werden bei der Baubehörde eingebracht.",
-                "actor": "Bauwerber",
-                "requires": ["Einreichplan", "Baubeschreibung", "Energieausweis"],
-                "produces": ["Aktenzeichen"],
-                "reference": {"document": "Wiener Bauordnung", "section": "§ 63"},
-            },
-            {
-                "label": "Bauverhandlung",
-                "summary": "Mündliche Verhandlung mit den Nachbarn und den Amtssachverständigen.",
-                "actor": "Baubehörde",
-                "duration": "binnen sechs Wochen nach Einreichung",
-                "produces": ["Verhandlungsschrift"],
-                "reference": {"document": "Wiener Bauordnung", "section": "§ 70"},
-            },
-            {
-                "label": "Baubewilligung",
-                "summary": "Bescheid mit den Auflagen aus der Verhandlung.",
-                "actor": "Baubehörde",
-                "produces": ["Baubewilligungsbescheid"],
-            },
-            {
-                "label": "Baubeginnsanzeige",
-                "summary": "Baubeginn ist der Behörde anzuzeigen.",
-                "actor": "Bauwerber",
-                "requires": ["rechtskräftige Baubewilligung"],
-            },
-            {
-                "label": "Fertigstellungsanzeige",
-                "summary": "Nach Fertigstellung mit den Ausführungsbestätigungen.",
-                "actor": "Bauwerber",
-                "requires": ["Ausführungsbestätigungen der Fachplaner"],
-            },
-        ],
-        "reference": {"document": "Wiener Bauordnung", "section": "§§ 60 ff."},
-    },
-    # The list this replaces is a row of names, so the example has to be a row
-    # of STATES: two documents that are always required, one that is only needed
-    # in a defined case (and says which), and one the conversation established
-    # the reader already holds. Most entries carry NO `status` on purpose — an
-    # example where every row is answered would teach the model to answer every
-    # row, which is precisely the invention this card is shaped against.
-    "document_checklist": {
-        "type": "document_checklist",
-        "title": "Einreichunterlagen – Neubau Wohngebäude, Wien",
-        "items": [
-            {
-                "label": "Einreichplan",
-                "requirement": "required",
-                "issuer": "Ziviltechniker:in",
-                "status": "present",
-                "note": "dreifach, im Maßstab 1:100",
-                "reference": {"document": "Wiener Bauordnung", "section": "§ 63 Abs. 1 lit. a"},
-            },
-            {
-                "label": "Baubeschreibung",
-                "requirement": "required",
-                "issuer": "Ziviltechniker:in",
-                "reference": {"document": "Wiener Bauordnung", "section": "§ 63 Abs. 1 lit. b"},
-            },
-            {
-                "label": "Energieausweis",
-                "requirement": "required",
-                "issuer": "befugte Fachperson",
-                "status": "missing",
-                "reference": {"document": "OIB-Richtlinie 6", "section": "Pkt. 6", "edition": "Ausgabe Mai 2023"},
-            },
-            {
-                "label": "Grundbuchsauszug",
-                "requirement": "conditional",
-                "condition": "nur wenn der Bauwerber nicht Eigentümer der Liegenschaft ist",
-                "issuer": "Bauwerber",
-            },
-            {
-                "label": "Gutachten der MA 19",
-                "requirement": "conditional",
-                "condition": "nur im Schutzzonenbereich oder bei einem Gebäude in einer Schutzzone",
-                "issuer": "Baubehörde",
-            },
-        ],
-        "reference": {"document": "Wiener Bauordnung", "section": "§ 63"},
-    },
-    # Three clocks that run from three different events — which is the whole
-    # reason this is not four callouts. Every `period` is the Bestimmung's own
-    # wording and every `starts_from` names the event, so the example cannot be
-    # copied into a card carrying a date: the model sees „ab Zustellung" in the
-    # slot where it might otherwise have written one.
-    "deadline_timeline": {
-        "type": "deadline_timeline",
-        "title": "Fristen im Bauverfahren – Wien",
-        "deadlines": [
-            {
-                "label": "Beschwerdefrist",
-                "period": "binnen vier Wochen",
-                "starts_from": "ab Zustellung des Baubewilligungsbescheids",
-                "actor": "Nachbar oder Bauwerber",
-                "consequence": "Der Bescheid wird rechtskräftig.",
-                "reference": {"document": "VwGVG", "section": "§ 7 Abs. 4"},
-            },
-            {
-                "label": "Geltungsdauer der Baubewilligung",
-                "period": "binnen vier Jahren ist mit dem Bau zu beginnen",
-                "starts_from": "ab Rechtskraft der Baubewilligung",
-                "actor": "Bauwerber",
-                "consequence": "Die Baubewilligung erlischt.",
-                "reference": {"document": "Wiener Bauordnung", "section": "§ 74 Abs. 1"},
-            },
-            {
-                "label": "Fertigstellungsanzeige",
-                "period": "unverzüglich",
-                "starts_from": "ab Fertigstellung des Bauvorhabens",
-                "actor": "Bauwerber",
-                "reference": {"document": "Wiener Bauordnung", "section": "§ 128"},
-            },
-        ],
-    },
-    # Two things this example teaches. Every consequence carries its OWN
-    # Fundstelle, because that is the field the model is most tempted to hand up
-    # to the card and leave off the rows. And one row is `unchanged` with a
-    # `before` equal to its `after` — the answer to half of „was ändert sich" is
-    # naming the requirement a planner expects to move and saying that it does
-    # not. The lift row omits `before`, so the model sees that the current state
-    # is optional where the conversation never established it.
-    "change_impact": {
-        "type": "change_impact",
-        "title": "Fluchtniveau über 11 m – was sich ändert",
-        "factor": "Fluchtniveau",
-        "from_value": "7 bis 11 m",
-        "to_value": "über 11 m",
-        "consequences": [
-            {
-                "aspect": "Gebäudeklasse",
-                "before": "GK 4",
-                "after": "GK 5",
-                "direction": "tightens",
-                "reference": {"document": "OIB-Begriffsbestimmungen", "section": "Gebäudeklassen"},
-            },
-            {
-                "aspect": "Feuerwiderstand tragender Bauteile",
-                "before": "R 60",
-                "after": "R 90",
-                "direction": "tightens",
-                "detail": "Die Anforderung gilt für die tragenden Bauteile der oberirdischen Geschoße.",
-                "reference": {"document": "OIB-Richtlinie 2", "section": "Tabelle 1", "edition": "Ausgabe Mai 2023"},
-            },
-            {
-                "aspect": "Aufzug",
-                "after": "Aufzug erforderlich",
-                "direction": "tightens",
-                "reference": {"document": "OIB-Richtlinie 4", "section": "Pkt. 3", "edition": "Ausgabe Mai 2023"},
-            },
-            {
-                "aspect": "Schallschutz zwischen den Wohnungen",
-                "before": "DnT,w mindestens 55 dB",
-                "after": "DnT,w mindestens 55 dB",
-                "direction": "unchanged",
-                "detail": "Der Schallschutz hängt an der Nutzung, nicht an der Gebäudeklasse.",
-                "reference": {"document": "OIB-Richtlinie 5", "section": "Tabelle 1", "edition": "Ausgabe Mai 2023"},
-            },
-        ],
-        "reference": {"document": "OIB-Begriffsbestimmungen", "section": "Gebäudeklassen"},
-    },
-    # The example has to teach the DISCRIMINATION, not the syntax: this is a
-    # shape `process_map` cannot hold. Three parties hand an Akt back and forth
-    # and the answer is who gives what to whom, which a rail of stations cannot
-    # show. Note what it does NOT carry — no duration, no Frist, no measurement —
-    # and note the caption, which says what the drawing leaves out rather than
-    # repeating the title. The Fundstelle is the procedure's own, at the whole-
-    # procedure altitude the process_map example already uses.
-    "diagram": {
-        "type": "diagram",
-        "title": "Baubewilligungsverfahren – wer wem was übergibt",
-        "diagram_type": "sequence",
-        "source": (
-            "sequenceDiagram\n"
-            "  participant BW as Bauwerber\n"
-            "  participant BB as Baubehörde\n"
-            "  participant ASV as Amtssachverständige\n"
-            "  BW->>BB: Einreichunterlagen\n"
-            "  BB->>ASV: Befassung zur Begutachtung\n"
-            "  ASV-->>BB: Gutachten\n"
-            "  BB-->>BW: Verbesserungsauftrag\n"
-            "  BW->>BB: ergänzte Unterlagen\n"
-            "  BB-->>BW: Baubewilligungsbescheid"
-        ),
-        "caption": "Die Fristen zeigt die Grafik nicht — sie steht für die Reihenfolge der Übergaben.",
-        "reference": {"document": "Wiener Bauordnung", "section": "§§ 60 ff."},
-    },
-    "follow_ups": {
-        "type": "follow_ups",
-        "items": [
-            {"question": "Wie wird das Fluchtniveau genau gemessen?", "hint": "Messpunkt und Bezugsebene"},
-            {"question": "Welche Anforderungen gelten für mein Projekt konkret?"},
-            {"question": "Was wäre bei Gebäudeklasse 5 anders?", "hint": "Vergleich der beiden Klassen"},
-            {"question": "Wie weise ich REI 60 im Einreichplan nach?"},
-        ],
-    },
 }
 
 
@@ -1071,18 +560,18 @@ def _card_type_of(card_cls: type) -> str:
 def model_facing_card_types() -> frozenset[str]:
     """Every card ``type`` the ANSWERING model may be ASKED to produce.
 
-    The union minus :data:`SYSTEM_CARD_TYPES` and :data:`ENVELOPE_CARD_TYPES`.
+    The union minus :data:`SYSTEM_CARD_TYPES`.
     It is exposed separately because other surfaces need to answer "may a
     skill/author name this card?" without parsing the rendered catalog text:
     the skills substrate validates ``grid-cards`` against it (see
     :mod:`aiq_agent.skills.models`), and the editor's picker derives the same
     set from the generated Zod schemas. One definition of "advertisable", so a
-    new card type appears everywhere at once and a system or envelope card can
-    never be requested by name.
+    new card type appears everywhere at once and a system card can never be
+    requested by name.
     """
     from aiq_agent.cards.models import GridCard
 
-    return frozenset(_card_type_of(c) for c in GridCard.__args__) - SYSTEM_CARD_TYPES - ENVELOPE_CARD_TYPES
+    return frozenset(_card_type_of(c) for c in GridCard.__args__) - SYSTEM_CARD_TYPES
 
 
 def _annotation_str(annotation: object, nested: list[type]) -> str:
@@ -1135,9 +624,9 @@ def _is_discriminator(field_name: str, field_info: Any) -> bool:
     A card's ``type`` is a single-value ``Literal`` that the union switches on;
     the shape already names it. A building block may have a field CALLED
     ``type`` that is a choice (``TypedColumn.type``: mass, norm, verdict, …),
-    and that one is the model's to fill — the renderer hid it for a release
-    while the validator required it, so every ``typed_table`` written from the
-    shape failed on its first attempt.
+    and that one is the model's to fill — the renderer once hid such a field
+    while the validator required it, so every card written from the shape
+    failed on its first attempt.
     """
     if field_name != "type":
         return False
@@ -1255,7 +744,7 @@ def shape_hint_for(card_type: str) -> str | None:
     the only moment we know they are needed and know which type needs them.
 
     ``None`` for a type the model may not emit at all — an unknown name, a
-    system card, an envelope shape. Teaching one of those a shape would be
+    system card, a retired type. Teaching one of those a shape would be
     teaching a card the next validator refuses; the caller's refusal message
     names the right channel instead.
 
@@ -1280,12 +769,11 @@ def render_card_catalog(*, include_model_backed: bool = True, exclude: frozenset
         exclude: Further types to leave out (:data:`CHAT_ONLY_CARD_TYPES` on
             a path that is not the chat envelope).
 
-    The envelope types are withheld unconditionally, like the system types: no
-    surface asks a model for them any more (:data:`ENVELOPE_CARD_TYPES`).
+    The system types are withheld unconditionally: a tool owns each one.
     """
     from aiq_agent.cards.models import GridCard
 
-    withheld = SYSTEM_CARD_TYPES | ENVELOPE_CARD_TYPES | exclude
+    withheld = SYSTEM_CARD_TYPES | exclude
     if not include_model_backed:
         withheld |= MODEL_BACKED_CARD_TYPES
 
@@ -1327,24 +815,10 @@ def render_card_catalog(*, include_model_backed: bool = True, exclude: frozenset
 
     interactive_note = _interactive_note()
     measured_note = _measured_note()
-    # The diagram boundary rides with the shapes for the same reason the
-    # measured-numbers rule does: it is a rule about filling a field in, and this
-    # is the surface that renders every field.
-    diagram_note = _diagram_note() if "diagram" not in withheld else ""
-    # The margin rule rides with the shape for the same reason, and is needed on
-    # this surface too: the post-hoc generator fills the same two fields.
-    legal_basis_note = _legal_basis_note() if "legal_basis" not in withheld else ""
 
     return (
         "Building blocks (reused object shapes):\n" + "\n".join(block_lines) + "\n\n"
-        "Card types:\n"
-        + "\n".join(card_lines)
-        + interactive_note
-        + measured_note
-        + diagram_note
-        + legal_basis_note
-        + _plain_text_note()
-        + "\n\n"
+        "Card types:\n" + "\n".join(card_lines) + interactive_note + measured_note + _plain_text_note() + "\n\n"
         "Worked examples (copy the nesting exactly):\n" + examples
     )
 
@@ -1391,82 +865,6 @@ def _measured_note() -> str:
     )
 
 
-def _legal_basis_note() -> str:
-    # The two fields whose renderer has a WIDTH the model cannot see.
-    # `article` and `section` are set in a margin at least 72px wide, never
-    # wrapped, at 11px mono — the way a statute prints its § beside the text
-    # (grid-card-charter §B1) — and a shipped card put „Punkte 8 bis 10 der
-    # OIB-Richtlinie 2" and „Anwendungsbereiche der ergänzenden Richtlinien"
-    # there. That rendered as a
-    # nine-line ragged pillar of mono taller than the card beside it, with „§ "
-    # glued to a heading, on the product's proof-of-work card.
-    #
-    # Stated HERE rather than left to the field descriptions because top-level
-    # card fields are rendered with `with_desc=False`: the shape line carries a
-    # name and a type and nothing else, so the only ways to reach the model
-    # about one field are the worked example — which already shows „3.1.1" and
-    # „Tabelle 1a", and was not enough — and a note like this one. Same reason
-    # the diagram boundary is a note: a rule about how to fill a field in
-    # arrives with the shape the model cannot emit the card without.
-    #
-    # The frontend degrades a long value inline rather than dropping it, so this
-    # note is the half that keeps it from having to.
-    return (
-        "\n\nThe Fundstelle on a `legal_basis` card (`article`, `section`):\n"
-        "  Both are set in a narrow MARGIN beside the law's name, the way a statute prints its §, so\n"
-        "  each carries an identifier and never a sentence: `article` is the number alone ('3.1.1',\n"
-        "  '87', '8 bis 10', 'Art. 5 Abs. 2'), `section` the label alone ('Tabelle 1a', 'Abs. 4',\n"
-        "  'Anhang B'). Roughly 14 characters is the whole budget. 'Punkte 8 bis 10 der\n"
-        "  OIB-Richtlinie 2' names the Richtlinie a second time, and 'Anwendungsbereiche der\n"
-        "  ergänzenden Richtlinien' says what the passage regulates — that is `summary`, not a\n"
-        "  Fundstelle. Omit either field where the passage carries no such number or label; an empty\n"
-        "  margin costs the card nothing, a paragraph in it costs the card its shape."
-    )
-
-
-def _diagram_note() -> str:
-    # The BOUNDARY of the one card whose renderer cannot check it, stated where
-    # the model reads it at the moment it is about to write a diagram — beside
-    # the shape, exactly as the measured-numbers rule is. Not in the always-on
-    # index, which has room for one line per type; and deliberately not left to
-    # the `diagrams` skill either, because a skill body only reaches
-    # the model if the model calls `use_skill`, while this text arrives with the
-    # shape it cannot emit the card without.
-    #
-    # Fifteen schematic cards hold their invariant by having the renderer do the
-    # geometry. This card has no such invariant available: mermaid text IS the
-    # geometry. So the boundary is drawn around the SUBJECT — a drawing that
-    # claims no measurement has nothing on it that can be measurably wrong — and
-    # a rule about subject can only be carried in words.
-    return (
-        "\n\nWhat a `diagram` may draw, and what it may not:\n"
-        "  This card is mermaid, and the source IS the geometry: nothing computes it, so nothing can\n"
-        "  catch it being wrong. Draw only what makes NO dimensional claim — a Verfahrensablauf, an\n"
-        "  Einreichungssequenz, a decision that forks and rejoins, a Zuständigkeits- or\n"
-        "  Abhängigkeitskarte. Anything MEASURED — a section, a stair, an escape route, a fire\n"
-        "  compartment, a setback — belongs to the schematic cards, where the renderer draws to scale\n"
-        "  and cannot disagree with its own numbers. A mermaid box with „40 m\u201c typed inside it is\n"
-        "  precisely the artefact those cards exist to prevent, and it is the one that gets\n"
-        "  screenshotted into an Einreichung. Naming a threshold in a branch condition\n"
-        "  („Fluchtniveau > 22 m\u201c) is not that artefact: it is a label the answer has already\n"
-        "  grounded, and nobody reads a rounded rectangle as a section.\n"
-        "  Six grammars are verified end to end: flowchart, sequence, state, pie, gantt, mindmap. A\n"
-        "  journey is refused before the reader sees it — mermaid emits a foreignObject element for it\n"
-        "  whatever htmlLabels says, the SVG allow-list refuses that element, and the diagram degrades\n"
-        "  to its own source text in the middle of your answer. A timeline draws and prints but lays\n"
-        "  out sideways, wider than the answer column; erDiagram and classDiagram draw and print too,\n"
-        "  but they model software, not buildings. The card takes the six and refuses the rest.\n"
-        "  At most ONE per answer. A diagram earns its place by showing a fork, an ordering or a\n"
-        "  dependency that prose cannot hold; a decorative one in a compliance answer costs the\n"
-        "  reader trust in every drawing beside it. Labels in the answer's language and in Sie-Form,\n"
-        "  and no label may carry a claim the answer has not grounded — the drawing leaves the page\n"
-        "  without the paragraph that qualified it.\n"
-        "  When the user asks for a Diagramm, Schaubild or Grafik BY NAME, a drawing answers it —\n"
-        "  this card, a ```mermaid fence in the answer, or the purpose-built card whose shape fits\n"
-        "  (`process_map` for a line, `condition_tree` for a fan). Never prose alone, never ASCII art."
-    )
-
-
 def _plain_text_note() -> str:
     # Rides with the SHAPES rather than with the doctrine, for the same reason
     # the measured-numbers rule does: it is a rule about filling a field in, and
@@ -1477,7 +875,7 @@ def _plain_text_note() -> str:
     # The validator in `cards.models.CardModel` strips these delimiters anyway,
     # so nothing here is load-bearing for correctness — it is here so the field
     # holds what the model meant instead of the wreckage of a link the model
-    # should never have written. A `legal_basis` card shipped
+    # should never have written. A card once shipped
     # „[OIB-Richtlinie ansehen](https://www.oib.or.at/de/oib-richtlinien)“ into a
     # field beside the card's OWN working link to that same page.
     return (
@@ -1489,11 +887,9 @@ def _plain_text_note() -> str:
     )
 
 
-def _render_trigger_table(*, include_ifc_triggers: bool, include_craft: bool, markdown_first: bool = False) -> str:
+def _render_trigger_table(*, include_ifc_triggers: bool, include_craft: bool) -> str:
     """The head, then one row per trigger with its craft indented beneath it."""
     rows = (*_CARD_TRIGGERS, _MODEL_PICKER_ROW) if include_ifc_triggers else _CARD_TRIGGERS
-    if markdown_first:
-        rows = tuple(row for row in rows if row[1] not in MARKDOWN_CARD_TYPES)
     lead = (
         "The trigger, the card, and under it what fills that card well:"
         if include_craft
@@ -1502,8 +898,6 @@ def _render_trigger_table(*, include_ifc_triggers: bool, include_craft: bool, ma
 
     lines = [_CARD_TRIGGER_HEAD, lead]
     for trigger, card, craft in rows:
-        if markdown_first:
-            craft = _MARKDOWN_FIRST_CRAFT.get(card, craft)
         # ljust reproduces the aligned arrow column for the short triggers and
         # gets out of the way for the long ones, which run past it anyway.
         lines.append(f"  {trigger.ljust(40)} -> {card}")
@@ -1513,10 +907,8 @@ def _render_trigger_table(*, include_ifc_triggers: bool, include_craft: bool, ma
     return "\n".join(lines)
 
 
-def render_card_doctrine(
-    *, include_ifc_triggers: bool = True, include_craft: bool = True, markdown_first: bool = False
-) -> str:
-    """The trigger table, the craft that fills each card, and the negative default.
+def render_card_doctrine(*, include_ifc_triggers: bool = True, include_craft: bool = True, chat: bool = False) -> str:
+    """Markdown first, the trigger table, the craft that fills each card, and the negative default.
 
     Framing-free in the same sense as :func:`render_card_catalog`: it says which
     content takes which card, how that card is filled well, and when to emit
@@ -1537,16 +929,17 @@ def render_card_doctrine(
             generation turns it off and states its own short craft instead
             (``prompt.py``): half of what is written here is an instruction
             about an answer still being written, which that path cannot act on.
-        markdown_first: The chat envelope's surface. The rows of
-            :data:`MARKDOWN_CARD_TYPES` are dropped, because that content is
-            written in the answer's own Markdown, and the doctrine says so first.
+        chat: The chat envelope's variant: MARKDOWN FIRST names the dialect's
+            blocks and the ``surface`` card, which only the chat draws. Deep
+            research and the post-hoc pass keep plain GFM (their PDF prints a
+            ``:::`` line as text until Phase B) and are offered no ``surface``.
+
+    MARKDOWN FIRST leads on every surface: what the retired cards carried
+    (:data:`RETIRED_CARD_TYPES`) is written in the answer's own Markdown.
     """
-    table = _render_trigger_table(
-        include_ifc_triggers=include_ifc_triggers, include_craft=include_craft, markdown_first=markdown_first
-    )
-    if markdown_first:
-        return "\n\n".join((_MARKDOWN_FIRST, table, _CARD_HONESTY, _CARD_RESTRAINT_MARKDOWN_FIRST))
-    return "\n\n".join((table, _CARD_HONESTY, _CARD_RESTRAINT))
+    table = _render_trigger_table(include_ifc_triggers=include_ifc_triggers, include_craft=include_craft)
+    lead = _MARKDOWN_FIRST_CHAT if chat else _MARKDOWN_FIRST
+    return "\n\n".join((lead, table, _CARD_HONESTY, _CARD_RESTRAINT))
 
 
 def render_card_index(*, include_model_backed: bool = True, exclude: frozenset[str] = frozenset()) -> str:
@@ -1563,13 +956,11 @@ def render_card_index(*, include_model_backed: bool = True, exclude: frozenset[s
     ``_preferred_cards_block``: a card description is worth nothing until the
     card is actually in play.
 
-    The envelope types are withheld unconditionally: this index frames the
-    ``emit_card`` tool, and on that surface the rhetorical shapes travel in the
-    ``answer_meta`` trailer (:data:`ENVELOPE_CARD_TYPES`).
+    The system types are withheld unconditionally: a tool owns each one.
     """
     from aiq_agent.cards.models import GridCard
 
-    withheld = SYSTEM_CARD_TYPES | ENVELOPE_CARD_TYPES | exclude
+    withheld = SYSTEM_CARD_TYPES | exclude
     if not include_model_backed:
         withheld |= MODEL_BACKED_CARD_TYPES
 
@@ -1595,7 +986,7 @@ def card_index_entries(
     """
     from aiq_agent.cards.models import GridCard
 
-    withheld = SYSTEM_CARD_TYPES | ENVELOPE_CARD_TYPES | exclude
+    withheld = SYSTEM_CARD_TYPES | exclude
     if not include_model_backed:
         withheld |= MODEL_BACKED_CARD_TYPES
     entries: list[tuple[str, str]] = []
@@ -1610,17 +1001,14 @@ def card_index_entries(
 def render_card_details(card_types: Iterable[str]) -> str:
     """L2: the exact shape, building blocks and worked example for named types.
 
-    Unknown, system and envelope types are skipped rather than raising: this is
-    fed from a model-supplied name and from skill metadata, and a stale name
-    must not take down the turn that mentioned it. Envelope types are skipped
-    because every caller is an answering-agent surface (``describe_card``, a
-    skill's ``grid-cards`` preference) — the post-hoc generator renders
-    :func:`render_card_catalog` instead.
+    Unknown and system types are skipped rather than raising: this is fed from
+    a model-supplied name and from skill metadata, and a stale name must not
+    take down the turn that mentioned it.
     """
     from aiq_agent.cards.models import GridCard
 
     by_type = {_card_type_of(c): c for c in GridCard.__args__}
-    withheld = SYSTEM_CARD_TYPES | ENVELOPE_CARD_TYPES
+    withheld = SYSTEM_CARD_TYPES
     wanted = [t for t in dict.fromkeys(card_types) if t in by_type and t not in withheld]
     # A surface's entry is the rule the answer contract teaches it by, worked
     # example included: its `components` renders as a list of objects nobody
@@ -1661,14 +1049,6 @@ def render_card_details(card_types: Iterable[str]) -> str:
     # it rides with the shapes that have the field rather than with every card.
     if any("DimensionCheck" in line for line in block_lines + card_lines):
         out += _measured_note()
-    # Same conditional logic, one type instead of a building block: the boundary
-    # is only instruction where the card it bounds is in play.
-    if "diagram" in wanted:
-        out += _diagram_note()
-    # Same again for the Fundstelle margin: a width the model cannot see, on the
-    # card that gets screenshotted into an Einreichung.
-    if "legal_basis" in wanted:
-        out += _legal_basis_note()
     # Unconditional, unlike the provenance rule: every card type here has text
     # fields, so there is no shape this one fails to apply to.
     out += _plain_text_note()

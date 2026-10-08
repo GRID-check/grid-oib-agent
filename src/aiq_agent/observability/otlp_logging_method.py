@@ -1,13 +1,15 @@
 import logging
 import os
+from collections.abc import Mapping
 
 from pydantic import Field
 
 from aiq_agent.common.log_redaction import PresignedUrlFilter
 from aiq_agent.common.log_redaction import install_presigned_url_scrubbing
-from nat.builder.builder import Builder
-from nat.cli.register_workflow import register_logging_method
+from aiq_agent.observability import metrics as grid_metrics
+from nat.cli.register_workflow import register_logging_method  # noqa: TID251
 from nat.data_models.logging import LoggingBaseConfig
+from nat.plugin_api import Builder
 
 logger = logging.getLogger(__name__)
 
@@ -33,6 +35,24 @@ def _logs_endpoint(endpoint: str) -> str:
     return endpoint + _LOGS_SUFFIX
 
 
+def _resource_attributes(env: Mapping[str, str]) -> dict[str, str]:
+    """The resource every exported record carries: which tier, and which build.
+
+    Resource.create() merges passed attributes LAST (they would win over env),
+    so the per-tier OTEL_SERVICE_NAME Pulumi injects is resolved here.
+
+    ``service.version`` is the commit the image was built from (GRID_GIT_SHA,
+    stamped by both Dockerfiles). Without it every err2issue issue read
+    "Version: unknown", and a "regression" on a closed issue could not be told
+    apart from a pod still running the image from before the fix.
+    """
+    attributes = {"service.name": env.get("OTEL_SERVICE_NAME", "aiq-agent")}
+    sha = env.get("GRID_GIT_SHA", "").strip()
+    if sha:
+        attributes["service.version"] = sha
+    return attributes
+
+
 class _OtelSdkFilter(logging.Filter):
     """Drops records emitted by the OTel SDK itself.
 
@@ -45,8 +65,30 @@ class _OtelSdkFilter(logging.Filter):
         return not record.name.startswith("opentelemetry")
 
 
+class _NatBuildFailureItemizationFilter(logging.Filter):
+    """Keeps one ERROR per failed workflow build instead of one per line.
+
+    ``nat.builder.workflow_builder._log_build_failure`` reports a failed build
+    as a dozen ``logger.error`` calls: a header, then every built and every
+    remaining component on its own line, then ``Original error`` with the
+    traceback. Each record is an ERROR, so err2issue filed one startup failure
+    as eleven issues (#742-#752), none of which carried the cause. Only the
+    ``Original error`` record is exported; the itemization still reaches stdout
+    through the other handlers. If NAT renames the function, nothing matches
+    and every line is exported again: this fails towards reporting.
+    """
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        if record.funcName != "_log_build_failure" or not record.name.startswith("nat."):
+            return True
+        return str(record.msg).startswith("Original error")
+
+
 class OtlpLoggingMethodConfig(LoggingBaseConfig, name="otelcollector_logs"):
     """Ships runtime logs to the OTLP collector (Aspire dashboard, ADR-0029).
+
+    Also installs the process's metrics provider on the same endpoint
+    (``aiq_agent.observability.metrics``); a blank endpoint installs neither.
 
     `endpoint` is Optional because `${OTEL_EXPORTER_OTLP_ENDPOINT:-}`
     interpolates to None (not "") when the observability tier is not deployed.
@@ -77,9 +119,7 @@ async def otlp_logging_method(config: OtlpLoggingMethodConfig, _builder: Builder
     from opentelemetry.sdk._logs.export import BatchLogRecordProcessor
     from opentelemetry.sdk.resources import Resource
 
-    # Resource.create() merges passed attributes LAST (they would win over
-    # env), so the per-tier OTEL_SERVICE_NAME Pulumi injects is resolved here.
-    resource = Resource.create({"service.name": os.environ.get("OTEL_SERVICE_NAME", "aiq-agent")})
+    resource = Resource.create(_resource_attributes(os.environ))
     provider = LoggerProvider(resource=resource)
     provider.add_log_record_processor(
         BatchLogRecordProcessor(OTLPLogExporter(endpoint=_logs_endpoint(config.endpoint)))
@@ -88,6 +128,7 @@ async def otlp_logging_method(config: OtlpLoggingMethodConfig, _builder: Builder
     level = getattr(logging, config.level.upper(), logging.INFO)
     handler = LoggingHandler(level=level, logger_provider=provider)
     handler.addFilter(_OtelSdkFilter())
+    handler.addFilter(_NatBuildFailureItemizationFilter())
     # Exported logs leave the cluster and are retained by whatever is on the
     # other end, so this is the sink where a leaked presigned URL is hardest to
     # take back. Attached here rather than trusted to every call site — see
@@ -98,6 +139,12 @@ async def otlp_logging_method(config: OtlpLoggingMethodConfig, _builder: Builder
     # host added) gets the same treatment, so the guarantee does not depend on
     # which sink a record happens to reach.
     install_presigned_url_scrubbing()
+
+    # Metrics go to the same collector through the same endpoint setting, so the
+    # one place that knows whether the observability tier exists decides both.
+    # Installed for the process, and deliberately not stopped below: see
+    # aiq_agent.observability.metrics.
+    grid_metrics.install_meter_provider(config.endpoint)
 
     yield handler
 

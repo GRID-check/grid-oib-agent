@@ -22,9 +22,15 @@ from __future__ import annotations
 import logging
 import threading
 import time
+from datetime import UTC
+from datetime import date
+from datetime import datetime
 from typing import TYPE_CHECKING
 from typing import Any
+from zoneinfo import ZoneInfo
 
+from aiq_agent.common.db_utils import ensure_schema
+from aiq_agent.common.db_utils import lock_schema
 from aiq_agent.common.db_utils import normalize_db_url as _normalize_db_url
 from aiq_agent.common.db_utils import redact_db_url
 
@@ -32,6 +38,10 @@ if TYPE_CHECKING:
     from .schema import AvailableDocument
 
 logger = logging.getLogger(__name__)
+
+#: The clock an upload date is read on. The product serves Austrian offices;
+#: a second country reads it from its profile when one arrives.
+_OFFICE_TIMEZONE = ZoneInfo("Europe/Vienna")
 
 ENGINE_CACHE_TTL_SECONDS = 3600
 ENGINE_CACHE_MAX_SIZE = 10
@@ -47,12 +57,20 @@ _LEGACY_INDEX_NAME = "idx_summaries_collection"
 #: Optional (nullable) columns added after the original schema shipped. Kept as a
 #: single list so both the fresh-create path and the in-place backfill add the
 #: exact same set — a new column is introduced by appending one entry here.
-_OPTIONAL_COLUMNS: tuple[str, ...] = ("tags", "doc_class", "display_title", "folder_path", "provenance")
+_OPTIONAL_COLUMNS: tuple[str, ...] = (
+    "tags",
+    "doc_class",
+    "display_title",
+    "folder_path",
+    "provenance",
+    "doc_class_suggestion",
+)
 
 # Every raw-SQL statement in this module interpolates ONLY trusted, code-defined
 # SQL identifiers: the table/index name constants above, and column names drawn
 # from a fixed allowlist (``_OPTIONAL_COLUMNS`` plus the literal
-# ``"tags"``/``"doc_class"``/``"display_title"``/``"folder_path"``/``"provenance"``
+# ``"tags"``/``"doc_class"``/``"display_title"``/``"folder_path"``/``"provenance"``/
+# ``"doc_class_suggestion"``
 # passed by the typed accessors).
 # SQL identifiers cannot be bound parameters, so they must live in the statement
 # text. Every caller-supplied *value* (collection, filename, summary, tags,
@@ -183,19 +201,15 @@ class DocumentMetadataStore:
             if self.db_url in DocumentMetadataStore._tables_initialized:
                 return
 
-            migrated = False
-            try:
-                with self._sync_engine.connect() as conn:
-                    migrated = self._run_schema(conn)
-                    conn.commit()
-            except Exception as e:
-                logger.warning("Failed to ensure document_metadata schema (sync): %s", e)
-
             # Only mark the store initialized when the schema is actually ready.
             # A failed migration must NOT be cached as initialized, so the next
             # call retries it instead of writing against a missing column.
-            if migrated:
-                DocumentMetadataStore._tables_initialized.add(self.db_url)
+            try:
+                ensure_schema(self._sync_engine, TABLE_NAME, self._run_schema)
+            except Exception as e:
+                logger.warning("Failed to ensure document_metadata schema (sync): %s", e)
+                return
+            DocumentMetadataStore._tables_initialized.add(self.db_url)
 
     @classmethod
     async def _ensure_table_async(cls, db_url: str):
@@ -209,22 +223,21 @@ class DocumentMetadataStore:
         store = cls.__new__(cls)
         store.db_url = db_url
 
-        migrated = False
         try:
             async with engine.begin() as conn:
-                migrated = await conn.run_sync(store._run_schema)
+                await conn.run_sync(lock_schema, TABLE_NAME)
+                await conn.run_sync(store._run_schema)
         except Exception as e:
             logger.warning("Failed to ensure document_metadata schema (async): %s", e)
+            return
+        cls._tables_initialized.add(db_url)
+        logger.info("Created/migrated document_metadata table (async) in %s", redact_db_url(db_url))
 
-        if migrated:
-            cls._tables_initialized.add(db_url)
-            logger.info("Created/migrated document_metadata table (async) in %s", redact_db_url(db_url))
-
-    def _run_schema(self, conn) -> bool:
+    def _run_schema(self, conn) -> None:
         """Create fresh, rename the legacy table, then backfill missing columns.
 
-        Runs over a live sync connection (the caller owns the transaction/commit).
-        Returns ``True`` when the schema is ready.
+        Runs over a live sync connection (the caller owns the transaction/commit,
+        and has taken the schema lock: the processes of a boot all reach this at once).
         """
         from sqlalchemy import inspect
         from sqlalchemy import text
@@ -233,26 +246,21 @@ class DocumentMetadataStore:
         has_current = inspector.has_table(TABLE_NAME)
         has_legacy = inspector.has_table(LEGACY_TABLE_NAME)
 
-        try:
-            if not has_current and has_legacy:
-                # Preserve every existing row: rename the table in place rather
-                # than recreating it. Postgres and SQLite both support this.
-                # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text
-                conn.execute(text(f"ALTER TABLE {LEGACY_TABLE_NAME} RENAME TO {TABLE_NAME}"))
-                logger.info("Migrated legacy '%s' table to '%s' (rows preserved)", LEGACY_TABLE_NAME, TABLE_NAME)
-            elif not has_current:
-                self._create_table(conn)
+        if not has_current and has_legacy:
+            # Preserve every existing row: rename the table in place rather
+            # than recreating it. Postgres and SQLite both support this.
+            # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text
+            conn.execute(text(f"ALTER TABLE {LEGACY_TABLE_NAME} RENAME TO {TABLE_NAME}"))
+            logger.info("Migrated legacy '%s' table to '%s' (rows preserved)", LEGACY_TABLE_NAME, TABLE_NAME)
+        elif not has_current:
+            self._create_table(conn)
 
-            # Backfill any optional column that predates the current schema
-            # (covers a just-renamed legacy table and older document_metadata ones).
-            for column in _OPTIONAL_COLUMNS:
-                self._add_column_if_missing(conn, column)
+        # Backfill any optional column that predates the current schema
+        # (covers a just-renamed legacy table and older document_metadata ones).
+        for column in _OPTIONAL_COLUMNS:
+            self._add_column_if_missing(conn, column)
 
-            self._ensure_index(conn)
-            return True
-        except Exception as e:
-            logger.warning("Failed to migrate document_metadata schema: %s", e)
-            return False
+        self._ensure_index(conn)
 
     def _create_table(self, conn) -> None:
         from sqlalchemy import text
@@ -269,7 +277,7 @@ class DocumentMetadataStore:
                 "display_title TEXT, "
                 "folder_path TEXT, "
                 "provenance TEXT, "
-                "created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, "
+                "created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP, "
                 "PRIMARY KEY (collection, filename))"
             )
         )
@@ -382,6 +390,19 @@ class DocumentMetadataStore:
     def get_doc_classes_batch(self, collection: str, filenames: list[str]) -> dict[str, str]:
         """Return stored explicit ``doc_class`` values for many documents in one query."""
         return self._get_column_batch(collection, filenames, "doc_class")
+
+    def set_doc_class_suggestion(self, collection: str, filename: str, doc_class: str | None) -> bool:
+        """Store (or clear, with ``None``) the decided Dokumentart a human has not confirmed.
+
+        A suggestion, never the class: nothing reads it but the base-knowledge
+        page, which offers it to the platform owner. Same UPDATE-only contract
+        as :meth:`set_doc_class`.
+        """
+        return self._update_column(collection, filename, "doc_class_suggestion", doc_class)
+
+    def get_doc_class_suggestions_batch(self, collection: str, filenames: list[str]) -> dict[str, str]:
+        """Stored Dokumentart suggestions for many documents in one query."""
+        return self._get_column_batch(collection, filenames, "doc_class_suggestion")
 
     def set_display_title(self, collection: str, filename: str, display_title: str | None) -> bool:
         """Replace only the ``display_title`` of an existing metadata row (sync).
@@ -609,6 +630,34 @@ class DocumentMetadataStore:
             return {}
         return result
 
+    def find_tmp_upload_names(self, collection: str, filenames: list[str]) -> list[str]:
+        """The stored names that are one of ``filenames`` behind a ``tmp[8]_`` upload prefix.
+
+        The vector store cannot filter by pattern, and the prefix is random, so
+        this row table is where a re-upload learns those spellings without
+        reading every chunk of the collection. One indexed query per call. Empty
+        on any failure: the caller then misses a legacy spelling, never fails.
+        """
+        names = [name for name in dict.fromkeys(filenames) if name]
+        if not names:
+            return []
+        from sqlalchemy import text
+
+        # tmp + exactly eight characters + a literal underscore + the name.
+        patterns = {f"p{index}": f"tmp{'_' * 8}\\_{_escape_like(name)}" for index, name in enumerate(names)}
+        where = " OR ".join(f"filename LIKE :{key} ESCAPE '\\'" for key in patterns)
+        try:
+            with self._sync_engine.connect() as conn:
+                rows = conn.execute(
+                    # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text
+                    text(f"SELECT filename FROM {TABLE_NAME} WHERE collection = :collection AND ({where})"),
+                    {"collection": collection, **patterns},
+                )
+                return [row[0] for row in rows]
+        except Exception as e:
+            logger.warning("Failed to look up tmp-prefixed names in %s: %s", collection, e)
+            return []
+
     def list_collections(self) -> list[str]:
         """Return every distinct collection present in the metadata table (sync).
 
@@ -653,8 +702,39 @@ class DocumentMetadataStore:
             doc_class=row[3] or None,
             display_title=row[4] or None,
             folder_path=row[5] or None,
+            added_at=self._iso_date(row[6]) if len(row) > 6 else None,
             collection=collection,
         )
+
+    @staticmethod
+    def _iso_date(raw: Any) -> str | None:
+        """``created_at`` as the ``YYYY-MM-DD`` the office saw on its clock (Europe/Vienna).
+
+        A datetime on Postgres, a ``YYYY-MM-DD HH:MM:SS`` string on SQLite; both
+        are written by ``CURRENT_TIMESTAMP`` and so are UTC when naive. The
+        column is ``TIMESTAMP WITH TIME ZONE`` (here and in
+        ``deploy/compose/init-db.sql``), so Postgres returns an aware value; a
+        naive one only comes from SQLite, whose ``CURRENT_TIMESTAMP`` is UTC, or
+        from a table created before that, on a server whose ``TimeZone`` is UTC
+        (the Postgres image default). Taking
+        the UTC date filed an upload made at 00:30 in Vienna under the day
+        before, and „was ist seit heute neu“ missed it.
+        """
+        if raw is None:
+            return None
+        if isinstance(raw, datetime):
+            moment = raw
+        elif isinstance(raw, date):
+            return raw.isoformat()
+        else:
+            text_value = str(raw).strip()
+            try:
+                moment = datetime.fromisoformat(text_value)
+            except ValueError:
+                return text_value[:10] or None
+        if moment.tzinfo is None:
+            moment = moment.replace(tzinfo=UTC)
+        return moment.astimezone(_OFFICE_TIMEZONE).date().isoformat()
 
     def get_all(self, collection: str) -> list[AvailableDocument]:
         """Get all documents with metadata for a collection (sync)."""
@@ -665,7 +745,8 @@ class DocumentMetadataStore:
                 result = conn.execute(
                     # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text
                     text(
-                        f"SELECT filename, summary, tags, doc_class, display_title, folder_path FROM {TABLE_NAME} "
+                        "SELECT filename, summary, tags, doc_class, display_title, folder_path, created_at "
+                        f"FROM {TABLE_NAME} "
                         "WHERE collection = :collection"
                     ),
                     {"collection": collection},
@@ -686,7 +767,8 @@ class DocumentMetadataStore:
                 result = await conn.execute(
                     # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text
                     text(
-                        f"SELECT filename, summary, tags, doc_class, display_title, folder_path FROM {TABLE_NAME} "
+                        "SELECT filename, summary, tags, doc_class, display_title, folder_path, created_at "
+                        f"FROM {TABLE_NAME} "
                         "WHERE collection = :collection"
                     ),
                     {"collection": collection},

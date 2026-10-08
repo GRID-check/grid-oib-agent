@@ -11,6 +11,7 @@
  * the same way the folder-menu fixture drives its dropdown.
  */
 
+import type { JSX } from 'react'
 import { useEffect, useRef } from 'react'
 import { notFound } from 'next/navigation'
 import { SidebarUserMenu } from '@/components/shell/sidebar-user-menu'

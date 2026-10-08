@@ -145,9 +145,10 @@ class FakeNonOpenRouterModel(BaseModel):
 
 
 class TestMergeZdrExtraBody:
-    def test_sets_provider_zdr_and_data_collection(self):
+    def test_sets_provider_zdr_and_data_collection(self, monkeypatch):
         from aiq_agent.common.model_overrides import _merge_zdr_extra_body
 
+        monkeypatch.setenv("OPENROUTER_PREFERRED_PROVIDERS", "")
         merged = _merge_zdr_extra_body(None)
         assert merged == {"provider": {"zdr": True, "data_collection": "deny"}}
 
@@ -160,9 +161,10 @@ class TestMergeZdrExtraBody:
 
 
 class TestApplyZdrRouting:
-    def test_copies_openrouter_model_with_zdr(self):
+    def test_copies_openrouter_model_with_zdr(self, monkeypatch):
         from aiq_agent.common.model_overrides import apply_zdr_routing
 
+        monkeypatch.setenv("OPENROUTER_PREFERRED_PROVIDERS", "")
         llm = FakeOpenRouterModel(extra_body={"plugins": [{"id": "response-healing"}]})
         result = apply_zdr_routing(llm)
         assert result is not llm
@@ -273,7 +275,10 @@ class TestOrgScopedFallbackResolution:
         import aiq_agent.common.model_overrides as M
 
         encoded = base64.urlsafe_b64encode(json.dumps({"shallow_research": "vendor/x"}).encode()).decode()
-        monkeypatch.setattr("aiq_agent.project_context._read_header", lambda name: encoded)
+        monkeypatch.setattr(
+            "aiq_agent.project_context._read_header",
+            lambda name: encoded if name == M.MODEL_OVERRIDES_HEADER else None,
+        )
         monkeypatch.setattr(M, "_fetch_org_config", lambda org: pytest.fail("must not fetch when header present"))
 
         assert M.get_model_overrides_from_context() == {"shallow_research": "vendor/x"}
@@ -312,7 +317,8 @@ class TestOrgScopedFallbackResolution:
         assert M.resolve_org_model_overrides("org_A") == {"shallow_research": "vendor/x"}
         assert calls == ["org_A"]
 
-    def test_fetch_failure_fails_open_to_empty(self, monkeypatch):
+    def test_fetch_failure_opens_the_models_and_closes_zdr(self, monkeypatch):
+        """The model choice fails open (YAML models); the privacy control fails closed."""
         import aiq_agent.common.model_overrides as M
 
         def boom(org):
@@ -320,7 +326,7 @@ class TestOrgScopedFallbackResolution:
 
         monkeypatch.setattr(M, "_fetch_org_config", boom)
         assert M.resolve_org_model_overrides("org_A") == {}
-        assert M.resolve_org_zdr_only("org_A") is False
+        assert M.resolve_org_zdr_only("org_A") is True
         # Negative-cached: the failure is not retried within the TTL.
         monkeypatch.setattr(M, "_fetch_org_config", lambda org: pytest.fail("negative cache must hold"))
         assert M.resolve_org_model_overrides("org_A") == {}
@@ -346,11 +352,13 @@ class TestOrgScopedFallbackResolution:
         monkeypatch.setattr("httpx.get", lambda *a, **k: FakeResponse())
         assert M._fetch_org_config("org_A") == ({"deep_research": "x-ai/grok-4.5"}, True)
 
-    def test_no_internal_token_returns_empty(self, monkeypatch):
+    def test_no_internal_token_is_yaml_models_with_zdr_pinned(self, monkeypatch):
+        """Without a trust channel nobody was asked: the org's ZDR bit is unknown, so it is on."""
         import aiq_agent.common.model_overrides as M
 
         monkeypatch.delenv("GRID_INTERNAL_API_TOKEN", raising=False)
-        assert M._fetch_org_config("org_A") == ({}, False)
+        assert M.resolve_org_model_overrides("org_A") == {}
+        assert M.resolve_org_zdr_only("org_A") is True
 
     def test_zdr_only_resolves_via_org_id(self, monkeypatch):
         import aiq_agent.common.model_overrides as M
@@ -434,36 +442,18 @@ class TestSharedTier:
 
         monkeypatch.setattr(M, "_fetch_org_config", boom)
         entry = M._resolve_org_config("org_1")
-        assert entry.overrides == {} and entry.zdr_only is False
+        assert entry.overrides == {} and entry.zdr_only is True
         assert cache.get_json(M.shared_model_config_key("org_1")) is None
 
     def test_missing_token_resolution_writes_nothing_to_the_shared_tier(self, monkeypatch):
-        """No GRID_INTERNAL_API_TOKEN -> ({}, False) with no L2 write, so an
-        unconfigured backend cannot shadow a real config for a full TTL."""
+        """No GRID_INTERNAL_API_TOKEN -> YAML models with ZDR pinned, and no L2
+        write, so an unconfigured backend cannot shadow a real config for a full TTL."""
         from aiq_agent.common import cache
         from aiq_agent.common import model_overrides as M
 
         monkeypatch.delenv("GRID_INTERNAL_API_TOKEN", raising=False)
         entry = M._resolve_org_config("org_1")
-        assert entry.overrides == {} and entry.zdr_only is False
-        assert cache.get_json(M.shared_model_config_key("org_1")) is None
-
-    def test_empty_success_writes_L1_only(self, monkeypatch):
-        """A genuine ({}, False) answer memoises in-process (no refetch storm)
-        but stays out of L2, where it would shadow a concurrent admin save."""
-        from aiq_agent.common import cache
-        from aiq_agent.common import model_overrides as M
-
-        calls = []
-
-        def empty(org):
-            calls.append(org)
-            return {}, False
-
-        monkeypatch.setattr(M, "_fetch_org_config", empty)
-        assert M.resolve_org_model_overrides("org_1") == {}
-        assert M.resolve_org_zdr_only("org_1") is False
-        assert calls == ["org_1"]
+        assert entry.overrides == {} and entry.zdr_only is True
         assert cache.get_json(M.shared_model_config_key("org_1")) is None
 
     def test_an_authoritative_empty_config_is_cached_in_l2(self, monkeypatch):
@@ -535,9 +525,9 @@ class TestSharedTier:
         assert all(r == {"deep_research": "x-ai/grok-4.5"} for r in results)
 
     def test_error_negative_cache_expires_in_about_one_second(self, monkeypatch):
-        """A failed fetch fails open but retries quickly: held within the 1s
-        negative TTL, retried past it — so a transient BFF outage (and its ZDR
-        bit) never pins the fleet, and recovery is a second away, not ten."""
+        """A failed fetch is retried quickly: held within the 1s negative TTL,
+        retried past it — so a transient BFF outage never pins the fleet to the
+        YAML models and ZDR routing, and recovery is a second away, not ten."""
         import time as stdlib_time
 
         from aiq_agent.common import model_overrides as M
@@ -580,8 +570,8 @@ class TestProviderWithReasoningEfforts:
     """Platform → Models pins a thinking level per group; the provider seam must carry it.
 
     Every user-facing agent resolves its LLMs through ``LLMProvider``, so an
-    effort applied only in ``apply_model_override`` never reached chat, deep
-    research or the compliance check. The seam mirrors ``with_model_overrides``:
+    effort applied only in ``apply_model_override`` never reached chat or deep
+    research. The seam mirrors ``with_model_overrides``:
     identity when nothing applies, a copy per affected group otherwise.
     """
 
@@ -633,3 +623,126 @@ class TestProviderWithReasoningEfforts:
         provider = LLMProvider()
         provider.set_default(ThinkingChatModel())
         assert provider.with_reasoning_efforts({"deep_research": "low"}) is provider
+
+
+class TestSignedEnvelopeBeatsTheRawHeaders:
+    """The x-grid-* headers are unsigned; with an envelope present they are not read.
+
+    A cookie-authenticated client talking to the WS proxy directly could set any
+    of them, and the proxy forwarded what it did not overwrite: a model of its
+    choosing for every agent group, an unlimited budget, the org's switched-off
+    sources back on.
+    """
+
+    SECRET = "envelope-secret"  # pragma: allowlist secret (test signing key)
+
+    def _headers(self, monkeypatch, payload: dict | None, **raw_headers: object) -> None:
+        import hashlib
+        import hmac
+
+        from aiq_agent import project_context as pc
+
+        def encode(value: object) -> str:
+            return base64.urlsafe_b64encode(json.dumps(value).encode()).decode().rstrip("=")
+
+        headers = {name: encode(value) for name, value in raw_headers.items()}
+        if payload is not None:
+            raw = json.dumps(payload)
+            headers[pc.REQUEST_CONTEXT_ENVELOPE_HEADER] = base64.urlsafe_b64encode(raw.encode()).decode().rstrip("=")
+            headers[pc.REQUEST_CONTEXT_ENVELOPE_SIG_HEADER] = hmac.new(
+                self.SECRET.encode(), raw.encode(), hashlib.sha256
+            ).hexdigest()
+        monkeypatch.setenv("GRID_INTERNAL_API_TOKEN", self.SECRET)
+        monkeypatch.setattr(pc, "_read_header", lambda name: headers.get(name))
+
+    def test_model_overrides_come_from_the_envelope(self, monkeypatch):
+        import aiq_agent.common.model_overrides as M
+
+        self._headers(
+            monkeypatch,
+            {"organizationId": "org-1", "modelOverrides": {"shallow_research": "vendor/org-choice"}},
+            **{M.MODEL_OVERRIDES_HEADER: {"shallow_research": "vendor/caller-choice"}},
+        )
+        monkeypatch.setattr(M, "_fetch_org_config", lambda org: pytest.fail("the envelope carries the overrides"))
+
+        assert M.get_model_overrides_from_context() == {"shallow_research": "vendor/org-choice"}
+
+    def test_an_envelope_without_overrides_resolves_the_org_not_the_header(self, monkeypatch):
+        import aiq_agent.common.model_overrides as M
+
+        M.reset_overrides_cache()
+        self._headers(
+            monkeypatch,
+            {"organizationId": "org-1"},
+            **{M.MODEL_OVERRIDES_HEADER: {"shallow_research": "vendor/caller-choice"}},
+        )
+        monkeypatch.setattr(M, "_fetch_org_config", lambda org: ({"deep_research": "vendor/org"}, False))
+
+        assert M.get_model_overrides_from_context() == {"deep_research": "vendor/org"}
+
+    def test_a_forged_envelope_is_absent_and_the_header_path_applies(self, monkeypatch):
+        """Only off the BFF is the header read; a bad signature is no envelope."""
+        import aiq_agent.common.model_overrides as M
+        from aiq_agent import project_context as pc
+
+        self._headers(monkeypatch, None, **{M.MODEL_OVERRIDES_HEADER: {"shallow_research": "vendor/worker"}})
+
+        assert pc.get_signed_request_context() is None
+        assert M.get_model_overrides_from_context() == {"shallow_research": "vendor/worker"}
+
+    def test_disabled_sources_come_from_the_envelope(self, monkeypatch):
+        from aiq_agent.common.data_sources import DISABLED_SOURCES_HEADER
+        from aiq_agent.common.data_sources import get_disabled_sources_from_context
+
+        self._headers(
+            monkeypatch,
+            {"organizationId": "org-1", "disabledSources": ["Web_Search"]},
+            **{DISABLED_SOURCES_HEADER: []},
+        )
+
+        assert get_disabled_sources_from_context() == {"web_search"}
+
+    def test_an_envelope_with_nothing_disabled_ignores_the_header(self, monkeypatch):
+        from aiq_agent.common.data_sources import DISABLED_SOURCES_HEADER
+        from aiq_agent.common.data_sources import get_disabled_sources_from_context
+
+        self._headers(monkeypatch, {"organizationId": "org-1"}, **{DISABLED_SOURCES_HEADER: ["web_search"]})
+
+        assert get_disabled_sources_from_context() == set()
+
+    def test_budget_and_user_come_from_the_envelope(self, monkeypatch):
+        from aiq_agent.common.cost_tracking import BUDGET_HEADER
+        from aiq_agent.common.cost_tracking import USER_ID_HEADER
+        from aiq_agent.common.cost_tracking import BudgetSnapshot
+        from aiq_agent.common.cost_tracking import capture_usage_context
+
+        self._headers(
+            monkeypatch,
+            {"organizationId": "org-1", "userId": "u-real", "budget": {"remainingOrgUsd": 1.5}},
+            **{BUDGET_HEADER: {"remainingOrgUsd": 1_000_000}},
+        )
+        from aiq_agent import project_context as pc
+
+        signed = pc._read_header
+        monkeypatch.setattr(pc, "_read_header", lambda name: "u-spoofed" if name == USER_ID_HEADER else signed(name))
+
+        captured = capture_usage_context()
+
+        assert captured is not None
+        assert captured["identity"]["user_id"] == "u-real"
+        assert BudgetSnapshot.from_header(captured["budget_header"]).remaining_org_usd == 1.5
+
+    def test_an_envelope_without_a_budget_carries_none(self, monkeypatch):
+        from aiq_agent.common.cost_tracking import BUDGET_HEADER
+        from aiq_agent.common.cost_tracking import capture_usage_context
+
+        self._headers(
+            monkeypatch,
+            {"organizationId": "org-1", "userId": "u-1"},
+            **{BUDGET_HEADER: {"remainingOrgUsd": 1_000_000}},
+        )
+
+        captured = capture_usage_context()
+
+        assert captured is not None
+        assert captured["budget_header"] is None

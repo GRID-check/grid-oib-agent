@@ -22,7 +22,7 @@ and manual skill runs. It must:
   the public submit route;
 - stay off the AuthMiddleware external-path allowlist (internal-only).
 
-The Dask/JobStore layer is mocked by patching ``submit_agent_job``; no builder
+The JobStore layer is mocked by patching ``submit_agent_job``; no builder
 is registered, so per-agent data-source validation is skipped (the registry
 fallback is exercised explicitly for unknown ids).
 """
@@ -267,8 +267,22 @@ def test_unknown_agent_type_maps_to_400(client, prod_token, submit_mock):
 def test_successful_submit_returns_job_id(client, prod_token, submit_mock):
     resp = _post(client, _valid_body())
     assert resp.status_code == 200
-    assert resp.json() == {"job_id": "job-xyz"}
+    assert resp.json() == {"job_id": "job-xyz", "queued": True}
     submit_mock.assert_awaited_once()
+
+
+def test_priority_defaults_to_interactive_and_a_scheduled_fire_can_send_bulk(client, prod_token, submit_mock):
+    assert _post(client, _valid_body()).status_code == 200
+    assert submit_mock.await_args.kwargs["priority"] == "interactive"
+
+    assert _post(client, _valid_body(priority="bulk")).status_code == 200
+    assert submit_mock.await_args.kwargs["priority"] == "bulk"
+
+
+def test_a_priority_nobody_defined_is_422(client, prod_token, submit_mock):
+    resp = _post(client, _valid_body(priority="urgent"))
+    assert resp.status_code == 422
+    submit_mock.assert_not_awaited()
 
 
 def test_the_settled_plan_and_the_unterlagen_reach_the_worker(client, prod_token, submit_mock):
@@ -374,14 +388,6 @@ def test_duplicate_job_id_maps_to_409(client, prod_token, submit_mock):
     resp = _post(client, _valid_body(job_id="dup-1"))
     assert resp.status_code == 409
     assert resp.json()["detail"] == "Job ID already exists: dup-1"
-
-
-def test_scheduler_not_configured_maps_to_503(client, prod_token, submit_mock):
-    from aiq_api.jobs.submit import SchedulerNotConfiguredError
-
-    submit_mock.side_effect = SchedulerNotConfiguredError("Async job submission requires NAT_DASK_SCHEDULER_ADDRESS")
-    resp = _post(client, _valid_body())
-    assert resp.status_code == 503
 
 
 # --- middleware exposure ----------------------------------------------------

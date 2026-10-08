@@ -46,13 +46,13 @@ Files render as cards in a responsive grid. Each card shows:
 - a tinted **extension chip** (PDF, DOCX, …), the file size and a relative upload time
 - the **ingestion status badge** (Ready / Processing / Failed) — failed cards show the failure reason inline
 
-The last tile of the grid is a dashed **upload card** listing the actually accepted file types and the size limit; drag-and-drop anywhere on the workspace also works.
+The last tile of the grid is a dashed **upload card** listing the actually accepted file types and the size limit; drag-and-drop anywhere on the workspace also works. A file dropped on another project page, such as Settings or Members, opens Files and is uploaded there; the chat, the research page and the intake keep their own drop targets.
 
 Right-click a file, a folder, or the empty listing — the same operations as the ⋯ menu, laid out the way Finder and Explorer are: Open, Ask about this, Download, Rename, Move, Copy origin path, Delete on a file; Open, New folder inside, Rename, Move, Delete on a folder; New folder, Upload, View and Sort on empty canvas. The ⋯ stays, top-right on both file and folder tiles, so the menu is still there if you never right-click.
 
 The **detail view** (the list toggle) is a dense sortable table for a corpus past what a card grid can hold. It is fully keyboard-navigable: one tab stop into the list, then arrows to walk it and Home/End to jump to either end — and the tab stop stays on the row you walked to, so tabbing away and back does not return you to the top. Enter opens the row.
 
-A **search field** above the grid filters the current listing client-side by file name, ingestion tags, and the AI description. Top-level folders additionally appear as a quick-filter **chip row** above the grid (the same selection the sidebar folder tree drives — no separate navigation model).
+A **search field** above the grid filters the current listing client-side by file name, ingestion tags, and the AI description. Folders are the drill-down inside the listing itself (breadcrumb, tiles, `?folder=` in the URL); a search escapes the current folder and runs over everything.
 
 Semantic results arrive in whichever view you are in. In the detail view the ranking is preserved rather than being re-sorted by upload date: **Relevance** is the column the list opens sorted by (and can be sorted the other way), and each row carries the passage that matched with its page number in place of the document's summary.
 
@@ -78,13 +78,16 @@ The accepted file types are configured via `FILE_UPLOAD_ACCEPTED_TYPES` (default
 | `.csv` | `text/csv` |
 | `.json` | `application/json` |
 
-Spreadsheets index one chunk per worksheet (labelled by sheet name) and presentations one per slide (including tables and speaker notes) — so a citation points at the sheet or slide, not just the file. Image uploads (`.png`, `.jpg`, `.jpeg`, `.webp`) are governed by the image-upload flag plus VLM availability, not by this list (see below).
+Spreadsheets index one chunk per worksheet (labelled by sheet name), so a citation points at the sheet. Word files and presentations are indexed from their PDF preview, page by page and with their pictures, so a citation points at the page or slide (see [Word, Excel and PowerPoint files](#word-excel-and-powerpoint-files)). Image uploads (`.png`, `.jpg`, `.jpeg`, `.webp`) are governed by the image-upload flag plus VLM availability, not by this list (see below).
 
 ### File Size Limits
 
-The maximum upload size is configured via `FILE_UPLOAD_MAX_SIZE_MB` (default: **100 MB**). This limit applies per **batch** (total of all files in a single upload operation), not per individual file.
+The maximum upload size applies to **each file**, not to a batch: a folder of fifty 80 MB plans uploads into the Dateiablage under a 100 MB limit. It is your organization's own limit when Piloti has set one, otherwise the deployment default from `FILE_UPLOAD_MAX_SIZE_MB` (default: **100 MB**, decimal). The upload area shows the limit in force ("max. 100 MB per file"), and Organization → Storage lists it beside the storage quota. Only Piloti's platform staff can change it, between 1 MB and the largest request the deployment accepts. A file over the limit is refused with a message naming it. IFC models (`.ifc`, `.ifczip`) have their own, larger limit (`BIM_MAX_IFC_BYTES`, default 250 MB) that the organization limit does not change.
+
+The total stored per organization is bounded separately by the storage quota.
 
 Additional limits:
+- **Chat-session attachments** also have a total: all files on one chat together may not exceed the deployment default (100 MB), or the organization's per-file limit when that is higher, so one admissible file always fits.
 - **Chat-session attachments**: `FILE_UPLOAD_MAX_FILE_COUNT` (default: **10 files**) caps how many files one chat session can hold. Project Dateiablage and the Büroarchiv are **not** under this cap — they are bounded by the organization's storage quota.
 - **Duplicate filenames** within a session are rejected
 - Files already tracked in the current session are skipped on re-upload
@@ -140,13 +143,48 @@ quota** and by the **per-file** size limit. The batch total-size limit applies
 only to chat-session attachments: it exists for a conversation, which has no
 quota behind it.
 
+## Uploading a ZIP
+
+A `.zip` can be dropped on the file area, or picked with the upload button, in a
+project's Dateiablage and in the Büroarchiv alike. Piloti treats it as the
+folder it contains: the ZIP is unpacked in your browser and then goes through
+exactly what a dropped folder goes through — the „Wollen Sie aktualisieren?"
+plan, the folders it names created in one step, a file that is already here
+offered as a new version, an unchanged one left alone.
+
+- **Where the files land.** If the ZIP has one top-level folder (what „Komprimieren"
+  makes), that folder is recreated where you are standing. If it holds loose
+  files, they go into a folder named after the ZIP.
+- **What is left out without a word:** the files macOS and Office put inside
+  archives (`__MACOSX`, `.DS_Store`, `~$…`, `Thumbs.db`). Nobody meant to upload
+  them.
+- **What is refused, with a message:** a ZIP that cannot be read (damaged, or
+  protected by a password), an empty one, one with more than 2,000 files, or one
+  that unpacks to more than 1 GB. The whole ZIP is refused, never its first
+  half — the missing files would look exactly like files nobody chose. Other ZIPs
+  dropped with it are unaffected.
+- **Types Piloti does not read** inside a ZIP are refused per file in the usual
+  upload report, like any other file. A ZIP inside a ZIP is not unpacked.
+- **An `.ifczip` is not a ZIP of documents.** It is a building model and is
+  uploaded as one, as before.
+
+File names in ZIPs made by very old Windows versions, which did not mark their
+names as UTF-8, can show garbled umlauts; renaming the folder in Piloti fixes it.
+
 **Re-uploading a file that is already there replaces it.** Dropping a corrected
 plan under the same name into the same project, the Büroarchiv, or the same chat
 points the existing document at the new bytes and re-indexes it: the document
 keeps its identity, so citations, chat subjects and folder placement all
 survive, and the organization is charged for one copy rather than two. The
 previous version's thumbnail and parsed model are discarded with it, so nothing
-rendered from the old bytes is shown as if it were the new ones. The database
+rendered from the old bytes is shown as if it were the new ones. The old
+passages are removed only once the new file has been indexed: if it cannot be
+(a password-protected PDF, a file with no readable text), the upload is marked
+as failed and search keeps finding the previous version until a working file
+replaces it, while the download already returns the new file. The preview says
+so under the failure reason, for a document with more than one version. A file
+that fails partway through indexing leaves none of its passages behind, and two
+people re-uploading one name at once end with the version indexed last. The database
 enforces one live document per name and collection, so two uploads racing each
 other cannot recreate the duplicate either. This is the behaviour the
 ingestion pipeline already had — it replaces a document's passages by filename —
@@ -169,7 +207,7 @@ When you select files, the UI shows each file's status in real time:
 3. **completed** — Ingestion finished successfully; the document is searchable
 4. **failed** — Ingestion encountered an error (hover the row for details)
 
-After upload, the `UploadOrchestrator` polls the job status every 5 seconds via `/api/documents/{id}/status` until the job reaches a terminal state or times out (max 420 attempts / ~35 minutes).
+After upload, the `UploadOrchestrator` polls the ingestion job every 5 seconds via `/api/v1/documents/{jobId}/status` until the job reaches a terminal state, for at most 420 attempts (~35 minutes). Running out of that budget, or a job the backend no longer knows, is not a failure: the rows keep reading „Wird gelesen“, a notice says reading continues in the background, and the workspace listing settles them when the documents finish. A file that is open in the preview asks `/api/documents/{id}/status` on its own and shows the summary, page count and tags as soon as indexing finishes.
 
 On **page refresh**, the orchestrator resumes polling from persisted job state in localStorage, so in-progress uploads are not lost.
 
@@ -209,16 +247,16 @@ User uploads file
 1. **Upload** — `FileUploadZone` captures the file, the `useFileUpload` hook validates it against configured limits, then POSTs it as `multipart/form-data` to `/api/documents/upload` with `projectId` and `file`.
 2. **BFF upload route** — The Next.js API route generates a UUID `documentId`, stores the file in SeaweedFS at `org/{orgId}/project/{projId}/doc/{docId}/{filename}`, inserts a `documents` row in Drizzle (status: `uploaded`), generates a presigned GET URL, and calls the Python backend's `POST /v1/ingest` with that URL.
 3. **Python ingest route** — Downloads the file from the presigned URL via `httpx`, saves it to a tempfile, and submits it to the active ingestor via `submit_job()`.
-4. **Background ingestion** — the LlamaIndex backend extracts text (pdfplumber for PDFs; dedicated office extractors for docx/xlsx/pptx, one chunk per sheet/slide), optionally extracts tables (`pdfplumber`) and images (`pypdfium2`) with VLM captioning, chunks the content, generates embeddings via NVIDIA models, and stores the vectors in ChromaDB.
-5. **Status polling** — The frontend `UploadOrchestrator` polls `/api/documents/{id}/status` which reads the Drizzle `documents.status` column.
+4. **Background ingestion** — the LlamaIndex backend extracts text (pdfplumber for PDFs and for the PDF rendition of a Word or presentation file; dedicated office extractors for spreadsheets, one chunk per sheet), optionally extracts tables (`pdfplumber`) and images (`pypdfium2`) with VLM captioning, chunks the content, generates embeddings via NVIDIA models, and stores the vectors in ChromaDB.
+5. **Status polling** — The `UploadOrchestrator` polls the backend job through `/api/v1/documents/{jobId}/status`. Document lists and the open preview read `/api/documents/{id}/status`, which reconciles the `documents` row with the backend and returns its status together with the summary, page count, chunk count, content types and tags. Details: [Document ingestion, step 5](../technical-reference/document-ingestion.md#step-5-status-polling).
 6. **Searchable** — Once `status = 'completed'`, the document's chunks are queryable via the knowledge search function.
 
 ---
 
-## The "Indexed by Piloti" Panel (files-metadata-panel flag)
+## The "Read by Piloti" Panel (files-metadata-panel flag)
 
 With the `files-metadata-panel` feature flag on (the default while flag
-enforcement is off), the preview pane leads with an **Indexed by Piloti** panel
+enforcement is off), the preview pane leads with a **Read by Piloti** panel
 showing what ingestion extracted from the document:
 
 - the one-sentence **AI summary** that grounds the agent's answers
@@ -248,6 +286,56 @@ The **Document List** component (`document-list.tsx`) renders all tracked files 
 - **Error message** (if ingestion failed)
 - **Download button** — fetches a presigned S3 URL from `/api/documents/{id}/download` and triggers a browser download
 
+### Word, Excel and PowerPoint files
+
+Office files (`.docx`, `.xlsx`, `.pptx`, their older and OpenDocument
+counterparts, and `.rtf`) open in the preview as a **PDF preview**. Piloti
+converts the file to a PDF and shows that in the same viewer as any other PDF,
+so a citation to an office file opens the document instead of only offering a
+download. The pane says that it is showing a PDF preview of the original.
+
+**Download always gives the original file**, unchanged. The PDF is a copy for
+reading; nothing is edited or replaced.
+
+What to expect:
+
+- The first time an older file is opened, the preview shows „PDF-Vorschau wird
+  erstellt…" while it is converted. Files uploaded since the change are
+  converted during upload.
+- The PDF is LibreOffice's rendering, not Word's or Excel's. Layout can shift a
+  little, and a font the server does not have is replaced by a similar one.
+- A citation to a Word document or a PowerPoint slide opens at the page it
+  came from. A citation to an Excel sheet opens at page 1, because one sheet can
+  print across several pages.
+- If conversion is not set up for your installation, or fails for a file, the
+  pane shows the placeholder and the Download button as before.
+
+**Pictures in Word and PowerPoint files are read.** Piloti indexes these files
+from the PDF, the same way it reads a PDF you upload: a photo, a pasted plan or
+a rendering on a slide gets a description, and a question about it can find it
+and cite it. PowerPoint speaker notes are still read from the original file,
+because the PDF leaves them out. Excel files keep being read sheet by sheet, as
+tables.
+
+- While the PDF is being made, the upload shows „Wird gelesen“. It turns into
+  Ready once the file is indexed, which for a large deck can take a few minutes.
+  The conversion is a background job that survives a server restart; a folder of
+  hundreds of files is worked through in turn and does not delay other offices.
+- Files uploaded before this change keep their old index: their text is
+  searchable, their pictures are not, and a Word citation opens at page 1.
+  Choose „Erneut lesen“ in the file's ⋯ menu to have it read the new way.
+  Uploading the same file again does not: identical bytes are skipped as
+  „Unverändert“. Until the new reading finishes, answers use the old one.
+- A diagram drawn with Office shapes or SmartArt is not a picture to Piloti.
+  Its labels are text and are found; its layout is not described.
+- If the PDF cannot be made, the file shows „Lesen fehlgeschlagen“ with the
+  reason, and „Erneut lesen“ tries again. It stays stored and downloadable.
+  Excel files are the exception: they are still read, only without a thumbnail.
+
+Why it works this way: [ADR-0070](../adr/0070-office-files-are-viewed-through-a-pdf-rendition.md)
+for viewing, [ADR-0071](../adr/0071-word-and-presentation-files-are-indexed-from-their-rendition.md)
+for indexing.
+
 ---
 
 ## Project-Scoped vs Session-Scoped Documents
@@ -268,35 +356,44 @@ project in your organization** — every project's chat automatically searches t
 Archiv alongside its own documents and the base corpus, with no per-project
 re-upload. Any member can browse, preview, and download Archiv documents;
 uploading and deleting require the **`org:archiv:manage`** permission (org admins
-have it). It reuses the exact same upload/ingestion/preview experience as the
-project Files tab. The feature is gated by the `organization-archiv` feature flag
+have it). It is the same workspace as the project Files tab — upload, ingestion, preview and folders. The feature is gated by the `organization-archiv` feature flag
 (available to all orgs while flag enforcement is off; targeted per-org once on).
 
-The Archiv presents itself as the office's **knowledge library** (gold archive
-mark = the Büroarchiv provenance signal used across the app):
+The Archiv is the project Files workspace over the office's shelf: **one
+component, two shelves** (`FileWorkspace`; see
+[`docs/ux/file-upload-and-explorer.md`](../ux/file-upload-and-explorer.md#one-workspace-two-shelves)).
+Everything described for a project's Dateien above — folders, moving files by
+menu or drag, uploading a whole folder, the cards/list toggle, filters and sort,
+search, the preview and its `?doc=` link — works the same here, with the same
+words. It keeps the gold archive mark (the Büroarchiv provenance signal used
+across the app) and what is specific to the office:
 
-- **Card grid** — the same content-aware skeleton thumbnails, extension chips,
-  one-line AI descriptions, and ingestion-status badges as the project file
-  grid; failed cards show the failure reason inline.
-- **Category chips** — a filter row derived from the controlled ingestion tags
-  actually present on the archive's documents (document type + OIB discipline),
-  plus an "All" chip. Categories come from the documents themselves; creating
-  custom categories is not (yet) supported.
-- **Provenance footer** — cards whose documents carry ingestion tags show them
-  as an "Aus: …"/"From: …" line with the gold archive mark. Documents without
-  tags simply show none, and there is no "verified" marker — the Archiv has no
-  review workflow.
-- **Search** — filters the listing client-side by file name, ingestion tags,
-  and the AI description, combinable with the category chips. Pressing Enter
-  runs the semantic search over the corpus instead. A semantic search that
-  cannot RUN (the index is unreachable, the request times out) says so and
-  offers to run the same query again — it is never reported as "no matches",
-  which is a claim about your own files that a search which never ran has no
-  business making.
+- **Folders** — the office's own tree, separate from every project's. Members
+  with `org:archiv:manage` create, rename, move and delete folders and re-file
+  documents; deleting a folder never deletes documents, it re-files them into the
+  parent. Everyone else can open folders, search, filter, preview and download
+  but sees no upload, drag, create, rename, move or delete.
+- **Gold kind chip and provenance footer** — a card shows the document's kind
+  (floor plan, notice, …) on a gold chip, and cards whose documents carry
+  ingestion tags show them as an "Aus: …"/"From: …" line. Documents without
+  tags show none, and there is no "verified" marker — the Archiv has no review
+  workflow.
+- **Category filter** — the filter menu offers „Kategorie", derived from the
+  controlled ingestion tags actually present on the loaded documents (document
+  type + OIB discipline). Categories come from the documents themselves;
+  creating custom categories is not (yet) supported. This filter is on every
+  shelf, not only the Archiv.
+- **Search** — as in a project: typing filters the listing by file name, ingestion
+  tags and the AI description, across every folder; Enter runs the semantic
+  search over the whole Archiv. A semantic search that cannot RUN says so and
+  offers to run the same query again — it is never reported as "no matches".
+- **No assignments and no „Frage zur Datei"** — collaboration is project-scoped
+  and the Archiv has no project chat to ask in.
 - **A document that failed to index** carries the reason on its card, and the
-  card's ⋯ menu offers **Retry indexing** for it — the same retry the preview
-  has, where the failure is actually read. It appears only for a document that
-  failed, and only for someone who may manage it.
+  card's ⋯ menu offers „Erneut lesen“ for it, the same retry the preview
+  has, where the failure is actually read. An indexed document gets the same
+  action behind a confirmation, to read it again. A document with no known
+  state gets neither, and only someone who may manage the document sees it.
 
 ---
 

@@ -614,6 +614,42 @@ describe('fireJob', () => {
     expect(vi.mocked(repository.insertRun).mock.calls[0][0].runMessageId).toBeNull()
   })
 
+  /**
+   * ADR-0079: capacity makes a job wait in the research queue, it never refuses
+   * it. A fire the backend queued is a QUEUED run (not skipped, not running),
+   * and a scheduled fire goes in as bulk so it waits behind the office's own
+   * questions.
+   */
+  it('records a fire the backend queued as a queued run, not a skipped one', async () => {
+    vi.mocked(submitJob).mockResolvedValue({ jobId: 'backend-1', queued: true })
+
+    const run = await fireJob(definitionRow(), 'schedule', 'scheduler')
+
+    expect(run.status).toBe('queued')
+    expect(vi.mocked(repository.insertRun).mock.calls[0][0]).toMatchObject({
+      status: 'queued',
+      backendJobId: 'backend-1',
+      startedAt: null,
+    })
+  })
+
+  it('records a queued fire as running when it has no message for the worker to start it through', async () => {
+    vi.mocked(submitJob).mockResolvedValue({ jobId: 'backend-1', queued: true })
+    vi.mocked(createRunMessage).mockResolvedValueOnce(null as never)
+
+    const run = await fireJob(definitionRow(), 'schedule', 'scheduler')
+
+    expect(run.status).toBe('running')
+  })
+
+  it('sends a scheduled fire as bulk and a manual one as interactive', async () => {
+    await fireJob(definitionRow(), 'schedule', 'scheduler')
+    await fireJob(definitionRow(), 'manual', 'user_1')
+
+    const priorities = vi.mocked(submitJob).mock.calls.map((call) => call[0].priority)
+    expect(priorities).toEqual(['bulk', 'interactive'])
+  })
+
   it('records a skipped fire as a visible run instead of losing it', async () => {
     vi.mocked(submitJob).mockRejectedValue(new JobSubmitSkippedError('org job cap reached', 60))
 
@@ -666,6 +702,14 @@ describe('fireScheduledJob', () => {
   })
 
   it('fires and reports the backend id', async () => {
+    const result = await fireScheduledJob(definitionRow({ trigger: 'schedule', scheduleCron: '0 8 * * 1' }))
+
+    expect(result).toEqual({ fired: true, jobId: 'backend-1' })
+  })
+
+  it('counts a fire the backend queued as fired: a full queue is a wait, not a skip', async () => {
+    vi.mocked(submitJob).mockResolvedValue({ jobId: 'backend-1', queued: true })
+
     const result = await fireScheduledJob(definitionRow({ trigger: 'schedule', scheduleCron: '0 8 * * 1' }))
 
     expect(result).toEqual({ fired: true, jobId: 'backend-1' })

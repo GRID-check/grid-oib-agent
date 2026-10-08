@@ -18,6 +18,7 @@
 import type { FileUploadConfig } from '@/shared/context'
 import { IMAGE_EXTENSIONS } from '@/shared/config/file-upload'
 import { isIfcFilename } from '@/lib/bim/types'
+import { ZIP_MIME_TYPES } from './lib/zip-types'
 // The same formatter every file size in the UI renders through. These messages
 // name a size the user can also see on a file card, so a second implementation
 // meant one screen showing "1,5 MB" beside "1.5 MB" in German.
@@ -105,7 +106,15 @@ export interface ValidationContext {
   existingTotalSize: number
   /** Number of files already in the session */
   existingFileCount: number
-  /** Names of files already in the session (for duplicate detection) */
+  /**
+   * Names of files already in the session (for duplicate detection).
+   *
+   * Read for a chat's attachments only. On a durable shelf a name that is
+   * already there is a new VERSION (ADR-0054), and the upload surface asks
+   * about it from the server's listing; this set is what this browser's
+   * tracked uploads remember, so refusing on it made the same drop a refusal
+   * in one browser and a silent replacement in another.
+   */
   existingFileNames: Set<string>
   /**
    * Durable project / Archiv corpus. Those shelves are bounded by storage
@@ -250,8 +259,9 @@ export function validateFileUpload(
       continue
     }
 
-    // Check for duplicates against existing session files
-    if (context.existingFileNames.has(file.name)) {
+    // Check for duplicates against existing session files — a chat's only; see
+    // `ValidationContext.existingFileNames` for why a durable shelf never does.
+    if (!context.durableCorpus && context.existingFileNames.has(file.name)) {
       fileErrors.push({
         file,
         code: 'DUPLICATE_FILE',
@@ -433,18 +443,20 @@ export function validateFileUpload(
  *
  * @param dataTransfer - DataTransfer object from drag event
  * @param config - Optional file upload configuration (uses defaults if not provided)
+ * @param options.allowZip - A durable shelf unpacks a zip before uploading it
  */
 export function checkDraggedFilesSupported(
   dataTransfer: DataTransfer,
-  config: FileUploadConfig = DEFAULT_CONFIG
+  config: FileUploadConfig = DEFAULT_CONFIG,
+  { allowZip = false }: { allowZip?: boolean } = {}
 ): boolean {
   const items = Array.from(dataTransfer.items)
   for (const item of items) {
-    if (item.kind === 'file') {
-      if (!isValidMimeType(item.type, config)) {
-        return false
-      }
-    }
+    if (item.kind !== 'file') continue
+    // A zip is unpacked before upload on a durable shelf, so it is welcome
+    // there; everywhere else (a chat attachment) it is not a document.
+    if (allowZip && ZIP_MIME_TYPES.includes(item.type.toLowerCase())) continue
+    if (!isValidMimeType(item.type, config)) return false
   }
   return true
 }

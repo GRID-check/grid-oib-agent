@@ -81,6 +81,24 @@ const BOUNDARY_MIGRATIONS = [
   // a set one is that org's own, so the predicate carries a NULL arm.
   // Renumbered from 0087: develop took 0087 and 0088 first.
   '0089_skill_categories.sql',
+  // Adds product_feedback — bug reports and ideas a member sends to the
+  // platform owners. Keyed directly by the organization it was written from,
+  // secured exactly as `organization_instructions`.
+  '0100_product_feedback.sql',
+  // Re-secures project_folders on its own `organization_id` column instead of a
+  // join through projects: an Archiv folder has no project to join. No table is
+  // added or removed, and the replaced policy is the single one — the shape the
+  // `messages` re-securing in 0032 has.
+  '0102_archiv_folders.sql',
+  // Adds bff_job_queue and bff_job_lane_turns — the BFF's durable background
+  // work (ADR-0081). The lane is the organization id, so both are tenant tables
+  // whose predicate compares `lane` (not an `organization_id` column) to the
+  // active tenant; the runner reads across lanes under the platform role.
+  '0104_bff_job_queue.sql',
+  // Adds mail_imports (ADR-0085), an Outlook archive a member is filing into a
+  // project. Keyed by the organization, secured like product_feedback; the
+  // stale-upload sweep reads across tenants under the platform role.
+  '0108_mail_imports.sql',
 ]
 
 const MIGRATION_SOURCES = BOUNDARY_MIGRATIONS.map((file) =>

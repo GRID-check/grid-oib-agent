@@ -35,6 +35,7 @@ All schemas are in `frontends/ui/src/lib/db/schema/` and barrel-exported from `i
 | `jobs.ts` | `skills`, `jobs`, `job_runs` — the last two LEGACY since 0086; they are not written or read after the cutover and migration 0087 drops them |
 | `tasks.ts` | `tasks` — LEGACY since 0086, same |
 | `task-model.ts` | `task_definitions`, `task_runs` — the collapsed model (migration 0086) |
+| `bff-job-queue.ts` | `bff_job_queue`, `bff_job_lane_turns` — the BFF's durable background work (migration 0104, ADR-0079) |
 
 ---
 
@@ -254,12 +255,13 @@ export const documents = pgTable('documents', {
 
 - `uniq_documents_authored_ref_producer_per_project` — **UNIQUE**, on (`organization_id`, `project_id`, `authored_by_ref`, `authored_by_producer`), **PARTIAL** (`WHERE authored_by <> 'user'`) — one machine-authored document per reference per producer. Its columns are exactly the WHERE clause of `findDocumentAuthoredByRef`: an index narrower than that probe rejects rows the probe would accept, a wider one admits the duplicates the probe was meant to prevent, so the two are changed together or not at all. Introduced without the producer as `uniq_documents_authored_run_per_project` (migration `0064`, one document per RUN) and widened by migration `0065`, because a run can owe more than one file — a diagram is a previewable SVG that carries its own source and an attachable PDF, and under the old key the second call answered "already filed". Restated under the renamed column by migration `0066` rather than renamed, so the live rule is readable in one file instead of split between a `CREATE` in `0065` and an `ALTER … RENAME` in `0066`. `authored_by_ref_kind` is deliberately NOT in the key: it is a function of `authored_by_producer`, which is already in it. Partial on `<> 'user'` because the CHECK below deliberately lets a HUMAN row carry a reference too, and two colleagues saving one run's artefact into one project must not collide. A NULL producer is not covered (NULL never equals NULL), which `documents_authorship_requires_provenance` makes unreachable for these rows.
 
-- `uniq_documents_live_name_per_collection` — **UNIQUE**, on (`organization_id`, `collection_name`, `filename`), **PARTIAL** (`WHERE authored_by = 'user' OR filename LIKE 'piloti/%'`) — one live document per filename per collection over every row that can own chunks, because the ingest pipeline replaces passages by filename and a second row under one name is a ghost (migration `0074`, widened by `0083`). The predicate is two disjoint arms: `authored_by = 'user'` is 0074's rule, and `filename LIKE 'piloti/%'` covers the namespace an agent-authored document is filed under once a version of it may be published and therefore indexed (ADR-0054). They cannot meet — no browser produces a filename containing a slash, so no upload can reach the second arm — and a machine-authored row OUTSIDE the namespace is in neither: it carries a model-chosen name, owns no chunks, and must coexist with a person's file of the same name. Its columns and its FIRST arm are the WHERE clause of `findLiveDocumentByFilename`, the probe that makes a re-upload replace instead of insert; the index closes the concurrent-first-upload race the probe cannot. The second arm has no probe and needs none — the document id inside the namespace is unique by construction, and the filing path's idempotency is `uniq_documents_authored_ref_producer_per_project` one level up — so it is the database refusing to hold a collision the application has no way to create. Created with `AND deleted_at IS NULL` and restated without it by migration `0077`, which dropped `documents.deleted_at`: the column was added by `0009` for a soft delete that documents never got (every document delete is a hard DELETE), so the clause was inert, and a predicate over a column nothing writes hides rows the day something does. `projects` and `conversations` keep their `deleted_at`.
+- `uniq_documents_live_name_per_collection` — **UNIQUE**, on (`organization_id`, `collection_name`, `filename`), **PARTIAL** (`WHERE authored_by = 'user' OR filename LIKE 'piloti/%'`) — one live document per filename per collection over every row that can own chunks, because the ingest pipeline replaces passages by filename and a second row under one name is a ghost (migration `0074`, widened by `0083`). The predicate is two disjoint arms: `authored_by = 'user'` is 0074's rule, and `filename LIKE 'piloti/%'` covers the namespace an agent-authored document is filed under once a version of it may be published and therefore indexed (ADR-0054). They cannot meet — no browser produces a filename containing a slash, so no upload can reach the second arm — and a machine-authored row OUTSIDE the namespace is in neither: it carries a model-chosen name, owns no chunks, and must coexist with a person's file of the same name. Its columns and its FIRST arm are the WHERE clause of `findLiveDocumentByFilename`, the probe that makes a re-upload replace instead of insert; the index closes the concurrent-first-upload race the probe cannot. Its refusal is an OUTCOME, not a bug: `insertDocumentWithinQuota` maps a 23505 on THIS index (by name, `lib/documents/unique-conflicts.ts`) to `LiveFilenameTakenError`, a `409`, and the project and Archiv upload paths answer it by retrying once as a re-upload (`retryRacedUpload`) — the refused insert charged nothing and `admitOrDiscard` already deleted the loser's object, so the retry's bytes become the next version of the winner's document, under a `v<n>/<write id>/` key of their own, charged in full (ADR-0054 correction 14). The second arm has no probe and needs none — the document id inside the namespace is unique by construction, and the filing path's idempotency is `uniq_documents_authored_ref_producer_per_project` one level up — so it is the database refusing to hold a collision the application has no way to create. Created with `AND deleted_at IS NULL` and restated without it by migration `0077`, which dropped `documents.deleted_at`: the column was added by `0009` for a soft delete that documents never got (every document delete is a hard DELETE), so the clause was inert, and a predicate over a column nothing writes hides rows the day something does. `projects` and `conversations` keep their `deleted_at`.
 
 The three `authored_by` partial indexes above live **only in the migration** — drizzle's index builder cannot express a `WHERE` clause — with a NOTE beside the relevant column in `schema/documents.ts`; the filename one is declared in the schema as well. `documents.spec.ts` pins each one to its migration so a regeneration cannot quietly drop it.
 
 **Constraints:**
-- `documents_folder_requires_project` — a document with a folder has a project, which is what makes the composite folder FK check anything under MATCH SIMPLE (migration `0030`)
+- `documents_folder_requires_project` — `folder_id IS NULL OR project_id IS NOT NULL OR scope = 'archiv'`: a filed document is a project document or an Archiv one. Introduced as "a document with a folder has a project" so the composite `(folder_id, project_id)` FK checks anything under MATCH SIMPLE (migrations `0030`, `0031`); widened by migration `0102`, whose next constraint now checks every folder reference whatever the project
+- `documents_folder_id_organization_id_scope_fkey` — FK (`folder_id`, `organization_id`, `scope`) → `project_folders (id, organization_id, scope)`, `ON DELETE CASCADE` (migration `0102`, ADR-0078). A document's folder is on its own **shelf and tenant**: a project document cannot be filed in an Archiv folder (nor the reverse), neither in another tenant's folder, and a `session` attachment cannot be filed at all — no folder row can carry scope `session`, so the key has nothing to match. MATCH SIMPLE skips it when `folder_id` is NULL. The cascade is only a backstop and agrees with `documents_folder_id_project_id_fkey`: `deleteShelfFolder` re-files a folder's documents and children into its parent before it removes the row
 - `documents_session_requires_conversation` — the scope partition: a `session` row has a conversation, nothing else does, and a `session` row has no project (migration `0049`)
 - `documents_authorship_requires_provenance` — `authored_by = 'user' OR (authored_by_producer IS NOT NULL AND authored_by_ref IS NOT NULL AND authored_by_ref_kind IS NOT NULL)`. A document no person wrote can always say what wrote it, which one, and what kind of identifier that is; one that cannot is an audit trail in appearance only. The third conjunct is migration `0066`'s: the first two were satisfiable by a row whose reference nobody could resolve, because the column's name asserted a job id over a value that was not one. Written against `<> 'user'` rather than against `agent` so a member added to `DOCUMENT_AUTHORS` arrives already constrained instead of arriving as a hole nothing notices (migration `0063`). One-directional: a `user` row carrying all three is legal.
 
@@ -293,7 +295,11 @@ thumbnail, ingest, the quota ledger — work unchanged.
 **Columns:** `id`, `organization_id`, `document_id` + `project_id` (composite FK
 to `documents (id, project_id)`, the `documents_folder_id_project_id_fkey`
 shape; `project_id` is NULL for the Archiv and session shelves, where MATCH
-SIMPLE skips the check), `version_number`, `state`, `storage_key`,
+SIMPLE skips the check — and cascades nothing — which is why migration `0094`
+adds the plain `document_versions_document_id_fkey`, `document_id → documents
+(id) ON DELETE CASCADE`, holding on every shelf; a 23503 on either key is an
+upload recording its version for a document deleted first,
+`DocumentDeletedError`, a 409), `version_number`, `state`, `storage_key`,
 `storage_bucket`, `content_type`, `file_size`, `content_hash`,
 `submitted_by`/`_at`, `reviewed_by`/`_at`, `approved_by`/`_at`,
 `published_by`/`_at`, `review_comment`, `created_by`,
@@ -308,13 +314,52 @@ SIMPLE skips the check), `version_number`, `state`, `storage_key`,
 - `document_versions_refusal_has_comment` — `state NOT IN ('changes_requested', 'rejected') OR review_comment IS NOT NULL`. A refusal with nothing in it is a decision the next attempt cannot act on.
 - `document_versions_submitted_by_actor_known` — `human | agent` (migration `0085`).
 
-**Indexes:** `idx_document_versions_document (document_id, version_number)`,
-`idx_document_versions_organization_id`, and two PARTIAL unique indexes that
+**One number per document (migration `0092`):** the constraint
+`document_versions_document_id_version_number_key` is `UNIQUE (document_id,
+version_number)`, and it replaced the plain `idx_document_versions_document` on
+the same columns. The number used to be `max + 1`, read in one statement and
+inserted in another (and on the upload paths read before the bytes even moved),
+so two overlapping re-uploads of one filename both recorded „Version N" and
+both wrote the same object key. Now:
+
+- the number is allocated INSIDE the inserting transaction, under a
+  per-document advisory lock (`allocateVersionNumber`,
+  `lib/documents/version-repository.ts`, key `document_versions:<document id>`).
+  Neither insert accepts a number from its caller; the type does not have the
+  field;
+- the object key is unique per WRITE, not per number: `…/doc/<id>/v<n>/<write
+  id>/<file>` (`versionWriteKey`, for every write but a first upload on every shelf). The `v<n>` in a key is
+  the number the writer expected (`nextVersionNumber` is a hint) and can differ
+  from the row's; nothing reads it back. Version 1 of a fresh upload keeps the
+  flat `doc/<id>/<file>` key, which is unique because the id is new. A
+  RE-upload always takes the write segment (`versionWriteKey`), even when the
+  hint reads 1: the hint is 1 whenever the existing row has no version yet —
+  the winner of a concurrent first upload, between its insert and its version —
+  and the shortcut would aim the PUT at that row's own object;
+- each upload records its version with the columns ITS request stored
+  (`recordUploadedVersion`'s `stored`), never re-read off the item row an
+  overlapping upload may have rewritten.
+
+The migration first moves every row that shares its number with an EARLIER row
+of the same document to the end of that document's history (`max + 1`, … in
+creation order). The earliest row keeps its number, every unambiguous row keeps
+its number, and no storage key or state changes. A 23505 on this constraint
+means a path inserted a version without the lock.
+
+**Indexes:** the unique constraint's own index on `(document_id,
+version_number)`, `idx_document_versions_organization_id`, and two PARTIAL unique indexes that
 live only in the migration (with `COMMENT ON INDEX`, because the next person to
 meet one meets it as a constraint violation in a log line):
 `uniq_document_versions_open_per_document` — at most one `draft`/`in_review`/
 `changes_requested` version per document, so two chat turns cannot fork one file
 into two live drafts — and `uniq_document_versions_published_per_document`.
+`insertDocumentVersion` maps a 23505 on the FIRST one, by name, to
+`OpenVersionExistsError` (a `409`); `forkDraftVersion` re-reads the winner and
+answers the same `409 { versionId, state }` its probe gives, so two forks at
+once are one draft and one 409, never a 500. A 23505 on any other constraint of
+the table stays unmapped: on the number key it means a path skipped the lock, on
+the published index it means a published row was inserted outside
+`insertPublishedVersion`, and both are bugs.
 
 The second one is why publishing is ONE transaction: "two published versions of
 one document" is unrepresentable, so the previous version must already have been
@@ -333,10 +378,23 @@ that, **every re-upload of a document failed** on the constraint.
 
 **Bytes:** a superseded version keeps its object. They are purged when the
 document is deleted — `deleteDocument`, `deleteArchivDocument` and
-`deleteSessionDocument` each walk every version — and not when one is replaced.
+`deleteSessionDocument` each walk every version (`listDocumentVersionObjects`
+pages through all of them; it used to stop at the 500-row list page and leak
+the rest) — and not when one is replaced.
 The consequence is stated rather than hidden: superseded versions stay charged
 against the organization's storage quota, because they exist. A per-organization
 retention policy is a later row on a later table.
+
+**Replacing a draft's bytes (`PUT …/content`):** the swap is `UPDATE … WHERE
+state = $read AND storage_key = $read AND content_hash = $read` (`IS NULL` for a
+row with no digest), not `state` alone. `update` goes draft → draft, so a state
+guard let two writers holding the same `If-Match` both win. The new bytes are
+written FIRST, under a fresh `v<n>/<write id>/` key nobody else is aiming at;
+the loser's object is deleted, and the draft's previous object is deleted once
+neither the item nor any version names it (a fresh fork's key is the published
+version's, and stays). The swap, the item mirror (when the version IS the
+item's bytes) and that orphan check are one transaction
+(`swapVersionContent`).
 
 **And the ledger says so.** That sentence was a claim the code did not honour
 for a while: usage summed `documents.file_size` alone, which is the LIVE bytes,
@@ -349,6 +407,22 @@ measure the same thing. The predicate compares KEYS rather than ids on purpose:
 a draft forked from the published version deliberately shares that version's
 object until its content is replaced, and two rows over one object are one
 charge.
+
+**What each admission charges.** A re-upload (`replaceDocumentWithinQuota`)
+charges the FULL new size against the whole organization's usage: the replaced
+bytes stay as the superseded version, so nothing is freed. It used to exclude
+the replaced row from the sum, which counted the old bytes nowhere during the
+admission. When the row is gone — deleted after the upload probed the name —
+the update matches nothing and the function throws `ReplacedDocumentGoneError`
+instead of reporting success, so nothing is charged and the admission discards
+the upload's object; the project and Archiv uploads then retry as a first
+upload (ADR-0054 correction 16). A draft's content write (`swapVersionContent`) is admitted under the
+same per-organization lock, by reading the usage before the swap and again
+after it in the same transaction and rolling back when the after-state crosses
+the quota — so a fresh fork's first write is charged in full (the published
+object stays), a draft rewriting its own object is charged the difference, and
+a shrinking write is always admitted. It used to be an unlocked
+`incoming − fileSize`, which for a fork was ≈ 0.
 
 **Whose hand submitted (migration `0085`):** `submitted_by_actor` (`human` |
 `agent`, default `human`) is written from `TransitionInput.actingHuman` at the
@@ -521,17 +595,39 @@ trigger (`once`, no due date), which is what lets chat say „jeden Montag".
   still files. No foreign key, deliberately: a deleted conversation must not
   cascade away a run's own history, and a dangling id reads as „keine
   Nachricht".
+- **`reconcile_checked_at` (timestamptz, nullable, migration `0096`):** when the
+  run reconciler (`lib/runs/reconcile.ts`) last asked the job store about this
+  still-active run. The claim sets it in the same statement that selects the row
+  (`FOR UPDATE SKIP LOCKED` in the subquery), which keeps two BFF replicas off
+  one run and asks about a genuinely running run once per stale window rather
+  than once per tick. NULL until the first check; the claim then judges the row
+  by `started_at`, else `created_at`. Bookkeeping only, nothing renders it.
+  Index `idx_task_runs_reconcile_due` on `COALESCE(reconcile_checked_at,
+  started_at, created_at)` is **partial**, `WHERE status IN ('queued',
+  'running')`, and lives only in the migration (an expression index Drizzle
+  cannot express).
+  The ledger heal reuses the column for CLOSED runs (migration `0099`): a closed
+  run with a `run_message_id` whose `reconcile_checked_at` is NULL or before
+  `COALESCE(finished_at, updated_at)` has not been looked at since it ended, and
+  `claimClosedRunsToHeal` stamps it as it hands it to `settleRunLedger`, so each
+  ending is looked at once. Partial index `idx_task_runs_ledger_heal_due` on
+  `COALESCE(finished_at, updated_at)` repeats that predicate.
 
 ---
 
 ## project_folders
 
+Folders of a **shelf**: a project's Dateien (`scope = 'project'`) or the org-wide Archiv (`scope = 'archiv'`) — migration `0102`, [ADR-0078](../adr/0078-folders-are-a-property-of-a-shelf-not-of-a-project.md).
+
+> **The name is a deliberate deferral.** `project_folders` is a misnomer for the Archiv half of its rows. Renaming it touches the Python mirror (`document_metadata.folder_path`, ADR-0049) and ten earlier migrations and turns a column change into a table swap, so it waits for something that forces a table swap anyway. Read it as "shelf folders"; the same note sits beside the table in `schema/project-folders.ts`.
+
 ```typescript
 // frontends/ui/src/lib/db/schema/project-folders.ts
 export const projectFolders = pgTable('project_folders', {
   id: uuid('id').primaryKey().defaultRandom(),
-  projectId: uuid('project_id').notNull()
-    .references(() => projects.id, { onDelete: 'cascade' }),
+  projectId: uuid('project_id').references(() => projects.id, { onDelete: 'cascade' }), // NULL for an Archiv folder
+  organizationId: text('organization_id').notNull(),
+  scope: text('scope').$type<'project' | 'archiv'>().notNull().default('project'),
   parentId: uuid('parent_id'),
   name: varchar('name', { length: 255 }).notNull(),
   path: varchar('path', { length: 1024 }).notNull(),
@@ -543,19 +639,29 @@ export const projectFolders = pgTable('project_folders', {
 | Column | Type | Constraints | Notes |
 |--------|------|-------------|-------|
 | `id` | `uuid` | PK, `defaultRandom()` | |
-| `project_id` | `uuid` | NOT NULL, FK → `projects.id` ON DELETE CASCADE | |
-| `parent_id` | `uuid` | | `NULL` for a folder at the project root |
+| `project_id` | `uuid` | nullable, FK → `projects.id` ON DELETE CASCADE | `NULL` exactly for an Archiv folder (`project_folders_scope_owner_check`) |
+| `organization_id` | `text` | NOT NULL | The tenant, on the row (migration `0102`, backfilled from `projects.organization_id`). Pinned by the RLS policy and the composite keys below |
+| `scope` | `text` | NOT NULL, default `'project'`, CHECK in (`project`, `archiv`) | The shelf, in `documents.scope`'s vocabulary minus `session`: a chat attachment is never filed |
+| `parent_id` | `uuid` | | `NULL` for a folder at the root of its shelf |
 | `name` | `varchar(255)` | NOT NULL | |
-| `path` | `varchar(1024)` | NOT NULL | Materialised path, for breadcrumbs |
+| `path` | `varchar(1024)` | NOT NULL | Materialised path, for breadcrumbs and the backend mirror |
 | `created_at` / `updated_at` | `timestamptz` | NOT NULL, `defaultNow()` | |
 
 **Indexes and constraints:**
 - `idx_project_folders_project_id`, `idx_project_folders_parent_id`
-- `project_folders_id_project_id_key` — UNIQUE on (`id`, `project_id`). Redundant on its own (`id` is the PK) and required anyway: a composite FK can only reference a uniquely-constrained column set, and both the parent self-reference and `documents.folder_id` reference exactly this pair (migration `0030`).
-- `project_folders_parent_id_project_id_fkey` — a folder's parent lives in the same project. This replaced an RLS policy that referenced `project_folders` from its own predicate, which Postgres answers with "infinite recursion detected in policy" — and because `documents`' policy joined this table, both became unreadable for the runtime role.
-- `uniq_project_folders_parent_name` — UNIQUE on (`project_id`, `COALESCE(parent_id, '00000000-0000-0000-0000-000000000000'::uuid)`, `name`) (migration `0063`). One folder per name per parent. The `COALESCE` is load-bearing: `parent_id` is `NULL` at the root and `NULL` never equals `NULL` in a unique index, so a plain three-column index would police nested folders and leave **root** folders — where a fixed, created-on-first-use destination like `Berichte` lands — uncontrolled. Get-or-create is not a transaction, and before this index two runs finishing at once produced two `Berichte` folders with no way to say which was real. Case- and whitespace-sensitive on purpose: it stops a race between identical writes, it does not police folder naming. An EXPRESSION index, so it lives only in the migration; `documents.spec.ts` pins it.
+- `project_folders_id_project_id_key` — UNIQUE on (`id`, `project_id`). Redundant on its own (`id` is the PK) and required anyway: a composite FK can only reference a uniquely-constrained column set (migration `0030`).
+- `project_folders_id_organization_id_scope_key` — UNIQUE on (`id`, `organization_id`, `scope`), the target of the two shelf keys below (migration `0102`).
+- `project_folders_parent_id_project_id_fkey` — a folder's parent lives in the same project. This replaced an RLS policy that referenced `project_folders` from its own predicate, which Postgres answers with "infinite recursion detected in policy" — and because `documents`' policy joined this table, both became unreadable for the runtime role. MATCH SIMPLE skips an Archiv folder (NULL project); the next key covers it.
+- `project_folders_parent_id_organization_id_scope_fkey` — a folder's parent is on its own **shelf and tenant** (migration `0102`). Skipped for a root folder (NULL parent).
+- `project_folders_scope_check` — `scope IN ('project', 'archiv')`; `project_folders_scope_owner_check` — `(scope = 'project') = (project_id IS NOT NULL)`, so the three columns tell one story.
+- `uniq_project_folders_parent_name` — UNIQUE on (`organization_id`, `COALESCE(project_id, nil uuid)`, `COALESCE(parent_id, nil uuid)`, `name`) (migration `0063`, widened by `0102` from (`project_id`, `COALESCE(parent_id, …)`, `name`)). One folder per name per parent **on a shelf**. The `COALESCE`s are load-bearing: `parent_id` is `NULL` at a root and `project_id` is `NULL` for the whole Archiv, `NULL` never equals `NULL` in a unique index, so a plain index would police nested project folders and leave **root** folders — where a fixed, created-on-first-use destination like `Berichte` lands — and every Archiv folder uncontrolled. The nil UUID cannot collide with a real id (`gen_random_uuid()` is v4). Get-or-create is not a transaction, and before this index two runs finishing at once produced two `Berichte` folders with no way to say which was real. Case- and whitespace-sensitive on purpose: it stops a race between identical writes, it does not police folder naming. An EXPRESSION index, so it lives only in the migration; `documents.spec.ts` pins it. Within one tenant a project id determines the organization, so for every row that predates `0102` the widened index rejects exactly what the old one did.
+- **RLS:** `grid_tenant_isolation` on `organization_id = grid_current_org()` (`0102`; `0031` joined `projects`). No table read, so no recursion, and cheaper per row.
+
+**Why a row has to state its tenant (ADR-0078).** Before the Archiv had folders, "same project" implied "same organization". An Archiv folder has no project, so the tenant is a column and `documents` references the folder through it: see `documents_folder_id_organization_id_scope_fkey`.
 
 > **Applying `0063` to an existing deployment:** nothing ever stopped two sibling folders sharing a name, so the migration first fails loudly with the full list of offenders rather than letting `CREATE UNIQUE INDEX` report one key. It deliberately does not deduplicate — deleting a folder row cascades to `documents.folder_id` and would silently unfile real evidence. Rename or merge through the application, then re-run.
+
+> **Applying and reversing `0102`:** nothing to resolve before applying — every existing row is a project folder, `organization_id` is backfilled from its project, and the widened index rejects exactly what the old one did. The down migration **refuses while any Archiv folder exists** (the old schema has no place for one, and the backend still carries its path); delete them through the application first, which re-files their documents into the parent and mirrors the path rewrite. `scripts/rls-test-db.sh` applies `0102` to a seeded database, asserts the backfill and every new constraint, then proves the guard and the down path.
 
 ---
 
@@ -636,7 +742,7 @@ This PostgreSQL entrypoint script runs on first container startup and creates tw
 | Table | Purpose | Key Columns |
 |-------|---------|-------------|
 | `job_info` | NAT JobStore metadata | `job_id` (PK), `status`, `config_file`, `error`, `output_path`, `created_at`, `updated_at`, `expiry_seconds`, `is_expired` |
-| `job_access` | Job ownership/access control | `job_id` (PK), `owner_auth_type`, `owner_subject`, `owner_email` |
+| `job_access` | Who may reach a job: its owner, and callers whose signed scope matches its organization and project or conversation (ADR-0084) | `job_id` (PK), `owner_auth_type`, `owner_subject`, `owner_email`, `conversation_id`, `project_collection`, `organization_id`, `created_at` |
 | `job_events` | SSE streaming event persistence | `id` (serial PK), `job_id`, `event_type`, `event_data`, `created_at` |
 | `document_metadata` | Per-document metadata (was `summaries`) | `collection` + `filename` (composite PK), `summary`, `tags` (`TEXT`, JSON list; nullable), `doc_class` (`TEXT`; nullable), `display_title` (`TEXT`; nullable), `folder_path` (`TEXT`; nullable — the BFF's materialised `project_folders.path`, ADR-0049), `provenance` (`TEXT`, JSON object; nullable — who wrote a published Piloti document and who released it, ADR-0054; deleted with the chunks by `unregister_summary`) |
 
@@ -660,7 +766,8 @@ LangGraph conversation checkpoint tables:
 The platform-controlled default model per agent group — the layer *under* every
 tenant's own configuration (ADR-0014, extended). Global: no `organization_id`,
 one row per `agent_group` (PK), carrying the catalog-validated `model`, a
-`model_snapshot` jsonb (catalog metadata + `_zdr.safe`), an optional `note`, and
+`model_snapshot` jsonb (catalog metadata at save time; older rows also carry an
+unread `_zdr.safe`), an optional `note`, and
 `updated_by`/`updated_by_email`. **No row = that group falls through to the
 workflow YAML for organizations without an org override of their own** (an org
 override still wins). A save replaces the whole set — groups omitted from the
@@ -677,8 +784,9 @@ first ask the backend which provider the deployment actually runs
 (`GET /v1/config/llm-defaults` → `baseUrls`) and skip any group not on the
 platform catalog's provider: a platform default replaces the model id but not the
 `base_url`, so an OpenRouter id written blindly into a Kimi or NVIDIA deployment
-would fail every request. It also validates against the live catalog, records
-`model_snapshot` (including `_zdr.safe`), invalidates the cache and emits
+would fail every request. It also validates against the live catalog and the
+zero-data-retention list (skipping the bootstrap when that list cannot be read),
+records `model_snapshot`, invalidates the cache and emits
 `platform.model_defaults.bootstrapped` — none of which SQL can do. Rows it writes
 carry `updated_by = 'system:bootstrap'`.
 
@@ -743,18 +851,27 @@ LLM budgets and the usage ledger (ADR-0015).
   (`uniq_budget_policies_active`, COALESCE on subject) enforces one active
   policy per (org, scope, subject).
 - `llm_usage_events`: one row per LLM generation — org/user/project/
-  conversation/job attribution, `agent_group` (reserved), `requested_model`
+  conversation/job attribution, `agent_group` (the call's role, NULL for an
+  agent turn), `activity` (0101: `'ingest'`; 0107: `'dictation'`; else NULL),
+  `audio_seconds` (0107: seconds a transcription call processed), `requested_model`
   vs served `model`, OpenRouter `generation_id`, token counts (incl. cached +
   reasoning), `cost_usd numeric(14,8)` exactly as OpenRouter reported,
-  `cost_source`, `is_byok`. Append-only; written only via
+  `cost_source`, `is_byok`, and `message_id` (migration 0098): the chat
+  answer the generation belongs to, including its post-answer stages; NULL
+  for jobs and rows before 0098. Append-only; written only via
   `POST /api/internal/usage`. Indexes on (org,time), (org,user,time),
-  (org,project,time), (org,model,time). Schema:
+  (org,project,time), (org,model,time), (org,message). An answer's cost line
+  (`GET /api/conversations/:id/messages/:messageId/usage`) sums its frozen
+  `credits`. Schema:
   `frontends/ui/src/lib/db/schema/budgets.ts`.
 - `llm_usage_rollups` (migration 0015, ADR-0019): write-through daily spend
   aggregate — one row per (org, UTC day, user, project; empty string = none),
   `cost_usd`, `events`. Incremented in the same transaction as every ledger
   insert; budget enforcement reads these rows instead of aggregating the
   ledger per WebSocket upgrade. Backfilled from the ledger by the migration.
+  Rows of an unbilled activity (`dictation`) are never added to it, and
+  migration 0107's `llm_usage_events_dictation_unbilled_check` refuses a
+  dictation row with a non-zero `price_usd` or `credits`.
 
 ## skills / jobs / job_runs (migrations 0041, 0043, 0044) — jobs and job_runs LEGACY since 0086
 
@@ -909,6 +1026,54 @@ split is stated explicitly).
 
 ---
 
+## bff_job_queue / bff_job_lane_turns (migration 0104, ADR-0079)
+
+The BFF's durable background work: one row is one job a `bff-jobs` replica
+claims and runs (project reindex, failed-ingestion rescan; and, one step each,
+IFC extraction `bim_extract`, office conversion `office_rendition` and research
+report filing `file_research_report`). The claim is SQL in
+`frontends/ui/workers/job-queue.js`, in the order ADR-0076 proved for
+ingestion: the lane with the fewest live claims, then the lane served longest
+ago (`bff_job_lane_turns`), then inside a lane `priority` (0 interactive, 1
+bulk), then oldest, with `FOR UPDATE SKIP LOCKED`.
+
+| Column | Type | Notes |
+|--------|------|-------|
+| `job_id` | uuid PK | Returned to the caller as the job's id. |
+| `kind` | text | Shape-checked (`^[a-z][a-z0-9_]{0,63}$`); the kinds a worker knows live in `lib/jobs-queue/types.ts`, so a new kind is a code change. |
+| `lane` | text | The organization id: the unit of fairness AND of tenancy. |
+| `priority` | smallint | `0` interactive, `1` bulk (CHECK). |
+| `payload` | jsonb | The job's whole state: what was asked and how far it got (a keyset cursor, the counts). Saved after every slice and read back by whichever worker claims it next. Holds the requester's identity, permissions and feature flags, never an access token. A `file_research_report` job carries the finished report itself (the backend forgets a run after a day), so it is the one payload that can be large. |
+| `status` | text | `queued`, `claimed` or `dead` (CHECK). A finished job is **deleted**; a job that failed every attempt is `dead` and stays, with its reason, until `GRID_BFF_JOBS_DEAD_RETENTION_DAYS` after `dead_at`. When a row goes dead its `payload` is reduced to `runId`, `projectId`, `documentId` and `taskRunId` (`KEPT_PAYLOAD_KEYS`): the sweeps match a dead job by them, and nothing else of the report, requester or storage keys outlives the attempt. |
+| `attempts` | integer | Claims spent. A drain or a cap gives a claim back without spending one. |
+| `claimed_by`, `claimed_at`, `heartbeat_at` | text, timestamptz | A `claimed` row always has a holder and a heartbeat (CHECK); a claim silent for `GRID_BFF_JOBS_STALE_SECONDS` is claimed again. |
+| `not_before` | timestamptz | Migration 0104. A failed job is not claimed again before this: `GRID_BFF_JOBS_RETRY_BACKOFF_SECONDS` doubled per attempt, at most 15 minutes. NULL is no wait; a claim, a drain's release and a cap's release clear it. |
+| `dead_at` | timestamptz | Migration 0104. Set when the row goes dead (CHECK `bff_job_queue_dead_stamped`: a dead row always has one), and what the retention counts from. |
+| `created_at`, `last_error` | timestamptz, text | |
+
+A document at `processing` remembers its job as `documents.metadata.bffJobId`,
+which the sweep joins on. Migration 0103 lets `task_runs.filing_status` be
+`queued` (a `file_research_report` job holds the report) and adds the partial
+index `ix_task_runs_filing_queued` the filing sweep reads.
+
+Indexes: `(lane, priority, created_at)` over the rows that are not dead (the
+claim's second step), `(heartbeat_at)` over claimed rows (the stale test and
+the reaper) and `(dead_at)` over dead rows (the retention purge). `bff_job_lane_turns` is one row per lane with `last_claimed_at`.
+
+RLS: both are tenant tables whose predicate compares `lane` (not an
+`organization_id` column) to `grid_current_org()`, so a request enqueues and
+reads only its own organization's jobs. The runner is cross-tenant by nature
+and steps up to `grid_app_platform` per transaction
+(`workers/platform-scope.js`), as the purger and the scheduler do. KEDA counts
+the table as `grid_keda_scaler`, a login with SELECT on this table's `status`
+column and nothing else (a leaked scaler DSN cannot read a payload); it crosses the tenant boundary by a second policy,
+`grid_keda_scaler_count` (`FOR SELECT TO grid_keda_scaler USING (true)`), which
+the Pulumi grants Job (`deploy/pulumi/src/app/queue-scaler-grants.ts`) creates
+after the migrations, not a migration: the role exists only where CloudNativePG
+declares it. `grid_tenant_isolation` is untouched.
+
+---
+
 ## answer_feedback (migration 0020)
 
 Per-answer thumbs feedback (WS-7, click-dummy overhaul spec §1/§6; flag
@@ -923,6 +1088,9 @@ Per-answer thumbs feedback (WS-7, click-dummy overhaul spec §1/§6; flag
   (`up`/`down`), `reason` (nullable, fixed keys
   `inaccurate`/`too_slow`/`wrong_source`/`other`; down-votes only),
   `comment` (nullable free-text on a down-vote; migration 0052),
+  `expected_answer` (nullable free-text on a down-vote: what a good answer
+  would have contained; migration 0103, exported as the `expected_answer` CSV
+  column so a down-vote can become an answer-suite test case),
   `lessons_holdout` (nullable boolean, migration 0069 — which arm of the
   platform-lessons experiment this turn was in; NULL when the holdout is off,
   which is the default, so those votes are excluded from the comparison rather
@@ -965,7 +1133,7 @@ flush idempotent.
 | `organization_id` | `text` | Nullable; no FK (ops data outlives tenants) |
 | `conversation_id` | `text` | Client-side chat id; no FK, survives conversation deletion |
 | `turn_id` | `text` | Shared with `agent_profiler_spans.turn_id` — links a defect to its execution timeline |
-| `job_id` | `text` | Async deep-research job id, when the turn ran in a Dask worker |
+| `job_id` | `text` | Async deep-research job id, when the turn ran in a research worker |
 | `agent` | `text` | `shallow` \| `deep` |
 | `kind` | `text` | `turn_verified` \| `citations_removed` \| `quote_unverified` \| `answer_ungrounded` \| `registry_empty` \| `citation_fallback` \| `confidence_capped` |
 | `severity` | `text` | `ok` \| `info` \| `warn` \| `error` — derived from `kind` on the backend, never caller-supplied |

@@ -25,6 +25,7 @@ from aiq_agent.common.answer_envelope import gate_answer_meta
 from aiq_agent.common.answer_envelope import render_envelope_response_format
 from aiq_agent.common.answer_envelope import render_envelope_schema
 from aiq_agent.common.answer_envelope import resolve_callout_marker
+from aiq_agent.common.wire_v2 import StatusStep
 
 
 def _fenced(payload: dict) -> str:
@@ -86,6 +87,26 @@ class TestExtraction:
         prose, meta = extract_answer_envelope(content)
         assert prose == content
         assert meta is None
+
+    def test_a_break_after_the_answer_keeps_the_answer_and_drops_the_rest(self):
+        # The recorded failure: a surface card closed one brace too many, after
+        # the prose had closed whole and settled on screen.
+        content = (
+            '```answer_json\n{"kind":"ruling","answer":"Die Außentreppe ist in A2 auszuführen [2].\\n\\n'
+            '[[card:1]]","cards":[{"type":"surface","components":[{"id":"t","component":"Text",'
+            '"text":"Tabelle [2]."}}},{"type":"legal_basis","law":"OIB-Richtlinie 2"}]}\n```'
+        )
+        prose, meta = extract_answer_envelope(content)
+        assert prose == "Die Außentreppe ist in A2 auszuführen [2].\n\n[[card:1]]"
+        assert meta is None
+
+    def test_a_break_inside_the_answer_recovers_nothing(self):
+        content = '```answer_json\n{"kind":"direct","answer":"Die Höhe gilt \\q nach Tabelle."}}\n```'
+        assert extract_answer_envelope(content) == (content, None)
+
+    def test_an_unclosed_answer_recovers_nothing(self):
+        content = '```answer_json\n{"kind":"direct","answer":"Die Höhe gilt nach Tab\n```'
+        assert extract_answer_envelope(content) == (content, None)
 
     def test_trailing_junk_after_the_object_is_tolerated(self):
         content = "```answer_json\n" + json.dumps({"answer": _PROSE}) + "\nDone.\n```"
@@ -314,14 +335,9 @@ class TestAVerdictNeverRestsOnADocumentPilotiWrote:
         same document — with the evidence that would have failed it left out."""
         assert self._gate(None) is None
 
-    def test_the_unreferenced_drop_is_counted_under_its_own_reason(self, monkeypatch):
-        pushed: list[tuple[str, dict]] = []
-        monkeypatch.setattr(
-            "aiq_agent.common.turn_status.push_custom_step",
-            lambda name, payload: pushed.append((name, payload)),
-        )
+    def test_the_unreferenced_drop_is_counted_under_its_own_reason(self, emitted):
         assert self._gate(None) is None
-        assert [payload["values"]["reason"] for _, payload in pushed] == ["unreferenced_with_agent_source"]
+        assert [step.detail["reason"] for step in emitted.steps] == ["unreferenced_with_agent_source"]
 
     def test_a_norm_reference_still_survives_a_turn_with_an_agent_document(self):
         """The three cases are distinct: a norm Fundstelle is kept even when the
@@ -348,35 +364,22 @@ class TestAVerdictNeverRestsOnADocumentPilotiWrote:
         payload = self._gate({"document": "B"}, documents=frozenset({"b"}))
         assert payload is not None
 
-    def test_the_drop_is_counted_as_a_technical_event(self, monkeypatch):
+    def test_the_drop_is_counted_as_a_technical_event(self, emitted):
         """A gate that drops silently makes „how often does this happen?"
         unanswerable, and that rate is what says whether the wording works."""
-        pushed: list[tuple[str, dict]] = []
-        monkeypatch.setattr(
-            "aiq_agent.common.turn_status.push_custom_step",
-            lambda name, payload: pushed.append((name, payload)),
-        )
         assert self._gate({"document": "Brandschutzkonzept Haus B"}) is None
-        assert pushed == [
-            (
-                "status:verdict:dropped",
-                {
-                    "kind": "status",
-                    "channel": "technical",
-                    "slot": "verdict:dropped",
-                    "values": {"reason": "agent_authored_reference"},
-                },
+        assert emitted.steps == [
+            StatusStep(
+                id="status:verdict:dropped",
+                slot="verdict:dropped",
+                channel="technical",
+                detail={"reason": "agent_authored_reference"},
             )
         ]
 
-    def test_a_surviving_verdict_emits_nothing(self, monkeypatch):
-        pushed: list[tuple[str, dict]] = []
-        monkeypatch.setattr(
-            "aiq_agent.common.turn_status.push_custom_step",
-            lambda name, payload: pushed.append((name, payload)),
-        )
+    def test_a_surviving_verdict_emits_nothing(self, emitted):
         assert self._gate({"document": "OIB-Richtlinie 2"}) is not None
-        assert pushed == []
+        assert emitted == []
 
 
 class TestControlFields:
@@ -569,18 +572,13 @@ class TestSummaryGate:
         assert payload is not None
         assert "summary" not in payload and payload["verdict"]["value"] == "REI 60"
 
-    def test_the_length_drop_is_counted_under_its_field_and_reason(self, monkeypatch):
+    def test_the_length_drop_is_counted_under_its_field_and_reason(self, emitted):
         """The reader keeps the prose; the operator gets the rate. A dropped
         summary is a standfirst nobody sees, and only a count says whether the
         limit or the prompt wording is wrong."""
-        pushed: list[tuple[str, dict]] = []
-        monkeypatch.setattr(
-            "aiq_agent.common.turn_status.push_custom_step",
-            lambda name, payload: pushed.append((name, payload)),
-        )
         meta = AnswerMeta.model_validate({"summary": "x" * (SUMMARY_MAX_CHARS + 1), "verdict": _VERDICT})
         gate_answer_meta(meta, prose_chars=100)
-        assert [(name, payload["values"]) for name, payload in pushed] == [
+        assert [(step.id, step.detail) for step in emitted.steps] == [
             ("status:anatomy:dropped", {"field": "summary", "reason": "too_long"})
         ]
 
@@ -731,13 +729,41 @@ class TestHeadlessSalvage:
         assert prose == "Die Antwort."
         assert meta is not None and meta.kind == "ruling"
 
-    def test_a_headless_tail_whose_only_kind_is_a_nested_cards_is_not_salvaged(self):
-        # The last `", "kind":` is the callout's: cutting there shipped a JSON
-        # fragment as prose under an invented kind.
+    def test_a_headless_tail_whose_only_kind_is_a_nested_cards_is_cut_at_the_cards(self):
+        # The only `", "kind":` is the callout's: cutting there shipped a JSON
+        # fragment as prose under an invented kind. The cut is at `"cards"`,
+        # the envelope's own key, and the callout's kind invents nothing.
         content = 'Mehr Text hier.", "cards":[{"type":"callout", "kind":"hinweis", "text":"Achtung"}]}\n```'
         prose, meta = extract_answer_envelope(content)
-        assert meta is None
-        assert "callout" in prose
+        assert prose == "Mehr Text hier."
+        assert meta is not None and meta.kind is None
+
+    def test_a_headless_tail_without_a_kind_is_salvaged(self):
+        # Answer feedback, October 2026: the model never wrote `kind`, so the
+        # tail opened at `confidence` and the reader got the JSON under the answer.
+        content = (
+            "Für eine sichere Einordnung bräuchte es die Fensterbeschreibung [1].\n\n## Quellen\n"
+            '- [1] [KB] F18 Brandschutzfenster.pdf, p.1", "confidence":{"level":"medium",'
+            '"reason":"Das Schnittblatt zeigt den Anschluss."}}\n```'
+        )
+        prose, meta = extract_answer_envelope(content)
+        assert prose.endswith("F18 Brandschutzfenster.pdf, p.1")
+        assert "confidence" not in prose
+        assert meta is not None and meta.confidence is not None and meta.confidence.level == "medium"
+
+    def test_a_tail_with_a_key_the_envelope_does_not_have_is_not_salvaged(self):
+        content = 'Beispiel: {"a": "x", "confidence": 1, "rows": 3}'
+        assert extract_answer_envelope(content) == (content, None)
+
+    def test_a_json_example_in_the_prose_is_not_cut_at_its_own_keys(self):
+        # Review finding: the example's "confidence" looked like a headless tail
+        # and the reply was cut inside the example.
+        content = 'Beispiel: {"name": "test", "confidence": {"level": "medium"}}'
+        assert extract_answer_envelope(content) == (content, None)
+
+    def test_a_tail_with_a_kind_that_is_no_answer_kind_is_not_salvaged(self):
+        content = 'Text.", "kind":"hinweis", "summary":"x"}'
+        assert extract_answer_envelope(content) == (content, None)
 
     def test_an_unparseable_object_with_its_opening_is_not_cut_at_a_nested_kind(self):
         # Not JSON (``\q``), and the callout's own "kind" looks like a headless

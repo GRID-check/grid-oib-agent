@@ -140,7 +140,10 @@ sharing applies. Every route here is collaboration-gated and requires
 
 ### `GET /api/assignments/{resourceType}/{resourceId}`
 
-Current assignees. Returns `{ assignees: AssignedPerson[] }`.
+Current assignees. Returns `{ assignees: AssignedPerson[] }`. Requires `viewer`
+on the resource; a resource the caller cannot reach is a `404`, the same as a
+missing one. (It used to check nothing: any member could read who was assigned
+to a private chat or a document in a project they were not in.)
 
 ### `POST /api/assignments/{resourceType}/{resourceId}`
 

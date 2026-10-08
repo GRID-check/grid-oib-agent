@@ -37,9 +37,10 @@ Then run `task verify:fast` before you push.
 
 ## Traps the task list cannot tell you about
 
-**Spec type errors block the production build.** The UI `tsconfig` includes test
-files, so a type error in a `.spec.tsx` fails `next build`, not just the test
-run. A green `task fe:types` is what tells you the build will typecheck.
+**`next build` does not typecheck the specs; `task fe:types` does.** The build
+reads `frontends/ui/tsconfig.build.json` (`typescript.tsconfigPath` in
+`next.config.ts`), which leaves specs and test helpers out of its roots, so a
+type error in a test fails `fe:types` and never the production build.
 
 **`task db:test:rls` is a required merge check and is not part of `task
 verify`.** It needs PostgreSQL server binaries, so it runs separately. Run it
@@ -52,10 +53,30 @@ on a developer's machine. Each of those files also carries a
 `GRID_RLS_SUITE_REQUIRED` guard so the CI job fails if the database goes
 missing instead of skipping green.
 
-**Backend tests need `PYTHONPATH=src`.** Without it pytest resolves `aiq_agent`
-from whatever the venv has installed, possibly another worktree, and validates
-the wrong code while appearing to pass. `Taskfile.yml` sets it. Call `pytest`
-directly and you own it again.
+**Backend tests run against this checkout's `src/`.** Without a guard, pytest
+resolves `aiq_agent` from whatever the venv has installed, possibly another
+worktree, and validates the wrong code while appearing to pass. `pyproject.toml`'s
+`pythonpath` puts `src/` first, so a bare `pytest` is safe as well as the Taskfile.
+
+**The base-corpus tests run on SQLite by default, and the Postgres paths need
+`GRID_TEST_CORPUS_DB`.** `tests/test_corpus_store.py`, `test_oib_sync.py`,
+`test_oib_status.py` and `frontends/aiq_api/tests/test_oib_documents_routes.py`
+keep the corpus table, the ingest queue and the ingest status store in a throwaway SQLite file and the object store in memory.
+The Postgres upsert, the conditional update that records an ingested hash and the
+advisory locks behind `keyed_lock` (SQLite has none) are only exercised when you
+point `GRID_TEST_CORPUS_DB` at a scratch database, for example
+`postgresql://postgres@127.0.0.1:5432/corpus_test`. Prefer the IP to `localhost`: in
+the sandbox this was written in, `localhost` resolved to another host under the
+`frontends/aiq_api` suite and the first test hung on the connect. The table is emptied before each test, so never
+aim it at a database that holds a real corpus.
+
+**Lazy schema creation is tested against a real Postgres, from several processes.**
+`tests/test_ddl_concurrency.py` starts 8 processes at once against freshly created
+databases and runs every `_ensure_table` / `_ensure_schema` site, because
+`CREATE TABLE IF NOT EXISTS` races on the `pg_type` catalog and SQLite cannot show
+it. It is skipped unless `GRID_TEST_PG_URL` names a server (for example
+`postgresql://postgres@127.0.0.1:5432/postgres`) it may create and drop databases on.
+A new site that runs DDL at runtime joins `SITES` in `tests/ddl_race_worker.py`.
 
 **Static green is not runtime green.** Typecheck, lint and unit tests are the
 bar for most changes. Behaviour that only exists at runtime, WebSocket flows,
@@ -71,6 +92,23 @@ while the suite is sharded six ways (`fe:test:shard`) and stitched back together
 by `fe:test:merge` for the coverage comment. Run in series on one runner, the
 tests were about 63% of the job's wall clock. Locally `task fe:verify` runs lint,
 types, tests and build in order instead.
+
+A push to `develop` or `release/**` whose tree a green pull request run already
+tested does not run the jobs again. CI and Security still start and conclude
+`success` (the deploy gate reads exactly that), but `changes` finds the PR
+run's `ci-green-<tree>` / `security-green-<tree>` marker and every job skips. A
+squash merge onto a base that did not move lands that tree; a base that moved
+lands a different one and runs in full. The decision and every reason to refuse
+a marker (a cancelled, failed or still-running run, a fork, another workflow, a
+workflow file that differs from the pushed one, an expired marker, an API
+error) live in [`ci/reuse_green_run.py`](../../ci/reuse_green_run.py) and
+[`tests/test_reuse_green_run.py`](../../tests/test_reuse_green_run.py);
+[`tests/test_ci_change_detection.py`](../../tests/test_ci_change_detection.py)
+evaluates every job's condition to pin that a hit skips all of them and a miss
+skips none. What a reused push gives up: Semgrep's full-tree report (advisory
+on push anyway), and a trivy re-scan against an advisory database up to the
+marker's seven days newer, which on push only ever ran when the image pins
+changed. The weekly scan covers both.
 
 Three required checks are not in `task verify` at all: `db:test:rls` (it needs
 PostgreSQL server binaries), `pkg:test` (four minutes, on a directory most
@@ -144,7 +182,7 @@ correctness of its answer: how many retrieval rounds it took, whether the
 locator (`read_passage`) was used instead of a second search, whether the cited
 Punkt is the one the question is about, whether the Herleitung checkpoint came
 from the tool argument or from prose or from nowhere, and whether the research
-budget ran out. Twenty-nine realistic German questions from a Wiener Planungsbüro
+budget ran out. Thirty-one realistic German questions from a Wiener Planungsbüro
 live in [`tests/fixtures/herleitung/loop_eval_questions.yaml`](../../tests/fixtures/herleitung/loop_eval_questions.yaml)
 — every expected Punkt in it is read off the committed structural index rather
 than remembered — and [`scripts/loop_eval.py`](../../scripts/loop_eval.py) runs
@@ -249,9 +287,7 @@ mode and the dev-indicator badge that lands in your shot:
 There is no coverage workflow and no committed gallery. Both were removed: the
 gallery was 348 MB of git history that nothing ever compared, and the workflow
 only checked that a PNG file had appeared, never what was in it. A reviewer
-looking at an attachment is the check. The **Visual evidence** workflow that
-asked for the block in the PR body is paused (its check step is commented out
-in `.github/workflows/visual-evidence.yml`).
+looking at an attachment is the check.
 
 ## Mobile evidence
 
@@ -299,8 +335,8 @@ its passage; this asks what the reader waited for and what they got.
   the totals), tool calls, reasoning tokens and the largest single-call
   spike (seconds follow reasoning tokens at ~85 tok/s, and the spike is where
   run-to-run variance comes from), `first_text_s` (seconds until the reader
-  saw the answering call's prose), the pipeline's own signals (a flagged quote, a quote patch, the terminal frame
-  replacing the settled text, a gated summary, a dropped mindmap, prose outside
+  saw the answering call's prose), the pipeline's own signals (a flagged
+  quote, a quote patch, the terminal frame replacing the settled text, a gated summary, a dropped mindmap, prose outside
   the envelope, a salvaged envelope, an escalation to deep research), and
   every check. The signals are `_LOG_SIGNALS` in
   [`scripts/turn_census/suite.py`](../../scripts/turn_census/suite.py).
@@ -311,8 +347,8 @@ its passage; this asks what the reader waited for and what they got.
   and re-checks it against the question set as it is now, re-reading each
   run's recording beside it, without paying for the runs again.
 - **Flags:** `--only <id> …` runs the named questions (an unknown id, or
-  one that needs a project, exits 2 and says which). `--runs N` sets runs per question (default 2), `--workers N` how many run
-  at once (default 3). `--override KEY VALUE` sets a config value for every
+  one that needs a project, exits 2 and says which). `--runs N` sets runs per
+  question (default 2), `--workers N` how many run at once (default 3). `--override KEY VALUE` sets a config value for every
   run, in `nat run` dot notation, and repeats. `--all`, `--baseline`,
   `--report` and `--ingest` are described above and below.
 
@@ -321,11 +357,24 @@ task be:eval:answer-suite -- --out /tmp/suite/before         # on the base branc
 task be:eval:answer-suite -- --out /tmp/suite/after --baseline /tmp/suite/before/results.json
 ```
 
-It needs `OPENROUTER_API_KEY` (or `OPENROUTER_KEY`) and the corpus in
-`data/oib` ingested into `AIQ_CHROMA_DIR` (`-- --ingest` runs the sync
-first). Every run costs model calls: the core set at two runs is twelve
-turns, about four minutes three at a time. It cannot run in CI for the same
-reason as the loop eval; its bookkeeping is covered offline by
+**From a down-vote to a case.** Every down-voted answer can become a case, so a
+failure users reported cannot return unnoticed. Export the feedback CSV and run
+`.venv/bin/python scripts/feedback_to_cases.py feedback.csv --out /tmp/draft.yaml`:
+it drafts a case for each down-vote that has a question and an `expected_answer`
+and writes no organisation, conversation or answer text. Nothing is appended to
+the golden set. What the user says the answer should be is a claim: check it
+against the corpus, fill `family`, `punkt` and `expect` from the PDF, and add
+the case to `tests/fixtures/herleitung/loop_eval_questions.yaml` with a
+`Source: answer feedback <date>` comment. A question answered from the web has no
+`family`, which the suite treats as needing a project, so it cannot be a case.
+
+It needs `OPENROUTER_API_KEY` (or `OPENROUTER_KEY`) and the corpus
+(uploaded with `scripts/upload_oib_corpus.py`) ingested into `AIQ_CHROMA_DIR`
+(`-- --ingest` queues the corpus's ingest jobs and runs them in the suite's own process first). Every run costs model calls: the core set at two runs is twelve
+turns, about four minutes three at a time.
+
+Run it yourself, before and after, as above, and put the report in the PR.
+Its bookkeeping is also covered offline by
 [`tests/test_answer_suite.py`](../../tests/test_answer_suite.py). The
 September 2026 measurements it grew out of are in
 [turns-per-answer-audit-2026-09.md](../architecture/turns-per-answer-audit-2026-09.md).
@@ -357,6 +406,45 @@ several questions in one process so all but the first are warm. What both
 measured on 2026-09-24, and the effort A/B:
 [turn-latency-measured-2026-09.md](../architecture/turn-latency-measured-2026-09.md).
 
+## The socket-level streaming harness
+
+`/dev/stream-replay` drives the fold directly and carries no steps, so it
+cannot see what a turn's step frames cost. `/dev/stream-socket` can: it stubs `window.WebSocket` before the chat mounts,
+and a scripted v2 server (`src/app/dev/stream-socket/turn-script.ts`) answers
+the composer's real `user_message` through the real socket client, chat hook,
+store and components.
+
+- The turn is `src/app/dev/_fixtures/v2-turn.ts`: `RUN_STARTED`, the setup and
+  three retrieval rounds as typed steps (modelled on
+  `shared/wire/v2/turn-answered.jsonl`), the recorded `oib2` answer mapped onto
+  v2 events (masthead, deltas, snapshot, cards, `RUN_FINISHED`) at `speed`
+  times its pace, a heartbeat every 20 s and a stage after the terminal.
+- A Web Worker paces the frames, so a busy main thread makes them queue as a
+  real socket's would instead of slowing the server down.
+
+Run it against a dev server with the WorkOS placeholders
+([gotchas](gotchas.md)):
+
+```bash
+cd frontends/ui
+node scripts/measure-stream-socket.mjs --url http://localhost:3001 --runs 2
+```
+
+It opens the page at 390x844 with the CPU throttled 4x and at 1280x800, and
+prints one JSON line per run from `window.__streamSocket`: `maxFrameKB` (the
+largest frame but the terminal; the design's bound is 4 KB) and `totalKB`,
+long-task total, max and count (`longTaskMs`, `maxLongTaskMs`,
+`longTasksOver50`), `rafBusyMs`, `backlogMs` (last frame sent → handled),
+`maxFrameLagMs` (the worst of any frame, the number that shows a queue),
+`firstCardMs` from the send, `settleMs` from the terminal frame, and `cls`.
+
+The page is development only, so these are `next dev` numbers: React's dev
+build, whose prop-diff logging alone was a tenth of the profile. Compare runs
+on the same server, never with production. On the old wire (measured
+2026-09-27, NAT's stock step adaptor: 316 step frames of 16 to 33 KB) a phone
+spent 48 s in long tasks on one turn; that wire, and the harness's `heavy`
+and `light` modes that replayed it, are gone with the v2 cut.
+
 ## Which tool answers which question
 
 | Question | Tool | Needs | Cost |
@@ -365,8 +453,8 @@ measured on 2026-09-24, and the effort A/B:
 | What did one turn cost, call by call? | `task be:eval:turn-census -- "<question>"` | key and ingested corpus | one turn per run (`--runs`, default 1); writes to `/tmp/turn_census` unless `--out`; `--override KEY VALUE` per census |
 | What happens in the milliseconds before the first model call? | `scripts/turn_census/startup_probe.py` | key, corpus and document inventory | several questions in one process; the first turn is cold |
 | What shape did the turn take (rounds, locator, checkpoint)? | `task be:eval:loop` | a running backend at `GRID_LOOP_EVAL_URL` with the corpus | real model calls per question; `--compare` needs no backend |
-| Does the layout shift while an answer streams? | `/dev/stream-replay?fixture=varianten` (or `oib2`), `&speed=N` | the UI dev server | free: the fixtures are recorded frames in `frontends/ui/src/app/dev/_fixtures/stream-frames.ts`. `window.__replay` holds `shifts`, `anchorTops` and `done` for a headless capture |
-| What does a streaming answer cost the page (re-renders, localStorage writes, long tasks)? | `/dev/stream-chat?history=40`, `&shell=1` for the whole `MainLayout` | the UI dev server with the WorkOS placeholders (see [gotchas](gotchas.md)) | free: the recorded `varianten` frames driven through the real chat store. `window.__streamChat` holds `commits`, `storageWrites`, `longTasks` and `done`; profile it with a CDP CPU profile for the per-component split |
+| Does the layout shift while an answer streams? | `/dev/stream-replay?fixture=varianten` (or `oib2`), `&speed=N` | the UI dev server | free: the fixtures are recorded frames in `frontends/ui/src/app/dev/_fixtures/stream-frames.ts`, replayed as v2 events through `foldTurnEvent`. `window.__replay` holds `shifts`, `anchorTops` and `done` for a headless capture |
+| What does a whole turn cost the page as it arrives over the socket (step frames included)? | `/dev/stream-socket`, `node scripts/measure-stream-socket.mjs` | the UI dev server with the WorkOS placeholders | free: a scripted v2 server behind a stubbed `WebSocket`. [The socket-level streaming harness](#the-socket-level-streaming-harness) |
 
 ## Before opening a PR
 

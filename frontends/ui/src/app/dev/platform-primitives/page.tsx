@@ -11,6 +11,7 @@
  * from anywhere; 404s outside development.
  */
 
+import type { JSX } from 'react'
 import { useMemo, useState } from 'react'
 import { BookOpenCheck, MoreHorizontal, Trash2, Upload } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'

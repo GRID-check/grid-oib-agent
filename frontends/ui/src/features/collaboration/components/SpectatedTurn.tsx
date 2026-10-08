@@ -26,7 +26,7 @@
  *    `AgentResponse` makes it a swap of like for like. It is drawn
  *    `readOnly`: no feedback, no copy controls (the persisted answer that
  *    replaces it carries its own) and no card decisions. A card that acts is
- *    not even delivered here (`spectator-frames.ts`, rule 4); `readOnly` is
+ *    not even delivered here (`spectator-frames.ts`, rule 3); `readOnly` is
  *    the second wall, so one that slipped through still has nothing to press
  *    and no project of the observer's to write to.
  *  - **It never blocks the fallback.** The caller keeps the banner whenever this
@@ -35,15 +35,19 @@
  */
 
 import type { FC } from 'react'
+import { ShimmerText } from '@/components/ui/shimmer-text'
 import { ChatThinking } from '@/features/chat/components/ChatThinking'
 import { AgentResponse } from '@/features/chat/components/AgentResponse'
 import { useTranslations } from '@/i18n'
 import { cn } from '@/lib/utils'
-import type { SpectatedTurnState } from '../lib/spectator-frames'
+import type { TurnView } from '@/features/chat/lib/turn-fold'
+import { citationsFromWireList } from '@/features/chat/lib/wire-citation'
+import { sanitizeAnswerMeta } from '@/lib/conversations/message-answer-meta'
+import { observerCards, orderedSteps } from '../lib/spectator-frames'
 
 export interface SpectatedTurnProps {
   /** The turn so far. */
-  turn: SpectatedTurnState
+  turn: TurnView
   /** "Piloti is answering Anna's question…" — resolved by the caller, which owns the roster. */
   label: string
   className?: string
@@ -51,6 +55,10 @@ export interface SpectatedTurnProps {
 
 export const SpectatedTurn: FC<SpectatedTurnProps> = ({ turn, label, className }) => {
   const t = useTranslations('collaboration')
+  const done = turn.phase !== 'running'
+  const waitingOn = turn.interaction?.text
+  const cards = observerCards(turn)
+  const answerMeta = sanitizeAnswerMeta(turn.answerMeta) ?? undefined
 
   return (
     <div
@@ -64,44 +72,39 @@ export const SpectatedTurn: FC<SpectatedTurnProps> = ({ turn, label, className }
       aria-live="off"
     >
       <div className="flex items-center gap-2">
-        <span
-          className={cn(
-            'text-foreground text-xs font-medium',
-            // The shimmer says "still working". It stops the moment the terminal
-            // frame lands, so the last second before the persisted answer swaps in
-            // does not look like a stall.
-            !turn.done && 'animate-text-shimmer motion-reduce:animate-none'
-          )}
-        >
+        {/* The shimmer says "still working". It stops the moment the terminal
+            frame lands, so the last second before the persisted answer swaps in
+            does not look like a stall. */}
+        <ShimmerText active={!done} className="text-foreground text-xs font-medium">
           {label}
-        </span>
+        </ShimmerText>
       </div>
 
       {/* The reasoning chain, in the same panel the asker gets. Collapsed by
       default: an observer opting in to the detail is a click, an observer having
       it forced on them is noise in someone else's conversation. */}
-      {turn.steps.length > 0 && (
-        <ChatThinking steps={turn.steps} isThinking={!turn.done} isWaiting={Boolean(turn.waitingOn)} />
+      {turn.stepOrder.length > 0 && (
+        <ChatThinking steps={orderedSteps(turn)} isThinking={!done} isWaiting={Boolean(waitingOn)} />
       )}
 
       {/* Piloti put a question to the asker. Stated, not offered. */}
-      {turn.waitingOn && (
+      {waitingOn && (
         <p className="text-muted-foreground bg-muted rounded-lg px-3 py-2 text-xs">
-          {t('thread.spectatorPrompt', { question: turn.waitingOn })}
+          {t('thread.spectatorPrompt', { question: waitingOn })}
         </p>
       )}
 
-      {turn.failed && (
+      {turn.phase === 'failed' && (
         <p className="text-muted-foreground text-xs">{t('thread.spectatorFailed')}</p>
       )}
 
-      {(turn.answer || turn.answerMeta || turn.cards?.some((card) => card !== undefined)) && (
+      {(turn.text || answerMeta || cards?.some((card) => card !== undefined)) && (
         <AgentResponse
-          content={turn.answer}
-          isStreaming={!turn.done}
-          answerMeta={turn.answerMeta}
-          citations={turn.citations}
-          cards={turn.cards}
+          content={turn.text}
+          isStreaming={!done}
+          answerMeta={answerMeta}
+          citations={citationsFromWireList(turn.sources)}
+          cards={cards}
           readOnly
         />
       )}

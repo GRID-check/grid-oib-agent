@@ -66,7 +66,15 @@ vi.mock('@/lib/model-config/org-catalog', () => ({
     provider: null,
     validation: 'full',
     zdrOnly: false,
+    zdrApplicable: true,
+    zdr: null,
   }),
+  isZdrApplicableForOrg: vi.fn().mockResolvedValue(true),
+}))
+
+vi.mock('@/lib/model-config/zdr-coverage', () => ({
+  UNKNOWN_COVERAGE: { status: 'unknown', blockedGroups: [], unresolvedGroups: [] },
+  getZdrCoverage: vi.fn().mockResolvedValue({ status: 'checked', blockedGroups: [], unresolvedGroups: [] }),
 }))
 
 vi.mock('@/lib/organizations/service', () => ({
@@ -74,8 +82,35 @@ vi.mock('@/lib/organizations/service', () => ({
 }))
 
 import { GET, PUT } from './route'
-import { createAndActivateVersion } from '@/lib/model-config/service'
+import { createAndActivateVersion, getOrgModelConfig } from '@/lib/model-config/service'
+import { getCatalogForOrg } from '@/lib/model-config/org-catalog'
+import { ZdrListUnavailableError, type ZdrIndex } from '@/lib/model-config/openrouter'
+import { getZdrCoverage } from '@/lib/model-config/zdr-coverage'
 import { isZdrOnlyForOrg } from '@/lib/organizations/service'
+
+const CAPABLE = {
+  id: 'vendor/capable',
+  name: 'Capable',
+  contextLength: 200000,
+  promptPrice: 0.000001,
+  completionPrice: 0.000002,
+  inputModalities: ['text'],
+  supportedParameters: ['tools', 'structured_outputs'],
+}
+
+const zdrIndex = (...ids: string[]): ZdrIndex =>
+  new Map(ids.map((modelId) => [modelId, [{ modelId, supportedParameters: ['tools'], contextLength: 200000 }]]))
+
+/** The catalog an org with ZDR in force gets: the whole list, plus the ZDR index. */
+const zdrCatalog = (...zdrIds: string[]): Awaited<ReturnType<typeof getCatalogForOrg>> => ({
+  models: [CAPABLE],
+  source: 'openrouter',
+  provider: null,
+  validation: 'full',
+  zdrOnly: true,
+  zdrApplicable: true,
+  zdr: zdrIndex(...zdrIds),
+})
 
 const get = (): Request => new Request('http://localhost/api/organization/model-config')
 
@@ -105,6 +140,19 @@ describe('/api/organization/model-config', () => {
     expect(body.defaults.deep_research).toBe('deepseek/deepseek-v4-flash')
   })
 
+  it('GET leaves a retired group out of the active version, so a save can round-trip it', async () => {
+    vi.mocked(getOrgModelConfig).mockResolvedValueOnce({
+      activeVersion: {
+        id: 'version-1',
+        overrides: { deep_research: { model: 'vendor/capable' }, intent: { model: 'vendor/capable' } },
+      },
+      updatedBy: null,
+      updatedAt: null,
+    } as unknown as Awaited<ReturnType<typeof getOrgModelConfig>>)
+    const body = await (await GET(get())).json()
+    expect(Object.keys(body.activeVersion.overrides)).toEqual(['deep_research'])
+  })
+
   it('PUT rejects non-admins before validation', async () => {
     session.role = 'member'
     expect((await PUT(put({ overrides: {} }))).status).toBe(403)
@@ -129,7 +177,9 @@ describe('/api/organization/model-config', () => {
     const res = await PUT(put({ overrides: { deep_research: { model: 'vendor/unknown' } } }))
     expect(res.status).toBe(422)
     const body = await res.json()
-    expect(body.details.deep_research).toContain('not found')
+    expect(body.details.deep_research).toEqual([
+      expect.objectContaining({ code: 'not_in_catalog', params: { model: 'vendor/unknown' } }),
+    ])
     expect(createAndActivateVersion).not.toHaveBeenCalled()
   })
 
@@ -165,6 +215,8 @@ describe('/api/organization/model-config', () => {
       provider: 'openai',
       validation: 'listed',
       zdrOnly: false,
+      zdrApplicable: false,
+      zdr: null,
     })
     const res = await PUT(put({ overrides: { deep_research: { model: 'gpt-4o' } } }))
     expect(res.status).toBe(201)
@@ -178,14 +230,80 @@ describe('/api/organization/model-config', () => {
     )
   })
 
-  it('GET reports the org ZDR policy', async () => {
+  it('GET reports the org ZDR policy and, while it is in force, which groups it blocks', async () => {
     vi.mocked(isZdrOnlyForOrg).mockResolvedValueOnce(true)
+    const coverage = {
+      status: 'checked' as const,
+      blockedGroups: [
+        { group: 'deep_research', modelId: 'vendor/no-zdr', source: 'platform' as const, reason: 'not_zdr' as const },
+      ],
+      unresolvedGroups: [],
+    }
+    vi.mocked(getZdrCoverage).mockResolvedValueOnce(coverage)
     const body = await (await GET(get())).json()
     expect(body.zdrOnly).toBe(true)
+    expect(body.zdrApplicable).toBe(true)
+    expect(body.zdrCoverage).toEqual(coverage)
   })
 
-  it('PUT validates against the ZDR-filtered catalog when the policy is on', async () => {
-    const { getCatalogForOrg } = await import('@/lib/model-config/org-catalog')
+  it('GET computes no coverage while ZDR is off', async () => {
+    const body = await (await GET(get())).json()
+    expect(body.zdrOnly).toBe(false)
+    expect(body.zdrCoverage).toBeNull()
+    expect(getZdrCoverage).not.toHaveBeenCalled()
+  })
+
+  it('GET marks ZDR not applicable for a BYOK key on another provider, keeping the stored value', async () => {
+    const { isZdrApplicableForOrg } = await import('@/lib/model-config/org-catalog')
+    vi.mocked(isZdrOnlyForOrg).mockResolvedValueOnce(true)
+    vi.mocked(isZdrApplicableForOrg).mockResolvedValueOnce(false)
+    const body = await (await GET(get())).json()
+    expect(body).toMatchObject({ zdrOnly: true, zdrApplicable: false, zdrCoverage: null })
+  })
+
+  it('GET stays 200 when credential resolution, the catalog and the coverage all fail — each reads as unknown', async () => {
+    const { isZdrApplicableForOrg } = await import('@/lib/model-config/org-catalog')
+    vi.mocked(isZdrOnlyForOrg).mockResolvedValueOnce(true)
+    vi.mocked(isZdrApplicableForOrg).mockRejectedValueOnce(new Error('db down'))
+    vi.mocked(getCatalogForOrg).mockRejectedValueOnce(new Error('openrouter down'))
+    vi.mocked(getZdrCoverage).mockRejectedValueOnce(new Error('db down'))
+    const res = await GET(get())
+    expect(res.status).toBe(200)
+    expect(await res.json()).toMatchObject({
+      catalogSource: null,
+      zdrOnly: true,
+      zdrApplicable: null,
+      zdrCoverage: { status: 'unknown', blockedGroups: [], unresolvedGroups: [] },
+    })
+  })
+
+  it('PUT under ZDR rejects a catalog model without a ZDR endpoint as not_zdr (422)', async () => {
+    vi.mocked(isZdrOnlyForOrg).mockResolvedValueOnce(true)
+    vi.mocked(getCatalogForOrg).mockResolvedValueOnce(zdrCatalog('vendor/other'))
+    const res = await PUT(put({ overrides: { deep_research: { model: 'vendor/capable' } } }))
+    expect(res.status).toBe(422)
+    const body = await res.json()
+    expect(body.details.deep_research.map((r: { code: string }) => r.code)).toEqual(['not_zdr'])
+    expect(createAndActivateVersion).not.toHaveBeenCalled()
+  })
+
+  it('PUT under ZDR accepts a model with a ZDR endpoint that serves the group', async () => {
+    vi.mocked(isZdrOnlyForOrg).mockResolvedValueOnce(true)
+    vi.mocked(getCatalogForOrg).mockResolvedValueOnce(zdrCatalog('vendor/capable'))
+    const res = await PUT(put({ overrides: { deep_research: { model: 'vendor/capable' } } }))
+    expect(res.status).toBe(201)
+  })
+
+  it('PUT answers a ZDR-list outage with a 503 that names it', async () => {
+    vi.mocked(isZdrOnlyForOrg).mockResolvedValueOnce(true)
+    vi.mocked(getCatalogForOrg).mockRejectedValueOnce(new ZdrListUnavailableError('HTTP 503'))
+    const res = await PUT(put({ overrides: { deep_research: { model: 'vendor/capable' } } }))
+    expect(res.status).toBe(503)
+    expect((await res.json()).details).toEqual({ reason: 'zdr_list_unavailable' })
+    expect(createAndActivateVersion).not.toHaveBeenCalled()
+  })
+
+  it('PUT asks for the ZDR catalog when the policy is on', async () => {
     vi.mocked(isZdrOnlyForOrg).mockResolvedValueOnce(true)
     await PUT(put({ overrides: { deep_research: { model: 'vendor/capable' } } }))
     expect(getCatalogForOrg).toHaveBeenCalledWith('org-1', { zdrOnly: true })

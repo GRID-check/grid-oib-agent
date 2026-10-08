@@ -55,6 +55,7 @@ import { minIntervalMinutesFromEnv, nextOccurrence, validateCron } from '@/lib/j
 import { emptySkillSnapshot } from '@/lib/jobs/types'
 import { isEmptyPlanDocuments, type PlanDocuments } from '@/lib/runs/plan-documents'
 import * as repository from './repository'
+import { submittedRunStatus } from './task-vocabulary'
 import { TASK_GOAL_MAX_CHARS } from './wire'
 
 // Re-exported so a caller reaching for the bound has one place to look, while
@@ -104,8 +105,7 @@ interface TaskEngine {
 
 const TASK_ENGINES: Record<DelegatableTaskKind, TaskEngine> = {
   /**
-   * A norm check run by the general agent (the purpose-built
-   * `agents/compliance_checker/` tool is retired and no longer bound).
+   * A norm check run by the general agent.
    * No skill: the run works from the regulation corpus and project files
    * with the retrieval tools it already binds.
    */
@@ -434,7 +434,12 @@ export interface CommissionedResearchRun {
   /** The run's message in the thread, or null when it could not be minted. */
   runMessageId: string | null
   conversationId: string
-  /** `queued` never survives this call: `running` when the worker took it, `failed` when it refused. */
+  /**
+   * What the run is when this returns: `queued` when the backend took the job and it waits for a
+   * research worker with a message for the worker's first flush to reach (the queue is claimed
+   * fairly and a busy fleet leaves it waiting, ADR-0079; `submittedRunStatus`), `running` otherwise,
+   * `failed` when the submission was refused. A caller must not read `queued` as "not submitted".
+   */
   status: TaskRun['status']
 }
 
@@ -587,9 +592,10 @@ interface DispatchTarget {
  * Never throws, for the reason above: the failure has to survive as a row.
  */
 async function submitQueuedRun(run: TaskRun, target: DispatchTarget): Promise<TaskRun> {
+  let submitted: Awaited<ReturnType<typeof submitAgentRun>>
   try {
     const conversation = await target.thread()
-    const { backendJobId, conversationId, runMessageId } = await submitAgentRun({
+    submitted = await submitAgentRun({
       organizationId: run.organizationId,
       projectId: run.projectId,
       userId: run.requesterUserId,
@@ -606,15 +612,6 @@ async function submitQueuedRun(run: TaskRun, target: DispatchTarget): Promise<Ta
       clarifierResult: run.plan.context ?? null,
       documents: run.plan.documents ?? null,
     })
-    return (
-      (await repository.updateRun(run.id, run.organizationId, {
-        status: 'running',
-        backendJobId,
-        conversationId,
-        runMessageId,
-        startedAt: new Date(),
-      })) ?? run
-    )
   } catch (error) {
     const detail =
       error instanceof JobSubmitSkippedError || error instanceof JobSubmitError
@@ -623,13 +620,38 @@ async function submitQueuedRun(run: TaskRun, target: DispatchTarget): Promise<Ta
           ? error.message
           : 'Unexpected error while preparing the run'
     console.error('[runs] could not submit run', run.id, error)
-    return (
-      (await repository.updateRun(run.id, run.organizationId, {
-        status: 'failed',
-        error: detail.slice(0, 2000),
-        finishedAt: new Date(),
-      })) ?? run
-    )
+    return recordRun(run, { status: 'failed', error: detail.slice(0, 2000), finishedAt: new Date() })
+  }
+  // From here the job exists on the backend. A failure to record that is not
+  // a failed run (#723): marking it `failed` told the reader the work had not
+  // happened while it ran on, and during a database outage the `failed` write
+  // threw as well. The worker's run ledger addresses the run by its id, so the
+  // row catches up when the database is back.
+  const { backendJobId, conversationId, runMessageId } = submitted
+  const status = submittedRunStatus(submitted)
+  return recordRun(run, {
+    status,
+    backendJobId,
+    conversationId,
+    runMessageId,
+    // A queued run has not started: the worker's first flush stamps it (`applyRunLedgerOp`).
+    startedAt: status === 'running' ? new Date() : null,
+  })
+}
+
+/**
+ * Store what happened to a run, and return the row as it now is.
+ *
+ * Never throws: when the write fails, the run as this process knows it is
+ * returned with the patch applied, and the failure is logged with the run's
+ * id beside what could not be written.
+ */
+async function recordRun(run: TaskRun, patch: Partial<TaskRun>): Promise<TaskRun> {
+  try {
+    return (await repository.updateRun(run.id, run.organizationId, patch)) ?? run
+  } catch (error) {
+    console.error('[runs] could not record run', run.id, patch.status, patch.backendJobId ?? '', error)
+    return { ...run, ...patch }
   }
 }
 

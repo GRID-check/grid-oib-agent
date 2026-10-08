@@ -11,10 +11,12 @@ name: Deploy (staging)
 # Image pinning is PER-SERVICE, not global. Publish Images is incremental: on
 # a develop push it only rebuilds images whose inputs changed. A service
 # rebuilt at this commit gets the commit's immutable sha-<sha> tag; a service
-# that was NOT rebuilt keeps whatever the stack already deploys (per-service
-# stack config key → global imageTag → `latest`), so a partial publish never
-# points an unchanged service at a tag GHCR does not have (ImagePullBackOff).
-# A manual dispatch pins all three services to the operator-supplied tag,
+# that was NOT rebuilt gets the newest develop commit's tag that GHCR actually
+# has (walking first-parent history back from this commit), so a partial
+# publish never points an unchanged service at a tag GHCR does not have
+# (ImagePullBackOff). A resolved image older than the deployed one fails the
+# job (deploy/pulumi/scripts/resolve-image-refs.sh).
+# A manual dispatch with imageTag pins all three services to that tag,
 # preserving full-fleet rollback semantics; the workflow first verifies the
 # tag exists for all three images, so a rollback to a partially-built commit
 # fails fast instead of rolling the others into ImagePullBackOff.
@@ -55,8 +57,9 @@ name: Deploy (staging)
 #     resolves NO per-service refs and verifies NO rollback tag — the preview
 #     applies exactly what the stack file records. That pinned line IS the
 #     promotion mechanism: every develop→prod promotion PR bumps
-#     grid-oib:imageTag to the new develop-tip sha (publish-images builds all
-#     services as sha-<full sha> on every develop push). CI computes nothing
+#     grid-oib:imageTag to a develop sha at which publish-images built all
+#     three images (it builds only what changed, so not every develop sha
+#     qualifies; the verify step below refuses one that does not). CI computes nothing
 #     dynamically here — prod merge shas never have GHCR images; only develop
 #     tips do. (Publish Images never runs for `prod`, so there is nothing else
 #     to pin tags.)
@@ -95,7 +98,7 @@ on:
 permissions:
   contents: read
   actions: read # poll CI / Security workflow conclusions for the gate step
-  packages: read # verify the rollback tag exists for all three images (dispatch)
+  packages: read # verify an image tag exists for all three images (staging rollback, every prod deploy)
 
 # Concurrency is PER JOB now (`deploy-dev` / `deploy-prod` below): a
 # production apply must not queue behind a staging publish or vice versa.
@@ -266,6 +269,10 @@ jobs:
         with:
           # Deploy the exact commit whose images were just published.
           ref: ${{ env.DEPLOY_SHA }}
+          # Full history: the image resolver walks develop's first-parent line
+          # back from this commit, and its downgrade guard asks whether the
+          # deployed commit is an ancestor. A shallow clone answers neither.
+          fetch-depth: 0
 
       # Fail fast, with instructions, if the committed stack file is still the
       # template — otherwise the failure surfaces as a cryptic preview error.
@@ -371,174 +378,38 @@ jobs:
       # Publish Images is incremental: on a develop push it only rebuilds
       # images whose inputs changed, so a single global imageTag for every
       # service would pin unchanged services to a tag GHCR does not have
-      # (ImagePullBackOff). Resolve ONE ref per service and export it: a
-      # service rebuilt at this commit gets the commit's immutable sha-<sha>
-      # tag; a service that was NOT rebuilt keeps whatever the stack currently
-      # deploys — its per-service config key (the full image ref the last
-      # deploy pinned), then the global imageTag (all images were historically
-      # built at every develop sha), then `latest`. On
-      # workflow_dispatch (manual rollback) every service is pinned to
-      # $IMAGE_TAG, preserving full-fleet semantics.
+      # (ImagePullBackOff). Resolve ONE ref per service:
+      #   * rebuilt by the triggering run → the commit's sha-<sha> tag;
+      #   * operator rollback (dispatch with imageTag) → that tag, for all
+      #     three, after verifying GHCR has it for every image;
+      #   * otherwise → the newest commit on develop's first-parent line, at or
+      #     before this one, whose sha-<commit> tag GHCR actually has. Git
+      #     history and the registry decide, not the Actions run index: that
+      #     index is served from a search backend, and on 09-28 it twice
+      #     returned a list without the newest backend build, so a docs-only
+      #     commit's deploy pinned a 09-11 backend and every chat hung.
+      # Then a guard: a resolved commit older than the one the stack last
+      # deployed (stack output `deployedImages`) fails the job, unless it is an
+      # operator rollback. The script, its rationale and its tests:
+      # deploy/pulumi/scripts/resolve-image-refs.{sh,spec.ts}.
       - name: Resolve per-service image refs
         working-directory: deploy/pulumi
         run: |
           export PATH="$HOME/.pulumi/bin:$PATH"
           pulumi stack select matthiasbigl/grid-oib/dev
 
-          # GHCR repository paths are lowercase (docker/metadata-action
-          # lowercases the image name when publish-images pushes), and an
-          # uppercase ref in a Pod spec is rejected outright by containerd
-          # ("repository name must be lowercase"). The owner login is mixed
-          # case, so fold it here — this is the same value the Pulumi program
-          # defaults to (`ghcr.io/grid-check`).
-          owner="$(printf '%s' "$GITHUB_REPOSITORY_OWNER" | tr '[:upper:]' '[:lower:]')"
-          registry="ghcr.io/${owner}"
-
-          # Which images did the triggering publish run actually build? Job
-          # names are the contract with publish-images.yml; only successful
-          # jobs count. On dispatch RUN_ID is empty and every service is
-          # treated as built (pinned) below.
-          built_jobs=""
-          if [ -n "$RUN_ID" ]; then
-            built_jobs="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$RUN_ID/jobs" --jq '.jobs[] | select(.conclusion == "success") | .name')"
-          fi
-
-          # Manual rollback pins ALL three services to $IMAGE_TAG, so verify
-          # that tag is published for every image before anything is pinned —
-          # a tag only some images were built at would roll the others into
-          # ImagePullBackOff. The workflow_run path never has this problem:
-          # rebuilt images carry the sha just pushed, non-rebuilt keep their
-          # stored ref.
-          #
-          # Ask GHCR itself, not the packages REST API: there is no
-          # `/repos/{owner}/{repo}/packages/...` endpoint (it 404s), the
-          # org/user variants differ by owner type, and listing versions would
-          # need pagination over every sha ever published. A manifest HEAD is
-          # exactly the lookup the kubelet will perform.
+          # A rollback pins ALL three services to one tag; a tag only some
+          # images were built at would roll the others into ImagePullBackOff.
           if [ -z "$RUN_ID" ] && [ -n "$EXPLICIT_TAG" ]; then
-            for service in backend frontend web; do
-              image_path="${owner}/grid-oib-${service}"
-              pull_token="$(curl -sSL -u "${GITHUB_ACTOR}:${GH_TOKEN}" \
-                "https://ghcr.io/token?service=ghcr.io&scope=repository:${image_path}:pull" \
-                | jq -r '.token // empty')"
-              [ -n "$pull_token" ] || {
-                echo "::error::could not obtain a GHCR pull token for ${image_path} — the job token needs 'packages: read'."
-                exit 1
-              }
-              # $IMAGE_TAG is constrained to sha-<40-hex>/v*/latest by the
-              # "Validate image tag" step above, so it is safe in the URL.
-              status="$(curl -sSL -o /dev/null -w '%{http_code}' --head \
-                -H "Authorization: Bearer ${pull_token}" \
-                -H 'Accept: application/vnd.oci.image.index.v1+json' \
-                -H 'Accept: application/vnd.oci.image.manifest.v1+json' \
-                -H 'Accept: application/vnd.docker.distribution.manifest.list.v2+json' \
-                -H 'Accept: application/vnd.docker.distribution.manifest.v2+json' \
-                "https://ghcr.io/v2/${image_path}/manifests/${IMAGE_TAG}")"
-              [ "$status" = "200" ] || {
-                echo "::error::rollback tag '$IMAGE_TAG' is not published for grid-oib-${service} (ghcr.io/${image_path} returned HTTP $status). Pick a tag from a fully-built commit."
-                exit 1
-              }
-            done
-            echo "rollback tag '$IMAGE_TAG' verified for backend, frontend and web"
+            ./scripts/verify-image-tag.sh "$GITHUB_REPOSITORY_OWNER" "$IMAGE_TAG"
           fi
 
-          is_built() {
-            if [ -n "$RUN_ID" ]; then
-              echo "$built_jobs" | grep -qx "Build & push $1 image"
-            elif [ -n "$EXPLICIT_TAG" ]; then
-              # Rollback: the operator pinned every service to their tag, and
-              # the loop above already proved it exists for all three.
-              return 0
-            else
-              # Bare re-deploy (dispatch, no tag). Nothing was built FOR this
-              # commit, so treat every service as unbuilt and let the
-              # per-service resolution below find each one's newest image. This
-              # is the only way to redeploy the fleet after a commit that built
-              # nothing: pinning all three to this commit's own sha names tags
-              # GHCR does not have, and the preflight would fail the run.
-              return 1
-            fi
-          }
-
-          # The newest develop commit at which publish-images actually BUILT
-          # this service, from run history. This is what a mutable stored ref
-          # resolves to: ':latest' names whatever the node happens to have
-          # cached, and — the failure that forced this — writing it back
-          # verbatim means an unchanged image string, so Kubernetes rolls
-          # nothing. Three times in one day a real change built fresh images
-          # and then a docs-only commit arrived minutes later, superseded the
-          # real commit's deploy (its CI is cancelled, the gate skips), and
-          # the docs commit's own deploy "kept" :latest — so the built images
-          # sat in GHCR unused and the fleet stayed stale, silently.
-          newest_built_sha() {
-            for rid in $(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/publish-images.yml/runs?branch=develop&status=success&per_page=25" --jq '.workflow_runs[].id'); do
-              hit="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$rid/jobs?per_page=50" --jq "[.jobs[] | select(.conclusion == \"success\") | .name] | index(\"Build & push $1 image\")")"
-              if [ -n "$hit" ] && [ "$hit" != "null" ]; then
-                gh api "repos/$GITHUB_REPOSITORY/actions/runs/$rid" --jq .head_sha
-                return 0
-              fi
-            done
-            return 1
-          }
-
-          resolve_ref() {
-            service="$1"
-            if is_built "$service"; then
-              if [ -n "$RUN_ID" ]; then
-                # Rebuilt at this commit: publish-images just pushed its tag.
-                tag="sha-${DEPLOY_SHA}"
-              else
-                # Manual rollback: the operator's chosen tag.
-                tag="$IMAGE_TAG"
-              fi
-            else
-              # Not rebuilt at THIS commit: staging tracks the newest image
-              # each service was actually BUILT at on develop. "Keep the
-              # stored ref" sounded like "no change means no change" and was
-              # instead the merge-train swallow, four times in one day: a real
-              # commit builds images, the changelog bot lands minutes later
-              # and supersedes its deploy (correctly, per the gate), and the
-              # bot commit's own deploy then "kept" a stored ref pointing at
-              # the PREVIOUS build — first as :latest, then as a stale
-              # immutable sha — so the fresh images sat in GHCR unused and
-              # nobody was told. Resolving from build history makes every
-              # deploy converge on the newest built state regardless of which
-              # commit's deploy happens to run. The stored ref survives only
-              # as a fallback for when run history is unavailable.
-              built="$(newest_built_sha "$service" || true)"
-              if [ -n "$built" ]; then
-                tag="sha-${built}"
-              else
-                deployed="$(pulumi config get "grid-oib:${service}Image" 2>/dev/null || true)"
-                if [ -n "$deployed" ]; then
-                  echo "::warning::${service}: no recent develop build found in run history; keeping stored ref ${deployed}" >&2
-                  case "$deployed" in
-                    *:*) echo "$deployed"; return 0 ;;
-                    *) tag="$deployed" ;;
-                  esac
-                else
-                  tag="$(pulumi config get grid-oib:imageTag 2>/dev/null || true)"
-                  [ -n "$tag" ] || tag="latest"
-                fi
-              fi
-            fi
-            echo "${registry}/grid-oib-${service}:${tag}"
-          }
-
-          BACKEND_IMAGE_REF="$(resolve_ref backend)"
-          FRONTEND_IMAGE_REF="$(resolve_ref frontend)"
-          WEB_IMAGE_REF="$(resolve_ref web)"
-
-          echo "backend  -> $BACKEND_IMAGE_REF"
-          echo "frontend -> $FRONTEND_IMAGE_REF"
-          echo "web      -> $WEB_IMAGE_REF"
-
-          echo "BACKEND_IMAGE_REF=$BACKEND_IMAGE_REF" >> "$GITHUB_ENV"
-          echo "FRONTEND_IMAGE_REF=$FRONTEND_IMAGE_REF" >> "$GITHUB_ENV"
-          echo "WEB_IMAGE_REF=$WEB_IMAGE_REF" >> "$GITHUB_ENV"
+          # Captured first, so a failed guard appends nothing to GITHUB_ENV.
+          refs="$(./scripts/resolve-image-refs.sh)"
+          printf '%s\n' "$refs" >> "$GITHUB_ENV"
         env:
           PULUMI_ACCESS_TOKEN: ${{ secrets.PULUMI_ACCESS_TOKEN }}
-          GH_TOKEN: ${{ github.token }} # gh api: built-job lookup + rollback-tag verification
+          GH_TOKEN: ${{ github.token }} # built-job lookup + GHCR tag lookups
 
       - name: Validate plan (CRD schemas + policy pack)
         working-directory: deploy/pulumi
@@ -625,6 +496,19 @@ jobs:
       - name: Typecheck (cluster-free gate)
         working-directory: deploy/pulumi
         run: npx tsc --noEmit && (cd policy && npx tsc --noEmit)
+
+      # Prod consumes the tag its committed stack file pins, and nothing else
+      # checked that tag was ever built: a promotion to a commit whose publish
+      # built only grid-oib-web left prod's backend on its old image, fixes and
+      # all, with nothing red anywhere. A missing image stops the deploy here.
+      - name: Verify the pinned images exist
+        working-directory: deploy/pulumi
+        run: |
+          tag="$(sed -n 's/^  grid-oib:imageTag: *//p' Pulumi.prod.yaml | tr -d '"' | tr -d "'")"
+          [ -n "$tag" ] || { echo "::error::Pulumi.prod.yaml pins no grid-oib:imageTag"; exit 1; }
+          ./scripts/verify-image-tag.sh "$GITHUB_REPOSITORY_OWNER" "$tag"
+        env:
+          GH_TOKEN: ${{ github.token }}
 
       - name: Install Pulumi
         run: |

@@ -7,21 +7,25 @@ The retriever is instantiated once and reused for all queries.
 """
 
 import asyncio
+import json
 import logging
+import math
 import os
+from contextlib import nullcontext
 from contextlib import suppress
 from dataclasses import dataclass
 from typing import Any
-from typing import Literal
 
 from pydantic import Field
 from pydantic import model_validator
 
-from nat.builder.builder import Builder
-from nat.builder.context import Context
-from nat.builder.function_info import FunctionInfo
-from nat.cli.register_workflow import register_function
-from nat.data_models.function import FunctionBaseConfig
+from aiq_agent.common.wire_v2 import TraceLane
+from aiq_agent.common.wire_v2 import TraceLaneSource
+from nat.plugin_api import Builder
+from nat.plugin_api import Context
+from nat.plugin_api import FunctionBaseConfig
+from nat.plugin_api import FunctionInfo
+from nat.plugin_api import register_function
 
 logger = logging.getLogger(__name__)
 
@@ -78,6 +82,15 @@ _KNOWLEDGE_SEARCH_DESCRIPTION = (
     "path the inventory prints after 'Ordner:', e.g. Brandschutz/Fluchtwege) "
     "when the user scoped the question to a folder — it also covers everything "
     "filed beneath that folder.\n"
+    '`match="exact"` turns the search into Ctrl+F across the files: EVERY '
+    "passage that contains the query literally, plus a table of every matching "
+    "file with its count and pages — for a company or person, a room or door "
+    "number, a Brandabschnitt, a Bauteil code, a Geschäftszahl, a wording, and "
+    "to prove something is NOT written anywhere. Several spellings of one thing "
+    "go into one query separated by '|' ('BA-03 | BA 03'); case, ä/ae and ß/ss, "
+    "and a line break, space or hyphen between words are matched for you "
+    "('OIB Richtlinie' finds 'OIB-Richtlinie'). A term of two or three "
+    "characters ('EG') matches as a whole word only. The reader's own files come first.\n"
     "WHEN NOT TO CALL — to put a file on screen (the user asked to SEE or "
     "BROWSE files, no legal question): that is `surface_documents`. After "
     "you cite a project or Büroarchiv file, do not also call "
@@ -116,14 +129,14 @@ _KNOWLEDGE_SEARCH_DESCRIPTION = (
     "`title_contains`); it is not permission to invent a citation."
 )
 
-# Type-safe backend selection - Pydantic validates at config load time
-BackendType = Literal["llamaindex", "foundational_rag"]
+# The knowledge layer has one backend (ADR-0072). The name still keys the
+# adapter registry, where tests register fakes beside it.
+BACKEND = "llamaindex"
 
 
 class KnowledgeRetrievalConfig(FunctionBaseConfig, name="knowledge_retrieval"):
     """Configuration for knowledge retrieval function."""
 
-    backend: BackendType = Field(default="llamaindex", description="Knowledge backend to use")
     collection_name: str = Field(default="default", description="Name of the collection/index to search")
     use_fixed_collection: bool = Field(
         default=False,
@@ -214,7 +227,10 @@ class KnowledgeRetrievalConfig(FunctionBaseConfig, name="knowledge_retrieval"):
     )
     reranker_model: str | None = Field(
         default=None,
-        description="Cross-encoder model id (default cohere/rerank-v3.5, multilingual — a German corpus needs one).",
+        description=(
+            "Cross-encoder model id (default qwen/qwen3-reranker-8b: multilingual, which a German corpus "
+            "needs, and with a zero-data-retention endpoint, which every rerank is pinned to)."
+        ),
     )
     rerank_candidates: int = Field(
         default=15,
@@ -288,48 +304,21 @@ class KnowledgeRetrievalConfig(FunctionBaseConfig, name="knowledge_retrieval"):
             "draft and the search is the baseline."
         ),
     )
-    # Foundational RAG (hosted RAG Blueprint) options
-    rag_url: str = Field(default="http://localhost:8081/v1", description="RAG query server URL (foundational_rag only)")
-    ingest_url: str = Field(
-        default="http://localhost:8082/v1", description="RAG ingestion server URL (foundational_rag only)"
-    )
-    timeout: int = Field(default=120, description="Request timeout in seconds (foundational_rag only)")
-    verify_ssl: bool = Field(
-        default=True, description="Verify SSL certificates (foundational_rag only). Set false for self-signed certs."
-    )
 
     @model_validator(mode="after")
-    def validate_backend_config(self):
-        """Validate and warn about unused backend-specific config options."""
-        backend = self.backend.lower()
-
-        # Validate summary configuration
+    def validate_summary_config(self):
+        """``generate_summary`` needs a ``summary_model`` to summarise with."""
         if self.generate_summary and not self.summary_model:
             raise ValueError(
                 "generate_summary=true requires summary_model to be set. "
                 "Configure summary_model to reference an LLM from the llms: section."
             )
-
-        if backend == "llamaindex":
-            # LlamaIndex uses chroma_dir, warn if RAG-specific options are set
-            if self.rag_url != "http://localhost:8081/v1":
-                logger.warning("rag_url is ignored for llamaindex backend")
-            if self.ingest_url != "http://localhost:8082/v1":
-                logger.warning("ingest_url is ignored for llamaindex backend")
-
-        elif backend == "foundational_rag":
-            # Foundational RAG uses rag_url/ingest_url, warn if others are set
-            if self.chroma_dir != "/tmp/chroma_data":
-                logger.warning("chroma_dir is ignored for foundational_rag backend")
-            if not self.verify_ssl:
-                logger.warning("SSL verification disabled for foundational_rag. Use only in trusted environments.")
-
         return self
 
 
 def _setup_backend(config: KnowledgeRetrievalConfig, summary_llm_obj=None) -> tuple[str, dict]:
     """
-    Import the backend adapter and build its configuration.
+    Import the llamaindex adapter and build its configuration.
 
     Importing the adapter module triggers the @register_retriever/@register_ingestor
     decorators, which register the adapter classes with the factory.
@@ -341,43 +330,21 @@ def _setup_backend(config: KnowledgeRetrievalConfig, summary_llm_obj=None) -> tu
     Returns:
         Tuple of (backend_name, backend_config_dict)
     """
-    backend = config.backend.lower()
+    import knowledge_layer.llamaindex.adapter  # noqa: F401
 
-    # Summary config: LLM object if resolved, else adapters use default NVIDIA model
-    summary_config = {
+    os.environ.setdefault("AIQ_CHROMA_DIR", config.chroma_dir)
+    backend_config: dict = {
+        "persist_dir": config.chroma_dir,
         "generate_summary": config.generate_summary,
         "summary_llm": summary_llm_obj,
     }
+    if config.hybrid_search is not None:
+        backend_config["hybrid_search"] = config.hybrid_search
 
-    if backend == "llamaindex":
-        import knowledge_layer.llamaindex.adapter  # noqa: F401
+    os.environ["KNOWLEDGE_RETRIEVER_BACKEND"] = BACKEND
+    os.environ["KNOWLEDGE_INGESTOR_BACKEND"] = BACKEND
 
-        os.environ.setdefault("AIQ_CHROMA_DIR", config.chroma_dir)
-        backend_config: dict = {
-            "persist_dir": config.chroma_dir,
-            **summary_config,
-        }
-        if config.hybrid_search is not None:
-            backend_config["hybrid_search"] = config.hybrid_search
-
-    elif backend == "foundational_rag":
-        import knowledge_layer.foundational_rag.adapter  # noqa: F401
-
-        backend_config = {
-            "rag_url": config.rag_url,
-            "ingest_url": config.ingest_url,
-            "timeout": config.timeout,
-            "verify_ssl": config.verify_ssl,
-            **summary_config,
-        }
-
-    else:
-        raise ValueError(f"Unknown backend: {backend}. Use 'llamaindex' or 'foundational_rag'.")
-
-    os.environ["KNOWLEDGE_RETRIEVER_BACKEND"] = backend
-    os.environ["KNOWLEDGE_INGESTOR_BACKEND"] = backend
-
-    return backend, backend_config
+    return BACKEND, backend_config
 
 
 def _get_retriever(config: KnowledgeRetrievalConfig):
@@ -654,8 +621,8 @@ def _rank_channel(chunks) -> list:
     carries no ``chunk_id``: a collection whose rank 3 was dropped upstream keeps rank 4
     at rank 4 instead of silently promoting it.
 
-    Chunks with no stamped rank (SimpleNamespace test doubles, the foundational_rag
-    backend, anything predating the field) fall back to their position in the list, which
+    Chunks with no stamped rank (SimpleNamespace test doubles, anything predating
+    the field) fall back to their position in the list, which
     is the order the retriever returned them in — so an unstamped layer behaves exactly
     as it did before the field existed.
     """
@@ -885,9 +852,8 @@ def _fuse_channels(channels: list[list]) -> list[tuple]:
 
     The fusion helper lives in the llamaindex package, so it is imported lazily and
     defensively: ``_merge_results`` is called on ``asyncio.gather(..., return_exceptions=True)``
-    output and must never raise, and a deployment running the foundational_rag backend
-    without the llamaindex extra must degrade to the (still collection-ordered)
-    concatenation rather than losing the whole search.
+    output and must never raise, so a fusion failure degrades to the (still
+    collection-ordered) concatenation rather than losing the whole search.
     """
     try:
         from knowledge_layer.llamaindex.hybrid import fuse_with_ranks
@@ -1228,6 +1194,15 @@ def _empty_search_message(
         "Retry once with a shorter topic query"
         + (", a different `file_name` from the inventory" if file_name else ", or `file_name=` an exact inventory name")
         + ", or `title_contains=` a fragment. "
+        # A name taken from the reader's open file filtered a norm question down
+        # to nothing (answer feedback, October 2026): say that the law is not in
+        # that file, so the retry can drop the filter instead of guessing names.
+        + (
+            "If the question is about the law (OIB, Bauordnung) rather than this file's own content, "
+            "retry WITHOUT `file_name=`: the norms are not filed under the reader's documents. "
+            if file_name
+            else ""
+        )
         + (
             f"Nothing is filed under {folder!r}, or nothing there matched — drop `folder=` "
             "to search the whole shelf, or take the exact folder from the inventory. "
@@ -1238,108 +1213,80 @@ def _empty_search_message(
     )
 
 
-def _trace_lanes_json(
+def _trace_lanes_for_chunks(
     chunks,
     resolved: dict[tuple[str, str], str] | None = None,
     resolved_titles: dict[tuple[str, str], str] | None = None,
-) -> str:
-    """Machine-readable lane fan-out for the chat Herleitung UI.
+) -> tuple[TraceLane, ...]:
+    """The lane fan-out of raw chunks, for a producer that has no records yet (RIS).
 
-    One JSON object under a ``## Trace-Lanes`` marker so the frontend can group
-    hits by stratum (OIB / Projekt / Büroarchiv / …) without re-deriving
-    ``lane_for_hit``. Fail-open: never break tool output for the LLM.
-
-    Each lane carries BOTH classifications the consumer needs: the fine ``key``
-    /``label`` from ``lane_for_hit`` (the authority sub-tier — OIB-Richtlinie vs.
-    Rechtsquelle (RIS) vs. …) and the coarse ``kind`` from
-    :func:`~aiq_agent.common.source_kinds.kind_for_lane` — the same taxonomy
-    ``source_entry_to_wire`` puts on every citation (ADR-0026). Shipping ``kind``
-    is what lets the Herleitung fan-out stop mirroring the lane→kind table on the
-    frontend, so the fan-out and the "Belegt durch" chips cannot drift apart.
-
-    Each source carries both identities: ``name`` is the raw filename (document
-    identity — dedup, preview resolution) and ``title`` the user-facing display
-    name, so the Herleitung fan-out shows "OIB-Richtlinie 2, Ausgabe Mai 2023"
-    rather than ``oib-rl_2_ausgabe_mai_2023.pdf``. ``title`` is omitted when it
-    would merely repeat the filename (project/Büroarchiv uploads, where the
-    filename IS the user-meaningful name).
-
-    A source the publish path marked as agent-authored carries a
-    ``provenance`` object (``authored_by``/``approved_by``/``approved_at``/
-    ``producer``) and lands in its own lane, ``buero_piloti``. That lane is
-    decided by the provenance BEFORE the shelf, so a published Piloti document
-    filed on the project shelf keeps its author instead of joining
-    Projektwissen.
-
-    ``resolved`` is the store-authoritative doc_class map from
-    :func:`_resolve_doc_classes` and ``resolved_titles`` the stored display-title
-    map from :func:`_resolve_display_titles`; when omitted they are computed here
-    so the function stays usable standalone.
-
-    This is the CHUNK-facing entry point. It turns chunks into the same
+    It turns the chunks into the same
     :class:`~aiq_agent.common.grounding_block.GroundingHit` records the header
     lines are rendered from and hands them to :func:`_trace_lanes_for_hits`, so
     a hit's shelf, Dokumentart and title are derived once (ADR-0061).
+    ``resolved`` and ``resolved_titles`` are the store-authoritative doc_class
+    and display-title maps; when omitted they are computed here.
     """
-    try:
-        if resolved is None:
-            resolved = _resolve_doc_classes(chunks)
-        if resolved_titles is None:
-            resolved_titles = _resolve_display_titles(chunks)
-        hits = [
-            _grounding_hit(
-                chunk,
-                resolved=resolved,
-                resolved_titles=resolved_titles,
-                # Neither reaches the fan-out: it names documents by raw
-                # filename, so no citation key is built and no folder is read.
-                resolved_folders={},
-                ambiguous=set(),
-            )
-            for chunk in chunks
-        ]
-    except Exception:
-        logger.exception("Failed to build Trace-Lanes summary; omitting UI block metadata")
-        return '{"lanes":[]}'
+    if resolved is None:
+        resolved = _resolve_doc_classes(chunks)
+    if resolved_titles is None:
+        resolved_titles = _resolve_display_titles(chunks)
+    hits = [
+        _grounding_hit(
+            chunk,
+            resolved=resolved,
+            resolved_titles=resolved_titles,
+            # Neither reaches the fan-out: it names documents by raw
+            # filename, so no citation key is built and no folder is read.
+            resolved_folders={},
+            ambiguous=set(),
+        )
+        for chunk in chunks
+    ]
     return _trace_lanes_for_hits(hits)
 
 
-def _trace_lanes_for_hits(hits, opened_files: frozenset[str] = frozenset()) -> str:
-    """The ``## Trace-Lanes`` fan-out for records that are already built.
+def _trace_lanes_for_hits(hits, opened_files: frozenset[str] = frozenset()) -> tuple[TraceLane, ...]:
+    """The lane fan-out of a result set, as typed lanes (the chat wire's ``sources`` step).
+
+    Each lane carries BOTH classifications the reader needs: the fine ``key``
+    /``label`` from ``lane_for_hit`` (the authority sub-tier: OIB-Richtlinie
+    vs. Rechtsquelle (RIS) vs. …) and the coarse ``kind`` from
+    :func:`~aiq_agent.common.source_kinds.kind_for_lane`, the same taxonomy
+    ``source_entry_to_wire`` puts on every citation (ADR-0026), so the fan-out
+    and the "Belegt durch" chips cannot drift apart.
+
+    A source the publish path marked as agent-authored lands in its own lane,
+    ``buero_piloti``, decided by the provenance BEFORE the shelf, so a
+    published Piloti document filed on the project shelf keeps its author.
 
     ``opened_files`` names the documents this result set OPENED rather than
     ranked (the members of a family overview); their hits are stamped as
     locator reads on the turn's ledger.
-
-    Fail-open: never break tool output for the LLM. See :func:`_trace_lanes_json`
-    for what the payload means and why each field is on it.
     """
-    try:
-        import json
-        from collections import OrderedDict
+    from aiq_agent.common.norm_registry import lane_for_knowledge_hit
+    from aiq_agent.common.source_kinds import kind_for_lane
 
-        from aiq_agent.common.norm_registry import lane_for_knowledge_hit
-        from aiq_agent.common.source_kinds import kind_for_lane
-
-        lanes: OrderedDict[str, dict] = OrderedDict()
-        for hit in hits:
-            key, label = lane_for_knowledge_hit(
-                doc_class=hit.doc_class,
-                file_name=hit.file_name,
-                collection=hit.collection,
-                shelf=hit.shelf,
-                authored_by=hit.authored_by,
-            )
-            bucket = lanes.setdefault(
-                key,
-                {"key": key, "label": label, "kind": kind_for_lane(key), "hitCount": 0, "sources": []},
-            )
-            bucket["hitCount"] += 1
-            _append_lane_source(bucket, hit, opened_files)
-        return json.dumps({"lanes": list(lanes.values())}, ensure_ascii=False)
-    except Exception:
-        logger.exception("Failed to build Trace-Lanes summary; omitting UI block metadata")
-        return '{"lanes":[]}'
+    lanes: dict[str, tuple[str, list]] = {}
+    for hit in hits:
+        key, label = lane_for_knowledge_hit(
+            doc_class=hit.doc_class,
+            file_name=hit.file_name,
+            collection=hit.collection,
+            shelf=hit.shelf,
+            authored_by=hit.authored_by,
+        )
+        lanes.setdefault(key, (label, []))[1].append(hit)
+    return tuple(
+        TraceLane(
+            key=key,
+            label=label,
+            kind=kind_for_lane(key),
+            hit_count=len(members),
+            sources=_lane_sources(members, opened_files),
+        )
+        for key, (label, members) in lanes.items()
+    )
 
 
 def _lane_detail(hit) -> str | None:
@@ -1360,74 +1307,49 @@ def _lane_detail(hit) -> str | None:
     return f"Pkt. {hit.punkt} {page}".strip()
 
 
-def _append_lane_source(bucket: dict, hit, opened_files: frozenset[str] = frozenset()) -> None:
-    """Add one hit to its lane's source list, unless the lane already names it.
+def _lane_sources(hits, opened_files: frozenset[str]) -> list[TraceLaneSource]:
+    """One lane's documents, each ``(name, locus)`` once, in hit order."""
+    sources: list[TraceLaneSource] = []
+    seen: set[tuple[str, str]] = set()
+    for hit in hits:
+        detail = _lane_detail(hit)
+        if not hit.file_name or (hit.file_name, detail or "") in seen:
+            continue
+        seen.add((hit.file_name, detail or ""))
+        sources.append(_lane_source(hit, detail, opened=hit.file_name in opened_files))
+    return sources
+
+
+def _lane_source(hit, detail: str | None, *, opened: bool) -> TraceLaneSource:
+    """One document of a lane, stamped with its retrieval round and noted on the turn's ledger.
+
+    ``title`` is omitted when it would merely repeat the filename. The
+    provenance travels as KEYS, not the German sentence, so a reader builds
+    "freigegeben von …" in its own locale.
 
     A hit from a document in ``opened_files`` is stamped as a locator read,
     whatever tool rendered it: the family branch fetches each member the way
     ``read_passage(document=…)`` does, so the ledger must credit those
-    documents as opened, or a later read of one of them is not a repeat.
+    documents as opened, or a later read of one of them is not a repeat. The
+    producing tool is read off its scope, never passed (``record_lane_hit``).
     """
     from aiq_agent.common.provenance import provenance_metadata
+    from aiq_agent.common.turn_status import READ_PASSAGE_TOOL
+    from aiq_agent.common.turn_status import current_retrieval_round
+    from aiq_agent.common.turn_status import lane_tool_scope
+    from aiq_agent.common.turn_status import record_lane_hit
 
-    name = hit.file_name or ""
-    detail = _lane_detail(hit)
-    # Deduplicate identical name+detail pairs inside a lane.
-    existing = {(source.get("name"), source.get("detail") or "") for source in bucket["sources"]}
-    if not name or (name, detail or "") in existing:
-        return
-    entry: dict[str, Any] = {"name": name}
-    if hit.display_title and hit.display_title != name:
-        entry["title"] = hit.display_title
-    if detail:
-        entry["detail"] = detail
-    if hit.shelf is not None:
-        entry["shelf"] = str(hit.shelf)
-    if hit.provenance is not None:
-        # The KEYS, not the German sentence: the fan-out is data, and a
-        # frontend that wants "freigegeben von …" should build it in the
-        # reader's own locale from the approver and the ISO date rather than
-        # parse it back out of prose.
-        entry["provenance"] = provenance_metadata(hit.provenance)
-    _stamp_and_capture_lane_source(entry, opened=name in opened_files)
-    bucket["sources"].append(entry)
-
-
-def _stamp_and_capture_lane_source(entry: dict, *, opened: bool = False) -> None:
-    """Stamp the entry with its retrieval round and note it on the turn's ledger.
-
-    The per-round ledger reads this, never the prose: the capture keeps every
-    round's hits apart, while the turn_sources log dedups documents across
-    rounds. A missing round stamp must not drop the hit.
-
-    ``record_lane_hit`` builds its OWN record and stamps the producing tool on
-    it from the scope the tool opened. That stamp stays in the capture: the
-    ``entry`` below is the Trace-Lanes payload the model and the frontend read,
-    and which tool fetched a passage is how a repeat is DERIVED, not something
-    either of them is shown.
-    """
-    try:
-        from contextlib import nullcontext
-
-        from aiq_agent.common.turn_status import READ_PASSAGE_TOOL
-        from aiq_agent.common.turn_status import current_retrieval_round
-        from aiq_agent.common.turn_status import lane_tool_scope
-        from aiq_agent.common.turn_status import record_lane_hit
-
-        round_index = current_retrieval_round()
-        if round_index is not None:
-            entry["round"] = round_index
-        # The producing tool is read off its scope, never passed (the rule in
-        # ``record_lane_hit``); an opened document gets the locator's scope.
-        with lane_tool_scope(READ_PASSAGE_TOOL) if opened else nullcontext():
-            record_lane_hit(
-                entry["name"],
-                title=entry.get("title"),
-                detail=entry.get("detail"),
-                shelf=entry.get("shelf"),
-            )
-    except Exception:  # noqa: BLE001 (the fan-out survives a missing status module)
-        logger.debug("Turn status unavailable; lane hit goes unstamped", exc_info=True)
+    source = TraceLaneSource(
+        name=hit.file_name,
+        title=hit.display_title if hit.display_title and hit.display_title != hit.file_name else None,
+        detail=detail,
+        shelf=str(hit.shelf) if hit.shelf is not None else None,
+        round=current_retrieval_round(),
+        provenance=provenance_metadata(hit.provenance) if hit.provenance is not None else None,
+    )
+    with lane_tool_scope(READ_PASSAGE_TOOL) if opened else nullcontext():
+        record_lane_hit(source.name, title=source.title, detail=source.detail, shelf=source.shelf)
+    return source
 
 
 def _hit_provenance(chunk):
@@ -1517,6 +1439,60 @@ def _stored_image_index(metadata: dict) -> int | None:
         return None
 
 
+#: Suffixes of a file that IS the image the visual analysis read. Anything else
+#: carrying an ``image_index`` is a raster embedded in a document, whose box is
+#: relative to the raster and not to the page the viewer shows.
+_IMAGE_FILE_SUFFIXES = (".png", ".jpg", ".jpeg", ".webp", ".gif", ".bmp", ".tif", ".tiff", ".heic", ".heif")
+
+#: A box covering at least this share of the frame marks nothing a reader does
+#: not already see: the whole sheet is "the depiction", so it is left unmarked.
+_WHOLE_FRAME_AREA = 0.9
+
+
+def _hit_regions(chunk) -> tuple:
+    """Where on the page a visual chunk's depiction sits, as the viewer draws it (issue #433).
+
+    The visual analysis stores one ``bbox`` per segment inside the chunk's
+    ``drawing_data`` (``visual_analysis.segment_payloads``), normalised 0-1 over
+    the picture it read. That picture is the frame the viewer shows in two cases
+    and not in the third:
+
+    - a rendered PDF page (no ``image_index``): the whole page, uncropped;
+    - an uploaded image (``image_index`` on an image file): the whole image;
+    - a raster embedded in a PDF or office document: only the raster, and where
+      the raster sits on the page was never stored. A box there would land in
+      the wrong place with full confidence, so it gets none.
+
+    Anything malformed yields nothing: a missing box leaves the viewer opening
+    at the page, which is what it did before, while a wrong one points the
+    reader at the wrong drawing.
+    """
+    from aiq_agent.common.grounding_block import SourceRegion
+
+    metadata = chunk.metadata or {}
+    raw = metadata.get("drawing_data")
+    if not raw:
+        return ()
+    if metadata.get("image_index") is not None and not str(chunk.file_name).lower().endswith(_IMAGE_FILE_SUFFIXES):
+        return ()
+    try:
+        segment = json.loads(raw).get("segment") or {}
+        coords = [float(part) for part in segment.get("bbox") or ()]
+    except (TypeError, ValueError, AttributeError):
+        return ()
+    # Finite before clamped: ``min(1.0, max(0.0, nan))`` is 0.0 and an infinity
+    # clamps to an edge, so either would pass the geometry checks below as a
+    # plausible box around the wrong part of the sheet.
+    if len(coords) != 4 or not all(math.isfinite(part) for part in coords):
+        return ()
+    x0, y0, x1, y1 = (min(1.0, max(0.0, part)) for part in coords)
+    if x1 <= x0 or y1 <= y0 or (x1 - x0) * (y1 - y0) >= _WHOLE_FRAME_AREA:
+        return ()
+    title = segment.get("title")
+    label = title.strip() if isinstance(title, str) and title.strip() else None
+    return (SourceRegion(box=(x0, y0, x1, y1), label=label),)
+
+
 def _metadata_text(value: object) -> str | None:
     """A chunk-metadata value as the string a grounding block states, or ``None``."""
     return str(value) if value else None
@@ -1556,6 +1532,7 @@ def _grounding_hit(chunk, *, resolved, resolved_titles, resolved_folders, ambigu
         status_note=None,
         body=content[:_CHUNK_TRUNCATE_CHARS] if truncated else content,
         body_truncated=truncated,
+        regions=_hit_regions(chunk),
     )
 
 
@@ -1582,6 +1559,27 @@ def _grounding_hits(chunks) -> tuple:
     )
 
 
+async def _coverage_gap(query: str, merged, verdict, config, *, widened: bool):
+    """The decider's "none of these answers it" for the pool as delivered, or ``None``.
+
+    Asked only where the judge already ran and found the first pool
+    insufficient, so the family overview, a pinned file, a skipped judge and a
+    sufficient pool never reach it and render exactly as before. Only the
+    ``jev`` decider: the LLM judge's verdict was on the fused head before the
+    reranker and the requery round, and asking it again costs a frontier call.
+    A degraded pool claims nothing either: the layer that dropped out may hold
+    the answer, and the block already says it is partial.
+    """
+    from knowledge_layer.requery import DECIDER_JEV
+    from knowledge_layer.requery import judge_coverage
+
+    if verdict is None or verdict.sufficient or config.requery_decider != DECIDER_JEV:
+        return None
+    if not merged.success or getattr(merged, "error_message", None) or not merged.chunks:
+        return None
+    return await judge_coverage(query, merged.chunks, threshold=config.decision_sufficiency_threshold, widened=widened)
+
+
 def _format_results(
     retrieval_result,
     query: str,
@@ -1589,6 +1587,7 @@ def _format_results(
     trailer: str = "",
     preamble_note: str = "",
     opened_files: frozenset[str] = frozenset(),
+    coverage_gap: str | None = None,
 ) -> str:
     """Build this result set's grounding hits and render them for the LLM.
 
@@ -1607,6 +1606,12 @@ def _format_results(
     family a family-shaped query resolved to, and where its parts sit in the
     results. It is a second preamble line, so a result set without one renders
     byte-for-byte as before.
+
+    ``coverage_gap`` is why the passages do not answer the question, when the
+    decider read them and said so (``requery.judge_coverage``). The block then
+    says „Abdeckung: unzureichend" under a preamble that no longer calls the
+    hits relevant; the line itself says how many were judged, and the preamble
+    claims nothing about the rest.
     """
     # The two answers below carry no block, so they carry no hash to protect
     # either; there the trailer is simply appended, which keeps it stated
@@ -1632,9 +1637,15 @@ def _format_results(
 
     from aiq_agent.common.grounding_block import GroundingBlock
     from aiq_agent.common.grounding_block import render_grounding_block
+    from aiq_agent.common.turn_status import KNOWLEDGE_SEARCH_TOOL
+    from aiq_agent.common.turn_status import current_lane_tool
 
     hits = _grounding_hits(retrieval_result.chunks)
-    preamble = f"Found {len(hits)} relevant document(s):"
+    preamble = (
+        f"Found {len(hits)} document(s); none of the judged ones answers the question:"
+        if coverage_gap
+        else f"Found {len(hits)} relevant document(s):"
+    )
     return render_grounding_block(
         GroundingBlock(
             preamble=f"{preamble}\n{preamble_note}" if preamble_note else preamble,
@@ -1643,7 +1654,11 @@ def _format_results(
             # Fan-out summary for the Herleitung UI, from the same records the
             # header lines state.
             lanes=_trace_lanes_for_hits(hits, opened_files),
+            # The scope the calling tool opened; the one caller that opens none
+            # is the search itself.
+            tool=current_lane_tool() or KNOWLEDGE_SEARCH_TOOL,
             trailer=trailer,
+            coverage_gap=coverage_gap,
         )
     )
 
@@ -1774,30 +1789,38 @@ async def knowledge_retrieval(config: KnowledgeRetrievalConfig, _builder: Builde
     Knowledge retrieval function for searching ingested documents.
 
     This function provides semantic search over documents that have been
-    previously ingested into the knowledge layer. It supports multiple
-    backends (LlamaIndex, Foundational RAG) and returns formatted results
-    suitable for LLM consumption.
+    previously ingested into the knowledge layer (the llamaindex backend) and
+    returns formatted results suitable for LLM consumption.
 
     The retriever and ingestor are initialized once when the function is
     created and reused for all subsequent queries. The ingestor singleton
     is also made available to the Knowledge API routes via the factory.
     """
+
+    # The summary, judge and requery models have no agent group: no organization
+    # can choose them, and every tenant's documents and questions pass through
+    # them. So they are pinned to zero-data-retention endpoints here, once, for
+    # every request (``openrouter.PLATFORM_FIXED``); a model that cannot carry
+    # the pin fails here rather than send unpinned.
+    async def _platform_llm(ref):
+        from aiq_agent.common import get_langchain_llm
+        from aiq_agent.common.openrouter import PLATFORM_FIXED
+        from aiq_agent.common.openrouter import pin_chat_model
+
+        return pin_chat_model(await get_langchain_llm(_builder, ref), PLATFORM_FIXED)
+
     # Resolve summary LLM if specified (enterprise approach)
     summary_llm_obj = None
     if config.summary_model and config.generate_summary:
-        from aiq_agent.common import get_langchain_llm
-
-        summary_llm_obj = await get_langchain_llm(_builder, config.summary_model)
+        summary_llm_obj = await _platform_llm(config.summary_model)
         logger.info("Resolved summary model: %s", config.summary_model)
 
     # Resolve the LLM-judge reranker model (fail-open: search still works when
     # unset or unresolvable — rerank_chunks degrades to the original order).
     rerank_llm_obj = None
     if config.rerank_llm:
-        from aiq_agent.common import get_langchain_llm
-
         try:
-            rerank_llm_obj = await get_langchain_llm(_builder, config.rerank_llm)
+            rerank_llm_obj = await _platform_llm(config.rerank_llm)
             logger.info("Resolved rerank model: %s", config.rerank_llm)
         except Exception as e:
             logger.warning(f"Could not resolve rerank_llm '{config.rerank_llm}', reranking disabled: {e}")
@@ -1809,10 +1832,8 @@ async def knowledge_retrieval(config: KnowledgeRetrievalConfig, _builder: Builde
         if config.requery_llm == config.rerank_llm and rerank_llm_obj is not None:
             requery_llm_obj = rerank_llm_obj
         else:
-            from aiq_agent.common import get_langchain_llm
-
             try:
-                requery_llm_obj = await get_langchain_llm(_builder, config.requery_llm)
+                requery_llm_obj = await _platform_llm(config.requery_llm)
                 logger.info("Resolved requery model: %s", config.requery_llm)
             except Exception as e:
                 logger.warning(f"Could not resolve requery_llm '{config.requery_llm}', retrieval loop disabled: {e}")
@@ -1872,9 +1893,7 @@ async def knowledge_retrieval(config: KnowledgeRetrievalConfig, _builder: Builde
     top_k = config.top_k
     max_per_document = config.max_chunks_per_document
 
-    logger.info(
-        "Knowledge retrieval initialized: backend=%s, collection=%s, top_k=%d", config.backend, collection, top_k
-    )
+    logger.info("Knowledge retrieval initialized: backend=%s, collection=%s, top_k=%d", BACKEND, collection, top_k)
 
     async def search(
         query: str,
@@ -1883,6 +1902,7 @@ async def knowledge_retrieval(config: KnowledgeRetrievalConfig, _builder: Builde
         title_contains: str | None = None,
         file_name: str | None = None,
         folder: str | None = None,
+        match: str = "meaning",
         conclusion: str = "",
     ) -> str:
         """Read and cite passages from the ingested knowledge base.
@@ -1914,6 +1934,13 @@ async def knowledge_retrieval(config: KnowledgeRetrievalConfig, _builder: Builde
             filters (dict | None): Rare. Metadata filter on the base
                 collection only (e.g. {"content_type": "text"}). Session and
                 project collections are never filtered.
+            match (str): "meaning" (default) ranks passages by what they say.
+                "exact" returns EVERY passage whose text contains the query
+                literally (case, ä/ae, ß/ss spellings and line breaks or
+                hyphens between words matched; a term of up to three
+                characters as a whole word; several spellings separated by
+                "|"), with a per-file count of all matches — for a name, a
+                number, a code or a wording.
 
         Returns:
             str: Numbered excerpts with a Citation key to copy verbatim.
@@ -1976,6 +2003,24 @@ async def knowledge_retrieval(config: KnowledgeRetrievalConfig, _builder: Builde
         target_collections = _restrict_scope_to_turn(
             _resolve_scoped_collections(config, session_collection, base_collection)
         )
+
+        # The literal mode: same scope, same narrowing, no ranking at all.
+        if (match or "meaning").strip().lower() == "exact":
+            from .browse import exact_search
+
+            return await exact_search(
+                target_collections,
+                query,
+                search_config=config,
+                retriever=retriever,
+                file_name=file_name,
+                folder=folder,
+                doc_class=doc_class,
+                title_contains=title_contains,
+                filters=filters,
+            )
+        if (match or "meaning").strip().lower() != "meaning":
+            return '`match` must be "meaning" (ranked by what a passage says) or "exact" (every literal occurrence).'
 
         # Cross-lingual bridge. The corpus is German; an English question reaches it
         # only weakly by embedding and not at all lexically. Measured on the golden
@@ -2308,9 +2353,11 @@ async def knowledge_retrieval(config: KnowledgeRetrievalConfig, _builder: Builde
 
             # Relevance floor. Without one, top_k is ALWAYS filled: a question this
             # corpus cannot answer still returns sixteen formatted excerpts with page
-            # citations and a Dokumentart line asserting binding legal force, and the
-            # grounding block has no vocabulary for "I retrieved nothing useful". In a
+            # citations and a Dokumentart line asserting binding legal force. In a
             # building-law product that is the highest-consequence failure available.
+            # The block's vocabulary for "I retrieved nothing useful" is the coverage
+            # signal just below (`_coverage_gap`), which reads the question against
+            # the text; this floor is only a distance.
             #
             # DISABLED BY DEFAULT, and that is not timidity. A floor is a number on a
             # specific embedding model's cosine distribution, and this deployment's
@@ -2351,6 +2398,13 @@ async def knowledge_retrieval(config: KnowledgeRetrievalConfig, _builder: Builde
                     )
                     dropped_by_floor = before_floor - len(kept)
                 merged = merged.model_copy(update={"chunks": kept})
+
+            # Coverage: the judge found the first pool insufficient, and the
+            # decider now reads the pool the model will get, after the requery
+            # round. A complete "no" is said in the block; the pool stays whole,
+            # because a decision never withholds a passage (ADR-0064). Anything
+            # short of a complete "no" claims nothing.
+            coverage = await _coverage_gap(query, merged, verdict, config, widened=requery_fired)
 
             # The family's members go in FRONT of the ranked passages, and after
             # the cap and the floor: they are addressed, not ranked, so neither
@@ -2419,6 +2473,9 @@ async def knowledge_retrieval(config: KnowledgeRetrievalConfig, _builder: Builde
                         search_input["dropped_by_cap"] = dropped_by_cap
                     if dropped_by_family:
                         search_input["dropped_by_family"] = dropped_by_family
+                    if coverage is not None:
+                        search_input["coverage"] = "insufficient"
+                        search_input["coverage_best"] = round(coverage.best, 3)
                     if not merged.chunks:
                         search_input["empty"] = True
                     if getattr(merged, "error_message", None):
@@ -2502,6 +2559,7 @@ async def knowledge_retrieval(config: KnowledgeRetrievalConfig, _builder: Builde
                     overview.trailer if overview is not None else "",
                     family_note,
                     overview.opened_files if overview is not None else frozenset(),
+                    coverage_gap=coverage.reason() if coverage is not None else None,
                 )
             logger.info(f"Knowledge search returned {len(merged.chunks)} chunks")
             logger.debug(f"Formatted result for LLM:\n{formatted[:500]}...")

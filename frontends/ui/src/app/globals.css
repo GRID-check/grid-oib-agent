@@ -291,6 +291,16 @@ body {
   touch-action: auto;
 }
 
+/* The graph's controls take a click and a tap. Its nodes are neither
+   selectable nor draggable, so React Flow sets `pointer-events: none` on every
+   node wrapper, and a click on a fold toggle, a „Quelle ansehen" button or a
+   branch option fell through to the pane: only the keyboard reached them.
+   Unit tests passed because `fireEvent` ignores pointer events (Herleitung
+   audit, 2026-09). */
+.reasoning-flow-scrollable .react-flow__node :is(button, a, [role='button']) {
+  pointer-events: all;
+}
+
 /* =============================================================================
    Theme-aware text color utilities
    Using KUI Foundations theme CSS variables for light/dark theme support
@@ -378,6 +388,17 @@ body {
 
 @utility bg-warning {
   background-color: var(--text-color-feedback-warning);
+}
+
+/* A fact the answer needs and the profile lacks (`:project[key]`): hatched in
+   the warning ink over its tint, so it reads as a gap and never as a value. */
+@utility bg-hatch-warning {
+  background-color: var(--background-color-feedback-warning-subtle);
+  background-image: repeating-linear-gradient(
+    135deg,
+    color-mix(in oklab, var(--text-color-feedback-warning) 22%, transparent) 0 1.5px,
+    transparent 1.5px 6px
+  );
 }
 
 @utility bg-info {
@@ -617,47 +638,79 @@ body {
    Guided "thinking" affordances
 
    While the assistant is working, a long wait should read as *active*, not
-   stalled. Two subtle, monochrome (paper-language) motions carry that: the
-   live-activity label breathing, and a slim indeterminate bar sweeping under
-   the status header. Both are opacity or transform, which the compositor runs
-   without a repaint, and both collapse to a static state under the global
-   prefers-reduced-motion rule above.
+   stalled. Two subtle, monochrome (paper-language) motions carry that: a
+   brighter band travelling across the live-activity label, and a slim
+   indeterminate bar sweeping under the status header. Both are transforms,
+   which the compositor runs without a repaint, and both collapse to a static
+   state under the global prefers-reduced-motion rule above.
    ============================================================================= */
-@keyframes grid-text-shimmer {
-  0%,
-  100% {
-    opacity: 0.55;
+
+/* The travelling band of `ShimmerText` (components/ui/shimmer-text.tsx): a
+   full-ink copy of the label, seen through a window half its width (half and
+   double survive layout rounding exactly; 40% and 250% left the copy 0.03 px
+   narrower, enough to truncate a label that just fits). The
+   window slides across while the copy slides the other way by the same
+   distance, so the text stands still and only the bright band moves.
+
+   History, so it is not undone twice. The band was first a gradient swept
+   across gradient-clipped text by animating `background-position`, which no
+   compositor can run: the label repainted every frame of a turn, about half of
+   what a live turn cost a 4x throttled phone at rest. #757 made it an opacity
+   pulse, which runs on the compositor, but read as blinking, darkened the
+   label, and fought the label's own framer-motion opacity cross-fade: the
+   label flickered at every step (stream audit 2026-09, defect 2). Two
+   transforms keep the look and the cost, and touch no property anything else
+   animates. */
+@keyframes grid-shimmer-window {
+  from {
+    transform: translateX(-100%);
   }
-  50% {
-    opacity: 1;
+  to {
+    transform: translateX(200%);
   }
 }
 
-/* The live label breathes: its ink fades down and back.
-   It used to be a gradient band swept across gradient-clipped text, by
-   animating `background-position`. No compositor can run that: the label
-   repainted on the main thread every frame for as long as a turn worked,
-   about half of what a live turn cost a 4x throttled phone at rest (measured
-   on /dev/chat-turn). An opacity animation runs on the compositor. */
-@utility animate-text-shimmer {
-  animation: grid-text-shimmer 2.2s ease-in-out infinite;
+@keyframes grid-shimmer-copy {
+  from {
+    transform: translateX(50%);
+  }
+  to {
+    transform: translateX(-100%);
+  }
 }
 
+@utility animate-shimmer-window {
+  animation: grid-shimmer-window var(--motion-ambient-slow) linear infinite;
+  will-change: transform;
+  /* Feathered edges: static in the window's own space, so they move with it. */
+  -webkit-mask-image: linear-gradient(90deg, transparent, #000 35%, #000 65%, transparent);
+  mask-image: linear-gradient(90deg, transparent, #000 35%, #000 65%, transparent);
+}
+
+@utility animate-shimmer-copy {
+  animation: grid-shimmer-copy var(--motion-ambient-slow) linear infinite;
+  will-change: transform;
+}
+
+/* The three dots of a turn waiting for its first step: a slow left-to-right
+   wave. The delays stay under the period, so the dots rise in order; at the
+   180 ms `--motion-quick` period a 240 ms delay wrapped, and the dots jittered
+   in the order 2, 1, 3. */
 @keyframes grid-typing-dot {
   0%,
+  60%,
   100% {
     transform: translateY(0);
-    opacity: 0.4;
+    opacity: 0.45;
   }
-  50% {
-    transform: translateY(-2px);
+  30% {
+    transform: translateY(-3px);
     opacity: 1;
   }
 }
 
-/* The three dots of a turn waiting for its first step. */
 @utility animate-typing-dot {
-  animation: grid-typing-dot var(--motion-quick) var(--ease-out) infinite;
+  animation: grid-typing-dot 1.2s ease-in-out infinite;
 }
 
 @keyframes grid-progress-sweep {
@@ -796,6 +849,28 @@ body {
 
 @utility animate-passage-ping {
   animation: grid-passage-ping 1.15s cubic-bezier(0.16, 1, 0.3, 1) 2 both;
+}
+
+/* A region: the box around a depiction on a plan or photo that a cited
+   passage was read off (issue #433). The same fill as the passage mark, much
+   lighter, because it covers a drawing rather than a line of text and the
+   drawing is what the reader came to see. The frame carries the signal
+   instead, and it is an outline so the arrival pulse, which animates the
+   fill, never hides it. */
+.region-highlight {
+  --passage-strength: 14%;
+  --passage-peak: 40%;
+  outline: 2px solid color-mix(in oklch, var(--passage-tint, var(--ring)) 85%, transparent);
+  outline-offset: 0;
+}
+
+.dark .region-highlight {
+  --passage-strength: 24%;
+  --passage-peak: 55%;
+}
+
+.region-label {
+  box-shadow: 0 0 0 1px color-mix(in oklch, var(--passage-tint, var(--ring)) 60%, transparent);
 }
 
 /* The fuzzy mark: a windowed or partial match, the software's best guess at
@@ -1241,4 +1316,58 @@ table[data-stack="always"] > tbody > tr > td:first-child::before {
 }
 table[data-stack="always"] > caption {
   display: block;
+}
+
+/* =============================================================================
+   THE ANSWER AS A PAGE (MarkdownRenderer).
+   One rhythm for every block an answer holds: prose at a reading measure
+   (`max-w-[72ch]`, `mb-4`), section headings with air above them (`mt-8` /
+   `mt-6`) and none below the block they introduce, and every designed block
+   (a table, a check, a procedure, figures, an excerpt, a details row) on the
+   same `my-5` beat, so the page reads as one composed document rather than
+   paragraphs with boxes dropped between them.
+   Unlayered on purpose, like the phone tables above: it must outrank the
+   blocks' own margin utilities.
+   ============================================================================= */
+.markdown-content > :is(h1, h2, h3, h4, h5, h6) + * {
+  margin-top: 0;
+}
+.markdown-content > :is([data-block], figure, [data-variant]) {
+  margin-top: 1.25rem;
+  margin-bottom: 1.25rem;
+}
+/* Math is the model's text: it may not paint outside its own box (a
+   `\rule` or a negative `\kern` laid over the answer), and a wide display
+   formula scrolls instead of widening the page. Sizes are also capped at the
+   source (`maxSize` in MarkdownRenderer). */
+.markdown-content .katex {
+  contain: paint;
+}
+.markdown-content .katex-display {
+  overflow-x: auto;
+  overflow-y: hidden;
+}
+.markdown-content > :first-child {
+  margin-top: 0;
+}
+
+/* An answer on paper (answer-richness: print/export parity). Disclosures print
+   open (`PRINT_OPEN_CONTENT`), controls carry `print:hidden`; here, what only
+   print needs: a designed block is never split across a page, and a tint
+   survives the browser's default of dropping backgrounds. */
+@media print {
+  .markdown-content [data-block],
+  .markdown-content figure,
+  .markdown-content table,
+  .markdown-content [data-testid='figure-tile'] {
+    break-inside: avoid;
+  }
+  .markdown-content h2,
+  .markdown-content h3 {
+    break-after: avoid;
+  }
+  .markdown-content {
+    print-color-adjust: exact;
+    -webkit-print-color-adjust: exact;
+  }
 }

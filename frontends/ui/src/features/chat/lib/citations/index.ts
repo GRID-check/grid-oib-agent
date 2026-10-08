@@ -73,6 +73,7 @@ export {
 export { buildCitationModel, citationSnippet, type CitationInputs } from './build'
 
 export {
+  citedFileName,
   openAtLocus,
   resolveCitationTarget,
   type CitationTarget,
@@ -88,6 +89,7 @@ export {
   documentShelfLabel,
   documentTabLabel,
   referencesByNumber,
+  proseLength,
   splitAnswerBody,
   totalHits,
   unusedDocuments,

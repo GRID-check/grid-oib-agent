@@ -203,7 +203,7 @@ class TestTerminalStickinessUnderRace:
     """Backlog item 6 ratchet: the reaper's FAILURE landing anywhere around the
     runner's SUCCESS write must never be silently flipped — in either order,
     and when the two writes truly race. Separate JobStore instances per writer:
-    in prod these are separate connections (Dask worker vs. web tier)."""
+    in prod these are separate connections (research worker vs. web tier)."""
 
     _REAPER_ERROR = "Job timed out (no heartbeat received from worker)"
 
@@ -281,7 +281,6 @@ class TestTerminalStickinessUnderRace:
 class TestCancellationMonitorStopStatuses:
     def _monitor(self) -> CancellationMonitor:
         return CancellationMonitor(
-            scheduler_address="tcp://localhost:8786",
             db_url="sqlite:///test.db",
             job_id="job-1",
             poll_interval=0.01,
@@ -362,6 +361,19 @@ class TestSanitizeJobError:
 
         assert message == "The LLM provider returned an error while running the job."
         assert "sk-abc" not in message
+
+    def test_a_zdr_refusal_is_named_not_generic(self):
+        """The one provider error only an admin can fix says so (ADR-0074)."""
+        from aiq_agent.common.canned_replies import ZDR_MODEL_REFUSED_MESSAGE
+
+        class FakeProviderError(Exception):
+            pass
+
+        FakeProviderError.__module__ = "openai.error"
+
+        refusal = FakeProviderError("Error code: 404 - No endpoints found matching your data policy")
+
+        assert sanitize_job_error(refusal) == ZDR_MODEL_REFUSED_MESSAGE
 
     def test_network_stack_error_classified_by_module(self):
         class FakeTransportError(Exception):

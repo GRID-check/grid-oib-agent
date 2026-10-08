@@ -29,6 +29,8 @@ from aiq_agent.common.citation_verification import SourceEntry
 from aiq_agent.common.citation_verification import SourceRegistry
 from aiq_agent.common.citation_verification import reset_session_registry
 from aiq_agent.common.citation_verification import set_session_registry
+from tests.conftest import NAT_LLM_CONFIG
+from tests.conftest import nat_langchain_client
 
 
 @tool
@@ -422,7 +424,10 @@ class TestDeepResearcherAgent:
                 return [web_search_tool] if "web_search_tool" in tool_names else []
 
             async def get_llm(self, ref, wrapper_type):
-                return MagicMock()
+                return nat_langchain_client(MagicMock())
+
+            def get_llm_config(self, ref):
+                return NAT_LLM_CONFIG
 
             def get_function_config(self, ref):
                 return None
@@ -465,7 +470,10 @@ class TestDeepResearcherAgent:
                 return [web_search_tool] if "web_search_tool" in tool_names else []
 
             async def get_llm(self, ref, wrapper_type):
-                return MagicMock()
+                return nat_langchain_client(MagicMock())
+
+            def get_llm_config(self, ref):
+                return NAT_LLM_CONFIG
 
             def get_function_config(self, ref):
                 return None
@@ -2777,7 +2785,7 @@ class TestDeepResearcherQuoteVerification:
 class TestSessionRegistryBinding:
     """The live citation stream needs a registry to read; the chat path owns its own.
 
-    In a Dask worker nothing binds a session registry, so every knowledge-base
+    In a research worker nothing binds a session registry, so every knowledge-base
     and OIB citation failed the "was this actually retrieved?" check and was
     never marked as cited -- a run citing four Richtlinien and one web page
     showed the web page alone. The run binds its own registry so the check has
@@ -2834,7 +2842,7 @@ class TestSessionRegistryBinding:
         during = await self._run_capturing_registry(agent)
 
         assert during is not None, "the worker run bound no registry, so citations cannot be recognised"
-        # Reset afterwards: a Dask worker is reused, and a leaked registry would
+        # Reset afterwards: a research worker is reused, and a leaked registry would
         # hand the next job a previous question's sources.
         assert get_session_registry() is None
 

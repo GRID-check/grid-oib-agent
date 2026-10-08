@@ -48,10 +48,16 @@ export interface QueueEntry {
  */
 export interface PurgeDeps {
   backendUrl: string;
+  /** The BFF, for the erasures whose steps live there (a chat's). */
+  frontendUrl: string;
+  /** `GRID_INTERNAL_API_TOKEN`: the agent's maintenance endpoint and the BFF's
+   *  internal routes both accept it. */
   internalToken: string;
   /** The deployment's shared bucket. Every other bucket a sweep visits is read
    *  from the document rows themselves (ADR-0043). */
   bucket: string;
+  /** Null in a deployment with no WorkOS environment (no `WORKOS_API_KEY`):
+   *  no FGA resource was ever created there, so there is none to delete. */
   workos: {
     authorization: {
       deleteResourceByExternalId: (input: {
@@ -61,8 +67,14 @@ export interface PurgeDeps {
         cascadeDelete: boolean;
       }) => Promise<unknown>;
     };
-  };
+  } | null;
   deleteStoragePrefix: (bucket: string, prefix: string) => Promise<number>;
+  /**
+   * Abort every multipart upload still open under `prefix`. Its parts are not
+   * objects, so the prefix sweep cannot see them: an Outlook archive half-sent
+   * into a project (ADR-0085) would outlive the project's erasure.
+   */
+  abortMultipartUploads: (bucket: string, prefix: string) => Promise<number>;
   /** Overridden in specs; defaults to global `fetch`. */
   fetchImpl?: typeof fetch;
 }

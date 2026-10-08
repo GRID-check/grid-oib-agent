@@ -1,0 +1,43 @@
+---
+/**
+ * A subpage's heading: the blog index, the changelog, the Rechenweg, the legal
+ * pages. One component so every subpage starts its heading on the same left
+ * edge (the landing sections' content edge, the `frame` utility) at the same
+ * size, and the heading ends on the same hairline.
+ *
+ * A plate, where the page has one, stands on that hairline at the right, as a
+ * drawing's title block sits on its border: bottom-aligned with the heading,
+ * a third of its size, and gone below `md`, where it would only push the page
+ * down. It was a small print floating above the heading's baseline.
+ *
+ *   <PageHead title={t.heading} plate={PLATES.IV} locale={locale}>
+ *     <p>an optional line under the heading</p>
+ *   </PageHead>
+ */
+import PagePrint from '../craft/PagePrint.astro'
+import type { OnPageArtId } from '../../lib/art'
+import type { Locale } from '../../i18n/ui'
+
+interface Props {
+  title: string
+  locale: Locale
+  plate?: OnPageArtId
+  /** The plate is the page's LCP element: load it eagerly. */
+  priority?: boolean
+}
+const { title, locale, plate, priority = false } = Astro.props
+---
+
+<header class="flex items-end justify-between gap-10 border-b border-ink/15">
+  <div class="min-w-0 max-w-3xl pb-8 md:pb-10">
+    <h1 class="m-0 break-words font-voice text-v2 text-ink" style="text-wrap: balance">{title}</h1>
+    {
+      Astro.slots.has('default') && (
+        <div class="mt-5 max-w-measure text-base leading-relaxed text-ink-soft md:text-lg">
+          <slot />
+        </div>
+      )
+    }
+  </div>
+  {plate && <PagePrint name={plate} locale={locale} size="third" priority={priority} class="shrink-0 max-md:hidden" />}
+</header>

@@ -76,7 +76,7 @@ const createMockChatState = (
     isSessionBusy?: (sessionId: string) => boolean
     hasAnyBusySession?: () => boolean
     isStreaming?: boolean
-    pendingInteraction?: { id: string; type: string; content: string } | null
+    pendingInteraction?: { turnId: string; interactionId: string; input: 'text' | 'choice' } | null
   } = {}
 ) => ({
   isSessionBusy: overrides.isSessionBusy ?? (() => false),
@@ -463,7 +463,7 @@ describe('SessionsPanel - Session Switching', () => {
   test('blocks switching when pending HITL interaction exists', async () => {
     setupChatStoreMock({
       isStreaming: false,
-      pendingInteraction: { id: 'p1', type: 'approval', content: 'Approve plan?' },
+      pendingInteraction: { turnId: 'm1', interactionId: 'p1', input: 'text' },
     })
 
     const user = userEvent.setup()
@@ -537,7 +537,7 @@ describe('SessionsPanel - New chat button', () => {
 
   test('disables new session button when HITL interaction is pending', () => {
     setupChatStoreMock({
-      pendingInteraction: { id: 'p1', type: 'approval', content: 'Approve?' },
+      pendingInteraction: { turnId: 'm1', interactionId: 'p1', input: 'text' },
     })
 
     render(<SessionsPanel sessions={mockSessions} />)
@@ -723,7 +723,6 @@ describe('SessionsPanel - Deep Research section (FB-10)', () => {
         sessions={sessions}
         showDeepResearchSection
         projectId="p1"
-        projectCollection="proj_1"
         {...extra}
       />
     )
@@ -742,7 +741,7 @@ describe('SessionsPanel - Deep Research section (FB-10)', () => {
   })
 
   test('does not render the section, the filter, or fetch runs when the flag is off', () => {
-    render(<SessionsPanel sessions={sessions} projectId="p1" projectCollection="proj_1" />)
+    render(<SessionsPanel sessions={sessions} projectId="p1" />)
 
     expect(screen.queryByTestId('deep-research-section')).not.toBeInTheDocument()
     expect(screen.queryByRole('radiogroup', { name: /filter history/i })).not.toBeInTheDocument()
@@ -768,7 +767,7 @@ describe('SessionsPanel - Deep Research section (FB-10)', () => {
     expect(within(researchFilter).getByText('2')).toBeInTheDocument()
 
     expect(mockListResearchRuns).toHaveBeenCalledWith(
-      expect.objectContaining({ projectCollection: 'proj_1' })
+      expect.objectContaining({ projectId: 'p1' })
     )
   })
 
@@ -834,7 +833,6 @@ describe('SessionsPanel - Deep Research section (FB-10)', () => {
         sessions={[{ id: 'conv-1', title: 'Research chat', date: today, hasCompletedReport: true }]}
         showDeepResearchSection
         projectId="p1"
-        projectCollection="proj_1"
       />
     )
 
@@ -939,7 +937,7 @@ describe('SessionsPanel - Deep Research section (FB-10)', () => {
     })
 
     const { rerender } = render(
-      <SessionsPanel sessions={sessions} showDeepResearchSection projectId="p1" projectCollection="proj_1" />
+      <SessionsPanel sessions={sessions} showDeepResearchSection projectId="p1" />
     )
 
     expect(mockListResearchRuns).toHaveBeenCalledTimes(1)
@@ -947,11 +945,11 @@ describe('SessionsPanel - Deep Research section (FB-10)', () => {
     // Close, then reopen — all while the fetch is still in flight.
     isPanelOpen = false
     rerender(
-      <SessionsPanel sessions={sessions} showDeepResearchSection projectId="p1" projectCollection="proj_1" />
+      <SessionsPanel sessions={sessions} showDeepResearchSection projectId="p1" />
     )
     isPanelOpen = true
     rerender(
-      <SessionsPanel sessions={sessions} showDeepResearchSection projectId="p1" projectCollection="proj_1" />
+      <SessionsPanel sessions={sessions} showDeepResearchSection projectId="p1" />
     )
 
     // Now the original fetch resolves; the result must land in the section.
@@ -1016,7 +1014,6 @@ describe('SessionsPanel - stopping a run from the history', () => {
         sessions={[idleSession]}
         showDeepResearchSection
         projectId="p1"
-        projectCollection="proj_1"
       />
     )
 
@@ -1026,7 +1023,7 @@ describe('SessionsPanel - stopping a run from the history', () => {
     await user.click(screen.getByTestId('stop-research-confirm'))
 
     await waitFor(() => {
-      expect(mockCancelJob).toHaveBeenCalledWith('job-live')
+      expect(mockCancelJob).toHaveBeenCalledWith('job-live', undefined, { projectId: 'p1' })
     })
     // Initial fetch plus the refetch after the cancel landed.
     await waitFor(() => {
@@ -1053,7 +1050,6 @@ describe('SessionsPanel - stopping a run from the history', () => {
         sessions={[idleSession]}
         showDeepResearchSection
         projectId="p1"
-        projectCollection="proj_1"
       />
     )
     expect(await screen.findByText('Running')).toBeInTheDocument()
@@ -1081,7 +1077,6 @@ describe('SessionsPanel - stopping a run from the history', () => {
         sessions={[idleSession]}
         showDeepResearchSection
         projectId="p1"
-        projectCollection="proj_1"
       />
     )
 

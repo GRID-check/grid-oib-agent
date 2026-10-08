@@ -150,6 +150,9 @@ export function installOtelCollector(
     # collector cannot base64 two env vars together (see LANGFUSE_SECRET_KEYS).
     headers:
       Authorization: \${env:LANGFUSE_OTLP_AUTH}
+      # Langfuse v4 writes spans that carry this straight to its events table;
+      # without it they wait for the ~15-minute server-side propagation.
+      x-langfuse-ingestion-version: "4"
     # Langfuse accepts gzip (it is a Next.js route, not the Aspire dashboard's
     # raw-protobuf reader), and unlike the in-cluster hop to the dashboard this
     # one pays for itself: spans carry prompts and completions, which compress

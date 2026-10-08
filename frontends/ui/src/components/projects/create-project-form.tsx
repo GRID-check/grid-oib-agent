@@ -1,5 +1,6 @@
 'use client'
 
+import type { JSX } from 'react'
 import { useState } from 'react'
 import { z } from 'zod'
 import { useAppForm } from '@/components/form'

@@ -16,6 +16,8 @@ from aiq_agent.turn.context import load_turn_context
 from aiq_agent.turn.context import thread_id_for_turn
 from aiq_agent.turn.context import turn_identity
 from aiq_agent.turn.context import user_info_from_principal
+from aiq_agent.turn.context_client import ContextBlocks
+from aiq_agent.turn.context_client import TurnContextError
 
 
 def _request(**fields) -> GridRequestContext:
@@ -232,6 +234,146 @@ class TestTurnIdentity:
 
         monkeypatch.setattr(context_mod, "get_current_principal", lambda: Principal())
         assert user_info_from_principal() == {"name": "Anna", "email": "anna@example.com"}
+
+
+class TestBffTurnContext:
+    async def test_context_is_read_fresh_each_turn_without_legacy_memory_fetch(self, stubs, monkeypatch):
+        blocks = [ContextBlocks("PROFILE", "MEMORY", "POLICY"), ContextBlocks("NEW PROFILE", None, "NEW POLICY")]
+        calls = []
+
+        def fetch(request, *, query):
+            calls.append((request.envelope_header, request.envelope_signature, query))
+            return blocks[len(calls) - 1]
+
+        monkeypatch.setattr(context_mod, "fetch_turn_context", fetch)
+        request = _request(
+            organization_id="org",
+            user_id="user",
+            project_id="513",
+            context_transport="bff",
+            envelope_header="original signed capsule",
+            envelope_signature="original signature",
+            project_context="STALE PROFILE",
+            project_memory="STALE MEMORY",
+            org_instructions="STALE POLICY",
+        )
+        first = await load_turn_context(request, conversation_id="conv_text", query_text="first", resolve_stages=True)
+        stubs["tasks_allowed"] = False
+        stubs["lessons"] = "NEW LESSONS"
+        second = await load_turn_context(request, conversation_id="conv_text", query_text="next", resolve_stages=True)
+
+        assert first.project_context == "PROFILE\n\nMEMORY"
+        assert first.org_instructions == "POLICY"
+        assert first.platform_lessons == "LESSONS"
+        assert first.tasks_allowed is True
+        assert first.stage_facts.memory_digest == "MEMORY"
+        assert second.project_context == "NEW PROFILE"
+        assert second.org_instructions == "NEW POLICY"
+        assert second.platform_lessons == "NEW LESSONS"
+        assert second.tasks_allowed is False
+        assert second.stage_facts.memory_digest is None
+        assert second.stage_facts.organization_id == "org"
+        assert second.stage_facts.project_id == "513"
+        assert second.stage_facts.conversation_id == "conv_text"
+        assert calls == [
+            ("original signed capsule", "original signature", "first"),
+            ("original signed capsule", "original signature", "next"),
+        ]
+        assert "digest_args" not in stubs
+
+    async def test_empty_bff_context_is_authoritative_not_stale_header_fallback(self, stubs, monkeypatch):
+        monkeypatch.setattr(context_mod, "fetch_turn_context", lambda *_a, **_kw: ContextBlocks(None, None, None))
+        context = await load_turn_context(
+            _request(
+                context_transport="bff",
+                project_context="STALE PROFILE",
+                project_memory="STALE MEMORY",
+                org_instructions="STALE POLICY",
+            ),
+            conversation_id="conv_text",
+            query_text="q",
+            resolve_stages=False,
+        )
+        assert (context.project_context, context.org_instructions, context.stage_facts.memory_digest) == (
+            None,
+            None,
+            None,
+        )
+        assert context.platform_lessons == "LESSONS"
+        assert "digest_args" not in stubs
+
+    async def test_advisory_lessons_still_fail_open_in_bff_mode(self, stubs, monkeypatch):
+        def fail(_cid):
+            raise RuntimeError("lessons unavailable")
+
+        monkeypatch.setattr(context_mod, "get_platform_lessons_digest", fail)
+        monkeypatch.setattr(
+            context_mod, "fetch_turn_context", lambda *_a, **_kw: ContextBlocks("PROFILE", None, "POLICY")
+        )
+        context = await load_turn_context(
+            _request(context_transport="bff", organization_id="org"),
+            conversation_id="conv_text",
+            query_text="q",
+            resolve_stages=True,
+        )
+        assert context.project_context == "PROFILE"
+        assert context.org_instructions == "POLICY"
+        assert context.platform_lessons is None
+        assert context.stage_facts.enabled_stages == frozenset({"follow_ups"})
+
+    @pytest.mark.parametrize(
+        "failure",
+        [
+            TurnContextError("unauthenticated", status=401),
+            TurnContextError("forbidden", status=403),
+            TurnContextError("unavailable", status=503),
+            TurnContextError("network error"),
+            TurnContextError("malformed response"),
+            TypeError("unexpected bug"),
+        ],
+    )
+    async def test_required_context_failures_cannot_be_swallowed(self, stubs, monkeypatch, failure):
+        def fail(*_a, **_kw):
+            raise failure
+
+        monkeypatch.setattr(context_mod, "fetch_turn_context", fail)
+        with pytest.raises(type(failure)) as error:
+            await load_turn_context(
+                _request(context_transport="bff", organization_id="org", project_context="STALE"),
+                conversation_id="conv_text",
+                query_text="q",
+                resolve_stages=True,
+            )
+        assert error.value is failure
+        assert "digest_args" not in stubs
+
+    async def test_bff_fetch_runs_in_existing_setup_gather(self, stubs, monkeypatch):
+        started = asyncio.Event()
+        release = asyncio.Event()
+
+        async def lessons(_cid):
+            started.set()
+            await release.wait()
+            return "LESSONS"
+
+        def fetch(*_a, **_kw):
+            return ContextBlocks("PROFILE", "MEMORY", "POLICY")
+
+        async def flags(*_a, **_kw):
+            await started.wait()
+            release.set()
+            return TurnFlags(enabled_stages=frozenset())
+
+        monkeypatch.setattr(context_mod, "_platform_lessons", lessons)
+        monkeypatch.setattr(context_mod, "fetch_turn_context", fetch)
+        monkeypatch.setattr(context_mod, "_turn_flags", flags)
+        context = await asyncio.wait_for(
+            load_turn_context(
+                _request(context_transport="bff"), conversation_id="conv_text", query_text="q", resolve_stages=False
+            ),
+            timeout=1,
+        )
+        assert context.project_context == "PROFILE\n\nMEMORY"
 
 
 def test_turn_identity_is_the_parsed_request_in_ledger_shape():

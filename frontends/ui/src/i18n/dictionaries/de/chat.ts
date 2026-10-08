@@ -5,6 +5,20 @@ export const chat: typeof en.chat = {
   actions: {
     dismiss: 'Schließen',
   },
+  effortDial: {
+    title: 'Aufwand',
+    trigger: 'Aufwand: {level}',
+    faster: 'Schneller',
+    smarter: 'Intelligenter',
+    help: 'Wie lange Piloti nachdenkt, bevor es antwortet. Mehr Aufwand hilft bei verzwickten Fragen, kostet aber Zeit und Tokens. Gilt für diesen Chat.',
+    levels: {
+      minimal: 'Minimal',
+      low: 'Niedrig',
+      medium: 'Mittel',
+      high: 'Hoch',
+      xhigh: 'Maximal',
+    },
+  },
   sourcePreview: {
     chipAria: 'Quelle ansehen: {label}',
     view: 'Ansehen',
@@ -23,6 +37,12 @@ export const chat: typeof en.chat = {
       auslegend: 'Auslegend',
     },
     openExternal: 'Im RIS öffnen',
+    // Office-Dateien (Word, Excel, PowerPoint, ODF, RTF) zeigt der Viewer als
+    // PDF, das Piloti aus dem Original erzeugt (ADR-0070); das Original bleibt
+    // unverändert und herunterladbar.
+    renditionNote: 'PDF-Vorschau des Originals',
+    renditionPending: 'PDF-Vorschau wird erstellt…',
+    downloadOriginal: 'Original herunterladen',
     // Coarse source kind (ADR-0026) shown in the info popover. Preferred
     // over `origins` because the origin token is kb/ris/web only, so a
     // knowledge-base copy of a legal text reads as project material.
@@ -85,8 +105,8 @@ export const chat: typeof en.chat = {
       buero: 'Büroarchiv',
       session: 'Beilage in diesem Chat',
     },
-    notIndexed: 'Nicht indexiert — lesbar, aber nicht zitierfähig.',
-    failed: 'Die Verarbeitung dieser Datei ist fehlgeschlagen.',
+    notIndexed: 'Abgelegt, nicht gelesen. Sie können die Datei öffnen, aber Piloti zitiert sie nicht.',
+    failed: 'Lesen fehlgeschlagen. Piloti kann diese Datei nicht zitieren.',
   },
   composer: {
     /** Shown when the reader holds project:view but not project:chat. */
@@ -103,6 +123,29 @@ export const chat: typeof en.chat = {
     // Mobile-only cue: the source/scope labels collapse to icons on phones, so a
     // tiny one-line hint under the composer keeps the active source count legible.
     sourcesActiveMobile: '{count, plural, one {# Quelle} other {# Quellen}} aktiv',
+  },
+  // Spracheingabe im Eingabefeld (features/dictation).
+  dictation: {
+    start: 'Diktieren',
+    startHint: 'Sprechen Sie, Piloti schreibt es in Ihre Nachricht. Stoppt nach {seconds} Sekunden.',
+    stop: 'Beenden und einfügen',
+    recording: 'Aufnahme, {elapsed}',
+    transcribing: 'Wird verschriftlicht …',
+    unavailable: {
+      unsupported: 'Dieser Browser kann nicht vom Mikrofon aufnehmen.',
+      insecure: 'Spracheingabe braucht eine sichere (https-)Verbindung.',
+      noFormat: 'Dieser Browser nimmt in keinem Format auf, das Piloti verschriftlichen kann.',
+      denied:
+        'Der Mikrofonzugriff ist blockiert. Erlauben Sie ihn in den Website-Einstellungen des Browsers und laden Sie die Seite neu.',
+    },
+    errors: {
+      noMicrophone: 'Es wurde kein Mikrofon gefunden.',
+      denied: 'Der Mikrofonzugriff wurde nicht erlaubt.',
+      rateLimited: 'Zu viele Aufnahmen in kurzer Zeit. Versuchen Sie es in einer Minute erneut.',
+      tooLarge: 'Die Aufnahme ist zu groß zum Verschriftlichen.',
+      notConfigured: 'Spracheingabe ist gerade nicht verfügbar.',
+      failed: 'Die Aufnahme konnte nicht verschriftlicht werden. Ihre Nachricht ist unverändert.',
+    },
   },
   // Der Reiter einer Quellenkarte in der Herleitung: die grobe Ebene, wenn der
   // Server keine feine Lane benannt hat, und das Regal, auf dem das Dokument
@@ -323,41 +366,6 @@ export const chat: typeof en.chat = {
     renameInputAria: 'Sitzungstitel',
   },
   cards: {
-    aiGenerated:
-      'KI-generierte Zitierung — prüfen Sie den Auszug anhand der Primärquelle (OIB / RIS).',
-    // Die gedämpfte Zeile unter einer UNPLATZIERTEN Rechtsgrundlage, die flach
-    // über der Prosa steht (`EvidenceBlock`): das Zitat ist KI-generiert, wie
-    // auf der gerahmten Karte — hier kürzer, weil der Block daneben schon
-    // schlank ist.
-    evidenceQuoteDisclaimer:
-      'KI-generierte Zitierung — prüfen Sie den Auszug anhand der Primärquelle.',
-    legalBasis: 'Rechtsgrundlage',
-    // Tooltip auf dem OIB-/RIS-Abzeichen: das Abzeichen selbst ist ein
-    // Eigenname und in beiden Sprachen gleich — hier steht, was er bedeutet.
-    authority: 'Rechtsquelle: {tag}',
-    viewOib: 'OIB-Richtlinie ansehen',
-    verifyRis: 'In RIS prüfen',
-    conditionTree: {
-      eyebrow: 'Bedingungsbaum',
-      dependsOn: 'Abhängig von',
-      applies: 'trifft zu',
-      basis: 'Grundlage',
-      // Überschrift über dem Ergebnis des Falls, der für dieses Projekt gilt.
-      appliesHere: 'Für dieses Projekt gilt:',
-      // Überschrift über jedem anderen Fall — im Konjunktiv, damit schon die
-      // Grammatik sagt, dass hier ein anderer Fall angesehen wird. Ein
-      // Bildschirmfoto dieses Abschnitts kann so nicht als Ergebnis dieses
-      // Projekts gelesen werden.
-      previewLead: 'Bei {condition} würde gelten:',
-      // Dieselbe Überschrift, wenn kein Fall als der zutreffende ausgewiesen
-      // ist: dann steht nichts dagegen, was in den Konjunktiv zu setzen wäre.
-      caseLead: 'Bei {condition} gilt:',
-      // Steht INNERHALB des angesehenen Abschnitts, damit der Hinweis auf
-      // jedem Bildschirmfoto mitgeht.
-      previewNotice: 'Nur zum Vergleich — für dieses Projekt gilt {condition}: {outcome}',
-      backToActive: 'Zurück zu {condition}',
-      caseAria: 'Fall {condition}',
-    },
     askAbout: {
       chip: 'Dazu fragen',
       chipAria: 'Frage zu „{subject}“ ins Eingabefeld übernehmen',
@@ -368,12 +376,10 @@ export const chat: typeof en.chat = {
     },
 
     // ── Gemeinsame Schematik-Chrome ────────────────────────────────────────
-    // `kit.tsx` zeichnet fünfzehn Karten. Sein Wortschatz steht hier, weil er
+    // `kit.tsx` zeichnet acht Karten. Sein Wortschatz steht hier, weil er
     // auf jeder einzelnen erscheint: Verdikt, fehlende Angabe, Herkunft.
     kit: {
       eyebrow: 'Skizze',
-      // Eine Karte, deren Figur eine Skala oder Balken ist, keine Zeichnung.
-      eyebrowCheck: 'Prüfung',
       status: {
         pass: 'erfüllt',
         fail: 'nicht erfüllt',
@@ -439,12 +445,6 @@ export const chat: typeof en.chat = {
       // gerechnet hat die Karte, zu prüfen sind die Werte.
       computedNote:
         'Das Ergebnis wird von dieser Karte aus den obigen Werten berechnet, nicht aus der Antwort übernommen.',
-    },
-    // „Diagramm" und nicht „Grafik": das Wort steht über einer Zeichnung, die
-    // ausdrücklich nichts misst. Die übrigen Worte teilt die Karte mit dem
-    // Mermaid-Block im Fließtext (`diagrams.schematicOnly`, `diagrams.fallback`).
-    diagram: {
-      eyebrow: 'Diagramm',
     },
     // Ein Dokument, das Piloti in den Arbeitsordner dieser Unterhaltung
     // geschrieben hat. Keine Projektunterlage: nichts davon ist abgelegt,
@@ -555,136 +555,16 @@ export const chat: typeof en.chat = {
           'Diese Unterhaltung gehört zu keinem Projekt, es gibt hier also keine Ablage zu ändern.',
       },
     },
-    processMap: {
-      eyebrow: 'Verfahrensablauf',
-      current: 'hier stehen Sie',
-      done: 'erledigt',
-      stepAria: 'Schritt {step}: {label}',
-      requires: 'Voraussetzungen',
-      produces: 'Ergebnis',
-      actor: 'Zuständig',
-      duration: 'Frist',
-      basis: 'Grundlage',
-      // Steht INNERHALB eines geöffneten anderen Schritts, damit der Hinweis
-      // auf einem Bildschirmfoto genau dieses Abschnitts mitgeht.
-      elsewhereNotice: 'Nur zur Ansicht — dieses Projekt steht bei Schritt {step}: {label}',
-      backToCurrent: 'Zurück zu {label}',
-    },
-    // ── Einreichunterlagen ──────────────────────────────────────────────
-    // Die Zahlen in der Übersicht rechnet die Karte selbst aus den Zeilen —
-    // es gibt kein Feld auf der Leitung, das ihnen widersprechen könnte.
-    documentChecklist: {
-      eyebrow: 'Unterlagen',
-      itemAria: 'Unterlage: {label}',
-      requirement: {
-        required: 'erforderlich',
-        conditional: 'bedingt',
-      },
-      // Der Zustand EINER Zeile. „nicht bekannt" ist der Normalfall: nur was
-      // im Gespräch stand, darf hier stehen.
-      status: {
-        present: 'liegt vor',
-        missing: 'fehlt',
-        unknown: 'nicht bekannt',
-      },
-      // Dieselben Begriffe als Beiwort, damit „3 vorhanden" und „2 fehlend"
-      // grammatikalisch stehen, wo „3 liegt vor" falsch wäre.
-      tally: {
-        required: 'erforderlich',
-        conditional: 'bedingt',
-        present: 'vorhanden',
-        missing: 'fehlend',
-        unknown: 'ungeklärt',
-      },
-      tallyAria: 'Stand der Unterlagen',
-      // Steht statt der zweiten Zeile, wenn zu keiner Unterlage etwas bekannt
-      // ist. Eine Leiste, die dann „0 von 5" zeigte, wäre eine Behauptung
-      // über das Projekt und keine Zusammenfassung der Karte.
-      noStatus: 'Ob Sie diese Unterlagen bereits haben, geht aus dem Gespräch nicht hervor.',
-      condition: 'Bedingung',
-      issuer: 'Ausgestellt von',
-      form: 'Form',
-      basis: 'Grundlage',
-    },
-    // ── Fristen ─────────────────────────────────────────────────────────
-    deadlineTimeline: {
-      eyebrow: 'Fristen',
-      deadlineAria: 'Frist {index}: {label}',
-      startsFrom: 'Fristbeginn',
-      consequence: 'Wenn versäumt',
-      actor: 'Zuständig',
-      basis: 'Grundlage',
-      // Der Satz, der die Karte ehrlich hält: Die Reihenfolge ist gezeichnet,
-      // die Länge nicht — die Fristen laufen ab verschiedenen Ereignissen.
-      notToScale:
-        'Die Reihenfolge ist maßstabslos dargestellt: Jede Frist läuft ab einem eigenen Ereignis.',
-      noDatesNote:
-        'Die Fristen stehen so, wie sie die Bestimmung formuliert. Diese Karte rechnet kein Datum aus.',
-    },
-    // ── Auswirkung einer Änderung ───────────────────────────────────────
-    changeImpact: {
-      eyebrow: 'Auswirkung',
-      consequenceAria: 'Auswirkung: {aspect}',
-      changeWithBefore: '{factor}: {from} → {to}',
-      changeWithoutBefore: '{factor} → {to}',
-      // Steht unter der Kopfzeile, wenn der Ausgangswert fehlt. „Bisher" leer
-      // zu lassen wäre die stillere, aber falschere Variante.
-      currentUnknown: 'Der Ausgangswert geht aus dem Gespräch nicht hervor.',
-      direction: {
-        tightens: 'verschärft',
-        relaxes: 'gelockert',
-        unchanged: 'unverändert',
-      },
-      before: 'bisher',
-      after: 'dann',
-      unknownBefore: 'bisher nicht bekannt',
-      basis: 'Grundlage',
-    },
     verdictHeader: {
       confidenceHigh: 'hohe Sicherheit',
       confidenceMedium: 'mittlere Sicherheit',
       confidenceLow: 'geringe Sicherheit',
-    },
-    normChain: {
-      eyebrow: 'Normenkette',
-      // Rang des Rechtsakts. Die Namen sind die der österreichischen
-      // Rechtsordnung und bleiben auch im Englischen stehen.
-      rank: {
-        bundesgesetz: 'Bundesgesetz',
-        landesgesetz: 'Landesgesetz',
-        verordnung: 'Verordnung',
-        oibRichtlinie: 'OIB-Richtlinie',
-        oenorm: 'ÖNORM',
-        leitfaden: 'Leitfaden',
-      },
-      binding: 'bindend',
-      // Eine OIB-Richtlinie bindet erst, wenn ein Land sie für verbindlich
-      // erklärt — das steht am Glied, nicht in einer Fußnote.
-      bindingWhenDeclared: 'bindend, wenn erklärt',
-      interpretive: 'auslegend',
-    },
-    comparison: {
-      eyebrow: 'Vergleich',
-      criterion: 'Kriterium',
-    },
-    typedTable: {
-      eyebrow: 'Tabelle',
     },
     // ── Beschriftungen in den Zeichnungen ──────────────────────────────────
     // Was in der Skizze selbst steht. Symbole (±0,00, Ø, N), Einheiten und
     // Normbezeichnungen (A++ … G, DnT,w) stehen bewusst nicht hier: sie sind
     // in jeder Sprache dasselbe Zeichen.
     schematics: {
-      acoustic: {
-        soundClass: 'Schallschutzklasse',
-        airborne: 'Luftschall',
-        impact: 'Trittschall',
-        airborneResultant: 'Luftschall (resultierend)',
-        lowerIsBetter: '↓ niedriger ist besser',
-        higherIsBetter: '↑ höher ist besser',
-        reserve: 'Reserve +{margin} dB',
-        shortfall: 'Fehlbetrag {margin} dB',
-      },
       daylight: {
         glassArea: 'Lichteintrittsfläche',
         window: 'Fenster',
@@ -693,31 +573,8 @@ export const chat: typeof en.chat = {
           'Bodenfläche {floor} m² → erforderliche Lichteintrittsfläche ≥ {required} m² (10 %).',
         obstructionPierces: 'Die Verschattung durchdringt den 45°-Lichteinfallskegel.',
       },
-      density: {
-        coverage: 'Bebauungsgrad',
-        parcel: 'Grundstück {area} m²',
-        builtUp: 'bebaut',
-        builtUpUnknown: 'bebaute Fläche: {missing}',
-        grossFloorArea: 'Bruttogeschossfläche (BGF)',
-      },
       egress: {
         totalWalkLength: 'Gehweglänge gesamt',
-      },
-      elevator: {
-        accessible: 'Barrierefreier Aufzug',
-        required: 'erforderlich',
-        notRequired: 'nicht erforderlich',
-        entranceLevel: 'Zugangsebene',
-        shaft: 'Aufzug',
-        // Geschossbezeichnung relativ zur Zugangsebene.
-        groundFloor: 'EG',
-        upperFloor: '{level}.OG',
-        basement: '{level}.KG',
-      },
-      energy: {
-        hwb: 'Heizwärmebedarf (HWB)',
-        hwbMarker: 'HWB {value}',
-        fgee: 'Gesamtenergieeffizienzfaktor (fGEE)',
       },
       fireAccess: {
         routeWidth: 'Zufahrt Breite',
@@ -734,10 +591,6 @@ export const chat: typeof en.chat = {
         street: 'STRASSE',
         gebaeudeklasse: 'Gebäudeklasse',
         walkTooFar: ' — der Weg zum Eingang überschreitet das zulässige Maß.',
-      },
-      fireCompartment: {
-        storey: 'Geschoss {label}',
-        plan: 'Grundriss',
       },
       guardrail: {
         context: {
@@ -757,20 +610,6 @@ export const chat: typeof en.chat = {
         climbables:
           'Horizontale, zum Aufklettern geeignete Elemente im Kletterschutzbereich (15–60 cm).',
       },
-      parking: {
-        car: 'Kfz-Stellplätze',
-        bicycle: 'Fahrradabstellplätze',
-        // Abkürzung für Stellplätze, die als Einheit hinter der Zahl steht.
-        unit: 'Stpl.',
-        basis: 'Bemessung',
-        // Die Fehlmenge zählt: bei einem fehlenden Platz „1 fehlt“.
-        short:
-          '{provided} von {required} nachgewiesen — {missing, plural, one {# fehlt} other {# fehlen}}{overflow}',
-        surplus: '{provided} nachgewiesen — Überschuss +{surplus}{overflow}',
-        exact: '{provided} von {required} nachgewiesen{overflow}',
-        truncated: ' (Ausschnitt)',
-        legend: 'Gefüllt = nachgewiesen, gestrichelt = fehlend gegenüber der Anforderung.',
-      },
       setback: {
         side: {
           front: 'vorne',
@@ -783,6 +622,7 @@ export const chat: typeof en.chat = {
         building: 'Gebäude',
         street: 'STRASSE',
         tooClose: 'Mindestens ein Abstand unterschreitet das geforderte Maß.',
+        stated: 'angegeben: {value}',
       },
       stair: {
         section: 'SCHNITT',
@@ -791,13 +631,6 @@ export const chat: typeof en.chat = {
         stepNotation: '{count} Stg · {rise}/{going} cm',
         // Ohne Steigung und Auftritt bleibt nur die Anzahl.
         stepCount: '{count, plural, one {# Stufe} other {# Stufen}}',
-      },
-      thermal: {
-        roof: 'Dach',
-        wall: 'Außenwand',
-        window: 'Fenster',
-        door: 'Tür',
-        floor: 'Boden',
       },
     },
   },
@@ -833,10 +666,7 @@ export const chat: typeof en.chat = {
     awaitingSomeone: 'Piloti wartet auf eine andere Person',
     needsInput: 'Piloti benötigt Ihre Eingabe',
     receivedInput: 'Piloti hat Ihre Eingabe erhalten',
-    approve: 'Genehmigen',
-    reject: 'Ablehnen',
     approvePlan: 'Plan genehmigen',
-    rejectPlan: 'Plan ablehnen',
     // The current three-way plan decision (start / answer briefly / cancel).
     startResearch: 'Recherche starten',
     answerShallow: 'Kurz beantworten',
@@ -845,8 +675,6 @@ export const chat: typeof en.chat = {
     cancelResearchAria: 'Recherche abbrechen',
     selectOption: 'Option auswählen: {option}',
     yourResponse: 'Ihre Antwort:',
-    approvalInstruction:
-      'Wählen Sie „Genehmigen“, um die Recherche zu starten, oder „Ablehnen“, um abzubrechen.',
     approvalInstructionThreeWay:
       'Starten Sie die Recherche, lassen Sie Ihre Frage stattdessen kurz beantworten, oder brechen Sie ab.',
     durationHint:
@@ -861,7 +689,6 @@ export const chat: typeof en.chat = {
     responseApproved: 'Recherche gestartet',
     responseShallow: 'Kurze Antwort angefordert',
     responseCancelled: 'Recherche abgebrochen',
-    responseRejected: 'Plan abgelehnt',
   },
   // Die einzelne Aufklappung in der Antwortfußzeile für alles hinter der
   // Quellenzeile und den Kopieraktionen (Konfidenz, Merknotiz, Skills,
@@ -869,6 +696,13 @@ export const chat: typeof en.chat = {
   answerDetails: {
     trigger: 'Antwortdetails',
     triggerAria: 'Details zu dieser Antwort anzeigen',
+    // How long the turn took, question sent to answer final.
+    duration: 'Antwort nach {duration}',
+    // What the answer cost in the organization's unit: the credits billed for
+    // it, or tokens on the organization's own provider key.
+    costCredits: '{value} Punkte',
+    costTokens: '{value} Tokens',
+    costBreakdown: 'Eingabe {prompt} · Ausgabe {completion} · davon Nachdenken {reasoning} Tokens',
     // Gelesen, aber nicht zitiert: was die Recherche sonst noch gelesen hat.
     // Nur Dokument-Chips — keine Stellen, keine neuen Aussagen.
     readSources: {
@@ -913,25 +747,6 @@ export const chat: typeof en.chat = {
     working: 'Antwort wird erstellt …',
     waiting: 'Warten auf Antwort',
     elapsedAria: 'Vergangen: {seconds, plural, one {# Sekunde} other {# Sekunden}}',
-    // Live-Einzeiler, was der Assistent gerade tut — aus dem neuesten OFFENEN
-    // Schritt, der sich für Lesende formulieren lässt. Bewusst ohne Eintrag
-    // „zeig den Schrittnamen“: ein interner Bezeichner im Status-Gewand ist
-    // Rauschen. Ein nicht klassifizierbarer Schritt fällt auf die vorige
-    // sinnvolle Phrase zurück, sonst auf `working` weiter oben.
-    activity: {
-      // Gleiche Wörter wie die Chips darunter (`stepName.*`, etwa
-      // `stepName.corpus` = "Wissen"): Lesende sollen ein Vokabular
-      // lernen, nicht zwei für dieselbe Sache.
-      understanding: 'Frage wird eingeordnet …',
-      planning: 'Rechercheweg wird festgelegt …',
-      searchingWeb: 'Web wird durchsucht …',
-      searchingKnowledge: 'Wissen wird durchsucht …',
-      searchingRis: 'RIS wird durchsucht …',
-      searchingSources: 'Quellen werden durchsucht …',
-      researching: 'Recherche läuft …',
-      reading: 'Ergebnisse werden gelesen …',
-      composing: 'Antwort wird formuliert …',
-    },
     // ── Turn-Events: die Worte zu dem, was das Backend GEMELDET hat ───────
     //
     // Der Agent erzählt sich selbst über `status:<slot>`-Schritte — und zwar in
@@ -1050,7 +865,6 @@ export const chat: typeof en.chat = {
       webSearch: 'Websuche',
       ris: 'RIS',
       corpus: 'Wissen',
-      assistant: 'Assistent',
       reading: 'Lesen',
       // Das Arbeitsverzeichnis der Unterhaltung: schreiben, lesen, ändern,
       // auflisten — ein Wort für alle vier. Was Lesende interessiert, ist dass
@@ -1066,8 +880,6 @@ export const chat: typeof en.chat = {
       // `{name}` liefert die einzige Label-Instanz
       // (features/skills/lib/skill-activity).
       skill: 'Skill: {name}',
-      // Das blanke `use_skill`-Frame ohne erkennbaren Skill dahinter.
-      skillUnnamed: 'Skill',
       model: 'Gebäudemodell',
       measure: 'Messung',
       drawing: 'Plan',
@@ -1076,34 +888,11 @@ export const chat: typeof en.chat = {
       card: 'Karte',
       compliance: 'Normprüfung',
     },
-    // Lesbare Namen für die Knoten und Werkzeuge, die das Backend meldet — für
-    // das Technik-Panel (Opt-in). Auf der Leitung stehen interne Ids
-    // (`knowledge_search`), und NAT reicht zusätzlich LangChain-Span-Namen
-    // durch, also CamelCase-Klassennamen. Deshalb löst das Panel jede Zeile
-    // über diese Map auf, statt zu title-casen, was gerade ankam. Was schon
-    // einen Chip hat, nutzt `stepName.*` oben mit: ein Knoten, eine Wortwahl.
+    // Die Namen im Technik-Panel für die zwei Schrittarten ohne eigenes
+    // Werkzeug oder eigenen Slot. Werkzeuge nutzen `stepName.*` oben.
     nodeName: {
-      // Der Rahmen, der den ganzen Zug über offen ist — kein Schritt darin.
-      workflow: 'Ablauf',
       clarification: 'Rückfrage',
-      deepResearch: 'Tiefenrecherche',
-      dataSources: 'Datenquellen',
-      note: 'Notiz gespeichert',
-      card: 'Ergebniskarte',
-      documents: 'Dokumentenliste',
-      askUser: 'Rückfrage an Sie',
-      model: 'Gebäudemodell',
-      measure: 'Modellmessung',
-      compliance: 'Normprüfung',
       skillSelection: 'Skill-Auswahl',
-      // Ein Knoten, für den dieser Build keinen Namen hat. Die Zeile bleibt —
-      // das Panel zählt seine Schritte und jeder trägt eine Uhrzeit, ein
-      // Weglassen ließe Liste und Zähler auseinanderlaufen und verschwiege,
-      // dass etwas lief — sagt aber nur, dass intern etwas passiert ist. Der
-      // rohe Name ist kein Vokabular, das man lernen kann (anders als ein
-      // `status:`-Slot, der genau das ist und bewusst wörtlich bleibt); er ist,
-      // wie das Framework diesen Span zufällig genannt hat.
-      internal: 'Interner Schritt',
     },
     interrupted: 'Unterbrochen',
     // Kompakter Inline-Hinweis auf einer unterbrochenen Antwort: eine stille
@@ -1114,21 +903,18 @@ export const chat: typeof en.chat = {
     // Wiederherstellungs-Abruf nach einer Wiederverbindung läuft, damit ein
     // Zug, der nur unterbrochen AUSSIEHT, nicht sofort den „verloren“-Hinweis
     // zeigt, bevor bestätigt ist, dass die Antwort wirklich fehlt.
-    recovering: 'Verbindung wird wiederhergestellt',
-    recoveringNotice: 'Verbindung wird wiederhergestellt — prüfe auf fertige Antwort …',
+    recovering: 'Antwort wird geholt',
+    recoveringNotice: 'Piloti arbeitet weiter — die Antwort erscheint hier, sobald sie fertig ist …',
     done: 'Fertig',
     showThinking: 'Denkschritte anzeigen ({count})',
     showThinkingSteps: 'Denkschritte anzeigen ({count})',
-    // Die Kopfzeile der Herleitung, aus zwei Klauseln gebaut. Die Quellen-
-    // Klausel FEHLT, wenn es keine gibt: „0 Quellen“ ist eine wahre Zahl, die
-    // sich wie ein Fehlschlag liest, und eine Antwort aus einer Messung am
-    // Modell hat zu Recht keine Zitate. Gezählt wird, was da ist; über das,
-    // was nicht da ist, sagt die Zeile nichts.
-    herleitungSummary: 'Herleitung · {count, plural, one {# Schritt} other {# Schritte}}',
-    herleitungSummaryWithSources: '{summary} · {count, plural, one {# Quelle} other {# Quellen}}',
-    // Der Zug hat noch keinen Schritt gemeldet — dann nennt die Zeile nur, was
-    // sie ist, statt „0 Schritte“ zu zählen.
-    herleitungSummaryNoSteps: 'Herleitung',
+    // Die Kopfzeile der Herleitung. Keine Schrittzahl: gezählt wurden rohe
+    // NAT-Ereignisnamen, nicht Züge oder Aufrufe (siehe ChatThinking). Die
+    // Quellen-Klausel FEHLT, wenn es keine gibt: „0 Quellen“ ist eine wahre
+    // Zahl, die sich wie ein Fehlschlag liest, und eine Antwort aus einer
+    // Messung am Modell hat zu Recht keine Zitate.
+    herleitungSummary: 'Herleitung',
+    herleitungSummaryWithSources: 'Herleitung · {count, plural, one {# Quelle} other {# Quellen}}',
     // aria-label naming the reasoning graph as one region for screen readers.
     reasoningGraphLabel: 'Herleitung',
     stepsLabel: 'Denkschritte',
@@ -1295,6 +1081,15 @@ export const chat: typeof en.chat = {
       title: 'Verbindung fehlgeschlagen',
       message: 'Verbindung zum Server nicht möglich. Bitte überprüfen Sie Ihre Netzwerkverbindung.',
     },
+    clientOutdated: {
+      title: 'Piloti wurde aktualisiert',
+      message: 'Laden Sie die Seite neu, um weiterzuarbeiten.',
+    },
+    serverIncompatible: {
+      title: 'Piloti ist gerade nicht erreichbar',
+      message:
+        'Der Server läuft mit einer anderen Version als diese Seite – das kommt während eines Updates kurz vor. Versuchen Sie es in einigen Minuten erneut; hält es an, melden Sie es dem Support.',
+    },
     connectionTimeout: {
       title: 'Zeitüberschreitung der Anfrage',
       message: 'Die Anfrage hat zu lange gedauert.',
@@ -1315,6 +1110,11 @@ export const chat: typeof en.chat = {
       title: 'Antwort unterbrochen',
       message:
         'Ihre vorherige Anfrage wurde nicht abgeschlossen. Bitte senden Sie Ihre Nachricht erneut.',
+    },
+    zdrRefused: {
+      title: 'Modell unter Zero Data Retention nicht verfügbar',
+      message:
+        'Die Zero-Data-Retention-Einstellung Ihrer Organisation erlaubt nur Modelle mit einem Zero-Data-Retention-Endpunkt, und das Modell für diese Aufgabe hat keinen. Eine Administratorin oder ein Administrator der Organisation muss unter Organisation → Modelle ein solches Modell wählen.',
     },
     workflowError: {
       title: 'Anfrage fehlgeschlagen',
@@ -1341,12 +1141,6 @@ export const chat: typeof en.chat = {
       'Ihr Nutzungsbudget ist aufgebraucht, daher können derzeit keine neuen Nachrichten gesendet werden. Ihren eigenen Verbrauch finden Sie unter Organisation → Verbrauch & Budgets. Bitten Sie eine Organisations-Administratorin oder einen -Administrator, Ihr Limit zu erhöhen.',
     adminMessage:
       'Das Nutzungsbudget ist aufgebraucht, daher können derzeit keine neuen Nachrichten gesendet werden. Erhöhen Sie die Limits unter Organisation → Verbrauch & Budgets.',
-  },
-  fileUpload: {
-    uploading:
-      'Die Datei wird hochgeladen und verarbeitet. Bis zum Abschluss kann eine Datei nicht in Abfragen einbezogen werden.',
-    pendingWarning:
-      'Dateien stehen noch aus! Warten Sie, bis sie bereit sind, oder senden Sie Ihre Abfrage erneut, um OHNE diese Dateien fortzufahren.',
   },
   noSources: {
     warning:
@@ -1431,7 +1225,14 @@ export const chat: typeof en.chat = {
     voteRecorded: 'Bewertung gespeichert.',
     commentLabel: 'Noch etwas?',
     commentPlaceholder: 'Optional — was ist schiefgelaufen?',
+    expectedLabel: 'Was hätte in einer guten Antwort stehen sollen?',
+    expectedPlaceholder: 'z. B. Brüstungshöhe 1,00 m laut OIB-RL 4',
     commentSubmit: 'Hinweis senden',
+  },
+  // Nach einem Daumen nach unten: dieselbe Frage mit mehr Aufwand erneut stellen.
+  retryThorough: {
+    action: 'Gründlicher neu beantworten',
+    aria: 'Dieselbe Frage mit höherem Aufwand erneut beantworten lassen',
   },
   // Schaltfläche „Nachricht kopieren" auf den Nutzernachrichtenblasen
   copyMessage: {

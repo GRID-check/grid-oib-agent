@@ -35,12 +35,24 @@ from typing import Any
 
 from knowledge_layer.rerank import _build_user_prompt
 
+from aiq_agent.common.message_utils import response_text
+
 logger = logging.getLogger(__name__)
 
 #: How many candidates the judge is shown. Sufficiency is a property of the
 #: head of the ranking, and showing the whole reranker pool would make this
 #: call as large as the reranker's for a yes/no answer.
 _JUDGE_CANDIDATES = 12
+
+#: How many delivered passages the coverage check reads. It judges the pool the
+#: model gets, not the judge's head, because the block's claim is about that
+#: pool: judging the first 12 of 16 and saying "none of the 16" was false for
+#: four of them. The decider runs twelve calls at a time
+#: (``aiq_agent.common.decisions.DEFAULT_CONCURRENCY``), so the default
+#: ``top_k`` of 16 is one batch in two waves; past this bound (an admin's
+#: ``top_k`` up to 50) the rest is named as not judged rather than judged in
+#: three more waves.
+_COVERAGE_MAX_JUDGED = 24
 
 #: Per-candidate excerpt for the judge — enough to see whether the operative
 #: sentence is there, not enough to read the whole chunk.
@@ -205,10 +217,7 @@ async def judge_sufficiency(
             llm.ainvoke([("system", _SYSTEM_PROMPT), ("user", user_prompt)]),
             timeout=timeout_seconds,
         )
-        content = getattr(response, "content", None)
-        if content is None and isinstance(response, dict):
-            content = response.get("content")
-        raw = str(content or "")
+        raw = response_text(response)
         if not raw:
             raise ValueError("empty judge reply")
         verdict = _parse_verdict(raw, original_query=query, max_queries=max_queries)
@@ -254,6 +263,97 @@ def requery_notice(queries: Sequence[str]) -> str:
     return (
         f"Hinweis: die Suche wurde um {count} erweitert ({formulations}), "
         "weil die ersten Treffer die Frage nicht abdeckten.\n\n"
+    )
+
+
+# ---------------------------------------------------------------------------
+# Coverage: the honest "nothing here answers it".
+#
+# Without this, ``knowledge_search`` fills ``top_k`` whatever it found, and a
+# question the corpus cannot answer gets sixteen formatted excerpts the model
+# reads as evidence (fill@16 = 1.000 on the golden set's should-refuse rows,
+# rag-system-audit-2026-08 §20). The cosine floor cannot fix that: answerable
+# and unanswerable top-1 similarities overlap (0.799-0.933 against
+# 0.795-0.865). What CAN tell them apart is a model reading the question
+# against the passage, and the search already asks one: the decider behind the
+# judge (``decisions.passage_verdicts``, p(answers) per passage).
+#
+# So the signal is the decider's verdict on the pool the model will actually
+# get: asked only when the judge already found the first pool insufficient,
+# after the requery round has widened and reranked it. A decision that did not
+# run, or did not run on every passage it was asked about, claims nothing.
+#
+# No cross-encoder threshold. The Cohere relevance scores are roughly
+# calibrated, but nothing in this repository measures them against labelled
+# answerable/unanswerable questions (the golden set's should-refuse rows are
+# three distinct needs, and no rerank-score run over them is recorded), and a
+# threshold without that is a guess. The scores are also not carried past the
+# reranker today. A score floor waits for that measurement.
+#
+# The verdict is said, never enforced: the pool reaches the model whole. A
+# decision never withholds a passage (ADR-0064), so the block states the gap
+# and the prompt says what to do with it.
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class CoverageGap:
+    """The decider read every judged passage and none answers the question.
+
+    ``unjudged`` delivered passages past :data:`_COVERAGE_MAX_JUDGED` were not
+    read, and the reason says so: the claim covers the judged ones only.
+    """
+
+    judged: int
+    best: float
+    threshold: float
+    widened: bool
+    unjudged: int = 0
+
+    def reason(self) -> str:
+        """The clause after „Abdeckung: unzureichend — ", German like the excerpts."""
+        after = ", auch nach Umformulierung der Suche" if self.widened else ""
+        which = f"{self.judged} besten" if self.unjudged else f"{self.judged} gezeigten"
+        rest = f"; die übrigen {self.unjudged} Passagen wurden nicht geprüft" if self.unjudged else ""
+        return (
+            f"keine der {which} Passagen enthält die gesuchte Aussage "
+            f"(Entscheidungsmodell: höchste Wahrscheinlichkeit {self.best:.2f}, "
+            f"Schwelle {self.threshold:.2f}){after}{rest}"
+        )
+
+
+async def judge_coverage(
+    query: str,
+    chunks: Sequence[Any],
+    *,
+    threshold: float,
+    widened: bool,
+) -> CoverageGap | None:
+    """A :class:`CoverageGap` when the decider says no passage answers; else ``None``.
+
+    Reads ``chunks`` (the pool as the model will get it, best first) up to
+    :data:`_COVERAGE_MAX_JUDGED`, with the same question and threshold as the
+    first pass, in one decider batch. ``None``
+    for everything that is not a complete "no": a passage that answers, a
+    decision that did not run, a passage the decider left unanswered, an empty
+    pool. Missing evidence is never read as an absent answer. Never raises.
+    """
+    pool = list(chunks or [])
+    head = pool[:_COVERAGE_MAX_JUDGED]
+    if not head or not query:
+        return None
+    try:
+        from .decisions import passage_verdicts
+
+        verdicts = await passage_verdicts(query, head, threshold=threshold, injection=False)
+    except Exception:
+        logger.debug("Coverage check failed open", exc_info=True)
+        return None
+    if verdicts is None or any(p is None for p in verdicts.answers) or verdicts.sufficient:
+        return None
+    logger.info("Coverage insufficient for %r: best p=%.2f over %d passage(s)", query[:60], verdicts.best, len(head))
+    return CoverageGap(
+        judged=len(head), best=verdicts.best, threshold=threshold, widened=widened, unjudged=len(pool) - len(head)
     )
 
 
@@ -386,7 +486,7 @@ def _current_turn_id() -> str | None:
     never breaks the search.
     """
     try:
-        from nat.builder.context import Context
+        from nat.plugin_api import Context
 
         ctx = Context.get()
         if ctx is None:

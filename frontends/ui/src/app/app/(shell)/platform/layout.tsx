@@ -15,6 +15,7 @@
  * explanatory card, mirroring the org page's non-admin experience.
  */
 
+import type { JSX } from 'react'
 import { redirect } from 'next/navigation'
 import { ShieldAlert } from 'lucide-react'
 import { getGridSession } from '@/lib/auth/session'
@@ -25,6 +26,8 @@ import { Card, CardDescription, CardHeader, CardTitle } from '@/components/ui/ca
 import { getTranslations } from '@/i18n/server'
 import { PlatformNav } from '@/features/platform/components/platform-nav'
 import { isAuthRequired } from '@/lib/auth/auth-required'
+import { platformPermissions } from '@/lib/authz/platform'
+import { PlatformAccessProvider } from '@/features/platform/platform-access'
 
 export default async function PlatformLayout({
   children,
@@ -64,16 +67,22 @@ export default async function PlatformLayout({
       )
     }
 
+    // Handed to the client so a write control can hide itself from a viewer
+    // whose role cannot use it. A hint only: every route still checks its own.
+    const permissions = [...((await platformPermissions(session)) ?? [])]
+
     return shell(
       // Rail beside the content from `lg`; stacked strip below that.
-      <div className="flex flex-col gap-6 lg:flex-row lg:gap-8">
-        <div className="lg:w-52 lg:shrink-0">
-          <PlatformNav />
+      <PlatformAccessProvider permissions={permissions}>
+        <div className="flex flex-col gap-6 lg:flex-row lg:gap-8">
+          <div className="lg:w-52 lg:shrink-0">
+            <PlatformNav />
+          </div>
+          <div className="animate-in fade-in-0 slide-in-from-bottom-1 duration-base ease-entrance min-w-0 flex-1 motion-reduce:animate-none">
+            {children}
+          </div>
         </div>
-        <div className="animate-in fade-in-0 slide-in-from-bottom-1 min-w-0 flex-1 duration-base ease-entrance motion-reduce:animate-none">
-          {children}
-        </div>
-      </div>
+      </PlatformAccessProvider>
     )
   })
 }

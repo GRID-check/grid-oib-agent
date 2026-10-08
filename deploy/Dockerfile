@@ -51,6 +51,12 @@ ENV UV_PYTHON=/app/.venv/bin/python
 # nltk pathsec refuses hard-linked corpora (st_nlink>=2). SentenceSplitter
 # opens them on ingest; copy mode is the install that makes that legal.
 ENV UV_LINK_MODE=copy
+# Every install below fetches from PyPI, and one slow response used to fail the
+# whole publish: run 36411247085 died when `uv pip install` of ifc-spatial-py
+# timed out fetching python-dateutil (uv defaults: 30 s, 3 retries). A failed
+# publish leaves its commit with no image, so be patient with the index.
+ENV UV_HTTP_TIMEOUT=120 \
+    UV_HTTP_RETRIES=6
 
 # Copy workspace configuration and lockfile
 COPY pyproject.toml uv.lock ./
@@ -72,8 +78,12 @@ COPY packages/ifc-spatial-py/ ./packages/ifc-spatial-py/
 # to avoid leaking .env, Helm charts, compose files, or other dev artifacts.
 COPY deploy/entrypoint.py deploy/start_web.py ./deploy/
 
-# Install dependencies using uv sync
-RUN uv sync --frozen --no-dev --no-install-workspace
+# Install dependencies using uv sync. `--all-packages` takes each workspace
+# member's own runtime dependencies from the lock too: the members are only in
+# the root's dev group, so without it a dependency only a member declares never
+# reaches the image (langchain-tavily, once NAT 1.9 stopped pulling it in, took
+# the agent into CrashLoopBackOff at the workflow build).
+RUN uv sync --frozen --no-dev --no-install-workspace --all-packages
 
 # Install workspace packages (without CLI for base)
 RUN uv pip install --no-deps -e . \
@@ -81,7 +91,7 @@ RUN uv pip install --no-deps -e . \
     && uv pip install --no-deps -e ./sources/ris_adapter \
     && uv pip install --no-deps -e "./sources/knowledge_layer[all]" \
     && uv pip install --no-deps -e ./frontends/aiq_api \
-    && uv pip install "psycopg[binary]>=3.0.0" "beautifulsoup4>=4.12.0"
+    && uv pip install "psycopg[binary]>=3.0.0"
 
 # The spatial engine, installed WITH its dependencies (unlike the workspace
 # packages above, whose deps come from the lockfile). Deliberately a separate
@@ -95,8 +105,12 @@ RUN uv pip install --no-deps -e . \
 # here because on THIS deployment the capability is wanted.
 RUN uv pip install -e './packages/ifc-spatial-py[ids]'
 
-RUN /app/.venv/bin/python -c "import aiq_api; import knowledge_layer; import ris_adapter.register; print('✓ Base packages installed')" \
-    && /app/.venv/bin/python -c "import ifc_spatial.tools; print('✓ Spatial engine installed')"
+# A requirement no layer installed fails the build, not the pod. Only the "not
+# installed" class: the declared-Python and cryptography mismatches `uv pip
+# check` also lists are accepted in pyproject.toml and are not this.
+RUN /app/.venv/bin/python -c "import aiq_api; import knowledge_layer; import ris_adapter.register; import tavily_web_search.register; print('✓ Base packages installed')" \
+    && /app/.venv/bin/python -c "import ifc_spatial.tools; print('✓ Spatial engine installed')" \
+    && ! uv pip check --python /app/.venv/bin/python 2>&1 | grep "not installed"
 
 RUN chmod +x /app/deploy/start_web.py \
     && mkdir -p /app/data \

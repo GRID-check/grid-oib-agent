@@ -7,7 +7,16 @@
  *      via FOR UPDATE SKIP LOCKED (db.claimDue) — replica- and crash-safe;
  *   2. AFTER that transaction commits, POSTs each claimed definition to the BFF
  *      internal fire endpoint (which records the run row + submits the run);
- *   3. prunes `task_runs` older than the retention window.
+ *   3. prunes `task_runs` older than the retention window;
+ *   4. POSTs the BFF's run reconciler (`/api/internal/runs/reconcile`), which
+ *      closes the runs whose ending never reached the BFF by asking the job
+ *      store, and settles the block of any closed run that still reads
+ *      „läuft" (`lib/runs/reconcile.ts`, backlog T3-11);
+ *   5. POSTs the BFF's background-work sweep (`/api/internal/maintenance/
+ *      reconcile-background-work`), which gives a document left at `processing`
+ *      without a live `bff_job_queue` job a new one, and ends a report filing
+ *      left `queued` whose job is gone (`lib/documents/stuck-processing.ts`,
+ *      `lib/tasks/filing-sweep.ts`, ADR-0079).
  * See ADR-0046 and docs/architecture/agent-skills.md ("Scheduler worker").
  *
  * Environment:
@@ -17,16 +26,25 @@
  *   GRID_SKILL_SCHEDULER_POLL_MS       - tick interval (default 30000)
  *   GRID_SKILL_SCHEDULER_BATCH         - max claims per tick (default 20)
  *   GRID_SKILL_RUNS_RETENTION_DAYS     - run-history retention (default 90)
- * Start gate (deployment-level): refuses to run unless GRID_SKILLS_ENABLED=true
- * or GRID_ENFORCE_FEATURE_FLAGS=true — a clean no-op container otherwise.
+ *
+ * Schedules gate (steps 1-3): only when GRID_SKILLS_ENABLED=true or
+ * GRID_ENFORCE_FEATURE_FLAGS=true. Steps 4 and 5 run regardless, because runs exist
+ * without Agent Skills: a chat question escalated to deep research is a
+ * `task_runs` row with no definition behind it (ADR-0062). With the gate off the
+ * container is a reconcile-only worker rather than exiting.
  */
 
 const { createSql, claimDue, pruneOldRuns } = require('./db')
 const { nextOccurrence } = require('./cron')
 const { initOtelLogs } = require('../observability/otel-logs')
-
-// No-op without OTEL_EXPORTER_OTLP_ENDPOINT (ADR-0029 capability gate).
-initOtelLogs()
+const {
+  createFailureStreak,
+  databaseOutage,
+  describeFailedResponse,
+  describeTransportError,
+  escalationTicks,
+  isTransientStatus,
+} = require('../workers/failure-streak')
 
 const LOG = '[job-scheduler]'
 
@@ -34,14 +52,18 @@ const LOG = '[job-scheduler]'
 // `internalApiRoute` factory guarding /api/internal/skills/fire expects.
 const INTERNAL_TOKEN_HEADER = 'x-grid-internal-token'
 const FIRE_TIMEOUT_MS = 30000
-const FIRE_BODY_SNIPPET = 500
+// One sweep claims at most 25 runs and asks the backend about 5 at a time, each
+// with a 10 s timeout: about a minute in the worst case. The reentrancy guard in
+// main() keeps a slow sweep from overlapping the next tick.
+const RECONCILE_TIMEOUT_MS = 120000
 
 /**
- * Deployment start gate. The scheduler is a clean no-op unless the skills
- * feature is turned on for this deployment — either the dark-launch env opt-in
- * (GRID_SKILLS_ENABLED) or enforced WorkOS flags (GRID_ENFORCE_FEATURE_FLAGS).
+ * The schedules gate. Due definitions are claimed and fired only when the
+ * skills feature is turned on for this deployment — either the dark-launch env
+ * opt-in (GRID_SKILLS_ENABLED) or enforced WorkOS flags
+ * (GRID_ENFORCE_FEATURE_FLAGS). The two sweeps run either way.
  */
-function shouldStart(env) {
+function schedulesEnabled(env) {
   // Case-insensitive, matching how the BFF reads these vars
   // (feature-flags.ts lowercases before comparing) — 'TRUE' must not enable
   // the UI while silently no-op'ing this container.
@@ -61,6 +83,124 @@ function readConfig(env) {
     pollMs: toPositiveInt(env.GRID_SKILL_SCHEDULER_POLL_MS, 30000),
     batch: toPositiveInt(env.GRID_SKILL_SCHEDULER_BATCH, 20),
     retentionDays: toPositiveInt(env.GRID_SKILL_RUNS_RETENTION_DAYS, 90),
+    schedulesEnabled: schedulesEnabled(env),
+  }
+}
+
+/**
+ * The streaks the tick loop keeps between ticks (`workers/failure-streak.js`):
+ * the reconcile POST, and the database work behind firing (claim and prune).
+ * A transient failure of either is a WARN until it has lasted about five
+ * minutes, which logs one ERROR, and the first success after logs a recovery.
+ */
+function createStreaks(config) {
+  const escalateAfter = escalationTicks(config.pollMs)
+  return {
+    reconcile: createFailureStreak({ label: `${LOG} run reconcile`, escalateAfter }),
+    background: createFailureStreak({ label: `${LOG} background work sweep`, escalateAfter }),
+    database: createFailureStreak({ label: `${LOG} schedule claim`, escalateAfter }),
+  }
+}
+
+/**
+ * One run-reconciler sweep: POST {frontendUrl}/api/internal/runs/reconcile.
+ *
+ * The BFF does the work — it owns the run lifecycle, and closing a run through
+ * any path but its outcome service would be a second author of the row. This
+ * container only supplies the clock, as it does for firing. The sweep is
+ * replica-safe on the BFF side (the claim stamps each run it takes), so running
+ * this from every scheduler replica is fine. Logs only when it changed
+ * something or failed; never throws. Returns the sweep's counts, or null.
+ *
+ * A transport error, or a 404/502/503/504 (a rollout's old frontend pod, the
+ * BFF answering a database outage), goes to `streak` as transient. Any other
+ * status is a real fault and logs at ERROR at once. No failure logs an HTML
+ * body (`describeFailedResponse`).
+ */
+async function reconcileRuns(config, fetchImpl, streak) {
+  const counts = await postSweep(config, fetchImpl, streak, {
+    path: '/api/internal/runs/reconcile',
+    label: 'run reconcile',
+  })
+  if (counts && (counts.closed > 0 || counts.healed > 0 || counts.failed > 0)) {
+    console.log(
+      `${LOG} run reconcile: checked ${counts.checked}, closed ${counts.closed}, ` +
+        `already closed ${counts.alreadyClosed}, waiting ${counts.waiting}, ` +
+        `healed ${counts.healed ?? 0}, failed ${counts.failed}`,
+    )
+  }
+  return counts
+}
+
+/**
+ * One background-work sweep: POST {frontendUrl}/api/internal/maintenance/
+ * reconcile-background-work. Same contract as {@link reconcileRuns}: the BFF
+ * owns the work (a stranded document gets a new `bff_job_queue` job or says why
+ * it cannot; a report filing whose job is gone is ended), this container
+ * supplies the clock. Logs only when it changed something or failed; never
+ * throws. Returns the counts `{ documents, filings }`, or null.
+ */
+async function reconcileBackgroundWork(config, fetchImpl, streak) {
+  const counts = await postSweep(config, fetchImpl, streak, {
+    path: '/api/internal/maintenance/reconcile-background-work',
+    label: 'background work sweep',
+  })
+  const documents = counts?.documents
+  const filings = counts?.filings
+  if (documents && (documents.requeued > 0 || documents.failed > 0 || documents.errors > 0)) {
+    console.log(
+      `${LOG} background work sweep, documents: checked ${documents.checked}, requeued ${documents.requeued}, ` +
+        `failed ${documents.failed}, gone ${documents.gone}, errors ${documents.errors}`,
+    )
+  }
+  if (filings && (filings.filed > 0 || filings.failed > 0 || filings.errors > 0)) {
+    console.log(
+      `${LOG} background work sweep, report filings: checked ${filings.checked}, filed ${filings.filed}, ` +
+        `failed ${filings.failed}, waiting ${filings.waiting}, errors ${filings.errors}`,
+    )
+  }
+  return counts
+}
+
+/**
+ * POST one of the BFF's internal sweeps and read its counts.
+ *
+ * A transport error, or a 404/502/503/504 (a rollout's old frontend pod, the
+ * BFF answering a database outage), goes to `streak` as transient. Any other
+ * status is a real fault and logs at ERROR at once. No failure logs an HTML
+ * body (`describeFailedResponse`). Returns the counts, or null.
+ */
+async function postSweep(config, fetchImpl, streak, { path, label }) {
+  const url = `${config.frontendUrl}${path}`
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(), RECONCILE_TIMEOUT_MS)
+  try {
+    const res = await fetchImpl(url, {
+      method: 'POST',
+      headers: { [INTERNAL_TOKEN_HEADER]: config.internalToken },
+      signal: controller.signal,
+    })
+    if (!res.ok) {
+      const failure = await describeFailedResponse(res)
+      if (isTransientStatus(res.status)) {
+        streak.failed(failure)
+      } else {
+        console.error(`${LOG} ${label} failed: ${failure.detail}`)
+      }
+      return null
+    }
+    streak.succeeded()
+    try {
+      return await res.json()
+    } catch {
+      /* non-JSON 200 — nothing to report */
+      return null
+    }
+  } catch (error) {
+    streak.failed(describeTransportError(error))
+    return null
+  } finally {
+    clearTimeout(timer)
   }
 }
 
@@ -71,9 +211,12 @@ function readConfig(env) {
  * It names a `task_definitions.id`; the id space is the same one jobs used,
  * because 0086 reuses job ids for their definitions. Non-2xx and transport
  * errors are logged loudly and swallowed (returns false) — a fire failure must
- * never throw out of the tick loop. The BFF records run rows; if the BFF itself
- * was unreachable the occurrence is missed-once and the next occurrence heals
- * it (ADR-0023 risks). A ~30s AbortController timeout bounds each request.
+ * never throw out of the tick loop. They stay ERROR even when transient, unlike
+ * the reconcile POST's: a failed fire is an occurrence somebody scheduled that
+ * did not run, and no later tick brings it back. The BFF records run rows; if
+ * the BFF itself was unreachable the occurrence is missed-once and the next
+ * occurrence heals it (ADR-0023 risks). A ~30s AbortController timeout bounds
+ * each request. No failure logs an HTML body (`describeFailedResponse`).
  */
 async function fireOne(config, scheduleId, fetchImpl = fetch) {
   const url = `${config.frontendUrl}/api/internal/skills/fire`
@@ -90,13 +233,8 @@ async function fireOne(config, scheduleId, fetchImpl = fetch) {
       signal: controller.signal,
     })
     if (!res.ok) {
-      let body = ''
-      try {
-        body = (await res.text()).slice(0, FIRE_BODY_SNIPPET)
-      } catch {
-        /* body unreadable — status is enough to act on */
-      }
-      console.error(`${LOG} fire failed for job ${scheduleId}: HTTP ${res.status} ${body}`)
+      const { detail } = await describeFailedResponse(res)
+      console.error(`${LOG} fire failed for job ${scheduleId}: ${detail}`)
       return false
     }
     // A 200 is not always a fire: the BFF returns {fired:false, reason} for
@@ -125,17 +263,37 @@ async function fireOne(config, scheduleId, fetchImpl = fetch) {
 }
 
 /**
- * One scheduler tick. Claim + advance (atomic), then fire the claimed rows
- * concurrently (batch <= 20), then prune. Every stage is defended so nothing
- * throws out of the tick — a failed claim skips this tick's fires, a failed
- * fire is logged, a failed prune is logged. Returns the count fired (for logs).
+ * One scheduler tick: the schedules (when their gate is on), then the run
+ * reconciler and the background-work sweep (always). Neither can throw out of the tick. Returns the count
+ * fired (for logs). `streaks` must outlive the tick (`createStreaks`): a fresh
+ * one per tick would never reach its escalation.
  */
-async function tick(sql, config) {
+async function tick(sql, config, fetchImpl, streaks) {
+  const fired = config.schedulesEnabled ? await fireDue(sql, config, streaks.database) : 0
+  await reconcileRuns(config, fetchImpl, streaks.reconcile)
+  await reconcileBackgroundWork(config, fetchImpl, streaks.background)
+  return fired
+}
+
+/**
+ * Claim + advance (atomic), then fire the claimed rows concurrently
+ * (batch <= 20), then prune. Every stage is defended so nothing throws — a
+ * failed claim skips this tick's fires, a failed fire is logged, a failed prune
+ * is logged. Returns the count fired.
+ *
+ * The claim is one transaction, so a claim that fails with the database
+ * unavailable has claimed nothing and advanced nothing: the rows are still due
+ * and the next tick fires them. That is a transient failure for `streak`. Any
+ * other claim or prune error is a real fault, logged at ERROR.
+ */
+async function fireDue(sql, config, streak) {
   let claimed = []
   try {
     claimed = await claimDue(sql, config.batch, (cron, tz) => nextOccurrence(cron, tz, new Date()))
   } catch (error) {
-    console.error(`${LOG} claim transaction failed — skipping fires this tick:`, error)
+    const outage = databaseOutage(error)
+    if (outage) streak.failed(outage)
+    else console.error(`${LOG} claim transaction failed — skipping fires this tick:`, error)
     return 0
   }
 
@@ -151,16 +309,23 @@ async function tick(sql, config) {
     if (pruned > 0) {
       console.log(`${LOG} pruned ${pruned} task_runs older than ${config.retentionDays} days`)
     }
+    streak.succeeded()
   } catch (error) {
-    console.error(`${LOG} run-history prune failed:`, error)
+    // Retention is idempotent: an outage here only defers it to a later tick.
+    const outage = databaseOutage(error)
+    if (outage) streak.failed(outage)
+    else console.error(`${LOG} run-history prune failed:`, error)
   }
 
   return fired
 }
 
 function main() {
+  // No-op without OTEL_EXPORTER_OTLP_ENDPOINT (ADR-0029 capability gate).
+  initOtelLogs()
   const config = readConfig(process.env)
   const sql = createSql()
+  const streaks = createStreaks(config)
 
   // Reentrancy guard, exactly like purger/index.js: a slow tick (many fires,
   // a slow prune) must never overlap the next interval firing.
@@ -169,7 +334,7 @@ function main() {
     if (running) return
     running = true
     try {
-      await tick(sql, config)
+      await tick(sql, config, fetch, streaks)
     } catch (error) {
       console.error(`${LOG} unexpected tick error:`, error)
     } finally {
@@ -177,31 +342,34 @@ function main() {
     }
   }
 
-  console.log(
-    `${LOG} started, polling every ${config.pollMs}ms ` +
-      `(batch ${config.batch}, retention ${config.retentionDays}d, target ${config.frontendUrl})`,
-  )
+  if (config.schedulesEnabled) {
+    console.log(
+      `${LOG} started, polling every ${config.pollMs}ms ` +
+        `(batch ${config.batch}, retention ${config.retentionDays}d, target ${config.frontendUrl})`,
+    )
+  } else {
+    console.log(
+      `${LOG} skills feature is off for this deployment ` +
+        `(set GRID_SKILLS_ENABLED=true or GRID_ENFORCE_FEATURE_FLAGS=true to fire schedules) — ` +
+        `running the run reconciler only, every ${config.pollMs}ms (target ${config.frontendUrl})`,
+    )
+  }
   void runTick()
   setInterval(() => void runTick(), config.pollMs)
 }
 
 if (require.main === module) {
-  if (!shouldStart(process.env)) {
-    console.log(
-      `${LOG} skills feature is off for this deployment ` +
-        `(set GRID_SKILLS_ENABLED=true or GRID_ENFORCE_FEATURE_FLAGS=true to enable) — ` +
-        `nothing to do, exiting cleanly.`,
-    )
-    process.exit(0)
-  }
   main()
 }
 
 module.exports = {
-  shouldStart,
+  schedulesEnabled,
   readConfig,
   toPositiveInt,
+  createStreaks,
   fireOne,
+  reconcileRuns,
+  reconcileBackgroundWork,
   tick,
   INTERNAL_TOKEN_HEADER,
 }

@@ -107,6 +107,21 @@ FILED_STATE_KEY = "grid_filed_state"
 #: The four together, in the order a reader meets them.
 FILING_KEYS = (FILED_DOCUMENT_KEY, FILED_VERSION_KEY, FILED_HASH_KEY, FILED_STATE_KEY)
 
+#: The draft's own version counter (:data:`VERSION_KEY`) at the moment its bytes
+#: were last filed. It answers the one question the four keys above cannot: are
+#: the bytes in the project the bytes in the working directory? ``file_draft``
+#: with ``submit=True`` on a draft that has not moved since it was filed only
+#: SUBMITS — an ``update`` of identical bytes would write a second object, run
+#: the version's effects again, and fail on If-Match if a person had meanwhile
+#: edited the filed version in the Files pane.
+#:
+#: Not one of :data:`FILING_KEYS` and deliberately not re-stamped by
+#: :meth:`DraftBackend._record`: it is compared against the counter, and every
+#: write or edit moves the counter, so a stamp that survives an edit is stale and
+#: one that is dropped reads as "never filed at this version". Both say changed,
+#: which is the safe answer — the draft is filed again before it is submitted.
+FILED_AT_DRAFT_VERSION_KEY = "grid_filed_at_draft_version"
+
 #: The root without its trailing slash: the middleware normalises ``/entwuerfe/``
 #: to ``/entwuerfe`` before the permission check, so both spellings name the
 #: listing and both are allowed.
@@ -155,6 +170,14 @@ class DraftUsage:
     #: The project document this path was filed as, if it has been: the three
     #: :data:`FILING_KEYS` as stored. Empty when the draft has never been filed.
     filing: dict[str, str] = field(default_factory=dict)
+    #: :data:`VERSION_KEY` as it stood when the path was last filed, or ``0``
+    #: when that is not known (never filed, or filed before the stamp existed).
+    filed_at_version: int = 0
+
+    @property
+    def filed_unchanged(self) -> bool:
+        """Filed, and not written or edited since: the project holds these bytes."""
+        return bool(self.filing.get(FILED_DOCUMENT_KEY)) and 0 < self.filed_at_version == self.version
 
 
 def filing_from_value(value: dict) -> dict[str, str]:
@@ -195,6 +218,7 @@ def usage_from_items(items: list[Item], file_path: str) -> DraftUsage:
     content: str | None = None
     version = 0
     filing: dict[str, str] = {}
+    filed_at_version = 0
     for item in items:
         raw = item.value.get("content")
         text = "\n".join(raw) if isinstance(raw, list) else str(raw or "")
@@ -203,7 +227,14 @@ def usage_from_items(items: list[Item], file_path: str) -> DraftUsage:
             content = text
             version = int(item.value.get(VERSION_KEY) or 0)
             filing = filing_from_value(item.value)
-    return DraftUsage(total_bytes=total, content=content, version=version, filing=filing)
+            filed_at_version = int(item.value.get(FILED_AT_DRAFT_VERSION_KEY) or 0)
+    return DraftUsage(
+        total_bytes=total,
+        content=content,
+        version=version,
+        filing=filing,
+        filed_at_version=filed_at_version,
+    )
 
 
 def path_refusal(file_path: str) -> str | None:
@@ -364,20 +395,33 @@ class DraftBackend(StoreBackend):
         """
         return await self._ausage(file_path)
 
-    async def arecord_filing(self, file_path: str, filing: dict[str, str]) -> None:
+    async def arecord_filing(
+        self,
+        file_path: str,
+        filing: dict[str, str],
+        *,
+        draft_version: int | None = None,
+    ) -> None:
         """Remember which project document this path was filed as.
 
         Merged onto the stored value WITHOUT touching ``content``: filing does
         not change the draft, so the version counter does not move and no card is
         emitted from here — ``file_draft`` emits its own, which is the card that
         knows a document id.
+
+        ``draft_version`` is the counter of the bytes that were just filed, as
+        the caller READ them — not the counter the item holds now, which an edit
+        racing the filing could already have moved. Passed only by a call that
+        put bytes into the project; a submit changes the state and leaves the
+        stamp standing (:data:`FILED_AT_DRAFT_VERSION_KEY`).
         """
         store = self._get_store()
         namespace = self._get_namespace()
         item = await store.aget(namespace, file_path)
         if item is None:
             return
-        await store.aput(namespace, file_path, {**item.value, **filing})
+        stamp = {FILED_AT_DRAFT_VERSION_KEY: draft_version} if draft_version is not None else {}
+        await store.aput(namespace, file_path, {**item.value, **filing, **stamp})
 
     # -- the two write verbs ---------------------------------------------------
 
@@ -456,9 +500,12 @@ async def _build_store(dsn: str) -> BaseStore:
     from langgraph.store.postgres import AsyncPostgresStore
 
     from aiq_agent.common import get_checkpoint_pool
+    from aiq_agent.knowledge.leader_lock import keyed_lock_async
 
     store = AsyncPostgresStore(get_checkpoint_pool(dsn))
-    await store.setup()
+    # As for the checkpointer (`common.get_checkpointer`): every role runs this, and `setup()` is not safe against it.
+    async with keyed_lock_async("langgraph-setup:store"):
+        await store.setup()
     logger.info("Chat working directory on Postgres store (shared checkpoint pool).")
     return store
 

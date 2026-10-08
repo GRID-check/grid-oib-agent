@@ -257,7 +257,7 @@ def _agents_with_a_delivery_surface() -> set[str]:
 
     Two channels exist and they are different by necessity. Piloti
     resolves per turn inside a live request, so it names the agent at the
-    ``SkillResolver`` call site. Deep research runs in a Dask worker with no
+    ``SkillResolver`` call site. Deep research runs in a research worker with no
     request to read an organization off, so it resolves per RUN through
     ``resolve_served_skills`` and carries the tenant on its own state; its name
     is a module constant, imported here so that renaming or removing it fails
@@ -591,9 +591,10 @@ def test_the_reachable_shapes_migration_added_the_two_redirect_targets():
     assert "typed_table" in declared
     assert "process_map" in declared
     assert declared[-1] == "follow_ups"
-    # The two redirect targets still resolve to real shapes on the live surface.
-    detail = render_card_details(["typed_table", "process_map"])
-    assert '"typed_table"' in detail and '"process_map"' in detail
+    # Both were deleted from the union since (RETIRED_CARD_TYPES): the live
+    # surface no longer resolves either, which is what the history must not
+    # be read against.
+    assert render_card_details(["typed_table", "process_map"]) == ""
 
 
 def test_the_reachable_shapes_migration_changes_only_the_card_list():
@@ -986,11 +987,11 @@ def test_the_card_seed_carries_the_craft_for_the_three_dossier_types():
 
     body = _unwrapped(_effective_row("piloti-cards")["body"])
 
-    # The tool carries the triggers ...
+    # The three types were deleted since; the tool no longer triggers them.
     for card_type in ("document_checklist", "deadline_timeline", "change_impact"):
-        assert card_type in _CARD_DOCTRINE
+        assert f"-> {card_type}" not in _CARD_DOCTRINE
 
-    # ... and the skill carries what no trigger line has room to say.
+    # The skill carried what no trigger line had room to say.
     # A Unterlagenliste is a list of STATES, and the card totals them — so a
     # guessed status corrupts the tally and not just its own row.
     assert "## Unterlagenliste: Zustände, nicht Namen" in body
@@ -1084,7 +1085,7 @@ def test_every_card_type_with_a_trigger_has_its_craft_in_the_seed():
 
     # The tool carries the triggers ...
     assert "calculation" in _CARD_DOCTRINE
-    assert "process_map" in _CARD_DOCTRINE
+    assert "-> process_map" not in _CARD_DOCTRINE  # deleted since (RETIRED_CARD_TYPES)
 
     # ... and the skill carries what neither trigger line has room to say.
     # The honesty property of `calculation`: there is no result field, because a
@@ -1171,10 +1172,6 @@ def test_the_card_craft_the_retired_seed_taught_lives_in_the_tool():
     # calculation: operands in, result computed, factor belongs to the rule.
     assert "there is no result field, on purpose" in doctrine
     assert "never a second operand" in doctrine
-    # document_checklist: a guessed status falsifies the tally.
-    assert "falsifies the balance" in doctrine
-    # change_impact: every consequence carries its own Fundstelle.
-    assert "its OWN Fundstelle" in doctrine
     # The deletion test rides the tool description's opening line.
     assert "delete the cards mentally" in _build_tool_description().lower()
 
@@ -1193,10 +1190,10 @@ def test_the_answer_envelope_replaces_the_envelope_cards():
     card-generating surface, and the tool's doctrine redirects rather than
     merely refuses.
     """
-    from aiq_agent.cards.catalog import ENVELOPE_CARD_TYPES
+    from aiq_agent.cards.catalog import RETIRED_CARD_TYPES
     from aiq_agent.cards.catalog import model_facing_card_types
     from aiq_agent.cards.catalog import render_card_catalog
-    from aiq_agent.cards.register import _ENVELOPE_REFUSAL
+    from aiq_agent.cards.catalog import retired_refusal
 
     section = _prompt_section("answer_envelope")
     # The rhetorical fields, each with its earning condition.
@@ -1214,8 +1211,9 @@ def test_the_answer_envelope_replaces_the_envelope_cards():
     assert "`confidence`" in section
     assert "`escalate_to_deep`" in section
 
-    assert ENVELOPE_CARD_TYPES == {"summary", "verdict_header", "key_takeaways", "callout"}
-    assert model_facing_card_types().isdisjoint(ENVELOPE_CARD_TYPES)
+    envelope_twins = {"summary", "verdict_header", "key_takeaways", "callout"}
+    assert envelope_twins <= RETIRED_CARD_TYPES
+    assert model_facing_card_types().isdisjoint(RETIRED_CARD_TYPES)
     # No card-generating surface offers the shapes any more — the post-hoc
     # catalog included: one system, not a parallel card path for deep reports.
     catalog = render_card_catalog()
@@ -1226,5 +1224,6 @@ def test_the_answer_envelope_replaces_the_envelope_cards():
     # The up-front sentence is the prompt's; two copies is two things to keep in
     # step, and the doctrine's copy also reached the post-hoc surface, which has
     # no envelope at all.
-    assert "answer_json" in _ENVELOPE_REFUSAL
-    assert "is not emitted as a card" in _ENVELOPE_REFUSAL
+    for card_type in envelope_twins:
+        assert "answer_json" in retired_refusal(card_type)
+        assert "no longer exists" in retired_refusal(card_type)

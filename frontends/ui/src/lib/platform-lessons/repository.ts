@@ -16,6 +16,7 @@
  */
 
 import 'server-only'
+import { isUniqueViolation } from '@/lib/db/errors'
 import { and, asc, desc, eq, inArray, isNull, ne, or, sql } from 'drizzle-orm'
 import { getDb } from '@/lib/db'
 import {
@@ -30,6 +31,7 @@ import {
 import { normalizeContentGerman } from '@/lib/knowledge/consolidation'
 import { toVectorLiteral } from '@/lib/knowledge/embeddings'
 import { executeRows } from '@/lib/db/execute-rows'
+import { VOTED_TURN_JOINS } from '@/lib/feedback/turn-join'
 
 /** Hard ceilings on every dashboard list. */
 export const LESSON_LIST_LIMIT = 200
@@ -58,8 +60,8 @@ export interface UnprocessedDownvote {
 
 /**
  * Down-votes with no `platform_lesson_reports` row yet, oldest first so the
- * backlog drains in arrival order. The joins mirror `listFeedbackTurns`
- * (lib/feedback/repository.ts): LEFT throughout, because a vote whose turn was
+ * backlog drains in arrival order. The joins are `listFeedbackTurns`'s own
+ * (`VOTED_TURN_JOINS`, lib/feedback/turn-join.ts): LEFT throughout, because a vote whose turn was
  * never persisted is still a report — reason and comment alone can carry the
  * signal.
  */
@@ -76,16 +78,7 @@ export async function listUnprocessedDownvotes(limit: number): Promise<Unprocess
       q.content     as question
     from answer_feedback f
     left join platform_lesson_reports r on r.feedback_id = f.id
-    left join messages m on m.id::text = f.message_id
-    left join lateral (
-      select content
-      from messages
-      where conversation_id = f.conversation_id
-        and role = 'user'
-        and (m.created_at is null or created_at <= m.created_at)
-      order by created_at desc
-      limit 1
-    ) q on true
+    ${VOTED_TURN_JOINS}
     where f.verdict = 'down'
       and r.id is null
       and f.created_at >= now() - make_interval(days => ${SWEEP_WINDOW_DAYS})
@@ -406,7 +399,7 @@ export async function createLessonFromReport(values: {
     // Race backstops: a concurrent sweep processed the same feedback row
     // (reports UNIQUE) or distilled the same normalized content (0068 partial
     // unique index). Either way the work is done; the caller re-reads.
-    if ((err as { code?: string } | null)?.code === '23505') return null
+    if (isUniqueViolation(err)) return null
     throw err
   }
 }
@@ -453,7 +446,7 @@ export async function linkReportToLesson(
     })
     return true
   } catch (err) {
-    if ((err as { code?: string } | null)?.code === '23505') return false
+    if (isUniqueViolation(err)) return false
     throw err
   }
 }
@@ -509,7 +502,7 @@ export async function recordSkippedReport(values: {
       canonicalSummary: values.canonicalSummary,
     })
   } catch (err) {
-    if ((err as { code?: string } | null)?.code === '23505') return
+    if (isUniqueViolation(err)) return
     throw err
   }
 }

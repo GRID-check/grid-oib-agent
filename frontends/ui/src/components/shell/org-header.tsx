@@ -1,14 +1,17 @@
 'use client'
 
+import type { JSX } from 'react'
 import * as React from 'react'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
-import { Archive, Inbox } from 'lucide-react'
+import { Archive, Inbox, MessageSquarePlus } from 'lucide-react'
 
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { useInboxBadge } from '@/features/collaboration/hooks/use-inbox'
+import { useFeedbackAvailable, useOpenFeedback } from '@/features/product-feedback/components'
 import { InboxBadge } from '@/features/collaboration/components'
 import { useTranslations } from '@/i18n'
+import { TOUR_ANCHORS, type TourAnchor } from '@/features/onboarding/lib/product-tour'
 import { cn } from '@/lib/utils'
 import { SidebarUserMenu, type SidebarUser } from './sidebar-user-menu'
 
@@ -52,6 +55,9 @@ export function OrgHeader({
   const t = useTranslations('nav')
   const tCollaboration = useTranslations('collaboration')
   const { pending: inboxPending } = useInboxBadge(canAccessInbox)
+  const tFeedback = useTranslations('feedback')
+  const openFeedback = useOpenFeedback()
+  const feedbackAvailable = useFeedbackAvailable()
 
   return (
     <header
@@ -72,6 +78,7 @@ export function OrgHeader({
             href="/app/archiv"
             label={t('sections.archiv')}
             icon={Archive}
+            tourAnchor={TOUR_ANCHORS.archiv}
             active={pathname === '/app/archiv' || pathname.startsWith('/app/archiv/')}
           />
         )}
@@ -80,8 +87,17 @@ export function OrgHeader({
             href="/app/inbox"
             label={tCollaboration('inbox.navLabel')}
             icon={Inbox}
+            tourAnchor={TOUR_ANCHORS.inbox}
             active={pathname === '/app/inbox' || pathname.startsWith('/app/inbox/')}
             badgeCount={inboxPending}
+          />
+        )}
+        {feedbackAvailable && (
+          <OrgHeaderIconButton
+            label={tFeedback('open')}
+            hint={tFeedback('openHint')}
+            icon={MessageSquarePlus}
+            onClick={() => openFeedback()}
           />
         )}
         <div className="bg-border mx-2 h-6 w-px" aria-hidden />
@@ -96,6 +112,7 @@ export function OrgHeader({
           canManageOrganization={canManageOrganization}
           canViewOrganization={canViewOrganization}
           canManagePlatform={canManagePlatform}
+          tourAnchor={TOUR_ANCHORS.account}
         />
       </div>
     </header>
@@ -108,12 +125,15 @@ function OrgHeaderIconLink({
   icon: Icon,
   active,
   badgeCount = 0,
+  tourAnchor,
 }: {
   href: string
   label: string
   icon: React.ComponentType<{ className?: string }>
   active: boolean
   badgeCount?: number
+  /** Marks the link as a product-tour stop. */
+  tourAnchor?: TourAnchor
 }): JSX.Element {
   return (
     <Tooltip>
@@ -122,6 +142,7 @@ function OrgHeaderIconLink({
           href={href}
           aria-label={label}
           aria-current={active ? 'page' : undefined}
+          data-tour={tourAnchor}
           className={cn(
             'focus-visible:ring-ring/60 relative flex size-9 items-center justify-center rounded-lg transition-colors duration-quick ease-out focus-visible:outline-none focus-visible:ring-2 motion-reduce:transition-none',
             active
@@ -137,6 +158,36 @@ function OrgHeaderIconLink({
         </Link>
       </TooltipTrigger>
       <TooltipContent side="bottom">{label}</TooltipContent>
+    </Tooltip>
+  )
+}
+
+/** The header's one action that is not a place: the same key shape as a link. */
+function OrgHeaderIconButton({
+  label,
+  hint,
+  icon: Icon,
+  onClick,
+}: {
+  label: string
+  hint: string
+  icon: React.ComponentType<{ className?: string }>
+  onClick: () => void
+}): JSX.Element {
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <button
+          type="button"
+          aria-label={label}
+          onClick={onClick}
+          data-testid="org-header-feedback"
+          className="focus-visible:ring-ring/60 text-muted-foreground hover:bg-accent hover:text-foreground flex size-9 items-center justify-center rounded-lg transition-colors duration-quick ease-out focus-visible:outline-none focus-visible:ring-2 motion-reduce:transition-none"
+        >
+          <Icon className="size-4" aria-hidden />
+        </button>
+      </TooltipTrigger>
+      <TooltipContent side="bottom">{hint}</TooltipContent>
     </Tooltip>
   )
 }

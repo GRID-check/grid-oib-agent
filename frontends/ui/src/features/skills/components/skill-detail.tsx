@@ -16,6 +16,7 @@
  * a drawer that never settles.
  */
 
+import type { JSX } from 'react'
 import { BookOpen, Pencil, Trash2 } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'

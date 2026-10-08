@@ -17,11 +17,15 @@ incident. There is deliberately no server-side fallback title, because inventing
 one would overwrite that provisional name with something worse.
 """
 
+import asyncio
 import logging
 
 import httpx
 from fastapi import APIRouter
 from fastapi import Header
+
+from aiq_agent.common import provider_limiter
+from aiq_agent.common.openrouter import limited_async_http_client
 
 from ..models.requests import GenerateConversationTitleRequest
 from ..models.requests import GenerateConversationTitleResponse
@@ -130,34 +134,36 @@ def add_generate_conversation_title_routes(router: APIRouter) -> None:
         # "title only" (the model is told the tag list is empty).
         allowed = [t.strip() for t in request.allowed_tags if isinstance(t, str) and t.strip()]
 
-        model, api_key, base_url = _llm_settings(x_grid_organization_id)
-        if not api_key:
+        cred = await asyncio.to_thread(_llm_settings, x_grid_organization_id)
+        if not cred.api_key:
             return GenerateConversationTitleResponse(title="", tags=[], error="llm_not_configured")
 
-        headers = {"Content-Type": "application/json", "Authorization": f"Bearer {api_key}"}
+        headers = {"Content-Type": "application/json", "Authorization": f"Bearer {cred.api_key}"}
 
         allowed_line = ", ".join(allowed) if allowed else "(none — return an empty tags list)"
         user_content = f"Write the title in {language}.\nAllowed tags: {allowed_line}\n\nConversation:\n{transcript}"
 
-        payload = {
-            "model": model,
-            "temperature": 0.3,
-            "max_tokens": _MAX_COMPLETION_TOKENS,
-            # Constrain the ENDPOINT, not just the prompt. Asking for JSON in
-            # prose is a request a model is free to answer with a bare title or
-            # an apology; `json_object` is the same guard `consistency_check`
-            # already sends down this exact credential/base-URL chain, so the
-            # deployed endpoint is known to accept it.
-            "response_format": {"type": "json_object"},
-            "messages": [
-                {"role": "system", "content": SYSTEM_PROMPT},
-                {"role": "user", "content": user_content},
-            ],
-        }
+        payload = cred.request_body(
+            {
+                "model": cred.model,
+                "temperature": 0.3,
+                "max_tokens": _MAX_COMPLETION_TOKENS,
+                # Constrain the ENDPOINT, not just the prompt. Asking for JSON in
+                # prose is a request a model is free to answer with a bare title or
+                # an apology; `json_object` is the same guard `consistency_check`
+                # already sends down this exact credential/base-URL chain, so the
+                # deployed endpoint is known to accept it.
+                "response_format": {"type": "json_object"},
+                "messages": [
+                    {"role": "system", "content": SYSTEM_PROMPT},
+                    {"role": "user", "content": user_content},
+                ],
+            }
+        )
 
         try:
-            async with httpx.AsyncClient(timeout=30.0) as client:
-                response = await client.post(f"{base_url}/chat/completions", json=payload, headers=headers)
+            async with limited_async_http_client(cls=provider_limiter.INTERACTIVE, timeout=30.0) as client:
+                response = await client.post(f"{cred.base_url}/chat/completions", json=payload, headers=headers)
                 response.raise_for_status()
                 data = response.json()
         except httpx.HTTPStatusError as exc:

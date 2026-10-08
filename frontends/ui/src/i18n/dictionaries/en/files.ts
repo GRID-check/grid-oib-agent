@@ -3,16 +3,20 @@ export const files = {
   uploadZone: {
     clickToUpload: 'Click to upload',
     orDragAndDrop: ' or drag and drop',
-    maxSize: 'Up to {size} MB',
+    /** `size` is formatted with its unit ("100 MB"); the limit is per file. */
+    maxSize: 'Up to {size} per file',
     accepts: 'Accepts: {types}',
     dragOrBrowse: 'Drag files here or browse',
-    maxSizeShort: 'max. {size} MB',
+    maxSizeShort: 'max. {size} per file',
   },
   // The upload tray. Wording follows the surface's one rule: a number is
   // stated only where one was measured. "Reading" is what the backend does to a
   // document, and it has no ETA — so the copy says so instead of implying one.
   uploads: {
     region: 'Uploads',
+    // Not an error and nothing to retry: the document is still being read,
+    // the tray has only stopped following it every few seconds.
+    stillReading: 'Reading is taking longer than usual and continues in the background.',
     heading: {
       transferringOne: 'Uploading 1 document',
       transferringOther: 'Uploading {count} documents',
@@ -29,17 +33,18 @@ export const files = {
       bytes: '{done} of {total}',
       eta: '{time} left',
       queued: '{count} waiting',
-      // Deliberately not a percentage: indexing progress is reported by the
+      // Deliberately not a percentage: reading progress is reported by the
       // backend in bursts, so any bar drawn from it stalls and then jumps.
-      processing: 'Indexing — no time estimate, you can keep working',
+      processing: 'Reading. There is no time estimate, so you can keep working.',
       elapsed: '{time} so far',
       settled: '{total} transferred',
     },
     row: {
       queued: 'Waiting',
       uploading: 'Sending',
-      processing: 'Processing',
+      processing: 'Reading',
       ready: 'Citable',
+      unchanged: 'Unchanged – already here',
       canceled: 'Canceled',
       failed: 'Failed',
     },
@@ -58,7 +63,7 @@ export const files = {
     // compliance user: the document is now in Piloti's knowledge and can be
     // cited in an answer.
     ready: 'Citable',
-    processing: 'Processing',
+    processing: 'Reading',
     uploading: 'Uploading',
     failed: 'Failed',
     // A report Piloti wrote: the file is in the project but deliberately not in
@@ -66,12 +71,15 @@ export const files = {
     // retrieval cannot make) nor a failure — nothing went wrong.
     stored: 'Filed',
     unknown: 'Unknown',
+    // Only the office's own uploads: inside one office the queue reads in
+    // order, across offices it takes turns (ADR-0076).
+    queuedAhead: '{count, plural, one {Waiting · # file ahead} other {Waiting · # files ahead}}',
   },
   toast: {
     // Fired the instant async ingestion finishes and the document becomes
     // citable — the confirmation the completion moment previously lacked.
     ingestionComplete: '“{name}” is now in Piloti’s knowledge — citable',
-    modelReady: '“{name}” has been read — you can now ask about the building',
+    modelReady: '“{name}” has been read. You can now ask about the building.',
   },
   // Card thumbnail fallbacks: a warm placeholder chip when no thumbnail exists,
   // and an honest "couldn't load" label for a genuine failure (never a broken
@@ -94,7 +102,10 @@ export const files = {
     goneCleared: 'No longer asking about that file.',
     goneUndo: 'Undo',
     tryAgain: 'Try again',
-    noInlinePreview: 'No inline preview for this file type. Download it to view the full document.',
+    // An office file is shown through a PDF the BFF makes from it (ADR-0070).
+    renditionPending: 'Creating PDF preview…',
+    renditionNote: 'PDF preview · Original: {name}',
+    noInlinePreview: 'No inline preview for this file type. Download the file to view the full document.',
     textTruncated:
       'Only the beginning of this file is shown. Download it to read the whole thing.',
     status: 'Status',
@@ -117,11 +128,12 @@ export const files = {
     suggestionsLabel: 'Tag suggestions',
     noTagMatch: 'No matching tag — pick one of the suggested labels.',
     indexed: {
-      title: 'Indexed by Piloti',
+      title: 'Read by Piloti',
       documentType: 'Document type',
       project: 'Project',
       updated: 'Updated',
       caption: 'Automatically detected on upload — your corrections improve future answers.',
+      pending: 'Piloti is still reading this document – its summary and properties appear here once it is done.',
     },
     pages: 'Pages',
     chunks: 'Passages',
@@ -137,6 +149,7 @@ export const files = {
       title: 'Detailed information',
       loading: 'Loading descriptions…',
       empty: 'No visual descriptions available.',
+      failed: 'The descriptions could not be loaded.',
       page: 'Page {page}',
       scale: 'Scale {scale}',
       structured: {
@@ -191,13 +204,34 @@ export const files = {
       },
     },
     unknownType: 'Unknown',
+    // The Type row names the format, never the MIME type (that is the tooltip).
+    formats: {
+      pdf: 'PDF',
+      word: 'Word document',
+      excel: 'Excel spreadsheet',
+      powerpoint: 'PowerPoint presentation',
+      odText: 'OpenDocument text',
+      odSpreadsheet: 'OpenDocument spreadsheet',
+      odPresentation: 'OpenDocument presentation',
+      rtf: 'Rich Text document',
+      csv: 'CSV table',
+      tsv: 'TSV table',
+      markdown: 'Markdown',
+      plainText: 'Text file',
+      ifc: 'IFC model',
+      email: 'Email',
+      image: 'Image ({format})',
+      extension: '{ext} file',
+      raw: '{type}',
+    },
     download: 'Download',
     downloadFailed: "The download couldn't be started. Please try again.",
-    ingestionFailed: 'Ingestion failed',
-    ingestionFailedGeneric: "This document couldn't be processed for search.",
-    retryIngestion: 'Retry ingestion',
+    ingestionFailed: 'Reading failed',
+    ingestionFailedPreviousVersionKept:
+      'Search and Piloti still use the previous version. The download serves the new file.',
+    retryIngestion: 'Read again',
     retryingIngestion: 'Retrying…',
-    retryIngestionError: "Ingestion couldn't be restarted. Please try again.",
+    retryIngestionError: "Reading couldn't be restarted. Please try again.",
     dialogLabel: 'File preview: {name}',
     /**
      * The seam between the conversation and the file. It is a tab stop (the
@@ -207,15 +241,42 @@ export const files = {
     resizePeek: 'Resize file preview',
     /**
      * The CONSEQUENCE of the status badge beside them in the chat peek. The
-     * badge already says what the state is ("Processing", "Failed"); repeating
+     * badge already says what the state is ("Reading", "Failed"); repeating
      * that in the sentence would spend the one line on the half the reader can
      * already see. What it cannot see is what the state costs: the answer it is
      * about to ask for will not use this file.
      */
-    peekIndexingHint: 'Piloti cannot cite this file until it is indexed.',
-    peekFailedHint: 'Indexing failed — Piloti cannot cite this file.',
+    peekIndexingHint: 'Piloti cannot cite this file until it has been read.',
+    peekFailedHint: 'Reading failed. Piloti cannot cite this file.',
+    /**
+     * The same failure on a document with an earlier version: the index keeps
+     * that version's passages, so the file is still citable, just not the new
+     * bytes. Mirrors `ingestionFailedPreviousVersionKept` in the pane.
+     */
+    peekFailedPreviousVersionHint:
+      'The new file could not be read — Piloti is still citing the previous version.',
     /** The way out of that: the enlarged view carries the error and the retry. */
     peekFailedAction: 'Details',
+  },
+  /**
+   * Why a document could not be read, by the category
+   * `features/documents/lib/ingest-failure.ts` gives the stored error. The raw
+   * text stays behind `details`.
+   */
+  ingestFailure: {
+    rendition_failed: "The PDF version of this file couldn't be created. Try reading it again, or upload it as a PDF.",
+    download_failed: "The uploaded file couldn't be fetched from storage. Try reading it again, or upload it once more.",
+    interrupted: 'Reading stopped when the service restarted. Read it again to finish.',
+    unreadable_pages:
+      "{failed} of {total} pages couldn't be read. Try reading it again. If that fails too, the PDF is probably damaged.",
+    vision_not_configured:
+      'Scanned pages and images need a vision model, and none is set up. Ask your admins to configure one.',
+    dispatch_failed: "Reading couldn't be started. Try again.",
+    timeout: 'Reading took too long and was stopped. Try again. Splitting a very large file helps.',
+    empty: 'No text was found in this file. It may be password-protected, damaged or empty.',
+    deleted: 'The file was deleted while Piloti was reading it.',
+    unknown: "Piloti couldn't read this document, so search can't find it.",
+    details: 'Details',
   },
   browser: {
     folderEmptyTitle: 'This folder is empty',
@@ -294,6 +355,7 @@ export const files = {
     createFolderError: 'Could not create folder. Please try again.',
     foldersLoadError: "Folders couldn't be loaded.",
     documentsLoadError: "Documents couldn't be loaded.",
+    listTruncated: 'Showing the newest {count} documents. Older ones are missing from this list, from search and filters, and from the folder-upload comparison.',
     tryAgain: 'Try again',
     dropToUpload: 'Drop files to upload to this project',
     dropUnsupported: 'Some files are not a supported type',
@@ -319,12 +381,18 @@ export const files = {
   },
   // The overflow menu every document surface carries.
   actions: {
-    reingest: 'Retry indexing',
+    reingest: 'Read again',
     move: 'Move to folder',
     moved: '“{name}” moved to {folder}',
     moveError: 'The document could not be moved. Please try again.',
     reingesting: 'Retrying…',
-    reingestError: 'Indexing could not be restarted. Please try again.',
+    reingestRunning: 'Already being read',
+    reingestAlreadyDone: 'Already finished',
+    reingestConfirmTitle: 'Read “{name}” again?',
+    reingestConfirmDescription:
+      'Piloti reads the file again from scratch, for example to pick up the pictures in Word and PowerPoint files. Answers keep using the current version until the new one is ready.',
+    reingestConfirmAction: 'Read again',
+    reingestError: "Reading couldn't be restarted. Please try again.",
     label: 'File actions for “{name}”',
     menuLabel: 'File actions',
     download: 'Download',
@@ -337,7 +405,7 @@ export const files = {
   rename: {
     title: 'Rename document',
     description:
-      'Changes the name shown everywhere in Piloti, including on citations. The file itself and everything indexed from it stay as they are.',
+      'Changes the name shown everywhere in Piloti, including on citations. The file itself and everything read from it stay as they are.',
     label: 'Name',
     hint: 'The file extension stays as it is.',
     save: 'Rename',
@@ -362,6 +430,19 @@ export const files = {
     deleting: 'Deleting…',
     success: '“{name}” was removed from the project',
     error: 'The document could not be deleted',
+    legalHold: 'The document is under a legal hold and cannot be deleted',
+  },
+  /**
+   * A ZIP dropped on a shelf. It is unpacked in the browser and then handled as
+   * the folder it contains (`folderUpload.*`), so these are only the sentences
+   * for an archive that gave nothing.
+   */
+  zip: {
+    reading: 'Reading the ZIP…',
+    unreadable: '“{name}” could not be read. Is it a valid ZIP without a password?',
+    empty: '“{name}” contains no files.',
+    tooManyFiles: '“{name}” contains more than {limit} files, so nothing was taken from it. Split it into smaller ZIPs.',
+    tooLarge: '“{name}” unpacks to more than {limit}, so nothing was taken from it. Split it into smaller ZIPs.',
   },
   /**
    * The folder-upload plan — the dialog a dropped directory tree opens before
@@ -372,6 +453,22 @@ export const files = {
   folderUpload: {
     title: 'Upload “{name}”?',
     titleGeneric: 'Upload this folder?',
+    // Loose files, at least one of which meets an existing document.
+    titleFiles: '{count, plural, one {Upload # file?} other {Upload # files?}}',
+    titleFilesGeneric: 'Upload files?',
+    destinationFiles: 'The files go into “{folder}”.',
+    close: 'Close',
+    compareError: 'Could not compare with what is already here. Nothing was uploaded.',
+    single: {
+      updateTitle: 'Upload a new version of “{name}”?',
+      updateExplain:
+        '“{name}” is already here. The new version becomes the current one; the previous one stays under Versions.',
+      unchangedTitle: 'Unchanged – already here',
+      unchangedExplain: '“{name}” is identical to this file. Nothing is uploaded.',
+      refiled: 'The document is currently in another folder and moves to “{folder}”.',
+      archived: 'The document is archived. The new version is added to it and only shows in the list again once the document is restored.',
+      confirmUpdate: 'Upload as new version',
+    },
     destination: 'Its folder structure is recreated inside “{folder}”.',
     // The re-sync fold: the dropped folder IS the folder they are standing in,
     // so its contents go in rather than a folder of the same name inside it.
@@ -387,9 +484,10 @@ export const files = {
     // What the project calls the document a row is about to touch, when
     // somebody has renamed it here and the name in the drop no longer says so.
     alreadyHereAs: 'here as “{name}”',
+    archivedMatch: 'archived document',
     updatePrompt: 'Update the {count} document(s) that already exist',
     updateExplain:
-      'They keep their name, their citations and everything assigned to them — only the file behind them is replaced.',
+      'They keep their name, their citations and everything assigned to them. The new version becomes the current one; the previous one stays under Versions.',
     refiled: '{count} of them are filed elsewhere at the moment and move to where this folder puts them.',
     // The unchanged ones send no bytes, so nothing about the upload would move
     // them — they are moved on their own, or the tree is not really recreated.
@@ -421,6 +519,89 @@ export const files = {
     // Distinct from `foldersError`: the folders were made and the upload itself
     // is what went wrong, which is a different thing to retry.
     applyError: 'This folder could not be uploaded completely. Check the list and try again.',
+  },
+  /**
+   * The Outlook archive import (ADR-0085): a .pst or .ost sent in parts, then
+   * filed by a background job, one folder per mail.
+   */
+  mailImport: {
+    action: 'Import Outlook archive',
+    title: 'Import an Outlook archive',
+    description:
+      'Choose a .pst or .ost file. Each email becomes a folder under “E-Mail-Import” with its attachments and a note holding its text and headers.',
+    privacy:
+      'An archive holds the correspondence of everyone who wrote to this mailbox. Import what the project needs, not a whole mailbox.',
+    choose: 'Choose archive…',
+    maxSize: 'Up to {size}.',
+    notAnArchive: '“{name}” is not an Outlook archive (.pst or .ost).',
+    tooLarge: '“{name}” is larger than {size}.',
+    sending: 'Sending {sent} of {total}…',
+    sendingHint:
+      'You can go on working in Piloti meanwhile; just keep this tab open until the archive is sent. Filing then runs in the background.',
+    sendingLabel: 'Sending “{name}”',
+    joining: 'Sent. Piloti is putting the archive together…',
+    sendErrors: {
+      busy: 'This tab is still sending another archive. Wait until it is sent, then choose this one.',
+      alreadyRunning: 'An import of yours is still running in this project. Continue or cancel it first.',
+      cancelled: 'The import was cancelled while it was being sent.',
+      quota: 'The organization’s storage is full, so the archive cannot be imported.',
+      forbidden: 'You may not add documents to this project.',
+      rejected: 'Piloti did not accept this archive. Check that it is an Outlook .pst or .ost file.',
+      connection: 'The connection broke off. Choose the file again with “Continue sending” to pick up where it stopped.',
+      unknown: 'The archive could not be sent. Try again with “Continue sending”.',
+    },
+    resume: 'Continue sending',
+    resumeNamed: 'Continue sending “{name}”',
+    resumeHint: 'Choose “{name}” again to continue where sending stopped.',
+    resumeMismatch: 'That is not the same file. Choose “{name}” ({size}).',
+    resumeChanged:
+      '“{name}” has changed since sending began, so its parts no longer fit together. Cancel this import and start a new one.',
+    cancel: 'Cancel',
+    cancelNamed: 'Cancel the import of “{name}”',
+    cancelConfirm: {
+      title: 'Cancel this import?',
+      description:
+        'What has been filed so far stays. The archive is deleted from Piloti, so importing the rest means sending “{name}” again.',
+      confirm: 'Cancel import',
+      keep: 'Keep importing',
+    },
+    cancelError: 'The import could not be cancelled.',
+    close: 'Close',
+    history: 'Imports in this project',
+    empty: 'No archive has been imported into this project yet.',
+    loadError: 'The imports could not be loaded.',
+    openFolder: 'Open folder',
+    openFolderNamed: 'Open the folder of “{name}”',
+    importingLabel: 'Importing “{name}”',
+    startedBy: 'Started by {email}',
+    progress: '{done} of {total} items',
+    filed: '{mails, plural, one {# email} other {# emails}}, {files, plural, one {# attachment} other {# attachments}}',
+    skipped: '{count, plural, one {# skipped} other {# skipped}}',
+    skippedItem: '{file} in {mail}: {reason}',
+    skippedMail: '{mail}: {reason}',
+    status: {
+      uploading: 'Sending',
+      queued: 'Waiting',
+      importing: 'Importing',
+      completed: 'Imported',
+      failed: 'Failed',
+      cancelled: 'Cancelled',
+    },
+    errors: {
+      unreadable: 'This file could not be read as an Outlook archive. Export it again from Outlook as a .pst file.',
+      quota: 'The organization’s storage is full. What was imported until then stays.',
+      access: 'The person who started the import may no longer add documents to this project.',
+      requester_left: 'The person who started the import is no longer a member of the organization.',
+      stopped: 'The import stopped after repeated errors.',
+      stalled: 'The import stopped without finishing.',
+      upload_expired: 'The archive was not sent completely within two days.',
+    },
+    reasons: {
+      embedded_message: 'attached email',
+      type: 'file type not accepted',
+      size: 'too large',
+      unreadable: 'damaged in the archive',
+    },
   },
   upload: {
     uploading: 'Uploading…',
@@ -482,10 +663,11 @@ export const files = {
     // differ only in which stage reported them.
     status: {
       failed: 'Failed',
-      processing: 'Processing',
+      processing: 'Reading',
       ready: 'Citable',
     },
     originLabel: 'Origin',
+    tagLabel: 'Category',
     kindLabel: 'File type',
     kind: {
       floorplan: 'Floor plan',

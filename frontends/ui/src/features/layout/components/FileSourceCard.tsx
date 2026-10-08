@@ -16,6 +16,7 @@ import { cn } from '@/lib/utils'
 import { motion, springDrawer } from '@/components/motion'
 import { useIsCurrentSessionBusy } from '@/features/chat'
 import { useLocale, useTranslations } from '@/i18n'
+import { IngestFailureNotice } from '@/features/documents/components/ingest-failure-notice'
 import { formatBytes } from '@/lib/format'
 
 /** File source status types */
@@ -36,10 +37,20 @@ export interface FileSourceCardProps {
   status: FileSourceStatus
   /** Error message when status is 'error' */
   errorMessage?: string
+  /**
+   * The failure happened while the file was being read, so `errorMessage` is a
+   * stored ingest failure: it is said in the reader's language, raw text behind
+   * „Details". Otherwise it is the upload's own message, shown as it is.
+   */
+  failedWhileReading?: boolean
   /** Hours after upload before the file may expire (0 = no expiry shown) */
   expirationIntervalHours?: number
-  /** Callback when delete is clicked */
-  onDelete: (id: string) => void
+  /**
+   * Callback when delete is clicked. Omitted, the row has no delete control:
+   * the chat's file dialog lists project files without deleting them, because
+   * a project document is deleted in the project's Files.
+   */
+  onDelete?: (id: string) => void
   /**
    * Opens a read-only preview of the file. When provided AND the file is
    * `available`, the icon+content become a button so tapping the row previews it
@@ -167,6 +178,7 @@ export const FileSourceCard: FC<FileSourceCardProps> = ({
   description,
   status,
   errorMessage,
+  failedWhileReading = false,
   expirationIntervalHours = 0,
   onDelete,
   onOpen,
@@ -179,7 +191,7 @@ export const FileSourceCard: FC<FileSourceCardProps> = ({
   const expiryInfo = useExpiryInfo(uploadedAt, expirationIntervalHours, status === 'available')
 
   const handleDelete = () => {
-    onDelete(id)
+    onDelete?.(id)
   }
 
   const isProcessing = status === 'uploading' || status === 'ingesting'
@@ -254,8 +266,16 @@ export const FileSourceCard: FC<FileSourceCardProps> = ({
         </div>
 
         {/* Error message */}
-        {status === 'error' && errorMessage && (
-          <span className="mt-1 text-xs text-error">{errorMessage}</span>
+        {status === 'error' && errorMessage && failedWhileReading ? (
+          <IngestFailureNotice
+            errorMessage={errorMessage}
+            className="mt-1"
+            sentenceClassName="text-error"
+            testId="file-source-card-failure"
+          />
+        ) : (
+          status === 'error' &&
+          errorMessage && <span className="mt-1 text-xs text-error">{errorMessage}</span>
         )}
       </div>
     </>
@@ -288,32 +308,34 @@ export const FileSourceCard: FC<FileSourceCardProps> = ({
         )}
 
         {/* Delete button */}
-        <Button
-          variant="ghost"
-          size="icon"
-          // `focus-visible:opacity-100` already gave the keyboard a way in;
-          // `pointer-coarse:opacity-100` is the same admission for a finger.
-          // Hover is the only trigger a touch device cannot generate, so without
-          // it this row's delete was a control that existed, took a tab stop, and
-          // could never be seen on a phone.
-          className="ml-2 size-8 flex-shrink-0 rounded-full text-muted-foreground opacity-0 transition-opacity duration-quick ease-out hover:text-destructive focus-visible:opacity-100 group-hover:opacity-100 pointer-coarse:opacity-100"
-          onClick={handleDelete}
-          disabled={deleteDisabled}
-          aria-label={
-            deleteDisabled
-              ? t('fileSourceCard.deleteDisabled', { title })
-              : t('fileSourceCard.delete', { title })
-          }
-          title={
-            isProcessing
-              ? t('fileSourceCard.waitUpload')
-              : deleteDisabled
-                ? t('fileSourceCard.cannotDeleteBusy')
-                : t('fileSourceCard.deleteFile')
-          }
-        >
-          <Trash2 className="size-4" aria-hidden="true" />
-        </Button>
+        {onDelete && (
+          <Button
+            variant="ghost"
+            size="icon"
+            // `focus-visible:opacity-100` already gave the keyboard a way in;
+            // `pointer-coarse:opacity-100` is the same admission for a finger.
+            // Hover is the only trigger a touch device cannot generate, so without
+            // it this row's delete was a control that existed, took a tab stop, and
+            // could never be seen on a phone.
+            className="ml-2 size-8 flex-shrink-0 rounded-full text-muted-foreground opacity-0 transition-opacity duration-quick ease-out hover:text-destructive focus-visible:opacity-100 group-hover:opacity-100 pointer-coarse:opacity-100"
+            onClick={handleDelete}
+            disabled={deleteDisabled}
+            aria-label={
+              deleteDisabled
+                ? t('fileSourceCard.deleteDisabled', { title })
+                : t('fileSourceCard.delete', { title })
+            }
+            title={
+              isProcessing
+                ? t('fileSourceCard.waitUpload')
+                : deleteDisabled
+                  ? t('fileSourceCard.cannotDeleteBusy')
+                  : t('fileSourceCard.deleteFile')
+            }
+          >
+            <Trash2 className="size-4" aria-hidden="true" />
+          </Button>
+        )}
       </div>
     </motion.div>
   )

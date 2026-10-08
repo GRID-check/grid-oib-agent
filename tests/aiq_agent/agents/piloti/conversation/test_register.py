@@ -3,64 +3,30 @@
 ``_run`` is driven the way NAT drives it — through the registered builder with
 a fake ``Builder`` — with the three database reads and the stage scheduler
 replaced. Everything else on the path (the request-context parse, the focus
-ContextVars, admission, the registries, the profiler, the response lift, the
-streaming) is real.
+ContextVars, admission, the registries, the profiler, the result lift, the
+wire bodies and NAT's fold of them) is real.
 """
 
 from __future__ import annotations
 
-from types import SimpleNamespace
-
 import pytest
 from langchain_core.messages import AIMessage
-from langgraph.checkpoint.memory import InMemorySaver
 
 from aiq_agent.agents.piloti import conversation_register as register_mod
 from aiq_agent.agents.piloti.conversation_register import ChatDeepResearcherConfig
-from aiq_agent.agents.piloti.conversation_register import chat_deepresearcher_agent
 from aiq_agent.agents.piloti.models import ResearchAgentState
-from aiq_agent.common import profiler as profiler_mod
 from aiq_agent.common.turn_admission import TurnAdmissionError
-from aiq_agent.knowledge import ingest_status_store
-from aiq_agent.project_context import GridRequestContext
+from aiq_agent.common.wire_v2 import RunFinishedBody
+from aiq_agent.common.wire_v2 import StatusStep
+from aiq_agent.common.wire_v2 import StepFinishedBody
+from aiq_agent.common.wire_v2 import UserMessage
 from aiq_agent.turn import admission as admission_mod
-from aiq_agent.turn import context as context_mod
 from aiq_agent.turn import inventory as inventory_mod
 from aiq_agent.turn import registries as registries_mod
 from aiq_agent.turn.admission import TurnOutcome
 from aiq_agent.turn.admission import TurnRefusal
 
 ANSWER = "Die Brüstung muss mindestens 100 cm hoch sein [1]."
-
-
-class _Fn:
-    def __init__(self, fn):
-        self.ainvoke = fn
-
-
-class _Builder:
-    """Just enough of NAT's Builder for the chat workflow to wire itself."""
-
-    def __init__(self, shallow):
-        self._shallow = shallow
-
-    async def get_function(self, name):
-        if name == "shallow_research_agent":
-            return _Fn(self._shallow)
-        if name == "deep_research_agent":
-            return _Fn(_never)
-        raise AssertionError(name)
-
-    def get_function_config(self, name):
-        assert name == "deep_research_agent"
-        return SimpleNamespace(tools=["web_search_tool"], exclude_tools=None)
-
-    async def get_tools(self, tool_names, wrapper_type):
-        return []
-
-
-async def _never(_state):  # pragma: no cover - the turn never escalates here
-    raise AssertionError("deep research must not run")
 
 
 async def _shallow(state):
@@ -72,6 +38,11 @@ async def _shallow(state):
         answer_confidence_marker="high",
         skills_activated=["oib-brandschutz"],
     )
+
+
+def _ask(text: str, **fields) -> UserMessage:
+    """The v2 user_message the chat socket hands the turn."""
+    return UserMessage(conversation_id="conv-1", message_id="msg-1", text=text, **fields)
 
 
 class TestStageModelWiring:
@@ -87,67 +58,48 @@ class TestStageModelWiring:
 
 
 @pytest.fixture
-def harness(monkeypatch):
-    """The workflow with its database reads and the stage scheduler replaced."""
-    seen: dict = {"scheduled": [], "from_context": 0, "spans": []}
-
-    # The turn's profiler batch, captured where it is POSTED. A span reaching
-    # here proves the flush ran after the root closed: `track_agent_profile`
-    # only adds the root to the batch as it exits.
-    monkeypatch.setattr(profiler_mod, "_post_profiler_spans", lambda payload: seen["spans"].extend(payload["spans"]))
-
-    async def no_documents(_collection):
-        return []
-
-    async def memory_checkpointer(_db):
-        # The sqlite checkpointer keeps a non-daemon aiosqlite thread alive for
-        # the process's life; the test process would never exit.
-        return InMemorySaver()
-
-    monkeypatch.setattr(register_mod, "get_checkpointer", memory_checkpointer)
-    monkeypatch.setattr(inventory_mod, "get_available_documents_async", no_documents)
-    monkeypatch.setattr(ingest_status_store, "in_flight_files", lambda _names: {})
-    monkeypatch.setattr(context_mod, "get_platform_lessons_digest", lambda _cid: None)
-    monkeypatch.setattr(
-        register_mod, "schedule_post_answer_stages", lambda facts, llms: seen["scheduled"].append(facts) or []
-    )
-    # The scoping module parses the envelope on its own account; count only this module's parse.
-    monkeypatch.setattr(register_mod, "get_scoped_collections_from_context", lambda: None)
-    real_from_context = GridRequestContext.from_context.__func__
-
-    def counting(cls):
-        seen["from_context"] += 1
-        return real_from_context(cls)
-
-    monkeypatch.setattr(GridRequestContext, "from_context", classmethod(counting))
-
-    async def turn(query, shallow=_shallow):
-        config = ChatDeepResearcherConfig()
-        gen = chat_deepresearcher_agent.__wrapped__(config, _Builder(shallow))
-        info = await gen.__anext__()
-        try:
-            return [chunk async for chunk in info.stream_fn(query)]
-        finally:
-            await gen.aclose()
-
-    seen["turn"] = turn
-    return seen
+def harness(workflow_harness):
+    workflow_harness["shallow"] = _shallow
+    return workflow_harness
 
 
 class TestRun:
-    async def test_a_turn_streams_the_answer_then_a_terminal_chunk_with_the_extras(self, harness):
-        chunks = await harness["turn"]('{"query": "Wie hoch muss die Brüstung sein?"}')
+    async def test_a_turn_ends_with_one_run_finished_carrying_the_result(self, harness):
+        bodies = await harness["turn"](_ask("Wie hoch muss die Brüstung sein?"))
 
-        deltas, terminal = chunks[:-1], chunks[-1]
-        assert "".join(c.choices[0].delta.content for c in deltas) == ANSWER
-        assert terminal.choices[0].finish_reason == "stop"
-        assert terminal.choices[0].delta.content == ANSWER
-        assert terminal.routing_decision == "shallow"
-        assert terminal.answer_confidence == "high"
-        assert terminal.skills_activated == ["oib-brandschutz"]
+        terminal = bodies[-1]
+        assert isinstance(terminal, RunFinishedBody)
+        assert [b for b in bodies if isinstance(b, RunFinishedBody)] == [terminal]
+        assert terminal.outcome == "answered"
+        assert terminal.result.text == ANSWER
+        assert terminal.result.routing_decision == "shallow"
+        assert terminal.result.answer_confidence == "high"
+        assert terminal.result.skills_activated == ["oib-brandschutz"]
+
+    async def test_nat_run_prints_the_run_finished_text(self, harness):
+        """`Streaming(convert=fold_turn)`: the single-output path the answer suite reads, asked a plain question."""
+        assert await harness["single"]("Wie hoch muss die Brüstung sein?") == ANSWER
+
+    async def test_the_setup_steps_are_yielded_before_the_graph_starts(self, harness, monkeypatch):
+        loading = StatusStep(id="status:documents", slot="documents", key="status.documents.project")
+        waiting = StatusStep(id="status:documents:waiting", slot="documents:waiting", key="status.documents.waiting")
+        waited: list = []
+
+        async def wait_for_uploads(scope, inventory):
+            waited.append(scope)
+            return inventory
+
+        monkeypatch.setattr(register_mod, "documents_loading_step", lambda shelves: loading)
+        monkeypatch.setattr(register_mod, "pending_uploads", lambda inventory: waiting)
+        monkeypatch.setattr(register_mod, "wait_for_uploads", wait_for_uploads)
+
+        bodies = await harness["turn"](_ask("Was gilt?"))
+
+        assert bodies[:2] == [StepFinishedBody(step=loading), StepFinishedBody(step=waiting)]
+        assert len(waited) == 1
 
     async def test_the_post_answer_stages_get_the_turn_facts(self, harness):
-        await harness["turn"]('{"query": "Wie hoch muss die Brüstung sein?"}')
+        await harness["turn"](_ask("Wie hoch muss die Brüstung sein?"))
 
         (facts,) = harness["scheduled"]
         assert facts.query == "Wie hoch muss die Brüstung sein?"
@@ -158,21 +110,20 @@ class TestRun:
     async def test_the_request_envelope_is_parsed_once_per_turn(self, harness):
         """The organization for admission used to be re-parsed (base64 + HMAC +
         JSON) after the context load had parsed the same envelope."""
-        await harness["turn"]('{"query": "Was gilt?"}')
+        await harness["turn"](_ask("Was gilt?"))
         assert harness["from_context"] == 1
 
-    async def test_a_refused_turn_delivers_one_terminal_chunk_and_no_stage(self, harness, monkeypatch):
+    async def test_a_refused_turn_delivers_one_refused_terminal_and_no_stage(self, harness, monkeypatch):
         async def refuse(agent, state, **_kwargs):
-            return TurnOutcome(state=None, refusal=TurnRefusal("turn_admission", "Gerade zu viele Anfragen.", 15))
+            yield TurnOutcome(state=None, refusal=TurnRefusal("Gerade zu viele Anfragen.", 15))
 
         monkeypatch.setattr(register_mod, "answer_turn", refuse)
 
-        chunks = await harness["turn"]('{"query": "Was gilt?"}')
+        (terminal,) = await harness["turn"](_ask("Was gilt?"))
 
-        (terminal,) = chunks
-        assert terminal.choices[0].finish_reason == "stop"
-        assert terminal.choices[0].delta.content == "Gerade zu viele Anfragen."
-        assert terminal.retry_after_seconds == 15
+        assert terminal.outcome == "refused"
+        assert terminal.result.text == "Gerade zu viele Anfragen."
+        assert terminal.result.retry_after_seconds == 15
         assert harness["scheduled"] == []
 
     async def test_the_focus_of_one_turn_does_not_leak_into_the_next(self, harness):
@@ -182,10 +133,8 @@ class TestRun:
             seen.append((state.focus_file_name, state.focus_shelf))
             return await _shallow(state)
 
-        await harness["turn"](
-            '{"query": "fass zusammen", "focus_file_name": "Plan.pdf", "focus_shelf": "session"}', shallow
-        )
-        await harness["turn"]('{"query": "welche OIB-Richtlinien gelten in Wien?"}', shallow)
+        await harness["turn"](_ask("fass zusammen", focus_file_name="Plan.pdf", focus_shelf="session"), shallow)
+        await harness["turn"](_ask("welche OIB-Richtlinien gelten in Wien?"), shallow)
 
         assert seen == [("Plan.pdf", "session"), (None, None)]
 
@@ -204,11 +153,11 @@ class TestTurnLedgers:
 
         monkeypatch.setattr(admission_mod, "admit_turn_async", refuse)
 
-        chunks = await harness["turn"]('{"query": "Was gilt?"}')
+        (terminal,) = await harness["turn"](_ask("Was gilt?"))
 
-        (terminal,) = chunks
-        assert terminal.choices[0].delta.content == "Gerade zu viele Anfragen."
-        assert terminal.retry_after_seconds == 7
+        assert terminal.outcome == "refused"
+        assert terminal.result.text == "Gerade zu viele Anfragen."
+        assert terminal.result.retry_after_seconds == 7
 
         spans = harness["spans"]
         root = self._root(spans)
@@ -230,9 +179,9 @@ class TestTurnLedgers:
 
         monkeypatch.setattr(registries_mod, "get_or_create_session_registry", hydration_down)
 
-        chunks = await harness["turn"]('{"query": "Wie hoch muss die Brüstung sein?"}')
+        bodies = await harness["turn"](_ask("Wie hoch muss die Brüstung sein?"))
 
-        assert chunks[-1].choices[0].delta.content == ANSWER
+        assert bodies[-1].result.text == ANSWER
         assert self._root(harness["spans"])["status"] == "ok"
 
     async def test_an_exception_out_of_the_turn_body_still_posts_the_ledgers(self, harness, monkeypatch):
@@ -241,11 +190,12 @@ class TestTurnLedgers:
 
         async def boom(*_args, **_kwargs):
             raise RuntimeError("agent down")
+            yield  # pragma: no cover - an async generator that raises on its first step
 
         monkeypatch.setattr(register_mod, "answer_turn", boom)
 
         with pytest.raises(RuntimeError, match="agent down"):
-            await harness["turn"]('{"query": "Was gilt?"}')
+            await harness["turn"](_ask("Was gilt?"))
 
         assert self._root(harness["spans"])["status"] == "error"
 
@@ -275,6 +225,6 @@ class TestTheInventoryFactsReachTheAnswer:
             seen["dropped"] = sum(get_inventory_drops().values())
             return await _shallow(state)
 
-        await harness["turn"]('{"query": "Was gilt?"}', shallow)
+        await harness["turn"](_ask("Was gilt?"), shallow)
 
         assert seen == {"families": [("2", ("2", "2.1"))], "dropped": 7}

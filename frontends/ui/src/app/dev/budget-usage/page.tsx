@@ -17,6 +17,7 @@
  * card reaches for. Not linked from anywhere and 404s outside development.
  */
 
+import type { JSX } from 'react'
 import { notFound } from 'next/navigation'
 import { Gauge } from 'lucide-react'
 

@@ -14,6 +14,7 @@
  * portals into that header; this file is the toolbox and the editor only.
  */
 
+import type { JSX } from 'react'
 import { useEffect, useState } from 'react'
 import { Plus } from 'lucide-react'
 import { ProjectSectionActions } from '@/components/shell/project-section-frame'

@@ -9,6 +9,7 @@
  * thread: the next send is a normal project question again.
  */
 
+import type { JSX } from 'react'
 import { useEffect, useRef } from 'react'
 import Link from 'next/link'
 import { FileText, X } from 'lucide-react'

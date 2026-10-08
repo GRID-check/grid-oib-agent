@@ -6,7 +6,7 @@
  */
 
 import { describe, it, expect, beforeEach } from 'vitest'
-import { useChatStore, selectHasConnectionError } from './store'
+import { useChatStore, selectHasRecoverableConnectionError } from './store'
 import type { Conversation, ChatMessage } from './types'
 import { emptyRunLedger, setRunStatus } from '@/lib/runs/run-ledger'
 
@@ -92,19 +92,14 @@ describe('ChatStore - Session Busy Selectors', () => {
     it('returns true when pendingInteraction is set (HITL prompt awaiting response)', () => {
       useChatStore.setState({
         conversations: [conversation('a')],
-        pendingInteraction: {
-          id: 'interaction-1',
-          parentId: 'msg-1',
-          inputType: 'binary_choice',
-          text: 'Approve?',
-        },
+        pendingInteraction: { turnId: 'msg-1', interactionId: 'interaction-1', input: 'text' },
       })
       expect(useChatStore.getState().hasAnyBusySession()).toBe(true)
     })
   })
 })
 
-describe('selectHasConnectionError', () => {
+describe('selectHasRecoverableConnectionError', () => {
   beforeEach(() => {
     useChatStore.setState({
       conversations: [],
@@ -113,7 +108,7 @@ describe('selectHasConnectionError', () => {
   })
 
   it('returns false when no conversation exists', () => {
-    expect(selectHasConnectionError(useChatStore.getState())).toBe(false)
+    expect(selectHasRecoverableConnectionError(useChatStore.getState())).toBe(false)
   })
 
   it('returns false when conversation has no error messages', () => {
@@ -129,7 +124,7 @@ describe('selectHasConnectionError', () => {
     }
 
     useChatStore.setState({ currentConversation: conversation })
-    expect(selectHasConnectionError(useChatStore.getState())).toBe(false)
+    expect(selectHasRecoverableConnectionError(useChatStore.getState())).toBe(false)
   })
 
   it('returns true when conversation has a connection.failed error', () => {
@@ -152,7 +147,7 @@ describe('selectHasConnectionError', () => {
     }
 
     useChatStore.setState({ currentConversation: conversation })
-    expect(selectHasConnectionError(useChatStore.getState())).toBe(true)
+    expect(selectHasRecoverableConnectionError(useChatStore.getState())).toBe(true)
   })
 
   it('returns true for any connection.* error code', () => {
@@ -175,7 +170,30 @@ describe('selectHasConnectionError', () => {
     }
 
     useChatStore.setState({ currentConversation: conversation })
-    expect(selectHasConnectionError(useChatStore.getState())).toBe(true)
+    expect(selectHasRecoverableConnectionError(useChatStore.getState())).toBe(true)
+  })
+
+  it('returns false for a server that does not speak this wire: its health says nothing about that', () => {
+    const conversation: Conversation = {
+      id: 'conv-1',
+      userId: 'user-1',
+      title: 'Test',
+      messages: [
+        {
+          id: 'err-1',
+          role: 'assistant',
+          content: 'Incompatible',
+          timestamp: new Date(),
+          messageType: 'error',
+          errorData: { errorCode: 'connection.server_incompatible' },
+        } as ChatMessage,
+      ],
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    }
+
+    useChatStore.setState({ currentConversation: conversation })
+    expect(selectHasRecoverableConnectionError(useChatStore.getState())).toBe(false)
   })
 
   it('returns false for non-connection errors (agent, system)', () => {
@@ -198,7 +216,7 @@ describe('selectHasConnectionError', () => {
     }
 
     useChatStore.setState({ currentConversation: conversation })
-    expect(selectHasConnectionError(useChatStore.getState())).toBe(false)
+    expect(selectHasRecoverableConnectionError(useChatStore.getState())).toBe(false)
   })
 })
 

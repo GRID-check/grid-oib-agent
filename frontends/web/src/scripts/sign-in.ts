@@ -7,29 +7,33 @@
  * page for that whole stretch, so with no feedback the button reads as broken
  * and gets clicked again.
  *
+ * There are two such links — the desktop header row and the phone menu — and
+ * each carries its own label, spinner and (optionally) icon.
+ *
  * The spinner is decorative. The global `prefers-reduced-motion` rule in
  * global.css freezes every animation with `!important`, so for those visitors
  * it renders as a static ring — the swapped label, not the spin, is what
  * carries the meaning.
  */
 export function initSignIn() {
-  const link = document.querySelector<HTMLAnchorElement>('[data-sign-in]')
-  if (!link) return
+  document.querySelectorAll<HTMLAnchorElement>('[data-sign-in]').forEach(initLink)
+}
 
+function initLink(link: HTMLAnchorElement) {
   const label = link.querySelector<HTMLElement>('[data-sign-in-label]')
   const spinner = link.querySelector<HTMLElement>('[data-sign-in-spinner]')
   const icon = link.querySelector<HTMLElement>('[data-sign-in-icon]')
   const pendingLabel = link.dataset.signInPending
-  if (!label || !spinner || !icon || !pendingLabel) return
+  if (!label || !spinner || !pendingLabel) return
 
   const idleLabel = label.textContent ?? ''
 
   const setPending = (pending: boolean) => {
     label.textContent = pending ? pendingLabel : idleLabel
     spinner.classList.toggle('hidden', !pending)
-    // Below sm the icon is the only visible part, so the spinner has to take
-    // its place rather than sit beside it — otherwise the row grows mid-click.
-    icon.classList.toggle('hidden', pending)
+    // Where there is an icon, the spinner takes its place rather than sitting
+    // beside it — otherwise the row grows mid-click.
+    icon?.classList.toggle('hidden', pending)
     link.setAttribute('aria-busy', String(pending))
   }
 

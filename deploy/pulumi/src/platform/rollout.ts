@@ -109,6 +109,29 @@ function assertFrontendBudgetFits(): void {
 }
 
 /**
+ * What the api tier spends after SIGTERM: closing its SSE streams (5 s,
+ * `connection_manager.shutdown`) and finishing the requests in flight, which are
+ * short (a knowledge lookup, a title, a summary), not a chat turn. Nothing here
+ * waits on the chat drain: that is the chat tier's, and the reason the two tiers
+ * were split (ADR-0082). Must fit inside the api grace period alongside
+ * `endpointDrainSeconds`.
+ */
+export const API_DRAIN_SECONDS = 30;
+
+function assertApiBudgetFits(): void {
+  const p = ROLLOUT.api;
+  const needed = p.endpointDrainSeconds + API_DRAIN_SECONDS;
+  if (needed >= p.terminationGracePeriodSeconds) {
+    throw new Error(
+      `Invalid api shutdown budget: endpointDrainSeconds (${p.endpointDrainSeconds}) + ` +
+        `API_DRAIN_SECONDS (${API_DRAIN_SECONDS}) = ${needed}s does not fit inside ` +
+        `terminationGracePeriodSeconds (${p.terminationGracePeriodSeconds}s). Raise the grace ` +
+        `period or shorten the drain.`,
+    );
+  }
+}
+
+/**
  * A workload's startupProbe budget, in seconds: how long Kubernetes will keep
  * waiting for the container to report started before killing it.
  *
@@ -184,8 +207,24 @@ export const ROLLOUT = {
   },
 
   /**
-   * aiq-agent chat/web tier (StatefulSet). Boot is heavy — multi-GB image, Dask
-   * spin-up, Chroma open, optional corpus sync — hence the long grace and the
+   * aiq-api (Deployment + HPA, ADR-0082): every backend HTTP route but the chat
+   * socket. Surge-only like the frontend. It boots the same workflow the chat
+   * tier does, so the startupProbe is as long (backend.ts / api.ts), and the
+   * deadline exceeds it with room (`assertStartupFitsRollout`). The grace period
+   * is short on purpose: what it drains is SSE streams and short requests, not
+   * a chat turn (`API_DRAIN_SECONDS`).
+   */
+  api: {
+    minReadySeconds: 30,
+    progressDeadlineSeconds: 1200,
+    // 10s endpoint drain + 30s SSE close and in-flight requests + slack.
+    terminationGracePeriodSeconds: 60,
+    endpointDrainSeconds: 10,
+  },
+
+  /**
+   * aiq-agent chat tier (StatefulSet). Boot is heavy — multi-GB image,
+   * Chroma open, optional corpus sync — hence the long grace and the
    * generous startupProbe in backend.ts.
    */
   backend: {
@@ -217,6 +256,22 @@ export const ROLLOUT = {
     minReadySeconds: 10,
     progressDeadlineSeconds: 600,
     terminationGracePeriodSeconds: 30,
+    endpointDrainSeconds: 5,
+  },
+
+  /**
+   * Gotenberg (ADR-0070/0071). Since ADR-0071 the BFF reads Word and
+   * presentation files from the PDF it converts, so a conversion cut by a
+   * rollout fails that ingest (retryably) instead of costing a preview. The
+   * preStop sleep keeps the old pod serving while the Service stops routing to
+   * it; then SIGTERM, and Gotenberg finishes what it holds for up to 120s
+   * (`--gotenberg-graceful-shutdown-duration` in `GOTENBERG.args`), the same
+   * budget its API timeout allows one conversion. Grace = hook + 120s + slack.
+   */
+  converter: {
+    minReadySeconds: 10,
+    progressDeadlineSeconds: 600,
+    terminationGracePeriodSeconds: 135,
     endpointDrainSeconds: 5,
   },
 
@@ -271,22 +326,60 @@ export const ROLLOUT = {
 } as const satisfies Record<string, RolloutProfile>;
 
 assertFrontendBudgetFits();
+assertApiBudgetFits();
 
 /**
- * The research worker's profile is derived, not fixed: its grace period IS the
- * operator's `agentWorkerDrainSeconds` budget. On SIGTERM the worker stops
- * claiming and awaits its in-flight jobs (`jobs/worker.py`), so the grace period
- * is the difference between "a deploy finishes the research a user is waiting
- * on" and "a deploy kills it at the 30s default".
+ * Seconds a queue worker gets, after its drain budget ends, to give back the
+ * claims it did not finish and exit (`release_claims`, ADR-0079). The kubelet
+ * SIGKILLs at the end of the grace period, so a worker whose drain used its whole
+ * budget and had no time left would lose its claims to the stale window and
+ * spend an attempt on each, which is the defect the release exists to remove.
+ */
+export const DRAIN_GIVE_BACK_SECONDS = 30;
+
+/**
+ * The profile of a queue worker (research, ingestion, the BFF job pool): its
+ * grace period is derived from the operator's drain budget, not chosen beside it.
+ * On SIGTERM the worker stops claiming and awaits its in-flight jobs
+ * (`jobs/worker.py`), so the grace period is the difference between "a deploy
+ * finishes the work a user is waiting on" and "a deploy kills it at the 30s
+ * default". It is the drain plus {@link DRAIN_GIVE_BACK_SECONDS}.
  */
 export function agentWorkerRollout(drainSeconds: number): RolloutProfile {
+  const grace = drainSeconds + DRAIN_GIVE_BACK_SECONDS;
   return {
     minReadySeconds: 30,
     // Worst case the whole tier rolls one pod at a time, each waiting out a full
     // drain, plus a cold-start startupProbe budget (10 min) on the replacement.
-    progressDeadlineSeconds: drainSeconds * 2 + 900,
-    terminationGracePeriodSeconds: drainSeconds,
+    progressDeadlineSeconds: grace * 2 + 900,
+    terminationGracePeriodSeconds: grace,
     endpointDrainSeconds: 0,
+  };
+}
+
+/** Slack on top of the chat drain: the cancel-and-publish of what is still running, and process exit. */
+export const BACKEND_DRAIN_SLACK_SECONDS = 60;
+
+/**
+ * The chat tier's profile, with the grace period derived from its drain.
+ *
+ * On SIGTERM the replica is already out of the Service's endpoints, so no new
+ * socket arrives, and it waits for the turns it claimed
+ * (`GRID_CHAT_DRAIN_SECONDS`, `chat_socket.ChatRegistry.drain`) while relays on
+ * other replicas keep streaming them from Dragonfly (ADR-0080). The pod must
+ * live that long, so the grace period IS the drain plus the endpoint drain and
+ * slack, not a number chosen beside it: at the old fixed 90 s every rollout and
+ * every scale-in killed a long answer after a minute and a half.
+ *
+ * `drainSeconds` has to cover the longest chat turn, which is the turn's own
+ * deadline (`GRID_CHAT_TURN_DEADLINE_SECONDS`, 2700). The admission lease is
+ * renewed for as long as a turn runs, so it bounds nothing here.
+ */
+export function backendRollout(drainSeconds: number): RolloutProfile {
+  return {
+    ...ROLLOUT.backend,
+    terminationGracePeriodSeconds:
+      ROLLOUT.backend.endpointDrainSeconds + drainSeconds + BACKEND_DRAIN_SLACK_SECONDS,
   };
 }
 
@@ -409,7 +502,7 @@ export function orderedRollout(p: RolloutProfile) {
  */
 export function gracefulShutdown(
   p: RolloutProfile,
-  runtime?: "node" | "python",
+  runtime?: "node" | "python" | "coreutils",
 ): {
   terminationGracePeriodSeconds: number;
   lifecycle?: k8s.types.input.core.v1.Lifecycle;
@@ -432,7 +525,9 @@ export function gracefulShutdown(
   const command =
     runtime === "node"
       ? ["node", "-e", `setTimeout(() => {}, ${p.endpointDrainSeconds * 1000})`]
-      : ["python", "-c", `import time; time.sleep(${p.endpointDrainSeconds})`];
+      : runtime === "python"
+        ? ["python", "-c", `import time; time.sleep(${p.endpointDrainSeconds})`]
+        : ["sleep", String(p.endpointDrainSeconds)];
   return { ...base, lifecycle: { preStop: { exec: { command } } } };
 }
 

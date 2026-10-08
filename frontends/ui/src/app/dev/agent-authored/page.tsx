@@ -26,11 +26,13 @@
  * renders, and serves the preview URL. 404s outside development.
  */
 
+import type { JSX } from 'react'
 import { useState } from 'react'
 import { notFound } from 'next/navigation'
 import { I18nProvider } from '@/i18n'
 import { FileBrowserPane } from '@/features/documents/components/file-browser-pane'
 import { useFileSearch } from '@/features/documents/hooks/use-file-search'
+import { projectSearchScope } from '@/features/documents/lib/file-shelf'
 import { FileFilterMenu } from '@/features/documents/components/file-filter-menu'
 import { NO_FILE_FILTERS } from '@/features/documents/lib/file-filters'
 import { DEFAULT_FILE_SORT } from '@/features/documents/lib/file-sort'
@@ -143,7 +145,7 @@ export default function AgentAuthoredDevPage(): JSX.Element {
 
 function AgentAuthoredFixtures(): JSX.Element {
   const [selected, setSelected] = useState<string | null>(null)
-  const search = useFileSearch({ projectId: 'proj-demo' })
+  const search = useFileSearch(projectSearchScope('proj-demo'))
 
   return (
     <main className="mx-auto flex max-w-5xl flex-col gap-10 p-6" data-testid="agent-authored-preview">

@@ -1,16 +1,10 @@
 ---
 improvements:
   - >
-    Die einzelnen Rechercheschritte einer Antwort kosten jetzt weniger. Der
-    unveränderliche Teil jeder Anfrage — die Arbeitsanweisung und die
-    Werkzeugbeschreibungen — wird beim Modellanbieter zwischengespeichert,
-    statt auf jedem Schritt neu gelesen zu werden. Das senkt den Verbrauch
-    einer Frage und verkürzt die Wartezeit, ohne an der Antwort etwas zu
-    ändern.
+    The research steps of an answer now cost less and wait less, because the
+    unchanging part of every request is cached at the model provider. The answer
+    itself does not change.
 fixes:
   - >
-    Die Nutzungsabrechnung weist zwischengespeicherte Eingabe-Token jetzt
-    getrennt aus. Bei der schnellen Recherche stand dort bisher für jeden
-    Schritt eine Null: Die Zahlen kamen vom Anbieter an, gingen aber auf dem
-    Weg in die Abrechnung verloren, sodass Verbrauch und Kosten höher wirkten
-    als sie waren.
+    Usage reports now list cached input tokens separately, so usage and cost no
+    longer look higher than they were.

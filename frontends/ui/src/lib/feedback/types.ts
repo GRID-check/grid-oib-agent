@@ -25,6 +25,8 @@ export const upsertAnswerFeedbackSchema = z.object({
   reason: z.enum(ANSWER_FEEDBACK_REASONS).nullish(),
   /** Optional free-text on a down-vote. Empty string is stored as null. */
   comment: z.string().trim().max(MAX_FEEDBACK_COMMENT_LENGTH).nullish(),
+  /** Optional: what a good answer would have contained. Empty is stored as null. */
+  expectedAnswer: z.string().trim().max(MAX_FEEDBACK_COMMENT_LENGTH).nullish(),
   conversationId: conversationIdSchema.nullish(),
   projectId: z.string().uuid().nullish(),
 })
@@ -47,4 +49,13 @@ export interface AnswerFeedbackView {
   verdict: (typeof ANSWER_FEEDBACK_VERDICTS)[number]
   reason: (typeof ANSWER_FEEDBACK_REASONS)[number] | null
   comment: string | null
+  expectedAnswer: string | null
 }
+
+/**
+ * Set on the CSV export when it stopped at its row cap; the value is the cap.
+ * A header and not a trailing note row, because a note row is a malformed record
+ * to every CSV reader downstream (`scripts/feedback_to_cases.py` among them). The
+ * person downloading sees the same fact in the filename.
+ */
+export const EXPORT_TRUNCATED_HEADER = 'X-Grid-Export-Truncated'

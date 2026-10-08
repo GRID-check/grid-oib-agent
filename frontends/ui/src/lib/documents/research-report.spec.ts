@@ -461,43 +461,42 @@ describe('fileResearchReport', () => {
   })
 
   describe('the legal basis', () => {
+    /** A calculation card: a finding the document walks, after the report. */
     const CARDS = [
-      { type: 'summary', content: 'Die Fluchtwege sind zu prüfen.' },
       {
-        type: 'legal_basis',
-        law: 'OIB-Richtlinie 2',
-        article: '§ 3',
-        original_text: 'Fluchtwege sind so auszubilden, dass sie im Brandfall sicher benützbar sind.',
+        type: 'calculation',
+        title: 'Schrittmaßregel',
+        steps: [{ label: 'Schrittmaß', operation: 'sum', operands: [{ label: 'Steigung', value: 17, factor: 2 }, { label: 'Auftritt', value: 30 }] }],
       },
     ]
+    /** The Fundstelle the report quotes, verbatim and cited, the way an answer quotes it now (ADR-0069). */
+    const QUOTING =
+      '# Brandschutz Straßenhäuser\n\nDer Bericht beginnt hier.\n\n' +
+      '> „Fluchtwege sind so auszubilden, dass sie im Brandfall sicher benützbar sind.“ [1]\n\n' +
+      '## Quellen\n\n[1] [OIB] OIB-Richtlinie 2, Ausgabe Mai 2023\n'
 
     /**
      * The content ask of roadmap #3, in the artifact: the cited Richtlinie, the
      * §, and the excerpt — after the report, under a heading of their own.
      */
-    it('appends the cited Richtlinie, § and excerpt as their own section', async () => {
+    it('appends the cited Richtlinie and its excerpt as their own section', async () => {
       await fileResearchReport({
         session: SESSION,
         projectId: 'proj-1',
         runId: 'run_7',
-        report: REPORT,
+        report: QUOTING,
         cards: CARDS,
       })
       const pdf = await readPdf((await runRenderer()).bytes)
 
-      // develop's card walker names these in the reader's own German — the same
-      // walker and the same words the .docx export uses, which is the point: two
-      // documents an architect puts side by side share one vocabulary.
-      expect(pdf.text).toContain(
-        normalizePdfText(
-          'Rechtsgrundlage Gesetz / Richtlinie OIB-Richtlinie 2 Paragraf § 3 ' +
-            'Originalwortlaut Fluchtwege sind so auszubilden, dass sie im Brandfall sicher benützbar sind.'
-        )
-      )
+      // The section reads the report's own quote lines (`excerpts.ts`), the
+      // same reader the .docx export uses: two documents an architect puts
+      // side by side share one vocabulary.
+      expect(pdf.text).toContain(normalizePdfText('Fluchtwege sind so auszubilden, dass sie im Brandfall sicher benützbar sind.'))
+      expect(pdf.text).toContain('Rechtsgrundlagen')
+      expect(pdf.text).toContain('Schrittmaßregel')
       // After the report's own words, never in front of them.
-      expect(pdf.text.indexOf('Der Bericht beginnt hier.')).toBeLessThan(
-        pdf.text.indexOf('Rechtsgrundlage')
-      )
+      expect(pdf.text.indexOf('Der Bericht beginnt hier.')).toBeLessThan(pdf.text.indexOf('Schrittmaßregel'))
     })
 
     /**

@@ -234,6 +234,12 @@ export const collaboration: typeof en.collaboration = {
         titleNone: 'Nachrichten',
         body: 'in {subject}',
       },
+      // Platform tier: a member sent product feedback. {subject} is the
+      // organization it came from; the excerpt below the title is the message.
+      feedbackSubmitted: {
+        title: '{actor} hat Feedback gesendet',
+        body: 'aus {subject} – zum Sichten öffnen.',
+      },
       storageQuotaWarning: {
         title: 'Der Speicherplatz Ihrer Organisation wird knapp',
         body: '{subject} des Speicherkontingents sind belegt. Sobald es voll ist, schlagen Uploads fehl – löschen Sie nicht mehr benötigte Dokumente oder bitten Sie den Betreiber Ihrer Piloti-Installation, das Kontingent zu erhöhen.',
@@ -247,6 +253,15 @@ export const collaboration: typeof en.collaboration = {
       jobCompleted: {
         title: '„{subject}" ist fertig',
         body: 'Piloti hat den Auftrag ausgeführt. Das Ergebnis liegt im Projekt unter Automatisierung.',
+      },
+      // Ein Outlook-Archiv ist importiert. {subject} ist der Dateiname des Archivs.
+      mailImportCompleted: {
+        title: '„{subject}" ist importiert',
+        body: 'Piloti hat die E-Mails und ihre Anhänge im Projekt unter E-Mail-Import abgelegt.',
+      },
+      mailImportFailed: {
+        title: 'Der Import von „{subject}" wurde abgebrochen',
+        body: 'Was bis dahin importiert war, bleibt im Projekt. Die Importliste unter Dateien nennt den Grund.',
       },
       jobFailed: {
         title: '„{subject}" ist fehlgeschlagen',

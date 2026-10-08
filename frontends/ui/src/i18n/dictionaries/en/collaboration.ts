@@ -382,6 +382,12 @@ export const collaboration = {
        * from inside the tenant (ADR-0042), so pointing an org admin at their own
        * settings would send them looking for a control that is not there.
        */
+      // Platform tier: a member sent product feedback. {subject} is the
+      // organization it came from; the excerpt below the title is the message.
+      feedbackSubmitted: {
+        title: '{actor} sent feedback',
+        body: 'from {subject} — open it to triage.',
+      },
       storageQuotaWarning: {
         title: 'Your organisation is running out of storage',
         body: '{subject} of the storage quota is in use. Once it is full, uploads will start failing — delete documents you no longer need, or ask whoever runs Piloti for you to raise the quota.',
@@ -398,6 +404,15 @@ export const collaboration = {
       jobCompleted: {
         title: '"{subject}" is done',
         body: 'Piloti ran the job. The result is in the project under Automation.',
+      },
+      // An Outlook archive was imported. {subject} is the archive's file name.
+      mailImportCompleted: {
+        title: '“{subject}” has been imported',
+        body: 'Piloti filed the emails and their attachments in the project under E-Mail-Import.',
+      },
+      mailImportFailed: {
+        title: 'The import of “{subject}” stopped',
+        body: 'What was imported until then stays in the project. The import list under Files gives the reason.',
       },
       jobFailed: {
         title: '"{subject}" failed',

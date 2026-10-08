@@ -42,7 +42,7 @@ def db_url(tmp_path):
     queue.ensure_research_queue_table(url)
     _ensure_job_info_table(url)
     yield url
-    queue._queue_schema_initialized.discard(url)
+    queue._queues.pop(url, None)
     EventStore._tables_initialized.discard(url)
 
 
@@ -152,7 +152,7 @@ class TestLostClaim:
 
     @pytest.mark.asyncio
     async def test_no_owner_means_no_claim_to_lose(self):
-        """Dask path (``claim_owner=None``): must not touch any database, not
+        """Unclaimed run (``claim_owner=None``): must not touch any database, not
         even to fail — a bogus URL proves no I/O happens."""
         assert await _lost_claim("sqlite:////definitely/not/here.db", "job-1", None) is False
 
@@ -380,9 +380,8 @@ class TestLoserVsWinnerSingleCoherentArtefact:
 
 
 class TestWorkerPassesClaimOwnership:
-    """The DB worker hands its claim id to the run (both execution paths in
-    ``submit.py`` carry the matching ``claim_owner`` slot: ``None`` on Dask,
-    still ``None`` at submit, the worker's id at replay)."""
+    """The DB worker hands its claim id to the run (``submit.py`` carries the matching
+    ``claim_owner`` slot: ``None`` at submit, the worker's id at replay)."""
 
     @pytest.mark.asyncio
     async def test_run_claimed_hands_worker_id_to_runner(self, tmp_path, monkeypatch):
@@ -408,4 +407,4 @@ class TestWorkerPassesClaimOwnership:
 
             assert seen.get("claim_owner") == "worker-A"
         finally:
-            queue._queue_schema_initialized.discard(qdb)
+            queue._queues.pop(qdb, None)

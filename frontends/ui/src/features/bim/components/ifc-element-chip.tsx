@@ -15,6 +15,7 @@
  * The numbers stay in the cards, which read them from the model.
  */
 
+import type { JSX } from 'react'
 import Link from 'next/link'
 import { Box } from 'lucide-react'
 import type { ReactNode } from 'react'

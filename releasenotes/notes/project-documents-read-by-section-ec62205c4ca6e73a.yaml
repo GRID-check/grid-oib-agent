@@ -1,0 +1,19 @@
+---
+improvements:
+  - >
+    Reports, concepts and other PDFs uploaded to a project are now read
+    section by section along their own headings, so an answer finds the
+    passage that belongs to a heading even when it runs over a page break,
+    and cites it by its section number and page.
+  - >
+    Markdown, text and CSV files can now be cited and opened by section or by
+    lines rather than only as a whole file, and every part of a long table,
+    spreadsheet or CSV keeps its column headings.
+fixes:
+  - >
+    Text and CSV files saved by Excel or older Windows programs keep their
+    umlauts and ß. Before, those letters were silently dropped.
+  - >
+    Spreadsheets with more than 1000 rows are now read in full up to 10,000
+    rows a sheet, and anything beyond that is stated rather than cut off
+    without a word.

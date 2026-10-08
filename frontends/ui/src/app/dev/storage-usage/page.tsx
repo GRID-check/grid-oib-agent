@@ -14,6 +14,7 @@
  * quota belongs to the platform operator (ADR-0042).
  */
 
+import type { JSX } from 'react'
 import { notFound } from 'next/navigation'
 import { HardDrive } from 'lucide-react'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
@@ -28,6 +29,7 @@ const STORAGE = {
     total: { bytes: 41 * GB, documents: 1380 },
   },
   quotaBytes: 50 * GB,
+  effectiveMaxUploadFileBytes: 100e6,
 }
 
 const OVER_QUOTA = {
@@ -37,6 +39,7 @@ const OVER_QUOTA = {
     total: { bytes: 52.6 * GB, documents: 1720 },
   },
   quotaBytes: 50 * GB,
+  effectiveMaxUploadFileBytes: 100e6,
 }
 
 /**

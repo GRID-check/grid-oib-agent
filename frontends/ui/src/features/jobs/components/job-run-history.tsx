@@ -7,8 +7,10 @@
  *
  * The run row's own status only records how the SUBMISSION went — the run's
  * actual fate lives in the backend job store. So rows that produced a job are
- * joined against the project's research runs (`GET /v1/jobs/async/jobs`, the
- * same list the History page uses) to show the live job status. The join is
+ * joined against the project's research runs (`GET /api/jobs/async/jobs`, the
+ * same list the History page uses) to show the live job status. The project
+ * is the one the job proxy checks and signs, so a run somebody else on the
+ * project fired shows its live status too (ADR-0084). The join is
  * best-effort — without it a row falls back to its submission badge.
  *
  * That status used to pick the row's DESTINATION as well: the report, the
@@ -19,6 +21,7 @@
  * link at all — see the row below for why that is the honest answer.
  */
 
+import type { JSX } from 'react'
 import { useCallback, useEffect, useState } from 'react'
 import Link from 'next/link'
 import { AlertCircle, ArrowRight, CalendarClock, Hand } from 'lucide-react'
@@ -34,10 +37,9 @@ import { listResearchRuns } from '@/adapters/api/research-runs-client'
 import { listJobRuns, type JobRun, type JobRunStatus } from '@/adapters/api/jobs-client'
 
 interface JobRunHistoryProps {
+  /** The project the job belongs to; it also scopes the live job-status join. */
   projectId: string
   jobId: string
-  /** Qdrant collection scoping the live job-status join; null disables it. */
-  projectCollection: string | null
 }
 
 const STATUS_VARIANT: Record<JobRunStatus, NonNullable<BadgeProps['variant']>> = {
@@ -78,11 +80,7 @@ function conversationFor(run: JobRun, byJobId: Record<string, string>): string |
   return (run.jobId && byJobId[run.jobId]) || null
 }
 
-export function JobRunHistory({
-  projectId,
-  jobId,
-  projectCollection,
-}: JobRunHistoryProps): JSX.Element {
+export function JobRunHistory({ projectId, jobId }: JobRunHistoryProps): JSX.Element {
   const t = useTranslations('jobs')
   const { locale } = useLocale()
   const [runs, setRuns] = useState<JobRun[] | null>(null)
@@ -106,7 +104,7 @@ export function JobRunHistory({
   // Live job statuses for the listed runs. One request covers every row (the
   // project's newest jobs), repeated while at least one run is still active.
   useEffect(() => {
-    if (!projectCollection || !runs) return
+    if (!runs) return
     const backendJobIds = new Set(
       runs.map((run) => run.jobId).filter((id): id is string => Boolean(id)),
     )
@@ -118,7 +116,7 @@ export function JobRunHistory({
     const poll = async (): Promise<void> => {
       try {
         const { jobs } = await listResearchRuns({
-          projectCollection,
+          projectId,
           limit: JOB_STATUS_LOOKUP_LIMIT,
         })
         if (cancelled) return
@@ -149,7 +147,7 @@ export function JobRunHistory({
       cancelled = true
       if (timer) clearTimeout(timer)
     }
-  }, [projectCollection, runs])
+  }, [projectId, runs])
 
   if (error) {
     return (

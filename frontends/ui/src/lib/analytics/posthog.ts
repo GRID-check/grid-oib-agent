@@ -39,6 +39,8 @@ export interface PostHogConfig {
  */
 export type PostHogEvent =
   | 'organization_created'
+  | 'product_tour_completed'
+  | 'product_tour_skipped'
   | 'project_created'
   | 'project_member_access_changed'
   | 'job_created'
@@ -50,6 +52,7 @@ export type PostHogEvent =
   | 'skill_updated'
   | 'skill_deleted'
   | 'skill_enabled_changed'
+  | 'answer_retry_thorough'
 
 let initialized = false
 

@@ -13,6 +13,7 @@
  * neither — it calls what it was given.
  */
 
+import type { JSX } from 'react'
 import { useState } from 'react'
 import { Pencil, Plus, Trash2 } from 'lucide-react'
 import { toast } from 'sonner'

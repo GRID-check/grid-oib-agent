@@ -137,16 +137,18 @@ Switching chats is blocked during shallow thinking (WebSocket stream) or a HITL 
 
 ### WebSocket
 
-A persistent WebSocket connection to `ws://<host>/websocket` enables real-time bidirectional communication. The `NATWebSocketClient` connects automatically when the user sends a message. Messages follow the NAT protocol:
+A persistent WebSocket connection to `ws://<host>/websocket?v=2` carries the
+chat, opened when the user sends a message (or focuses the composer in a shared
+thread). It speaks chat wire v2 ([`websocket-protocol.md`](../api/websocket-protocol.md)):
+the question goes out as one `user_message`, and the answer comes back as typed
+events, the reasoning steps, the prose, its cards and sources, and a final
+result that is what gets saved. **Stop** cancels the turn on the server and
+keeps the answer so far, marked as stopped.
 
-| NAT type | Purpose |
-|---|---|
-| `system_response` | Final or streaming response content |
-| `system_intermediate` | Thinking steps and tool calls |
-| `system_interaction` | Human prompt requiring user response |
-| `error` | Error with auth or processing |
-
-The WebSocket supports auto-reconnection with exponential backoff (3 attempts, 1s delay) and an `onBeforeReconnect` callback to refresh auth cookies before the upgrade handshake.
+A dropped connection reopens on its own (jittered backoff, the sign-in cookie
+refreshed first) and picks the running answer up where it left off; a reload
+does the same from the answer's start. After a Piloti update the page asks to
+be reloaded.
 
 ## Deep research vs simple chat
 
@@ -391,11 +393,13 @@ Drag and drop or select files to attach them to the current session. Uploaded fi
 
 ## Session persistence
 
-Conversations persist to `localStorage` via the Zustand `persist` middleware with the key `aiq-chat-store`. The storage layer:
+Conversations persist to `localStorage` via the Zustand `persist` middleware (`features/chat/stores/chat-storage.ts`), one key per conversation's messages (`aiq-chat-store:messages:<id>`) and a small index (`aiq-chat-store:index`) for the conversation list, the open conversation's id, the composer drafts and the open question. The storage layer:
 
-- Prunes message content to stay within quota limits
-- Strips connection error messages on hydration (transient errors should not survive reloads)
-- Reconstructs the current conversation from its ID to avoid double-serialization
-- Falls back to clearing all sessions if `QuotaExceededError` is hit
+- Writes only what changed: a send or a settled answer writes that conversation and the index, a switch or a draft the index alone
+- Prunes message content (thinking-step payloads, long citation text) before writing
+- Strips interrupted streaming answers and connection error messages on hydration (transient state should not survive reloads)
+- Reconstructs the current conversation from its ID
+- Past its budget or on a `QuotaExceededError`, evicts the messages of the least recently updated conversations (the server holds them, and opening the conversation fetches them); the index, and with it the list, the titles and the drafts, is never evicted
+- Moves the old single key `aiq-chat-store` into this shape on the first load after the change
 
 On page load, `loadServerConversations()` fetches conversations from the BFF and merges server metadata (title, dates) with local messages. Deep research job statuses are refreshed via `refreshDeepResearchSessionStatuses()` after rehydration.

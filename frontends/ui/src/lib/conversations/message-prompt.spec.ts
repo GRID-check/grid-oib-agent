@@ -13,37 +13,31 @@ import { sanitizePromptDetail, sanitizePromptState } from './message-prompt'
 
 describe('sanitizePromptDetail', () => {
   it('keeps the fields the card renders, including who was asked', () => {
-    expect(
-      sanitizePromptDetail({
-        promptType: 'choice',
-        promptId: 'p-1',
-        promptParentId: 'parent-1',
-        promptInputType: 'radio',
-        promptOptions: ['Nur Kern B', 'Beide Kerne'],
-        promptPlaceholder: 'Welcher Kern?',
-        promptFor: 'user_matthias',
-      }),
-    ).toEqual({
-      promptType: 'choice',
+    const detail = {
       promptId: 'p-1',
       promptParentId: 'parent-1',
-      promptInputType: 'radio',
-      promptOptions: ['Nur Kern B', 'Beide Kerne'],
+      promptInputType: 'choice',
+      promptOptions: [
+        { id: 'b', label: 'Nur Kern B' },
+        { id: 'both', label: 'Beide Kerne' },
+      ],
       promptPlaceholder: 'Welcher Kern?',
       promptFor: 'user_matthias',
-    })
+    }
+    expect(sanitizePromptDetail(detail)).toEqual(detail)
   })
 
-  it('drops unknown keys and caps the option list', () => {
+  it('drops unknown keys, unknown input shapes and bare-string options, and caps the list', () => {
     const result = sanitizePromptDetail({
-      promptType: 'choice',
+      promptInputType: 'radio',
       smuggled: 'x'.repeat(50_000),
-      promptOptions: Array.from({ length: 500 }, () => 'o'.repeat(5_000)),
+      promptOptions: ['bare', ...Array.from({ length: 500 }, (_, n) => ({ id: `o${n}`, label: 'o'.repeat(5_000) }))],
     })
 
     expect(result).not.toHaveProperty('smuggled')
-    expect(result!.promptOptions).toHaveLength(32)
-    expect(result!.promptOptions![0]).toHaveLength(400)
+    expect(result).not.toHaveProperty('promptInputType')
+    expect(result!.promptOptions).toHaveLength(31)
+    expect(result!.promptOptions![0]!.label).toHaveLength(400)
   })
 
   it('returns null when there is nothing usable', () => {

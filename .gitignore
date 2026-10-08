@@ -1,5 +1,4 @@
-# OIB source data and registry
-/data/oib_registry.json
+# OIB source data
 /data/*.zip
 
 # Local environment and job stores
@@ -30,7 +29,15 @@ lib64/
 !frontends/*/src/**/lib/
 !frontends/ui/src/**/lib/
 !frontends/ui/tests/lib/
+!frontends/web/art/riso/lib/
+# `downloads/` above does the same to the site's committed riso downloads
+# (art/riso/downloads.mjs writes them; the unlisted image page serves them).
+!frontends/web/public/downloads/
 parts/
+# `parts/` is buildout's, and like `lib/` above it matches at any depth: it hid
+# the mail import's `mail-imports/[importId]/parts/[partNumber]` route from the
+# first commit that wrote it. Source directories of that name are not artifacts.
+!frontends/*/src/**/parts/
 sdist/
 var/
 wheels/
@@ -156,5 +163,5 @@ report-api.xml
 report-aiqapi.xml
 coverage-aiqapi.xml
 
-# The OIB corpus is operator-provided; see data/oib/README.md
+# A local copy of the OIB corpus for the evals and tests; see data/oib/README.md
 data/oib/*.pdf

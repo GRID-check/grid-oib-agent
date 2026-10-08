@@ -12,7 +12,6 @@ from __future__ import annotations
 
 import json
 from unittest.mock import AsyncMock
-from unittest.mock import patch
 
 import pytest
 from langchain_core.messages import AIMessage
@@ -25,18 +24,17 @@ from aiq_agent.cards.registry import set_card_registry
 from aiq_agent.common.citation_verification import SourceEntry
 from aiq_agent.common.citation_verification import SourceRegistry
 
-BASIS = {
-    "type": "legal_basis",
-    "law": "OIB-Richtlinie 2",
-    "article": "3.1.1",
-    "summary": "Brandabschnitte in GK 4 fassen höchstens 1.200 m².",
-}
-TABLE_WRONG = {"type": "typed_table", "title": "Teile", "columns": ["Teil", "Inhalt"], "rows": [["OIB 2", "Brand"]]}
+BASIS = {"type": "ifc_model_picker", "title": "Welches Modell möchten Sie öffnen?"}
+_CHECK = {"label": "Steigung", "value": 17, "required": 18, "unit": "cm", "comparator": "<=", "status": "pass"}
+TABLE_WRONG = {"type": "stair_diagram", "title": "Treppe", "riser_count": 17}
 TABLE_RIGHT = {
-    "type": "typed_table",
-    "title": "Teile",
-    "columns": [{"label": "Teil", "type": "text"}, {"label": "Inhalt", "type": "text"}],
-    "rows": [["OIB 2", "Brand"]],
+    "type": "stair_diagram",
+    "title": "Treppe",
+    "riser_count": 17,
+    "riser_height": _CHECK,
+    "tread_depth": {**_CHECK, "label": "Auftritt", "value": 30, "required": 28, "comparator": ">="},
+    "width": {**_CHECK, "label": "Laufbreite", "value": 120, "required": 120, "comparator": ">="},
+    "reference": {"document": "OIB-Richtlinie 4"},
 }
 PROSE = (
     "x" * 900 + " Die Antwort [1].\n\n[[card:1]]\n\nWeiter.\n\n[[card:2]]\n\n## References\n- [1] https://example.com"
@@ -69,7 +67,7 @@ def _sources() -> SourceRegistry:
 async def test_sound_cards_register_in_array_order_and_the_markers_stay(card_registry):
     final = await finalize_answer(_messages([BASIS, TABLE_RIGHT]), registry=_sources(), tools=[], repair=None)
 
-    assert [card["type"] for card in card_registry.snapshot()] == ["legal_basis", "typed_table"]
+    assert [card["type"] for card in card_registry.snapshot()] == ["ifc_model_picker", "stair_diagram"]
     assert "[[card:1]]" in final.content and "[[card:2]]" in final.content
 
 
@@ -92,7 +90,11 @@ async def test_the_array_lands_after_the_tool_cards_and_its_markers_follow(card_
 
     final = await finalize_answer(messages, registry=_sources(), tools=[], repair=None)
 
-    assert [card["type"] for card in card_registry.snapshot()] == ["document_draft", "legal_basis", "typed_table"]
+    assert [card["type"] for card in card_registry.snapshot()] == [
+        "document_draft",
+        "ifc_model_picker",
+        "stair_diagram",
+    ]
     body = final.content
     assert body.index("[[card:1]]") < body.index("[[card:2]]") < body.index("Weiter.") < body.index("[[card:3]]")
 
@@ -107,45 +109,43 @@ async def test_a_model_that_ignores_the_offset_is_read_by_array_number(card_regi
 
     final = await finalize_answer(_messages([BASIS, TABLE_RIGHT], handed), registry=_sources(), tools=[], repair=None)
 
-    # `[[card:1]]` is array card 1 (legal_basis, position 3); `[[card:2]]` was handed.
+    # `[[card:1]]` is array card 1 (ifc_model_picker, position 3); `[[card:2]]` was handed.
     assert "[[card:3]]" in final.content and "[[card:2]]" in final.content
     assert "[[card:1]]" not in final.content
 
 
 @pytest.mark.asyncio
-async def test_a_shape_miss_is_repaired_once_on_the_small_model(card_registry):
+async def test_a_shape_miss_is_repaired_once_on_the_small_model(card_registry, emitted):
     repair = AsyncMock(return_value=TABLE_RIGHT)
-    with patch("aiq_agent.common.turn_status.push_custom_step") as steps:
-        final = await finalize_answer(
-            _messages([BASIS, TABLE_WRONG]), registry=_sources(), tools=[], repair=None, card_repair=repair
-        )
+    final = await finalize_answer(
+        _messages([BASIS, TABLE_WRONG]), registry=_sources(), tools=[], repair=None, card_repair=repair
+    )
 
     repair.assert_awaited_once()
     card, refusal, answer = repair.await_args.args
     assert card == TABLE_WRONG
-    assert refusal.startswith("card of type 'typed_table' failed validation:")
+    assert refusal.startswith("card of type 'stair_diagram' failed validation:")
     assert "shape:" in refusal  # the type's full shape rides along for the repair
     assert answer.startswith("x" * 100)
-    assert [card["type"] for card in card_registry.snapshot()] == ["legal_basis", "typed_table"]
+    assert [card["type"] for card in card_registry.snapshot()] == ["ifc_model_picker", "stair_diagram"]
     assert "[[card:2]]" in final.content
-    recorded = [call.args[1]["values"] for call in steps.call_args_list if "card:invalid" in call.args[0]]
-    assert recorded == [{"cardType": "typed_table", "outcome": "repaired"}]
+    recorded = [step.detail for step in emitted.steps if step.id.startswith("status:card:invalid")]
+    assert recorded == [{"cardType": "stair_diagram", "outcome": "repaired"}]
 
 
 @pytest.mark.asyncio
-async def test_a_card_that_still_fails_is_dropped_recorded_and_its_marker_removed(card_registry):
+async def test_a_card_that_still_fails_is_dropped_recorded_and_its_marker_removed(card_registry, emitted):
     repair = AsyncMock(return_value=None)
-    with patch("aiq_agent.common.turn_status.push_custom_step") as steps:
-        final = await finalize_answer(
-            _messages([TABLE_WRONG, BASIS]), registry=_sources(), tools=[], repair=None, card_repair=repair
-        )
+    final = await finalize_answer(
+        _messages([TABLE_WRONG, BASIS]), registry=_sources(), tools=[], repair=None, card_repair=repair
+    )
 
-    assert [card["type"] for card in card_registry.snapshot()] == ["legal_basis"]
+    assert [card["type"] for card in card_registry.snapshot()] == ["ifc_model_picker"]
     # The dropped card's marker is gone; the second card is now position 1.
     assert "[[card:2]]" not in final.content
     assert final.content.count("[[card:1]]") == 1
-    recorded = [call.args[1]["values"] for call in steps.call_args_list if "card:invalid" in call.args[0]]
-    assert recorded == [{"cardType": "typed_table", "outcome": "dropped"}]
+    recorded = [step.detail for step in emitted.steps if step.id.startswith("status:card:invalid")]
+    assert recorded == [{"cardType": "stair_diagram", "outcome": "dropped"}]
 
 
 @pytest.mark.asyncio
@@ -180,5 +180,25 @@ async def test_a_marker_a_tool_handed_out_last_turn_is_not_taken_this_turn(card_
     ]
     final = await finalize_answer([*previous_turn, *_messages([BASIS])], registry=_sources(), tools=[], repair=None)
 
-    assert [card["type"] for card in card_registry.snapshot()] == ["legal_basis"]
+    assert [card["type"] for card in card_registry.snapshot()] == ["ifc_model_picker"]
     assert "[[card:1]]" in final.content
+
+
+@pytest.mark.asyncio
+async def test_a_retired_card_is_laid_out_as_markdown_at_its_marker_not_dropped(card_registry):
+    """Guardrail 8: a model that reached for a retired type out of habit put
+    content in it that may be nowhere else. The card cannot register, so its
+    content lands at its marker as Markdown, and no later card slides onto its
+    place."""
+    retired = {
+        "type": "typed_table",
+        "title": "Mindestmaße",
+        "columns": [{"label": "Bauteil", "type": "text"}, {"label": "Maß", "type": "mass"}],
+        "rows": [["Tür", "90 cm"]],
+    }
+    final = await finalize_answer(_messages([retired, BASIS]), registry=_sources(), tools=[], repair=None)
+
+    assert [card["type"] for card in card_registry.snapshot()] == ["ifc_model_picker"]
+    assert "**Mindestmaße**" in final.content
+    assert "| Tür | 90 cm |" in final.content
+    assert final.content.index("Mindestmaße") < final.content.index("Weiter.") < final.content.index("[[card:1]]")

@@ -79,6 +79,22 @@ async function enabledSlugsForOrg(organizationId: string): Promise<Set<string>> 
 }
 
 /**
+ * Every flag enabled for `organizationId`, for a session built without a token
+ * (`lib/auth/pinned-session.ts`): the set a live session's JWT claim would
+ * carry.
+ *
+ * A failed lookup THROWS rather than answering "none". Its callers are
+ * background work acting for a person, and "none" is not a refusal there but a
+ * silent wrong answer that sticks: the mail import would file every picture as
+ * "file type not accepted" (the `image-upload` gate) for as long as WorkOS was
+ * down, while a throw has the job retry once it is back.
+ */
+export async function enabledFlagsForOrganization(organizationId: string): Promise<string[]> {
+  if (!process.env.WORKOS_API_KEY) return []
+  return [...(await enabledSlugsForOrg(organizationId))]
+}
+
+/**
  * Whether `slug` is enabled for `organizationId`. Returns `defaultValue` when
  * there is no org, no WorkOS API key, or evaluation fails (fail-closed).
  */
@@ -131,7 +147,7 @@ export const POST_ANSWER_STAGE_FLAGS: readonly PostAnswerStageFlag[] = [
     // while the empty rate and the per-turn cost were read off the
     // `stage:follow_ups` spans. It is ON for every organization in both WorkOS
     // environments now, and the in-answer `follow_ups` CARD it replaces has been
-    // retired (`SYSTEM_CARD_TYPES`), so this stage is the only thing that
+    // deleted (ADR-0069), so this stage is the only thing that
     // produces follow-up questions at all.
     //
     // That is what moves the default: `defaultOn` is what a deployment without
@@ -143,8 +159,8 @@ export const POST_ANSWER_STAGE_FLAGS: readonly PostAnswerStageFlag[] = [
     //
     // Turning the WorkOS flag off still stops the frames within a turn or two,
     // no deploy and no reconnect, and the answer is unaffected either way. What
-    // it no longer does is fall back to the card: reversing that is §7.10 step 1
-    // — take `follow_ups` out of `SYSTEM_CARD_TYPES` and roll back `0062`.
+    // it no longer does is fall back to the card: the card type no longer
+    // exists, so reversing that means restoring it (ADR-0069).
     defaultOn: true,
   },
 ]

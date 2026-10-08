@@ -10,7 +10,9 @@
  * anywhere and 404s outside development.
  */
 
+import type { JSX } from 'react'
 import { PlatformOverview } from '@/app/app/(shell)/platform/platform-overview'
+import { platformOrgBudgetPutSchema, type PlatformOrgBudget } from '@/lib/budgets/platform-contract'
 
 const NAMES = [
   'GRID Platform',
@@ -31,7 +33,7 @@ const NAMES = [
 const PRICING = { marginMultiplier: 2.5, usdPerCredit: 0.1, explicit: true }
 
 /** Cost in USD as charged, priced at the fixture's price list (ADR-0053). */
-const window = (costUsd: number, events: number) => ({
+const spendWindow = (costUsd: number, events: number) => ({
   costUsd,
   ownKeyCostUsd: 0,
   priceUsd: costUsd * PRICING.marginMultiplier,
@@ -48,25 +50,35 @@ const ORGANIZATIONS = NAMES.map((name, index) => ({
   createdAt: new Date(Date.UTC(2024 + (index % 3), index % 12, 1 + index)).toISOString(),
   isPlatformOrg: index === 0,
   projectCount: (index * 3) % 11,
-  day: window(Math.max(0, 18 - index * 1.4), Math.max(0, 400 - index * 30)),
-  month: window(Math.max(0, 420 - index * 33), Math.max(0, 9400 - index * 700)),
-})).map((org, index) =>
-  // The fourth organization runs on its own key: its cost is its own bill, so
-  // the overview badges it and leaves it out of the platform's cost.
-  index === 3
-    ? {
-        ...org,
-        day: { ...org.day, ownKeyCostUsd: org.day.costUsd, priceUsd: 0, credits: 0 },
-        month: { ...org.month, ownKeyCostUsd: org.month.costUsd, priceUsd: 0, credits: 0 },
-      }
-    : org,
-)
+  day: spendWindow(Math.max(0, 18 - index * 1.4), Math.max(0, 400 - index * 30)),
+  month: spendWindow(Math.max(0, 420 - index * 33), Math.max(0, 9400 - index * 700)),
+}))
+  .map((org, index) =>
+    // The fourth organization runs on its own key: its cost is its own bill, so
+    // the overview badges it and leaves it out of the platform's cost.
+    index === 3
+      ? {
+          ...org,
+          day: { ...org.day, ownKeyCostUsd: org.day.costUsd, priceUsd: 0, credits: 0 },
+          month: { ...org.month, ownKeyCostUsd: org.month.costUsd, priceUsd: 0, credits: 0 },
+        }
+      : org
+  )
+  .map((org, index) =>
+    // Ingestion is part of the month's cost, shown under it in the directory;
+    // the last organization spent a fraction of a cent today ("< $0.01").
+    index === 1 || index === 2
+      ? { ...org, month: { ...org.month, ingestCostUsd: 42.5 - index * 9 } }
+      : index === NAMES.length - 1
+        ? { ...org, day: spendWindow(0.004, 1) }
+        : org
+  )
 
 const DAILY_TREND = Array.from({ length: 30 }, (_, index) => {
   const day = new Date(Date.UTC(2026, 6, 1 + index))
   return {
     day: day.toISOString().slice(0, 10),
-    ...window(40 + Math.round(Math.sin(index / 3) * 18 + index * 1.2), 800 + index * 25),
+    ...spendWindow(40 + Math.round(Math.sin(index / 3) * 18 + index * 1.2), 800 + index * 25),
   }
 })
 
@@ -80,7 +92,7 @@ const sumWindows = (key: 'day' | 'month') =>
       tokens: total.tokens + org[key].tokens,
       events: total.events + org[key].events,
     }),
-    { costUsd: 0, ownKeyCostUsd: 0, priceUsd: 0, credits: 0, tokens: 0, events: 0 },
+    { costUsd: 0, ownKeyCostUsd: 0, priceUsd: 0, credits: 0, tokens: 0, events: 0 }
   )
 
 const OVERVIEW = {
@@ -96,6 +108,25 @@ const OVERVIEW = {
   },
   pricing: PRICING,
 }
+
+const ORG_BUDGETS = new Map<string, PlatformOrgBudget>(
+  ORGANIZATIONS.map((org, index) => {
+    const unit = index === 3 ? 'token' : 'credit'
+    return [
+      org.id,
+      {
+        organizationId: org.id,
+        unit,
+        dailyLimit: unit === 'credit' ? 500 : null,
+        monthlyLimit: unit === 'credit' ? (index === 1 ? 20_000 : 5_000) : null,
+        explicit: index === 1,
+        dayUsed: unit === 'credit' ? org.day.credits : org.day.tokens,
+        monthUsed: unit === 'credit' ? org.month.credits : org.month.tokens,
+        canManage: true,
+      },
+    ]
+  })
+)
 
 /** The price list card's payload: a set list with one earlier version behind it. */
 const PRICING_PAYLOAD = {
@@ -189,11 +220,51 @@ if (typeof window !== 'undefined' && process.env.NODE_ENV === 'development') {
     w.__platformOverviewShim = true
     const real = window.fetch.bind(window)
     window.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
-      const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url
+      const url =
+        typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url
       if (url.startsWith('/api/platform/overview')) {
         return Response.json(OVERVIEW)
       }
+      const budgetMatch = /^\/api\/platform\/organizations\/([^/]+)\/budgets$/.exec(url)
+      if (budgetMatch) {
+        const id = decodeURIComponent(budgetMatch[1])
+        const budget = ORG_BUDGETS.get(id)
+        if (!budget) return Response.json({ error: 'Organization not found' }, { status: 404 })
+        const request = new Request(new URL(url, window.location.origin), init)
+        if (request.method === 'PUT') {
+          const input = platformOrgBudgetPutSchema.parse(await request.json())
+          ORG_BUDGETS.set(id, { ...budget, ...input, explicit: true })
+        }
+        return Response.json(ORG_BUDGETS.get(id))
+      }
       if (url.startsWith('/api/platform/pricing')) {
+        const request = new Request(new URL(url, window.location.origin), init)
+        if (request.method === 'PUT') {
+          // Echo the save the way the route does: the new view, as the active
+          // version on top of the history.
+          const input = (await request.json()) as Record<string, unknown>
+          const version = {
+            ...PRICING_PAYLOAD.pricing.history[0],
+            ...input,
+            id: `ver_${Date.now()}`,
+            createdAt: new Date().toISOString(),
+            status: 'active',
+          }
+          PRICING_PAYLOAD.pricing = {
+            ...PRICING_PAYLOAD.pricing,
+            ...input,
+            versionId: version.id,
+            explicit: true,
+            history: [
+              version,
+              ...PRICING_PAYLOAD.pricing.history.map((entry) => ({
+                ...entry,
+                status: 'superseded',
+              })),
+            ],
+          } as typeof PRICING_PAYLOAD.pricing
+          return Response.json({ pricing: PRICING_PAYLOAD.pricing })
+        }
         return Response.json(PRICING_PAYLOAD)
       }
       if (url.startsWith('/api/widgets/token')) {
@@ -217,12 +288,17 @@ if (typeof window !== 'undefined' && process.env.NODE_ENV === 'development') {
 
 export default function PlatformOverviewDevPage(): JSX.Element {
   return (
-    <main data-testid="platform-overview-preview" className="mx-auto flex max-w-5xl flex-col gap-6 p-8">
+    <main
+      data-testid="platform-overview-preview"
+      className="mx-auto flex max-w-5xl flex-col gap-6 p-8"
+    >
       <div>
         <h1 className="text-lg font-semibold">Platform — Overview</h1>
-        <p className="mt-1 text-sm text-muted-foreground">
-          Stat tiles (cost, revenue, margin), 30-day cost trend, the price list, the organization directory on
-          SectionCard + DataToolbar + Table + Pagination, and the platform team in its own card.
+        <p className="text-muted-foreground mt-1 text-sm">
+          Headline figures, the 30-day cost trend, the organization directory (columns drop by
+          container width; on a phone revenue and the allowance action fold into the remaining
+          cells), the price list with its worked example and version history, and the platform team.
+          Narrow the window to see the mid-width layout the platform shell gives it beside its rail.
         </p>
       </div>
       <PlatformOverview />

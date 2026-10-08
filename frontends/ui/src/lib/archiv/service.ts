@@ -1,7 +1,8 @@
 /**
  * Archiv service — business logic for the org-wide document Archiv.
  *
- * The Archiv is a hierarchical add-on on top of the existing documents domain:
+ * The Archiv is a hierarchical add-on on top of the existing documents domain
+ * and, since ADR-0078, has folders like a project's Dateien:
  * an Archiv document is a `documents` row with `scope = 'archiv'`, `projectId`
  * NULL, and `collectionName = archiv_<orgId>`. That lets this service REUSE the
  * document pipeline wholesale — the SeaweedFS upload, the model-vs-ingest
@@ -17,47 +18,27 @@
  */
 
 import 'server-only'
-import { PutObjectCommand, DeleteObjectCommand } from '@aws-sdk/client-s3'
-import {
-  s3Client,
-  bucketAdminS3Client,
-  buildArchivStorageKey,
-  buildThumbnailStorageKey,
-} from '@/lib/s3'
-import { ensureTenantBucketChecked, resolveDocumentBucket } from '@/lib/storage/bucket'
 import { canManageArchiv } from '@/lib/authz/organizations'
 import { recordAuditEvent } from '@/lib/audit/service'
 import { getBackendUrl } from '@/lib/backend-proxy'
 import { ForbiddenError, NotFoundError } from '@/lib/api/errors'
-import {
-  assertFileSizeAllowed,
-  assertUploadTypeAllowed,
-  dispatchDocument,
-  fetchSemanticHits,
-  joinHitsToFiles,
-  type SearchedDocument,
-} from '@/lib/documents/service'
+import { fetchSemanticHits, joinHitsToFiles, type SearchedDocument } from '@/lib/documents/service'
 import { collectionFileRef, purgeIngestedChunks } from '@/lib/documents/collection-file-ref'
-import { contentDigest } from '@/lib/documents/content-digest'
-import { documentNameKey } from '@/lib/documents/name-match'
-import { deleteBimDerivedObjects } from '@/lib/bim/service'
-import { assertWithinStorageQuota } from '@/lib/storage/service'
-import { admitOrDiscard, admitReplacementOrDiscard } from '@/lib/storage/admission'
-import { reconcileDocumentStatuses, type DocumentMetadata } from '@/lib/documents/reconcile-status'
-import { findLiveDocumentByFilename } from '@/lib/documents/repository'
-import { deleteDocumentObjects } from '@/lib/documents/object-cleanup'
-import {
-  nextVersionNumber,
-  recordUploadedVersion,
-} from '@/lib/documents/lifecycle'
-import { versionedStorageKey } from '@/lib/documents/version-content'
-import { listDocumentVersionObjects } from '@/lib/documents/version-repository'
-import type { DocumentListRow } from '@/lib/documents/repository'
+import { ARCHIV_SHELF } from '@/lib/documents/shelf'
+import { toListedDocuments, toListedPage, type ListedDocument } from '@/lib/documents/shelf-listing'
+import { uploadToShelf, type UploadDocumentResult } from '@/lib/documents/shelf-upload'
+import type { DocumentListCursor } from '@/lib/documents/list-cursor'
+import type { DocumentNameMatchRow } from '@/lib/documents/repository'
+import { eraseDocumentObjectsOrKeepRow } from '@/lib/documents/object-cleanup'
+import { assertNoActiveHold } from '@/lib/compliance/holds'
+import type { DocumentAuthor } from '@/lib/db/schema'
 import type { AuthorizedSession } from '@/lib/auth/types'
 import { archivCollectionName } from './collection'
 import {
   deleteArchivDocument as deleteArchivDocumentRow,
   findArchivDocument,
+  findArchivDocumentsByFilenames,
+  findArchivDocumentsByNames,
   listArchivDocuments as listArchivDocumentRows,
 } from './repository'
 
@@ -65,23 +46,34 @@ import {
 const BACKEND_FETCH_TIMEOUT_MS = 10_000
 
 export interface ArchivListResult {
-  documents: Array<Omit<DocumentListRow, 'metadata'> & DocumentMetadata>
+  documents: ListedDocument[]
+  /**
+   * Where the next page starts, or `null` when this page is the last. Opaque;
+   * a client passes it back as `?cursor=` until it is `null`.
+   */
+  nextCursor: string | null
   collectionName: string
   /** Whether the caller may upload/delete (drives the read-only vs manage UI). */
   canManage: boolean
 }
 
 /**
- * List the org's Archiv (bounded), lazily reconciling in-flight ingestion
- * statuses with the backend and merging its read-only document metadata — the
- * exact same treatment `listDocuments` gives a project's corpus. Any org member
- * may read; the internal `metadata` jsonb never leaves the BFF.
+ * One page of the org's Archiv (bounded, keyset-paginated), lazily reconciling
+ * in-flight ingestion statuses with the backend and merging its read-only
+ * document metadata — the exact same treatment, and the same options and rows,
+ * `listDocumentsPage` gives a project's corpus (`toListedPage`, ADR-0078). Any
+ * org member may read; the internal `metadata` jsonb never leaves the BFF.
+ *
+ * Archived documents have left the working set and are absent unless
+ * `includeArchived` says otherwise; `authoredBy` narrows to one hand.
  */
-export async function listArchiv(session: AuthorizedSession): Promise<ArchivListResult> {
-  const rows = await listArchivDocumentRows(session.organizationId)
-  const reconciled = await reconcileDocumentStatuses(rows, session.organizationId)
+export async function listArchiv(
+  session: AuthorizedSession,
+  options: { authoredBy?: DocumentAuthor; includeArchived?: boolean; cursor?: DocumentListCursor } = {},
+): Promise<ArchivListResult> {
+  const page = await listArchivDocumentRows(session.organizationId, options)
   return {
-    documents: reconciled.map(({ metadata: _metadata, ...row }) => row),
+    ...(await toListedPage(session, page)),
     collectionName: archivCollectionName(session.organizationId),
     canManage: canManageArchiv(session),
   }
@@ -89,160 +81,84 @@ export async function listArchiv(session: AuthorizedSession): Promise<ArchivList
 
 /**
  * Document-centric semantic search over the org's shared Archiv. Any org member
- * may read (via `listArchiv`); resolves the org's `archiv_<orgId>` collection,
- * runs the deterministic vector search on the backend, and joins the hits to the
+ * may read; resolves the org's `archiv_<orgId>` collection, runs the
+ * deterministic vector search on the backend, and joins the hits to the
  * Archiv's file rows by filename. Fail-open: a backend error/timeout yields
  * `{ hits: [] }`, never a crash.
+ *
+ * The join looks the hit names up directly rather than reading the listing:
+ * the listing is paged, and a hit on a document past its first page would
+ * otherwise be dropped as if the search had not found it.
  */
 export async function searchArchivDocuments(
   session: AuthorizedSession,
   query: string,
   topK = 20,
-): Promise<{ hits: Array<SearchedDocument<ArchivListResult['documents'][number]>> }> {
-  const { documents, collectionName } = await listArchiv(session)
-  const hits = await fetchSemanticHits(collectionName, query, topK)
-  return { hits: joinHitsToFiles(hits, documents) }
-}
-
-export interface UploadArchivDocumentResult {
-  documentId: string
-  jobId: string | null
-  /** `processing` is the IFC path — see `UploadDocumentResult`. */
-  status: 'pending' | 'uploaded' | 'failed' | 'processing'
-  filename: string
+): Promise<{ hits: Array<SearchedDocument<ListedDocument>> }> {
+  const hits = await fetchSemanticHits(archivCollectionName(session.organizationId), query, topK)
+  if (hits.length === 0) return { hits: [] }
+  const rows = await findArchivDocumentsByFilenames(
+    session.organizationId,
+    hits.map((hit) => hit.file_name),
+  )
+  return { hits: joinHitsToFiles(hits, await toListedDocuments(session, rows)) }
 }
 
 /**
- * Store an uploaded file in SeaweedFS under the org's Archiv prefix, record it as an
- * `archiv`-scoped document, and hand it to the backend for ingestion into the
- * org's shared `archiv_<orgId>` collection. Ingest is best-effort (the file is
- * already durable in SeaweedFS + Postgres); status reads reconcile the outcome.
- * Requires `org:archiv:manage`.
+ * The Archiv documents NAMED `filenames` (case-insensitive, either Unicode
+ * form), as listing rows — the by-name resolve
+ * (`POST /api/archiv/documents/by-name`). For the readers that want particular
+ * documents (citations, surfaced-document cards), which used to look them up in
+ * the listing's first page and missed every one past it. Any org member may
+ * read, as with `listArchiv`.
  */
-export async function uploadArchivDocument(
+export async function resolveArchivDocumentsByName(
+  session: AuthorizedSession,
+  filenames: readonly string[],
+): Promise<ListedDocument[]> {
+  const rows = await findArchivDocumentsByFilenames(session.organizationId, filenames)
+  return toListedDocuments(session, rows)
+}
+
+/**
+ * Which of `names` the Archiv already holds — the upload planner's question,
+ * asked of the database rather than of the paged listing (see
+ * `probeProjectDocumentNames`). Any org member may read, as with `listArchiv`.
+ */
+export async function probeArchivDocumentNames(
+  session: AuthorizedSession,
+  names: readonly string[],
+): Promise<DocumentNameMatchRow[]> {
+  return findArchivDocumentsByNames(session.organizationId, names)
+}
+
+export type UploadArchivDocumentResult = UploadDocumentResult
+
+/**
+ * Store an uploaded file in SeaweedFS under the org's Archiv prefix, record it as
+ * an `archiv`-scoped document, and hand it to the backend for ingestion into the
+ * org's shared `archiv_<orgId>` collection — the Archiv's name for the
+ * shelf-parameterised pipeline in `@/lib/documents/shelf-upload`, which a
+ * project's Dateien share. Ingest is best-effort (the file is already durable in
+ * SeaweedFS + Postgres); status reads reconcile the outcome. Requires
+ * `org:archiv:manage`.
+ *
+ * `folderId` files the document into one of the Archiv's folders and
+ * `originPath` records where a folder upload found it, as on a project.
+ */
+export function uploadArchivDocument(
   session: AuthorizedSession,
   file: File,
   request: Request,
+  { folderId = null, originPath = null }: { folderId?: string | null; originPath?: string | null } = {},
 ): Promise<UploadArchivDocumentResult> {
-  if (!canManageArchiv(session)) throw new ForbiddenError()
-  await assertUploadTypeAllowed(session, file.name)
-  assertFileSizeAllowed(file.size, file.name)
-  // Same org ceiling as the project path — the Archiv shares the tenant's
-  // bytes, so it must not be a way around the quota (ADR-0042).
-  await assertWithinStorageQuota(session.organizationId, file.size)
-
-  const collectionName = archivCollectionName(session.organizationId)
-  // Same replace-on-re-upload rule as the project path, for the same reason and
-  // through the same helpers — see `uploadDocument`. The Archiv is not a
-  // different filing system; it is the same table with `scope = 'archiv'`, so a
-  // second upload of one filename left the same paid-for ghost here.
-  // One Unicode form, for the same reason and through the same helper as the
-  // project shelf: this is the same table and the same unique name, so a
-  // decomposed name off a Mac would put a second row here too. See
-  // `@/lib/documents/name-match`.
-  const filename = documentNameKey(file.name)
-  const superseded = await findLiveDocumentByFilename(session.organizationId, collectionName, filename)
-  const documentId = superseded?.id ?? crypto.randomUUID()
-  // A re-upload writes new bytes under a new `v<n>/` key, so the version it
-  // replaces keeps an object a reader can open (ADR-0054). Version 1 keeps
-  // today's key exactly.
-  const versionNumber = superseded
-    ? await nextVersionNumber(documentId, session.organizationId)
-    : 1
-  const storageKey = versionedStorageKey(
-    buildArchivStorageKey(session.organizationId, documentId, filename),
-    versionNumber,
-  )
-
-  // Same provisioning step as the project path (ADR-0043): the Archiv shares
-  // the tenant's bucket, because it shares the tenant's bytes.
-  const storageBucket = await ensureTenantBucketChecked(bucketAdminS3Client, session.organizationId)
-
-  const bytes = Buffer.from(await file.arrayBuffer())
-  // The same digest the project corpus records, from the same helper. The
-  // Archiv has no folder upload of its own today; the column still describes
-  // the bytes on every shelf, so a row here is not the one that has to be
-  // explained later.
-  const contentHash = contentDigest(bytes)
-  await s3Client.send(
-    new PutObjectCommand({
-      Bucket: storageBucket,
-      Key: storageKey,
-      Body: bytes,
-      ContentType: file.type || 'application/octet-stream',
-    }),
-  )
-
-  // Same hard ceiling as the project path, and the same compensating delete on
-  // refusal (ADR-0042). The Archiv shares the tenant's bytes, so it must not be
-  // a way around the limit — including under concurrency, which is what the
-  // pre-check above cannot cover.
-  if (superseded) {
-    await admitReplacementOrDiscard(storageBucket, storageKey, session.organizationId, documentId, {
-      storageKey,
-      storageBucket,
-      fileSize: file.size,
-      contentType: file.type || null,
-      contentHash,
-      folderId: null,
-      createdBy: session.userId,
-    })
-    // Nothing is discarded: the previous bytes are the previous VERSION's now
-    // (ADR-0054) and its row still names them. They go with the document.
-  } else {
-    await admitOrDiscard(storageBucket, storageKey, {
-      id: documentId,
-      organizationId: session.organizationId,
-      projectId: null,
-      scope: 'archiv',
-      folderId: null,
-      createdBy: session.userId,
-      filename,
-      storageKey,
-      storageBucket,
-      collectionName,
-      fileSize: file.size,
-      contentType: file.type || null,
-      contentHash,
-      status: 'uploaded',
-    })
-  }
-
-  // The version, through the same transition table every other shelf uses
-  // (ADR-0054): born `published` and born approved, because the person who
-  // uploaded it is the assertion.
-  await recordUploadedVersion(session, documentId, request)
-
-  // Same dispatcher as every other shelf: the STEP source of an IFC is never
-  // embedded, so an uploaded model is parsed and its digest is what reaches the
-  // org-wide Archiv collection.
-  const { jobId, status } = await dispatchDocument({
-    organizationId: session.organizationId,
-    projectId: null,
-    documentId,
-    filename,
-    storageKey,
-    storageBucket,
-    collectionName,
-  })
-
-  // Data-provenance event: who brought which file into the org Archiv.
-  await recordAuditEvent({
-    organizationId: session.organizationId,
-    actor: { userId: session.userId, email: session.email },
-    action: 'archiv.document.uploaded',
-    targetType: 'document',
-    targetId: documentId,
-    metadata: { filename: filename.slice(0, 200), fileSize: file.size, collectionName },
-    request,
-  })
-
-  return { documentId, jobId, status, filename }
+  return uploadToShelf(session, ARCHIV_SHELF, { file, folderId, originPath }, request)
 }
 
 /**
  * Delete an Archiv document: purge its RAG chunks (best-effort), remove the
- * SeaweedFS object, delete the row, and audit. Requires `org:archiv:manage`.
+ * SeaweedFS object, delete the row, purge the chunks once more, and audit.
+ * Requires `org:archiv:manage`.
  */
 export async function deleteArchivDocument(
   session: AuthorizedSession,
@@ -253,6 +169,9 @@ export async function deleteArchivDocument(
 
   const doc = await findArchivDocument(documentId, session.organizationId)
   if (!doc) throw new NotFoundError()
+  // Before the first destructive step: a hold on the document, its uploader or
+  // the organization refuses the delete with a 409 (`@/lib/compliance/holds`).
+  await assertNoActiveHold(session.organizationId, 'document', documentId)
 
   // Best-effort: remove the ingested chunks so a deleted document stops showing
   // up in retrieval. A backend hiccup must not block the durable SeaweedFS + DB
@@ -272,36 +191,18 @@ export async function deleteArchivDocument(
     ? await purgeIngestedChunks(getBackendUrl(), purgeRef, BACKEND_FETCH_TIMEOUT_MS)
     : null
 
-  // Every VERSION's objects, not only the live one (ADR-0054) — see the same
-  // loop in `deleteDocument` for why a superseded version's bytes would
-  // otherwise stay in the bucket, invisible and still charged.
-  for (const version of await listDocumentVersionObjects(documentId, session.organizationId)) {
-    if (version.storageKey === doc.storageKey) continue
-    await deleteDocumentObjects(version).catch(() => undefined)
-  }
-
-  if (doc.storageKey) {
-    try {
-      const bucket = resolveDocumentBucket(doc.storageBucket)
-      await s3Client.send(new DeleteObjectCommand({ Bucket: bucket, Key: doc.storageKey }))
-      // The ingest pipeline writes `_thumb.jpg` beside the object; deleting
-      // only the document left it orphaned. Same fix as the project path.
-      const thumbKey = buildThumbnailStorageKey(doc.storageKey)
-      if (thumbKey) {
-        await s3Client
-          .send(new DeleteObjectCommand({ Bucket: bucket, Key: thumbKey }))
-          .catch(() => undefined)
-      }
-      // The IFC pipeline writes its digest and index under a `_bim/`
-      // subdirectory of the same document folder — nested, so the exact-key
-      // deletes above never reach them.
-      await deleteBimDerivedObjects(doc.storageKey, doc.storageBucket).catch(() => undefined)
-    } catch {
-      // ignore — the object may already be gone; the row delete below is the record of intent
-    }
-  }
+  // Every version's objects and derivatives, or a 502 and the row stays — the
+  // same erasure the project delete runs (`eraseDocumentObjectsOrKeepRow`).
+  await eraseDocumentObjectsOrKeepRow(doc, session.organizationId)
 
   await deleteArchivDocumentRow(documentId, session.organizationId)
+
+  // Once more, now that the row is gone: an ingest of this document that
+  // asked `GET /api/internal/document-exists` before the row went saw it,
+  // and kept chunks it inserted after the first purge (ADR-0054, correction
+  // 18). Any check from here on reads „gone“ and discards its own. Logged
+  // inside, never thrown: the row is gone, and the orphan sweep is the net.
+  if (purgeRef) await purgeIngestedChunks(getBackendUrl(), purgeRef, BACKEND_FETCH_TIMEOUT_MS)
 
   await recordAuditEvent({
     organizationId: session.organizationId,

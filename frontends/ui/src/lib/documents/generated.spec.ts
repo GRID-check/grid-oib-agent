@@ -230,7 +230,7 @@ describe('fileGeneratedDocument', () => {
 
   it('lands in the destination the resolver names', async () => {
     await file()
-    expect(getOrCreateProjectFolderByName).toHaveBeenCalledWith('proj-1', 'Berichte')
+    expect(getOrCreateProjectFolderByName).toHaveBeenCalledWith('proj-1', 'Berichte', 'org-1')
   })
 
   /**
@@ -807,12 +807,18 @@ describe('fileGeneratedDocument', () => {
         // back, then re-throw. The key is this caller's own, so the winner's
         // object is untouched.
         await s3Send(new DeleteObjectCommand({ Bucket: bucket, Key: key }))
-        throw Object.assign(
-          new Error(
-            'duplicate key value violates unique constraint "uniq_documents_authored_ref_producer_per_project"',
+        // The shape drizzle really throws: a `Failed query` wrapper with NO code
+        // of its own, the driver's error on `cause`. A flat `{ code }` here is
+        // how the catch's `error.code` check passed its spec and never matched
+        // in production.
+        throw new Error('Failed query: insert into "documents" …', {
+          cause: Object.assign(
+            new Error(
+              'duplicate key value violates unique constraint "uniq_documents_authored_ref_producer_per_project"',
+            ),
+            { code: '23505', constraint_name: 'uniq_documents_authored_ref_producer_per_project' },
           ),
-          { code: '23505' },
-        )
+        })
       })
 
       const [first, second] = await Promise.all([file(), file()])
@@ -1085,15 +1091,15 @@ describe('every path that can create a machine-authored row', () => {
     }
   }
 
-  it('has exactly four callers of the admitting path, and only this one authors a row', () => {
+  it('has exactly three callers of the admitting path, and only this one authors a row', () => {
     const admitters = importersOf('@/lib/storage/admission')
     // Named in full rather than counted: a new entry here is a new way for a
     // `documents` row to exist, and this test is where somebody has to look at
     // it and decide whether it can author one.
     expect(admitters).toEqual([
-      'lib/archiv/service.ts',
       'lib/documents/generated.ts',
-      'lib/documents/service.ts',
+      // The project and the Archiv upload are ONE pipeline (ADR-0078).
+      'lib/documents/shelf-upload.ts',
       'lib/session-documents/service.ts',
     ])
 
@@ -1102,7 +1108,7 @@ describe('every path that can create a machine-authored row', () => {
         call.includes('authoredBy'),
       ),
     )
-    // The three upload paths never set the column, so their rows take the
+    // The upload paths never set the column, so their rows take the
     // `'user'` default and no request field can make one machine-authored.
     expect(authoring).toEqual(['lib/documents/generated.ts'])
   })

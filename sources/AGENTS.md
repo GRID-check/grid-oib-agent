@@ -11,17 +11,19 @@ a package under `sources/` is covered the day it lands — the glob picks it up
 with no list to update.
 
 ```bash
-task be:test:sources          # what CI runs
-PYTHONPATH=src pytest sources/<package>/tests -q   # one package
+task be:test:sources                          # what CI runs: every package, one run
+.venv/bin/pytest sources/<package>/tests -q   # one package
 ```
 
-`pytest sources` as a single run does NOT work: every package ships a
-`tests/__init__.py`, so pytest derives the module name `tests.conftest` for each
-of them and the second one aborts collection with "Plugin already registered
-under a different name". That is why the task runs one pytest per package.
+No package here carries a `tests/__init__.py`. With one, pytest names its
+conftest `tests.conftest`, the same name as the repo's own `tests/` suite, and a
+run over both aborts with "Plugin already registered under a different name".
+Keep it that way: a helper a test needs from another file is imported by its path
+(`from sources.ris_adapter.tests.conftest import LookupHarness`), never as
+`tests.conftest`.
 
-This suite went uncovered for a long time — only the `stages: [push]` pre-commit
-hook touched it, and CI's repo-lint job skips that. A package here once carried
+This suite went uncovered for a long time. CI now runs it in the backend-test job
+(`task be:test:sources`). A package here once carried
 three tests asserting a function signature the implementation had already
 changed, and they stayed green through every gate because nothing ran them.
 
@@ -48,6 +50,13 @@ changed, and they stayed green through every gate because nothing ran them.
   (recorded as `search_input["requery_skipped"] = "family"`); a family the
   corpus lacks is judged as usual.
   Membership is derived from what is indexed, never listed.
+- A ranked search the requery judge found insufficient is re-read by the `jev`
+  decider after the requery round (`requery.judge_coverage`). A complete "no"
+  adds an `Abdeckung: unzureichend — …` line (`GroundingBlock.coverage_gap`)
+  and keeps the pool whole (ADR-0064: a decision never withholds a passage);
+  anything less claims nothing. Say
+  "insufficient" through that field, never as text a producer writes itself:
+  the prompt names the label (`COVERAGE_GAP_LABEL`).
 - [`aiq-add-data-source`](../skills/aiq-add-data-source/SKILL.md) is the
   step-by-step; [`aiq-add-tool`](../skills/aiq-add-tool/SKILL.md) covers a
   non-retrieval tool.

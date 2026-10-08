@@ -24,6 +24,11 @@ export interface ErrorMeta {
    */
   titleKey?: string
   /**
+   * False when resending the same question cannot help, so the banner offers no
+   * "Try again". Omitted means retryable.
+   */
+  retryable?: boolean
+  /**
    * `chat`-namespace i18n key for a localized default message. Used by the
    * banner when the caller does not pass an explicit (already-localized)
    * `message`. Optional so the English `defaultMessage` remains the fallback
@@ -63,6 +68,18 @@ export const ERROR_REGISTRY: Record<ErrorCode, ErrorMeta> = {
     defaultMessage: 'Unable to connect to the server. Please check your network connection.',
     messageKey: 'errorRegistry.connectionFailed.message',
   },
+  // The socket reached a server that never said it speaks wire v2 (no
+  // `hello`), attempt after attempt: an agent tier older than this page, as
+  // after a rollback. Not the reader's network, so it must not say "check your
+  // connection"; waiting is what helps, and the recovery poll reconnects.
+  'connection.server_incompatible': {
+    status: 'error',
+    title: 'Piloti is not reachable right now',
+    titleKey: 'errorRegistry.serverIncompatible.title',
+    defaultMessage:
+      'The server runs a different version than this page, which happens briefly during an update. Try again in a few minutes; if it persists, tell support.',
+    messageKey: 'errorRegistry.serverIncompatible.message',
+  },
   'connection.timeout': {
     status: 'warning',
     title: 'Request Timeout',
@@ -74,6 +91,13 @@ export const ERROR_REGISTRY: Record<ErrorCode, ErrorMeta> = {
   // ============================================================
   // Auth Errors
   // ============================================================
+  'connection.client_outdated': {
+    status: 'warning',
+    title: 'Piloti was updated',
+    titleKey: 'errorRegistry.clientOutdated.title',
+    defaultMessage: 'Piloti was updated. Reload the page to continue.',
+    messageKey: 'errorRegistry.clientOutdated.message',
+  },
   'auth.session_expired': {
     status: 'error',
     title: 'Session Expired',
@@ -112,6 +136,18 @@ export const ERROR_REGISTRY: Record<ErrorCode, ErrorMeta> = {
     titleKey: 'errorRegistry.workflowError.title',
     defaultMessage: 'The assistant hit an unexpected error while handling your request. Please try again.',
     messageKey: 'errorRegistry.workflowError.message',
+  },
+  // OpenRouter refused the request under the organization's zero-data-retention
+  // policy (see `lib/run-error.ts` for how it is recognised). A resend fails the
+  // same way until an admin chooses a model with a ZDR endpoint, so no retry.
+  'agent.zdr_refused': {
+    status: 'error',
+    title: 'Model not available under zero data retention',
+    titleKey: 'errorRegistry.zdrRefused.title',
+    defaultMessage:
+      "Your organization's zero-data-retention setting only allows models with a zero-data-retention endpoint, and the model for this task has none. An organization admin must choose one under Organization → Models.",
+    messageKey: 'errorRegistry.zdrRefused.message',
+    retryable: false,
   },
 
   // ============================================================

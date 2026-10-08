@@ -80,6 +80,24 @@ describe('useAnswerFileReferences', () => {
     expect(result.current.resolve('Bestandsplan-1910.pdf')?.corpus).toBe('session')
   })
 
+  // The index is "every file the reader has", so it reads the listing to its
+  // end: a file older than the first page is as nameable as the newest.
+  it('names a project file that sits past the listing\'s first page', async () => {
+    server.use(
+      http.get('/api/documents', ({ request }) =>
+        new URL(request.url).searchParams.get('cursor') === 'page-2'
+          ? HttpResponse.json({ documents: [row('p-old', 'Bestand-1962.pdf')], nextCursor: null })
+          : HttpResponse.json({ documents: [row('p-new', 'Statik.pdf')], nextCursor: 'page-2' })
+      ),
+      http.get('/api/archiv/documents', () => HttpResponse.json({ documents: [] })),
+      http.get('/api/session/documents', () => HttpResponse.json({ documents: [] }))
+    )
+    const { result } = referencesFor('Vergleichen Sie Bestand-1962.pdf.')
+
+    await waitFor(() => expect(result.current.fileNames).toEqual(['Bestand-1962.pdf']))
+    expect(result.current.resolve('Bestand-1962.pdf')?.file.id).toBe('p-old')
+  })
+
   it('prefers the project copy of a name held on two shelves', async () => {
     corpora({
       projekt: [row('p1', 'Plan.pdf')],

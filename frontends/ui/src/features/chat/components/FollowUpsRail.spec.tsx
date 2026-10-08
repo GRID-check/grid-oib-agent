@@ -1,17 +1,13 @@
 /**
- * The rail is the SAME offer as the card, in a different place
- * (`docs/architecture/post-answer-stages.md` §6).
- *
- * So the tests are about the difference and about the sameness, and nothing
- * else: the rail carries no `mt-5` of its own (the message column's `gap-4` is
- * the air), and it still makes the one promise the chips have always made —
- * a click fills the composer and does nothing else.
+ * The post-answer follow-ups rail (`docs/architecture/post-answer-stages.md`
+ * §6): it carries no `mt-5` of its own (the message column's `gap-4` is the
+ * air), and it makes the one promise the chips have always made — a click
+ * fills the composer and does nothing else.
  */
 import { render, screen } from '@/test-utils'
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { FollowUpsRail } from './FollowUpsRail'
-import { FollowUpsCard } from '@/features/grid-cards/components/FollowUpsCard'
 
 const setComposerPrefill = vi.fn()
 const mockStoreState = () => ({ setComposerPrefill })
@@ -64,27 +60,10 @@ describe('FollowUpsRail', () => {
   })
 
   it('owns no top margin — the message column’s gap is the air', () => {
-    // The one difference from the card, which owns its own 20px because it is a
-    // trailing block INSIDE the answer surface. A second margin here would put
-    // the rail further from its answer than the answer is from the question.
+    // A margin here would put the rail further from its answer than the answer
+    // is from the question.
     const { container } = render(<FollowUpsRail items={items} />)
     expect(container.querySelector('.mt-5')).toBeNull()
-
-    const card = render(<FollowUpsCard items={items} />)
-    expect(card.container.querySelector('.mt-5')).not.toBeNull()
-  })
-
-  it('offers the same chips as the stored card, question for question', () => {
-    // Old threads keep the card form forever (§7.10). A reader scrolling across
-    // the migration must see one affordance in two places, not two affordances.
-    const rail = render(<FollowUpsRail items={items} />)
-    const railLabels = Array.from(rail.container.querySelectorAll('button')).map((b) => b.textContent)
-    rail.unmount()
-
-    const card = render(<FollowUpsCard items={items} />)
-    const cardLabels = Array.from(card.container.querySelectorAll('button')).map((b) => b.textContent)
-
-    expect(railLabels).toEqual(cardLabels)
   })
 })
 

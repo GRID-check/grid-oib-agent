@@ -8,7 +8,9 @@
 
 import { act, renderHook, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { frameOf } from '@/test-utils/wire-v2-fixtures'
 import { useSpectatedTurn } from './use-spectated-turn'
+import { CARD_PREVIEW_FIXTURES } from '@/features/grid-cards/preview-fixtures'
 
 /** A controllable stand-in for the browser's EventSource. */
 class FakeEventSource {
@@ -30,28 +32,17 @@ class FakeEventSource {
   }
 }
 
-function frame(seq: number, payload: unknown) {
-  return { kind: 'frame', seq, payload }
+function frame(seq: number, body: Record<string, unknown>, turnId = 'turn-1') {
+  return { kind: 'frame', payload: frameOf(seq, body, turnId) }
 }
 
-/** An intermediate frame for a named tool, which the reducer folds by name. */
-function namedStep(name: string, payload: string) {
-  return {
-    type: 'system_intermediate_message',
-    id: `step-${name}-${payload}`,
-    content: { name, payload },
-    status: 'in_progress',
-  }
+/** A tool step, replaced by id on every update. */
+function toolStep(id: string, status: 'running' | 'ok' = 'running') {
+  return { type: 'STEP_STARTED', step: { id, kind: 'tool', tool: 'ris_search', status } }
 }
 
-function delta(text: string, parentId = 'turn-1') {
-  return {
-    type: 'system_response_message',
-    id: `${parentId}-${text}`,
-    parent_id: parentId,
-    content: { text },
-    status: 'in_progress',
-  }
+function delta(text: string) {
+  return { type: 'TEXT_MESSAGE_CONTENT', message_id: 'answer-1', delta: text }
 }
 
 describe('useSpectatedTurn', () => {
@@ -90,19 +81,19 @@ describe('useSpectatedTurn', () => {
 
     act(() => FakeEventSource.instances[0].emit(frame(1, delta('Ja, '))))
     await waitFor(() => expect(result.current.live).toBe(true))
-    expect(result.current.turn?.answer).toBe('Ja, ')
+    expect(result.current.turn?.text).toBe('Ja, ')
   })
 
   it('goes live on a masthead alone, before the first word', async () => {
-    // A direct reply can open with live_chunk("", answer_meta=…): the masthead
-    // is something to show, and the banner must give way to it.
+    // A direct reply opens with its masthead: something to show, and the
+    // banner must give way to it.
     const { result } = renderHook(() =>
       useSpectatedTurn({ conversationId: 'conv_1', enabled: true })
     )
-    const masthead = { ...delta(''), answer_meta: { v: 1, kind: 'direct', topic: 'Kurz' } }
+    const masthead = { type: 'CUSTOM', name: 'masthead', value: { answer_meta: { v: 1, kind: 'direct', topic: 'Kurz' } } }
     act(() => FakeEventSource.instances[0].emit(frame(1, masthead)))
     await waitFor(() => expect(result.current.live).toBe(true))
-    expect(result.current.turn?.answer).toBe('')
+    expect(result.current.turn?.text).toBe('')
   })
 
   it('goes live on cards alone, before the first word', async () => {
@@ -110,8 +101,9 @@ describe('useSpectatedTurn', () => {
       useSpectatedTurn({ conversationId: 'conv_1', enabled: true })
     )
     const cards = {
-      ...delta(''),
-      cards: [{ type: 'summary', title: 'Zusammenfassung', content: 'Alles gut.' }],
+      type: 'CUSTOM',
+      name: 'card',
+      value: { index: 0, key: 'k1', card: CARD_PREVIEW_FIXTURES.calculation },
     }
     act(() => FakeEventSource.instances[0].emit(frame(1, cards)))
     await waitFor(() => expect(result.current.live).toBe(true))
@@ -128,7 +120,7 @@ describe('useSpectatedTurn', () => {
     // A reconnect re-delivering seq 2 must not duplicate the tokens.
     act(() => source.emit(frame(2, delta('ab drei Geschossen.'))))
 
-    await waitFor(() => expect(result.current.turn?.answer).toBe('Ja, ab drei Geschossen.'))
+    await waitFor(() => expect(result.current.turn?.text).toBe('Ja, ab drei Geschossen.'))
   })
 
   it('reports every frame as activity, including ones that change nothing on screen', () => {
@@ -138,19 +130,18 @@ describe('useSpectatedTurn', () => {
     )
     const source = FakeEventSource.instances[0]
 
-    // A single long-running tool call: the reducer merges each update into the
-    // step it already has, so `steps.length` and `answer.length` stand still.
-    // Watching those two numbers — which is what the caller used to do — reads
-    // this as minutes of silence and tears the turn banner down mid-turn.
-    act(() => source.emit(frame(1, namedStep('ris_search', 'Suche läuft'))))
-    act(() => source.emit(frame(2, namedStep('ris_search', 'noch immer'))))
-    act(() => source.emit(frame(3, namedStep('ris_search', 'und weiter'))))
+    // A single long-running tool call: each update replaces the step by id,
+    // so the step count and the text stand still. Watching those reads this as
+    // minutes of silence and tears the turn banner down mid-turn.
+    act(() => source.emit(frame(1, toolStep('tool:1'))))
+    act(() => source.emit(frame(2, toolStep('tool:1'))))
+    act(() => source.emit(frame(3, toolStep('tool:1'))))
     // A replayed frame counts too: the socket delivered it, so the turn is alive.
-    act(() => source.emit(frame(3, namedStep('ris_search', 'und weiter'))))
+    act(() => source.emit(frame(3, toolStep('tool:1'))))
 
     // The premise: nothing a caller could derive from `turn` moved.
-    expect(result.current.turn?.steps).toHaveLength(1)
-    expect(result.current.turn?.answer).toBe('')
+    expect(result.current.turn?.stepOrder).toHaveLength(1)
+    expect(result.current.turn?.text).toBe('')
     expect(onFrame).toHaveBeenCalledTimes(4)
   })
 
@@ -200,7 +191,7 @@ describe('useSpectatedTurn', () => {
       { initialProps: { enabled: true } }
     )
     act(() => FakeEventSource.instances[0].emit(frame(1, delta('Halb geschriebene '))))
-    await waitFor(() => expect(result.current.turn?.answer).toBe('Halb geschriebene '))
+    await waitFor(() => expect(result.current.turn?.text).toBe('Halb geschriebene '))
 
     // The persisted answer is what renders from here on; a leftover live copy
     // would show the same answer twice.

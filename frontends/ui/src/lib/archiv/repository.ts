@@ -10,41 +10,54 @@
  */
 
 import 'server-only'
-import { and, desc, eq } from 'drizzle-orm'
+import { and, eq } from 'drizzle-orm'
 import { getDb } from '@/lib/db'
 import { documents, type Document } from '@/lib/db/schema'
-import { DOCUMENT_LIST_LIMIT, type DocumentListRow } from '@/lib/documents/repository'
+import {
+  findDocumentsByFilenames,
+  findDocumentsByNames,
+  listDocumentPage,
+  type DocumentListPage,
+  type DocumentListRow,
+  type DocumentNameMatchRow,
+} from '@/lib/documents/repository'
+import { ARCHIV_SHELF } from '@/lib/documents/shelf'
 
-/** List an organization's Archiv documents, most-recent first (bounded). */
-export async function listArchivDocuments(
+/**
+ * One keyset page of an organization's Archiv, most-recent first — the shared
+ * shelf listing (`listDocumentPage`) on the Archiv shelf, so it filters by
+ * lifecycle and author, orders, pages and cursors exactly as a project's does
+ * (ADR-0078). Bounded per page; the whole Archiv is reachable by following
+ * `nextCursor`.
+ */
+export function listArchivDocuments(
   organizationId: string,
-  limit = DOCUMENT_LIST_LIMIT,
+  options: Parameters<typeof listDocumentPage>[2] = {},
+): Promise<DocumentListPage> {
+  return listDocumentPage(ARCHIV_SHELF, organizationId, options)
+}
+
+/**
+ * The Archiv rows named `filenames` — the semantic search's join and the
+ * by-name resolve, which must reach a document whatever page of the listing it
+ * would sit on. Bounded by its input (`filenameLookupWhere`).
+ */
+export function findArchivDocumentsByFilenames(
+  organizationId: string,
+  filenames: readonly string[],
 ): Promise<DocumentListRow[]> {
-  const db = getDb()
-  return db
-    .select({
-      id: documents.id,
-      filename: documents.filename,
-      displayName: documents.displayName,
-      fileSize: documents.fileSize,
-      contentType: documents.contentType,
-      contentHash: documents.contentHash,
-      status: documents.status,
-      authoredBy: documents.authoredBy,
-      publishedVersionId: documents.publishedVersionId,
-      lifecycle: documents.lifecycle,
-      collectionName: documents.collectionName,
-      folderId: documents.folderId,
-      originPath: documents.originPath,
-      createdAt: documents.createdAt,
-      updatedAt: documents.updatedAt,
-      errorMessage: documents.errorMessage,
-      metadata: documents.metadata,
-    })
-    .from(documents)
-    .where(and(eq(documents.organizationId, organizationId), eq(documents.scope, 'archiv')))
-    .orderBy(desc(documents.createdAt))
-    .limit(limit)
+  return findDocumentsByFilenames(ARCHIV_SHELF, organizationId, filenames)
+}
+
+/**
+ * The Archiv documents answering to any of `names` — the upload planner's
+ * name probe, matched the way the upload will match (`probeDocumentNames`).
+ */
+export function findArchivDocumentsByNames(
+  organizationId: string,
+  names: readonly string[],
+): Promise<DocumentNameMatchRow[]> {
+  return findDocumentsByNames(ARCHIV_SHELF, organizationId, names)
 }
 
 /** Load one Archiv document by id, scoped to its organization. */

@@ -1,8 +1,8 @@
 """The conversation bus over REAL Redis semantics (fakeredis), not the in-memory
-double. Validates the RedisTransport wrapper — pub/sub, XADD/XRANGE replay, and
-SET NX EX owner election — the exact redis.asyncio calls the stateless chat tier
-makes in production. Two RedisTransports over one shared FakeServer stand in for
-two replicas on one Dragonfly.
+double. Validates the RedisTransport wrapper — pub/sub and XADD/XRANGE replay —
+the exact redis.asyncio calls the stateless chat tier makes in production. Two
+RedisTransports over one shared FakeServer stand in for two replicas on one
+Dragonfly.
 
 fakeredis is a test-only dep; skipped where it is not installed.
 """
@@ -65,7 +65,6 @@ async def test_frames_fan_out_over_real_pubsub():
         await owner.publish_frame(CONV, {"i": i})
     await asyncio.wait_for(task, 3.0)
     assert [e.payload["i"] for e in got] == [0, 1, 2]
-    assert [e.seq for e in got] == [1, 2, 3]
     assert all(e.type == FRAME for e in got)
 
 
@@ -81,26 +80,99 @@ async def test_hitl_answer_over_real_pubsub():
 
     task = asyncio.ensure_future(_collect())
     await asyncio.sleep(0.1)
-    await relay.publish_answer(CONV, {"type": "text", "text": "go ahead"})
+    await relay.publish_input(CONV, HITL_ANSWER, {"message": {"type": "interaction_response"}, "subject": "u1"})
     await asyncio.wait_for(task, 3.0)
     assert inbox[0].type == HITL_ANSWER
-    assert inbox[0].payload["text"] == "go ahead"
+    assert inbox[0].payload["subject"] == "u1"
 
 
 @pytest.mark.asyncio
-async def test_reconnect_replay_via_real_xadd_xrange():
+async def test_attach_replay_via_real_xadd_xrange():
     owner, relay = _redis_replicas()
-    for i in range(4):
-        await owner.publish_frame(CONV, {"i": i})  # XADD to conv:*:stream
-    missed = await relay.replay_frames(CONV, after_seq=1)  # XRANGE
-    assert [e.seq for e in missed] == [2, 3, 4]
+    for seq in (1, 2, 3):
+        await owner.publish_frame(CONV, {"v": 2, "turn_id": "t1", "seq": seq})  # XADD to conv:*:stream
+    replayed = await relay.replay_turn(CONV, "t1")  # XRANGE
+    assert [frame["seq"] for frame in replayed] == [1, 2, 3]
 
 
 @pytest.mark.asyncio
-async def test_owner_election_via_real_set_nx_ex():
-    owner, other = _redis_replicas()
-    assert await owner.claim_owner(CONV) is True
-    assert await other.claim_owner(CONV) is False  # SET NX fails — already owned
-    assert await owner.renew_owner(CONV) is True  # owner renews (EXPIRE)
-    await owner.release_owner(CONV)
-    assert await other.claim_owner(CONV) is True  # free after DELETE
+async def test_a_turn_id_is_claimed_once_over_real_set_nx():
+    owner, relay = _redis_replicas()
+
+    assert await owner.claim_turn(CONV, "t1")  # SET conv:*:turn:t1 NX EX
+    assert not await relay.claim_turn(CONV, "t1")
+
+
+@pytest.mark.asyncio
+async def test_ready_is_set_by_the_server_s_subscribe_confirmation():
+    owner, relay = _redis_replicas()
+    ready = asyncio.Event()
+    got: list = []
+
+    async def _collect():
+        async for env in relay.subscribe_frames(CONV, ready):
+            got.append(env)
+            return
+
+    task = asyncio.ensure_future(_collect())
+    await asyncio.wait_for(ready.wait(), 3.0)  # no sleep: the server's confirmation is the signal
+    await owner.publish_frame(CONV, {"i": 0})
+    await asyncio.wait_for(task, 3.0)
+    assert got[0].payload == {"i": 0}
+
+
+@pytest.mark.asyncio
+async def test_the_running_marker_is_one_compare_and_write_over_real_redis():
+    owner, relay = _redis_replicas()
+
+    assert await owner.acquire_running(CONV, "t1")  # SET NX PX
+    assert not await relay.acquire_running(CONV, "t2")
+    assert (await relay.running_holder(CONV)).turn_id == "t1"
+    assert not await relay.renew_running(CONV, "t1")  # WATCH sees another value: not the relay's
+    assert not await relay.release_running(CONV, "t1")
+    assert await owner.renew_running(CONV, "t1")
+    assert await owner.release_running(CONV, "t1")
+    assert await relay.running_holder(CONV) is None
+    assert await relay.acquire_running(CONV, "t2")
+
+
+@pytest.mark.asyncio
+async def test_a_running_marker_expires_on_its_ttl_over_real_redis(monkeypatch):
+    from aiq_api import conversation_bus
+
+    monkeypatch.setattr(conversation_bus, "RUNNING_TTL_SECONDS", 0.1)
+    owner, relay = _redis_replicas()
+    await owner.acquire_running(CONV, "t1")
+
+    await asyncio.sleep(0.25)
+
+    assert await relay.running_holder(CONV) is None
+    assert await relay.acquire_running(CONV, "t2")
+
+
+@pytest.mark.asyncio
+async def test_distinct_turns_racing_from_an_empty_marker_over_real_redis_exactly_one_acquires():
+    owner, relay = _redis_replicas()
+
+    won = await asyncio.gather(*(bus.acquire_running(CONV, f"t{i}") for i, bus in enumerate([owner, relay] * 10)))
+
+    assert sum(won) == 1
+    assert (await owner.running_holder(CONV)).turn_id == f"t{won.index(True)}"
+
+
+@pytest.mark.asyncio
+async def test_a_renewal_over_real_redis_restarts_the_expiry_and_a_late_one_does_not_revive_the_marker(monkeypatch):
+    from aiq_api import conversation_bus
+
+    monkeypatch.setattr(conversation_bus, "RUNNING_TTL_SECONDS", 0.2)
+    owner, relay = _redis_replicas()
+    await owner.acquire_running(CONV, "t1")
+    for _ in range(3):
+        await asyncio.sleep(0.1)
+        assert await owner.renew_running(CONV, "t1")  # alive well past one TTL, only because it is renewed
+    assert not await relay.acquire_running(CONV, "t2")
+
+    await asyncio.sleep(0.3)
+
+    assert not await owner.renew_running(CONV, "t1")  # expired: a late renewal says so, it does not bring it back
+    assert await relay.acquire_running(CONV, "t2")

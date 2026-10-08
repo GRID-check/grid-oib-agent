@@ -39,7 +39,14 @@ export const DOC_CLASSES = [
 
 export type DocClass = (typeof DOC_CLASSES)[number]
 
-/** doc_class key → German label (mirrors backend `DOCUMENT_CLASS_LABELS`). */
+/**
+ * doc_class key → German label (mirrors backend `DOCUMENT_CLASS_LABELS`).
+ *
+ * The backend's vocabulary, held here for the parity test only. The UI renders
+ * the translated `platform.knowledge.docClasses.*` through `useDocClassLabel`
+ * (`features/platform/components/knowledge-atoms.tsx`); the German dictionary
+ * entries equal these, which `base-knowledge.spec.tsx` pins.
+ */
 export const DOC_CLASS_LABELS: Record<DocClass, string> = {
   oib_richtlinie: 'OIB-Richtlinie (verbindlich)',
   oib_leitfaden: 'OIB-Leitfaden',
@@ -80,6 +87,18 @@ export const resolveDocClass = (value: string | null | undefined): DocClass =>
   asDocClass(value) ?? DEFAULT_DOC_CLASS
 
 /**
+ * The decided Dokumentart worth offering: a known class that differs from the
+ * one the document has. Undefined when there is nothing to offer.
+ */
+export const suggestedDocClass = (file: {
+  docClass: string | null
+  docClassSuggestion: string | null
+}): DocClass | undefined => {
+  const suggestion = asDocClass(file.docClassSuggestion)
+  return suggestion && suggestion !== resolveDocClass(file.docClass) ? suggestion : undefined
+}
+
+/**
  * The `--source-*` tint family for a doc_class. All base classes resolve to the
  * `law` (Baurecht) family so they read as authoritative building law, matching
  * the citation chips.
@@ -94,7 +113,7 @@ export const docClassSignal = (docClass: string | null | undefined): SourceSigna
  * vocabulary, but the fallback keeps the contract honest).
  */
 export const docClassAuthority = (
-  docClass: string | null | undefined,
+  docClass: string | null | undefined
 ): 'OIB' | 'RIS' | 'ÖNORM' | null => {
   const tag = authorityTag(DOC_CLASS_LANES[resolveDocClass(docClass)])
   return tag === 'OIB' || tag === 'RIS' || tag === 'ÖNORM' ? tag : null

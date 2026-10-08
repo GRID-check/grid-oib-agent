@@ -90,6 +90,7 @@ describe('AnswerFeedback', () => {
         verdict: 'up',
         reason: null,
         comment: null,
+        expectedAnswer: null,
         conversationId: 'conv_1',
         projectId: 'proj_1',
       })
@@ -123,7 +124,7 @@ describe('AnswerFeedback', () => {
   })
 
   describe('down-vote path', () => {
-    test('discloses the reasons one step at a time, note last', async () => {
+    test('discloses the reasons and the note together, each optional', async () => {
       const user = userEvent.setup()
       render(<AnswerFeedback messageId="msg_1" conversationId="conv_1" />)
 
@@ -143,8 +144,9 @@ describe('AnswerFeedback', () => {
       for (const label of ['Inaccurate', 'Too slow', 'Wrong source', 'Other']) {
         expect(screen.getByRole('radio', { name: label })).toBeInTheDocument()
       }
-      // Step 3 has NOT happened yet: no note before a reason names the problem.
-      expect(screen.queryByRole('textbox')).not.toBeInTheDocument()
+      // The note does not wait for a reason: a voter who skips the chips
+      // still gets the box.
+      expect(screen.getByLabelText('Anything else?')).toBeInTheDocument()
 
       await user.click(screen.getByRole('radio', { name: 'Wrong source' }))
 
@@ -156,9 +158,69 @@ describe('AnswerFeedback', () => {
         comment: null,
       })
 
-      // Step 3: the optional note appears only now.
-      expect(screen.getByRole('textbox')).toBeInTheDocument()
+      // Choosing a reason keeps the note open.
       expect(screen.getByLabelText('Anything else?')).toBeInTheDocument()
+    })
+
+    test('a note without a reason is sent with its reason left empty', async () => {
+      const user = userEvent.setup()
+      render(<AnswerFeedback messageId="msg_1" conversationId="conv_1" />)
+
+      await user.click(downThumb())
+      await user.type(screen.getByLabelText('Anything else?'), 'Brüstungshöhe nicht gefunden.')
+      await user.click(screen.getByRole('button', { name: 'Send note' }))
+
+      await waitFor(() => expect(postCalls()).toHaveLength(2))
+      expect(JSON.parse((postCalls()[1] as [string, RequestInit])[1].body as string)).toMatchObject({
+        verdict: 'down',
+        reason: null,
+        comment: 'Brüstungshöhe nicht gefunden.',
+      })
+    })
+
+    test('the expected-answer field alone enables the submit and is sent with the note', async () => {
+      const user = userEvent.setup()
+      render(<AnswerFeedback messageId="msg_1" conversationId="conv_1" />)
+
+      await user.click(downThumb())
+      const submit = screen.getByRole('button', { name: 'Send note' })
+      expect(submit).toBeDisabled()
+
+      await user.type(
+        screen.getByLabelText('What should a good answer have contained?'),
+        'Parapet height 1.00 m per OIB-RL 4',
+      )
+      expect(submit).toBeEnabled()
+      await user.click(submit)
+
+      await waitFor(() => expect(postCalls()).toHaveLength(2))
+      expect(JSON.parse((postCalls()[1] as [string, RequestInit])[1].body as string)).toMatchObject({
+        verdict: 'down',
+        reason: null,
+        comment: null,
+        expectedAnswer: 'Parapet height 1.00 m per OIB-RL 4',
+      })
+    })
+
+    test('choosing a reason keeps an already-saved expected answer', async () => {
+      const user = userEvent.setup()
+      mockFetch.mockResolvedValue(
+        okJson({
+          feedback: [
+            { messageId: 'msg_1', verdict: 'down', reason: null, comment: null, expectedAnswer: 'Brüstung 1,00 m' },
+          ],
+        }),
+      )
+      render(<AnswerFeedback messageId="msg_1" conversationId="conv_1" />)
+
+      await waitFor(() => expect(downThumb()).toHaveAttribute('aria-pressed', 'true'))
+      await user.click(screen.getByRole('radio', { name: 'Inaccurate' }))
+
+      await waitFor(() => expect(postCalls()).toHaveLength(1))
+      expect(JSON.parse((postCalls()[0] as [string, RequestInit])[1].body as string)).toMatchObject({
+        reason: 'inaccurate',
+        expectedAnswer: 'Brüstung 1,00 m',
+      })
     })
 
     test('the reason chips are keyboard-operable as one radiogroup', async () => {
@@ -183,10 +245,10 @@ describe('AnswerFeedback', () => {
       const submit = screen.getByRole('button', { name: 'Send note' })
       expect(submit).toBeDisabled()
 
-      await user.type(screen.getByRole('textbox'), '   ')
+      await user.type(screen.getByLabelText('Anything else?'), '   ')
       expect(submit).toBeDisabled()
 
-      await user.type(screen.getByRole('textbox'), 'Missed OIB RL 4.')
+      await user.type(screen.getByLabelText('Anything else?'), 'Missed OIB RL 4.')
       expect(submit).toBeEnabled()
     })
 

@@ -1,4 +1,6 @@
-import { S3Client } from "@aws-sdk/client-s3";
+import { S3Client, type GetObjectCommand, type PutObjectCommand } from "@aws-sdk/client-s3";
+import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
+import { BadRequestError } from "@/lib/api/errors";
 
 const credentials = {
   accessKeyId: process.env.SEAWEED_ACCESS_KEY || "",
@@ -17,6 +19,22 @@ export const s3Client = new S3Client({
   requestChecksumCalculation: "WHEN_REQUIRED",
   responseChecksumValidation: "WHEN_REQUIRED",
 });
+
+/**
+ * Presign a URL the BACKEND uses, against the in-network endpoint.
+ *
+ * The backend reads and writes the store from inside the network, so a URL it is
+ * handed must name the endpoint it can reach (SEAWEED_ENDPOINT), never the
+ * browser-facing one: in Compose that is `localhost:8333`, which inside the
+ * backend container is the backend itself, and in Kubernetes it is the public
+ * edge, a round trip out of the cluster and back. Every URL in an ingest job
+ * (`file_ref`, the rendition, the thumbnail slot) and every slot the backend asks
+ * for (document images, base-corpus PDFs) goes through here; a URL for the
+ * browser goes through {@link signingS3Client}.
+ */
+export function presignForBackend(command: GetObjectCommand | PutObjectCommand, expiresIn: number): Promise<string> {
+  return getSignedUrl(s3Client, command, { expiresIn });
+}
 
 /**
  * Client used ONLY to SIGN presigned URLs handed to the browser.
@@ -97,12 +115,39 @@ export const bucketName = process.env.SEAWEED_BUCKET || "grid-documents";
  * mistake the uploader can necessarily see, and a file called `A/B.ifc` should
  * store, not fail. A segment of nothing but dots is `.` or `..` itself, which
  * has no flattening to do and is prefixed instead.
+ *
+ * The names of the derived siblings are prefixed the same way, see
+ * {@link RESERVED_DERIVED_SEGMENTS}.
  */
 export function storageKeySegment(raw: string): string {
   const flattened = raw.replace(/[\u0000-\u001f\u007f]/g, '').replace(/[/\\]/g, '_')
-  const guarded = /^\.+$/.test(flattened) ? `_${flattened}` : flattened
-  return guarded.trim().slice(0, 255).trim() || 'unnamed'
+  const segment = flattened.trim().slice(0, 255).trim()
+  if (!segment) return 'unnamed'
+  const reserved = /^\.+$/.test(segment) || RESERVED_DERIVED_SEGMENTS.has(segment.toLowerCase())
+  return reserved ? `_${segment}`.slice(0, 255) : segment
 }
+
+/**
+ * The names the pipelines write BESIDE a stored file, in the file's own
+ * directory: the `_thumb.jpg` and `_render.pdf` siblings and the `_img/` and
+ * `_bim/` prefixes (`lib/bim/service.ts`). An uploaded file may not take one.
+ *
+ * A file named `_render.pdf` was stored at `<dir>/_render.pdf`, which is
+ * exactly the key {@link buildRenditionStorageKey} derives from it, so the raw
+ * upload was served as its own "rendition" with none of the checks a
+ * conversion's output passes. A file named `_thumb.jpg` was worse: the ingest
+ * pipeline's thumbnail PUT landed on the original and replaced the person's
+ * bytes. `_img` and `_bim` would make one path both an object and a directory,
+ * which a filer-backed gateway such as SeaweedFS cannot hold, and put the
+ * original inside the prefix a delete sweeps. Prefixed with `_` (`__render.pdf`)
+ * like a dot-only name, rather than refused, for the same reason: the uploader
+ * did nothing wrong. Compared without case, so no case-insensitive store or
+ * gateway can fold one onto the other.
+ *
+ * Keys written before this rule keep their names; the derived-key builders
+ * below refuse to return a key equal to the input, which covers them.
+ */
+const RESERVED_DERIVED_SEGMENTS: ReadonlySet<string> = new Set(['_thumb.jpg', '_render.pdf', '_img', '_bim'])
 
 export function buildStorageKey(
   organizationId: string,
@@ -111,27 +156,45 @@ export function buildStorageKey(
   filename: string,
   folderPath?: string | null,
 ): string {
-  // The folder path arrives already joined, and each name in it is as
-  // person-chosen as the filename — so it is sanitized per segment rather than
-  // as one string, which would flatten the separators the path needs.
-  const folder = folderPath
-    ? `${folderPath.split('/').filter(Boolean).map(storageKeySegment).join('/')}/`
-    : ''
-  return `org/${organizationId}/project/${projectId}/${folder}doc/${documentId}/${storageKeySegment(filename)}`
+  return shelfStorageKey(`org/${organizationId}/project/${projectId}`, documentId, filename, folderPath)
 }
 
 /**
  * Storage key for an org-wide Archiv document. Mirrors {@link buildStorageKey}
  * but scopes under the organization instead of a project (Archiv documents
  * belong to the org, not any single project) — so the same bucket layout
- * convention holds.
+ * convention holds, folder segments included (ADR-0078): the one thing that
+ * differs between the two is the owner prefix.
  */
 export function buildArchivStorageKey(
   organizationId: string,
   documentId: string,
   filename: string,
+  folderPath?: string | null,
 ): string {
-  return `org/${organizationId}/archiv/doc/${documentId}/${storageKeySegment(filename)}`
+  return shelfStorageKey(`org/${organizationId}/archiv`, documentId, filename, folderPath)
+}
+
+/**
+ * `<owner prefix>/<folder path>/doc/<document id>/<filename>`, the shape both
+ * shelves share.
+ *
+ * The folder path arrives already joined, and each name in it is as
+ * person-chosen as the filename — so it is sanitized per segment rather than as
+ * one string, which would flatten the separators the path needs. It is the path
+ * AT UPLOAD: a later rename or move never rewrites a stored key, which is read
+ * off the row.
+ */
+function shelfStorageKey(
+  ownerPrefix: string,
+  documentId: string,
+  filename: string,
+  folderPath?: string | null,
+): string {
+  const folder = folderPath
+    ? `${folderPath.split('/').filter(Boolean).map(storageKeySegment).join('/')}/`
+    : ''
+  return `${ownerPrefix}/${folder}doc/${documentId}/${storageKeySegment(filename)}`
 }
 
 /**
@@ -176,11 +239,41 @@ export function buildSessionStorageKey(
  * row, both return null and the callers treat that as "no thumbnail".
  * Unreachable from `buildStorageKey` output; reachable from a hand-edited or
  * legacy row.
+ *
+ * Null too when the file IS `_thumb.jpg`: the sibling would be the original,
+ * and the ingest pipeline's PUT would overwrite it. `storageKeySegment` no
+ * longer produces that name; a row stored before it did still exists.
  */
 export function buildThumbnailStorageKey(storageKey: string): string | null {
+  return derivedSiblingKey(storageKey, '_thumb.jpg')
+}
+
+/**
+ * `<dir>/<name>` beside the file at `storageKey`, or null when there is no
+ * directory to put it in or the sibling would be the file itself.
+ */
+function derivedSiblingKey(storageKey: string, name: string): string | null {
   const idx = storageKey.lastIndexOf('/')
   if (idx <= 0 || idx === storageKey.length - 1) return null
-  return `${storageKey.slice(0, idx)}/_thumb.jpg`
+  const key = `${storageKey.slice(0, idx)}/${name}`
+  return key === storageKey ? null : key
+}
+
+/**
+ * The PDF rendition that sits beside an office document (ADR-0070), replacing
+ * the filename segment of its key with `_render.pdf`.
+ *
+ * A sibling like `_thumb.jpg` and for the same reasons: it is keyed off the
+ * file's own directory, which since ADR-0054 is per version (`v<n>/`), so a new
+ * version gets a fresh rendition and the old one stays with its version; and the
+ * project and document prefix sweeps reach it without being told its name.
+ * Same null rules as {@link buildThumbnailStorageKey} — a key with no filename
+ * segment has nowhere to put a sibling, and a bucket-root `_render.pdf` would be
+ * one shared write target for every malformed row. And null for a file that is
+ * itself named `_render.pdf`, whose "rendition" would be the raw upload.
+ */
+export function buildRenditionStorageKey(storageKey: string): string | null {
+  return derivedSiblingKey(storageKey, '_render.pdf')
 }
 
 /**
@@ -227,4 +320,36 @@ export function buildImageStorageKey(storageKey: string, index: number): string 
   const prefix = buildImageDerivedPrefix(storageKey)
   if (!prefix) return null
   return `${prefix}${index}.jpg`
+}
+
+/**
+ * The key prefix the platform base corpus (the OIB norm PDFs an admin uploads)
+ * lives under in the PLATFORM bucket ({@link bucketName}), ADR-0082. Not an
+ * organization prefix: this is platform data, no tenant owns it.
+ */
+export const BASE_CORPUS_KEY_PREFIX = 'base-corpus/'
+
+/**
+ * Storage key of one base-corpus PDF: `base-corpus/<fileName>`.
+ *
+ * The name is the corpus's own identity (citations, doc-class and display-title
+ * overrides all address a document by it), so it is kept verbatim rather than
+ * flattened like {@link storageKeySegment} does for a person's upload. That
+ * makes validation the only defence: anything but a plain `.pdf` basename is
+ * refused with a 400, because a `/`, a `\` or a `..` would let a name climb out
+ * of the prefix on a filer-backed gateway that resolves them, and the delete
+ * route would then remove an object outside the base corpus.
+ */
+export function buildBaseCorpusStorageKey(fileName: string): string {
+  const valid =
+    fileName.length >= 1 &&
+    fileName.length <= 255 &&
+    fileName.toLowerCase().endsWith('.pdf') &&
+    !/[/\\\u0000-\u001f\u007f]/.test(fileName) &&
+    fileName !== '.' &&
+    fileName !== '..'
+  if (!valid) {
+    throw new BadRequestError('A .pdf file name of at most 255 characters, without path separators or control characters, is required')
+  }
+  return `${BASE_CORPUS_KEY_PREFIX}${fileName}`
 }

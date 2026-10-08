@@ -1,0 +1,6 @@
+---
+improvements:
+  - >
+    Source chips, reference numbers and source cards prepare their preview
+    only when you touch them, so conversations and derivations open with less
+    work. They behave as before with mouse, touch and keyboard.

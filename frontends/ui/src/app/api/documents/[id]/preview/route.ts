@@ -1,6 +1,8 @@
 /**
  * Document preview API — presign a browser-facing inline preview URL
- * (415 for non-previewable content types).
+ * (415 for non-previewable content types). An office document is previewed
+ * through its PDF rendition (`rendition: true`, 502 `RENDITION_FAILED` when the
+ * conversion fails; ADR-0070).
  * Thin handler; all logic lives in `@/lib/documents/service`.
  */
 

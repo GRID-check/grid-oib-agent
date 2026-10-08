@@ -15,14 +15,9 @@ export const research: typeof en.research = {
   chatArea: {
     ariaMessages: 'Chat-Nachrichten',
     loading: 'Unterhaltung wird geladen',
-    typing: 'Piloti antwortet …',
     scrollToLatest: 'Zum neuesten Beitrag springen',
     status: {
       thinking: 'Denkt nach …',
-      searching: 'Sucht …',
-      planning: 'Plant …',
-      researching: 'Recherchiert …',
-      writing: 'Schreibt …',
     },
     loggedOutTitle: 'Piloti wird verfügbar, sobald Ihre Organisation verifiziert ist.',
     loggedOutBody:
@@ -156,7 +151,7 @@ export const research: typeof en.research = {
 
   fileSourceCard: {
     statusUploading: 'Wird hochgeladen...',
-    statusIngesting: 'Wird verarbeitet...',
+    statusIngesting: 'Wird gelesen',
     statusAvailable: 'Verfügbar',
     statusError: 'Fehler',
     statusDeleting: 'Wird gelöscht...',
@@ -177,6 +172,7 @@ export const research: typeof en.research = {
     targetProjectLower: 'das Projektwissen',
     targetSessionLower: 'die private Sitzung',
     availableInProject: 'In diesem Projekt verfügbar.',
+    projectFilesManagedInFiles: 'Projektdateien löschen Sie in den Projektdateien.',
     preparingCorpus: 'Projektwissen wird vorbereitet...',
     onlyThisSession: 'Nur in dieser Chat-Sitzung verfügbar.',
     loadingFiles: 'Dateien werden geladen',
@@ -218,7 +214,7 @@ export const research: typeof en.research = {
     responseInput: 'Antworteingabe',
     chatMessageInput: 'Chat-Nachrichteneingabe',
     stopStreaming: 'Antwort stoppen',
-    sendWhilePending: 'Dateien werden noch verarbeitet – trotzdem senden?',
+    sendWhilePending: 'Noch sind nicht alle Dateien gelesen. Trotzdem senden?',
     heldForUpload: 'Wird gesendet, sobald die Datei gelesen ist.',
     heldForUploadSendNow: 'Jetzt ohne die Datei fragen',
     removeFile: 'Datei entfernen: {name}',

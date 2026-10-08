@@ -45,6 +45,9 @@ general:
   front_end:
     _type: aiq_api
     runner_class: aiq_api.plugin.AIQAPIWorker
+    # /websocket is the chat socket (wire v2, aiq_api.chat_socket). AIQAPIConfig
+    # turns NAT's own socket route and step adaptor off, and refuses a
+    # `websocket_path` set here.
     db_url: ${NAT_JOB_STORE_DB_URL:-sqlite+aiosqlite:///./jobs.db}
     expiry_seconds: 86400
     cors:
@@ -154,7 +157,10 @@ llms:
     # below: that feature needs it and fails the workflow build without it,
     # deliberately, rather than sending the tool schemas anyway (ADR-0048).
     # Nothing else in this file needs it; the default (chat_completion) is what
-    # every other role runs on. Turn both off together.
+    # every other role runs on. Deferral is off since 2026-09-25 (see below);
+    # this stays on until the answer suite has measured Chat Completions for
+    # this role, because the transport of every research call is not a change
+    # to make as a side effect.
     api_type: responses
     # ── PROMPT CACHING: nothing to configure here, and that is the point ──
     # This role re-sends ~35 KB of identical prefix (system prompt + tool
@@ -166,8 +172,9 @@ llms:
     #    response; its `usage: {include: true}` request option "[is] deprecated
     #    and [has] no effect". Do not add one. What a `responses` role loses is
     #    the *carrier*, not the flag — langchain-openai builds no `llm_output`
-    #    on that path, so only LangChain's normalized `usage_metadata` (counts
-    #    + cache bucket, no cost) reaches the ledger; `cost_tracking` reads it.
+    #    on that path and keeps only the normalized `usage_metadata` (counts +
+    #    cache bucket). `cost_tracking.install_responses_cost_carrier` puts the
+    #    provider's `cost` and `is_byok` back, so this role is charged in credits.
     # 2. THE CACHE KEY IS DERIVED, NOT CONFIGURED. Caching itself is automatic
     #    for the OpenAI family (≥1024 prompt tokens, no `cache_control`
     #    breakpoint); what needs a request field is landing twice on the SAME
@@ -300,20 +307,6 @@ llms:
     request_timeout: 15
     reasoning_effort: none
 
-  # Compliance pipeline — Stage 1 requirement derivation + Stage 2 evidence
-  # judging (structured outputs; ~10-16 calls per full 6-Richtlinien check).
-  compliance_llm:
-    _type: openai
-    model_name: ${GRID_DEFAULT_MODEL:-openai/gpt-6-luna}
-    base_url: "https://openrouter.ai/api/v1"
-    api_key: ${OPENROUTER_API_KEY}
-    temperature: 1.0
-    top_p: 0.95
-    max_tokens: 65536
-    max_retries: 2
-    request_timeout: 120
-    reasoning_effort: medium
-
   # Document / project summaries — trivial one-liners.
   summary_llm:
     _type: openai
@@ -383,6 +376,9 @@ functions:
           # off must take both, and `get_source_id_for_tool` must resolve it or
           # nothing it returns is captured as a citable source.
           - read_passage
+          # The file browser reads the same files through the same scope, so
+          # switching the knowledge base off must take it too.
+          - list_files
       - id: ris
         name: "RIS – Österreichisches Recht"
         description: "Search Austrian federal/state law and case law in the official RIS (Rechtsinformationssystem des Bundes) and fetch entire documents on demand."
@@ -488,7 +484,6 @@ functions:
 
   knowledge_search:
     _type: knowledge_retrieval
-    backend: llamaindex
     collection_name: ${COLLECTION_NAME:-oib_knowledge}
     include_base_collection: true
     include_session_collection: true
@@ -548,7 +543,9 @@ functions:
     # `openrouter` because it is the one key every deployment already holds:
     # `OPENROUTER_API_KEY` is the credential, `POST /api/v1/rerank` the route
     # (answers 401 without a key, so it exists). The default model is
-    # `cohere/rerank-v3.5`, multilingual, which a German corpus needs.
+    # `qwen/qwen3-reranker-8b`, multilingual, which a German corpus needs, and
+    # served from a zero-data-retention endpoint, which every rerank is pinned to
+    # (`cohere/rerank-v3.5`, the default until 2026-09, has none).
     # `AIQ_RERANKER_MODEL` / `AIQ_RERANKER_BASE_URL` override per deployment.
     #
     # Fail-open: a key that does not resolve or any provider error falls back to
@@ -594,6 +591,17 @@ functions:
     _type: read_passage
     knowledge_search: knowledge_search
 
+  # The file browser (sources/knowledge_layer/src/browse.py): `ls` over the
+  # reader's own shelves — every file, by folder, name, Dokumentart and upload
+  # date, paged. The prompt inventory stops at a few dozen names; this does
+  # not. Deterministic, no LLM, and it reads only the scope `knowledge_search`
+  # reads. Its partner, Ctrl+F across the files, is NOT a tool: it is
+  # `knowledge_search(match="exact")`, the same verb over the same scope
+  # (docs/architecture/agent-tool-surface.md).
+  list_files:
+    _type: list_files
+    knowledge_search: knowledge_search
+
   # Project Memory: silent, observable capture of durable project findings.
   # Available in project-scoped chats; no-ops (with a clear error) elsewhere.
   remember:
@@ -637,10 +645,11 @@ functions:
   surface_documents:
     _type: surface_documents
 
-  # The five WRITE-side workspace tools (src/aiq_agent/tools/files). Each one
-  # proposes: it resolves the file, the folder or the Dokumentart against what
-  # the turn can already see, renders ONE `file_operation_proposal` card, and
-  # changes nothing. Accepting the card runs the operation through the routes
+  # The WRITE-side workspace tool (src/aiq_agent/tools/files): move, rename,
+  # create_folder and assign as one `operation` argument — four tools until
+  # they were merged (docs/architecture/agent-tool-surface.md). It proposes: it
+  # resolves the file or the folder against what the turn can already see,
+  # renders ONE `file_operation_proposal` card, and changes nothing. Accepting the card runs the operation through the routes
   # the Files pane already uses, in the reader's own session — the BFF stays
   # the single writer of `grid_app` (ADR-0003), which is why there is no
   # backend path here to write with.
@@ -649,35 +658,27 @@ functions:
   # job worker with nobody to press Accept, so a proposal card there is a
   # decision nobody is on the other end of; the two agents differ here for the
   # same reason `ask_user` does.
-  move_document:
-    _type: move_document
-  rename_document:
-    _type: rename_document
-  create_folder:
-    _type: create_folder
-  # No doc_class verb here: proposals wait for a project-scoped doc_class route.
-  assign_document:
-    _type: assign_document
+  propose_file_change:
+    _type: propose_file_change
 
-  # The working directory's two doors into the project (src/aiq_agent/tools/
+  # The working directory's door into the project (src/aiq_agent/tools/
   # documents). `file_draft` puts a draft the turn WROTE into the project as a
-  # draft version; `submit_draft` sends that version for review. Unlike the five
-  # proposal tools above these two DO change the project — and they do it through
+  # draft version, and with `submit: true` sends that version for review (it was
+  # a second tool, `submit_draft`, until the two merged). Unlike the proposal
+  # tool above this one DOES change the project — and it does it through
   # `POST /api/internal/document-versions`, echoing the BFF-signed request
   # envelope, so the write happens in the requesting person's pinned session
   # under their permissions and their audit actor (ADR-0054 §4). The BFF stays
   # the single writer of `grid_app`.
   #
   # Bound on Piloti only, for the same reason as the proposal
-  # tools and one more: the envelope is minted per chat turn, so an unattended
+  # tool and one more: the envelope is minted per chat turn, so an unattended
   # deep-research run has no signed identity to file as and the tool refuses.
   file_draft:
     _type: file_draft
-  submit_draft:
-    _type: submit_draft
 
   # Delegation (src/aiq_agent/tools/tasks). Hands work that outlives this turn
-  # to a `tasks` row (ADR-0051) — the compliance checker, the Einreichcheck
+  # to a `tasks` row (ADR-0051) — a norm check, the Einreichcheck
   # skill, a document to write, a draft to revise — through
   # `POST /api/internal/tasks`, echoing the same BFF-signed envelope, so the row
   # is created in the requesting person's pinned session, under their
@@ -712,14 +713,6 @@ functions:
     _type: ifc_measure
     default_limit: 50
 
-  # RETIRED as a chat tool: the purpose-built OIB Soll-Ist-Abgleich
-  # (backlog T4-3, staged requirement-profile -> evidence-judgment pipeline)
-  # is no longer bound to any agent. The `compliance_check` function block and
-  # its `shallow_research_agent` tool-list entry were removed together with the
-  # `aiq_compliance_checker` plugin entry point; the implementation stays in
-  # place (src/aiq_agent/agents/compliance_checker/) for reference. See its
-  # README.
-
   # The FUNCTION NAME here is deliberately still `shallow_research_agent` while
   # the `_type` is `research_agent`. NAT puts the function name — not the type —
   # on the wire as `Function Start: <name>`, and the frontend persists that
@@ -738,6 +731,7 @@ functions:
       - web_search_tool
       - knowledge_search
       - read_passage
+      - list_files
       - view_knowledge_image
       # ONE RIS tool on the chat surface. Search → pick → fetch → find the
       # paragraph was three charged calls and a 40 000-character blob that
@@ -754,12 +748,8 @@ functions:
       # envelope schema already teaches, and a model at low effort spent a
       # whole round on it (September 2026 census). Deep research binds its own.
       - surface_documents
-      - move_document
-      - rename_document
-      - create_folder
-      - assign_document
+      - propose_file_change
       - file_draft
-      - submit_draft
       - create_task
       - ifc_query
       - ifc_measure
@@ -974,16 +964,22 @@ functions:
     # did before this existed.
     #
     # The defaults ship the measured lists (see `deferred_tool_loading.py`), so
-    # `enabled: true` alone is the normal configuration. The `allow` list means
-    # the provider accepted and echoed the shape — NOT that it saves anything;
-    # a measured "billed anyway" overrides it.
+    # `enabled: true` alone turns it on. The `allow` list means the provider
+    # accepted and echoed the shape — NOT that it saves anything.
     #
     # Any model not denied is probed ONCE, off the request path, and the
-    # verdict cached; until it lands an unlisted model gets full schemas (an
-    # allowlisted one defers until the probe says otherwise). So a new model costs
-    # one background request, never a wasted round trip on a live turn.
+    # verdict cached; until a probe has measured the saving, an unlisted or
+    # allowlisted model gets full schemas. So a new model costs one background
+    # request, never a wasted round trip on a live turn.
+    # OFF since 2026-09-25. Every model measured on 2026-09-23 echoed
+    # `defer_loading` and billed the deferred schemas in full, and the boot
+    # model measured +3,913 input tokens with it on; no model has been shown
+    # to save. What it did send was the `tool_search` payload, which NAT's
+    # trace callback cannot parse (one ERROR per call, #635). Turn it back on
+    # when a model's probe measures a saving: from then on only such a model
+    # defers, an allowlisted one included.
     deferred_tool_loading:
-      enabled: true
+      enabled: false
       # Floor on Artificial Analysis intelligence_index. 0 disables it.
       min_intelligence_index: 50
     #   models:
@@ -1044,6 +1040,7 @@ functions:
       # for an address it already held — and every batch it spent that way is a
       # round the run does not get back.
       - read_passage
+      - list_files
       - view_knowledge_image
       - ris_search_tool
       - ris_fetch_tool

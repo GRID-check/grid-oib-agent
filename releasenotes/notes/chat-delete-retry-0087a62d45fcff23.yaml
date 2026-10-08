@@ -1,0 +1,6 @@
+---
+fixes:
+  - >
+    A chat whose deletion failed because a service was briefly unavailable is
+    now deleted automatically once the service is back, instead of staying
+    hidden until someone deleted it again.

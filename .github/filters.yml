@@ -89,6 +89,14 @@ frontend:
   - 'shared/cards/schemas.json'
 web:
   - 'frontends/web/**'
+  # The brand master and the app's copy: web's `npm run check` holds both
+  # apps' copies to the master (scripts/build-brand-assets.mjs --check).
+  - 'shared/brand/**'
+  - 'frontends/ui/src/app/icon.svg'
+  # The app's riso art: exported from frontends/web/art/riso and held to its
+  # JOBS tables by web's `npm run check` (art/riso/check.mjs).
+  - 'frontends/ui/public/art/**'
+  - 'frontends/ui/src/lib/art/**'
   - 'Taskfile.yml'
   - '.github/workflows/ci.yml'
   - '.github/filters.yml'

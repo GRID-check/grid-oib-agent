@@ -105,6 +105,7 @@ from .answer_pipeline import FinalAnswer
 from .answer_pipeline import LiveAnswer
 from .answer_pipeline import RepairFn
 from .answer_pipeline import finalize_answer
+from .answer_pipeline import handed_this_turn
 from .answer_pipeline import looked_up_this_turn
 from .envelope_call import ainvoke
 from .envelope_call import ainvoke_with_envelope_json_mode
@@ -772,7 +773,11 @@ def _live_answer(state: ResearchAgentState) -> LiveAnswer | None:
     registry = get_session_registry()
     if registry is None:
         return None
-    return LiveAnswer(registry, lookup_attempted=looked_up_this_turn(state.messages))
+    return LiveAnswer(
+        registry,
+        lookup_attempted=looked_up_this_turn(state.messages),
+        handed=handed_this_turn(state.messages),
+    )
 
 
 def _turn_cutoff(state: ResearchAgentState, binding: TurnBinding) -> str | None:

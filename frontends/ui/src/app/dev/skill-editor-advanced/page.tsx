@@ -21,6 +21,7 @@
  * Pinned to German, like the other preview routes.
  */
 
+import type { JSX } from 'react'
 import { useEffect, useRef } from 'react'
 
 import { I18nProvider } from '@/i18n'
@@ -32,7 +33,7 @@ const DOCUMENT = renderSkillDocument({
   description:
     'Prüft Bauteile und Fluchtwege gegen OIB-Richtlinie 2. Einsetzen, wenn ein Brandschutznachweis erstellt oder vor der Einreichung gegengeprüft werden soll.',
   body: 'Handle als Brandschutzprüfer.\n\n1. Bestimme die Gebäudeklasse.\n2. Prüfe jedes Bauteil gegen OIB-Richtlinie 2.',
-  metadata: { 'grid-hidden': 'true', 'grid-cards': 'legal_basis' },
+  metadata: { 'grid-hidden': 'true', 'grid-cards': 'calculation' },
 })
 
 /** Frontmatter that was never closed — the commonest paste accident. */
@@ -95,7 +96,7 @@ function Driver(): JSX.Element {
           requestAnimationFrame(tick)
           return
         }
-        type(areas[0], DOCUMENT.replace('grid-cards: legal_basis', 'grid-cards: comparison_table'))
+        type(areas[0], DOCUMENT.replace('grid-cards: calculation', 'grid-cards: stair_diagram'))
         type(areas[1], BROKEN)
       })
     }

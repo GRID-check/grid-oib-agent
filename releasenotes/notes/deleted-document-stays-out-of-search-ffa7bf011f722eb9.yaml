@@ -1,0 +1,6 @@
+---
+incident:
+  - >
+    A document deleted while it was still being read in no longer turns up in
+    answers afterwards. Piloti now checks, once reading is done, that the
+    document still exists, and drops what it read if it does not.

@@ -5,6 +5,7 @@ import userEvent from '@testing-library/user-event'
 import { FileBrowserPane } from './file-browser-pane'
 import { FileSearchField } from './file-search-bar'
 import { useFileSearch } from '../hooks/use-file-search'
+import { projectSearchScope } from '../lib/file-shelf'
 import { useTranslations } from '@/i18n'
 import type { FileItem, FolderItem } from './project-file-workspace'
 
@@ -57,7 +58,7 @@ type HarnessProps = Omit<Partial<PaneProps>, 'search'> & {
  */
 function Harness({ projectId, ...paneProps }: HarnessProps) {
   const t = useTranslations('files')
-  const search = useFileSearch({ projectId })
+  const search = useFileSearch(projectId ? projectSearchScope(projectId) : undefined)
   return (
     <>
       <FileSearchField
@@ -117,9 +118,9 @@ describe('FileBrowserPane — card grid', () => {
 
   it('surfaces the failure reason on failed cards', () => {
     renderPane({
-      files: [{ ...files[0], status: 'failed', errorMessage: 'Could not be processed' }],
+      files: [{ ...files[0], status: 'failed', errorMessage: 'Request timed out after 180s' }],
     })
-    expect(screen.getByText('Could not be processed')).toBeInTheDocument()
+    expect(screen.getByText(/Reading took too long and was stopped/)).toBeInTheDocument()
     expect(screen.getByText('Failed')).toBeInTheDocument()
   })
 
@@ -224,7 +225,7 @@ describe('FileBrowserPane — folder drill-down', () => {
     expect(screen.getByText('permit.pdf')).toBeInTheDocument()
   })
 
-  it('renders no folder navigation without folderNav (the Archiv is flat)', () => {
+  it('renders no folder navigation without folderNav', () => {
     renderPane()
     expect(screen.queryByRole('navigation', { name: 'Folder path' })).not.toBeInTheDocument()
   })

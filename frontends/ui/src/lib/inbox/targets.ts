@@ -38,9 +38,11 @@ import {
   type InboxTargetType,
   type ShareableResourceType,
 } from '@/lib/db/schema'
+import { hasPlatformPermission } from '@/lib/authz/platform'
 import { requireProjectAccess } from '@/lib/authz/projects'
 import { resolveResourceAccess } from '@/lib/sharing/access'
 import { describeResource } from '@/lib/sharing/registry'
+import { PLATFORM_INBOX_PERMISSION } from './registry'
 
 /** Row-level context a deep link may use. */
 export interface InboxTargetLinkContext {
@@ -193,6 +195,13 @@ const projectTarget: InboxTargetDescriptor = {
     }
     return {
       deepLink: (context) => {
+        // A mail import lands on the folder it filed into: the row's anchor,
+        // unless the import ended before making one (anchored `import:<id>`).
+        if (context.itemType === 'mail_import.completed' || context.itemType === 'mail_import.failed') {
+          const anchor = context.anchorId?.trim()
+          const folder = anchor && !anchor.startsWith('import:') ? anchor : null
+          return `/app/projects/${resourceId}/files${folder ? `?folder=${encodeURIComponent(folder)}` : ''}`
+        }
         if (context.run) return runDeepLink(resourceId, context.run)
         const taskId = context.taskId?.trim() ? context.taskId.trim() : null
         if (taskId) {
@@ -212,10 +221,32 @@ function runDeepLink(projectId: string, run: RunMessageRef): string {
   return `/app/projects/${projectId}/chat?session=${session}&run=${runId}#message-${message}`
 }
 
+/**
+ * A product-feedback report — the target of `feedback.submitted`.
+ *
+ * The report lives in the REPORTER's organization and the row in the platform
+ * organization, so neither membership says anything here. Access is the
+ * permission the platform lane itself opened on, re-asked at read time (spec
+ * IB-13): an owner whose platform role was withdrawn sees a redacted row, not a
+ * link into a page that would answer 403. Nothing is queried — the report's
+ * existence is the triage page's question, and a deleted report renders there
+ * as not found, which is the honest answer.
+ */
+const productFeedbackTarget: InboxTargetDescriptor = {
+  type: 'product_feedback',
+  resolve: async (session, resourceId) => {
+    if (!(await hasPlatformPermission(session, PLATFORM_INBOX_PERMISSION))) return null
+    return {
+      deepLink: () => `/app/platform/feedback?report=${encodeURIComponent(resourceId)}`,
+    }
+  },
+}
+
 export const INBOX_TARGET_REGISTRY: Record<InboxTargetType, InboxTargetDescriptor> = {
   ...shareableTargets,
   organization: organizationTarget,
   project: projectTarget,
+  product_feedback: productFeedbackTarget,
 }
 
 /**

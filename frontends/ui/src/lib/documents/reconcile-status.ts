@@ -37,6 +37,41 @@ import { setDocumentReconciledStatus } from './repository'
  */
 const IN_FLIGHT_STATUSES = IN_FLIGHT_DOCUMENT_STATUSES
 
+/**
+ * The one in-flight status the BACKEND cannot answer for. `processing` is
+ * written only by `markDocumentProcessing`, for work running in the BFF itself
+ * (IFC extraction, office rendition) before any ingest job exists. Whatever the
+ * row's metadata still carries is from the PREVIOUS dispatch: `metadata` is not
+ * cleared when the row goes back to `processing`, so a retried document asks
+ * the batch endpoint about its old failed job and flips back to `failed` while
+ * the new conversion is still running; and a re-ingested document finds its
+ * previous version `success` in the collection list and goes green before its
+ * new bytes were read. The detached work writes every terminal outcome itself
+ * (`pending` + job id on dispatch, `failed` otherwise), so the reconciler leaves
+ * the status alone. A row stuck here because the process died is recovered by
+ * the re-ingest action, which asks the backend live.
+ */
+const LOCALLY_OWNED_STATUS = 'processing'
+
+/**
+ * The reason prefix the backend gives a job whose owner stopped heartbeating
+ * (`INTERRUPTED` in `aiq_agent/knowledge/ingest_status_store.py`). Such a
+ * failure is a verdict another replica reached about someone else's job, and
+ * the owner may still be alive: when it writes again its write wins, and the
+ * job can end `completed` with its chunks indexed. A row the BFF already moved
+ * to `failed` from that verdict is therefore asked about again.
+ */
+const INTERRUPTED_REASON_PREFIX = 'interrupted:'
+
+/**
+ * How long after the row's last write an `interrupted:` failure is re-checked.
+ * An owner that revives does so within a heartbeat of reaching the database
+ * again; half an hour covers a long outage and then stops, so a job that
+ * really died costs a bounded number of batch lookups rather than one per read
+ * for as long as the row exists.
+ */
+const INTERRUPTED_RECHECK_WINDOW_MS = 30 * 60 * 1000
+
 const FETCH_TIMEOUT_MS = 5000
 
 const getBackendUrl = (): string => {
@@ -74,6 +109,13 @@ export interface ReconcilableDocument {
   publishedVersionId: string | null
   errorMessage: string | null
   metadata?: unknown
+  /**
+   * When the row was last written. Optional because it only sharpens the
+   * metadata cache (a listing fetched before the row's last write cannot
+   * describe that write — see `reconcileDocumentStatuses`); a row type that
+   * leaves it out is enriched from the TTL cache exactly as before.
+   */
+  updatedAt?: Date | string | null
 }
 
 /**
@@ -89,6 +131,13 @@ export interface DocumentMetadata {
   contentTypes?: string[]
   /** Controlled ingestion-generated tags (document type + OIB discipline). */
   tags?: string[]
+  /**
+   * How many of this organisation's uploads wait in the ingest queue ahead of
+   * this one (ADR-0076), or null when the row is not waiting there. The lane's
+   * own order is the only one the queue promises, so no other office's backlog
+   * is in the count. Set on every reconciled row, so a count shown once clears.
+   */
+  queueAhead?: number | null
 }
 
 interface TerminalResolution {
@@ -96,9 +145,18 @@ interface TerminalResolution {
   errorMessage: string | null
 }
 
+/**
+ * What a re-checked `interrupted:` row may become: the backend's terminal
+ * answer, or back to `pending` because the owner is still working. `pending`
+ * and not `processing`, which is the status the BFF owns (see
+ * {@link LOCALLY_OWNED_STATUS}); from `pending` the ordinary in-flight pass
+ * takes over on the next read.
+ */
+type RowResolution = TerminalResolution | { status: 'pending'; errorMessage: null }
+
 type JobResolution =
   | { kind: 'terminal'; resolution: TerminalResolution }
-  | { kind: 'in_progress' }
+  | { kind: 'in_progress'; queueAhead: number | null }
   // Job unknown to the backend — fall back to the collection file list.
   | { kind: 'unknown' }
 
@@ -124,6 +182,8 @@ const fetchJson = async (url: string, init?: RequestInit): Promise<{ status: num
 interface BackendJobStatus {
   status?: string
   error_message?: string | null
+  /** `queue_ahead`: the backend's count for a job still in the durable queue. */
+  metadata?: { queue_ahead?: unknown } | null
   file_details?: Array<{ status?: string; error_message?: string | null }>
 }
 
@@ -165,7 +225,8 @@ const resolveFromJobStatus = (job: BackendJobStatus | null | undefined): JobReso
     const errorMessage = job.error_message ?? job.file_details?.find((f) => f.error_message)?.error_message ?? null
     return { kind: 'terminal', resolution: { status: 'failed', errorMessage } }
   }
-  return { kind: 'in_progress' }
+  const ahead = job.metadata?.queue_ahead
+  return { kind: 'in_progress', queueAhead: typeof ahead === 'number' && ahead >= 0 ? ahead : null }
 }
 
 /** One backend file entry, flattened to the fields the BFF forwards. */
@@ -243,6 +304,8 @@ const COLLECTION_FILES_TTL_MS = 15_000
 
 interface CollectionFilesCacheEntry {
   promise: Promise<CollectionFiles | null>
+  /** When the fetch STARTED: the listing describes the backend at or after it. */
+  fetchedAt: number
   expiresAt: number
 }
 
@@ -254,7 +317,8 @@ const collectionFilesCache = new Map<string, CollectionFilesCacheEntry>()
  * whole TTL window — the next read retries instead.
  */
 const storeCollectionFiles = (collectionName: string, promise: Promise<CollectionFiles | null>): void => {
-  collectionFilesCache.set(collectionName, { promise, expiresAt: Date.now() + COLLECTION_FILES_TTL_MS })
+  const now = Date.now()
+  collectionFilesCache.set(collectionName, { promise, fetchedAt: now, expiresAt: now + COLLECTION_FILES_TTL_MS })
   void promise.then((value) => {
     if (value === null && collectionFilesCache.get(collectionName)?.promise === promise) {
       collectionFilesCache.delete(collectionName)
@@ -271,11 +335,17 @@ const loadCollectionFilesCached = (collectionName: string): Promise<CollectionFi
   return promise
 }
 
+/** When the live cache entry for a collection was fetched, or null when there is none. */
+const cachedListingFetchedAt = (collectionName: string): number | null => {
+  const entry = collectionFilesCache.get(collectionName)
+  return entry && entry.expiresAt > Date.now() ? entry.fetchedAt : null
+}
+
 /**
- * Fresh (TTL-bypassing) read used by in-flight status reconciliation, where the
- * status must reflect the very latest backend state. It also primes the cache so
- * the enrichment pass in the same read reuses this fetch rather than issuing a
- * second one.
+ * Fresh (TTL-bypassing) read, for status reconciliation from the list and for
+ * enriching a row whose status just changed. It REPLACES the cache entry, so
+ * every later read within the TTL sees the fresh listing too rather than the
+ * one that predates the change.
  */
 const loadCollectionFilesFresh = (collectionName: string): Promise<CollectionFiles | null> => {
   const promise = loadCollectionFiles(collectionName)
@@ -284,11 +354,10 @@ const loadCollectionFilesFresh = (collectionName: string): Promise<CollectionFil
 }
 
 /**
- * Invalidate the collection-file-list cache. Exported primarily so tests can
- * isolate TTL behaviour between cases. (The pending→terminal transition itself
- * is detected via a fresh fetch that re-primes the cache, so a document
- * completing is already reflected without an explicit clear; hence no
- * upload-completion caller is wired here — TTL expiry covers the rest.)
+ * Invalidate the collection-file-list cache. Exported so tests can isolate TTL
+ * behaviour between cases. Nothing in production needs it: a read that moves a
+ * row to a terminal status enriches that collection from a fresh listing, which
+ * replaces the entry (see `reconcileDocumentStatuses`).
  */
 export const clearCollectionFilesCache = (): void => {
   collectionFilesCache.clear()
@@ -381,6 +450,32 @@ export async function describeBackendIngestState(row: {
 }
 
 /**
+ * A `failed` row whose failure was the backend's `interrupted` settle, recent
+ * enough to still be worth asking about, and with a job the batch call can
+ * answer for. See {@link INTERRUPTED_REASON_PREFIX}. A row without `updatedAt`
+ * is not re-checked: nothing would bound how long it keeps asking.
+ */
+const isRecheckableInterruption = (row: ReconcilableDocument, now: number): boolean => {
+  if (row.status !== 'failed') return false
+  if (!row.errorMessage?.startsWith(INTERRUPTED_REASON_PREFIX)) return false
+  if (!extractIngestJobId(row.metadata)) return false
+  const writtenAt = toEpochMs(row.updatedAt)
+  return writtenAt !== null && now - writtenAt < INTERRUPTED_RECHECK_WINDOW_MS
+}
+
+/**
+ * What the backend's answer about an interrupted job changes, or null for
+ * nothing: a job that is still failed (or unknown) leaves the row as it is, so
+ * a confirmed interruption costs no write.
+ */
+const resolveInterruptedRow = (job: BackendJobStatus | null | undefined): RowResolution | null => {
+  const result = resolveFromJobStatus(job)
+  if (result.kind === 'in_progress') return { status: 'pending', errorMessage: null }
+  if (result.kind === 'terminal' && result.resolution.status === 'completed') return result.resolution
+  return null
+}
+
+/**
  * Extract the curated, read-only metadata subset for a document from the backend
  * file list. Returns null (→ no enrichment) when the list is missing, the
  * filename is absent, or the join is ambiguous. Individual fields are omitted
@@ -394,6 +489,12 @@ export async function describeBackendIngestState(row: {
  * „Von Piloti erstellt“ byline, and returned by
  * `GET /api/documents/{id}/status` to the chat peek pane.
  */
+const toEpochMs = (value: Date | string | null | undefined): number | null => {
+  if (value === null || value === undefined) return null
+  const ms = new Date(value).getTime()
+  return Number.isNaN(ms) ? null : ms
+}
+
 const extractMetadata = (files: CollectionFiles | null, ref: CollectionFileRef): DocumentMetadata | null => {
   if (!files || files.ambiguousNames.has(ref.filename)) return null
   const file = files.byName.get(ref.filename)
@@ -414,7 +515,8 @@ const extractMetadata = (files: CollectionFiles | null, ref: CollectionFileRef):
 
 /**
  * Reconcile in-flight document rows with the backend's ingestion state and
- * persist any terminal transition, then merge the backend's read-only document
+ * persist any terminal transition (and re-check a recent `interrupted:`
+ * failure, see {@link INTERRUPTED_REASON_PREFIX}), then merge the backend's read-only document
  * metadata (summary, page/chunk counts, content types) onto every returned row.
  *
  * Returns the rows with fresh statuses and metadata; rows that are already
@@ -436,10 +538,9 @@ export async function reconcileDocumentStatuses<T extends ReconcilableDocument>(
 ): Promise<Array<T & DocumentMetadata>> {
   if (rows.length === 0) return []
 
-  // Per-call dedup for FRESH fetches used by status reconciliation: multiple
-  // in-flight rows in the same collection share one fetch. Each fresh fetch also
-  // primes the module-level TTL cache (via loadCollectionFilesFresh), so the
-  // enrichment pass below reuses it instead of fetching again.
+  // Per-call dedup for FRESH fetches: at most one per collection per read,
+  // shared by the status pass and the enrichment pass. Each also replaces the
+  // module-level cache entry (via loadCollectionFilesFresh).
   const freshFetches = new Map<string, Promise<CollectionFiles | null>>()
   const getFreshCollectionFiles = (collectionName: string): Promise<CollectionFiles | null> => {
     let cached = freshFetches.get(collectionName)
@@ -450,15 +551,38 @@ export async function reconcileDocumentStatuses<T extends ReconcilableDocument>(
     return cached
   }
 
-  // --- Status reconciliation (in-flight rows only) ---
-  const resolutions = new Map<string, TerminalResolution>()
-  const inFlight = rows.filter((row) => IN_FLIGHT_STATUSES.has(row.status))
-  if (inFlight.length > 0) {
-    // One batch call for every in-flight job id (previously one GET per row).
+  // --- Status reconciliation (in-flight rows, and recent interrupted failures) ---
+  const resolutions = new Map<string, RowResolution>()
+  const queueAheadByRow = new Map<string, number>()
+  const inFlight = rows.filter(
+    (row) => IN_FLIGHT_STATUSES.has(row.status) && row.status !== LOCALLY_OWNED_STATUS
+  )
+  const now = Date.now()
+  const interrupted = rows.filter((row) => isRecheckableInterruption(row, now))
+  if (inFlight.length > 0 || interrupted.length > 0) {
+    // One batch call for every job id asked about (previously one GET per row).
     const jobIds = [
-      ...new Set(inFlight.map((row) => extractIngestJobId(row.metadata)).filter((id): id is string => !!id)),
+      ...new Set(
+        [...inFlight, ...interrupted]
+          .map((row) => extractIngestJobId(row.metadata))
+          .filter((id): id is string => !!id)
+      ),
     ]
     const jobStatuses = await fetchJobStatuses(jobIds)
+
+    // An interrupted row is healed from its job alone. The collection file
+    // list is no evidence about THIS dispatch: a previous version's `success`
+    // would turn a real failure green.
+    await Promise.all(
+      interrupted.map(async (row) => {
+        const jobId = extractIngestJobId(row.metadata)
+        if (jobStatuses === null || !jobId) return
+        const resolution = resolveInterruptedRow(jobStatuses.get(jobId))
+        if (!resolution) return
+        await setDocumentReconciledStatus(row.id, organizationId, resolution)
+        resolutions.set(row.id, resolution)
+      })
+    )
 
     await Promise.all(
       inFlight.map(async (row) => {
@@ -471,8 +595,9 @@ export async function reconcileDocumentStatuses<T extends ReconcilableDocument>(
           const jobResult = resolveFromJobStatus(jobStatuses.get(jobId))
           if (jobResult.kind === 'terminal') {
             resolution = jobResult.resolution
-          } else if (jobResult.kind !== 'unknown') {
-            // in_progress — nothing to write this round.
+          } else if (jobResult.kind === 'in_progress') {
+            // Nothing to write this round; only the place in the queue to show.
+            if (jobResult.queueAhead !== null) queueAheadByRow.set(row.id, jobResult.queueAhead)
             return
           }
         }
@@ -495,12 +620,41 @@ export async function reconcileDocumentStatuses<T extends ReconcilableDocument>(
   }
 
   // --- Metadata enrichment (all rows) ---
-  // Completed documents never hit the status pass above, so metadata is joined
-  // here for every row via the short-TTL cache. Collections that were consulted
-  // fresh during status reconciliation are already primed (no double fetch);
-  // a read where every row is terminal reuses the cache and — within the TTL —
-  // makes zero backend calls, restoring the zero-call steady state. Fail-open:
-  // a null file list (backend down / 404) simply yields no metadata.
+  // Steady state reads the short-TTL cache: a read where every row is terminal
+  // and unchanged makes zero backend calls within the TTL. Two cases read a
+  // FRESH listing instead, because the cached one cannot describe them:
+  //
+  //  - a row this read moved to a terminal status. The job batch said
+  //    `completed`, but the listing in the cache may be from before the file
+  //    or its summary existed, and this is the read that tells every client to
+  //    stop polling. Enriching it from that listing meant the first (and last)
+  //    `completed` a client saw carried no summary, counts or tags.
+  //  - a row written after the cached listing was fetched (`updatedAt`). A
+  //    transition written by ANOTHER read, or by the re-ingest heal, lands here
+  //    once and then not again: the fresh fetch is newer than the write.
+  //
+  // Fail-open throughout: a null file list (backend down / 404) yields no
+  // metadata.
+  const collectionsNeedingFresh = new Set<string>()
+  for (const row of rows) {
+    if (freshFetches.has(row.collectionName)) continue
+    if (resolutions.has(row.id)) {
+      collectionsNeedingFresh.add(row.collectionName)
+      continue
+    }
+    if (IN_FLIGHT_STATUSES.has(row.status)) continue
+    const fetchedAt = cachedListingFetchedAt(row.collectionName)
+    const writtenAt = toEpochMs(row.updatedAt)
+    if (fetchedAt !== null && writtenAt !== null && writtenAt > fetchedAt) {
+      collectionsNeedingFresh.add(row.collectionName)
+    }
+  }
+
+  const listingFor = (collectionName: string): Promise<CollectionFiles | null> =>
+    freshFetches.has(collectionName) || collectionsNeedingFresh.has(collectionName)
+      ? getFreshCollectionFiles(collectionName)
+      : loadCollectionFilesCached(collectionName)
+
   const metaByRow = new Map<string, DocumentMetadata>()
   await Promise.all(
     rows.map(async (row) => {
@@ -509,7 +663,7 @@ export async function reconcileDocumentStatuses<T extends ReconcilableDocument>(
       // owns nothing in the list either way.
       const ref = collectionFileRef(row)
       if (!ref) return
-      const meta = extractMetadata(await loadCollectionFilesCached(row.collectionName), ref)
+      const meta = extractMetadata(await listingFor(row.collectionName), ref)
       if (meta) metaByRow.set(row.id, meta)
     })
   )
@@ -520,6 +674,6 @@ export async function reconcileDocumentStatuses<T extends ReconcilableDocument>(
     const base = resolution
       ? { ...row, status: resolution.status, errorMessage: resolution.errorMessage }
       : row
-    return { ...base, ...meta }
+    return { ...base, ...meta, queueAhead: queueAheadByRow.get(row.id) ?? null }
   })
 }

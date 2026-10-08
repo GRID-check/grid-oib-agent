@@ -112,10 +112,10 @@ def _context(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def _bind_context(monkeypatch: pytest.MonkeyPatch, *, headers: dict[str, str], conversation_id: str | None) -> None:
-    import nat.builder.context as nat_context
+    from nat.plugin_api import Context
 
     context = _Context(headers, conversation_id)
-    monkeypatch.setattr(nat_context.Context, "get", staticmethod(lambda: context))
+    monkeypatch.setattr(Context, "get", staticmethod(lambda: context))
 
 
 def _responder(responses: list[dict[str, Any]], calls: list) -> Any:
@@ -154,5 +154,6 @@ async def _file(monkeypatch: pytest.MonkeyPatch, responses: list[dict], calls: l
 
 
 async def _submit(monkeypatch: pytest.MonkeyPatch, responses: list[dict], calls: list, reviewer: str = "") -> str:
+    """``file_draft`` with ``submit=True``: the call that used to be ``submit_draft``."""
     monkeypatch.setattr(filing_tools, "post_document_version", _responder(responses, calls))
-    return await filing_tools.run_submit_draft(DRAFT, reviewer)
+    return await filing_tools.run_file_draft(DRAFT, submit=True, reviewer=reviewer)

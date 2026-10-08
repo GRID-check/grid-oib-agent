@@ -80,6 +80,7 @@ beforeEach(() => {
     backendJobId: 'backend-1',
     conversationId: spec.conversationId,
     runMessageId: spec.conversationId ? `msg-${spec.runId}` : null,
+    queued: false,
   }))
   vi.spyOn(console, 'error').mockImplementation(() => undefined)
 })
@@ -107,6 +108,20 @@ describe('delegateTask', () => {
       kind: 'compliance_check',
     })
     expect(run?.status).toBe('running')
+  })
+
+  it('records a delegated run the backend queued as queued, not running, and unstarted', async () => {
+    vi.mocked(submitAgentRun).mockImplementation(async (spec) => ({
+      backendJobId: 'backend-1',
+      conversationId: spec.conversationId,
+      runMessageId: `msg-${spec.runId}`,
+      queued: true,
+    }))
+
+    const { run } = await delegateTask(session, { projectId: PROJECT, kind: 'compliance_check', goal: 'Prüf das Haus A' })
+
+    expect(run?.status).toBe('queued')
+    expect(vi.mocked(repository.updateRun).mock.calls[0][2]).toMatchObject({ status: 'queued', startedAt: null })
   })
 
   it('runs every kind as a chat output, so the work lands in a real thread', async () => {
@@ -257,6 +272,29 @@ describe('delegateTask', () => {
     expect(run?.error).toContain('backend unreachable')
   })
 
+  it('does not call a submitted run failed when recording it fails (#723)', async () => {
+    // The backend accepted the job; the database write after it did not land.
+    // The run is running, and saying `failed` would tell the reader it is not.
+    vi.mocked(repository.updateRun).mockRejectedValue(new Error('connect EHOSTUNREACH 10.0.0.1:5432'))
+    vi.spyOn(console, 'error').mockImplementation(() => undefined)
+
+    const { run } = await delegateTask(session, { projectId: PROJECT, kind: 'document', goal: 'Schreib das' })
+
+    expect(run?.status).toBe('running')
+    expect(run?.backendJobId).toBeTruthy()
+    expect(vi.mocked(repository.updateRun).mock.calls.map(([, , patch]) => patch.status)).toEqual(['running'])
+  })
+
+  it('still returns the failed run when recording the failure fails too', async () => {
+    vi.mocked(submitAgentRun).mockRejectedValue(new JobSubmitError('backend unreachable', 502))
+    vi.mocked(repository.updateRun).mockRejectedValue(new Error('the database system is shutting down'))
+    vi.spyOn(console, 'error').mockImplementation(() => undefined)
+
+    const { run } = await delegateTask(session, { projectId: PROJECT, kind: 'document', goal: 'Schreib das' })
+
+    expect(run?.status).toBe('failed')
+  })
+
   it('audits the creation as `task.created`, with the trigger named', async () => {
     await delegateTask(session, { projectId: PROJECT, kind: 'compliance_check', goal: 'Prüf das' })
     expect(recordAuditEvent).toHaveBeenCalledWith(
@@ -369,6 +407,7 @@ describe('what a delegated run is told to produce', () => {
         backendJobId: 'b',
         conversationId: null,
         runMessageId: null,
+        queued: false,
       })
       await delegateTask(session, {
         projectId: PROJECT,
@@ -377,6 +416,7 @@ describe('what a delegated run is told to produce', () => {
         subject: kind === 'revision' ? { documentId: 'd', versionId: 'v', comment: 'c' } : undefined,
       })
       expect(insertedDefinition.plan.prompt).not.toContain('file_draft')
+      // The retired name too: a prompt that still teaches it names a tool that no longer exists.
       expect(insertedDefinition.plan.prompt).not.toContain('submit_draft')
       // The answer IS the document, which is what `completeRunForOutcome` files.
       expect(insertedDefinition.plan.prompt).toContain('Markdown')

@@ -101,7 +101,7 @@ const BindingStatusChip: FC<{ status?: string }> = ({ status }) => {
  * Naming all of them matters: a chip stands for the whole document, so "S. 18"
  * alone would understate a document the answer leaned on at four places.
  */
-const LocusLine: FC<{ citation: CitationRef }> = ({ citation }) => {
+export const LocusLine: FC<{ citation: CitationRef }> = ({ citation }) => {
   const t = useTranslations('chat')
   const page = refPage(citation)
   const pages = documentPages(citation.document)
@@ -171,6 +171,28 @@ const DocumentHomeLink: FC<{ shelf?: Shelf; tint: CitedDocument['tint'] }> = ({
       <FolderOpen aria-hidden="true" className="size-3.5" />
       {target.label}
     </Link>
+  )
+}
+
+/**
+ * „An dieser Stelle öffnen": the document at the cited place, in the app.
+ * One control for every surface that offers it (the peek, an excerpt's margin).
+ */
+export const CitationOpenButton: FC<{ tint: CitedDocument['tint']; onOpen: () => void }> = ({ tint, onOpen }) => {
+  const t = useTranslations('chat')
+  return (
+    <button
+      type="button"
+      onClick={onOpen}
+      // The screenshot harness needs to walk peek → document the way a
+      // reader does; naming the step beats guessing at button order.
+      data-citation-open=""
+      className="inline-flex items-center gap-1 text-xs font-medium hover:underline touch-target"
+      style={{ color: `var(--source-${tint}-text, var(--foreground))` }}
+    >
+      <FileSearch aria-hidden="true" className="size-3.5" />
+      {t('citationPeek.openAtPage')}
+    </button>
   )
 }
 
@@ -255,20 +277,7 @@ export const CitationPeek: FC<CitationPeekProps> = ({
       )}
 
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1 border-t pt-2">
-        {onOpen && (
-          <button
-            type="button"
-            onClick={onOpen}
-            // The screenshot harness needs to walk peek → document the way a
-            // reader does; naming the step beats guessing at button order.
-            data-citation-open=""
-            className="inline-flex items-center gap-1 text-xs font-medium hover:underline"
-            style={{ color: `var(--source-${tint}-text, var(--foreground))` }}
-          >
-            <FileSearch aria-hidden="true" className="size-3.5" />
-            {t('citationPeek.openAtPage')}
-          </button>
-        )}
+        {onOpen && <CitationOpenButton tint={tint} onOpen={onOpen} />}
         {onDownload && !onOpen && (
           <button
             type="button"

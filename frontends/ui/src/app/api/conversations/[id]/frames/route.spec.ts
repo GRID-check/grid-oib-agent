@@ -2,12 +2,13 @@
  * @vitest-environment node
  */
 /**
- * `GET /api/conversations/:id/frames`: what a dropped socket missed.
+ * `GET /api/conversations/:id/frames`: the socket-less liveness probe, and
+ * nothing else.
  *
- * The frames are the thread's answers, so the read is gated exactly as reading
- * the thread is, and it runs before anything touches the stream. The cursor is
- * validated, and the response carries the raw frames the socket would have
- * carried, because the client feeds them to its live frame handler.
+ * Whether a thread is answering is a fact about the thread, so the probe is
+ * gated exactly as reading the thread is, and the gate runs before the stream
+ * is touched. Resume moved to the socket's `attach` (chat wire v2 §d): a
+ * request for frames is refused, not served.
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
@@ -21,10 +22,10 @@ vi.mock('@/lib/auth/require-auth', () => ({
   authzErrorResponse: () => null,
 }))
 vi.mock('@/lib/conversations/live', () => ({ requireConversationSpectator: vi.fn() }))
-vi.mock('@/lib/events/conversation-frames', () => ({ readConversationFramesAfter: vi.fn() }))
+vi.mock('@/lib/events/conversation-frames', () => ({ peekNewestConversationFrame: vi.fn() }))
 
 import { requireConversationSpectator } from '@/lib/conversations/live'
-import { readConversationFramesAfter } from '@/lib/events/conversation-frames'
+import { peekNewestConversationFrame } from '@/lib/events/conversation-frames'
 import { NotFoundError } from '@/lib/api/errors'
 import { GET } from './route'
 
@@ -38,38 +39,36 @@ describe('GET /api/conversations/:id/frames', () => {
     vi.clearAllMocks()
   })
 
-  it('returns the raw frames after the cursor', async () => {
-    vi.mocked(readConversationFramesAfter).mockResolvedValue([
-      { id: '2-0', payload: { type: 'system_response_message', grid_frame_id: '2-0' } },
-    ])
-
-    const res = await get('?after=1-0')
-
+  it('peeks at the newest frame with the server clock', async () => {
+    vi.mocked(peekNewestConversationFrame).mockResolvedValue('1727000000000-0')
+    const res = await get('?peek=1')
     expect(res.status).toBe(200)
     expect(res.headers.get('Cache-Control')).toBe('no-store')
-    expect(await res.json()).toEqual({
-      frames: [{ type: 'system_response_message', grid_frame_id: '2-0' }],
-    })
-    expect(readConversationFramesAfter).toHaveBeenCalledWith('conv_1', '1-0')
+    const body = await res.json()
+    expect(body).toMatchObject({ available: true, newest: '1727000000000-0' })
+    expect(typeof body.now).toBe('number')
+    expect(peekNewestConversationFrame).toHaveBeenCalledWith('conv_1')
   })
 
-  it('says there is nothing to resume from with null, not an error', async () => {
-    vi.mocked(readConversationFramesAfter).mockResolvedValue(null)
-    const res = await get()
-    expect(await res.json()).toEqual({ frames: null })
-    expect(readConversationFramesAfter).toHaveBeenCalledWith('conv_1', null)
+  it('says an empty stream holds nothing, and a missing one has nothing to ask', async () => {
+    vi.mocked(peekNewestConversationFrame).mockResolvedValueOnce(null)
+    expect(await (await get('?peek=1')).json()).toMatchObject({ available: true, newest: null })
+    vi.mocked(peekNewestConversationFrame).mockResolvedValueOnce(undefined)
+    expect(await (await get('?peek=1')).json()).toMatchObject({ available: false, newest: null })
   })
 
-  it('refuses a cursor that is not a stream entry id', async () => {
-    const res = await get('?after=%2B')
-    expect(res.status).toBe(400)
-    expect(readConversationFramesAfter).not.toHaveBeenCalled()
+  it('serves no frames: resume is attach on the socket', async () => {
+    for (const query of ['', '?after=1-0']) {
+      const res = await get(query)
+      expect(res.status).toBe(400)
+    }
+    expect(peekNewestConversationFrame).not.toHaveBeenCalled()
   })
 
   it('reads nothing for a thread the reader may not see', async () => {
     vi.mocked(requireConversationSpectator).mockRejectedValueOnce(new NotFoundError('Conversation'))
-    const res = await get('?after=1-0')
+    const res = await get('?peek=1')
     expect(res.status).toBe(404)
-    expect(readConversationFramesAfter).not.toHaveBeenCalled()
+    expect(peekNewestConversationFrame).not.toHaveBeenCalled()
   })
 })

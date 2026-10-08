@@ -1,0 +1,87 @@
+---
+/**
+ * A post's riso cover (the `cover` format, 720 × 405 CSS px) at a native size,
+ * always on page: the on-page file (the inks as alpha, no paper,
+ * `art(id, { onPage: true })`) multiplied into the page, so no beige sheet and
+ * no taped paper stands on it (art/riso/README.md, "Showing a print").
+ *
+ *   header  the post page: the 720 print from md up, the 360 below, set on
+ *           the text column's left edge.
+ *   card    a Journal entry: the 360 print, left-aligned over the title.
+ *   thumb   a build-log entry: the 240 print (a third).
+ *
+ * Never any other width: a halftone screen resampled by an odd factor turns
+ * into moiré (src/lib/art.ts). Where a slot is narrower than the print (a
+ * card on a 360 px phone), the figure clips the print's empty margin instead
+ * of scaling it.
+ */
+import { art, artFile, artSrcset } from '../../lib/art'
+import type { CoverPlate } from '../craft/plates'
+import { COVER_PLATES } from '../craft/plates'
+import type { Locale } from '../../i18n/ui'
+
+interface Props {
+  plate: CoverPlate
+  variant: 'header' | 'card' | 'thumb'
+  /** Gives the print its declared alt text; without it the print is decorative. */
+  locale?: Locale
+  loading?: 'lazy' | 'eager'
+  /** The page's LCP image: loaded eagerly and fetched first. */
+  priority?: boolean
+  class?: string
+}
+const { plate, variant, locale, priority = false, loading = priority ? 'eager' : 'lazy', class: className = '' } = Astro.props
+const id = COVER_PLATES[plate].cover
+const bare = art(id, { onPage: true })
+const alt = locale ? bare.alt[locale] : ''
+const SIZES = {
+  header: `(min-width: 768px) ${bare.width}px, ${bare.width / 2}px`,
+  card: `${bare.width / 2}px`,
+  thumb: `${bare.width / 3}px`,
+}
+---
+
+<figure class:list={['riso-cover', `riso-cover--${variant}`, className]}>
+  <img
+    src={artFile(bare).src}
+    srcset={artSrcset(bare)}
+    sizes={SIZES[variant]}
+    width={bare.width}
+    height={bare.height}
+    alt={alt}
+    loading={loading}
+    fetchpriority={priority ? 'high' : undefined}
+    decoding="async"
+  />
+</figure>
+
+<style>
+  /* No margin here: preflight zeroes a figure's, and a scoped rule would beat the caller's mt-*. */
+  .riso-cover {
+    overflow: hidden;
+  }
+  .riso-cover img {
+    display: block;
+    max-width: none;
+    height: auto;
+    /* On page: the inks multiply into the page and its grid. */
+    mix-blend-mode: multiply;
+  }
+
+  .riso-cover--header img {
+    width: 360px;
+  }
+  @media (min-width: 768px) {
+    .riso-cover--header img {
+      width: 720px;
+    }
+  }
+
+  .riso-cover--card img {
+    width: 360px;
+  }
+
+  .riso-cover--thumb img {
+    width: 240px;
+  }
+</style>

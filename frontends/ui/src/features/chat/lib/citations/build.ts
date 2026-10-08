@@ -1,15 +1,14 @@
 /**
  * The single derivation: every producer → one {@link CitedDocument} list.
  *
- * Four things in a turn can claim to know about a source, and each knows a
+ * Three things in a turn can claim to know about a source, and each knows a
  * different part:
  *
  *  | producer                     | knows                                  |
  *  |------------------------------|----------------------------------------|
  *  | structured wire (`sources`)  | identity, title, kind/lane, page, `[N]` |
  *  | written `## Quellen` list    | `[N]` ↔ locator binding, as prose       |
- *  | `## Trace-Lanes` fan-out     | what was RETRIEVED (cited or not)       |
- *  | `legal_basis` cards          | a law name and an excerpt, no locus     |
+ *  | `sources` step lanes         | what was RETRIEVED (cited or not)       |
  *
  * They used to be consumed by three different surfaces with three different
  * matching rules, which is why a document could be complete in one place and
@@ -19,15 +18,13 @@
  * projections of the same model cannot disagree.
  */
 
-import type { GridCard } from '@/shared/cards/schemas'
 import type { ReportSourceEntry } from '@/features/layout/lib/report-citations'
 import type { CitationSource } from '../../types'
-import type { TraceLaneCard } from '../trace-lanes'
+import type { TraceLaneCard } from '@/lib/conversations/message-provenance'
 import {
   CitationAccumulator,
   isHttpUrl,
   normalizeFileName,
-  oibDocumentKey,
   stripOriginToken,
   type CitedDocument,
 } from './model'
@@ -39,8 +36,6 @@ export interface CitationInputs {
   citations?: CitationSource[]
   /** Entries parsed out of the answer's written sources section. */
   entries?: ReportSourceEntry[]
-  /** `legal_basis` cards from the shallow-answer path. */
-  cards?: (GridCard | undefined)[]
   /** Retrieved-document fan-out from the thinking steps. */
   traceLanes?: TraceLaneCard[]
 }
@@ -65,8 +60,7 @@ const ENTRY_KIND_TO_ORIGIN = { kb: 'kb', web: 'web', ris: 'ris' } as const
  * only producer that carries the backend's own classification and display
  * title, so everything after it merges INTO a complete document rather than
  * creating a bare one. The written list contributes `[N]` bindings the wire may
- * not have; the trace contributes retrieved-but-uncited loci; cards contribute
- * law names with no locus at all.
+ * not have; the trace contributes retrieved-but-uncited loci.
  */
 export const buildCitationModel = (inputs: CitationInputs): CitedDocument[] => {
   const accumulator = new CitationAccumulator()
@@ -74,7 +68,6 @@ export const buildCitationModel = (inputs: CitationInputs): CitedDocument[] => {
   addWireCitations(accumulator, inputs.citations)
   addWrittenEntries(accumulator, inputs.entries)
   addTraceLanes(accumulator, inputs.traceLanes)
-  addLegalBasisCards(accumulator, inputs.cards)
 
   return accumulator.build()
 }
@@ -146,6 +139,7 @@ const addWireCitations = (
         // nothing, because a locator is not a passage.
         snippet: citation.snippet?.trim() || citationSnippet(citation),
         citationKey: citation.citationKey,
+        regions: citation.regions,
       },
     })
   }
@@ -341,42 +335,6 @@ const addTraceLanes = (
         },
       })
     }
-  }
-}
-
-/**
- * `legal_basis` cards — a law name and an excerpt, authored by the model.
- *
- * They carry no document identity (see the citation-system audit: threading one
- * is a card-contract redesign), so they can only ever merge onto an existing
- * document via the canonical OIB key, or stand alone as a locus-less document.
- * Deliberately last: a card must never be the producer that names a document
- * the structured wire already named better.
- */
-const addLegalBasisCards = (
-  accumulator: CitationAccumulator,
-  cards: (GridCard | undefined)[] | undefined
-): void => {
-  if (!cards?.length) return
-
-  for (const card of cards) {
-    // Holes are cards validation rejected (`validateGridCards` keeps wire
-    // positions): they name no law.
-    if (!card || card.type !== 'legal_basis') continue
-    const label = [card.law, card.section ?? card.article ?? undefined].filter(Boolean).join(' ')
-    if (!label) continue
-    const isOib = !!oibDocumentKey(card.law)
-
-    accumulator.add({
-      identity: { label },
-      title: label,
-      // An OIB card names a corpus document (merged by the canonical key); any
-      // other legal basis is a RIS-tier source. Both are Baurecht.
-      kind: 'baurecht',
-      lane: isOib ? 'baurecht_oib' : 'baurecht_ris',
-      origin: isOib ? 'kb' : 'ris',
-      snippet: card.original_text ?? card.summary ?? undefined,
-    })
   }
 }
 

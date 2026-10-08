@@ -1,5 +1,6 @@
 'use client'
 
+import type { JSX } from 'react'
 import type { SkillCategoryListItem } from '@/adapters/api/skills-client'
 
 /**
@@ -17,7 +18,8 @@ import type { SkillCategoryListItem } from '@/adapters/api/skills-client'
  * Not linked from anywhere and 404s outside development (see ../layout.tsx).
  */
 
-import { I18nProvider } from '@/i18n'
+import { PageHeader } from '@/components/ui/page-header'
+import { I18nProvider, useTranslations } from '@/i18n'
 import { PlatformSkillCatalog } from '@/app/app/(shell)/platform/skills/platform-skill-catalog'
 
 const CATEGORIES: SkillCategoryListItem[] = [
@@ -108,7 +110,9 @@ if (typeof window !== 'undefined' && process.env.NODE_ENV === 'development') {
         const created = {
           id: `cat-dev-${Date.now()}`,
           name:
-            typeof body?.name === 'string' && body.name.trim() ? body.name.trim() : 'Neue Kategorie',
+            typeof body?.name === 'string' && body.name.trim()
+              ? body.name.trim()
+              : 'Neue Kategorie',
           description: null,
           slug: null,
           sortOrder: 0,
@@ -118,7 +122,7 @@ if (typeof window !== 'undefined' && process.env.NODE_ENV === 'development') {
         return Response.json({ category: created }, { status: 201 })
       }
       const match = /^\/api\/platform\/skill-categories\/([^/]+)$/.exec(
-        new URL(url, location.origin).pathname,
+        new URL(url, location.origin).pathname
       )
       if (match && (method === 'PATCH' || method === 'DELETE')) {
         const index = categories.findIndex((category) => category.id === match[1])
@@ -147,12 +151,23 @@ if (typeof window !== 'undefined' && process.env.NODE_ENV === 'development') {
   }
 }
 
+function Preview(): JSX.Element {
+  const t = useTranslations('platform')
+  return (
+    <main
+      className="mx-auto flex max-w-4xl flex-col gap-6 px-4 py-8 md:px-8"
+      data-testid="platform-skills-preview"
+    >
+      <PageHeader title={t('sections.skills.title')} subtitle={t('sections.skills.subtitle')} />
+      <PlatformSkillCatalog />
+    </main>
+  )
+}
+
 export default function PlatformSkillsDevPage(): JSX.Element {
   return (
     <I18nProvider initialLocale="de" fixedLocale>
-      <main className="mx-auto flex max-w-4xl flex-col gap-6 p-8" data-testid="platform-skills-preview">
-        <PlatformSkillCatalog />
-      </main>
+      <Preview />
     </I18nProvider>
   )
 }

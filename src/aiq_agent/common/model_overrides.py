@@ -50,9 +50,10 @@ MODEL_OVERRIDES_HEADER = "x-grid-model-overrides"
 # per-replica memo alone allowed; a positive L2 entry is invalidated by writes,
 # never by time alone, so its TTL only bounds the damage when a delete is
 # missed. Errors are negative-cached in L1 for ~1s only, never written to L2:
-# a longer negative TTL would pin a transient BFF outage (including its ZDR
-# bit) across the fleet, while no negative cache at all would retry-thunder a
-# downed BFF on every turn.
+# a longer negative TTL would pin a transient BFF outage across the fleet, while
+# no negative cache at all would retry-thunder a downed BFF on every turn. An
+# error answers "no overrides" (the YAML models) but "ZDR ON": the model choice
+# fails open, the privacy control fails closed (`common/openrouter.py`).
 _POSITIVE_TTL_SECONDS = 10.0
 _NEGATIVE_TTL_SECONDS = 1.0
 # Bounds the write-after-delete race window: a fetch that started BEFORE an
@@ -70,13 +71,13 @@ _NEGATIVE_TTL_SECONDS = 1.0
 _SHARED_TTL_SECONDS = 60.0
 
 # One in-flight resolution per org per replica. The negative TTL above is
-# deliberately ~1s so a transient BFF outage (and with it the org's ZDR bit)
-# never pins the fleet -- but a TTL that short is nearly no negative cache at
+# deliberately ~1s so a transient BFF outage never pins the fleet to the YAML
+# models and ZDR routing -- but a TTL that short is nearly no negative cache at
 # all under load: every concurrent turn for the org raced past the expired
 # entry and opened its own request, and each one costs the full request
 # timeout while the BFF is down. Coalescing them is what makes the fast
 # recovery affordable; the alternative, a longer TTL, buys it by pinning a
-# stale ZDR bit, which is the wrong currency.
+# stale configuration, which is the wrong currency.
 _inflight_lock = threading.Lock()
 _inflight_fetches: dict[str, threading.Lock] = {}
 
@@ -151,10 +152,6 @@ class AgentGroup(StrEnum):
     # (`requiresImageInput` in agent-groups.ts); the picker save path validates
     # against that same gate.
     INGEST_VLM = "ingest_vlm"
-    # Staged OIB Soll-Ist pipeline (compliance_checker). Its own group so
-    # unsetting deep_research's model does not also silence a check, and so the
-    # llms map can point compliance_llm independently.
-    COMPLIANCE_CHECK = "compliance_check"
 
 
 def parse_model_overrides(raw: str | None) -> dict[str, str]:
@@ -213,14 +210,22 @@ def reset_overrides_cache() -> None:
         _overrides_cache.clear()
 
 
-def _has_internal_trust_channel() -> bool:
-    """Whether :func:`_fetch_org_config` can actually ASK the BFF.
+class _NoTrustChannel(RuntimeError):
+    """No ``GRID_INTERNAL_API_TOKEN``: the org's configuration cannot be asked for."""
 
-    Distinguishes its two ``({}, False)`` returns: "the BFF says this org is
-    unconfigured" (authoritative, cacheable) from "there is no internal token,
-    so we fell back to YAML without asking" (not an answer about the org).
-    """
-    return bool(os.environ.get("GRID_INTERNAL_API_TOKEN"))
+
+_no_trust_channel_logged = False
+
+
+def _log_no_trust_channel_once() -> None:
+    global _no_trust_channel_logged
+    if _no_trust_channel_logged:
+        return
+    _no_trust_channel_logged = True
+    logger.error(
+        "GRID_INTERNAL_API_TOKEN is not set: organization model settings cannot be read. "
+        "Every organization runs on the YAML models with ZDR routing pinned until it is."
+    )
 
 
 def _fetch_org_config(organization_id: str) -> tuple[dict[str, str], bool]:
@@ -233,10 +238,10 @@ def _fetch_org_config(organization_id: str) -> tuple[dict[str, str], bool]:
     """
     token = os.environ.get("GRID_INTERNAL_API_TOKEN")
     if not token:
-        # No internal-token trust channel — fall back to YAML defaults. The
-        # ({}, False) success is kept L1-only by the caller (never written to
-        # L2), so an unconfigured backend cannot shadow a real config.
-        return {}, False
+        # Not an answer about the org: we never asked. The caller falls back to
+        # the YAML models with ZDR pinned and writes nothing to L2, so an
+        # unconfigured backend cannot shadow a real config fleet-wide.
+        raise _NoTrustChannel()
 
     import httpx
 
@@ -291,9 +296,10 @@ def _resolve_org_config(organization_id: str | None) -> _OverridesCacheEntry | N
 
     In-process memo first, then the shared tier, then one BFF round-trip (see
     the tier comment at the TTL constants); errors are negative-cached
-    in-process and fail OPEN (no overrides, ZDR off) — model selection and
-    privacy pinning must never take chat down. Returns ``None`` only when no
-    org id is available.
+    in-process. The model selection fails OPEN (no overrides: the YAML models
+    still answer); the ZDR bit fails CLOSED (pinned), because a ZDR tenant's
+    prompts must not reach a retaining endpoint while the BFF is briefly away.
+    Returns ``None`` only when no org id is available.
     """
     if not organization_id:
         return None
@@ -335,21 +341,24 @@ def _resolve_org_config_locked(organization_id: str) -> _OverridesCacheEntry:
         try:
             overrides, zdr_only = _fetch_org_config(organization_id)
             ttl = _POSITIVE_TTL_SECONDS
-            # ({}, False) means two different things, and only one of them is
-            # cacheable. Without a trust channel we never ASKED anyone, so
-            # writing it to L2 would let "no configuration" shadow a real one
-            # fleet-wide for the full shared TTL. With one, the BFF answered
-            # authoritatively that this org is unconfigured -- which is the
-            # DEFAULT state of most orgs, so refusing to cache it sent every
-            # replica back to the BFF every L1 TTL, for the majority case, and
-            # made the "L2 keeps a fresh replica off the BFF" claim above false
-            # exactly where it mattered most.
-            if overrides or zdr_only or _has_internal_trust_channel():
-                _write_shared(organization_id, overrides, zdr_only)
+            # The BFF answered, so even ({}, False) is authoritative: an
+            # unconfigured org is the DEFAULT state of most orgs, and refusing
+            # to cache it sent every replica back to the BFF every L1 TTL for
+            # the majority case.
+            _write_shared(organization_id, overrides, zdr_only)
             annotate_current_span(cache_model_config="miss")
-        except Exception as exc:  # noqa: BLE001 - fail open by design
-            logger.warning("Org model-config resolution failed for org %s: %s", organization_id, type(exc).__name__)
-            overrides, zdr_only = {}, False
+        except _NoTrustChannel:
+            _log_no_trust_channel_once()
+            overrides, zdr_only = {}, True
+            ttl = _POSITIVE_TTL_SECONDS
+            annotate_current_span(cache_model_config="no-trust-channel")
+        except Exception as exc:  # noqa: BLE001 - models fail open, ZDR fails closed
+            logger.warning(
+                "Org model-config resolution failed for org %s: %s; YAML models, ZDR routing pinned",
+                organization_id,
+                type(exc).__name__,
+            )
+            overrides, zdr_only = {}, True
             ttl = _NEGATIVE_TTL_SECONDS
             annotate_current_span(cache_model_config="error")
 
@@ -379,9 +388,8 @@ def resolve_org_zdr_only(organization_id: str | None) -> bool:
     """Whether the org pins every OpenRouter request to a ZDR endpoint.
 
     Resolved by org id via the same cached internal round-trip as the model
-    overrides. Fails OPEN to ``False`` (no extra restriction) so a BFF hiccup
-    never takes chat down — the org can still see, in the settings UI, that the
-    toggle is on.
+    overrides. Fails CLOSED: an unreadable setting answers ``True``. Callers
+    outside this module go through ``common/openrouter.data_policy_for``.
     """
     entry = _resolve_org_config(organization_id)
     return entry.zdr_only if entry is not None else False
@@ -400,8 +408,20 @@ def get_model_overrides_from_context() -> dict[str, str]:
 
     Returns ``{}`` when no overrides apply — callers then use the
     YAML-configured models unchanged.
+
+    When the signed envelope arrived, its ``modelOverrides`` is the only source:
+    the raw header is unsigned, and a client that set it could run any agent
+    group on any model at the organization's expense. Only a request with no
+    envelope (the job worker, which injects the header itself; the CLI) reads it.
     """
     from aiq_agent.project_context import _read_header
+    from aiq_agent.project_context import get_signed_request_context
+
+    envelope = get_signed_request_context()
+    if envelope is not None:
+        if envelope.model_overrides is not None:
+            return sanitize_model_overrides(envelope.model_overrides)
+        return resolve_org_model_overrides(envelope.organization_id)
 
     raw = _read_header(MODEL_OVERRIDES_HEADER)
     if raw:
@@ -506,47 +526,25 @@ def override_reasoning_effort(llm: object, effort: str) -> object:
 def _merge_zdr_extra_body(extra_body: object) -> dict[str, object]:
     """Return a NEW extra_body dict with Zero-Data-Retention provider routing.
 
-    ``provider.zdr = true`` routes only to endpoints with a Zero-Data-Retention
-    policy; ``provider.data_collection = "deny"`` additionally skips providers
-    that store/train on inputs. Non-destructive: any other provider routing
-    keys already present are preserved. A fresh dict (never an in-place mutation
-    of the shared build-time instance's extra_body) keeps this request-scoped.
-    See https://openrouter.ai/docs — Zero Data Retention.
+    The merge itself is ``openrouter.DataPolicy.apply``; this name stays for its callers.
     """
-    merged: dict[str, object] = dict(extra_body) if isinstance(extra_body, dict) else {}
-    provider = dict(merged.get("provider") or {}) if isinstance(merged.get("provider"), dict) else {}
-    provider["zdr"] = True
-    provider["data_collection"] = "deny"
-    merged["provider"] = provider
-    return merged
+    from aiq_agent.common.openrouter import ZERO_DATA_RETENTION
+
+    return ZERO_DATA_RETENTION.apply(extra_body if isinstance(extra_body, dict) else None)
 
 
 def apply_zdr_routing(llm: object) -> object:
     """Return a copy of an OpenRouter chat model pinned to ZDR endpoints.
 
-    No-op (returns the original) for non-OpenRouter models, models without an
-    ``extra_body`` field, or when the ZDR routing is already present. Like
-    :func:`override_model`, uses ``model_copy`` so the returned object is a real
-    chat model that shares the underlying HTTP client, and rebinds NAT's
-    instance-level retry wrappers to the copy. Request-scoped: the shared
-    build-time instance is never mutated.
+    No-op for non-OpenRouter models or when the routing is already present.
+    Raises ``openrouter.ZdrRoutingError`` when an OpenRouter model cannot carry
+    it, where this used to return the unpinned model and send the request
+    anyway. See ``openrouter.pin_chat_model``.
     """
-    if not hasattr(llm, "extra_body") or not hasattr(llm, "model_copy"):
-        return llm
-    from aiq_agent.common.llm_factory import llm_targets_openrouter
+    from aiq_agent.common.openrouter import ZERO_DATA_RETENTION
+    from aiq_agent.common.openrouter import pin_chat_model
 
-    if not llm_targets_openrouter(llm):
-        return llm
-    merged = _merge_zdr_extra_body(getattr(llm, "extra_body", None))
-    if merged == getattr(llm, "extra_body", None):
-        return llm
-    try:
-        overridden = llm.model_copy(update={"extra_body": merged})
-    except Exception:
-        logger.warning("Failed to apply ZDR routing to %s", type(llm).__name__, exc_info=True)
-        return llm
-    _rebind_instance_method_patches(llm, overridden)
-    return overridden
+    return pin_chat_model(llm, ZERO_DATA_RETENTION)
 
 
 def is_reasoning_incompatible_error(err: BaseException) -> bool:

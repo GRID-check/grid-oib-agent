@@ -12,7 +12,7 @@ Docker Compose (`deploy/compose/docker-compose.yaml`):
 - **postgres** — 3 logical DBs: `aiq_jobs`, `aiq_checkpoints`, `grid_app`.
 - **seaweedfs** — object storage, bucket `grid-documents`. Published to the host at
   `localhost:8333`; internal DNS name `seaweedfs:8333`.
-- **aiq-agent** — FastAPI + NeMo Agent Toolkit (NAT) + embedded Dask
+- **aiq-agent** — FastAPI + NeMo Agent Toolkit (NAT)
   scheduler/worker + in-process ChromaDB. Runs the LangGraph workflow and the
   async deep-research jobs.
 - **frontend** — Next.js 16 BFF + a Node WebSocket proxy (`frontends/ui/server.js`).
@@ -59,10 +59,9 @@ Browser WebSocket
     presents it neutrally as "Assistant" (getDisplayName in
     intermediate-step-parser.ts), not "Research Agent" — a greeting is
     not a research run.
-  → response streamed back through the MONKEYPATCHED WS handler
-      frontends/aiq_api/src/aiq_api/websocket_reconnect.py
-  → frontends/ui/src/adapters/api/websocket-client.ts  (parse system_response)
-  → frontends/ui/src/features/chat/hooks/use-websocket-chat.ts  (onResponse)
+  → the turn's wire bodies, stamped and sent by the chat socket (wire v2, ADR-0068)
+      frontends/aiq_api/src/aiq_api/chat_socket.py
+  → the UI's turn socket and fold (docs/api/websocket-protocol.md, "The client")
   → frontends/ui/src/features/layout/components/ChatArea.tsx → AgentResponse.tsx
 ```
 
@@ -70,33 +69,23 @@ Key files:
 - Graph build: `src/aiq_agent/agents/piloti/conversation.py` (`_build_graph`,
   nodes). The escalation edge and the conversation-scoped state belong to Piloti; the workflow only wires them up.
 - Workflow registration + response creation: `src/aiq_agent/agents/piloti/conversation_register.py`.
-- WS wire types (NAT, vendored): `.venv/Lib/site-packages/nat/data_models/api_server.py`
-  — `ChatResponse` and the WS message models are `extra="allow"`, so extra
-  fields (cards, run_id) survive serialization.
+- Wire types: `src/aiq_agent/common/wire_v2.py`, the contract both tiers are
+  generated from and tested against (`shared/wire/v2/`).
 
-### The monkeypatch (critical seam)
+### The terminal result (`TurnResult`)
 
-`websocket_reconnect.py:create_websocket_message` takes the workflow's
-`ChatResponse` (`data_model`) and builds the top-level `system_response` WS
-message. It **lifts extra fields off the response onto the top-level message**
-so the frontend can read them at `message.<field>` (not nested under
-`message.content`):
+The turn ends with `RUN_FINISHED`, whose `result` is a typed `TurnResult`
+(`wire_v2.py`): the text, the keyed cards, the verified sources, the
+confidence and its reason, and the run hand-off `run: {run_id, run_message_id}`
+(ADR-0062; the text is then empty, because the run's block is the narration).
+It is authoritative, and it is what the socket persists
+(`chat_socket.persist_turn_result`). No field is lifted by name any more.
 
-- `cards`  → `message.cards`  (rendered as Grid cards)
-- `run_id` / `run_message_id` → the run's block in the thread (ADR-0062); the
-  terminal frame carries no answer text when they are present
-- `answer_confidence` → `message.answer_confidence` (honest self-assessment chip)
-- `answer_confidence_reason` → `message.answer_confidence_reason` (the model's
-  own one-clause justification, shown verbatim in the chip tooltip)
-- `sources` → `message.sources` (verified citation sources)
-
-**Transparency extras (WP-A).** The same lift carries a family of optional,
-additive "why did the turn behave this way?" signals. Each rides
-`turn.streaming.STREAM_EXTRA_FIELDS` onto the terminal `ChatResponseChunk`
-(`response_to_chunks`), then `websocket_reconnect.py` lifts it onto the terminal
-`system_response` message via `_TRANSPARENCY_EXTRA_FIELDS` / `_pull_response_extra`.
-All are **absent unless applicable** (never null-spammed) and reset at the turn
-boundary in `ConversationGraph.run()`:
+**Transparency extras (WP-A).** A family of optional, additive "why did the turn
+behave this way?" signals are fields of the same `TurnResult`, which
+`turn.response.build_result` lifts off the finished state. A frame omits every
+field at its default, and each is reset at the turn boundary in
+`ConversationGraph.stream()`:
 
 - `routing_decision` (`meta`/`shallow`/`deep`/`error`) — which path the turn
   took, OBSERVED after the answer
@@ -232,11 +221,20 @@ is now the single builder: `buildGridRequestContextWireHeaders` returns every
 individual header PLUS one consolidated, signed `X-Grid-Request-Context`
 header (base64url JSON of the same fields, plus the structured `bundesland`
 fact — §6b) and `X-Grid-Request-Context-Sig` (hex HMAC-SHA256 of the raw
-JSON, keyed on `GRID_INTERNAL_API_TOKEN`). This is a **dual-write
-transition**: the individual headers are still sent unchanged; the envelope
-rides alongside them, and removing the legacy headers is a later cleanup.
+JSON, keyed on `GRID_INTERNAL_API_TOKEN`). Legacy HTTP/job producers retain
+this **dual-write transition**. Authenticated WebSocket handshakes instead
+carry compact claims with `contextTransport: "bff"` and omit project context,
+memory and office instructions from both the individual headers and the
+signed envelope (ADR-0077).
 `server.js` duplicates the same builder logic (with a pinning comment) since
 it is plain CommonJS and cannot import the TS module.
+
+Compact mode loads those three prompt blocks from
+`POST /api/internal/turn-context` on every turn. The request echoes the
+original signed capsule, so the BFF resolves and authorizes that requester
+rather than accepting identity in a body. The JSON response body carries
+growing data; a context-read failure is an explicit turn error. This keeps
+the agent stateless without coupling connection availability to profile size.
 
 On the backend, `aiq_agent.project_context.GridRequestContext.from_context()`
 /`from_envelope()` verifies the signature with `hmac.compare_digest` and
@@ -250,11 +248,14 @@ before the envelope existed.
 never buffers the response body, so SSE routes are unaffected) fail-closed
 rejects (403 / WS policy-violation close) a workflow-invoking request when
 ALL of: `REQUIRE_AUTH=true`; the caller is a WorkOS-authenticated JWT user;
-the path is on the conservative enforced allowlist (`/websocket`,
-`/v1/jobs/async/submit`, `/v1/internal/workflows/submit`, `/generate`); and no
-valid envelope is present. Exempt regardless of path: anonymous mode,
-internal-token-authenticated service calls, and every non-enumerated path —
-the enforced-path list is an allowlist, not a denylist. Dev fail-open note:
+the path is not on `ENVELOPE_EXEMPT_HTTP_PATH_PREFIXES`; and no valid envelope
+is present. It is deny-by-default: the exempt list is the paths that run no
+workflow and that a BFF proxy forwards with the member's bearer alone
+(`/health`, `/v1/collections`, `/v1/documents`, `/v1/data_sources`, the async
+job reads and controls under `/v1/jobs/async/{jobs,job,agents}`, `/v1/drafts`);
+every other path, NAT's `/chat`, `/v1/chat/completions` and `/v1/workflow`
+routes and the WebSocket included, needs the envelope. Always exempt:
+anonymous mode and internal-token-authenticated service calls. Dev fail-open note:
 when `GRID_INTERNAL_API_TOKEN` is unset, signature verification is skipped
 but envelope *presence* is still required for authenticated requests.
 
@@ -274,16 +275,15 @@ and server-decided (the BFF's `addressees`, computed at persist time); only *del
 changed.
 
 ```
-client  user_message  content.text = {"query": …, "data_sources": […],
-                                      "context_only": true, "author_name": "Anna Weber"}
-  → websocket_reconnect.run()
-      1. per-message re-auth gate (unchanged; an expired token buys no write either)
-      2. context_only_directive(msg)  →  parse_context_only_payload()
-      3. _ingest_context_only_message()
+client  {"v": 2, "type": "user_message", "text": …, "context_only": true, "author_name": "Anna Weber"}
+  → chat_socket.ChatSocket
+      1. per-message re-auth gate (an expired token buys no write either)
+      2. the conversation binding
+      3. _ingest()
            • author = VERIFIED principal name, falling back to author_name
            • format_context_turn()  → "Anna Weber: <text>", capped at 4000 chars
            • append_conversation_context()  → the registered appender
-      4. continue  ← no process_workflow_request, no socket registration
+      4. nothing else: no workflow, no event, no socket registration
   → ConversationGraph.append_context_message()
       graph.aupdate_state({thread_id}, {"messages": [HumanMessage(...)]})
 ```
@@ -294,7 +294,7 @@ no `system_response_message`, no intermediate/status frame, and nothing to strea
 next real turn's `ainvoke` then reads the ingested turns as ordinary history.
 
 Key pieces:
-- Wire parse, char caps, appender registry: `src/aiq_agent/conversation_context.py`.
+- Char caps, appender registry: `src/aiq_agent/conversation_context.py`.
 - The appender is *published*, not imported: `aiq_api` owns the socket and
   `aiq_agent` owns the graph, so `piloti/conversation_register.py` calls
   `register_context_appender(agent.append_context_message)` where the compiled graph
@@ -308,47 +308,89 @@ Key pieces:
 ### 2c. Reconnect & resume semantics (socket drop mid-turn)
 
 A turn can outlive its socket: the browser tab sleeps, the network blips, or a
-token rotation forces a reconnect while a long deep-research answer is still
-generating. Four cooperating mechanisms make sure the finished answer is never
-lost. All backend pieces live in `websocket_reconnect.py`; the frontend pieces
-in `use-websocket-chat.ts` + the chat store.
+token rotation forces a reconnect while a long answer is still generating. The
+backend pieces live in `chat_socket.py` and `conversation_bus.py`; the design is
+`docs/design/chat-wire-v2.md` §c/§d.
 
-- **Live reattach.** NAT's base `WebSocketMessageHandler._restore_execution_state`
-  (vendored, run from `__aenter__` on every new socket) swaps a reconnected
-  socket into the still-running handler for the same conversation. It reads the
-  `conversation_id` query param; the frontend sends both `conversationId` (Grid
-  collection scoping) **and** `conversation_id` (so NAT's lookup matches).
-  `ReconnectableWebSocketMessageHandler._restore_execution_state` overrides the
-  base to (a) tolerate either key and (b) re-register the reconnected socket in
-  the registry (NAT's base only swaps the handler's `_socket` attribute). Without
-  the re-register, the dual-write guard below would still read "client gone".
-- **Registry.** `WebSocketSessionRegistry` (module-global `_registry`) maps
-  `conversation_id → socket` and holds pending HITL futures + the running
-  workflow task. `set_socket` on send/reconnect, `clear_socket` on disconnect.
-  `has_socket` is the **dual-write guard**: it decides whether the client is
-  present (client owns the write) or gone (persist server-side).
-- **Persist-on-drop.** When a terminal `RESPONSE_MESSAGE` cannot be sent (no live
-  socket), `_persist_terminal_message_if_client_gone` → `persist_assistant_message`
-  POSTs the finished answer (text + cards/sources/confidence) to the BFF so it
-  survives a reload. Only the **terminal** frame persists (streamed deltas pass
-  `persist_on_drop=False`); a transient job-admission "queue full" notice is
-  dropped, never persisted. The id is deterministic per turn
-  (`deterministic_assistant_message_id`) so a double-write no-ops on the messages
-  primary key (`onConflictDoNothing`). This POST targets the **internal
-  token-guarded** route `POST /api/internal/conversations/{id}/messages` with
-  `X-Grid-Internal-Token` (org scoped via the `x-grid-organization-id` the WS
-  upgrade forwarded) — not the browser session cookie, which expires on long
-  turns and used to make the fail-soft POST silently 401 and drop the answer.
-- **Rehydrate.** The client re-surfaces a persisted answer two ways: on a fresh
-  mount, `sessions-store.restoreSessionState` refetches server history and, for a
-  turn that looks interrupted, calls `_recoverInterruptedAssistantMessage`; on a
-  same-mount reconnect, `use-websocket-chat.ts` `onConnectionChange('connected')`
-  re-runs the same recovery (skipping the first connect, debounced against
-  rotation storms). While that fetch is in flight the store's `isRecoveryPending`
-  flag renders a calm "reconnecting — checking for a finished answer" line
-  instead of racing straight to the "answer lost" notice; the lost/interrupted UI
-  and the `agent.response_interrupted` card only appear once recovery returns
-  with nothing found.
+- **One socket, one conversation.** Every client message names its
+  `conversation_id`, and the registry, the running turn, the pending HITL
+  question and the checkpoint all key on it. So the socket is bound at the
+  handshake to the envelope's `conversationId` (the id the scope route ran
+  `authorizeConversationScope` on), and a message naming another is refused with
+  `rejected{conversation_mismatch}`. A signed socket without a conversation
+  serves none. Off the BFF (internal caller, anonymous mode) the first id a
+  message names binds it.
+- **A dropped socket does not stop its turn.** The turn's task runs on; every
+  frame is stamped by the turn's sequencer (`TurnWire`) and appended to the
+  conversation's stream (`conv:<id>:stream`) whether or not a socket takes it.
+- **Resume is `attach{turn_id, after_seq}`** on the new socket. The registry holds
+  live frames for that socket, replays the turn, then flushes the held frames
+  above the last replayed `seq`, so no frame is sent twice or skipped. A turn
+  this replica runs (or ran, for `STAGE_WIRE_TTL_S`) replays from its own
+  sequencer (`TurnWire.replay`), bus or no bus; any other turn from the stream
+  (`ConversationBus.replay_turn`), read only after the relay's subscription is
+  confirmed, so nothing published in between is lost. A turn nobody knows of,
+  or one the bus cannot be read for, is `rejected{turn_not_found}`, and the
+  client asks for the persisted answer.
+- **A turn runs once, cluster-wide.** Before `RUN_STARTED` the turn id is
+  claimed on the bus (`SET conv:<id>:turn:<turn> NX EX`, as long as the stream
+  lives); a resent question that lands on another replica, or arrives after its
+  turn finished, is `rejected{duplicate_turn}` and the client attaches. A newer
+  question supersedes a stale turn on whichever replica runs it (`SUPERSEDE` on
+  the input channel), and runs only once the stale turn's `conv:<id>:running`
+  marker is gone (ADR-0080): the owner renews it while the turn runs and deletes
+  it when the turn ends, a dead owner's expires on its TTL, and a turn that
+  cannot get it in time is refused, never run beside the stale one. With the
+  bus down the claim fails open to the local registry, and so does the marker
+  while `GRID_CHAT_AFFINITY` is on; with it off the question is refused.
+- **The owner fences itself** (`aiq_api/turn_fence.py`, `aiq_agent/common/write_fence.py`;
+  only with `GRID_CHAT_AFFINITY` off). The marker's TTL can run out under a
+  turn that is still running (a renewal task starved or late, Dragonfly
+  unreachable from this replica), and a newer turn on another replica may then
+  take it. So the turn keeps a deadline of its own: the start of its last
+  successful renewal plus the TTL minus a margin (one guarded write, 3 s, plus
+  1 s). Every write the turn makes to the conversation asks that deadline first
+  and reads `time.monotonic()` itself, so no task has to have run: the checkpoint
+  writes (`FencedCheckpointer`, which also ends each by 3 s past the deadline, raising
+  `TurnFenced`, so the margin holds), the turn's frames (a fenced turn sends its terminal and nothing else)
+  and the persist of its outcome. The renewal task also cancels the turn through
+  the Stop path when the deadline passes or a renewal finds the marker gone, so
+  it ends with a `cancelled` terminal. A tool's own side effects are stopped by
+  that cancel, not by the fence.
+- **Every turn ends.** `run_turn`'s `finally` guarantees one terminal whatever
+  escaped; the turn has a deadline (`GRID_CHAT_TURN_DEADLINE_SECONDS`) on its
+  own clock, which stops while it waits on a person; a Stop waits at most
+  `workflow_stream.PRODUCER_TEARDOWN_SECONDS` for the workflow's teardown. The
+  chat's NAT session manager runs with `max_concurrency=0`: NAT's semaphore
+  queued a turn after `RUN_STARTED` behind turns waiting on HITL answers, and
+  ADR-0040's admission (`GRID_MAX_ACTIVE_TURNS`) is the gate that refuses at
+  once instead.
+- **The bus fails fast and its loops are supervised.** Bus commands a turn
+  waits on are bounded (`BUS_CALL_TIMEOUT_S`), and a failure marks the bus down
+  for `BUS_RETRY_AFTER_S` so the next frames skip it without I/O. The relay and
+  owner-input loops are restarted with backoff when they die, and every
+  background task logs an unexpected end from its done-callback.
+- **Stop is `cancel_turn`,** authorised against the asker's verified subject
+  (`may_act_for`). It cancels the turn's task; the cancel unwinds the workflow
+  through `workflow_stream.stream_workflow`, so the graph run and its model call
+  stop. The prose so far is the `RUN_FINISHED{outcome: "cancelled"}` result,
+  persisted with `metadata.stopped`. On another replica the Stop goes to the
+  owner on the bus input channel, and the owner checks the subject again; when
+  the bus cannot carry it, the sender gets `rejected{turn_not_found}` and the
+  socket stays open.
+- **The server keeps every answer.** Every `RUN_FINISHED`, sent or not, is
+  persisted in the background (`persist_turn_result`, a pure mapping from the
+  `TurnResult`) to the **internal token-guarded** route
+  `POST /api/internal/conversations/{id}/messages` with `X-Grid-Internal-Token`
+  (org scoped via the `x-grid-organization-id` the upgrade forwarded), not the
+  browser session cookie, which expires on long turns. The id is deterministic
+  per turn (`turn.response.answer_message_id`), so the browser's own write of
+  the same answer no-ops on the primary key (`onConflictDoNothing`). A
+  job-admission "queue full" notice and a run hand-off (no text, no cards) write
+  no row.
+- **Rehydrate.** A reload knows its turn and sends `attach{after_seq: 0}`; a turn
+  the stream no longer holds is read from the persisted row
+  (`sessions-store.restoreSessionState`).
 
 ## 3. The card pipeline
 
@@ -387,8 +429,8 @@ deep research returns the stub `"Deep research job submitted. Job ID: …"`. The
 report artifact with cards attached over the job SSE stream, and stores
 `{"report", "cards"}` as the job output. Deep research cannot use the
 `emit_card` tool directly: the conversation-scoped `CardRegistry` is bound
-only in the chat request path, not inside a Dask worker. The remaining gap is
-the **synchronous inline** deep-research path (no Dask scheduler configured):
+only in the chat request path, not inside a research worker. The remaining gap is
+the **synchronous inline** deep-research path (`use_async_deep_research` off):
 those answers carry no cards, since the deep agent has no `emit_card` tool
 and no post-hoc generation runs in `deep_research_node`.
 
@@ -411,10 +453,11 @@ Intake wizard answers
   → PUT /api/projects/{id}/profile
       buildProfileUpdate → buildProjectPromptView(profile)
       → stored in projects.profile_prompt_view  (a compact "PROJECT_CONTEXT v1" block)
-  → /api/websocket-scope reads profile_prompt_view → returns projectContext
-  → server.js sets header  x-grid-project-context  on the WS upgrade
-  → src/aiq_agent/project_context.py reads the header (truncated to 4000 chars)
-  → piloti/conversation_register.py sets state.project_context
+  → server.js signs compact project/conversation scope on the WS upgrade
+  → Python calls POST /api/internal/turn-context at the start of each turn
+  → the BFF authorizes the requester and returns the prompt view in JSON
+  → Python normalizes the prompt view to its existing 4000-character budget
+  → the turn's context sets state.project_context
   → injected into every prompt: all *.j2 have {% if project_context %}{{ project_context }}
 ```
 
@@ -435,10 +478,12 @@ header was never sent → the agent had no project knowledge for that session.
   atomic swap used for auth rotation) only when the value actually changes, so
   the handshake re-sends the project scope.
 
-Note: the profile is intentionally **not** embedded into the `proj_*` RAG
-collection — project knowledge reaches the agent only via header text-injection:
-this profile header plus the project-memory digest header (`x-grid-project-memory`,
-see §8).
+The profile is intentionally **not** embedded into the `proj_*` RAG collection.
+It reaches the prompt through the authorized per-turn context read, alongside
+the query-specific memory digest. Legacy HTTP/job and anonymous callers still
+use inline context. Transport byte limits and prompt character budgets are
+separate; a prompt limit applied after header decoding cannot protect a
+WebSocket handshake.
 
 ## 5. Project summary / fact-sheet
 
@@ -510,7 +555,9 @@ internal client (its URL is backend-consumed). Compose sets `SEAWEED_PUBLIC_ENDP
 ### Folders
 
 Nested folders are fully supported (self-referential `project_folders.parent_id`,
-`folder-service.ts` builds the nested path, the API accepts `parentId`, and the
+`folder-service.ts` builds the nested path — since ADR-0078 on both shelves that
+have folders, a project's Dateien and the org-wide Archiv, through one
+shelf-parameterised core in `lib/documents/shelf-folders.ts`, the API accepts `parentId`, and the
 tree renders recursively). The prior "can't nest" symptom was **UX only** — there
 was no per-folder affordance. **Fix**: `folder-tree-pane.tsx` now shows an "add
 subfolder" `+` on each folder row and makes root creation explicit.
@@ -747,7 +794,7 @@ together:
    chunk) so a sparse first chunk can't starve it.
 2. **Reconciliation backfill (`42a4fa3`)**: `reconcile_collection_summaries()`
    (knowledge-layer factory) runs at the end of every `LlamaIndexIngestor`
-   ingestion job — the Knowledge API, `scripts/ingest_oib.py`'s `oib_sync`,
+   ingestion job — the Knowledge API, the base-corpus sync (`oib_sync`),
    and any future caller get it for free. It diffs a collection's indexed,
    successfully-ingested files (`BaseIngestor.list_files`) against the
    `document_metadata` table and registers a deterministic fallback summary for any
@@ -783,12 +830,19 @@ document summary:
    boilerplate lines (e.g. `VECTORWORKS EDUCATIONAL VERSION`) are removed by
    `_strip_watermark_lines` **before** indexing and before the visual-page
    heuristic, so a drawing that is pure linework plus a stamped watermark does
-   not read as "has text".
+   not read as "has text". Each line's font size and weight are kept
+   (`line_styles`): a tenant PDF is chunked on its own headings
+   (`section_chunking`), an OIB Richtlinie on its Punkte (`punkt_chunking`);
+   the table of chunk locators is in
+   [`document-ingestion.md`](../technical-reference/document-ingestion.md#_run_ingestionjob_id-file_paths-collection_name-config).
 2. **Tables** — `_extract_tables_from_pdf` (pdfplumber), gated on
-   `extract_tables`.
+   `extract_tables`; each table is indexed as row groups that repeat its header.
 3. **Embedded raster images** — `_extract_images_from_pdf` (pypdfium2 image
-   XObjects), gated on `extract_images`/`extract_charts`. Returns raw image
-   bytes — **no VLM call yet**. Identical rasters (a logo re-embedded on every
+   XObjects), gated on `extract_images`/`extract_charts` (both on by default).
+   Returns raw image bytes — **no VLM call yet**. Pages rendered whole in step 4
+   are skipped, so each page is analysed once, and at most
+   `AIQ_MAX_IMAGES_PER_DOCUMENT` (64, largest first) go to the VLM; the rest are
+   counted on the file's job status as `images_over_cap`. Identical rasters (a logo re-embedded on every
    page, a reused plan) are content-hash deduped (SHA-256 of the re-encoded
    JPEG) so each unique image is captioned and indexed exactly once.
 4. **Rendered visual/vector pages** — `processing.render_visual_pages_no_vlm`,
@@ -798,11 +852,18 @@ document summary:
    objects with almost no text and **no embedded raster image**, so tracks 1
    and 3 both miss them entirely. The whole page is composited into one bitmap
    (`page.render`, scaled so the long edge ≈ `AIQ_PAGE_RENDER_MAX_DIM` px,
-   default 2048) — **no VLM call yet**. A page is routed here only when its
+   default 2048) — **no VLM call yet**. A page is routed here only when the
+   page triage (`page_triage.classify_page`) calls it a drawing: its
    watermark-stripped text is below `AIQ_VISUAL_PAGE_MIN_TEXT_CHARS` (200)
-   **or** it has ≥ `AIQ_VISUAL_PAGE_MIN_PATHS` (300) vector paths — so ordinary
+   **and** it has ≥ `AIQ_VISUAL_PAGE_MIN_PATHS` (300) vector paths — so ordinary
    text PDFs (the bulk OIB corpus) skip rendering at near-zero cost — and at
-   most `AIQ_MAX_RENDERED_PAGES` (20) pages are rendered per document. The
+   most `AIQ_MAX_RENDERED_PAGES` (20) pages are rendered per document, the rest
+   counted as `drawing_pages_over_cap`. Scanned pages (text-low, a raster over
+   half the page) and garbled text layers (`(cid:n)`, mojibake) are not
+   drawings: before track 1 builds its Documents they are rendered and
+   transcribed by the same vision endpoint (`transcription.route_pdf_pages`,
+   capped by `AIQ_MAX_OCR_PAGES`), and the transcription is indexed as the
+   page's text. See [`visual-ingestion.md`](visual-ingestion.md#scans-and-garbled-text-layers). The
    renderer receives track 1's already watermark-stripped page texts
    (`page_texts=…`), so the PDF's text layer is read once per library and the
    "watermark-stripped" threshold actually holds (it previously measured the
@@ -897,6 +958,16 @@ watermark-scrubbed via `_scrub_watermark_phrases` first, and if scrubbing emptie
 it the summary stays `None` rather than becoming an empty string — so a
 Bebauungsplan JPG is never summarised by its CAD licence stamp.
 
+**Tags are a decision, not a generation** (ADR-0064, use 4). Picking 1–2 of
+twelve document types and 0–3 of six OIB disciplines is asked of the decision
+model (`document_classification.decide_document_tags`: one choice over the
+types, one noul per discipline, the same text the summary reads, bounded at
+5 s) and the generative tag prompt on `summary_llm` runs only when no decision
+did (no key, ZDR, a BYOK key elsewhere, the endpoint down). A decision cannot
+answer outside the vocabulary, so the parse failures the prompt path filters
+are gone on that path. The org id rides the job config into the call, so the
+org's BYOK and ZDR policy hold in the detached ingestion thread.
+
 **Org BYOK + runtime model override for the VLM.** The vision model used across
 all VLM call sites (Phase 2 enrichment) is resolved the SAME way the NAT chat
 models resolve theirs. `/v1/ingest` forwards `x-grid-organization-id` (the BFF's
@@ -920,11 +991,9 @@ and the retriever's embedding client. (Embedding calls remain synchronous on
 the worker thread; the standalone ingest-worker tier, not in-process
 parallelism, is the scaling answer — see the scope note below.)
 
-> Scope note: this lives in the **LlamaIndex** ingestor. The `foundational_rag`
-> backend shares the summary prompt (`summarize_document_text`) but not yet the
-> page-render track — a known follow-up if that backend is used for drawing PDFs.
-> Embeddings BYOK is likewise still a follow-up (needs an embeddings-capable BYOK
-> endpoint).
+> Scope note: this lives in the **LlamaIndex** ingestor, the knowledge layer's
+> only backend (ADR-0072). Embeddings BYOK is still a follow-up (needs an
+> embeddings-capable BYOK endpoint).
 
 ### Document thumbnails
 
@@ -937,25 +1006,25 @@ falling back to the content-aware SVG sketch (`DocumentKindThumbnail`).
    `_thumb.jpg`) and generates a presigned **PUT** URL for it.
 2. The PUT URL is passed to the backend's `/v1/ingest` as
    `thumbnail_upload_url`.
-3. The `/v1/ingest` route handler (`ingest.py`) generates the thumbnail
-   **pre-ingest**, before `submit_job`, so the BFF polling job status sees a
-   thumbnail almost immediately — before the file even enters the worker pool:
-   - **PDFs**: page 0 via `pypdfium2` → PIL → 200px JPEG quality 80.
-   - **Images**: PIL open → RGB → 200px JPEG quality 80.
-   On a successful upload the route sets `config["thumbnail_pregenerated"] = True`.
-4. The JPEG bytes are PUT to SeaweedFS via the presigned URL (pypdfium2
-   render is quick — ~50 ms per page — so it does not delay the request
-   noticeably).
-5. `_run_ingestion` in `adapter.py` keeps a **fallback** thumbnail render
-   (400px) for callers that submit jobs without going through the route, or
-   whose pre-ingest render failed. It is skipped when
-   `config["thumbnail_pregenerated"]` is set, so the file is never rendered
-   and PUT twice.
+3. The ingest job draws the thumbnail right after it downloads its input and
+   before any extraction: page 0 of a PDF, or the image itself, via
+   `pypdfium2`/PIL → 400px JPEG. For a Word or presentation file, `.xls` or
+   `.ods`, that input is the PDF rendition from `extraction_ref`
+   (ADR-0071), so the thumbnail comes from the same file the job extracts.
+4. The route itself no longer has the bytes: the job downloads them, so there
+   is no quick render from the original. It draws a thumbnail only for an
+   office original the job cannot rasterise, which in practice means
+   `.xlsx`/`.xlsm`: `preview_ref` present and `extraction_ref` absent. Then a
+   FastAPI background task, run once the 202 is out, downloads the rendition
+   into a temp `.pdf`, renders page 0 at 200px and deletes the file.
+5. Either way the JPEG is PUT to SeaweedFS via the presigned URL. The full
+   contract is in [`python-endpoints.md`](../api/python-endpoints.md).
 
 **Serving:**
 - `GET /api/documents/{id}/thumbnail` → `getDocumentThumbnail()` presigns a
   browser-facing GET URL for `_thumb.jpg`. Returns `{ url: string | null }`;
-  `null` means no thumbnail exists (non-PDF/image, or generation failed).
+  `null` means no thumbnail exists (a type with none, an office original whose
+  conversion failed, or a render that failed).
 
 **Frontend:**
 - `ThumbnailWithFallback` (file-browser-pane.tsx) and
@@ -984,6 +1053,13 @@ renderer, `render_grounding_block`. Both producers build records and call it:
 shelf, Dokumentart and title from, so the header and the fan-out cannot
 disagree), and `ris_adapter.lookup.render.format_passages` turns `Passage`
 objects into the same records. Neither writes grammar text any more.
+
+The fan-out is typed too: `GroundingBlock.lanes` holds `TraceLane` models
+(`common/wire_v2.py`) and `GroundingBlock.tool` names the tool. The renderer
+emits them as the tool's one `sources` step on the chat wire, so the
+Herleitung never reads them back out of the text. It still writes them as the
+`## Trace-Lanes` line, because deep research's model reads that line
+(chat-wire-v2.md, F2).
 
 The renderer files each block under the SHA-256 of the exact bytes it returns,
 in a per-turn `ContextVar` that `PilotiAgent.run` opens beside
@@ -1182,6 +1258,27 @@ Five retrieval-quality improvements sit in the knowledge layer's `register.py`
    (`"already_fired"`) and the cheap pre-checks of `should_skip_judge` skip it
    too.
 
+3b. **The coverage signal** — with `requery_decider: jev`, a search whose
+   judge found the first pool insufficient asks the decider once more over the
+   whole pool the model gets, up to 24 passages (`_COVERAGE_MAX_JUDGED`), after
+   the requery round (`requery.judge_coverage`, one `noul` per passage, the same
+   0.55). When every judged passage was decided and none reaches it, the
+   preamble reads `Found N document(s); none of the judged ones answers the
+   question:` and the line under it reads `Abdeckung: unzureichend — keine der
+   N gezeigten Passagen enthält die gesuchte Aussage …`, or, for a pool longer
+   than 24, `keine der 24 besten Passagen …; die übrigen K Passagen wurden
+   nicht geprüft` (`GroundingBlock.coverage_gap`). The pool reaches the model whole: a
+   decision never withholds a passage (ADR-0064), so the gap is stated, not
+   enforced. The prompt's `<research_rules>` tell the agent to say it found no
+   supporting passage rather than answer from them. The retrieval span records
+   `coverage: "insufficient"` and `coverage_best`. Anything short of a
+   complete "no" claims nothing:
+   a decision that did not run or left a passage unanswered, the LLM decider,
+   a degraded pool, and every search the judge skipped (family overview,
+   pinned file, `should_skip_judge`, a requery already spent this turn). There
+   is no cross-encoder score threshold: nothing in the repo measures Cohere
+   rerank scores against labelled unanswerable questions.
+
 4. **Retrieval-precision feedback** — a new `retrieval_precision` event kind in
    the citation-health pipeline (`src/aiq_agent/common/citation_events.py`):
    `build_turn_events` now compares the *retrieved* source labels against the
@@ -1200,7 +1297,9 @@ Five retrieval-quality improvements sit in the knowledge layer's `register.py`
    knowledge image to the VLM **as an image block during a research turn** —
    not just at ingestion. Three source shapes: **PDF pages** are re-rendered on
    demand with pypdfium2 (long edge `AIQ_PAGE_RENDER_MAX_DIM`, default 2048) —
-   base-corpus PDFs from disk (`OIB_UPLOADS_DIR` / repo corpus), project/Archiv
+   base-corpus PDFs from this replica's cache of the corpus, which
+   `corpus_store.ensure_local` fills from SeaweedFS on demand (the
+   `oib_corpus_files` table says what a base-corpus file is), project/Archiv
    PDFs from SeaweedFS bytes; **standalone image uploads** (PNG/JPG
    project/Archiv documents) are fetched from SeaweedFS and re-encoded to JPEG
    directly; and **stored embedded rasters** — the images
@@ -1289,8 +1388,8 @@ Austria's). The org-Archiv stratum (ADR-0024) sits beside these unchanged.
   the pointer, downloads the law and returns the answering §§ as citable
   passages: `sources/ris_adapter/src/lookup/`), and by `ris_fetch_document` in
   deep research, which still drives the three older RIS tools itself.
-- **The OIB corpus is not in the catalog.** `data/oib/` → `oib_knowledge` is
-  its own source of truth; what a corpus file *is* (Richtlinie / Leitfaden /
+- **The OIB corpus is not in the catalog.** The `oib_corpus_files` table and its
+  objects → `oib_knowledge` are its own source of truth; what a corpus file *is* (Richtlinie / Leitfaden /
   Erläuterung / Begriffsbestimmungen / Zitierte Normen / Änderungsdokument)
   derives from the filename (`norm_registry.oib_doc_class`). The 15
   `aenderungen_*` diff files and the superseded `zitierte_normen` revision are
@@ -1351,17 +1450,12 @@ Austria's). The org-Archiv stratum (ADR-0024) sits beside these unchanged.
    Limits & Grounding** block that instructs agents to treat confirmed wizard
    facts (fluchtniveau, BG Fläche, Anzahl Geschoße, Bauweise, Nutzung,
    Brandschutzanlagen, …) as binding constraints, derive building classes from
-   them, flag contradictions, and surface gaps. The compliance-checker pair
-   (`requirement_profile.j2`, `evidence_batch.j2`) gained a
-   **Projekt-Hartgrenzen** section that maps each wizard fact to its OIB
-   significance.
+   them, flag contradictions, and surface gaps.
 - **Applicability** — `common/applicability.py` is a small hand-written module
   (no DSL): OIB verdicts from project facts (mirrors the UI's
   `applicable-standards.ts`), German trigger hints for the four boolean intake
   facts (Kleingarten, Denkmalschutz, Betriebsanlage, Stellplatz), and the
-  prompt section. The compliance checker scopes Stage 1 with it (verdicts
-  `required`/`likely`/`check` all stay in scope; an explicit user scope is
-  never narrowed).
+  prompt section Piloti renders from the project context.
 - **Display tagging** — `lane_for_hit` / `citation_verification.source_lane`
   map a retrieval or citation hit to a stratum + lane label (Bundesrecht /
   Landesrecht / Verordnung via catalog rank; OIB lanes via filename class;
@@ -1393,9 +1487,9 @@ the way in (`lib/bim/ifc-archive.ts`), and everything downstream sees STEP.
 That module also enforces the extraction ceiling on the archive's DECLARED
 uncompressed size, read from the zip directory before a byte is inflated: the
 limit exists to keep a 1 GiB pod alive, and measuring it on the compressed
-object let a 40 MB upload become a 300 MB allocation. Extraction is detached from
-the request (a 60 MB model takes tens of seconds) and every terminal outcome
-writes the document row: success → the digest dispatch sets `pending` + a job
+object let a 40 MB upload become a 300 MB allocation. Extraction is a `bim_extract` job on the
+`bff-jobs` pool, not part of the request (a 60 MB model takes tens of seconds;
+ADR-0079) and every terminal outcome writes the document row: success → the digest dispatch sets `pending` + a job
 id, failure → `failed` with the reason, plus a `bim_models` row recording the
 same thing.
 
@@ -1626,14 +1720,35 @@ answer are unaffected, and the fallback says so.
   thread (`features/runs`, ADR-0062); the report and its findings land on the
   run's message.
 
-**Open items**: synchronous inline deep-research answers (no Dask) do not
+**How a finished run reaches the BFF, and what heals a lost write (backlog
+T3-11).** The worker makes three writes when a run ends: the outcome
+(`jobs/outcome_notify.py` → `/api/internal/jobs/{id}/outcome`, closes the
+`task_runs` row, files the report, tells the requester), the report into the
+run's message (`conversation_output.py` → `/api/internal/runs/by-job/{id}/report`)
+and the ledger's terminal op. The first two, and the thread-turn fallback, go
+through `aiq_api/internal_retry.py`: three attempts over about 25 s on a
+transport failure or a 5xx, and on a 404 too when the job was submitted for a
+run (the runner holds a `run_id`), because then the 404 means the BFF has not
+yet written the backend job id onto the row. The ledger client keeps its single
+short attempt; a lost terminal op is settled by the reconciler below.
+What the retry does not heal the BFF's run reconciler does
+(`frontends/ui/src/lib/runs/reconcile.ts`, driven by the `skill-scheduler`
+tick): it asks the job store for the verdict of every run still active after
+ten minutes without a check (`GET /v1/internal/jobs/{id}/outcome`, service
+token, tenant checked against `job_access`), which also hands back the run
+message rebuilt by `run_message_for_outcome`, and closes the run through the
+same three BFF functions. A run whose job the store cannot find is closed as
+failed after two hours. The transactional outbox the backlog item describes is
+still deferred; this is pull-based reconciliation instead.
+
+**Open items**: synchronous inline deep-research answers (`use_async_deep_research` off) do not
 carry Grid cards (§3; the async job path generates them post-hoc in the
 runner). And the research tab can 403 — see §9.
 
 **Collection-scope re-injection gap — now diagnosable (fixed 2026-07-16,
 `f8093a0`)**: the `X-Grid-Collection-Scope` header is captured once at submit
 time (`piloti/conversation_register.py`) and threaded into the async job payload
-as `collection_scope`. The Dask worker only re-injects it into its own
+as `collection_scope`. The research worker only re-injects it into its own
 request context conditionally — `frontends/aiq_api/src/aiq_api/jobs/runner.py:641`
 does `if collection_scope is not None:` before base64url-encoding it back
 onto the header. When the scope is absent, `knowledge_retrieval` inside the
@@ -1650,7 +1765,11 @@ the point the re-injection would otherwise be skipped.
 LangGraph checkpointing for the deep-research graph, configured via
 `deep_research_agent.checkpoint_db` (env `AIQ_DEEP_CHECKPOINT_DB`; unset by
 default) — see §9's "Async deep-research jobs are not restart-safe" bullet
-for the full mechanism and its manual-resubmit resume contract.
+for the full mechanism and its manual-resubmit resume contract. A run's rows
+(`thread_id == job_id`) are purged when it ends, by the runner's `finally`
+(`_purge_deep_checkpoint_unless_reclaimed`) and again by the DB worker. Both skip
+the purge when another worker now holds the job's claim: the rows are keyed by
+job, so after a reclaim they are the new owner's resume point.
 
 **Agent Skills and Jobs (ADR-0046)**: project-level **jobs** — a prompt on a
 timer, with a skill optionally attached — can fire this same async pipeline on
@@ -1675,10 +1794,6 @@ writer middleware stack, structured-output contracts, and graph invariants
 section covers the remaining open defects found by a source audit against the
 installed `deepagents`/`langchain`/`langgraph` versions, several of which are
 now fixed — summarized in §9 below.
-
-**Compliance pipeline (backlog T4-3, 2026-07-16)**: `src/aiq_agent/agents/compliance_checker/README.md`
-documents a separate, purpose-built alternative to running an OIB
-Soll-Ist-Abgleich through this open-ended deep-research harness — see §8c.
 
 ## 8. Backend agent architecture & DRY debt
 
@@ -1849,7 +1964,7 @@ full specs in `org-model-configuration.md` (ADR-0014) and
   `GridCostTracker` through LangChain's `register_configure_hook` ContextVar
   seam — every callback manager configured inside the request picks it up,
   so agents contain no metering code. Activated in exactly three places:
-  the chat workflow `_run`, the Dask job runner, and the reflection task.
+  the chat workflow `_run`, the research job runner, and the reflection task.
   Events (model, tokens, OpenRouter `usage.cost`, generation id) POST to
   the token-guarded `POST /api/internal/usage` (single-writer rule).
 - **Budgets**: `x-grid-budget` carries the remaining budget per scope — USD of cost for an organization the platform bills, tokens for one on its own key (ADR-0053)
@@ -1870,31 +1985,14 @@ full specs in `org-model-configuration.md` (ADR-0014) and
   consumes these to show live progress instead of staying silent for the
   first minutes of a run.
 
-## 8c. Compliance-check pipeline (backlog T4-3, 2026-07-16)
+## 8c. Compliance-check pipeline (removed)
 
-`src/aiq_agent/agents/compliance_checker/` is a separate, **deterministic**
-3-stage pipeline for the OIB Soll-Ist-Abgleich (requirements-vs-evidence
-compliance check) — the structured alternative to running the same check
-through the open-ended `deep_research_agent` (which the audit that opened
-T4-3 measured at ~300 LLM turns / 20+ minutes for the same job). Stage 1
-derives applicable requirements per Richtlinie (one structured LLM call each,
-grounded by tool-free `knowledge_search` retrieval against the base OIB
-collection); Stage 2 checks project-document evidence per batch of ~8-10
-requirements (one structured LLM call each); Stage 3 assembles the compliance
-matrix, ranks gaps by risk, and renders a German Markdown report — pure
-Python, no LLM calls. A full 6-Richtlinien check is ~10-25 LLM calls total,
-bounded and predictable.
-
-Registered as the `compliance_check` function (`_type: compliance_check_agent`)
-in `configs/config_oib_openrouter.yml`, backed by a dedicated `compliance_llm`
-role and the `aiq_compliance_checker` `nat.plugins` entry point
-(`pyproject.toml`). **Not yet invoked by any chat/workflow entry point** — the
-function is registered and directly callable, but no orchestrator node, slash
-command, or UI action calls it yet, so it needs a live shakedown before
-user-facing use. See `src/aiq_agent/agents/compliance_checker/README.md` for
-the full stage design, budget math, and its own still-open known limitation
-(`AgentGroup` has no dedicated member for this pipeline's model overrides
-yet).
+The staged OIB Soll-Ist pipeline (`agents/compliance_checker/`, backlog T4-3)
+was retired as a chat tool and then deleted, with its `compliance_llm` role
+and its `compliance_check` model group. A norm check is now a task of kind
+`compliance_check`, run by the general agent with its retrieval tools
+(`TASK_ENGINES` in `frontends/ui/src/lib/tasks/delegation.ts`). The code is in
+git history.
 
 ## 8d. Agent skills (ADR-0046)
 
@@ -1954,7 +2052,7 @@ loads house voice, offers and org skills through `use_skill`
   non-empty (§6) — only the *listing* still is, which is cosmetic once the
   list itself is reliable.
 - **Async job collection-scope fallback — fixed 2026-07-16 (`f8093a0`)** —
-  `collection_scope` is still only re-injected into the Dask worker context
+  `collection_scope` is still only re-injected into the research worker context
   when present (behavior unchanged: absent scope still drops
   project-collection search for that job, §7), but the degradation is no
   longer silent: `runner.py` logs a one-time WARNING (job id, whether the
@@ -2079,7 +2177,7 @@ loads house voice, offers and org skills through `use_skill`
   from `store`) passed through to `create_deep_agent`. When
   `deep_research_agent.checkpoint_db` is configured (env
   `AIQ_DEEP_CHECKPOINT_DB`; unset by default, opt-in since jobs run in
-  ephemeral Dask worker processes — the reference config sets it to
+  ephemeral research worker processes — the reference config sets it to
   `./deep_research_checkpoints.db`), `DeepResearcherAgent.run()` wires
   `configurable.thread_id = job_id` and `durability="async"` (LangGraph's
   canonical durable-execution mode for long batch-style runs), so a worker

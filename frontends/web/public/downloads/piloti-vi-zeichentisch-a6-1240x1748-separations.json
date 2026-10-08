@@ -1,0 +1,39 @@
+{
+  "work": "tafeln",
+  "id": "tafeln/zeichentisch/postcard",
+  "file": "piloti-vi-zeichentisch-a6-1240x1748.jpg",
+  "width": 1240,
+  "height": 1748,
+  "dpi": 300,
+  "pitch": 5,
+  "inks": [
+    {
+      "order": 1,
+      "ink": "mist",
+      "drum": "Mist",
+      "hex": "#D5E4C0",
+      "file": "piloti-vi-zeichentisch-a6-1240x1748-sep-1-mist.png"
+    },
+    {
+      "order": 2,
+      "ink": "kelly",
+      "drum": "Kelly Green",
+      "hex": "#67B346",
+      "file": "piloti-vi-zeichentisch-a6-1240x1748-sep-2-kelly.png"
+    },
+    {
+      "order": 3,
+      "ink": "moss",
+      "drum": "Moss",
+      "hex": "#68724D",
+      "file": "piloti-vi-zeichentisch-a6-1240x1748-sep-3-moss.png"
+    },
+    {
+      "order": 4,
+      "ink": "hunter",
+      "drum": "Hunter Green",
+      "hex": "#407060",
+      "file": "piloti-vi-zeichentisch-a6-1240x1748-sep-4-hunter.png"
+    }
+  ]
+}

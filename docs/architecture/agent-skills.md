@@ -848,8 +848,12 @@ from the job row itself, and it never throws for a skip:
    throw. A skip never throws: an occurrence is not retried before its next
    slot.
 
-Admission caps (`GRID_MAX_ACTIVE_JOBS[_PER_ORG]`) therefore apply to scheduled
-runs automatically, and every run — however triggered — is visible in history.
+Admission therefore applies to scheduled runs automatically, and every run —
+however triggered — is visible in history. Capacity
+never skips an occurrence (ADR-0079): the job joins the research queue as `bulk`
+priority, the run is recorded `queued`, and the worker's first flush moves it to
+`running`; only an organization's waiting queue past
+`GRID_MAX_QUEUED_JOBS_PER_ORG` still yields a `skipped` run.
 
 ### The worker's side, and the outcome
 
@@ -864,8 +868,15 @@ flag, the worker knows the model.
 
 When the run ends — success, failure or cancellation — the worker reports
 the outcome to `POST /api/internal/jobs/[jobId]/outcome` by the backend job
-id, only when it was the one that wrote the terminal status (a run the reaper
-already finalized is reported by nobody). The BFF turns that into a
+id. Whoever writes the terminal status reports it: the runner for its own
+verdict, the cancel route for INTERRUPTED (the runner repeats it when its abort
+lands, which the BFF absorbs), the ghost reaper and the queue's retry
+exhaustion and poison quarantine for their FAILURE. The last four hold no run
+context, so they read the tenant off the job's `job_access` row
+(`notify_job_outcome_from_access`). A run that loses a status race reports
+nothing unless the standing status is its own verdict. Until 2026-09 only the
+runner reported, and only when it wrote the status itself, so a cancelled,
+reaped or exhausted run stayed `running` in `task_runs` forever. The BFF turns that into a
 `job.completed` or `job.failed` inbox item for the job's creator, one row per
 run, landing on the project's automation page. Best-effort by contract: the
 run is already final in the job store, and a missed notification never
@@ -1033,11 +1044,13 @@ unit of delegated work. `fireJob` inserts it beside the `job_runs` row with the
 requester pinned (`jobs.created_by`, never the scheduler), the plan frozen
 (prompt, skill snapshot, data sources) and the backend job id recorded. The
 worker's outcome callback closes it (`succeeded` / `failed` / `interrupted`)
-and, for a finished deep-research task, **files the report into the project as
-the requester**: `lib/auth/pinned-session.ts` resolves that person's membership,
-role and the organization's flags into a session, and `fileResearchReport` runs
-exactly as it does on the interactive report GET, keyed on the same backend job
-id, so the two paths collapse onto one document. A requester who left the
+and, for a finished deep-research task, **queues the report's filing as the
+requester** (`file_research_report` on the `bff-jobs` pool, ADR-0079; the run's
+`filing_status` is `queued` until it has run):
+`lib/auth/pinned-session.ts` resolves that person's membership, role and the
+organization's flags into a session, and `fileResearchReport` runs there exactly
+as it does for the interactive report GET, keyed on the same backend job id, so
+the two paths collapse onto one document. A requester who left the
 organization, lacks `project:documents:generate`, or whose organization has
 agent-authored documents off is a `refused` filing recorded on the row — a
 permission the person does not hold is not one the scheduler may borrow.
@@ -1053,11 +1066,14 @@ Piloti "no" about reaches the run rather than a log line.
 
 Plain-Node worker (purger idiom: CommonJS, `postgres` client, `.spec.mjs`
 tests), compose service `skill-scheduler` (container `grid-skill-scheduler`)
-running `node scheduler/index.js` off the frontend image. It refuses to start
-— clean log, exit 0 — unless the deployment gate is on
+running `node scheduler/index.js` off the frontend image. It fires schedules
+(steps 1–3 below) only when the deployment gate is on
 (`GRID_SKILLS_ENABLED=true` or `GRID_ENFORCE_FEATURE_FLAGS=true`), read
 case-insensitively exactly as the BFF reads it, so `TRUE` cannot enable the UI
-while silently no-op'ing this container.
+while silently skipping the schedules. With the gate off it does not exit: it
+stays up as the clock of the two sweeps (steps 4 and 5), because runs exist without
+Agent Skills — a chat question escalated to deep research is a `task_runs` row
+with no definition behind it (ADR-0062).
 
 Tick (default 30 s), with a reentrancy guard so a slow tick never overlaps the
 next interval:
@@ -1087,6 +1103,48 @@ next interval:
    '$GRID_SKILL_RUNS_RETENTION_DAYS days'` (batched by id-subselect so each
    statement locks a bounded set). The definition survives its pruned runs, so
    a schedule keeps firing after its oldest attempts age out.
+4. Run reconciler, every tick and whatever the gate says: `POST
+   {FRONTEND_INTERNAL_URL}/api/internal/runs/reconcile`. The BFF does the work
+   (`lib/runs/reconcile.ts`): it claims up to 25 still-`queued`/`running` runs
+   nothing has checked for `GRID_RUN_RECONCILE_STALE_MINUTES` (default 10),
+   stamping `reconcile_checked_at` in the same statement (`FOR UPDATE SKIP
+   LOCKED`, migration 0096), asks the job store for each job's real verdict
+   (`GET /v1/internal/jobs/{id}/outcome`, service token), and for a finished job
+   fills an empty run message (`writeRunReport`) and closes the row and settles
+   its block's ledger (`recordRunOutcome` with `onlyIfActive`) — the same
+   functions the worker's own writes reach. A job the
+   store cannot find, or a run that never got a backend job id, is closed as
+   failed once it is older than `GRID_RUN_RECONCILE_UNKNOWN_GRACE_MINUTES`
+   (default 120). The same sweep then heals up to 100 CLOSED runs nothing has
+   looked at since they ended (`claimClosedRunsToHeal`, migration 0099): a block
+   still reading „läuft" takes the ending its row records (`settleRunLedger`).
+   The container logs a sweep only when it closed, healed or failed
+   something. See the run section of
+   [`backend-deep-dive.md`](backend-deep-dive.md) and ADR-0062.
+5. Background-work sweep, also every tick and whatever the gate says: `POST
+   {FRONTEND_INTERNAL_URL}/api/internal/maintenance/reconcile-background-work`
+   (ADR-0079). The BFF gives a document that has sat at `processing` for 15
+   minutes with no live `bff_job_queue` job (`lib/documents/stuck-processing.ts`)
+   a new job, or fails it with the reason when its job is dead, and ends a
+   report filing left `queued` whose job is gone (`lib/tasks/filing-sweep.ts`).
+   A row whose job is queued or running is left alone. The container logs a
+   sweep only when it changed or failed something.
+
+**What the worker logs at ERROR.** ERROR is what err2issue files as a GitHub
+issue (ADR-0031), so a failure that heals itself on the next tick is a WARN.
+A claim or prune the database refuses because it is unreachable
+(`workers/database-unavailable.js`, the code set the BFF uses too), and a
+reconcile POST that fails in transport or gets a 404, 502, 503 or 504 (an old
+frontend pod mid-rollout, the BFF answering a database outage), each log a
+WARN per tick. When the same failure has lasted about five minutes (10 ticks
+at the 30 s default, `escalationTicks` in `workers/failure-streak.js`) it logs
+one fixed ERROR line, `… still failing after 10 consecutive ticks: <kind>`,
+and the first good tick after it logs `… recovered after <n> failed ticks`.
+No line carries an HTML body: a Next.js error page holds per-build asset
+hashes, which gave every deploy a new issue fingerprint (#785, #793). A failed
+fire (step 2), a 401 or 500 from the reconcile POST, and any claim error that
+is not an outage stay ERROR at once: a missed fire is not brought back by a
+later tick.
 
 Claiming advances the job **before** firing, which is what makes a run
 at-most-once per occurrence across replicas and crashes.
@@ -1109,7 +1167,9 @@ renaming them is a deployment change with no user-visible gain.
 
 | Variable | Service | Default | Purpose |
 |---|---|---|---|
-| `GRID_SKILLS_ENABLED` | frontend, skill-scheduler | `false` | Dark-launch fallback gate while flags are unenforced; also the scheduler's start gate |
+| `GRID_SKILLS_ENABLED` | frontend, skill-scheduler | `false` | Dark-launch fallback gate while flags are unenforced; also the scheduler's schedules gate (the run reconciler runs regardless) |
+| `GRID_RUN_RECONCILE_STALE_MINUTES` | frontend | `10` | A still-active run is asked about once nothing has checked it for this long |
+| `GRID_RUN_RECONCILE_UNKNOWN_GRACE_MINUTES` | frontend | `120` | A run whose job cannot be found is closed as failed once this old |
 | `GRID_SKILL_SCHEDULER_POLL_MS` | skill-scheduler | `30000` | Tick interval |
 | `GRID_SKILL_SCHEDULER_BATCH` | skill-scheduler | `20` | Max claims per tick |
 | `GRID_SKILL_MIN_INTERVAL_MINUTES` | frontend | `15` | Minimum cron cadence accepted at save time |

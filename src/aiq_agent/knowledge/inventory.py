@@ -566,8 +566,10 @@ def render_inventory_block(
         "",
         'When the user asks which files you have on a shelf (e.g. "welche Dateien '
         'hast du im Büroarchiv", "was liegt im Projekt", "welche OIB-Richtlinien '
-        "hast du\"), answer ONLY from that shelf's group. If the group is empty, say "
-        "so. Never fill a gap with another shelf. Büroarchiv is never the OIB corpus.",
+        "hast du\"), answer ONLY from that shelf's files. If the group is empty, say "
+        "so. Never fill a gap with another shelf. Büroarchiv is never the OIB corpus. "
+        "When the group says it is incomplete, or the question narrows by folder, name, "
+        "kind or date, `list_files` returns the complete, filtered list.",
         "",
     ]
     if any(_folder_of(doc) for doc in docs):
@@ -636,7 +638,9 @@ def render_inventory_block(
         if missing > 0:
             lines.append(
                 f"- (und {missing} weitere Datei(en) auf diesem Regal, hier nicht aufgeführt — "
-                f"diese Liste ist unvollständig; sage das, statt sie als vollständig zu behandeln)"
+                f'diese Liste ist unvollständig. `list_files(shelf="{shelf.value}")` zeigt alle, '
+                f"auch nach Ordner, Name oder Datum gefiltert; ohne diesen Aufruf behandle die Liste "
+                f"nicht als vollständig)"
             )
         lines.append("")
 

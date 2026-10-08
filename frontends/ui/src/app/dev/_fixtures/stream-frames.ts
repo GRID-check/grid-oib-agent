@@ -4,6 +4,9 @@
  * live cards, and the terminal frame with its cards and anatomy, each stamped
  * with its second since the turn began.
  *
+ * The `legal_basis` card each answer carried was retired by ADR-0069 and is
+ * stripped from the recording, with the `[[card:1]]` marker that placed it.
+ *
  * Recorded, not written: a one-off script ran each question through the real
  * workflow (`load_workflow` on `configs/config_oib_openrouter.yml`) and kept
  * every chunk of `result_stream()`: its content, its wire extras
@@ -580,7 +583,7 @@ export const STREAM_FRAMES: Record<'varianten' | 'oib2', RecordedTurn> = {
    {
     "t": 100.424,
     "status": "in_progress",
-    "content": "\n[[card:1]]\n"
+    "content": "\n"
    },
    {
     "t": 100.523,
@@ -590,7 +593,7 @@ export const STREAM_FRAMES: Record<'varianten' | 'oib2', RecordedTurn> = {
    {
     "t": 101.405,
     "status": "in_progress",
-    "content": "**Die Außentreppe ist in GK 4 in A2 auszuführen; das zweite Treppenhaus braucht oberirdisch grundsätzlich Wände in REI 60/EI 60 und Treppenläufe und Podeste in R 60** [2]. Für beide Varianten ist nicht nur die Treppe, sondern der unabhängige Fluchtweg bis zu einem sicheren Ort im Freien nachzuweisen: Bei der zusätzlichen Route nach Punkt 5.1.4 ist die Gehweglänge nicht begrenzt [1].\n\n| Nachweis | Offene Außentreppe | Zweites Treppenhaus |\n|---|---|---|\n| Unabhängige Wegführung | Weg zum weiteren, unabhängigen Fluchtweg; Ausgang zu sicherem Ort im Freien | Weg zum weiteren, unabhängigen Fluchtweg; Ausgang zu sicherem Ort im Freien |\n| Feuerwiderstand der Treppe | A2 | Treppenläufe und Podeste: R 60 |\n| Brandbeanspruchung | Im Brandfall keine Beeinträchtigung durch Flammeneinwirkung oder gefährdende Strahlungswärme | Treppenhauswände oberirdisch: REI 60/EI 60; unterirdisch: REI 90 und A2/EI 90 und A2; Decke darüber: REI 60 |\n| Türen | Nachweis der für den Fluchtweg und seine Anschlüsse geltenden Türanforderungen | Zu Wohnungen: EI₂ 30; zu oberirdischen Gängen: E 30-C; zu unterirdischen Gängen und Räumen: EI₂ 30-C |\n| Rauchabzug | Keine Rauchabzugseinrichtung aus Tabelle 3 für die Außentreppe genannt | Rauchabzug an oberster Stelle, geometrisch freier Querschnitt 1,00 m²; Auslösung in der Angriffsebene der Feuerwehr und beim obersten Podest mit Zugängen zu Aufenthaltsräumen, unabhängig vom öffentlichen Stromnetz |\n\nDie Tabelle fasst die GK-4-Anforderungen aus Tabelle 3 zusammen; deren Abweichungsmöglichkeiten und Fußnoten sind im Einzelfall mitzuprüfen [2]. Bei einem offenen Laubengang als Zubringer kann in GK 4 A2 genügen, wenn die Fluchtwege zu zwei verschiedenen Treppenhäusern bzw. Außentreppen führen und die Standfestigkeit des Laubengangs im Brandfall gesichert ist [3]. Die Anforderungen an Fenster und Türen zum offenen Laubengang haben eigene Ausnahmen, darunter den Fall zweier verschiedener Treppenhäuser oder Außentreppen [3].\n\nFür Wohnungen wird die Gehweglänge in den hier einschlägigen Fällen ab der Wohnungseingangstüre gemessen; die Wohnungen dürfen sich dabei über höchstens zwei Geschoße erstrecken [1]. In jedem Geschoß mit Aufenthaltsräumen muss zusätzlich ein Rettungsweg, ein unabhängiger Weg zu einer weiteren Treppe nach Tabelle 3 oder ein Weg in einen benachbarten Brandabschnitt vorhanden sein [1].\n\nWiener Bautechnikverordnung § 1 erklärt die in ihren Anlagen enthaltenen OIB-Richtlinien für maßgeblich, soweit sie bautechnische Anforderungen regeln [4]. Der abgerufene Paragraph nennt die konkrete Ausgabe der OIB-RL 2 nicht; daher ist vor Einreichung zu verifizieren, welche Ausgabe für das konkrete Verfahren gilt.\n\n[[card:1]]\n\n## Quellen\n- [1] [KB] oib-rl_2_ausgabe_mai_2023.pdf, p.13\n- [2] [KB] oib-rl_2_ausgabe_mai_2023.pdf, p.30\n- [3] [KB] oib-rl_2_ausgabe_mai_2023.pdf, p.14\n- [4] [RIS] Wiener Bautechnikverordnung 2023, § 1",
+    "content": "**Die Außentreppe ist in GK 4 in A2 auszuführen; das zweite Treppenhaus braucht oberirdisch grundsätzlich Wände in REI 60/EI 60 und Treppenläufe und Podeste in R 60** [2]. Für beide Varianten ist nicht nur die Treppe, sondern der unabhängige Fluchtweg bis zu einem sicheren Ort im Freien nachzuweisen: Bei der zusätzlichen Route nach Punkt 5.1.4 ist die Gehweglänge nicht begrenzt [1].\n\n| Nachweis | Offene Außentreppe | Zweites Treppenhaus |\n|---|---|---|\n| Unabhängige Wegführung | Weg zum weiteren, unabhängigen Fluchtweg; Ausgang zu sicherem Ort im Freien | Weg zum weiteren, unabhängigen Fluchtweg; Ausgang zu sicherem Ort im Freien |\n| Feuerwiderstand der Treppe | A2 | Treppenläufe und Podeste: R 60 |\n| Brandbeanspruchung | Im Brandfall keine Beeinträchtigung durch Flammeneinwirkung oder gefährdende Strahlungswärme | Treppenhauswände oberirdisch: REI 60/EI 60; unterirdisch: REI 90 und A2/EI 90 und A2; Decke darüber: REI 60 |\n| Türen | Nachweis der für den Fluchtweg und seine Anschlüsse geltenden Türanforderungen | Zu Wohnungen: EI₂ 30; zu oberirdischen Gängen: E 30-C; zu unterirdischen Gängen und Räumen: EI₂ 30-C |\n| Rauchabzug | Keine Rauchabzugseinrichtung aus Tabelle 3 für die Außentreppe genannt | Rauchabzug an oberster Stelle, geometrisch freier Querschnitt 1,00 m²; Auslösung in der Angriffsebene der Feuerwehr und beim obersten Podest mit Zugängen zu Aufenthaltsräumen, unabhängig vom öffentlichen Stromnetz |\n\nDie Tabelle fasst die GK-4-Anforderungen aus Tabelle 3 zusammen; deren Abweichungsmöglichkeiten und Fußnoten sind im Einzelfall mitzuprüfen [2]. Bei einem offenen Laubengang als Zubringer kann in GK 4 A2 genügen, wenn die Fluchtwege zu zwei verschiedenen Treppenhäusern bzw. Außentreppen führen und die Standfestigkeit des Laubengangs im Brandfall gesichert ist [3]. Die Anforderungen an Fenster und Türen zum offenen Laubengang haben eigene Ausnahmen, darunter den Fall zweier verschiedener Treppenhäuser oder Außentreppen [3].\n\nFür Wohnungen wird die Gehweglänge in den hier einschlägigen Fällen ab der Wohnungseingangstüre gemessen; die Wohnungen dürfen sich dabei über höchstens zwei Geschoße erstrecken [1]. In jedem Geschoß mit Aufenthaltsräumen muss zusätzlich ein Rettungsweg, ein unabhängiger Weg zu einer weiteren Treppe nach Tabelle 3 oder ein Weg in einen benachbarten Brandabschnitt vorhanden sein [1].\n\nWiener Bautechnikverordnung § 1 erklärt die in ihren Anlagen enthaltenen OIB-Richtlinien für maßgeblich, soweit sie bautechnische Anforderungen regeln [4]. Der abgerufene Paragraph nennt die konkrete Ausgabe der OIB-RL 2 nicht; daher ist vor Einreichung zu verifizieren, welche Ausgabe für das konkrete Verfahren gilt.\n\n## Quellen\n- [1] [KB] oib-rl_2_ausgabe_mai_2023.pdf, p.13\n- [2] [KB] oib-rl_2_ausgabe_mai_2023.pdf, p.30\n- [3] [KB] oib-rl_2_ausgabe_mai_2023.pdf, p.14\n- [4] [RIS] Wiener Bautechnikverordnung 2023, § 1",
     "sources": [
      {
       "number": 1,
@@ -698,33 +701,13 @@ export const STREAM_FRAMES: Record<'varianten' | 'oib2', RecordedTurn> = {
     "t": 103.217,
     "status": "in_progress",
     "content": "",
-    "cards": [
-     {
-      "type": "legal_basis",
-      "law": "OIB-Richtlinie 2",
-      "lane": "baurecht_oib",
-      "edition": "Ausgabe Mai 2023",
-      "article": "5.1.4",
-      "summary": "Ein unabhängiger zusätzlicher Fluchtweg kann zu einem weiteren Treppenhaus oder einer weiteren Außentreppe gemäß Tabelle 3 führen.",
-      "original_text": "ein unabhängiger Fluchtweg zu einem weiteren Treppenhaus oder einer weiteren Außentreppe jeweils gemäß Tabelle 3 erreichbar sein"
-     }
-    ]
+    "cards": []
    },
    {
     "t": 103.525,
     "status": "complete",
-    "content": "**Die Außentreppe ist in GK 4 in A2 auszuführen; das zweite Treppenhaus braucht oberirdisch grundsätzlich Wände in REI 60/EI 60 und Treppenläufe und Podeste in R 60** [2]. Für beide Varianten ist nicht nur die Treppe, sondern der unabhängige Fluchtweg bis zu einem sicheren Ort im Freien nachzuweisen: Bei der zusätzlichen Route nach Punkt 5.1.4 ist die Gehweglänge nicht begrenzt [1].\n\n| Nachweis | Offene Außentreppe | Zweites Treppenhaus |\n|---|---|---|\n| Unabhängige Wegführung | Weg zum weiteren, unabhängigen Fluchtweg; Ausgang zu sicherem Ort im Freien | Weg zum weiteren, unabhängigen Fluchtweg; Ausgang zu sicherem Ort im Freien |\n| Feuerwiderstand der Treppe | A2 | Treppenläufe und Podeste: R 60 |\n| Brandbeanspruchung | Im Brandfall keine Beeinträchtigung durch Flammeneinwirkung oder gefährdende Strahlungswärme | Treppenhauswände oberirdisch: REI 60/EI 60; unterirdisch: REI 90 und A2/EI 90 und A2; Decke darüber: REI 60 |\n| Türen | Nachweis der für den Fluchtweg und seine Anschlüsse geltenden Türanforderungen | Zu Wohnungen: EI₂ 30; zu oberirdischen Gängen: E 30-C; zu unterirdischen Gängen und Räumen: EI₂ 30-C |\n| Rauchabzug | Keine Rauchabzugseinrichtung aus Tabelle 3 für die Außentreppe genannt | Rauchabzug an oberster Stelle, geometrisch freier Querschnitt 1,00 m²; Auslösung in der Angriffsebene der Feuerwehr und beim obersten Podest mit Zugängen zu Aufenthaltsräumen, unabhängig vom öffentlichen Stromnetz |\n\nDie Tabelle fasst die GK-4-Anforderungen aus Tabelle 3 zusammen; deren Abweichungsmöglichkeiten und Fußnoten sind im Einzelfall mitzuprüfen [2]. Bei einem offenen Laubengang als Zubringer kann in GK 4 A2 genügen, wenn die Fluchtwege zu zwei verschiedenen Treppenhäusern bzw. Außentreppen führen und die Standfestigkeit des Laubengangs im Brandfall gesichert ist [3]. Die Anforderungen an Fenster und Türen zum offenen Laubengang haben eigene Ausnahmen, darunter den Fall zweier verschiedener Treppenhäuser oder Außentreppen [3].\n\nFür Wohnungen wird die Gehweglänge in den hier einschlägigen Fällen ab der Wohnungseingangstüre gemessen; die Wohnungen dürfen sich dabei über höchstens zwei Geschoße erstrecken [1]. In jedem Geschoß mit Aufenthaltsräumen muss zusätzlich ein Rettungsweg, ein unabhängiger Weg zu einer weiteren Treppe nach Tabelle 3 oder ein Weg in einen benachbarten Brandabschnitt vorhanden sein [1].\n\nWiener Bautechnikverordnung § 1 erklärt die in ihren Anlagen enthaltenen OIB-Richtlinien für maßgeblich, soweit sie bautechnische Anforderungen regeln [4]. Der abgerufene Paragraph nennt die konkrete Ausgabe der OIB-RL 2 nicht; daher ist vor Einreichung zu verifizieren, welche Ausgabe für das konkrete Verfahren gilt.\n\n[[card:1]]\n\n## Quellen\n- [1] [KB] oib-rl_2_ausgabe_mai_2023.pdf, p.13\n- [2] [KB] oib-rl_2_ausgabe_mai_2023.pdf, p.30\n- [3] [KB] oib-rl_2_ausgabe_mai_2023.pdf, p.14\n- [4] [RIS] Wiener Bautechnikverordnung 2023, § 1\n",
-    "cards": [
-     {
-      "type": "legal_basis",
-      "law": "OIB-Richtlinie 2",
-      "lane": "baurecht_oib",
-      "edition": "Ausgabe Mai 2023",
-      "article": "5.1.4",
-      "summary": "Ein unabhängiger zusätzlicher Fluchtweg kann zu einem weiteren Treppenhaus oder einer weiteren Außentreppe gemäß Tabelle 3 führen.",
-      "original_text": "ein unabhängiger Fluchtweg zu einem weiteren Treppenhaus oder einer weiteren Außentreppe jeweils gemäß Tabelle 3 erreichbar sein"
-     }
-    ],
+    "content": "**Die Außentreppe ist in GK 4 in A2 auszuführen; das zweite Treppenhaus braucht oberirdisch grundsätzlich Wände in REI 60/EI 60 und Treppenläufe und Podeste in R 60** [2]. Für beide Varianten ist nicht nur die Treppe, sondern der unabhängige Fluchtweg bis zu einem sicheren Ort im Freien nachzuweisen: Bei der zusätzlichen Route nach Punkt 5.1.4 ist die Gehweglänge nicht begrenzt [1].\n\n| Nachweis | Offene Außentreppe | Zweites Treppenhaus |\n|---|---|---|\n| Unabhängige Wegführung | Weg zum weiteren, unabhängigen Fluchtweg; Ausgang zu sicherem Ort im Freien | Weg zum weiteren, unabhängigen Fluchtweg; Ausgang zu sicherem Ort im Freien |\n| Feuerwiderstand der Treppe | A2 | Treppenläufe und Podeste: R 60 |\n| Brandbeanspruchung | Im Brandfall keine Beeinträchtigung durch Flammeneinwirkung oder gefährdende Strahlungswärme | Treppenhauswände oberirdisch: REI 60/EI 60; unterirdisch: REI 90 und A2/EI 90 und A2; Decke darüber: REI 60 |\n| Türen | Nachweis der für den Fluchtweg und seine Anschlüsse geltenden Türanforderungen | Zu Wohnungen: EI₂ 30; zu oberirdischen Gängen: E 30-C; zu unterirdischen Gängen und Räumen: EI₂ 30-C |\n| Rauchabzug | Keine Rauchabzugseinrichtung aus Tabelle 3 für die Außentreppe genannt | Rauchabzug an oberster Stelle, geometrisch freier Querschnitt 1,00 m²; Auslösung in der Angriffsebene der Feuerwehr und beim obersten Podest mit Zugängen zu Aufenthaltsräumen, unabhängig vom öffentlichen Stromnetz |\n\nDie Tabelle fasst die GK-4-Anforderungen aus Tabelle 3 zusammen; deren Abweichungsmöglichkeiten und Fußnoten sind im Einzelfall mitzuprüfen [2]. Bei einem offenen Laubengang als Zubringer kann in GK 4 A2 genügen, wenn die Fluchtwege zu zwei verschiedenen Treppenhäusern bzw. Außentreppen führen und die Standfestigkeit des Laubengangs im Brandfall gesichert ist [3]. Die Anforderungen an Fenster und Türen zum offenen Laubengang haben eigene Ausnahmen, darunter den Fall zweier verschiedener Treppenhäuser oder Außentreppen [3].\n\nFür Wohnungen wird die Gehweglänge in den hier einschlägigen Fällen ab der Wohnungseingangstüre gemessen; die Wohnungen dürfen sich dabei über höchstens zwei Geschoße erstrecken [1]. In jedem Geschoß mit Aufenthaltsräumen muss zusätzlich ein Rettungsweg, ein unabhängiger Weg zu einer weiteren Treppe nach Tabelle 3 oder ein Weg in einen benachbarten Brandabschnitt vorhanden sein [1].\n\nWiener Bautechnikverordnung § 1 erklärt die in ihren Anlagen enthaltenen OIB-Richtlinien für maßgeblich, soweit sie bautechnische Anforderungen regeln [4]. Der abgerufene Paragraph nennt die konkrete Ausgabe der OIB-RL 2 nicht; daher ist vor Einreichung zu verifizieren, welche Ausgabe für das konkrete Verfahren gilt.\n\n## Quellen\n- [1] [KB] oib-rl_2_ausgabe_mai_2023.pdf, p.13\n- [2] [KB] oib-rl_2_ausgabe_mai_2023.pdf, p.30\n- [3] [KB] oib-rl_2_ausgabe_mai_2023.pdf, p.14\n- [4] [RIS] Wiener Bautechnikverordnung 2023, § 1\n",
+    "cards": [],
     "answer_confidence": "medium",
     "sources": [
      {
@@ -1533,12 +1516,12 @@ export const STREAM_FRAMES: Record<'varianten' | 'oib2', RecordedTurn> = {
    {
     "t": 41.096,
     "status": "in_progress",
-    "content": "lands nicht feststellen.\n\n[[card:1]]\n\n"
+    "content": "lands nicht feststellen.\n\n"
    },
    {
     "t": 43.424,
     "status": "in_progress",
-    "content": "Die OIB-Richtlinie 2 behandelt den **Brandschutz von Gebäuden**. Sie ordnet Anforderungen zur Tragfähigkeit im Brandfall, zur Ausbreitung von Feuer und Rauch, zu Flucht- und Rettungswegen sowie zur Brandbekämpfung; ergänzende Richtlinien behandeln bestimmte Gebäudearten gesondert [1][2][3][4][5][6][7].\n\n| Teil | Schwerpunkt | Fundstelle |\n|---|---|---|\n| OIB-RL 2 | Allgemeine Brandschutzanforderungen für Gebäude | [1] |\n| OIB-RL 2.1 | Betriebsbauten | |\n| OIB-RL 2.2 | Garagen, überdachte Stellplätze und Parkdecks | [8] |\n| OIB-RL 2.3 | Gebäude mit einem Fluchtniveau von mehr als 22 m | [9] |\n\nDie Teile sind nicht bloß Kapitel derselben Richtlinie: OIB-RL 2 verweist für Betriebsbauten, Garagen und Gebäude mit höherem Fluchtniveau auf die jeweiligen ergänzenden Richtlinien [7].\n\n```mermaid\nmindmap\n  root((\"OIB-Richtlinie 2\"))\n    \"Grundrichtlinie\"\n      \"Brandschutz für Gebäude\"\n    \"OIB-RL 2.1\"\n      \"Betriebsbauten\"\n    \"OIB-RL 2.2\"\n      \"Garagen und Parkdecks\"\n    \"OIB-RL 2.3\"\n      \"Fluchtniveau über 22 m\"\n```\n\nDie Ausgabe Mai 2023 hält fest, dass Abweichungen nach Maßgabe des jeweiligen Landesrechts möglich sind [1]. Ob und in welcher Fassung die Richtlinie für ein konkretes Vorhaben verbindlich ist, lässt sich ohne Angabe des Bundeslands nicht feststellen.\n\n[[card:1]]\n\n## Quellen\n- [1] [KB] oib-rl_2_ausgabe_mai_2023.pdf, p.4\n- [2] [KB] oib-rl_2_ausgabe_mai_2023.pdf, p.5\n- [3] [KB] oib-rl_2_ausgabe_mai_2023.pdf, p.12\n- [4] [KB] oib-rl_2_ausgabe_mai_2023.pdf, p.13\n- [5] [KB] oib-rl_2_ausgabe_mai_2023.pdf, p.14\n- [6] [KB] oib-rl_2_ausgabe_mai_2023.pdf, p.15\n- [7] [KB] oib-rl_2_ausgabe_mai_2023.pdf, p.23\n- [8] [KB] oib-richtlinie_2.2_ausgabe_mai_2023.pdf, p.4\n- [9] [KB] oib-rl_2.3_ausgabe_mai_2023.pdf, p.4",
+    "content": "Die OIB-Richtlinie 2 behandelt den **Brandschutz von Gebäuden**. Sie ordnet Anforderungen zur Tragfähigkeit im Brandfall, zur Ausbreitung von Feuer und Rauch, zu Flucht- und Rettungswegen sowie zur Brandbekämpfung; ergänzende Richtlinien behandeln bestimmte Gebäudearten gesondert [1][2][3][4][5][6][7].\n\n| Teil | Schwerpunkt | Fundstelle |\n|---|---|---|\n| OIB-RL 2 | Allgemeine Brandschutzanforderungen für Gebäude | [1] |\n| OIB-RL 2.1 | Betriebsbauten | |\n| OIB-RL 2.2 | Garagen, überdachte Stellplätze und Parkdecks | [8] |\n| OIB-RL 2.3 | Gebäude mit einem Fluchtniveau von mehr als 22 m | [9] |\n\nDie Teile sind nicht bloß Kapitel derselben Richtlinie: OIB-RL 2 verweist für Betriebsbauten, Garagen und Gebäude mit höherem Fluchtniveau auf die jeweiligen ergänzenden Richtlinien [7].\n\n```mermaid\nmindmap\n  root((\"OIB-Richtlinie 2\"))\n    \"Grundrichtlinie\"\n      \"Brandschutz für Gebäude\"\n    \"OIB-RL 2.1\"\n      \"Betriebsbauten\"\n    \"OIB-RL 2.2\"\n      \"Garagen und Parkdecks\"\n    \"OIB-RL 2.3\"\n      \"Fluchtniveau über 22 m\"\n```\n\nDie Ausgabe Mai 2023 hält fest, dass Abweichungen nach Maßgabe des jeweiligen Landesrechts möglich sind [1]. Ob und in welcher Fassung die Richtlinie für ein konkretes Vorhaben verbindlich ist, lässt sich ohne Angabe des Bundeslands nicht feststellen.\n\n## Quellen\n- [1] [KB] oib-rl_2_ausgabe_mai_2023.pdf, p.4\n- [2] [KB] oib-rl_2_ausgabe_mai_2023.pdf, p.5\n- [3] [KB] oib-rl_2_ausgabe_mai_2023.pdf, p.12\n- [4] [KB] oib-rl_2_ausgabe_mai_2023.pdf, p.13\n- [5] [KB] oib-rl_2_ausgabe_mai_2023.pdf, p.14\n- [6] [KB] oib-rl_2_ausgabe_mai_2023.pdf, p.15\n- [7] [KB] oib-rl_2_ausgabe_mai_2023.pdf, p.23\n- [8] [KB] oib-richtlinie_2.2_ausgabe_mai_2023.pdf, p.4\n- [9] [KB] oib-rl_2.3_ausgabe_mai_2023.pdf, p.4",
     "sources": [
      {
       "number": 1,
@@ -1743,31 +1726,13 @@ export const STREAM_FRAMES: Record<'varianten' | 'oib2', RecordedTurn> = {
     "t": 44.318,
     "status": "in_progress",
     "content": "",
-    "cards": [
-     {
-      "type": "legal_basis",
-      "law": "OIB-Richtlinie 2",
-      "lane": "baurecht_oib",
-      "edition": "Ausgabe Mai 2023",
-      "summary": "Brandschutzanforderungen für Gebäude; ergänzende Richtlinien behandeln Betriebsbauten, Garagen und Gebäude mit höherem Fluchtniveau.",
-      "original_text": "Diese Richtlinie gilt für Gebäude."
-     }
-    ]
+    "cards": []
    },
    {
     "t": 66.092,
     "status": "complete",
     "content": "Die OIB-Richtlinie 2 behandelt den **Brandschutz von Gebäuden**. Sie enthält Anforderungen unter anderem zur Tragfähigkeit im Brandfall, zur Begrenzung der Ausbreitung von Feuer und Rauch, zu Fluchtwegen und zur Brandbekämpfung [1][2].\n\nDie Ausgabe Mai 2023 weist auf mögliche Abweichungen nach Maßgabe des jeweiligen Landesrechts hin [1]. Ob diese Ausgabe für ein konkretes Vorhaben verbindlich ist, hängt daher auch vom Bundesland ab.\n\n## Quellen\n- [1] [KB] oib-rl_2_ausgabe_mai_2023.pdf, p.4\n- [2] [KB] oib-rl_2_ausgabe_mai_2023.pdf, p.5\n",
-    "cards": [
-     {
-      "type": "legal_basis",
-      "law": "OIB-Richtlinie 2",
-      "lane": "baurecht_oib",
-      "edition": "Ausgabe Mai 2023",
-      "summary": "Brandschutzanforderungen für Gebäude; ergänzende Richtlinien behandeln Betriebsbauten, Garagen und Gebäude mit höherem Fluchtniveau.",
-      "original_text": "Diese Richtlinie gilt für Gebäude."
-     }
-    ],
+    "cards": [],
     "answer_confidence": "high",
     "sources": [
      {

@@ -10,19 +10,9 @@ import userEvent from '@testing-library/user-event'
 import { describe, test, expect } from 'vitest'
 import { ChatThinking } from './ChatThinking'
 import { ErrorBanner } from './ErrorBanner'
-import type { ThinkingStep } from '../types'
+import { storedStep } from '@/test-utils/wire-v2-steps'
 
-const createStep = (overrides: Partial<ThinkingStep> = {}): ThinkingStep => ({
-  id: 'step-1',
-  userMessageId: 'msg-1',
-  category: 'tasks',
-  functionName: 'test_function',
-  displayName: 'Test Function',
-  content: 'Step content',
-  isComplete: true,
-  timestamp: new Date('2024-01-15T14:30:00'),
-  ...overrides,
-})
+const createStep = () => storedStep({ id: 'tool:1', kind: 'tool', tool: 'knowledge_search', status: 'ok' })
 
 describe('ChatThinking escalation narration', () => {
   test('shows the escalation narration in the framing node when escalated', async () => {
@@ -36,7 +26,7 @@ describe('ChatThinking escalation narration', () => {
       />
     )
 
-    await user.click(screen.getByText(/Trace ·/))
+    await user.click(screen.getByText(/^Trace( ·|$)/))
     expect(
       screen.getByText('Escalated to deep research: Die erste Antwort war unzureichend.')
     ).toBeInTheDocument()

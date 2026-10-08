@@ -202,7 +202,7 @@ def get_retriever(
         3. Default: "llamaindex"
 
     Args:
-        backend: The backend name ('llamaindex' or 'foundational_rag').
+        backend: The registered backend name ('llamaindex', or a test fake).
                  If None, uses the environment variable or default.
         config: Backend-specific configuration. Passed directly to the adapter.
                 Each adapter defines its own defaults internally. A differing
@@ -266,7 +266,7 @@ def get_ingestor(
         3. Default: "llamaindex"
 
     Args:
-        backend: The backend name ('llamaindex' or 'foundational_rag').
+        backend: The registered backend name ('llamaindex', or a test fake).
                  If None, uses the environment variable or default.
         config: Backend-specific configuration. Passed directly to the adapter.
                 Each adapter defines its own defaults internally.
@@ -549,6 +549,16 @@ def get_document_doc_class(collection: str, filename: str) -> str | None:
     return _get_document_metadata_store().get_doc_class(collection, filename)
 
 
+def set_document_doc_class_suggestion(collection: str, filename: str, doc_class: str | None) -> bool:
+    """Store or clear the decided Dokumentart suggestion (ADR-0064, use 8). UPDATE-only."""
+    return _get_document_metadata_store().set_doc_class_suggestion(collection, filename, doc_class)
+
+
+def get_document_doc_class_suggestions(collection: str, filenames: list[str]) -> dict[str, str]:
+    """Stored Dokumentart suggestions for many documents in one query."""
+    return _get_document_metadata_store().get_doc_class_suggestions_batch(collection, filenames)
+
+
 def get_document_doc_classes(collection: str, filenames: list[str]) -> dict[str, str]:
     """Return stored ``doc_class`` values for many documents in one query.
 
@@ -604,6 +614,15 @@ def get_document_folder_paths(collection: str, filenames: list[str]) -> dict[str
     rename applies WITHOUT re-ingest.
     """
     return _get_document_metadata_store().get_folder_paths_batch(collection, filenames)
+
+
+def find_tmp_upload_names(collection: str, filenames: list[str]) -> list[str]:
+    """Stored names that are one of ``filenames`` behind a ``tmp[8]_`` upload prefix.
+
+    What a re-upload asks to find a legacy spelling of its predecessor that the
+    vector store cannot match by filter (``_find_previous_versions``).
+    """
+    return _get_document_metadata_store().find_tmp_upload_names(collection, filenames)
 
 
 def set_document_provenance(collection: str, filename: str, provenance: dict[str, str] | None) -> bool:
@@ -686,7 +705,7 @@ def reconcile_collection_summaries(
 
     Intended to run at the end of every ingestion job (wired into
     ``LlamaIndexIngestor._run_ingestion``) so every caller — the Knowledge API,
-    ``scripts/ingest_oib.py``'s ``oib_sync.sync()``, and any future caller —
+    ``oib_sync.sync()`` (the base-corpus housekeeping), and any future caller —
     gets this backstop automatically.
 
     Args:

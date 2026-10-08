@@ -511,3 +511,42 @@
   --font-sans: var(--font-geist-sans), ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
   --font-mono: var(--font-geist-mono), ui-monospace, 'SF Mono', 'Cascadia Code', monospace;
 }
+
+/* =============================================================================
+   The energy-certificate scale (A++ … G).
+   DOCUMENTED EXCEPTION to grid-design-language.md §"Do-not" ("provenance
+   signals are the only chroma"): the statutory colour scale printed on every
+   Austrian / EU Energieausweis, read by its colour before its letter. Graduated
+   here unchanged from the retired `energy_performance` card, whose comment
+   asked for exactly that the day a second surface needed it: the answer's
+   `:energy-class[B]` chip (MarkdownRenderer/answer-atoms.tsx). Nothing else may
+   colour by it.
+   Dark is a re-step, not a flip: B/C/D are pulled down so they do not glare on
+   charcoal. `ink` is measured: near-black clears 4.5:1 on A++ … F in both
+   themes, only G takes paper.
+   ============================================================================= */
+:root {
+  --energy-band-ink: #141518;
+  --energy-band-paper: #ffffff;
+  --energy-band-1: #1a9641;
+  --energy-band-2: #4cae4c;
+  --energy-band-3: #7fbf3f;
+  --energy-band-4: #c3d92f;
+  --energy-band-5: #f4d03f;
+  --energy-band-6: #f5b041;
+  --energy-band-7: #eb8f34;
+  --energy-band-8: #e2662c;
+  --energy-band-9: #d0021b;
+}
+
+.dark {
+  --energy-band-1: #1a9641;
+  --energy-band-2: #47a54a;
+  --energy-band-3: #78b83c;
+  --energy-band-4: #b6cc2c;
+  --energy-band-5: #e0c23a;
+  --energy-band-6: #e2a53e;
+  --energy-band-7: #d98332;
+  --energy-band-8: #d15f2a;
+  --energy-band-9: #cf2733;
+}

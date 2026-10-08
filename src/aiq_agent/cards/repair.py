@@ -22,8 +22,8 @@ from langchain_core.messages import HumanMessage
 from langchain_core.messages import SystemMessage
 
 from aiq_agent.cards.generate import _ainvoke_card_llm
-from aiq_agent.cards.generate import _content_to_text
 from aiq_agent.cards.generate import _parse_cards_text
+from aiq_agent.common.message_utils import response_text
 
 logger = logging.getLogger(__name__)
 
@@ -72,7 +72,7 @@ async def repair_card(llm: Any, card: dict[str, Any], refusal: str, answer: str)
     except Exception as exc:  # noqa: BLE001 — a failed repair keeps the answer
         logger.warning("card repair failed: %s", str(exc).split("\n")[0])
         return None
-    parsed = _parse_cards_text(_content_to_text(getattr(response, "content", response)))
+    parsed = _parse_cards_text(response_text(response))
     if not parsed:
         logger.warning("card repair returned nothing parseable")
         return None

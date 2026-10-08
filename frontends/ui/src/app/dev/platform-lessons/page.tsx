@@ -13,7 +13,9 @@
  * Not linked from anywhere and 404s outside development (see ../layout.tsx).
  */
 
-import { I18nProvider } from '@/i18n'
+import type { JSX } from 'react'
+import { PageHeader } from '@/components/ui/page-header'
+import { I18nProvider, useTranslations } from '@/i18n'
 import { PlatformLessons } from '@/app/app/(shell)/platform/lessons/platform-lessons'
 
 const LESSONS = [
@@ -145,7 +147,13 @@ if (typeof window !== 'undefined' && process.env.NODE_ENV === 'development') {
         })
       }
       if (url.startsWith('/api/platform/lessons/') && init?.method === 'PATCH') {
-        return Response.json({ lesson: LESSONS[0] })
+        // Echo the patched row, so the in-place update shows what a real
+        // server would answer instead of swapping in the first fixture.
+        const id = url.split('/').pop()
+        const lesson = LESSONS.find((row) => row.id === id) ?? LESSONS[0]
+        const patch =
+          typeof init.body === 'string' ? (JSON.parse(init.body) as Record<string, unknown>) : {}
+        return Response.json({ lesson: { ...lesson, ...patch } })
       }
       if (url.startsWith('/api/platform/lessons/')) {
         return Response.json(PROVENANCE)
@@ -155,15 +163,23 @@ if (typeof window !== 'undefined' && process.env.NODE_ENV === 'development') {
   }
 }
 
+function Preview(): JSX.Element {
+  const t = useTranslations('platform')
+  return (
+    <main
+      className="mx-auto flex max-w-4xl flex-col gap-6 px-4 py-8 md:px-8"
+      data-testid="platform-lessons-preview"
+    >
+      <PageHeader title={t('sections.lessons.title')} subtitle={t('sections.lessons.subtitle')} />
+      <PlatformLessons />
+    </main>
+  )
+}
+
 export default function PlatformLessonsDevPage(): JSX.Element {
   return (
     <I18nProvider initialLocale="de" fixedLocale>
-      <main
-        className="mx-auto flex max-w-4xl flex-col gap-6 p-8"
-        data-testid="platform-lessons-preview"
-      >
-        <PlatformLessons />
-      </main>
+      <Preview />
     </I18nProvider>
   )
 }

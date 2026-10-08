@@ -1,4 +1,17 @@
 ---
+/**
+ * The lockup: the column mark left of the wordmark.
+ *
+ * The mark is the master's path (`shared/brand/piloti-mark.svg`) cropped to the
+ * column (`viewBox="6 4 20 24"`), filled with `currentColor` so it takes the
+ * link's tone, the dark-panel nav's included. `npm run check` fails when this
+ * path drifts from the master (`scripts/build-brand-assets.mjs --check`).
+ *
+ * Optical alignment: the mark is 1.2em tall and centred on the capitals rather
+ * than on the line box. Poppins' caps are 0.7em, so the mark's foot sits
+ * (1.2 − 0.7) / 2 = 0.25em below the baseline and its head as far above the
+ * cap line.
+ */
 interface Props {
   href?: string
   label?: string
@@ -13,9 +26,12 @@ const {
 } = Astro.props
 
 const sizes = {
-  md: 'text-lg sm:text-2xl',
-  sm: 'text-base',
+  md: 'text-[0.9375rem] sm:text-lg',
+  sm: 'text-sm',
 }
+
+const MARK =
+  'M16 4H10A4 4 0 0 0 6 8A4 4 0 0 0 10 12V10A2 2 0 0 1 8 8A2 2 0 0 1 10 6A2 2 0 0 1 12 8V24H20V8A2 2 0 0 1 22 6A2 2 0 0 1 24 8A2 2 0 0 1 22 10V12A4 4 0 0 0 26 8A4 4 0 0 0 22 4ZM8 26H24V28H8Z'
 ---
 
 <a
@@ -23,5 +39,15 @@ const sizes = {
   class={`font-logo font-medium uppercase tracking-logo text-ink transition-colors hover:text-accent-600 ${sizes[size]} ${className}`}
   aria-label={label}
 >
-  Piloti
+  <span class="whitespace-nowrap">
+    <svg
+      class="mr-[0.42em] inline-block h-[1.2em] w-[1em] align-[-0.25em]"
+      viewBox="6 4 20 24"
+      fill="currentColor"
+      aria-hidden="true"
+      focusable="false"
+    >
+      <path d={MARK}></path>
+    </svg>Piloti
+  </span>
 </a>

@@ -27,7 +27,7 @@
  *     append-only, exact, fail-closed on refusal. If the question is "may this
  *     spend money", it is not a rate limit.
  *   - **Capacity** is admission control in the Python API
- *     (`GRID_MAX_ACTIVE_JOBS*`): concurrent slots, not events per minute. If
+ *     (`GRID_MAX_ACTIVE_JOBS_PER_ORG`): concurrent slots, not events per minute. If
  *     the question is "is there room to run this now", a rate limit is the
  *     wrong shape — it would admit a fourth long run at a steady trickle.
  *
@@ -209,6 +209,33 @@ const RIS_DOCUMENT_LIMIT = {
 }
 
 /**
+ * Document uploads (`POST /api/archiv/documents/upload`, `/api/documents/upload`,
+ * `/api/session/documents/upload`), one request per file.
+ *
+ * Its own bucket for the same reason `bim-query` has one: on the shared
+ * `api-mutation` budget, dropping a folder of a few hundred files into the
+ * Archiv spent the member's whole minute, and the chat opened next could not
+ * save its answer, create its conversation or name it — every one a 429.
+ * Uploading must not break chatting, and chatting must not refuse an upload.
+ *
+ * Sized for a folder upload at the client's three-at-a-time concurrency: small
+ * files turn around in ~100 ms, so an honest batch peaks near thirty a second,
+ * and the burst clause sits above that. The sustained clause is what a person
+ * does in a minute with a large Einreichung, and the client waits out
+ * `Retry-After` on a refusal rather than failing the file, so a folder bigger
+ * than the minute's budget slows down instead of breaking. What the files cost
+ * to store is the quota's business; what fits in the ingest queue is admission
+ * control's.
+ * @type {LimitRule}
+ */
+const DOCUMENT_UPLOAD_LIMIT = {
+  name: 'document-upload',
+  limit: 600,
+  windowMs: 60 * 1000,
+  burst: { limit: 80, windowMs: 2 * 1000 },
+}
+
+/**
  * The default budget for a mutating API route that has not declared one.
  *
  * `apiRoute` applies this to every POST/PUT/PATCH/DELETE unless the route says
@@ -229,10 +256,42 @@ const DEFAULT_MUTATION_LIMIT = {
   burst: { limit: 40, windowMs: 2 * 1000 },
 }
 
+/**
+ * Sending product feedback to the platform owners.
+ *
+ * Every report becomes an inbox item for every platform owner (and, once a
+ * sender exists, an email), so one person's budget is a blast-radius bound on
+ * the platform's inbox, not a load bound. Ten an hour is far more than anyone
+ * honestly writes and far less than a stuck retry loop would.
+ * @type {LimitRule}
+ */
+const FEEDBACK_REPORT_LIMIT = { name: 'feedback-report', limit: 10, windowMs: 60 * 60 * 1000 }
+
+/**
+ * Dictating into the chat composer.
+ *
+ * Every call is a paid transcription the member is never billed for and no
+ * budget counts (ADR-0015 budgets deliberately skip it), so this rule is the
+ * only bound on what one member can make the platform spend. A recording is at
+ * most 45 seconds, so one a minute is a person talking without pause; the
+ * hourly clause is a long working session of dictated messages, and the burst
+ * clause stops a stuck retry loop within the minute.
+ * @type {LimitRule}
+ */
+const DICTATION_LIMIT = {
+  name: 'dictation',
+  limit: 120,
+  windowMs: 60 * 60 * 1000,
+  burst: { limit: 6, windowMs: 60 * 1000 },
+}
+
 module.exports = {
+  DICTATION_LIMIT,
+  FEEDBACK_REPORT_LIMIT,
   BIM_QUERY_LIMIT,
   BIM_EXPORT_LIMIT,
   RIS_DOCUMENT_LIMIT,
+  DOCUMENT_UPLOAD_LIMIT,
   SHARE_LIMIT,
   TYPING_LIMIT,
   MENTION_LIMIT,

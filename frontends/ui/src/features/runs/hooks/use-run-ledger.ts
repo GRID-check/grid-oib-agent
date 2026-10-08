@@ -190,6 +190,9 @@ export function useRunLedger({
 
         client = createDeepResearchClient({
           jobId: view.backendJobId,
+          // The run's project, signed by the proxy, is what opens a run somebody
+          // else commissioned to this reader (ADR-0084).
+          projectId,
           callbacks: {
             onLedger: (payload) => {
               const next = sanitizeRunLedger(payload)
@@ -236,8 +239,16 @@ export function useRunLedger({
       const view = await cancelRun(projectId, runId)
       if (view.ledger) setLedger((current) => notOlder(current, view.ledger as RunLedger))
     } catch {
-      // Fail-open, like every other reader here: the run goes on, the block
-      // keeps saying what the ledger says, and the person can try again.
+      // The refusal that matters is „this run has already ended": the block
+      // is showing a ledger older than the run. Read the run again rather
+      // than keep offering a stop for something that has stopped; anything
+      // else fails open, and the person can try again.
+      try {
+        const view = await fetchRunView(projectId, runId)
+        if (view.ledger) setLedger((current) => notOlder(current, view.ledger as RunLedger))
+      } catch {
+        // Fail-open: the stored ledger stays on screen.
+      }
     }
   }, [runId, projectId])
 

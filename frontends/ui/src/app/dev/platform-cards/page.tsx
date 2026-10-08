@@ -5,7 +5,7 @@
  * catalog so the states that matter can be reviewed and screenshotted without
  * a backend:
  *
- *  - a schematic card previewed as it appears in an answer (`parking_requirement`),
+ *  - a schematic card previewed as it appears in an answer (`stair_diagram`),
  *  - a structured card with its values expanded is one click away,
  *  - an INTERACTIVE, system-emitted card (`memory_proposal`) carrying both
  *    badges — and inert, because a gallery must not be able to fire a write,
@@ -19,48 +19,50 @@
  * torn down. Not linked from anywhere and 404s outside development.
  */
 
+import type { JSX } from 'react'
 import { notFound } from 'next/navigation'
 import { PlatformCards } from '@/app/app/(shell)/platform/cards/platform-cards'
+import { PageHeader } from '@/components/ui/page-header'
+import { useTranslations } from '@/i18n'
 
 const FIELDS = {
-  parking_requirement: [
+  stair_diagram: [
     {
-      name: 'car_spaces',
+      name: 'riser_height',
       type: 'DimensionCheck',
       required: true,
-      description: "Provided vs required Kfz-Stellplätze (comparator '>=')",
+      description: 'Steigung (cm) vs the limit for this stair',
       constraints: [],
     },
     {
-      name: 'basis',
-      type: 'string',
-      required: false,
-      description: "How the requirement is derived, e.g. '1 Stpl. je 100 m² BGF'",
+      name: 'tread_depth',
+      type: 'DimensionCheck',
+      required: true,
+      description: 'Auftritt (cm) vs the limit for this stair',
       constraints: [],
     },
     {
       name: 'reference',
       type: 'NormReference',
       required: true,
-      description: 'Source of the parking requirement (Bauordnung / StPl-VO)',
+      description: 'Source of the stair limits (OIB 4)',
       constraints: [],
     },
   ],
-  legal_basis: [
+  calculation: [
     {
-      name: 'law',
+      name: 'title',
       type: 'string',
       required: true,
-      description: 'Name of the law, regulation, or OIB Richtlinie',
+      description: 'What is being computed',
       constraints: ['non-empty'],
     },
-    { name: 'article', type: 'string', required: false, description: 'Relevant article or paragraph number', constraints: [] },
     {
-      name: 'original_text',
-      type: 'string',
-      required: false,
-      description: 'Literal excerpt from the source, if available',
-      constraints: [],
+      name: 'steps',
+      type: '[CalculationStep]',
+      required: true,
+      description: 'The derivation in order; the renderer computes every result',
+      constraints: ['1–4 items'],
     },
   ],
   memory_proposal: [
@@ -98,7 +100,7 @@ const FIELDS = {
 }
 
 const CATALOG = {
-  cardCount: 27,
+  cardCount: 22,
   buildingBlocks: {},
   featureRequest: {
     repository: 'https://github.com/GRID-check/grid-oib-agent',
@@ -107,20 +109,21 @@ const CATALOG = {
   },
   cards: [
     {
-      type: 'parking_requirement',
-      model: 'ParkingRequirementCard',
-      summary: 'A parking-provision (Stellplatznachweis) card: required vs provided count.',
+      type: 'stair_diagram',
+      model: 'StairDiagramCard',
+      summary: 'A stair drawn to scale with its riser, tread and width checked against the limits.',
       emittedBy: 'agent',
       interaction: 'presentational',
-      fields: FIELDS.parking_requirement,
+      fields: FIELDS.stair_diagram,
     },
     {
-      type: 'legal_basis',
-      model: 'LegalBasisCard',
-      summary: 'A legal norm, regulation, or OIB Richtlinie that grounds the answer.',
+      type: 'calculation',
+      model: 'CalculationCard',
+      summary:
+        'The arithmetic behind a number, computed by the renderer and checked against a limit.',
       emittedBy: 'agent',
       interaction: 'presentational',
-      fields: FIELDS.legal_basis,
+      fields: FIELDS.calculation,
     },
     {
       type: 'memory_proposal',
@@ -150,7 +153,8 @@ function installShim(): void {
   w.__platformCardsShim = true
   const real = window.fetch.bind(window)
   window.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
-    const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url
+    const url =
+      typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url
     if (window.location.pathname.startsWith(PREVIEW_PATH) && url.includes('/api/platform/cards')) {
       return Response.json(CATALOG)
     }
@@ -161,19 +165,17 @@ function installShim(): void {
 installShim()
 
 export default function PlatformCardsDevPage(): JSX.Element {
+  const t = useTranslations('platform')
   if (process.env.NODE_ENV !== 'development') {
     notFound()
   }
 
   return (
-    <main className="mx-auto flex max-w-3xl flex-col gap-6 p-8" data-testid="platform-cards-preview">
-      <div>
-        <h1 className="text-lg font-semibold">Platform — Card catalog</h1>
-        <p className="text-muted-foreground mt-1 text-sm">
-          Platform-owner surface: every card the agent can render, shown rendered, with the values it carries
-          and a way to ask for one that is missing.
-        </p>
-      </div>
+    <main
+      className="mx-auto flex max-w-4xl flex-col gap-6 px-4 py-8 md:px-8"
+      data-testid="platform-cards-preview"
+    >
+      <PageHeader title={t('sections.cards.title')} subtitle={t('sections.cards.subtitle')} />
       <PlatformCards />
     </main>
   )

@@ -1,7 +1,46 @@
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
+import { installLayoutObservers } from '@/test-utils/layout-observers'
+import { FAKE_FRAME_WIDTH, fakePdfjsRuntime, type FakePdfState } from '@/test-utils/pdfjs-fake'
 import { FilePreviewPane } from './file-preview-pane'
+
+/**
+ * pdf.js, stood in for by the shared fake, plus a record of every URL the
+ * viewer opened: which address the pane hands the viewer (the same-origin
+ * stream, not the presigned link) is the half of the contract this file owns.
+ */
+const pdf = vi.hoisted(
+  (): FakePdfState & { opened: string[] } => ({ fail: false, pages: [], destroyed: 0, opened: [] })
+)
+
+vi.mock('@/features/knowledge/lib/pdfjs-runtime', () => {
+  const fake = fakePdfjsRuntime(pdf)
+  return {
+    ...fake,
+    loadPdfjs: async () => {
+      const runtime = await fake.loadPdfjs()
+      return {
+        getDocument: (params: { url: string }) => {
+          pdf.opened.push(params.url)
+          return runtime.getDocument()
+        },
+      }
+    },
+  }
+})
+
+/** Fresh fake state and observers that report the well on screen (or not). */
+const useInlineViewer = ({ intersecting = true }: { intersecting?: boolean } = {}) => {
+  let restore = () => {}
+  beforeEach(() => {
+    pdf.fail = false
+    pdf.pages = [{ items: [] }]
+    pdf.opened = []
+    restore = installLayoutObservers({ frameWidth: FAKE_FRAME_WIDTH, intersecting })
+  })
+  afterEach(() => restore())
+}
 
 vi.mock('next/navigation', () => ({
   useRouter: () => ({ push: vi.fn(), replace: vi.fn(), refresh: vi.fn() }),
@@ -108,7 +147,7 @@ describe('FilePreviewPane', () => {
     unmount()
 
     render(<FilePreviewPane file={{ ...mockFile, status: 'processing' }} projectId="proj-1" />)
-    expect(screen.getAllByText('Processing')).toHaveLength(1)
+    expect(screen.getAllByText('Reading')).toHaveLength(1)
   })
 
   it('states the status and the category once each', () => {
@@ -117,6 +156,26 @@ describe('FilePreviewPane', () => {
     expect(screen.getAllByText('Failed')).toHaveLength(1)
     expect(screen.queryByText('Status')).toBeNull()
     expect(screen.queryByText('Document type')).toBeNull()
+  })
+
+  /**
+   * A re-upload that fails to index keeps the previous version's passages in
+   * search, while the row already points at the new bytes. Saying only
+   * "failed" left the reader to discover that the answers quote a file the
+   * download no longer returns.
+   */
+  it('says the previous version is still searched when a new version failed', () => {
+    const failed = { ...mockFile, status: 'failed', errorMessage: 'PDF is encrypted' }
+    const { unmount } = render(
+      <FilePreviewPane file={{ ...failed, versionState: 'published', versionCount: 2 }} projectId="proj-1" />
+    )
+    expect(screen.getByText("Piloti couldn't read this document, so search can't find it.")).toBeInTheDocument()
+    expect(screen.getByText(/still use the previous version/)).toBeInTheDocument()
+    unmount()
+
+    // A first upload that failed has no previous version to speak of.
+    render(<FilePreviewPane file={{ ...failed, versionState: 'published', versionCount: 1 }} projectId="proj-1" />)
+    expect(screen.queryByText(/still use the previous version/)).toBeNull()
   })
 
   it('offers an expand affordance for a PDF once its preview URL has loaded', async () => {
@@ -128,6 +187,22 @@ describe('FilePreviewPane', () => {
     render(<FilePreviewPane file={mockFile} projectId="proj-1" />)
 
     expect(await screen.findByRole('button', { name: /open large preview/i })).toBeDefined()
+  })
+
+  it('names the format in the Type row and keeps the MIME type in its tooltip', () => {
+    const docx = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue({ ok: false, json: async () => ({}) } as Response)
+
+    render(
+      <FilePreviewPane
+        file={{ ...mockFile, filename: 'Vertrag.docx', contentType: docx }}
+        projectId="proj-1"
+      />
+    )
+
+    const type = screen.getByText('Word document')
+    expect(type.getAttribute('title')).toBe(docx)
+    expect(screen.queryByText(docx)).toBeNull()
   })
 
   it('offers the expand affordance for an image once its preview URL has loaded (FB-15a)', async () => {
@@ -183,6 +258,77 @@ describe('FilePreviewPane', () => {
     expect(await screen.findByRole('link', { name: /open in new tab/i })).toBeDefined()
   })
 
+  describe('a PDF, in the app\'s own viewer', () => {
+    useInlineViewer()
+
+    const presigned = () =>
+      vi.spyOn(globalThis, 'fetch').mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: async () => ({ url: 'https://example.test/plan.pdf' }),
+      } as Response)
+
+    /**
+     * Android Chrome has no inline PDF renderer: a frame on the presigned URL
+     * was a blank box or a download. pdf.js draws the pages itself, and it
+     * FETCHES them, so it reads the same-origin stream.
+     */
+    it('renders the pages with pdf.js on the same-origin stream, not in a frame', async () => {
+      presigned()
+      const { container } = render(<FilePreviewPane file={mockFile} projectId="proj-1" />)
+
+      await waitFor(() => expect(container.querySelectorAll('[data-page]')).toHaveLength(1))
+      expect(pdf.opened).toEqual(['/api/documents/doc-1/file'])
+      expect(container.querySelector('iframe')).toBeNull()
+      expect(screen.getByRole('group', { name: 'plan.pdf' })).toBeInTheDocument()
+    })
+
+    it('opens one document at a time: the enlarged view borrows it from the pane', async () => {
+      const user = userEvent.setup()
+      presigned()
+      render(<FilePreviewPane file={mockFile} projectId="proj-1" />)
+      await screen.findByRole('group', { name: 'plan.pdf' })
+
+      await user.click(screen.getByRole('button', { name: /open large preview/i }))
+
+      await screen.findByRole('link', { name: /open in new tab/i })
+      await waitFor(() => expect(screen.getAllByTestId('pdf-scroll')).toHaveLength(1))
+      expect(within(screen.getByRole('dialog')).getByTestId('pdf-scroll')).toBeInTheDocument()
+    })
+
+    it('says it could not load, and retries, when the viewer cannot open the bytes', async () => {
+      const user = userEvent.setup()
+      presigned()
+      pdf.fail = true
+      const { container } = render(<FilePreviewPane file={mockFile} projectId="proj-1" />)
+
+      expect(await screen.findByText(/preview couldn't be loaded/i)).toBeInTheDocument()
+      expect(container.querySelector('iframe')).toBeNull()
+      expect(screen.queryByRole('button', { name: /open large preview/i })).toBeNull()
+
+      pdf.fail = false
+      await user.click(screen.getByRole('button', { name: /try again/i }))
+      await waitFor(() => expect(container.querySelectorAll('[data-page]')).toHaveLength(1))
+    })
+  })
+
+  describe('a PDF in a well that is not on screen yet', () => {
+    useInlineViewer({ intersecting: false })
+
+    it('does not start pdf.js for a document nobody can see', async () => {
+      vi.spyOn(globalThis, 'fetch').mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: async () => ({ url: 'https://example.test/plan.pdf' }),
+      } as Response)
+      render(<FilePreviewPane file={mockFile} projectId="proj-1" />)
+
+      await screen.findByRole('button', { name: /open large preview/i })
+      expect(screen.queryByTestId('pdf-scroll')).toBeNull()
+      expect(pdf.opened).toEqual([])
+    })
+  })
+
   it('does not offer the expand affordance for a non-previewable file', async () => {
     render(
       <FilePreviewPane
@@ -228,7 +374,7 @@ describe('FilePreviewPane', () => {
     })
   })
 
-  describe('"Indexed by Piloti" panel', () => {
+  describe('"Read by Piloti" panel', () => {
     it('renders the AI summary, page and chunk counts inside the panel when present', () => {
       render(
         <FilePreviewPane
@@ -241,7 +387,7 @@ describe('FilePreviewPane', () => {
           projectId="proj-1"
         />
       )
-      expect(screen.getByText('Indexed by Piloti')).toBeDefined()
+      expect(screen.getByText('Read by Piloti')).toBeDefined()
       expect(screen.getByText('A ground-floor plan of the east wing.')).toBeDefined()
       expect(screen.getByText('Pages')).toBeDefined()
       expect(screen.getByText('4')).toBeDefined()
@@ -593,7 +739,7 @@ describe('FilePreviewPane', () => {
         />
       )
       // The flag-gated panel is absent…
-      expect(screen.queryByText('Indexed by Piloti')).toBeNull()
+      expect(screen.queryByText('Read by Piloti')).toBeNull()
       expect(screen.queryByText('A ground-floor plan of the east wing.')).toBeNull()
       expect(screen.queryByText('Pages')).toBeNull()
       expect(screen.queryByText('Passages')).toBeNull()
@@ -910,16 +1056,37 @@ describe('FilePreviewPane', () => {
     })
   })
 
-  it('surfaces the failure reason and a retry-ingestion affordance for failed documents', () => {
+  it('surfaces the failure reason and a retry-ingestion affordance for failed documents', async () => {
+    const user = userEvent.setup()
     render(
       <FilePreviewPane
         file={{ ...mockFile, status: 'failed', errorMessage: 'Ingestion could not be started' }}
         projectId="proj-1"
       />
     )
-    expect(screen.getByText('Ingestion failed')).toBeDefined()
-    expect(screen.getByText('Ingestion could not be started')).toBeDefined()
-    expect(screen.getByRole('button', { name: /retry ingestion/i })).toBeDefined()
+    expect(screen.getByText('Reading failed')).toBeDefined()
+    expect(screen.getByText("Reading couldn't be started. Try again.")).toBeDefined()
+    expect(screen.getByRole('button', { name: /read again/i })).toBeDefined()
+
+    // The stored text is one click away, for the admin reading over a shoulder.
+    expect(screen.queryByText('Ingestion could not be started')).toBeNull()
+    await user.click(screen.getByRole('button', { name: 'Details' }))
+    expect(screen.getByTestId('preview-ingest-failure-raw')).toHaveTextContent('Ingestion could not be started')
+  })
+
+  it('says a missing vision model is a configuration problem, not the file', () => {
+    render(
+      <FilePreviewPane
+        file={{
+          ...mockFile,
+          status: 'failed',
+          errorMessage: 'vlm_not_configured: image ingestion requires AIQ_VLM_API_KEY',
+        }}
+        projectId="proj-1"
+      />
+    )
+    expect(screen.getByText(/need a vision model, and none is set up/)).toBeDefined()
+    expect(screen.queryByText(/AIQ_VLM_API_KEY/)).toBeNull()
   })
 
   describe('the file operations', () => {
@@ -1019,6 +1186,94 @@ describe('FilePreviewPane', () => {
     })
   })
 
+  describe('an office file, through its PDF rendition (ADR-0070)', () => {
+    useInlineViewer()
+    afterEach(() => vi.unstubAllGlobals())
+
+    const docx = {
+      ...mockFile,
+      filename: 'Raumprogramm.docx',
+      contentType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    }
+    const rendition = {
+      ok: true,
+      status: 200,
+      json: async () => ({
+        url: 'https://example.test/_render.pdf',
+        contentType: 'application/pdf',
+        rendition: true,
+        sourceContentType: docx.contentType,
+      }),
+    }
+
+    it('says the PDF is being made while the preview route converts', async () => {
+      const fetchMock = vi.fn(() => new Promise<Response>(() => {}))
+      vi.stubGlobal('fetch', fetchMock)
+      render(<FilePreviewPane file={docx} projectId="proj-1" />)
+
+      expect(await screen.findByText('Creating PDF preview…')).toBeInTheDocument()
+      expect(fetchMock).toHaveBeenCalledWith('/api/documents/doc-1/preview', expect.anything())
+    })
+
+    it('shows the rendition in the PDF viewer, says so, and can enlarge it', async () => {
+      vi.stubGlobal('fetch', vi.fn().mockResolvedValue(rendition))
+      const { container } = render(<FilePreviewPane file={docx} projectId="proj-1" />)
+
+      expect(
+        await screen.findByRole('button', { name: /open large preview/i })
+      ).toBeInTheDocument()
+      // `/file` streams the rendition for an office file, so the viewer reads
+      // the same address it reads for a PDF upload.
+      await waitFor(() => expect(container.querySelectorAll('[data-page]')).toHaveLength(1))
+      expect(pdf.opened).toEqual(['/api/documents/doc-1/file'])
+      expect(container.querySelector('iframe')).toBeNull()
+      expect(screen.getByTestId('file-preview-rendition-note')).toHaveTextContent(
+        'PDF preview · Original: Raumprogramm.docx'
+      )
+      // Download stays: it always hands out the original.
+      expect(screen.getAllByRole('button', { name: 'Download' }).length).toBeGreaterThan(0)
+    })
+
+    it('decides by the extension when the stored type is empty', async () => {
+      vi.stubGlobal('fetch', vi.fn().mockResolvedValue(rendition))
+      const { container } = render(
+        <FilePreviewPane file={{ ...docx, contentType: null }} projectId="proj-1" />
+      )
+
+      await screen.findByRole('button', { name: /open large preview/i })
+      await waitFor(() => expect(container.querySelectorAll('[data-page]')).toHaveLength(1))
+    })
+
+    it.each([415, 502])(
+      'falls back to "no inline preview" and the download on %i',
+      async (status) => {
+        vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: false, status }))
+        render(<FilePreviewPane file={docx} projectId="proj-1" />)
+
+        expect(await screen.findByText(/no inline preview/i)).toBeInTheDocument()
+        expect(screen.queryByRole('button', { name: /try again/i })).toBeNull()
+        expect(screen.queryByRole('button', { name: /open large preview/i })).toBeNull()
+        expect(screen.queryByTestId('file-preview-rendition-note')).toBeNull()
+      }
+    )
+
+    it('never draws an answer that is not a PDF', async () => {
+      vi.stubGlobal(
+        'fetch',
+        vi.fn().mockResolvedValue({
+          ok: true,
+          status: 200,
+          json: async () => ({ url: 'https://example.test/raw.docx', contentType: docx.contentType }),
+        })
+      )
+      render(<FilePreviewPane file={docx} projectId="proj-1" />)
+
+      expect(await screen.findByText(/no inline preview/i)).toBeInTheDocument()
+      expect(screen.queryByTestId('pdf-scroll')).toBeNull()
+      expect(pdf.opened).toEqual([])
+    })
+  })
+
   describe('peek presentation', () => {
     const markdownFile = {
       ...mockFile,
@@ -1089,6 +1344,172 @@ describe('FilePreviewPane', () => {
       expect(well.classList.contains('h-[50dvh]')).toBe(true)
     })
   })
+
+  /**
+   * An upload finishes while its file is open. The pane is handed a fresher
+   * `file` by the host's status poll; everything it shows has to follow
+   * without the reader closing and reopening the document.
+   */
+  describe('while the open document finishes indexing', () => {
+    const detailsResponse = (details: unknown[]) =>
+      ({ ok: true, json: async () => ({ details }) }) as Response
+    const previewResponse = { ok: true, json: async () => ({ url: 'https://example.test/plan.pdf' }) } as Response
+
+    it('asks for the visual descriptions again once the status moves, instead of keeping an early empty answer', async () => {
+      let detailsCalls = 0
+      vi.spyOn(globalThis, 'fetch').mockImplementation(async (input: RequestInfo | URL) => {
+        if (String(input).includes('/visual-details')) {
+          detailsCalls += 1
+          return detailsCalls === 1
+            ? detailsResponse([])
+            : detailsResponse([{ page: 2, contentType: 'drawing', text: 'Ein Grundriss.' }])
+        }
+        return previewResponse
+      })
+      const reading = { ...mockFile, status: 'processing', contentTypes: ['text', 'drawing'] }
+      const { rerender } = render(<FilePreviewPane file={reading} projectId="proj-1" />)
+
+      await userEvent.click(screen.getByRole('button', { name: /detailed information/i }))
+      expect(await screen.findByText('No visual descriptions available.')).toBeInTheDocument()
+
+      rerender(<FilePreviewPane file={{ ...reading, status: 'ready' }} projectId="proj-1" />)
+
+      expect(await screen.findByText('Ein Grundriss.')).toBeInTheDocument()
+      expect(screen.queryByText('No visual descriptions available.')).toBeNull()
+      expect(detailsCalls).toBe(2)
+    })
+
+    it('says a failed read of the descriptions failed, and asks again on retry', async () => {
+      let detailsCalls = 0
+      vi.spyOn(globalThis, 'fetch').mockImplementation(async (input: RequestInfo | URL) => {
+        if (String(input).includes('/visual-details')) {
+          detailsCalls += 1
+          return detailsCalls === 1
+            ? ({ ok: false, status: 500, json: async () => ({}) } as Response)
+            : detailsResponse([{ page: 1, contentType: 'drawing', text: 'Ein Schnitt.' }])
+        }
+        return previewResponse
+      })
+      render(<FilePreviewPane file={{ ...mockFile, contentTypes: ['drawing'] }} projectId="proj-1" />)
+
+      await userEvent.click(screen.getByRole('button', { name: /detailed information/i }))
+      expect(await screen.findByText('The descriptions could not be loaded.')).toBeInTheDocument()
+      // Not the same claim as "there are none".
+      expect(screen.queryByText('No visual descriptions available.')).toBeNull()
+
+      const details = screen.getByText('The descriptions could not be loaded.').parentElement!
+      await userEvent.click(within(details).getByRole('button', { name: 'Try again' }))
+
+      expect(await screen.findByText('Ein Schnitt.')).toBeInTheDocument()
+      expect(detailsCalls).toBe(2)
+    })
+
+    it('adopts tags that arrive after the file was opened', () => {
+      vi.spyOn(globalThis, 'fetch').mockResolvedValue(previewResponse)
+      const { rerender } = render(<FilePreviewPane file={{ ...mockFile, tags: null }} projectId="proj-1" />)
+      expect(screen.queryByRole('button', { name: 'Remove tag Brandschutz' })).toBeNull()
+
+      rerender(<FilePreviewPane file={{ ...mockFile, tags: ['Brandschutz'] }} projectId="proj-1" />)
+
+      expect(screen.getByRole('button', { name: 'Remove tag Brandschutz' })).toBeInTheDocument()
+    })
+
+    it('does not let tags from a read replace a save that is still in flight', async () => {
+      let finishSave: (r: Response) => void = () => undefined
+      vi.spyOn(globalThis, 'fetch').mockImplementation(async (input: RequestInfo | URL) => {
+        if (String(input).includes('/tags')) {
+          return new Promise<Response>((resolve) => {
+            finishSave = resolve
+          })
+        }
+        return previewResponse
+      })
+      const { rerender } = render(
+        <FilePreviewPane file={{ ...mockFile, tags: ['Grundriss', 'Brandschutz'] }} projectId="proj-1" />
+      )
+      await userEvent.click(screen.getByRole('button', { name: 'Remove tag Brandschutz' }))
+
+      // A poll that read the row before the save landed.
+      rerender(
+        <FilePreviewPane file={{ ...mockFile, tags: ['Grundriss', 'Brandschutz', 'Statik'] }} projectId="proj-1" />
+      )
+
+      expect(screen.queryByRole('button', { name: 'Remove tag Brandschutz' })).toBeNull()
+      finishSave({ ok: true, json: async () => ({}) } as Response)
+      await waitFor(() => expect(screen.queryByRole('button', { name: 'Remove tag Grundriss' })).not.toBeNull())
+    })
+
+    it('says the document is still being read instead of an empty "Read by Piloti"', () => {
+      vi.spyOn(globalThis, 'fetch').mockResolvedValue(previewResponse)
+      render(<FilePreviewPane file={{ ...mockFile, status: 'processing' }} projectId="proj-1" />)
+
+      expect(screen.getByText(/still reading this document/i)).toBeInTheDocument()
+      expect(screen.queryByText(/automatically detected on upload/i)).toBeNull()
+    })
+
+    it('shows no indexed heading or caption under a failed document', () => {
+      vi.spyOn(globalThis, 'fetch').mockResolvedValue(previewResponse)
+      render(<FilePreviewPane file={{ ...mockFile, status: 'failed' }} projectId="proj-1" />)
+
+      expect(screen.queryByRole('region', { name: 'Read by Piloti' })).toBeNull()
+      expect(screen.queryByText(/still reading this document/i)).toBeNull()
+      expect(screen.queryByText(/automatically detected on upload/i)).toBeNull()
+    })
+
+    it('replaces the pending line with the summary once it arrives', () => {
+      vi.spyOn(globalThis, 'fetch').mockResolvedValue(previewResponse)
+      const { rerender } = render(
+        <FilePreviewPane file={{ ...mockFile, status: 'processing' }} projectId="proj-1" />
+      )
+      rerender(
+        <FilePreviewPane
+          file={{ ...mockFile, status: 'ready', summary: 'Ein Brandschutzkonzept.' }}
+          projectId="proj-1"
+        />
+      )
+
+      expect(screen.getByText('Ein Brandschutzkonzept.')).toBeInTheDocument()
+      expect(screen.queryByText(/still reading this document/i)).toBeNull()
+      expect(screen.getByText(/automatically detected on upload/i)).toBeInTheDocument()
+    })
+  })
+
+  /**
+   * A rendition takes seconds. Opening another file before it lands must not
+   * let the first answer paint document A under document B's name.
+   */
+  it('never shows a previous document\'s late preview under the next one', async () => {
+    const pending = new Map<string, (r: Response) => void>()
+    vi.spyOn(globalThis, 'fetch').mockImplementation(
+      (input: RequestInfo | URL, init?: RequestInit) =>
+        new Promise<Response>((resolve, reject) => {
+          const url = String(input)
+          pending.set(url, resolve)
+          init?.signal?.addEventListener('abort', () =>
+            reject(Object.assign(new Error('aborted'), { name: 'AbortError' }))
+          )
+        })
+    )
+    const answer = (url: string) =>
+      ({ ok: true, status: 200, json: async () => ({ url }) }) as Response
+    // Images, because their element carries the answer's URL verbatim. A PDF
+    // is drawn from the same-origin stream of the CURRENT file whatever the
+    // answer said, so it could not show a stale answer if the guard broke.
+    const image = { ...mockFile, filename: 'a.png', contentType: 'image/png' }
+
+    const { rerender } = render(<FilePreviewPane file={image} projectId="proj-1" />)
+    rerender(<FilePreviewPane file={{ ...image, id: 'doc-2', filename: 'b.png' }} projectId="proj-1" />)
+
+    pending.get('/api/documents/doc-2/preview')?.(answer('https://example.test/b.png'))
+    await waitFor(() =>
+      expect(screen.getByAltText('b.png').getAttribute('src')).toBe('https://example.test/b.png')
+    )
+    // The first document's answer arrives last.
+    pending.get('/api/documents/doc-1/preview')?.(answer('https://example.test/a.png'))
+    await new Promise((r) => setTimeout(r, 0))
+
+    expect(screen.getByAltText('b.png').getAttribute('src')).toBe('https://example.test/b.png')
+  })
 })
 
 describe('FilePreviewPane — a report Piloti wrote', () => {
@@ -1125,12 +1546,12 @@ describe('FilePreviewPane — a report Piloti wrote', () => {
     expect(screen.getAllByText('Filed')).toHaveLength(1)
   })
 
-  it('drops the „Von Piloti indexiert" section, which would be a false claim', () => {
+  it('drops the „Von Piloti gelesen" section, which would be a false claim', () => {
     render(<FilePreviewPane file={generated} projectId="proj-1" showMetadataPanel />)
 
     // The eyebrow describes an ingestion that never ran, and it would sit two
     // lines under a hint saying the report is not in the knowledge base.
-    expect(screen.queryByText('Indexed by Piloti')).not.toBeInTheDocument()
+    expect(screen.queryByText('Read by Piloti')).not.toBeInTheDocument()
     // The facts that come from the FILE are still there.
     expect(screen.getByText('Size')).toBeInTheDocument()
   })

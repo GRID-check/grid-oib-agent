@@ -85,7 +85,7 @@ const insertRemoteMessages = (
 
 describe('insertRemoteMessages', () => {
   beforeEach(() => {
-    localStorage.removeItem('aiq-chat-store')
+    useChatStore.persist.clearStorage()
     useChatStore.setState({
       conversations: [],
       currentConversation: null,
@@ -93,8 +93,7 @@ describe('insertRemoteMessages', () => {
       isStreaming: false,
       isLoading: false,
       currentUserMessageId: null,
-      streamingAssistantMessageId: null,
-      thinkingSteps: [],
+      turns: {},
     })
     mockConversationsClient.createMessage.mockClear()
     mockConversationsClient.createMessages.mockClear()
@@ -139,6 +138,26 @@ describe('insertRemoteMessages', () => {
     expect(stored.addressees).toEqual({ agent: true, users: [] })
   })
 
+  test('takes the server’s run ledger when it is newer — the copy the spinner and „Recherche läuft" read', () => {
+    const live = {
+      runId: 'run-1',
+      status: 'laeuft' as const,
+      phases: [{ phase: 'recherchieren' as const, startedAt: at(1).toISOString() }],
+      steps: [],
+      startedAt: at(1).toISOString(),
+      updatedAt: at(1).toISOString(),
+    }
+    const ended = { ...live, status: 'fehlgeschlagen' as const, updatedAt: at(5).toISOString() }
+    seed([message('run', { role: 'assistant', runLedger: live })])
+
+    // An older server copy (a poll that raced a live flush) changes nothing.
+    insertRemoteMessages(CONVERSATION_ID, [message('run', { role: 'assistant', runLedger: { ...live, updatedAt: at(0).toISOString() } })])
+    expect(messagesNow()[0].runLedger).toEqual(live)
+
+    insertRemoteMessages(CONVERSATION_ID, [message('run', { role: 'assistant', runLedger: ended })])
+    expect(messagesNow()[0].runLedger).toEqual(ended)
+  })
+
   test('orders by timestamp, then by id (spec CC-11)', () => {
     seed([message('b', { timestamp: at(3) })])
 
@@ -167,7 +186,6 @@ describe('insertRemoteMessages', () => {
       isStreaming: true,
       isLoading: true,
       currentUserMessageId: 'm1',
-      streamingAssistantMessageId: 'live-answer',
     })
 
     insertRemoteMessages(CONVERSATION_ID, [message('m2', { timestamp: at(2) })])
@@ -176,7 +194,6 @@ describe('insertRemoteMessages', () => {
     expect(state.isStreaming).toBe(true)
     expect(state.isLoading).toBe(true)
     expect(state.currentUserMessageId).toBe('m1')
-    expect(state.streamingAssistantMessageId).toBe('live-answer')
     // These messages came FROM the server; mirroring them back would be a loop.
     expect(mockConversationsClient.createMessage).not.toHaveBeenCalled()
     expect(mockConversationsClient.createMessages).not.toHaveBeenCalled()

@@ -4,14 +4,15 @@
 /**
  * Cross-language contract: the frontend must parse what the backend emits.
  *
- * Three formats cross the Python→TypeScript boundary, so no single test can
+ * Two formats cross the Python→TypeScript boundary, so no single test can
  * exercise both ends:
  *
- *  1. the KB tool output + its `## Trace-Lanes` JSON
- *     (`sources/knowledge_layer/src/register.py::_format_results`)
- *  2. the verified report's sources section with its `[KB]`/`[RIS]`/`[Web]`
+ *  1. the verified report's sources section with its `[KB]`/`[RIS]`/`[Web]`
  *     origin tokens (`citation_verification.verify_citations`)
- *  3. the wire source payload (`citation_verification.source_entry_to_wire`)
+ *  2. the wire source payload (`citation_verification.source_entry_to_wire`)
+ *
+ * The Herleitung's lanes are no longer parsed from tool output: they arrive as
+ * typed `sources` steps (chat wire v2), held by `shared/wire/v2`.
  *
  * Both sides assert against the SAME checked-in fixtures, produced by one real
  * pipeline run. The Python counterpart —
@@ -26,8 +27,8 @@ import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { dirname, resolve } from 'node:path'
 import { describe, expect, test } from 'vitest'
-import { extractTraceLanesFromPayload, parseTraceLanesBlock } from './trace-lanes'
 import { citationFromWire, normalizeOrigin } from './wire-citation'
+import { buildCitationModel } from './citations'
 import { splitReportSources } from '@/features/layout/lib/report-citations'
 import type { WireCitationSource } from '../types'
 
@@ -37,49 +38,8 @@ const FIXTURE_DIR = resolve(HERE, '../../../../../../tests/fixtures/citation_pip
 const fixture = (name: string): string =>
   readFileSync(resolve(FIXTURE_DIR, name), 'utf-8').replace(/\r\n/g, '\n')
 
-const KB_TOOL_OUTPUT = fixture('kb_tool_output.txt')
 const VERIFIED_REPORT = fixture('verified_report.md')
 const WIRE_SOURCES = JSON.parse(fixture('wire_sources.json')) as WireCitationSource[]
-
-describe('KB tool output → Herleitung fan-out', () => {
-  test('the backend Trace-Lanes block is readable and keeps every hit in its stratum', () => {
-    const lanes = parseTraceLanesBlock(KB_TOOL_OUTPUT)
-    expect(lanes?.map((lane) => [lane.key, lane.label, lane.hitCount])).toEqual([
-      ['baurecht_oib', 'OIB-Richtlinie', 1],
-      ['projekt', 'Projektwissen', 1],
-      ['buero', 'Büroarchiv', 1],
-    ])
-    expect(lanes?.map((lane) => lane.signal)).toEqual(['law', 'project', 'office'])
-  })
-
-  test('the coarse kind comes from the backend, not from a lane→kind table over here', () => {
-    // `kind_for_lane` runs once, on the producing side, and travels with the
-    // lane — the same taxonomy `source_entry_to_wire` puts on a citation. The
-    // fan-out and the "Belegt durch" chips cannot disagree if neither derives it.
-    expect(parseTraceLanesBlock(KB_TOOL_OUTPUT)?.map((lane) => lane.kind)).toEqual([
-      'baurecht',
-      'projekt',
-      'buero',
-    ])
-  })
-
-  test('a source carries the filename for preview resolution and the title for display', () => {
-    const oib = parseTraceLanesBlock(KB_TOOL_OUTPUT)![0]
-    expect(oib.sources).toEqual([
-      {
-        name: 'oib-rl_2_ausgabe_mai_2023.pdf',
-        title: 'OIB-Richtlinie 2, Ausgabe Mai 2023',
-        detail: 'p.12',
-      },
-    ])
-  })
-
-  test('the block is what a real KB payload resolves to, not a fallback parse', () => {
-    expect(extractTraceLanesFromPayload(KB_TOOL_OUTPUT)).toEqual(
-      parseTraceLanesBlock(KB_TOOL_OUTPUT)
-    )
-  })
-})
 
 describe('verified report → its sources section (splitReportSources)', () => {
   const split = splitReportSources(VERIFIED_REPORT)
@@ -126,6 +86,14 @@ describe('wire payload → citation chips', () => {
     ])
   })
 
+  test('a plan\u2019s region reaches the viewer\u2019s locus, box and label intact (#433)', () => {
+    const [oib, plan] = WIRE_SOURCES.map((wire) => citationFromWire(wire))
+    expect(oib!.regions).toBeUndefined()
+    expect(plan!.regions).toEqual([{ box: [0.08, 0.12, 0.62, 0.71], label: 'Grundriss 1. OG' }])
+    const planDoc = buildCitationModel({ citations: [plan!] })[0]!
+    expect(planDoc.loci[0]!.regions).toEqual(plan!.regions)
+  })
+
   test('no backend origin is silently dropped as unrecognized', () => {
     for (const wire of WIRE_SOURCES) {
       expect(normalizeOrigin(wire.origin)).toBe(wire.origin)
@@ -135,27 +103,5 @@ describe('wire payload → citation chips', () => {
   test('the chip number matches the [N] the report body now uses', () => {
     const numbers = splitReportSources(VERIFIED_REPORT).entries.map((entry) => entry.number)
     expect(WIRE_SOURCES.map((wire) => wire.number)).toEqual(numbers)
-  })
-
-  test('a chip and the fan-out card for the same document agree on the coarse kind', () => {
-    const kindByName = new Map(
-      (parseTraceLanesBlock(KB_TOOL_OUTPUT) ?? []).flatMap((lane) =>
-        lane.sources.map((source) => [source.name, lane.kind] as const)
-      )
-    )
-    for (const wire of WIRE_SOURCES) {
-      expect(kindByName.get(wire.file_name!)).toBe(wire.kind)
-    }
-  })
-
-  test('a chip resolves to the same lane the fan-out put its document in', () => {
-    const laneByName = new Map(
-      (parseTraceLanesBlock(KB_TOOL_OUTPUT) ?? []).flatMap((lane) =>
-        lane.sources.map((source) => [source.name, lane.key] as const)
-      )
-    )
-    for (const wire of WIRE_SOURCES) {
-      expect(laneByName.get(wire.file_name!)).toBe(wire.lane)
-    }
   })
 })

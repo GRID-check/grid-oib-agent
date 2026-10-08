@@ -29,15 +29,16 @@ vars:
   # are Python packaging facts rather than shell facts: a virtualenv puts its
   # executables in `Scripts/` on Windows and `bin/` everywhere else. Stated once
   # here so no task has to know about it.
-  #
-  # `uv run` would sidestep the whole question, but not in this repo: it
-  # resolves an environment without the `sources/` workspace packages, so the
-  # knowledge-layer tests fail to import. The venv that `uv sync --group dev`
-  # builds is the one that works.
   VENV_BIN: '{{if eq OS "windows"}}.venv/Scripts{{else}}.venv/bin{{end}}'
   EXE: '{{if eq OS "windows"}}.exe{{end}}'
   PY: '{{.VENV_BIN}}/python{{.EXE}}'
   RUFF: '{{.VENV_BIN}}/ruff{{.EXE}}'
+  # pytest-xdist, one worker per logical CPU, for the core and aiq_api suites.
+  # Much of their wall clock is asyncio waits, so a serial run left the runner
+  # idle: on two workers aiq_api went 67s -> 44s, the core suite ~3m20s -> 2m27s.
+  # A test that only passes after another one ran will fail under it; fix the
+  # test, do not drop the flag.
+  XDIST: -n logical
   # Release-note tooling runs OUTSIDE the project environment on purpose. reno is
   # needed by two tasks and one workflow, never by the product, so putting it in
   # `[dependency-groups]` would add a resolver constraint (and uv.lock churn) to
@@ -222,7 +223,7 @@ tasks:
       - bun run lint
 
   fe:types:
-    desc: Typecheck the UI (includes specs — a spec type error blocks next build)
+    desc: Typecheck the UI, specs included (next build checks production code only)
     dir: '{{.UI}}'
     cmds:
       - bun run type-check
@@ -250,8 +251,10 @@ tasks:
     desc: 'One shard of the UI suite, as a blob report (CI: SHARD=1/4 task fe:test:shard)'
     dir: '{{.UI}}'
     cmds:
-      # `--reporter=blob` writes a blob instead of printing a summary;
-      # fe:test:merge stitches the shards back into one run + one coverage set.
+      # `--reporter=blob` writes the blob that fe:test:merge stitches into one
+      # run and one coverage set. The default reporter is added beside it, since
+      # a blob alone prints nothing: a red shard's log then names the failing
+      # tests instead of ending at the step's exit code.
       # Coverage must be collected per shard — it cannot be recomputed at merge
       # time, because each shard only ever loaded its own slice of the app.
       #
@@ -265,7 +268,7 @@ tasks:
       # (`blob-1-6.json`) because all six artifacts are downloaded into one
       # directory with `merge-multiple: true`, where a fixed name would
       # overwrite five of them.
-      - bun run test:shard -- --shard={{.SHARD}} --outputFile=.vitest-reports/blob-{{.SHARD | replace "/" "-"}}.json
+      - bun run test:shard -- --shard={{.SHARD}} --reporter=default --outputFile=.vitest-reports/blob-{{.SHARD | replace "/" "-"}}.json
 
   fe:test:merge:
     desc: Merge sharded blob reports into one result + the coverage CI comments on
@@ -359,6 +362,41 @@ tasks:
       - npm ci
       - npm run build
 
+  # ── riso art (frontends/web/art/riso — procedural prints for the site) ──────
+  # The raw commands are `node art/riso/<script>.mjs` in frontends/web; every
+  # task below is one of them. The workflow and the series rules are the
+  # aiq-piloti-riso skill and frontends/web/art/riso/README.md.
+
+  art:setup:
+    desc: Clone the pinned riso-windowseat kit into the user cache and find a browser (idempotent)
+    dir: '{{.WEB}}'
+    cmds:
+      - node art/riso/setup.mjs {{.CLI_ARGS}}
+
+  art:new:
+    desc: 'Scaffold a riso work from the template: task art:new -- <work> [--title "Title"]'
+    dir: '{{.WEB}}'
+    cmds:
+      - node art/riso/new.mjs {{.CLI_ARGS}}
+
+  art:export:
+    desc: 'Export riso works to public/art/ and art/riso/out/, then rewrite src/data/art.json: task art:export -- [--work w] [--only ids]'
+    dir: '{{.WEB}}'
+    cmds:
+      - node art/riso/export.mjs {{.CLI_ARGS}}
+
+  art:verify:
+    desc: The kit's determinism check on every riso job, in both engines (minutes; not in web:check)
+    dir: '{{.WEB}}'
+    cmds:
+      - node art/riso/verify.mjs {{.CLI_ARGS}}
+
+  art:check:
+    desc: The fast riso gate (manifest, files, sizes, alt text, ids in src/); also part of web:check
+    dir: '{{.WEB}}'
+    cmds:
+      - node art/riso/check.mjs
+
   # ── backend (src/, sources/, frontends/aiq_api) ─────────────────────────────
 
   be:lint:
@@ -376,21 +414,15 @@ tasks:
   be:test:
     desc: Backend core suite
     cmds:
-      - '{{.PY}} -X faulthandler -m pytest tests/ -q'
+      - '{{.PY}} -X faulthandler -m pytest tests/ -q {{.XDIST}}'
 
   be:test:sources:
-    desc: The sources/ package suites, which no CI job used to run
+    desc: The sources/ package suites
     cmds:
-      # One pytest per package, not `pytest sources`, and the glob rather than a
-      # list so a new package is covered the day it lands.
-      #
-      # Every package ships a `tests/__init__.py`, so one run over all of them
-      # derives the module name `tests.conftest` for each and the second one
-      # aborts collection with "Plugin already registered under a different
-      # name". Splitting the invocation is what makes this suite runnable at
-      # all; merging it into one run needs those conftest names disambiguated
-      # first.
-      - 'for d in sources/*/tests; do "{{.PY}}" -X faulthandler -m pytest "$d" -q || exit 1; done'
+      # One run over every package. No package carries a `tests/__init__.py`, so
+      # no two conftests claim the module name `tests.conftest`, and a new
+      # package is collected the day it lands.
+      - '"{{.PY}}" -X faulthandler -m pytest sources -q'
 
   prompts:pull:
     desc: 'Bring a Langfuse prompt version into review: task prompts:pull [-- --label <label>]'
@@ -462,6 +494,19 @@ tasks:
       # whole set. Exit 0 = the three floors hold; 1 = keep turn_decisions off.
       - '{{.PY}} scripts/decision_eval.py {{.CLI_ARGS}}'
 
+  be:eval:decisions:offpath:
+    desc: 'Decision-model eval for the annotations — upload tags, Dokumentart, feedback causes — on the hand-labelled tuning sets (NEEDS OPENROUTER_API_KEY; no backend)'
+    cmds:
+      # ADR-0064 uses 4, 8 and 9. Exit 0 = the floors in the script hold.
+      - '{{.PY}} scripts/decision_eval_offpath.py {{.CLI_ARGS}}'
+
+  be:eval:decisions:holdout:
+    desc: 'Held-out check for the decision-model uses, on sets written blind to the wording — never tune on them (NEEDS OPENROUTER_API_KEY; no backend)'
+    cmds:
+      # Exit 0 = every floor holds; the floors sit just under the last result
+      # so a regression fails.
+      - '{{.PY}} scripts/decision_eval_holdout.py {{.CLI_ARGS}}'
+
   be:eval:turn-census:
     desc: 'Turn census — run a chat question through the real agent and count every model call, token and second it cost; writes to /tmp/turn_census unless --out, takes --override KEY VALUE (NEEDS OPENROUTER_API_KEY and the corpus ingested locally)'
     cmds:
@@ -472,7 +517,7 @@ tasks:
       - '{{.PY}} scripts/turn_census/census.py {{.CLI_ARGS}}'
 
   be:eval:answer-suite:
-    desc: 'Answer suite — the reference questions through the real agent, timed and checked, with a report (NEEDS OPENROUTER_API_KEY and the corpus ingested; -- --ingest syncs it first)'
+    desc: 'Answer suite — the reference questions through the real agent, timed and checked, with a report (NEEDS OPENROUTER_API_KEY and the corpus ingested; -- --ingest ingests it first, in the suite process)'
     env:
       PYTHONPATH: src
     cmds:
@@ -485,7 +530,7 @@ tasks:
       - '{{.PY}} scripts/turn_census/suite.py {{.CLI_ARGS}}'
 
   be:eval:loop:
-    desc: 'Agentic-loop shape eval — rounds, locator use, checkpoint source, truncation (NEEDS a running backend with the corpus; set GRID_LOOP_EVAL_URL)'
+    desc: 'Agentic-loop shape eval — rounds, locator use, checkpoint source, truncation (NEEDS a running backend with the corpus; set GRID_LOOP_EVAL_URL to its chat role)'
     cmds:
       # Sibling of be:eval:retrieval and unrunnable in CI for the same reason:
       # the corpus is operator-provided and gitignored, and every question here
@@ -515,7 +560,7 @@ tasks:
     desc: Backend core suite with the coverage gate CI enforces
     cmds:
       - >-
-        {{.PY}} -X faulthandler -m pytest tests/ -v
+        {{.PY}} -X faulthandler -m pytest tests/ -q {{.XDIST}}
         --junitxml=report-core.xml
         --cov=src/aiq_agent --cov-report=xml:coverage.xml --cov-report=term
         --cov-fail-under=65
@@ -523,13 +568,13 @@ tasks:
   be:test:api:
     desc: aiq_api plugin suite
     cmds:
-      - '{{.PY}} -X faulthandler -m pytest frontends/aiq_api/tests/ -q'
+      - '{{.PY}} -X faulthandler -m pytest frontends/aiq_api/tests/ -q {{.XDIST}}'
 
   be:test:api:ci:
     desc: aiq_api plugin suite with coverage reporting
     cmds:
       - >-
-        {{.PY}} -X faulthandler -m pytest frontends/aiq_api/tests/ -v
+        {{.PY}} -X faulthandler -m pytest frontends/aiq_api/tests/ -q {{.XDIST}}
         --junitxml=report-aiqapi.xml
         --cov=frontends/aiq_api/src/aiq_api --cov-report=xml:coverage-aiqapi.xml
         --cov-report=term
@@ -540,9 +585,7 @@ tasks:
       - task: be:lint
       - task: be:test:ci
       - task: be:test:api:ci
-      # sources/ used to be covered only by the push-stage pre-commit hook,
-      # which CI's repo-lint job skips — a stale test there stayed green
-      # through every gate. Now it is part of the tier.
+      # sources/ is part of the tier, and CI's backend-test job runs it too.
       - task: be:test:sources
 
   # ── infra (deploy/pulumi) ───────────────────────────────────────────────────
@@ -639,6 +682,10 @@ tasks:
     cmds:
       # Ours first: it is the one that reads the notes as published prose.
       - '{{.RELNOTES}} lint'
+      # reno walks each note's commit back to its parent, and a shallow clone
+      # lacks that history (KeyError on the sha). CI checks out full history; a
+      # container's clone is shallow, so deepen it here rather than fail on a sha.
+      - if [ "$(git rev-parse --is-shallow-repository)" = true ]; then git fetch --unshallow --quiet; fi
       # reno's own lint catches the structural problems ours does not look for
       # (a note on no branch, a malformed section body).
       - '{{.RENO}} lint .'

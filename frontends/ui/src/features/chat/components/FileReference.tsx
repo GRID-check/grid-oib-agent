@@ -61,7 +61,7 @@ import { createContext, useCallback, useContext, type FC, type ReactNode } from 
 import { useTranslations } from '@/i18n'
 import { cn } from '@/lib/utils'
 import { motion, springPress } from '@/components/motion'
-import { Popover, PopoverAnchor, PopoverContent } from '@/components/ui/popover'
+import { HoverPeekPanel } from '@/components/ui/hover-peek-panel'
 import { useHoverPopover } from '@/hooks/use-hover-popover'
 import { useIsMobile } from '@/hooks/use-is-mobile'
 import { openFilePeek } from '@/features/documents/lib/open-file-peek'
@@ -162,79 +162,78 @@ const FileReferenceChip: FC<{
   const askable = isCitable(stored.file)
 
   return (
-    <Popover open={peek.open} onOpenChange={peek.onOpenChange}>
-      <PopoverAnchor asChild>
-        {/* A press gives way slightly — the kit's vocabulary for anything the
-            reader physically touches. Scale only, no vertical move, so a chip
-            cannot nudge the line of prose it sits on. */}
-        <motion.button
-          type="button"
-          data-testid="file-reference"
-          data-file-reference={stored.file.filename}
-          whileTap={{ scale: 0.97 }}
-          transition={springPress}
-          {...peek.triggerProps}
-          // NOT `peek.triggerProps.onClick`, which PINS the popover. On this
-          // chip the click is the verb: a tap on a touch screen (where there is
-          // no hover to preview with) has to reach the document in one act, not
-          // open a panel that then asks for a second one.
-          onClick={() => {
-            peek.dismiss()
-            openFile(stored)
-          }}
-          aria-label={t(askable ? 'fileReference.openAskAria' : 'fileReference.openAria', { name: stored.file.filename })}
-          className={cn(
-            // `inline`, not `inline-flex`. A flex box is unbreakable, and these
-            // names are long: on a phone `Wien-Lacknergasse-Grundrisse-\
-            // floorplans.pdf` was pushed onto a line of its own and the full
-            // stop that ended the sentence wrapped to the line after it, alone.
-            // Inline lets the name flow like the text it is, and
-            // `box-decoration-break` keeps the rounded ends on the outside of a
-            // name that broke across two lines rather than on all four.
-            'inline rounded-md [box-decoration-break:clone]',
-            // A `button` is centred by the UA stylesheet, which is invisible
-            // until a long name wraps — and then the second line of the
-            // filename sat centred in a left-aligned paragraph.
-            'text-start',
-            // The padding is cancelled by an equal negative margin. A mention
-            // pill can afford to push its neighbours 3px apart because a thread
-            // holds one or two; an answer's reading order holds nine, and at
-            // 3px each the sentence rendered as „…floorplans.pdf ." — a stray
-            // space in front of every comma and full stop in the paragraph.
-            // Negative margin keeps the hover background full-width while
-            // giving the space back to the prose at rest.
-            'px-[3px] -mx-[3px] py-px',
-            // NOT a filled pill. An answer that names nine documents would be
-            // nine highlighter strokes, and the reader would be reading the
-            // marks rather than the sentence. At rest the name is the answer's
-            // own text under a dotted rule — the web's oldest way of saying
-            // "there is more here" — and the surface only lights up under the
-            // pointer, where it is answering one name rather than shouting
-            // about all of them.
-            'underline decoration-dotted decoration-foreground/30 underline-offset-[3px]',
-            'hover:decoration-solid hover:decoration-foreground/50 hover:bg-muted',
-            'focus-visible:bg-muted',
-            // A name is wide enough for a fingertip already; only the vertical
-            // axis needs help, and growing sideways would push the sentence's
-            // own punctuation off the line.
-            'pointer-coarse:py-1',
-            'cursor-pointer transition-colors duration-quick ease-out',
-            'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50'
-          )}
-        >
-          <FileGlyph file={stored.file} />
-          {label}
-        </motion.button>
-      </PopoverAnchor>
-      {/* Mounted only while open, so a paragraph naming six files costs nothing
+    <>
+      {/* A press gives way slightly — the kit's vocabulary for anything the
+          reader physically touches. Scale only, no vertical move, so a chip
+          cannot nudge the line of prose it sits on. */}
+      <motion.button
+        type="button"
+        data-testid="file-reference"
+        data-file-reference={stored.file.filename}
+        whileTap={{ scale: 0.97 }}
+        transition={springPress}
+        {...peek.triggerProps}
+        // NOT `peek.triggerProps.onClick`, which PINS the popover. On this
+        // chip the click is the verb: a tap on a touch screen (where there is
+        // no hover to preview with) has to reach the document in one act, not
+        // open a panel that then asks for a second one.
+        onClick={() => {
+          peek.dismiss()
+          openFile(stored)
+        }}
+        aria-label={t(askable ? 'fileReference.openAskAria' : 'fileReference.openAria', { name: stored.file.filename })}
+        className={cn(
+          // `inline`, not `inline-flex`. A flex box is unbreakable, and these
+          // names are long: on a phone `Wien-Lacknergasse-Grundrisse-\
+          // floorplans.pdf` was pushed onto a line of its own and the full
+          // stop that ended the sentence wrapped to the line after it, alone.
+          // Inline lets the name flow like the text it is, and
+          // `box-decoration-break` keeps the rounded ends on the outside of a
+          // name that broke across two lines rather than on all four.
+          'inline rounded-md [box-decoration-break:clone]',
+          // A `button` is centred by the UA stylesheet, which is invisible
+          // until a long name wraps — and then the second line of the
+          // filename sat centred in a left-aligned paragraph.
+          'text-start',
+          // The padding is cancelled by an equal negative margin. A mention
+          // pill can afford to push its neighbours 3px apart because a thread
+          // holds one or two; an answer's reading order holds nine, and at
+          // 3px each the sentence rendered as „…floorplans.pdf ." — a stray
+          // space in front of every comma and full stop in the paragraph.
+          // Negative margin keeps the hover background full-width while
+          // giving the space back to the prose at rest.
+          'px-[3px] -mx-[3px] py-px',
+          // NOT a filled pill. An answer that names nine documents would be
+          // nine highlighter strokes, and the reader would be reading the
+          // marks rather than the sentence. At rest the name is the answer's
+          // own text under a dotted rule — the web's oldest way of saying
+          // "there is more here" — and the surface only lights up under the
+          // pointer, where it is answering one name rather than shouting
+          // about all of them.
+          'underline decoration-dotted decoration-foreground/30 underline-offset-[3px]',
+          'hover:decoration-solid hover:decoration-foreground/50 hover:bg-muted',
+          'focus-visible:bg-muted',
+          // A name is wide enough for a fingertip already; only the vertical
+          // axis needs help, and growing sideways would push the sentence's
+          // own punctuation off the line.
+          'pointer-coarse:py-1',
+          'cursor-pointer transition-colors duration-quick ease-out',
+          'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50'
+        )}
+      >
+        <FileGlyph file={stored.file} />
+        {label}
+      </motion.button>
+      {/* Mounted only once engaged, and beside the chip rather than around it
+          (`HoverPeekPanel`), so a paragraph naming six files costs nothing
           until one of them is looked at. */}
-      <PopoverContent align="start" className="w-80 p-3" {...peek.contentProps}>
+      <HoverPeekPanel peek={peek} className="w-80 p-3">
         <FileReferencePeek stored={stored} writtenAs={fileName} onOpen={() => {
           peek.dismiss()
           openFile(stored)
         }} />
-      </PopoverContent>
-    </Popover>
+      </HoverPeekPanel>
+    </>
   )
 }
 

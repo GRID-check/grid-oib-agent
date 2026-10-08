@@ -3,6 +3,7 @@
 import { useEffect, useState, type CSSProperties, type ReactNode } from 'react'
 import Image from 'next/image'
 import { isOptimizerEligible } from '@/lib/images/optimizable'
+import { isOfficeRenditionSource } from '@/lib/documents/preview-types'
 import type { FileItem } from './project-file-workspace'
 import { formatBytes } from '@/lib/format'
 import { TimeAgo } from '@/components/ui/time-ago'
@@ -17,6 +18,7 @@ import { AuthorshipLine } from './authorship-line'
 import { DocumentVersionStateBadge } from './document-version-badge'
 import { DocumentStatusBadge, isCitableStatus, isSettlingStatus } from './document-status'
 import { SemanticMatch } from './semantic-match'
+import { useIngestFailureText } from './ingest-failure-notice'
 import { GridTileBody, GridTileFooter, GridTileMedia, GridTileShell } from './grid-tile'
 import { Skeleton } from '@/components/ui/skeleton'
 
@@ -37,7 +39,28 @@ type ThumbState = 'loading' | 'ready' | 'none' | 'error'
  * resolved "no thumbnail" (null url) stays cached — unless the document was
  * still being read when we asked (see {@link loadThumbnail}).
  */
-const thumbnailCache = new Map<string, Promise<string | null>>()
+const thumbnailCache = new Map<string, { url: Promise<string | null>; expiresAtMs?: number }>()
+
+/**
+ * How long before a signed url's `exp` it stops being handed out: a card that
+ * mounts must still be able to fetch it.
+ */
+const EXPIRY_MARGIN_MS = 60_000
+
+/**
+ * When a signed image url stops working, from its `exp` (seconds), or
+ * undefined for a url that carries none (a presigned object-store fallback).
+ *
+ * The cache used to keep a resolved url for the page's lifetime, but a signed
+ * url lives an hour or two. A tab left open replayed urls that had expired days
+ * earlier (#366: `exp` of Sep 8, requested Sep 18). The route answered 403
+ * with a JSON body, and Next's image optimizer, which never looks at the
+ * status, logged "isn't a valid image" for it.
+ */
+export function signedUrlExpiresAtMs(url: string): number | undefined {
+  const exp = Number(new URL(url, 'http://relative.invalid').searchParams.get('exp'))
+  return Number.isFinite(exp) && exp > 0 ? exp * 1000 : undefined
+}
 
 /** Test hook — clears the module cache between specs. */
 export const resetThumbnailCache = (): void => {
@@ -59,7 +82,10 @@ export const resetThumbnailCache = (): void => {
  */
 function loadThumbnail(fileId: string, provisional = false): Promise<string | null> {
   const existing = thumbnailCache.get(fileId)
-  if (existing) return existing
+  if (existing && !(existing.expiresAtMs !== undefined && Date.now() >= existing.expiresAtMs - EXPIRY_MARGIN_MS)) {
+    return existing.url
+  }
+  const entry: { url: Promise<string | null>; expiresAtMs?: number } = { url: Promise.resolve(null) }
   const promise = fetch(`/api/documents/${fileId}/thumbnail`)
     .then((r) => {
       if (!r.ok) {
@@ -71,11 +97,14 @@ function loadThumbnail(fileId: string, provisional = false): Promise<string | nu
     .then((data) => (data && typeof data.url === 'string' ? data.url : null))
     .then((url) => {
       if (url === null && provisional) thumbnailCache.delete(fileId)
+      if (url) entry.expiresAtMs = signedUrlExpiresAtMs(url)
       return url
     })
-  // Evict a rejected resolution so a later mount can retry (successes stay cached).
+  // Evict a rejected resolution so a later mount can retry (a success stays
+  // cached until its signature expires).
   promise.catch(() => thumbnailCache.delete(fileId))
-  thumbnailCache.set(fileId, promise)
+  entry.url = promise
+  thumbnailCache.set(fileId, entry)
   return promise
 }
 
@@ -91,7 +120,13 @@ function loadThumbnail(fileId: string, provisional = false): Promise<string | nu
 export function ThumbnailWithFallback({ file }: { file: FileItem }) {
   const t = useTranslations('files')
   const kind = inferDocumentKind(file)
-  const canHaveThumbnail = file.contentType === 'application/pdf' || (file.contentType ?? '').startsWith('image/')
+  // Office files too: ingest renders their `_thumb.jpg` from the PDF rendition
+  // (ADR-0070). One uploaded before that, or with conversion off, has none, and
+  // the route answers `{ url: null }` — the kind sketch below, not a failure.
+  const canHaveThumbnail =
+    file.contentType === 'application/pdf' ||
+    (file.contentType ?? '').startsWith('image/') ||
+    isOfficeRenditionSource(file)
   const [state, setState] = useState<ThumbState>(canHaveThumbnail ? 'loading' : 'none')
   const [imgUrl, setImgUrl] = useState<string | null>(null)
 
@@ -237,7 +272,10 @@ export function FileCard({
   const name = documentDisplayName(file)
   const ext = fileExtensionLabel(file.filename)
   const isFailed = file.status === 'failed'
-  const failureReason = isFailed ? file.errorMessage || t('preview.ingestionFailedGeneric') : undefined
+  const failureText = useIngestFailureText(isFailed ? file.errorMessage : null)
+  // The card is one click target, so it carries no disclosure: the sentence
+  // shows, the stored text is the tooltip, and the preview pane has „Details".
+  const failureReason = isFailed ? (failureText?.sentence ?? t('ingestFailure.unknown')) : undefined
   const showStatus = !!file.status && !(hideStatusWhenReady && isCitableStatus(file.status))
   // The AI summary is the last thing ingestion produces, so a document that is
   // still being read has an empty description slot. Left blank it reads as a
@@ -298,6 +336,7 @@ export function FileCard({
             {showStatus && (
               <DocumentStatusBadge
                 status={file.status}
+                queueAhead={file.queueAhead}
                 // The 80% alpha is load-bearing: this badge floats over a document
                 // thumbnail, and with `backdrop-blur-sm` it frosts the image
                 // underneath instead of hiding it.
@@ -355,7 +394,11 @@ export function FileCard({
             {match ? (
               <SemanticMatch snippet={match.snippet} page={match.page} score={match.score} />
             ) : isFailed ? (
-              <p className="mt-1 line-clamp-2 text-xs leading-[1.45] text-destructive" title={failureReason}>
+              <p
+                className="mt-1 line-clamp-2 text-xs leading-[1.45] text-destructive"
+                title={failureText?.raw ?? failureReason}
+                data-testid="file-card-failure"
+              >
                 {failureReason}
               </p>
             ) : isAwaitingSummary ? (

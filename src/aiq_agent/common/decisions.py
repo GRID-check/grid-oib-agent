@@ -34,9 +34,11 @@ and criteria are written in English and the STATE carries the user's German
 verbatim, and the decision eval (``scripts/decision_eval.py``) measures the
 result on the loop-eval questions before a use is adopted (ADR-0064).
 
-Not a ZDR route: an org that enforces zero-data-retention routing skips
-every decision, as does an org whose own key (BYOK) points anywhere but
-OpenRouter, since the endpoint is OpenRouter's.
+Every decision is pinned to zero-data-retention endpoints
+(``openrouter.PLATFORM_FIXED``), whatever the organization's setting: Jev's
+one endpoint is ZDR, so the pin costs nothing. An org whose own key (BYOK)
+points anywhere but OpenRouter skips every decision, since the endpoint is
+OpenRouter's.
 """
 
 from __future__ import annotations
@@ -53,6 +55,9 @@ from dataclasses import dataclass
 from dataclasses import field
 from typing import Any
 from urllib.parse import urlsplit
+
+from aiq_agent.common.openrouter import PLATFORM_FIXED
+from aiq_agent.common.openrouter import limited_async_http_client
 
 logger = logging.getLogger(__name__)
 
@@ -114,7 +119,6 @@ USAGE_ROLE_DECISION = "decision"
 #: Why a decision was not made. Stable tokens for the technical record.
 SKIPPED_DISABLED = "disabled"
 SKIPPED_NO_KEY = "no_key"
-SKIPPED_ZDR = "zdr"
 SKIPPED_BYOK_HOST = "byok_host"
 SKIPPED_BREAKER = "breaker"
 SKIPPED_TIMEOUT = "timeout"
@@ -198,20 +202,23 @@ class Decision:
         value = answer.get("score")
         return float(value) if isinstance(value, (int, float)) and math.isfinite(float(value)) else None
 
-    def summary(self) -> dict[str, Any]:
-        """The answers as numbers only — what the technical record carries."""
-        out: dict[str, Any] = {}
+    def summary(self) -> dict[str, float | str | None]:
+        """The answers as flat scalars — what the technical record carries.
+
+        A choice is its winner under its own key and that winner's probability
+        under ``<key>.p``.
+        """
+        out: dict[str, float | str | None] = {}
         for key, answer in self.answers.items():
-            if not isinstance(answer, Mapping):
-                continue
-            kind = answer.get("type")
+            kind = answer.get("type") if isinstance(answer, Mapping) else None
             if kind == "noul":
                 out[key] = self.noul(key)
-            elif kind == "choice":
-                chosen, distribution = self.choice(key)
-                out[key] = {"choice": chosen, "p": round(distribution.get(chosen or "", 0.0), 3)}
             elif kind == "score":
                 out[key] = self.score(key)
+            elif kind == "choice":
+                chosen, distribution = self.choice(key)
+                out[key] = chosen
+                out[f"{key}.p"] = round(distribution.get(chosen or "", 0.0), 3)
         return out
 
 
@@ -318,24 +325,13 @@ def _resolve_endpoint_blocking(organization_id: str | None) -> tuple[_Endpoint |
     return _Endpoint(url=url, api_key=api_key, model=model, byok=byok), None
 
 
-def _zdr_only_blocking() -> bool:
-    try:
-        from aiq_agent.common.model_overrides import get_zdr_only_from_context
-
-        return bool(get_zdr_only_from_context())
-    except Exception:  # noqa: BLE001 — an unknown policy is not a ZDR policy
-        return False
-
-
 async def _endpoint(organization_id: str | None) -> tuple[_Endpoint | None, str | None]:
     if not enabled():
         return None, SKIPPED_DISABLED
     if _breaker_open():
         return None, SKIPPED_BREAKER
-    zdr = await asyncio.to_thread(_zdr_only_blocking)
-    if zdr:
-        return None, SKIPPED_ZDR
-    return await asyncio.to_thread(_resolve_endpoint_blocking, organization_id or _context_organization_id())
+    organization_id = organization_id or _context_organization_id()
+    return await asyncio.to_thread(_resolve_endpoint_blocking, organization_id)
 
 
 def _context_organization_id() -> str | None:
@@ -370,14 +366,17 @@ def _client(timeout: float, transport: Any) -> tuple[Any, bool]:
     """
     import httpx
 
+    # Every client queues for a provider slot (ADR-0081) in the class of the
+    # caller's task: a decision inside a chat turn is chat, one inside an ingest
+    # job is that job's class.
     if transport is not None:
-        return httpx.AsyncClient(timeout=timeout, transport=transport), True
+        return limited_async_http_client(timeout=timeout, inner=transport), True
     global _shared_client
     loop = asyncio.get_running_loop()
     if _shared_client is None or _shared_client[0] is not loop or _shared_client[1].is_closed:
         _shared_client = (
             loop,
-            httpx.AsyncClient(
+            limited_async_http_client(
                 timeout=timeout,
                 limits=httpx.Limits(max_keepalive_connections=8, keepalive_expiry=60.0),
             ),
@@ -395,7 +394,9 @@ async def _post(
 ) -> _Outcome:
     import httpx
 
-    body = {"model": endpoint.model, "state": state, "questions": dict(questions)}
+    # Pinned for every organization (`openrouter.PLATFORM_FIXED`): the decision
+    # model is the platform's, and its one endpoint (TypeSafe) is ZDR.
+    body = PLATFORM_FIXED.apply({"model": endpoint.model, "state": state, "questions": dict(questions)})
     started = time.monotonic()
     client, owned = _client(timeout, transport)
     try:
@@ -457,25 +458,21 @@ def _record_cost(decision: Decision, *, byok: bool) -> None:
             prompt_tokens=decision.input_tokens,
             completion_tokens=decision.output_tokens,
             cost_usd=decision.cost_usd or 0.0,
-            cost_source="provider" if decision.cost_usd is not None else "estimate",
+            # The ledger's vocabulary (`COST_SOURCES` in the BFF schema): a
+            # value outside it, as `"provider"` was, has the internal endpoint
+            # refuse the whole batch, and with it up to four other calls.
+            cost_source="usage_field" if decision.cost_usd is not None else "missing",
             is_byok=byok,
         )
     except Exception:  # noqa: BLE001 — accounting never takes a decision down
         logger.debug("Decision usage not recorded", exc_info=True)
 
 
-def _record(slot: str, values: dict[str, Any]) -> None:
+def _record(slot: str, detail: dict[str, Any]) -> None:
     """The technical record of a decision: numbers, never the reader's text."""
-    try:
-        from aiq_agent.common.turn_status import CHANNEL_TECHNICAL
-        from aiq_agent.common.turn_status import push_custom_step
+    from aiq_agent.common.turn_status import emit_technical
 
-        push_custom_step(
-            f"status:decision:{slot}",
-            {"kind": "status", "channel": CHANNEL_TECHNICAL, "slot": f"decision:{slot}", "values": values},
-        )
-    except Exception:  # noqa: BLE001
-        logger.debug("Decision record for %s not emitted", slot, exc_info=True)
+    emit_technical(f"decision:{slot}", **detail)
 
 
 def record_skipped(slot: str, reason: str, detail: str | None = None) -> None:
@@ -517,9 +514,53 @@ async def decide(
     decision = outcome.decision
     _record(
         slot,
-        {"answers": decision.summary(), "latencyMs": decision.latency_ms, "inputTokens": decision.input_tokens},
+        {**decision.summary(), "latencyMs": decision.latency_ms, "inputTokens": decision.input_tokens},
     )
     return decision
+
+
+def decide_blocking(
+    state: Any,
+    questions: Mapping[str, Mapping[str, Any]],
+    *,
+    slot: str,
+    timeout: float = DEFAULT_TIMEOUT_S,
+    organization_id: str | None = None,
+) -> Decision | None:
+    """:func:`decide` for synchronous code: ingestion's worker threads, scripts.
+
+    Runs on a loop of its own with a client of its own, closed after the call:
+    the shared keep-alive client is bound to the loop that opened it, and a
+    loop made per call would orphan one client per document. Ingestion pays
+    the TLS handshake per call for that, which it can afford. Called from a
+    thread that already runs a loop, the call moves to a thread of its own
+    rather than failing, because ``asyncio.run`` refuses to nest.
+    """
+    import httpx
+
+    def _run() -> Decision | None:
+        return asyncio.run(
+            decide(
+                state,
+                questions,
+                slot=slot,
+                timeout=timeout,
+                organization_id=organization_id,
+                transport=httpx.AsyncHTTPTransport(),
+            )
+        )
+
+    try:
+        asyncio.get_running_loop()
+    except RuntimeError:
+        return _run()
+    from concurrent.futures import ThreadPoolExecutor
+    from contextvars import copy_context
+
+    # In the caller's context, so the decision's cost reaches its tracker (a
+    # ContextVar a fresh thread would not see) and lands on the ledger.
+    with ThreadPoolExecutor(max_workers=1) as pool:
+        return pool.submit(copy_context().run, _run).result()
 
 
 async def decide_many(

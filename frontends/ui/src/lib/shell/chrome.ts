@@ -7,6 +7,8 @@ import { isIfcModelsEnabled, isSkillsEnabled } from '@/lib/authz/feature-flags'
 import { listProjects } from '@/lib/projects/service'
 import { getOrganizationDisplayName } from '@/lib/organizations/service'
 import { isAuthRequired } from '@/lib/auth/auth-required'
+import { resolveTourEligibility } from '@/lib/onboarding/tour-eligibility'
+import { NO_TOURS, type TourEligibility } from '@/features/onboarding/lib/product-tour'
 import type { ProjectSwitcherProject } from '@/components/shell/project-switcher'
 import type { SidebarUser } from '@/components/shell/sidebar-user-menu'
 
@@ -34,6 +36,8 @@ export interface ShellChrome {
   /** IFC/BIM model surfaces (`ifc-models`, ADR-0045). */
   showModels: boolean
   authRequired: boolean
+  /** Which product tours start by themselves for this reader (a joiner's first visit). */
+  tours: TourEligibility
 }
 
 const EMPTY_NAV_FLAGS: NavFlags = {
@@ -55,6 +59,7 @@ function emptyChrome(): ShellChrome {
     showSkills: false,
     showModels: false,
     authRequired: isAuthRequired(),
+    tours: NO_TOURS,
   }
 }
 
@@ -123,5 +128,10 @@ export async function resolveShellChrome(): Promise<ShellChrome> {
     showSkills: isSkillsEnabled(session),
     showModels: isIfcModelsEnabled(session),
     authRequired,
+    // No organization, no tour: the break-glass platform owner (ADR-0016)
+    // reaches this frame with zero memberships and has nothing to be shown.
+    tours: session.organizationId
+      ? await resolveTourEligibility(session as AuthorizedSession)
+      : NO_TOURS,
   }
 }

@@ -1,6 +1,6 @@
 # ADR-0047: A document's shelf travels as data, not as a name or a label
 
-- **Status:** Proposed
+- **Status:** Accepted (Phase 1 and Phase 2 implemented; see the 2026-09-27 amendment)
 - **Date:** 2026-08-12
 - **Deciders:** Grid engineering
 - **Related:** ADR-0024 (org-wide Archiv), ADR-0026 (source-kind taxonomy), ADR-0045 (IFC models as a queryable building)
@@ -191,3 +191,18 @@ session uploads.
 - `src/aiq_agent/common/source_kinds.py` — Python mirror
 - `sources/knowledge_layer/src/register.py:315-360,713-720` — collection selection and re-derivation
 - `frontends/ui/src/lib/db/schema/documents.ts` — `DocumentScope`
+
+## Amendment 2026-09-27: Phase 2 is done
+
+The last client of the raw path is gone. The chat composer (`InputArea`) and
+the chat's file dialog (`FileSourcesTab`) upload through
+`POST /api/session/documents/upload`, list and poll through
+`GET /api/session/documents` (which reconciles in-flight rows on every read), and
+delete through `DELETE /api/session/documents/{id}`. The `/api/v1` proxy now
+refuses every write into an `s_` collection, so no path reaches the ingestor
+without the file-type gate, the quota and a `session` row.
+`DELETE /api/conversations/{id}` erases the chat's whole `s_` collection after its
+attachment rows, which also covers chunks uploaded before session files were rows.
+
+What remains open is unchanged: the `baurecht` question and whether
+`ifc_query` becomes shelf-aware.

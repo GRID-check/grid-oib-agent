@@ -1,0 +1,6 @@
+---
+features:
+  - >
+    After you mark an answer as not helpful, "Answer again, more thoroughly"
+    asks the same question again with more reasoning effort for that one answer.
+    Your chat's effort setting stays as it was.

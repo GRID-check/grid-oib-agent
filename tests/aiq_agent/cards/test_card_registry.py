@@ -115,7 +115,7 @@ class TestEmitCardBody:
         "card_json",
         [
             '{"type": "ifc_model_picker", "title": "Egress widths"}',
-            '{"type": "legal_basis", "law": "OIB-Richtlinie 2", "article": "2.1"}',
+            '{"type": "ifc_model_picker", "title": "Welches Modell?", "note": "Haus A"}',
         ],
     )
     def test_multiple_real_types(self, card_json):
@@ -197,14 +197,14 @@ class TestARefusedCardIsVisibleAfterTheTurn:
         reg = get_or_create_card_registry("conv-refusal-1")
         reg.clear()
         with caplog.at_level(logging.WARNING, logger="aiq_agent.cards"):
-            msg = await self._emit_real(reg, {"type": "process_map", "title": "Bauverfahren"})
+            msg = await self._emit_real(reg, {"type": "stair_diagram", "title": "Treppe"})
 
         assert msg.startswith("Error")
         records = [r for r in caplog.records if r.levelno == logging.WARNING]
         assert records, "a refused card left no trace at all — the exact gap this closes"
         # The TYPE is the load-bearing half: it says which card the model knew it
         # wanted, which is the one thing a silent turn cannot tell you.
-        assert "process_map" in records[0].getMessage()
+        assert "stair_diagram" in records[0].getMessage()
         assert "rejected" in records[0].getMessage()
 
     @pytest.mark.asyncio
@@ -219,9 +219,9 @@ class TestARefusedCardIsVisibleAfterTheTurn:
         reg = get_or_create_card_registry("conv-refusal-5")
         reg.clear()
 
-        msg = await self._emit_real(reg, {"type": "process_map", "title": "Bauverfahren"})
+        msg = await self._emit_real(reg, {"type": "stair_diagram", "title": "Treppe"})
 
-        assert msg.startswith("Error: card of type 'process_map' failed validation:")
+        assert msg.startswith("Error: card of type 'stair_diagram' failed validation:")
         assert "http" not in msg
         assert "For further information" not in msg
 
@@ -326,7 +326,7 @@ class TestEmitCardPlacementMarker:
         reg.clear()
         refusal = await self._emit_real(reg, {"type": "callout", "kind": "achtung", "text": "Frist läuft."})
         assert "answer_json" in refusal
-        assert "is not emitted as a card" in refusal
+        assert "no longer exists" in refusal
         assert reg.snapshot() == []
 
     def test_the_marker_contract_is_paid_per_CALL_and_not_per_TURN(self):
@@ -349,4 +349,4 @@ class TestEmitCardPlacementMarker:
         # And the doctrine is still the whole of WHEN, WHICH and HOW WELL.
         assert "WHEN TO EMIT ONE" in _CARD_DOCTRINE
         assert "WHEN NOT TO" in _CARD_DOCTRINE
-        assert "Stations must CARRY something" in _CARD_DOCTRINE
+        assert "there is no result field" in _CARD_DOCTRINE

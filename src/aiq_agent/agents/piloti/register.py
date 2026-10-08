@@ -25,39 +25,37 @@ from pydantic import Field
 from aiq_agent.common import AgentGroup
 from aiq_agent.common import LLMProvider
 from aiq_agent.common import VerboseTraceCallback
-from aiq_agent.common import _create_chat_response
 from aiq_agent.common import format_user_facing_tool_error
 from aiq_agent.common import get_all_tool_refs
 from aiq_agent.common import get_langchain_llm
-from aiq_agent.common import get_model_overrides_from_context
-from aiq_agent.common import get_org_llm_credential_from_context
-from aiq_agent.common import get_reasoning_efforts
-from aiq_agent.common import get_zdr_only_from_context
 from aiq_agent.common import is_verbose
 from aiq_agent.common import unavailable_source_ids
 from aiq_agent.common import validate_tool_availability
-from aiq_agent.common.canned_replies import SCOPED_NO_SOURCES_MESSAGE
+from aiq_agent.common.agent_tools import load_agent_tools
 from aiq_agent.common.citation_verification import EmptySourceRegistryError
 from aiq_agent.common.data_source_registry import get_all_sources
 from aiq_agent.common.decisions import SKIPPED_TOO_SHORT
 from aiq_agent.common.decisions import record_skipped
 from aiq_agent.common.deferred_tool_loading import DeferredToolLoadingSettings
 from aiq_agent.common.deferred_tool_loading import verify_deferred_tool_loading
+from aiq_agent.common.openrouter import PLATFORM_FIXED
+from aiq_agent.common.openrouter import pin_chat_model
+from aiq_agent.common.request_llm_context import read_request_llm_context
+from aiq_agent.common.tool_validation import format_no_sources_message
 from aiq_agent.project_context import get_organization_id_from_context
 from aiq_agent.project_context import get_project_id_from_context
 from aiq_agent.skills import SkillResolver
 from aiq_agent.skills import SkillRuntime
 from aiq_agent.skills.events import emit_skills_offered
 from aiq_agent.tools.documents.tools import draft_tools_for_turn
-from nat.builder.builder import Builder
-from nat.builder.framework_enum import LLMFrameworkEnum
-from nat.builder.function_info import FunctionInfo
-from nat.cli.register_workflow import register_function
-from nat.data_models.api_server import ChatResponse
-from nat.data_models.component_ref import FunctionGroupRef
-from nat.data_models.component_ref import FunctionRef
-from nat.data_models.component_ref import LLMRef
-from nat.data_models.function import FunctionBaseConfig
+from nat.plugin_api import Builder
+from nat.plugin_api import FunctionBaseConfig
+from nat.plugin_api import FunctionGroupRef
+from nat.plugin_api import FunctionInfo
+from nat.plugin_api import FunctionRef
+from nat.plugin_api import LLMFrameworkEnum
+from nat.plugin_api import LLMRef
+from nat.plugin_api import register_function
 
 # Importing this module runs its ``@register_function`` so NAT discovers the
 # ``ask_user`` tool through the same ``aiq_researcher`` entry point
@@ -234,10 +232,7 @@ class _Deployment:
 
 async def _load_tools(config: ResearchAgentConfig, builder: Builder) -> list[Any]:
     tool_refs = config.tools or get_all_tool_refs()
-    tools = await builder.get_tools(tool_names=tool_refs, wrapper_type=LLMFrameworkEnum.LANGCHAIN)
-    if config.exclude_tools:
-        excluded = set(config.exclude_tools)
-        tools = [t for t in tools if getattr(t, "name", "") not in excluded]
+    tools = await load_agent_tools(builder, tool_refs, config.exclude_tools)
     is_valid, _, _ = validate_tool_availability(tools, research_type=_RESEARCH_TYPE)
     if not is_valid:
         logger.warning(
@@ -297,71 +292,17 @@ async def _resolve_skill_runtime(
     return runtime
 
 
-async def _read_model_overrides() -> dict:
-    try:
-        return await asyncio.to_thread(get_model_overrides_from_context)
-    except Exception:  # noqa: BLE001 - a lost override costs the model choice, never the turn
-        logger.debug("Model-overrides lookup failed; continuing without", exc_info=True)
-        return {}
-
-
-async def _read_org_credential():
-    try:
-        return await asyncio.to_thread(get_org_llm_credential_from_context)
-    except Exception:  # noqa: BLE001 - see above; the env chain still has a credential
-        logger.debug("Org-credential lookup failed; continuing without", exc_info=True)
-        return None
-
-
-async def _read_reasoning_efforts() -> dict[str, str]:
-    try:
-        return await asyncio.to_thread(get_reasoning_efforts)
-    except Exception:  # noqa: BLE001 - a lost effort costs the thinking level, never the turn
-        logger.debug("Reasoning-efforts lookup failed; continuing with the configured levels", exc_info=True)
-        return {}
-
-
-async def _read_zdr_only() -> bool:
-    try:
-        return await asyncio.to_thread(get_zdr_only_from_context)
-    except Exception:  # noqa: BLE001 - fails CLOSED, unlike its two siblings
-        # A missing override costs the org its model choice; a missing ZDR bit
-        # sends the org's prompts to endpoints that may retain them, which is
-        # the ADR-0014 control itself. This is NOT the "BFF is down" path --
-        # `resolve_org_zdr_only` already answers False for that, deliberately.
-        # Reaching here means the lookup itself broke unexpectedly, so it logs
-        # at error rather than debug: a privacy control that switches itself
-        # off must never do it quietly.
-        logger.error("ZDR lookup failed; pinning ZDR routing for this turn", exc_info=True)
-        return True
-
-
 async def _active_provider(provider: LLMProvider) -> LLMProvider:
     """Per-org model overrides + platform thinking level + BYOK credential + ZDR (ADR-0022).
 
     Each returns the boot provider unchanged when inactive, so the agent's
     identity check keeps the boot binding on a turn that overrides nothing.
-
-    The lookups are header-first (the platform efforts are cache-first) but
-    each falls back to a blocking BFF call (5s timeout, 60s in-process TTL),
-    so a cold miss used to freeze the event loop for every turn on the
-    replica. Each runs on its own thread hop and fails open (the ZDR bit
-    closed) on its own, so they overlap and one bad reader costs its own
-    value -- never the turn, and never the others. ContextVars travel with
-    each hop.
+    The four lookups each fall back to a blocking BFF call, so they are read
+    off the loop, concurrently and failing on their own:
+    ``common/request_llm_context.py``, which the clarifier and deep research
+    read through too.
     """
-    model_overrides, efforts, org_credential, zdr_only = await asyncio.gather(
-        _read_model_overrides(),
-        _read_reasoning_efforts(),
-        _read_org_credential(),
-        _read_zdr_only(),
-    )
-    return (
-        provider.with_model_overrides(model_overrides)
-        .with_reasoning_efforts(efforts)
-        .with_credential(org_credential)
-        .with_zdr(zdr_only)
-    )
+    return (await read_request_llm_context()).apply(provider)
 
 
 def _skills_block(runtime: SkillRuntime) -> str:
@@ -371,7 +312,6 @@ def _skills_block(runtime: SkillRuntime) -> str:
 def _turn_facts(state: ResearchAgentState, runtime: SkillRuntime | None) -> TurnFacts:
     """What the decider is shown, from the state the gather already filled."""
     from aiq_agent.cards.catalog import CHAT_ONLY_CARD_TYPES
-    from aiq_agent.cards.catalog import MARKDOWN_CARD_TYPES
     from aiq_agent.cards.catalog import card_index_entries
     from aiq_agent.cards.envelope import ENVELOPE_SHAPE_TYPES
     from aiq_agent.common.applicability import facts_from_project_context
@@ -402,9 +342,7 @@ def _turn_facts(state: ResearchAgentState, runtime: SkillRuntime | None) -> Turn
         # `surface`'s shape IS the compose rule the envelope contract already
         # carries: attached, it would ride twice and take a shape slot.
         card_types=[
-            entry
-            for entry in card_index_entries(exclude=MARKDOWN_CARD_TYPES | CHAT_ONLY_CARD_TYPES)
-            if entry[0] not in ENVELOPE_SHAPE_TYPES
+            entry for entry in card_index_entries(exclude=CHAT_ONLY_CARD_TYPES) if entry[0] not in ENVELOPE_SHAPE_TYPES
         ],
     )
 
@@ -494,19 +432,17 @@ def _apply_decisions(decisions: TurnDecisions, state: ResearchAgentState, runtim
 
     The chosen skill rides this turn's prompt in full (``inline_also``), the
     one method the question is the subject of; the shapes are its preferred
-    cards beyond the three shapes the envelope teaches, the Markdown-written
-    types and ``surface`` — what ``use_skill`` hands over with the body — then
-    the turn decision's card picks, capped (``attached_card_types``). The
-    Markdown types are left out because the answer writes them as Markdown,
-    not as a card, and ``surface`` because its shape is the envelope's
-    compose rule, already in the prompt. Still offers: the model decides.
+    cards beyond the shapes the envelope teaches and ``surface`` — what
+    ``use_skill`` hands over with the body — then the turn decision's card
+    picks, capped (``attached_card_types``). ``surface`` is left out because
+    its shape is the envelope's compose rule, already in the prompt. Still
+    offers: the model decides.
     """
     from aiq_agent.cards.catalog import CHAT_ONLY_CARD_TYPES
-    from aiq_agent.cards.catalog import MARKDOWN_CARD_TYPES
     from aiq_agent.cards.envelope import ENVELOPE_SHAPE_TYPES
     from aiq_agent.skills.models import preferred_cards
 
-    withheld_shapes = {*ENVELOPE_SHAPE_TYPES, *MARKDOWN_CARD_TYPES, *CHAT_ONLY_CARD_TYPES}
+    withheld_shapes = {*ENVELOPE_SHAPE_TYPES, *CHAT_ONLY_CARD_TYPES}
 
     if runtime is not None and decisions.chosen_skill:
         runtime.inline_also((decisions.chosen_skill,))
@@ -610,8 +546,8 @@ async def _run_turn(deployment: _Deployment, state: ResearchAgentState) -> Resea
     if runtime is not None:
         state.skills_block = _skills_block(runtime)
     result = await _run_agent(deployment, state, turn)
-    if result is None:
-        return _reply(state, SCOPED_NO_SOURCES_MESSAGE)
+    if isinstance(result, str):
+        return _reply(state, result)
     if runtime is not None:
         _report_skills(result, runtime)
     return result
@@ -631,16 +567,16 @@ def _turn_prefetch(decisions: TurnDecisions, facts: TurnFacts | None, state: Res
     )
 
 
-async def _run_agent(deployment: _Deployment, state: ResearchAgentState, turn: TurnConfig) -> ResearchAgentState | None:
-    """The shared agent's run, or None on a scoped miss, which the caller answers."""
+async def _run_agent(deployment: _Deployment, state: ResearchAgentState, turn: TurnConfig) -> ResearchAgentState | str:
+    """The shared agent's run, or the reply to a miss, which the caller sends."""
     try:
         return await deployment.agent.run(state, turn=turn)
-    except EmptySourceRegistryError:
-        # A scoped miss (this-file / this-shelf) is a valid empty answer, not
-        # an unhandled NAT error. Raising here became err2issue #447 and left
-        # the user with no reply.
+    except EmptySourceRegistryError as exc:
+        # A miss is a valid empty answer, not an unhandled NAT error. Raising
+        # here became err2issue #447 and left the user with no reply.
         logger.warning("Research captured no sources; returning an empty-result answer.")
-        return None
+        scoped = bool(state.focus_file_name or state.focus_shelf)
+        return format_no_sources_message(_RESEARCH_TYPE, exc.unavailable_tools, exc.available_count, scoped=scoped)
 
 
 @register_function(config_type=ResearchAgentConfig, framework_wrappers=[LLMFrameworkEnum.LANGCHAIN])
@@ -669,7 +605,13 @@ async def research_agent(config: ResearchAgentConfig, builder: Builder):
         deferred_tool_loading=config.deferred_tool_loading,
         envelope_json_mode_with_tools=config.envelope_json_mode_with_tools,
         repair_pass=config.repair_pass,
-        card_repair_llm=(await get_langchain_llm(builder, config.card_repair_llm)) if config.card_repair_llm else None,
+        # No agent group, so no organization chooses it: pinned to
+        # zero-data-retention endpoints for every turn (`openrouter.PLATFORM_FIXED`).
+        card_repair_llm=(
+            pin_chat_model(await get_langchain_llm(builder, config.card_repair_llm), PLATFORM_FIXED)
+            if config.card_repair_llm
+            else None
+        ),
     )
     deployment = _Deployment(config=config, agent=agent, provider=provider, tools=tools)
 
@@ -694,14 +636,12 @@ class ResearchWorkflowConfig(FunctionBaseConfig, name="research_workflow"):
 async def research_workflow(config: ResearchWorkflowConfig, builder: Builder):
     """Wrapper workflow that accepts string queries for evaluation."""
     research_agent_fn = await builder.get_function("shallow_research_agent")
-    workflow_id = config.name or config.type
 
-    async def _run(query: str, project_context: str | None = None) -> ChatResponse:
+    async def _run(query: str, project_context: str | None = None) -> str:
         """Run research on a query string."""
         result = await research_agent_fn.ainvoke(
             ResearchAgentState(messages=[HumanMessage(content=query)], project_context=project_context)
         )
-        response_content = result.messages[-1].content
-        return _create_chat_response(response_content, response_id="research_response", model=workflow_id)
+        return str(result.messages[-1].content)
 
     yield FunctionInfo.from_fn(_run, description="Research workflow for evaluation (accepts string query).")

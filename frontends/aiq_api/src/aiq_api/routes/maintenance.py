@@ -266,12 +266,12 @@ def add_maintenance_routes(router: APIRouter) -> None:
             from aiq_agent.knowledge.factory import get_active_ingestor
 
             ingestor = get_active_ingestor()
-            if ingestor is not None and ingestor.get_collection(body.collection_name):
-                collection_deleted = ingestor.delete_collection(body.collection_name)
+            if ingestor is not None and await asyncio.to_thread(ingestor.get_collection, body.collection_name):
+                collection_deleted = await asyncio.to_thread(ingestor.delete_collection, body.collection_name)
                 collection_status = "deleted" if collection_deleted else "failed"
             # delete_collection clears summaries too, but run it explicitly so a
             # previously half-failed purge (collection gone, summaries left) heals.
-            clear_collection_summaries(body.collection_name)
+            await asyncio.to_thread(clear_collection_summaries, body.collection_name)
             jobs_deleted = await _purge_jobs(body.collection_name)
 
         await _purge_checkpoints(body.conversation_ids)

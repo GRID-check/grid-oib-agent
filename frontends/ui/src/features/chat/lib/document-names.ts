@@ -6,7 +6,7 @@
  * a German display title at ingestion (`norm_registry.guess_display_title`,
  * stored + admin-overridable in the document_metadata store) and ships it on
  * the `Source:` line and — since the fan-out carries it — as `title` on each
- * `## Trace-Lanes` source.
+ * trace-lane source.
  *
  * This module is the CLIENT mirror of that derivation, used as the fallback for
  * everything the wire does not label: pruned messages stored before the wire

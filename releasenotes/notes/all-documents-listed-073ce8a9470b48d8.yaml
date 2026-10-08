@@ -1,0 +1,7 @@
+---
+fixes:
+  - >
+    Dateien and the Archiv now list up to 10,000 documents, and say so when a
+    project has more. Before, only the newest 500 appeared, so older plans
+    could not be found by search or filters, and a folder upload marked files
+    that were already there as new.

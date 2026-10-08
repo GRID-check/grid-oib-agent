@@ -8,7 +8,6 @@ are real (only a body it inlined), and ``skills_activated`` is what it says.
 from __future__ import annotations
 
 import json
-from unittest.mock import patch
 
 from langchain_core.messages import AIMessage
 
@@ -65,7 +64,6 @@ def test_the_register_reports_what_the_runtime_accepted():
     zwei = Skill(name="zwei", description="z", body="zwei body", origin="platform")
     lang = Skill(name="lang", description="l", body="x" * 5000, origin="org")
     runtime = SkillRuntime(skills=(kurz, zwei, lang), inline_max_body_chars=100, inline_budget_chars=1000)
-    with patch("aiq_agent.skills.events.push_custom_step"):
-        result = ResearchAgentState(messages=[], skills_applied=["zwei", "lang", "nope"])
-        _report_skills(result, runtime)
+    result = ResearchAgentState(messages=[], skills_applied=["zwei", "lang", "nope"])
+    _report_skills(result, runtime)
     assert result.skills_activated == ["zwei"]

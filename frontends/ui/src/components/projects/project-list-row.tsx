@@ -24,6 +24,7 @@
  * among few. It belongs here the day the data model grows a second status.
  */
 
+import type { JSX } from 'react'
 import type { Project } from '@/lib/db/schema'
 import {
   ProjectActivity,

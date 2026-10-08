@@ -5,10 +5,10 @@ export const files: typeof en.files = {
   uploadZone: {
     clickToUpload: 'Zum Hochladen klicken',
     orDragAndDrop: ' oder per Drag-and-drop ablegen',
-    maxSize: 'Bis zu {size} MB',
+    maxSize: 'Bis zu {size} pro Datei',
     accepts: 'Zulässig: {types}',
     dragOrBrowse: 'Dateien hierher ziehen oder auswählen',
-    maxSizeShort: 'max. {size} MB',
+    maxSizeShort: 'max. {size} pro Datei',
   },
   // Die Upload-Leiste. Die Formulierungen folgen der Regel der Oberfläche:
   // Eine Zahl steht nur dort, wo tatsächlich gemessen wurde. „Wird gelesen“
@@ -16,6 +16,9 @@ export const files: typeof en.files = {
   // Restzeit, also sagt der Text das, statt eine zu suggerieren.
   uploads: {
     region: 'Uploads',
+    // Kein Fehler und nichts zu wiederholen: Das Dokument wird weiter gelesen,
+    // die Leiste verfolgt es nur nicht mehr im Sekundentakt.
+    stillReading: 'Das Lesen dauert länger als üblich und läuft im Hintergrund weiter.',
     heading: {
       transferringOne: '1 Dokument wird hochgeladen',
       transferringOther: '{count} Dokumente werden hochgeladen',
@@ -32,15 +35,16 @@ export const files: typeof en.files = {
       bytes: '{done} von {total}',
       eta: 'noch {time}',
       queued: '{count} in Warteschlange',
-      processing: 'Wird indexiert – keine Restzeit, Sie können weiterarbeiten',
+      processing: 'Wird gelesen. Die Dauer lässt sich nicht vorhersagen, Sie können weiterarbeiten.',
       elapsed: 'seit {time}',
       settled: '{total} übertragen',
     },
     row: {
       queued: 'Wartet',
       uploading: 'Wird gesendet',
-      processing: 'Wird verarbeitet',
+      processing: 'Wird gelesen',
       ready: 'Zitierbar',
+      unchanged: 'Unverändert – bereits vorhanden',
       canceled: 'Abgebrochen',
       failed: 'Fehlgeschlagen',
     },
@@ -58,7 +62,7 @@ export const files: typeof en.files = {
     // "Zitierbar" (nicht bloß "Bereit") beantwortet die entscheidende Frage:
     // Das Dokument ist jetzt in Pilotis Wissen und kann zitiert werden.
     ready: 'Zitierbar',
-    processing: 'Wird verarbeitet',
+    processing: 'Wird gelesen',
     uploading: 'Wird hochgeladen',
     failed: 'Fehlgeschlagen',
     // Der Bericht, den Piloti geschrieben hat: die Datei liegt im Projekt, ist
@@ -67,12 +71,15 @@ export const files: typeof en.files = {
     // und kein Fehler. Dasselbe Wort wie im Toast nach dem Lauf.
     stored: 'Abgelegt',
     unknown: 'Unbekannt',
+    // Nur die eigenen Uploads des Büros: Innerhalb eines Büros wird der Reihe
+    // nach gelesen, zwischen Büros fair abgewechselt (ADR-0076).
+    queuedAhead: '{count, plural, one {Wartet · # Datei davor} other {Wartet · # Dateien davor}}',
   },
   toast: {
     // Sobald die asynchrone Verarbeitung abgeschlossen ist und das Dokument
     // zitierbar wird – die bislang fehlende Bestätigung des Abschlusses.
     ingestionComplete: '„{name}“ ist jetzt in Pilotis Wissen – zitierbar',
-    modelReady: '„{name}“ ist eingelesen – Sie können jetzt Fragen zum Gebäude stellen',
+    modelReady: '„{name}“ ist gelesen. Sie können jetzt Fragen zum Gebäude stellen.',
   },
   // Karten-Thumbnail-Fallbacks: ein warmer Platzhalter-Chip, wenn kein Thumbnail
   // existiert, und ein ehrliches „konnte nicht geladen werden“ bei einem echten
@@ -92,10 +99,13 @@ export const files: typeof en.files = {
     goneCleared: 'Frage bezieht sich nicht mehr auf diese Datei.',
     goneUndo: 'Rückgängig',
     tryAgain: 'Erneut versuchen',
+    // An office file is shown through a PDF the BFF makes from it (ADR-0070).
+    renditionPending: 'PDF-Vorschau wird erstellt…',
+    renditionNote: 'PDF-Vorschau · Original: {name}',
     noInlinePreview:
-      'Für diesen Dateityp gibt es keine Inline-Vorschau. Laden Sie sie herunter, um das vollständige Dokument anzusehen.',
+      'Für diesen Dateityp gibt es keine Inline-Vorschau. Laden Sie die Datei herunter, um das vollständige Dokument anzusehen.',
     textTruncated:
-      'Es wird nur der Anfang dieser Datei angezeigt. Laden Sie sie herunter, um den vollständigen Inhalt zu lesen.',
+      'Es wird nur der Anfang dieser Datei angezeigt. Laden Sie die Datei herunter, um den vollständigen Inhalt zu lesen.',
     status: 'Status',
     properties: 'Eigenschaften',
     summaryMore: 'Vollständige Zusammenfassung',
@@ -114,12 +124,13 @@ export const files: typeof en.files = {
     suggestionsLabel: 'Schlagwort-Vorschläge',
     noTagMatch: 'Kein passendes Schlagwort – bitte einen der Vorschläge wählen.',
     indexed: {
-      title: 'Von Piloti indexiert',
+      title: 'Von Piloti gelesen',
       documentType: 'Dokumenttyp',
       project: 'Projekt',
       updated: 'Aktualisiert',
       caption:
         'Beim Hochladen automatisch erkannt – Ihre Korrekturen verbessern künftige Antworten.',
+      pending: 'Piloti liest das Dokument noch – Zusammenfassung und Merkmale erscheinen hier, sobald es fertig ist.',
     },
     pages: 'Seiten',
     chunks: 'Passagen',
@@ -135,6 +146,7 @@ export const files: typeof en.files = {
       title: 'Detaillierte Informationen',
       loading: 'Beschreibungen werden geladen …',
       empty: 'Keine visuellen Beschreibungen verfügbar.',
+      failed: 'Die Beschreibungen konnten nicht geladen werden.',
       page: 'Seite {page}',
       scale: 'Maßstab {scale}',
       structured: {
@@ -186,19 +198,64 @@ export const files: typeof en.files = {
       },
     },
     unknownType: 'Unbekannt',
+    // Die Typ-Zeile nennt das Format, nie den MIME-Typ (der steht im Tooltip).
+    formats: {
+      pdf: 'PDF',
+      word: 'Word-Dokument',
+      excel: 'Excel-Tabelle',
+      powerpoint: 'PowerPoint-Präsentation',
+      odText: 'OpenDocument-Text',
+      odSpreadsheet: 'OpenDocument-Tabelle',
+      odPresentation: 'OpenDocument-Präsentation',
+      rtf: 'Rich-Text-Dokument',
+      csv: 'CSV-Tabelle',
+      tsv: 'TSV-Tabelle',
+      markdown: 'Markdown',
+      plainText: 'Textdatei',
+      ifc: 'IFC-Modell',
+      email: 'E-Mail',
+      image: 'Bild ({format})',
+      extension: '{ext}-Datei',
+      raw: '{type}',
+    },
     download: 'Herunterladen',
     downloadFailed: 'Der Download konnte nicht gestartet werden. Bitte versuchen Sie es erneut.',
-    ingestionFailed: 'Verarbeitung fehlgeschlagen',
-    ingestionFailedGeneric: 'Dieses Dokument konnte nicht für die Suche verarbeitet werden.',
-    retryIngestion: 'Verarbeitung erneut starten',
+    ingestionFailed: 'Lesen fehlgeschlagen',
+    ingestionFailedPreviousVersionKept:
+      'Die Suche und Piloti verwenden weiterhin die vorige Fassung. Der Download liefert die neue Datei.',
+    retryIngestion: 'Erneut lesen',
     retryingIngestion: 'Wird erneut gestartet …',
     retryIngestionError:
-      'Die Verarbeitung konnte nicht erneut gestartet werden. Bitte versuchen Sie es erneut.',
+      'Das erneute Lesen konnte nicht gestartet werden. Bitte versuchen Sie es noch einmal.',
     dialogLabel: 'Dateivorschau: {name}',
     resizePeek: 'Breite der Dateivorschau ändern',
-    peekIndexingHint: 'Piloti kann diese Datei erst nach der Indizierung zitieren.',
-    peekFailedHint: 'Indizierung fehlgeschlagen — Piloti kann diese Datei nicht zitieren.',
+    peekIndexingHint: 'Piloti kann diese Datei erst zitieren, wenn sie gelesen ist.',
+    peekFailedHint: 'Lesen fehlgeschlagen. Piloti kann diese Datei nicht zitieren.',
+    peekFailedPreviousVersionHint:
+      'Die neue Datei konnte nicht gelesen werden — Piloti zitiert weiterhin die vorige Fassung.',
     peekFailedAction: 'Details',
+  },
+  /**
+   * Warum ein Dokument nicht gelesen werden konnte, nach der Kategorie, die
+   * `features/documents/lib/ingest-failure.ts` dem gespeicherten Fehler gibt.
+   * Der Rohtext steht hinter `details`.
+   */
+  ingestFailure: {
+    rendition_failed:
+      'Die PDF-Fassung dieser Datei ließ sich nicht erzeugen. Erneut lesen oder die Datei als PDF hochladen.',
+    download_failed:
+      'Die hochgeladene Datei war im Speicher nicht erreichbar. Erneut lesen oder die Datei noch einmal hochladen.',
+    interrupted: 'Das Lesen wurde durch einen Neustart des Dienstes unterbrochen. Erneut lesen, um es abzuschließen.',
+    unreadable_pages:
+      '{failed} von {total} Seiten ließen sich nicht lesen. Erneut lesen. Klappt es wieder nicht, ist die PDF vermutlich beschädigt.',
+    vision_not_configured:
+      'Für gescannte Seiten und Bilder braucht Piloti ein Bildmodell, und es ist keins eingerichtet. Bitte die Admins, eins zu konfigurieren.',
+    dispatch_failed: 'Das Lesen ließ sich nicht starten. Bitte erneut lesen.',
+    timeout: 'Das Lesen hat zu lange gedauert und wurde abgebrochen. Erneut lesen. Sehr große Dateien besser aufteilen.',
+    empty: 'In dieser Datei war kein Text zu finden. Sie ist vielleicht passwortgeschützt, beschädigt oder leer.',
+    deleted: 'Die Datei wurde gelöscht, während Piloti sie las.',
+    unknown: 'Piloti konnte dieses Dokument nicht lesen, daher findet die Suche es nicht.',
+    details: 'Details',
   },
   browser: {
     folderEmptyTitle: 'Dieser Ordner ist leer',
@@ -272,6 +329,7 @@ export const files: typeof en.files = {
     createFolderError: 'Ordner konnte nicht erstellt werden. Bitte versuchen Sie es erneut.',
     foldersLoadError: 'Ordner konnten nicht geladen werden.',
     documentsLoadError: 'Dokumente konnten nicht geladen werden.',
+    listTruncated: 'Angezeigt werden die neuesten {count} Dokumente. Ältere fehlen in dieser Liste, in Suche, Filtern und beim Abgleich eines Ordner-Uploads.',
     tryAgain: 'Erneut versuchen',
     dropToUpload: 'Dateien hier ablegen, um sie in dieses Projekt hochzuladen',
     dropUnsupported: 'Einige Dateien haben einen nicht unterstützten Typ',
@@ -297,13 +355,19 @@ export const files: typeof en.files = {
     },
   },
   actions: {
-    reingest: 'Erneut einlesen',
+    reingest: 'Erneut lesen',
     move: 'In Ordner verschieben',
     moved: '„{name}“ nach {folder} verschoben',
     moveError: 'Das Dokument konnte nicht verschoben werden. Bitte versuchen Sie es erneut.',
     reingesting: 'Wird erneut gestartet …',
+    reingestRunning: 'Wird bereits gelesen',
+    reingestAlreadyDone: 'Ist bereits fertig',
+    reingestConfirmTitle: '„{name}“ erneut lesen?',
+    reingestConfirmDescription:
+      'Piloti liest die Datei noch einmal vollständig, zum Beispiel damit Bilder in Word- und PowerPoint-Dateien erfasst werden. Bis die neue Fassung fertig ist, stützen sich Antworten weiter auf die bisherige.',
+    reingestConfirmAction: 'Erneut lesen',
     reingestError:
-      'Die Verarbeitung konnte nicht erneut gestartet werden. Bitte versuchen Sie es erneut.',
+      'Das erneute Lesen konnte nicht gestartet werden. Bitte versuchen Sie es noch einmal.',
     label: 'Dateiaktionen für „{name}“',
     menuLabel: 'Dateiaktionen',
     download: 'Herunterladen',
@@ -316,7 +380,7 @@ export const files: typeof en.files = {
   rename: {
     title: 'Dokument umbenennen',
     description:
-      'Ändert den Namen, der in Piloti überall angezeigt wird — auch in Zitaten. Die Datei selbst und alles daraus Indexierte bleiben unverändert.',
+      'Ändert den Namen, der in Piloti überall angezeigt wird — auch in Zitaten. Die Datei selbst und alles daraus Gelesene bleiben unverändert.',
     label: 'Name',
     hint: 'Die Dateiendung bleibt erhalten.',
     save: 'Umbenennen',
@@ -342,6 +406,19 @@ export const files: typeof en.files = {
     deleting: 'Wird gelöscht…',
     success: '„{name}“ wurde aus dem Projekt entfernt',
     error: 'Das Dokument konnte nicht gelöscht werden',
+    legalHold: 'Das Dokument unterliegt einer rechtlichen Sperre und kann nicht gelöscht werden',
+  },
+  /**
+   * Ein auf ein Ablagefach gezogenes ZIP. Es wird im Browser entpackt und dann
+   * wie der enthaltene Ordner behandelt (`folderUpload.*`); hier stehen nur die
+   * Sätze für ein Archiv, das nichts ergeben hat.
+   */
+  zip: {
+    reading: 'ZIP wird gelesen…',
+    unreadable: '„{name}“ konnte nicht gelesen werden. Ist es ein gültiges ZIP ohne Passwort?',
+    empty: '„{name}“ enthält keine Dateien.',
+    tooManyFiles: '„{name}“ enthält mehr als {limit} Dateien, daher wurde nichts übernommen. Teilen Sie es in kleinere ZIPs auf.',
+    tooLarge: '„{name}“ ist entpackt größer als {limit}, daher wurde nichts übernommen. Teilen Sie es in kleinere ZIPs auf.',
   },
   /**
    * Der Ordner-Upload-Plan — der Dialog, den ein abgelegter Ordnerbaum öffnet,
@@ -350,6 +427,22 @@ export const files: typeof en.files = {
   folderUpload: {
     title: '„{name}“ hochladen?',
     titleGeneric: 'Diesen Ordner hochladen?',
+    // Lose Dateien, von denen mindestens eine ein vorhandenes Dokument trifft.
+    titleFiles: '{count, plural, one {# Datei hochladen?} other {# Dateien hochladen?}}',
+    titleFilesGeneric: 'Dateien hochladen?',
+    destinationFiles: 'Die Dateien kommen nach „{folder}“.',
+    close: 'Schließen',
+    compareError: 'Der Bestand konnte nicht verglichen werden. Es wurde nichts hochgeladen.',
+    single: {
+      updateTitle: 'Neue Fassung von „{name}“ hochladen?',
+      updateExplain:
+        '„{name}“ liegt hier bereits. Die neue Fassung wird zur aktuellen; die bisherige bleibt unter Versionen erhalten.',
+      unchangedTitle: 'Unverändert – bereits vorhanden',
+      unchangedExplain: '„{name}“ ist mit dieser Datei identisch. Es wird nichts hochgeladen.',
+      refiled: 'Das Dokument liegt derzeit in einem anderen Ordner und wird nach „{folder}“ verschoben.',
+      archived: 'Das Dokument ist archiviert. Die neue Fassung wird ihm hinzugefügt und erscheint erst wieder in der Liste, wenn es wiederhergestellt wird.',
+      confirmUpdate: 'Als neue Fassung hochladen',
+    },
     destination: 'Die Ordnerstruktur wird in „{folder}“ nachgebildet.',
     destinationMerged: 'Der Inhalt kommt direkt in „{folder}“ — die Ordner darin werden zugeordnet.',
     planning: 'Wird mit dem Bestand verglichen…',
@@ -361,9 +454,10 @@ export const files: typeof en.files = {
       foldersMatched: '{count} zugeordnet',
     },
     alreadyHereAs: 'hier als „{name}“',
+    archivedMatch: 'archiviertes Dokument',
     updatePrompt: '{count} vorhandene(s) Dokument(e) aktualisieren',
     updateExplain:
-      'Name, Zitate und Zuweisungen bleiben — ersetzt wird nur die Datei dahinter.',
+      'Name, Zitate und Zuweisungen bleiben. Die neue Fassung wird zur aktuellen, die bisherige bleibt unter Versionen erhalten.',
     refiled: '{count} davon liegen derzeit woanders und wandern dorthin, wo dieser Ordner sie ablegt.',
     moving: '{count} unveränderte(s) Dokument(e) liegen woanders und werden dorthin verschoben, wo dieser Ordner sie ablegt.',
     duplicates: '{count} Datei(en) liegen bereits unter einem anderen Namen im Projekt',
@@ -389,6 +483,86 @@ export const files: typeof en.files = {
     doneMoved: '{uploaded} Datei(en) hochgeladen, {skipped} unverändert, {moved} verschoben.',
     foldersError: 'Die Ordner für diesen Upload konnten nicht angelegt werden. Es wurde nichts hochgeladen.',
     applyError: 'Dieser Ordner konnte nicht vollständig hochgeladen werden. Prüfen Sie die Liste und versuchen Sie es erneut.',
+  },
+  mailImport: {
+    action: 'Outlook-Archiv importieren',
+    title: 'Outlook-Archiv importieren',
+    description:
+      'Wählen Sie eine .pst- oder .ost-Datei. Jede E-Mail wird ein Ordner unter „E-Mail-Import“ mit ihren Anhängen und einer Notiz mit Text und Kopfzeilen.',
+    privacy:
+      'Ein Archiv enthält die Korrespondenz aller, die diesem Postfach geschrieben haben. Importieren Sie, was das Projekt braucht, nicht ein ganzes Postfach.',
+    choose: 'Archiv auswählen…',
+    maxSize: 'Bis {size}.',
+    notAnArchive: '„{name}“ ist kein Outlook-Archiv (.pst oder .ost).',
+    tooLarge: '„{name}“ ist größer als {size}.',
+    sending: '{sent} von {total} gesendet…',
+    sendingHint:
+      'Sie können in Piloti inzwischen weiterarbeiten; lassen Sie nur diesen Tab offen, bis das Archiv gesendet ist. Das Ablegen läuft danach im Hintergrund.',
+    sendingLabel: '„{name}“ wird gesendet',
+    joining: 'Gesendet. Piloti setzt das Archiv zusammen…',
+    sendErrors: {
+      busy: 'Dieser Tab sendet noch ein anderes Archiv. Warten Sie, bis es gesendet ist, und wählen Sie dann dieses.',
+      alreadyRunning: 'Ein Import von Ihnen läuft in diesem Projekt noch. Setzen Sie ihn zuerst fort oder brechen Sie ihn ab.',
+      cancelled: 'Der Import wurde abgebrochen, während er gesendet wurde.',
+      quota: 'Der Speicher der Organisation ist voll, daher kann das Archiv nicht importiert werden.',
+      forbidden: 'Sie dürfen diesem Projekt keine Dokumente hinzufügen.',
+      rejected: 'Piloti hat dieses Archiv nicht angenommen. Prüfen Sie, ob es eine Outlook-.pst- oder -.ost-Datei ist.',
+      connection:
+        'Die Verbindung ist abgebrochen. Wählen Sie die Datei mit „Weiter senden“ erneut, um dort fortzusetzen, wo es aufgehört hat.',
+      unknown: 'Das Archiv konnte nicht gesendet werden. Versuchen Sie es mit „Weiter senden“ erneut.',
+    },
+    resume: 'Weiter senden',
+    resumeNamed: '„{name}“ weiter senden',
+    resumeHint: 'Wählen Sie „{name}“ erneut, um dort weiterzusenden, wo es abgebrochen ist.',
+    resumeMismatch: 'Das ist nicht dieselbe Datei. Wählen Sie „{name}“ ({size}).',
+    resumeChanged:
+      '„{name}“ hat sich geändert, seit das Senden begonnen hat, daher passen seine Teile nicht mehr zusammen. Brechen Sie diesen Import ab und starten Sie einen neuen.',
+    cancel: 'Abbrechen',
+    cancelNamed: 'Import von „{name}“ abbrechen',
+    cancelConfirm: {
+      title: 'Diesen Import abbrechen?',
+      description:
+        'Was bisher abgelegt wurde, bleibt. Das Archiv wird aus Piloti gelöscht; für den Rest müsste „{name}“ erneut gesendet werden.',
+      confirm: 'Import abbrechen',
+      keep: 'Weiter importieren',
+    },
+    cancelError: 'Der Import konnte nicht abgebrochen werden.',
+    close: 'Schließen',
+    history: 'Importe in diesem Projekt',
+    empty: 'In dieses Projekt wurde noch kein Archiv importiert.',
+    loadError: 'Die Importe konnten nicht geladen werden.',
+    openFolder: 'Ordner öffnen',
+    openFolderNamed: 'Ordner von „{name}“ öffnen',
+    importingLabel: '„{name}“ wird importiert',
+    startedBy: 'Gestartet von {email}',
+    progress: '{done} von {total} Einträgen',
+    filed: '{mails, plural, one {# E-Mail} other {# E-Mails}}, {files, plural, one {# Anhang} other {# Anhänge}}',
+    skipped: '{count, plural, one {# übersprungen} other {# übersprungen}}',
+    skippedItem: '{file} in {mail}: {reason}',
+    skippedMail: '{mail}: {reason}',
+    status: {
+      uploading: 'Wird gesendet',
+      queued: 'Wartet',
+      importing: 'Wird importiert',
+      completed: 'Importiert',
+      failed: 'Fehlgeschlagen',
+      cancelled: 'Abgebrochen',
+    },
+    errors: {
+      unreadable: 'Die Datei konnte nicht als Outlook-Archiv gelesen werden. Exportieren Sie sie in Outlook erneut als .pst-Datei.',
+      quota: 'Der Speicher der Organisation ist voll. Was bis dahin importiert war, bleibt.',
+      access: 'Wer den Import gestartet hat, darf in diesem Projekt keine Dokumente mehr ablegen.',
+      requester_left: 'Wer den Import gestartet hat, ist nicht mehr Mitglied der Organisation.',
+      stopped: 'Der Import wurde nach wiederholten Fehlern abgebrochen.',
+      stalled: 'Der Import ist stehen geblieben, ohne fertig zu werden.',
+      upload_expired: 'Das Archiv wurde nicht innerhalb von zwei Tagen vollständig gesendet.',
+    },
+    reasons: {
+      embedded_message: 'angehängte E-Mail',
+      type: 'Dateityp nicht zugelassen',
+      size: 'zu groß',
+      unreadable: 'im Archiv beschädigt',
+    },
   },
   upload: {
     uploading: 'Wird hochgeladen …',
@@ -446,10 +620,11 @@ export const files: typeof en.files = {
     // gemeldet hat.
     status: {
       failed: 'Fehlgeschlagen',
-      processing: 'Wird verarbeitet',
+      processing: 'Wird gelesen',
       ready: 'Zitierbar',
     },
     originLabel: 'Herkunft',
+    tagLabel: 'Kategorie',
     kindLabel: 'Dateityp',
     kind: {
       floorplan: 'Grundriss',

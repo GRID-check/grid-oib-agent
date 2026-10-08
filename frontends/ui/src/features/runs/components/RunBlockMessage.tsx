@@ -22,6 +22,7 @@
  * `ChatArea`; a second copy here would drift on the first added prop.
  */
 
+import type { JSX } from 'react'
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import { motion, motionEntrance, motionInstant } from '@/components/motion'
 import type { ChatMessage } from '@/features/chat/types'

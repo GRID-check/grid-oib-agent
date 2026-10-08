@@ -47,12 +47,15 @@ import {
 } from '@/lib/conversations/repository'
 import type { Message, TaskRun } from '@/lib/db/schema'
 import { withPlatformAccess, withTenant } from '@/lib/db/tenant-context'
+import { buildCollectionScopeFromRequest } from '@/lib/collection-scope-request'
 import {
   addDocumentToBackendJob,
   cancelBackendJob,
   JobCancelError,
   writeNowBackendJob,
+  type JobControlCaller,
 } from '@/lib/jobs/backend-client'
+import { signJobRequestContext } from '@/lib/jobs/request-envelope'
 import type { PlanDocument } from './plan-documents'
 import { inboxGroupKey } from '@/lib/inbox/registry'
 import { emitInboxItems, resolveInboxItemsFor } from '@/lib/inbox/service'
@@ -66,7 +69,7 @@ import {
   sanitizeRunTitle,
 } from './run-ledger'
 import type { RunLedger, RunLedgerRequest, RunLedgerResponse, RunView } from './run-ledger-types'
-import { runDisplayStatus } from './run-vocabulary'
+import { isLiveStatus, runDisplayStatus } from './run-vocabulary'
 
 /** Where the ledger lives on the message. Wire spelling, like `retrieval_ledger`. */
 export const RUN_LEDGER_METADATA_KEY = 'run_ledger'
@@ -183,6 +186,17 @@ export async function applyRunLedgerOp(
   op: RunLedgerRequest,
   at: Date = new Date()
 ): Promise<RunLedgerResponse> {
+  const { ledger } = await foldRunLedgerOp(runId, op, at, false)
+  return { runId, ledger }
+}
+
+/** {@link applyRunLedgerOp}, optionally only onto a live ledger, saying whether it wrote. */
+async function foldRunLedgerOp(
+  runId: string,
+  op: RunLedgerRequest,
+  at: Date,
+  onlyIfLive: boolean
+): Promise<{ ledger: RunLedger; applied: boolean }> {
   const run = await loadRunForLedger(runId)
   if (!run) throw new NotFoundError('Unknown run')
   // A run submitted before this tier minted run messages has nowhere to put a
@@ -196,27 +210,97 @@ export async function applyRunLedgerOp(
   const messageId = run.runMessageId
 
   return withTenant({ organizationId: run.organizationId }, async () => {
-    const message = await findMessageInConversation(conversationId, messageId)
-    if (!message) throw new NotFoundError('This run has no message to write a ledger into')
-
     // A message with no ledger yet — one minted before this column existed, or
     // one whose payload did not survive the sanitiser — starts from an empty
     // ledger dated to the run, never to now: a week-old run must not be dated
     // to the moment a flush arrived.
-    const current = storedLedger(message) ?? emptyRunLedger(runId, run.createdAt)
-    const next =
-      op.op === 'append'
-        ? applyRunLedgerAppend(current, op, at)
-        : applyRunLedgerFinish(current, finishOutcome(op), at)
-
-    // Sanitised once more on the way to the column: the moves already bound
-    // their output, and this is the line that makes „sanitised on write" true
-    // of the STORAGE rather than of the caller's good behaviour.
-    const ledger = sanitizeRunLedger(next) ?? current
-    await mergeMessageMetadata(conversationId, messageId, { [RUN_LEDGER_METADATA_KEY]: ledger })
+    let current = emptyRunLedger(runId, run.createdAt)
+    let ledger = current
+    let applied = false
+    const stored = await mergeMessageMetadata(conversationId, messageId, (metadata) => {
+      current = sanitizeRunLedger(metadata[RUN_LEDGER_METADATA_KEY]) ?? current
+      ledger = current
+      if (onlyIfLive && !isLiveStatus(runDisplayStatus(current))) return null
+      const next =
+        op.op === 'append'
+          ? applyRunLedgerAppend(current, op, at)
+          : applyRunLedgerFinish(current, finishOutcome(op), at)
+      // Sanitised once more on the way to the column: the moves already bound
+      // their output, and this is the line that makes „sanitised on write" true
+      // of the STORAGE rather than of the caller's good behaviour.
+      ledger = sanitizeRunLedger(next) ?? current
+      applied = true
+      return { [RUN_LEDGER_METADATA_KEY]: ledger }
+    })
+    if (!stored) throw new NotFoundError('This run has no message to write a ledger into')
+    if (!onlyIfLive) await markStartedIfQueued(run, at)
     await notifyWaiting(run, current, ledger)
-    return { runId, ledger }
+    return { ledger, applied }
   })
+}
+
+/**
+ * The worker's first flush is the proof a queued run has started: the research
+ * queue (ADR-0079) takes a job at once and starts it when an organization's turn
+ * comes, and until then the run's row says `queued`. Best-effort: the ledger is
+ * already written, and a row that stays `queued` is closed by the run's outcome
+ * exactly as a `running` one is.
+ */
+async function markStartedIfQueued(run: TaskRun, at: Date): Promise<void> {
+  if (run.status !== 'queued') return
+  try {
+    await taskRepository.markRunStarted(run.id, run.organizationId, at)
+  } catch (error) {
+    console.warn('[runs] could not move run', run.id, 'from queued to running', error)
+  }
+}
+
+/** How a run ended, as far as its ledger needs to know. */
+export interface RunEnding {
+  status: 'success' | 'failure' | 'interrupted'
+  error?: string | null
+}
+
+/** What the ledger says for a failure that carried no reason, as the worker's fold says it. */
+const DEFAULT_FAILURE_REASON = 'Der Lauf ist fehlgeschlagen.'
+
+/** How the ledger learns the run ended — the same op the worker's fold sends. */
+export function ledgerOpForEnding(ending: RunEnding, at: Date): RunLedgerRequest {
+  if (ending.status === 'success') return { op: 'finish', result: { filedAt: at.toISOString() } }
+  // A cancelled run has no finish op; „abgebrochen" travels as a status (ADR-0062).
+  if (ending.status === 'interrupted') return { op: 'append', status: 'abgebrochen' }
+  return { op: 'finish', error: { reason: (ending.error || DEFAULT_FAILURE_REASON).slice(0, 400) } }
+}
+
+/**
+ * Settle the run's block, when its ledger still reads as live, with the ending
+ * its row was just closed with.
+ *
+ * The worker's fold normally sends this op itself. It cannot when there is no
+ * worker left: the ghost reaper failing a run whose pod died, a cancel that
+ * dropped a job no worker had claimed, a reconciler closing what the job store
+ * already decided. Every one of those closes the row, and a closed row is one
+ * nothing looks at again — so before this, the block read „läuft" for good and
+ * its „Abbrechen" answered that the run had already ended.
+ *
+ * `onlyIfLive`, checked under the message's row lock: a ledger the worker has
+ * already settled keeps its own ending, which carries more than this one does
+ * (the filed document, the phase it stopped in). A run with no message has no
+ * block, and is nothing to settle. True when this call wrote the ending.
+ */
+export async function settleRunLedger(
+  run: Pick<TaskRun, 'id' | 'conversationId' | 'runMessageId'>,
+  ending: RunEnding,
+  at: Date = new Date()
+): Promise<boolean> {
+  if (!run.conversationId || !run.runMessageId) return false
+  try {
+    const { applied } = await foldRunLedgerOp(run.id, ledgerOpForEnding(ending, at), at, true)
+    return applied
+  } catch (error) {
+    if (!(error instanceof NotFoundError)) throw error
+    return false
+  }
 }
 
 /**
@@ -334,6 +418,23 @@ export async function writeRunReport(
 }
 
 /**
+ * What a run's own message holds right now: its prose and its ledger.
+ *
+ * For the run reconciler (`./reconcile.ts`), which fills in only what the
+ * worker's own writes did not: a report into a message that is still empty, a
+ * terminal fact into a ledger that still reads as live. Runs inside the caller's
+ * tenant scope. Null when the run has no message, or it is gone.
+ */
+export async function readRunMessage(
+  run: Pick<TaskRun, 'conversationId' | 'runMessageId'>
+): Promise<{ content: string; ledger: RunLedger | null } | null> {
+  if (!run.conversationId || !run.runMessageId) return null
+  const message = await findMessageInConversation(run.conversationId, run.runMessageId)
+  if (!message) return null
+  return { content: message.content ?? '', ledger: storedLedger(message) }
+}
+
+/**
  * One run as a person reads it: where its message is, and what the ledger says.
  *
  * Project-scoped and session-authorized — `project:view`, the same gate the
@@ -370,6 +471,24 @@ async function runView(run: TaskRun): Promise<RunView> {
 }
 
 /**
+ * The credentials a run control carries to the backend: the person's token, and
+ * the project they were just authorized on, signed by the builder every job
+ * request uses (ADR-0084). The scope comes from `buildCollectionScopeFromRequest`
+ * so the project collection the backend compares is derived exactly as it was
+ * when the run was submitted.
+ */
+async function jobControlCaller(
+  session: AuthorizedSession,
+  projectId: string
+): Promise<JobControlCaller> {
+  const scope = await buildCollectionScopeFromRequest(session, { projectId })
+  return {
+    accessToken: session.accessToken ?? null,
+    contextHeaders: signJobRequestContext(session, scope),
+  }
+}
+
+/**
  * Stop a run on a person's request: the write door of the run primitive that
  * the block's „Abbrechen" presses (ADR-0055, ADR-0062).
  *
@@ -384,8 +503,9 @@ async function runView(run: TaskRun): Promise<RunView> {
  * endpoint (`cancelBackendJob`), the same credential, and the same permission
  * (`project:view` to read the run at all, `CHAT_PERMISSIONS` to act on the
  * agent in the project, exactly as `buildCollectionScopeFromRequest` gates the
- * proxy). The backend then enforces job ownership on top, which is why a run
- * somebody else commissioned answers 404 rather than 403.
+ * proxy). The project travels to the backend signed (ADR-0084), so a teammate
+ * may stop a run somebody else commissioned in it; the backend answers 404, not
+ * 403, for a job outside the signed project that the caller does not own.
  *
  * ## Nothing is written here
  *
@@ -414,7 +534,7 @@ export async function cancelRun(
   if (!run.backendJobId) throw new ConflictError('This run has no backend job to cancel')
 
   try {
-    await cancelBackendJob(run.backendJobId, session.accessToken ?? null)
+    await cancelBackendJob(run.backendJobId, await jobControlCaller(session, projectId))
   } catch (error) {
     if (!(error instanceof JobCancelError)) throw error
     // The backend's verdict on a race: the job finished between the row read
@@ -446,7 +566,7 @@ export async function addRunDocument(
   if (!run.backendJobId) throw new ConflictError('This run has no backend job to hand the document to')
 
   try {
-    await addDocumentToBackendJob(run.backendJobId, document, session.accessToken ?? null)
+    await addDocumentToBackendJob(run.backendJobId, document, await jobControlCaller(session, projectId))
   } catch (error) {
     if (!(error instanceof JobCancelError)) throw error
     if (error.status === 400) throw new ConflictError('This run has already ended')
@@ -475,7 +595,7 @@ export async function writeNowRun(
   if (!run.backendJobId) throw new ConflictError('This run has no backend job to write from')
 
   try {
-    await writeNowBackendJob(run.backendJobId, session.accessToken ?? null)
+    await writeNowBackendJob(run.backendJobId, await jobControlCaller(session, projectId))
   } catch (error) {
     if (!(error instanceof JobCancelError)) throw error
     // The backend's verdict on a race: the job finished between the row read

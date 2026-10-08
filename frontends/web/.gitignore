@@ -7,3 +7,6 @@ dist/
 .env
 .env.*
 !.env.example
+# Riso exports that are not site assets (deck, email, social, print and its
+# separations): reproducible from the pinned kit with art/riso/export.mjs.
+art/riso/out/

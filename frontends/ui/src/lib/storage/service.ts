@@ -18,7 +18,6 @@
 
 import 'server-only'
 import { getOrgSettings, updatePlatformOwnedOrgSettings } from '@/lib/organizations/service'
-import { findOrganization } from '@/lib/organizations/repository'
 import {
   aggregateStorageUsage,
   insertDocumentWithinQuota,
@@ -26,12 +25,18 @@ import {
   sumStorageBytes,
   type StorageUsageByScope,
 } from './repository'
+import { readKnownOrganizationUsage } from './known-organization'
+import { getEffectiveMaxUploadBytes } from './upload-limit'
 import type { NewDocument } from '@/lib/db/schema'
-import { InsufficientStorageError, NotFoundError, UnprocessableError } from '@/lib/api/errors'
+import { InsufficientStorageError, UnprocessableError } from '@/lib/api/errors'
 import { recordAuditEvent } from '@/lib/audit/service'
 import { requirePlatformPermission } from '@/lib/authz/platform'
 import { PLATFORM_PERMISSIONS } from '@/lib/authz/permissions'
 import type { AuthorizedSession, GridSession } from '@/lib/auth/types'
+
+/** The refusal every admitting path reports, so the reader sees one sentence. */
+export const STORAGE_QUOTA_EXCEEDED_MESSAGE =
+  'This organization has no storage space left. Delete documents or ask an administrator to raise the quota.'
 
 /** Key under `organizations.settings` holding the quota, in bytes. */
 export const STORAGE_QUOTA_SETTING = 'storageQuotaBytes'
@@ -81,6 +86,12 @@ export interface StorageOverview {
   usage: StorageUsageByScope
   /** Effective quota in bytes, or null when unlimited. */
   quotaBytes: number | null
+  /**
+   * The largest single non-model file the organization may upload, in bytes:
+   * its own limit when platform staff set one, else the deployment default.
+   * Read-only here for the reason the quota is — see `./upload-limit`.
+   */
+  effectiveMaxUploadFileBytes: number
 }
 
 /**
@@ -91,12 +102,13 @@ export interface StorageOverview {
  * can change the number — see {@link setStorageQuota}.
  */
 export async function getStorageOverview(session: AuthorizedSession): Promise<StorageOverview> {
-  const [usage, quotaBytes] = await Promise.all([
+  const [usage, quotaBytes, effectiveMaxUploadFileBytes] = await Promise.all([
     aggregateStorageUsage(session.organizationId),
     getStorageQuotaBytes(session.organizationId),
+    getEffectiveMaxUploadBytes(session.organizationId),
   ])
 
-  return { usage, quotaBytes }
+  return { usage, quotaBytes, effectiveMaxUploadFileBytes }
 }
 
 /**
@@ -107,11 +119,12 @@ export async function getStorageOverview(session: AuthorizedSession): Promise<St
  * someone else's tenant does not have.
  */
 export async function getOrganizationStorage(organizationId: string): Promise<StorageOverview> {
-  const [usage, quotaBytes] = await Promise.all([
+  const [usage, quotaBytes, effectiveMaxUploadFileBytes] = await Promise.all([
     aggregateStorageUsage(organizationId),
     getStorageQuotaBytes(organizationId),
+    getEffectiveMaxUploadBytes(organizationId),
   ])
-  return { usage, quotaBytes }
+  return { usage, quotaBytes, effectiveMaxUploadFileBytes }
 }
 
 /**
@@ -143,7 +156,7 @@ export async function assertWithinStorageQuota(
   if (usedBytes + incomingBytes <= quotaBytes) return
 
   throw new InsufficientStorageError(
-    'This organization has no storage space left. Delete documents or ask an administrator to raise the quota.',
+    STORAGE_QUOTA_EXCEEDED_MESSAGE,
     { quotaBytes, usedBytes, requestedBytes: incomingBytes }
   )
 }
@@ -169,7 +182,7 @@ export async function admitDocumentWithinQuota(values: NewDocument): Promise<voi
   if (result.ok) return
 
   throw new InsufficientStorageError(
-    'This organization has no storage space left. Delete documents or ask an administrator to raise the quota.',
+    STORAGE_QUOTA_EXCEEDED_MESSAGE,
     {
       quotaBytes: quotaBytes ?? 0,
       usedBytes: result.usedBytes,
@@ -182,9 +195,9 @@ export async function admitDocumentWithinQuota(values: NewDocument): Promise<voi
  * Admit a re-upload that replaces bytes already recorded under a document id.
  *
  * The replace-path twin of {@link admitDocumentWithinQuota}. Same refusal, same
- * error, same hard ceiling under the same lock — the only difference is that
- * the row being replaced is excluded from the usage it is measured against,
- * because it is about to stop contributing its old size.
+ * error, same hard ceiling under the same lock. The FULL new size is charged:
+ * the row's previous bytes stay behind as the superseded version (ADR-0054), so
+ * nothing is freed — see `replaceDocumentWithinQuota`.
  */
 export async function admitReplacementWithinQuota(
   organizationId: string,
@@ -204,7 +217,7 @@ export async function admitReplacementWithinQuota(
   if (result.ok) return
 
   throw new InsufficientStorageError(
-    'This organization has no storage space left. Delete documents or ask an administrator to raise the quota.',
+    STORAGE_QUOTA_EXCEEDED_MESSAGE,
     {
       quotaBytes: quotaBytes ?? 0,
       usedBytes: result.usedBytes,
@@ -248,19 +261,8 @@ export async function setStorageQuota(
   // guessed id is an enumeration oracle over every organization in the platform.
   await requirePlatformPermission(session, PLATFORM_PERMISSIONS.organizationsManage)
 
-  // Refuse an organization Grid has never heard of. `updateOrgSettings` upserts,
-  // so without this a mistyped id in the URL silently creates a settings row and
-  // an audit event for a tenant that does not exist — a quota nobody will ever
-  // see, attached to nothing, in the record of who changed what.
-  //
-  // "Known" is deliberately the same set the platform console lists: a settings
-  // row OR at least one document. Requiring the settings row alone would reject
-  // exactly the tenants an operator most wants to bound — a busy organization
-  // that has never opened its own settings has no row.
-  const usage = await aggregateStorageUsage(organizationId)
-  if (usage.total.documents === 0 && (await findOrganization(organizationId)) === null) {
-    throw new NotFoundError('Organization not found')
-  }
+  // Refuse an organization Grid has never heard of; see `./known-organization`.
+  const usage = await readKnownOrganizationUsage(organizationId)
 
   if (quotaBytes !== null) {
     // Defence in depth, not the boundary check: the route's zod schema makes
@@ -300,5 +302,9 @@ export async function setStorageQuota(
   // changed the quota, not the bytes, and a second aggregate here would only
   // widen the window in which the number returned disagrees with the number
   // validated against.
-  return { usage, quotaBytes: await getStorageQuotaBytes(organizationId) }
+  const [effectiveQuota, effectiveMaxUploadFileBytes] = await Promise.all([
+    getStorageQuotaBytes(organizationId),
+    getEffectiveMaxUploadBytes(organizationId),
+  ])
+  return { usage, quotaBytes: effectiveQuota, effectiveMaxUploadFileBytes }
 }

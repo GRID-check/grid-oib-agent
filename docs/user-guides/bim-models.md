@@ -16,6 +16,10 @@ model takes a few seconds; a large federated one takes longer. The card updates
 itself — you do not have to reload to find out whether it finished — and when it
 does, a message says the model has been read and the building can now be asked
 about. A **Modell** entry appears in the project navigation at the same time.
+Reading runs in the background and survives a server restart: a model is read
+again from the start instead of staying at „wird gelesen“. When many models are
+uploaded at once, each office's models are read in turn, so a large upload by
+one office does not hold up another's.
 
 Models above 250 MB are refused with a message rather than half-read. The limit
 applies twice, and both times to the model itself: to the **uploaded file** as

@@ -7,9 +7,8 @@
  */
 
 import { describe, expect, it, test } from 'vitest'
-import type { GridCard } from '@/shared/cards/schemas'
 import type { ReportSourceEntry } from '@/features/layout/lib/report-citations'
-import type { TraceLaneCard } from '../trace-lanes'
+import type { TraceLaneCard } from '@/lib/conversations/message-provenance'
 import type { CitationSource } from '../../types'
 import { buildCitationModel } from './build'
 import {
@@ -112,21 +111,6 @@ describe('buildCitationModel', () => {
     expect(docs.map((doc) => doc.kind).sort()).toEqual(['buero', 'projekt'])
   })
 
-  it('collapses a legal_basis card onto the citation naming the same Richtlinie', () => {
-    const card = {
-      type: 'legal_basis',
-      law: 'OIB-Richtlinie 2.1',
-      section: '2.1.1',
-      original_text: 'Garagen sind so auszuführen …',
-    } as unknown as GridCard
-
-    const docs = buildCitationModel({ citations: [wireLocus(1, 5)], cards: [card] })
-    expect(docs).toHaveLength(1)
-    // The card must not overwrite the structured document's own title.
-    expect(docs[0]!.title).toBe(OIB_TITLE)
-    expect(docs[0]!.fileName).toBe(OIB_FILE)
-  })
-
   it('does not collapse a file that merely MENTIONS a Richtlinie onto the card naming it', () => {
     // „OIB-Richtlinie 6 Kommentar.pdf" is somebody's commentary ABOUT a
     // Richtlinie, not the Richtlinie. Merging them made two sources one chip
@@ -148,22 +132,18 @@ describe('buildCitationModel', () => {
   })
 
   it('refuses the merge when the citation sits on another shelf', () => {
-    // A Richtlinie is base law. A card naming one must never attach itself to a
-    // project upload that carries the corpus filename — that is somebody's own
-    // copy, and the card would hand its `[N]` to it.
-    const card = { type: 'legal_basis', law: 'OIB-Richtlinie 2' } as unknown as GridCard
-    const projectCopy = {
-      id: 'c-9',
-      content: '',
-      timestamp: new Date(),
+    // A Richtlinie is base law. A label naming one must never attach itself to
+    // a project upload that carries the corpus filename — that is somebody's
+    // own copy, and the label would hand its `[N]` to it.
+    const accumulator = new CitationAccumulator()
+    accumulator.add({
+      identity: { fileName: OIB_FILE, collection: 'p_1234' },
       fileName: OIB_FILE,
-      collection: 'p_1234',
-      shelf: 'project' as const,
-      page: 3,
-      isCited: true,
-    }
+      shelf: 'project',
+    })
+    accumulator.add({ identity: { label: 'OIB-Richtlinie 2' }, title: 'OIB-Richtlinie 2' })
 
-    expect(buildCitationModel({ citations: [projectCopy], cards: [card] })).toHaveLength(2)
+    expect(accumulator.build()).toHaveLength(2)
   })
 
   it('tells a corpus Richtlinie apart from a file that merely mentions one', () => {
@@ -192,11 +172,10 @@ describe('buildCitationModel', () => {
   })
 
   it('applies the shelf rule to the INCOMING side too, not only the held one', () => {
-    // Producer order decides which side is which — cards run last today, so
-    // only the held side can be the file, and the incoming check cannot fire
-    // through `buildCitationModel`. Driving the accumulator directly is what
-    // makes the symmetry testable: reorder the producers and the guard that
-    // used to be one-sided is the one that keeps this from merging.
+    // Producer order decides which side is which. Driving the accumulator
+    // directly is what makes the symmetry testable: reorder the producers and
+    // the guard that used to be one-sided is the one that keeps this from
+    // merging.
     const accumulator = new CitationAccumulator()
     accumulator.add({ identity: { label: 'OIB-Richtlinie 2' }, title: 'OIB-Richtlinie 2' })
     accumulator.add({
@@ -367,11 +346,6 @@ describe('provenance selection', () => {
     expect(docs).toHaveLength(1)
   })
 
-  it('keeps a legal_basis card that names a DIFFERENT document than the citation', () => {
-    const card = { type: 'legal_basis', law: 'OIB-Richtlinie 4' } as unknown as GridCard
-    const docs = buildCitationModel({ citations: [wireLocus(1, 5)], cards: [card] })
-    expect(docs).toHaveLength(2)
-  })
 })
 
 describe('a source known only from the written list', () => {
@@ -438,26 +412,6 @@ describe('merging is not fooled by empty values', () => {
 
     const [doc] = buildCitationModel({ citations: [blank, real] })
     expect(doc!.loci[0]!.citationKey).toBe('Plan.pdf, p.1')
-  })
-})
-
-describe('a legal_basis card in a mixed answer', () => {
-  it('stays in the provenance row beside a cited source', () => {
-    // A card has no loci, so it can never satisfy `isCited` — filtering on that
-    // alone dropped every card the moment the turn also had one real citation,
-    // which is exactly the answer where the card matters most.
-    const card = {
-      type: 'legal_basis',
-      law: 'Bauordnung für Wien',
-      section: '§ 108',
-    } as unknown as GridCard
-
-    const docs = buildCitationModel({ citations: [wireLocus(1, 5)], cards: [card] })
-    expect(docs).toHaveLength(2)
-    expect(answerDocuments(docs).map((doc) => doc.title)).toContain('Bauordnung für Wien § 108')
-    // …and only there: the card was never retrieved, so the Herleitung's
-    // "abgerufen, nicht zitiert" half must not claim it as well.
-    expect(unusedDocuments(docs)).toEqual([])
   })
 })
 

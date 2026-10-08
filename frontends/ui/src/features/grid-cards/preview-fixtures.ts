@@ -38,7 +38,6 @@ type CardInput = z.input<typeof gridCardSchema>
 const OIB2 = { document: 'OIB-Richtlinie 2', section: 'Pkt. 3.1', edition: 'Ausgabe Mai 2023' }
 const OIB3 = { document: 'OIB-Richtlinie 3', section: 'Pkt. 9.1.1', edition: 'Ausgabe Mai 2023' }
 const OIB4 = { document: 'OIB-Richtlinie 4', section: 'Pkt. 2.2', edition: 'Ausgabe Mai 2023' }
-const OIB6 = { document: 'OIB-Richtlinie 6', section: 'Pkt. 4.2', edition: 'Ausgabe Mai 2023' }
 
 /**
  * Card types the gallery describes but does not render, with the reason. Each
@@ -60,162 +59,8 @@ export const PREVIEW_EXCLUDED: Record<string, 'needsModel' | 'needsDocuments'> =
   document_grid: 'needsDocuments',
 }
 
-/**
- * The statute half of the `legal_basis` pair.
- *
- * `CARD_PREVIEW_FIXTURES` is keyed by card type, so it can hold exactly one
- * `legal_basis` — and one is not enough for the card whose whole point is which
- * tier of Baurecht it cites. A Gesetz keeps the law blue and the RIS badge, an
- * OIB-Richtlinie takes the indigo accent and the OIB badge, and neither is
- * derived from the law name: both come off `lane`. Rendered next to the fixture
- * on `/dev/cards`, which is where the two are compared.
- */
-export const LEGAL_BASIS_STATUTE: CardInput = {
-  type: 'legal_basis',
-  law: 'Wiener Bauordnung',
-  lane: 'baurecht_ris',
-  // A Gesetz has a Fassung, not an Ausgabe — the honest value here is none, and
-  // the card renders without it rather than inventing one.
-  article: '87',
-  section: 'Abs. 4',
-  summary:
-    'Bauliche Anlagen sind so zu errichten, dass die Standsicherheit und der Brandschutz während der gesamten Nutzungsdauer gewährleistet sind.',
-  original_text:
-    'Bauwerke müssen so geplant und ausgeführt werden, dass sie den zu erwartenden Einwirkungen standhalten.',
-}
-
 /** One sample card per renderable type, in authoring (schema-input) shape. */
 const RAW_FIXTURES: CardInput[] = [
-  {
-    type: 'summary',
-    title: 'Gebäudeklasse 4 – Anforderungen im Überblick',
-    content:
-      'Für Ihr Wohngebäude mit Fluchtniveau 9,8 m gilt Gebäudeklasse 4. Daraus folgen erhöhte Anforderungen an Brandschutz und Erschließung.',
-    key_points: [
-      'Fluchtniveau 9,8 m → GK 4 (Grenze: 11 m)',
-      'Treppenhaus als gesicherter Fluchtbereich erforderlich',
-      'Barrierefreier Aufzug ab 3 oberirdischen Geschossen',
-    ],
-  },
-  // The OIB tier: `lane` paints the indigo accent and the OIB badge, and the
-  // Ausgabe is what makes the citation checkable rather than merely named. Its
-  // statute counterpart is `LEGAL_BASIS_STATUTE` below — the map is keyed by
-  // type, so only one of the two can be the gallery's fixture; the pair exists
-  // so the difference the lane makes can be seen side by side.
-  {
-    type: 'legal_basis',
-    law: 'OIB-Richtlinie 2',
-    lane: 'baurecht_oib',
-    edition: 'Ausgabe Mai 2023',
-    article: '3.1.1',
-    section: 'Tabelle 1a',
-    summary: 'Die maximale Brandabschnittsfläche für oberirdische Geschosse in GK 4 beträgt 1.200 m².',
-    original_text:
-      'Brandabschnitte dürfen eine Nettogrundfläche von höchstens 1.200 m² und eine Längenausdehnung von höchstens 60 m aufweisen.',
-  },
-  {
-    type: 'requirement_checklist',
-    title: 'Anforderungen GK 4 – Brandschutz',
-    items: [
-      {
-        label: 'Tragende Bauteile REI 60',
-        status: 'pass',
-        detail: 'Stahlbetondecken und -wände erfüllen REI 90.',
-        reference: { document: 'OIB-Richtlinie 2', section: 'Tabelle 1b' },
-      },
-      {
-        label: 'Treppenhaus als gesicherter Fluchtbereich',
-        status: 'fail',
-        detail: 'Derzeit keine rauchdichte Abtrennung im EG vorgesehen.',
-        reference: { document: 'OIB-Richtlinie 2.3', section: 'Pkt. 2.1' },
-      },
-      { label: 'Zweiter Fluchtweg oder Anleiterbarkeit', status: 'needs_input' },
-    ],
-    reference: { document: 'OIB-Richtlinie 2', edition: 'Ausgabe Mai 2023' },
-  },
-  {
-    type: 'comparison_table',
-    title: 'GK 4 vs. GK 5 – wesentliche Anforderungen',
-    options: ['GK 4', 'GK 5'],
-    rows: [
-      { label: 'Fluchtniveau', values: ['≤ 11 m', '≤ 22 m'], highlight_index: 0 },
-      { label: 'Tragende Bauteile', values: ['REI 60', 'REI 90'], highlight_index: 0 },
-      { label: 'Aufzug erforderlich', values: ['ab 3 Geschossen', 'ja'], highlight_index: 0 },
-    ],
-    recommendation: 'Mit Fluchtniveau 9,8 m bleibt das Projekt in GK 4.',
-    reference: { document: 'OIB-Richtlinie 2', section: 'Tabelle 1b', edition: 'Ausgabe Mai 2023' },
-  },
-  {
-    type: 'verdict_header',
-    verdict: '1,10 m',
-    subject: 'Erforderliche Geländerhöhe',
-    reference: OIB4,
-    confidence: 'high',
-  },
-  {
-    type: 'condition_tree',
-    title: 'Erforderliche Feuerwiderstandsklasse tragender Bauteile',
-    question: 'Gebäudeklasse',
-    branches: [
-      { condition: 'GK 1–3', outcome: 'REI 30 (bzw. R 30)' },
-      { condition: 'GK 4', outcome: 'REI 60', active: true },
-      {
-        condition: 'GK 5',
-        outcome: 'REI 90',
-        reference: { document: 'OIB-Richtlinie 2', section: 'Tabelle 1b' },
-      },
-    ],
-    reference: { document: 'OIB-Richtlinie 2', section: 'Tabelle 1b', edition: 'Ausgabe Mai 2023' },
-  },
-  {
-    type: 'typed_table',
-    title: 'Mindestmaße barrierefreie Erschließung',
-    columns: [
-      { label: 'Bauteil', type: 'text' },
-      { label: 'Mindestmaß', type: 'mass' },
-      { label: 'Grundlage', type: 'norm' },
-      { label: 'Erfüllt', type: 'verdict' },
-    ],
-    rows: [
-      ['Türdurchgangsbreite', '90 cm', 'ÖNORM B 1600 Pkt. 5.1', 'erfüllt'],
-      ['Rampenneigung', '6 %', 'OIB-Richtlinie 4 Pkt. 3.2', 'nicht erfüllt'],
-      ['Handlauf beidseitig', '—', 'ÖNORM B 1600 Pkt. 5.2', 'offen'],
-    ],
-    reference: { document: 'ÖNORM B 1600', edition: 'Ausgabe 2020' },
-  },
-  {
-    type: 'norm_chain',
-    title: 'Normenkette – Absturzsicherung',
-    links: [
-      { label: 'Wiener Bautechnikverordnung', rank: 'verordnung', note: 'erklärt die OIB-Richtlinien für verbindlich' },
-      { label: 'OIB-Richtlinie 4', rank: 'oib_richtlinie', note: 'regelt die erforderliche Geländerhöhe' },
-      { label: 'ÖNORM B 1600', rank: 'oenorm', note: 'konkretisiert die barrierefreie Ausführung' },
-    ],
-  },
-  {
-    // Carries a takeaway WITHOUT a detail on purpose: the gallery should show
-    // that a row only becomes an expander when there is something behind it.
-    type: 'key_takeaways',
-    title: 'Gebäudeklasse 4 – was daraus folgt',
-    items: [
-      {
-        text: 'Fluchtniveau 9,80 m → Gebäudeklasse 4',
-        detail: 'Maßgeblich ist das oberste Fluchtniveau; die Grenze zu GK 5 liegt bei 11 m.',
-      },
-      {
-        text: 'Tragende Bauteile mindestens REI 60',
-        detail: 'In Kellergeschossen gilt REI 90, unabhängig von der Gebäudeklasse.',
-      },
-      { text: 'Barrierefreier Aufzug ab drei oberirdischen Geschossen' },
-    ],
-  },
-  {
-    type: 'callout',
-    kind: 'frist',
-    title: 'Nur in Wien',
-    text: 'Die Bauverhandlung ist binnen sechs Wochen nach Einreichung anzuberaumen.',
-    detail: 'Die Frist ruht, solange die Behörde eine Ergänzung des Einreichplans verlangt hat.',
-  },
   {
     // Carries a MEASURED operand with its band, because that is the hard state:
     // the result the card computes is 64,0 cm ±1,0, which sits inside the
@@ -249,207 +94,6 @@ const RAW_FIXTURES: CardInput[] = [
       label: 'Schrittmaßregel',
       reference: OIB4,
     },
-  },
-  {
-    type: 'process_map',
-    title: 'Baubewilligungsverfahren – Wien',
-    current_step: 2,
-    steps: [
-      {
-        label: 'Einreichung',
-        summary: 'Einreichunterlagen werden bei der Baubehörde eingebracht.',
-        actor: 'Bauwerber',
-        requires: ['Einreichplan', 'Baubeschreibung', 'Energieausweis'],
-        produces: ['Aktenzeichen'],
-        reference: { document: 'Wiener Bauordnung', section: '§ 63' },
-      },
-      {
-        label: 'Bauverhandlung',
-        summary: 'Mündliche Verhandlung mit Nachbarn und Amtssachverständigen.',
-        actor: 'Baubehörde',
-        duration: 'binnen sechs Wochen',
-        produces: ['Verhandlungsschrift'],
-        reference: { document: 'Wiener Bauordnung', section: '§ 70' },
-      },
-      {
-        label: 'Baubewilligung',
-        summary: 'Bescheid mit den Auflagen aus der Verhandlung.',
-        actor: 'Baubehörde',
-        produces: ['Baubewilligungsbescheid'],
-      },
-      {
-        label: 'Baubeginnsanzeige',
-        summary: 'Der Baubeginn ist der Behörde anzuzeigen.',
-        actor: 'Bauwerber',
-        requires: ['rechtskräftige Baubewilligung'],
-      },
-      {
-        label: 'Fertigstellungsanzeige',
-        summary: 'Nach Fertigstellung, mit den Ausführungsbestätigungen.',
-        actor: 'Bauwerber',
-        requires: ['Ausführungsbestätigungen der Fachplaner'],
-      },
-    ],
-    reference: { document: 'Wiener Bauordnung', section: '§§ 60 ff.' },
-  },
-  {
-    // Carries the HARD state a platform owner has to see: two documents the
-    // conversation settled (one held, one still to obtain), three it did not,
-    // and two that are conditional with the case spelled out. The tally under
-    // the title counts all of that itself — including the „ungeklärt" three,
-    // which a progress bar would have quietly folded into „not done".
-    type: 'document_checklist',
-    title: 'Einreichunterlagen – Neubau Wohngebäude, Wien',
-    items: [
-      {
-        label: 'Einreichplan',
-        requirement: 'required',
-        issuer: 'Ziviltechniker:in',
-        status: 'present',
-        note: 'dreifach, im Maßstab 1:100',
-        reference: { document: 'Wiener Bauordnung', section: '§ 63 Abs. 1 lit. a' },
-      },
-      {
-        label: 'Baubeschreibung',
-        requirement: 'required',
-        issuer: 'Ziviltechniker:in',
-        reference: { document: 'Wiener Bauordnung', section: '§ 63 Abs. 1 lit. b' },
-      },
-      {
-        label: 'Energieausweis',
-        requirement: 'required',
-        issuer: 'befugte Fachperson',
-        status: 'missing',
-        reference: OIB6,
-      },
-      {
-        label: 'Grundbuchsauszug',
-        requirement: 'conditional',
-        condition: 'nur wenn der Bauwerber nicht Eigentümer der Liegenschaft ist',
-        issuer: 'Bauwerber',
-      },
-      {
-        label: 'Gutachten der MA 19',
-        requirement: 'conditional',
-        condition: 'nur bei einem Gebäude in einer Schutzzone',
-        issuer: 'Baubehörde',
-      },
-    ],
-    reference: { document: 'Wiener Bauordnung', section: '§ 63' },
-  },
-  {
-    // Three clocks running from three different events, which is the reason
-    // this is not three callouts. Every period is the Bestimmung's wording and
-    // none of them is a date — the backend rejects one, and the gallery should
-    // show what the card looks like when that rule is kept.
-    type: 'deadline_timeline',
-    title: 'Fristen im Bauverfahren – Wien',
-    deadlines: [
-      {
-        label: 'Beschwerdefrist',
-        period: 'binnen vier Wochen',
-        starts_from: 'ab Zustellung des Baubewilligungsbescheids',
-        actor: 'Nachbar oder Bauwerber',
-        consequence: 'Der Bescheid wird rechtskräftig.',
-        reference: { document: 'VwGVG', section: '§ 7 Abs. 4' },
-      },
-      {
-        label: 'Geltungsdauer der Baubewilligung',
-        period: 'binnen vier Jahren ist mit dem Bau zu beginnen',
-        starts_from: 'ab Rechtskraft der Baubewilligung',
-        actor: 'Bauwerber',
-        consequence: 'Die Baubewilligung erlischt.',
-        reference: { document: 'Wiener Bauordnung', section: '§ 74 Abs. 1' },
-      },
-      {
-        label: 'Fertigstellungsanzeige',
-        period: 'unverzüglich',
-        starts_from: 'ab Fertigstellung des Bauvorhabens',
-        actor: 'Bauwerber',
-        reference: { document: 'Wiener Bauordnung', section: '§ 128' },
-      },
-    ],
-  },
-  {
-    // One row is `unchanged`, one carries no `before` — the two states a
-    // uniformly „everything gets stricter" fixture would hide, and both are
-    // states a reader has to be able to recognise at a glance.
-    type: 'change_impact',
-    title: 'Fluchtniveau über 11 m – was sich ändert',
-    factor: 'Fluchtniveau',
-    from_value: '7 bis 11 m',
-    to_value: 'über 11 m',
-    consequences: [
-      {
-        aspect: 'Gebäudeklasse',
-        before: 'GK 4',
-        after: 'GK 5',
-        direction: 'tightens',
-        reference: { document: 'OIB-Begriffsbestimmungen', section: 'Gebäudeklassen' },
-      },
-      {
-        aspect: 'Feuerwiderstand tragender Bauteile',
-        before: 'R 60',
-        after: 'R 90',
-        direction: 'tightens',
-        detail: 'Die Anforderung gilt für die tragenden Bauteile der oberirdischen Geschoße.',
-        reference: { document: 'OIB-Richtlinie 2', section: 'Tabelle 1', edition: 'Ausgabe Mai 2023' },
-      },
-      {
-        aspect: 'Aufzug',
-        after: 'Aufzug erforderlich',
-        direction: 'tightens',
-        reference: OIB4,
-      },
-      {
-        aspect: 'Schallschutz zwischen den Wohnungen',
-        before: 'DnT,w mindestens 55 dB',
-        after: 'DnT,w mindestens 55 dB',
-        direction: 'unchanged',
-        detail: 'Der Schallschutz hängt an der Nutzung, nicht an der Gebäudeklasse.',
-        reference: { document: 'OIB-Richtlinie 5', section: 'Tabelle 1', edition: 'Ausgabe Mai 2023' },
-      },
-    ],
-    reference: { document: 'OIB-Begriffsbestimmungen', section: 'Gebäudeklassen' },
-  },
-  {
-    // One chip without a `hint` on purpose: the tooltip is an extra, and the
-    // gallery should not suggest that a follow-up is incomplete without one.
-    type: 'follow_ups',
-    items: [
-      { question: 'Wie wird das Fluchtniveau genau gemessen?', hint: 'Messpunkt und Bezugsebene' },
-      { question: 'Welche Anforderungen gelten für mein Projekt konkret?' },
-      { question: 'Was wäre bei Gebäudeklasse 5 anders?', hint: 'Vergleich der beiden Klassen' },
-    ],
-  },
-  {
-    // `CARD_EXAMPLES['diagram']` in `src/aiq_agent/cards/catalog.py`, which is
-    // the shape the MODEL is shown — so the gallery photographs the card the
-    // agent was actually taught to emit rather than a prettier one.
-    //
-    // A `sequence` and not a flowchart on purpose: it is the grammar whose
-    // rendered SVG carries the most that must survive the pipeline (an actor
-    // icon library in the `<defs>`, dashed return arrows), so a gallery shot of
-    // it is the one that shows a mermaid upgrade breaking the drawing. Note
-    // what it does NOT carry — no Frist, no duration, no measurement — because
-    // this is the card for the drawings that make no dimensional claim.
-    type: 'diagram',
-    title: 'Baubewilligungsverfahren – wer wem was übergibt',
-    diagram_type: 'sequence',
-    source: [
-      'sequenceDiagram',
-      '  participant BW as Bauwerber',
-      '  participant BB as Baubehörde',
-      '  participant ASV as Amtssachverständige',
-      '  BW->>BB: Einreichunterlagen',
-      '  BB->>ASV: Befassung zur Begutachtung',
-      '  ASV-->>BB: Gutachten',
-      '  BB-->>BW: Verbesserungsauftrag',
-      '  BW->>BB: ergänzte Unterlagen',
-      '  BB-->>BW: Baubewilligungsbescheid',
-    ].join('\n'),
-    caption: 'Die Fristen zeigt die Grafik nicht — sie steht für die Reihenfolge der Übergaben.',
-    reference: { document: 'Wiener Bauordnung', section: '§§ 60 ff.' },
   },
   {
     type: 'project_profile_patch',
@@ -660,16 +304,6 @@ const RAW_FIXTURES: CardInput[] = [
     reference: OIB4,
   },
   {
-    type: 'density_check',
-    title: 'Bebauungsdichte – Grundstück',
-    parcel_area_m2: 800,
-    footprint_area_m2: 210,
-    gross_floor_area_m2: 620,
-    coverage: { label: 'Bebauungsgrad', value: 26.3, required: 30, unit: '%', comparator: '<=', status: 'pass' },
-    density: { label: 'GFZ', value: null, required: 0.8, unit: '', comparator: '<=', status: 'needs_input' },
-    reference: { document: 'Bebauungsplan Mustergemeinde' },
-  },
-  {
     type: 'fire_access_plan',
     title: 'Feuerwehrzufahrt & Aufstellfläche',
     parcel_width_m: 28,
@@ -708,124 +342,8 @@ const RAW_FIXTURES: CardInput[] = [
     gebaeudeklasse: 'GK 4',
     reference: { document: 'TRVB F 134', section: 'Pkt. 4' },
   },
-  {
-    type: 'acoustic_check',
-    title: 'Schallschutz – Wohnungstrennung',
-    checks: [
-      {
-        path_label: 'Wohnungstrennwand Top 3 / Top 4',
-        metric: 'DnTw',
-        check: { label: 'DnT,w', value: 56, required: 55, unit: 'dB', comparator: '>=', status: 'pass' },
-        reference: { document: 'OIB-Richtlinie 5', section: 'Tabelle 1' },
-      },
-      {
-        path_label: 'Außenwand Straßenseite',
-        metric: 'Rw_res',
-        check: { label: 'Rw,res', value: 40, required: 43, unit: 'dB', comparator: '>=', status: 'fail' },
-        reference: { document: 'ÖNORM B 8115-2', section: 'Tabelle 2' },
-      },
-    ],
-    sound_class: 'B',
-  },
-  {
-    type: 'fire_compartment',
-    title: 'Brandabschnitte – Regelgeschoss',
-    storey_label: '2.OG',
-    gebaeudeklasse: 'GK 4',
-    compartments: [
-      {
-        label: 'BA 1',
-        use: 'Wohnen',
-        area: { label: 'BA 1', value: 980, required: 1200, unit: 'm²', comparator: '<=', status: 'pass' },
-      },
-      {
-        label: 'BA 2',
-        use: 'Büro',
-        area: { label: 'BA 2', value: 1350, required: 1200, unit: 'm²', comparator: '<=', status: 'fail' },
-      },
-    ],
-    reference: { document: 'OIB-Richtlinie 2', section: 'Tabelle 1a', edition: 'Ausgabe Mai 2023' },
-  },
-  {
-    type: 'thermal_envelope',
-    title: 'Wärmeschutz – U-Werte der Gebäudehülle',
-    components: [
-      {
-        label: 'Außenwand',
-        kind: 'wall',
-        u_value: {
-          label: 'Außenwand',
-          value: 0.28,
-          required: 0.35,
-          unit: 'W/(m²K)',
-          comparator: '<=',
-          status: 'pass',
-        },
-      },
-      {
-        label: 'Dach',
-        kind: 'roof',
-        u_value: { label: 'Dach', value: 0.22, required: 0.2, unit: 'W/(m²K)', comparator: '<=', status: 'fail' },
-      },
-      {
-        label: 'Kellerdecke',
-        kind: 'floor',
-        u_value: {
-          label: 'Kellerdecke',
-          value: null,
-          required: 0.4,
-          unit: 'W/(m²K)',
-          comparator: '<=',
-          status: 'needs_input',
-        },
-      },
-    ],
-    reference: OIB6,
-  },
-  {
-    type: 'energy_performance',
-    title: 'Energieausweis – Heizwärmebedarf',
-    hwb: {
-      label: 'Heizwärmebedarf (HWB)',
-      value: 42,
-      required: 54.4,
-      unit: 'kWh/m²a',
-      comparator: '<=',
-      status: 'pass',
-    },
-    energy_class: 'B',
-    fgee: { label: 'fGEE', value: 0.82, required: 0.9, unit: '', comparator: '<=', status: 'pass' },
-    reference: OIB6,
-  },
-  {
-    type: 'elevator_requirement',
-    title: 'Barrierefreier Aufzug – Erschließung',
-    storeys_served: 5,
-    entrance_level_index: 0,
-    is_required: true,
-    requirement_note: 'Mehr als 2 oberirdische Geschosse: ein barrierefreier Aufzug ist erforderlich.',
-    cabin_width: { label: 'Kabinenbreite', value: 110, required: 110, unit: 'cm', comparator: '>=', status: 'pass' },
-    cabin_depth: { label: 'Kabinentiefe', value: 140, required: 140, unit: 'cm', comparator: '>=', status: 'pass' },
-    door_width: { label: 'lichte Türbreite', value: 80, required: 90, unit: 'cm', comparator: '>=', status: 'fail' },
-    reference: { document: 'OIB-Richtlinie 4', section: 'Pkt. 2.5' },
-  },
-  {
-    type: 'parking_requirement',
-    title: 'Stellplatznachweis – Wohnbau',
-    car_spaces: { label: 'Kfz-Stellplätze', value: 12, required: 14, unit: 'Stpl.', comparator: '>=', status: 'fail' },
-    bicycle_spaces: {
-      label: 'Fahrradabstellplätze',
-      value: 28,
-      required: 24,
-      unit: 'Stpl.',
-      comparator: '>=',
-      status: 'pass',
-    },
-    basis: '1 Stellplatz je Wohneinheit (14 WE)',
-    reference: { document: 'Wiener Garagengesetz 2008', section: '§ 48' },
-  },
-  // A composition (ADR-0065): two variants of one question as tabs, each the
-  // card it would be on its own. Values show the form, not the Richtlinie.
+  // A composition (ADR-0065): two variants of one question as tabs, each a
+  // run of Markdown. Values show the form, not the Richtlinie.
   {
     type: 'surface',
     title: 'Zweiter Fluchtweg — zwei Varianten',
@@ -840,25 +358,21 @@ const RAW_FIXTURES: CardInput[] = [
       },
       {
         id: 'aussen',
-        component: 'process_map',
-        title: 'Außentreppe als zweiter Fluchtweg',
-        steps: [
-          { label: 'Lage klären', summary: 'Abstand zu Fenstern und Öffnungen prüfen.' },
-          { label: 'Brandschutzkonzept ergänzen', summary: 'Außentreppe als Fluchtweg nachweisen.' },
-          { label: 'Einreichung', summary: 'Mit dem Bauansuchen.' },
-        ],
-        reference: { document: 'OIB-Richtlinie 2', section: 'Pkt. 5.1' },
+        component: 'Text',
+        text: [
+          '1. **Lage klären**: Abstand zu Fenstern und Öffnungen prüfen.',
+          '2. **Brandschutzkonzept ergänzen**: Außentreppe als Fluchtweg nachweisen.',
+          '3. **Einreichung** mit dem Bauansuchen.',
+        ].join('\n'),
       },
       {
         id: 'treppenhaus',
-        component: 'process_map',
-        title: 'Zweites Treppenhaus',
-        steps: [
-          { label: 'Grundriss anpassen', summary: 'Zweites Treppenhaus im Gebäudekern.' },
-          { label: 'Fluchtweglängen neu messen', summary: 'Längen zu beiden Treppenhäusern.' },
-          { label: 'Einreichung', summary: 'Mit dem Bauansuchen.' },
-        ],
-        reference: { document: 'OIB-Richtlinie 2', section: 'Pkt. 5.1' },
+        component: 'Text',
+        text: [
+          '1. **Grundriss anpassen**: zweites Treppenhaus im Gebäudekern.',
+          '2. **Fluchtweglängen neu messen**: Längen zu beiden Treppenhäusern.',
+          '3. **Einreichung** mit dem Bauansuchen.',
+        ].join('\n'),
       },
     ],
   },

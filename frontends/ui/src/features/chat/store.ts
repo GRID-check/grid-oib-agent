@@ -29,11 +29,13 @@ import {
   createSessionsSlice,
   createInteractionSlice,
 } from './stores'
-import { createResilientStorage } from './stores/sessions-store'
+import { chatIndexKey, createResilientStorage } from './stores/chat-storage'
 import {
   logStoreHydration,
   logExternalStorageEvent,
 } from './lib/storage-logger'
+
+const CHAT_STORE_NAME = 'aiq-chat-store'
 
 export const useChatStore = create<ChatStoreWithHydration>()(
   devtools(
@@ -46,13 +48,13 @@ export const useChatStore = create<ChatStoreWithHydration>()(
         hasHydrated: false,
       }),
       {
-        name: 'aiq-chat-store',
+        // The prefix of every key the chat store writes (`stores/chat-storage.ts`).
+        name: CHAT_STORE_NAME,
         storage: typeof window === 'undefined' ? undefined : createResilientStorage(),
         partialize: (state) => ({
           currentUserId: state.currentUserId,
           conversations: state.conversations,
           currentConversation: state.currentConversation,
-          pendingInteraction: state.pendingInteraction,
           composerDrafts: state.composerDrafts,
         }),
         onRehydrateStorage: () => (state) => {
@@ -79,9 +81,20 @@ export const useChatStore = create<ChatStoreWithHydration>()(
 // Selectors
 // ============================================================
 
-export const selectHasConnectionError = (state: ChatStore): boolean =>
+/**
+ * A connection error the backend's health can clear (`useConnectionRecovery`).
+ * `connection.server_incompatible` is not one: an agent rolled back to an
+ * older socket answers `/health` like any other, so a healthy poll would
+ * dismiss a true message and start a ladder that ends the same way. That card
+ * goes when a socket says hello (`dismissConnectionErrors` on open), which the
+ * reader's next question tries.
+ */
+export const selectHasRecoverableConnectionError = (state: ChatStore): boolean =>
   state.currentConversation?.messages.some(
-    (m) => m.messageType === 'error' && m.errorData?.errorCode?.startsWith('connection.')
+    (m) =>
+      m.messageType === 'error' &&
+      m.errorData?.errorCode?.startsWith('connection.') &&
+      m.errorData.errorCode !== 'connection.server_incompatible'
   ) ?? false
 
 // ============================================================
@@ -93,7 +106,7 @@ if (typeof window !== 'undefined') {
   logStoreHydration(true, initialState.conversations?.length ?? 0, initialState.currentUserId)
 
   window.addEventListener('storage', (event) => {
-    if (event.key === 'aiq-chat-store') {
+    if (event.key === chatIndexKey(CHAT_STORE_NAME)) {
       logExternalStorageEvent(event.key, event.oldValue, event.newValue)
 
       if (event.oldValue !== null && event.newValue === null) {

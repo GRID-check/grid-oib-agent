@@ -121,6 +121,12 @@ export interface PlannedFile {
    * which is most of a re-sync.
    */
   refiledFromFolderId?: string | null
+  /**
+   * The matched document is ARCHIVED. The upload still versions it — the
+   * server replaces by filename whatever the lifecycle — and the new version
+   * stays out of the listing with it, so the dialog has to say so.
+   */
+  existingArchived?: true
 }
 
 /** One document that is already correct but filed in the wrong place. */
@@ -194,10 +200,25 @@ export interface FolderUploadCounts {
   moving: number
 }
 
+/**
+ * What the plan reads of a document: enough to match it by name, compare its
+ * bytes and see where it is filed. A listing row satisfies it, and so does a
+ * row of the server's name probe (`name-probe-types.ts`), which is what the
+ * upload decision plans against.
+ */
+export type PlanDocument = Pick<
+  FileItem,
+  'id' | 'filename' | 'displayName' | 'fileSize' | 'contentHash' | 'folderId' | 'authoredBy'
+> & { lifecycle?: FileItem['lifecycle'] }
+
 export interface FolderUploadPlanInput {
   files: readonly File[]
-  /** The project's corpus, as the browser already has it. */
-  documents: readonly FileItem[]
+  /**
+   * The documents the drop is compared against. Every document of a dropped
+   * name that the server's upload would version must be here — the name probe
+   * answers exactly that, a paged or filtered listing does not.
+   */
+  documents: readonly PlanDocument[]
   folders: readonly FolderItem[]
   /** The folder the reader is standing in; null is the project root. */
   currentFolderId: string | null
@@ -227,6 +248,11 @@ export function isFolderUpload(files: readonly File[]): boolean {
 /** Compare two folder paths the way {@link folderMatchKey} compares one segment. */
 function pathKey(path: string): string {
   return pathSegments(path).map(folderMatchKey).join('/')
+}
+
+/** `existingArchived` when the matched document is archived, nothing otherwise. */
+function archivedMark(document: PlanDocument): { existingArchived?: true } {
+  return document.lifecycle === 'archived' ? { existingArchived: true } : {}
 }
 
 export function buildFolderUploadPlan(input: FolderUploadPlanInput): FolderUploadPlan {
@@ -318,8 +344,8 @@ export function buildFolderUploadPlan(input: FolderUploadPlanInput): FolderUploa
    * chose and owns no chunks, so a person dropping a file of that name is not
    * correcting it, and the two rows coexist.
    */
-  const byName = new Map<string, FileItem>()
-  const byAlias = new Map<string, FileItem>()
+  const byName = new Map<string, PlanDocument>()
+  const byAlias = new Map<string, PlanDocument>()
   for (const document of documents) {
     if (document.authoredBy === 'agent') continue
     const key = documentNameKey(document.filename)
@@ -340,7 +366,7 @@ export function buildFolderUploadPlan(input: FolderUploadPlanInput): FolderUploa
   }
 
   /** What to call the matched document, when that is not the dropped name. */
-  const matchedName = (document: FileItem, droppedName: string): string | undefined => {
+  const matchedName = (document: PlanDocument, droppedName: string): string | undefined => {
     const shown = document.displayName ?? document.filename
     return documentNameKey(shown) === documentNameKey(droppedName) ? undefined : shown
   }
@@ -383,6 +409,7 @@ export function buildFolderUploadPlan(input: FolderUploadPlanInput): FolderUploa
         action: 'duplicate',
         existingId: alias.id,
         existingName: alias.displayName ?? alias.filename,
+        ...archivedMark(alias),
       }
     }
 
@@ -406,6 +433,7 @@ export function buildFolderUploadPlan(input: FolderUploadPlanInput): FolderUploa
           action: 'unchanged',
           existingId: existing.id,
           ...(shownAs ? { existingName: shownAs } : {}),
+          ...archivedMark(existing),
           ...(refiled ? { refiledFromFolderId: existing.folderId ?? null } : {}),
         }
       }
@@ -416,6 +444,7 @@ export function buildFolderUploadPlan(input: FolderUploadPlanInput): FolderUploa
       action: 'update',
       existingId: existing.id,
       ...(shownAs ? { existingName: shownAs } : {}),
+      ...archivedMark(existing),
       // Only reported when it is true; a re-file the reader cannot see coming
       // is the part of an update that surprises.
       ...(refiled ? { refiledFromFolderId: existing.folderId ?? null } : {}),
@@ -475,6 +504,23 @@ export function countPlan(
   }
   counts.uploading = counts.new + (includeUpdates ? counts.update : 0)
   return counts
+}
+
+/**
+ * Whether a person has to answer before this upload may go.
+ *
+ * A plan made only of `new` files touches nothing that exists, so asking would
+ * be a dialog with one possible answer. Anything else — a document of that name
+ * is already here (`update`, and the hash candidates the first pass counts as
+ * one), the bytes are identical (`unchanged`), the file is here under another
+ * name (`duplicate`), two files claim one name (`collision`) — changes or
+ * withholds something, and the reader is told before it happens.
+ *
+ * This is the rule for picked and dropped FILES. A folder always asks: its plan
+ * also says which folders are made and matched, which no count here covers.
+ */
+export function needsUploadDecision(plan: Pick<FolderUploadPlan, 'files'>): boolean {
+  return plan.files.some((file) => file.action !== 'new')
 }
 
 /** The files a plan will actually send, given the reader's answer about updates. */

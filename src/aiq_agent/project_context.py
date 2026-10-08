@@ -39,6 +39,7 @@ import logging
 import os
 from dataclasses import dataclass
 from typing import Any
+from typing import Literal
 
 PROJECT_CONTEXT_HEADER = "x-grid-project-context"
 PROJECT_MEMORY_HEADER = "x-grid-project-memory"
@@ -92,17 +93,14 @@ USER_ID_HEADER = "x-grid-user-id"
 #: contract lived in two hand-maintained lists that nothing compared.
 TOOL_CONTEXT_REQUIREMENTS: dict[str, tuple[str, ...]] = {
     "project_memory_remember": (PROJECT_ID_HEADER, ORGANIZATION_ID_HEADER),
-    # The four write-side workspace tools (`tools/files/`). Each proposes a
-    # change to a PROJECT's workspace — folders are project-scoped, and the
-    # reader's session applies the change against a project — so a run without
-    # the project header can only refuse, and refusing on every unattended run
-    # is the failure this table was written for.
-    "move_document": (PROJECT_ID_HEADER,),
-    "rename_document": (PROJECT_ID_HEADER,),
-    "create_folder": (PROJECT_ID_HEADER,),
-    "assign_document": (PROJECT_ID_HEADER,),
-    # Filing a draft into the project (`tools/documents/register.py`). The
-    # project header is what makes a filing ADDRESSABLE — a draft is filed INTO
+    # The write-side workspace tool (`tools/files/`). It proposes a change to a
+    # PROJECT's workspace — folders are project-scoped, and the reader's session
+    # applies the change against a project — so a run without the project
+    # header can only refuse, and refusing on every unattended run is the
+    # failure this table was written for.
+    "propose_file_change": (PROJECT_ID_HEADER,),
+    # Filing a draft into the project, and with `submit` sending it for review
+    # (`tools/documents/register.py`). The project header is what makes a filing ADDRESSABLE — a draft is filed INTO
     # a project — so a run without it can only refuse.
     #
     # The signed envelope the tool ALSO needs is deliberately NOT declared here.
@@ -113,7 +111,6 @@ TOOL_CONTEXT_REQUIREMENTS: dict[str, tuple[str, ...]] = {
     # refuses the call, which is the honest shape — see the `_NO_ENVELOPE`
     # refusal in `tools/documents/filing.py`.
     "file_draft": (PROJECT_ID_HEADER,),
-    "submit_draft": (PROJECT_ID_HEADER,),
     # Delegating work (`tools/tasks/register.py`). A task hangs off a PROJECT —
     # `tasks.project_id` is NOT NULL and carries the tenant predicate — so a run
     # without the project header can only refuse. The signed envelope it also
@@ -239,7 +236,7 @@ def normalize_org_instructions(value: str | None) -> str | None:
 def _read_header(name: str) -> str | None:
     """Read a raw header value from NAT Context metadata."""
     try:
-        from nat.builder.context import Context
+        from nat.plugin_api import Context
 
         ctx = Context.get()
         if ctx is None or ctx.metadata is None:
@@ -413,8 +410,10 @@ class GridRequestContext:
     #: Epoch MILLISECONDS the envelope was minted. Inside the signed bytes, so
     #: its age cannot be edited without breaking the signature. Parsed but NOT
     #: enforced here: this tier has accepted envelopes without one since before
-    #: the field existed, and the window is the BFF verifier's to enforce
-    #: (`verifyGridRequestContextEnvelope`), which fails closed on it.
+    #: the field existed. A reader that GRANTS access on the envelope enforces
+    #: the window itself and fails closed on a missing value, as the BFF
+    #: verifier (`verifyGridRequestContextEnvelope`) does: the job routes do so
+    #: in `aiq_api.jobs.access.signed_job_scope` (ADR-0084).
     issued_at: int | None = None
     #: The envelope EXACTLY as it arrived — the base64url header and its hex
     #: signature, unparsed.
@@ -429,6 +428,9 @@ class GridRequestContext:
     #: deny it. So: echo, never sign.
     envelope_header: str | None = None
     envelope_signature: str | None = None
+    #: Growing prompt blocks are fetched per turn from the BFF when this
+    #: signed, envelope-only marker is present. Legacy producers omit it.
+    context_transport: Literal["bff"] | None = None
 
     @classmethod
     def from_context(cls) -> "GridRequestContext":
@@ -549,6 +551,7 @@ class GridRequestContext:
             # signature no longer covers.
             envelope_header=header_value,
             envelope_signature=sig,
+            context_transport="bff" if payload.get("contextTransport") == "bff" else None,
         )
 
     @classmethod
@@ -718,7 +721,7 @@ def get_user_message_id_from_context() -> str | None:
     them onto a single key.
     """
     try:
-        from nat.builder.context import Context
+        from nat.plugin_api import Context
 
         ctx = Context.get()
         if ctx is None:
@@ -730,6 +733,26 @@ def get_user_message_id_from_context() -> str | None:
     except Exception:
         logger.debug("Failed to read user message id from NAT context", exc_info=True)
         return None
+
+
+def get_signed_request_context() -> GridRequestContext | None:
+    """The verified ``X-Grid-Request-Context`` envelope for this request, or None.
+
+    For a reader of a field that DECIDES something for the tenant: the model an
+    agent group runs on, the budget left, the sources the organization switched
+    off. When an envelope arrived, those come from it and nowhere else. The
+    individual ``x-grid-*`` headers are unsigned, and a client talking to the WS
+    proxy directly could set them; `server.js` now strips them, but a reader that
+    trusts the signature does not depend on the proxy remembering to.
+
+    ``None`` off the BFF (a job worker, which injects its own headers; the CLI;
+    an eval) — only then may the reader fall back to the individual header.
+    """
+    return GridRequestContext.from_envelope(
+        _read_header(REQUEST_CONTEXT_ENVELOPE_HEADER),
+        _read_header(REQUEST_CONTEXT_ENVELOPE_SIG_HEADER),
+        os.environ.get("GRID_INTERNAL_API_TOKEN"),
+    )
 
 
 def get_request_envelope_from_context() -> tuple[str | None, str | None]:
@@ -749,7 +772,7 @@ def get_request_envelope_from_context() -> tuple[str | None, str | None]:
 def get_conversation_id_from_context() -> str | None:
     """Best-effort read of the active conversation id for provenance."""
     try:
-        from nat.builder.context import Context
+        from nat.plugin_api import Context
 
         ctx = Context.get()
         if ctx is None:

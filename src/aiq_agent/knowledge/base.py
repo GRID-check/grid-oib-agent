@@ -11,6 +11,8 @@ import threading
 import time
 from abc import ABC
 from abc import abstractmethod
+from collections.abc import Callable
+from dataclasses import dataclass
 from datetime import UTC
 from datetime import datetime
 from datetime import timedelta
@@ -28,6 +30,35 @@ logger = logging.getLogger(__name__)
 # e.g. "s_<uuid>". Only collections with this prefix are subject to TTL reaping;
 # base/project corpora (e.g. "oib_knowledge") are persistent and never auto-deleted.
 SESSION_COLLECTION_PREFIX = "s_"
+
+
+@dataclass
+class PreparedIngestJob:
+    """An ingestion job validated and recorded PENDING, not yet running anywhere.
+
+    ``BaseIngestor.prepare_job`` makes one; whoever holds it decides where it
+    runs: ``submit_prepared`` in this process's pool, or the durable queue for
+    any worker that claims it (``aiq_api.jobs.ingest_queue``), which runs it
+    with ``run_prepared``. ``file_paths`` are local paths or deferred downloads,
+    as ``submit_job`` takes them.
+    """
+
+    job_id: str
+    status: IngestionJobStatus
+    file_paths: list[Any]
+    collection_name: str
+    config: dict[str, Any]
+
+    @property
+    def organization_id(self) -> str | None:
+        """The organisation the job is scheduled for, when it has one."""
+        value = self.config.get("organization_id")
+        return value if isinstance(value, str) and value else None
+
+    @property
+    def priority(self) -> str:
+        """``interactive`` (a person is waiting on this file) or ``bulk`` (a reindex, a rescan)."""
+        return "bulk" if self.config.get("priority") == "bulk" else "interactive"
 
 
 class TTLCleanupMixin:
@@ -93,7 +124,8 @@ class TTLCleanupMixin:
 
         Elects a single runner via a Postgres advisory lock so that, with the
         vector store now shared across replicas, N replicas don't race the same
-        session-collection deletions each cycle. Fail-open on single-node.
+        session-collection deletions each cycle. With no Postgres the process always leads;
+        when the election cannot be held the cycle is skipped and the next tick retries.
         """
         from .leader_lock import leader_lock
 
@@ -195,6 +227,28 @@ class BaseRetriever(ABC):
         """Prepare ``query`` for a search about to be made (its embedding). Optional; never raises."""
         return None
 
+    async def find_text(
+        self,
+        collection_name: str,
+        pattern: str,
+        filters: dict[str, Any] | None = None,
+        limit: int = 500,
+    ) -> list[Chunk] | None:
+        """Every chunk whose text matches the regular expression ``pattern`` anywhere.
+
+        Exhaustive, unranked and embedding-free: the answer to "which files say
+        X", which a top-k similarity search cannot give. At most ``limit``
+        chunks. ``None`` means the backend cannot do it, never "no match": a
+        caller must be able to tell an empty result from an unsupported one.
+
+        ``pattern`` is written in the subset Rust's ``regex`` and Python's
+        ``re`` read alike (no lookaround, no backreference), because the
+        caller re-checks every chunk with the same string. Case-insensitivity,
+        spelling variants and word boundaries are the CALLER's, expressed in
+        the pattern (``(?i)``, alternation, ``\\b``); a backend matches it as given.
+        """
+        return None
+
     @abstractmethod
     def normalize(self, raw_result: Any) -> Chunk:
         """
@@ -246,7 +300,7 @@ class BaseIngestor(ABC):
     @abstractmethod
     def submit_job(
         self,
-        file_paths: list[str],
+        file_paths: list[str | Callable[[], str]],
         collection_name: str,
         config: dict[str, Any] | None = None,
     ) -> str:
@@ -257,7 +311,11 @@ class BaseIngestor(ABC):
         processing happens asynchronously in the background.
 
         Args:
-            file_paths: List of file paths (local or S3 URIs) to ingest.
+            file_paths: Files to ingest. An entry is a local path, or a
+                zero-argument callable the job runs when it reaches the file,
+                which downloads it and returns the local path; that file is the
+                job's to delete. ``POST /v1/ingest`` hands over the latter so
+                the request downloads nothing (``knowledge_layer.deferred_files``).
             collection_name: Target collection/index name.
             config: Optional ingestion configuration (chunking, extraction, and so on).
 
@@ -278,6 +336,54 @@ class BaseIngestor(ABC):
         Returns:
             IngestionJobStatus with current state.
         """
+
+    #: Whether ``prepare_job``/``run_prepared``/``attach_job_source`` work, so a
+    #: job can run in another process than the one that accepted it.
+    supports_durable_jobs = False
+
+    def prepare_job(
+        self,
+        file_paths: list[str | Callable[[], str]],
+        collection_name: str,
+        config: dict[str, Any] | None = None,
+        job_id: str | None = None,
+    ) -> "PreparedIngestJob":
+        """Validate a job and record it PENDING without running it (see ``PreparedIngestJob``).
+
+        ``job_id`` names the job when its caller needs the same id for the same work
+        (the base corpus does); without it a fresh one is made.
+        """
+        raise NotImplementedError
+
+    def submit_prepared(self, prepared: "PreparedIngestJob") -> None:
+        """Queue a prepared job in this process."""
+        raise NotImplementedError
+
+    def run_prepared(self, prepared: "PreparedIngestJob", still_owner: Callable[[], bool] | None = None) -> None:
+        """Run a prepared job on the calling thread; ``still_owner`` says whether its claim is still held."""
+        raise NotImplementedError
+
+    def attach_job_source(self, source: Callable[[], Callable[[], None] | None]) -> None:
+        """Let this process's free workers claim jobs from ``source``."""
+        raise NotImplementedError
+
+    def detach_job_source(self) -> None:
+        """Stop claiming from the attached source."""
+
+    @property
+    def busy_workers(self) -> int:
+        """Workers running a job right now."""
+        return 0
+
+    def find_live_job(self, dispatch_key: str) -> str | None:
+        """The id of a pending or processing job submitted under ``dispatch_key``, or None.
+
+        ``dispatch_key`` rides in ``submit_job``'s config; ``POST /v1/ingest``
+        asks this before submitting, so a retried dispatch joins the job already
+        running instead of starting a second one. A backend that cannot answer
+        says None, and the dispatch submits as it always did.
+        """
+        return None
 
     @property
     @abstractmethod
@@ -387,8 +493,6 @@ class BaseIngestor(ABC):
         """
         Delete multiple files from a collection (batch delete).
 
-        Follows NVIDIA RAG Blueprint pattern for batch file deletion.
-
         Args:
             file_ids: List of file IDs to delete.
             collection_name: Collection containing the files.
@@ -490,6 +594,10 @@ class BaseIngestor(ABC):
             One-sentence summary or None if not implemented.
         """
         return None
+
+    def get_document_visual_details(self, collection_name: str, file_name: str) -> list[dict[str, Any]]:
+        """Per-page VLM descriptions of a document's visual chunks. Default: none."""
+        return []
 
     async def health_check(self) -> bool:
         """

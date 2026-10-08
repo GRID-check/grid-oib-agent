@@ -8,7 +8,7 @@
  * CONSTRUCTION — ADR-0047's whole point is that a machine-written report
  * arrives with nobody on the hook — so the assignment fallback resolved to the
  * empty set, and the submission was refused with „name a reviewer or assign the
- * document first" on a path (the agent's `submit_draft`, the draft card, the
+ * document first" on a path (the agent's `file_draft` submit, the draft card, the
  * lifecycle panel) that had no way to name one.
  *
  * So the fallback is a chain, and each link is a different sentence:
@@ -128,9 +128,9 @@ export async function resolveReviewers(
 /**
  * Resolve a reviewer the AGENT named, by display name or e-mail.
  *
- * The Python tool's `submit_draft` takes a person the way the user said them
- * („leg das der Anna vor"), and a user id is not something the model has or
- * should have. Resolution therefore happens on this side, against the same
+ * The Python tool `file_draft` (`reviewer`, with `submit`) takes a person the
+ * way the user said them („leg das der Anna vor"), and a user id is not
+ * something the model has or should have. Resolution therefore happens on this side, against the same
  * candidate list the picker offers, so a name the project cannot identify is a
  * refusal the tool can show rather than a round opened for the wrong colleague.
  *

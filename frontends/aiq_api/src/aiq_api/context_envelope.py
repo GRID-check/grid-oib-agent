@@ -22,8 +22,8 @@ requests.
 
 For WebSocket upgrades, ``AuthMiddleware`` deliberately no-ops (see its
 module docstring) — the real handshake auth lives in
-``aiq_api.websocket_reconnect.authenticate_websocket_connection``, which this
-module does not import or modify (it is not owned by this change). Instead,
+``aiq_api.chat_socket.authenticate_websocket_connection``, which this module
+does not import. Instead,
 for the ``/websocket`` path this middleware independently re-runs the same
 ``resolve_request_user`` classification the WS handshake will *also* run,
 purely to decide whether an authenticated JWT caller is present and must
@@ -39,15 +39,25 @@ Enforcement (403 / WS policy-violation close) applies only when ALL of:
 1. ``REQUIRE_AUTH=true`` (the same flag ``AuthMiddleware``/``plugin.py`` read);
 2. the resolved caller is a WorkOS-authenticated user (``user["type"] ==
    "jwt"``, set by ``JWTValidator.validate`` — see ``auth/jwt_validator.py``);
-3. the request path matches one of the conservative, explicitly enumerated
-   ``ENFORCED_*_PATH_PREFIXES`` below (chat WS upgrade, async job submit,
-   the internal workflow-submit route, and NAT's ``/generate`` endpoint —
-   easily extended by adding a prefix, nothing else to wire up);
+3. the request path is NOT one of the ``ENVELOPE_EXEMPT_*_PATH_PREFIXES``
+   below;
 4. no valid envelope is present (see ``GridRequestContext.from_envelope``
    in ``aiq_agent.project_context`` — the single verify function this module
    calls, shared with the runtime ``from_context()`` parse path).
 
-EXEMPT (enforcement never applies), regardless of path:
+**Deny by default.** Condition 3 used to be the opposite: an allowlist of
+ENFORCED paths (the async job submit, the internal skills submit, NAT's
+``/generate``). Every workflow endpoint NAT mounts that nobody had listed —
+``/chat``, ``/chat/stream``, ``/v1/chat``, ``/v1/chat/stream``,
+``/v1/chat/completions``, ``/v1/workflow``, ``/v1/workflow/stream`` — ran a
+full agent turn for a signed-in member with no organization, no budget, no
+disabled sources and no model overrides, reached through the BFF's v1 proxy
+with nothing but the member's cookie. A path a future NAT release adds would
+have been open the same way. Now a JWT caller needs the envelope everywhere
+except the short list of paths that run no workflow and that a BFF proxy
+legitimately forwards with the member's bearer and no envelope.
+
+EXEMPT (enforcement never applies):
 
 - anonymous mode (``REQUIRE_AUTH=false``);
 - internal-token-authenticated service calls — either because
@@ -57,9 +67,12 @@ EXEMPT (enforcement never applies), regardless of path:
   ``GRID_INTERNAL_API_TOKEN`` (the two internal-auth header names used
   elsewhere in this codebase — ``routes/internal_auth.py`` and
   ``routes/config_info.py`` respectively);
-- health checks and every other non-enumerated path (the enforced-path list
-  is an allowlist, not a denylist — nothing is enforced unless explicitly
-  added to it).
+- the ``ENVELOPE_EXEMPT_HTTP_PATH_PREFIXES``: health, collection/document
+  management and ingestion status, the data-source listing, the agent-type
+  listing and the drafts reader. Adding a path here is a statement that it
+  cannot start an agent turn and decides nothing from the envelope. The job
+  routes fail the second half: they authorize a job by the scope the envelope
+  signs (ADR-0084), so they are enforced like the submit.
 
 Fail-open note (dev): when ``GRID_INTERNAL_API_TOKEN`` is unset,
 ``GridRequestContext.from_envelope`` skips HMAC verification but still
@@ -91,27 +104,49 @@ from .auth.middleware import resolve_request_user
 
 logger = logging.getLogger(__name__)
 
-# Conservative, explicitly enumerated allowlist of workflow-invoking paths.
-# Extend by adding a prefix here — nothing else needs to change. A path
-# matches a prefix on an exact match or a "/"-bounded sub-path, mirroring
-# AuthMiddleware._path_allowed's semantics for the "/" -suffixed entries.
-ENFORCED_HTTP_PATH_PREFIXES: tuple[str, ...] = (
-    "/v1/jobs/async/submit",
-    "/v1/internal/skills/submit",
-    "/generate",
+# The paths a WorkOS-authenticated caller may reach WITHOUT the envelope.
+# Everything else needs one (deny by default — see the module docstring). A
+# path matches a prefix on an exact match or a "/"-bounded sub-path, so
+# "/v1/jobs/async/job" covers "/v1/jobs/async/job/<id>/stream" and does NOT
+# cover "/v1/jobs/async/submit".
+#
+# Each entry is here because a BFF proxy forwards it with the member's bearer
+# and no envelope, and none of them runs a workflow:
+#   - /health                          liveness probe;
+#   - /v1/collections, /v1/documents   the v1 proxy's collection, upload,
+#                                      listing and ingestion-status routes;
+#   - /v1/data_sources                 the source picker;
+#   - /v1/jobs/async/agents            the agent-type listing;
+#   - /v1/drafts                       the draft preview (`draft-preview.ts`).
+#
+# The job reads and controls (`/v1/jobs/async/job/...`) and the run listing
+# (`/v1/jobs/async/jobs`) are here for a different reason: they authorize by
+# themselves (ADR-0084). Without an envelope a caller reaches only the jobs it
+# owns; the envelope can only widen that to a signed project or conversation.
+# So the presence check adds nothing on them, and requiring it would break a
+# frontend from before ADR-0084, which signs POST only, for as long as a
+# rollout runs the two side by side.
+ENVELOPE_EXEMPT_HTTP_PATH_PREFIXES: tuple[str, ...] = (
+    "/health",
+    "/v1/collections",
+    "/v1/documents",
+    "/v1/data_sources",
+    "/v1/jobs/async/agents",
+    "/v1/jobs/async/job",
+    "/v1/jobs/async/jobs",
+    "/v1/drafts",
 )
-ENFORCED_WEBSOCKET_PATH_PREFIXES: tuple[str, ...] = ("/websocket",)
+# The chat socket is the only WebSocket, and it runs agent turns: no exemption.
+ENVELOPE_EXEMPT_WEBSOCKET_PATH_PREFIXES: tuple[str, ...] = ()
 
-# Same status code aiq_api.websocket_reconnect uses for a rejected handshake
-# (WS_POLICY_VIOLATION) — duplicated as a literal rather than imported so
-# this module never needs to import (and thus never risks coupling to
-# internal state in) websocket_reconnect.py, which this change does not own.
+# Same status code aiq_api.chat_socket uses for a rejected handshake
+# (WS_POLICY_VIOLATION), as a literal so this middleware never imports the socket.
 _WS_POLICY_VIOLATION = 1008
 
 _INTERNAL_TOKEN_HEADER_NAMES: tuple[bytes, ...] = (b"x-internal-token", b"x-grid-internal-token")
 
 
-def _path_is_enforced(path: str, prefixes: tuple[str, ...]) -> bool:
+def _path_matches(path: str, prefixes: tuple[str, ...]) -> bool:
     for prefix in prefixes:
         if path == prefix or path.startswith(f"{prefix}/"):
             return True
@@ -171,8 +206,8 @@ class GridContextEnvelopeMiddleware:
         require_auth: bool = False,
         validators: list | None = None,
         external_hostnames: set[str] | None = None,
-        enforced_http_path_prefixes: tuple[str, ...] = ENFORCED_HTTP_PATH_PREFIXES,
-        enforced_websocket_path_prefixes: tuple[str, ...] = ENFORCED_WEBSOCKET_PATH_PREFIXES,
+        exempt_http_path_prefixes: tuple[str, ...] = ENVELOPE_EXEMPT_HTTP_PATH_PREFIXES,
+        exempt_websocket_path_prefixes: tuple[str, ...] = ENVELOPE_EXEMPT_WEBSOCKET_PATH_PREFIXES,
     ) -> None:
         self.app = app
         self._require_auth = require_auth
@@ -180,13 +215,13 @@ class GridContextEnvelopeMiddleware:
         self._external_hostnames: set[str] = (
             external_hostnames if external_hostnames is not None else _load_external_hostnames()
         )
-        self._enforced_http = tuple(enforced_http_path_prefixes)
-        self._enforced_websocket = tuple(enforced_websocket_path_prefixes)
+        self._exempt_http = tuple(exempt_http_path_prefixes)
+        self._exempt_websocket = tuple(exempt_websocket_path_prefixes)
         logger.info(
-            "GridContextEnvelopeMiddleware: require_auth=%s enforced_http=%s enforced_websocket=%s",
+            "GridContextEnvelopeMiddleware: require_auth=%s exempt_http=%s exempt_websocket=%s",
             require_auth,
-            self._enforced_http,
-            self._enforced_websocket,
+            self._exempt_http,
+            self._exempt_websocket,
         )
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
@@ -203,8 +238,8 @@ class GridContextEnvelopeMiddleware:
             return
 
         path: str = scope.get("path", "")
-        prefixes = self._enforced_http if scope_type == "http" else self._enforced_websocket
-        if not _path_is_enforced(path, prefixes):
+        exempt = self._exempt_http if scope_type == "http" else self._exempt_websocket
+        if _path_matches(path, exempt):
             await self.app(scope, receive, send)
             return
 

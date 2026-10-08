@@ -13,6 +13,9 @@ vi.mock('@/shared/components/MarkdownRenderer', () => ({
   ),
 }))
 
+/** Choice options as the wire names them: ids `o1`, `o2`, … */
+const opts = (...labels: string[]) => labels.map((label, i) => ({ id: `o${i + 1}`, label }))
+
 describe('AgentPrompt', () => {
   beforeEach(() => {
     vi.clearAllMocks()
@@ -22,8 +25,6 @@ describe('AgentPrompt', () => {
   test('renders prompt content', () => {
     render(
       <AgentPrompt
-        id="prompt-1"
-        type="clarification"
         content="What programming language would you prefer?"
       />
     )
@@ -36,8 +37,6 @@ describe('AgentPrompt', () => {
   test('shows "Piloti needs your input" when not responded', () => {
     render(
       <AgentPrompt
-        id="prompt-1"
-        type="clarification"
         content="Please provide more details"
         isResponded={false}
       />
@@ -49,8 +48,6 @@ describe('AgentPrompt', () => {
   test('shows "Piloti received your input" when responded', () => {
     render(
       <AgentPrompt
-        id="prompt-1"
-        type="clarification"
         content="Please provide more details"
         isResponded={true}
         response="Here are the details"
@@ -61,9 +58,9 @@ describe('AgentPrompt', () => {
   })
 
   test('displays options for choice prompts', () => {
-    const options = ['Option A', 'Option B', 'Option C']
+    const options = opts('Option A', 'Option B', 'Option C')
 
-    render(<AgentPrompt id="prompt-1" type="choice" content="Choose one:" options={options} />)
+    render(<AgentPrompt content="Choose one:" options={options} />)
 
     expect(screen.getByText('Option A')).toBeInTheDocument()
     expect(screen.getByText('Option B')).toBeInTheDocument()
@@ -71,16 +68,14 @@ describe('AgentPrompt', () => {
   })
 
   test('keeps the chosen option selected (locked) when responded', () => {
-    const options = ['Option A', 'Option B']
+    const options = opts('Option A', 'Option B')
 
     render(
       <AgentPrompt
-        id="prompt-1"
-        type="choice"
         content="Choose one:"
         options={options}
         isResponded={true}
-        response="Option A"
+        response="o1"
       />
     )
 
@@ -94,8 +89,6 @@ describe('AgentPrompt', () => {
   test('displays user response when responded', () => {
     render(
       <AgentPrompt
-        id="prompt-1"
-        type="clarification"
         content="Question?"
         isResponded={true}
         response="My answer"
@@ -109,7 +102,7 @@ describe('AgentPrompt', () => {
     const timestamp = new Date('2024-01-15T10:30:00')
 
     render(
-      <AgentPrompt id="prompt-1" type="clarification" content="Question?" timestamp={timestamp} />
+      <AgentPrompt content="Question?" timestamp={timestamp} />
     )
 
     expect(screen.getByText(/\d{1,2}:\d{2}/)).toBeInTheDocument()
@@ -122,16 +115,14 @@ describe('AgentPrompt', () => {
 
     render(
       <AgentPrompt
-        id="prompt-1"
-        type="choice"
         content="Choose one:"
-        options={['Option A', 'Option B']}
+        options={opts('Option A', 'Option B')}
       />
     )
 
     await user.click(screen.getByRole('button', { name: /option b/i }))
     expect(respond).toHaveBeenCalledTimes(1)
-    expect(respond).toHaveBeenCalledWith('Option B')
+    expect(respond).toHaveBeenCalledWith('o2')
   })
 
   test('option is keyboard-activatable with Enter', async () => {
@@ -139,12 +130,12 @@ describe('AgentPrompt', () => {
     const respond = vi.fn()
     useChatStore.setState({ respondToInteractionFn: respond })
 
-    render(<AgentPrompt id="prompt-1" type="choice" content="Choose one:" options={['Option A']} />)
+    render(<AgentPrompt content="Choose one:" options={opts('Option A')} />)
 
     await user.tab()
     expect(screen.getByRole('button', { name: /option a/i })).toHaveFocus()
     await user.keyboard('{Enter}')
-    expect(respond).toHaveBeenCalledWith('Option A')
+    expect(respond).toHaveBeenCalledWith('o1')
   })
 
   test('digit key selects the matching option', async () => {
@@ -154,10 +145,8 @@ describe('AgentPrompt', () => {
 
     render(
       <AgentPrompt
-        id="prompt-1"
-        type="choice"
         content="Choose one:"
-        options={['Option A', 'Option B', 'Option C']}
+        options={opts('Option A', 'Option B', 'Option C')}
       />
     )
 
@@ -165,7 +154,7 @@ describe('AgentPrompt', () => {
     // selects the second option.
     await user.keyboard('2')
     expect(respond).toHaveBeenCalledTimes(1)
-    expect(respond).toHaveBeenCalledWith('Option B')
+    expect(respond).toHaveBeenCalledWith('o2')
   })
 
   test('digit beyond the option count is ignored', async () => {
@@ -173,7 +162,7 @@ describe('AgentPrompt', () => {
     const respond = vi.fn()
     useChatStore.setState({ respondToInteractionFn: respond })
 
-    render(<AgentPrompt id="prompt-1" type="choice" content="Choose one:" options={['Only A']} />)
+    render(<AgentPrompt content="Choose one:" options={opts('Only A')} />)
 
     await user.keyboard('5')
     expect(respond).not.toHaveBeenCalled()
@@ -188,10 +177,8 @@ describe('AgentPrompt', () => {
       <>
         <input aria-label="composer" />
         <AgentPrompt
-          id="prompt-1"
-          type="choice"
           content="Choose one:"
-          options={['Option A', 'Option B']}
+          options={opts('Option A', 'Option B')}
         />
       </>
     )
@@ -206,7 +193,7 @@ describe('AgentPrompt', () => {
 
   test('digit shortcut is inert without a response callback (read-only options)', async () => {
     const user = userEvent.setup()
-    render(<AgentPrompt id="prompt-1" type="choice" content="Choose one:" options={['Option A']} />)
+    render(<AgentPrompt content="Choose one:" options={opts('Option A')} />)
 
     // No throw, no selection — the listener is never attached.
     await user.keyboard('1')
@@ -214,86 +201,22 @@ describe('AgentPrompt', () => {
   })
 
   test('options render read-only (disabled) when no response callback is registered', () => {
-    render(<AgentPrompt id="prompt-1" type="choice" content="Choose one:" options={['Option A']} />)
+    render(<AgentPrompt content="Choose one:" options={opts('Option A')} />)
 
     // Branch cards still render, but locked (disabled) with no responder.
     expect(screen.getByText('Option A')).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /option a/i })).toBeDisabled()
   })
 
-  test('replaces the English approval envelope with localized copy', () => {
-    useChatStore.setState({ respondToInteractionFn: vi.fn() })
-
-    render(
-      <AgentPrompt
-        id="prompt-1"
-        type="approval"
-        content={'Here is the plan.\n\nReply **approve** to proceed, **reject** to cancel.'}
-      />
-    )
-
-    // The raw backend envelope sentence is stripped from the rendered content…
-    expect(screen.getByTestId('markdown')).not.toHaveTextContent(/reply/i)
-    expect(screen.getByTestId('markdown')).toHaveTextContent('Here is the plan.')
-    // …and a localized instruction plus a duration/quota expectation appear
-    // at the decision point (English fallback without an i18n provider).
-    expect(
-      screen.getByText('Choose "Approve" to start the research or "Reject" to cancel.')
-    ).toBeInTheDocument()
-    expect(screen.getByText(/several minutes.*quota/i)).toBeInTheDocument()
-  })
-
   test('keeps non-approval prompt content untouched', () => {
     render(
-      <AgentPrompt id="prompt-1" type="clarification" content="Which building class applies?" />
+      <AgentPrompt content="Which building class applies?" />
     )
 
     expect(screen.getByTestId('markdown')).toHaveTextContent('Which building class applies?')
     expect(screen.queryByText(/several minutes/i)).not.toBeInTheDocument()
   })
 
-  test('legacy envelope strips its feedback tail too', () => {
-    useChatStore.setState({ respondToInteractionFn: vi.fn() })
-
-    render(
-      <AgentPrompt
-        id="prompt-1"
-        type="approval"
-        content={
-          'Plan.\n\nReply **approve** to proceed, **reject** to cancel, or provide feedback to revise the plan.'
-        }
-      />
-    )
-
-    // The old strip regex ended at "to cancel", leaving ", or provide
-    // feedback to revise the plan." dangling in the bubble.
-    expect(screen.getByTestId('markdown')).not.toHaveTextContent(/provide feedback/i)
-  })
-
-  test('tabs through plan approval actions in DOM order', async () => {
-    const user = userEvent.setup()
-    useChatStore.setState({ respondToInteractionFn: vi.fn() })
-
-    render(
-      <AgentPrompt
-        id="prompt-1"
-        type="approval"
-        content="Reply **approve** to proceed, **reject** to cancel"
-      />
-    )
-
-    const approveButton = screen.getByRole('button', { name: /approve plan/i })
-    const rejectButton = screen.getByRole('button', { name: /reject plan/i })
-
-    expect(approveButton).not.toHaveAttribute('tabindex')
-    expect(rejectButton).not.toHaveAttribute('tabindex')
-
-    // DOM order: Reject (secondary) first, Approve (primary) last/right.
-    await user.tab()
-    expect(rejectButton).toHaveFocus()
-    await user.tab()
-    expect(approveButton).toHaveFocus()
-  })
 })
 
 /**
@@ -319,7 +242,7 @@ describe('AgentPrompt — three-way plan decision', () => {
     const respond = vi.fn()
     useChatStore.setState({ respondToInteractionFn: respond })
 
-    render(<AgentPrompt id="prompt-1" type="approval" content={THREE_WAY_CONTENT} />)
+    render(<AgentPrompt content={THREE_WAY_CONTENT} />)
 
     await user.click(screen.getByRole('button', { name: /cancel the research/i }))
     await user.click(screen.getByRole('button', { name: /answer the question briefly/i }))
@@ -328,23 +251,22 @@ describe('AgentPrompt — three-way plan decision', () => {
     expect(respond.mock.calls.map((c) => c[0])).toEqual(['cancel', 'shallow', 'approve'])
   })
 
-  test('shows the three-way instruction, not the legacy approve/reject one', () => {
+  test('shows the three-way instruction', () => {
     useChatStore.setState({ respondToInteractionFn: vi.fn() })
 
-    render(<AgentPrompt id="prompt-1" type="approval" content={THREE_WAY_CONTENT} />)
+    render(<AgentPrompt content={THREE_WAY_CONTENT} />)
 
     expect(
       screen.getByText(
         'Start the research, have your question answered briefly instead, or cancel.'
       )
     ).toBeInTheDocument()
-    expect(screen.queryByText(/Choose "Approve"/)).not.toBeInTheDocument()
   })
 
   test('strips the whole envelope line and localizes the plan scaffolding', () => {
     useChatStore.setState({ respondToInteractionFn: vi.fn() })
 
-    render(<AgentPrompt id="prompt-1" type="approval" content={THREE_WAY_CONTENT} />)
+    render(<AgentPrompt content={THREE_WAY_CONTENT} />)
 
     const markdown = screen.getByTestId('markdown')
     expect(markdown).not.toHaveTextContent(/reply/i)
@@ -359,12 +281,9 @@ describe('AgentPrompt — three-way plan decision', () => {
     ['approve', 'Research started'],
     ['shallow', 'Quick answer requested'],
     ['cancel', 'Research cancelled'],
-    ['reject', 'Plan rejected'],
   ])('echoes the %s decision in human words, never the wire keyword', (keyword, label) => {
     render(
       <AgentPrompt
-        id="prompt-1"
-        type="approval"
         content={THREE_WAY_CONTENT}
         isResponded
         response={keyword}
@@ -396,10 +315,8 @@ describe('AgentPrompt — a question addressed to somebody else', () => {
 
     render(
       <AgentPrompt
-        id="prompt-1"
-        type="choice"
         content="Welcher Kern?"
-        options={['Nur Kern B', 'Beide Kerne']}
+        options={opts('Nur Kern B', 'Beide Kerne')}
         isAddressee={false}
         addresseeName="Matthias Bigl"
       />
@@ -416,7 +333,7 @@ describe('AgentPrompt — a question addressed to somebody else', () => {
   })
 
   test('falls back to a nameless line when the person cannot be resolved', () => {
-    render(<AgentPrompt id="prompt-1" type="clarification" content="Frage?" isAddressee={false} />)
+    render(<AgentPrompt content="Frage?" isAddressee={false} />)
 
     expect(screen.getByTestId('agent-prompt-awaiting-other')).toHaveTextContent(
       'Piloti is waiting for another participant'
@@ -426,8 +343,6 @@ describe('AgentPrompt — a question addressed to somebody else', () => {
   test('withholds the approve/reject buttons too', () => {
     render(
       <AgentPrompt
-        id="prompt-1"
-        type="plan_approval"
         content="Do you approve this plan?"
         isAddressee={false}
         addresseeName="Matthias Bigl"
@@ -441,12 +356,10 @@ describe('AgentPrompt — a question addressed to somebody else', () => {
   test('an ANSWERED prompt needs no waiting line — it shows the decision', () => {
     render(
       <AgentPrompt
-        id="prompt-1"
-        type="choice"
         content="Welcher Kern?"
-        options={['Nur Kern B', 'Beide Kerne']}
+        options={opts('Nur Kern B', 'Beide Kerne')}
         isResponded
-        response="Beide Kerne"
+        response="o2"
         isAddressee={false}
         addresseeName="Matthias Bigl"
       />
@@ -462,15 +375,13 @@ describe('AgentPrompt — a question addressed to somebody else', () => {
 
     render(
       <AgentPrompt
-        id="prompt-1"
-        type="choice"
         content="Welcher Kern?"
-        options={['Nur Kern B', 'Beide Kerne']}
+        options={opts('Nur Kern B', 'Beide Kerne')}
       />
     )
 
     await user.click(screen.getByText('Beide Kerne'))
-    expect(respond).toHaveBeenCalledWith('Beide Kerne')
+    expect(respond).toHaveBeenCalledWith('o2')
   })
 })
 
@@ -499,7 +410,7 @@ describe('AgentPrompt — the plan card', () => {
 
   test('renders the sections, the genre and the depth as controls, and hides the fence', () => {
     useChatStore.setState({ respondToInteractionFn: vi.fn() })
-    render(<AgentPrompt id="prompt-1" type="approval" content={CONTENT} />)
+    render(<AgentPrompt content={CONTENT} />)
     expect(screen.getAllByTestId('plan-point').map((li) => li.textContent)).toEqual([
       'Gebäudeklasse',
       'Fluchtwege',
@@ -518,7 +429,7 @@ describe('AgentPrompt — the plan card', () => {
   test('an untouched plan approves with the bare keyword', async () => {
     const respond = vi.fn()
     useChatStore.setState({ respondToInteractionFn: respond })
-    render(<AgentPrompt id="prompt-1" type="approval" content={CONTENT} />)
+    render(<AgentPrompt content={CONTENT} />)
     await userEvent.setup().click(screen.getByRole('button', { name: /approve plan/i }))
     expect(respond).toHaveBeenCalledWith('approve')
   })
@@ -527,7 +438,7 @@ describe('AgentPrompt — the plan card', () => {
     const user = userEvent.setup()
     const respond = vi.fn()
     useChatStore.setState({ respondToInteractionFn: respond })
-    render(<AgentPrompt id="prompt-1" type="approval" content={CONTENT} />)
+    render(<AgentPrompt content={CONTENT} />)
     await user.click(screen.getByRole('button', { name: 'Remove section: Fluchtwege' }))
     await user.type(
       screen.getByRole('textbox', { name: 'Add a section' }),
@@ -557,7 +468,7 @@ describe('AgentPrompt — the plan card', () => {
       ],
     })
     try {
-      render(<AgentPrompt id="prompt-1" type="approval" content={CONTENT} />)
+      render(<AgentPrompt content={CONTENT} />)
       expect(screen.getByTestId('plan-rahmen')).toHaveTextContent('Wissensbasis')
       expect(screen.getByTestId('plan-rahmen')).not.toHaveTextContent('Web')
       await userEvent.setup().click(screen.getByRole('button', { name: /approve plan/i }))
@@ -578,7 +489,7 @@ describe('AgentPrompt — the plan card', () => {
       '"depth":"kurzpruefung"',
       '"depth":"kurzpruefung","grundlage":[],"ausgeschlossen":[],"unterlagen":[{"name":"Einreichplan.pdf","title":"Einreichplan EG","shelf":"project"},{"name":"alt.pdf","shelf":"archiv"}]'
     )
-    render(<AgentPrompt id="prompt-1" type="approval" content={content} />)
+    render(<AgentPrompt content={content} />)
     await user.click(screen.getByTestId('plan-unterlagen-pick'))
     await user.click(screen.getByRole('button', { name: 'Read in full: Einreichplan EG' }))
     await user.click(screen.getByRole('button', { name: 'Exclude: alt.pdf' }))
@@ -596,8 +507,6 @@ describe('AgentPrompt — the plan card', () => {
   test('the receipt of an edited approval still reads as approved', () => {
     render(
       <AgentPrompt
-        id="prompt-1"
-        type="approval"
         content={CONTENT}
         isResponded
         response='approve {"depth":"gutachten"}'

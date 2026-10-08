@@ -15,14 +15,9 @@ export const research = {
   chatArea: {
     ariaMessages: 'Chat messages',
     loading: 'Loading conversation',
-    typing: 'Piloti is responding …',
     scrollToLatest: 'Scroll to latest',
     status: {
       thinking: 'Thinking …',
-      searching: 'Searching …',
-      planning: 'Planning …',
-      researching: 'Researching …',
-      writing: 'Writing …',
     },
     loggedOutTitle: 'Piloti opens after your organization is verified.',
     loggedOutBody:
@@ -147,7 +142,7 @@ export const research = {
 
   fileSourceCard: {
     statusUploading: 'Uploading...',
-    statusIngesting: 'Processing...',
+    statusIngesting: 'Reading',
     statusAvailable: 'Available',
     statusError: 'Error',
     statusDeleting: 'Deleting...',
@@ -168,6 +163,7 @@ export const research = {
     targetProjectLower: 'project knowledge',
     targetSessionLower: 'private session',
     availableInProject: 'Available in this project.',
+    projectFilesManagedInFiles: 'Delete project files in the project’s files.',
     preparingCorpus: 'Preparing project knowledge...',
     onlyThisSession: 'Only available in this chat session.',
     loadingFiles: 'Loading files',
@@ -214,7 +210,7 @@ export const research = {
     responseInput: 'Response input',
     chatMessageInput: 'Chat message input',
     stopStreaming: 'Stop response',
-    sendWhilePending: 'Files are still processing — send anyway?',
+    sendWhilePending: 'Not every file has been read yet. Send anyway?',
     heldForUpload: 'Sending as soon as the file has been read.',
     heldForUploadSendNow: 'Ask now without it',
     removeFile: 'Remove file: {name}',

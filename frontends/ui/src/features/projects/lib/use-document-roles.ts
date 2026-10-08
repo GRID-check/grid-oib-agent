@@ -17,6 +17,7 @@
 
 import { useCallback, useEffect, useState } from 'react'
 import type { DocumentRole } from '@/lib/project-profile/document-roles'
+import { fetchListingPages } from '@/features/documents/lib/fetch-listing-pages'
 
 export interface RoleBinding {
   id: string
@@ -54,9 +55,13 @@ function publish(projectId: string, next: DocumentRolesState): void {
 }
 
 async function load(projectId: string): Promise<void> {
-  const [rolesResponse, documentsResponse] = await Promise.all([
+  const [rolesResponse, listed] = await Promise.all([
     fetch(`/api/projects/${projectId}/document-roles`).catch(() => null),
-    fetch(`/api/documents?projectId=${encodeURIComponent(projectId)}`).catch(() => null),
+    // Every page: these are the documents a role can be bound to, and the
+    // plan that is the Bebauungsplan is as often the oldest upload as not.
+    fetchListingPages<unknown>(`/api/documents?projectId=${encodeURIComponent(projectId)}`)
+      .then(({ documents }) => documents)
+      .catch(() => [] as unknown[]),
   ])
 
   // `.json()` on an OK response still rejects on a truncated or non-JSON body,
@@ -65,7 +70,7 @@ async function load(projectId: string): Promise<void> {
   // subscribed field renders as a spinner that never stops.
   const readList = async <T>(
     response: Response | null,
-    key: 'roles' | 'documents'
+    key: 'roles'
   ): Promise<T[]> => {
     if (!response?.ok) return []
     const parsed: unknown = await response.json().catch(() => null)
@@ -74,7 +79,13 @@ async function load(projectId: string): Promise<void> {
     return Array.isArray(value) ? (value as T[]) : []
   }
   const roles = await readList<RoleBinding>(rolesResponse, 'roles')
-  const documents = await readList<ProjectDocumentOption>(documentsResponse, 'documents')
+  const documents = listed.filter(
+    (row): row is ProjectDocumentOption =>
+      !!row &&
+      typeof row === 'object' &&
+      typeof (row as Record<string, unknown>).id === 'string' &&
+      typeof (row as Record<string, unknown>).filename === 'string'
+  )
 
   // Bindings resolve to `[]` rather than staying `null` even when the request
   // failed: a field that shows a spinner forever is worse than one that shows

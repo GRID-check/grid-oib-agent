@@ -1,3 +1,4 @@
+import type { JSX } from 'react'
 import * as React from 'react'
 import type { LucideIcon } from 'lucide-react'
 
@@ -58,6 +59,12 @@ export function EmptyStateDisc({
 
 export interface EmptyStateProps extends React.HTMLAttributes<HTMLDivElement> {
   icon?: LucideIcon
+  /**
+   * A riso print (`RisoPrint`) in place of the icon disc. Only for first-run
+   * moments read at leisure (no projects, no documents): a moment to act, such
+   * as a filter with no match, keeps the disc.
+   */
+  art?: React.ReactNode
   title: string
   description?: string
   action?: React.ReactNode
@@ -71,6 +78,7 @@ export interface EmptyStateProps extends React.HTMLAttributes<HTMLDivElement> {
 
 export function EmptyState({
   icon: Icon,
+  art,
   title,
   description,
   action,
@@ -94,7 +102,9 @@ export function EmptyState({
       )}
       {...props}
     >
-      {Icon && (
+      {art ? (
+        <div className="mb-5">{art}</div>
+      ) : Icon && (
         // The staged entrance keeps its own motion: the panel fades in, the
         // disc lands a beat later.
         <EmptyStateDisc
