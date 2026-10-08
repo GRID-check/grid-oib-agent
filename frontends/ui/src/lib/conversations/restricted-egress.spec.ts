@@ -22,7 +22,7 @@ import { ConversationConfinedError } from '@/lib/api/errors'
 import type { AccessFolder } from '@/lib/authz/folder-access'
 import { listProjectFolderTree } from '@/lib/authz/folder-access-repository'
 import { recordedRestrictedFolders } from './restricted-use'
-import { requireMayFileFrom, requireMayLeaveConversation } from './restricted-egress'
+import { confinementRefusal, folderRestrictsReading, requireMayFileFrom, requireMayLeaveConversation } from './restricted-egress'
 
 const ORG = 'org_1'
 const PROJECT = '3f8b0d2e-0000-4000-8000-000000000001'
@@ -144,5 +144,37 @@ describe('requireMayFileFrom — only where every reader is cleared for what the
       requireMayFileFrom({ conversationId: CONV, locale: 'de' }, destination('open'))
     ).resolves.toBeUndefined()
     expect(listProjectFolderTree).not.toHaveBeenCalled()
+  })
+})
+
+/**
+ * The same test for a DOCUMENT: a revision task quotes a draft's text into a
+ * run whose goal and filename every project member sees (`openRevisionTask`).
+ */
+describe('folderRestrictsReading — whether a revision task may quote a draft', () => {
+  it('is true for a folder with its own list, and for one below it', async () => {
+    await expect(folderRestrictsReading(ORG, PROJECT, VERTRAEGE)).resolves.toBe(true)
+    await expect(folderRestrictsReading(ORG, PROJECT, HONORARE)).resolves.toBe(true)
+    expect(listProjectFolderTree).toHaveBeenCalledWith(ORG, PROJECT)
+  })
+
+  it('is false for an open folder and for the project root', async () => {
+    await expect(folderRestrictsReading(ORG, PROJECT, 'open')).resolves.toBe(false)
+    await expect(folderRestrictsReading(ORG, PROJECT, null)).resolves.toBe(false)
+  })
+
+  it('is false outside every project, without reading a tree', async () => {
+    await expect(folderRestrictsReading(ORG, null, 'open')).resolves.toBe(false)
+    expect(listProjectFolderTree).not.toHaveBeenCalled()
+  })
+
+  it('treats a folder the tree no longer holds as restricting: the safe direction', async () => {
+    await expect(folderRestrictsReading(ORG, PROJECT, 'gone')).resolves.toBe(true)
+  })
+
+  it('says why, in the reader’s language', () => {
+    expect(confinementRefusal('revision', 'de').message).toContain('kann Piloti es nicht überarbeiten')
+    expect(confinementRefusal('revision', 'en').message).toContain('Piloti cannot revise it')
+    expect(confinementRefusal('revision', 'en').details).toEqual({ action: 'revision' })
   })
 })

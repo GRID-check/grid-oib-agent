@@ -101,7 +101,7 @@ done
 # cosine query — and a mocked drizzle handle cannot disagree with the fixture
 # that mocked it. (The memory suite is the one that found the semantic gate
 # reading `.rows` off a postgres-js array, which every mock had agreed with.)
-echo "==> running the isolation, BIM query, memory consolidation, restricted memory, upload batches and quarantine decisions, Papierkorb, profile-binding, legal-hold, chat-erasure, restricted-use, run-reconciler, usage-ledger, download-log, closed-project, Steckbrief and Ausmisten suites as grid_app_rw"
+echo "==> running the isolation, BIM query, memory consolidation, restricted memory, upload batches and quarantine decisions, Papierkorb, profile-binding, legal-hold, chat-erasure, restricted-use, restricted-feedback, run-reconciler, usage-ledger, download-log, closed-project, Steckbrief and Ausmisten suites as grid_app_rw"
 GRID_TEST_DATABASE_URL="postgres://grid_app_rw:$RUNTIME_PASSWORD@127.0.0.1:$PORT/grid_app" \
   npx vitest run \
     src/lib/db/tenant-isolation.integration.spec.ts \
@@ -122,6 +122,7 @@ GRID_TEST_DATABASE_URL="postgres://grid_app_rw:$RUNTIME_PASSWORD@127.0.0.1:$PORT
     src/lib/compliance/legal-hold.integration.spec.ts \
     src/lib/conversations/erasure-queue.integration.spec.ts \
     src/lib/conversations/restricted-use.integration.spec.ts \
+    src/lib/feedback/restricted-feedback.integration.spec.ts \
     src/lib/download-log/download-log.integration.spec.ts \
     src/lib/runs/reconcile.integration.spec.ts \
     src/lib/budgets/service.integration.spec.ts \
@@ -375,7 +376,7 @@ GRID_TEST_MIGRATION_DATABASE_URL="postgres://grid_app_owner@127.0.0.1:$PORT/grid
 echo "==> 0097 step rewrite and down migration verified"
 
 # ---------------------------------------------------------------------------
-# Migrations 0109 to 0113, 0116 and 0117: each on a database of its own.
+# Migrations 0109 to 0113 and 0116 to 0119: each on a database of its own.
 #
 # `migrate_until <db> <tag>` creates <db> and applies the journal up to and
 # including <tag>, so every section below starts from exactly the chain it
@@ -680,6 +681,86 @@ apply_in grid_quarantine 0117_document_quarantine_decisions.sql
 check_in grid_quarantine "SELECT count(*) FROM document_quarantine_decisions" "0" "0117 re-applies, empty"
 
 echo "==> 0117 quarantine decisions and down migration verified"
+
+# ---------------------------------------------------------------------------
+# Migration 0118: what the lessons pipeline took from a restricted
+# conversation before OUTSIDE_RESTRICTED_USE, withdrawn, and its DOWN.
+#
+# On a database of its own (grid_lessons), migrated through 0117 and seeded
+# as a sweep before the rule left it:
+# an ACTIVE lesson created from a vote on a conversation with a
+# conversation_restricted_folders row, a lesson created from an open vote with
+# a restricted one LINKED to it, a restricted vote skipped with a summary, and
+# a lesson created from a restricted vote that was already retired. Every
+# restricted report loses its summary, the open one keeps it; the restricted
+# lessons lose their text, and only the live one is retired, with one event;
+# the open lesson stays active. The down changes nothing, and 0118 re-applies
+# without a second event.
+# ---------------------------------------------------------------------------
+echo "==> verifying the 0118 lesson withdrawal and its down migration on grid_lessons"
+migrate_until grid_lessons 0117_document_quarantine_decisions
+sql_in grid_lessons <<'SQL'
+INSERT INTO conversation_restricted_folders (organization_id, conversation_id, folder_id) VALUES
+  ('org_0107', 's_0118_restricted', 'a1a1a1a1-a1a1-4000-8000-000000000107');
+INSERT INTO answer_feedback (id, organization_id, conversation_id, message_id, user_id, verdict, reason, comment) VALUES
+  ('f1f1f1f1-0000-4000-8000-000000000118', 'org_0107', 's_0118_restricted', 'm_0118_1', 'user_1', 'down', 'inaccurate', 'Honorar Zimmerer falsch'),
+  ('f2f2f2f2-0000-4000-8000-000000000118', 'org_0107', 's_0118_restricted', 'm_0118_2', 'user_1', 'down', 'inaccurate', 'Honorar Dachdecker falsch'),
+  ('f3f3f3f3-0000-4000-8000-000000000118', 'org_0107', 's_0118_restricted', 'm_0118_3', 'user_1', 'down', 'other', 'Gehalt falsch'),
+  ('f4f4f4f4-0000-4000-8000-000000000118', 'org_0107', 's_0118_open', 'm_0118_4', 'user_1', 'down', 'inaccurate', 'Brüstung falsch'),
+  ('f5f5f5f5-0000-4000-8000-000000000118', 'org_0107', 's_0118_restricted', 'm_0118_5', 'user_1', 'down', 'inaccurate', 'Angebot falsch');
+INSERT INTO platform_lessons (id, content, category, status, activated_at, activated_by, retired_at, retired_by, retired_reason) VALUES
+  ('11111111-0000-4000-8000-000000000118', 'Honorare aus Angeboten nur mit Quelle nennen 0118', 'inaccurate', 'active', now(), 'system:distiller', NULL, NULL, NULL),
+  ('22222222-0000-4000-8000-000000000118', 'Brüstungshöhen nach OIB-RL 4 prüfen 0118', 'inaccurate', 'active', now(), 'system:distiller', NULL, NULL, NULL),
+  ('33333333-0000-4000-8000-000000000118', 'Angebotssummen nicht runden 0118', 'inaccurate', 'retired', now(), 'system:distiller', now(), 'system:distiller', 'evicted_capacity');
+INSERT INTO platform_lesson_reports (feedback_id, lesson_id, outcome, skip_reason, org_hash, canonical_summary) VALUES
+  ('f1f1f1f1-0000-4000-8000-000000000118', '11111111-0000-4000-8000-000000000118', 'created', NULL, 'hash_0118', 'Zimmerer-Honorar 48.000 EUR falsch genannt'),
+  ('f2f2f2f2-0000-4000-8000-000000000118', '22222222-0000-4000-8000-000000000118', 'linked', NULL, 'hash_0118', 'Dachdecker-Honorar falsch genannt'),
+  ('f3f3f3f3-0000-4000-8000-000000000118', NULL, 'skipped', 'not_generalizable', 'hash_0118', 'Gehalt der Bauleiterin falsch'),
+  ('f4f4f4f4-0000-4000-8000-000000000118', '22222222-0000-4000-8000-000000000118', 'created', NULL, 'hash_0118', 'Brüstungshöhe falsch genannt'),
+  ('f5f5f5f5-0000-4000-8000-000000000118', '33333333-0000-4000-8000-000000000118', 'created', NULL, 'hash_0118', 'Angebotssumme gerundet');
+SQL
+apply_in grid_lessons 0118_withdraw_restricted_lesson_reports.sql
+check_in grid_lessons "SELECT string_agg(feedback_id::text, ',' ORDER BY feedback_id) FROM platform_lesson_reports WHERE org_hash = 'hash_0118' AND canonical_summary IS NOT NULL" "f4f4f4f4-0000-4000-8000-000000000118" "only the open report keeps its summary, whatever the outcome"
+check_in grid_lessons "SELECT status || ',' || retired_reason || ',' || retired_by || ',' || (content LIKE 'Zurückgezogen:%')::text FROM platform_lessons WHERE id = '11111111-0000-4000-8000-000000000118'" "retired,restricted_source,system:migration-0118,true" "a live lesson created from a restricted report is retired, its text replaced"
+check_in grid_lessons "SELECT status || ',' || content FROM platform_lessons WHERE id = '22222222-0000-4000-8000-000000000118'" "active,Brüstungshöhen nach OIB-RL 4 prüfen 0118" "a lesson only LINKED to a restricted report stays as it was"
+check_in grid_lessons "SELECT status || ',' || retired_reason || ',' || (content LIKE 'Zurückgezogen:%')::text FROM platform_lessons WHERE id = '33333333-0000-4000-8000-000000000118'" "retired,evicted_capacity,true" "an already retired one loses its text and keeps its retirement"
+check_in grid_lessons "SELECT string_agg(lesson_id::text || ':' || action || ':' || (detail->>'reason'), ',') FROM platform_lesson_events WHERE actor = 'system:migration-0118'" "11111111-0000-4000-8000-000000000118:retired:restricted_source" "one retirement event, for the lesson that was live"
+apply_in grid_lessons 0118_withdraw_restricted_lesson_reports.down.sql
+check_in grid_lessons "SELECT status FROM platform_lessons WHERE id = '11111111-0000-4000-8000-000000000118'" "retired" "the down changes nothing"
+apply_in grid_lessons 0118_withdraw_restricted_lesson_reports.sql
+check_in grid_lessons "SELECT count(*) FROM platform_lesson_events WHERE actor = 'system:migration-0118'" "1" "0118 re-applies without a second event"
+
+echo "==> 0118 lesson withdrawal and down migration verified"
+
+# ---------------------------------------------------------------------------
+# Migration 0119: a vote keeps its conversation's restricted use after the
+# record goes, and its DOWN.
+#
+# On grid_lessons, after 0118: the backfill marks the votes on the 0118
+# restricted conversation (it has a record) and not the open one; a vote cast
+# after 0119 on a conversation whose record is then deleted is marked by the
+# trigger, and a vote on another conversation is not. The down drops the
+# column, the trigger and the function; 0119 re-applies.
+# ---------------------------------------------------------------------------
+echo "==> verifying the 0119 feedback marker, its trigger and its down migration on grid_lessons"
+apply_in grid_lessons 0119_answer_feedback_restricted_source.sql
+check_in grid_lessons "SELECT string_agg(conversation_id || ':' || restricted_source::text, ',' ORDER BY conversation_id) FROM (SELECT DISTINCT conversation_id, restricted_source FROM answer_feedback WHERE message_id LIKE 'm_0118_%') v" "s_0118_open:false,s_0118_restricted:true" "the backfill marks the votes on a recorded conversation only"
+sql_in grid_lessons <<'SQL'
+INSERT INTO conversation_restricted_folders (organization_id, conversation_id, folder_id) VALUES
+  ('org_0107', 's_0119_deleted', 'a1a1a1a1-a1a1-4000-8000-000000000107');
+INSERT INTO answer_feedback (organization_id, conversation_id, message_id, user_id, verdict, reason, comment) VALUES
+  ('org_0107', 's_0119_deleted', 'm_0119_1', 'user_1', 'down', 'inaccurate', 'Honorar Spengler falsch'),
+  ('org_0107', 's_0119_other', 'm_0119_2', 'user_1', 'down', 'inaccurate', 'Brüstung falsch');
+SQL
+check_in grid_lessons "SELECT string_agg(restricted_source::text, ',' ORDER BY message_id) FROM answer_feedback WHERE message_id LIKE 'm_0119_%'" "false,false" "a new vote starts unmarked; the record holds it back while it exists"
+sql_in grid_lessons <<<"DELETE FROM conversation_restricted_folders WHERE conversation_id = 's_0119_deleted';"
+check_in grid_lessons "SELECT string_agg(conversation_id || ':' || restricted_source::text, ',' ORDER BY message_id) FROM answer_feedback WHERE message_id LIKE 'm_0119_%'" "s_0119_deleted:true,s_0119_other:false" "deleting the record marks the votes on that conversation, and only those"
+apply_in grid_lessons 0119_answer_feedback_restricted_source.down.sql
+check_in grid_lessons "SELECT (SELECT count(*) FROM information_schema.columns WHERE table_name = 'answer_feedback' AND column_name = 'restricted_source') + (SELECT count(*) FROM pg_trigger WHERE tgname = 'conversation_restricted_folders_mark_feedback') + (SELECT count(*) FROM pg_proc WHERE proname = 'grid_feedback_keeps_restricted_source')" "0" "down dropped the column, the trigger and the function"
+apply_in grid_lessons 0119_answer_feedback_restricted_source.sql
+check_in grid_lessons "SELECT count(*) FILTER (WHERE restricted_source) FROM answer_feedback WHERE message_id LIKE 'm_0118_%' OR message_id LIKE 'm_0119_%'" "4" "0119 re-applies; the marker set by a delete before the down is gone with its column"
+
+echo "==> 0119 feedback marker, trigger and down migration verified"
 
 # ---------------------------------------------------------------------------
 # Migration 0102: project_folders become folders of a SHELF (project | archiv),

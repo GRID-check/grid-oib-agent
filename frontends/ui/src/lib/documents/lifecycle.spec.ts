@@ -106,7 +106,16 @@ vi.mock('./version-content', () => ({
 vi.mock('@/lib/storage/discard', () => ({ discardObject: vi.fn() }))
 // The restricted-folder refusal (ADR-0084) is decided in `restricted-egress.ts`
 // and pinned in its own spec; here only the join is under test.
-vi.mock('@/lib/conversations/restricted-egress', () => ({ requireMayFileFrom: vi.fn() }))
+vi.mock('@/lib/conversations/restricted-egress', async () => {
+  const { ConversationConfinedError } = await import('@/lib/api/errors')
+  return {
+    AGENT_REFUSAL_LOCALE: 'de',
+    requireMayFileFrom: vi.fn(),
+    folderRestrictsReading: vi.fn(),
+    confinementRefusal: (action: 'revision', locale: string) =>
+      new ConversationConfinedError(action, `refused (${locale})`),
+  }
+})
 vi.mock('@/lib/projects/repository', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/lib/projects/repository')>()),
   findProjectInOrg: vi.fn(),
@@ -125,11 +134,12 @@ import { dispatchDocument } from './service'
 import { resolvePeople } from '@/lib/sharing/directory'
 import { requireProjectAccess } from '@/lib/authz/projects'
 import { recordAuditEvent } from '@/lib/audit/service'
-import { ConflictError } from '@/lib/api/errors'
+import { ConflictError, ConversationConfinedError } from '@/lib/api/errors'
 import { publishToUsers } from '@/lib/events/bus'
 import { emitInboxItems, resolveInboxItemsFor } from '@/lib/inbox/service'
 import { listReviewCandidates, resolveReviewers } from './reviewers'
 import { delegateTask } from '@/lib/tasks/delegation'
+import { folderRestrictsReading } from '@/lib/conversations/restricted-egress'
 import {
   compareAndSwapVersionState,
   findDocumentVersion,
@@ -1296,6 +1306,7 @@ describe('request_changes and the revision task', () => {
 
   beforeEach(() => {
     vi.mocked(delegateTask).mockResolvedValue({ id: 'task-1' } as never)
+    vi.mocked(folderRestrictsReading).mockResolvedValue(false)
   })
 
   it('opens no task when the version came out of a live conversation', async () => {
@@ -1343,6 +1354,59 @@ describe('request_changes and the revision task', () => {
     expect(recordAuditEvent).toHaveBeenCalledWith(
       expect.objectContaining({ action: 'document.version.changes_requested' }),
     )
+  })
+
+  /**
+   * A task's goal, plan (the draft's text) and filed filename are listed to
+   * every project member, and tasks carry no folder audience (ADR-0084). A
+   * draft in a folder some member may not read is never quoted into one.
+   */
+  describe('a draft in a folder some project member may not read', () => {
+    const restricted = makeDocument({ id: 'doc_1', projectId: 'proj_1', folderId: 'folder_hr' })
+
+    beforeEach(() => {
+      vi.mocked(folderRestrictsReading).mockResolvedValue(true)
+    })
+
+    it('refuses „Piloti überarbeiten lassen" with the reason, before the decision is recorded', async () => {
+      vi.mocked(getAccessibleDocument).mockResolvedValue(restricted)
+      vi.mocked(findDocumentVersion).mockResolvedValue(version({ originConversationId: null }))
+
+      const refused = transitionDocumentVersion(session, 'doc_1', 'ver_1', 'request_changes', {
+        comment: 'Die Gehaltstabelle stimmt nicht',
+        delegateRevision: true,
+        locale: 'en',
+      })
+
+      await expect(refused).rejects.toBeInstanceOf(ConversationConfinedError)
+      await expect(refused).rejects.toMatchObject({ action: 'revision', message: 'refused (en)' })
+      expect(folderRestrictsReading).toHaveBeenCalledWith('org_1', 'proj_1', 'folder_hr')
+      // Nothing moved: the reviewer can still ask for the changes without Piloti.
+      expect(compareAndSwapVersionState).not.toHaveBeenCalled()
+      expect(delegateTask).not.toHaveBeenCalled()
+    })
+
+    it('opens no task for a version nobody typed, and still records the decision', async () => {
+      vi.mocked(getAccessibleDocument).mockResolvedValue(restricted)
+      vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+
+      const refused = await refuse(version({ originConversationId: null, createdBy: 'user_author' }))
+
+      expect(refused.state).toBe('changes_requested')
+      expect(delegateTask).not.toHaveBeenCalled()
+      expect(recordAuditEvent).toHaveBeenCalledWith(
+        expect.objectContaining({ action: 'document.version.changes_requested' }),
+      )
+    })
+
+    it('opens no task when the folder tree cannot be read', async () => {
+      vi.mocked(folderRestrictsReading).mockRejectedValue(new Error('database is down'))
+      vi.spyOn(console, 'error').mockImplementation(() => undefined)
+
+      await refuse(version({ originConversationId: null }))
+
+      expect(delegateTask).not.toHaveBeenCalled()
+    })
   })
 
   it('is the only transition that carries the effect', () => {

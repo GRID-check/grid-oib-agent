@@ -51,5 +51,7 @@ export const errors = {
       'This conversation draws on a folder with restricted access, so it cannot change the project context: the project context is visible to everyone in the project, including people not cleared for that folder.',
     filing:
       'This conversation draws on a folder with restricted access, so nothing from it can be filed there: that place is visible to people not cleared for the restricted folder. Filing works only into a folder restricted at least as narrowly.',
+    revision:
+      'This document is in a folder with restricted access, so Piloti cannot revise it: the task for that would be visible to everyone in the project, including people not cleared for that folder. Request the changes without Piloti.',
   },
 }

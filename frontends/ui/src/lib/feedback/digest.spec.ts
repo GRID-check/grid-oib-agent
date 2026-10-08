@@ -232,6 +232,21 @@ describe('getFeedbackDigest — caching', () => {
     expect([...store.entries.keys()].some((k) => k.endsWith(':7:*:*:de'))).toBe(true)
   })
 
+  /**
+   * A digest cached before the sampled turns left out restricted conversations
+   * may restate one of their comments. It must not be served after the deploy
+   * that leaves them out, for the rest of its six hours.
+   */
+  it('does not serve a digest cached before restricted votes were left out', async () => {
+    const stale = { headline: 'Zimmerer-Honorar 48.000 EUR falsch.', strengths: [], concerns: [] }
+    await store.set('feedback:digest:v1:30:*:*:de', JSON.stringify(stale))
+
+    const result = await getFeedbackDigest(health(), { windowDays: 30 })
+
+    expect(globalThis.fetch).toHaveBeenCalledOnce()
+    expect(result.digest?.headline).toBe('Mostly fine.')
+  })
+
   it('re-asks when the reader presses refresh', async () => {
     await getFeedbackDigest(health(), { windowDays: 30 })
     await getFeedbackDigest(health(), { windowDays: 30 }, { refresh: true })

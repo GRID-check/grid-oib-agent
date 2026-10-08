@@ -67,8 +67,13 @@ const MAX_QUESTION_CHARS = 240
 
 const DIGEST_TIMEOUT_MS = 50_000
 
-/** Bump when the prompt or the brief changes, so old entries do not linger. */
-const CACHE_VERSION = 'v1'
+/**
+ * Bump when the prompt, the brief or the turns it samples change, so old
+ * entries do not linger. v2: the sampled turns leave out votes on a
+ * conversation that drew on a restricted folder (`OUTSIDE_RESTRICTED_USE`), and
+ * a v1 digest may restate one for up to six hours.
+ */
+const CACHE_VERSION = 'v2'
 
 export interface FeedbackDigest {
   headline: string

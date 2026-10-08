@@ -31,7 +31,7 @@ export const GLOBAL_CACHE_KEYS = Object.freeze({
     'The platform reasoning-effort defaults, same shape and same reasoning as the model defaults.',
   'platformpricing:active':
     'The active pricing version: margin and credit price, one row for the deployment and the same number on every invoice.',
-  'platformlessons:digest:v1':
+  'platformlessons:digest:v2':
     'The platform-lessons digest is a cross-tenant artefact BY DESIGN — it is only ever read on platform surfaces, which are gated on GRID Platform membership plus a platform:* permission.',
   'openrouter:catalog':
     "OpenRouter's public model list. Fetched with the platform key, identical for every caller, and it is upstream data rather than ours.",

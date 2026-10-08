@@ -285,6 +285,28 @@ describe('DocumentLifecyclePanel — the compare-and-swap lost', () => {
     expect(await screen.findByTestId('document-lifecycle-state')).toHaveTextContent('Approved')
   })
 
+  it('says why Piloti may not revise a draft in a restricted folder', async () => {
+    const reason =
+      'This document is in a folder with restricted access, so Piloti cannot revise it.'
+    const requestChanges = vi
+      .fn()
+      .mockRejectedValue(new DocumentLifecycleError(403, 'CONVERSATION_CONFINED', reason, { action: 'revision' }))
+    const client = fakeClient({
+      listVersions: () => Promise.resolve(listing([makeVersion(1, 'in_review')])),
+      requestChanges,
+    })
+    render(<DocumentLifecyclePanel documentId="doc_1" viewer={reviewer} client={client} />)
+
+    await userEvent.click(await screen.findByRole('button', { name: 'Have Piloti revise it' }))
+    await userEvent.type(screen.getByRole('textbox'), 'Bitte Tabelle 3 neu rechnen.')
+    await userEvent.click(screen.getByTestId('document-review-comment-send'))
+
+    // The server's sentence, not „that did not work": the reviewer learns they
+    // can still ask for the changes without Piloti.
+    await waitFor(() => expect(toastError).toHaveBeenCalledWith(reason))
+    expect(await screen.findByTestId('document-lifecycle-state')).toHaveTextContent('In review')
+  })
+
   it('puts the row back when the request fails for any other reason', async () => {
     const client = fakeClient({
       listVersions: () => Promise.resolve(listing([makeVersion(1, 'in_review')])),

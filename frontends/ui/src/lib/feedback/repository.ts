@@ -29,6 +29,27 @@ import {
 import { isConversationTagKey, type ConversationTagKey } from '@/lib/conversations/tags'
 import { executeRows } from '@/lib/db/execute-rows'
 
+/**
+ * Leaves out a vote on a conversation that drew on a folder with restricted
+ * access: one with any `conversation_restricted_folders` row (ADR-0084,
+ * ADR-0085). Its question, answer, comment and expected answer may quote that
+ * folder, and every reader of these rows is outside the folder's audience: the
+ * platform staff's drill-in and CSV export, the digest's model, the eval-case
+ * converter fed by the export, and the lessons distiller that injects into
+ * every organization's turns (`platform-lessons/repository.ts`).
+ *
+ * Any record counts, including one for a folder since opened: these readers
+ * are cross-tenant, and the safe direction is to show less. The record goes
+ * with a deleted chat while the vote stays, so the vote carries the fact too:
+ * deleting the record marks it `restricted_source` (migration 0119), and both
+ * are read. Expects the feedback row aliased `f`.
+ */
+export const OUTSIDE_RESTRICTED_USE = sql`not f.restricted_source and not exists (
+  select 1 from conversation_restricted_folders crf
+  where crf.organization_id = f.organization_id
+    and crf.conversation_id = f.conversation_id
+)`
+
 /** Hard cap for the per-conversation hydration list. */
 export const CONVERSATION_FEEDBACK_LIST_LIMIT = 200
 
@@ -498,6 +519,10 @@ export async function getFeedbackHealth(
  *
  * Cross-tenant like `getFeedbackHealth`, and reachable only through it or
  * through the digest — both of which sit behind `requirePlatformPermission`.
+ *
+ * The one content-bearing read here, so it is the one that leaves out votes on
+ * a conversation that drew on a restricted folder (`OUTSIDE_RESTRICTED_USE`).
+ * The aggregates above still count them: a count quotes nothing.
  */
 export async function listFeedbackTurns(
   filters: FeedbackHealthFilters = {},
@@ -544,6 +569,7 @@ export async function listFeedbackTurns(
     ) q on true
     where f.verdict = ${verdict}
       and f.created_at >= ${since}::timestamptz
+      and ${OUTSIDE_RESTRICTED_USE}
       ${organizationId ? sql`and f.organization_id = ${organizationId}` : sql``}
       ${topic ? sql`and c.tags @> array[${topic}]::text[]` : sql``}
       ${reason && verdict === 'down' ? sql`and f.reason = ${reason}` : sql``}

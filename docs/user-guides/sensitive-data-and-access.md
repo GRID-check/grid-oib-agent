@@ -278,6 +278,17 @@ not offer, and refuses with a message saying why:
   folder the chat drew on. Piloti files these into „Berichte", so they stay in
   the chat unless they are moved there by hand.
 
+The same holds for a file in such a folder, whichever chat it came from:
+**Piloti überarbeiten lassen** is refused with the reason, and Änderungen
+anfordern opens no Auftrag for it, because an Auftrag quotes the file and the
+whole project sees it. The comment stays on the version for its author.
+
+Ratings of answers from such a chat (thumbs down, with what the answer should
+have said) are not shown to the people who run Piloti and are not used for the
+lessons Piloti learns across offices, also after the chat is deleted. Only
+their number is counted. Lessons learned from such ratings before this rule
+were withdrawn.
+
 Whether a chat drew on such a folder is decided against the folders' lists as
 they are now: when a folder is opened to everyone, the chats and notes that
 drew on it are no longer held back by it; when a list is narrowed, they are

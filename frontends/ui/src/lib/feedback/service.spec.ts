@@ -101,6 +101,7 @@ const storedRow = {
   // No experiment arm: the holdout is off by default (see
   // lib/platform-lessons/holdout.ts), so an ordinary vote carries null.
   lessonsHoldout: null,
+  restrictedSource: false,
   createdAt: new Date(),
   updatedAt: new Date(),
 }

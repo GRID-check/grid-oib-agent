@@ -29,7 +29,8 @@ surface says "bandage" and carries a per-lesson `root_cause_status`.
 ```
 down-vote (existing WS-7 capture: verdict + reason chip + comment)
   └─ POST /api/feedback/answers ── after() ──► kickLessonDistillation()   [fail-open]
-       └─ sweep: unprocessed down-votes (anti-joined, 30-day window, oldest first)
+       └─ sweep: unprocessed down-votes (anti-joined, 30-day window, oldest first,
+                 none from a conversation that drew on a restricted folder)
             1. deterministic PII scrub          lib/text/redact-pii.ts (@redactpii/node + AT/DE rules)
             1b. semantic match candidates       cosine over the register (0069), rank window as fallback
             2. POST backend /v1/lesson-distill  two LLM calls:
@@ -133,6 +134,21 @@ provenance survives a retracted vote. Dereferencing a pointer back to the raw
 report means joining `answer_feedback` under the audited platform bypass,
 which is a deliberate second gate: the injectable/visible layer is safe by
 construction, and crossing back to raw is a privileged act.
+
+Before any of them, a down-vote on a conversation that drew on a folder with
+restricted access (any `conversation_restricted_folders` row, ADR-0084) is
+never read: its question and answer may quote a folder some of the tenant's
+own members may not read, and a lesson reaches every tenant. Deleting the chat
+deletes that record but not the vote, so the delete marks the vote
+`restricted_source` (migration 0119) and the filter reads both; a vote whose
+chat was deleted before 0119 cannot be told apart. What a sweep took
+from one before that rule, migration 0118 withdrew once: the report's
+`canonical_summary` is cleared, and a lesson created from it loses its text
+and is retired (`restricted_source`). A lesson the report was only linked to
+keeps its text, since none of it came from there. An `edited` event's
+`previousContent` stays in the trail, which is append-only. The injection
+digest's cache key moved to `platformlessons:digest:v2` with it, so a digest
+cached before 0118 ran is not injected for the rest of its five minutes.
 
 Four defence layers, none trusted alone: deterministic scrub → instructed
 omission (the distiller writes the failure class, not the instance) → auditor

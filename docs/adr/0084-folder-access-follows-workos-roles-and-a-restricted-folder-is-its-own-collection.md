@@ -146,6 +146,27 @@ envelope is also refused on the envelope's own restricted collections:
   Generated documents go to the root folder „Berichte", so in practice this
   refuses unless „Berichte" is itself the project's one restricted folder.
 
+A revision task is the same door seen from a DOCUMENT: its goal (the reviewer's
+comment), its plan (the draft's text) and the filename it files are listed to
+every project member, and tasks carry no folder audience. So a draft in a
+folder some member may not read (`folderRestrictsReading`) gets none, whatever
+its conversation: „Piloti überarbeiten lassen" is refused before the swap with
+a typed 403 (`details.action: revision`), and the `openRevisionTask` effect
+opens none for the version nobody asked about. Giving tasks a folder audience
+instead would be a second visibility model for the task list, the inbox and the
+run thread, for one door.
+
+Answer feedback is read across tenants: by Piloti staff in the platform
+drill-in and its CSV export (which feeds `scripts/feedback_to_cases.py`), by
+the digest's model, and by the lessons distiller, whose lessons reach every
+organization's turns. A vote on a conversation with any
+`conversation_restricted_folders` row is left out of all of them
+(`OUTSIDE_RESTRICTED_USE`); only the aggregate counts include it. Deleting the
+chat deletes that row and keeps the vote, which has no foreign key to the
+conversation, so deleting the row marks the vote `restricted_source` (a
+trigger, migration 0119) and the filter reads both. The digest's cache key was
+bumped with the filter, so a digest written from such a vote is not served.
+
 The agent does not offer what will be refused: a turn whose signed scope holds a
 restricted collection withdraws deep research and tasks for the turn, its
 prompt names the shut doors and the reason, the one validator of model-composed
@@ -304,7 +325,13 @@ to them. They now ask WorkOS for the organization's roles first.
   pins the `project:manage` rule for folder deletes and moves.
 * `test_chat_socket.py` and `test_internal_api_confinement.py` prove the per-turn confinement
   check closes a socket whose thread was shared, and fails closed.
-* `restricted-egress.spec.ts` pins which conversations are confined and each refusal;
+* `restricted-feedback.integration.spec.ts` proves against Postgres that a vote on a
+  conversation with a restricted-folder record is in the aggregate counts and in neither the
+  platform drill-in (view, export, digest) nor the lessons distiller's input, also after the
+  conversation is deleted.
+* `restricted-egress.spec.ts` pins which conversations are confined and each refusal, and
+  `folderRestrictsReading`; `lifecycle.spec.ts` proves a revision task is refused before the
+  swap when asked for, and not opened when not, for a draft in a restricted folder;
   `delegation.spec.ts` proves a run and a task are refused before any row exists (mark, cited
   restricted answer, signed scope); `generated.spec.ts` and `diagrams/filing.spec.ts` prove a
   filing into an open folder is refused before anything is rendered or written and one into a

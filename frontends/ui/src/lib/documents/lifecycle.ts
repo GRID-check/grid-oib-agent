@@ -54,7 +54,14 @@ import { getBackendUrl } from '@/lib/backend-proxy'
 import { resolvePeople } from '@/lib/sharing/directory'
 import type { Document, DocumentVersion } from '@/lib/db/schema'
 import { getAccessibleDocument } from './access'
-import { requireMayFileFrom, type ConversationOrigin } from '@/lib/conversations/restricted-egress'
+import {
+  AGENT_REFUSAL_LOCALE,
+  confinementRefusal,
+  folderRestrictsReading,
+  requireMayFileFrom,
+  type ConversationOrigin,
+} from '@/lib/conversations/restricted-egress'
+import type { Locale } from '@/i18n/config'
 import { findProjectInOrg } from '@/lib/projects/repository'
 import { isAgentDocumentFilename } from './agent-namespace'
 import { collectionFileRef, purgeIngestedChunks } from './collection-file-ref'
@@ -142,8 +149,13 @@ export interface TransitionInput {
    * it, a `revision` task is opened as well, because the reviewer has said they
    * do not want to wait for somebody to type the next message. A version with no
    * origin conversation opens one either way — see the `openRevisionTask` effect.
+   *
+   * Refused before the swap for a document in a folder some project member may
+   * not read: a task is listed to the whole project (ADR-0084).
    */
   delegateRevision?: boolean
+  /** The language of a refusal; the agent's route leaves it German. */
+  locale?: Locale
   /**
    * Set by {@link assertReviewGuards}, never by a caller.
    *
@@ -499,6 +511,15 @@ const EFFECT_REGISTRY: Record<DocumentVersionEffect, EffectRunner> = {
    * off — none of those is a reason to tell a Ziviltechniker that their
    * „Änderungen anfordern" did not go through. The failure is logged and the
    * comment still stands on the row, which is where the Files pane reads it.
+   *
+   * ## Why a restricted folder opens none
+   *
+   * The task's goal (the comment), its plan (the draft's text) and the filename
+   * it files are listed to every project member (`listTasks`), and tasks carry
+   * no folder audience of their own. So a draft in a folder some member may not
+   * read gets no task, whoever filed it: the reviewer who asked outright was
+   * refused with the reason before the swap, and a version nobody asked about
+   * keeps its comment on the row for its author (ADR-0084).
    */
   openRevisionTask: async ({ session, document, version, input }) => {
     const delegated = input.delegateRevision === true
@@ -509,6 +530,11 @@ const EFFECT_REGISTRY: Record<DocumentVersionEffect, EffectRunner> = {
     if (!document.projectId) return
 
     try {
+      // Inside the try: a folder tree that cannot be read opens no task.
+      if (await folderRestrictsReading(session.organizationId, document.projectId, document.folderId)) {
+        console.warn(`[documents] no revision task for version ${version.id}: its folder restricts reading`)
+        return
+      }
       // Cycle-broken like the ingest dispatch above: `lib/tasks/delegation`
       // imports the jobs service, which imports the tasks service, which imports
       // THIS module for the filing it does at completion.
@@ -799,6 +825,14 @@ export async function transitionDocumentVersion(
   // Before the swap, so a submission that would reach nobody is refused while
   // the version is still a draft the caller can fix.
   const review = await assertReviewGuards(session, document, version, transition, input)
+  // Before the swap too: „Piloti überarbeiten lassen" on a draft no task may
+  // quote is refused with the reason, and the reviewer can still ask for the
+  // changes without Piloti. The effect checks again for the case nobody asked.
+  if (input.delegateRevision === true && transition.effects.includes('openRevisionTask')) {
+    if (await folderRestrictsReading(session.organizationId, document.projectId, document.folderId)) {
+      throw confinementRefusal('revision', input.locale ?? AGENT_REFUSAL_LOCALE)
+    }
+  }
   const effectInput: TransitionInput = {
     ...input,
     ...(review.reviewers ? { reviewerUserIds: review.reviewers } : {}),

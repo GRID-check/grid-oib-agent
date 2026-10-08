@@ -792,7 +792,10 @@ conversation and a narrowed one confines it to fewer people.
 | `folder_id` | `uuid` | NOT NULL, PK | No FK: a deleted folder's tombstone (0109) keeps answering, and an unknown id is treated as unreadable |
 | `first_at` / `last_at` | `timestamptz` | NOT NULL, `defaultNow()`, CHECK `last_at >= first_at` | |
 
-`deleteConversationInOrg` deletes the rows with the conversation.
+`deleteConversationInOrg` deletes the rows with the conversation. Deleting a
+row marks the votes on that conversation `answer_feedback.restricted_source`
+(trigger, migration 0119), so they stay out of the cross-tenant feedback
+readers once the record is gone.
 Repository: `lib/conversations/restricted-use-repository.ts`; proven against
 Postgres in `restricted-use.integration.spec.ts`; its CHECK and down in
 `scripts/rls-test-db.sh`. `listRecentMessagesWithCardDecisions` also reads it:
@@ -1313,7 +1316,7 @@ declares it. `grid_tenant_isolation` is untouched.
 
 ---
 
-## answer_feedback (migration 0020)
+## answer_feedback (migrations 0020, 0119)
 
 Per-answer thumbs feedback (WS-7, click-dummy overhaul spec §1/§6; flag
 `answer-feedback`). One row per (user, assistant answer).
@@ -1334,7 +1337,18 @@ Per-answer thumbs feedback (WS-7, click-dummy overhaul spec §1/§6; flag
   platform-lessons experiment this turn was in; NULL when the holdout is off,
   which is the default, so those votes are excluded from the comparison rather
   than counted as treated),
+  `restricted_source` (boolean, NOT NULL, default `false`, migration 0119 —
+  the conversation drew on a folder with restricted access; see below),
   `created_at`/`updated_at`.
+- `restricted_source` keeps a vote out of every cross-tenant reader
+  (`OUTSIDE_RESTRICTED_USE`) after its chat is deleted. Deleting the chat
+  deletes its `conversation_restricted_folders` rows but not the vote, which
+  has no FK to the conversation and stays counted; the
+  `conversation_restricted_folders_mark_feedback` trigger
+  (`BEFORE DELETE` on that table, `grid_feedback_keeps_restricted_source`)
+  marks every vote on the conversation as a row goes. 0119 backfilled the votes
+  on conversations with a row; a vote whose chat was deleted before 0119
+  cannot be told apart.
 - Voting model (the simplest honest one): **re-vote = upsert** on the unique
   `(user_id, message_id)` index (`answer_feedback_user_message_uidx`);
   **toggle-off = delete** — no "retracted" tombstone state.
@@ -1625,7 +1639,7 @@ project-ownership `EXISTS`.
 
 ---
 
-## platform_lessons / platform_lesson_reports / platform_lesson_events (migrations 0068, 0069, 0070)
+## platform_lessons / platform_lesson_reports / platform_lesson_events (migrations 0068, 0069, 0070, 0118)
 
 The fleet-wide lesson register distilled from answer feedback
 (`docs/architecture/platform-failure-learning.md`). **Global — no
@@ -1650,6 +1664,13 @@ reaches every tenant) and the anonymization boundary.
   carries **no FK** — a user retracting their vote must not erase the
   provenance of a lesson already distilled from it. `org_hash` is sha256 of
   the WorkOS org id: enough to count distinct organizations, nothing more.
+- Migration 0118 changes rows only. It withdraws what a sweep took from a vote
+  on a conversation with a `conversation_restricted_folders` row before the
+  sweep stopped reading those (`OUTSIDE_RESTRICTED_USE`): such a report keeps
+  its row without its `canonical_summary`, and a lesson CREATED from one gets
+  a withdrawal note as its `content` and, if it was live, is retired
+  (`retired_reason = 'restricted_source'`, one `retired` event). Its down
+  migration cannot bring the text back.
 - `platform_lesson_events`: append-only trail of every transition, whether the
   actor was the pipeline (`system:distiller`) or a platform owner. 0070 adds
   the action `flagged_ineffective`: the sweep's per-lesson effectiveness

@@ -59,13 +59,15 @@ export class OrgMemoryDisabledError extends ApiError {
  * 403 — a conversation that drew on a folder with restricted access may not
  * carry its content to where others read it (ADR-0084): a deep-research run, a
  * task, the project profile, or a folder not restricted at least as narrowly.
+ * `revision` is the same refusal for a document rather than a conversation: a
+ * draft in such a folder is not quoted into a project-wide revision task.
  * Its own code, so a caller (the agent's tools, a card) can tell this refusal
  * from a missing permission; `details.action` says which door refused. The
  * message is already the reader's sentence (`lib/conversations/restricted-egress.ts`).
  */
 export class ConversationConfinedError extends ApiError {
   constructor(
-    readonly action: 'deepResearch' | 'task' | 'profilePatch' | 'filing',
+    readonly action: 'deepResearch' | 'task' | 'profilePatch' | 'filing' | 'revision',
     message: string
   ) {
     super(403, 'CONVERSATION_CONFINED', message, { action })

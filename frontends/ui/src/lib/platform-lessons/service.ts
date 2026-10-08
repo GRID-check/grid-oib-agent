@@ -161,7 +161,12 @@ export function resetLessonSweepStateForTests(): void {
   fingerprintProbe = null
 }
 
-const DIGEST_CACHE_KEY = 'platformlessons:digest:v1'
+/**
+ * v2: migration 0118 retired the lessons created from a conversation that drew
+ * on a restricted folder, and a v1 digest written before it ran may still
+ * inject one for the rest of its TTL.
+ */
+const DIGEST_CACHE_KEY = 'platformlessons:digest:v2'
 const DIGEST_CACHE_TTL_MS = 5 * 60 * 1000
 
 const SYSTEM_ACTOR = 'system:distiller'

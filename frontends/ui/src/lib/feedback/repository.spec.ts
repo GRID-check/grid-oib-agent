@@ -114,6 +114,15 @@ describe('listFeedbackTurns', () => {
     return Array.isArray(chunks) ? chunks.flatMap(params) : []
   }
 
+  /** The literal SQL of a fragment, nested fragments included. */
+  const sqlText = (fragment: unknown): string => {
+    if (fragment === null || typeof fragment !== 'object') return ''
+    const value = (fragment as { value?: unknown }).value
+    if (Array.isArray(value)) return value.join('')
+    const chunks = (fragment as { queryChunks?: unknown[] }).queryChunks
+    return Array.isArray(chunks) ? chunks.map(sqlText).join('') : ''
+  }
+
   const capture = () => {
     const execute = vi.fn().mockResolvedValue([])
     mockGetDb.mockReturnValue({ execute } as never)
@@ -147,6 +156,20 @@ describe('listFeedbackTurns', () => {
 
     await listFeedbackTurns({ verdict: 'down', reason: 'inaccurate' })
     expect(params(execute.mock.calls[1][0])).toContain('inaccurate')
+  })
+
+  /**
+   * Its question, answer, comment and expected answer may quote a restricted
+   * folder, and every reader of this list (platform staff, the CSV export, the
+   * digest's model) is outside that folder's audience. The SQL is checked
+   * against Postgres in `restricted-feedback.integration.spec.ts`.
+   */
+  it('leaves out votes on a conversation that drew on a restricted folder', async () => {
+    const execute = capture()
+    await listFeedbackTurns({})
+    expect(sqlText(execute.mock.calls[0][0])).toMatch(
+      /not exists \(\s*select 1 from conversation_restricted_folders crf\s+where crf\.organization_id = f\.organization_id\s+and crf\.conversation_id = f\.conversation_id/
+    )
   })
 
   it('coerces the raw row — `sql` results are not runtime-validated', async () => {

@@ -118,7 +118,7 @@ export const platformLessons = pgTable(
     activatedBy: text('activated_by'),
     retiredAt: timestamp('retired_at', { withTimezone: true }),
     retiredBy: text('retired_by'),
-    /** 'evicted_capacity' | 'root_cause_closed' | free text from the owner. */
+    /** 'evicted_capacity' | 'root_cause_closed' | 'restricted_source' (0118) | free text from the owner. */
     retiredReason: text('retired_reason'),
     rootCauseStatus: text('root_cause_status')
       .$type<PlatformLessonRootCauseStatus>()

@@ -81,7 +81,7 @@ ruleTester.run('require-tenant-cache-key', rule, {
     },
     {
       // A constant key nobody wrote a reason for.
-      code: withImport("getCached('platformlessons:digest:v2', 1000, load)"),
+      code: withImport("getCached('platformlessons:summary', 1000, load)"),
       errors: [{ messageId: 'unscoped' }],
     },
     {

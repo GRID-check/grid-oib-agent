@@ -263,6 +263,10 @@ export function DocumentLifecyclePanel({
         if (error instanceof DocumentLifecycleError && error.status === 409) {
           toast.error(t('lifecycle.errors.conflict'))
           await load()
+        } else if (error instanceof DocumentLifecycleError && error.code === 'CONVERSATION_CONFINED') {
+          // The server's sentence, already in the reader's language: why
+          // Piloti may not revise a draft in a restricted folder (ADR-0084).
+          toast.error(error.message)
         } else {
           toast.error(t('lifecycle.errors.actionFailed'))
         }

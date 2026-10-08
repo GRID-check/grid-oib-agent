@@ -16,7 +16,9 @@
  *     card);
  *   * a document filed into the project (`fileGeneratedDocument`, and the agent
  *     rewriting a draft's content): allowed only into a folder restricted at
- *     least as narrowly, see {@link requireMayFileFrom}.
+ *     least as narrowly, see {@link requireMayFileFrom};
+ *   * a revision task opened from a draft in a restricted folder, whatever its
+ *     conversation, see {@link folderRestrictsReading}.
  *
  * ## Which conversations
  *
@@ -37,7 +39,7 @@ import 'server-only'
 import { ConversationConfinedError } from '@/lib/api/errors'
 import { getDictionary } from '@/i18n/dictionaries'
 import type { Locale } from '@/i18n/config'
-import { folderTree } from '@/lib/authz/folder-access'
+import { folderTree, readableByEveryMember } from '@/lib/authz/folder-access'
 import { listProjectFolderTree } from '@/lib/authz/folder-access-repository'
 import { recordedRestrictedFolders } from './restricted-use'
 
@@ -119,4 +121,24 @@ export async function requireMayFileFrom(origin: ConversationOrigin, destination
   }
   if (required.every((source) => path.has(source))) return
   throw confinementRefusal('filing', origin.locale)
+}
+
+/**
+ * Whether a document filed in `folderId` of `projectId` is one some project
+ * member may not read: its folder, or an ancestor, restricts reading. The test
+ * a door that every member reads applies to a DOCUMENT rather than a
+ * conversation: a revision task quotes the draft's text into its run, and its
+ * goal and filename are listed to the whole project (`openRevisionTask`).
+ *
+ * False for the project root and for a document outside every project. A
+ * folder the tree no longer holds counts as restricting: the safe direction.
+ */
+export async function folderRestrictsReading(
+  organizationId: string,
+  projectId: string | null,
+  folderId: string | null
+): Promise<boolean> {
+  if (projectId === null || folderId === null) return false
+  const tree = folderTree(await listProjectFolderTree(organizationId, projectId))
+  return !readableByEveryMember(tree, folderId)
 }
