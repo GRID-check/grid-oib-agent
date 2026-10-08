@@ -2504,6 +2504,10 @@
     "de": "Sie können den Bericht vor dem Herunterladen als PDF in der Vorschau ansehen – in einem Bereich, den Sie beliebig breit ziehen können. Was Sie sehen, ist das Dokument, das Sie erhalten."
   },
   {
+    "en": "Your office can now build its own roles in Piloti, under Organisation → Personen & Zugriff → Eigene Rollen.",
+    "de": "Ihr Büro kann jetzt unter Organisation → Personen & Zugriff → Eigene Rollen eigene Rollen in Piloti anlegen."
+  },
+  {
     "en": "Your office now decides what must not be uploaded, under Organisation → Sensible Daten: terms for file and folder names, terms for the content, and checks for IBANs, Austrian social security numbers and card numbers. Piloti starts you on a suggested list you can keep, change or switch off.",
     "de": "Ihr Büro legt jetzt unter Organisation → Sensible Daten fest, was nicht hochgeladen werden darf: Begriffe für Datei- und Ordnernamen, Begriffe für den Inhalt sowie Prüfungen auf IBANs, österreichische Sozialversicherungsnummern und Kartennummern. Piloti beginnt mit einer vorgeschlagenen Liste, die Sie übernehmen, ändern oder abschalten können."
   },
