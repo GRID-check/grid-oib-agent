@@ -33,6 +33,8 @@ import logging
 import os
 import signal
 
+from aiq_agent.knowledge.leader_lock import require_direct_dsns
+
 from . import ingest_dispatch
 
 logger = logging.getLogger(__name__)
@@ -106,6 +108,10 @@ async def _drain(ingestor) -> None:
 
 def main() -> None:
     logging.basicConfig(level=os.environ.get("LOG_LEVEL", "INFO"))
+    # Every file takes a `keyed_lock` while it replaces its predecessor, which
+    # needs the direct DSN (ADR-0083). It never LISTENs. Fail the boot, not the
+    # first file.
+    require_direct_dsns(listen=False)
     stop = asyncio.Event()
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)

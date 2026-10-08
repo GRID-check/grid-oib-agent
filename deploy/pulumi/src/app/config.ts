@@ -2,6 +2,7 @@ import * as k8s from "@pulumi/kubernetes";
 import * as pulumi from "@pulumi/pulumi";
 import { GridConfig } from "../config";
 import { APP_DEFAULTS, KEDA_SCALER_ROLE, PORT } from "../constants";
+import type { Postgres } from "../data/postgres";
 import { FRONTEND_DRAIN_SECONDS, secretChecksum } from "../platform/rollout";
 
 type EnvVar = k8s.types.input.core.v1.EnvVar;
@@ -17,13 +18,8 @@ export interface AppWiring {
   chromaUrl?: pulumi.Output<string>;
   /** Office → PDF converter URL (set when cfg.gotenberg.enabled, ADR-0070). */
   gotenbergUrl?: pulumi.Output<string>;
-  dsn: (opts: {
-    db: string;
-    driver?: string;
-    as?: { user: string; password: pulumi.Output<string> };
-    /** Host by FQDN, for a client in another namespace (KEDA). */
-    clusterWide?: boolean;
-  }) => pulumi.Output<string>;
+  /** Every DSN states its route (`via`), pooled or direct: see `PgRoute` in `data/postgres.ts`. */
+  dsn: Postgres["dsn"];
   /**
    * imagePullSecrets for every app pod spec — references the registry pull
    * Secret when the app images are private, empty when they are public.
@@ -114,7 +110,16 @@ export const BFF_QUEUE_DSN_KEY = "KEDA_BFF_QUEUE_DB_URL";
  */
 export function buildScalerSecret(w: AppWiring): k8s.core.v1.Secret {
   const dsn = (db: string) =>
-    w.dsn({ db, as: { user: KEDA_SCALER_ROLE, password: w.cfg.postgres.scalerPassword }, clusterWide: true });
+    // Direct: the operator opens a session per poll, from another namespace, as a
+    // login capped at KEDA_SCALER_CONNECTION_LIMIT (counted in the budget's direct
+    // reserve). The scaler reads the primary's own queue tables, whether or not
+    // the pooler is up.
+    w.dsn({
+      db,
+      via: "direct",
+      as: { user: KEDA_SCALER_ROLE, password: w.cfg.postgres.scalerPassword },
+      clusterWide: true,
+    });
   return new k8s.core.v1.Secret(
     "grid-keda-scaler",
     {
@@ -166,20 +171,30 @@ export function buildSecrets(w: AppWiring): AppSecrets {
     // DSNs below. Inlining it on each pod spec would publish the cache
     // credential to anything with `get pod` in the namespace.
     REDIS_URL: w.redisUrl,
-    // DSNs (embed the PG password → secret).
-    NAT_JOB_STORE_DB_URL: w.dsn({ db: "aiq_jobs", driver: "postgresql+asyncpg" }),
-    AIQ_CHECKPOINT_DB: w.dsn({ db: "aiq_checkpoints" }),
-    AIQ_SUMMARY_DB: w.dsn({ db: "aiq_jobs", driver: "postgresql+psycopg" }),
-    AIQ_LISTEN_DB_URL: w.dsn({ db: "aiq_jobs" }),
-    AIQ_DEEP_CHECKPOINT_DB: w.dsn({ db: "aiq_checkpoints" }),
+    // DSNs (embed the PG password → secret). Every one states its route
+    // (ADR-0083): `pooler` for what is self-contained per transaction, `direct`
+    // (`grid-pg-rw`) for what needs one server connection across statements.
+    // `postgres.spec.ts` holds this table to the same split.
+    NAT_JOB_STORE_DB_URL: w.dsn({ db: "aiq_jobs", via: "pooler", driver: "postgresql+asyncpg" }),
+    AIQ_CHECKPOINT_DB: w.dsn({ db: "aiq_checkpoints", via: "pooler" }),
+    AIQ_SUMMARY_DB: w.dsn({ db: "aiq_jobs", via: "pooler", driver: "postgresql+psycopg" }),
+    AIQ_DEEP_CHECKPOINT_DB: w.dsn({ db: "aiq_checkpoints", via: "pooler" }),
+    // LISTEN/NOTIFY: a notification reaches the one server session that ran
+    // LISTEN, which a transaction pooler does not keep for the client.
+    AIQ_LISTEN_DB_URL: w.dsn({ db: "aiq_jobs", via: "direct" }),
+    // Session advisory locks (leader election, the re-ingest lock, the reaper):
+    // a session owns the lock, so behind a pooler it is taken on one server
+    // connection and "released" on another, and the first stays locked.
+    AIQ_LOCK_DB_URL: w.dsn({ db: "aiq_jobs", via: "direct" }),
     // The app tier connects as the least-privilege role, so row-level security
     // applies to it (ADR-0041). Migrations get the owner credential below —
     // RLS does not apply to a table's owner, so DDL and backfills still work.
     GRID_APP_DATABASE_URL: w.dsn({
       db: "grid_app",
+      via: "pooler",
       as: { user: "grid_app_rw", password: cfg.postgres.runtimePassword },
     }),
-    GRID_APP_MIGRATION_DATABASE_URL: w.dsn({ db: "grid_app" }),
+    GRID_APP_MIGRATION_DATABASE_URL: w.dsn({ db: "grid_app", via: "direct" }),
     // err2issue's PAT, for the BFF filing bug reports as issues. Absent rather
     // than empty when that is off, so the Secret holds no credential it needn't.
     ...(cfg.feedbackIssues.enabled ? { GRID_GITHUB_TOKEN: cfg.feedbackIssues.githubToken } : {}),
@@ -245,6 +260,7 @@ export function backendEnv(w: AppWiring, otelServiceName = "grid-aiq-agent"): En
     sref("AIQ_CHECKPOINT_DB"),
     sref("AIQ_SUMMARY_DB"),
     sref("AIQ_LISTEN_DB_URL"),
+    sref("AIQ_LOCK_DB_URL"),
     // Durable per-job LangGraph checkpointing for async deep-research runs.
     sref("AIQ_DEEP_CHECKPOINT_DB"),
     // Shared cache (authenticated: the URL carries the password).

@@ -1,7 +1,7 @@
 # Docker Compose Service Reference
 
 The Docker Compose file is at `deploy/compose/docker-compose.yaml`. It defines
-18 services, several named volumes, and 2 bridge networks. This page describes
+19 services, several named volumes, and 2 bridge networks. This page describes
 the core ones; the observability stack (`dragonfly`, `clickhouse`, the three
 `langfuse-*` services) and the four background workers (`purger`,
 `skill-scheduler`, `bff-jobs`, `housekeeping`) are defined in the compose file
@@ -58,9 +58,11 @@ The Python backend service running NAT + FastAPI.
 | Variable | Default |
 |----------|---------|
 | `APP_ENV` | `production` |
-| `NAT_JOB_STORE_DB_URL` | `postgresql+asyncpg://aiq:aiq_dev@postgres:5432/aiq_jobs` |
-| `AIQ_CHECKPOINT_DB` | `postgresql://aiq:aiq_dev@postgres:5432/aiq_checkpoints` |
-| `AIQ_SUMMARY_DB` | `postgresql+psycopg://aiq:aiq_dev@postgres:5432/aiq_jobs` |
+| `NAT_JOB_STORE_DB_URL` | `postgresql+asyncpg://aiq:aiq_dev@pgbouncer:5432/aiq_jobs` (pooled) |
+| `AIQ_CHECKPOINT_DB` | `postgresql://aiq:aiq_dev@pgbouncer:5432/aiq_checkpoints` (pooled) |
+| `AIQ_SUMMARY_DB` | `postgresql+psycopg://aiq:aiq_dev@pgbouncer:5432/aiq_jobs` (pooled) |
+| `AIQ_LISTEN_DB_URL` | `postgresql://aiq:aiq_dev@postgres:5432/aiq_jobs` (direct: SSE LISTEN/NOTIFY) |
+| `AIQ_LOCK_DB_URL` | `postgresql://aiq:aiq_dev@postgres:5432/aiq_jobs` (direct: session advisory locks) |
 | `AIQ_CHROMA_DIR` | `/app/data/chroma_data` |
 | `CONFIG_FILE` | `/app/configs/config_oib_openrouter.yml` |
 | `HOST` | `0.0.0.0` |
@@ -79,7 +81,7 @@ The Python backend service running NAT + FastAPI.
 
 **Healthcheck**: `python -c "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"` — interval 15s, timeout 10s, retries 10, start period 30s.
 
-**Depends on**: `seaweedfs` (healthy), `postgres` (healthy).
+**Depends on**: `seaweedfs` (healthy), `postgres` (healthy), `pgbouncer` (healthy).
 
 **Restart**: `unless-stopped`.
 
@@ -222,7 +224,7 @@ The Next.js UI application.
 |----------|------------------|
 | `REQUIRE_AUTH` | `${REQUIRE_AUTH:-false}` |
 | `BACKEND_URL` | `${BACKEND_URL:-http://aiq-agent:8000}` |
-| `GRID_APP_DATABASE_URL` | `${GRID_APP_DATABASE_URL:-postgresql://grid_app_rw:${GRID_APP_RUNTIME_PASSWORD:-grid_app_rw_dev}@postgres:5432/grid_app}` — the least-privilege role, subject to row-level security (ADR-0041). Migrations use the owner credential in `GRID_APP_MIGRATION_DATABASE_URL`, set only on `grid-migrate`. |
+| `GRID_APP_DATABASE_URL` | `${GRID_APP_DATABASE_URL:-postgresql://grid_app_rw:${GRID_APP_RUNTIME_PASSWORD:-grid_app_rw_dev}@pgbouncer:5432/grid_app}` — the least-privilege role, subject to row-level security (ADR-0041), through the pooler. Migrations use the owner credential in `GRID_APP_MIGRATION_DATABASE_URL`, set only on `grid-migrate`, straight to `postgres`. |
 | `WORKOS_CLIENT_ID` | `${WORKOS_CLIENT_ID}` |
 | `WORKOS_API_KEY` | `${WORKOS_API_KEY}` |
 | `NEXT_PUBLIC_WORKOS_REDIRECT_URI` | `${NEXT_PUBLIC_WORKOS_REDIRECT_URI:-${WORKOS_REDIRECT_URI:-http://localhost:3000/api/auth/callback}}` |
@@ -333,6 +335,33 @@ PostgreSQL 16 database.
 | Memory | 4G | 2G |
 
 **Healthcheck**: `pg_isready -U aiq -d aiq_jobs && pg_isready -U aiq -d aiq_checkpoints && pg_isready -U aiq -d grid_app` — interval 5s, timeout 5s, retries 5.
+
+**Restart**: `unless-stopped`.
+
+### pgbouncer
+
+Transaction pooler in front of the pooled DSNs (ADR-0083), mirroring the
+CloudNativePG `Pooler` Kubernetes runs, so a session feature that only works on
+a direct connection fails here and not first in production.
+
+| Property | Value |
+|----------|-------|
+| Image | `edoburu/pgbouncer:v1.26.0-p0`, digest-pinned (PgBouncer 1.26.0; `max_prepared_statements` needs 1.21 or newer) |
+| Container name | `aiq-pgbouncer` |
+| Ports | none published; `pgbouncer:5432` on `aiq-network` |
+| Pool mode | `transaction` |
+
+**Environment**: `DATABASE_URLS` (one login per pooled role, from which the
+image writes its userlist), `POOL_MODE=transaction`, `AUTH_TYPE=scram-sha-256`,
+`MAX_CLIENT_CONN=2000`, `DEFAULT_POOL_SIZE=12`, `MAX_PREPARED_STATEMENTS=200`,
+`IGNORE_STARTUP_PARAMETERS=extra_float_digits,options`. Passwords are written
+into URLs, so they cannot contain `:`, `@` or `/`.
+
+**Routing**: the pooled DSNs above and every `GRID_APP_DATABASE_URL` go through
+it. `AIQ_LISTEN_DB_URL`, `AIQ_LOCK_DB_URL`, `GRID_APP_MIGRATION_DATABASE_URL` and
+Langfuse's `DATABASE_URL` go straight to `postgres`, as in Kubernetes.
+
+**Healthcheck**: `pg_isready -h 127.0.0.1 -p 5432` — interval 5s, timeout 3s, retries 5.
 
 **Restart**: `unless-stopped`.
 
