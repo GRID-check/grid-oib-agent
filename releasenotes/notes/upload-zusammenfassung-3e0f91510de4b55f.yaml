@@ -1,0 +1,11 @@
+---
+features:
+  - >
+    When everything an upload brought in has been read, your inbox tells you,
+    with a summary of what arrived, where it was filed, what each file is, and
+    what was held back or failed. Project settings list every upload with its
+    outcome and who uploaded it.
+fixes:
+  - >
+    Dropping a folder no longer uploads .DS_Store, Thumbs.db or Office lock
+    files (~$Vertrag.docx) with it.

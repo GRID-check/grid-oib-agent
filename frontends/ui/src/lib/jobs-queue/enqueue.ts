@@ -8,6 +8,7 @@
  */
 
 import 'server-only'
+import type { DbExecutor } from '@/lib/db/executor'
 import { BFF_JOB_PRIORITY, type BffJobKind, type BffJobPriority } from './types'
 import { insertJob } from './repository'
 
@@ -22,17 +23,30 @@ export interface EnqueuedJob {
  * long request (a reindex, a rescan), which must yield to a person's upload.
  * A job a person is waiting on says `interactive`.
  */
-export async function enqueueJob(input: {
-  kind: BffJobKind
-  organizationId: string
-  payload: Record<string, unknown>
-  priority?: BffJobPriority
-}): Promise<EnqueuedJob> {
-  const jobId = await insertJob({
-    kind: input.kind,
-    organizationId: input.organizationId,
-    priority: input.priority ?? BFF_JOB_PRIORITY.bulk,
-    payload: input.payload,
-  })
+export async function enqueueJob(
+  input: {
+    kind: BffJobKind
+    organizationId: string
+    payload: Record<string, unknown>
+    priority?: BffJobPriority
+    /** The id to give the job, when the caller stamps it on rows in the same transaction. */
+    jobId?: string
+    /** Not claimed before this. */
+    notBefore?: Date
+  },
+  /** The caller's transaction, when the job must commit or roll back with its other writes. */
+  executor?: DbExecutor
+): Promise<EnqueuedJob> {
+  const jobId = await insertJob(
+    {
+      kind: input.kind,
+      organizationId: input.organizationId,
+      priority: input.priority ?? BFF_JOB_PRIORITY.bulk,
+      payload: input.payload,
+      jobId: input.jobId,
+      notBefore: input.notBefore,
+    },
+    executor
+  )
   return { jobId }
 }
