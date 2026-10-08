@@ -20,14 +20,16 @@ import { and, desc, eq, gte, sql } from 'drizzle-orm'
 import { getDb } from '@/lib/db'
 import {
   answerFeedback,
-  conversations,
-  messages,
   type AnswerFeedback,
   type AnswerFeedbackReason,
   type AnswerFeedbackVerdict,
 } from '@/lib/db/schema'
 import { isConversationTagKey, type ConversationTagKey } from '@/lib/conversations/tags'
 import { executeRows } from '@/lib/db/execute-rows'
+import { VOTED_TURN_JOINS } from './turn-join'
+import { feedbackWindowStart } from './trend'
+import { likeContains } from '@/lib/text/like-pattern'
+import { isTraceId } from '@/lib/langfuse/config'
 
 /** Hard cap for the per-conversation hydration list. */
 export const CONVERSATION_FEEDBACK_LIST_LIMIT = 200
@@ -89,12 +91,15 @@ export async function upsertAnswerFeedback(values: UpsertAnswerFeedbackValues): 
   return row
 }
 
-/** Toggle-off: delete the caller's vote. Returns whether a row existed. */
+/**
+ * Toggle-off: delete the caller's vote. Returns the deleted row's id, or null
+ * when there was none. The id is what the vote's Langfuse score is keyed by.
+ */
 export async function deleteAnswerFeedbackForUser(
   userId: string,
   messageId: string,
   organizationId: string,
-): Promise<boolean> {
+): Promise<string | null> {
   const db = getDb()
   const rows = await db
     .delete(answerFeedback)
@@ -106,7 +111,37 @@ export async function deleteAnswerFeedbackForUser(
       ),
     )
     .returning({ id: answerFeedback.id })
-  return rows.length > 0
+  return rows[0]?.id ?? null
+}
+
+/** An answer id as the agent mints it: a UUID (`turn.response.answer_message_id`). */
+const ANSWER_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+
+/**
+ * The trace the answer was produced in, as its persisted row names it
+ * (`metadata.trace_id`, written by the agent: `observability/turn_trace.py`),
+ * or null. Read, never derived: a row that does not name its trace is one whose
+ * trace nobody recorded, and a guessed id would score or link a trace that may
+ * not exist.
+ *
+ * Tenant-scoped like every other read here. Null for an id that is not a UUID
+ * (`messages.id` is one, and the cast would otherwise throw).
+ */
+export async function getAnswerTraceId(messageId: string, organizationId: string): Promise<string | null> {
+  if (!ANSWER_ID.test(messageId)) return null
+  const db = getDb()
+  const rows = rowsOf(
+    await db.execute(sql`
+      select metadata->>'trace_id' as trace_id
+      from messages
+      where id = ${messageId}::uuid
+        and organization_id = ${organizationId}
+        and role = 'assistant'
+      limit 1
+    `),
+  )
+  const traceId = rows[0]?.trace_id
+  return isTraceId(traceId) ? traceId : null
 }
 
 /** The caller's own votes in one conversation (bounded; newest first). */
@@ -146,6 +181,22 @@ export const FEEDBACK_HEALTH_WINDOW_DAYS = 30
 export const FEEDBACK_HEALTH_RECENT_LIMIT = 50
 
 /**
+ * Ceiling on the CSV export's rows. The export is the analysis that does not fit
+ * on a page, so it cannot share the page's 50, but it is still a list and still
+ * bounded; the service reports when it was reached instead of truncating quietly.
+ */
+export const FEEDBACK_EXPORT_ROW_CAP = 5000
+
+/**
+ * Ceilings on the two rollups, which group by a value the table does not bound:
+ * organizations grow with the customer list, and topic tags are written by an
+ * LLM (unknown keys are dropped only after the read). Ordered by volume, so a
+ * cut drops the quietest rows, never the ones the page leads with.
+ */
+export const FEEDBACK_ORG_ROLLUP_LIMIT = 500
+export const FEEDBACK_TOPIC_ROLLUP_LIMIT = 100
+
+/**
  * **Deliberately NOT organization-scoped** — the one read in this file that
  * crosses tenants.
  *
@@ -171,10 +222,19 @@ export interface FeedbackHealthTotals {
   downVoters: number
 }
 
+/**
+ * Down-votes per reason chip. Never a null reason: a down-vote with no chip
+ * (the reason arrives on a later click, or never) counts as `other`, in SQL, so
+ * the rows sum to `totals.down`. Before, NULL and `other` came back as two rows
+ * and every reader that keyed them by reason kept whichever came last.
+ */
 export interface FeedbackReasonCount {
-  reason: AnswerFeedbackReason | null
+  reason: AnswerFeedbackReason
   count: number
 }
+
+/** A down-vote without a reason is an `other`; one expression, used by the count and the filter. */
+const REASON_OR_OTHER = sql<AnswerFeedbackReason>`coalesce(${answerFeedback.reason}, 'other')`
 
 export interface FeedbackDailyPoint {
   day: string
@@ -247,6 +307,11 @@ export interface FeedbackTurn {
   conversationTitle: string | null
   /** The conversation's topic tags, when it has a row and was tagged. */
   topics: ConversationTagKey[]
+  /**
+   * The Langfuse trace the answer was produced in, as its row names it
+   * (`metadata.trace_id`); null when the row is missing or predates the field.
+   */
+  traceId: string | null
 }
 
 export interface FeedbackHealth {
@@ -261,11 +326,21 @@ export interface FeedbackHealth {
    * about who reaches for a thumb. Publishing the coverage beside it is what stops
    * the headline being quoted as something it is not.
    *
-   * Best available, not perfect: it counts persisted assistant messages, and
-   * persistence is best-effort per turn. It therefore UNDER-counts answers, which
-   * biases coverage upward — so the real coverage is at most this, never more.
+   * Counted as the answers PRODUCED in the window (persisted assistant
+   * messages) united with the answers RATED in it, so a vote on an older or an
+   * unpersisted answer brings its answer into the denominator too. Persistence
+   * is best-effort per turn, so this can still under-count unrated answers.
    */
   answers: number
+  /** Distinct answers that received at least one vote in the window. Never more than `answers`. */
+  ratedAnswers: number
+  /**
+   * `ratedAnswers / answers`, a fraction in [0, 1]; `null` when there were no
+   * answers, which is "no reading", not 0 %. This, and not votes over answers,
+   * is the coverage figure: votes exceed answers whenever two people rate one,
+   * and that ratio passed 100 %.
+   */
+  coverage: number | null
   totals: FeedbackHealthTotals
   reasons: FeedbackReasonCount[]
   daily: FeedbackDailyPoint[]
@@ -324,9 +399,12 @@ function rowsOf(result: unknown): Record<string, unknown>[] {
   return executeRows(result)
 }
 
-/** Start of the health window, as an ISO instant. */
+/**
+ * Start of the health window, as an ISO instant: UTC midnight, N-1 days back,
+ * the same calendar days the chart draws (`feedbackWindowStart`).
+ */
 function windowStart(days: number): string {
-  return new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString()
+  return feedbackWindowStart(days).toISOString()
 }
 
 /**
@@ -364,25 +442,50 @@ export async function getFeedbackHealth(
   const scope = [...orgScope, ...topicScope]
   const inWindow = gte(answerFeedback.createdAt, sql`${since}::timestamptz`)
 
-  // The denominator has to obey the org filter too, or a tenant's rate is
-  // computed over the whole platform's answers and its coverage reads far higher
-  // than it is. `messages` carries no organization: its conversation does, and
-  // the column is NOT NULL with an FK, so the join drops nothing when nothing is
-  // filtered. The topic filter rides the same join for the same reason — a
-  // numerator narrowed to one topic over a denominator that was not is the same
-  // bug on a second axis.
-  const [answersRow] = await db
-    .select({ count: sql<string>`count(*)` })
-    .from(messages)
-    .innerJoin(conversations, eq(conversations.id, messages.conversationId))
-    .where(
-      and(
-        eq(messages.role, 'assistant'),
-        gte(messages.createdAt, sql`${since}::timestamptz`),
-        ...(organizationId ? [eq(conversations.organizationId, organizationId)] : []),
-        ...(topic ? [sql`${conversations.tags} @> array[${topic}]::text[]`] : []),
-      ),
+  // The denominator: every answer the window is about. That is the answers
+  // PRODUCED in it (persisted assistant messages) united with the answers RATED
+  // in it, deduplicated by id. Counting only the produced ones let coverage pass
+  // 100%: a vote today on last month's answer, a turn whose row was never
+  // persisted, and two people rating one answer all added to the numerator and
+  // never to the denominator. With the union, `ratedAnswers <= answers` holds by
+  // construction.
+  //
+  // Both halves obey the org and topic filters, or a tenant's coverage is
+  // computed over the whole platform's answers. `messages` carries its
+  // organization through its conversation (NOT NULL, FK), so the join drops
+  // nothing when nothing is filtered; the rated half takes the same EXISTS the
+  // vote aggregates use.
+  const coverageRows = await db.execute(sql`
+    with produced as (
+      select m.id::text as message_id
+      from messages m
+      join conversations c on c.id = m.conversation_id
+      where m.role = 'assistant'
+        and m.created_at >= ${since}::timestamptz
+        ${organizationId ? sql`and c.organization_id = ${organizationId}` : sql``}
+        ${topic ? sql`and c.tags @> array[${topic}]::text[]` : sql``}
+    ),
+    rated as (
+      select distinct f.message_id
+      from answer_feedback f
+      where f.created_at >= ${since}::timestamptz
+        ${organizationId ? sql`and f.organization_id = ${organizationId}` : sql``}
+        ${
+          topic
+            ? sql`and exists (
+                select 1 from conversations tc
+                where tc.id = f.conversation_id and tc.tags @> array[${topic}]::text[]
+              )`
+            : sql``
+        }
     )
+    select
+      (select count(*) from (select message_id from produced union select message_id from rated) u) as answers,
+      (select count(*) from rated) as rated_answers
+  `)
+  const [coverageRow] = rowsOf(coverageRows)
+  const answers = Number(coverageRow?.answers ?? 0)
+  const ratedAnswers = Number(coverageRow?.rated_answers ?? 0)
 
   const [totalsRow] = await db
     .select({
@@ -396,12 +499,12 @@ export async function getFeedbackHealth(
 
   const reasons = await db
     .select({
-      reason: answerFeedback.reason,
+      reason: REASON_OR_OTHER,
       count: sql<string>`count(*)`,
     })
     .from(answerFeedback)
     .where(and(eq(answerFeedback.verdict, 'down'), inWindow, ...scope))
-    .groupBy(answerFeedback.reason)
+    .groupBy(REASON_OR_OTHER)
 
   const daily = await db
     .select({
@@ -427,7 +530,8 @@ export async function getFeedbackHealth(
     .from(answerFeedback)
     .where(and(inWindow, ...scope))
     .groupBy(answerFeedback.organizationId)
-    .orderBy(desc(sql`count(*) filter (where ${answerFeedback.verdict} = 'down')`))
+    .orderBy(desc(sql`count(*) filter (where ${answerFeedback.verdict} = 'down')`), desc(sql`count(*)`))
+    .limit(FEEDBACK_ORG_ROLLUP_LIMIT)
 
   // Votes by topic. `unnest` fans a conversation out over its tags on purpose —
   // here the tag IS the grouping key, so a two-tag conversation legitimately
@@ -447,6 +551,7 @@ export async function getFeedbackHealth(
       ${topic ? sql`and c.tags @> array[${topic}]::text[]` : sql``}
     group by tag
     order by count(*) desc
+    limit ${FEEDBACK_TOPIC_ROLLUP_LIMIT}
   `)
 
   const turns = await listFeedbackTurns(filters)
@@ -455,14 +560,16 @@ export async function getFeedbackHealth(
 
   return {
     windowDays,
-    answers: Number(answersRow?.count ?? 0),
+    answers,
+    ratedAnswers,
+    coverage: answers > 0 ? ratedAnswers / answers : null,
     totals: {
       up: Number(totalsRow?.up ?? 0),
       down: Number(totalsRow?.down ?? 0),
       voters: Number(totalsRow?.voters ?? 0),
       downVoters: Number(totalsRow?.downVoters ?? 0),
     },
-    reasons: reasons.map((r) => ({ reason: r.reason, count: Number(r.count) })),
+    reasons: reasons.map((r) => ({ reason: String(r.reason) as AnswerFeedbackReason, count: Number(r.count) })),
     daily: daily.map((d) => ({ day: d.day, up: Number(d.up), down: Number(d.down) })),
     organizations: organizations.map((o) => ({
       organizationId: o.organizationId,
@@ -489,8 +596,8 @@ export async function getFeedbackHealth(
  *
  * LEFT JOINs throughout: a vote whose turn was never persisted still has to
  * appear, because unexplained feedback is precisely what the surface exists to
- * show. The question is the newest user turn before the answer — a lateral, so
- * one row per vote rather than a fan-out over the conversation.
+ * show. The answer and its question come from `VOTED_TURN_JOINS` (`./turn-join`),
+ * shared with the lesson sweep: no answer row, no question.
  *
  * `verdict` is a parameter rather than a literal so the praised list and the
  * failed list are the SAME query. Two near-identical queries would drift, and
@@ -509,8 +616,12 @@ export async function listFeedbackTurns(
     organizationId = null,
     topic = null,
     query = null,
-    limit: recentLimit = FEEDBACK_HEALTH_RECENT_LIMIT,
+    limit = FEEDBACK_HEALTH_RECENT_LIMIT,
   } = filters
+  // The caller picks the size, the repository owns the bound: one row over the
+  // export cap is the most anyone may ask for (that row is how "exactly full"
+  // is told apart from "truncated").
+  const recentLimit = Math.max(0, Math.min(limit, FEEDBACK_EXPORT_ROW_CAP + 1))
   const db = getDb()
   const since = windowStart(windowDays)
 
@@ -529,27 +640,19 @@ export async function listFeedbackTurns(
       m.content    as answer,
       q.content    as question,
       c.title      as conversation_title,
-      c.tags       as topics
+      c.tags       as topics,
+      m.metadata->>'trace_id' as trace_id
     from answer_feedback f
-    left join messages m on m.id::text = f.message_id
+    ${VOTED_TURN_JOINS}
     left join conversations c on c.id = f.conversation_id
-    left join lateral (
-      select content
-      from messages
-      where conversation_id = f.conversation_id
-        and role = 'user'
-        and (m.created_at is null or created_at <= m.created_at)
-      order by created_at desc
-      limit 1
-    ) q on true
     where f.verdict = ${verdict}
       and f.created_at >= ${since}::timestamptz
       ${organizationId ? sql`and f.organization_id = ${organizationId}` : sql``}
       ${topic ? sql`and c.tags @> array[${topic}]::text[]` : sql``}
-      ${reason && verdict === 'down' ? sql`and f.reason = ${reason}` : sql``}
+      ${reason && verdict === 'down' ? sql`and coalesce(f.reason, 'other') = ${reason}` : sql``}
       ${
         query
-          ? sql`and (m.content ilike ${'%' + query + '%'} or q.content ilike ${'%' + query + '%'})`
+          ? sql`and (m.content ilike ${likeContains(query)} or q.content ilike ${likeContains(query)})`
           : sql``
       }
     order by f.created_at desc
@@ -578,6 +681,7 @@ export async function listFeedbackTurns(
     topics: Array.isArray(row.topics)
       ? (row.topics as unknown[]).map(String).filter(isConversationTagKey)
       : [],
+    traceId: isTraceId(row.trace_id) ? row.trace_id : null,
   }))
 }
 

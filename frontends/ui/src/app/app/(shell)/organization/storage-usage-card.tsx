@@ -19,7 +19,7 @@
  * everyone: a member whose upload was just refused lands here to find out why.
  */
 
-import { useCallback, useEffect, useState, type FC } from 'react'
+import { useCallback, useEffect, useState, type FC, type ReactNode } from 'react'
 import { AlertTriangle } from 'lucide-react'
 import { toast } from 'sonner'
 import { Skeleton } from '@/components/ui/skeleton'
@@ -39,6 +39,8 @@ interface StorageResponse {
     total: StorageScopeUsage
   }
   quotaBytes: number | null
+  /** The per-file upload limit in force for the organization, in bytes. */
+  effectiveMaxUploadFileBytes: number
 }
 
 /** Fraction of the quota at which "almost full" is worth saying out loud. */
@@ -107,20 +109,31 @@ const StorageMeter: FC<{ usedBytes: number; quotaBytes: number | null }> = ({
   )
 }
 
+/** One labelled figure under the meter: a scope's usage, or the upload limit. */
+const FactRow: FC<{ label: string; testId?: string; children: ReactNode }> = ({
+  label,
+  testId,
+  children,
+}) => (
+  <div className="flex items-baseline justify-between gap-2 text-sm">
+    <span className="text-muted-foreground">{label}</span>
+    <span className="tabular-nums" data-testid={testId}>
+      {children}
+    </span>
+  </div>
+)
+
 const ScopeRow: FC<{ label: string; usage: StorageScopeUsage }> = ({ label, usage }) => {
   const t = useTranslations('organization')
   const { locale } = useLocale()
 
   return (
-    <div className="flex items-baseline justify-between gap-2 text-sm">
-      <span className="text-muted-foreground">{label}</span>
-      <span className="tabular-nums">
-        {formatBytes(usage.bytes, locale)}
-        <span className="text-muted-foreground ml-2 text-xs">
-          {t('storage.documentCount', { count: String(usage.documents) })}
-        </span>
+    <FactRow label={label}>
+      {formatBytes(usage.bytes, locale)}
+      <span className="text-muted-foreground ml-2 text-xs">
+        {t('storage.documentCount', { count: String(usage.documents) })}
       </span>
-    </div>
+    </FactRow>
   )
 }
 
@@ -148,6 +161,7 @@ export const StorageUsageCard: FC<StorageUsageCardProps> = ({
   endpoint = STORAGE_ENDPOINT,
 }) => {
   const t = useTranslations('organization')
+  const { locale } = useLocale()
   const [data, setData] = useState<StorageResponse | null>(null)
   const [loading, setLoading] = useState(true)
 
@@ -205,6 +219,12 @@ export const StorageUsageCard: FC<StorageUsageCardProps> = ({
       <div className="flex flex-col gap-2">
         <ScopeRow label={t('storage.projectDocuments')} usage={data.usage.project} />
         <ScopeRow label={t('storage.archivDocuments')} usage={data.usage.archiv} />
+        {/* The per-file limit, beside the quota because both refuse uploads and
+            both belong to the platform: a member whose file was just refused
+            for its size finds the number here. */}
+        <FactRow label={t('storage.maxFileSize')} testId="storage-max-file-size">
+          {formatBytes(data.effectiveMaxUploadFileBytes, locale)}
+        </FactRow>
       </div>
 
       {/* Says who owns the number, so nobody hunts for a control that is not
