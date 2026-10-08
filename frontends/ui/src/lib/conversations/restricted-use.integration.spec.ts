@@ -163,7 +163,7 @@ describe.skipIf(!url)('restricted use against Postgres (migrations 0111, 0110)',
       )
     )
     projectId = String(project.id)
-    // One statement: the 0109 trigger checks at commit that a custom list is
+    // One statement: the 0110 trigger checks at commit that a custom list is
     // not empty, and every statement here commits on its own.
     const [folder] = Array.from(
       await inOrg(ORG, () =>

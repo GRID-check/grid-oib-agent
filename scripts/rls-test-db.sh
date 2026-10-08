@@ -498,7 +498,7 @@ echo "==> 0110 grants, constraints and down migration verified"
 # Migration 0111: the per-folder chat record, and its DOWN.
 #
 # One row per (conversation, source folder): inside the tenant boundary, and
-# `last_at` never before `first_at`. The down drops the table; 0110 re-applies.
+# `last_at` never before `first_at`. The down drops the table; 0111 re-applies.
 # The admission and read paths are proved against the real chain by
 # restricted-use.integration.spec.ts above.
 # ---------------------------------------------------------------------------
@@ -514,7 +514,7 @@ check_in grid_chat_folders "SELECT count(*) FROM conversation_restricted_folders
 apply_in grid_chat_folders 0111_conversation_restricted_folders.down.sql
 check_in grid_chat_folders "SELECT to_regclass('public.conversation_restricted_folders') IS NULL" "t" "down dropped the table"
 apply_in grid_chat_folders 0111_conversation_restricted_folders.sql
-check_in grid_chat_folders "SELECT count(*) FROM conversation_restricted_folders" "0" "0110 re-applies, empty"
+check_in grid_chat_folders "SELECT count(*) FROM conversation_restricted_folders" "0" "0111 re-applies, empty"
 
 echo "==> 0111 chat record and down migration verified"
 
