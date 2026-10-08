@@ -18,11 +18,9 @@ import { apiRoute } from '@/lib/api/handler'
 import { PlatformAccessDeniedError } from '@/lib/authz/platform'
 import { getAnswerFeedbackHealth, getAnswerFeedbackWeeklySummary } from '@/lib/feedback/service'
 import { parseFeedbackFilters } from '@/lib/feedback/query'
-
-/** RFC 4180: quote every cell, double embedded quotes. Answers contain commas. */
-function csvCell(value: unknown): string {
-  return `"${String(value ?? '').replace(/"/g, '""')}"`
-}
+// Quoted per RFC 4180 AND formula-neutralised: questions, comments and answers
+// are user and model text, and a spreadsheet evaluates `=...` even inside quotes.
+import { csvCell } from '@/lib/text/csv-cell'
 
 const COLUMNS = [
   'created_at',

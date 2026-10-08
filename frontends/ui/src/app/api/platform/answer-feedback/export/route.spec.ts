@@ -136,6 +136,33 @@ describe('GET /api/platform/answer-feedback/export', () => {
     expect(row).toContain('"Der Wert gilt nur für Neubau, nicht für Sanierung.","U-Wert 0,35 laut OIB-RL 6"')
   })
 
+  /** A complaint is user text; a spreadsheet must open it as text, not run it. */
+  it('neutralises a cell that would open as a formula', async () => {
+    isOwner.value = true
+    vi.mocked(getAnswerFeedbackHealth).mockResolvedValueOnce({
+      turns: [
+        {
+          createdAt: new Date('2026-07-30T09:00:00.000Z'),
+          organizationId: 'org_2',
+          conversationId: 'c-1',
+          messageId: 'm-1',
+          verdict: 'down',
+          reason: 'other',
+          topics: [],
+          question: '=HYPERLINK("https://evil.example","Klick")',
+          answer: '-',
+          comment: '@SUM(A1)',
+          expectedAnswer: null,
+        },
+      ],
+    } as never)
+    const body = await (await GET(request())).text()
+
+    expect(body).toContain(`"'=HYPERLINK(""https://evil.example"",""Klick"")"`)
+    expect(body).toContain(`"'-"`)
+    expect(body).toContain(`"'@SUM(A1)"`)
+  })
+
   describe('?summary=weekly', () => {
     it('refuses a non-owner with 403', async () => {
       expect((await GET(request('?summary=weekly'))).status).toBe(403)
