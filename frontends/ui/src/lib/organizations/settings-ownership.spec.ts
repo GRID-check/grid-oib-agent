@@ -101,7 +101,7 @@ describe('platform-owned settings keys', () => {
     expect(upsertOrganization).not.toHaveBeenCalled()
   })
 
-  // ADR-0083: a malformed policy saved through the generic merge would read as
+  // ADR-0085: a malformed policy saved through the generic merge would read as
   // the suggested one, but an `enabled: false` with no audit trail would not.
   it('refuses the upload-screening policy from the generic merge', async () => {
     await expect(

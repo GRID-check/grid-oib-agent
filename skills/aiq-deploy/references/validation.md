@@ -54,10 +54,10 @@ AIQ_SERVER_URL="$AIQ_SERVER_URL" python3 skills/aiq-research/scripts/aiq.py agen
 
 ## Shallow End-To-End Check
 
-Run a shallow `/chat` check when required model/search credentials are present. If credentials are missing, report that deploy validation reached infrastructure/API readiness but could not prove model-backed response generation.
+Run a shallow `chat` check (`POST /chat` on the chat role, `AIQ_CHAT_URL`, default `http://localhost:8001`) when required model/search credentials are present. If credentials are missing, report that deploy validation reached infrastructure/API readiness but could not prove model-backed response generation.
 
 ```bash
-AIQ_SERVER_URL="$AIQ_SERVER_URL" python3 skills/aiq-research/scripts/aiq.py chat "Briefly confirm AI-Q is responding."
+AIQ_CHAT_URL="${AIQ_CHAT_URL:-http://localhost:8001}" python3 skills/aiq-research/scripts/aiq.py chat "Briefly confirm AI-Q is responding."
 ```
 
 Do not run deep research as part of basic deploy validation. Deep research belongs to `aiq-research` when requested, and broader integration validation belongs to `end-to-end-validation.md`.
@@ -73,7 +73,7 @@ When validation passes, tell the user:
 - backend URL
 - frontend URL when applicable, or that the UI was intentionally not started
 - PostgreSQL readiness when using Docker Compose
-- whether `aiq-research` can use its default `AIQ_SERVER_URL`
+- whether `aiq-research` can use its default `AIQ_SERVER_URL` (api role) and `AIQ_CHAT_URL` (chat role, used by `chat`)
 - the exact `export AIQ_SERVER_URL=...` command when not using the default backend URL
 - whether only basic deploy validation was run or deep research completion validation also passed
 

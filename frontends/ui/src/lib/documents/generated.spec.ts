@@ -53,7 +53,7 @@ vi.mock('@/lib/projects/folder-service', () => ({
   findRootProjectFolderByName: (...args: unknown[]) => findRootProjectFolderByName(...args),
 }))
 
-// What the conversation drew on (ADR-0085), read by the filing refusal, and
+// What the conversation drew on (ADR-0087), read by the filing refusal, and
 // the folder tree it is judged against.
 const recordedRestrictedFolders = vi.fn()
 vi.mock('@/lib/conversations/restricted-use', () => ({
@@ -1044,7 +1044,7 @@ describe('fileGeneratedDocument', () => {
  * this file's fixtures, and a spy proves only what today's fixtures happened to
  * exercise.
  */
-describe('filing out of a conversation that drew on a restricted folder (ADR-0084, ADR-0085)', () => {
+describe('filing out of a conversation that drew on a restricted folder (ADR-0086, ADR-0087)', () => {
   /** The source folder the conversation recorded. */
   const VERTRAEGE = 'folder-vertraege'
   const fileFromChat = () =>
@@ -1104,7 +1104,7 @@ describe('filing out of a conversation that drew on a restricted folder (ADR-008
   })
 })
 
-describe('filing into a folder the commissioning person may only read (ADR-0085)', () => {
+describe('filing into a folder the commissioning person may only read (ADR-0087)', () => {
   const file = () =>
     fileGeneratedDocument({
       session: SESSION,

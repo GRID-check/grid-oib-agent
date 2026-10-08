@@ -49,7 +49,6 @@ class _FakeClient:
 
 def _ingestor(collection: _FakeCollection) -> LlamaIndexIngestor:
     ing = object.__new__(LlamaIndexIngestor)
-    ing._files = {}
     ing._lock = threading.RLock()
     ing._get_chroma_client = lambda: _FakeClient(collection)  # type: ignore[method-assign]
     return ing

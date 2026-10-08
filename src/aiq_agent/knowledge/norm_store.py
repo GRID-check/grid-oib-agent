@@ -29,6 +29,7 @@ from datetime import datetime
 from typing import Any
 
 from aiq_agent.common import norm_registry
+from aiq_agent.common.db_utils import ensure_schema
 from aiq_agent.common.db_utils import normalize_db_url as _normalize_db_url
 from aiq_agent.common.db_utils import redact_db_url
 from aiq_agent.common.norm_registry import NormsFile
@@ -135,30 +136,32 @@ class NormRegistryStore:
             if self.db_url in NormRegistryStore._tables_initialized:
                 return
 
-            from sqlalchemy import Column
-            from sqlalchemy import DateTime
-            from sqlalchemy import Integer
-            from sqlalchemy import MetaData
-            from sqlalchemy import String
-            from sqlalchemy import Table
-            from sqlalchemy import Text
-            from sqlalchemy import inspect
-
-            inspector = inspect(self._sync_engine)
-            if not inspector.has_table("norm_registry"):
-                metadata = MetaData()
-                Table(
-                    "norm_registry",
-                    metadata,
-                    Column("country", String(8), primary_key=True),
-                    Column("data", Text, nullable=False),
-                    Column("version", Integer, nullable=False),
-                    Column("updated_at", DateTime),
-                )
-                metadata.create_all(self._sync_engine)
-                logger.info("Created norm_registry table in %s", redact_db_url(self.db_url))
-
+            ensure_schema(self._sync_engine, "norm_registry", self._create_table)
             NormRegistryStore._tables_initialized.add(self.db_url)
+
+    def _create_table(self, conn) -> None:
+        from sqlalchemy import Column
+        from sqlalchemy import DateTime
+        from sqlalchemy import Integer
+        from sqlalchemy import MetaData
+        from sqlalchemy import String
+        from sqlalchemy import Table
+        from sqlalchemy import Text
+        from sqlalchemy import inspect
+
+        if inspect(conn).has_table("norm_registry"):
+            return
+        metadata = MetaData()
+        Table(
+            "norm_registry",
+            metadata,
+            Column("country", String(8), primary_key=True),
+            Column("data", Text, nullable=False),
+            Column("version", Integer, nullable=False),
+            Column("updated_at", DateTime),
+        )
+        metadata.create_all(conn)
+        logger.info("Created norm_registry table in %s", redact_db_url(self.db_url))
 
     # -- read ----------------------------------------------------------------
 

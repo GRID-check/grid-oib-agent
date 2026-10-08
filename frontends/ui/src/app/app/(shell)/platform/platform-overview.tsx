@@ -68,6 +68,8 @@ interface SpendWindowDto {
   events: number
   /** Of the platform's cost, what document ingestion spent: VLM, OCR, embeddings. */
   ingestCostUsd?: number
+  /** Of the platform's cost, what voice dictation spent. Never billed to anyone. */
+  dictationCostUsd?: number
 }
 
 /** What OpenRouter charged the PLATFORM: everything that was not a tenant's own key. */
@@ -256,11 +258,19 @@ export const PlatformOverview: FC = () => {
   const safeOffset = offset < visible.length ? offset : 0
   const page = visible.slice(safeOffset, safeOffset + PAGE_SIZE)
 
-  // Ingestion is part of the cost above, not on top of it: say how much.
-  const ingestHint = (window: SpendWindowDto): string | undefined =>
-    (window.ingestCostUsd ?? 0) > 0
-      ? t('stats.ingestShare', { amount: usd(window.ingestCostUsd ?? 0, locale) })
-      : undefined
+  // Ingestion and voice dictation are part of the cost above, not on top of
+  // it: say how much of it each was.
+  const shareHint = (window: SpendWindowDto): string | undefined =>
+    [
+      (window.ingestCostUsd ?? 0) > 0
+        ? t('stats.ingestShare', { amount: usd(window.ingestCostUsd ?? 0, locale) })
+        : undefined,
+      (window.dictationCostUsd ?? 0) > 0
+        ? t('stats.dictationShare', { amount: usd(window.dictationCostUsd ?? 0, locale) })
+        : undefined,
+    ]
+      .filter(Boolean)
+      .join(' · ') || undefined
 
   const sortableColumn = (key: SortKey, label: string, className?: string): JSX.Element => (
     <SortableHead
@@ -310,7 +320,7 @@ export const PlatformOverview: FC = () => {
             icon={<Gauge className="size-4" aria-hidden />}
             label={t('stats.costToday')}
             value={usd(platformCost(totals.day), locale)}
-            hint={ingestHint(totals.day)}
+            hint={shareHint(totals.day)}
           />
           <StatCard
             className="min-h-[7.25rem]"
@@ -327,7 +337,7 @@ export const PlatformOverview: FC = () => {
             // Cost on tenants' own keys is theirs, not ours; say what was left out.
             hint={
               [
-                ingestHint(totals.month),
+                shareHint(totals.month),
                 totals.month.ownKeyCostUsd > 0
                   ? t('stats.ownKeyExcluded', { amount: usd(totals.month.ownKeyCostUsd, locale) })
                   : undefined,

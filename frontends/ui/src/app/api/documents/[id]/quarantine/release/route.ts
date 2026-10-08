@@ -1,5 +1,5 @@
 /**
- * Release a quarantined document for indexing (ADR-0083). Re-dispatches it with
+ * Release a quarantined document for indexing (ADR-0085). Re-dispatches it with
  * screening skipped for exactly the bytes the reviewer saw, and audits who did.
  * Deleting instead is the shelf's ordinary delete.
  */

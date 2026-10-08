@@ -118,7 +118,7 @@ describe('GET /api/auth/websocket-scope gate-then-fanout', () => {
     buildProposalDecisionsBlock.mockResolvedValue('decisions')
   })
 
-  it('asks for an INTERACTIVE CHAT scope, the only one that may carry restricted folders (ADR-0084)', async () => {
+  it('asks for an INTERACTIVE CHAT scope, the only one that may carry restricted folders (ADR-0086)', async () => {
     await upgrade('?projectId=proj_q&conversationId=s_mine')
 
     expect(buildCollectionScopeFromRequest).toHaveBeenCalledWith(SESSION, {

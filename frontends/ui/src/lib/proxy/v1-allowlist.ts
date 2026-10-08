@@ -23,8 +23,12 @@
  *     the conversation delete erases a chat's collection. No product client
  *     uploads or deletes through here (each shelf has first-party routes that
  *     write and remove the document row), so no write into a collection's
- *     files is forwarded;
- *   - `adapters/api/research-runs-client.ts` — GET `jobs/async/jobs`.
+ *     files is forwarded.
+ *
+ * The research-runs listing used to be here. It goes through the job proxy
+ * (`/api/jobs/async/[...path]`) now, which checks the project it names and
+ * signs it for the backend (ADR-0084); this proxy signs nothing, so a listing
+ * through it could only ever show the caller's own runs.
  *
  * Everything else answers 404 before any upstream request, including paths
  * the backend serves: a product need is a new line here, stated on purpose.
@@ -44,7 +48,6 @@ const ANY: Segment = (segment) => segment.length > 0
 const PROXY_ROUTES: readonly ProxyRoute[] = [
   { method: 'GET', shape: ['data_sources'] },
   { method: 'GET', shape: ['documents', ANY, 'status'] },
-  { method: 'GET', shape: ['jobs', 'async', 'jobs'] },
   { method: 'POST', shape: ['collections'] },
   { method: 'GET', shape: ['collections', ANY] },
   { method: 'GET', shape: ['collections', ANY, 'documents'] },

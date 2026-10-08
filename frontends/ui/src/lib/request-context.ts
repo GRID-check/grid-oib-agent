@@ -489,7 +489,7 @@ export interface VerifiedGridRequestContext {
   /**
    * The collection names of the signed scope, bare or shelf-bearing on the wire
    * (ADR-0047). What a write route reads to tell a turn whose scope held a
-   * restricted folder's collection (ADR-0084, `restricted-egress.ts`): that is
+   * restricted folder's collection (ADR-0086, `restricted-egress.ts`): that is
    * the turn's scope as signed, with no read in between. Empty when the
    * envelope carried none.
    */

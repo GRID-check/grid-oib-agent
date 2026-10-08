@@ -1,5 +1,5 @@
 ---
-security:
+features:
   - >
     Zero data retention is now on for every organization and covers every
     request Piloti sends to an AI model, including document reading, search

@@ -61,7 +61,6 @@ const NETPOL = "kubernetes:networking.k8s.io/v1:NetworkPolicy";
 const STATEFULSET = "kubernetes:apps/v1:StatefulSet";
 
 const AUTOSCALING = {
-  "grid-oib:jobExecution": "db",
   "grid-oib:allowPlaintextJobPayloads": "true",
   "grid-oib:chatAffinity": "false",
   "grid-oib:backendReplicas": "1",
@@ -81,6 +80,7 @@ async function wiringFor(config: Record<string, string>) {
     redisUrl: pulumi.output("redis://dragonfly:6379"),
     seaweedInternalEndpoint: pulumi.output("http://seaweedfs:8333"),
     seaweedPublicEndpoint: pulumi.output("https://s3.example.test"),
+    chromaUrl: pulumi.output("http://chroma:8000"),
     dsn: () => pulumi.output("postgresql://x"),
     imagePullSecrets: [],
   };
@@ -121,7 +121,6 @@ describe("the chat tier's scale-out", () => {
     for (const [changed, why] of [
       [{ "grid-oib:chatAffinity": "true" }, "the hash routes by the replica count"],
       [{ "grid-oib:backendMaxReplicas": "1" }, "no room"],
-      [{ "grid-oib:jobExecution": "dask" }, "dask mode is a hard singleton"],
     ] as const) {
       pulumi.runtime.setAllConfig({ ...baseStackConfig(), ...AUTOSCALING, ...changed });
       expect(backendAutoscaled(loadConfig()), why).toBe(false);
@@ -212,7 +211,7 @@ describe("the chat tier's scale-out", () => {
   it("leaves the replica count to KEDA once it exists", () => {
     // `ignoreChanges` is a resource option, which the mocks do not carry.
     expect(read("deploy", "pulumi", "src", "app", "backend.ts")).toMatch(
-      /ignoreChanges: \["spec\.volumeClaimTemplates", \.\.\.\(autoscaled \? \["spec\.replicas"\] : \[\]\)\]/,
+      /ignoreChanges: autoscaled \? \["spec\.replicas"\] : \[\]/,
     );
   });
 });

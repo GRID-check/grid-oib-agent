@@ -96,7 +96,7 @@ export default async function FilesPage({ params }: FilesPageProps): Promise<JSX
      * route would also allow.
      */
     // `project:manage` decides whether „Zugriff…" is offered on a folder
-    // (ADR-0084); the access route asks the same question again.
+    // (ADR-0086); the access route asks the same question again.
     const [versionSummaries, lifecyclePermissions, canManageFolderAccess, initialRootAccess] = await Promise.all([
       summarizeDocumentVersions(
         session.organizationId,
@@ -104,7 +104,7 @@ export default async function FilesPage({ params }: FilesPageProps): Promise<JSX
       ),
       resolveDocumentLifecyclePermissions(session, id),
       can(session, 'project:manage', { type: 'project', id }),
-      // What the reader may do at the project root (ADR-0085); each folder row
+      // What the reader may do at the project root (ADR-0087); each folder row
       // carries its own.
       projectRootAccess(session, id),
     ])

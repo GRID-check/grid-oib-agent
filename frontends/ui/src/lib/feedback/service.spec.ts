@@ -190,7 +190,7 @@ describe('submitAnswerFeedback', () => {
     expect(memoryClearance).not.toHaveBeenCalled()
   })
 
-  it("stores a down-vote comment masked against the office's policy (ADR-0083)", async () => {
+  it("stores a down-vote comment masked against the office's policy (ADR-0085)", async () => {
     await submitAnswerFeedback(session, {
       messageId: 'msg_1',
       verdict: 'down',

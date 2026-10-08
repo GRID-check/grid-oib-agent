@@ -58,7 +58,7 @@ vi.mock('@/lib/knowledge/embeddings', async (importOriginal) => {
   return { ...actual, embedNote: vi.fn(async () => null), embedNotes: vi.fn(async () => null) }
 })
 
-// The office's chat screening (ADR-0083): the REAL matcher over Piloti's
+// The office's chat screening (ADR-0085): the REAL matcher over Piloti's
 // suggested list, so a note is masked here exactly as the policy would, with no
 // database. What the matcher does has its own spec (`content-screen.spec.ts`).
 vi.mock('@/lib/upload-screening/service', async () => {
@@ -172,7 +172,7 @@ describe('updateProjectMemoryItem tenancy guard', () => {
   })
 })
 
-describe('a note is stored masked (ADR-0083)', () => {
+describe('a note is stored masked (ADR-0085)', () => {
   const IBAN = 'AT61 1904 3002 3457 3201'
 
   it('masks an edited note against the office policy before it is written', async () => {
@@ -466,7 +466,7 @@ describe('createProjectMemoryItem write-time de-duplication', () => {
     return { set, values, insert, update }
   }
 
-  it('stores, embeds and de-duplicates a new note by its masked text (ADR-0083)', async () => {
+  it('stores, embeds and de-duplicates a new note by its masked text (ADR-0085)', async () => {
     const { values } = mockCreateChain(null)
     vi.mocked(embedNote).mockClear()
 

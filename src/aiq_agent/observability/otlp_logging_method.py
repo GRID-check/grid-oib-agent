@@ -142,9 +142,10 @@ async def otlp_logging_method(config: OtlpLoggingMethodConfig, _builder: Builder
 
     # Metrics go to the same collector through the same endpoint setting, so the
     # one place that knows whether the observability tier exists decides both.
+    # Installed for the process, and deliberately not stopped below: see
+    # aiq_agent.observability.metrics.
     grid_metrics.install_meter_provider(config.endpoint)
 
     yield handler
 
-    grid_metrics.shutdown_meter_provider()
     provider.shutdown()
