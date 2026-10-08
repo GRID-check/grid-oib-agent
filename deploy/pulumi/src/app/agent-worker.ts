@@ -166,6 +166,9 @@ export function installAgentWorker(
     // The shared TriggerAuthentication (`jobs-queue-auth.ts`): both Python claim
     // queues live in the same database.
     authName: JOBS_QUEUE_AUTH,
+    // Before ADR-0079 this tier was scaled by a plain HPA of the same name, which
+    // a stack upgraded from then still holds when the ScaledObject is created.
+    adoptHpa: "agent-worker",
     dependsOn,
   });
 
