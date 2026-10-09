@@ -18,6 +18,7 @@ import type { JSX, ReactNode } from 'react'
 import Link from 'next/link'
 import { ArrowUpRight, type LucideIcon } from 'lucide-react'
 import { RaisedCard, RaisedCardBody, RaisedCardFooter } from '@/components/ui/raised-card'
+import { StatCardIcon, type StatCardIconTone } from '@/components/ui/stat-card'
 import { SectionLabel } from '@/components/ui/section-label'
 import { cn } from '@/lib/utils'
 
@@ -52,6 +53,8 @@ const SPANS = {
   small: 'lg:col-span-2',
   /** Half the row. */
   half: 'lg:col-span-3',
+  /** Two thirds of the row. */
+  major: 'md:col-span-2 lg:col-span-4',
   /** Two thirds, two rows tall: the hero. */
   hero: 'md:col-span-2 lg:col-span-4 lg:row-span-2',
   /** A third, two rows tall. */
@@ -66,6 +69,12 @@ export interface BentoTileProps {
   /** What the tile measures, as its eyebrow. Also its accessible name. */
   label: string
   icon?: LucideIcon
+  /**
+   * Draws the icon in a tinted well instead of bare: the tile's one touch of
+   * colour, so a grid of tiles is told apart at a glance. The figures stay in
+   * text ink whatever the tone.
+   */
+  tone?: StatCardIconTone
   span?: BentoSpan
   /** A control in the eyebrow row, right-aligned (a menu, a toggle). */
   action?: ReactNode
@@ -83,6 +92,7 @@ export interface BentoTileProps {
 export function BentoTile({
   label,
   icon,
+  tone,
   span = 'small',
   action,
   href,
@@ -103,9 +113,16 @@ export function BentoTile({
     >
       <RaisedCardBody className={cn('flex flex-1 flex-col gap-3 p-5', bodyClassName)}>
         <div className="flex min-h-7 items-center justify-between gap-2">
-          <SectionLabel as="h2" icon={icon}>
-            {label}
-          </SectionLabel>
+          {tone && icon ? (
+            <div className="flex min-w-0 items-center gap-2.5">
+              <StatCardIcon icon={icon} tone={tone} size="sm" />
+              <SectionLabel as="h2">{label}</SectionLabel>
+            </div>
+          ) : (
+            <SectionLabel as="h2" icon={icon}>
+              {label}
+            </SectionLabel>
+          )}
           {action}
         </div>
         {children}

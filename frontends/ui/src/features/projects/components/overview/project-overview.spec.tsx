@@ -37,7 +37,12 @@ const USAGE: ProjectUsageView = {
   projectLimit: null,
   orgLimit: { dailyLimit: null, monthlyLimit: 1000 },
   blockedScope: null,
-  dailyTrend: [],
+}
+
+const ACTIVITY = {
+  questionsThisMonth: 84,
+  peopleThisMonth: 5,
+  daily: [{ day: '2026-10-08', questions: 6 }],
 }
 
 const VIEWER = { manage: false, editProfile: false, manageMembers: false }
@@ -49,7 +54,12 @@ beforeEach(() => {
     if (url.endsWith('/memory')) {
       return Response.json({
         items: [
-          { id: 'm1', content: 'Sichtbeton Nordfassade', pinned: true, verification: 'user_confirmed' },
+          {
+            id: 'm1',
+            content: 'Sichtbeton Nordfassade',
+            pinned: true,
+            verification: 'user_confirmed',
+          },
           { id: 'm2', content: 'Tiefgarage geplant', pinned: false, verification: 'unverified' },
         ],
       })
@@ -70,7 +80,7 @@ afterEach(() => vi.restoreAllMocks())
 
 describe('ProjectOverview', () => {
   test('the hero carries the project and the ways into it', () => {
-    render(<ProjectOverview data={DATA} usage={null} access={VIEWER} />)
+    render(<ProjectOverview data={DATA} activity={ACTIVITY} usage={null} access={VIEWER} />)
 
     const hero = screen.getByTestId('overview-hero')
     expect(within(hero).getByText('Alpine Tower')).toBeInTheDocument()
@@ -82,7 +92,7 @@ describe('ProjectOverview', () => {
   })
 
   test('a viewer gets no project menu, no briefing editor, no spend and no roster', () => {
-    render(<ProjectOverview data={DATA} usage={null} access={VIEWER} />)
+    render(<ProjectOverview data={DATA} activity={ACTIVITY} usage={null} access={VIEWER} />)
 
     expect(screen.queryByRole('button', { name: 'Project actions' })).not.toBeInTheDocument()
     expect(screen.queryByRole('link', { name: /Edit briefing/ })).not.toBeInTheDocument()
@@ -91,7 +101,7 @@ describe('ProjectOverview', () => {
   })
 
   test('an admin gets the menu, the spend and the roster', async () => {
-    render(<ProjectOverview data={DATA} usage={USAGE} access={ADMIN} />)
+    render(<ProjectOverview data={DATA} activity={ACTIVITY} usage={USAGE} access={ADMIN} />)
 
     expect(screen.getByRole('button', { name: 'Project actions' })).toBeInTheDocument()
     expect(screen.getByTestId('overview-usage')).toHaveTextContent('120 credits')
@@ -101,15 +111,24 @@ describe('ProjectOverview', () => {
   })
 
   test('the memory tile counts notes and what is left to review', async () => {
-    render(<ProjectOverview data={DATA} usage={null} access={VIEWER} />)
+    render(<ProjectOverview data={DATA} activity={ACTIVITY} usage={null} access={VIEWER} />)
 
     const memory = screen.getByTestId('overview-memory')
     expect(await within(memory).findByText('1 to review')).toBeInTheDocument()
     expect(within(memory).getByText('Sichtbeton Nordfassade')).toBeInTheDocument()
   })
 
+  test('everyone sees the activity counts, never the spend', () => {
+    render(<ProjectOverview data={DATA} activity={ACTIVITY} usage={null} access={VIEWER} />)
+
+    const activity = screen.getByTestId('overview-activity')
+    expect(within(activity).getByText('84')).toBeInTheDocument()
+    expect(within(activity).getByText('5')).toBeInTheDocument()
+    expect(screen.queryByText(/credits/)).not.toBeInTheDocument()
+  })
+
   test('every tile opens its section', () => {
-    render(<ProjectOverview data={DATA} usage={USAGE} access={ADMIN} />)
+    render(<ProjectOverview data={DATA} activity={ACTIVITY} usage={USAGE} access={ADMIN} />)
 
     expect(screen.getByRole('link', { name: /Usage & budget/ })).toHaveAttribute(
       'href',

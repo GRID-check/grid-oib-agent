@@ -6,7 +6,6 @@
  * for what they load in the browser (roster, memory, uploads, summary).
  *
  *   /dev/settings            Overview (the bento dashboard)
- *   /dev/settings/profile    Project profile + applicable standards
  *   /dev/settings/members    Members
  *   /dev/settings/memory     Memory
  *   /dev/settings/usage      Usage & budget (`?blocked=project` shows the exhausted state)
@@ -22,12 +21,11 @@ import type { JSX } from 'react'
 import { use } from 'react'
 import { notFound, useSearchParams } from 'next/navigation'
 import { SectionNav } from '@/components/shell/section-nav'
-import { Brain, ClipboardList, FileStack, Gauge, LayoutDashboard, Users } from 'lucide-react'
+import { Brain, FileStack, Gauge, LayoutDashboard, Users } from 'lucide-react'
 import { DocumentsSettings } from '@/features/projects/components/settings/documents-settings'
 import { ProjectOverview } from '@/features/projects/components/overview/project-overview'
 import { MembersSettings } from '@/features/projects/components/settings/members-settings'
 import { MemorySettings } from '@/features/projects/components/settings/memory-settings'
-import { ProfileSettings } from '@/features/projects/components/settings/profile-settings'
 import {
   UsageSettings,
   type ProjectUsageView,
@@ -95,14 +93,18 @@ const usage = (blocked: string | null): ProjectUsageView => ({
   orgLimit: { dailyLimit: 200, monthlyLimit: 4000 },
   blockedScope:
     blocked === 'project' ? 'project' : blocked === 'organization' ? 'organization' : null,
-  dailyTrend: Array.from({ length: 30 }, (_, i) => {
-    const day = new Date(Date.UTC(2026, 8, 10 + i)).toISOString().slice(0, 10)
-    // A working-week rhythm: quiet weekends, a heavier stretch mid-month.
-    const weekday = (i + 3) % 7 < 5
-    const amount = weekday ? 6 + ((i * 7) % 11) + (i > 12 && i < 20 ? 9 : 0) : 0.8
-    return { day, amount, events: Math.round(amount * 1.6) }
-  }),
 })
+
+const ACTIVITY = {
+  questionsThisMonth: 84,
+  peopleThisMonth: 5,
+  daily: Array.from({ length: 30 }, (_, i) => ({
+    day: new Date(Date.UTC(2026, 8, 10 + i)).toISOString().slice(0, 10),
+    // Weekdays busy, weekends near silent, a submission crunch in the middle.
+    questions:
+      (i + 3) % 7 < 5 ? 2 + ((i * 5) % 6) + (i > 12 && i < 20 ? 5 : 0) : i % 3 === 0 ? 1 : 0,
+  })),
+}
 
 const OVERVIEW_DATA = {
   ...PROFILE_DATA,
@@ -198,7 +200,6 @@ if (typeof window !== 'undefined' && process.env.NODE_ENV === 'development') {
 
 const ICONS = {
   overview: LayoutDashboard,
-  profile: ClipboardList,
   members: Users,
   memory: Brain,
   usage: Gauge,
@@ -207,7 +208,6 @@ const ICONS = {
 
 const LABELS: Record<ProjectSettingsSectionKey, string> = {
   overview: 'Overview',
-  profile: 'Project profile',
   members: 'Members',
   memory: 'Memory',
   usage: 'Usage & budget',
@@ -253,11 +253,11 @@ export default function SettingsDevPage({
           {current === 'overview' && (
             <ProjectOverview
               data={OVERVIEW_DATA}
+              activity={ACTIVITY}
               usage={admin ? usage(search.get('blocked')) : null}
               access={{ manage: admin, editProfile: admin, manageMembers: admin }}
             />
           )}
-          {current === 'profile' && <ProfileSettings data={PROFILE_DATA} canEdit={admin} />}
           {current === 'members' && (
             <MembersSettings projectId={PROJECT_ID} currentMembershipId="me" />
           )}

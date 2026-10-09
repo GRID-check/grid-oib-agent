@@ -584,17 +584,12 @@ export interface DailySpendRow extends SpendWindow {
 /** Daily spend rows since `start` (sparse — the service zero-fills the series). */
 export async function aggregateDailySpend(options: {
   organizationId?: string
-  /** Narrows to one project; only meaningful together with `organizationId`. */
-  projectId?: string
   start: Date
 }): Promise<DailySpendRow[]> {
   const db = getDb()
   const conditions = [gte(llmUsageEvents.createdAt, options.start)]
   if (options.organizationId) {
     conditions.push(eq(llmUsageEvents.organizationId, options.organizationId))
-  }
-  if (options.organizationId && options.projectId) {
-    conditions.push(eq(llmUsageEvents.projectId, options.projectId))
   }
   const rows = await db
     .select({

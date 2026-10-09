@@ -51,8 +51,6 @@ export interface ProjectUsageView {
   projectLimit: Limits | null
   orgLimit: Limits
   blockedScope: 'organization' | 'member' | 'project' | null
-  /** The last 30 UTC days, zero-filled, oldest first. */
-  dailyTrend: Array<{ day: string } & UsageWindow>
 }
 
 export interface UsageSettingsProps {

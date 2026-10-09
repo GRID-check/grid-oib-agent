@@ -38,7 +38,7 @@ import { settingsSectionHref } from '../../lib/settings-sections'
 import { ProjectDeleteDialog } from '../project-delete-dialog'
 import { ProjectRenameDialog } from '../project-rename-dialog'
 import type { ProjectUsageView } from '../settings/usage-settings'
-import { BriefingTile, StandardsTile } from './briefing-tiles'
+import { ActivityPanel, type ProjectActivityView } from './activity-panel'
 import { DocumentsTile } from './documents-tile'
 import { MembersTile, MemoryTile } from './live-tiles'
 import { UsageTile } from './usage-tile'
@@ -54,44 +54,41 @@ export interface ProjectOverviewAccess {
 
 export interface ProjectOverviewProps {
   data: ProjectOverviewData
+  /** Questions asked, for everyone: counts only, never whose or which. */
+  activity: ProjectActivityView
   /** Null for a reader who may not see the project's spend. */
   usage: ProjectUsageView | null
   access: ProjectOverviewAccess
 }
 
-export function ProjectOverview({ data, usage, access }: ProjectOverviewProps): JSX.Element {
+export function ProjectOverview({
+  data,
+  activity,
+  usage,
+  access,
+}: ProjectOverviewProps): JSX.Element {
   const id = data.id
-  // Which tiles a reader gets differs by permission, and a hole in a bento
-  // reads as something missing. Without the usage tile the standards take its
-  // row; the closing row splits between however many small tiles remain.
-  const standardsSpan: BentoSpan = usage ? 'half' : 'wide'
-  const closingSpan: BentoSpan = access.manageMembers ? 'small' : 'half'
+  // Documents and Memory stack beside the hero, so every reader's first two
+  // rows are full. Below them, Usage and Members share a row when a reader gets
+  // both and either takes the whole row alone; a hole in a bento reads as
+  // something missing.
+  const usageSpan: BentoSpan = access.manageMembers ? 'major' : 'wide'
+  const membersSpan: BentoSpan = usage ? 'small' : 'wide'
   return (
     <BentoGrid data-testid="project-overview">
-      <HeroTile data={data} access={access} />
-      <BriefingTile
-        projectId={id}
-        profile={data.profile}
-        briefStarted={data.profileDisplay != null}
-        canEdit={access.editProfile}
-        href={settingsSectionHref(id, 'profile')}
-      />
-      {usage && <UsageTile usage={usage} href={settingsSectionHref(id, 'usage')} />}
-      <StandardsTile
-        standards={data.applicableStandards}
-        href={settingsSectionHref(id, 'profile')}
-        span={standardsSpan}
-      />
+      <HeroTile data={data} activity={activity} access={access} />
       <DocumentsTile
         documentCount={data.documentCount}
         totalFileSize={data.totalFileSize}
         recent={data.recentDocuments}
         href={settingsSectionHref(id, 'documents')}
-        span={closingSpan}
       />
-      <MemoryTile projectId={id} href={settingsSectionHref(id, 'memory')} span={closingSpan} />
+      <MemoryTile projectId={id} href={settingsSectionHref(id, 'memory')} />
+      {usage && (
+        <UsageTile usage={usage} href={settingsSectionHref(id, 'usage')} span={usageSpan} />
+      )}
       {access.manageMembers && (
-        <MembersTile projectId={id} href={settingsSectionHref(id, 'members')} />
+        <MembersTile projectId={id} href={settingsSectionHref(id, 'members')} span={membersSpan} />
       )}
     </BentoGrid>
   )
@@ -99,9 +96,11 @@ export function ProjectOverview({ data, usage, access }: ProjectOverviewProps): 
 
 function HeroTile({
   data,
+  activity,
   access,
 }: {
   data: ProjectOverviewData
+  activity: ProjectActivityView
   access: ProjectOverviewAccess
 }): JSX.Element {
   const t = useTranslations('settings')
@@ -154,14 +153,14 @@ function HeroTile({
       bodyClassName="gap-4 p-6 md:p-8"
       data-testid="overview-hero"
     >
-      <div className="flex min-w-0 flex-1 flex-col gap-3">
+      <div className="flex min-w-0 flex-col gap-3">
         <p className="text-balance text-2xl font-semibold tracking-tight md:text-3xl">
           {data.name}
         </p>
         <p
           className={
             summary
-              ? 'text-foreground/80 line-clamp-5 max-w-3xl text-pretty leading-relaxed'
+              ? 'text-foreground/80 line-clamp-3 max-w-3xl text-pretty leading-relaxed'
               : 'text-muted-foreground max-w-3xl text-pretty leading-relaxed'
           }
         >
@@ -173,6 +172,8 @@ function HeroTile({
           {formatBytes(data.totalFileSize, locale)}
         </p>
       </div>
+
+      <ActivityPanel activity={activity} />
 
       <div className="flex flex-wrap gap-2">
         <Button asChild>

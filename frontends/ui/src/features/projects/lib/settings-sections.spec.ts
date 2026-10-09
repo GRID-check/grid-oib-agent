@@ -5,7 +5,6 @@ describe('visibleSettingsSections', () => {
   test('a project admin sees every section, in reading order', () => {
     expect(visibleSettingsSections({ manageMembers: true, manageBudget: true })).toEqual([
       'overview',
-      'profile',
       'members',
       'memory',
       'usage',
@@ -18,7 +17,6 @@ describe('visibleSettingsSections', () => {
     // project:manage or an org budget admin.
     expect(visibleSettingsSections({ manageMembers: false, manageBudget: false })).toEqual([
       'overview',
-      'profile',
       'memory',
       'documents',
     ])

@@ -129,7 +129,15 @@ interface RosterEntry {
 }
 
 /** Who is assigned to the project: the faces and the count. */
-export function MembersTile({ projectId, href }: { projectId: string; href: string }): JSX.Element {
+export function MembersTile({
+  projectId,
+  href,
+  span = 'small',
+}: {
+  projectId: string
+  href: string
+  span?: BentoSpan
+}): JSX.Element {
   const t = useTranslations('settings')
   const load = useJson(`/api/projects/${encodeURIComponent(projectId)}/members`, (body) =>
     (((body as { members?: RosterEntry[] }).members ?? []) as RosterEntry[]).filter(
@@ -141,6 +149,7 @@ export function MembersTile({ projectId, href }: { projectId: string; href: stri
     <BentoTile
       label={t('project.overview.members.label')}
       icon={Users}
+      span={span}
       href={href}
       linkLabel={t('project.overview.members.open')}
       data-testid="overview-members"

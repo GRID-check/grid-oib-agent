@@ -22,7 +22,6 @@ export const settings = {
     nav: {
       label: 'Project settings',
       overview: 'Overview',
-      profile: 'Project profile',
       members: 'Members',
       memory: 'Memory',
       usage: 'Usage & budget',
@@ -39,10 +38,17 @@ export const settings = {
       actions: 'Project actions',
       rename: 'Rename',
       delete: 'Delete project',
+      activity: {
+        label: 'Activity',
+        thisMonth: 'This month',
+        questionsWord: '{count, plural, one {question} other {questions}}',
+        questions: '{count, plural, one {# question} other {# questions}}',
+        peopleLabel: 'People asking',
+        empty: 'No questions in the last 30 days. Ask Piloti something about this project to get it going.',
+      },
       usage: {
         label: 'Used this month',
         noLimit: 'No monthly limit',
-        trendEmpty: 'Nothing used in the last 30 days.',
         blocked: 'Limit reached, requests are blocked',
         open: 'Usage & budget',
       },
@@ -68,26 +74,6 @@ export const settings = {
         error: 'The roster could not be loaded.',
         open: 'Members',
       },
-      profile: {
-        label: 'Briefing',
-        captured: '{answered} of {total} facts',
-        toConfirm: '{count, plural, one {# assumption to confirm} other {# assumptions to confirm}}',
-        unknown: 'Still unknown',
-        complete: 'Nothing open in the briefing.',
-        open: 'Project profile',
-      },
-      standards: {
-        label: 'Applicable OIB-Richtlinien',
-        required: '{count} required',
-        check: '{count} to check',
-        empty: 'Complete the briefing to see which OIB-Richtlinien apply.',
-        open: 'All standards',
-      },
-    },
-    profile: {
-      title: 'Project profile',
-      description:
-        'What Piloti assumes about this project in every answer: the facts from the briefing, the assumptions it still wants confirmed, and the standards those facts make relevant.',
     },
     members: {
       title: 'Members',

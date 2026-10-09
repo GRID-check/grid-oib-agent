@@ -29,6 +29,7 @@ export function DocumentsTile({
     <BentoTile
       label={t('project.overview.documents.label')}
       icon={FileText}
+      tone="project"
       span={span}
       href={href}
       linkLabel={t('project.overview.documents.open')}

@@ -24,7 +24,6 @@ export const settings: typeof en.settings = {
     nav: {
       label: 'Projekteinstellungen',
       overview: 'Übersicht',
-      profile: 'Projektprofil',
       members: 'Mitglieder',
       memory: 'Gedächtnis',
       usage: 'Nutzung & Budget',
@@ -41,10 +40,17 @@ export const settings: typeof en.settings = {
       actions: 'Projektaktionen',
       rename: 'Umbenennen',
       delete: 'Projekt löschen',
+      activity: {
+        label: 'Aktivität',
+        thisMonth: 'Diesen Monat',
+        questionsWord: '{count, plural, one {Frage} other {Fragen}}',
+        questions: '{count, plural, one {# Frage} other {# Fragen}}',
+        peopleLabel: 'Fragende Personen',
+        empty: 'In den letzten 30 Tagen keine Fragen. Fragen Sie Piloti etwas zu diesem Projekt, um loszulegen.',
+      },
       usage: {
         label: 'Verbrauch diesen Monat',
         noLimit: 'Kein Monatslimit',
-        trendEmpty: 'In den letzten 30 Tagen nichts verbraucht.',
         blocked: 'Limit erreicht, Anfragen werden blockiert',
         open: 'Nutzung & Budget',
       },
@@ -70,26 +76,6 @@ export const settings: typeof en.settings = {
         error: 'Die Mitgliederliste konnte nicht geladen werden.',
         open: 'Mitglieder',
       },
-      profile: {
-        label: 'Briefing',
-        captured: '{answered} von {total} Angaben',
-        toConfirm: '{count, plural, one {# Annahme zu bestätigen} other {# Annahmen zu bestätigen}}',
-        unknown: 'Noch unbekannt',
-        complete: 'Im Briefing ist nichts offen.',
-        open: 'Projektprofil',
-      },
-      standards: {
-        label: 'Anwendbare OIB-Richtlinien',
-        required: '{count} erforderlich',
-        check: '{count} zu prüfen',
-        empty: 'Vervollständigen Sie das Briefing, um zu sehen, welche OIB-Richtlinien gelten.',
-        open: 'Alle Richtlinien',
-      },
-    },
-    profile: {
-      title: 'Projektprofil',
-      description:
-        'Wovon Piloti bei jeder Antwort in diesem Projekt ausgeht: die Fakten aus dem Briefing, die Annahmen, die noch bestätigt werden sollen, und die Richtlinien, die sich daraus ergeben.',
     },
     members: {
       title: 'Mitglieder',

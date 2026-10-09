@@ -275,8 +275,7 @@ don't churn):
   archiv      → same Archiv content, project chrome (flagged)       [Sidebar]
   history     NEW: cross-session list + provenance filters          [Sidebar]
   settings    the project hub, labelled Overview (§9.2): a bento
-              dashboard + profile · members · memory · usage ·
-              documents                                             [Sidebar, bottom entry]
+              dashboard + members · memory · usage · documents     [Sidebar, bottom entry]
   knowledge   stays flagged, linked from Settings (not top-nav)
   research    legacy → redirect into history (completes FB-10)
   intake      unchanged (edit path from Settings)
@@ -403,13 +402,15 @@ on every visit. And every gate was `role === 'project-admin'`, a role-name check
 dashboard** (`components/ui/bento.tsx`, `features/projects/components/overview/`):
 a hero (name, brief summary, Ask Piloti / Files / briefing; rename and delete in
 its menu) and one live tile per section, each with its headline number and a
-link into the section. Behind a tab strip, each section answers one question
+link into the section. The briefing and the applicable OIB-Richtlinien were a
+section and two tiles in the first cut and were taken out again: they did not
+answer a question a person opens the hub with. The briefing is edited in the
+intake wizard, linked from the hero. Behind a tab strip, each section answers one question
 and is its own route under `/app/projects/[id]/settings`:
 
 | Section | Question | Gate |
 |---|---|---|
 | Overview (bare `/settings`) | Where does this project stand? Dashboard; rename and delete in the hero menu | view; menu `project:manage` |
-| Project profile | What does Piloti assume here, and which OIB-Richtlinien follow? | view; wizard link `project:edit` |
 | Members | Who works here, in which role? | `project:members:manage` (section and tile hidden otherwise) |
 | Memory | What has Piloti learned here? | view; controls `project:memory:write` |
 | Usage & budget | What has it cost, what stops it? Replaces Insights | `project:manage` or org budget admin |
@@ -417,7 +418,8 @@ and is its own route under `/app/projects/[id]/settings`:
 
 Gates come from `lib/projects/settings-access.ts` (permissions through
 `decide.ts`), and a section a reader cannot use is absent from the tabs and the
-dashboard and 404s by URL. §9.1 is unchanged: the profile stays read-only here.
+dashboard and 404s by URL. §9.1 is unchanged: the wizard is the profile's one
+editor.
 New blocks go in the section whose question they answer
 (`features/projects/lib/settings-sections.ts`); one with a headline number also
 earns a tile.

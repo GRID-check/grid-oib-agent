@@ -2,12 +2,14 @@
 
 import type { JSX } from 'react'
 import { AlertTriangle, Gauge } from 'lucide-react'
-import { BentoFigure, BentoTile } from '@/components/ui/bento'
-import { SpendTrendChart } from '@/components/charts/spend-trend-chart'
+import { BentoFigure, BentoTile, type BentoSpan } from '@/components/ui/bento'
 import { BudgetMeter } from '@/features/budgets/components/budget-meter'
 import { useLocale, useTranslations } from '@/i18n'
 import { formatCredits, formatTokens } from '@/lib/format'
 import type { ProjectUsageView } from '../settings/usage-settings'
+
+/** Models named in the tile; the Usage section lists every one. */
+const TOP_MODELS = 3
 
 /** The tighter of the project's and the organization's monthly limit. */
 function monthlyCeiling(usage: ProjectUsageView): number | null {
@@ -20,10 +22,19 @@ function monthlyCeiling(usage: ProjectUsageView): number | null {
 
 /**
  * Spend this month: the figure, the meter against what would stop it, and the
- * 30-day trend. Three questions, three forms (the org budget card's rule): a
- * headline number, a ratio against a limit, change over time.
+ * models it went to. No trend here: the hero's activity chart already shows
+ * how the month went, and two lookalike column charts side by side read as one
+ * thing drawn twice.
  */
-export function UsageTile({ usage, href }: { usage: ProjectUsageView; href: string }): JSX.Element {
+export function UsageTile({
+  usage,
+  href,
+  span = 'major',
+}: {
+  usage: ProjectUsageView
+  href: string
+  span?: BentoSpan
+}): JSX.Element {
   const t = useTranslations('settings')
   const tOrg = useTranslations('organization')
   const { locale } = useLocale()
@@ -39,7 +50,7 @@ export function UsageTile({ usage, href }: { usage: ProjectUsageView; href: stri
     <BentoTile
       label={t('project.overview.usage.label')}
       icon={Gauge}
-      span="half"
+      span={span}
       href={href}
       linkLabel={t('project.overview.usage.open')}
       data-testid="overview-usage"
@@ -67,16 +78,18 @@ export function UsageTile({ usage, href }: { usage: ProjectUsageView; href: stri
           />
         </div>
       )}
-      <SpendTrendChart
-        points={usage.dailyTrend.map((point) => ({
-          day: point.day,
-          value: point.amount,
-          events: point.events,
-        }))}
-        formatValue={withUnit}
-        requestsLabel={(count) => t('project.usage.requests', { count })}
-        emptyLabel={t('project.overview.usage.trendEmpty')}
-      />
+      {usage.perModel.length > 0 && (
+        <ul className="flex flex-col gap-1.5 text-sm">
+          {usage.perModel.slice(0, TOP_MODELS).map((entry) => (
+            <li key={entry.model} className="flex min-w-0 items-baseline justify-between gap-3">
+              <span className="text-muted-foreground min-w-0 truncate font-mono text-xs">
+                {entry.model}
+              </span>
+              <span className="shrink-0 tabular-nums">{withUnit(entry.month.amount)}</span>
+            </li>
+          ))}
+        </ul>
+      )}
     </BentoTile>
   )
 }

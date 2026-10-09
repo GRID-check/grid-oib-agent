@@ -6,10 +6,8 @@
  * The sections are where the work behind a tile is done.
  *
  *   - **Overview**: the dashboard. What is this project and where is it in its
- *     life? Name, brief, size, spend, people, memory at a glance; renaming and
+ *     life? Name, size, spend, people, memory at a glance; renaming and
  *     deleting sit in the hero's menu, out of the way.
- *   - **Project profile**: what does Piloti assume about this project in every
- *     answer, and which OIB-Richtlinien follow from that?
  *   - **Members**: who may work in it, in which role?
  *   - **Memory**: what has Piloti learned here, and is it right?
  *   - **Usage & budget**: what has this project cost, and what stops it?
@@ -24,13 +22,17 @@
  * A new block goes in the section whose question it answers, never on a page of
  * its own and never back into one long column.
  *
+ * The briefing and the applicable OIB-Richtlinien had a section and two tiles
+ * here and were taken out again (2026-10-09): they did not answer a question a
+ * person opens the hub with. The briefing is still edited in the intake
+ * wizard, which the hero links to.
+ *
  * Pure on purpose: the layout decides visibility on the server, the nav draws
  * it in the browser, and both read this one list.
  */
 
 export const PROJECT_SETTINGS_SECTION_KEYS = [
   'overview',
-  'profile',
   'members',
   'memory',
   'usage',

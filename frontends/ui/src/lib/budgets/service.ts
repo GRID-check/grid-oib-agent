@@ -342,19 +342,13 @@ export interface DailySpendPoint extends SpendWindow {
  */
 export async function getDailySpendTrend(options: {
   organizationId?: string
-  /** One project of `organizationId` (its Overview); ignored without an organization. */
-  projectId?: string
   days?: number
 } = {}): Promise<DailySpendPoint[]> {
   const days = Math.min(Math.max(options.days ?? 30, 1), 90)
   const start = repository.utcDayStart()
   start.setUTCDate(start.getUTCDate() - (days - 1))
 
-  const rows = await repository.aggregateDailySpend({
-    organizationId: options.organizationId,
-    projectId: options.projectId,
-    start,
-  })
+  const rows = await repository.aggregateDailySpend({ organizationId: options.organizationId, start })
 
   const byDay = new Map(rows.map((row) => [row.day, row]))
   const series: DailySpendPoint[] = []
@@ -838,8 +832,6 @@ export interface ProjectUsage {
   orgLimit: BudgetLimits
   /** Which applicable scope is exhausted right now, if any. */
   blockedScope: BudgetScope | null
-  /** The last 30 UTC days, zero-filled, oldest first. */
-  dailyTrend: Array<{ day: string } & TenantSpendWindow>
 }
 
 /**
@@ -863,12 +855,11 @@ export async function getProjectUsage(
   const unit = await getOrgBudgetUnit(session.organizationId)
   const project = toTenantWindow(unit)
 
-  const [summary, orgBudget, projectBudget, status, trend] = await Promise.all([
+  const [summary, orgBudget, projectBudget, status] = await Promise.all([
     getSpendSummary(session.organizationId, { projectId }),
     getOrgBudget(session.organizationId, unit),
     getScopedBudget(session.organizationId, 'project', projectId, unit),
     getBudgetStatus(session.organizationId, null, projectId),
-    getDailySpendTrend({ organizationId: session.organizationId, projectId, days: 30 }),
   ])
 
   const limits = (policy: BudgetLimits): BudgetLimits => ({
@@ -888,7 +879,6 @@ export async function getProjectUsage(
     projectLimit: projectBudget ? limits(projectBudget) : null,
     orgLimit: limits(orgBudget),
     blockedScope: status.blockedScope,
-    dailyTrend: trend.map((point) => ({ day: point.day, ...project(point) })),
   }
 }
 
