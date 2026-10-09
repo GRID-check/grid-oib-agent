@@ -1,3 +1,4 @@
+import type { ReactNode } from 'react'
 import type { PluggableList } from 'unified'
 
 export interface MarkdownRendererProps {
@@ -9,6 +10,12 @@ export interface MarkdownRendererProps {
   className?: string
   /** Use compact text sizes (for chat bubbles vs full reports) */
   compact?: boolean
+  /**
+   * The caret drawn after the last word while `isStreaming`. Placed inside the
+   * block being written, after its last running text, so no block has to give
+   * up its own display for it (`streaming-caret.tsx`). Omitted, no caret.
+   */
+  caret?: ReactNode
   /**
    * Remark plugins to run after the renderer's own (GFM, math).
    *

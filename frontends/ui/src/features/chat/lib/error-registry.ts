@@ -130,6 +130,17 @@ export const ERROR_REGISTRY: Record<ErrorCode, ErrorMeta> = {
     defaultMessage: 'Your previous request was not completed. Please resend your message.',
     messageKey: 'errorRegistry.responseInterrupted.message',
   },
+  // The server never acknowledged the question: no `RUN_STARTED`, no
+  // refusal, on two sockets in a row (`ACK_TIMEOUT_MS`). Nothing failed that
+  // the reader could see, and the server may never have had it, so it says
+  // what happened rather than "an error occurred", and resending is the fix.
+  'agent.no_response': {
+    status: 'warning',
+    title: 'No response',
+    titleKey: 'errorRegistry.noResponse.title',
+    defaultMessage: 'Piloti did not respond to your question, not even to a second attempt. Send it again.',
+    messageKey: 'errorRegistry.noResponse.message',
+  },
   'agent.workflow_error': {
     status: 'error',
     title: 'Request Failed',

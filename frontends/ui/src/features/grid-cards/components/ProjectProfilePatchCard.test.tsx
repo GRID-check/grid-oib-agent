@@ -142,6 +142,17 @@ describe('ProjectProfilePatchCard', () => {
     expect(await screen.findByText('Project brief updated.')).toBeInTheDocument()
   })
 
+  it('keeps focus on Accept while applying and moves it to the outcome after', async () => {
+    stubFetch()
+    const user = userEvent.setup()
+    render(<ProjectProfilePatchCard {...cardProps} />)
+
+    await user.click(screen.getByRole('button', { name: 'Accept' }))
+
+    const outcome = await screen.findByText('Project brief updated.')
+    await waitFor(() => expect(outcome.closest('[data-proposal-body]')).toHaveFocus())
+  })
+
   it('names the conversation its message belongs to, so the server can refuse a confined one (ADR-0087)', async () => {
     const { posts } = stubFetch()
     const user = userEvent.setup()

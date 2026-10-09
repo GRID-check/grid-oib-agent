@@ -294,6 +294,17 @@ describe('mapServerMessageToChatMessage — the answer’s provenance', () => {
     expect(mapped!.stopped).toBe(true)
   })
 
+  it('restores the Aufwand the turn ran at, and drops a level this build does not offer', () => {
+    const ran = mapServerMessageToChatMessage(
+      serverMessage({ role: 'assistant', metadata: { provenance: { reasoningEffort: 'high' } } }),
+    )
+    expect(ran!.reasoningEffort).toBe('high')
+    const stale = mapServerMessageToChatMessage(
+      serverMessage({ role: 'assistant', metadata: { provenance: { reasoningEffort: 'none' } } }),
+    )
+    expect(stale!.reasoningEffort).toBeUndefined()
+  })
+
   it('restores the confidence self-assessment and the routing decision', () => {
     const mapped = mapServerMessageToChatMessage(
       serverMessage({ role: 'assistant', metadata: { provenance } }),

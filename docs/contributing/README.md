@@ -16,6 +16,7 @@ holds the depth behind it.
 | [gotchas.md](gotchas.md) | Known failures indexed by the symptom you arrive with. Read it before debugging a surprise |
 | [agent-onboarding-files.md](agent-onboarding-files.md) | What `AGENTS.md` and its `CLAUDE.md` bridge are for, how each one loads, and which rules belong at the root versus in a service |
 | [agent-skills.md](agent-skills.md) | When a procedure is a skill and when it is a document, how `.claude/` is generated, which skills are installed and why, what to know before trusting them |
+| [lifecycle-matrix.md](lifecycle-matrix.md) | The phase-by-edge matrix for very heavy surfaces (the streaming chat turn), when one is warranted and when not; instances in [`../design/lifecycles/`](../design/lifecycles/README.md) |
 | [correction-ratchet.md](correction-ratchet.md) | Closing the layer that allowed an error, instead of only fixing the output |
 | [documentation.md](documentation.md) | Which doc to update for which kind of change, and why that is part of the change |
 | [lint-evaluation.md](lint-evaluation.md) | Why the UI lints with oxlint and not ESLint or Biome: timings, rule coverage, what was lost, and how the repo's own rules are kept honest |

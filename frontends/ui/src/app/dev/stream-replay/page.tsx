@@ -1,7 +1,7 @@
 'use client'
 
 /**
- * `/dev/stream-replay?fixture=varianten&speed=1` — a recorded live answer,
+ * `/dev/stream-replay?fixture=varianten&speed=1[&ending=recorded]` — a recorded live answer,
  * replayed as v2 events at its recorded pace, through `foldTurnEvent`, into the
  * real `AgentResponse`.
  *
@@ -20,13 +20,18 @@ import { citationsFromWireList } from '@/features/chat/lib/wire-citation'
 import { sanitizeAnswerMeta } from '@/lib/conversations/message-answer-meta'
 import { validateGridCards } from '@/shared/cards/schemas'
 import { STREAM_FRAMES } from '../_fixtures/stream-frames'
-import { answerBodies, stampFrame } from '../_fixtures/v2-turn'
+import { answerBodies, asSettled, stampFrame } from '../_fixtures/v2-turn'
 
 interface Shift {
   t: number
   phase: string
   value: number
-  sources: { node: string; dy: number; dh: number }[]
+  /**
+   * `edge`: the source entered or left the viewport (its rect before or after
+   * is empty). The browser reports only a rect's visible part, so its dy/dh
+   * are not how far it moved (docs/contributing/gotchas.md).
+   */
+  sources: { node: string; dy: number; dh: number; edge: boolean }[]
 }
 
 interface ReplayProbe {
@@ -51,12 +56,23 @@ interface View {
 const IDS = { conversationId: 'replay', turnId: 'replay', messageId: 'replay' }
 const EMPTY: View = { turn: initialTurnView(IDS.turnId, IDS.conversationId), phase: 'waiting' }
 
-/** The recorded answer as v2 events (`_fixtures/v2-turn.ts`), each at its recorded time. */
-const replayEvents = (name: 'varianten' | 'oib2', speed: number): { at: number; event: WireEvent }[] =>
-  answerBodies(STREAM_FRAMES[name], IDS.messageId, 0, speed).flatMap(({ at, body }, index) => {
+/**
+ * The recorded answer as v2 events (`_fixtures/v2-turn.ts`), each at its
+ * recorded time, ending as the product ends today: the terminal continues the
+ * settled snapshot (`asSettled`). The `oib2` recording predates ADR-0067 and
+ * its terminal rewrote the answer; `?ending=recorded` replays that instead.
+ */
+const replayEvents = (
+  name: 'varianten' | 'oib2',
+  speed: number,
+  recordedEnding: boolean
+): { at: number; event: WireEvent }[] => {
+  const bodies = answerBodies(STREAM_FRAMES[name], IDS.messageId, 0, speed)
+  return (recordedEnding ? bodies : asSettled(bodies)).flatMap(({ at, body }, index) => {
     const event = parseWireEvent(stampFrame(index + 1, body, IDS))
     return event ? [{ at, event }] : []
   })
+}
 
 /** One event folded by `foldTurnEvent`; the phase label is read off the event. */
 const applyEvent = (view: View, event: WireEvent): View => {
@@ -78,7 +94,8 @@ export default function StreamReplayPage() {
   const params = useSearchParams()
   const name = (params.get('fixture') === 'oib2' ? 'oib2' : 'varianten') as 'varianten' | 'oib2'
   const speed = Number(params.get('speed') ?? '1') || 1
-  const events = useMemo(() => replayEvents(name, speed), [name, speed])
+  const recordedEnding = params.get('ending') === 'recorded'
+  const events = useMemo(() => replayEvents(name, speed, recordedEnding), [name, speed, recordedEnding])
   const [view, setView] = useState<View>(EMPTY)
 
   const probe = useMemo<ReplayProbe>(
@@ -105,6 +122,7 @@ export default function StreamReplayPage() {
             node: describe(s.node),
             dy: Math.round(s.currentRect.top - s.previousRect.top),
             dh: Math.round(s.currentRect.height - s.previousRect.height),
+            edge: s.previousRect.height === 0 || s.currentRect.height === 0,
           })),
         })
       }

@@ -28,6 +28,29 @@ ruleTester.run('motion-vocabulary', rule, {
     `const a = 'transition-transform ease-exit'`,
     // Words that merely start the same are not durations.
     `const a = 'duration-snappy'`,
+    // The sanctioned loop utilities, and an easing that only shares a prefix.
+    `const a = 'animate-caret-breathe motion-reduce:animate-none'`,
+    `const a = 'animate-typing-dot animate-progress-sweep ease-entrance'`,
+    // A motion target of transform and opacity is the vocabulary.
+    `const x = <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0, scale: 1 }} exit={{ opacity: 0 }} />`,
+    // Only initial/animate/exit are motion targets; a style prop is not.
+    `const x = <motion.div style={{ height: 40 }} layout />`,
+    // A variants object is not followed (see the rule's note).
+    `const x = <motion.div variants={v} initial="hidden" animate="visible" />`,
+    // Spring the transform, tween the opacity: the per-key override is the fix.
+    `const x = <motion.span initial={{ opacity: 0, scale: 0.6 }} animate={{ opacity: 1, scale: 1 }} transition={{ ...springSnap, opacity: motionQuick }} />`,
+    // A target's own transition governs it, whatever the element default is.
+    `const x = <motion.span animate={{ opacity: 1, scale: 1, transition: swap.enter }} exit={{ opacity: 0, transition: motionQuickExit }} transition={springSnap} />`,
+    // A spring on a target with no opacity is the vocabulary (a press, a glide).
+    `const x = <motion.div animate={{ scale: 0.99 }} transition={springPress} />`,
+    `const x = <motion.span layoutId="pill" transition={springGlide} />`,
+    `const x = <motion.div whileTap={{ scale: 0.99, transition: springPress }} />`,
+    // Opacity only in `initial` is where it starts, not what animates.
+    `const x = <motion.span initial={{ opacity: 0 }} animate="shown" transition={springSnap} />`,
+    // The kit's CSS-string siblings are not motion transitions.
+    `const x = <motion.span animate={{ opacity: 1 }} transition={springSnapLinear} />`,
+    // A transition held in a variable is not followed.
+    `const x = <motion.span animate={{ opacity: 1 }} transition={landing} />`,
   ],
   invalid: [
     {
@@ -65,6 +88,75 @@ ruleTester.run('motion-vocabulary', rule, {
     {
       code: `const a = 'transition-[width]'`,
       errors: [{ messageId: 'layoutTransition' }],
+    },
+    {
+      // Hand-written animation timings, bare and behind a variant.
+      code: `const a = '[animation-delay:160ms] motion-safe:[animation-duration:2s]'`,
+      errors: [
+        { messageId: 'arbitraryAnimationTiming' },
+        { messageId: 'arbitraryAnimationTiming' },
+      ],
+    },
+    {
+      code: `const a = 'motion-safe:animate-pulse'`,
+      errors: [{ messageId: 'animatePulse' }],
+    },
+    {
+      code: `const a = 'ease-in-out ease-in'`,
+      errors: [{ messageId: 'offVocabularyEasing' }, { messageId: 'offVocabularyEasing' }],
+    },
+    {
+      // A height arrival: ONE finding for the element, on its opening tag, so
+      // one disable comment with a reason covers initial, animate and exit.
+      code: `const x = <motion.div\n  initial={{ height: 0, opacity: 0 }}\n  animate={{ height: 'auto', opacity: 1 }}\n  exit={{ height: 0 }}\n/>`,
+      errors: [{ messageId: 'motionLayoutKey', line: 1 }],
+    },
+    {
+      code: `const x = <motion.div animate={{ 'width': 10, top: 4, left: 0 }} />`,
+      errors: [{ messageId: 'motionLayoutKey' }],
+    },
+    {
+      // The icon swap that ran its fade on a 500ms spring: one finding per
+      // element, on its opening tag.
+      code: `const x = <motion.span\n  initial={{ opacity: 0, scale: 0.6 }}\n  animate={{ opacity: 1, scale: 1 }}\n  exit={{ opacity: 0, scale: 0.6 }}\n  transition={springSnap}\n/>`,
+      errors: [{ messageId: 'springOpacity', line: 1 }],
+    },
+    {
+      // Every kit spring and legacy alias.
+      code: `const x = <>
+        <motion.li animate={{ opacity: 1 }} transition={springDrawer} />
+        <motion.li animate={{ opacity: 1 }} transition={springGlide} />
+        <motion.li animate={{ opacity: 1 }} transition={springPress} />
+        <motion.li animate={{ opacity: 1 }} transition={springSnappy} />
+        <motion.li animate={{ opacity: 1 }} transition={springGentle} />
+      </>`,
+      errors: Array(5).fill({ messageId: 'springOpacity' }),
+    },
+    {
+      // The spring set on the target itself.
+      code: `const x = <motion.span animate={{ opacity: 1, transition: springSnap }} />`,
+      errors: [{ messageId: 'springOpacity' }],
+    },
+    {
+      // Spread or `type: 'spring'` with no opacity override is still a spring.
+      code: `const x = <>
+        <motion.span animate={{ opacity: 1 }} transition={{ ...springSnap, delay: 0.1 }} />
+        <motion.span animate={{ opacity: 1 }} transition={{ type: 'spring', stiffness: 400 }} />
+      </>`,
+      errors: [{ messageId: 'springOpacity' }, { messageId: 'springOpacity' }],
+    },
+    {
+      // Either branch of a conditional counts; so does a hover target.
+      code: `const x = <>
+        <motion.span animate={{ opacity: 1 }} transition={reduced ? motionInstant : springSnap} />
+        <motion.span whileHover={{ opacity: 0.8 }} transition={springPress} />
+      </>`,
+      errors: [{ messageId: 'springOpacity' }, { messageId: 'springOpacity' }],
+    },
+    {
+      // An opacity override that is itself a spring is no override.
+      code: `const x = <motion.span exit={{ opacity: 0 }} transition={{ ...springSnap, opacity: springPress }} />`,
+      errors: [{ messageId: 'springOpacity' }],
     },
   ],
 })
