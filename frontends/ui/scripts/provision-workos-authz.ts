@@ -121,7 +121,7 @@ async function reconcilePermissions(): Promise<void> {
   const ours = new Set(ALL_PERMISSION_SPECS.map((permission) => permission.slug))
   for (const permission of existing) {
     if (ours.has(permission.slug)) continue
-    if (/^(org|platform|project|skill|workflow):/.test(permission.slug)) {
+    if (/^(org|platform|project|skill|folder|workflow):/.test(permission.slug)) {
       note(`UNKNOWN  ${permission.slug} — in WorkOS, absent from the catalog`)
       drift.push(`permission in WorkOS but not in the catalog: ${permission.slug}`)
     }

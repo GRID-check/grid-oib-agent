@@ -20,7 +20,8 @@
  */
 
 import 'server-only'
-import { getCached, invalidateCachedPrefix } from '@/lib/cache'
+import { randomUUID } from 'node:crypto'
+import { getCached, setCached } from '@/lib/cache'
 import { getWorkOS } from '@/lib/workos/client'
 import { timedWorkOSCall } from '@/lib/workos/instrumentation'
 import { authzCacheTtlMs } from './resource-check'
@@ -43,8 +44,31 @@ export interface FolderRoleHolder {
   level: FolderGrantLevel
 }
 
-const levelsKey = (organizationId: string, organizationMembershipId: string) =>
-  `authz:folder-levels:${organizationId}:${organizationMembershipId}:`
+/**
+ * How long a project's level generation is kept. Longer than any levels entry
+ * by far; if the store evicts it anyway, the next read starts a new
+ * generation, which only makes every cached level unreachable.
+ */
+const GENERATION_TTL_MS = 24 * 60 * 60 * 1000
+
+const generationKey = (organizationId: string, projectId: string) =>
+  `authz:folder-levels-generation:${organizationId}:${projectId}`
+
+/**
+ * The current generation of a project's cached folder levels. Every cached
+ * level is filed under it, and every change of a folder list in the project
+ * starts a new one ({@link bumpFolderLevels}). A level read that was in flight
+ * while a list changed is stored under the old generation, where nothing reads
+ * it again, so a person taken off a list cannot be cached back onto it.
+ */
+async function levelsGeneration(organizationId: string, projectId: string): Promise<string> {
+  return getCached(generationKey(organizationId, projectId), GENERATION_TTL_MS, async () => randomUUID())
+}
+
+/** Makes every cached folder level in the project unreachable. Run after every change of a list, failed or not. */
+export async function bumpFolderLevels(organizationId: string, projectId: string): Promise<void> {
+  await setCached(generationKey(organizationId, projectId), randomUUID(), GENERATION_TTL_MS)
+}
 
 function isNotFound(error: unknown): boolean {
   return typeof error === 'object' && error !== null && 'status' in error && error.status === 404
@@ -70,9 +94,9 @@ async function folderIdsWith(
 /**
  * The level a membership holds on each folder of `projectId` that has its own
  * list, by the folder roles assigned to it there: two WorkOS calls, cached for
- * `GRID_AUTHZ_CACHE_TTL_MS` like every other FGA answer, and dropped by
- * {@link replaceFolderRoleHolders} for everyone whose roles it changed. Fails
- * closed: a lookup that did not complete holds nothing, and is not cached.
+ * `GRID_AUTHZ_CACHE_TTL_MS` like every other FGA answer, under the project's
+ * current generation, which every change of a list in the project replaces.
+ * Fails closed: a lookup that did not complete holds nothing, and is not cached.
  */
 export async function heldFolderLevels(
   organizationId: string,
@@ -92,7 +116,12 @@ export async function heldFolderLevels(
   const ttlMs = authzCacheTtlMs()
   try {
     if (ttlMs <= 0) return await load()
-    return await getCached(`${levelsKey(organizationId, organizationMembershipId)}${projectId}`, ttlMs, load)
+    const generation = await levelsGeneration(organizationId, projectId)
+    return await getCached(
+      `authz:folder-levels:${organizationId}:${projectId}:${generation}:${organizationMembershipId}`,
+      ttlMs,
+      load
+    )
   } catch (error) {
     console.warn(`[authz] folder roles of ${organizationMembershipId} in project ${projectId} could not be read:`, error)
     return {}
@@ -170,10 +199,25 @@ export async function ensureFolderResource(
  * Makes the folder roles on `folderId` exactly `wanted`: removes every folder
  * role assignment not wanted (a changed level is a removal and an assignment),
  * then assigns what is missing. Removes first, so a failure part-way leaves a
- * list narrower than either the old or the new one, never wider. Drops the
- * cached levels of everyone it changed.
+ * list narrower than either the old or the new one, never wider. Starts a new
+ * generation of the project's cached levels whether or not it got through.
+ * Two calls for the same folder must not overlap: the caller serializes them
+ * (`setFolderAccess` holds a lock on the folder).
  */
 export async function replaceFolderRoleHolders(
+  organizationId: string,
+  projectId: string,
+  folderId: string,
+  wanted: readonly { organizationMembershipId: string; level: FolderGrantLevel }[]
+): Promise<void> {
+  try {
+    await reconcileFolderRoleHolders(organizationId, folderId, wanted)
+  } finally {
+    await bumpFolderLevels(organizationId, projectId)
+  }
+}
+
+async function reconcileFolderRoleHolders(
   organizationId: string,
   folderId: string,
   wanted: readonly { organizationMembershipId: string; level: FolderGrantLevel }[]
@@ -183,7 +227,6 @@ export async function replaceFolderRoleHolders(
   const current = await listFolderRoleHolders(organizationId, folderId)
   const wantedLevel = new Map(wanted.map((holder) => [holder.organizationMembershipId, holder.level]))
   const currentLevel = new Map(current.map((holder) => [holder.organizationMembershipId, holder.level]))
-  const changed = new Set<string>()
 
   for (const holder of current) {
     if (wantedLevel.get(holder.organizationMembershipId) === holder.level) continue
@@ -198,7 +241,6 @@ export async function replaceFolderRoleHolders(
         if (!isNotFound(error)) throw error
       }
     }
-    changed.add(holder.organizationMembershipId)
   }
   for (const holder of wanted) {
     if (currentLevel.get(holder.organizationMembershipId) === holder.level) continue
@@ -209,20 +251,17 @@ export async function replaceFolderRoleHolders(
         ...resource,
       })
     )
-    changed.add(holder.organizationMembershipId)
   }
-  await Promise.all([...changed].map((membershipId) => invalidateCachedPrefix(levelsKey(organizationId, membershipId))))
 }
 
 /**
  * Removes `folderId`'s folder resource and every folder role on it: the folder
- * no longer has its own list. Already gone is not an error. Drops the cached
- * levels of everyone who held a role on it: the folder may get its own list
+ * no longer has its own list. Already gone is not an error. Starts a new
+ * generation of the project's cached levels: the folder may get its own list
  * again within the cache period, and a level cached from the old list would
  * otherwise open it to someone the new list leaves out.
  */
-export async function removeFolderResource(organizationId: string, folderId: string): Promise<void> {
-  const holders = await listFolderRoleHolders(organizationId, folderId)
+export async function removeFolderResource(organizationId: string, projectId: string, folderId: string): Promise<void> {
   try {
     await timedWorkOSCall('authorization.deleteResourceByExternalId folder', () =>
       getWorkOS().authorization.deleteResourceByExternalId({
@@ -234,8 +273,7 @@ export async function removeFolderResource(organizationId: string, folderId: str
     )
   } catch (error) {
     if (!isNotFound(error)) throw error
+  } finally {
+    await bumpFolderLevels(organizationId, projectId)
   }
-  await Promise.all(
-    holders.map((holder) => invalidateCachedPrefix(levelsKey(organizationId, holder.organizationMembershipId)))
-  )
 }

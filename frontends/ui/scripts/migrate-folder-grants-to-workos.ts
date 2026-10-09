@@ -20,10 +20,12 @@
  *     … bun run migrate:folder-grants -- --apply  # register the folders and assign the roles
  *
  * Order: `provision:authz -- --apply` first (the `folder` resource type, the
- * `folder:*` permissions and the folder roles must exist), then this, then the
- * deploy that reads folder roles. Until it has run, a folder with its own list
- * is readable only by organization admins and, when everyone reads it, by every
- * project member: the narrow direction, not a leak.
+ * `folder:*` permissions and the folder roles must exist), then the deploy that
+ * reads folder roles, then this, right after. Until it has run, a folder with
+ * its own list is readable only by organization admins and, when everyone
+ * reads it, by every project member: the narrow direction, not a leak. Run
+ * before the deploy, it would carry a list over as it stood then, and a list
+ * narrowed in the old dialog afterwards would come back wider.
  *
  * It converts only folders that are not yet registered in WorkOS. Once a folder
  * is registered, its list is WorkOS's: someone may have edited it in the new

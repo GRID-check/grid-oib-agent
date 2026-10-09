@@ -29,10 +29,13 @@
  * one no wider than one of them: WorkOS first and the folder row last when a
  * folder gets its own list, the folder row first and WorkOS last when it goes
  * back to inheriting. Folder roles on a folder that inherits are never read.
+ * One change of a folder's list runs at a time: a transaction-scoped lock on
+ * the folder is held across the WorkOS writes, so two managers saving at once
+ * end with the second list, never the two combined.
  */
 
 import 'server-only'
-import { and, eq, isNull } from 'drizzle-orm'
+import { and, eq, isNull, sql } from 'drizzle-orm'
 import { BadRequestError, NotFoundError } from '@/lib/api/errors'
 import { recordAuditEvent } from '@/lib/audit/service'
 import type { AuthorizedSession } from '@/lib/auth/types'
@@ -47,7 +50,7 @@ import { resolveSubjectMembership } from '@/lib/authz/project-membership'
 import { requireProjectAccess } from '@/lib/authz/projects'
 import { getDb } from '@/lib/db'
 import { withTenant } from '@/lib/db/tenant-context'
-import { projectFolders } from '@/lib/db/schema'
+import { projectFolderGrants, projectFolders } from '@/lib/db/schema'
 import { findProjectInOrg } from '@/lib/projects/repository'
 import { placeProjectDocuments, type PlacementResult } from './collection-placement'
 import { assertRestrictionKeepsIfcOpen } from './ifc-folder-guard'
@@ -193,39 +196,51 @@ export async function setFolderAccess(
     access.mode === 'custom' ? access.everyoneReads : null
   )
 
-  if (access.mode === 'custom' && people) {
-    await ensureFolderResource(organizationId, input.projectId, input.folderId, folder.name)
-    await replaceFolderRoleHolders(organizationId, input.folderId, people)
-  }
   const db = getDb()
   const updated = await withTenant({ organizationId }, () =>
-    db
-      .update(projectFolders)
-      .set({
-        accessMode: access.mode,
-        everyoneReads: access.mode === 'custom' && access.everyoneReads,
-        accessChangedBy: session.userId,
-        accessChangedAt: new Date(),
-        updatedAt: new Date(),
-      })
-      .where(
-        and(
-          eq(projectFolders.id, input.folderId),
-          eq(projectFolders.projectId, input.projectId),
-          isNull(projectFolders.deletedAt)
-        )
+    db.transaction(async (tx) => {
+      await tx.execute(
+        sql`SELECT pg_advisory_xact_lock(hashtextextended(${`folder_access:${organizationId}:${input.folderId}`}, 0))`
       )
-      .returning({ id: projectFolders.id })
+      if (access.mode === 'custom' && people) {
+        await ensureFolderResource(organizationId, input.projectId, input.folderId, folder.name)
+        await replaceFolderRoleHolders(organizationId, input.projectId, input.folderId, people)
+      }
+      const rows = await tx
+        .update(projectFolders)
+        .set({
+          accessMode: access.mode,
+          everyoneReads: access.mode === 'custom' && access.everyoneReads,
+          accessChangedBy: session.userId,
+          accessChangedAt: new Date(),
+          updatedAt: new Date(),
+        })
+        .where(
+          and(
+            eq(projectFolders.id, input.folderId),
+            eq(projectFolders.projectId, input.projectId),
+            isNull(projectFolders.deletedAt)
+          )
+        )
+        .returning({ id: projectFolders.id })
+      if (rows.length === 0) return rows
+      // A build before ADR-0096 decides from these rows. Left in place they
+      // would contradict the list now in WorkOS, so a rollback or an old pod in
+      // a rolling deploy would read the folder as it was before this change;
+      // without them it reads a custom folder as one nobody but admins may read.
+      await tx.delete(projectFolderGrants).where(eq(projectFolderGrants.folderId, input.folderId))
+      if (access.mode === 'inherit' && folder.accessMode === 'custom') {
+        // The row inherits from this commit on, so nothing reads the folder
+        // roles any more; a resource left behind by a failure here is harmless
+        // and is replaced the next time the folder gets its own list.
+        await removeFolderResource(organizationId, input.projectId, input.folderId).catch((error: unknown) => {
+          console.warn(`[folder-access] folder ${input.folderId} inherits again; its WorkOS resource stays:`, error)
+        })
+      }
+      return rows
+    })
   )
   if (updated.length === 0) throw new NotFoundError('Folder not found')
-  if (access.mode === 'inherit' && folder.accessMode === 'custom') {
-    // The row already inherits, so nothing reads the folder roles any more; a
-    // resource left behind by a failure here is harmless and is replaced the
-    // next time the folder gets its own list.
-    await removeFolderResource(organizationId, input.folderId).catch((error: unknown) => {
-      console.warn(`[folder-access] folder ${input.folderId} inherits again; its WorkOS resource stays:`, error)
-    })
-  }
 
   const placement = await placeProjectDocuments(organizationId, input.projectId)
   const stored: FolderAccessSetting =

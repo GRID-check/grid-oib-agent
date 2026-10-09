@@ -693,7 +693,12 @@ script does that. Per environment, in this order:
    `frontends/ui` creates `folder:read`, `folder:write`, `folder-reader` and
    `folder-editor`. Re-run it without `--apply` until it reports "WorkOS matches
    the catalog."
-3. **Script**: from `frontends/ui`,
+3. **Deploy** the release, which applies migration `0128` and reads folder
+   roles. From here until step 4 has run, a folder whose list named roles is
+   readable only by organization admins and, when everyone reads it, by every
+   project member: narrower than before, never wider. Saving a list in the new
+   dialog removes that folder's old grant rows, so the script leaves it alone.
+4. **Script**, right after the deploy: from `frontends/ui`,
 
    ```bash
    WORKOS_API_KEY=sk_… GRID_APP_MIGRATION_DATABASE_URL=postgres://… \
@@ -712,22 +717,18 @@ script does that. Per environment, in this order:
    registered folder's list is WorkOS's (converted before, or edited in the new
    dialog), so running the script again changes nothing. A folder a failed run
    registered but did not finish is finished with `-- --apply --finish=<folder id>`.
-4. **Deploy** the release, which applies migration `0128` and reads folder
-   roles.
 
-Running the script right before the deploy means nobody loses a folder at the
-switch. A list changed in the old dialog between the run and the deploy is not
-carried over, because the second run skips a folder the first one registered:
-keep that window short, or change such a list again in the new dialog.
-
-If the deploy goes first, nothing becomes readable that was not: until the
-script has run, a folder with its own list is readable only by organization
-admins and, when everyone reads it, by every project member.
+**Why the deploy comes first.** Run before the deploy, the script would carry a
+list over as it stood then, and a list narrowed in the old dialog before the
+deploy would come back wider, because a second run skips a folder the first one
+registered. Run after it, the old dialog is gone and the gap is only narrower.
 
 **What changes for the office.** A role grant followed the role: someone given
 the role later reached the folder. A folder role is given to a person, so after
 the carry-over a list is the people who held the role on the day it ran, and
-someone given the role afterwards is added to the folder by hand.
+someone given the role afterwards is added to the folder by hand. The other
+way round too: someone who loses the role later keeps the folder role until
+someone takes them off the list.
 
 `project_folder_grants` stays until the script has run in every environment;
 a later migration drops it.

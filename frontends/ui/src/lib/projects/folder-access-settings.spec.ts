@@ -5,8 +5,10 @@
  * with read or write, and optionally everyone reading. Validated against the
  * organization's members, written to WorkOS BEFORE the folder row says
  * `custom` and the row back to `inherit` BEFORE the WorkOS resource goes, so
- * no moment between the old list and the new one is wider than either.
- * Audited in the shape the role-based lists wrote, and refused before anything
+ * no moment between the old list and the new one is wider than either. All of
+ * it inside one transaction that first takes a lock on the folder, so two
+ * saves of one folder run one after the other; the folder's old role grants
+ * go in the same transaction. Audited in the shape the role-based lists wrote, and refused before anything
  * is written when it would put an IFC model in a folder not every member may
  * read.
  */
@@ -22,6 +24,9 @@ const state = vi.hoisted(() => ({
   } | null,
   updatedRows: [{ id: 'plaene' }] as Array<{ id: string }>,
   updates: [] as Array<Record<string, unknown>>,
+  /** The params of each grants delete's condition. */
+  grantDeletes: [] as string[][],
+  grantsTable: null as unknown,
 }))
 
 vi.mock('@/lib/authz/folder-access', async () => (await import('@/test-utils/folder-access')).openFolderAccessModule())
@@ -71,24 +76,66 @@ vi.mock('@/lib/audit/service', () => ({
     events.push('audit')
   }),
 }))
-vi.mock('@/lib/db', () => ({
-  getDb: () => ({
-    select: () => ({
-      from: () => ({ where: () => ({ limit: async () => (state.folder ? [state.folder] : []) }) }),
-    }),
-    update: () => ({
-      set: (values: Record<string, unknown>) => ({
-        where: () => ({
-          returning: async () => {
-            events.push(`row:${String(values.accessMode)}`)
-            state.updates.push(values)
-            return state.updatedRows
-          },
-        }),
+/**
+ * The database: the folder read outside the transaction, and inside it the
+ * advisory lock (a real mutex per key, held until the transaction ends), the
+ * row update and the grants delete, each recorded in `events`.
+ */
+vi.mock('@/lib/db', async () => {
+  const { PgDialect } = await import('drizzle-orm/pg-core')
+  const dialect = new PgDialect()
+  const held = new Map<string, Promise<void>>()
+  const render = (query: unknown) => dialect.sqlToQuery(query as Parameters<typeof dialect.sqlToQuery>[0])
+  return {
+    getDb: () => ({
+      select: () => ({
+        from: () => ({ where: () => ({ limit: async () => (state.folder ? [state.folder] : []) }) }),
       }),
+      transaction: async <T,>(run: (tx: unknown) => Promise<T>): Promise<T> => {
+        const releases: Array<() => void> = []
+        const tx = {
+          execute: async (query: unknown) => {
+            const { sql: text, params } = render(query)
+            if (!text.includes('pg_advisory_xact_lock')) throw new Error(`unexpected statement: ${text}`)
+            const key = String(params[0])
+            while (held.has(key)) await held.get(key)
+            let release!: () => void
+            held.set(key, new Promise<void>((resolve) => (release = resolve)))
+            releases.push(() => {
+              held.delete(key)
+              release()
+            })
+            events.push(`lock:${key}`)
+          },
+          update: () => ({
+            set: (values: Record<string, unknown>) => ({
+              where: () => ({
+                returning: async () => {
+                  events.push(`row:${String(values.accessMode)}`)
+                  state.updates.push(values)
+                  return state.updatedRows
+                },
+              }),
+            }),
+          }),
+          delete: (table: unknown) => ({
+            where: async (condition: unknown) => {
+              if (table !== state.grantsTable) throw new Error('unexpected delete')
+              events.push('grants:deleted')
+              state.grantDeletes.push(render(condition).params.map(String))
+            },
+          }),
+        }
+        try {
+          return await run(tx)
+        } finally {
+          events.push('tx:end')
+          for (const release of releases) release()
+        }
+      },
     }),
-  }),
-}))
+  }
+})
 vi.mock('@/lib/db/tenant-context', () => ({
   withTenant: (_scope: unknown, run: () => unknown) => run(),
 }))
@@ -101,6 +148,7 @@ vi.mock('@/lib/db/schema', () => ({
     accessMode: 'folders.access_mode',
     everyoneReads: 'folders.everyone_reads',
   },
+  projectFolderGrants: { folderId: 'grants.folder_id' },
 }))
 
 import { BadRequestError, NotFoundError } from '@/lib/api/errors'
@@ -128,6 +176,9 @@ import {
   type FolderAccessSetting,
 } from './folder-access-settings'
 import { assertRestrictionKeepsIfcOpen } from './ifc-folder-guard'
+import { projectFolderGrants } from '@/lib/db/schema'
+
+const LOCK = 'lock:folder_access:org-1:plaene'
 
 const SESSION = { organizationId: 'org-1', userId: 'user-1', email: 'a@b.c' } as never
 const request = () => new Request('http://x')
@@ -145,6 +196,8 @@ beforeEach(() => {
   state.folder = { name: 'Pläne', accessMode: 'inherit', everyoneReads: false }
   state.updatedRows = [{ id: 'plaene' }]
   state.updates = []
+  state.grantDeletes = []
+  state.grantsTable = projectFolderGrants
 })
 
 /** Nothing was written anywhere: not WorkOS, not the row, not the audit trail. */
@@ -154,6 +207,7 @@ function writesNothing() {
   expect(replaceFolderRoleHolders).not.toHaveBeenCalled()
   expect(removeFolderResource).not.toHaveBeenCalled()
   expect(state.updates).toEqual([])
+  expect(state.grantDeletes).toEqual([])
   expect(recordAuditEvent).not.toHaveBeenCalled()
   expect(placeProjectDocuments).not.toHaveBeenCalled()
 }
@@ -252,20 +306,20 @@ describe('setFolderAccess: what a list may hold', () => {
 
   it(`takes ${FOLDER_ACCESS_MAX_PEOPLE} people`, async () => {
     await setFolderAccess(SESSION, custom(people(FOLDER_ACCESS_MAX_PEOPLE)), request())
-    expect(vi.mocked(replaceFolderRoleHolders).mock.calls[0][2]).toHaveLength(FOLDER_ACCESS_MAX_PEOPLE)
+    expect(vi.mocked(replaceFolderRoleHolders).mock.calls[0][3]).toHaveLength(FOLDER_ACCESS_MAX_PEOPLE)
   })
 
   it('takes a list of nobody when everyone reads: every member reads, only admins write', async () => {
     const result = await setFolderAccess(SESSION, custom([], true), request())
 
-    expect(replaceFolderRoleHolders).toHaveBeenCalledWith('org-1', 'plaene', [])
+    expect(replaceFolderRoleHolders).toHaveBeenCalledWith('org-1', 'proj-1', 'plaene', [])
     expect(state.updates[0]).toMatchObject({ accessMode: 'custom', everyoneReads: true })
     expect(result.access).toEqual({ mode: 'custom', everyoneReads: true, people: [] })
   })
 })
 
 describe('setFolderAccess: the order of the writes', () => {
-  it('gives a folder its own list: WorkOS first, then the row, then placement and the audit', async () => {
+  it('gives a folder its own list: the lock, WorkOS, the row, the old grants, then placement and the audit', async () => {
     const result = await setFolderAccess(
       SESSION,
       custom([
@@ -275,9 +329,10 @@ describe('setFolderAccess: the order of the writes', () => {
       request()
     )
 
-    expect(events).toEqual(['workos:ensure', 'workos:replace', 'row:custom', 'place', 'audit'])
+    expect(events).toEqual([LOCK, 'workos:ensure', 'workos:replace', 'row:custom', 'grants:deleted', 'tx:end', 'place', 'audit'])
+    expect(state.grantDeletes).toEqual([[expect.any(String), 'plaene']])
     expect(ensureFolderResource).toHaveBeenCalledWith('org-1', 'proj-1', 'plaene', 'Pläne')
-    expect(replaceFolderRoleHolders).toHaveBeenCalledWith('org-1', 'plaene', [
+    expect(replaceFolderRoleHolders).toHaveBeenCalledWith('org-1', 'proj-1', 'plaene', [
       { userId: 'user-a', organizationMembershipId: 'om-a', level: 'write' },
       { userId: 'user-b', organizationMembershipId: 'om-b', level: 'read' },
     ])
@@ -304,8 +359,9 @@ describe('setFolderAccess: the order of the writes', () => {
     await expect(setFolderAccess(SESSION, custom([{ userId: 'user-a', level: 'read' }]), request())).rejects.toThrow(
       'WorkOS unavailable'
     )
-    expect(events).toEqual(['workos:ensure'])
+    expect(events).toEqual([LOCK, 'workos:ensure', 'tx:end'])
     expect(state.updates).toEqual([])
+    expect(state.grantDeletes).toEqual([])
     expect(recordAuditEvent).not.toHaveBeenCalled()
   })
 
@@ -322,17 +378,18 @@ describe('setFolderAccess: the order of the writes', () => {
 
     await setFolderAccess(SESSION, custom([{ userId: 'user-a', level: 'read' }]), request())
 
-    expect(events).toEqual(['workos:ensure', 'workos:replace', 'row:custom', 'place', 'audit'])
+    expect(events).toEqual([LOCK, 'workos:ensure', 'workos:replace', 'row:custom', 'grants:deleted', 'tx:end', 'place', 'audit'])
     expect(state.updates[0]).toMatchObject({ everyoneReads: false })
   })
 
-  it('makes a folder inherit again: the row first, then the WorkOS resource goes', async () => {
+  it('makes a folder inherit again: the lock, the row, the old grants, then the WorkOS resource goes', async () => {
     state.folder = { name: 'Pläne', accessMode: 'custom', everyoneReads: false }
 
     const result = await setFolderAccess(SESSION, inherit, request())
 
-    expect(events).toEqual(['row:inherit', 'workos:remove', 'place', 'audit'])
-    expect(removeFolderResource).toHaveBeenCalledWith('org-1', 'plaene')
+    expect(events).toEqual([LOCK, 'row:inherit', 'grants:deleted', 'workos:remove', 'tx:end', 'place', 'audit'])
+    expect(state.grantDeletes).toEqual([[expect.any(String), 'plaene']])
+    expect(removeFolderResource).toHaveBeenCalledWith('org-1', 'proj-1', 'plaene')
     expect(ensureFolderResource).not.toHaveBeenCalled()
     expect(replaceFolderRoleHolders).not.toHaveBeenCalled()
     expect(state.updates[0]).toMatchObject({ accessMode: 'inherit', everyoneReads: false })
@@ -347,7 +404,7 @@ describe('setFolderAccess: the order of the writes', () => {
     const result = await setFolderAccess(SESSION, inherit, request())
 
     expect(result.access).toEqual({ mode: 'inherit' })
-    expect(events).toEqual(['row:inherit', 'place', 'audit'])
+    expect(events).toEqual([LOCK, 'row:inherit', 'grants:deleted', 'tx:end', 'place', 'audit'])
     expect(warn).toHaveBeenCalled()
     warn.mockRestore()
   })
@@ -355,7 +412,7 @@ describe('setFolderAccess: the order of the writes', () => {
   it('asks WorkOS nothing when a folder that already inherits is set to inherit', async () => {
     await setFolderAccess(SESSION, inherit, request())
 
-    expect(events).toEqual(['row:inherit', 'place', 'audit'])
+    expect(events).toEqual([LOCK, 'row:inherit', 'grants:deleted', 'tx:end', 'place', 'audit'])
   })
 
   it('removes nothing in WorkOS when the row was not found to flip', async () => {
@@ -364,7 +421,46 @@ describe('setFolderAccess: the order of the writes', () => {
 
     await expect(setFolderAccess(SESSION, inherit, request())).rejects.toBeInstanceOf(NotFoundError)
     expect(removeFolderResource).not.toHaveBeenCalled()
+    expect(state.grantDeletes).toEqual([])
   })
+})
+
+describe('setFolderAccess: one change of a folder’s list at a time', () => {
+  it('takes the lock on this folder, by organization and folder, before any WorkOS write', async () => {
+    await setFolderAccess(SESSION, custom([{ userId: 'user-a', level: 'read' }]), request())
+
+    expect(events[0]).toBe(LOCK)
+    expect(events.indexOf(LOCK)).toBeLessThan(events.indexOf('workos:ensure'))
+  })
+
+  it('runs a second save of the same folder only after the first one’s transaction has ended', async () => {
+    let release!: () => void
+    const firstHeld = new Promise<void>((resolve) => (release = resolve))
+    const trace: string[] = []
+    vi.mocked(replaceFolderRoleHolders)
+      .mockImplementationOnce(async (_org, _project, _folder, people) => {
+        trace.push(`replace:${people.map((person) => person.organizationMembershipId).join(',')}:start`)
+        await firstHeld
+        trace.push(`replace:${people.map((person) => person.organizationMembershipId).join(',')}:end`)
+      })
+      .mockImplementationOnce(async (_org, _project, _folder, people) => {
+        trace.push(`replace:${people.map((person) => person.organizationMembershipId).join(',')}:start`)
+      })
+
+    const first = setFolderAccess(SESSION, custom([{ userId: 'user-a', level: 'write' }]), request())
+    const second = setFolderAccess(SESSION, custom([{ userId: 'user-b', level: 'read' }]), request())
+    await new Promise((resolve) => setTimeout(resolve, 10))
+    // The first holds the lock in its WorkOS write; the second waits for the lock, not in WorkOS.
+    expect(trace).toEqual(['replace:om-a:start'])
+    release()
+    await Promise.all([first, second])
+
+    expect(trace).toEqual(['replace:om-a:start', 'replace:om-a:end', 'replace:om-b:start'])
+    // The second's lock comes after the first transaction ended.
+    const firstEnd = events.indexOf('tx:end')
+    expect(events.indexOf(LOCK, 1)).toBeGreaterThan(firstEnd)
+  })
+
 })
 
 describe('setFolderAccess: the IFC guard', () => {

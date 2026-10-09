@@ -8,7 +8,10 @@
 --
 -- Carried over from `project_folder_grants`:
 --   * a `*` entry that writes: everyone reads and writes, which is what a
---     folder that inherits already gives. The folder goes back to `inherit`;
+--     folder that inherits already gives. The folder goes back to `inherit`.
+--     It is then no longer a folder with its own list, so the download log
+--     stops recording opens in it as opens under an own list, and its lock
+--     mark goes; who may read and write it is unchanged;
 --   * a `*` entry that reads: `everyone_reads`.
 -- The role entries cannot be carried over in SQL, because they become folder
 -- roles of the people who hold those roles, which only WorkOS knows. That is

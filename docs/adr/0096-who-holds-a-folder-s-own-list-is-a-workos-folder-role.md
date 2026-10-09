@@ -79,10 +79,13 @@ every ancestor with its own list, each list now answering with the level the per
 Organization admins write everywhere, from the admin bypass as before. A lookup that fails
 clears nothing.
 
-**Writing a list** (`setFolderAccess`) orders its writes so no moment is wider than the old or
-the new list: to give a folder its own list, register it and assign the roles first, then flip
+**Writing a list** (`setFolderAccess`) holds a transaction-scoped lock on the folder across
+its WorkOS writes, so two saves end with the second list, never the two combined, and orders
+its writes so no moment is wider than the old or the new list: to give a folder its own list, register it and assign the roles first, then flip
 the row to `custom`; to make it inherit, flip the row first, then delete the resource. Replacing
 the people removes before it assigns. Folder roles on a folder that inherits are never read.
+Every change of a list starts a new generation of the project's cached levels, failed or not,
+so a level read while a list changed is never served after it.
 
 **Purge and tombstones.** A deleted folder's resource is kept, as its row is, because what was
 derived from it is still judged by who could read it (`unchanged` policy).
@@ -90,9 +93,11 @@ derived from it is still judged by who could read it (`unchanged` policy).
 **The carry-over.** Migration 0128 turns a `*` entry that read into `everyone_reads`, and a `*`
 entry that wrote back into `inherit` (everyone writing is what inheriting gives). The role
 entries become folder roles of the people who hold those roles today
-(`bun run migrate:folder-grants`, plan by default, `--apply` to write). Until it has run, a
-folder with its own list is readable only by organization admins and, when everyone reads it,
-by every project member: the narrow direction. `project_folder_grants` is dropped by a later
+(`bun run migrate:folder-grants`, plan by default, `--apply` to write), run right after the
+deploy. Until it has run, a folder with its own list is readable only by organization admins
+and, when everyone reads it, by every project member: the narrow direction. Saving a list
+deletes the folder's old grant rows, so a rollback or an older pod in a rolling deploy reads a
+changed folder as one only admins may read, never as it was before the change. `project_folder_grants` is dropped by a later
 migration once the script has run in every environment.
 
 ### Consequences
@@ -103,7 +108,8 @@ migration once the script has run in every environment.
 * Good, because the 60-second role cache, the grants table and the grant-count trigger are no
   longer in the folder decision.
 * Bad, because a role grant followed the role and a folder role does not: someone given the role
-  later no longer reaches the folder. Lists of whole groups of people wait for WorkOS groups,
+  later no longer reaches the folder, and someone who loses it keeps the folder role until taken
+  off the list. Lists of whole groups of people wait for WorkOS groups,
   which a later change can assign the same folder roles to.
 * Bad, because opening a project with a folder of its own costs two WorkOS calls per person per
   cache period, and changing a list is several WorkOS writes instead of one transaction.
