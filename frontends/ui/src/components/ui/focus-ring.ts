@@ -46,3 +46,13 @@ export const FOCUS_RING_INSET = 'focus-visible:ring-2 focus-visible:ring-ring/60
  */
 export const FIELD_FOCUS_RING =
   'focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/20 focus-visible:ring-offset-0'
+
+/**
+ * **A field made of several parts** — `TagInput`, where the typing surface is a
+ * bare `<input>` inside a bordered box that also holds the chips. The box is the
+ * field, so the box takes {@link FIELD_FOCUS_RING}'s treatment, keyed on the
+ * focus inside it. `:focus-within` and not `:has(:focus-visible)`: a text input
+ * shows focus-visible on a click too, so the two agree, and this one is older.
+ */
+export const FIELD_FOCUS_WITHIN_RING =
+  'focus-within:border-ring focus-within:ring-2 focus-within:ring-ring/20 focus-within:ring-offset-0'

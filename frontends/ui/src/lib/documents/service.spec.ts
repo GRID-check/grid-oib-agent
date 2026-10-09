@@ -80,6 +80,12 @@ vi.mock('@/lib/audit/service', () => ({
   recordAuditEvent: vi.fn().mockResolvedValue(undefined),
 }))
 
+// The upload-screening policy (ADR-0086) is read off the organization's
+// settings; an office that never saved one is on Piloti's suggestion.
+vi.mock('@/lib/organizations/service', () => ({
+  getOrgSettings: vi.fn().mockResolvedValue({ displayName: null, defaultLocale: 'de', settings: {} }),
+}))
+
 // The server-side allow-list consults the derived VLM capability. Mock it so
 // tests drive the (flag × capability) matrix directly, without a backend probe.
 vi.mock('@/lib/documents/vlm-capability', () => ({
@@ -380,6 +386,60 @@ describe('uploadDocument server-side type gate', () => {
       )
     ).rejects.toBeInstanceOf(BadRequestError)
     expect(admitOrDiscard).not.toHaveBeenCalled()
+  })
+})
+
+/**
+ * The name gate's server-side repeat (ADR-0086). The browser checks first and
+ * never sends an excluded file; this is what makes a client that skipped the
+ * check harmless. It runs before a byte is written, and an explicit release by
+ * the uploader is honoured and audited rather than refused.
+ */
+describe('uploadDocument server-side name screening', () => {
+  it('refuses a file whose name matches the policy, before anything is stored', async () => {
+    await expect(
+      uploadDocument(session, makeInput({ name: 'Schlussrechnung 2026.pdf' }), new Request('http://x'))
+    ).rejects.toMatchObject({ status: 422, code: 'UPLOAD_SCREENED' })
+    expect(s3Client.send).not.toHaveBeenCalled()
+    expect(admitOrDiscard).not.toHaveBeenCalled()
+    expect(mockFetch).not.toHaveBeenCalled()
+  })
+
+  it('refuses a file because of the folder it sat in, and names the folder', async () => {
+    const error = await uploadDocument(
+      session,
+      { ...makeInput({ name: 'scan_0042.pdf' }), originPath: 'Akt/Personalunterlagen/scan_0042.pdf' },
+      new Request('http://x')
+    ).catch((caught: unknown) => caught)
+    expect(error).toMatchObject({
+      details: { matches: [{ term: 'Personal', segment: 'Personalunterlagen', kind: 'folder' }] },
+    })
+  })
+
+  it('stores a matching file the uploader released, and audits the override', async () => {
+    mockFetch.mockResolvedValue({ ok: true, status: 200, json: () => Promise.resolve({ job_id: 'job-1' }) })
+    const result = await uploadDocument(
+      session,
+      { ...makeInput({ name: 'Architektenvertrag.pdf' }), screeningRelease: true },
+      new Request('http://x')
+    )
+    expect(result.status).toBe('pending')
+    expect(admitOrDiscard).toHaveBeenCalled()
+    expect(recordAuditEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: 'document.screening_overridden',
+        metadata: expect.objectContaining({ terms: 'Vertrag' }),
+      })
+    )
+  })
+
+  it('lets an ordinary plan through without an override event', async () => {
+    mockFetch.mockResolvedValue({ ok: true, status: 200, json: () => Promise.resolve({ job_id: 'job-1' }) })
+    await uploadDocument(session, makeInput({ name: 'Statische Berechnung.pdf' }), new Request('http://x'))
+    expect(admitOrDiscard).toHaveBeenCalled()
+    expect(recordAuditEvent).not.toHaveBeenCalledWith(
+      expect.objectContaining({ action: 'document.screening_overridden' })
+    )
   })
 })
 

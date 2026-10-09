@@ -50,6 +50,7 @@ import { getFeedbackDigest, type FeedbackDigestOptions, type FeedbackDigestResul
 import { resolveLessonsHoldout } from '@/lib/platform-lessons/holdout'
 import { reopenReportForRedistillation } from '@/lib/platform-lessons/service'
 import { implicateMemoryFromFeedback } from '@/lib/projects/memory-service'
+import { maskChatText } from '@/lib/upload-screening/service'
 
 /** Upsert the caller's vote on one assistant answer. */
 export async function submitAnswerFeedback(
@@ -95,6 +96,21 @@ export async function submitAnswerFeedback(
   // penalize the same notes twice.
   const prior = await getAnswerFeedbackForUser(session.userId, input.messageId)
 
+  // The comment is typed text, and it goes on to the embedder (memory
+  // implication below, the lesson pipeline) and to the distilling model: stored
+  // masked against the office's „Sensible Daten" policy (ADR-0086), like a chat
+  // message. Masked before the comparison with `prior`, which was stored masked.
+  const comment =
+    input.verdict === 'down' && input.comment
+      ? (await maskChatText(session.organizationId, input.comment)).text
+      : null
+  // The answer the person expected is typed text too, and it becomes an eval
+  // case a model answers against (`feedback-to-cases`): masked the same way.
+  const expectedAnswer =
+    input.verdict === 'down' && input.expectedAnswer
+      ? (await maskChatText(session.organizationId, input.expectedAnswer)).text
+      : null
+
   const row = await upsertAnswerFeedback({
     lessonsHoldout,
     organizationId: session.organizationId,
@@ -102,8 +118,8 @@ export async function submitAnswerFeedback(
     messageId: input.messageId,
     verdict: input.verdict,
     reason: input.verdict === 'down' ? (input.reason ?? null) : null,
-    comment: input.verdict === 'down' ? input.comment || null : null,
-    expectedAnswer: input.verdict === 'down' ? input.expectedAnswer || null : null,
+    comment,
+    expectedAnswer,
     conversationId,
     projectId: input.projectId ?? null,
   })

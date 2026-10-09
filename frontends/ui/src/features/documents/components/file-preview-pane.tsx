@@ -34,7 +34,8 @@ import {
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { SectionLabel } from '@/components/ui/section-label'
-import { DOCUMENT_TYPE_TAGS, DISCIPLINE_TAGS, MAX_TAGS } from '@/lib/documents/tag-vocabulary'
+import { DOCUMENT_TYPE_TAGS, DISCIPLINE_TAGS, MAX_TAGS, documentTypeOf } from '@/lib/documents/tag-vocabulary'
+import { ClampedText } from '@/components/ui/clamped-text'
 import { documentFileUrl } from '@/lib/documents/urls'
 import { useLocale, useTranslations } from '@/i18n'
 import { formatAbsoluteTime, formatBytes } from '@/lib/format'
@@ -349,9 +350,7 @@ export function FilePreviewPane({
   const hasVisualContent = (file.contentTypes ?? []).some((c) => VISUAL_CONTENT_TYPES.includes(c))
   // The ingestion-detected document type (first document-type tag), shown as
   // the indexed panel's Type row. Only real metadata — nothing is inferred here.
-  const detectedType = (file.tags ?? []).find((tag) =>
-    (DOCUMENT_TYPE_TAGS as readonly string[]).includes(tag)
-  )
+  const detectedType = documentTypeOf(file.tags)
 
   /**
    * The request the well is waiting on, so a newer one can retire it.
@@ -1521,54 +1520,16 @@ const SUMMARY_CLAMP_LINES = 5
  */
 function IndexedSummary({ summary }: { summary: string }) {
   const t = useTranslations('files')
-  const [expanded, setExpanded] = useState(false)
-  const [isTruncated, setIsTruncated] = useState(false)
-  const textRef = useRef<HTMLParagraphElement>(null)
-
-  useEffect(() => {
-    const element = textRef.current
-    if (!element) return
-
-    // Only meaningful while the clamp is applied; once expanded the element is
-    // its own full height by definition and would measure as "nothing hidden".
-    const measure = () => {
-      if (expanded) return
-      setIsTruncated(element.scrollHeight - element.clientHeight > 2)
-    }
-    measure()
-
-    if (typeof ResizeObserver === 'undefined') return
-    const observer = new ResizeObserver(measure)
-    observer.observe(element)
-    return () => observer.disconnect()
-  }, [expanded, summary])
-
   return (
     <div className="bg-card shadow-2xs rounded-lg border p-3">
-      <p
-        ref={textRef}
-        className={cn('text-foreground text-sm leading-[1.55]', !expanded && 'line-clamp-5')}
-        style={!expanded ? { WebkitLineClamp: SUMMARY_CLAMP_LINES } : undefined}
+      <ClampedText
+        lines={SUMMARY_CLAMP_LINES}
+        moreLabel={t('preview.summaryMore')}
+        lessLabel={t('preview.summaryLess')}
+        className="text-foreground text-sm leading-[1.55]"
       >
         {summary}
-      </p>
-      {(isTruncated || expanded) && (
-        <button
-          type="button"
-          onClick={() => setExpanded((open) => !open)}
-          aria-expanded={expanded}
-          className="text-muted-foreground duration-snap hover:text-foreground focus-visible:ring-ring/50 touch-target mt-1.5 inline-flex items-center gap-1 text-xs font-medium transition-colors ease-out focus-visible:outline-none focus-visible:ring-2 motion-reduce:transition-none"
-        >
-          {expanded ? t('preview.summaryLess') : t('preview.summaryMore')}
-          <ChevronDown
-            className={cn(
-              'duration-quick size-3 shrink-0 transition-transform ease-out motion-reduce:transition-none',
-              expanded && 'rotate-180'
-            )}
-            aria-hidden
-          />
-        </button>
-      )}
+      </ClampedText>
     </div>
   )
 }

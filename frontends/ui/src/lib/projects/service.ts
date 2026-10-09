@@ -350,7 +350,7 @@ export async function editProjectMemoryItem(
   patch: ProjectMemoryItemPatch
 ): Promise<ProjectMemoryItem> {
   await requireProjectAccess(session, projectId, ['project:memory:write', 'project:edit'])
-  const item = await updateProjectMemoryItem({ projectId }, itemId, patch)
+  const item = await updateProjectMemoryItem({ projectId, organizationId: session.organizationId }, itemId, patch)
   if (!item) throw new NotFoundError()
   return item
 }
@@ -361,6 +361,6 @@ export async function removeProjectMemoryItem(
   itemId: string
 ): Promise<void> {
   await requireProjectAccess(session, projectId, ['project:memory:write', 'project:edit'])
-  const deleted = await deleteProjectMemoryItem({ projectId }, itemId)
+  const deleted = await deleteProjectMemoryItem({ projectId, organizationId: session.organizationId }, itemId)
   if (!deleted) throw new NotFoundError()
 }

@@ -1,0 +1,117 @@
+# Sensitive data and quarantine
+
+What an office can keep out of Piloti, and how an uploader learns what became
+of an upload. The decision behind this is ADR-0086 (screening and quarantine).
+
+## The sensitive-data list
+
+**Organisation → Sensible Daten.** Admins with the organization-settings
+permission decide what must not be uploaded:
+
+- **Terms for file and folder names**, with exceptions. „Rechnung" matches
+  „Schlussrechnung 03.pdf" and a folder „Rechnungen"; the exception
+  „Berechnung" keeps „Statische Berechnung.pdf" in. Case, umlauts and the way
+  a Mac spells „ä" do not matter.
+- **Terms for the content**, such as „Lohnzettel" or „Honorarvereinbarung".
+- **Checks for numbers**: IBANs, Austrian social security numbers and card
+  numbers, each validated by its check digit, so a plan number that merely
+  looks like one does not match.
+
+An office that never saved a list works with Piloti's suggested one. The list
+can be switched off.
+
+## What happens to an upload
+
+1. **Before anything leaves the computer**, the upload dialog shows which files
+   the name terms hold back and why. Those files are never sent. A single file,
+   such as a Bauvertrag in a folder called „Verträge", can be released with one
+   tick; the release is recorded in the audit log. The server checks the names
+   again, so a browser that skips the dialog is refused the same way.
+2. **On Piloti's own server, before any language model sees the file**, its text
+   is read locally and checked against the content terms and number checks. A
+   match ends there: the file is stored, read by no model, and waits in
+   quarantine.
+3. A file whose text cannot be read locally (a scan, a plan without a text
+   layer, a photo) is **checked by name only**. The summary says so, so nobody
+   takes „nothing found" for „nothing there".
+
+What Piloti drops on its own: system files a folder carries along, such as
+`.DS_Store`, `Thumbs.db` and Office lock files (`~$Vertrag.docx`).
+
+## Chat messages
+
+The **content terms and number checks** apply to what people type into the chat
+as well; the file-name terms do not. When a message contains one, the composer
+does not send it. It says what it found, for example „Enthält eine IBAN
+(Sensible Daten). Piloti sendet sie nicht an das Antwortmodell.", and offers two
+choices:
+
+- **Maskiert senden** sends the message with each match replaced, so Piloti
+  reads „Bitte überweise an [IBAN entfernt]". The placeholders are
+  `[IBAN entfernt]`, `[SV-Nummer entfernt]`, `[Kartennummer entfernt]` and
+  `[Begriff entfernt]`.
+- **Bearbeiten** sends nothing and leaves the text as you typed it.
+
+There is no way to send the message unmasked. An answer to a question Piloti
+asked is checked the same way, and so is a plan you edit before approving it,
+and so are messages to colleagues in a shared chat. A message that reaches
+Piloti some other way is masked on the server without asking, and the stored
+chat keeps the masked text: your messages and your answers to Piloti's
+questions. In Piloti's own answers only numbers are masked (IBAN,
+Sozialversicherungsnummer, Kartennummer); an answer that names a term from the
+list, such as „Es gibt keine Honorarvereinbarung", reads the same after a
+reload. The name of the file you ask
+about („Frage zu …") is masked the same way before Piloti reads it.
+
+The same list masks, without asking, what you write elsewhere that Piloti
+later reads:
+
+- **notes** you add or edit in the Projektspeicher or the Organisationsgedächtnis,
+  and the notes Piloti keeps itself;
+- the **comment on a thumbs-down**.
+
+Masking a term hides the word, not what stands around it: „Honorarvereinbarung
+über 12.400 €" becomes „[Begriff entfernt] über 12.400 €". A change to the list
+applies to an open chat once the page is reloaded.
+
+**Not checked** against the list, so keep sensitive data out of them yourself:
+
+- the standing instructions under **Organisation → Anweisungen**, and the
+  instructions of a **Skill**, which Piloti reads when it answers;
+- the **project profile** you fill in with the intake wizard;
+- the comment a reviewer writes when sending a draft back („Änderungen
+  anfordern"), which the chat that wrote the draft reads;
+- the instruction of a **scheduled task**, and a research job started through
+  the API;
+- **voice input** (the microphone in the chat): the recording is transcribed by
+  an external speech model before the check can see any text. The transcript
+  is then checked when you send it, like typed text, so the answering model
+  does not see a match, but the speech model has heard it. On Piloti's own key
+  that model keeps no data; an office on its own key gets that provider's
+  retention policy;
+- anything stored before the list applied to it: older chats, notes and
+  comments keep the text they were saved with.
+
+## The quarantine
+
+**Organisation → Quarantäne.** A quarantined file shows which terms or checks
+matched, never the matched text beyond a masked sample. Organization admins,
+the project's admins and, for the Büroablage, its curators can:
+
+- **Release** it. Piloti then reads it like any other upload. The release
+  applies to exactly these bytes: uploading a changed version screens it again.
+- **Delete** it.
+
+Reviewers get an inbox notice when files wait for them. It names no file.
+
+## What arrived: the upload summary
+
+When everything an upload brought in has been read, the uploader gets an inbox
+notice. It opens a summary of that upload: what arrived and where it was filed,
+what each file is (its document type and summary), which files the screening
+kept on the computer and for which terms, what is in quarantine, and what
+failed and why. While files are still being read, the summary updates itself.
+
+**Project settings → Uploads** lists every upload into the project, newest
+first, with who uploaded it and what became of its files. Each person opens
+the file-by-file summary of their own uploads only.

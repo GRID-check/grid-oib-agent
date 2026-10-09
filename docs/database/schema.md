@@ -242,6 +242,9 @@ export const documents = pgTable('documents', {
 | `status` | `text` | NOT NULL, DEFAULT `'pending'` | `pending` → `processing` → `processed` / `error`, plus `stored` (migration `0063`). `stored` is TERMINAL and means "the bytes are here and indexing was deliberately skipped" — an agent-authored document, which is never dispatched to `/v1/ingest`. It must stay out of `IN_FLIGHT_STATUSES` in `lib/documents/reconcile-status`, or every read polls a backend that has never heard of the row and then overwrites its status from a file list that will never contain it. Plain `text` with no CHECK, so a new state is a TypeScript change. |
 | `error_message` | `text` | | Error details if status is `error` |
 | `metadata` | `jsonb` | | Flexible metadata |
+| `screening_outcome` | `text` | CHECK `NULL` or `clean`/`partial`/`unchecked`/`quarantined`/`released` | **Migration `0109`, ADR-0086**: what the local content screening found before the first model call. `NULL` = not screened (a row older than the column, or one replaced since: a replacement resets it). `partial` = some pages had no text layer and were checked by name only; `unchecked` = no text could be read locally at all; `quarantined` = a term or detector matched and nothing went to a model. Written by reconciliation from the ingest job's `file_details[].screening`. |
+| `screening_released_hash` / `screening_released_by` / `screening_released_at` | `text` / `text` / `timestamptz` | all three or none (CHECK) | **Migration `0109`**: a reviewer released a quarantined document. The release names the BYTES (`content_hash` at the time), so a replacement under the same id is screened again instead of riding the old release. |
+| `upload_batch_id` | `uuid` | partial index | **Migration `0110`**: the upload gesture this row arrived in (`upload_batches.id`). Recorded only when the batch is the uploader's own, open one for this shelf; anything else is ignored rather than refused. No FK: a batch is history, and pruning it must not touch documents. |
 | `created_at` | `timestamptz` | NOT NULL, `defaultNow()` | |
 | `updated_at` | `timestamptz` | NOT NULL, `defaultNow()` | |
 
@@ -249,6 +252,8 @@ export const documents = pgTable('documents', {
 - `documents_project_idx` — on `project_id`
 - `documents_collection_idx` — on `collection_name`
 - `documents_status_idx` — on `status`
+- `documents_quarantined_idx` — on (`organization_id`, `updated_at`), **PARTIAL** (`WHERE status = 'quarantined'`) — the quarantine queue (migration `0109`). `quarantined` is a terminal status like `stored`: never in `IN_FLIGHT_STATUSES`, never dispatched until a reviewer releases it.
+- `documents_upload_batch_idx` — on `upload_batch_id`, **PARTIAL** (`WHERE upload_batch_id IS NOT NULL`) — a batch's documents, for its settlement and summary (migration `0110`)
 - `documents_org_scope_idx` — on (`organization_id`, `scope`) — bounds the org-wide Archiv listing (ADR-0024)
 - `documents_conversation_idx` — on `conversation_id`, **PARTIAL** (`WHERE conversation_id IS NOT NULL`) — the session-document listing and the composite FK's referencing side (migration `0049`)
 - `documents_agent_authored_idx` — on (`project_id`, `created_at DESC`), **PARTIAL** (`WHERE authored_by = 'agent'`) — makes "everything Piloti wrote in this project" a point query in the listing's own sort order, while carrying no entry for the human uploads that are the overwhelming majority (migration `0063`). The predicate names `agent` rather than `<> 'user'`, so a second producer needs it widened or an index of its own.
@@ -265,6 +270,7 @@ The three `authored_by` partial indexes above live **only in the migration** —
 - `documents_session_requires_conversation` — the scope partition: a `session` row has a conversation, nothing else does, and a `session` row has no project (migration `0049`)
 - `documents_authorship_requires_provenance` — `authored_by = 'user' OR (authored_by_producer IS NOT NULL AND authored_by_ref IS NOT NULL AND authored_by_ref_kind IS NOT NULL)`. A document no person wrote can always say what wrote it, which one, and what kind of identifier that is; one that cannot is an audit trail in appearance only. The third conjunct is migration `0066`'s: the first two were satisfiable by a row whose reference nobody could resolve, because the column's name asserted a job id over a value that was not one. Written against `<> 'user'` rather than against `agent` so a member added to `DOCUMENT_AUTHORS` arrives already constrained instead of arriving as a hole nothing notices (migration `0063`). One-directional: a `user` row carrying all three is legal.
 
+- `documents_screening_outcome_check` and `documents_screening_release_complete_check` — the vocabulary of `screening_outcome`, and a release that is all three columns or none (migration `0109`).
 - `documents_lifecycle_known` — `lifecycle IN ('active', 'archived')` (migration `0082`). A CHECK where `scope` and `status` deliberately have none, because this column gates a LISTING: a third value nothing knows how to render would silently hide documents, and that looks like data loss to the person whose file vanished.
 
 **Version pointer (migration `0082`, ADR-0054):** `published_version_id` names the `document_versions` row whose bytes the storage columns above mirror, through a composite foreign key on `(published_version_id, id)` → `document_versions (id, document_id)` — so a document can only ever point at a version OF ITSELF. `ON DELETE SET NULL`: discarding a version must not take the item with it. The constraint lives only in the migration, because declaring it in drizzle would make `documents.ts` and `document-versions.ts` import each other.
@@ -662,6 +668,38 @@ export const projectFolders = pgTable('project_folders', {
 > **Applying `0063` to an existing deployment:** nothing ever stopped two sibling folders sharing a name, so the migration first fails loudly with the full list of offenders rather than letting `CREATE UNIQUE INDEX` report one key. It deliberately does not deduplicate — deleting a folder row cascades to `documents.folder_id` and would silently unfile real evidence. Rename or merge through the application, then re-run.
 
 > **Applying and reversing `0102`:** nothing to resolve before applying — every existing row is a project folder, `organization_id` is backfilled from its project, and the widened index rejects exactly what the old one did. The down migration **refuses while any Archiv folder exists** (the old schema has no place for one, and the backend still carries its path); delete them through the application first, which re-files their documents into the parent and mirrors the path rewrite. `scripts/rls-test-db.sh` applies `0102` to a seeded database, asserts the backfill and every new constraint, then proves the guard and the down path.
+
+---
+
+## upload_batches (migration 0110, ADR-0086)
+
+One upload gesture, from the browser's first request to the moment everything
+it brought in has been read. The browser opens it (`POST /api/upload-batches`),
+stamps each upload with its id, and seals it after its last request.
+Reconciliation and the scheduler's sweep settle it once no document of a sealed
+batch is in flight, which emits `upload.completed` to the uploader. The Outlook
+mail import files into batches too, opened and sealed by its job as the person
+who started it ([`mail-import.md`](../architecture/mail-import.md#what-the-person-is-told)).
+
+| Column | Type | Constraints | Notes |
+|--------|------|-------------|-------|
+| `id` | `uuid` | PK | Chosen by the browser, so every file can carry it before the batch is confirmed. A mail import's is derived from the import's id and a generation (`lib/mail-import/upload-batch.ts`) |
+| `organization_id` | `text` | NOT NULL | RLS: `organization_id = grid_current_org()` |
+| `created_by` | `text` | NOT NULL | The uploader; the summary is theirs only |
+| `scope` | `text` | NOT NULL, CHECK `project`/`archiv`/`session` | The shelf |
+| `project_id` | `uuid` | FK → `projects.id` ON DELETE CASCADE; set exactly when `scope = 'project'` | |
+| `conversation_id` | `text` | | The chat, for a session upload |
+| `expected_count` | `integer` | NOT NULL, 0–10 000 | Files the browser announced; a job opens with 0 and its seal writes the documents that carry the batch |
+| `excluded` | `jsonb` | NOT NULL, array | What the name screening kept on the uploader's machine, as `{term, count}` — **never file names**: those files never reached the server |
+| `unchanged_count` / `failed_count` | `integer` | NOT NULL, ≥ 0 | Identical files not sent again; uploads that never arrived |
+| `sealed_at` | `timestamptz` | | The uploader's last request is done; a batch no file has come into for 30 min (counted from its newest document, or its opening) is sealed by the sweep |
+| `completed_at` | `timestamptz` | CHECK: only after `sealed_at` | Every document is terminal; set once, by a guarded UPDATE, which is what makes the inbox item exactly-once |
+| `created_at` | `timestamptz(3)` | NOT NULL, `defaultNow()` | |
+
+Indexes: `upload_batches_project_created_idx` (a project's history, newest
+first) and the partial `upload_batches_open_idx` (`WHERE completed_at IS NULL`,
+the sweep). Repository: `lib/upload-batches/repository.ts`; the completion guard
+is proven against Postgres in `upload-batches.integration.spec.ts`.
 
 ---
 
@@ -1233,7 +1271,7 @@ omits it to collapse.
 | `id` | `uuid` | PK, `defaultRandom()` | |
 | `organization_id` | `text` | NOT NULL | A user in two orgs has two inboxes; counts never mix |
 | `recipient_user_id` | `text` | NOT NULL | WorkOS user this is FOR |
-| `type` | `text` | NOT NULL | The item kind. **The list lives in `INBOX_ITEM_TYPES` (`frontends/ui/src/lib/db/schema/inbox.ts`) and is exhaustive over two registries by construction**, so it is not restated here — this row said four types long after there were eight. Today: the four collaboration ones, `storage.quota_warning`, `document.assigned_to_you`, `job.completed` / `job.failed`, and `document.review_requested` (ADR-0054, actionable). |
+| `type` | `text` | NOT NULL | The item kind. **The list lives in `INBOX_ITEM_TYPES` (`frontends/ui/src/lib/db/schema/inbox.ts`) and is exhaustive over two registries by construction**, so it is not restated here — this row said four types long after there were eight. Today: the four collaboration ones, `storage.quota_warning`, `document.assigned_to_you`, `job.completed` / `job.failed`, `document.review_requested` (ADR-0054, actionable), and `upload.completed` / `document.quarantined` (ADR-0086). |
 | `resource_type` / `resource_id` | `text` | NOT NULL | What it points AT — resolved through the sharing registry |
 | `anchor_id` | `text` | | Exact spot inside the resource (a message id), for a deep link |
 | `actor_user_id` | `text` | | Who caused it; NULL for system items |

@@ -130,6 +130,39 @@ describe('orgRoleHoldsPermission', () => {
   })
 })
 
+/**
+ * The custom roles an office builds for itself in WorkOS exist only inside its
+ * organization. A third-party check that consulted environment roles and the
+ * catalog alone denied every one of them — the quarantine never reached a
+ * custom „Geschäftsführung" role holding org:projects:administer.
+ */
+describe('orgRoleHoldsPermission — an organization\'s own custom roles', () => {
+  it("finds a custom role's permission when told the organization", async () => {
+    listOrganizationRoles.mockResolvedValue({
+      data: [{ slug: 'org-geschaeftsfuehrung', permissions: ['org:projects:administer'] }],
+    })
+    await expect(
+      orgRoleHoldsPermission('org-geschaeftsfuehrung', 'org:projects:administer', 'org_tenant')
+    ).resolves.toBe(true)
+    expect(listOrganizationRoles).toHaveBeenCalledWith('org_tenant')
+  })
+
+  it('denies it without the organization, as before', async () => {
+    listOrganizationRoles.mockResolvedValue({
+      data: [{ slug: 'org-geschaeftsfuehrung', permissions: ['org:projects:administer'] }],
+    })
+    await expect(orgRoleHoldsPermission('org-geschaeftsfuehrung', 'org:projects:administer')).resolves.toBe(false)
+  })
+
+  it('still answers an environment role when the organization lookup fails', async () => {
+    listOrganizationRoles.mockRejectedValue(new Error('rate limited'))
+    listEnvironmentRoles.mockResolvedValue({ data: [{ slug: 'admin', permissions: ['org:projects:administer'] }] })
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+    await expect(orgRoleHoldsPermission('admin', 'org:projects:administer', 'org_tenant')).resolves.toBe(true)
+    warn.mockRestore()
+  })
+})
+
 describe('organization-scoped roles', () => {
   it('unions WorkOS with the catalog rather than replacing it', async () => {
     listOrganizationRoles.mockResolvedValue({

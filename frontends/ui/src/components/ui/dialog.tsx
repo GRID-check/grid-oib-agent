@@ -24,8 +24,8 @@ const DialogOverlay = React.forwardRef<
     ref={ref}
     data-slot="dialog-overlay"
     className={cn(
-      'data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 fixed inset-0 z-50 bg-overlay backdrop-blur-sm '
-        + OVERLAY_MOTION,
+      'data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 bg-overlay fixed inset-0 z-50 backdrop-blur-sm ' +
+        OVERLAY_MOTION,
       className
     )}
     {...props}
@@ -43,42 +43,56 @@ const DialogContent = React.forwardRef<
      * on a phone is mostly margin and a scroll region the thumb keeps missing.
      */
     fullScreenOnMobile?: boolean
+    /** The close button's accessible name, in the reader's language. */
+    closeLabel?: string
   }
->(({ className, children, showCloseButton = true, fullScreenOnMobile = false, ...props }, ref) => (
-  <DialogPortal data-slot="dialog-portal">
-    <DialogOverlay />
-    <DialogPrimitive.Content
-      ref={ref}
-      data-slot="dialog-content"
-      // `grid-cols-1` is `minmax(0, 1fr)`. Without it the content grid's
-      // implicit `auto` column cannot shrink below its widest `truncate` line,
-      // so one long file name pushed the whole dialog past its own edge and cut
-      // every other line off on the right (the mail import's history did).
-      className={cn(
-        'bg-popover text-popover-foreground data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 fixed top-[50%] left-[50%] z-50 grid grid-cols-1 max-h-[calc(100dvh-2rem)] w-full max-w-[calc(100%-2rem)] translate-x-[-50%] translate-y-[-50%] gap-4 overflow-y-auto rounded-xl border p-6 shadow-lg sm:max-w-lg '
-        + OVERLAY_MOTION,
-        fullScreenOnMobile &&
-          'max-sm:inset-0 max-sm:h-dvh max-sm:max-h-dvh max-sm:max-w-none max-sm:translate-x-0 max-sm:translate-y-0 max-sm:content-start max-sm:rounded-none max-sm:border-0 max-sm:px-4',
-        className
-      )}
-      {...props}
-    >
-      {children}
-      {showCloseButton && (
-        <DialogPrimitive.Close
-          data-slot="dialog-close"
-          className={cn(
-            'absolute top-4 right-4 inline-flex size-8 items-center justify-center rounded-md text-muted-foreground outline-none transition-colors duration-quick ease-out hover:bg-accent hover:text-foreground disabled:pointer-events-none disabled:opacity-50 pointer-coarse:size-11 pointer-coarse:top-2.5 pointer-coarse:right-2.5',
-            FOCUS_RING,
-          )}
-        >
-          <XIcon className="size-4" />
-          <span className="sr-only">Close</span>
-        </DialogPrimitive.Close>
-      )}
-    </DialogPrimitive.Content>
-  </DialogPortal>
-))
+>(
+  (
+    {
+      className,
+      children,
+      showCloseButton = true,
+      fullScreenOnMobile = false,
+      closeLabel = 'Close',
+      ...props
+    },
+    ref
+  ) => (
+    <DialogPortal data-slot="dialog-portal">
+      <DialogOverlay />
+      <DialogPrimitive.Content
+        ref={ref}
+        data-slot="dialog-content"
+        // `grid-cols-1` is `minmax(0, 1fr)`. Without it the content grid's
+        // implicit `auto` column cannot shrink below its widest `truncate` line,
+        // so one long file name pushed the whole dialog past its own edge and cut
+        // every other line off on the right (the mail import's history did).
+        className={cn(
+          'bg-popover text-popover-foreground data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 fixed left-[50%] top-[50%] z-50 grid max-h-[calc(100dvh-2rem)] w-full max-w-[calc(100%-2rem)] translate-x-[-50%] translate-y-[-50%] grid-cols-1 gap-4 overflow-y-auto rounded-xl border p-6 shadow-lg sm:max-w-lg ' +
+            OVERLAY_MOTION,
+          fullScreenOnMobile &&
+            'max-sm:inset-0 max-sm:h-dvh max-sm:max-h-dvh max-sm:max-w-none max-sm:translate-x-0 max-sm:translate-y-0 max-sm:content-start max-sm:rounded-none max-sm:border-0 max-sm:px-4',
+          className
+        )}
+        {...props}
+      >
+        {children}
+        {showCloseButton && (
+          <DialogPrimitive.Close
+            data-slot="dialog-close"
+            className={cn(
+              'text-muted-foreground duration-quick hover:bg-accent hover:text-foreground pointer-coarse:size-11 pointer-coarse:top-2.5 pointer-coarse:right-2.5 absolute right-4 top-4 inline-flex size-8 items-center justify-center rounded-md outline-none transition-colors ease-out disabled:pointer-events-none disabled:opacity-50',
+              FOCUS_RING
+            )}
+          >
+            <XIcon className="size-4" />
+            <span className="sr-only">{closeLabel}</span>
+          </DialogPrimitive.Close>
+        )}
+      </DialogPrimitive.Content>
+    </DialogPortal>
+  )
+)
 DialogContent.displayName = DialogPrimitive.Content.displayName
 
 function DialogHeader({ className, ...props }: React.HTMLAttributes<HTMLDivElement>) {
@@ -108,7 +122,7 @@ const DialogTitle = React.forwardRef<
   <DialogPrimitive.Title
     ref={ref}
     data-slot="dialog-title"
-    className={cn('text-lg leading-none font-semibold', className)}
+    className={cn('text-lg font-semibold leading-none', className)}
     {...props}
   />
 ))

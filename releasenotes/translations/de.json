@@ -1,5 +1,9 @@
 [
   {
+    "en": "A CSV or text file exported from Excel on Windows previews with its €, „ “ and – again.",
+    "de": "Eine unter Windows aus Excel exportierte CSV- oder Textdatei zeigt in der Vorschau €, „ “ und – wieder richtig an."
+  },
+  {
     "en": "A Freigabe ausstehend filter sits beside Unvergeben and Von Piloti and combines with both.",
     "de": "Der Filter „Freigabe ausstehend“ steht neben „Unvergeben“ und „Von Piloti“ und lässt sich mit beiden kombinieren."
   },
@@ -504,6 +508,10 @@
     "de": "Ein OIB-Dokument einer anderen Ausgabe als Mai 2023 trägt jetzt den richtigen Ausgabevermerk im Titel."
   },
   {
+    "en": "An Outlook archive import ends with the same summary, once everything it filed has been read.",
+    "de": "Ein Outlook-Archivimport endet mit derselben Zusammenfassung, sobald alles gelesen ist, was er abgelegt hat."
+  },
+  {
     "en": "An answer being written no longer stalls while someone in the office loads the document list, deletes files or starts a research with a follow-up question.",
     "de": "Eine entstehende Antwort stockt nicht mehr, während im Büro jemand die Dokumentliste lädt, Dateien löscht oder eine Recherche mit Rückfrage beginnt."
   },
@@ -728,6 +736,10 @@
     "de": "BMP- und TIFF-Bilder zeigen wieder eine Vorschau, statt zu melden, es sei keine verfügbar."
   },
   {
+    "en": "Before an upload starts, you see which files that list holds back and why, and those files never leave your computer. A single file, such as a Bauvertrag in a folder called „Verträge“, can be released with one tick.",
+    "de": "Bevor ein Upload beginnt, sehen Sie, welche Dateien diese Liste zurückhält und warum, und diese Dateien verlassen Ihren Computer nie. Eine einzelne Datei, etwa ein Bauvertrag in einem Ordner namens „Verträge“, lässt sich mit einem Häkchen freigeben."
+  },
+  {
     "en": "Before uploading, Piloti tells you how many documents are new, changed or unchanged, and you decide with a tick whether changed ones are updated. Unchanged files are skipped.",
     "de": "Vor dem Hochladen sagt Piloti, wie viele Dokumente neu, geändert oder unverändert sind, und Sie entscheiden mit einem Häkchen, ob geänderte aktualisiert werden. Unveränderte Dateien werden übersprungen."
   },
@@ -946,6 +958,10 @@
   {
     "en": "Drawings never carry a measurement. A Schnitt, a Treppe, a Fluchtweg or ein Abstand still comes back as one of the fifteen technical schematics, where Piloti supplies the values and the drawing is computed from them, so the picture cannot disagree with its own numbers.",
     "de": "Zeichnungen enthalten niemals Maßangaben. Ein Schnitt, eine Treppe, ein Fluchtweg oder ein Abstand wird weiterhin als eines der fünfzehn technischen Schemata zurückgegeben. Dabei liefert Piloti die Werte und berechnet daraus die Zeichnung, sodass die Darstellung ihren eigenen Zahlen nicht widersprechen kann."
+  },
+  {
+    "en": "Dropping a folder no longer uploads .DS_Store, Thumbs.db or Office lock files (~$Vertrag.docx) with it.",
+    "de": "Wer einen Ordner hineinzieht, lädt .DS_Store, Thumbs.db oder Office-Sperrdateien (~$Vertrag.docx) nicht mehr mit hoch."
   },
   {
     "en": "Dropping files on any other project page, such as Einstellungen, now opens Dateien and uploads them there, where the browser used to open the file in place of Piloti.",
@@ -1272,6 +1288,10 @@
     "de": "Ladeansichten springen nicht mehr, wenn die tatsächlichen Inhalte geladen werden, Fehlermeldungen sind klar als solche erkennbar, und Status-Chips, Suchfelder und Viewer-Panels werden im hellen und dunklen Modus konsistent dargestellt."
   },
   {
+    "en": "Long answers and long tables stream without slowing down. Reading them used to take more time with every line written, which could hold up other chats on the same server while one long reply was being written.",
+    "de": "Lange Antworten und Tabellen werden ohne Verzögerung gestreamt. Bisher dauerte das Lesen mit jeder geschriebenen Zeile länger, wodurch andere Chats auf demselben Server aufgehalten werden konnten, während eine lange Antwort erstellt wurde."
+  },
+  {
     "en": "Long deep research reports can be downloaded as PDF again. If an export still fails, the message gives the reason.",
     "de": "Lange Berichte der Tiefenrecherche lassen sich wieder als PDF herunterladen. Scheitert ein Export doch, nennt die Meldung den Grund."
   },
@@ -1494,6 +1514,10 @@
   {
     "en": "Piloti now answers as a colleague in the planning office rather than as a compliance checker, so summarising a plan or sorting drawings no longer ends in a verdict. It helps you apply a rule and does not replace the Entwurfsverfasser or the Behörde.",
     "de": "Piloti antwortet jetzt wie eine Kollegin im Planungsbüro statt wie eine Prüfstelle: Wer einen Plan zusammenfassen oder Zeichnungen ordnen lässt, bekommt kein Urteil mehr. Piloti hilft, eine Regel anzuwenden, und ersetzt weder den Entwurfsverfasser noch die Behörde."
+  },
+  {
+    "en": "Piloti now checks the text of every upload on its own server before any language model sees it. A file that matches waits in quarantine until an office or project admin releases or deletes it under Organisation → Quarantäne.",
+    "de": "Piloti prüft jetzt den Text jedes Uploads auf dem eigenen Server, bevor ein Sprachmodell ihn sieht. Eine Datei mit Treffer wartet in Quarantäne, bis ein Admin des Büros oder des Projekts sie unter Organisation → Quarantäne freigibt oder löscht."
   },
   {
     "en": "Piloti now chooses its source by the question rather than by a fixed order, so a question about the Bauordnung goes where the Bauordnung is. Every value it states still comes from a passage it read in that answer.",
@@ -2388,6 +2412,10 @@
     "de": "Nennt eine Antwort eine Datei beim Namen, etwa „Beginnen Sie mit pd8280-2.pdf“, ist der Name jetzt ein Link, der das Dokument neben der Antwort öffnet, im Fließtext wie in Tabellen."
   },
   {
+    "en": "When everything an upload brought in has been read, your inbox tells you, with a summary of what arrived, where it was filed, what each file is, and what was held back or failed. Project settings list every upload with its outcome and who uploaded it.",
+    "de": "Sobald alles gelesen ist, was ein Upload gebracht hat, meldet es Ihr Postfach – mit einer Zusammenfassung, was angekommen ist, wo es abgelegt wurde, was jede Datei ist und was zurückgehalten wurde oder fehlgeschlagen ist. Die Projekteinstellungen listen jeden Upload mit seinem Ergebnis und der Person, die ihn hochgeladen hat."
+  },
+  {
     "en": "When something fails, the error message now carries a short reference for support that you can copy with one click.",
     "de": "Schlägt etwas fehl, nennt die Fehlermeldung jetzt eine kurze Referenz für den Support, die sich mit einem Klick kopieren lässt."
   },
@@ -2430,6 +2458,10 @@
   {
     "en": "When you send a new question while Piloti is still answering the previous one, the earlier answer is now stopped completely before the new one starts, so the two can no longer mix in one conversation. In the rare case that the earlier answer does not stop within a few seconds, Piloti says it is still finishing and asks you to send the question again.",
     "de": "Wenn Sie eine neue Frage senden, während Piloti noch die vorherige beantwortet, wird die frühere Antwort vollständig beendet, bevor die neue beginnt. So können sich die beiden nicht mehr in einer Unterhaltung vermischen. Falls die frühere Antwort ausnahmsweise nicht innerhalb weniger Sekunden stoppt, teilt Piloti Ihnen mit, dass sie noch abgeschlossen wird, und bittet Sie, die Frage erneut zu senden."
+  },
+  {
+    "en": "When your office checks chat messages for sensitive data, Piloti now says plainly that a dictated message is first transcribed by an external speech model; only the text is checked before it is sent.",
+    "de": "Wenn Ihr Büro Chatnachrichten auf sensible Daten prüft, sagt Piloti jetzt klar, dass eine diktierte Nachricht zuerst von einem externen Spracherkennungsmodell transkribiert wird; geprüft wird nur der Text, bevor er gesendet wird."
   },
   {
     "en": "Whether Piloti may file the documents it writes into a project is now a permission of its own, File agent-authored documents. Members without it can still upload, rename and delete their own files.",
@@ -2498,6 +2530,14 @@
   {
     "en": "You can preview the report as a PDF before you download it, in a panel you can drag as wide as you need. What you see is the document you get.",
     "de": "Sie können den Bericht vor dem Herunterladen als PDF in der Vorschau ansehen – in einem Bereich, den Sie beliebig breit ziehen können. Was Sie sehen, ist das Dokument, das Sie erhalten."
+  },
+  {
+    "en": "Your office now decides what must not be uploaded, under Organisation → Sensible Daten: terms for file and folder names, terms for the content, and checks for IBANs, Austrian social security numbers and card numbers. Piloti starts you on a suggested list you can keep, change or switch off.",
+    "de": "Ihr Büro legt jetzt unter Organisation → Sensible Daten fest, was nicht hochgeladen werden darf: Begriffe für Datei- und Ordnernamen, Begriffe für den Inhalt sowie Prüfungen auf IBANs, österreichische Sozialversicherungsnummern und Kartennummern. Piloti beginnt mit einer vorgeschlagenen Liste, die Sie übernehmen, ändern oder abschalten können."
+  },
+  {
+    "en": "Your office's content terms and number checks now also cover what you type into the chat: before a message with an IBAN or a listed term goes out, Piloti shows what it found and sends it only masked, or lets you edit it first.",
+    "de": "Die Inhaltsbegriffe und Nummernprüfungen Ihres Büros gelten jetzt auch für das, was Sie in den Chat schreiben: Bevor eine Nachricht mit einer IBAN oder einem gelisteten Begriff hinausgeht, zeigt Piloti, was es gefunden hat, und sendet sie nur maskiert – oder Sie bearbeiten sie zuerst."
   },
   {
     "en": "Your organization can now give Piloti standing instructions under Organisation, Anweisungen, such as result first, then reasons, or assume Vienna when no province is named. They apply to every question from everyone in the office.",

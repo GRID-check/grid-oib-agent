@@ -106,6 +106,9 @@ vi.mock('@/lib/backend-proxy', () => ({ getBackendUrl: () => 'http://backend:800
 vi.mock('@aws-sdk/s3-request-presigner', () => ({ getSignedUrl: vi.fn() }))
 vi.mock('@/lib/documents/vlm-capability', () => ({ isVlmConfigured: vi.fn() }))
 vi.mock('./reconcile-status', () => ({ reconcileDocumentStatuses: vi.fn() }))
+// Folder placement drops the project's cached prompt view, whose loader reaches
+// the document-role tables the narrow schema double above does not provide.
+vi.mock('@/lib/project-profile/prompt-view', () => ({ invalidateProjectPromptViewCache: vi.fn() }))
 
 // Clients doubled, key builders real. The thumbnail rule was previously
 // re-implemented here as `${key}.thumb.jpg` — a shape production has never

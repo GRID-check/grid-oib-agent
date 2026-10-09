@@ -72,9 +72,25 @@ async function organizationRolePermissionMap(organizationId: string): Promise<Ro
  */
 export async function orgRoleHoldsPermission(
   roleSlug: string | null | undefined,
-  permission: string
+  permission: string,
+  /**
+   * The subject's organization. With it, the organization's OWN roles are
+   * consulted first — the custom roles an office builds for itself in WorkOS
+   * (`org-geschaeftsfuehrung`), which no environment listing and no catalog
+   * can know. Without it, only environment roles and the catalog answer, and
+   * a custom role is denied.
+   */
+  organizationId?: string
 ): Promise<boolean> {
   if (!roleSlug) return false
+  if (organizationId) {
+    try {
+      const own = await organizationRolePermissionMap(organizationId)
+      if (own[roleSlug]?.includes(permission)) return true
+    } catch (error) {
+      console.warn(`[authz] organization role lookup failed for ${roleSlug}:`, error)
+    }
+  }
   try {
     const map = await environmentRolePermissionMap()
     if (map[roleSlug]?.includes(permission)) return true
