@@ -41,8 +41,9 @@ updates:
           - "@opentelemetry/*"
     ignore:
       # TypeScript 7 is the Go-native compiler and ships no JS compiler API,
-      # which typescript-eslint needs to lint. Lift this once typescript-eslint
-      # supports TypeScript 7 and we adopt it in the same PR.
+      # which `next build` loads to typecheck (next.config.ts `typescript`).
+      # Lift this once Next.js supports TypeScript 7 and we adopt it in the
+      # same PR.
       - dependency-name: "typescript"
         versions: [">=7"]
       # The runtime is Node 22 (`FROM node:22-slim` in the Dockerfiles,
@@ -68,10 +69,26 @@ updates:
       - dependency-name: "@types/node"
         update-types: ["version-update:semver-major"]
 
-  # Keep the Actions in our workflows current (also picked up by Semgrep's
-  # p/github-actions rules). "/" covers .github/workflows only; the composite
-  # actions under .github/actions/ (setup-uv, setup-python and the like) are
-  # scanned only when listed, so they need the glob.
+  # The Pulumi program and its policy pack. Bumping @pulumi/pulumi here also
+  # moves the CLI the deploy installs (deploy.yml installs the locked SDK's
+  # release), so the two can only move together, in a reviewed pull request.
+  - package-ecosystem: npm
+    directories:
+      - "/deploy/pulumi"
+      - "/deploy/pulumi/policy"
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 7
+    open-pull-requests-limit: 5
+    groups:
+      pulumi:
+        patterns: ["@pulumi/*"]
+
+  # Keep the Actions current. They are pinned by commit SHA with a version
+  # comment (tests/test_ci_workflows.py), and Dependabot bumps both. "/" reads
+  # .github/workflows only; the composite actions need their own directories,
+  # or the actions they use are never updated.
   - package-ecosystem: github-actions
     directories:
       - "/"

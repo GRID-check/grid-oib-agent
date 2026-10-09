@@ -1330,6 +1330,11 @@ Five retrieval-quality improvements sit in the knowledge layer's `register.py`
    bytes itself via boto3 (S3, path-style, read-only `get_object`) — which is
    why the aiq-agent tier now carries the `SEAWEED_*` credential set
    (deliberate override of the previous presign-only separation; ADR-0039).
+   The `collection` argument is the model's, so the tool refuses one outside
+   the turn's scope, or a restricted folder's the turn may not draw on, before
+   any lookup; it echoes the turn's signed envelope, and the route answers only
+   inside the scope that envelope signs (ADR-0088). An image it returns is
+   reported (`note_collections_read`) and admitted with the rest of the round.
    Every failure path (missing file, lookup/fetch/render error, invalid page
    number, disabled flag, no VLM key) degrades to a text-only explanation
    block.
@@ -1895,6 +1900,18 @@ fallback is in the trace METADATA instead, as `prompt_name` and
 `prompt_version`. Env vars:
 [`environment-variables.md`](../deployment/environment-variables.md)
 §Prompt management.
+
+**Editing a template.** Each agent keeps its Jinja2 templates in
+`src/aiq_agent/agents/<agent>/prompts/`; `load_prompt` reads one and
+`render_prompt_template` renders it (`common/prompt_utils.py`). The `.j2` file
+is the authority on the variables it uses, so keep every one the agent passes,
+and keep standing instructions above per-call content so the provider's prompt
+cache keeps hitting. Keep a template task-agnostic: which sources a question
+needs is decided at run time by the data source registry and
+`source_router.j2`, not by names written into the prompt. Editing an existing
+template needs no code change; a new one is used only once the agent's Python
+loads and renders it. Which model each role runs on is config:
+[llm-providers.md](llm-providers.md#which-model-each-role-uses).
 
 ### Project memory (implemented)
 

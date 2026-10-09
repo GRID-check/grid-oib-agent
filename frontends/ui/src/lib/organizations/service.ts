@@ -283,7 +283,24 @@ export async function updatePlatformOwnedOrgSettings(
   return writeOrgSettings(organizationId, patch)
 }
 
-/** The merge itself. Private: every caller goes through one of the two above. */
+/**
+ * Write ONE key the generic save refuses (`DEDICATED_ROUTE_SETTINGS`), for the
+ * dedicated service that owns it. The key must be declared there: this is not
+ * a second generic writer, it is the door each dedicated route walks through,
+ * and a key nobody declared has no route that validates it.
+ */
+export async function writeDedicatedOrgSetting(
+  organizationId: string,
+  key: keyof typeof DEDICATED_ROUTE_SETTINGS,
+  value: unknown
+): Promise<OrgSettings> {
+  if (!Object.prototype.hasOwnProperty.call(DEDICATED_ROUTE_SETTINGS, key)) {
+    throw new BadRequestError(`${String(key)} is not a dedicated setting`)
+  }
+  return writeOrgSettings(organizationId, { settings: { [key]: value } })
+}
+
+/** The merge itself. Private: every caller goes through one of the exported writers above. */
 async function writeOrgSettings(
   organizationId: string,
   patch: OrgSettingsPatch

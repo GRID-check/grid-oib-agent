@@ -6,10 +6,16 @@
  * the sources to add, the reason / source breakdowns, the per-organization
  * table and the recent-findings table can be reviewed and screenshotted
  * without a backend. A module-scope fetch shim (browser + dev only) serves
- * `/api/platform/citation-health`. Not linked from anywhere; 404s outside
- * development. Pinned to German, the primary product language.
+ * `/api/platform/citation-health`, answering for the scope the request names
+ * (the trend is cut to its days, the scope echoed back). Not linked from
+ * anywhere; 404s outside development. Pinned to German, the primary product
+ * language.
+ *
+ * The scope comes from the page URL like on the real page (`from`, `to`,
+ * repeatable `org` and `project`), defaulting to the fixture's 30 days.
  *
  * Variants by query string:
+ * - `?narrow`  two organizations and a project (labels + project caveat)
  * - `?readonly`  a viewer without `platform:settings:manage` (add actions disabled)
  * - `?inventory=unknown`  the server could not read the platform inventory
  * - `?error`  loads fail for the first seconds (destructive alert + retry)
@@ -17,12 +23,17 @@
  */
 
 import type { JSX } from 'react'
-import { notFound } from 'next/navigation'
+import { Suspense } from 'react'
+import { notFound, useSearchParams } from 'next/navigation'
 import { CitationHealth } from '@/features/platform/components/citation-health'
 import { PlatformAccessProvider } from '@/features/platform/platform-access'
 import { I18nProvider } from '@/i18n'
+import { readQualityScope, type QualityScope } from '@/lib/quality/scope'
 
 const WINDOW_DAYS = 30
+/** The fixture's days: 28 June to 27 July 2026. */
+const FIXTURE_FROM = '2026-06-28'
+const FIXTURE_TO = '2026-07-27'
 
 /**
  * A deterministic 30-day series: a mostly-healthy baseline with a visible
@@ -44,6 +55,12 @@ const DAILY = Array.from({ length: WINDOW_DAYS }, (_, index) => {
 })
 
 const SNAPSHOT = {
+  scope: {
+    from: FIXTURE_FROM,
+    to: FIXTURE_TO,
+    organizationIds: [] as string[],
+    projectIds: [] as string[],
+  },
   windowDays: WINDOW_DAYS,
   totals: {
     turns: 1348,
@@ -281,6 +298,30 @@ const params =
     ? new URLSearchParams()
     : new URLSearchParams(window.location.search)
 
+/** The page's scope: the URL's, else the fixture's range; `?narrow` adds organizations and a project. */
+function previewScope(url: URLSearchParams): QualityScope {
+  const read = new URLSearchParams(url)
+  if (!read.has('from') && !read.has('days')) {
+    read.set('from', FIXTURE_FROM)
+    read.set('to', FIXTURE_TO)
+  }
+  if (url.has('narrow')) {
+    read.append('org', 'org_01HZBAUWERK')
+    read.append('org', 'org_01HZFERNBAU')
+    read.append('project', '0f0f0f0f-0000-4000-8000-0000000000a1')
+  }
+  return readQualityScope(read)
+}
+
+/** The fixture as the server would answer it for one scope: its days only, the scope echoed. */
+function snapshotFor(url: string): typeof SNAPSHOT {
+  const scope = readQualityScope(new URLSearchParams(url.split('?')[1] ?? ''))
+  const dailyTrend = SNAPSHOT.dailyTrend.filter(
+    (point) => point.day >= scope.from && point.day <= scope.to
+  )
+  return { ...SNAPSHOT, scope, windowDays: dailyTrend.length, dailyTrend }
+}
+
 if (typeof window !== 'undefined' && process.env.NODE_ENV === 'development') {
   const w = window as unknown as { __citationHealthShim?: boolean }
   if (!w.__citationHealthShim) {
@@ -296,9 +337,10 @@ if (typeof window !== 'undefined' && process.env.NODE_ENV === 'development') {
         if (Date.now() < failUntil) {
           return new Response('{}', { status: 500 })
         }
+        const snapshot = snapshotFor(url)
         if (params.has('clear')) {
           return Response.json({
-            ...SNAPSHOT,
+            ...snapshot,
             findings: [
               {
                 id: 'all_clear',
@@ -314,18 +356,26 @@ if (typeof window !== 'undefined' && process.env.NODE_ENV === 'development') {
           // The server's shape when the corpus / norm catalog could not be read:
           // every candidate that depends on it is `present: null`, no add.
           return Response.json({
-            ...SNAPSHOT,
+            ...snapshot,
             inventoryKnown: false,
             missingSources: SNAPSHOT.missingSources.map((row) =>
               row.kind === 'web' ? row : { ...row, present: null, action: 'inventory_unknown' }
             ),
           })
         }
-        return Response.json(SNAPSHOT)
+        return Response.json(snapshot)
       }
       return real(input, init)
     }
   }
+}
+
+/**
+ * The organism in the URL's scope. Read through `useSearchParams`, not the
+ * module-scope `params`, so the server render and the client agree on it.
+ */
+function ScopedCitationHealth(): JSX.Element {
+  return <CitationHealth scope={previewScope(new URLSearchParams(useSearchParams()))} />
 }
 
 export default function CitationHealthDevPage(): JSX.Element {
@@ -333,7 +383,11 @@ export default function CitationHealthDevPage(): JSX.Element {
     notFound()
   }
 
-  const body = <CitationHealth days={WINDOW_DAYS} />
+  const body = (
+    <Suspense>
+      <ScopedCitationHealth />
+    </Suspense>
+  )
 
   return (
     <I18nProvider initialLocale="de" fixedLocale>

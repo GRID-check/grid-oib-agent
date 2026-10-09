@@ -210,3 +210,22 @@ class TestCatalogParity:
         fixture = Path(__file__).parents[2] / "fixtures" / "reasoning_efforts_catalog.json"
         catalog = json.loads(fixture.read_text(encoding="utf-8"))
         assert frozenset(catalog) == reasoning_settings._EFFORTS
+
+
+class _Model:
+    def __init__(self, effort):
+        self.reasoning_effort = effort
+
+
+@pytest.mark.parametrize(
+    ("llm", "expected"),
+    [
+        (_Model("xhigh"), "xhigh"),
+        (_Model("none"), "none"),  # an explicit "think not at all" is a level, and is reported
+        (_Model(None), None),  # the model sends no level
+        (_Model("max"), None),  # a provider-native tier the vocabulary refuses
+        (object(), None),  # not an OpenAI-shaped model
+    ],
+)
+def test_effort_of_reports_the_level_the_model_sends(llm, expected):
+    assert reasoning_settings.effort_of(llm) == expected

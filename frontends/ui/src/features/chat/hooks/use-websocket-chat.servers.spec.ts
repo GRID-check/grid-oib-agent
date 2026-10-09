@@ -165,7 +165,7 @@ describe('a server that does not speak wire v2 (NAT stock socket)', () => {
 
     expect(FakeSocket.instances.flatMap((socket) => socket.sent)).toEqual([])
     expect(useChatStore.getState()).toMatchObject({ isLoading: false, isStreaming: false })
-    await vi.waitFor(() => expect(errorCodes()).toContain('agent.response_failed'))
+    await vi.waitFor(() => expect(errorCodes()).toContain('agent.no_response'))
   })
 
   it('gives up saying the server is incompatible, not that the network failed', async () => {
@@ -198,7 +198,7 @@ describe('a v2 server that says hello and never answers', () => {
 
     await tick(ACK_TIMEOUT_MS)
     expect(useChatStore.getState()).toMatchObject({ isLoading: false, isStreaming: false })
-    await vi.waitFor(() => expect(errorCodes()).toContain('agent.response_failed'))
+    await vi.waitFor(() => expect(errorCodes()).toContain('agent.no_response'))
   })
 
   it('ends a turn that started and then went silent, instead of reconnecting forever', async () => {

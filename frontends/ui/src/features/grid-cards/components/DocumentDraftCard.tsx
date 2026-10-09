@@ -67,6 +67,7 @@
 
 import { useEffect, useState, type FC } from 'react'
 import { FileText } from 'lucide-react'
+import { AnimatePresence, motion, motionInstant, motionQuick, motionQuickExit } from '@/components/motion'
 import { Card } from '@/components/ui/card'
 import { SectionLabel } from '@/components/ui/section-label'
 import { AuthorshipLine } from '@/features/documents/components/authorship-line'
@@ -74,6 +75,7 @@ import { documentFilesHref } from '@/features/documents/lib/document-question'
 import { openFiledDocument } from '@/features/documents/lib/open-filed-document'
 import { useChatStore } from '@/features/chat/store'
 import { useIsMobile } from '@/hooks/use-is-mobile'
+import { useReducedMotion } from '@/hooks/use-reduced-motion'
 import { useTranslations } from '@/i18n'
 import { documentLifecycleClient } from '@/lib/documents/lifecycle-client'
 import type { DocumentVersionState } from '@/lib/documents/lifecycle-types'
@@ -83,6 +85,7 @@ import { DraftFileError, fileConversationDraft } from '../lib/document-draft-fil
 import { fetchConversationDraft } from '../lib/document-draft-preview'
 import { CARD_SHELL } from './card-chrome'
 import { DocumentDraftPreviewDialog } from './DocumentDraftPreviewDialog'
+import { StackedLabel } from './StackedLabel'
 
 interface DocumentDraftCardProps {
   /** The document's first heading, or its file name when it has none. */
@@ -112,7 +115,10 @@ const ACTION = cn(
   'inline-flex min-h-11 items-center rounded-sm font-medium text-primary',
   'transition-colors duration-quick ease-out motion-reduce:transition-none',
   'hover:text-primary/80 focus-visible:ring-ring/50 focus-visible:outline-none focus-visible:ring-2',
-  'disabled:cursor-not-allowed disabled:opacity-60',
+  // `aria-disabled`, never `disabled`: Chrome blurs a focused button the
+  // moment it becomes disabled, and the press that started the work would
+  // drop keyboard focus to <body>. Every handler guards on its own flag.
+  'aria-disabled:cursor-default aria-disabled:opacity-60',
 )
 
 /**
@@ -164,6 +170,16 @@ function isAlreadySubmitted(error: unknown): boolean {
   return (details as { reason?: unknown }).reason === 'already-submitted'
 }
 
+/**
+ * The server's own sentence when the thread drew on a restricted folder and the
+ * destination is open to people not cleared for it (ADR-0087). It already says
+ * why, in the reader's language; a generic „could not file" would read as a
+ * fault worth retrying.
+ */
+function confinementRefusal(error: unknown): string | null {
+  return error instanceof DraftFileError && error.code === 'CONVERSATION_CONFINED' ? error.message : null
+}
+
 export const DocumentDraftCard: FC<DocumentDraftCardProps> = ({
   title,
   path,
@@ -180,6 +196,7 @@ export const DocumentDraftCard: FC<DocumentDraftCardProps> = ({
   const projectId = useChatStore((s) => s.projectId)
   const conversationId = useChatStore((s) => s.currentConversation?.id ?? null)
   const isMobile = useIsMobile()
+  const reduced = useReducedMotion()
   const { decision, decide, canDecide } = useCardDecision(messageId, cardKey, {
     mustPersist: decisionsMustPersist,
   })
@@ -261,7 +278,7 @@ export const DocumentDraftCard: FC<DocumentDraftCardProps> = ({
   }, [filed, filedDoc, decision, conversationId, path, title, t])
 
   const submit = async () => {
-    if (!documentId || !versionId) return
+    if (!documentId || !versionId || isSubmitting) return
     setError(null)
     setIsSubmitting(true)
     try {
@@ -298,7 +315,7 @@ export const DocumentDraftCard: FC<DocumentDraftCardProps> = ({
   // state, and a reload restores them through the effect above: the same
   // idempotent door, re-entered, answering `alreadyFiled` with the link.
   const file = async (force: boolean) => {
-    if (!conversationId) return
+    if (!conversationId || isFiling) return
     setError(null)
     if (!force) setConflict(null)
     setIsFiling(true)
@@ -315,6 +332,8 @@ export const DocumentDraftCard: FC<DocumentDraftCardProps> = ({
         // Nothing to retry and nothing to confirm: the reference filed and a
         // person moved it on. The Files pane owns it from here.
         setError(t('cards.documentDraft.fileSubmitted'))
+      } else if (confinementRefusal(fileError)) {
+        setError(confinementRefusal(fileError))
       } else {
         setError(t('cards.documentDraft.fileError'))
       }
@@ -372,7 +391,20 @@ export const DocumentDraftCard: FC<DocumentDraftCardProps> = ({
           this small. Neither the counter nor the size is here at all: both live
           in the preview dialog, beside the words they measure. */}
       <p className="card-caption flex flex-wrap items-center gap-x-3 text-muted-foreground">
-        <span data-testid="document-draft-state">{stand}</span>
+        {/* The stand's word changes when the draft is filed or sent: the old
+            word leaves before the new one arrives, so the row never shows
+            both, and a card mounted already filed paints its word at once. */}
+        <AnimatePresence mode="wait" initial={false}>
+          <motion.span
+            key={stand}
+            data-testid="document-draft-state"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1, transition: reduced ? motionInstant : motionQuick }}
+            exit={{ opacity: 0, transition: reduced ? motionInstant : motionQuickExit }}
+          >
+            {stand}
+          </motion.span>
+        </AnimatePresence>
 
         {!filedKnown && conversationId && (
           // Reads nothing but the draft, through the BFF preview door into the
@@ -389,10 +421,11 @@ export const DocumentDraftCard: FC<DocumentDraftCardProps> = ({
           <button
             type="button"
             className={ACTION}
-            disabled={isFiling}
+            aria-disabled={isFiling || undefined}
+            aria-busy={isFiling || undefined}
             onClick={() => void file(false)}
           >
-            {isFiling ? t('cards.documentDraft.filing') : t('cards.documentDraft.file')}
+            <StackedLabel busy={isFiling} idle={t('cards.documentDraft.file')} working={t('cards.documentDraft.filing')} />
           </button>
         )}
 
@@ -420,8 +453,18 @@ export const DocumentDraftCard: FC<DocumentDraftCardProps> = ({
         )}
 
         {filed && !submitted && canDecide && (
-          <button type="button" className={ACTION} disabled={isSubmitting} onClick={submit}>
-            {isSubmitting ? t('cards.documentDraft.submitting') : t('cards.documentDraft.submit')}
+          <button
+            type="button"
+            className={ACTION}
+            aria-disabled={isSubmitting || undefined}
+            aria-busy={isSubmitting || undefined}
+            onClick={() => void submit()}
+          >
+            <StackedLabel
+              busy={isSubmitting}
+              idle={t('cards.documentDraft.submit')}
+              working={t('cards.documentDraft.submitting')}
+            />
           </button>
         )}
       </p>
@@ -451,10 +494,15 @@ export const DocumentDraftCard: FC<DocumentDraftCardProps> = ({
             <button
               type="button"
               className={ACTION}
-              disabled={isFiling}
+              aria-disabled={isFiling || undefined}
+              aria-busy={isFiling || undefined}
               onClick={() => void file(true)}
             >
-              {isFiling ? t('cards.documentDraft.filing') : t('cards.documentDraft.fileAnyway')}
+              <StackedLabel
+                busy={isFiling}
+                idle={t('cards.documentDraft.fileAnyway')}
+                working={t('cards.documentDraft.filing')}
+              />
             </button>
           </p>
         </div>

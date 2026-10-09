@@ -171,6 +171,7 @@ export function useDiagramFiling({ source, fileSvg, renderFileSvg, title }: Diag
           // Same source, same fonts, same layout — only the palette differs, and
           // the reason it has to is in `./diagram-palette.ts`.
           svg,
+          ...(target.conversationId ? { conversationId: target.conversationId } : {}),
         }),
       })
       if (!response.ok) {

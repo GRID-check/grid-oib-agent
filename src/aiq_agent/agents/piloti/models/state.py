@@ -79,6 +79,10 @@ class ResearchAgentState(BaseModel):
     #: the tool payload — and the prompt-cache shard keyed on it — is identical
     #: for every tenant. What changes per org is one sentence of prose.
     tasks_allowed: bool = True
+    #: The turn's signed scope holds a restricted folder's collection (ADR-0087).
+    #: Rendered as the block that keeps the run, task, profile and filing doors
+    #: shut for this conversation, and picks the reason the reader is given.
+    confined: bool = False
     #: The answer envelope declared ``kind: "handoff"``: the prose is the
     #: hand-off sentence, not an answer. Read only when an escalation is
     #: REFUSED, to decide whether the unavailability note replaces the content
@@ -270,6 +274,10 @@ class ResearchAgentState(BaseModel):
     # dropped: the transparency doctrine forbids a class of instruction the
     # product declines to admit ran.
     skills_hidden: list[str] | None = None
+    # The thinking level the answering call ran at (``reasoning_settings.effort_of``
+    # on the turn's resolved model). Set by the register layer after ``run()``,
+    # lifted onto ``TurnResult.reasoning_effort``. None when it sends none.
+    reasoning_effort: str | None = None
     # TRUE when this turn hit its tool-iteration ceiling and was forced into
     # synthesis — i.e. evidence-gathering was CUT OFF rather than finished, and
     # the answer is written from whatever had been gathered by then. Set by

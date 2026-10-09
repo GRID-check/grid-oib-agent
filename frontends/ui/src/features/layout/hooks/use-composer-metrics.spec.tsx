@@ -65,6 +65,9 @@ const restoreLayout = (): void => {
   }
 }
 
+/** Renders of the harness, for counting what an observer tick costs. */
+let renders = 0
+
 interface HarnessProps {
   isThreadEmpty: boolean
   /** Whether the composer is in the tree yet — false reproduces a late mount. */
@@ -82,6 +85,7 @@ const Harness = ({
 }: HarnessProps): JSX.Element => {
   const metrics = useComposerMetrics(isThreadEmpty)
   latest = metrics
+  renders += 1
   return (
     <div data-testid="column" data-h={columnHeight} style={metrics.columnVars}>
       {composerMounted && (
@@ -173,5 +177,46 @@ describe('useComposerMetrics', () => {
     rerender(<Harness isThreadEmpty={false} composerHeight={120} />)
 
     expect(columnVar(container, '--welcome-offset')).toBe(`${EXPECTED_WELCOME_OFFSET}px`)
+  })
+
+  describe('the observer', () => {
+    /** Every observer callback, so the test decides when a resize is reported. */
+    let ticks: Array<() => void>
+    let restoreRo: () => void
+
+    beforeEach(() => {
+      ticks = []
+      const original = globalThis.ResizeObserver
+      globalThis.ResizeObserver = class {
+        constructor(private readonly callback: ResizeObserverCallback) {}
+        observe(): void {
+          ticks.push(() => this.callback([], this as unknown as ResizeObserver))
+        }
+        unobserve(): void {}
+        disconnect(): void {}
+      } as unknown as typeof ResizeObserver
+      restoreRo = () => {
+        globalThis.ResizeObserver = original
+      }
+    })
+
+    afterEach(() => restoreRo())
+
+    test('a tick that moved no height commits nothing', () => {
+      // A width change or a same-height re-layout reaches the observer too, and
+      // each used to be a synchronous re-render of the whole layout.
+      render(<Harness isThreadEmpty />)
+      const before = renders
+      ticks.forEach((tick) => tick())
+      expect(renders).toBe(before)
+    })
+
+    test('a tick that moved a height commits it in the same frame', () => {
+      const { container } = render(<Harness isThreadEmpty />)
+      container.querySelector<HTMLElement>('[data-testid="composer"]')!.dataset.h = '240'
+      ticks.forEach((tick) => tick())
+      // No act(), no await: flushSync has already committed the new padding.
+      expect(columnVar(container, '--composer-h')).toBe('240px')
+    })
   })
 })

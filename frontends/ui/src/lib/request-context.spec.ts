@@ -360,7 +360,21 @@ describe('verifyGridRequestContextEnvelope', () => {
       projectId: 'proj_1',
       conversationId: 's_conv_1',
       issuedAt: NOW,
+      collectionScope: [],
     })
+  })
+
+  it('reads the signed scope names in both entry shapes (ADR-0047), dropping anything else', () => {
+    const { header, signature } = mint({
+      organizationId: 'org_1',
+      userId: 'user_1',
+      collectionScope: ['oib_knowledge', { collection: 'proj_a_r0123456789ab', shelf: 'project' }],
+      issuedAt: NOW,
+    })
+    expect(verifyGridRequestContextEnvelope(header, signature, SECRET, NOW)?.collectionScope).toEqual([
+      'oib_knowledge',
+      'proj_a_r0123456789ab',
+    ])
   })
 
   it('refuses a tampered signature', () => {

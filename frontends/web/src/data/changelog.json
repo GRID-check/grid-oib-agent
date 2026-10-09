@@ -51,8 +51,56 @@
               "de": "Das Archiv hat jetzt Ordner, wie bei den Dateien eines Projekts: Sie können Ordner erstellen, umbenennen, verschieben und löschen, eine ganze Ordnerstruktur hochladen und Dokumente zwischen Ordnern verschieben. Beim Löschen eines Ordners bleiben die darin enthaltenen Inhalte erhalten, und Piloti weiß, in welchem Ordner sich ein Dokument befindet."
             },
             {
+              "en": "The effort slider now warns when it is set to Maximum, and the level chip in the composer turns amber while it is on. Maximum thinks much longer and costs far more tokens, and is rarely smarter than High.",
+              "de": "Der Effort-Slider warnt jetzt, wenn er auf Maximum eingestellt ist, und der Level-Chip im Composer wird währenddessen bernsteinfarben. Maximum rechnet deutlich länger und verbraucht wesentlich mehr Tokens, ist aber nur selten intelligenter als High."
+            },
+            {
               "en": "Teammates can now follow and steer deep research runs in the projects they work in, including the runs of scheduled and shared tasks, not only their own. Anyone who can view a chat can follow a run in it, while stopping a run or adding a document to it still needs permission to chat in the project.",
               "de": "Teammitglieder können Deep-Research-Läufe in den Projekten, in denen sie arbeiten, jetzt verfolgen und steuern – auch Läufe geplanter und geteilter Aufgaben, nicht nur ihre eigenen. Wer einen Chat ansehen kann, kann darin einen Lauf verfolgen. Um einen Lauf zu stoppen oder ein Dokument hinzuzufügen, ist weiterhin die Berechtigung erforderlich, im Projekt zu chatten."
+            },
+            {
+              "en": "You can write your next question while Piloti is still answering and send it as soon as the answer is complete; Escape stops the answer without touching your draft.",
+              "de": "Sie können Ihre nächste Frage verfassen, während Piloti noch antwortet, und sie absenden, sobald die Antwort vollständig ist; mit Escape stoppen Sie die Antwort, ohne Ihren Entwurf zu verändern."
+            },
+            {
+              "en": "Your office's content terms and number checks now also cover what you type into the chat: before a message with an IBAN or a listed term goes out, Piloti shows what it found and sends it only masked, or lets you edit it first.",
+              "de": "Die Inhaltsbegriffe und Nummernprüfungen Ihres Büros gelten jetzt auch für das, was Sie in den Chat schreiben: Bevor eine Nachricht mit einer IBAN oder einem gelisteten Begriff hinausgeht, zeigt Piloti, was es gefunden hat, und sendet sie nur maskiert – oder Sie bearbeiten sie zuerst."
+            },
+            {
+              "en": "When your office checks chat messages for sensitive data, Piloti now says plainly that a dictated message is first transcribed by an external speech model; only the text is checked before it is sent.",
+              "de": "Wenn Ihr Büro Chatnachrichten auf sensible Daten prüft, sagt Piloti jetzt klar, dass eine diktierte Nachricht zuerst von einem externen Spracherkennungsmodell transkribiert wird; geprüft wird nur der Text, bevor er gesendet wird."
+            },
+            {
+              "en": "When you share a chat that drew on a restricted folder, Piloti offers only colleagues who may read all of those folders, and shows the others greyed out with \"Has no access to a folder this chat draws on\". It never names the folder.",
+              "de": "Wenn Sie einen Chat teilen, der aus einem eingeschränkten Ordner geschöpft hat, bietet Piloti nur Kolleginnen und Kollegen an, die alle diese Ordner lesen dürfen, und zeigt die anderen ausgegraut mit „Hat keinen Zugriff auf einen Ordner, aus dem dieser Chat stammt“. Den Ordner nennt es nie."
+            },
+            {
+              "en": "A chat shared with someone who later loses the right to read a folder it drew on stays in their list as \"Shared chat\", and opening it says they no longer have the rights, with no title, message or attachment shown. The person who shared it sees them marked \"No longer has access\", and the chat opens again if the role comes back.",
+              "de": "Ein Chat, der mit jemandem geteilt ist, die oder der später das Recht verliert, einen Ordner zu lesen, aus dem er schöpft, bleibt in deren Liste als „Geteilter Chat“; beim Öffnen steht dort, dass die Rechte fehlen, ohne Titel, Nachricht oder Anhang. Wer den Chat geteilt hat, sieht die Person als „Hat keinen Zugriff mehr“, und der Chat öffnet sich wieder, sobald die Rolle zurück ist."
+            },
+            {
+              "en": "Deleting a custom role that folders name now shows which folders and asks you to confirm. Folders left without a valid role are readable by organization admins only and are listed in the project settings with a link to each.",
+              "de": "Beim Löschen einer eigenen Rolle, die Ordner nennen, zeigt Piloti jetzt, welche Ordner das sind, und verlangt eine Bestätigung. Ordner ohne gültige Rolle können nur noch Organisations-Admins lesen und stehen in den Projekteinstellungen mit einem Link zu jedem."
+            },
+            {
+              "en": "Organisation admins can now see who downloaded which document, and who opened one in a folder with its own access list, under Organisation → Download-Protokoll. Entries are kept 12 months at most, which an organization can shorten to 30 days, and reading the log is itself recorded.",
+              "de": "Organisations-Admins sehen jetzt unter Organisation → Download-Protokoll, wer welches Dokument heruntergeladen und wer eines in einem Ordner mit eigener Zugriffsliste geöffnet hat. Einträge bleiben höchstens 12 Monate erhalten, was eine Organisation auf 30 Tage verkürzen kann, und auch das Lesen des Protokolls wird festgehalten."
+            },
+            {
+              "en": "Your office can now build its own roles in Piloti, under Organisation → Personen & Zugriff → Eigene Rollen, and decide per project folder which roles may read it and which may edit it. A role not on a folder's list does not see the folder, its files or what Piloti finds in them, and organization admins may read and edit everything.",
+              "de": "Ihr Büro kann jetzt unter Organisation → Personen & Zugriff → Eigene Rollen eigene Rollen in Piloti anlegen und je Projektordner festlegen, welche Rollen ihn lesen und welche ihn bearbeiten dürfen. Eine Rolle, die nicht auf der Liste eines Ordners steht, sieht weder den Ordner noch seine Dateien noch das, was Piloti darin findet, und Organisations-Admins dürfen alles lesen und bearbeiten."
+            },
+            {
+              "en": "What Piloti remembers from a chat that drew on a folder not everyone may read is kept for the people allowed to know it. Only those who may read the folder it came from see the note in the project memory, where a lock names that folder, and only their chats are given it.",
+              "de": "Was Piloti sich aus einem Chat merkt, der aus einem Ordner geschöpft hat, den nicht alle lesen dürfen, bleibt den Personen vorbehalten, die es wissen dürfen. Nur wer den Ordner lesen darf, aus dem es stammt, sieht die Notiz im Projektgedächtnis, wo ein Schloss diesen Ordner nennt, und nur deren Chats erhalten sie."
+            },
+            {
+              "en": "A subfolder can only narrow what its parent allows, and someone who may only read a folder sees it marked „Nur lesen“, without upload, rename, move or delete. Only a project admin who may edit a folder can change who may read or edit it.",
+              "de": "Ein Unterordner kann nur einschränken, was sein übergeordneter Ordner erlaubt, und wer einen Ordner nur lesen darf, sieht ihn als „Nur lesen“ markiert, ohne Hochladen, Umbenennen, Verschieben oder Löschen. Nur ein Projekt-Admin, der einen Ordner bearbeiten darf, kann ändern, wer ihn lesen oder bearbeiten darf."
+            },
+            {
+              "en": "A folder holding subfolders you cannot read can only be moved by an organization admin, and a demoted admin stops reaching every folder within a minute. Review requests go only to people who may read the folder, and the projects overview counts only the documents you may read.",
+              "de": "Einen Ordner mit Unterordnern, die Sie nicht lesen dürfen, kann nur ein Organisations-Admin verschieben, und wer kein Admin mehr ist, erreicht binnen einer Minute nicht mehr jeden Ordner. Prüfanfragen gehen nur an Personen, die den Ordner lesen dürfen, und die Projektübersicht zählt nur die Dokumente, die Sie lesen dürfen."
             },
             {
               "en": "Organization admins can now rescan all failed ingestions at once from Organization, Enterprise: every file that could not be read is sent back through reading under its own name.",
@@ -63,8 +111,40 @@
               "de": "Sie können ein Outlook-Archiv (.pst oder .ost, bis zu 25 GB) in die Dateien eines Projekts importieren. Dabei wird jede E-Mail zu einem Ordner mit ihren Anhängen und einer Notiz mit Absender, Empfängern, Datum und Text. Piloti kann Ihre Korrespondenz anschließend finden und zitieren; Ihre Administratorin oder Ihr Administrator schaltet den Import ein."
             },
             {
+              "en": "A chat whose answers drew on a folder not everyone may read can be shared only with colleagues who may read that folder too. A chat that is already shared searches only the folders everyone in it may read.",
+              "de": "Ein Chat, dessen Antworten aus einem Ordner schöpfen, den nicht alle lesen dürfen, lässt sich nur mit Kolleginnen und Kollegen teilen, die diesen Ordner ebenfalls lesen dürfen. Ein bereits geteilter Chat durchsucht nur die Ordner, die alle darin lesen dürfen."
+            },
+            {
+              "en": "A document from a folder not everyone may read cannot be added to a research run. The list marks it, and Piloti says why if you try.",
+              "de": "Ein Dokument aus einem Ordner, den nicht alle lesen dürfen, lässt sich keinem Rechercheauftrag hinzufügen. Die Liste kennzeichnet es, und Piloti sagt beim Versuch, warum."
+            },
+            {
+              "en": "A chat that drew on a folder not everyone may read also cannot start a Tiefenrecherche or an Auftrag, change the project context, or file a draft or diagram where colleagues who may not read the folder could open it; Piloti says why instead of offering it.",
+              "de": "Ein Chat, der aus einem Ordner geschöpft hat, den nicht alle lesen dürfen, kann außerdem keine Tiefenrecherche und keinen Auftrag starten, den Projektkontext nicht ändern und keinen Entwurf und kein Diagramm dort ablegen, wo Kolleginnen und Kollegen ohne Leserecht für den Ordner sie öffnen könnten; Piloti sagt, warum, statt es anzubieten."
+            },
+            {
+              "en": "Your office now decides what must not be uploaded, under Organisation → Sensible Daten: terms for file and folder names, terms for the content, and checks for IBANs, Austrian social security numbers and card numbers. Piloti starts you on a suggested list you can keep, change or switch off.",
+              "de": "Ihr Büro legt jetzt unter Organisation → Sensible Daten fest, was nicht hochgeladen werden darf: Begriffe für Datei- und Ordnernamen, Begriffe für den Inhalt sowie Prüfungen auf IBANs, österreichische Sozialversicherungsnummern und Kartennummern. Piloti beginnt mit einer vorgeschlagenen Liste, die Sie übernehmen, ändern oder abschalten können."
+            },
+            {
+              "en": "Before an upload starts, you see which files that list holds back and why, and those files never leave your computer. A single file, such as a Bauvertrag in a folder called „Verträge“, can be released with one tick.",
+              "de": "Bevor ein Upload beginnt, sehen Sie, welche Dateien diese Liste zurückhält und warum, und diese Dateien verlassen Ihren Computer nie. Eine einzelne Datei, etwa ein Bauvertrag in einem Ordner namens „Verträge“, lässt sich mit einem Häkchen freigeben."
+            },
+            {
               "en": "You can now dictate a question: press the microphone in the message field and speak, and the text appears where your cursor was, with German and English kept as you said them and hesitations such as „äh“ left out. Dictation is free and never counts against your organization's budget.",
               "de": "Sie können jetzt Fragen diktieren: Tippen Sie im Nachrichtenfeld auf das Mikrofon und sprechen Sie. Der Text erscheint an der Cursorposition; Deutsch und Englisch bleiben so erhalten, wie Sie es gesagt haben, während Zögerlaute wie „äh“ weggelassen werden. Das Diktieren ist kostenlos und wird nie auf das Budget Ihrer Organisation angerechnet."
+            },
+            {
+              "en": "Piloti now checks the text of every upload on its own server before any language model sees it. A file that matches waits in quarantine until an office or project admin releases or deletes it under Organisation → Quarantäne.",
+              "de": "Piloti prüft jetzt den Text jedes Uploads auf dem eigenen Server, bevor ein Sprachmodell ihn sieht. Eine Datei mit Treffer wartet in Quarantäne, bis ein Admin des Büros oder des Projekts sie unter Organisation → Quarantäne freigibt oder löscht."
+            },
+            {
+              "en": "When everything an upload brought in has been read, your inbox tells you, with a summary of what arrived, where it was filed, what each file is, and what was held back or failed. Project settings list every upload with its outcome and who uploaded it.",
+              "de": "Sobald alles gelesen ist, was ein Upload gebracht hat, meldet es Ihr Postfach – mit einer Zusammenfassung, was angekommen ist, wo es abgelegt wurde, was jede Datei ist und was zurückgehalten wurde oder fehlgeschlagen ist. Die Projekteinstellungen listen jeden Upload mit seinem Ergebnis und der Person, die ihn hochgeladen hat."
+            },
+            {
+              "en": "An Outlook archive import ends with the same summary, once everything it filed has been read.",
+              "de": "Ein Outlook-Archivimport endet mit derselben Zusammenfassung, sobald alles gelesen ist, was er abgelegt hat."
             },
             {
               "en": "You can now upload a ZIP file to a project's files or to the Archiv. Piloti unpacks it and files everything into the folders it contains, asking first about files that are already there, just as it does when you drop a folder.",
@@ -82,6 +162,26 @@
             {
               "en": "The Archiv's file list now offers the same filters as a project's, so archived files can be shown again and files written by Piloti can be told apart from your team's.",
               "de": "Die Dateiliste im Archiv bietet jetzt dieselben Filter wie die eines Projekts. So können Sie archivierte Dateien wieder anzeigen und von Piloti erstellte Dateien von denen Ihres Teams unterscheiden."
+            },
+            {
+              "en": "An answer now writes itself in calmly where you are reading: the Herleitung folds away before the first word, nothing above the line you are on moves, and the sources, actions and cards arrive together when the answer is done.",
+              "de": "Eine Antwort schreibt sich jetzt ruhig genau dort, wo Sie gerade lesen: Die Herleitung klappt sich vor dem ersten Wort ein, oberhalb Ihrer aktuellen Zeile bewegt sich nichts, und Quellen, Aktionen und Karten erscheinen gemeinsam, sobald die Antwort fertig ist."
+            },
+            {
+              "en": "Stopping an answer keeps exactly the text you saw at that moment, marked „Gestoppt“, with its working citations.",
+              "de": "Wenn Sie eine Antwort stoppen, bleibt genau der Text erhalten, den Sie zu diesem Zeitpunkt gesehen haben – gekennzeichnet als „Gestoppt“ und mit weiterhin funktionierenden Quellenverweisen."
+            },
+            {
+              "en": "When an answer fails partway, the words already written stay on screen, dimmed above the error, and Erneut versuchen replaces them with a fresh answer.",
+              "de": "Wenn eine Antwort mittendrin fehlschlägt, bleiben die bereits geschriebenen Wörter oberhalb des Fehlers abgeblendet am Bildschirm, und „Erneut versuchen“ ersetzt sie durch eine neue Antwort."
+            },
+            {
+              "en": "Switching to another conversation and back, or reloading during an answer, shows the text that had already arrived at once instead of typing it out again, and each conversation reopens where you left it.",
+              "de": "Wenn Sie zu einer anderen Unterhaltung wechseln und zurückkehren oder während einer Antwort die Seite neu laden, wird der bereits eingetroffene Text sofort vollständig angezeigt, statt erneut schrittweise eingeblendet zu werden. Außerdem öffnet sich jede Unterhaltung wieder an der Stelle, an der Sie sie verlassen haben."
+            },
+            {
+              "en": "A dropped connection is now a quiet line above the input field instead of a card in the conversation, and the Herleitung says Fehlgeschlagen, Gestoppt or Auftrag angelegt instead of a green Fertig when the answer did not simply finish.",
+              "de": "Eine unterbrochene Verbindung wird jetzt als unaufdringliche Zeile über dem Eingabefeld statt als Karte im Gespräch angezeigt. Bei der Herleitung steht „Fehlgeschlagen“, „Gestoppt“ oder „Auftrag angelegt“ statt eines grünen „Fertig“, wenn die Antwort nicht einfach abgeschlossen wurde."
             },
             {
               "en": "The changelog on piloti.at is quicker to read: the latest week shows its new features and improvements, older busy weeks open with their headings, and fixes stay folded until you open them.",
@@ -121,6 +221,18 @@
               "de": "Beim Umbenennen oder Verschieben eines Ordners mit Unterordnern tritt kein Fehler mehr auf."
             },
             {
+              "en": "The dots in the effort slider no longer seem to slide along with the handle. They now stay in place and grow denser as you turn the effort up.",
+              "de": "Die Punkte im Aufwand-Slider scheinen sich nicht mehr mit dem Regler zu bewegen. Sie bleiben jetzt an Ort und Stelle und werden dichter, wenn Sie den Aufwand erhöhen."
+            },
+            {
+              "en": "Piloti in dark mode no longer flashes white while the page loads.",
+              "de": "Piloti blitzt im Dark Mode beim Laden der Seite nicht mehr weiß auf."
+            },
+            {
+              "en": "On an iPhone, the input field no longer hides behind the keyboard.",
+              "de": "Auf dem iPhone verschwindet das Eingabefeld nicht mehr hinter der Tastatur."
+            },
+            {
               "en": "Previews of spreadsheets and text files saved on Windows show euro signs, dashes and curly quotes again instead of leaving them blank.",
               "de": "Vorschauen von unter Windows gespeicherten Tabellen und Textdateien zeigen Eurozeichen, Gedankenstriche und typografische Anführungszeichen wieder an, statt sie leer zu lassen."
             },
@@ -141,16 +253,40 @@
               "de": "Ein Stack, der vor der KEDA-Warteschlangenskalierung aktualisiert wurde, scheitert beim Deploy nicht mehr am ScaledObject des agent-worker. KEDA übernimmt jetzt den bisherigen Autoscaler des Research Workers, statt die Skalierung eines Workloads abzulehnen, den KEDA bereits skaliert. Dadurch wird das Deploy ohne manuelle Eingriffe abgeschlossen."
             },
             {
+              "en": "Long answers and long tables stream without slowing down. Reading them used to take more time with every line written, which could hold up other chats on the same server while one long reply was being written.",
+              "de": "Lange Antworten und Tabellen werden ohne Verzögerung gestreamt. Bisher dauerte das Lesen mit jeder geschriebenen Zeile länger, wodurch andere Chats auf demselben Server aufgehalten werden konnten, während eine lange Antwort erstellt wurde."
+            },
+            {
+              "en": "While Piloti works, the Herleitung shows its whole reasoning graph again, with a spinning icon and moving connectors, instead of a cut-off window.",
+              "de": "Während Piloti arbeitet, zeigt die Herleitung wieder den vollständigen Begründungsgraphen mit einem rotierenden Symbol und beweglichen Verbindungslinien statt eines abgeschnittenen Fensters."
+            },
+            {
+              "en": "The end of an answer no longer shows a hard cut and stray marks just above the question field.",
+              "de": "Am Ende einer Antwort gibt es keinen abrupten Schnitt und keine vereinzelten Zeichen mehr direkt über dem Fragenfeld."
+            },
+            {
               "en": "Scheduled research reports are filed into the project again in organizations whose features are switched on individually; they had been held back.",
               "de": "Geplante Rechercheberichte werden in Organisationen, in denen Funktionen individuell aktiviert werden, wieder im Projekt abgelegt; bisher wurden sie zurückgehalten."
+            },
+            {
+              "en": "Adding a document to a running research run from the run's list of documents now works; until now the run never received it.",
+              "de": "Eine Unterlage aus der Liste eines laufenden Rechercheauftrags hinzuzufügen funktioniert jetzt; bisher kam sie beim Auftrag nie an."
             },
             {
               "en": "Scheduled tasks are no longer skipped when the research queue is full: a run that has to wait shows as queued in Aufgaben and starts as soon as a worker is free. An office's scheduled runs go after its own questions and never ahead of another office's work.",
               "de": "Geplante Aufgaben werden nicht mehr übersprungen, wenn die Recherche-Warteschlange voll ist: Ein wartender Durchlauf wird in Aufgaben als eingereiht angezeigt und startet, sobald ein Worker frei ist. Die geplanten Durchläufe eines Büros werden erst nach dessen eigenen Fragen ausgeführt und niemals vor der Arbeit eines anderen Büros."
             },
             {
+              "en": "A CSV or text file exported from Excel on Windows previews with its €, „ “ and – again.",
+              "de": "Eine unter Windows aus Excel exportierte CSV- oder Textdatei zeigt in der Vorschau €, „ “ und – wieder richtig an."
+            },
+            {
               "en": "When you send a new question while Piloti is still answering the previous one, the earlier answer is now stopped completely before the new one starts, so the two can no longer mix in one conversation. In the rare case that the earlier answer does not stop within a few seconds, Piloti says it is still finishing and asks you to send the question again.",
               "de": "Wenn Sie eine neue Frage senden, während Piloti noch die vorherige beantwortet, wird die frühere Antwort vollständig beendet, bevor die neue beginnt. So können sich die beiden nicht mehr in einer Unterhaltung vermischen. Falls die frühere Antwort ausnahmsweise nicht innerhalb weniger Sekunden stoppt, teilt Piloti Ihnen mit, dass sie noch abgeschlossen wird, und bittet Sie, die Frage erneut zu senden."
+            },
+            {
+              "en": "Dropping a folder no longer uploads .DS_Store, Thumbs.db or Office lock files (~$Vertrag.docx) with it.",
+              "de": "Wer einen Ordner hineinzieht, lädt .DS_Store, Thumbs.db oder Office-Sperrdateien (~$Vertrag.docx) nicht mehr mit hoch."
             }
           ]
         }
