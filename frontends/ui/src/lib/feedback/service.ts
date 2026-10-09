@@ -32,17 +32,14 @@ import {
   getAnswerTraceId,
   isRestrictedUseVote,
   getFeedbackHealth,
-  getFeedbackWeeklySummary,
+  getPersistedAnswerConversationId,
   listAnswerFeedbackForConversation,
-  listFeedbackTurns,
-  FEEDBACK_EXPORT_ROW_CAP,
   upsertAnswerFeedback,
   type FeedbackHealth,
   type FeedbackOrgRollup,
   type FeedbackTurn,
-  type FeedbackWeeklyCount,
-  type FeedbackHealthFilters,
 } from './repository'
+import type { FeedbackQuery } from './filters'
 import { getOrganizationDisplayNames } from '@/lib/organizations/display-names'
 import { langfuseProjectUrl, langfuseTraceUrl, langfuseUiConfig } from '@/lib/langfuse/config'
 import {
@@ -82,10 +79,19 @@ export async function submitAnswerFeedback(
     await requireProjectAccess(session, input.projectId, 'project:view')
   }
 
+  // The conversation is the persisted answer's when there is one, not the
+  // client's say-so: readers join topics and titles on it. A turn with no row
+  // yet keeps the client's value rather than losing its vote (see the
+  // repository note), and the readers prefer the answer row's either way.
+  const conversationId =
+    (await getPersistedAnswerConversationId(input.messageId, session.organizationId)) ??
+    input.conversationId ??
+    null
+
   // Which arm of the lessons experiment this turn was in, decided by the same
   // pure function the agent used when it chose whether to inject. Null when
   // the holdout is off, which is the default — see lib/platform-lessons/holdout.
-  const lessonsHoldout = await resolveLessonsHoldout(input.conversationId ?? null)
+  const lessonsHoldout = await resolveLessonsHoldout(conversationId)
 
   // Read the prior vote before the upsert: memory implication (below) must
   // fire on NEW complaint text only, or a re-saved identical comment would
@@ -116,7 +122,7 @@ export async function submitAnswerFeedback(
     reason: input.verdict === 'down' ? (input.reason ?? null) : null,
     comment,
     expectedAnswer,
-    conversationId: input.conversationId ?? null,
+    conversationId,
     projectId: input.projectId ?? null,
   })
   // A re-vote that adds detail (a comment, a corrected reason) deserves another
@@ -285,7 +291,7 @@ export interface AnswerFeedbackHealthView extends Omit<FeedbackHealth, 'organiza
 
 export async function getAnswerFeedbackHealth(
   session: GridSession | null,
-  filters: FeedbackHealthFilters = {}
+  query: FeedbackQuery
 ): Promise<AnswerFeedbackHealthView> {
   await requirePlatformPermission(session, PLATFORM_PERMISSIONS.organizationsView)
   // The read groups BY organization across every tenant, so it must not run
@@ -297,7 +303,7 @@ export async function getAnswerFeedbackHealth(
   // Names come from the same resolver citation health uses, so the two cards
   // never call one tenant two things. It fails soft to an empty map.
   const health = await withPlatformAccess('answer feedback: cross-organization quality view', () =>
-    getFeedbackHealth(filters)
+    getFeedbackHealth(query)
   )
   // Resolved per id, not from one WorkOS list page, so a tenant past the first
   // hundred is still named.
@@ -336,57 +342,14 @@ export async function getAnswerFeedbackHealth(
  */
 export async function getAnswerFeedbackDigest(
   session: GridSession | null,
-  filters: FeedbackHealthFilters = {},
+  query: FeedbackQuery,
   options: FeedbackDigestOptions = {}
 ): Promise<FeedbackDigestResult> {
   await requirePlatformPermission(session, PLATFORM_PERMISSIONS.organizationsView)
-  const health = await withPlatformAccess(
-    'answer feedback digest: cross-organization quality view',
-    () => getFeedbackHealth({ ...filters, limit: 0 })
-  )
-  return getFeedbackDigest(health, filters, options)
-}
-
-/** The drill-in as the CSV export serves it: every row up to the cap, and whether the cap cut it. */
-export interface AnswerFeedbackExport {
-  turns: FeedbackTurn[]
-  /** True when the window held more rows than `FEEDBACK_EXPORT_ROW_CAP`. */
-  truncated: boolean
-  cap: number
-}
-
-/**
- * The drill-in, in full, for the export. Same gate, same filters and same query
- * as the page's list, but not the page's 50-row ceiling: an export that quietly
- * stopped at the first page would claim a complete window it does not hold.
- * Reads one row over the cap so a full export is told apart from a cut one.
- */
-export async function getAnswerFeedbackExport(
-  session: GridSession | null,
-  filters: FeedbackHealthFilters = {}
-): Promise<AnswerFeedbackExport> {
-  await requirePlatformPermission(session, PLATFORM_PERMISSIONS.organizationsView)
-  const rows = await withPlatformAccess('answer feedback export: cross-organization drill-in', () =>
-    listFeedbackTurns({ ...filters, limit: FEEDBACK_EXPORT_ROW_CAP + 1 })
-  )
-  const truncated = rows.length > FEEDBACK_EXPORT_ROW_CAP
-  return {
-    turns: truncated ? rows.slice(0, FEEDBACK_EXPORT_ROW_CAP) : rows,
-    truncated,
-    cap: FEEDBACK_EXPORT_ROW_CAP,
-  }
-}
-
-/**
- * Per organization and ISO week: answers, up-votes, down-votes - the inputs of a
- * failure rate. Same gate and same cross-tenant bypass as the health view.
- */
-export async function getAnswerFeedbackWeeklySummary(
-  session: GridSession | null,
-  filters: FeedbackHealthFilters = {}
-): Promise<FeedbackWeeklyCount[]> {
-  await requirePlatformPermission(session, PLATFORM_PERMISSIONS.organizationsView)
-  return withPlatformAccess('answer feedback: weekly rate inputs across organizations', () =>
-    getFeedbackWeeklySummary(filters)
-  )
+  // The samples are read inside the same bypass as the figures: both are the
+  // cross-organization read the gate above authorizes.
+  return withPlatformAccess('answer feedback digest: cross-organization quality view', async () => {
+    const health = await getFeedbackHealth(query, { turnLimit: 0 })
+    return getFeedbackDigest(health, query, options)
+  })
 }

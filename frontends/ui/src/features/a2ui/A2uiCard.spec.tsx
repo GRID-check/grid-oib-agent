@@ -86,6 +86,16 @@ describe('a card through A2UI', () => {
     expect(screen.getByTestId('card-c1').textContent).toContain('5.2')
   })
 
+  it('fades a panel in only when the reader switched to it', async () => {
+    const other = { ...BASIS, title: '5.2' } as GridCard
+    render(<A2uiCard card={tabs([['Variante A', BASIS], ['Variante B', other]])} surfaceKey="m1:3" render={renderCard} />)
+    await waitFor(() => expect(screen.getByRole('tabpanel')).toBeInTheDocument())
+    // The first panel arrives with its card, which has its own entrance.
+    expect(screen.getByRole('tabpanel')).not.toHaveClass('fade-in-0')
+    await userEvent.setup().click(screen.getByRole('tab', { name: 'Variante B' }))
+    expect(screen.getByRole('tabpanel')).toHaveClass('fade-in-0')
+  })
+
   it('draws every child of a Row', async () => {
     const card = {
       type: 'surface',

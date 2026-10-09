@@ -17,7 +17,7 @@ import { extChipTint, fileExtensionLabel } from '../document-kind'
 import { IngestFailureNotice } from './ingest-failure-notice'
 import { failedWhileReading } from '../lib/ingest-failure'
 import { Button } from '@/components/ui/button'
-import { AnimatePresence, motion, motionBase, springSnap } from '@/components/motion'
+import { AnimatePresence, iconSwapTransition, motion, motionBase, useMotionToken } from '@/components/motion'
 import { useLocale, useTranslations } from '@/i18n'
 import { formatBytes, formatDurationShort, formatTransferRate } from '@/lib/format'
 import { cn } from '@/lib/utils'
@@ -67,6 +67,8 @@ const VISIBLE_PHASES = new Set<UploadPhase>(['queued', 'uploading', 'processing'
 const SUCCESS_LINGER_MS = 6_000
 
 export function UploadTray({ files, onRetry, onCancel, onCancelAll, onDismiss }: UploadTrayProps) {
+  // Height and opacity are not covered by MotionConfig's reduced motion.
+  const foldTransition = useMotionToken(motionBase)
   const t = useTranslations('files')
   const { locale } = useLocale()
   const [isExpanded, setIsExpanded] = useState(true)
@@ -227,6 +229,7 @@ export function UploadTray({ files, onRetry, onCancel, onCancelAll, onDismiss }:
 
       <AnimatePresence initial={false}>
         {isExpanded && (
+          // eslint-disable-next-line grid/motion-vocabulary -- the tray's own fold, opened by the reader below its header; instant under reduced motion
           <motion.ul
             initial={{ height: 0, opacity: 0 }}
             animate={{ height: 'auto', opacity: 1 }}
@@ -235,7 +238,7 @@ export function UploadTray({ files, onRetry, onCancel, onCancelAll, onDismiss }:
             // on a layout property overshoots PAST `auto` and clips the last
             // row on the way in. `grid-design-language.md` §"Fixed
             // choreography" puts height changes on `--motion-base`.
-            transition={motionBase}
+            transition={foldTransition}
             className="max-h-[42dvh] overflow-y-auto overscroll-contain"
           >
             {visible.map((file) => (
@@ -344,7 +347,7 @@ function TrackBar({
       className={cn('relative h-[3px] w-full overflow-hidden bg-foreground/8', className)}
     >
       {percent === null ? (
-        <span className="animate-progress-sweep block h-full w-1/3 rounded-full bg-primary/60" />
+        <span className="animate-progress-sweep block h-full w-1/3 rounded-full bg-primary/60 motion-reduce:animate-none" />
       ) : (
         <span
           // `scaleX` from the left edge, NOT `width`. This bar re-renders on
@@ -376,6 +379,10 @@ function UploadRow({
   const t = useTranslations('files')
   const tc = useTranslations('common')
   const { locale } = useLocale()
+  // The landing's spring is for the 4px drop and the layout; the fade is a
+  // tween (the icon-swap pair: opacity never springs), and all of it is
+  // instant under reduced motion.
+  const landing = useMotionToken(iconSwapTransition)
 
   const phase = uploadPhase(file)
   const percent = uploadPercent(file)
@@ -394,7 +401,7 @@ function UploadRow({
       // well inside `springSnap`'s 24px travel ceiling. `springDrawer` (via
       // the legacy `springGentle` alias) was the large-surface spring, too
       // slow to read as the file arriving.
-      transition={springSnap}
+      transition={landing}
       data-testid="upload-row"
       data-phase={phase}
       className="border-t px-4 py-2 first:border-t-0"

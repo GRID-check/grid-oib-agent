@@ -14,10 +14,14 @@
  *   3. WRAPPERS (`FadeIn`, `Stagger`, `StaggerItem`) so the common cases need
  *      no numbers at all.
  *
- * Global reduced-motion handling lives in providers.tsx via
- * <MotionConfig reducedMotion="user">, which zeroes every transition here.
- * CSS-side motion is collapsed by the `prefers-reduced-motion` block in
- * app/globals.css.
+ * Reduced motion is only HALF handled globally. providers.tsx wraps the app
+ * in <MotionConfig reducedMotion="user">, and that drops TRANSFORM and LAYOUT
+ * animations only: opacity, colour and `height` still tween at full length,
+ * and a `delay` still holds the element at its `initial` for that long. A
+ * component whose transition carries a delay, a height, or a choreography the
+ * reader would wait on asks `useMotionToken(token)` below, which hands back
+ * `motionInstant` under reduced motion. CSS-side motion is collapsed by the
+ * `prefers-reduced-motion` block in app/globals.css.
  *
  * ── On springs, and why there are now real ones ──────────────────────────────
  *
@@ -47,7 +51,7 @@
 
 'use client'
 
-import { type ReactNode } from 'react'
+import { type ReactNode, useSyncExternalStore } from 'react'
 import { motion, type HTMLMotionProps, type Transition, type Variants } from 'motion/react'
 
 /** A cubic-bezier control-point pair, in motion.dev's `ease` tuple form. */
@@ -265,6 +269,97 @@ export const motionDeliberate: Transition = { duration: 0.32, ease: EASE_OUT }
 export const motionInstant: Transition = { duration: 0, delay: 0 }
 
 /**
+ * A token, or `motionInstant` when the reader asked for reduced motion.
+ *
+ * `<MotionConfig reducedMotion="user">` is not enough on its own (see the
+ * header): it leaves opacity and height tweening and keeps every delay. So a
+ * transition that carries a delay, animates `height`, or is a choreography
+ * step goes through this hook, and the reduced-motion reader gets the end state
+ * in the same frame instead of a fade they did not ask for or a delay that only
+ * hides content.
+ *
+ * The media query is read synchronously on the client (`useSyncExternalStore`),
+ * so a component that mounts after hydration (every turn, card and glyph that
+ * arrives in a running thread) has the right answer on its first render: no
+ * first frame on the full token, which `@/hooks/use-reduced-motion` (false
+ * until its mount effect) cannot promise. A component already on the page at
+ * hydration is different: it renders the server snapshot, "motion allowed",
+ * and React re-renders it with the real answer straight after hydration, so a
+ * mount animation it starts in that render keeps the full token. motion/react's
+ * own `useReducedMotion` caches the answer module-wide on first call and never
+ * follows a change of the setting, so it is not used.
+ */
+export function useMotionToken<T extends Transition | SpringTransition>(
+  token: T
+): T | typeof motionInstant {
+  return useSyncExternalStore(subscribeReducedMotion, readReducedMotion, () => false)
+    ? motionInstant
+    : token
+}
+
+const REDUCED_MOTION_QUERY = '(prefers-reduced-motion: reduce)'
+
+/**
+ * The one MediaQueryList every `useMotionToken` reads. React calls the snapshot
+ * on every render of every subscriber, and `matchMedia` builds a fresh list per
+ * call. Keyed by the `matchMedia` it came from, so a replaced implementation
+ * (a spec's stub) is never answered from the previous one's list.
+ */
+let reducedMotionList: { list: MediaQueryList; from: typeof window.matchMedia } | null = null
+
+function reducedMotionQuery(): MediaQueryList | null {
+  if (typeof window.matchMedia !== 'function') return null
+  if (reducedMotionList?.from !== window.matchMedia) {
+    reducedMotionList = { list: window.matchMedia(REDUCED_MOTION_QUERY), from: window.matchMedia }
+  }
+  return reducedMotionList.list
+}
+
+function readReducedMotion(): boolean {
+  return reducedMotionQuery()?.matches ?? false
+}
+
+function subscribeReducedMotion(onChange: () => void): () => void {
+  const mql = reducedMotionQuery()
+  if (!mql) return () => {}
+  mql.addEventListener('change', onChange)
+  return () => mql.removeEventListener('change', onChange)
+}
+
+/**
+ * An icon swap: a copy glyph turning into its check, a mark landing at the
+ * settle. Scale lands on `springSnap` (≤ 16px of travel, inside its 24px
+ * ceiling); opacity is the `motionQuick` tween, because opacity never springs.
+ *
+ * The bare `transition={springSnap}` this replaces put opacity on the spring
+ * too: ~500ms until it settled, run by WAAPI as a `linear()` curve, for a fade
+ * that should take 180ms. And `<MotionConfig reducedMotion="user">` drops only
+ * the transform, so the reduced-motion reader still watched that half-second
+ * fade. Take it through `useIconSwapTransition`, which makes both instant.
+ */
+export const iconSwapTransition: Transition = { ...springSnap, opacity: motionQuick }
+
+/** The leaving glyph: no spring, accelerating away one step short. */
+export const iconSwapExitTransition: Transition = motionQuickExit
+
+/**
+ * The icon-swap pair, each `motionInstant` under reduced motion. Put `enter` on
+ * the `animate` target and `exit` on the `exit` target, so the leaving glyph
+ * does not inherit the arrival's spring.
+ */
+export function useIconSwapTransition(): { enter: Transition; exit: Transition } {
+  const enter = useMotionToken(iconSwapTransition)
+  const exit = useMotionToken(iconSwapExitTransition)
+  return { enter, exit }
+}
+
+/**
+ * 320ms on the entrance curve — a large block ARRIVING: a card slot opening, an
+ * answer region taking its height. The deliberate ceiling, decelerating.
+ */
+export const motionDeliberateEntrance: Transition = { duration: 0.32, ease: EASE_ENTRANCE }
+
+/**
  * The sheet pair — `--motion-deliberate` on `--ease-entrance`, and the exit one
  * step shorter on `--ease-exit`. These are the JS half of the numbers
  * `PageSheet` used to write as `duration-deliberate ease-entrance` /
@@ -277,7 +372,7 @@ export const motionInstant: Transition = { duration: 0, delay: 0 }
  * to pick — see the design language's Motion vocabulary. The sheet's travel is
  * its own height.
  */
-export const motionSheetEnter: Transition = { duration: 0.32, ease: EASE_ENTRANCE }
+export const motionSheetEnter: Transition = motionDeliberateEntrance
 
 /** The sheet's exit — shorter, accelerating away (`--ease-exit`). */
 export const motionSheetExit: Transition = { duration: 0.24, ease: EASE_EXIT }

@@ -1348,8 +1348,9 @@ Per-answer thumbs feedback (WS-7, click-dummy overhaul spec §1/§6; flag
   `inaccurate`/`too_slow`/`wrong_source`/`other`; down-votes only),
   `comment` (nullable free-text on a down-vote; migration 0052),
   `expected_answer` (nullable free-text on a down-vote: what a good answer
-  would have contained; migration 0103, exported as the `expected_answer` CSV
-  column so a down-vote can become an answer-suite test case),
+  would have contained; migration 0103, exported as the `expected_answer`
+  column so a down-vote can become an answer-suite test case; the export's
+  columns: [`answer-feedback-export.md`](../technical-reference/answer-feedback-export.md)),
   `lessons_holdout` (nullable boolean, migration 0069 — which arm of the
   platform-lessons experiment this turn was in; NULL when the holdout is off,
   which is the default, so those votes are excluded from the comparison rather
@@ -1369,6 +1370,13 @@ Per-answer thumbs feedback (WS-7, click-dummy overhaul spec §1/§6; flag
 - Voting model (the simplest honest one): **re-vote = upsert** on the unique
   `(user_id, message_id)` index (`answer_feedback_user_message_uidx`);
   **toggle-off = delete** — no "retracted" tombstone state.
+- `message_id` and `conversation_id` are what the client sent. Readers join the
+  answer only within the vote's organization (`m.organization_id =
+  f.organization_id`, `lib/feedback/turn-join.ts`) and take the conversation
+  from the persisted answer when one exists. The vote path stores the answer
+  row's conversation when it can see one.
+- Not part of conversation erasure: deleting a conversation cascades its
+  `messages` but leaves its votes, `comment` and `expected_answer` included.
 - Indexes: `answer_feedback_org_conversation_idx`
   (`organization_id`,`conversation_id`) serves the per-conversation hydration
   list; `answer_feedback_org_project_idx` (`organization_id`,`project_id`);
