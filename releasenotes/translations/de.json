@@ -172,6 +172,10 @@
     "de": "Ein von Piloti verfasster Entwurf lässt sich jetzt ins Projekt übernehmen. Bitten Sie darum – „leg das ins Projekt“, „ablegen“ – und das Dokument erscheint unter Files, als Entwurf gekennzeichnet. Die Karte neben der Antwort führt direkt dorthin."
   },
   {
+    "en": "A dropped connection is now a quiet line above the input field instead of a card in the conversation, and the Herleitung says Fehlgeschlagen, Gestoppt or Auftrag angelegt instead of a green Fertig when the answer did not simply finish.",
+    "de": "Eine unterbrochene Verbindung wird jetzt als unaufdringliche Zeile über dem Eingabefeld statt als Karte im Gespräch angezeigt. Bei der Herleitung steht „Fehlgeschlagen“, „Gestoppt“ oder „Auftrag angelegt“ statt eines grünen „Fertig“, wenn die Antwort nicht einfach abgeschlossen wurde."
+  },
+  {
     "en": "A failed lookup no longer shows up as a source in the Herleitung.",
     "de": "Ein fehlgeschlagener Abruf taucht nicht mehr als Quelle in der Herleitung auf."
   },
@@ -574,6 +578,10 @@
   {
     "en": "An answer now appears word by word at a steady pace, each new word emerging softly from a short fade behind the cursor. When the answer is finished, its last words follow quickly and only then do the reasoning panel fold away and the actions below the answer appear, in one step instead of several jumps.",
     "de": "Eine Antwort erscheint jetzt Wort für Wort in gleichmäßigem Tempo, und jedes neue Wort taucht weich aus einem kurzen Verlauf hinter dem Cursor auf. Ist die Antwort fertig, folgen die letzten Wörter zügig, und erst dann klappt die Herleitung zu und erscheinen die Aktionen unter der Antwort, in einem Schritt statt in mehreren Sprüngen."
+  },
+  {
+    "en": "An answer now writes itself in calmly where you are reading: the Herleitung folds away before the first word, nothing above the line you are on moves, and the sources, actions and cards arrive together when the answer is done.",
+    "de": "Eine Antwort schreibt sich jetzt ruhig genau dort, wo Sie gerade lesen: Die Herleitung klappt sich vor dem ersten Wort ein, oberhalb Ihrer aktuellen Zeile bewegt sich nichts, und Quellen, Aktionen und Karten erscheinen gemeinsam, sobald die Antwort fertig ist."
   },
   {
     "en": "An answer that touches several documents cites several again. A single PDF could fill every evidence slot of an answer.",
@@ -1344,6 +1352,10 @@
     "de": "Ladeansichten springen nicht mehr, wenn die tatsächlichen Inhalte geladen werden, Fehlermeldungen sind klar als solche erkennbar, und Status-Chips, Suchfelder und Viewer-Panels werden im hellen und dunklen Modus konsistent dargestellt."
   },
   {
+    "en": "Long answers and long tables stream without slowing down. Reading them used to take more time with every line written, which could hold up other chats on the same server while one long reply was being written.",
+    "de": "Lange Antworten und Tabellen werden ohne Verzögerung gestreamt. Bisher dauerte das Lesen mit jeder geschriebenen Zeile länger, wodurch andere Chats auf demselben Server aufgehalten werden konnten, während eine lange Antwort erstellt wurde."
+  },
+  {
     "en": "Long deep research reports can be downloaded as PDF again. If an export still fails, the message gives the reason.",
     "de": "Lange Berichte der Tiefenrecherche lassen sich wieder als PDF herunterladen. Scheitert ein Export doch, nennt die Meldung den Grund."
   },
@@ -1426,6 +1438,10 @@
   {
     "en": "On a phone, the search box or button beside a project section's heading now sits below it, so the explanation gets the full width. It used to break to one word per line.",
     "de": "Am Telefon steht das Suchfeld oder die Schaltfläche neben der Überschrift eines Projektbereichs jetzt darunter, und der Erklärtext bekommt die volle Breite. Bisher brach er auf ein Wort pro Zeile um."
+  },
+  {
+    "en": "On an iPhone, the input field no longer hides behind the keyboard.",
+    "de": "Auf dem iPhone verschwindet das Eingabefeld nicht mehr hinter der Tastatur."
   },
   {
     "en": "On the Piloti website the example decision on a wide screen is wired left to right again, from the question through its sources into the decision and on to the next steps, and now looks like the phone version. The three sources are consulted at the same time.",
@@ -1550,6 +1566,10 @@
   {
     "en": "Piloti has its own mark, a column whose capital is a rolled drawing, in the browser tab, on the home screen, next to the name and in PDF exports.",
     "de": "Piloti hat ein eigenes Zeichen: eine Säule, deren Kapitell eine gerollte Zeichnung ist – im Browser-Tab, auf dem Startbildschirm, neben dem Namen und in PDF-Exporten."
+  },
+  {
+    "en": "Piloti in dark mode no longer flashes white while the page loads.",
+    "de": "Piloti blitzt im Dark Mode beim Laden der Seite nicht mehr weiß auf."
   },
   {
     "en": "Piloti is built for a phone now, not merely resized for one. The numbers and sources in an answer, the mentions in a shared thread, the steps of a card and the outline of a report are all sized for a fingertip, so checking where a requirement came from no longer takes three attempts on site.",
@@ -1848,12 +1868,20 @@
     "de": "Stopp beendet die Antwort jetzt wirklich: Piloti arbeitet nicht weiter daran, und was Sie schon gelesen haben, bleibt im Gespräch, als abgebrochen markiert."
   },
   {
+    "en": "Stopping an answer keeps exactly the text you saw at that moment, marked „Gestoppt“, with its working citations.",
+    "de": "Wenn Sie eine Antwort stoppen, bleibt genau der Text erhalten, den Sie zu diesem Zeitpunkt gesehen haben – gekennzeichnet als „Gestoppt“ und mit weiterhin funktionierenden Quellenverweisen."
+  },
+  {
     "en": "Such a document is never presented as the legal basis of an answer. Piloti quotes it for what your office decided and reaches for the OIB Richtlinien or the Bauordnung for what is required, so an approved office document can never end up standing in for a requirement.",
     "de": "Ein solches Dokument wird niemals als Rechtsgrundlage einer Antwort dargestellt. Piloti zitiert daraus, was Ihr Büro beschlossen hat, und zieht für verbindliche Anforderungen die OIB-Richtlinien oder die Bauordnung heran, sodass ein freigegebenes Bürodokument niemals als Anforderung herhalten kann."
   },
   {
     "en": "Superseded and unpublished versions of a file now count towards the storage a workspace uses. They were being kept and not counted, so the figure shown was lower than what was actually stored.",
     "de": "Ersetzte und nicht veröffentlichte Versionen einer Datei zählen jetzt zum Speicherplatz eines Workspace. Bisher wurden sie gespeichert, aber nicht mitgezählt, sodass der angezeigte Wert niedriger war als der tatsächlich belegte Speicherplatz."
+  },
+  {
+    "en": "Switching to another conversation and back, or reloading during an answer, shows the text that had already arrived at once instead of typing it out again, and each conversation reopens where you left it.",
+    "de": "Wenn Sie zu einer anderen Unterhaltung wechseln und zurückkehren oder während einer Antwort die Seite neu laden, wird der bereits eingetroffene Text sofort vollständig angezeigt, statt erneut schrittweise eingeblendet zu werden. Außerdem öffnet sich jede Unterhaltung wieder an der Stelle, an der Sie sie verlassen haben."
   },
   {
     "en": "Tables fill in cell by cell while Piloti writes, instead of stalling row by row.",
@@ -2480,6 +2508,10 @@
     "de": "Ist ein geplanter Auftrag fertig oder fehlgeschlagen, erfahren Sie es jetzt im Posteingang, mit einem Link zur Laufhistorie des Projekts."
   },
   {
+    "en": "When an answer fails partway, the words already written stay on screen, dimmed above the error, and Erneut versuchen replaces them with a fresh answer.",
+    "de": "Wenn eine Antwort mittendrin fehlschlägt, bleiben die bereits geschriebenen Wörter oberhalb des Fehlers abgeblendet am Bildschirm, und „Erneut versuchen“ ersetzt sie durch eine neue Antwort."
+  },
+  {
     "en": "When an answer names a file, such as „Beginnen Sie mit pd8280-2.pdf“, the name is now a link that opens the document beside the answer, in running text and in tables alike.",
     "de": "Nennt eine Antwort eine Datei beim Namen, etwa „Beginnen Sie mit pd8280-2.pdf“, ist der Name jetzt ein Link, der das Dokument neben der Antwort öffnet, im Fließtext wie in Tabellen."
   },
@@ -2614,6 +2646,10 @@
   {
     "en": "You can preview the report as a PDF before you download it, in a panel you can drag as wide as you need. What you see is the document you get.",
     "de": "Sie können den Bericht vor dem Herunterladen als PDF in der Vorschau ansehen – in einem Bereich, den Sie beliebig breit ziehen können. Was Sie sehen, ist das Dokument, das Sie erhalten."
+  },
+  {
+    "en": "You can write your next question while Piloti is still answering and send it as soon as the answer is complete; Escape stops the answer without touching your draft.",
+    "de": "Sie können Ihre nächste Frage verfassen, während Piloti noch antwortet, und sie absenden, sobald die Antwort vollständig ist; mit Escape stoppen Sie die Antwort, ohne Ihren Entwurf zu verändern."
   },
   {
     "en": "Your office can now build its own roles in Piloti, under Organisation → Personen & Zugriff → Eigene Rollen, and decide per project folder which roles may read it and which may edit it. A role not on a folder's list does not see the folder, its files or what Piloti finds in them, and organization admins may read and edit everything.",

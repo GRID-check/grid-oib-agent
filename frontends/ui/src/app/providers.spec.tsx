@@ -120,6 +120,46 @@ describe('Providers', () => {
     expect(setIntervalSpy).not.toHaveBeenCalled()
   })
 
+  describe('theme', () => {
+    afterEach(() => {
+      layoutState.theme = 'dark'
+      document.documentElement.classList.remove('dark')
+      document.head.querySelectorAll('meta[name="theme-color"]').forEach((m) => m.remove())
+    })
+
+    // A layout effect, so the class is on <html> before the browser paints the
+    // committed tree. React's dev remount strips attributes the inline boot
+    // script set; a passive effect let that paint one light frame.
+    test('applies the stored theme before paint and points theme-color at it', () => {
+      const meta = document.createElement('meta')
+      meta.setAttribute('name', 'theme-color')
+      meta.setAttribute('content', '#f6f6f4')
+      document.head.appendChild(meta)
+
+      render(
+        <Providers config={baseConfig} locale="en">
+          <div>content</div>
+        </Providers>
+      )
+
+      expect(document.documentElement.classList.contains('dark')).toBe(true)
+      expect(meta.getAttribute('content')).toBe('#191816')
+    })
+
+    test('an explicit light choice removes a dark class the boot script set', () => {
+      layoutState.theme = 'light'
+      document.documentElement.classList.add('dark')
+
+      render(
+        <Providers config={baseConfig} locale="en">
+          <div>content</div>
+        </Providers>
+      )
+
+      expect(document.documentElement.classList.contains('dark')).toBe(false)
+    })
+  })
+
   describe('PostHog identity', () => {
     const signedInAs = (id: string): void => {
       authState.authRequired = true

@@ -113,6 +113,38 @@ describe('composerCapabilities', () => {
     })
   })
 
+  describe('drafting during a turn', () => {
+    test("the reader's own streaming turn keeps the draft open but not the send", () => {
+      const caps = withInput({ isBusy: true, ownTurnStreaming: true })
+      expect(caps.canDraft).toBe(true)
+      expect(caps.canCompose).toBe(false)
+    })
+
+    test('a busy turn the composer was not told is its own stays closed', () => {
+      expect(withInput({ isBusy: true }).canDraft).toBe(false)
+    })
+
+    test("somebody else's turn keeps the draft closed", () => {
+      const caps = withInput({ isBusy: true, ownTurnStreaming: true, otherPersonsTurn: true })
+      expect(caps.canDraft).toBe(false)
+    })
+
+    test('a read-only role never drafts, own turn or not', () => {
+      const caps = withInput({
+        sharing: 'shared',
+        myRole: 'viewer',
+        isBusy: true,
+        ownTurnStreaming: true,
+      })
+      expect(caps.canDraft).toBe(false)
+    })
+
+    test('composing implies drafting', () => {
+      expect(withInput({}).canDraft).toBe(true)
+      expect(withInput({ isBusy: true, isResponseMode: true }).canDraft).toBe(true)
+    })
+  })
+
   describe('an unpublished role in a shared thread', () => {
     const caps = withInput({ sharing: 'shared', myRole: null })
 

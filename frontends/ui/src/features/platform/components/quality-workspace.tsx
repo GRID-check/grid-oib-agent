@@ -10,42 +10,38 @@
  *
  * - **Ratings first.** What the people who read the answers thought is the
  *   question the page is opened with; it is the default view.
- * - **One window** for the views that have one, in the header beside the title,
- *   so every figure on screen describes the same days.
- * - **The URL is the state.** `?view=` and `?days=` round-trip, so a view a
- *   colleague should look at is a link, and Back walks the tabs you visited.
+ * - **One scope** for every view: a date range, organizations and projects,
+ *   in the bar under the header (`QualityScopeBar`), handed to each view as
+ *   `scope`. The ratings view adds filters of its own on top, which only votes
+ *   have (verdict, reason, topic …), and its export is exactly what it shows.
+ * - **The URL is the state.** `?view=`, the scope (`from`, `to`, `org`,
+ *   `project`) and the ratings filters round-trip, so a view a colleague should
+ *   look at is a link, and Back walks the changes you made.
  */
 
 import type { JSX } from 'react'
-import { useCallback } from 'react'
+import { useCallback, useMemo } from 'react'
 import { usePathname, useRouter, useSearchParams } from 'next/navigation'
 import { Gauge, ShieldCheck, ThumbsUp } from 'lucide-react'
 
 import { PageHeader } from '@/components/ui/page-header'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
-import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
 import { useTranslations } from '@/i18n'
+import { readRatingsFilters, writeRatingsFilters, type RatingsFilters } from '@/lib/feedback/filters'
+import { readQualityScope, writeQualityScope, type QualityScope } from '@/lib/quality/scope'
 import { AgentProfiler } from './agent-profiler'
 import { AnswerFeedbackHealth } from './answer-feedback-health'
 import { CitationHealth } from './citation-health'
+import { QualityScopeBar, useQualityScopeOptions } from './quality-scope-bar'
 
 export const QUALITY_VIEWS = ['ratings', 'citations', 'timing'] as const
 export type QualityView = (typeof QUALITY_VIEWS)[number]
-
-export const QUALITY_WINDOWS = [7, 30, 90] as const
-const DEFAULT_WINDOW = 30
 
 /** Read a `?view=` value, falling back to the ratings view for anything else. */
 export function parseQualityView(value: string | null | undefined): QualityView {
   return (QUALITY_VIEWS as readonly string[]).includes(value ?? '')
     ? (value as QualityView)
     : 'ratings'
-}
-
-/** Read a `?days=` value, falling back to 30 for anything not offered. */
-export function parseQualityWindow(value: string | null | undefined): number {
-  const days = Number(value)
-  return (QUALITY_WINDOWS as readonly number[]).includes(days) ? days : DEFAULT_WINDOW
 }
 
 const VIEW_ICON: Record<QualityView, typeof ThumbsUp> = {
@@ -59,53 +55,45 @@ export function QualityWorkspace(): JSX.Element {
   const router = useRouter()
   const pathname = usePathname()
   const searchParams = useSearchParams()
+  const current = searchParams.toString()
 
   const view = parseQualityView(searchParams.get('view'))
-  const days = parseQualityWindow(searchParams.get('days'))
+  // Memoised on the query string: the readers build a new object per call, and
+  // the views fetch when the scope they are handed changes.
+  const scope = useMemo(() => readQualityScope(new URLSearchParams(current)), [current])
+  const ratings = useMemo(() => readRatingsFilters(new URLSearchParams(current)), [current])
+  const scopeOptions = useQualityScopeOptions(scope)
 
-  const update = useCallback(
-    (patch: Partial<{ view: QualityView; days: number }>) => {
-      const params = new URLSearchParams(searchParams.toString())
-      if (patch.view) params.set('view', patch.view)
-      if (patch.days) params.set('days', String(patch.days))
-      router.push(`${pathname}?${params.toString()}`, { scroll: false })
-    },
-    [pathname, router, searchParams]
+  const push = useCallback(
+    (params: URLSearchParams) => router.push(`${pathname}?${params.toString()}`, { scroll: false }),
+    [pathname, router]
   )
-
-  // The profiler is a per-conversation timeline, not a window aggregate; a
-  // window switch beside it would be a control that does nothing.
-  const windowControl =
-    view === 'timing' ? null : (
-      <ToggleGroup
-        type="single"
-        size="sm"
-        variant="outline"
-        value={String(days)}
-        onValueChange={(value) => {
-          if (value) update({ days: Number(value) })
-        }}
-        aria-label={t('qualityWorkspace.windowLabel')}
-        data-testid="quality-window"
-      >
-        {QUALITY_WINDOWS.map((option) => (
-          <ToggleGroupItem key={option} value={String(option)} className="px-3 tabular-nums">
-            {t('qualityWorkspace.windowDays', { count: option })}
-          </ToggleGroupItem>
-        ))}
-      </ToggleGroup>
-    )
+  const setView = useCallback(
+    (next: QualityView) => {
+      const params = new URLSearchParams(current)
+      params.set('view', next)
+      push(params)
+    },
+    [current, push]
+  )
+  const setScope = useCallback(
+    (next: QualityScope) => push(writeQualityScope(new URLSearchParams(current), next)),
+    [current, push]
+  )
+  const setRatings = useCallback(
+    (next: RatingsFilters) => push(writeRatingsFilters(new URLSearchParams(current), next)),
+    [current, push]
+  )
 
   return (
     <div className="flex flex-col gap-6">
-      <PageHeader
-        title={t('sections.quality.title')}
-        subtitle={t('sections.quality.subtitle')}
-        action={windowControl}
-      />
+      <div className="flex flex-col gap-4">
+        <PageHeader title={t('sections.quality.title')} subtitle={t('sections.quality.subtitle')} />
+        <QualityScopeBar scope={scope} onScopeChange={setScope} options={scopeOptions} />
+      </div>
       <Tabs
         value={view}
-        onValueChange={(next) => update({ view: parseQualityView(next) })}
+        onValueChange={(next) => setView(parseQualityView(next))}
         className="gap-6"
       >
         {/* Full width on a phone so three labels share the row instead of
@@ -127,13 +115,19 @@ export function QualityWorkspace(): JSX.Element {
         {/* Only the open view mounts (Radix unmounts inactive content), so a
             tab nobody opens costs no request. */}
         <TabsContent value="ratings">
-          <AnswerFeedbackHealth days={days} />
+          <AnswerFeedbackHealth
+            scope={scope}
+            filters={ratings}
+            onFiltersChange={setRatings}
+            onScopeChange={setScope}
+            scopeOptions={scopeOptions.options}
+          />
         </TabsContent>
         <TabsContent value="citations">
-          <CitationHealth days={days} />
+          <CitationHealth scope={scope} />
         </TabsContent>
         <TabsContent value="timing">
-          <AgentProfiler />
+          <AgentProfiler scope={scope} />
         </TabsContent>
       </Tabs>
     </div>
