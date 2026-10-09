@@ -137,8 +137,11 @@ nine minutes for a runner.
 So the rule is: work that shares a toolchain shares a job, unless splitting it
 shortens the critical path. Lint, the release-note checks and gitleaks share the
 Python job; the aiq_api and `sources/` suites ride with the core suite; tenant
-isolation rides with UI lint and types; the UI has four shards, not six, because
-with four the slowest shard (194s) already fits inside the backend lane. Security
+isolation rides with UI lint and types; the UI has four shards, not six. That
+costs about a minute of wall clock on an idle runner pool: on the first runs the
+slowest shard's tests took 4:04 against 3:16 for the backend lane, because
+vitest shards by file and the heavy files land together. Balancing the files is
+the fix for that minute; adding shards back spends slots on it. Security
 scans that cannot be caused by a change moved to the weekly run.
 
 One duplicate remains outside this repository's files: GitHub's **CodeQL

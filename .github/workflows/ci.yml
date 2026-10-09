@@ -339,13 +339,13 @@ jobs:
     strategy:
       # One shard's failure should not hide the others' results.
       fail-fast: false
-      # Four. Measured on 2-core runners: N=4 slowest shard 194s, N=6 152s,
-      # N=8 132s. Six was chosen when only the wall clock of an idle runner
-      # counted. Under a runner cap, each shard is a slot a queued run waits
-      # for, and 194s already fits inside the backend lane, so the 42s that
-      # N=6 bought shortened nothing. The floor is one file: vitest shards by
-      # FILE and InputArea.spec.tsx is 46s of the suite's 210s; split it to go
-      # lower, do not add shards.
+      # Four, not six: under a runner cap each shard is a slot a queued run
+      # waits for. The price, measured on this PR's first runs (2026-10-09):
+      # the test step took 2:05, 2:45, 2:33 and 4:04 per shard, so shard 4 is
+      # the run's critical path, about a minute behind the backend lane (3:16).
+      # vitest shards by FILE, so one shard carries the heavy files
+      # (InputArea.spec.tsx alone was 46s of 210s). Split the heavy files to
+      # balance it; adding shards back trades slots for that minute.
       matrix:
         shard: [1, 2, 3, 4]
     steps:
