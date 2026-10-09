@@ -104,7 +104,7 @@ export function IfcModelPickerCard({
                   )}
                 </span>
                 <ArrowRight
-                  className="size-4 shrink-0 text-muted-foreground transition-transform group-hover:translate-x-0.5"
+                  className="size-4 shrink-0 text-muted-foreground transition-colors duration-quick ease-out group-hover:text-foreground"
                   aria-hidden="true"
                 />
               </Link>

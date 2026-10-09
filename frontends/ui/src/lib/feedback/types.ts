@@ -53,9 +53,16 @@ export interface AnswerFeedbackView {
 }
 
 /**
- * Set on the CSV export when it stopped at its row cap; the value is the cap.
+ * Set on the export (CSV and workbook) when it stopped at its row cap; the value is the cap.
  * A header and not a trailing note row, because a note row is a malformed record
  * to every CSV reader downstream (`scripts/feedback_to_cases.py` among them). The
  * person downloading sees the same fact in the filename.
  */
 export const EXPORT_TRUNCATED_HEADER = 'X-Grid-Export-Truncated'
+
+/**
+ * Set on the weekly CSV (`summary=weekly`) when the request carried ratings
+ * filters a rate cannot honour; the value is their parameter names,
+ * comma-separated (`verdict,reason`). The workbook says the same on its overview.
+ */
+export const EXPORT_IGNORED_FILTERS_HEADER = 'X-Grid-Export-Ignored-Filters'

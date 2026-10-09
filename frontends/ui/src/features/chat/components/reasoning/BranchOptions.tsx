@@ -74,7 +74,11 @@ export const BranchOptions: FC<BranchOptionsProps> = ({
             key={`${option}-${i}`}
             type="button"
             onClick={() => interactive && onSelect?.(option)}
-            disabled={!interactive}
+            // `aria-disabled`, not `disabled`: the pick answers the prompt and
+            // locks every card in the same render, and Chrome blurs a focused
+            // button that becomes disabled, dropping keyboard focus to <body>.
+            // The click is already guarded on `interactive` above.
+            aria-disabled={!interactive || undefined}
             aria-pressed={isSelected}
             className={cn(
               'flex items-start gap-2.5 rounded-lg border px-3.5 py-3 text-left',
@@ -88,6 +92,7 @@ export const BranchOptions: FC<BranchOptionsProps> = ({
             <span
               className={cn(
                 'mt-0.5 inline-flex size-[18px] shrink-0 items-center justify-center rounded-full',
+                'transition-colors duration-quick ease-out motion-reduce:transition-none',
                 isSelected
                   ? 'bg-primary text-primary-foreground'
                   : 'border-[1.5px] border-input bg-card text-xs font-semibold text-muted-foreground'
@@ -96,12 +101,10 @@ export const BranchOptions: FC<BranchOptionsProps> = ({
             >
               {isSelected ? <Check className="size-2.5" /> : String.fromCharCode(65 + i)}
             </span>
-            <span
-              className={cn(
-                'text-sm leading-snug text-foreground',
-                isSelected ? 'font-semibold' : 'font-medium'
-              )}
-            >
+            {/* One weight in every state: a pick that turned its label bold
+                re-wrapped it, and the card grew a line in the moment the
+                reader was looking at it. The border and the check say which. */}
+            <span className="text-sm font-medium leading-snug text-foreground">
               {option}
             </span>
           </button>

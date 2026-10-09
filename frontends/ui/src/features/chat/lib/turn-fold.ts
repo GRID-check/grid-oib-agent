@@ -17,12 +17,15 @@
  * - Cards sit at their index; an equal `key` keeps the object, so the node is
  *   kept. `STATE_SNAPSHOT` replaces text, sources and masthead;
  *   `answer_retracted` clears them and the cards; `RUN_FINISHED`'s result is
- *   authoritative for all four.
+ *   authoritative for all four, except after a Stop pressed on this page,
+ *   which keeps what was on screen (`stoppedHere`).
  */
 
-import type { TurnResult, WireEvent } from '@/adapters/api/wire-v2'
+import type { ShownAnswer, TurnResult, WireEvent } from '@/adapters/api/wire-v2'
 import type { StoredThinkingStep, TraceLaneCard } from '@/lib/conversations/message-provenance'
+import type { ChatEffort } from '@/lib/reasoning-settings/catalog'
 import { KIND_TO_SIGNAL, asShelf } from './source-kinds'
+import { sharedPrefixChars, stoppedAnswer } from './stopped-answer'
 
 type Named<N extends string> = Extract<WireEvent, { type: 'CUSTOM'; name: N }>
 type StepOf<K extends string> = Extract<Extract<WireEvent, { type: 'STEP_FINISHED' }>['step'], { kind: K }>
@@ -45,6 +48,12 @@ export interface TurnView {
   /** Between TEXT_MESSAGE_START and its END, a retraction or the terminal. */
   streaming: boolean
   text: string
+  /**
+   * The last snapshot's text, while `text` is still that snapshot or grows
+   * from it: its `[N]` resolve to `sources`. What a Stop keeps of a streamed
+   * text differs from a settled one (`stopped-answer.ts`).
+   */
+  settled?: string
   sources: WireSource[]
   answerMeta?: Record<string, unknown>
   /** By index: `null` refused, `undefined` not arrived. */
@@ -57,6 +66,26 @@ export interface TurnView {
   beatEveryMs?: number
   result?: TurnResult
   error?: { code: string; message: string }
+  /**
+   * The Aufwand the asker sent this turn with. The one field not folded from
+   * the wire: it is what this browser said in `user_message`, set when it
+   * opens the turn (`beginTurn`), so only the asker's view carries it. The
+   * projection prefers `result.reasoning_effort`, the level the turn resolved
+   * to server-side, once the terminal reports one.
+   */
+  effort?: ChatEffort
+  /**
+   * The text on screen when the reader pressed Stop on this page
+   * (`stopTurnView`). Kept whole, before the cut, because a terminal that
+   * crossed the Stop is cut again against it.
+   */
+  shownAtStop?: string
+  /**
+   * The Stop crossed the server's finished answer: the server stored all of
+   * it, and the store asks the BFF to cut that row to what was on screen
+   * (`cutStoppedAnswer`).
+   */
+  stoppedLate?: boolean
 }
 
 export const initialTurnView = (turnId: string, conversationId: string): TurnView => ({
@@ -183,7 +212,102 @@ const closeSteps = (steps: TurnView['steps']): TurnView['steps'] =>
     ? steps
     : Object.fromEntries(Object.entries(steps).map(([id, step]) => [id, step.isComplete ? step : { ...step, isComplete: true }]))
 
+/**
+ * The reader pressed Stop on this page (`stopStreaming` marks the view
+ * cancelled before the server has said anything) and the terminal has not
+ * landed yet. What was on screen at the press is the answer: the deltas still
+ * in flight and the cancelled terminal's text, sources, masthead and cards
+ * (everything the model had written) are not taken. Only the asker's own
+ * view is ever in this state; a replay or a spectator folds the terminal as
+ * the server sent it.
+ */
+const stoppedHere = (view: TurnView): boolean => view.outcome === 'cancelled' && !view.result
+
+/** What an event adds to the answer itself, as opposed to the turn around it. */
+const CONTENT_EVENTS: ReadonlySet<string> = new Set([
+  'TEXT_MESSAGE_START',
+  'TEXT_MESSAGE_CONTENT',
+  'TEXT_MESSAGE_END',
+  'STATE_SNAPSHOT',
+  'masthead',
+  'card',
+  'card_refused',
+  'answer_retracted',
+])
+
+/** `next` when it holds the same cards as `cards`, so a cut that kept them all keeps the array. */
+const sameCards = <T>(cards: T[], next: T[]): T[] =>
+  cards.length === next.length && cards.every((card, index) => card === next[index]) ? cards : next
+
+/**
+ * The view a Stop pressed on this page leaves, and the position the cancel
+ * names. `shown` is the text the reveal had on screen; a reveal that is not a
+ * prefix of the view's text (a snapshot replaced the stretch it was showing)
+ * counts as the whole text, as the server reads the same position.
+ *
+ * The answer is cut by the rule the server applies (`stopped-answer.ts`): the
+ * row this browser writes and the one the server writes are the same bytes,
+ * whichever lands first.
+ */
+export const stopTurnView = (view: TurnView, shown: string | undefined): { view: TurnView; shown: ShownAnswer } => {
+  const onScreen = shown !== undefined && view.text.startsWith(shown) ? shown : view.text
+  const chars = Array.from(onScreen).length
+  const kept = stoppedAnswer({ text: view.text, settled: view.settled, sources: view.sources, cards: view.cards }, chars)
+  const stopped: TurnView = {
+    ...view,
+    text: kept.text,
+    sources: kept.sources,
+    cards: sameCards(view.cards, kept.cards),
+    phase: 'finished',
+    outcome: 'cancelled',
+    streaming: false,
+    interaction: undefined,
+    shownAtStop: onScreen,
+  }
+  return { view: stopped, shown: { seq: view.lastSeq, chars } }
+}
+
+/**
+ * A terminal other than the cancelled one reached a view stopped here: the
+ * server had finished before the Stop reached it (it answers the cancel with
+ * `turn_not_found`) and stored the whole answer. The answer becomes that
+ * result cut where the text on screen and the result part, by the same rule
+ * the BFF applies to the stored row, so the two agree byte for byte.
+ */
+const stoppedLate = (view: TurnView, result: TurnResult): TurnView => {
+  const chars = sharedPrefixChars(view.shownAtStop ?? view.text, result.text)
+  const kept = stoppedAnswer(
+    { text: result.text, settled: result.text, sources: result.sources ?? [], cards: result.cards ?? [] },
+    chars
+  )
+  return {
+    ...view,
+    text: kept.text,
+    sources: kept.sources,
+    answerMeta: result.answer_meta ?? undefined,
+    cards: settleCards(view.cards, kept.cards),
+    stoppedLate: true,
+  }
+}
+
+const afterLocalStop = (view: TurnView, event: WireEvent): TurnView | undefined => {
+  if (event.type === 'RUN_FINISHED') {
+    const closed = { ...view, result: event.result, steps: closeSteps(view.steps) }
+    // A turn that answered somewhere else (a commissioned run, a queue
+    // refusal) has no answer here to cut.
+    const elsewhere = Boolean(event.result.run || event.result.job_admission_rejected)
+    return event.outcome === 'cancelled' || elsewhere ? closed : stoppedLate(closed, event.result)
+  }
+  // The run failing after the reader stopped it (the cancel tearing down a
+  // tool call, a stream cut on the way out) is not news to them: the answer
+  // they stopped stays stopped, not dimmed under an error card.
+  if (event.type === 'RUN_ERROR') return { ...view, steps: closeSteps(view.steps) }
+  return CONTENT_EVENTS.has(event.type === 'CUSTOM' ? event.name : event.type) ? view : undefined
+}
+
 const apply = (view: TurnView, event: WireEvent): TurnView => {
+  const stopped = stoppedHere(view) ? afterLocalStop(view, event) : undefined
+  if (stopped) return stopped
   switch (event.type) {
     case 'RUN_STARTED':
       return { ...view, messageId: event.message_id }
@@ -197,6 +321,7 @@ const apply = (view: TurnView, event: WireEvent): TurnView => {
       return {
         ...view,
         text: event.snapshot.text,
+        settled: event.snapshot.text,
         sources: event.snapshot.sources ?? [],
         answerMeta: event.snapshot.answer_meta ?? undefined,
       }
@@ -228,6 +353,10 @@ const apply = (view: TurnView, event: WireEvent): TurnView => {
       }
     case 'CUSTOM':
       return applyCustom(view, event)
+    // A type, step kind or CUSTOM name from a server newer than this bundle:
+    // passed over, so its seq still counts and the turn stays continuous.
+    case 'UNKNOWN':
+      return view
   }
 }
 
@@ -242,7 +371,7 @@ const applyCustom = (view: TurnView, event: Extract<WireEvent, { type: 'CUSTOM' 
     case 'card_refused':
       return { ...view, cards: placeCard(view.cards, event.value.index, null) }
     case 'answer_retracted':
-      return { ...view, streaming: false, text: '', sources: [], answerMeta: undefined, cards: [] }
+      return { ...view, streaming: false, text: '', settled: undefined, sources: [], answerMeta: undefined, cards: [] }
     case 'heartbeat':
       return { ...view, lastBeatAt: event.ts, beatEveryMs: event.value.every_ms }
     case 'stage':

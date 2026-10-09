@@ -1,6 +1,6 @@
 /**
- * Four kinds of Tailwind motion utility this design language does not have a
- * use for.
+ * The Tailwind motion utilities this design language does not have a use for,
+ * and the motion.dev props that animate layout.
  *
  * Motion here is decoration with a job: it explains what changed and where it
  * came from. That makes it cheap to get wrong in ways nobody notices until a
@@ -49,6 +49,53 @@
  *                           (`duration-snap`, `data-[state=open]:duration-base`)
  *                           never trip it.
  *
+ *   `animate-pulse`       — Tailwind's 2s pulse to 50%, a loop off the motion
+ *                           scale on its own bezier. A loop here runs on
+ *                           `--motion-ambient` and `--ease-cycle`; for a live
+ *                           mark that is `animate-caret-breathe` (globals.css).
+ *
+ *   `ease-in-out`,        — `ease-in-out` is a loop curve spelled outside the
+ *   `ease-in`               vocabulary (`ease-cycle` is the loop curve), and
+ *                           `ease-in` starts slow and stops hard, which is the
+ *                           shape of nothing this app does: arrivals decelerate
+ *                           (`ease-entrance`), departures use `ease-exit`.
+ *
+ *   `[animation-delay:…]` — a hand-written timing number, the same finding as a
+ *   `[animation-duration:…]` literal duration. A stagger that is part of a
+ *                           primitive lives in its `@utility` (the typing dots
+ *                           derive theirs from `--motion-ambient`), and a
+ *                           delayed entrance is a choreography decision that
+ *                           belongs to a token, not to a call site.
+ *
+ *   `height`/`width`/     — as keys of a motion.dev `initial`/`animate`/`exit`
+ *   `top`/`left` in         object literal. Same cost as a layout transition,
+ *   motion props            run from JS. The design language permits a height
+ *                           tween in one case only: a block arriving or folding
+ *                           at or below the reading point, through the shared
+ *                           arrival primitive, never in the frame of a large
+ *                           commit, and instant under reduced motion. Such a
+ *                           site says so with one `eslint-disable-next-line
+ *                           grid/motion-vocabulary -- <why>` above the
+ *                           element's opening tag (the finding is reported once
+ *                           per element, there), so every height animation in
+ *                           the tree is one grep away and carries its reason.
+ *
+ *   a spring on       — a motion element whose `animate`/`exit` (or `while*`)
+ *   `opacity`             target animates `opacity` while the transition that
+ *                         governs it is a spring token (`springSnap`, …), bare
+ *                         or spread with no `opacity:` override. Opacity never
+ *                         springs: a spring has no duration, so the fade runs
+ *                         as long as the spring takes to settle (~500ms on
+ *                         `springSnap`, played by WAAPI as a `linear()` curve),
+ *                         and `<MotionConfig reducedMotion="user">` drops only
+ *                         transforms, so the reduced-motion reader keeps that
+ *                         half-second fade. Spring the transform, tween the
+ *                         opacity: `iconSwapTransition` / `useIconSwapTransition`
+ *                         in the motion kit, or `{ ...springSnap, opacity:
+ *                         motionQuick }` through `useMotionToken`. Only
+ *                         literals and the kit's spring names are read; a
+ *                         transition held in a local variable is not followed.
+ *
  * Reported as warnings, not errors, on the same reasoning as `no-console`: the
  * rule exists to stop new instances, and the handful already in the tree
  * (vendored shadcn sidebar chrome, one progress bar) should be visible without
@@ -59,7 +106,7 @@
 const LAYOUT_PROPERTIES = ['width', 'height', 'margin', 'padding', 'top', 'left', 'right', 'bottom']
 
 const LAYOUT_TRANSITION = new RegExp(
-  `^transition-\\[[^\\]]*\\b(?:${LAYOUT_PROPERTIES.join('|')})\\b`,
+  `^transition-\\[[^\\]]*\\b(?:${LAYOUT_PROPERTIES.join('|')})\\b`
 )
 
 /**
@@ -70,6 +117,36 @@ const LAYOUT_TRANSITION = new RegExp(
  * variant prefixes — never match.
  */
 const LITERAL_DURATION = /^duration-(?:\d+(?:\.\d+)?|\[[^\]]*\])$/
+
+/** An arbitrary-property animation timing: `[animation-delay:160ms]`. */
+const ARBITRARY_ANIMATION_TIMING = /^\[animation-(?:delay|duration):[^\]]*\]$/
+
+/** Off-vocabulary easings: the loop curve spelled wrong, and the in-ramp. */
+const OFF_VOCABULARY_EASING = new Set(['ease-in-out', 'ease-in'])
+
+/** The motion.dev props whose keys are animated values. */
+const MOTION_TARGET_PROPS = new Set(['initial', 'animate', 'exit'])
+
+/** Layout keys in a motion target: each frame re-runs layout. */
+const MOTION_LAYOUT_KEYS = new Set(['height', 'width', 'top', 'left'])
+
+/** Targets that animate to their values; `initial` is where they start from. */
+const MOTION_ANIMATING_PROPS = new Set([
+  'animate',
+  'exit',
+  'whileHover',
+  'whileTap',
+  'whileFocus',
+  'whileInView',
+  'whileDrag',
+])
+
+/**
+ * The motion kit's springs, legacy aliases included. `springSnapLinear` and the
+ * other `*Linear` / `*Seconds` exports are CSS strings and numbers, not motion
+ * transitions, and the anchors keep them out.
+ */
+const SPRING_TOKEN = /^spring(?:Press|Snap|Drawer|Glide|Snappy|Gentle)$/
 
 /**
  * The utility itself, with any variant prefixes and `!` important marker
@@ -91,6 +168,9 @@ function classify(token) {
   if (base === 'ease-linear') return 'easeLinear'
   if (LAYOUT_TRANSITION.test(base)) return 'layoutTransition'
   if (LITERAL_DURATION.test(base)) return 'literalDuration'
+  if (ARBITRARY_ANIMATION_TIMING.test(base)) return 'arbitraryAnimationTiming'
+  if (base === 'animate-pulse') return 'animatePulse'
+  if (OFF_VOCABULARY_EASING.has(base)) return 'offVocabularyEasing'
   return null
 }
 
@@ -110,13 +190,129 @@ function checkText(context, node, text) {
   }
 }
 
+/** The static name of a property key, or null for a computed one. */
+function keyName(property) {
+  if (property.computed) return null
+  if (property.key.type === 'Identifier') return property.key.name
+  if (property.key.type === 'Literal' && typeof property.key.value === 'string') {
+    return property.key.value
+  }
+  return null
+}
+
+/**
+ * The layout keys in one `initial={{…}}` / `animate={{…}}` / `exit={{…}}`.
+ *
+ * Only an object literal written in the attribute itself is read: a variants
+ * object or a value built elsewhere is not followed, because a half-followed
+ * data flow is a rule that is wrong in both directions. That leaves the common
+ * shape, the one a reviewer would otherwise have to catch.
+ */
+function layoutKeysOf(attribute) {
+  if (attribute.type !== 'JSXAttribute') return []
+  if (attribute.name.type !== 'JSXIdentifier' || !MOTION_TARGET_PROPS.has(attribute.name.name)) {
+    return []
+  }
+  const value = attribute.value
+  const expression = value?.type === 'JSXExpressionContainer' ? value.expression : null
+  if (expression?.type !== 'ObjectExpression') return []
+  return expression.properties
+    .filter((property) => property.type === 'Property')
+    .map(keyName)
+    .filter((name) => name !== null && MOTION_LAYOUT_KEYS.has(name))
+}
+
+/**
+ * One finding per ELEMENT, reported on its opening tag, so a sanctioned height
+ * arrival takes one `eslint-disable-next-line` above the `<motion.div` with
+ * its reason, rather than one per `initial`/`animate`/`exit` line.
+ */
+function checkMotionElement(context, node) {
+  const keys = [...new Set(node.attributes.flatMap(layoutKeysOf))]
+  if (keys.length === 0) return
+  context.report({
+    node,
+    messageId: 'motionLayoutKey',
+    data: { keys: keys.map((key) => `\`${key}\``).join(', ') },
+  })
+}
+
+/** The `{…}` written in a JSX attribute, or null for anything else. */
+function attributeExpression(attribute) {
+  const value = attribute.value
+  return value?.type === 'JSXExpressionContainer' ? value.expression : null
+}
+
+/** The value of a statically named property in an object literal, or null. */
+function propertyValue(object, name) {
+  const property = object.properties.find(
+    (candidate) => candidate.type === 'Property' && keyName(candidate) === name
+  )
+  return property ? property.value : null
+}
+
+/**
+ * The spring that would drive `opacity` under this transition expression, or
+ * null when opacity tweens (or the expression is not one this rule can read).
+ *
+ * A bare spring token springs every key. An object literal springs opacity when
+ * it has no `opacity:` key and its default is a spring, by spread
+ * (`{ ...springSnap }`) or by `type: 'spring'`; with an `opacity:` key, the
+ * answer is whatever that key holds. A conditional is a spring when either
+ * branch is, since the branch that runs is the one a reviewer cannot see.
+ */
+function opacitySpring(node) {
+  if (!node) return null
+  if (node.type === 'Identifier') return SPRING_TOKEN.test(node.name) ? node.name : null
+  if (node.type === 'ConditionalExpression') {
+    return opacitySpring(node.consequent) ?? opacitySpring(node.alternate)
+  }
+  if (node.type === 'LogicalExpression') return opacitySpring(node.left) ?? opacitySpring(node.right)
+  if (node.type !== 'ObjectExpression') return null
+  const opacity = propertyValue(node, 'opacity')
+  if (opacity) return opacitySpring(opacity)
+  const spread = node.properties.find(
+    (property) => property.type === 'SpreadElement' && opacitySpring(property.argument)
+  )
+  if (spread) return opacitySpring(spread.argument)
+  const type = propertyValue(node, 'type')
+  return type?.type === 'Literal' && type.value === 'spring' ? "type: 'spring'" : null
+}
+
+/**
+ * The spring an element puts on `opacity`, or null. Each animating target that
+ * names `opacity` is governed by its own `transition:` key when it has one, and
+ * by the element's `transition` prop otherwise.
+ */
+function springOnOpacity(node) {
+  const elementTransition = node.attributes
+    .filter((attribute) => attribute.type === 'JSXAttribute')
+    .find((attribute) => attribute.name.name === 'transition')
+  const fallback = elementTransition ? attributeExpression(elementTransition) : null
+  for (const attribute of node.attributes) {
+    if (attribute.type !== 'JSXAttribute' || attribute.name.type !== 'JSXIdentifier') continue
+    if (!MOTION_ANIMATING_PROPS.has(attribute.name.name)) continue
+    const target = attributeExpression(attribute)
+    if (target?.type !== 'ObjectExpression' || !propertyValue(target, 'opacity')) continue
+    const spring = opacitySpring(propertyValue(target, 'transition') ?? fallback)
+    if (spring) return spring
+  }
+  return null
+}
+
+/** One finding per element, on its opening tag, like the layout-key check. */
+function checkSpringOpacity(context, node) {
+  const spring = springOnOpacity(node)
+  if (spring) context.report({ node, messageId: 'springOpacity', data: { spring } })
+}
+
 /** @type {import('eslint').Rule.RuleModule} */
 export default {
   meta: {
     type: 'suggestion',
     docs: {
       description:
-        'Ban transition-all, ease-linear, transitions of layout properties and literal durations, which are outside the GRID motion vocabulary',
+        'Ban transition-all, ease-linear/ease-in/ease-in-out, animate-pulse, transitions and motion targets of layout properties, springs on opacity, and literal durations and delays, which are outside the GRID motion vocabulary',
     },
     schema: [],
     messages: {
@@ -128,11 +324,25 @@ export default {
         '`{{utility}}` animates a LAYOUT property, so the browser re-runs layout for the subtree on every frame instead of compositing. Use transform/scale/translate for size and position, or a grid-template-rows 0fr→1fr transition for an accordion height.',
       literalDuration:
         '`{{utility}}` is a literal duration outside the motion scale. Use the token for the job: `duration-snap` (120ms — press, checkbox, dense-row hover), `duration-quick` (180ms — the default: colour, opacity, small transforms), `duration-base` (240ms — content entrance, popover, accordion), `duration-deliberate` (320ms — the ceiling: sheet, drawer, panel), or `duration-ambient` for indeterminate loops.',
+      arbitraryAnimationTiming:
+        '`{{utility}}` writes an animation timing by hand. A stagger that belongs to a primitive lives in its `@utility` and derives from `--motion-ambient` (see `animate-typing-dot`); a delayed entrance takes its timing from a motion token.',
+      animatePulse:
+        "`{{utility}}` is Tailwind's 2s pulse, a loop off the motion scale. Loops run on `--motion-ambient` and `--ease-cycle`: use `animate-caret-breathe` for a live mark, or the skeleton shimmer for loading.",
+      offVocabularyEasing:
+        '`{{utility}}` is outside the easing vocabulary. Use `ease-out` for responses, `ease-entrance` for arrivals, `ease-exit` for dismissals, or `ease-cycle` for a loop.',
+      motionLayoutKey:
+        '{{keys}} in a motion `initial`/`animate`/`exit` animates a LAYOUT property from JS, re-running layout every frame. Animate opacity/transform. A height arrival or fold at or below the reading point, through the shared arrival primitive, is the one sanctioned case: mark the element with `// eslint-disable-next-line grid/motion-vocabulary -- <why>` above its opening tag.',
+      springOpacity:
+        '`{{spring}}` drives `opacity` here, and opacity never springs: the fade lasts as long as the spring takes to settle (~500ms on springSnap) and survives reduced motion, which drops only transforms. Spring the transform and tween the opacity — `useIconSwapTransition()` / `iconSwapTransition` from the motion kit, or the spring spread with `opacity: motionQuick` through `useMotionToken`.',
     },
   },
 
   create(context) {
     return {
+      JSXOpeningElement(node) {
+        checkMotionElement(context, node)
+        checkSpringOpacity(context, node)
+      },
       Literal(node) {
         if (typeof node.value !== 'string') return
         checkText(context, node, node.value)

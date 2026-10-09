@@ -122,7 +122,7 @@ describe('ConfirmDialog', () => {
     )
 
     await user.click(confirmButton())
-    await waitFor(() => expect(confirmButton()).toBeDisabled())
+    await waitFor(() => expect(confirmButton()).toHaveAttribute('aria-disabled', 'true'))
 
     // Escaping out mid-flight would hide a mutation that is still going to land
     // (or still going to fail) behind a dialog the user believes they cancelled.

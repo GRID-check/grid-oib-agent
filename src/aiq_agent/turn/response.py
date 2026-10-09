@@ -101,6 +101,7 @@ def build_result(state: ConversationState, cards: list[dict[str, Any]], message_
         retrieval_ledger=list(state.retrieval_ledger or []),
         quote_stamps=[QuoteStamp.model_validate(stamp) for stamp in state.quote_stamps or []],
         run=_run_handoff(state),
+        reasoning_effort=state.reasoning_effort,
     )
 
 
