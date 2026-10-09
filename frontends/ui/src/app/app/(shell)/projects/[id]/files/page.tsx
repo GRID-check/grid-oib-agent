@@ -3,6 +3,7 @@ import { type Metadata } from 'next'
 import { notFound } from 'next/navigation'
 import { withPageSession } from '@/lib/auth/require-auth'
 import { requireProjectAccess } from '@/lib/authz/projects'
+import { can } from '@/lib/authz/decide'
 import {
   FEATURE_FLAGS,
   isCollaborationEnabled,
@@ -79,10 +80,9 @@ export default async function FilesPage({ params }: FilesPageProps): Promise<JSX
     // The FIRST page only: the paint needs rows now, not the whole corpus. The
     // workspace reads the remaining pages itself when `nextCursor` says there
     // are any (`initialFilesComplete`).
-    const [initialFolders, { documents: initialDocuments, nextCursor }, initialRootAccess] = await Promise.all([
+    const [initialFolders, { documents: initialDocuments, nextCursor }] = await Promise.all([
       listProjectFolders(id, session),
       listDocumentsPage(session, id),
-      projectRootAccess(session, id),
     ])
 
     /*
@@ -96,12 +96,18 @@ export default async function FilesPage({ params }: FilesPageProps): Promise<JSX
      * data; the client never guesses one, and a control it renders is one the
      * route would also allow.
      */
-    const [versionSummaries, lifecyclePermissions] = await Promise.all([
+    // `project:manage` decides whether „Zugriff…" is offered on a folder
+    // (ADR-0087); the access route asks the same question again.
+    const [versionSummaries, lifecyclePermissions, canManageFolderAccess, initialRootAccess] = await Promise.all([
       summarizeDocumentVersions(
         session.organizationId,
         initialDocuments.map((row) => row.id),
       ),
       resolveDocumentLifecyclePermissions(session, id),
+      can(session, 'project:manage', { type: 'project', id }),
+      // What the reader may do at the project root (ADR-0088); each folder row
+      // carries its own.
+      projectRootAccess(session, id),
     ])
 
     return (
@@ -109,6 +115,8 @@ export default async function FilesPage({ params }: FilesPageProps): Promise<JSX
         lifecyclePermissions={lifecyclePermissions}
         projectId={id}
         initialFolders={initialFolders.map(toFolderWireRow)}
+        canManageFolderAccess={canManageFolderAccess}
+        initialRootAccess={initialRootAccess}
         initialFiles={initialDocuments.map((row) =>
           toDocumentWireRow(row, versionSummaries.get(row.id)),
         )}
@@ -121,7 +129,6 @@ export default async function FilesPage({ params }: FilesPageProps): Promise<JSX
         canCollaborate={isCollaborationEnabled(session)}
         currentUserId={session.userId}
         mailImportEnabled={isMailImportEnabled(session)}
-        initialRootAccess={initialRootAccess}
       />
     )
   })

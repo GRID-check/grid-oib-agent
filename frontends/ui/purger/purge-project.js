@@ -157,6 +157,24 @@ async function purgeProject(tx, entry, deps) {
   // many conversations the project holds, and it reads the conversation set at
   // statement time rather than from the snapshot above.
 
+  //    Every OTHER collection the project's own documents name. A document
+  //    filed under a restricted folder lives in that folder's collection,
+  //    `<project collection>_r<12 hex>` (ADR-0087), not in the project's, so a
+  //    purge given only the project's name left every restricted folder's
+  //    chunks — the files a restriction exists for — readable in Chroma after
+  //    the rows that named them were gone. Read here, before step 4 cascades
+  //    the document rows away, for the same reason as the session rows above.
+  //
+  //    DISTINCT over the rows rather than derived from the folders: a document
+  //    records the collection it was ingested into, and a re-classification
+  //    moves the row only after the old collection was purged (ADR-0087), so
+  //    the rows name every collection that still holds this project's chunks.
+  const documentCollections = /** @type {{ collection_name: string | null }[]} */ (
+    await tx`
+      SELECT DISTINCT collection_name FROM documents
+       WHERE project_id = ${projectId} AND collection_name IS NOT NULL`
+  )
+
   // 1. Python-side stores: Chroma collection, summaries, job rows, checkpoints.
   await purgeBackendCollection(
     deps,
@@ -184,7 +202,22 @@ async function purgeProject(tx, entry, deps) {
     await purgeBackendCollection(deps, fetchImpl, sessionCollection, [])
   }
 
-  // 1c. The chats' Langfuse traces, found by session id = conversation id. Read
+  // 1c. The restricted folders' collections (ADR-0087). Same contract as 1b:
+  //     one call each, a hold re-checked before each, and a failure throws
+  //     before anything below has run, so the rows naming them drive the retry.
+  //     Session collections are not in this set (their rows have no
+  //     `project_id`), and the project's own collection was erased in step 1.
+  const restrictedCollections = new Set(
+    documentCollections
+      .map((row) => row.collection_name)
+      .filter((name) => Boolean(name) && name !== collectionName && !sessionCollections.has(name)),
+  )
+  for (const restrictedCollection of restrictedCollections) {
+    await assertNoHold(tx, entry)
+    await purgeBackendCollection(deps, fetchImpl, restrictedCollection, [])
+  }
+
+  // 1d. The chats' Langfuse traces, found by session id = conversation id. Read
   //     from the rows here, like every pointer above: step 4 deletes them. One
   //     erasure per chat with the hold re-checked before each, since each is an
   //     external destructive step; a failure throws before anything below has

@@ -36,6 +36,7 @@ vi.mock('@/lib/documents/repository', async () => {
   }
 })
 
+vi.mock('@/lib/authz/folder-access', async () => (await import('@/test-utils/folder-access')).openFolderAccessModule())
 vi.mock('./repository', () => ({
   listBimModels: vi.fn(),
   findBimModelById: vi.fn(),

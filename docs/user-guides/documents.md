@@ -24,6 +24,8 @@ The folder tree in the left pane is the project's filing system, and it supports
 - **Move** — `PATCH …/folders/{folderId}` accepts a new `parentId`; moving a folder into itself or into one of its own subfolders is refused rather than silently producing a loop.
 - **Delete** — the same menu's `Delete…`. **A folder is a label, and deleting the label never deletes the work.** The confirmation names where things go — *"Its 4 document(s) and 1 subfolder(s) are not deleted — they move to 'Brandschutz'"* — and the documents and child folders are re-filed into the deleted folder's parent (the project root when it had none) before the folder is removed. The toast afterwards repeats the count: *"Folder deleted. 4 document(s) moved to 'Brandschutz'."* The deleted folder stays behind out of sight with its access list, so what Piloti recorded from it keeps its readers (ADR-0088).
 
+Each of these is a write in the folder. In a folder whose access list gives you only **Lesen**, the tree and the file grid mark it **Nur lesen** and offer none of them, nor upload or moving a document in or out; the route refuses them too (403, `reason: folder-read-only`). Who may read and edit a folder: [sensitive data and access](sensitive-data-and-access.md#who-may-read-and-edit-a-folder).
+
 Renaming or moving a folder rewrites the stored path of everything beneath it in the same transaction, so a deeply nested document is never left pointing at a path that no longer exists.
 
 **Moving a document between folders** is in the document's own `⋯` menu, under `Move to folder`. Until now a file was filed once, at upload, and stayed there: a document dropped in the wrong folder — or uploaded before the folder existed — could not be re-filed at all. Each destination is listed by its full path (`Brandschutz / Fluchtwege`), because two branches of a tree can both hold a *Fluchtwege*; the folder the document is in now carries a check and cannot be picked; and **All Files** is a real destination, so a document can be taken back out of every folder. The move also re-files the document on the assistant's side, so what Piloti says about where a document lives follows it immediately (see ADR-0049).
@@ -62,7 +64,7 @@ Files are validated before anything leaves the browser: type, individual size, t
 
 A partially rejected batch still uploads: the valid files go, and the panel says how many were skipped and why.
 
-Your office's sensitive-data list can also hold files back, by name before they are sent or by content before any model reads them: see [Sensitive data, quarantine and roles](sensitive-data-and-access.md).
+Your office's sensitive-data list can also hold files back, by name before they are sent or by content before any model reads them: see [Sensitive data, quarantine and folder access](sensitive-data-and-access.md).
 
 ### Supported File Types
 

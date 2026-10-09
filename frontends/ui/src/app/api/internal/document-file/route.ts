@@ -15,6 +15,11 @@
  * storage key AND its bucket, not the bytes (the backend fetches those itself
  * from SeaweedFS).
  *
+ * A restricted folder's collection (`<project collection>_r<12 hex>`,
+ * ADR-0088) is never answered for: no chat turn may draw on one yet, and the
+ * collection is an argument the model chose. The refusal is the same 404 as an
+ * unknown document.
+ *
  * With `imageIndex`, the key returned is that of the `_img/<index>.jpg` raster
  * the ingest pipeline stored beside the document, built from the row's own
  * storage key (`buildImageStorageKey`). The backend never names a derived key
@@ -26,6 +31,7 @@ import { z } from 'zod'
 import { internalApiRoute, parseQuery } from '@/lib/api/handler'
 import { withOptionalTenant } from '@/lib/db/tenant-context'
 import { NotFoundError } from '@/lib/api/errors'
+import { restrictedCollectionBase } from '@/lib/authz/folder-access-rule'
 import { findDocumentImageStorageKey, findDocumentStorageKey } from '@/lib/documents/service'
 
 const querySchema = z.object({
@@ -39,6 +45,8 @@ export const GET = internalApiRoute(
   'document-file',
   async ({ request }) => {
     const { collection, filename, organizationId, imageIndex } = parseQuery(request, querySchema)
+    // Case-insensitively: a renamed case must not read as an open collection.
+    if (restrictedCollectionBase(collection.toLowerCase()) !== null) throw new NotFoundError('Document not found')
     // The backend derives an organization only from an `archiv_<orgId>`
     // collection; for `proj_<uuid>` it has none to send, and the unguessable
     // collection name is the boundary the route has always relied on.

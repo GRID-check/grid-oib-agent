@@ -27,7 +27,9 @@ import type { AuthorizedSession } from '@/lib/auth/types'
 import { recordAuditEvent } from '@/lib/audit/service'
 import { requireProjectAccess } from '@/lib/authz/projects'
 import { getBackendUrl } from '@/lib/backend-proxy'
+import { placementCollectionFor } from '@/lib/authz/folder-access'
 import { findConversationInOrg } from '@/lib/conversations/repository'
+import { findProjectCollectionName } from '@/lib/projects/repository'
 import type { Document, DocumentVersion } from '@/lib/db/schema'
 import { getOrganizationDisplayName } from '@/lib/organizations/service'
 import { bucketAdminS3Client, s3Client } from '@/lib/s3'
@@ -398,6 +400,25 @@ export async function readVersionContent(
 }
 
 /**
+ * A subject in a folder not every project member may read is refused as no
+ * subject at all (ADR-0087, ADR-0088): no chat turn may draw on a restricted
+ * folder yet, so its bytes never leave for the agent. A document in the open
+ * project collection reads as before.
+ */
+async function admitSubjectRead(document: Document, organizationId: string): Promise<void> {
+  if (!document.projectId || !document.folderId) return
+  const projectCollection = await findProjectCollectionName(document.projectId, organizationId)
+  if (!projectCollection) return
+  const collection = await placementCollectionFor(
+    organizationId,
+    document.projectId,
+    projectCollection,
+    document.folderId,
+  )
+  if (collection !== projectCollection) throw new NotFoundError('Version not found')
+}
+
+/**
  * One version's bytes and its identity, for a SERVICE caller that holds only a
  * version id and the conversation it is answering
  * (`GET /api/internal/document-versions/[versionId]/content`).
@@ -453,6 +474,7 @@ export async function readVersionForService(
   }
   const document = await findDocumentInOrg(version.documentId, organizationId)
   if (!document) throw new NotFoundError('Version not found')
+  await admitSubjectRead(document, organizationId)
   return {
     documentId: version.documentId,
     versionId: version.id,

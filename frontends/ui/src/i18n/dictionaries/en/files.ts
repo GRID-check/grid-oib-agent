@@ -357,6 +357,56 @@ export const files = {
     breadcrumb: 'Folder path',
     movedFolder: '“{name}” moved to “{parent}”.',
     moveFolderError: 'The folder could not be moved. Please try again.',
+    /** Folder access (ADR-0087): restricting a folder to roles. */
+    access: {
+      menu: 'Access…',
+      restrictedTo: 'Own access: {roles}',
+      openRestricted: 'Open folder “{name}”, access: {roles}',
+      title: 'Access to “{name}”',
+      description: 'Who in this project may read and edit this folder, its subfolders and their documents.',
+      inherit: 'Same as the parent folder',
+      inheritHint:
+        'The folder takes the access of the folder above it. At the top, the project applies: whoever may read reads, whoever may edit edits.',
+      custom: 'Own access',
+      customHint:
+        'Only the listed roles get into the folder, each with “Read” or “Edit”. Anyone not listed does not see it. Organization admins may always do everything.',
+      roles: 'Roles',
+      everyMember: 'All project members',
+      customRole: 'Custom role',
+      levelRead: 'Read',
+      levelWrite: 'Edit',
+      levelFor: 'Access for {role}',
+      remove: 'Remove {role}',
+      add: 'Add a role…',
+      pickOne: 'Add at least one role.',
+      noRoles:
+        'Your organization has no roles to choose from yet. Custom roles are created under Organization → People & access.',
+      nesting: 'A subfolder can only be narrower than its parent folder, never wider.',
+      ceiling: '“Edit” applies only to people who may edit in the project; everyone else reads.',
+      lockout:
+        'If you hold none of these roles yourself, the folder disappears for you too once you save, unless you are an organization admin.',
+      moveNotice:
+        'If who may read changes, Piloti moves the folder’s documents and reads them again. For a large folder that takes a few minutes; meanwhile the documents show as “Reading”.',
+      ifcNotice:
+        'Folders not every project member may read cannot hold building models (IFC) yet. Keep IFC models in folders everyone may read.',
+      /** The 409 from the IFC guard (ADR-0087): restricting, uploading or moving into a restricted folder. */
+      ifcRefused:
+        'Building models (IFC) cannot be filed in a folder not everyone may read yet: their building data is not protected by folder access. Keep IFC models in folders everyone may read.',
+      readOnlyBadge: 'Read only',
+      readOnlyHint: 'You may read this folder, but not upload, rename, move or delete anything in it.',
+      readOnlyMenu: 'Read only',
+      readOnlyRefused: 'You may only read in this folder.',
+      save: 'Save access',
+      saving: 'Saving…',
+      loadError: 'The roles could not be loaded.',
+      savedCustom: '“{name}” now has its own access.',
+      savedInherit: '“{name}” now takes the access of its parent folder.',
+      moving: '{count, plural, one {# document is} other {# documents are}} being moved and read again.',
+      failed:
+        '{count, plural, one {# document} other {# documents}} could not be moved yet. Save again to retry.',
+      saveError: 'Access could not be changed. Please try again.',
+      forbidden: 'Only project admins can change who may read and edit a folder.',
+    },
   },
   workspace: {
     renameFolderError: 'The folder could not be renamed. Please try again.',

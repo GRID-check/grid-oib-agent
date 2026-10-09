@@ -18,6 +18,7 @@ import { recordAuditEvent } from '@/lib/audit/service'
 import type { AuthorizedSession } from '@/lib/auth/types'
 import { canManageArchiv } from '@/lib/authz/organizations'
 import { hasPermission, ORG_PERMISSIONS } from '@/lib/authz/permissions'
+import { isFolderVisibleTo, requireFolderWrite } from '@/lib/authz/folder-access'
 import { requireProjectAccess } from '@/lib/authz/projects'
 import type { Document } from '@/lib/db/schema'
 import {
@@ -31,7 +32,7 @@ import { dispatchDocument } from '@/lib/documents/service'
 import { resolveDocumentFolderPath } from '@/lib/documents/folder-path'
 import { parseQuarantine, type QuarantineVerdict } from './quarantine'
 
-type ReviewedDocument = Pick<Document, 'scope' | 'projectId'>
+type ReviewedDocument = Pick<Document, 'scope' | 'projectId' | 'folderId'>
 
 /** Whether this session may release or delete this quarantined document. Never throws. */
 export async function mayReviewQuarantine(session: AuthorizedSession, doc: ReviewedDocument): Promise<boolean> {
@@ -40,10 +41,12 @@ export async function mayReviewQuarantine(session: AuthorizedSession, doc: Revie
   if (doc.scope !== 'project' || !doc.projectId) return false
   try {
     await requireProjectAccess(session, doc.projectId, 'project:manage')
-    return true
   } catch {
     return false
   }
+  // A project admin who is not cleared for the document's folder does not
+  // review it: they could not see it anywhere else either (ADR-0087).
+  return isFolderVisibleTo(session, doc.projectId, doc.folderId).catch(() => false)
 }
 
 export interface ReleaseResult {
@@ -75,6 +78,10 @@ export async function releaseQuarantinedDocument(
   if (!doc.contentHash || !doc.storageKey) {
     throw new ConflictError('This document has no recorded digest, so its release cannot name its bytes')
   }
+  // Releasing files the document into its folder for good: a write there
+  // (ADR-0088). A reviewer who may only read the folder sees the document and
+  // cannot release it (403); an organization admin writes everywhere.
+  if (doc.scope === 'project' && doc.projectId) await requireFolderWrite(session, doc.projectId, [doc.folderId])
 
   const releasedAt = new Date()
   const took = await markScreeningReleased(doc.id, session.organizationId, {
@@ -139,8 +146,8 @@ export const QUARANTINE_QUEUE_PAGES = 10
 export async function listQuarantineQueue(session: AuthorizedSession): Promise<QuarantineQueueItem[]> {
   const verdictByPlace = new Map<string, Promise<boolean>>()
   const mayReview = (row: Document): Promise<boolean> => {
-    // One check per project, not per document.
-    const key = `${row.scope}:${row.projectId ?? ''}`
+    // One check per project and folder, not per document.
+    const key = `${row.scope}:${row.projectId ?? ''}:${row.folderId ?? ''}`
     let allowed = verdictByPlace.get(key)
     if (!allowed) {
       allowed = mayReviewQuarantine(session, row)

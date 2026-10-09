@@ -232,6 +232,10 @@
     "de": "Eine fertige Aufgabe, die kein Dokument abgelegt und keinen Chat eröffnet hat, öffnet jetzt den Bericht ihres Laufs, eine fehlgeschlagene ihren Gedankengang."
   },
   {
+    "en": "A folder holding subfolders you cannot read can only be moved by an organization admin, and a demoted admin stops reaching every folder within a minute. Review requests go only to people who may read the folder, and the projects overview counts only the documents you may read.",
+    "de": "Einen Ordner mit Unterordnern, die Sie nicht lesen dürfen, kann nur ein Organisations-Admin verschieben, und wer kein Admin mehr ist, erreicht binnen einer Minute nicht mehr jeden Ordner. Prüfanfragen gehen nur an Personen, die den Ordner lesen dürfen, und die Projektübersicht zählt nur die Dokumente, die Sie lesen dürfen."
+  },
+  {
     "en": "A follow-up like \"kürze Punkt 3\" changes that document in place instead of producing a second version of it, so the conversation keeps working on one draft rather than on a growing pile of near-copies.",
     "de": "Eine Folgeanweisung wie „kürze Punkt 3“ ändert das Dokument direkt, statt eine zweite Version zu erstellen, sodass Sie im Gespräch an einem Entwurf weiterarbeiten, statt immer mehr nahezu identische Kopien anzuhäufen."
   },
@@ -426,6 +430,10 @@
   {
     "en": "A standard or product code typed in lowercase now matches the documents that write it in capitals, so a question about a specific code finds the same sources whichever way it is typed.",
     "de": "Ein in Kleinbuchstaben eingegebener Norm- oder Produktcode findet jetzt auch Dokumente, in denen er in Großbuchstaben geschrieben ist. Fragen zu einem bestimmten Code liefern daher unabhängig von der Schreibweise dieselben Quellen."
+  },
+  {
+    "en": "A subfolder can only narrow what its parent allows, and someone who may only read a folder sees it marked „Nur lesen“, without upload, rename, move or delete. Only a project admin who may edit a folder can change who may read or edit it.",
+    "de": "Ein Unterordner kann nur einschränken, was sein übergeordneter Ordner erlaubt, und wer einen Ordner nur lesen darf, sieht ihn als „Nur lesen“ markiert, ohne Hochladen, Umbenennen, Verschieben oder Löschen. Nur ein Projekt-Admin, der einen Ordner bearbeiten darf, kann ändern, wer ihn lesen oder bearbeiten darf."
   },
   {
     "en": "A task Piloti starts in a conversation, and a connection message, now appear in that conversation even if you have opened another one in the meantime.",
@@ -2484,10 +2492,6 @@
     "de": "Während die Recherche läuft, zeigt ihr Block je Runde, was schon belegt ist, und „Jetzt schreiben“ beendet die Recherche nach der laufenden Runde und schreibt den Bericht aus dem Vorhandenen."
   },
   {
-    "en": "Who may read and who may edit a project folder now follows the roles in your office. Every file, preview, download and move checks it, and organization admins may read and edit everything.",
-    "de": "Wer einen Projektordner lesen und wer ihn bearbeiten darf, richtet sich jetzt nach den Rollen in Ihrem Büro. Jede Datei, jede Vorschau, jeder Download und jedes Verschieben prüft das, und Organisations-Admins dürfen alles lesen und bearbeiten."
-  },
-  {
     "en": "Whoever commissioned a report can now release it themselves. Piloti files a report in the name of the person who asked for it, and that person was being treated as its author and refused the approval.",
     "de": "Wer einen Bericht in Auftrag gegeben hat, kann ihn jetzt selbst freigeben. Piloti legt den Bericht im Namen der anfordernden Person an, die als Autor des Berichts behandelt wurde und keine Freigabe erhielt."
   },
@@ -2536,8 +2540,8 @@
     "de": "Sie können den Bericht vor dem Herunterladen als PDF in der Vorschau ansehen – in einem Bereich, den Sie beliebig breit ziehen können. Was Sie sehen, ist das Dokument, das Sie erhalten."
   },
   {
-    "en": "Your office can now build its own roles in Piloti, under Organisation → Personen & Zugriff → Eigene Rollen.",
-    "de": "Ihr Büro kann jetzt unter Organisation → Personen & Zugriff → Eigene Rollen eigene Rollen in Piloti anlegen."
+    "en": "Your office can now build its own roles in Piloti, under Organisation → Personen & Zugriff → Eigene Rollen, and decide per project folder which roles may read it and which may edit it. A role not on a folder's list does not see the folder, its files or what Piloti finds in them, and organization admins may read and edit everything.",
+    "de": "Ihr Büro kann jetzt unter Organisation → Personen & Zugriff → Eigene Rollen eigene Rollen in Piloti anlegen und je Projektordner festlegen, welche Rollen ihn lesen und welche ihn bearbeiten dürfen. Eine Rolle, die nicht auf der Liste eines Ordners steht, sieht weder den Ordner noch seine Dateien noch das, was Piloti darin findet, und Organisations-Admins dürfen alles lesen und bearbeiten."
   },
   {
     "en": "Your office now decides what must not be uploaded, under Organisation → Sensible Daten: terms for file and folder names, terms for the content, and checks for IBANs, Austrian social security numbers and card numbers. Piloti starts you on a suggested list you can keep, change or switch off.",

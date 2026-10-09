@@ -255,16 +255,20 @@ describe.skipIf(!url)('read/write folder access against Postgres', () => {
 
 /**
  * Restricted folders do not hold IFC models (ADR-0087). The unit specs prove
- * the guard asks for the count; this proves the query that answers it.
+ * the BIM read paths pass the hidden folders on and the guard asks for the
+ * count; this proves the two queries that receive them.
  */
 describe.skipIf(!url)('IFC models and restricted folders against Postgres', () => {
   const IFC_ORG = `org_ifc_folders_${Date.now()}`
   let db: ReturnType<typeof import('@/lib/db').getDb>
   let withTenant: typeof import('@/lib/db/tenant-context').withTenant
   let accessRepo: typeof import('./folder-access-repository')
+  let bimRepo: typeof import('@/lib/bim/repository')
   let projectId: string
   let modelle: string
   let plaene: string
+  let hiddenModel: string
+  let openModel: string
 
   const inTenant = <T>(run: () => Promise<T>): Promise<T> => withTenant({ organizationId: IFC_ORG, userId: USER }, run)
   const firstId = (rows: Iterable<{ id: string }>): string => String(Array.from(rows)[0]?.id)
@@ -296,11 +300,24 @@ describe.skipIf(!url)('IFC models and restricted folders against Postgres', () =
     )
   }
 
+  async function insertModel(documentId: string): Promise<string> {
+    return firstId(
+      await inTenant(() =>
+        db.execute<{ id: string }>(sql`
+          INSERT INTO bim_models (organization_id, project_id, document_id, status)
+          VALUES (${IFC_ORG}, ${projectId}::uuid, ${documentId}::uuid, 'ready')
+          RETURNING id
+        `)
+      )
+    )
+  }
+
   beforeAll(async () => {
     process.env.GRID_APP_DATABASE_URL = url
     withTenant = (await import('@/lib/db/tenant-context')).withTenant
     db = (await import('@/lib/db')).getDb()
     accessRepo = await import('./folder-access-repository')
+    bimRepo = await import('@/lib/bim/repository')
 
     projectId = firstId(
       await inTenant(() =>
@@ -313,14 +330,15 @@ describe.skipIf(!url)('IFC models and restricted folders against Postgres', () =
     )
     modelle = await insertFolder('Modelle')
     plaene = await insertFolder('Pläne')
-    await insertDocument('Haus-A.ifc', modelle)
+    hiddenModel = await insertModel(await insertDocument('Haus-A.ifc', modelle))
     await insertDocument(' Haus-B.IFCZIP ', modelle)
     await insertDocument('Haus-A.ifc.pdf', modelle)
     await insertDocument('Grundriss.pdf', plaene)
-    await insertDocument('Bestand.ifc', null)
+    openModel = await insertModel(await insertDocument('Bestand.ifc', null))
   })
 
   afterAll(async () => {
+    await inTenant(() => db.execute(sql`DELETE FROM bim_models WHERE organization_id = ${IFC_ORG}`))
     await inTenant(() => db.execute(sql`DELETE FROM documents WHERE organization_id = ${IFC_ORG}`))
     await inTenant(() => db.execute(sql`DELETE FROM projects WHERE organization_id = ${IFC_ORG}`))
   })
@@ -329,5 +347,13 @@ describe.skipIf(!url)('IFC models and restricted folders against Postgres', () =
     expect(await accessRepo.countIfcDocumentsInFolders(IFC_ORG, projectId, [modelle])).toBe(2)
     expect(await accessRepo.countIfcDocumentsInFolders(IFC_ORG, projectId, [plaene])).toBe(0)
     expect(await accessRepo.countIfcDocumentsInFolders(IFC_ORG, projectId, [])).toBe(0)
+  })
+
+  it('leaves a hidden folder’s model out of the model list', async () => {
+    const all = await bimRepo.listBimModels(IFC_ORG, { projectId, includeArchiv: true })
+    expect(all.map((model) => model.id).sort()).toEqual([hiddenModel, openModel].sort())
+
+    const visible = await bimRepo.listBimModels(IFC_ORG, { projectId, includeArchiv: true, hiddenFolderIds: [modelle] })
+    expect(visible.map((model) => model.id)).toEqual([openModel])
   })
 })
