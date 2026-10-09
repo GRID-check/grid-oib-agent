@@ -13,6 +13,7 @@ from unittest.mock import patch
 import pytest
 
 from aiq_agent.common.canned_replies import GENERIC_ERROR_MESSAGE
+from aiq_agent.memory.restriction import RestrictionEvidence
 from aiq_agent.stages import get_stage
 from aiq_agent.stages.flags import legacy_enabled_stages
 from aiq_agent.stages.flags import stages_for_flag_slug
@@ -200,13 +201,25 @@ class TestMatchesEscalationKeywords:
 
 
 class TestRestrictedContent:
-    """ADR-0087, glue until restricted memory lands: nothing is distilled into
-    project memory from a turn that could read a restricted folder."""
+    """ADR-0087: a turn that could read a restricted folder still reflects; what
+    it writes is restricted memory (``memory/restriction.py``)."""
 
-    def test_a_restricted_turn_is_skipped(self):
-        decision = _gate(read_restricted=True)
-        assert not decision.run
-        assert decision.reason == "restricted_content"
+    _EVIDENCE = RestrictionEvidence(scope=("proj_1_r0123456789ab",), read=("proj_1_r0123456789ab",))
+
+    def test_a_restricted_turn_is_not_skipped(self):
+        assert _gate(restriction=self._EVIDENCE).run
 
     def test_an_open_turn_still_proceeds(self):
-        assert _gate(read_restricted=False).run
+        assert _gate().run
+
+    @pytest.mark.asyncio
+    async def test_the_handler_hands_the_evidence_to_the_reflection_pass(self):
+        seen = {}
+
+        async def fake_reflection(**kwargs):
+            seen.update(kwargs)
+            return []
+
+        with patch("aiq_agent.memory.reflection.run_memory_reflection", fake_reflection):
+            await MEMORY_REFLECTION.handler(StageContext(facts=_facts(restriction=self._EVIDENCE), llm=object()))
+        assert seen["restriction"] is self._EVIDENCE

@@ -131,11 +131,9 @@ def _gate(facts: TurnFacts) -> GateDecision:
         # The autonomous stage writes project-scoped memory ONLY (audit S1), so
         # an org-only conversation has nothing it may safely write.
         return GateDecision.skip("no_project")
-    if facts.read_restricted:
-        # ADR-0087: project memory is read by everyone on the project, and
-        # this turn could read a restricted folder. A finding distilled from
-        # it would carry the content past the restriction.
-        return GateDecision.skip("restricted_content")
+    # A turn that could read a restricted folder is NOT skipped (ADR-0087):
+    # what it establishes is written as restricted memory, served only to
+    # people cleared for the folders it draws on (`memory/restriction.py`).
     text = (facts.answer or "").strip()
     if not facts.query or not text:
         return GateDecision.skip("empty_turn")
@@ -182,6 +180,7 @@ async def _handler(ctx: StageContext) -> dict[str, Any] | None:
         organization_id=facts.organization_id,
         conversation_id=facts.conversation_id,
         memory_digest=digest_with_turn_writes(facts.memory_digest, facts.remembered_this_turn),
+        restriction=facts.restriction,
     )
     if not recorded:
         # `None` is `empty` — the common, correct outcome for a turn that

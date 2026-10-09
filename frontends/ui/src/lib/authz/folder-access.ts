@@ -40,9 +40,12 @@ import { requireProjectAccess } from './projects'
 import { listCustomFolderNames, listProjectFolderTree, projectHasCustomFolders } from './folder-access-repository'
 import {
   ANY_MEMBER,
+  atLeast,
   computeFolderAccess,
   DOCUMENT_WRITE_PERMISSIONS,
+  effectiveFolderLevel,
   folderReadOnlyError,
+  folderTree,
   OPEN_ACCESS,
   type AccessFolder,
   type FolderClearance,
@@ -244,10 +247,27 @@ export async function placementCollectionFor(
 }
 
 /**
+ * Every CURRENT restricted collection of a project, whoever asks: the
+ * collections of living folders that restrict reading. Empty for a project with
+ * no custom folder, at the cost of one probe.
+ */
+export async function currentRestrictedCollections(
+  organizationId: string,
+  projectId: string,
+  projectCollection: string
+): Promise<string[]> {
+  const folders = await loadCustomFolderTree(organizationId, projectId)
+  if (!folders) return []
+  return [
+    ...computeFolderAccess(folders, { roles: [], seesEverything: true }, projectCollection)
+      .clearedRestrictedCollections,
+  ]
+}
+
+/**
  * The name of each folder with its own access list, keyed by its id,
  * tombstones included: how a surface names a restriction to someone who may
- * read it (a sharing refusal names the folders the sharer may read). Never
- * call it to decide access.
+ * read it (the memory panel's lock). Never call it to decide access.
  */
 export async function customFolderNames(organizationId: string, projectId: string): Promise<Map<string, string>> {
   const folders = await listCustomFolderNames(organizationId, projectId)
@@ -264,4 +284,45 @@ export async function clearanceOfMember(organizationId: string, userId: string):
   const roles = await resolveMembershipRoles(organizationId, userId)
   if (!roles || roles.length === 0) return { roles: [], seesEverything: false }
   return { roles, seesEverything: await anyRoleAdministers(organizationId, roles) }
+}
+
+/**
+ * Every folder of a project (tombstones included) `clearance` may read now:
+ * what content derived from folders — restricted memory — is served against
+ * (`memoryVisibleTo`). Reads the whole tree, because a note may name a folder
+ * that has since been opened, and an opened folder must open it.
+ */
+export async function readableFolderIdsFor(
+  organizationId: string,
+  projectId: string,
+  clearance: FolderClearance
+): Promise<string[]> {
+  const folders = await listProjectFolderTree(organizationId, projectId)
+  const tree = folderTree(folders)
+  return folders
+    .filter((folder) => atLeast(effectiveFolderLevel(tree, clearance, folder.id), 'read'))
+    .map((folder) => folder.id)
+}
+
+/**
+ * The source folder of each of `collections` that is a current restricted
+ * collection of the project; a name that is not one is absent from the map.
+ * How a writer that knows collections (the agent) names what it drew on.
+ */
+export async function sourceFoldersOfCollections(
+  organizationId: string,
+  projectId: string,
+  projectCollection: string,
+  collections: readonly string[]
+): Promise<Map<string, string>> {
+  const found = new Map<string, string>()
+  if (collections.length === 0) return found
+  const folders = await loadCustomFolderTree(organizationId, projectId)
+  if (!folders) return found
+  const access = computeFolderAccess(folders, { roles: [], seesEverything: true }, projectCollection)
+  for (const collection of collections) {
+    const folderId = access.sourceFolderOf(collection)
+    if (folderId) found.set(collection, folderId)
+  }
+  return found
 }

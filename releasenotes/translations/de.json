@@ -2336,6 +2336,10 @@
     "de": "Wenn Sie piloti.at jetzt aufrufen, öffnet sich die Piloti-Website statt der Testumgebung. Adressen mit www führen zur selben Seite."
   },
   {
+    "en": "What Piloti remembers from a chat that drew on a folder not everyone may read is kept for the people allowed to know it. Only those who may read the folder it came from see the note in the project memory, where a lock names that folder, and only their chats are given it.",
+    "de": "Was Piloti sich aus einem Chat merkt, der aus einem Ordner geschöpft hat, den nicht alle lesen dürfen, bleibt den Personen vorbehalten, die es wissen dürfen. Nur wer den Ordner lesen darf, aus dem es stammt, sieht die Notiz im Projektgedächtnis, wo ein Schloss diesen Ordner nennt, und nur deren Chats erhalten sie."
+  },
+  {
     "en": "What Piloti searched for in an answer now survives a reload and is visible to colleagues in a shared conversation.",
     "de": "Was Piloti für eine Antwort gesucht hat, bleibt nach dem Neuladen erhalten und ist auch für Kolleginnen und Kollegen in einer geteilten Unterhaltung nachvollziehbar."
   },

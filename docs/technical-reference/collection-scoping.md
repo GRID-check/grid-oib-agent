@@ -171,8 +171,8 @@ share and an admission cannot both go through:
 - a tool round's results are admitted before the model reads them
   (`PilotiAgent._tools_node` → `admit_tool_results`); a result carrying a
   refused collection is replaced by a notice;
-- a subject document from a restricted folder is admitted by the BFF before it
-  is sent;
+- restricted memory served into the digest, and a subject document from a
+  restricted folder, are admitted by the BFF before they are sent;
 - listing is not use: restricted collections stay out of the inventory block,
   `list_files` and the document cards, so a name or a summary never reaches the
   prompt without an admission.

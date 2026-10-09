@@ -158,6 +158,10 @@ export const GET = tenantSlotRoute(async function GET(req: Request): Promise<Res
         effectiveProjectId
           ? loadProjectPromptView(effectiveProjectId, organizationId)
           : Promise.resolve(null),
+        // Open memory only (ADR-0087): a restricted note in the prompt is use of
+        // its folders, and only the live per-turn digest admits that use, against
+        // the conversation's audience at that moment. This copy is the fallback
+        // for a turn whose live fetch failed.
         bestEffort('build project memory digest', () =>
           buildProjectMemoryDigest(effectiveProjectId, organizationId ?? undefined)
         ),

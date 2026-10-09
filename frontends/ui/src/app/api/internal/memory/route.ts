@@ -11,13 +11,17 @@
 import { z } from 'zod'
 import { internalApiRoute, parseJsonBody } from '@/lib/api/handler'
 import { withOptionalTenant } from '@/lib/db/tenant-context'
-import { NotFoundError, OrgMemoryDisabledError } from '@/lib/api/errors'
+import { BadRequestError, NotFoundError, OrgMemoryDisabledError } from '@/lib/api/errors'
 import {
   createProjectMemoryItem,
   createProjectMemoryItemForProject,
   organizationExists,
 } from '@/lib/projects/memory-service'
-import { PROJECT_MEMORY_CONFIDENCES, PROJECT_MEMORY_KINDS } from '@/lib/db/schema'
+import {
+  PROJECT_MEMORY_CONFIDENCES,
+  PROJECT_MEMORY_KINDS,
+  PROJECT_MEMORY_MAX_RESTRICTED_FOLDERS,
+} from '@/lib/db/schema'
 
 // Agent-authored org-wide memory is DENIED by default: an org item lands in
 // every project's digest across the tenant, and this service-token endpoint
@@ -55,6 +59,21 @@ const internalMemorySchema = z
      * rate. Read by the recall scorer (`lib/knowledge/recall-scoring.ts`).
      */
     salience: z.number().min(0).max(1).optional(),
+    /**
+     * The restricted-folder collections this finding depends on (ADR-0087):
+     * set by the agent when the turn's signed scope held restricted
+     * collections and the finding drew on them. Each must be a CURRENT
+     * restricted collection of the project — `createProjectMemoryItemForProject`
+     * refuses anything else with a 400 rather than storing an item nobody could
+     * be served — and is stored as its SOURCE FOLDER (ADR-0088), so who is
+     * shown the note follows that folder's access as it changes. Shaped like
+     * the names `restrictedCollectionName` mints.
+     */
+    restrictedCollections: z
+      .array(z.string().regex(/^[A-Za-z0-9_-]{1,200}_r[0-9a-f]{12}$/))
+      .min(1)
+      .max(PROJECT_MEMORY_MAX_RESTRICTED_FOLDERS)
+      .optional(),
   })
   .refine((v) => (v.scope === 'project' ? !!v.projectId : !!v.organizationId), {
     message: 'project scope requires projectId; organization scope requires organizationId',
@@ -74,7 +93,15 @@ export const POST = internalApiRoute(
       sourceConversationId,
       supersedesContent,
       salience,
+      restrictedCollections,
     } = await parseJsonBody(request, internalMemorySchema)
+
+    // Organization memory reaches every project in the tenant, so it is never
+    // restricted: the agent files such a finding as restricted memory of its
+    // project instead. A caller that did not is refused, not widened.
+    if (restrictedCollections && scope !== 'project') {
+      throw new BadRequestError('Restricted memory is project memory')
+    }
 
     // An organization-scoped write always names its tenant. A project-scoped
     // one may not: the project row is what names it, and
@@ -125,6 +152,7 @@ export const POST = internalApiRoute(
                   sourceConversationId: sourceConversationId ?? null,
                   provenanceType,
                   ...(salience !== undefined ? { salience } : {}),
+                  ...(restrictedCollections ? { restrictedCollections } : {}),
                 },
                 writeOptions
               )

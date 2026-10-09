@@ -149,8 +149,8 @@ REFUSED_CONFINED = "confined"
 #: Card types a turn whose scope holds a restricted folder's collection may not
 #: compose (ADR-0087): accepting one writes something the whole project reads.
 #: A ``project_profile_patch`` writes the project profile. (``memory_proposal``
-#: is a system card, and the ``remember`` tool refuses a turn whose scope holds
-#: a restricted collection before it could push one.)
+#: is a system card, and the ``remember`` tool never pushes one for a restricted
+#: finding.)
 CONFINED_CARD_TYPES = frozenset({"project_profile_patch"})
 
 

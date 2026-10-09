@@ -66,6 +66,8 @@ project_memory
   source_message_id       uuid  null
   source_document_id      uuid  null              -- when grounded in an uploaded doc
   supersedes_id     uuid  null  fk → project_memory(id)   -- updates, not appends
+  restricted_folder_ids uuid[] null               -- ADR-0088: the source folders it depends on;
+                                                  -- NULL = open (§3.6, migration 0113)
   salience          real  default 0.5             -- retrieval/budget ranking
   pinned            bool  default false           -- always-inject core memory
   embedding_synced  bool  default false           -- has it been pushed to the vector store
@@ -129,6 +131,16 @@ the correction is still recorded, both stay active, and the user resolves it in
 the panel. Still outstanding from this section: embedding-based similarity (so
 semantically-distant contradictions are caught without a quote) and LLM
 adjudication of genuine two-sided conflicts.
+
+**Consolidation never crosses a restriction** (§3.6). Every pass — exact
+duplicate, semantic and lexical paraphrase, the named supersede target — only
+considers rows with exactly the same `restricted_folder_ids` (stored sorted and
+de-duplicated, so equal restrictions are equal arrays). An open note never
+merges into, supersedes or is retired by a restricted one, and neither do two
+restricted notes with different collections: either would make a fact appear
+for, or vanish from, people the other row is not shown to. The 0010 dedup index
+carries the restriction since 0112, so an open and a restricted note with the
+same text can both be live.
 
 ### 3.3 Serve — how it reaches the agent (two channels)
 - **Always-on "core memory" digest**: pinned + top-salience items, compacted to a
@@ -221,16 +233,12 @@ Safety limits (see [memory-reflection-audit.md](./memory-reflection-audit.md)):
   requires a `project_id`; an org-only conversation is skipped.
 - **Substantive answers only** — meta/error/insufficiency and deep-research
   job-stub turns are skipped (nothing durable to record).
-- **Nothing from a restricted folder** (ADR-0087) — a turn whose signed scope
-  holds a restricted folder's collection (`<project collection>_r<12 hex>`)
-  that it may draw on, or whose conversation already drew on a restricted
-  folder (`conversation_restricted_folders`), writes no memory at all: the
-  stage skips with `restricted_content`, and the `remember` tool refuses
-  (project and org scope alike) and emits no `memory_proposal` card. The test
-  is the scope and the conversation's record, not the hits: the history the
-  turn answers from may already hold what an earlier turn read. Recognised by
-  `aiq_agent/knowledge/restricted_collections.py`. A deep-research run needs no
-  check of its own: its scope never carries a restricted collection.
+- **Restricted memory from a restricted turn** (ADR-0087, §3.6) — a turn whose
+  signed scope holds a restricted folder's collection (`<project collection>_r<12 hex>`)
+  still reflects; each finding is written as restricted memory when it depends
+  on restricted content, through the same decision the `remember` tool uses.
+  A deep-research run's reflection still skips when its scope holds one (it
+  never does: research scopes carry no restricted collection).
 - **Digest de-duplication** — a finding already present in the shown digest is
   dropped. This is a soft guard, not the §3.2 consolidation gate (still a
   follow-up), so it does not catch semantic paraphrase or items outside the
@@ -280,6 +288,104 @@ backed by two partial UNIQUE indexes on normalized content (migration
 `0010_project_memory_dedup.sql`) that close the race window. This is a
 pragmatic slice of the §3.2 gate; embed-based consolidation remains a follow-up.
 See [memory-reflection-audit.md](./memory-reflection-audit.md).
+
+### 3.6 Restricted memory (ADR-0087, ADR-0088)
+"Restricted shouldn't feel like amnesia, it should feel like a first thought"
+(product owner, 2026-10-02). A turn whose scope holds restricted-folder
+collections `R` it may draw on remembers as any other turn does; what it writes
+carries the source FOLDERS it depends on (`restricted_folder_ids`, migration
+0112; the agent decides in collections and the BFF maps each to its folder),
+and only a session that may read **all** of them now is served it or shown it.
+
+**Deciding the restriction** — one function, `aiq_agent/memory/restriction.py`
+`decide_restrictions`, called by the `remember` tool and the reflection stage:
+1. `R` empty → open.
+2. The turn cited or read sources from collections in `R` (its captures, its
+   cited and read-uncited sources, and the conversation's citation registry,
+   whose passages are in the history) → restricted to those.
+3. Restricted documents the turn could list but did not read — the inventory
+   block and `list_files` both show their summaries — go to a **model judge**:
+   the memory text plus those documents' name and summary; it names the
+   documents the memory draws on (strict JSON, one verdict per note), and
+   their collections are added. The judge runs on the memory-reflection model
+   (`memory_reflection_llm`; the tool's `judge_llm`, both `card_llm`), with the
+   org's override and credential, bounded at 12 s, one call per batch.
+   Restricted MEMORY the conversation was shown is judged too — this turn's
+   digest `restricted` lines, what the turn already stored as restricted, and
+   the restricted lines EARLIER turns were shown — and a memory drawing on one
+   is restricted to the restricted collections of the scope that line was shown
+   under (a digest line does not say which collections it carries). Without it,
+   a paraphrase of a restricted note would be filed as open memory.
+4. **Copies need no judge.** Before the judge is asked, and whatever it
+   answers, a memory whose text substantially reproduces a restricted line is
+   restricted to that line's collections (`restriction.reproduces`). Both are
+   normalized (Unicode form, case, punctuation, spacing); it is a copy when one
+   contains the other and the contained side has at least three significant
+   tokens, or when the memory repeats at least 60 % of the line's significant
+   tokens and at least three of them. Significant: three letters or longer, or
+   holding a digit, and not a German or English function word. Measured against
+   the line, so a reordered copy („Mit Büro Müller vereinbart: Statik-Honorar
+   48.000 € netto" against its 7-token line) matches and a different fact about
+   the same people („Die Statik prüft Büro Müller", 3 of 7) is left to the judge.
+5. **Fail closed**: no judge model, a timeout, an error, an unparseable or
+   partial reply, more than 150 unread restricted entries, or an unknown
+   inventory → restricted to every restricted collection of the evidence.
+
+**What earlier turns were shown** — `aiq_agent/memory/shown_notes.py`. The
+digest is re-ranked per turn and capped at 1,800 characters, so a restricted
+note can leave the prompt while what it said stays in the history. Every turn
+with restricted collections in its signed scope adds its digest's `restricted`
+lines and its restricted writes to a per-conversation record, each line with
+those collections, beside the citation registry in the shared cache (key
+`restricted-notes:<conversation>`, 30 days). The next turn loads it during
+setup, binds it for the `remember` tool and hands it to the reflection stage.
+Its collections count as restricted scope even in a turn that no longer has
+them in its signed scope. The record keeps 150 lines; a line that falls out
+moves its collections to `overflowed`, and every later memory of the
+conversation is restricted to those, so the bound fails closed. A record lost
+to the cache (eviction, outage, past 30 days) is evidence lost: the decision
+then rests on this turn's digest and the citation registry, as before.
+
+Organization scope that depends on restricted content is filed as restricted
+memory of the turn's project (org memory reaches every project); the BFF
+refuses a restricted organization write, and the 0112 CHECK backs it. A
+restricted finding never becomes a `memory_proposal` card: accepting a card is
+an open write by the user's own session.
+
+**Writing** — `POST /api/internal/memory` takes `restrictedCollections`;
+`createProjectMemoryItemForProject` maps each to the folder whose collection it
+is (`sourceFoldersOfCollections` in `lib/authz/folder-access.ts`) and refuses
+(400) a name no folder of the project answers to, rather than store a note
+nobody could be served.
+
+**Serving** — every reader passes the folders it may read NOW
+(`readableFolderIdsFor`, tombstones of deleted folders included, judged by
+`effectiveFolderLevel`), and the default is the folders every member may read:
+- the live per-turn digest (`/api/internal/memory/digest`): an interactive chat
+  turn sends the restricted collections it may draw on
+  (`restrictedCollections`), its conversation and its signed asker (`userId`).
+  A restricted note is then served when the asker may read every one of its
+  folders, AND the conversation admits them against everyone it is shared with
+  (`admitSourceFolders`): a restricted note in the prompt is use of its
+  folders, recorded in `conversation_restricted_folders`, and the response's
+  `restrictedFoldersServed` tells the agent the conversation is confined. Deep
+  research, scheduled runs and the job worker send none and get open notes,
+  including those whose folders every member may read again;
+- the Project Memory panel and its routes (`getProjectMemory`, edit, delete):
+  the session's readable folders (admins: every folder). A note the session may
+  not see is absent — not counted, and an edit or delete by id is a 404. A
+  reader who may see it sees a lock naming the folders;
+- the digest marks a restricted line `restricted`;
+- `PROPOSAL_DECISIONS` leaves out every conversation that recorded a restricted
+  folder (`conversation_restricted_folders`): the block is project-wide and a
+  card's words can carry what a restricted folder said.
+
+A folder later opened to every member opens its notes; a folder narrowed shows
+them to fewer people; a deleted folder's tombstone keeps answering with the
+access it had (ADR-0088). Nothing is rewritten when access changes. The per-query `mem_<project>` namespace of §3.3 is not built;
+recall runs inside the digest query over the row's own vector, under the same
+filter. Whoever builds that namespace must keep restricted notes out of it or
+filter them the same way.
 
 ## 4. Provenance & trust — non-negotiable for a compliance product
 

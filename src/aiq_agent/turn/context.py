@@ -64,7 +64,7 @@ class TurnContext:
     #: :attr:`confined`.
     restricted_scope: tuple[str, ...] = ()
     #: The conversation already drew on a folder not every member may read
-    #: (in an earlier turn, or this turn's subject), as the BFF
+    #: (in an earlier turn, or this turn's memory or subject), as the BFF
     #: recorded it; or that could not be established.
     recorded_restricted: bool = False
 
@@ -117,10 +117,10 @@ def user_info_from_principal() -> dict[str, Any] | None:
 def signed_restricted_collections(request: GridRequestContext) -> list[str]:
     """The restricted-folder collections this turn may draw on (ADR-0087, ADR-0088).
 
-    The BFF puts them in a scope only for an interactive chat turn of a session
-    cleared for them; of those, the turn keeps the ones it may draw on with the
-    conversation's current audience
-    (:func:`aiq_agent.knowledge.restricted_use.begin_restricted_use`).
+    What the live digest may serve restricted memory for. The BFF puts them in a
+    scope only for an interactive chat turn of a session cleared for them; of
+    those, the turn keeps the ones it may draw on with the conversation's
+    current audience (:func:`aiq_agent.knowledge.restricted_use.begin_restricted_use`).
     A scope read from the unsigned header fallback (no envelope) gets none,
     because nothing vouches for it.
     """
@@ -134,11 +134,12 @@ def signed_restricted_collections(request: GridRequestContext) -> list[str]:
 def settle_restriction(context: TurnContext, request: GridRequestContext) -> TurnContext:
     """``context`` with the turn's restriction as it stands after setup.
 
-    Called once the setup gather is done, because one of its members can
-    confine the conversation on its own: a subject document in a restricted
-    folder is recorded by the BFF and noted on the bound use. Withdraws deep
-    research and tasks from a confined turn; a conversation that drew on a
-    restricted folder stays refused for both (the BFF refuses them too).
+    Called once the setup gather is done, because two of its members can
+    confine the conversation on their own: restricted memory served into the
+    digest, and a subject document in a restricted folder, are each recorded by
+    the BFF and noted on the bound use. Withdraws deep research and tasks from
+    a confined turn; a conversation that drew on a restricted folder stays
+    refused for both (the BFF refuses them too).
     """
     use = current_restricted_use()
     drawable = tuple(signed_restricted_collections(request))
@@ -154,34 +155,61 @@ def settle_restriction(context: TurnContext, request: GridRequestContext) -> Tur
     )
 
 
-async def _live_memory_digest(request: GridRequestContext, query_text: str) -> str | None:
+async def _live_memory_digest(
+    request: GridRequestContext,
+    query_text: str,
+    *,
+    fallback: str | None = None,
+) -> str | None:
     """This turn's project-memory digest.
 
     The digest header is frozen for the connection's life, so memory written
     mid-session would not reach the agent until a reconnect: re-fetch a LIVE
     digest per turn. A successful fetch is authoritative even when empty
-    (memory may have been cleared); only a failed fetch keeps the header value.
+    (memory may have been cleared); only a failed fetch keeps ``fallback``, the
+    connection-time digest.
     """
     if not (request.project_id or request.organization_id):
-        return request.project_memory
+        return fallback
     try:
         return await asyncio.to_thread(
             fetch_memory_digest,
             project_id=request.project_id,
             organization_id=request.organization_id,
             query=query_text,
+            user_id=request.user_id,
+            restricted_collections=signed_restricted_collections(request),
         )
     except (RuntimeError, OSError, ValueError):
         # The documented failure modes of fetch_memory_digest: configuration,
         # transport, and an unparseable body. Degrade to the connection-time digest.
         logger.warning("Live memory digest fetch failed; using connection-time digest", exc_info=True)
-        return request.project_memory
+        return fallback
+
+
+async def _bff_context_blocks(request: GridRequestContext, query_text: str) -> ContextBlocks:
+    """The compact-handshake blocks, with restricted memory when this turn may draw on it.
+
+    ``fetch_turn_context`` serves open memory only. A turn whose verified scope
+    carries restricted-folder collections (ADR-0087, ADR-0088) also asks the live
+    digest endpoint, the one that admits the restricted notes' folders for the
+    conversation, and takes its digest instead: it is a superset of the open one.
+    Both run at once so the extra round-trip is not paid in sequence; when the
+    live fetch fails the open digest stands.
+    """
+    if not signed_restricted_collections(request):
+        return await asyncio.to_thread(fetch_turn_context, request, query=query_text)
+    blocks, live_digest = await asyncio.gather(
+        asyncio.to_thread(fetch_turn_context, request, query=query_text),
+        _live_memory_digest(request, query_text, fallback=None),
+    )
+    return replace(blocks, project_memory=live_digest if live_digest is not None else blocks.project_memory)
 
 
 async def _context_blocks(request: GridRequestContext, query_text: str) -> ContextBlocks:
     if request.context_transport == "bff":
-        return await asyncio.to_thread(fetch_turn_context, request, query=query_text)
-    memory_digest = await _live_memory_digest(request, query_text)
+        return await _bff_context_blocks(request, query_text)
+    memory_digest = await _live_memory_digest(request, query_text, fallback=request.project_memory)
     return ContextBlocks(request.project_context, memory_digest, request.org_instructions)
 
 
@@ -249,7 +277,7 @@ async def _load_turn_context(
         platform_lessons=platform_lessons,
         org_instructions=blocks.org_instructions,
         # The restriction is settled after the whole setup gather
-        # (`settle_restriction`): the subject can confine.
+        # (`settle_restriction`): the digest and the subject can each confine.
         deep_research_allowed=turn_flags.deep_research_allowed,
         tasks_allowed=turn_flags.tasks_allowed,
         stage_facts=TurnFacts(

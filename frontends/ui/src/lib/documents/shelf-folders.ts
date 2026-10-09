@@ -654,7 +654,7 @@ export async function updateShelfFolder(
  *
  * A PROJECT folder's row then stays as a TOMBSTONE (`deleted_at`, migration
  * 0110): its access mode, grants and parent remain, because content derived
- * from it (a conversation's record of use) names it by id
+ * from it (a conversation's record of use, restricted memory) names it by id
  * and keeps being judged by the access it had. `shelfFolderWhere` skips it, and
  * its name is free again. Nothing derived records an Archiv folder, so an
  * Archiv folder's row goes.

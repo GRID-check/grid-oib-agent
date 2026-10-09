@@ -14,6 +14,7 @@ import { ForbiddenError, NotFoundError } from '@/lib/api/errors'
 import type { AuthorizedSession } from '@/lib/auth/types'
 import { resolveMembershipRoles } from '@/lib/auth/membership-roles'
 import {
+  ANY_MEMBER,
   EVERY_PROJECT_MEMBER,
   FOLDER_READ_ONLY_REASON,
   canWriteFolder,
@@ -28,6 +29,7 @@ import {
   isRestrictedCollectionOf,
   readRestrictingFoldersOnPath,
   readableByEveryMember,
+  readableFolderIdsFor,
   requireFolderWrite,
   restrictedCollectionName,
   unreadableFoldersBelow,
@@ -321,6 +323,14 @@ describe('the session loaders', () => {
     vi.mocked(projectHasCustomFolders).mockResolvedValue(true)
     vi.mocked(listProjectFolderTree).mockResolvedValue(TREE)
     expect((await getRestrictedFolderIds('org-1', 'proj-1')).sort()).toEqual([F.vertraege, F.honorare, F.waise].sort())
+  })
+
+  it('readableFolderIdsFor: every folder, tombstones included, the clearance may read now', async () => {
+    vi.mocked(listProjectFolderTree).mockResolvedValue(TREE)
+    expect((await readableFolderIdsFor('org-1', 'proj-1', who([GF]))).sort()).toEqual(
+      [F.verwaltung, F.vertraege, F.honorare, F.plaene, F.statik, F.statikAlt, F.archiviert].sort()
+    )
+    expect(await readableFolderIdsFor('org-1', 'proj-1', ANY_MEMBER)).not.toContain(F.vertraege)
   })
 
   it('filterUsersWhoMayReadFolder: each person by the roles WorkOS reports for them, the tree read once', async () => {
