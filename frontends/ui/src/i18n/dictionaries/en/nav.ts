@@ -41,7 +41,7 @@ export const nav = {
     automation:
       'What Piloti did while you were away, what it will do next, and the skills it does it with.',
     knowledge: 'What the knowledge base currently contains.',
-    settings: 'Project profile, members, memory, and danger zone.',
+    settings: 'How this project is set up: its profile, people, memory, usage and documents.',
     intake: 'Guided briefing for this project.',
   },
   /**

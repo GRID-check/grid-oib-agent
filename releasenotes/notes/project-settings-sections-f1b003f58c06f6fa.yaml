@@ -1,0 +1,10 @@
+---
+features:
+  - >
+    Project settings are now split into sections: general, project profile,
+    members, memory, usage and budget, and documents. Project admins can see
+    what the project has used this month and set a limit for it.
+fixes:
+  - >
+    Opening project settings without permission to manage members no longer
+    shows an error, and buttons you are not allowed to use are no longer shown.

@@ -5,7 +5,7 @@ import { withPageSession } from '@/lib/auth/require-auth'
 import { requireProjectAccess } from '@/lib/authz/projects'
 import { getProjectOverviewData } from '@/lib/projects/overview-query'
 import { resolveProjectSettingsAccess } from '@/lib/projects/settings-access'
-import { GeneralSettings } from '@/features/projects/components/settings/general-settings'
+import { ProfileSettings } from '@/features/projects/components/settings/profile-settings'
 import { getTranslations } from '@/i18n/server'
 
 interface PageProps {
@@ -13,12 +13,12 @@ interface PageProps {
 }
 
 export async function generateMetadata(): Promise<Metadata> {
-  const t = await getTranslations('nav')
-  return { title: t('sections.settings') }
+  const t = await getTranslations('settings')
+  return { title: t('project.nav.profile') }
 }
 
-/** Settings → General: the project's name, its size, and its deletion. */
-export default async function ProjectGeneralSettingsPage({
+/** Settings → Project profile: the brief and the standards it makes relevant. */
+export default async function ProjectProfileSettingsPage({
   params,
 }: PageProps): Promise<JSX.Element> {
   return withPageSession(async (session) => {
@@ -31,15 +31,6 @@ export default async function ProjectGeneralSettingsPage({
     ])
     if (!data) notFound()
 
-    return (
-      <GeneralSettings
-        projectId={data.id}
-        projectName={data.name}
-        createdAt={data.createdAt}
-        documentCount={data.documentCount}
-        totalFileSize={data.totalFileSize}
-        canManage={access.manage}
-      />
-    )
+    return <ProfileSettings data={data} canEdit={access.editProfile} />
   })
 }

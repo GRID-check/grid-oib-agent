@@ -55,6 +55,11 @@ type MemoryItem = Omit<ProjectMemoryItem, 'createdAt' | 'updatedAt' | 'lastRefer
 
 interface ProjectMemoryPanelProps {
   projectId: string
+  /**
+   * A list without the controls to add, confirm, pin, edit or remove: for a
+   * reader without `project:memory:write`, whose every click would answer 404.
+   */
+  readOnly?: boolean
 }
 
 const KNOWN_VERIFICATIONS = ['unverified', 'source_grounded', 'user_confirmed']
@@ -103,7 +108,10 @@ async function requestJson<T>(url: string, init?: RequestInit, t?: Translator): 
   return (await res.json()) as T
 }
 
-export function ProjectMemoryPanel({ projectId }: ProjectMemoryPanelProps): JSX.Element {
+export function ProjectMemoryPanel({
+  projectId,
+  readOnly = false,
+}: ProjectMemoryPanelProps): JSX.Element {
   const t = useTranslations('projects')
   const { locale } = useLocale()
   const [items, setItems] = useState<MemoryItem[] | null>(null)
@@ -288,20 +296,22 @@ export function ProjectMemoryPanel({ projectId }: ProjectMemoryPanelProps): JSX.
           <h2 className="text-foreground text-sm font-semibold">{t('memory.heading')}</h2>
           <p className="text-muted-foreground mt-1 text-sm">{t('memory.description')}</p>
         </div>
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={() => setAdding(true)}
-          className={adding ? 'pointer-events-none invisible' : undefined}
-          tabIndex={adding ? -1 : undefined}
-          aria-hidden={adding || undefined}
-        >
-          <Plus className="size-4" aria-hidden />
-          {t('memory.addMemory')}
-        </Button>
+        {!readOnly && (
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setAdding(true)}
+            className={adding ? 'pointer-events-none invisible' : undefined}
+            tabIndex={adding ? -1 : undefined}
+            aria-hidden={adding || undefined}
+          >
+            <Plus className="size-4" aria-hidden />
+            {t('memory.addMemory')}
+          </Button>
+        )}
       </div>
 
-      {adding && (
+      {!readOnly && adding && (
         <RaisedCard className="animate-in fade-in-0 duration-base ease-out motion-reduce:animate-none">
           <RaisedCardBody className="space-y-3 p-4">
             <div className="flex flex-wrap items-start gap-3">
@@ -514,7 +524,7 @@ export function ProjectMemoryPanel({ projectId }: ProjectMemoryPanelProps): JSX.
                       )}
                     </ItemContent>
 
-                    {!isEditing && (
+                    {!isEditing && !readOnly && (
                       <ItemActions className="duration-quick pointer-coarse:opacity-100 gap-1 opacity-0 transition-opacity ease-out focus-within:opacity-100 group-hover:opacity-100 motion-reduce:opacity-100 motion-reduce:transition-none">
                         <Button
                           variant="ghost"

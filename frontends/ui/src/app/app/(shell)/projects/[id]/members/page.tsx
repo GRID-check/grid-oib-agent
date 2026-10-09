@@ -5,11 +5,11 @@ interface ProjectMembersPageProps {
 }
 
 /**
- * Legacy members route — the roster moved into the project Settings page
+ * Legacy members route — the roster moved into the project Settings members section
  * (click-dummy IA, spec §5 / FB-9). The route stays so old links and
  * bookmarks keep working; the project layout already guards access.
  */
 export default async function ProjectMembersPage({ params }: ProjectMembersPageProps): Promise<never> {
   const { id } = await params
-  redirect(`/app/projects/${id}/settings`)
+  redirect(`/app/projects/${id}/settings/members`)
 }

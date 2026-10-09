@@ -37,7 +37,7 @@ export const nav: typeof en.nav = {
     automation:
       'Was Piloti erledigt hat, während Sie weg waren, was als Nächstes ansteht — und die Skills, mit denen es arbeitet.',
     knowledge: 'Was die Wissensbasis derzeit enthält.',
-    settings: 'Projektprofil, Mitglieder, Gedächtnis und Gefahrenzone.',
+    settings: 'Wie dieses Projekt eingerichtet ist: Profil, Mitglieder, Gedächtnis, Nutzung und Dokumente.',
     intake: 'Geführtes Briefing für dieses Projekt.',
   },
   backTo: 'Zurück zu {label}',
