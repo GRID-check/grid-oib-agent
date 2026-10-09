@@ -12,7 +12,7 @@ import {
   isIfcPreviewFirstEnabled,
 } from '@/lib/authz/feature-flags'
 import { findProjectInOrg } from '@/lib/projects/repository'
-import { listProjectFolders } from '@/lib/projects/folder-service'
+import { listProjectFolders, projectRootAccess } from '@/lib/projects/folder-service'
 import { listDocumentsPage } from '@/lib/documents/service'
 import { summarizeDocumentVersions } from '@/lib/documents/lifecycle'
 import { resolveDocumentLifecyclePermissions } from '@/lib/documents/lifecycle-permissions'
@@ -79,9 +79,10 @@ export default async function FilesPage({ params }: FilesPageProps): Promise<JSX
     // The FIRST page only: the paint needs rows now, not the whole corpus. The
     // workspace reads the remaining pages itself when `nextCursor` says there
     // are any (`initialFilesComplete`).
-    const [initialFolders, { documents: initialDocuments, nextCursor }] = await Promise.all([
+    const [initialFolders, { documents: initialDocuments, nextCursor }, initialRootAccess] = await Promise.all([
       listProjectFolders(id, session),
       listDocumentsPage(session, id),
+      projectRootAccess(session, id),
     ])
 
     /*
@@ -120,6 +121,7 @@ export default async function FilesPage({ params }: FilesPageProps): Promise<JSX
         canCollaborate={isCollaborationEnabled(session)}
         currentUserId={session.userId}
         mailImportEnabled={isMailImportEnabled(session)}
+        initialRootAccess={initialRootAccess}
       />
     )
   })

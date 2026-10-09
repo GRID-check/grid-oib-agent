@@ -64,6 +64,12 @@ interface ProjectFileWorkspaceProps {
   initialFilesComplete?: boolean
   /** Whether the Outlook archive import is offered (`isMailImportEnabled`, ADR-0085). Off by default. */
   mailImportEnabled?: boolean
+  /**
+   * What the reader may do at the project root (`projectRootAccess`, ADR-0088).
+   * The mail import files its folder there, so only `write` offers it; absent
+   * reads as `read`, never a guessed write.
+   */
+  initialRootAccess?: 'read' | 'write'
 }
 
 /**
@@ -87,6 +93,7 @@ export function ProjectFileWorkspace({
   initialFiles,
   initialFilesComplete = true,
   mailImportEnabled = false,
+  initialRootAccess = 'read',
 }: ProjectFileWorkspaceProps) {
   const t = useTranslations('files')
   const router = useRouter()
@@ -123,7 +130,7 @@ export function ProjectFileWorkspace({
       renderHeader={(controls) => (
         <ProjectSectionActions>
           {controls}
-          {mailImportEnabled && <MailImportAction projectId={projectId} />}
+          {mailImportEnabled && initialRootAccess === 'write' && <MailImportAction projectId={projectId} />}
         </ProjectSectionActions>
       )}
       initialFolders={initialFolders}

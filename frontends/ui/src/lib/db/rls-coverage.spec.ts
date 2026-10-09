@@ -98,6 +98,9 @@ const BOUNDARY_MIGRATIONS = [
   // Adds upload_batches — one upload gesture and when it was all read
   // (ADR-0086). Keyed directly by its organization.
   '0110_upload_batches.sql',
+  // Adds project_folder_grants — a folder's own access list, one row per role
+  // and level (ADR-0088). Keyed directly by its organization.
+  '0111_project_folder_grants.sql',
   // Adds mail_imports (ADR-0085), an Outlook archive a member is filing into a
   // project. Keyed by the organization, secured like product_feedback; the
   // stale-upload sweep reads across tenants under the platform role.

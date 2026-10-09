@@ -24,6 +24,11 @@ import {
   buildThumbnailStorageKey,
 } from '@/lib/s3'
 import { resolveDocumentBucket } from '@/lib/storage/bucket'
+import {
+  getHiddenFolderIds,
+  getProjectFolderAccess,
+  requireFolderWrite,
+} from '@/lib/authz/folder-access'
 import { requireProjectAccess } from '@/lib/authz/projects'
 import { hasPermission, ORG_PERMISSIONS } from '@/lib/authz/permissions'
 import { ForbiddenError } from '@/lib/api/errors'
@@ -539,6 +544,7 @@ export async function listDocumentsPage(
   // `limit` is deliberately not passed: the repository's own default is the
   // page size, and a second copy of it here could drift from the real one.
   const page = await listProjectDocumentPage(projectId, session.organizationId, {
+    hiddenFolderIds: await getHiddenFolderIds(session, projectId),
     authoredBy: options.authoredBy,
     // Archived documents have LEFT the working set, so they are absent unless
     // the caller says otherwise (ADR-0054).
@@ -564,7 +570,9 @@ export async function resolveProjectDocumentsByName(
   filenames: readonly string[]
 ): Promise<ListedDocument[]> {
   await requireProjectAccess(session, projectId, 'project:view')
-  const rows = await findProjectDocumentsByFilenames(projectId, session.organizationId, filenames)
+  const rows = await findProjectDocumentsByFilenames(projectId, session.organizationId, filenames, {
+    hiddenFolderIds: await getHiddenFolderIds(session, projectId),
+  })
   return toListedDocuments(session, rows)
 }
 
@@ -596,7 +604,11 @@ export async function probeProjectDocumentNames(
   names: readonly string[]
 ): Promise<DocumentNameMatchRow[]> {
   await requireProjectAccess(session, projectId, 'project:view')
-  return findProjectDocumentsByNames(projectId, session.organizationId, names)
+  // A name taken in a hidden folder is not reported: the upload refuses it
+  // without saying where (`assertNameFreeInProject`).
+  return findProjectDocumentsByNames(projectId, session.organizationId, names, {
+    hiddenFolderIds: await getHiddenFolderIds(session, projectId),
+  })
 }
 
 export type { ListedDocument }
@@ -774,14 +786,22 @@ export async function searchProjectDocuments(
   const project = await findProjectInOrg(projectId, session.organizationId)
   if (!project) throw new NotFoundError('Project not found')
 
-  const hits = await fetchSemanticHits(project.collectionName, query, topK)
+  // The project's own collection and every restricted one this reader is
+  // cleared for (ADR-0087); one ranking across them, cut to `topK`.
+  const access = await getProjectFolderAccess(session, projectId, project.collectionName)
+  const collections = [project.collectionName, ...access.clearedRestrictedCollections]
+  const hits = (await Promise.all(collections.map((collection) => fetchSemanticHits(collection, query, topK))))
+    .flat()
+    .sort((a, b) => b.score - a.score)
+    .slice(0, topK)
   if (hits.length === 0) return { hits: [] }
   // The canonical rows, hydrated exactly as the listing hydrates them, so a
   // semantic result is always a real, visible document with its live status.
   const rows = await findProjectDocumentsByFilenames(
     projectId,
     session.organizationId,
-    hits.map((hit) => hit.file_name)
+    hits.map((hit) => hit.file_name),
+    { hiddenFolderIds: [...access.hiddenFolderIds] }
   )
   return { hits: joinHitsToFiles(hits, await toListedDocuments(session, rows)) }
 }
@@ -1730,7 +1750,14 @@ export async function runReindexSlice(
     try {
       const outcome = await redispatchForReindex(session, row)
       counts[outcome] += 1
-    } catch {
+    } catch (error) {
+      // A document in a folder the requester may not read, or may only read
+      // (ADR-0088), is not theirs to re-read: skipped, and never named, since
+      // its name is what a hidden folder hides.
+      if (error instanceof NotFoundError || error instanceof ForbiddenError) {
+        counts.skipped += 1
+        return
+      }
       // One document's failure must not abandon the rest of the project.
       recordFailure(counts, documentDisplayName(row))
     }
@@ -2105,7 +2132,10 @@ export async function deleteDocument(
   const doc = await findDocumentInOrg(documentId, session.organizationId)
   if (!doc || doc.scope !== 'project' || doc.projectId === null) throw new NotFoundError()
 
-  await requireProjectAccess(session, doc.projectId, ['project:documents:write', 'project:edit'])
+  // A delete is a write in the document's folder (ADR-0088): the project's
+  // document-write permission, and write on the folder. A folder the session
+  // may not read is not found; one it may only read refuses (403).
+  await requireFolderWrite(session, doc.projectId, [doc.folderId])
   // After the access check (an unauthorized caller learns nothing, not even
   // that a hold exists) and before the first destructive step below.
   await assertNoActiveHold(session.organizationId, 'document', documentId)

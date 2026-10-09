@@ -5,6 +5,7 @@ import { readdirSync, readFileSync } from 'node:fs'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { DeleteObjectCommand, PutObjectCommand } from '@aws-sdk/client-s3'
 
+vi.mock('@/lib/authz/folder-access', async () => (await import('@/test-utils/folder-access')).openFolderAccessModule())
 vi.mock('server-only', () => ({}))
 
 const s3Send = vi.fn()
@@ -46,8 +47,10 @@ vi.mock('@/lib/projects/repository', () => ({
 }))
 
 const getOrCreateProjectFolderByName = vi.fn()
+const findRootProjectFolderByName = vi.fn()
 vi.mock('@/lib/projects/folder-service', () => ({
   getOrCreateProjectFolderByName: (...args: unknown[]) => getOrCreateProjectFolderByName(...args),
+  findRootProjectFolderByName: (...args: unknown[]) => findRootProjectFolderByName(...args),
 }))
 
 const findDocumentAuthoredByRef = vi.fn()
@@ -69,6 +72,7 @@ vi.mock('@/lib/documents/service', () => ({
 }))
 
 import { ForbiddenError, InsufficientStorageError, NotFoundError } from '@/lib/api/errors'
+import { folderReadOnlyError, requireFolderWrite } from '@/lib/authz/folder-access'
 import type { NewDocument } from '@/lib/db/schema'
 import type { AuthorizedSession } from '@/lib/auth/types'
 import { makeProject } from '@/test-utils/db-fixtures'
@@ -169,6 +173,7 @@ beforeEach(() => {
   findDocumentAuthoredByRef.mockResolvedValue(null)
   findProjectInOrg.mockResolvedValue(makeProject({ id: 'proj-1', collectionName: 'proj_abc' }))
   getOrCreateProjectFolderByName.mockResolvedValue(FOLDER)
+  findRootProjectFolderByName.mockResolvedValue(FOLDER)
   ensureTenantBucketChecked.mockResolvedValue('grid-org-org-1')
   s3Send.mockResolvedValue({})
   admitOrDiscard.mockResolvedValue(undefined)
@@ -1021,6 +1026,34 @@ describe('fileGeneratedDocument', () => {
  * this file's fixtures, and a spy proves only what today's fixtures happened to
  * exercise.
  */
+describe('filing into a folder the commissioning person may only read (ADR-0088)', () => {
+  const file = () =>
+    fileGeneratedDocument({
+      session: SESSION,
+      projectId: 'proj-1',
+      producer: 'agent_document',
+      ref: 'ref-read-only',
+      title: 'Bericht',
+      render,
+    })
+
+  it('refuses a read-only Berichte with a typed 403 before anything is rendered or written', async () => {
+    vi.mocked(requireFolderWrite).mockRejectedValueOnce(folderReadOnlyError())
+
+    await expect(file()).rejects.toBeInstanceOf(ForbiddenError)
+    expect(requireFolderWrite).toHaveBeenCalledWith(SESSION, 'proj-1', [FOLDER.id])
+    expect(render).not.toHaveBeenCalled()
+    expect(admitOrDiscard).not.toHaveBeenCalled()
+  })
+
+  it('asks again for a Berichte created (or raced) after the first check', async () => {
+    findRootProjectFolderByName.mockResolvedValue(null)
+    await file()
+    expect(requireFolderWrite).toHaveBeenNthCalledWith(1, SESSION, 'proj-1', [null])
+    expect(requireFolderWrite).toHaveBeenNthCalledWith(2, SESSION, 'proj-1', [FOLDER.id])
+  })
+})
+
 describe('every path that can create a machine-authored row', () => {
   const SRC = new URL('../../', import.meta.url)
 

@@ -23,6 +23,7 @@ All schemas are in `frontends/ui/src/lib/db/schema/` and barrel-exported from `i
 | `messages.ts` | `messages` |
 | `documents.ts` | `documents` |
 | `project-folders.ts` | `project_folders` |
+| `project-folder-grants.ts` | `project_folder_grants` |
 | `user-preferences.ts` | `user_preferences` |
 | `answer-feedback.ts` | `answer_feedback` |
 | `platform-lessons.ts` | `platform_lessons`, `platform_lesson_reports`, `platform_lesson_events` |
@@ -236,7 +237,7 @@ export const documents = pgTable('documents', {
 | `display_name` | `text` | | **Migration `0048`**: what a reader sees, once somebody has renamed the document. `NULL` = never renamed → show `filename`, which is what every earlier row means (no backfill). Resolve the pair with `documentDisplayName` (`lib/documents/display-name`) rather than reading the column directly. Written by `PATCH /api/documents/{id}`, which also mirrors the value onto the backend metadata store's `display_title` so citation chips follow the rename without a re-ingestion. Renaming `filename` instead would orphan the document's chunks — the migration spells out why. |
 | `storage_key` | `text` | NOT NULL | Object storage key |
 | `storage_bucket` | `text` | | **ADR-0043** (migration `0033`): the S3 bucket holding this document's bytes. `NULL` means the deployment's shared bucket (`SEAWEED_BUCKET`), which is what every row written before per-organization buckets existed means — and the meaning is fixed, so no backfill is needed or wanted. Recorded rather than derived from `organization_id`: deriving it would make `SEAWEED_PER_ORG_BUCKETS` a cutover, where flipping it makes every earlier object unreachable. `resolveDocumentBucket` in `lib/storage/bucket` is the one place that turns it back into a name. |
-| `collection_name` | `text` | NOT NULL | Milvus collection for the vectorized content |
+| `collection_name` | `text` | NOT NULL | The retrieval collection holding the document's chunks. For a project document it is the project's `collection_name`, **or, under a restricted folder, that folder's own collection** `<project collection>_r<12 hex of the folder id>` (ADR-0087). Which one is a function of the folder tree: `lib/projects/collection-placement.ts` moves rows when the tree changes: purge and re-point in the caller, the re-ingest by a bulk `placement_reingest` job. |
 | `file_size` | `integer` | | Size in bytes |
 | `content_type` | `text` | | MIME type |
 | `status` | `text` | NOT NULL, DEFAULT `'pending'` | `pending` → `processing` → `processed` / `error`, plus `stored` (migration `0063`). `stored` is TERMINAL and means "the bytes are here and indexing was deliberately skipped" — an agent-authored document, which is never dispatched to `/v1/ingest`. It must stay out of `IN_FLIGHT_STATUSES` in `lib/documents/reconcile-status`, or every read polls a backend that has never heard of the row and then overwrites its status from a file list that will never contain it. Plain `text` with no CHECK, so a new state is a TypeScript change. |
@@ -651,19 +652,44 @@ export const projectFolders = pgTable('project_folders', {
 | `parent_id` | `uuid` | | `NULL` for a folder at the root of its shelf |
 | `name` | `varchar(255)` | NOT NULL | |
 | `path` | `varchar(1024)` | NOT NULL | Materialised path, for breadcrumbs and the backend mirror |
+| `access_mode` | `text` | NOT NULL, default `'inherit'`, CHECK `inherit`/`custom` | **Migration `0111`, ADR-0088**: `inherit` takes the parent's access (a root folder the project's); `custom` has its own list in `project_folder_grants`. The rule over a path is one pure function, `effectiveFolderLevel` in `lib/authz/folder-access-rule.ts`: the minimum over the folder and every ancestor with its own list, admins write everywhere, `project:documents:write` caps write. |
+| `access_changed_by` / `access_changed_at` | `text` / `timestamptz` | set whenever `access_mode = 'custom'` (`project_folders_access_custom_check`) | Who set the list, and when. |
+| `deleted_at` / `deleted_by` | `timestamptz` / `text` | | **Migration `0111`**: a deleted project folder is a TOMBSTONE (an Archiv folder's delete removes its row). The row keeps its `access_mode` and grants so the access rule still answers for content recorded from it; every listing, the tree, placement and every read path filter `deleted_at IS NULL`. |
 | `created_at` / `updated_at` | `timestamptz` | NOT NULL, `defaultNow()` | |
 
 **Indexes and constraints:**
 - `idx_project_folders_project_id`, `idx_project_folders_parent_id`
 - `project_folders_id_project_id_key` — UNIQUE on (`id`, `project_id`). Redundant on its own (`id` is the PK) and required anyway: a composite FK can only reference a uniquely-constrained column set (migration `0030`).
+- `project_folders_custom_access_idx` — on `project_id`, **PARTIAL** (`WHERE access_mode = 'custom'`): "does this project have any own list" is one probe, the fast path for nearly every project (migration `0111`)
+- `project_folders_access_list` — a DEFERRED constraint trigger: at commit a `custom` folder has 1–20 grants (`grid_folder_access_list_check`, error `check_violation`, constraint name `project_folder_grants_custom_list`). A CHECK cannot count rows of another table; deferred so a list can be replaced (delete, insert) in one transaction. "Nobody" is not a setting.
 - `project_folders_id_organization_id_scope_key` — UNIQUE on (`id`, `organization_id`, `scope`), the target of the two shelf keys below (migration `0102`).
 - `project_folders_parent_id_project_id_fkey` — a folder's parent lives in the same project. This replaced an RLS policy that referenced `project_folders` from its own predicate, which Postgres answers with "infinite recursion detected in policy" — and because `documents`' policy joined this table, both became unreadable for the runtime role. MATCH SIMPLE skips an Archiv folder (NULL project); the next key covers it.
 - `project_folders_parent_id_organization_id_scope_fkey` — a folder's parent is on its own **shelf and tenant** (migration `0102`). Skipped for a root folder (NULL parent).
 - `project_folders_scope_check` — `scope IN ('project', 'archiv')`; `project_folders_scope_owner_check` — `(scope = 'project') = (project_id IS NOT NULL)`, so the three columns tell one story.
-- `uniq_project_folders_parent_name` — UNIQUE on (`organization_id`, `COALESCE(project_id, nil uuid)`, `COALESCE(parent_id, nil uuid)`, `name`) (migration `0063`, widened by `0102` from (`project_id`, `COALESCE(parent_id, …)`, `name`)). One folder per name per parent **on a shelf**. The `COALESCE`s are load-bearing: `parent_id` is `NULL` at a root and `project_id` is `NULL` for the whole Archiv, `NULL` never equals `NULL` in a unique index, so a plain index would police nested project folders and leave **root** folders — where a fixed, created-on-first-use destination like `Berichte` lands — and every Archiv folder uncontrolled. The nil UUID cannot collide with a real id (`gen_random_uuid()` is v4). Get-or-create is not a transaction, and before this index two runs finishing at once produced two `Berichte` folders with no way to say which was real. Case- and whitespace-sensitive on purpose: it stops a race between identical writes, it does not police folder naming. An EXPRESSION index, so it lives only in the migration; `documents.spec.ts` pins it. Within one tenant a project id determines the organization, so for every row that predates `0102` the widened index rejects exactly what the old one did.
+- `uniq_project_folders_parent_name` — UNIQUE on (`organization_id`, `COALESCE(project_id, nil uuid)`, `COALESCE(parent_id, nil uuid)`, `name`) (migration `0063`, widened by `0102` from (`project_id`, `COALESCE(parent_id, …)`, `name`)). **PARTIAL** `WHERE deleted_at IS NULL` since `0111`, so a tombstone does not hold its name. One living folder per name per parent **on a shelf**. The `COALESCE`s are load-bearing: `parent_id` is `NULL` at a root and `project_id` is `NULL` for the whole Archiv, `NULL` never equals `NULL` in a unique index, so a plain index would police nested project folders and leave **root** folders — where a fixed, created-on-first-use destination like `Berichte` lands — and every Archiv folder uncontrolled. The nil UUID cannot collide with a real id (`gen_random_uuid()` is v4). Get-or-create is not a transaction, and before this index two runs finishing at once produced two `Berichte` folders with no way to say which was real. Case- and whitespace-sensitive on purpose: it stops a race between identical writes, it does not police folder naming. An EXPRESSION index, so it lives only in the migration; `documents.spec.ts` pins it. Within one tenant a project id determines the organization, so for every row that predates `0109` the widened index rejects exactly what the old one did.
 - **RLS:** `grid_tenant_isolation` on `organization_id = grid_current_org()` (`0102`; `0031` joined `projects`). No table read, so no recursion, and cheaper per row.
 
 **Why a row has to state its tenant (ADR-0078).** Before the Archiv had folders, "same project" implied "same organization". An Archiv folder has no project, so the tenant is a column and `documents` references the folder through it: see `documents_folder_id_organization_id_scope_fkey`.
+
+### project_folder_grants (migration 0111, ADR-0088)
+
+One role's access to a folder with its own list.
+
+| Column | Type | Constraints | Notes |
+|--------|------|-------------|-------|
+| `organization_id` | `text` | NOT NULL, FK (`project_id`, `organization_id`) → `projects` ON DELETE CASCADE | RLS: `organization_id = grid_current_org()` |
+| `project_id` | `uuid` | NOT NULL | |
+| `folder_id` | `uuid` | NOT NULL, PK part, FK (`folder_id`, `project_id`) → `project_folders` ON DELETE CASCADE | A grant cannot point across projects |
+| `role_slug` | `text` | NOT NULL, PK part, CHECK `'*'` or a WorkOS slug (`^[^*[:space:]][^[:space:]]{0,99}$`) | `*` is every project member (`EVERY_PROJECT_MEMBER`); a list without `*` is one not every member may read, and only such a folder gets its own retrieval collection |
+| `level` | `text` | NOT NULL, CHECK `read`/`write` | |
+| `created_at` | `timestamptz` | NOT NULL, `defaultNow()` | |
+
+Index `project_folder_grants_project_idx (project_id)`. Written only by
+`setFolderAccess` (`lib/projects/folder-access-settings.ts`), which replaces the
+list in one transaction. Its down drops every list, the tombstones and the
+columns: open every folder in the product first. Proven against Postgres in
+`folder-access.integration.spec.ts`; constraints and down in
+`scripts/rls-test-db.sh`.
 
 > **Applying `0063` to an existing deployment:** nothing ever stopped two sibling folders sharing a name, so the migration first fails loudly with the full list of offenders rather than letting `CREATE UNIQUE INDEX` report one key. It deliberately does not deduplicate — deleting a folder row cascades to `documents.folder_id` and would silently unfile real evidence. Rename or merge through the application, then re-run.
 
@@ -1067,7 +1093,8 @@ split is stated explicitly).
 ## bff_job_queue / bff_job_lane_turns (migration 0104, ADR-0079)
 
 The BFF's durable background work: one row is one job a `bff-jobs` replica
-claims and runs (project reindex, failed-ingestion rescan; and, one step each,
+claims and runs (project reindex, failed-ingestion rescan, the re-read of the
+documents collection placement moved `placement_reingest`; and, one step each,
 IFC extraction `bim_extract`, office conversion `office_rendition` and research
 report filing `file_research_report`). The claim is SQL in
 `frontends/ui/workers/job-queue.js`, in the order ADR-0076 proved for
@@ -1090,7 +1117,10 @@ bulk), then oldest, with `FOR UPDATE SKIP LOCKED`.
 | `created_at`, `last_error` | timestamptz, text | |
 
 A document at `processing` remembers its job as `documents.metadata.bffJobId`,
-which the sweep joins on. Migration 0103 lets `task_runs.filing_status` be
+which the sweep joins on. One that collection placement moved and whose re-read
+no `placement_reingest` slice has taken yet also carries
+`metadata.placementReingest` (ADR-0087): the job takes marked rows, so its
+payload is the project alone. Migration 0103 lets `task_runs.filing_status` be
 `queued` (a `file_research_report` job holds the report) and adds the partial
 index `ix_task_runs_filing_queued` the filing sweep reads.
 

@@ -20,7 +20,7 @@
 import 'server-only'
 import type { FolderItem } from '@/features/documents/components/project-file-workspace'
 import type { DocumentWireRow } from '@/features/documents/lib/file-item'
-import type { FolderRow } from './shelf-folders'
+import type { ProjectFolderRow } from '@/lib/projects/folder-service'
 import type { ListedDocument } from './shelf-listing'
 import { summarizeDocumentVersions } from './lifecycle'
 import type { DocumentVersionState } from './lifecycle-types'
@@ -114,7 +114,7 @@ export async function toDocumentWireRows(
  * document listing, so it crosses the same boundary and needs the same
  * projection.
  */
-export function toFolderWireRow(row: FolderRow): FolderItem {
+export function toFolderWireRow(row: ProjectFolderRow): FolderItem {
   return {
     id: row.id,
     parentId: row.parentId,

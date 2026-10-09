@@ -14,6 +14,14 @@
  * `shelfOwner`, and the database holds the rest: `project_folders`'
  * composite keys keep a parent and a document on the folder's own shelf and
  * tenant, so a bug in here cannot file across either.
+ *
+ * The project shelf adds per-folder access per role (ADR-0088), decided in
+ * `@/lib/projects/folder-service`: it checks before calling in here and passes
+ * a {@link ShelfFolderVisibility} where a walk must skip what the reader may
+ * not see. Two things differ here by shelf: a project folder's delete leaves a
+ * tombstone (migration 0111), because what was derived from it is judged by
+ * the access it had, and a project's path rewrite reaches every collection its
+ * documents live in (a restricted folder's documents are in their own).
  */
 
 import { isUniqueViolation } from '@/lib/db/errors'
@@ -21,6 +29,7 @@ import { and, eq, isNull, like, sql } from 'drizzle-orm'
 import { getDb } from '@/lib/db'
 import { documents, projectFolders } from '@/lib/db/schema'
 import { getBackendUrl } from '@/lib/backend-proxy'
+import { listProjectDocumentCollections } from '@/lib/authz/folder-access-repository'
 import { validateFolderName, buildFolderPath, folderMatchKey, pathSegments } from '@/lib/projects/folders'
 import type { AuthorizedSession } from '@/lib/auth/types'
 import { requireShelfRead, requireShelfWrite } from './shelf-authz'
@@ -35,6 +44,27 @@ type Db = ReturnType<typeof getDb>
 type Tx = Parameters<Parameters<Db['transaction']>[0]>[0]
 type FolderRecord = typeof projectFolders.$inferSelect
 type Outcome<T> = ({ ok: true } & T) | { ok: false; error: string }
+
+/**
+ * A sibling already holds this exact name. Deliberately the one answer for a
+ * visible sibling and a hidden one (ADR-0087): it names neither, and says no
+ * more than `uniq_project_folders_parent_name` forces anyone to learn. A
+ * constant, because a caller that picks the next free name (the mail import's
+ * ` (2)`) has to tell this refusal from every other one.
+ */
+export const FOLDER_NAME_TAKEN = 'A folder with this name already exists here.'
+
+/**
+ * What a folder walk may see and create on a shelf with per-folder access (the
+ * project's, ADR-0088). Absent on the Archiv, where every folder is the shelf's.
+ */
+export interface ShelfFolderVisibility {
+  isVisible(folderId: string): boolean
+  /** Throws when the reader may not create a folder in this parent (403). */
+  assertMayCreateIn(parentId: string): void
+  /** Asked again after a raced insert: the winner's folder may have been restricted meanwhile. */
+  recheckVisible(folderId: string): Promise<boolean>
+}
 
 export interface FolderRow {
   id: string
@@ -69,13 +99,6 @@ export interface DeleteFolderResult {
 
 const folderOnShelf = (shelf: DocumentShelf, organizationId: string, folderId: string) =>
   and(eq(projectFolders.id, folderId), shelfFolderWhere(shelf, organizationId))
-
-/**
- * The answer when a sibling folder already has the name. A constant, because a
- * caller that picks the next free name (the mail import's ` (2)`) has to tell
- * this refusal from every other one.
- */
-export const FOLDER_NAME_TAKEN = 'A folder with this name already exists here.'
 
 /** One folder of the shelf, or `undefined` — another shelf's or tenant's folder id is simply not found. */
 export async function findShelfFolder(
@@ -207,6 +230,16 @@ async function findSibling(
  * run winning a race the caller never knew it was in — so it is answered by
  * re-selecting the winner, not by a 500 on somebody's finished report.
  */
+/** The shelf's root folder of this name, or null; never creates it and does not authorize. */
+export async function findShelfRootFolder(
+  shelf: DocumentShelf,
+  organizationId: string,
+  name: string,
+): Promise<FolderRow | null> {
+  const row = await findSibling(getDb(), shelf, organizationId, null, name)
+  return row ? toFolderRow(row) : null
+}
+
 export async function getOrCreateShelfRootFolder(
   shelf: DocumentShelf,
   organizationId: string,
@@ -289,11 +322,28 @@ const MAX_ENSURE_DEPTH = 12
  * real folders the caller can file into, while a rollback on the ninetieth path
  * would discard eighty-nine folders that are correct and that a retry would
  * simply recreate.
+ *
+ * ## Folders the reader may not see (ADR-0087)
+ *
+ * With a `visibility`, a hidden folder does not exist here: it is never
+ * matched, never descended into, and a hidden `parentId` is "not found".
+ * Matching it would hand back its id, and creating below it would echo its
+ * name in the new folder's path.
+ *
+ * What it cannot do is let a same-named sibling be created beside it, because
+ * `uniq_project_folders_parent_name` would refuse that insert anyway. So a
+ * segment whose EXACT name a hidden sibling holds is refused with
+ * {@link FOLDER_NAME_TAKEN}, the answer `createShelfFolder` already gives for
+ * the same collision: it names nothing and confirms no more than the index
+ * forces. A segment that only matches a hidden folder loosely (`honorare` for
+ * `Honorare`) is not a collision, and is created as the reader's own folder;
+ * refusing it would disclose a name the index would not.
  */
 export async function ensureShelfFolderPaths(
   session: AuthorizedSession,
   shelf: DocumentShelf,
   input: EnsureFolderPathsInput,
+  visibility?: ShelfFolderVisibility,
 ): Promise<Outcome<{ folders: FolderRow[]; folderIdByPath: Record<string, string> }>> {
   await requireShelfWrite(session, shelf)
   const organizationId = session.organizationId
@@ -304,6 +354,7 @@ export async function ensureShelfFolderPaths(
 
   let root: FolderRow | null = null
   if (input.parentId) {
+    if (visibility && !visibility.isVisible(input.parentId)) return { ok: false, error: 'Parent folder not found.' }
     const parent = await findShelfFolder(shelf, organizationId, input.parentId, db)
     if (!parent) return { ok: false, error: 'Parent folder not found.' }
     root = toFolderRow(parent)
@@ -312,17 +363,22 @@ export async function ensureShelfFolderPaths(
   // One read of the shelf's folders, then resolution happens against this
   // index. A lookup per segment would be a query per directory in the tree.
   const existing = await db.select().from(projectFolders).where(shelfFolderWhere(shelf, organizationId))
-  const byParentAndKey = new Map<string, FolderRow>()
+  const walk: FolderWalk = { byParentAndKey: new Map(), hiddenNames: new Set(), createdHere: new Set(), visibility }
   const index = (row: FolderRow): void => {
-    byParentAndKey.set(`${row.parentId ?? ''}\u0000${folderMatchKey(row.name)}`, row)
+    walk.byParentAndKey.set(`${row.parentId ?? ''}\u0000${folderMatchKey(row.name)}`, row)
   }
-  for (const row of existing) index(toFolderRow(row))
+  // Exact names, as the unique index compares them, of the folders this reader
+  // may not see; never matched, only refused (see above).
+  for (const row of existing) {
+    if (!visibility || visibility.isVisible(row.id)) index(toFolderRow(row))
+    else walk.hiddenNames.add(`${row.parentId ?? ''}\u0000${row.name}`)
+  }
 
   const touched = new Map<string, FolderRow>()
   const folderIdByPath: Record<string, string> = {}
 
   for (const requested of input.paths) {
-    const resolved = await resolvePath(db, shelf, organizationId, root, requested, byParentAndKey, (created) => {
+    const resolved = await resolvePath(db, shelf, organizationId, root, requested, walk, (created) => {
       index(created)
       touched.set(created.id, created)
     })
@@ -333,6 +389,22 @@ export async function ensureShelfFolderPaths(
   return { ok: true, folders: [...touched.values()], folderIdByPath }
 }
 
+/** What one folder walk knows: the visible folders by match key, and the exact names it must not take. */
+interface FolderWalk {
+  byParentAndKey: Map<string, FolderRow>
+  hiddenNames: Set<string>
+  /**
+   * The folders this walk inserted itself. Each inherits its parent's access,
+   * which the walk asked `assertMayCreateIn` about before inserting it, so a
+   * folder created inside one needs no second ask. It could not get one: the
+   * reader's access was read before the folder existed, and a folder that
+   * access does not know reads as `none`, which refused every nested path of a
+   * folder upload into a project with any own list or a folder in the bin.
+   */
+  createdHere: Set<string>
+  visibility: ShelfFolderVisibility | undefined
+}
+
 /** Walk one requested path from `root`, creating the segments the index does not know. */
 async function resolvePath(
   db: Db,
@@ -340,7 +412,7 @@ async function resolvePath(
   organizationId: string,
   root: FolderRow | null,
   requested: string,
-  byParentAndKey: Map<string, FolderRow>,
+  walk: FolderWalk,
   onCreated: (folder: FolderRow) => void,
 ): Promise<Outcome<{ folder: FolderRow | null }>> {
   const segments = pathSegments(requested)
@@ -354,13 +426,22 @@ async function resolvePath(
     if (!validation.ok) return { ok: false, error: validation.error! }
     const name = validation.name!
 
-    const match = byParentAndKey.get(`${current?.id ?? ''}\u0000${folderMatchKey(name)}`)
+    const match = walk.byParentAndKey.get(`${current?.id ?? ''}\u0000${folderMatchKey(name)}`)
     if (match) {
       current = match
       continue
     }
+    if (walk.hiddenNames.has(`${current?.id ?? ''}\u0000${name}`)) return { ok: false, error: FOLDER_NAME_TAKEN }
+    // Creating a folder is a write into its parent (ADR-0088); matching an
+    // existing one is not, and the upload into it asks on its own.
+    if (current && !walk.createdHere.has(current.id)) walk.visibility?.assertMayCreateIn(current.id)
     const created = await getOrCreateChild(db, shelf, organizationId, current, name)
     if (!created.ok) return created
+    // A raced winner is somebody else's folder: its access is theirs to have set.
+    if (!created.raced) walk.createdHere.add(created.folder.id)
+    if (created.raced && walk.visibility && !(await walk.visibility.recheckVisible(created.folder.id))) {
+      return { ok: false, error: FOLDER_NAME_TAKEN }
+    }
     onCreated(created.folder)
     current = created.folder
   }
@@ -375,17 +456,17 @@ async function getOrCreateChild(
   organizationId: string,
   parent: FolderRow | null,
   name: string,
-): Promise<Outcome<{ folder: FolderRow }>> {
+): Promise<Outcome<{ folder: FolderRow; raced: boolean }>> {
   const inserted = await insertFolderRow(db, shelf, organizationId, {
     parentId: parent?.id ?? null,
     name,
     path: buildFolderPath(parent?.path ?? '', name),
   })
-  if ('row' in inserted) return { ok: true, folder: toFolderRow(inserted.row) }
+  if ('row' in inserted) return { ok: true, folder: toFolderRow(inserted.row), raced: false }
   // The other run won. Its row is the one folder that exists, so this one files
   // into it rather than failing an upload nobody did anything wrong in.
   const winner = await findSibling(db, shelf, organizationId, parent?.id ?? null, name)
-  if (winner) return { ok: true, folder: toFolderRow(winner) }
+  if (winner) return { ok: true, folder: toFolderRow(winner), raced: true }
   return { ok: false, error: FOLDER_NAME_TAKEN }
 }
 
@@ -460,12 +541,25 @@ export async function mirrorShelfFolderPathRewrite(
   try {
     const collectionName = await shelfCollectionName(shelf, organizationId)
     if (!collectionName) return
-    await fetch(`${getBackendUrl()}/v1/collections/${encodeURIComponent(collectionName)}/folder-paths`, {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ from_path: fromPath, to_path: toPath || null }),
-      signal: AbortSignal.timeout(BACKEND_MIRROR_TIMEOUT_MS),
-    })
+    // Every collection the project's documents live in, not only its own: a
+    // restricted folder's documents are in theirs (ADR-0087), and a rename
+    // above it must reach them too. A failed read still mirrors the shelf's
+    // own collection rather than none.
+    const others =
+      shelf.kind === 'project'
+        ? await listProjectDocumentCollections(organizationId, shelf.projectId).catch(() => [])
+        : []
+    const collections = new Set([collectionName, ...others])
+    await Promise.all(
+      [...collections].map((collection) =>
+        fetch(`${getBackendUrl()}/v1/collections/${encodeURIComponent(collection)}/folder-paths`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ from_path: fromPath, to_path: toPath || null }),
+          signal: AbortSignal.timeout(BACKEND_MIRROR_TIMEOUT_MS),
+        }).catch(() => undefined),
+      ),
+    )
   } catch {
     // ignore — see the note above; the folder rows are the durable truth.
   }
@@ -558,6 +652,13 @@ export async function updateShelfFolder(
  * root when it has none) INSIDE the transaction, before the row goes. Nothing
  * is ever left for the cascade to find.
  *
+ * A PROJECT folder's row then stays as a TOMBSTONE (`deleted_at`, migration
+ * 0110): its access mode, grants and parent remain, because content derived
+ * from it (a conversation's record of use) names it by id
+ * and keeps being judged by the access it had. `shelfFolderWhere` skips it, and
+ * its name is free again. Nothing derived records an Archiv folder, so an
+ * Archiv folder's row goes.
+ *
  * The counts come back so the surface can say what happened rather than leaving
  * the reader to discover where their files went.
  */
@@ -598,7 +699,15 @@ export async function deleteShelfFolder(
       await rewriteDescendantPaths(tx, shelf, organizationId, child.path, childPath)
     }
 
-    await tx.delete(projectFolders).where(folderOnShelf(shelf, organizationId, folder.id))
+    if (shelf.kind === 'project') {
+      const now = new Date()
+      await tx
+        .update(projectFolders)
+        .set({ deletedAt: now, deletedBy: session.userId, updatedAt: now })
+        .where(folderOnShelf(shelf, organizationId, folder.id))
+    } else {
+      await tx.delete(projectFolders).where(folderOnShelf(shelf, organizationId, folder.id))
+    }
 
     return { documentsMoved: moved.length, foldersMoved: children.length }
   })

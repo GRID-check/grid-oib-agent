@@ -144,6 +144,18 @@ export const AUDIT_SCHEMAS = /** @type {const} */ ({
     targets: [{ type: 'organization' }],
     metadata: { role: 'string', permissions: 'string' },
   },
+  // A project folder restricted to roles, or opened again (ADR-0087). The
+  // roles after the change, comma-separated; empty means open. Also emitted
+  // when a folder move or delete changes the restrictions over a subtree
+  // (`folder-service.ts`): then `grants` is every folder with its own list now
+  // over the moved folder (or over a deleted one's contents), outermost first,
+  // each folder's `role:level` entries comma-separated and the folders
+  // `;`-separated, and `roles` the same lists' roles alone (the field the
+  // first, role-only design wrote, so a reader of the trail finds it).
+  'project.folder.access_changed': {
+    targets: [{ type: 'project' }],
+    metadata: { folderId: 'string', grants: 'string', roles: 'string', documentsMoved: 'number' },
+  },
   // Upload screening (ADR-0086). Its own action rather than
   // `org.settings.updated`, because "who widened what may be uploaded" has to
   // be answerable on its own. Counts, not the lists: a term list can name
