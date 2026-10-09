@@ -80,6 +80,9 @@ def ask(kind: str, question: str, answer: str, *, timeout: float = 60.0) -> bool
         method="POST",
     )
     try:
+        # The URL is the fixed OPENROUTER_URL constant above; nothing a caller
+        # passes reaches it, so no file:// or other scheme can be smuggled in.
+        # nosemgrep: python.lang.security.audit.dynamic-urllib-use-detected.dynamic-urllib-use-detected
         with urllib.request.urlopen(request, timeout=timeout) as response:
             reply = json.loads(response.read().decode("utf-8"))
         text = str(reply["choices"][0]["message"]["content"]).strip().casefold()
