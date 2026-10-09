@@ -7,6 +7,7 @@ import {
   conversationIsHeld,
   findConversationsAwaitingTraceErasure,
   markConversationTracesErased,
+  pruneDownloadLog,
   pruneOldRuns,
   PLATFORM_ROLE,
   PRUNE_BATCH,
@@ -284,5 +285,77 @@ describe('conversation trace erasure queries', () => {
     expect(update.text).toContain('WHERE id = $')
     expect(update.values).toEqual(['q1'])
     expect(executed[0].text).toBe(`SET LOCAL ROLE ${PLATFORM_ROLE}`)
+  })
+})
+
+describe('pruneDownloadLog (retention of the download log, migration 0114)', () => {
+  /** A fake whose DELETEs answer from per-scope queues and whose organization list is fixed. */
+  function makeLogSql({ global = [], perOrg = {}, organizations = [] }) {
+    const executed = []
+    const queues = { global: [...global], ...Object.fromEntries(Object.entries(perOrg).map(([k, v]) => [k, [...v]])) }
+    const tx = makeTx(executed, (text) => {
+      if (text.startsWith('SELECT workos_organization_id')) return organizations
+      if (!text.startsWith('DELETE FROM document_access_log')) return []
+      const org = text.includes('organization_id = $')
+        ? executed[executed.length - 1].values[0]
+        : 'global'
+      return (queues[org] ?? []).shift() ?? []
+    })
+    return { sql: { begin: (cb) => cb(tx) }, executed }
+  }
+  const full = (n) => Array.from({ length: n }, (_, i) => ({ id: `r${i}` }))
+
+  it('deletes everything past twelve months for every organization, and only that when no organization chose less', async () => {
+    const { sql, executed } = makeLogSql({ global: [full(3)] })
+
+    const result = await pruneDownloadLog(sql, { batch: 1000 })
+
+    expect(result).toEqual({ deleted: 3, capped: false })
+    const deletes = queries(executed).filter((q) => q.text.startsWith('DELETE FROM document_access_log'))
+    expect(deletes).toHaveLength(1)
+    expect(deletes[0].text).toContain('occurred_at < now() - make_interval(days => $)')
+    expect(deletes[0].text).not.toContain('organization_id')
+    expect(deletes[0].values).toEqual([365, 1000])
+  })
+
+  it('applies an organization’s shorter retention to that organization alone', async () => {
+    const { sql, executed } = makeLogSql({
+      organizations: [{ organization_id: 'org_90', days: 90 }],
+      perOrg: { org_90: [full(2)] },
+    })
+
+    const result = await pruneDownloadLog(sql, { batch: 1000 })
+
+    expect(result).toEqual({ deleted: 2, capped: false })
+    const own = queries(executed).find((q) => q.text.includes('organization_id = $'))
+    expect(own.values).toEqual(['org_90', 90, 1000])
+  })
+
+  it('selects only valid shorter settings, guarding the cast, and never one longer than the cap', async () => {
+    const { sql, executed } = makeLogSql({})
+    await pruneDownloadLog(sql)
+
+    const select = queries(executed).find((q) => q.text.startsWith('SELECT workos_organization_id'))
+    expect(select.text).toContain("WHEN settings->>'downloadLogRetentionDays' ~ '^[0-9]{1,4}$' THEN")
+    expect(select.text).toContain('BETWEEN $ AND $')
+    expect(select.values).toEqual([30, 364])
+  })
+
+  it('works in bounded batches and stops on its budget, saying more may remain', async () => {
+    const { sql, executed } = makeLogSql({ global: [full(2), full(2), full(2), full(2)] })
+
+    const result = await pruneDownloadLog(sql, { batch: 2, maxBatches: 3 })
+
+    expect(result).toEqual({ deleted: 6, capped: true })
+    expect(queries(executed).filter((q) => q.text.startsWith('DELETE'))).toHaveLength(3)
+  })
+
+  it('steps up to the platform role in every transaction: the table refuses any other delete', async () => {
+    const { sql, executed } = makeLogSql({ organizations: [{ organization_id: 'org_90', days: 90 }] })
+    await pruneDownloadLog(sql)
+
+    const steps = executed.filter((q) => q.text === `SET LOCAL ROLE ${PLATFORM_ROLE}`)
+    const statements = queries(executed)
+    expect(steps).toHaveLength(statements.length)
   })
 })

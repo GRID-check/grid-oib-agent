@@ -143,7 +143,7 @@ vi.mock('./reviewers', () => ({
 }))
 vi.mock('./version-content', () => ({
   BACKEND_PURGE_TIMEOUT_MS: 10_000,
-  readVersionContent: vi.fn().mockResolvedValue(''),
+  readVersionTextForTask: vi.fn().mockResolvedValue(''),
   renderVersionBytes: vi.fn(),
   writeVersionContent: vi.fn(),
 }))

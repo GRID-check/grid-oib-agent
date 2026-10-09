@@ -245,8 +245,107 @@ async function markConversationTracesErased(sql, queueId) {
   })
 }
 
+/**
+ * The download log's retention (migration 0114, `lib/download-log/kinds.ts`):
+ * twelve months at most, whatever anyone stored, and an organization may choose
+ * a shorter time between 30 and 364 days (`organizations.settings
+ * .downloadLogRetentionDays`; 365 is the default and needs no row). A stored
+ * value outside 30-365, or not a whole number, counts as unset, exactly as the
+ * app reads it (`retentionDaysFromSettings`), so the sweep never purges earlier
+ * than the page promises.
+ */
+const DOWNLOAD_LOG_MAX_DAYS = 365
+const DOWNLOAD_LOG_MIN_DAYS = 30
+const DOWNLOAD_LOG_BATCH = 1000
+
+/**
+ * Delete download-log rows past their retention, in bounded batches: one
+ * statement per batch, each in its own platform-scope transaction (the table is
+ * RLS-secured and only the platform role may delete, by trigger), at most
+ * `maxBatches` statements in all so a backlog drains over several runs.
+ *
+ * First everything older than the longest retention, for every organization
+ * (`document_access_log_occurred_idx`), then, per organization with a shorter
+ * setting, its own cutoff (`document_access_log_org_time_idx`).
+ *
+ * @param {object} sql  postgres.js client (or fake) exposing `.begin`
+ * @param {{ batch?: number, maxBatches?: number }} [options]
+ * @returns {Promise<{ deleted: number, capped: boolean }>} `capped` when the
+ *   budget ran out with a full batch still being deleted, so more may remain.
+ */
+async function pruneDownloadLog(sql, { batch = DOWNLOAD_LOG_BATCH, maxBatches = 50 } = {}) {
+  let deleted = 0
+  let used = 0
+
+  // One batch; true when it was full, i.e. there may be more behind it.
+  const deleteBatch = async (organizationId, days) => {
+    used += 1
+    const rows = await sql.begin(async (tx) => {
+      await enterPlatformScope(tx)
+      if (organizationId === null) {
+        return tx`
+          DELETE FROM document_access_log
+          WHERE id IN (
+            SELECT id FROM document_access_log
+            WHERE occurred_at < now() - make_interval(days => ${days})
+            ORDER BY occurred_at
+            LIMIT ${batch}
+          )
+          RETURNING id
+        `
+      }
+      return tx`
+        DELETE FROM document_access_log
+        WHERE id IN (
+          SELECT id FROM document_access_log
+          WHERE organization_id = ${organizationId}
+            AND occurred_at < now() - make_interval(days => ${days})
+          ORDER BY occurred_at
+          LIMIT ${batch}
+        )
+        RETURNING id
+      `
+    })
+    deleted += rows.length
+    return rows.length === batch
+  }
+
+  while (used < maxBatches && (await deleteBatch(null, DOWNLOAD_LOG_MAX_DAYS))) {
+    /* keep going while batches are full */
+  }
+  if (used >= maxBatches) return { deleted, capped: true }
+
+  const organizations = await sql.begin(async (tx) => {
+    await enterPlatformScope(tx)
+    // The CASE keeps the cast from running on a value the regex rejected: the
+    // planner is free to evaluate the AND arms in either order.
+    return tx`
+      SELECT workos_organization_id AS organization_id,
+             (settings->>'downloadLogRetentionDays')::int AS days
+      FROM organizations
+      WHERE CASE
+        WHEN settings->>'downloadLogRetentionDays' ~ '^[0-9]{1,4}$'
+          THEN (settings->>'downloadLogRetentionDays')::int BETWEEN ${DOWNLOAD_LOG_MIN_DAYS} AND ${DOWNLOAD_LOG_MAX_DAYS - 1}
+        ELSE false
+      END
+      ORDER BY workos_organization_id
+      LIMIT 10000
+    `
+  })
+  for (const organization of organizations) {
+    while (used < maxBatches && (await deleteBatch(organization.organization_id, organization.days))) {
+      /* keep going while batches are full */
+    }
+    if (used >= maxBatches) return { deleted, capped: true }
+  }
+  return { deleted, capped: false }
+}
+
 module.exports = {
   createSql,
+  pruneDownloadLog,
+  DOWNLOAD_LOG_MAX_DAYS,
+  DOWNLOAD_LOG_MIN_DAYS,
   claimDue,
   pruneOldRuns,
   findConversationsAwaitingTraceErasure,

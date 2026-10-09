@@ -20,6 +20,7 @@ import {
   canManageMembers,
   canManageModels,
   canViewAuditLogs,
+  canViewDownloadLog,
   isOrgAdmin,
 } from '@/lib/authz/organizations'
 import { BackLink, ShellContent } from '@/components/shell'
@@ -55,6 +56,9 @@ export default async function OrganizationLayout({
     // admitting `org:compliance:manage` here would show a button whose API answers
     // 403. Widen this the day the section grows holds/deletion UI of its own.
     if (canViewAuditLogs(session)) sections.push('compliance')
+    // Its own permission, not audit-view: the log is staff data an auditor role
+    // does not get by default, and the API answers 403 to anyone without it.
+    if (canViewDownloadLog(session)) sections.push('downloads')
     if (isOrgAdmin(session)) sections.push('enterprise')
 
     return (

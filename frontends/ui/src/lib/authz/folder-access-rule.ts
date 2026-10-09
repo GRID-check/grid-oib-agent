@@ -176,6 +176,22 @@ export function readRestrictingFoldersOnPath(tree: FolderTree, folderId: string 
   return found
 }
 
+/**
+ * Whether `folderId`, or an ancestor, has its own access list, whatever it
+ * grants (`custom`, with or without `*`). The test the download log applies to
+ * an OPEN: such a folder is one an office chose to treat apart. False for the
+ * project root and for an id the tree does not hold.
+ */
+export function isUnderOwnList(tree: FolderTree, folderId: string | null): boolean {
+  const seen = new Set<string>()
+  for (let current = folderId ? tree.get(folderId) : undefined; current && !seen.has(current.id); ) {
+    if (current.accessMode === 'custom') return true
+    seen.add(current.id)
+    current = current.parentId ? tree.get(current.parentId) : undefined
+  }
+  return false
+}
+
 export interface ProjectFolderAccess {
   /** Living folders this clearance may not read: not listed, and nothing below them either. */
   readonly hiddenFolderIds: ReadonlySet<string>

@@ -53,6 +53,7 @@ vi.mock('@/lib/storage/bucket', () => ({
   resolveDocumentBucket: () => 'grid-org-1',
 }))
 vi.mock('@/lib/audit/service', () => ({ recordAuditEvent: vi.fn() }))
+vi.mock('@/lib/download-log/service', () => ({ recordDocumentAccess: vi.fn(async () => undefined) }))
 vi.mock('@/lib/authz/projects', () => ({ requireProjectAccess: vi.fn() }))
 vi.mock('@/lib/backend-proxy', () => ({ getBackendUrl: () => 'http://backend:8000' }))
 vi.mock('./collection-file-ref', async (importOriginal) => ({
@@ -75,6 +76,7 @@ import { getAccessibleDocument } from './access'
 import { purgeIngestedChunks } from './collection-file-ref'
 import { findDocumentInOrg } from './repository'
 import {
+  findDocumentVersion,
   findDocumentVersionInOrg,
   setDocumentLifecycle,
   swapVersionContent,
@@ -84,13 +86,16 @@ import {
   admitVersionBytes,
   archiveDocument,
   newVersionWriteId,
+  readVersionContent,
   readVersionForService,
+  readVersionTextForTask,
   renderVersionBytes,
   versionMirrorsItem,
   versionWriteKey,
   writeVersionContent,
 } from './version-content'
 import { AI_PROVENANCE_PROPERTIES } from '@/lib/ai-provenance'
+import { recordDocumentAccess } from '@/lib/download-log/service'
 
 const session: AuthorizedSession = {
   userId: 'user_reviewer',
@@ -609,5 +614,38 @@ describe('archiveDocument', () => {
     expect(recordAuditEvent).toHaveBeenCalledWith(
       expect.objectContaining({ metadata: expect.objectContaining({ chunksPurged: false }) }),
     )
+  })
+})
+
+describe('reading a version’s text, and the download log', () => {
+  beforeEach(() => {
+    vi.mocked(findDocumentVersion).mockResolvedValue(version())
+    vi.mocked(s3Client.send).mockResolvedValue({ Body: { transformToString: async () => '# Aktenvermerk' } } as never)
+  })
+
+  it('records the hand-over to the person, naming the version they opened', async () => {
+    await expect(readVersionContent(session, 'doc_1', 'ver_1')).resolves.toBe('# Aktenvermerk')
+
+    expect(recordDocumentAccess).toHaveBeenCalledWith(session, document, 'version', { versionId: 'ver_1' })
+  })
+
+  it('records nothing for a version that does not exist', async () => {
+    vi.mocked(findDocumentVersion).mockResolvedValue(null)
+
+    await expect(readVersionContent(session, 'doc_1', 'ver_9')).rejects.toMatchObject({ status: 404 })
+
+    expect(recordDocumentAccess).not.toHaveBeenCalled()
+  })
+
+  it('does not hand the text over when the log refuses (a folder with its own list)', async () => {
+    vi.mocked(recordDocumentAccess).mockRejectedValueOnce(Object.assign(new Error('not recorded'), { status: 503 }))
+
+    await expect(readVersionContent(session, 'doc_1', 'ver_1')).rejects.toMatchObject({ status: 503 })
+  })
+
+  it('does not record the read that feeds an agent task: the reviewer never receives those bytes', async () => {
+    await expect(readVersionTextForTask(session, 'doc_1', 'ver_1')).resolves.toBe('# Aktenvermerk')
+
+    expect(recordDocumentAccess).not.toHaveBeenCalled()
   })
 })

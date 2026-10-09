@@ -1448,6 +1448,10 @@
     "de": "Ein geteilter Link, der nach einer Projektdatei fragt, funktioniert wieder, auch wenn er den Dateinamen enthält. Der Chat findet die Datei und zeigt ihren Status, statt einen Fehler zu melden."
   },
   {
+    "en": "Organisation admins can now see who downloaded which document, and who opened one in a folder with its own access list, under Organisation → Download-Protokoll. Entries are kept 12 months at most, which an organization can shorten to 30 days, and reading the log is itself recorded.",
+    "de": "Organisations-Admins sehen jetzt unter Organisation → Download-Protokoll, wer welches Dokument heruntergeladen und wer eines in einem Ordner mit eigener Zugriffsliste geöffnet hat. Einträge bleiben höchstens 12 Monate erhalten, was eine Organisation auf 30 Tage verkürzen kann, und auch das Lesen des Protokolls wird festgehalten."
+  },
+  {
     "en": "Organization admins can now rescan all failed ingestions at once from Organization, Enterprise: every file that could not be read is sent back through reading under its own name.",
     "de": "Organisationsadmins können unter Organisation, Enterprise jetzt alle fehlgeschlagenen Einlesevorgänge auf einmal erneut scannen: Jede Datei, die nicht gelesen werden konnte, wird unter ihrem eigenen Namen erneut eingelesen."
   },

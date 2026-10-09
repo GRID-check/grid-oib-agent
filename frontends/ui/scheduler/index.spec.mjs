@@ -13,6 +13,7 @@ import {
   sweepPlacement,
   sweepTraceRetention,
   sweepConversationTraces,
+  sweepDownloadLogRetention,
   tick,
   INTERNAL_TOKEN_HEADER,
 } from './index.js'
@@ -348,6 +349,17 @@ describe('reconcileRuns during a rollout or an outage (#785, #793, #799, #800)',
 
 describe('tick', () => {
   const base = { frontendUrl: 'http://frontend:3000', internalToken: 't', batch: 20, retentionDays: 90, pollMs: 30000 }
+  /**
+   * The streaks, with the download log's daily sweep not due. These cases are
+   * about the claim and the reconciler, and the sweep also reads the database:
+   * left due it would add its own failures to what they count. It has its own
+   * cases below.
+   */
+  const streaksWithoutDownloadLog = () => {
+    const streaks = createStreaks(base)
+    streaks.downloadLogClock.nextRunAt = Number.POSITIVE_INFINITY
+    return streaks
+  }
   const reconciled = () => vi.fn().mockResolvedValue({ ok: true, json: () => Promise.resolve({ closed: 0, failed: 0 }) })
 
   it('with the schedules gate off, fires nothing but still runs every sweep', async () => {
@@ -356,7 +368,7 @@ describe('tick', () => {
     const sql = { begin: vi.fn() }
     const fetchImpl = reconciled()
 
-    const fired = await tick(sql, { ...base, schedulesEnabled: false }, fetchImpl, createStreaks(base))
+    const fired = await tick(sql, { ...base, schedulesEnabled: false }, fetchImpl, streaksWithoutDownloadLog())
 
     expect(fired).toBe(0)
     expect(sql.begin).not.toHaveBeenCalled()
@@ -374,7 +386,7 @@ describe('tick', () => {
     const sql = { begin: vi.fn().mockRejectedValue(new Error('db down')) }
     const fetchImpl = reconciled()
 
-    await tick(sql, { ...base, schedulesEnabled: true }, fetchImpl, createStreaks(base))
+    await tick(sql, { ...base, schedulesEnabled: true }, fetchImpl, streaksWithoutDownloadLog())
 
     expect(sql.begin).toHaveBeenCalled()
     expect(fetchImpl.mock.calls.map(([url]) => url)).toEqual([
@@ -393,7 +405,7 @@ describe('tick', () => {
       code: 'EHOSTUNREACH',
     })
     const sql = { begin: vi.fn().mockRejectedValue(down) }
-    const streaks = createStreaks(base)
+    const streaks = streaksWithoutDownloadLog()
     const config = { ...base, schedulesEnabled: true }
 
     await tick(sql, config, reconciled(), streaks)
@@ -415,9 +427,83 @@ describe('tick', () => {
   it('keeps a claim that failed for any other reason at ERROR', async () => {
     const error = vi.spyOn(console, 'error').mockImplementation(() => {})
     const bad = Object.assign(new Error('relation "task_definitions" does not exist'), { code: '42P01' })
-    await tick({ begin: vi.fn().mockRejectedValue(bad) }, { ...base, schedulesEnabled: true }, reconciled(), createStreaks(base))
+    await tick({ begin: vi.fn().mockRejectedValue(bad) }, { ...base, schedulesEnabled: true }, reconciled(), streaksWithoutDownloadLog())
     expect(error).toHaveBeenCalledTimes(1)
     expect(error.mock.calls[0][0]).toContain('claim transaction failed')
+  })
+})
+
+describe('sweepDownloadLogRetention (the download log is purged daily, migration 0114)', () => {
+  const NOW = new Date('2026-10-06T12:00:00.000Z')
+  const DAY = 24 * 60 * 60 * 1000
+  const streak = () => ({ failed: vi.fn(), succeeded: vi.fn() })
+
+  it('purges, then waits a day', async () => {
+    const log = vi.spyOn(console, 'log').mockImplementation(() => {})
+    const prune = vi.fn().mockResolvedValue({ deleted: 3, capped: false })
+    const clock = { nextRunAt: 0 }
+    const s = streak()
+
+    const result = await sweepDownloadLogRetention({}, s, clock, NOW, prune)
+
+    expect(result).toEqual({ deleted: 3, capped: false })
+    expect(clock.nextRunAt).toBe(NOW.getTime() + DAY)
+    expect(s.succeeded).toHaveBeenCalled()
+    expect(log.mock.calls[0][0]).toContain('deleted 3 entries past retention')
+  })
+
+  it('does nothing before it is due', async () => {
+    const prune = vi.fn()
+    const clock = { nextRunAt: NOW.getTime() + 1 }
+
+    expect(await sweepDownloadLogRetention({}, streak(), clock, NOW, prune)).toBeNull()
+    expect(prune).not.toHaveBeenCalled()
+  })
+
+  it('continues on the next tick when the batch budget ran out with more behind it', async () => {
+    vi.spyOn(console, 'log').mockImplementation(() => {})
+    const prune = vi.fn().mockResolvedValue({ deleted: 50000, capped: true })
+    const clock = { nextRunAt: 0 }
+
+    await sweepDownloadLogRetention({}, streak(), clock, NOW, prune)
+
+    expect(clock.nextRunAt).toBe(NOW.getTime())
+    const again = await sweepDownloadLogRetention({}, streak(), clock, new Date(NOW.getTime() + 30_000), prune)
+    expect(again).not.toBeNull()
+  })
+
+  it('treats a database outage as transient: a WARN streak, tried again on the next tick', async () => {
+    const down = Object.assign(new Error('connect EHOSTUNREACH 10.0.0.1:5432'), { code: 'EHOSTUNREACH' })
+    const prune = vi.fn().mockRejectedValue(down)
+    const clock = { nextRunAt: 0 }
+    const s = streak()
+
+    expect(await sweepDownloadLogRetention({}, s, clock, NOW, prune)).toBeNull()
+
+    expect(s.failed).toHaveBeenCalled()
+    expect(clock.nextRunAt).toBe(0)
+  })
+
+  it('logs any other failure at ERROR and waits an hour', async () => {
+    const error = vi.spyOn(console, 'error').mockImplementation(() => {})
+    const prune = vi.fn().mockRejectedValue(Object.assign(new Error('permission denied'), { code: '42501' }))
+    const clock = { nextRunAt: 0 }
+
+    await sweepDownloadLogRetention({}, streak(), clock, NOW, prune)
+
+    expect(error.mock.calls[0][0]).toContain('download log retention failed')
+    expect(clock.nextRunAt).toBe(NOW.getTime() + 60 * 60 * 1000)
+  })
+
+  it('runs as part of every tick, through the real purge', async () => {
+    const sql = { begin: vi.fn().mockResolvedValue([]) }
+    const base = { frontendUrl: 'http://frontend:3000', internalToken: 't', batch: 20, retentionDays: 90, pollMs: 30000 }
+    const fetchImpl = vi.fn().mockResolvedValue({ ok: true, json: () => Promise.resolve({}) })
+
+    await tick(sql, { ...base, schedulesEnabled: false }, fetchImpl, createStreaks(base))
+
+    // The cap statement and the list of organizations with a shorter setting.
+    expect(sql.begin).toHaveBeenCalledTimes(2)
   })
 })
 
@@ -621,9 +707,10 @@ describe('Langfuse trace retention (ADR-0044)', () => {
       await tick(sql, base, fetchImpl, streaks)
 
       expect(lf.lists).toHaveLength(1)
-      // The schedules gate is off, so the only reader of the queue is the sweep of
-      // chats the BFF erased, and it runs on every tick.
-      expect(sql.begin).toHaveBeenCalledTimes(2)
+      // The schedules gate is off, so the readers are the sweep of chats the BFF
+      // erased (one read a tick, two ticks) and the download log's daily purge
+      // (two statements, on the first tick only).
+      expect(sql.begin).toHaveBeenCalledTimes(4)
     })
   })
 })

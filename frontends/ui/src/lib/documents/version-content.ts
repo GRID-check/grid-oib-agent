@@ -41,6 +41,7 @@ import {
   STORAGE_QUOTA_EXCEEDED_MESSAGE,
 } from '@/lib/storage/service'
 import { ensureTenantBucketChecked, resolveDocumentBucket } from '@/lib/storage/bucket'
+import { recordDocumentAccess } from '@/lib/download-log/service'
 import { getAccessibleDocument } from './access'
 import { AGENT_DOCUMENT_MEDIA_TYPE, renderAgentDocumentMarkdown } from './agent-document-markdown'
 import { resolveDocumentBranding, type DocumentBranding } from './branding'
@@ -388,16 +389,46 @@ async function readObjectText(
   return body
 }
 
-/** Read one version's bytes back as text — the diff endpoint's other half. */
+/** The version's text, read for a session that may read its document; nothing is recorded here. */
+async function fetchVersionText(
+  session: AuthorizedSession,
+  documentId: string,
+  versionId: string,
+): Promise<{ document: Document; text: string }> {
+  const document = await getAccessibleDocument(session, documentId, 'read')
+  const version = await findDocumentVersion(versionId, documentId, session.organizationId)
+  if (!version) throw new NotFoundError('Version not found')
+  return { document, text: await readObjectText(version.storageBucket, version.storageKey) }
+}
+
+/**
+ * Read one version's bytes back as text, for the person at the other end: the
+ * version list's „Öffnen" and the diff endpoint's two halves. The hand-over is
+ * recorded in the download log (`kind: 'version'`, with the version's id), which
+ * is why a diff of two versions records two.
+ */
 export async function readVersionContent(
   session: AuthorizedSession,
   documentId: string,
   versionId: string,
 ): Promise<string> {
-  await getAccessibleDocument(session, documentId, 'read')
-  const version = await findDocumentVersion(versionId, documentId, session.organizationId)
-  if (!version) throw new NotFoundError('Version not found')
-  return readObjectText(version.storageBucket, version.storageKey)
+  const { document, text } = await fetchVersionText(session, documentId, versionId)
+  await recordDocumentAccess(session, document, 'version', { versionId })
+  return text
+}
+
+/**
+ * The same text for the agent task a „Änderungen anfordern" starts
+ * (`openRevisionTask`): the reviewer's session fetches it, the model reads it,
+ * and the reviewer never receives these bytes, so there is no hand-over to
+ * record. `coverage.spec.ts` lists the exemption with this reason.
+ */
+export async function readVersionTextForTask(
+  session: AuthorizedSession,
+  documentId: string,
+  versionId: string,
+): Promise<string> {
+  return (await fetchVersionText(session, documentId, versionId)).text
 }
 
 /**
