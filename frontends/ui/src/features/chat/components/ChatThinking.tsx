@@ -799,7 +799,7 @@ const splitCount = (text: string): { before: string; count: string; after: strin
  * the new one rises from below, overlapping, clipped to the line.
  *
  * When the number gains or loses a digit its box glides between the two widths
- * on the roll's own easing, so the words after it slide over rather than jump
+ * on the roll's own timing, so the words after it slide over rather than jump
  * a digit in the first frame (9 → 11 at the settle). An absolute sizer measures
  * the new number; between changes the box is `auto` again, so a late web font
  * cannot leave it clipped. `align-top` with the inherited line height keeps
@@ -807,23 +807,25 @@ const splitCount = (text: string): { before: string; count: string; after: strin
  * on its bottom edge.
  */
 const RollingCount: FC<{ value: string; roll: RollMotion }> = ({ value, roll }) => {
+  const box = useRef<HTMLSpanElement>(null)
   const sizer = useRef<HTMLSpanElement>(null)
   const lastWidth = useRef<number | null>(null)
-  const [glide, setGlide] = useState<{ from: number; to: number } | null>(null)
+  // Before paint, so the first frame already shows the old width. A Web
+  // Animation with no fill: when it ends the box is `auto` again. Motion's
+  // `animate` started from the box's current width, already the new one.
   useLayoutEffect(() => {
     const next = sizer.current?.getBoundingClientRect().width ?? 0
     const previous = lastWidth.current
     lastWidth.current = next
-    if (previous !== null && Math.abs(previous - next) > 0.5) setGlide({ from: previous, to: next })
-  }, [value])
+    const duration = (roll.animate.transition.duration ?? 0) * 1000
+    if (previous === null || Math.abs(previous - next) < 0.5 || duration === 0) return
+    box.current?.animate?.([{ width: `${previous}px` }, { width: `${next}px` }], {
+      duration,
+      easing: cssEasing(roll.animate.transition.ease),
+    })
+  }, [value, roll.animate.transition])
   return (
-    <motion.span
-      className="relative inline-grid overflow-hidden align-top tabular-nums"
-      style={glide ? { width: glide.from } : undefined}
-      animate={glide ? { width: glide.to } : { width: 'auto' }}
-      transition={roll.animate.transition}
-      onAnimationComplete={() => setGlide(null)}
-    >
+    <span ref={box} className="relative inline-grid overflow-hidden align-top tabular-nums">
       {/* Generated content, so the sizer's digits are not in the label's text. */}
       <span
         ref={sizer}
@@ -836,9 +838,15 @@ const RollingCount: FC<{ value: string; roll: RollMotion }> = ({ value, roll }) 
           {value}
         </motion.span>
       </AnimatePresence>
-    </motion.span>
+    </span>
   )
 }
+
+/** A motion `ease` as a CSS timing function, for a Web Animation. */
+const cssEasing = (ease: Transition['ease']): string =>
+  Array.isArray(ease) && ease.length === 4 && ease.every((n) => typeof n === 'number')
+    ? `cubic-bezier(${ease.join(', ')})`
+    : 'ease-out'
 
 /** What decides how the expanded content leaves (`AnimatePresence` `custom`). */
 interface ContentExit {
