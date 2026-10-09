@@ -44,6 +44,9 @@ from aiq_agent.conversation_context import register_context_appender
 from aiq_agent.knowledge.inventory import set_inventory_drops
 from aiq_agent.knowledge.inventory import set_norm_families
 from aiq_agent.knowledge.inventory import set_turn_documents
+from aiq_agent.knowledge.restricted_use import begin_restricted_use
+from aiq_agent.knowledge.restricted_use import bind_restricted_use
+from aiq_agent.knowledge.restricted_use import without_restricted
 from aiq_agent.knowledge.scoping import get_scoped_collections_from_context
 from aiq_agent.project_context import GridRequestContext
 from aiq_agent.stages import schedule_post_answer_stages
@@ -58,6 +61,7 @@ from aiq_agent.turn.answer_stream import bound_live_prose
 from aiq_agent.turn.api_seam import skip_clarifier_requested
 from aiq_agent.turn.context import TurnContext
 from aiq_agent.turn.context import load_turn_context
+from aiq_agent.turn.context import settle_restriction
 from aiq_agent.turn.context import thread_id_for_turn
 from aiq_agent.turn.context import turn_identity
 from aiq_agent.turn.context import user_info_from_principal
@@ -254,6 +258,7 @@ def _turn_state(
         org_instructions=context.org_instructions,
         deep_research_allowed=context.deep_research_allowed,
         tasks_allowed=context.tasks_allowed,
+        confined=context.confined,
     )
 
 
@@ -317,7 +322,11 @@ async def _load_setup(
                 request, conversation_id=thread_id, query_text=inputs.query_text, resolve_stages=resolve_stages
             ),
         ),
-        load_inventory(scope),
+        # Listing is not use (ADR-0088): a restricted folder's file names and
+        # summaries stay out of the inventory block and `list_files`, so they
+        # never reach the prompt without an admission. Searching them is
+        # admitted per tool round (`admit_tool_results`).
+        load_inventory(without_restricted(scope)),
         spanned("setup.session_registry", load_session_registry(thread_id)),
         spanned(
             "setup.subject_document",
@@ -328,6 +337,7 @@ async def _load_setup(
                 # one when it goes looking for the file this write leaves behind.
                 conversation_id=conversation_id,
                 organization_id=request.organization_id,
+                user_id=request.user_id,
             ),
         ),
     )
@@ -384,11 +394,12 @@ async def _prepare_turn(
         thread_id=runtime.thread_id,
         resolve_stages=resolve_stages,
     )
+    context = settle_restriction(context, request)
     if subject_step is not None:
         yield StepFinishedBody(step=subject_step)
     if (waiting := pending_uploads(inventory)) is not None:
         yield StepFinishedBody(step=waiting)
-        inventory = await wait_for_uploads(scope, inventory)
+        inventory = await wait_for_uploads(without_restricted(scope), inventory)
     skip_clarifier = not enable_clarifier or skip_clarifier_requested()
     # The inventory reaches the PROMPT as the rendered block and the TOOLS as
     # rows. The write-side workspace tools resolve a file name against these
@@ -454,6 +465,11 @@ def _turn_runner(agent: ConversationGraph, config: ChatDeepResearcherConfig, sta
         # Retrieval reads the turn's focus from the ContextVars this parse sets.
         inputs = extract_turn_inputs(query)
         logger.info("ChatDeepResearcherAgent: %s (data sources: %s)", inputs.query_text, inputs.data_sources)
+        # Which restricted folders this turn may draw on, asked of the BFF
+        # before anything reads the scope (ADR-0087, ADR-0088). Bound on every
+        # turn, None included, so one turn never runs on the last one's answer;
+        # the scope read below and every read path after it keep only these.
+        bind_restricted_use(await begin_restricted_use(request, conversation_id))
         header_scope = get_scoped_collections_from_context()
         # Say what is happening in the FIRST hole of the turn — only when one
         # of the reader's OWN shelves is in scope; the base corpus is a constant.

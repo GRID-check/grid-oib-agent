@@ -1,0 +1,13 @@
+---
+features:
+  - >
+    A chat that drew on a folder not everyone may read also cannot start a
+    Tiefenrecherche or an Auftrag, change the project context, or file a draft
+    or diagram where colleagues who may not read the folder could open it;
+    Piloti says why instead of offering it.
+security:
+  - >
+    Piloti no longer shows an image from a folder not everyone may read unless
+    the chat may draw on that folder, and no longer lists, suggests or confirms
+    the name of a file in such a folder before the chat has drawn on it, also
+    when the project's file list could not be loaded.

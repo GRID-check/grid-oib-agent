@@ -1319,7 +1319,9 @@ class ChatSocket:
         envelope = _handshake_envelope(socket.scope)
         self.envelope_present = envelope is not None
         self.bound = envelope.conversation_id if envelope is not None else None
-        #: The signed organization, for the office's chat screening.
+        #: The signed organization, for the office's chat screening. Which
+        #: restricted folders a turn may draw on is asked per TURN by the agent
+        #: (``aiq_agent.knowledge.restricted_use``), never fixed per socket.
         self.signed_org_id = envelope.organization_id if envelope is not None else None
         #: The office's chat screening, once the BFF has answered for it; kept for
         #: the socket's life. A fail-closed fallback is not kept (``_screening_rules``).

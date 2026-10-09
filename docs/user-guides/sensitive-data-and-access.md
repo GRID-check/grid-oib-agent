@@ -171,7 +171,8 @@ out:
 - it is not listed, and neither is anything in it or below it, including files
   uploaded there later;
 - Piloti's search and answers do not draw on it, because its documents are kept
-  in their own search index, which no chat searches;
+  in their own search index that only the chats of people who may read it
+  search;
 - its documents do not open from a link, the inbox or a share.
 
 A list with **Alle Projektmitglieder** on it keeps the folder readable by
@@ -198,10 +199,40 @@ context (the list of documents with a role, such as the Bebauungsplan) right
 away, and the projects overview counts only the documents you may read.
 
 **Deleting a folder** moves its documents and subfolders into the folder above,
-as before. The folder keeps its access list out of sight.
+as before. The folder keeps its access list out of sight, so what Piloti
+recorded from it in a chat stays visible only to the people who could read it.
 
-**A file name used in a folder not everyone may read** cannot be uploaded a
+**A chat that draws on a folder not everyone may read is shared per person.**
+It can be shared with someone who may read every such folder it drew on, and
+with nobody else. It counts as drawing on a folder once content from it reached
+Piloti's answer: a search hit, an opened document, an image.
+Being able to search the folder is not enough, and until then Piloti does not
+list the folder's files, suggest their names or say that one exists; it finds
+them by searching. If the chat is shared with someone who
+may not read the folder, Piloti stops searching that folder in the chat from
+the next question on. A file name used in such a folder cannot be uploaded a
 second time elsewhere in the project.
+
+Nothing from such a chat goes where the whole project reads it, so Piloti does
+not offer, and refuses with a message saying why:
+
+- a Tiefenrecherche or an Auftrag started from it (this stays so for now, even
+  for a chat whose folders everyone may read again);
+- a change to the project context („Projektkontext aktualisieren");
+- filing a draft or a diagram from it into a folder that is not inside every
+  folder the chat drew on. Piloti files these into „Berichte", so they stay in
+  the chat unless they are moved there by hand.
+
+Whether a chat drew on such a folder is decided against the folders' lists as
+they are now: when a folder is opened to everyone, the chats that drew on it
+are no longer held back by it; when a list is narrowed, they are
+shown to fewer people. The project context can still be changed by hand, in
+the project intake.
+
+**Piloti remembers nothing from such a chat.** The project's memory and the
+organization's are read by everyone they belong to, so Piloti keeps no notes
+from a chat that can search a folder not everyone may read, or that already
+drew on one, and says so when you ask it to remember something there.
 
 **Building models (IFC) stay in folders everyone may read.** A model's
 building data is kept per project, not per folder, so a list could not protect

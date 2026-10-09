@@ -31,9 +31,10 @@ const AUDIENCE_GRANT_LIMIT = 500
  * Serialize every change to who a conversation reaches with every record of
  * what it drew on, until the transaction ends.
  *
- * A widening (a grant, a wider visibility, an escalation) checks the record
- * and writes the audience under this lock, so a use recorded under it cannot
- * slip between the check and the write. Keyed by the conversation, which may not exist
+ * `admitRestrictedUse` checks the audience and records a collection; a
+ * widening (a grant, a wider visibility, an escalation) checks the record and
+ * writes the audience. Both take this lock first, so neither can slip between
+ * the other's check and write. Keyed by the conversation, which may not exist
  * yet (its first turn runs before the row), so a row lock would not do.
  * Namespaced so it never shares a key with another advisory lock
  * (`storage_quota:`, `document_versions:`).
@@ -66,6 +67,27 @@ export async function listRecordedSourceFolders(
     .orderBy(conversationRestrictedFolders.folderId)
     .limit(RECORDED_FOLDERS_LIMIT)
   return rows.map((row) => String(row.folderId))
+}
+
+/** Record that the conversation drew on these folders; a repeat bumps `last_at`. */
+export async function recordSourceFolders(
+  executor: DbExecutor,
+  organizationId: string,
+  conversationId: string,
+  folderIds: readonly string[],
+): Promise<void> {
+  if (folderIds.length === 0) return
+  await executor
+    .insert(conversationRestrictedFolders)
+    .values(folderIds.map((folderId) => ({ organizationId, conversationId, folderId })))
+    .onConflictDoUpdate({
+      target: [
+        conversationRestrictedFolders.organizationId,
+        conversationRestrictedFolders.conversationId,
+        conversationRestrictedFolders.folderId,
+      ],
+      set: { lastAt: sql`now()` },
+    })
 }
 
 /** Forget what a conversation drew on: its erasure. */

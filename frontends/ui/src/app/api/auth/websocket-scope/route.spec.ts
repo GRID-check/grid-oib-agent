@@ -118,6 +118,16 @@ describe('GET /api/auth/websocket-scope gate-then-fanout', () => {
     buildProposalDecisionsBlock.mockResolvedValue('decisions')
   })
 
+  it('asks for an INTERACTIVE CHAT scope, the only one that may carry restricted folders (ADR-0087)', async () => {
+    await upgrade('?projectId=proj_q&conversationId=s_mine')
+
+    expect(buildCollectionScopeFromRequest).toHaveBeenCalledWith(SESSION, {
+      projectId: 'proj_q',
+      conversationId: 's_mine',
+      interactiveChat: true,
+    })
+  })
+
   it('returns 403 without firing the project lookups when the budget is blocked', async () => {
     getBudgetStatus.mockResolvedValue({ ...OPEN_BUDGET, blocked: true, blockedScope: 'org' })
 

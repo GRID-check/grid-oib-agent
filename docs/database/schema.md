@@ -733,8 +733,11 @@ is proven against Postgres in `upload-batches.integration.spec.ts`.
 ## conversation_restricted_folders (migration 0112, ADR-0087, ADR-0088)
 
 A folder not every project member may read whose content this conversation
-drew on, checked under the same advisory lock as every widening of the
-conversation's audience (`lockConversationAudience`). Keyed by the SOURCE FOLDER, never by collection
+drew on: written when the BFF ADMITS that use
+(`POST /api/internal/conversations/[id]/restricted-use`, asked by the agent
+before a tool round's restricted results reach the model, and by the subject
+read), atomically with every widening
+of the conversation's audience. Keyed by the SOURCE FOLDER, never by collection
 or role: who may read the conversation is decided when it is read, against the
 folders' access as it is then (`recordedRestrictedFolders`,
 `readableByEveryMember`), so a folder opened to everyone stops confining the

@@ -12,10 +12,13 @@
  * Who holds which WorkOS role is the one thing faked (`clearanceOfMember`);
  * the folder tree, the conversation, its grants and the record are real rows.
  * What it proves:
- *   - a chat that recorded nothing can be shared with anyone;
- *   - once X is recorded, sharing reaches a person cleared for X and refuses
- *     one who is not, and the project-wide visibility is refused;
- *   - the record is judged at read time against the folder's access now;
+ *   - a chat of a cleared member that never admits restricted content records
+ *     nothing and can be shared with anyone;
+ *   - admitting X records X; sharing then reaches a person cleared for X and
+ *     refuses one who is not, and the project-wide visibility is refused;
+ *   - a conversation shared with someone not cleared for X never admits X;
+ *   - a share cannot slip between an admission's audience check and its
+ *     record, nor an admission between a share's check and its write;
  *   - the erasure takes the record with the conversation, and another
  *     organization can neither see nor write one.
  */
@@ -37,17 +40,29 @@ const CLEARED = `user_ruse_cleared_${STAMP}`
 /** A project member holding no clearance role. */
 const UNCLEARED = `user_ruse_uncleared_${STAMP}`
 
-/** The WorkOS answer, per person. */
+/**
+ * The WorkOS answer, per person. `pause` holds the NEXT lookup until released,
+ * which is how the interleaving tests put a share inside an admission's window.
+ */
 const roles = new Map<string, FolderClearance>([
   [OWNER, { roles: ['org-gf'], seesEverything: false }],
   [CLEARED, { roles: ['org-gf'], seesEverything: false }],
 ])
+let pause: { reached: () => void; release: Promise<void> } | null = null
 
 vi.mock('@/lib/authz/folder-access', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@/lib/authz/folder-access')>()
   return {
     ...actual,
-    clearanceOfMember: vi.fn(async (_organizationId: string, userId: string) => roles.get(userId) ?? { roles: [], seesEverything: false }),
+    clearanceOfMember: vi.fn(async (_organizationId: string, userId: string) => {
+      const held = pause
+      if (held) {
+        pause = null
+        held.reached()
+        await held.release
+      }
+      return roles.get(userId) ?? { roles: [], seesEverything: false }
+    }),
   }
 })
 vi.mock('@/lib/sharing/directory', () => ({
@@ -71,7 +86,8 @@ describe.skipIf(!url)('restricted use against Postgres (migrations 0112, 0111)',
   let repo: typeof import('./repository')
   let upsertGrant: typeof import('@/lib/sharing/repository').upsertGrant
   let projectId = ''
-  /** The restricted folder: what the record names (ADR-0088). */
+  let restricted = ''
+  /** The source folder of `restricted`: what the record names (ADR-0088). */
   let folderId = ''
 
   const session: AuthorizedSession = {
@@ -117,12 +133,9 @@ describe.skipIf(!url)('restricted use against Postgres (migrations 0112, 0111)',
       executor
     )
 
-  /** Record that the conversation drew on the restricted folder, as a chat turn's use would. */
-  const drawOn = (conversationId: string) =>
+  const admit = (conversationId: string, collections = [restricted]) =>
     inOrg(ORG, () =>
-      db.execute(sql`
-        insert into conversation_restricted_folders (organization_id, conversation_id, folder_id)
-        values (${ORG}, ${conversationId}, ${folderId}::uuid)`)
+      use.admitRestrictedUse({ organizationId: ORG, conversationId, userId: OWNER, projectId }, collections)
     )
   const recorded = (conversationId: string) => inOrg(ORG, () => use.recordedRestrictedFolders(conversationId, ORG))
   const shareWith = (conversationId: string, userId: string) =>
@@ -154,6 +167,7 @@ describe.skipIf(!url)('restricted use against Postgres (migrations 0112, 0111)',
     use = await import('./restricted-use')
     repo = await import('./repository')
     upsertGrant = (await import('@/lib/sharing/repository')).upsertGrant
+    const folderAccess = await import('@/lib/authz/folder-access')
     const collection = `proj_ruse_${STAMP}`
     const [project] = Array.from(
       await inOrg(ORG, () =>
@@ -180,6 +194,7 @@ describe.skipIf(!url)('restricted use against Postgres (migrations 0112, 0111)',
       )
     )
     folderId = String(folder.id)
+    restricted = folderAccess.restrictedCollectionName(collection, folderId)
   })
 
   afterAll(async () => {
@@ -195,16 +210,24 @@ describe.skipIf(!url)('restricted use against Postgres (migrations 0112, 0111)',
     await closeDb()
   })
 
-  it('lets anyone into a chat that recorded nothing', async () => {
+  it('records nothing for a cleared member’s chat that never admits restricted content, which anyone may join', async () => {
     const id = await chat()
+    const drawable = await inOrg(ORG, () =>
+      use.drawableRestrictedCollections({ organizationId: ORG, conversationId: id, userId: OWNER, projectId }, [
+        restricted,
+      ])
+    )
+    expect(drawable).toEqual([restricted])
+
     expect(await recorded(id)).toEqual([])
     await shareWith(id, UNCLEARED)
     expect(await grantees(id)).toEqual([UNCLEARED])
   })
 
-  it('shares a chat that recorded X with a person cleared for X and refuses one who is not', async () => {
+  it('records X when X is admitted, then shares with a person cleared for X and refuses one who is not', async () => {
     const id = await chat()
-    await drawOn(id)
+    const admission = await admit(id)
+    expect(admission).toEqual({ admitted: [restricted], refused: [], recorded: [folderId] })
     expect(await recorded(id)).toEqual([folderId])
 
     expect(await reasonOf(shareWith(id, UNCLEARED))).toBe('restricted-content')
@@ -215,14 +238,14 @@ describe.skipIf(!url)('restricted use against Postgres (migrations 0112, 0111)',
 
   it('names the person, and the folder to a sharer cleared for it, in the refusal', async () => {
     const id = await chat()
-    await drawOn(id)
+    await admit(id)
     const error = await shareWith(id, UNCLEARED).catch((caught: { details?: unknown }) => caught)
     expect(error).toMatchObject({ details: { reason: 'restricted-content', person: 'Ina Praktikantin', folders: ['Verträge'] } })
   })
 
   it('refuses to make a chat that drew on X visible to the project, and allows it for one that did not', async () => {
     const drew = await chat()
-    await drawOn(drew)
+    await admit(drew)
     const visibility = (conversationId: string) =>
       inOrg(ORG, () =>
         use.widenConversationAudience(session, conversationId, { kind: 'visibility' }, (executor) =>
@@ -233,9 +256,95 @@ describe.skipIf(!url)('restricted use against Postgres (migrations 0112, 0111)',
     expect(await reasonOf(visibility(await chat()))).toBe('went through')
   })
 
+  it('records the first use of a chat whose row does not exist yet, in the stated project', async () => {
+    const id = `s_ruse_new_${STAMP}`
+    expect((await admit(id)).admitted).toEqual([restricted])
+    expect(await inOrg(ORG, () => use.recordedRestrictedFolders(id, ORG))).toEqual([folderId])
+  })
+
+  it('never admits X in a chat already shared with someone not cleared for it, nor in a project-visible one', async () => {
+    const shared = await chat([UNCLEARED])
+    expect(await admit(shared)).toEqual({ admitted: [], refused: [restricted], recorded: [] })
+    const visible = await chat([], 'project')
+    expect((await admit(visible)).refused).toEqual([restricted])
+    expect(await recorded(shared)).toEqual([])
+    expect(await recorded(visible)).toEqual([])
+  })
+
+  it('refuses a collection that is not a current restricted collection of the project', async () => {
+    const id = await chat()
+    expect((await admit(id, ['proj_elsewhere_r0123456789ab'])).refused).toEqual(['proj_elsewhere_r0123456789ab'])
+    expect(await recorded(id)).toEqual([])
+  })
+
+  it('does not let a share slip between an admission’s audience check and its record', async () => {
+    const id = await chat()
+    let reached!: () => void
+    const atCheck = new Promise<void>((resolve) => (reached = resolve))
+    let release!: () => void
+    pause = { reached, release: new Promise<void>((resolve) => (release = resolve)) }
+
+    // The admission reads the audience (OWNER alone), then stops while it asks
+    // WorkOS for the clearances, before it takes the lock.
+    const admission = admit(id)
+    await atCheck
+    // The share runs entirely inside that window: nothing is recorded yet, so
+    // it goes through.
+    expect(await reasonOf(shareWith(id, UNCLEARED))).toBe('went through')
+    release()
+
+    // Under the lock the admission reads the audience again, finds a reader it
+    // never asked about, and refuses.
+    expect((await admission).refused).toEqual([restricted])
+    expect(await recorded(id)).toEqual([])
+    expect(await grantees(id)).toEqual([UNCLEARED])
+  })
+
+  it('does not let a use slip between a share’s record check and its write', async () => {
+    const id = await chat()
+    let inside!: () => void
+    const atWrite = new Promise<void>((resolve) => (inside = resolve))
+    let release!: () => void
+    const held = new Promise<void>((resolve) => (release = resolve))
+
+    // The share has checked the record (empty) under the lock and stops
+    // before its write.
+    const share = inOrg(ORG, () =>
+      use.widenConversationAudience(session, id, { kind: 'person', userId: UNCLEARED, self: false }, async (executor) => {
+        inside()
+        await held
+        return grant(id, UNCLEARED, executor)
+      })
+    )
+    await atWrite
+    // The admission blocks on the same lock until the share commits...
+    const admission = admit(id)
+    await new Promise((resolve) => setTimeout(resolve, 200))
+    release()
+    await share
+
+    // ...and then sees the grant: refused, nothing recorded.
+    expect((await admission).refused).toEqual([restricted])
+    expect(await recorded(id)).toEqual([])
+    expect(await grantees(id)).toEqual([UNCLEARED])
+  })
+
+  it('never ends with both a grant to an uncleared reader and a record, however the two race', async () => {
+    const outcomes = await Promise.all(
+      Array.from({ length: 12 }, async () => {
+        const id = await chat()
+        await Promise.allSettled([admit(id), shareWith(id, UNCLEARED)])
+        return { recorded: await recorded(id), grantees: await grantees(id) }
+      })
+    )
+    for (const outcome of outcomes) {
+      expect(outcome.recorded.length > 0 && outcome.grantees.includes(UNCLEARED)).toBe(false)
+    }
+  })
+
   it('judges the record at read time: loosening the folder opens the chat, tightening it closes it again', async () => {
     const id = await chat()
-    await drawOn(id)
+    await admit(id)
     expect(await reasonOf(shareWith(id, UNCLEARED))).toBe('restricted-content')
 
     // Everyone may read the folder now: nothing recorded restricts anyone.
@@ -268,14 +377,14 @@ describe.skipIf(!url)('restricted use against Postgres (migrations 0112, 0111)',
 
   it('takes the record with the conversation when the chat is erased', async () => {
     const id = await chat()
-    await drawOn(id)
+    await admit(id)
     await inOrg(ORG, () => repo.deleteConversationInOrg(id, ORG))
     expect(await recorded(id)).toEqual([])
   })
 
   it('is invisible to another organization, which cannot write one here either', async () => {
     const id = await chat()
-    await drawOn(id)
+    await admit(id)
     const seen = await inOrg(OTHER_ORG, () =>
       db.execute<{ n: number }>(
         sql`select count(*)::int as n from conversation_restricted_folders where conversation_id = ${id}`

@@ -131,6 +131,11 @@ def _gate(facts: TurnFacts) -> GateDecision:
         # The autonomous stage writes project-scoped memory ONLY (audit S1), so
         # an org-only conversation has nothing it may safely write.
         return GateDecision.skip("no_project")
+    if facts.read_restricted:
+        # ADR-0087: project memory is read by everyone on the project, and
+        # this turn could read a restricted folder. A finding distilled from
+        # it would carry the content past the restriction.
+        return GateDecision.skip("restricted_content")
     text = (facts.answer or "").strip()
     if not facts.query or not text:
         return GateDecision.skip("empty_turn")

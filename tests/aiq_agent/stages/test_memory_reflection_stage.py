@@ -197,3 +197,16 @@ class TestMatchesEscalationKeywords:
         # Keyword placed well before the last 800 characters is not matched.
         content = "unable to find" + ("x" * 900)
         assert matches_escalation_keywords(content) is False
+
+
+class TestRestrictedContent:
+    """ADR-0087, glue until restricted memory lands: nothing is distilled into
+    project memory from a turn that could read a restricted folder."""
+
+    def test_a_restricted_turn_is_skipped(self):
+        decision = _gate(read_restricted=True)
+        assert not decision.run
+        assert decision.reason == "restricted_content"
+
+    def test_an_open_turn_still_proceeds(self):
+        assert _gate(read_restricted=False).run

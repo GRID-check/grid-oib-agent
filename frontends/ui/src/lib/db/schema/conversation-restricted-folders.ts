@@ -12,8 +12,8 @@ import { sql } from 'drizzle-orm'
  * current access (`lib/conversations/restricted-use.ts`): loosening the folder
  * opens the conversation, tightening it closes it, with nothing rewritten.
  *
- * Written only under the per-conversation lock every widening of the
- * conversation's audience takes too (`lockConversationAudience`).
+ * Written only by `admitRestrictedUse`, under the per-conversation lock every
+ * widening of the conversation's audience takes too.
  *
  * No foreign key, on purpose: not to `conversations`, because the first turn of
  * a new chat runs before its row exists (`deleteConversationInOrg` removes the
