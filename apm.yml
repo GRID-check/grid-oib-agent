@@ -25,9 +25,10 @@ targets:
 
 dependencies:
   apm:
-    # This repo's own skills. Local paths, so editing one and re-running
-    # `task agents:setup` republishes it to every target.
-    - ./skills/aiq-research
+    # This repo's own skills go here as local paths (`- ./skills/<name>`), so
+    # editing one and re-running `task agents:setup` republishes it to every
+    # target. There are none today: a skill of our own is only for
+    # agent-specific procedure (docs/contributing/agent-skills.md).
 
     # Writing documents an agent consumes: skills, AGENTS.md, CLAUDE.md.
     # Pinned to a commit; an unpinned ref drifts silently under `apm install`.

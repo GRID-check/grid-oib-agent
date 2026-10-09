@@ -52,7 +52,7 @@ was deleted rather than moved.
 
 | Skill | Decision | Why | Now |
 |---|---|---|---|
-| `aiq-research` | kept | Drives a running backend through `scripts/aiq.py`, polls jobs and presents reports: only an agent does this | `skills/aiq-research/` |
+| `aiq-research` | deleted on request, after the audit first kept it | Agent-specific, but an upstream NVIDIA catalog skill for driving a blueprint backend, with a signature that no longer matched its files. Its backend launcher `scripts/start_as_skill.sh` went with it | |
 | `aiq-definition-of-done` | moved | The bar for "done" binds people and agents alike | [definition-of-done.md](definition-of-done.md), with a row in `AGENTS.md` |
 | `aiq-prepare-pr` | moved | Opening a pull request is contributor knowledge | [`CONTRIBUTING.md`](../../CONTRIBUTING.md#opening-a-pull-request) |
 | `aiq-release-qa` | deleted | What to run per surface was already [testing-and-verification.md](testing-and-verification.md) and the definition of done; the rest was stale | |

@@ -52,13 +52,9 @@ jobs:
         with:
           node-version: "22"
       - name: Check external links in tracked Markdown
-        env:
-          # Same exclusion the pre-commit hook applies: skill cards are generated
-          # blobs, not prose anyone maintains links in.
-          EXCLUDE: '^skills/[^/]+/skill-card\.md$'
         run: |
           set -uo pipefail
-          mapfile -t FILES < <(git ls-files '*.md' | grep -Ev "$EXCLUDE")
+          mapfile -t FILES < <(git ls-files '*.md')
           echo "Checking ${#FILES[@]} files"
           npx --yes "markdown-link-check@${MARKDOWN_LINK_CHECK_VERSION}" \
             --config ci/markdown-link-check-external-config.json \

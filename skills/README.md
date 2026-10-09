@@ -16,9 +16,8 @@ A procedure is a skill here only when it is agent-specific; everything a
 contributor needs as much as an agent is documentation. The rule and the audit
 that applied it:
 [`../docs/contributing/agent-skills.md`](../docs/contributing/agent-skills.md#skill-or-document).
-Today that leaves `aiq-research`, which drives a running backend through
-`scripts/aiq.py`. Its `skill-card.md`, `skill.oms.sig`, `BENCHMARK.md` and
-`evals/` come from the NVIDIA Skills catalog it was first published to.
+Today there are none. The last one, `aiq-research`, was an upstream NVIDIA
+catalog skill for driving a blueprint backend, and was removed on request.
 
 Piloti's own skills, the ones the product reads at run time, are a different
 thing and live in `src/aiq_agent/skills/` (ADR-0046).
