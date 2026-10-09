@@ -25,6 +25,7 @@
  * | `org`      | Organization | AuthKit JWT `permissions` claim (no I/O)     |
  * | `platform` | Organization | platform-org membership (`./platform`)       |
  * | `project`  | Project      | WorkOS FGA `authorization.check` per project |
+ * | `folder`   | Folder       | WorkOS FGA, per folder with its own list     |
  *
  * `platform` shares the Organization resource type because WorkOS has no tier
  * above it — verified against the live API, which rejects a parentless resource
@@ -34,7 +35,7 @@
  */
 
 /** WorkOS resource type a permission or role attaches to. */
-export type PermissionTier = 'org' | 'platform' | 'project' | 'skill'
+export type PermissionTier = 'org' | 'platform' | 'project' | 'skill' | 'folder'
 
 /** Where a role may be assigned. */
 export type RoleScope =
@@ -114,6 +115,13 @@ export const RESOURCE_TYPES: readonly ResourceTypeSpec[] = [
     slug: 'skill',
     name: 'Skill',
     description: 'A scheduled agent-skill job attached to a project (Agent Skills).',
+    parent: 'project',
+  },
+  {
+    slug: 'folder',
+    name: 'Folder',
+    description:
+      'A project folder with its own access list, registered directly under its project. Access is a folder role assigned on it.',
     parent: 'project',
   },
 ]
@@ -360,6 +368,29 @@ export const SKILL_PERMISSION_SPECS: readonly PermissionSpec[] = [
 ]
 
 /**
+ * Folder-tier permissions (ADR-0096). Only a folder with its own access list is
+ * a WorkOS resource, registered directly under its project, and no project role
+ * holds these: being in the project grants nothing on such a folder, which is
+ * how it is narrower than the project without an exclusion WorkOS does not
+ * have. Who may read or change it is a folder role assigned on it, to a person.
+ * The ancestors' lists still narrow it; that walk is `effectiveFolderLevel`.
+ */
+export const FOLDER_PERMISSION_SPECS: readonly PermissionSpec[] = [
+  {
+    slug: 'folder:read',
+    name: 'Read folder',
+    description: 'See, open, download and search a folder with its own access list, and use it in answers.',
+    tier: 'folder',
+  },
+  {
+    slug: 'folder:write',
+    name: 'Write folder',
+    description: 'Change a folder with its own access list and what is filed in it. The project role still caps it.',
+    tier: 'folder',
+  },
+]
+
+/**
  * WorkOS-owned widget permissions. Listed so roles can reference them and so the
  * provisioning script can verify a role's attachment set exactly, but never
  * created or modified by us — WorkOS ships them with `system: true`.
@@ -415,6 +446,7 @@ export const ALL_PERMISSION_SPECS: readonly PermissionSpec[] = [
   ...PLATFORM_PERMISSION_SPECS,
   ...PROJECT_PERMISSION_SPECS,
   ...SKILL_PERMISSION_SPECS,
+  ...FOLDER_PERMISSION_SPECS,
   ...WIDGET_PERMISSION_SPECS,
 ]
 
@@ -585,6 +617,24 @@ export const ROLES: readonly RoleSpec[] = [
       'project:members:manage',
       'project:skills:manage',
     ],
+  },
+
+  // ---- Folder tier (ADR-0096) -------------------------------------------
+  {
+    slug: 'folder-reader',
+    name: 'Folder Reader',
+    description: 'Reads one folder with its own access list: open, download, search, and use in answers.',
+    tier: 'folder',
+    scope: 'environment',
+    permissions: ['folder:read'],
+  },
+  {
+    slug: 'folder-editor',
+    name: 'Folder Editor',
+    description: 'Reads and changes one folder with its own access list. The project role still caps writing.',
+    tier: 'folder',
+    scope: 'environment',
+    permissions: ['folder:read', 'folder:write'],
   },
 ]
 

@@ -11,6 +11,7 @@ import {
   RESOURCE_TYPES,
   ROLES,
   SKILL_PERMISSION_SPECS,
+  FOLDER_PERMISSION_SPECS,
   findPermissionSpec,
   findRoleSpec,
   type PermissionTier,
@@ -20,6 +21,7 @@ import {
   PLATFORM_PERMISSIONS,
   PROJECT_PERMISSIONS,
   SKILL_PERMISSIONS,
+  FOLDER_PERMISSIONS,
 } from './permissions'
 
 /**
@@ -138,6 +140,7 @@ describe('authorization catalog', () => {
       ...Object.values(PLATFORM_PERMISSIONS),
       ...Object.values(PROJECT_PERMISSIONS),
       ...Object.values(SKILL_PERMISSIONS),
+      ...Object.values(FOLDER_PERMISSIONS),
     ]
     for (const slug of registrySlugs) {
       expect(findPermissionSpec(slug), `${slug} must exist in the catalog`).toBeDefined()
@@ -150,6 +153,7 @@ describe('authorization catalog', () => {
       ...PLATFORM_PERMISSION_SPECS,
       ...PROJECT_PERMISSION_SPECS,
       ...SKILL_PERMISSION_SPECS,
+      ...FOLDER_PERMISSION_SPECS,
     ]
       .filter((permission) => !registry.has(permission.slug))
       .map((permission) => permission.slug)

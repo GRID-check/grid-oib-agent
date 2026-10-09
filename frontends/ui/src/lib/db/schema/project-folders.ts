@@ -1,4 +1,4 @@
-import { check, foreignKey, index, pgTable, text, timestamp, unique, uuid, varchar } from 'drizzle-orm/pg-core'
+import { boolean, check, foreignKey, index, pgTable, text, timestamp, unique, uuid, varchar } from 'drizzle-orm/pg-core'
 import { relations, sql } from 'drizzle-orm'
 import { projects } from './projects'
 import { documents } from './documents'
@@ -67,12 +67,19 @@ export const projectFolders = pgTable('project_folders', {
   path: varchar('path', { length: 1024 }).notNull(),
   /**
    * Whether the folder inherits its parent's access (`inherit`, the default; a
-   * root folder inherits the project) or has its own access list (`custom`,
-   * rows in `project_folder_grants`), migration 0111, ADR-0088. A custom list
-   * holds 1–20 grants (deferred constraint trigger). `lib/authz/folder-access.ts`
-   * is the one place that decides what it means.
+   * root folder inherits the project) or has its own access list (`custom`),
+   * migration 0111, ADR-0088. Who is on a custom list is WorkOS's: the folder
+   * is a `folder` resource and the people hold a folder role on it (ADR-0096,
+   * migration 0128). `lib/authz/folder-access.ts` is the one place that
+   * decides what it means.
    */
   accessMode: text('access_mode', { enum: ['inherit', 'custom'] }).notNull().default('inherit'),
+  /**
+   * On a custom folder: every project member reads it, and the list decides
+   * only who may write (what the `*` entry was). Ignored while `inherit`.
+   * Migration 0128, ADR-0096.
+   */
+  everyoneReads: boolean('everyone_reads').notNull().default(false),
   /** Who last set the folder's own access list, and when; required while it is `custom`. */
   accessChangedBy: text('access_changed_by'),
   accessChangedAt: timestamp('access_changed_at', { withTimezone: true }),

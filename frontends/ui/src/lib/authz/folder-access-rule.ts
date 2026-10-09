@@ -10,20 +10,11 @@
 
 import { ForbiddenError } from '@/lib/api/errors'
 
-/** The reserved role slug of a grant to every member of the project. */
-export const EVERY_PROJECT_MEMBER = '*'
-
-/** What a grant lets a role do: read, or read and write. */
+/** What a folder role lets a person do: read (`folder-reader`), or read and write (`folder-editor`). */
 export type FolderGrantLevel = 'read' | 'write'
 
 /** What someone may do in a folder. */
 export type FolderLevel = 'none' | FolderGrantLevel
-
-/** One entry of a folder's own access list. */
-export interface FolderGrant {
-  role: string
-  level: FolderGrantLevel
-}
 
 /**
  * Who sees what was derived from a folder once its purge has run, by the
@@ -43,8 +34,13 @@ export interface AccessFolder {
   id: string
   parentId: string | null
   accessMode: 'inherit' | 'custom'
-  /** The folder's own list; read only when `accessMode` is `custom`. */
-  grants: readonly FolderGrant[]
+  /**
+   * Every project member reads it, and the list decides only who may write.
+   * Read only when `accessMode` is `custom`. Who holds the folder's roles is
+   * WorkOS's (ADR-0096); this flag is the one part of a list that names no
+   * person, so it stays with the folder.
+   */
+  everyoneReads: boolean
   /** Deleted: in the Papierkorb or a tombstone. Hidden everywhere, and so is what is filed in it; still answered for. */
   deleted?: boolean
   /** When the purge ran: a permanent tombstone. Unset for a living folder and one in the bin. */
@@ -53,9 +49,15 @@ export interface AccessFolder {
   purgedContent?: DeletedFolderContentPolicy
 }
 
-/** Who is asking, reduced to what the grants are matched against. */
+/**
+ * Who is asking, reduced to what the folder lists are matched against: the
+ * level the person holds on each folder with its own list, by the folder roles
+ * WorkOS has assigned them there (ADR-0096). A folder absent from `levels` is
+ * one they hold no role on.
+ */
 export interface FolderClearance {
-  roles: readonly string[]
+  /** Folder id → the level their folder role gives. */
+  levels: Readonly<Record<string, FolderGrantLevel>>
   /** `org:projects:administer`: every folder, written. */
   seesEverything: boolean
 }
@@ -76,14 +78,10 @@ export function atLeast(level: FolderLevel, needed: FolderGrantLevel): boolean {
   return RANK[level] >= RANK[needed]
 }
 
-/** What one folder's own list grants a clearance: the best entry naming one of its roles, or `*`. */
-export function listLevel(grants: readonly FolderGrant[], clearance: FolderClearance): FolderLevel {
-  const held = new Set(clearance.roles)
-  let level: FolderLevel = 'none'
-  for (const grant of grants) {
-    if (grant.role === EVERY_PROJECT_MEMBER || held.has(grant.role)) level = higher(level, grant.level)
-  }
-  return level
+/** What one folder's own list grants a clearance: the folder role they hold on it, and read when everyone reads. */
+export function listLevel(folder: AccessFolder, clearance: FolderClearance): FolderLevel {
+  const held: FolderLevel = clearance.levels[folder.id] ?? 'none'
+  return folder.everyoneReads ? higher(held, 'read') : held
 }
 
 /** The folder tree keyed by id, for the walks below. */
@@ -105,7 +103,8 @@ export function folderTree(folders: readonly AccessFolder[]): FolderTree {
  * a living folder, from its stored parent and grants, until it is purged: then
  * the organization's {@link DeletedFolderContentPolicy} decides (`unchanged`
  * keeps the grants, `project` lets every member read, `admins` and `remove`
- * leave it to organization admins).
+ * leave it to organization admins). A purged folder's WorkOS resource is kept
+ * for exactly that reason.
  */
 export function effectiveFolderLevel(tree: FolderTree, clearance: FolderClearance, folderId: string | null): FolderLevel {
   if (folderId === null) return 'write'
@@ -124,7 +123,7 @@ export function effectiveFolderLevel(tree: FolderTree, clearance: FolderClearanc
   for (let current = tree.get(folderId); current; ) {
     if (seen.has(current.id)) return 'none'
     seen.add(current.id)
-    if (current.accessMode === 'custom') level = lower(level, listLevel(current.grants, clearance))
+    if (current.accessMode === 'custom') level = lower(level, listLevel(current, clearance))
     if (level === 'none' || current.parentId === null) return level
     const parent = tree.get(current.parentId)
     if (!parent) return 'none'
@@ -159,35 +158,20 @@ export function withProjectCeiling(level: FolderLevel, projectMayWrite: boolean)
   return level === 'write' && !projectMayWrite ? 'read' : level
 }
 
-/** Whether a folder's own list leaves some project member unable to read it: `custom` without `*`. */
+/** Whether a folder's own list leaves some project member unable to read it: `custom`, and not everyone reads. */
 export function restrictsReading(folder: AccessFolder): boolean {
-  return folder.accessMode === 'custom' && !folder.grants.some((grant) => grant.role === EVERY_PROJECT_MEMBER)
+  return folder.accessMode === 'custom' && !folder.everyoneReads
 }
 
-/** Someone who holds no role and is not an admin: what every project member can do. */
-export const ANY_MEMBER: FolderClearance = { roles: [], seesEverything: false }
+/** Someone who holds no folder role and is not an admin: what every project member can do. */
+export const ANY_MEMBER: FolderClearance = { levels: {}, seesEverything: false }
+
+/** Whoever asks, cleared for everything: for the writers that place a document rather than read as someone. */
+export const EVERY_FOLDER: FolderClearance = { levels: {}, seesEverything: true }
 
 /** Whether every member of the project can read `folderId` (a tombstone included). False for an unknown id. */
 export function readableByEveryMember(tree: FolderTree, folderId: string): boolean {
   return atLeast(effectiveFolderLevel(tree, ANY_MEMBER, folderId), 'read')
-}
-
-/**
- * The living folders whose own list names no role that exists and not `*`:
- * the list matches nobody, so only organization admins read them (the rule
- * above gives a non-admin `none`). What is left of a folder when the role it
- * named is deleted in WorkOS; the project settings flag it so someone sets a
- * role again. A rename keeps the slug and so never lands a folder here.
- */
-export function foldersWithoutValidRole(folders: readonly AccessFolder[], existingRoles: ReadonlySet<string>): string[] {
-  return folders
-    .filter(
-      (folder) =>
-        !folder.deleted &&
-        folder.accessMode === 'custom' &&
-        !folder.grants.some((grant) => grant.role === EVERY_PROJECT_MEMBER || existingRoles.has(grant.role))
-    )
-    .map((folder) => folder.id)
 }
 
 /** The folders on `folderId`'s path, itself first, that restrict reading. Empty for the root or an unknown id. */
@@ -204,7 +188,7 @@ export function readRestrictingFoldersOnPath(tree: FolderTree, folderId: string 
 
 /**
  * Whether `folderId`, or an ancestor, has its own access list, whatever it
- * grants (`custom`, with or without `*`). The test the download log applies to
+ * grants (`custom`, whether or not everyone reads). The test the download log applies to
  * an OPEN: such a folder is one an office chose to treat apart. False for the
  * project root and for an id the tree does not hold.
  */
