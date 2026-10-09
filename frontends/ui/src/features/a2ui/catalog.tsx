@@ -20,13 +20,15 @@
  * and of the import cycle that would bring.
  */
 
-import { createContext, useContext, useLayoutEffect, type ReactNode } from 'react'
+import { createContext, useContext, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
 import { z } from 'zod'
 import { Catalog, componentId, type ComponentApi } from '@a2ui/web_core/v0_9'
 import { createComponentImplementation, type ReactComponentImplementation } from '@a2ui/react/v0_9'
 
 import { gridCardSchema, type GridCard } from '@/shared/cards/schemas'
 import { Tabs as UiTabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import { useHeightGlide } from '@/components/motion/height-glide'
+import { cn } from '@/lib/utils'
 import { MarkdownRenderer } from '@/shared/components/MarkdownRenderer/MarkdownRenderer'
 import { useNestedMarkdownPlugins } from '@/shared/components/MarkdownRenderer/nested-plugins-context'
 
@@ -165,23 +167,72 @@ const Column = createComponentImplementation(ColumnApi, ({ props, buildChild }) 
  * Variants, one at a time: the product's own tabs atom (`components/ui/tabs`),
  * so a composed answer switches the way every other tab strip in the app does
  * — the gliding pill, the focus ring, the 44px touch floor.
+ *
+ * Switching is a swap the reader asked for, so it moves like one: the panel
+ * area glides to the new panel's height (`useHeightGlide`) instead of shoving
+ * the rest of the answer by the difference in one frame, and the new panel
+ * fades in. Only after a switch — the first panel arrives with its card.
+ *
+ * On a phone the strip scrolls sideways, and a tapped variant half under the
+ * edge stayed half under it. The chosen tab is brought fully into the strip,
+ * by scrolling the strip alone: `scrollIntoView` would also scroll the page.
  */
 function TabsView({ tabs, buildChild }: { tabs: { title: string; child: string }[]; buildChild: (id: string) => ReactNode }) {
   useReportDrawn()
+  const [value, setValue] = useState(tabs[0]?.child)
+  const [switched, setSwitched] = useState(false)
+  const panelsRef = useRef<HTMLDivElement>(null)
+  const listRef = useRef<HTMLDivElement>(null)
+  useHeightGlide(panelsRef, value)
+
+  useEffect(() => {
+    if (!switched) return
+    const list = listRef.current
+    const tab = list?.querySelector<HTMLElement>('[data-state="active"]')
+    if (!list || !tab) return
+    const listBox = list.getBoundingClientRect()
+    const tabBox = tab.getBoundingClientRect()
+    const overflowLeft = tabBox.left - listBox.left
+    const overflowRight = tabBox.right - listBox.right
+    if (overflowLeft >= 0 && overflowRight <= 0) return
+    const reduced = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches
+    list.scrollTo({
+      left: list.scrollLeft + (overflowLeft < 0 ? overflowLeft : overflowRight),
+      behavior: reduced ? 'auto' : 'smooth',
+    })
+  }, [value, switched])
+
   return (
-    <UiTabs defaultValue={tabs[0]?.child} className="gap-3" data-a2ui-node="Tabs">
-      <TabsList className="max-w-full justify-start overflow-x-auto">
+    <UiTabs
+      value={value}
+      onValueChange={(next) => {
+        setSwitched(true)
+        setValue(next)
+      }}
+      className="gap-3"
+      data-a2ui-node="Tabs"
+    >
+      <TabsList ref={listRef} className="max-w-full justify-start overflow-x-auto">
         {tabs.map((tab) => (
           <TabsTrigger key={tab.child} value={tab.child} className="flex-none">
             {tab.title}
           </TabsTrigger>
         ))}
       </TabsList>
-      {tabs.map((tab) => (
-        <TabsContent key={tab.child} value={tab.child} className="mt-0 min-w-0">
-          {buildChild(tab.child)}
-        </TabsContent>
-      ))}
+      <div ref={panelsRef}>
+        {tabs.map((tab) => (
+          <TabsContent
+            key={tab.child}
+            value={tab.child}
+            className={cn(
+              'mt-0 min-w-0',
+              switched && 'animate-in fade-in-0 duration-quick ease-out motion-reduce:animate-none'
+            )}
+          >
+            {buildChild(tab.child)}
+          </TabsContent>
+        ))}
+      </div>
     </UiTabs>
   )
 }

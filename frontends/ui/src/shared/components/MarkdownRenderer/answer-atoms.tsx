@@ -81,7 +81,11 @@ export const ValueBar: FC<ValueBarProps> = ({ value, limit, bound, pass, valueTe
 /** The row classes of an answer table: the case that holds is tinted, the others muted when one does. */
 export const tableRowClass = ({ active, muted, conflict = false }: { active: boolean; muted: boolean; conflict?: boolean }): string =>
   cn(
-    'border-base border-b last:border-b-0',
+    // The rule between two rows belongs to the LOWER one: a row arriving
+    // brings its own line instead of adding one under the row above, which
+    // moved it and everything after it down by a pixel per row while a table
+    // streamed (stream audit 2026-10).
+    'border-base border-t first:border-t-0',
     // A row whose written status contradicts its own numbers: the reader must look.
     conflict && 'bg-warning-subtle',
     active && 'bg-success-subtle',

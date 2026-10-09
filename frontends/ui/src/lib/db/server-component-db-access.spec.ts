@@ -28,6 +28,7 @@ import { readFileSync, readdirSync } from 'node:fs'
 import { join } from 'node:path'
 import ts from 'typescript'
 import { describe, expect, it } from 'vitest'
+import { PRE_EXISTING_DB_IMPORTERS } from '../../../eslint-rules/route-db-access-allowlist.mjs'
 
 const APP_DIR = join(process.cwd(), 'src', 'app')
 
@@ -41,19 +42,7 @@ const APP_DIR = join(process.cwd(), 'src', 'app')
  * is visible and can only go down: a new route added to this list should be a
  * question in review, and anything not on it fails immediately.
  */
-const PRE_EXISTING_ROUTE_HANDLERS = [
-  'app/api/conversations/[id]/route.ts',
-  'app/api/internal/agent-profiler-spans/route.ts',
-  'app/api/internal/citation-events/route.ts',
-  'app/api/internal/memory/route.ts',
-  'app/api/internal/usage/route.ts',
-  'app/api/organization/memory/[itemId]/route.ts',
-  'app/api/organization/memory/route.ts',
-  'app/api/projects/[id]/memory/[itemId]/route.ts',
-  'app/api/projects/[id]/memory/route.ts',
-  'app/api/sharing/[resourceType]/[resourceId]/grants/route.ts',
-  'app/api/sharing/[resourceType]/[resourceId]/route.ts',
-]
+const PRE_EXISTING_ROUTE_HANDLERS = PRE_EXISTING_DB_IMPORTERS
 
 /** Every `.ts`/`.tsx` file under `src/app`, recursively. */
 function appFiles(dir = APP_DIR, found: string[] = []): string[] {

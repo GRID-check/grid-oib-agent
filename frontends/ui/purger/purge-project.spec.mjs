@@ -33,6 +33,13 @@ function makeTx({
    */
   sessionDocumentRows = [],
   /**
+   * `{ collection_name }` rows: the distinct collections the project's OWN
+   * documents name. A document under a restricted folder (ADR-0087) names
+   * `<project collection>_r<12 hex>`, which the project's purge call does not
+   * reach.
+   */
+  documentCollectionRows = [],
+  /**
    * Hold rows to return on the Nth `legal_holds` read, so a test can place a
    * hold PART WAY through the purge. `holdRows` still covers "held from the
    * start"; this covers "held after we began", which is the case the per-step
@@ -65,6 +72,9 @@ function makeTx({
     if (text.startsWith('SELECT') && text.includes('FROM conversations')) {
       return Promise.resolve(conversationRows)
     }
+    if (text.startsWith('SELECT DISTINCT collection_name FROM documents')) {
+      return Promise.resolve(documentCollectionRows)
+    }
     if (text.startsWith('SELECT DISTINCT storage_bucket')) {
       return Promise.resolve(documentBucketRows)
     }
@@ -80,6 +90,7 @@ function makeDeps(overrides = {}) {
     bucket: 'grid-documents',
     fetchImpl: vi.fn().mockResolvedValue({ ok: true }),
     deleteStoragePrefix: vi.fn().mockResolvedValue(3),
+    eraseConversationTraces: vi.fn().mockResolvedValue({ configured: true, traces: 0, batches: 0 }),
     abortMultipartUploads: vi.fn().mockResolvedValue(0),
     workos: {
       authorization: {
@@ -290,6 +301,61 @@ describe('purgeProject', () => {
     expect(executed.some((q) => q.text.startsWith('DELETE'))).toBe(false)
   })
 
+  // The chats' Langfuse traces (ADR-0044). Found by session id = conversation id,
+  // so the ids must be read before step 4 deletes the rows that hold them.
+  it('deletes the Langfuse traces of every chat of the project, before any row is deleted', async () => {
+    const { tx, executed } = makeTx({
+      projectRow: { id: 'p1', collection_name: 'proj_abc' },
+      conversationRows: [{ id: 's_a' }, { id: 's_b' }],
+    })
+    const deps = makeDeps()
+    const seenDeletesAtCall = []
+    deps.eraseConversationTraces.mockImplementation(async () => {
+      seenDeletesAtCall.push(executed.some((q) => q.text.startsWith('DELETE')))
+    })
+
+    await purgeProject(tx, entry, deps)
+
+    expect(deps.eraseConversationTraces.mock.calls).toEqual([['s_a'], ['s_b']])
+    expect(seenDeletesAtCall).toEqual([false, false])
+  })
+
+  it('makes no Langfuse call for a project without chats', async () => {
+    const { tx } = makeTx({ projectRow: { id: 'p1', collection_name: 'proj_abc' }, conversationRows: [] })
+    const deps = makeDeps()
+    await purgeProject(tx, entry, deps)
+    expect(deps.eraseConversationTraces).not.toHaveBeenCalled()
+  })
+
+  it('fails the purge when Langfuse cannot be reached, before WorkOS and the rows, so the row retries', async () => {
+    const { tx, executed } = makeTx({
+      projectRow: { id: 'p1', collection_name: 'proj_abc' },
+      conversationRows: [{ id: 's_a' }],
+    })
+    const deps = makeDeps()
+    deps.eraseConversationTraces.mockRejectedValue(new Error('Langfuse GET /api/public/v2/observations answered 503'))
+
+    await expect(purgeProject(tx, entry, deps)).rejects.toThrow(/answered 503/)
+
+    expect(deps.workos.authorization.deleteResourceByExternalId).not.toHaveBeenCalled()
+    expect(executed.some((q) => q.text.startsWith('DELETE'))).toBe(false)
+  })
+
+  it('re-checks the hold before each chat’s trace erasure, so a hold placed part way stops the rest', async () => {
+    // Hold checks: 1 before any step; then one per chat. The hold appears on
+    // the check before the second chat.
+    const { tx } = makeTx({
+      projectRow: { id: 'p1', collection_name: 'proj_abc' },
+      conversationRows: [{ id: 's_a' }, { id: 's_b' }],
+      holdOnCheck: { 3: [{ held: true }] },
+    })
+    const deps = makeDeps()
+
+    await expect(purgeProject(tx, entry, deps)).rejects.toMatchObject({ code: LEGAL_HOLD_CODE })
+
+    expect(deps.eraseConversationTraces.mock.calls).toEqual([['s_a']])
+  })
+
   it('treats an already-deleted WorkOS resource as success (idempotency)', async () => {
     const { tx } = makeTx({
       projectRow: { id: 'p1', collection_name: 'proj_abc' },
@@ -473,6 +539,93 @@ describe('session attachments', () => {
     })
     // The project's own collection was already purged; the chat's was not.
     expect(deps.fetchImpl).toHaveBeenCalledTimes(1)
+  })
+})
+
+// ADR-0087: a restricted folder's documents live in their own collection,
+// `<project collection>_r<12 hex>`. Purging only the project's collection left the
+// one set of chunks a restriction exists for readable after the project was gone.
+describe('restricted folder collections', () => {
+  const RESTRICTED_A = 'proj_abc_r0123456789ab'
+  const RESTRICTED_B = 'proj_abc_rfedcba987654'
+
+  function restrictedTx(overrides = {}) {
+    return makeTx({
+      projectRow: { id: 'p1', collection_name: 'proj_abc' },
+      conversationRows: [{ id: 's_c1' }],
+      documentCollectionRows: [
+        { collection_name: 'proj_abc' },
+        { collection_name: RESTRICTED_A },
+        { collection_name: RESTRICTED_B },
+      ],
+      ...overrides,
+    })
+  }
+
+  it('purges every collection the project documents name, the project’s own once', async () => {
+    const { tx, executed } = restrictedTx()
+    const deps = makeDeps()
+
+    await purgeProject(tx, entry, deps)
+
+    const bodies = deps.fetchImpl.mock.calls.map((call) => JSON.parse(call[1].body))
+    expect(bodies).toEqual([
+      { collection_name: 'proj_abc', conversation_ids: ['s_c1'] },
+      { collection_name: RESTRICTED_A, conversation_ids: [] },
+      { collection_name: RESTRICTED_B, conversation_ids: [] },
+    ])
+    const read = executed.find((q) => q.text.startsWith('SELECT DISTINCT collection_name FROM documents'))
+    expect(read.values).toEqual(['p1'])
+  })
+
+  it('reads them while the document rows still exist', async () => {
+    const { tx, executed } = restrictedTx()
+
+    await purgeProject(tx, entry, makeDeps())
+
+    const read = executed.findIndex((q) => q.text.startsWith('SELECT DISTINCT collection_name FROM documents'))
+    const firstDelete = executed.findIndex((q) => q.text.startsWith('DELETE'))
+    expect(read).toBeGreaterThanOrEqual(0)
+    expect(read).toBeLessThan(firstDelete)
+  })
+
+  it('aborts the purge, rows intact, when a restricted collection cannot be erased', async () => {
+    const { tx, executed } = restrictedTx()
+    const deps = makeDeps({
+      fetchImpl: vi
+        .fn()
+        .mockResolvedValueOnce({ ok: true, json: async () => ({ status: 'ok' }) })
+        .mockResolvedValueOnce({ ok: true, json: async () => ({ status: 'failed' }) }),
+    })
+
+    await expect(purgeProject(tx, entry, deps)).rejects.toThrow(
+      new RegExp(`reported failure for collection ${RESTRICTED_A}`),
+    )
+    expect(deps.deleteStoragePrefix).not.toHaveBeenCalled()
+    expect(deps.workos.authorization.deleteResourceByExternalId).not.toHaveBeenCalled()
+    expect(executed.some((q) => q.text.startsWith('DELETE'))).toBe(false)
+  })
+
+  it('stops before a restricted collection when a hold appears mid-purge', async () => {
+    // 1 is the pre-flight check; 2 guards the first restricted collection.
+    const { tx } = restrictedTx({ holdOnCheck: { 2: [{ held: true }] } })
+    const deps = makeDeps()
+
+    await expect(purgeProject(tx, entry, deps)).rejects.toMatchObject({ code: LEGAL_HOLD_CODE })
+    expect(deps.fetchImpl).toHaveBeenCalledTimes(1)
+  })
+
+  it('does not erase a chat’s collection twice', async () => {
+    const { tx } = restrictedTx({
+      sessionDocumentRows: [{ conversation_id: 's_c1', collection_name: 's_c1', storage_bucket: null }],
+      documentCollectionRows: [{ collection_name: 's_c1' }, { collection_name: RESTRICTED_A }],
+    })
+    const deps = makeDeps()
+
+    await purgeProject(tx, entry, deps)
+
+    const collections = deps.fetchImpl.mock.calls.map((call) => JSON.parse(call[1].body).collection_name)
+    expect(collections).toEqual(['proj_abc', 's_c1', RESTRICTED_A])
   })
 })
 

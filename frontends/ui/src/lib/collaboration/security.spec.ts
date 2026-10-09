@@ -45,6 +45,18 @@ vi.mock('@/lib/auth/require-auth', () => ({
   authzErrorResponse: () => null,
 }))
 
+// ADR-0087/0086: no conversation here recorded a restricted folder, so every
+// widening is allowed; the rule itself is `restricted-use.spec.ts`.
+vi.mock('@/lib/conversations/restricted-use', () => ({
+  peopleWhoMayRead: vi.fn(async (_org: string, _id: string, userIds: readonly string[]) => new Set(userIds)),
+  lockedConversationIds: vi.fn(async () => new Set<string>()),
+  assertMayWidenConversation: vi.fn(async () => undefined),
+  widenConversationAudience: vi.fn(
+    async (_session: unknown, _id: string, _widening: unknown, write: (executor: unknown) => Promise<unknown>) =>
+      write(undefined)
+  ),
+}))
+
 vi.mock('@/lib/conversations/repository', () => ({
   deleteConversationInOrg: vi.fn(),
   findConversationInOrg: vi.fn(),
@@ -194,6 +206,9 @@ const session = {
   userId: 'user_me',
   organizationId: 'org_1',
   email: 'me@grid.test',
+  role: 'member',
+  roles: ['member'],
+  permissions: [],
 } as unknown as AuthorizedSession
 
 /** In-process cache so the real `canUserAccessProject` can be exercised. */

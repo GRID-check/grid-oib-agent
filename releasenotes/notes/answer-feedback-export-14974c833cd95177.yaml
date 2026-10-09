@@ -1,0 +1,23 @@
+---
+operators:
+  - >
+    Answer quality has one scope for all three views: a date range (7, 30 or
+    90 days, or any range up to a year), organizations and projects, chosen in
+    a bar under the page header and kept in the link.
+  - >
+    The ratings view can be filtered by verdict, reason, topic, how the answer
+    was produced, its confidence, whether the voter left a comment or an
+    expected answer, and free text. Every figure, the summary, the trend, the
+    breakdowns and the list follow the filters, and each picker shows how many
+    ratings are behind each choice.
+  - >
+    The answer feedback export holds exactly what the ratings view shows, as an
+    Excel workbook with weekly rates, an overview of every filter and a column
+    guide, or as a CSV. The export dialog says how many ratings the file will
+    hold before it is downloaded, and can drop the rating filters to export
+    every rating in the range.
+security:
+  - >
+    A vote that named another organization's answer could show that answer's
+    text in the platform feedback view, its export and the lesson pipeline.
+    Votes are now only ever matched with answers from their own organization.

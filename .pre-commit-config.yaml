@@ -19,7 +19,6 @@ repos:
         args: [--maxkb=1024]
       - id: check-yaml
       - id: end-of-file-fixer
-        exclude: ^skills/[^/]+/skill\.oms\.sig$
       - id: trailing-whitespace
 
   - repo: local
@@ -153,11 +152,7 @@ repos:
         # exists, and we deliberately took only the one file. Rewriting its
         # links to make a link checker happy would break the byte-for-byte
         # guarantee that keeps its MIT licence and attribution intact.
-        exclude: |
-          (?x)^(
-            skills/[^/]+/skill-card\.md|
-            src/aiq_agent/skills/review/skill-check/SKILL\.md
-          )$
+        exclude: ^src/aiq_agent/skills/review/skill-check/SKILL\.md$
 
 default_language_version:
   python: python3

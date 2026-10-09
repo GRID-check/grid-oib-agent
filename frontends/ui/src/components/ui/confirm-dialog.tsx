@@ -137,7 +137,9 @@ export const ConfirmDialog: FC<ConfirmDialogProps> = ({
               />
             )}
             <div className="min-w-0 flex-1 space-y-1.5">
-              <DialogTitle className="text-balance text-base leading-snug">{title}</DialogTitle>
+              {/* `overflow-wrap:anywhere`: titles routinely quote a file name, and a
+                  long one with no spaces otherwise widens the dialog past the viewport. */}
+              <DialogTitle className="text-balance text-base leading-snug [overflow-wrap:anywhere]">{title}</DialogTitle>
               {description && <DialogDescription>{description}</DialogDescription>}
               {children && <div className="text-pretty text-sm text-muted-foreground">{children}</div>}
             </div>

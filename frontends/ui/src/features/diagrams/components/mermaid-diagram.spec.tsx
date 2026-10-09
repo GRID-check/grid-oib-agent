@@ -21,7 +21,7 @@ vi.mock('@/features/documents/lib/open-filed-document', () => ({
   openFiledDocument: (...args: unknown[]) => openFiledDocument(...args),
 }))
 
-import { MermaidDiagram } from './mermaid-diagram'
+import { MermaidDiagram, likelyForm } from './mermaid-diagram'
 import { DiagramFilingProvider, diagramRunId } from '../diagram-filing-context'
 import { clearDiagramModelCache } from '../use-diagram-model'
 
@@ -39,7 +39,7 @@ afterEach(() => {
 })
 
 describe('while the answer is still arriving', () => {
-  it('holds the drawing\'s place and does not try to draw it', async () => {
+  it("holds the drawing's place and does not try to draw it", async () => {
     // CommonMark runs an unclosed fence to the end of the text, so an
     // in-flight mermaid block LOOKS complete on every token. Handing that to
     // mermaid renders a parse error per token.
@@ -59,6 +59,23 @@ describe('while the answer is still arriving', () => {
     await waitFor(() =>
       expect(screen.getByTestId('mermaid-diagram')).toHaveAttribute('data-state', 'drawn')
     )
+  })
+})
+
+describe('the frame a fence waits in', () => {
+  it('is the frame its drawing is most likely drawn in, read off the first keyword', () => {
+    expect(likelyForm('flowchart LR\n  A --> B')).toBe('view')
+    expect(likelyForm('%% Kommentar\nsequenceDiagram\n  A->>B: x')).toBe('view')
+    expect(likelyForm('---\ntitle: Ablauf\n---\ngantt\n  title Plan')).toBe('view')
+    expect(likelyForm('classDiagram\n  A <|-- B')).toBe('svg')
+    expect(likelyForm('')).toBe('svg')
+  })
+
+  it('holds a fence being written on the plane its view is drawn on, not in mermaid’s hairline frame', () => {
+    render(<MermaidDiagram source={'flowchart LR\n  A --> B'} isStreaming />)
+    const figure = screen.getByTestId('mermaid-diagram')
+    expect(figure.querySelector('.bg-muted\\/40')).not.toBeNull()
+    expect(figure.querySelector('.border')).toBeNull()
   })
 })
 
@@ -89,6 +106,37 @@ describe('when the model writes broken mermaid', () => {
     )
     expect(screen.getByText(/graph TD/)).toBeInTheDocument()
     expect(screen.getByText(/could not be drawn/i)).toBeInTheDocument()
+  })
+
+  it('swaps the held place for the source inside the same frame, fading the source in', async () => {
+    // The skeleton held a drawing's place until the render failed, and the
+    // source is a different height. Replaced in one paint, everything below
+    // moved by the difference; through one frame, the frame glides between
+    // the two heights (`useHeightGlide`) while the source fades in.
+    let fail: (reason: Error) => void = () => {}
+    renderer.mockReturnValue(new Promise<string>((_, reject) => (fail = reject)))
+    render(<MermaidDiagram source={'graph TD\n  A -->'} />)
+    const figure = await screen.findByTestId('mermaid-diagram')
+    await waitFor(() => expect(renderer).toHaveBeenCalled())
+    const frame = figure.parentElement!.parentElement!
+
+    fail(new Error('Parse error on line 2'))
+    const fallback = await waitFor(
+      () => {
+        const failedState = frame.querySelector<HTMLElement>('[data-state="failed"]')
+        expect(failedState).toBeInTheDocument()
+        return failedState!
+      },
+      { interval: 5 }
+    )
+    // Caught mid-crossfade (the fade is 240ms): the source is still arriving,
+    // and the held place is still there, leaving, in the same frame.
+    expect(Number(fallback.parentElement!.style.opacity)).toBeLessThan(1)
+    expect(frame.querySelector('[data-state="drawing"]')).toBeInTheDocument()
+    expect(fallback.closest('.flow-root')).toBe(frame)
+    await waitFor(() =>
+      expect(frame.querySelector('[data-state="drawing"]')).not.toBeInTheDocument()
+    )
   })
 
   it('does not throw out of the component', async () => {
@@ -167,7 +215,12 @@ describe('when it draws', () => {
     // the only debugging surface a browser has.
     vi.stubGlobal(
       'fetch',
-      vi.fn().mockResolvedValue({ ok: false, json: async () => ({ error: 'The diagram contains a script.' }) })
+      vi
+        .fn()
+        .mockResolvedValue({
+          ok: false,
+          json: async () => ({ error: 'The diagram contains a script.' }),
+        })
     )
     render(
       <DiagramFilingProvider target={{ projectId: 'proj-1', answerId: 'msg_42' }}>
@@ -278,7 +331,9 @@ describe('the diagram’s identity', () => {
 describe('filed on paper, whatever the reader is looking at', () => {
   beforeEach(() => {
     renderer.mockImplementation(({ theme }: { theme: string }) =>
-      Promise.resolve(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10" data-theme="${theme}"/>`)
+      Promise.resolve(
+        `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10" data-theme="${theme}"/>`
+      )
     )
   })
 

@@ -166,6 +166,21 @@ export default function RunBlockPreview(): JSX.Element {
             </Panel>
 
             <Panel
+              title="Läuft — eine Unterlage wurde abgelehnt"
+              note="„Unterlage hinzufügen“ hat eine Unterlage aus einem eingeschränkten Ordner genannt. Der Auswahldialog ist schon zu; die Ablehnung steht deshalb unter der Statuszeile, im Wortlaut der API, bis zum nächsten Versuch. Ohne sie sähe die Unterlage aus, als käme sie in der nächsten Runde dran."
+            >
+              <RunBlock
+                ledger={RUN_LAEUFT}
+                title={TITLE}
+                projectId={PROJECT}
+                live
+                onCancel={() => {}}
+                onAddDocument={() => {}}
+                addDocumentFailure="Eine genannte Unterlage liegt in einem Ordner mit eingeschränktem Zugriff, deshalb lässt sie sich einer Recherche nicht als Unterlage mitgeben: Unterlagen und Bericht einer Recherche sind für alle im Projekt sichtbar, auch für Personen, die für diesen Ordner nicht freigegeben sind."
+              />
+            </Panel>
+
+            <Panel
               title="Läuft — die Live-Ansicht hat die Verbindung verloren"
               note="Die Leitung ist abgerissen, der Auftrag nicht. Eine gedämpfte Zeile unter dem Block sagt beides — zuerst, dass weitergearbeitet wird. Schweigen an dieser Stelle läse sich als ein Lauf, der stehen geblieben ist."
             >

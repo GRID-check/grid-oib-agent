@@ -1,8 +1,9 @@
 # Visual screenshots (UI evidence)
 
 A user-visible change is "done" only with visual evidence (see the
-`aiq-definition-of-done` skill). That evidence goes **in the pull request**, as
-an attachment. Nothing is committed to the repo.
+[definition of done](../contributing/definition-of-done.md)). That evidence
+goes **in the pull request**, as an attachment. Nothing is committed to the
+repo.
 
 - **Capture:** the `agent-browser` skill — a native CLI driving a real Chrome.
 - **Publish:** the `before-and-after` skill — formats the media and uploads it

@@ -993,7 +993,7 @@ The answer is complete and being streamed before any stage task runs
   `websocket_reconnect.py:475-488`). A stage never chooses a recipient.
 
 **Net: this design adds zero rows to `grid_secure_table`.** That is the claim
-the tenant-isolation job (`ci.yml:199-228`, `task db:test:rls`) would otherwise
+the tenant-isolation suite (`task db:test:rls`, a step of CI's Frontend job) would otherwise
 have to re-prove, and it is deliberate.
 
 ### 7.4 Observability

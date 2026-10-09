@@ -28,8 +28,11 @@ What it checks
 --------------
 
 Numbers are unique — no exemptions — every ADR is indexed, the index status
-matches the file, statuses come from the legend, and new ADRs (0050 and up)
-carry MADR frontmatter. Records 0001-0049 predate the template and are read
+matches the file, statuses come from the legend, new ADRs (0050 and up)
+carry MADR frontmatter, and an index row that says a record is (partly)
+superseded by NNNN names a record that exists and that the superseded record
+itself cites as ADR-NNNN (a renumbering that moves one side and not the other
+leaves the index pointing at an unrelated decision). Records 0001-0049 predate the template and are read
 with a legacy parser rather than being asked to convert, as do the four
 pre-template records renumbered into 0056-0059 (``RENUMBERED_LEGACY``).
 
@@ -169,11 +172,44 @@ def check_madr(path: Path, status: str, errors: list[str]) -> None:
         )
 
 
+SUPERSEDED_BY_RE = re.compile(r"superseded by (?:ADR-)?(\d{4})", re.IGNORECASE)
+
+
+def check_superseded_refs(readme: Path, errors: list[str]) -> None:
+    """A "superseded by NNNN" in an index row must match what both records say.
+
+    The reference may sit in the title cell ("… (partly superseded by 0088)")
+    or in the status cell ("Superseded by ADR-0088"); both are read. The
+    superseded record must cite ADR-NNNN, and the superseding record must cite
+    the one it supersedes.
+    """
+    for m in INDEX_ROW_RE.finditer(readme.read_text(encoding="utf-8")):
+        name, cells = m.group(2).strip(), m.group(3) + " " + m.group(4)
+        path = ADR_DIR / name
+        for ref in SUPERSEDED_BY_RE.findall(cells):
+            targets = sorted(ADR_DIR.glob(f"{ref}-*.md"))
+            if not targets:
+                errors.append(f"docs/adr/README.md: {name} is superseded by {ref}, which does not exist.")
+                continue
+            if path.exists() and f"ADR-{ref}" not in path.read_text(encoding="utf-8"):
+                errors.append(
+                    f"docs/adr/README.md: {name} is superseded by {ref} in the index, "
+                    f"but the record itself never cites ADR-{ref}."
+                )
+            older = f"ADR-{m.group(1)}"
+            if not any(older in target.read_text(encoding="utf-8") for target in targets):
+                errors.append(
+                    f"docs/adr/README.md: {name} is superseded by {ref} in the index, "
+                    f"but {targets[0].name} never cites {older}."
+                )
+
+
 def check(errors: list[str]) -> int:
     """Run every check, appending to ``errors``. Returns the ADR count."""
     files = adr_files()
     readme = ADR_DIR / "README.md"
     indexed = index_rows(readme, errors)
+    check_superseded_refs(readme, errors)
 
     seen: dict[int, Path] = {}
     for path in files:

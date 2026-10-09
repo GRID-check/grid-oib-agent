@@ -90,8 +90,22 @@ export function isCleanCut(text: string): boolean {
   // delimiter row: GFM pads a short row with empty cells, so the row appears
   // and fills cell by cell. Holding it until it was whole stalled the reveal
   // 0.5–1 s per row and then dropped 170–260 characters at once (stream
-  // audit, 2026-09).
-  if (/^\s*\|/.test(line)) return /\|\s*$/.test(line) && tableHasDelimiter(text, lineStart)
+  // audit, 2026-09). But a row with no cell written yet (`| `) is not one: it
+  // drew as a blank row whose cells then grew one by one as their words came,
+  // each step pushing everything below it down (a stacked row on a phone grew
+  // 64 → 84 → 87 → 90 px, stream audit 2026-10). The row appears with its
+  // first cell.
+  if (/^\s*\|/.test(line)) return /\|\s*$/.test(line) && /[^|\s]/.test(line) && tableHasDelimiter(text, lineStart)
+  // Just past a table line, on a new one: clean only once the table has its
+  // delimiter row. Before it, the header line renders as a paragraph of
+  // pipes (`stabilizeStreamingMarkdown` escapes it) until the delimiter
+  // arrives and it turns into a table, the one moment raw markdown showed.
+  // Nor just past the delimiter row itself: a table of its header alone is
+  // drawn as a table for a frame and, on a phone, restacked into rows (the
+  // header hidden) as soon as its first row comes. It appears with that row.
+  if (line === '' && lineStart > 0 && /^\s*\|/.test(lineBefore(text, lineStart))) {
+    return tableHasDelimiter(text, lineStart) && !isDelimiterRow(lineBefore(text, lineStart))
+  }
   if ((line.match(/`/g)?.length ?? 0) % 2 === 1) return false
   // An open `**` is fine: the renderer closes it while the answer streams
   // (`stabilizeStreamingMarkdown`), so the phrase is bold from its first word.
@@ -99,6 +113,10 @@ export function isCleanCut(text: string): boolean {
   if ((line.match(/\(/g)?.length ?? 0) > (line.match(/\)/g)?.length ?? 0)) return false
   return true
 }
+
+/** The line that ends just before `lineStart`. */
+const lineBefore = (text: string, lineStart: number): string =>
+  text.slice(text.lastIndexOf('\n', lineStart - 2) + 1, lineStart - 1)
 
 /** Do the table lines above `lineStart` include the delimiter row (`| --- |`)? */
 function tableHasDelimiter(text: string, lineStart: number): boolean {
@@ -116,19 +134,108 @@ function tableHasDelimiter(text: string, lineStart: number): boolean {
 /** Is `i` a word gap: just after a space or a line break, so no word is split? */
 const isWordGap = (text: string, i: number): boolean => text[i - 1] === ' ' || text[i - 1] === '\n'
 
+/**
+ * Every word gap in `text` after `from` that `isCleanCut` accepts, nearest
+ * first, found in ONE forward walk.
+ *
+ * `isCleanCut` reads the whole prefix (its fence count), so asking it at
+ * every position was quadratic: inside an open fence no position is clean,
+ * and the search walked to the end of the text re-reading all of it per
+ * character (6.9 ms a frame on a desktop for 3.5k of prose ahead of an open
+ * 4k mermaid fence, review 2026-10). This walk keeps what `isCleanCut` reads
+ * as running counts instead: the fences above the line, and the line's own
+ * backticks, brackets and parentheses. `isCleanCut` stays the definition; the
+ * spec holds this walk to it position by position.
+ */
+function* cleanCutsAfter(text: string, from: number): Generator<number> {
+  let lineStart = from === 0 ? 0 : text.lastIndexOf('\n', from - 1) + 1
+  let fencesAbove = text.slice(0, lineStart).match(/^\s*(```|~~~)/gm)?.length ?? 0
+  let line = new LineScan(text, lineStart)
+  for (let i = lineStart; i <= text.length; i++) {
+    if (i > lineStart) {
+      const char = text[i - 1]
+      if (char === '\n') {
+        if (line.fence) fencesAbove++
+        lineStart = i
+        line = new LineScan(text, lineStart)
+      } else line.add(char, i - 1)
+    }
+    if (i > from && isWordGap(text, i) && line.isClean(fencesAbove)) yield i
+  }
+}
+
+/** What `isCleanCut` reads off the last line of a prefix, kept as the line grows. */
+class LineScan {
+  /** Does the line open (or close) a fence, as `^\s*(```|~~~)` reads it? */
+  fence = false
+  private length = 0
+  private firstSolid = -1
+  private lastSolid = ''
+  private hasCellText = false
+  private backticks = 0
+  private brackets = 0
+  private unclosedParens = 0
+  private delimiterAbove: boolean | undefined
+
+  constructor(
+    private readonly text: string,
+    private readonly start: number
+  ) {}
+
+  /** The line grew by `char`, which sits at `at` in the text. */
+  add(char: string, at: number): void {
+    this.length++
+    if (!/\s/.test(char)) {
+      if (this.firstSolid < 0) this.firstSolid = at
+      this.lastSolid = char
+      if (char !== '|') this.hasCellText = true
+    }
+    if (this.firstSolid >= 0 && at === this.firstSolid + 2) {
+      const opening = this.text.slice(this.firstSolid, at + 1)
+      this.fence = opening === '```' || opening === '~~~'
+    }
+    if (char === '`') this.backticks++
+    else if (char === '[') this.brackets++
+    else if (char === ']') this.brackets--
+    else if (char === '(') this.unclosedParens++
+    else if (char === ')') this.unclosedParens--
+  }
+
+  /** `isCleanCut` of the prefix ending here, its rules in its order, `fencesAbove` the fence lines above this one. */
+  isClean(fencesAbove: number): boolean {
+    if ((fencesAbove + (this.fence ? 1 : 0)) % 2 === 1) return false
+    const { text, start } = this
+    if (this.firstSolid >= 0 && text[this.firstSolid] === '|') {
+      return this.lastSolid === '|' && this.hasCellText && this.hasDelimiter()
+    }
+    if (this.length === 0 && start > 0 && /^\s*\|/.test(lineBefore(text, start))) {
+      return this.hasDelimiter() && !isDelimiterRow(lineBefore(text, start))
+    }
+    if (this.backticks % 2 === 1) return false
+    if (this.brackets !== 0) return false
+    return this.unclosedParens <= 0
+  }
+
+  private hasDelimiter(): boolean {
+    this.delimiterAbove ??= tableHasDelimiter(this.text, this.start)
+    return this.delimiterAbove
+  }
+}
+
 /** The furthest word gap in `text` after `from` and at or before `limit` that `isCleanCut` accepts; `from` when there is none. */
 export function furthestCleanCut(text: string, from: number, limit: number): number {
-  for (let i = Math.min(limit, text.length); i > from; i--) {
-    if (isWordGap(text, i) && isCleanCut(text.slice(0, i))) return i
+  const end = Math.min(limit, text.length)
+  let furthest = from
+  for (const cut of cleanCutsAfter(text, from)) {
+    if (cut > end) break
+    furthest = cut
   }
-  return from
+  return furthest
 }
 
 /** The nearest word gap in `text` after `from` that `isCleanCut` accepts; `undefined` when there is none yet. */
 export function nextCleanCut(text: string, from: number): number | undefined {
-  for (let i = from + 1; i <= text.length; i++) {
-    if (isWordGap(text, i) && isCleanCut(text.slice(0, i))) return i
-  }
+  for (const cut of cleanCutsAfter(text, from)) return cut
   return undefined
 }
 
