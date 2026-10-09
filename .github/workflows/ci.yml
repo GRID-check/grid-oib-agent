@@ -311,6 +311,9 @@ jobs:
         uses: MishaKav/pytest-coverage-comment@9ee59af31bd7bcada1cc496f086b407122602dbd # v1.12.3
         with:
           pytest-xml-coverage-path: coverage.xml
+          # The whole-tree table passed GitHub's 65,536-character comment
+          # limit, and the action then posted only the badge.
+          report-only-changed-files: true
           title: Backend coverage (src/aiq_agent)
           unique-id-for-comment: backend-coverage
 
