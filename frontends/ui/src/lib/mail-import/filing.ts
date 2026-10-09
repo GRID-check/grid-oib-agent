@@ -51,6 +51,7 @@ import {
   outlookFolderPath,
 } from './naming'
 import { markInflight } from './repository'
+import { importBatchWithRoom, type ImportBatch } from './upload-batch'
 
 /** Candidates tried for a taken name before the mail is given up on. */
 const MAX_NAME_ATTEMPTS = 50
@@ -91,6 +92,8 @@ export interface FilingContext {
   folders: Map<string, string>
   /** `Date.now()` past which no new attachment is started. */
   deadline: number
+  /** The upload batch every file is stamped with (`./upload-batch`); moves on when full. */
+  uploadBatch: ImportBatch
 }
 
 export interface FiledMail {
@@ -294,12 +297,15 @@ async function fileBytes(
   const filename = await freeFilename(context, folderId, desired, claimed)
   claimed.add(filename)
   const file = new File([bytes as Uint8Array<ArrayBuffer>], filename, { type: contentType })
+  context.uploadBatch = await importBatchWithRoom(context.session, context.mailImport, context.uploadBatch)
   try {
-    await uploadDocument(
+    const uploaded = await uploadDocument(
       context.session,
-      { projectId: context.mailImport.projectId, folderId, file, priority: 'bulk' },
+      { projectId: context.mailImport.projectId, folderId, file, priority: 'bulk', uploadBatchId: context.uploadBatch.id },
       context.request,
     )
+    // Unchanged bytes write nothing, so the document does not join the batch.
+    if (!uploaded.unchanged) context.uploadBatch.documents += 1
   } catch (error) {
     if (error instanceof InsufficientStorageError) throw new MailImportQuotaError()
     const reason = refusalReason(error)

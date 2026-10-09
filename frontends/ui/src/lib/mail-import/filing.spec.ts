@@ -25,6 +25,22 @@ vi.mock('./archive-client', async (importOriginal) => {
   return { ...actual, readArchiveAttachment: vi.fn(async () => new Uint8Array([1, 2, 3])) }
 })
 vi.mock('./repository', () => ({ markInflight: vi.fn(async () => true) }))
+const batchStore = vi.hoisted(() => new Map<string, { sealed: boolean; documents: number }>())
+vi.mock('@/lib/upload-batches/service', () => ({
+  UPLOAD_BATCH_MAX_FILES: 2,
+  findJobUploadBatch: vi.fn(async (_org: string, id: string) => {
+    const batch = batchStore.get(id)
+    if (!batch) return { status: 'missing' }
+    return batch.sealed ? { status: 'sealed' } : { status: 'open', documents: batch.documents }
+  }),
+  openUploadBatch: vi.fn(async (_session: unknown, input: { id: string }) => {
+    batchStore.set(input.id, { sealed: false, documents: 0 })
+  }),
+  sealJobUploadBatch: vi.fn(async (_org: string, id: string) => {
+    const batch = batchStore.get(id)
+    if (batch) batch.sealed = true
+  }),
+}))
 
 import { BadRequestError, FileTooLargeError, InsufficientStorageError } from '@/lib/api/errors'
 import type { AuthorizedSession } from '@/lib/auth/types'
@@ -45,9 +61,11 @@ import {
   type FilingContext,
 } from './filing'
 import { markInflight } from './repository'
+import { openUploadBatch, sealJobUploadBatch } from '@/lib/upload-batches/service'
+import { importBatchId, type ImportBatch } from './upload-batch'
 
 const session = { userId: 'user_anna', organizationId: 'org_1' } as AuthorizedSession
-const mailImport = { id: 'imp_1', projectId: 'p1', inflightPosition: null, inflightFolderId: null } as unknown as MailImport
+const mailImport = { id: 'imp_1', organizationId: 'org_1', userId: 'user_anna', projectId: 'p1', inflightPosition: null, inflightFolderId: null } as unknown as MailImport
 
 const mail: ArchiveMail = {
   kind: 'mail',
@@ -71,7 +89,13 @@ const mail: ArchiveMail = {
 
 const LEAF = '2026-09-30 10.15 – Anna Berger'
 
-async function context(overrides: Partial<MailImport> = {}, deadline?: number): Promise<FilingContext> {
+const BATCH_0 = importBatchId('imp_1', 0)
+
+async function context(
+  overrides: Partial<MailImport> = {},
+  deadline?: number,
+  uploadBatch: ImportBatch = { id: BATCH_0, generation: 0, documents: 0 },
+): Promise<FilingContext> {
   return filingContext({
     session,
     mailImport: { ...mailImport, ...overrides },
@@ -79,6 +103,7 @@ async function context(overrides: Partial<MailImport> = {}, deadline?: number): 
     archiveFolderId: 'folder_archive',
     request: new Request('http://bff-jobs.internal'),
     deadline,
+    uploadBatch,
   })
 }
 
@@ -88,6 +113,8 @@ function uploadedNames(): string[] {
 
 beforeEach(() => {
   vi.clearAllMocks()
+  batchStore.clear()
+  batchStore.set(BATCH_0, { sealed: false, documents: 0 })
   vi.mocked(createProjectFolder).mockResolvedValue({ ok: true, folder: { id: 'folder_mail', name: LEAF } } as never)
 })
 
@@ -228,5 +255,37 @@ describe('fileMail', () => {
   it('turns a full quota into the error that ends the import', async () => {
     vi.mocked(uploadDocument).mockRejectedValueOnce(new InsufficientStorageError())
     await expect(fileMail(await context(), mail)).rejects.toBeInstanceOf(MailImportQuotaError)
+  })
+})
+
+describe('fileMail, upload batch', () => {
+  const batchIds = () => vi.mocked(uploadDocument).mock.calls.map(([, input]) => input.uploadBatchId)
+
+  it("stamps every file of the mail with the import's upload batch", async () => {
+    const filing = await context()
+    await fileMail(filing, mail)
+
+    expect(batchIds()).toEqual([BATCH_0, BATCH_0])
+    expect(filing.uploadBatch).toMatchObject({ id: BATCH_0, documents: 2 })
+  })
+
+  it('seals a full batch and files the rest into the next one', async () => {
+    batchStore.set(BATCH_0, { sealed: false, documents: 1 })
+    const filing = await context({}, undefined, { id: BATCH_0, generation: 0, documents: 1 })
+    await fileMail(filing, mail)
+
+    const next = importBatchId('imp_1', 1)
+    expect(batchIds()).toEqual([BATCH_0, next])
+    expect(sealJobUploadBatch).toHaveBeenCalledWith('org_1', BATCH_0, 'user_anna')
+    expect(openUploadBatch).toHaveBeenCalledWith(session, expect.objectContaining({ id: next, scope: 'project', projectId: 'p1' }))
+    expect(filing.uploadBatch).toMatchObject({ id: next, generation: 1, documents: 1 })
+  })
+
+  it('does not count a file whose bytes were already there', async () => {
+    vi.mocked(uploadDocument).mockResolvedValueOnce({ documentId: 'd', jobId: null, status: 'uploaded', filename: 'x', unchanged: true })
+    const filing = await context()
+    await fileMail(filing, mail)
+
+    expect(filing.uploadBatch.documents).toBe(1)
   })
 })

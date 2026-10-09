@@ -414,6 +414,12 @@ export const documents = pgTable('documents', {
   screeningReleasedHash: text('screening_released_hash'),
   screeningReleasedBy: text('screening_released_by'),
   screeningReleasedAt: timestamp('screening_released_at', { withTimezone: true }),
+  /**
+   * The upload gesture that last wrote this document's bytes (migration 0110),
+   * or NULL for a row no batch wrote. No foreign key: the batch is a pointer
+   * for the upload summary, and pruning it must not take the document along.
+   */
+  uploadBatchId: uuid('upload_batch_id'),
   // No inline `.references()`: the real constraint is composite (below).
   folderId: uuid('folder_id'),
 }, (table) => ({

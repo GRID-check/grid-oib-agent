@@ -8,6 +8,7 @@ import { DOCUMENT_UPLOAD_LIMIT } from '@/lib/limits'
 import { BadRequestError } from '@/lib/api/errors'
 import { uploadDocument } from '@/lib/documents/service'
 import { readScreeningRelease } from '@/lib/upload-screening/service'
+import { readUploadBatchId } from '@/lib/upload-batches/service'
 
 export const POST = apiRoute(
   async ({ session, request }) => {
@@ -31,6 +32,7 @@ export const POST = apiRoute(
         file,
         originPath: typeof originPath === 'string' ? originPath : null,
         screeningRelease: readScreeningRelease(formData.get('screeningRelease')),
+        uploadBatchId: readUploadBatchId(formData.get('uploadBatchId')),
       },
       request
     )

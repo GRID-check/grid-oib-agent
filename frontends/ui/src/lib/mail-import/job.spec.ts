@@ -40,6 +40,22 @@ vi.mock('./filing', async (importOriginal) => {
     fileMail: vi.fn(async () => ({ folderName: 'm', filesFiled: 2, filesSkipped: 1, skipped: [{ mail: 'm', file: 'x.exe', reason: 'type' }] })),
   }
 })
+const batchStore = vi.hoisted(() => new Map<string, { sealed: boolean; documents: number }>())
+vi.mock('@/lib/upload-batches/service', () => ({
+  UPLOAD_BATCH_MAX_FILES: 10_000,
+  findJobUploadBatch: vi.fn(async (_org: string, id: string) => {
+    const batch = batchStore.get(id)
+    if (!batch) return { status: 'missing' }
+    return batch.sealed ? { status: 'sealed' } : { status: 'open', documents: batch.documents }
+  }),
+  openUploadBatch: vi.fn(async (_session: unknown, input: { id: string }) => {
+    batchStore.set(input.id, { sealed: false, documents: 0 })
+  }),
+  sealJobUploadBatch: vi.fn(async (_org: string, id: string) => {
+    const batch = batchStore.get(id)
+    if (batch) batch.sealed = true
+  }),
+}))
 vi.mock('./repository', () => ({
   findMailImport: vi.fn(),
   updateMailImport: vi.fn(),
@@ -56,10 +72,12 @@ import { requireShelfWrite } from '@/lib/documents/shelf-authz'
 import { enqueueJob } from '@/lib/jobs-queue/enqueue'
 import { findOpenJobId } from '@/lib/jobs-queue/repository'
 import { readArchivePage, UnreadableArchiveError, type ArchivePage } from './archive-client'
-import { fileMail, ImportMovedOnError, MailImportQuotaError, SliceBudgetSpentError } from './filing'
+import { openUploadBatch, sealJobUploadBatch } from '@/lib/upload-batches/service'
+import { fileMail, filingContext, ImportMovedOnError, MailImportQuotaError, SliceBudgetSpentError } from './filing'
 import { runMailImportSlice, sweepStaleMailImports } from './job'
 import * as repository from './repository'
 import { discardStaging } from './service'
+import { importBatchId } from './upload-batch'
 
 const session = { userId: 'user_anna', organizationId: 'org_1' } as AuthorizedSession
 
@@ -126,6 +144,7 @@ function page(messages: ArchivePage['messages'], next: number | null, total = 2)
 
 beforeEach(() => {
   vi.clearAllMocks()
+  batchStore.clear()
   vi.mocked(repository.updateMailImport).mockImplementation(async (_org, _id, _from, patch) => ({ ...row(), ...patch }))
 })
 
@@ -285,6 +304,65 @@ describe('runMailImportSlice', () => {
     await runMailImportSlice(session, payload, 'org_1')
     expect(repository.updateMailImport).toHaveBeenCalledWith('org_1', payload.importId, ['queued'], { status: 'importing' })
     expect(repository.updateMailImport).toHaveBeenCalledWith('org_1', payload.importId, ['importing'], { rootFolderId: 'folder_archive' })
+  })
+})
+
+describe('runMailImportSlice, upload batch', () => {
+  const batch0 = importBatchId(row().id, 0)
+  const batch1 = importBatchId(row().id, 1)
+
+  it('opens one upload batch as the starter, files into it, and seals it when the import completes', async () => {
+    vi.mocked(repository.findMailImport).mockResolvedValueOnce(row())
+    vi.mocked(readArchivePage).mockResolvedValueOnce(page([mail, contact], null))
+
+    await runMailImportSlice(session, payload, 'org_1')
+
+    expect(openUploadBatch).toHaveBeenCalledWith(session, expect.objectContaining({
+      id: batch0, scope: 'project', projectId: row().projectId, expectedCount: 0,
+    }))
+    expect(vi.mocked(filingContext).mock.calls[0][0]).toMatchObject({ uploadBatch: { id: batch0, documents: 0 } })
+    expect(sealJobUploadBatch).toHaveBeenCalledWith('org_1', batch0, 'user_anna')
+    expect(batchStore.get(batch0)).toEqual({ sealed: true, documents: 0 })
+  })
+
+  it('resumes into the batch an earlier slice opened, stepping over a sealed one', async () => {
+    batchStore.set(batch0, { sealed: true, documents: 2 })
+    batchStore.set(batch1, { sealed: false, documents: 5 })
+    vi.mocked(repository.findMailImport).mockResolvedValueOnce(row())
+    vi.mocked(readArchivePage).mockResolvedValueOnce(page([mail], 1))
+    vi.mocked(fileMail).mockRejectedValueOnce(new SliceBudgetSpentError())
+
+    expect((await runMailImportSlice(session, payload, 'org_1')).done).toBe(false)
+    expect(openUploadBatch).not.toHaveBeenCalled()
+    expect(vi.mocked(filingContext).mock.calls[0][0]).toMatchObject({ uploadBatch: { id: batch1, generation: 1, documents: 5 } })
+    expect(sealJobUploadBatch).not.toHaveBeenCalled()
+  })
+
+  it('seals the batch when the import fails', async () => {
+    vi.mocked(repository.findMailImport).mockResolvedValueOnce(row())
+    vi.mocked(readArchivePage).mockRejectedValueOnce(new UnreadableArchiveError('not a readable Outlook archive'))
+
+    await runMailImportSlice(session, payload, 'org_1')
+    expect(sealJobUploadBatch).toHaveBeenCalledWith('org_1', batch0, 'user_anna')
+  })
+
+  it('seals the batch when the import ends because its starter left', async () => {
+    batchStore.set(batch0, { sealed: false, documents: 3 })
+    vi.mocked(repository.findMailImport).mockResolvedValueOnce(row())
+
+    await runMailImportSlice(null, payload, 'org_1')
+    expect(sealJobUploadBatch).toHaveBeenCalledWith('org_1', batch0, 'user_anna')
+  })
+
+  it('ends the import even when its batch cannot be sealed', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {})
+    batchStore.set(batch0, { sealed: false, documents: 3 })
+    vi.mocked(sealJobUploadBatch).mockRejectedValueOnce(new Error('db hiccup'))
+    vi.mocked(repository.findMailImport).mockResolvedValueOnce(row())
+
+    await runMailImportSlice(null, payload, 'org_1')
+    expect(discardStaging).toHaveBeenCalledOnce()
+    expect(emitInboxItems).toHaveBeenCalledWith([expect.objectContaining({ type: 'mail_import.failed' })])
   })
 })
 

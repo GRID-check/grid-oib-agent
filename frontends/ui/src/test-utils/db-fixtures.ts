@@ -125,6 +125,7 @@ export const makeDocument = (overrides: Partial<Document> = {}): Document => ({
   screeningReleasedHash: null,
   screeningReleasedBy: null,
   screeningReleasedAt: null,
+  uploadBatchId: null,
   folderId: null,
   ...overrides,
   visibility: overrides.visibility ?? 'project',

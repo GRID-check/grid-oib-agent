@@ -1,5 +1,6 @@
 'use client'
 
+import { isSystemFile } from '../lib/system-files'
 import { useCallback, useRef, useState } from 'react'
 import { loadUploadScreeningPolicy } from '@/adapters/api/upload-screening-policy'
 import { digestFiles } from '../lib/content-digest'
@@ -87,7 +88,10 @@ export function useUploadDecision(): UploadDecision {
   /** The last plan's input, digests included, so a release re-plans without re-reading anything. */
   const lastInput = useRef<FolderUploadPlanInput | null>(null)
 
-  const propose = useCallback<UploadDecision['propose']>(async (input, sendDirect) => {
+  const propose = useCallback<UploadDecision['propose']>(async (dropped, sendDirect) => {
+    // What the operating system left in the folder is not part of the upload.
+    const input = { ...dropped, files: dropped.files.filter((file) => !isSystemFile(file.name)) }
+    if (input.files.length === 0) return
     const current = ++generation.current
     const isFolder = isFolderUpload(input.files)
     const { screeningBasePath, ...planInput } = input

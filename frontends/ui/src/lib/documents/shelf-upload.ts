@@ -14,7 +14,8 @@
  *   3. the object key's owner prefix (`uploadStorageKey`),
  *   4. the audit action and what it records (`uploadAuditEvent`).
  *
- * Both shelves also run the organization's name screening (ADR-0086).
+ * Both shelves also run the organization's name screening (ADR-0086) and
+ * record the upload batch the browser opened.
  *
  * `@/lib/documents/service#uploadDocument` and
  * `@/lib/archiv/service#uploadArchivDocument` are the names the two shelves'
@@ -26,6 +27,7 @@ import { PutObjectCommand } from '@aws-sdk/client-s3'
 import { s3Client, bucketAdminS3Client, buildArchivStorageKey, buildStorageKey } from '@/lib/s3'
 import { ensureTenantBucketChecked } from '@/lib/storage/bucket'
 import { NotFoundError } from '@/lib/api/errors'
+import { acceptedUploadBatchId } from '@/lib/upload-batches/service'
 import { assertUploadNameAllowed, auditScreeningOverride } from '@/lib/upload-screening/service'
 import { recordAuditEvent } from '@/lib/audit/service'
 import { assertWithinStorageQuota } from '@/lib/storage/service'
@@ -58,6 +60,12 @@ export interface ShelfUploadInput {
    * override", so a client that never asks is screened.
    */
   screeningRelease?: boolean
+  /**
+   * The upload gesture this file belongs to (migration 0110), as the browser
+   * opened it. Recorded on the row when it is the uploader's own open batch
+   * for this shelf; anything else is ignored rather than refused.
+   */
+  uploadBatchId?: string | null
   /**
    * The ingest queue's priority for these bytes. A person's upload is
    * `interactive` (the default); a machine filing thousands of files on their
@@ -143,6 +151,7 @@ interface PlaceUploadInput {
   bytes: Buffer
   contentHash: string
   storageBucket: string
+  uploadBatchId: string | null
   /** The screening matches the uploader released (ADR-0086), audited once stored. */
   screeningOverridden: Awaited<ReturnType<typeof assertUploadNameAllowed>>['overridden']
 }
@@ -262,6 +271,7 @@ async function admitRow(
       contentHash,
       folderId: folderId ?? null,
       createdBy: session.userId,
+      uploadBatchId: input.uploadBatchId,
     })
     return
   }
@@ -283,6 +293,7 @@ async function admitRow(
     contentType: file.type || null,
     contentHash,
     originPath: input.originPath,
+    uploadBatchId: input.uploadBatchId,
     status: 'uploaded',
   })
 }
@@ -330,6 +341,7 @@ async function prepareUpload(
     { filename: file.name, originPath, folderPath },
     input.screeningRelease === true,
   )
+  const uploadBatchId = await acceptedUploadBatchId(session, input.uploadBatchId, shelfOwner(shelf, session.organizationId))
   const filename = documentNameKey(file.name)
 
   // Create the organization's bucket if this is its first upload (ADR-0043). A
@@ -360,6 +372,7 @@ async function prepareUpload(
     // RE-upload cheap. Its shape lives in `./content-digest`.
     contentHash: contentDigest(bytes),
     storageBucket,
+    uploadBatchId,
     screeningOverridden: nameGate.overridden,
   }
 }

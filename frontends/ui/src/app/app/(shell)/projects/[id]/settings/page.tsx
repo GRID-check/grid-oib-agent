@@ -49,6 +49,8 @@ export default async function ProjectSettingsPage({ params }: ProjectSettingsPag
         // GridSession/AuthorizedSession) — lets the members form recognize the
         // signed-in user's own row and guard against self-lockout.
         currentMembershipId={session.organizationMembershipId}
+        // The upload history links the reader's own uploads to their summaries.
+        currentUserId={session.userId}
       />
     )
   })

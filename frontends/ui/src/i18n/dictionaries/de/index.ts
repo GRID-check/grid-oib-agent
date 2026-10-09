@@ -33,6 +33,7 @@ import { legal } from './legal'
 import { answerExport } from './answer-export'
 import { diagrams } from './diagrams'
 import { feedback } from './feedback'
+import { uploadBatches } from './upload-batches'
 import type { Dictionary } from '../index'
 
 export const de: Dictionary = {
@@ -63,4 +64,5 @@ export const de: Dictionary = {
   answerExport,
   diagrams,
   feedback,
+  uploadBatches,
 }

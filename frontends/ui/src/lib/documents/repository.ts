@@ -1148,6 +1148,25 @@ export async function markDocumentIngestFailed(
   )
 }
 
+/** Several folders' paths in one project, keyed by folder id; folders not in the project are absent. */
+export async function findFolderPathsInProject(
+  folderIds: readonly string[],
+  projectId: string,
+  organizationId: string,
+): Promise<Map<string, string>> {
+  if (folderIds.length === 0) return new Map()
+  const db = getDb()
+  const rows = await withTenant({ organizationId }, () =>
+    db
+      .select({ id: projectFolders.id, path: projectFolders.path })
+      .from(projectFolders)
+      .where(
+        and(inArray(projectFolders.id, [...folderIds]), eq(projectFolders.projectId, projectId)),
+      ),
+  )
+  return new Map(rows.map((row) => [row.id, row.path]))
+}
+
 /**
  * A folder's path on a shelf, scoped to it so a folder id from another project,
  * another shelf or another tenant can never redirect an upload or re-file a

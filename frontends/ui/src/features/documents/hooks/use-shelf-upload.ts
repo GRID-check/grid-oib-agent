@@ -205,6 +205,9 @@ export function useShelfUpload({
                 return [currentFolderPath, target].filter(Boolean).join('/') || null
               },
               screeningReleased: (file) => plannedByFile.get(file)?.screeningReleased === true,
+              excludedByScreening: plan.files
+                .filter((planned) => planned.action === 'excluded')
+                .map((planned) => planned.screening ?? []),
             }
           )
         }
