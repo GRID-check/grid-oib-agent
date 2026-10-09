@@ -1,11 +1,13 @@
 /**
- * The sections of a project's Settings, and who sees which.
+ * The sections of a project's hub (the sidebar's Overview), and who sees which.
  *
- * Each section answers one question a person brings to project settings:
+ * The hub opens on a dashboard, not a form: a bento of live tiles, one per
+ * section below, each showing the number that section is about and opening it.
+ * The sections are where the work behind a tile is done.
  *
- *   - **General**: what is this project, and where is it in its life? Its name,
- *     its size, its record (period, people), closing and reopening it, and, at
- *     the bottom where a destructive control belongs, deleting it.
+ *   - **Overview**: the dashboard. What is this project and where is it in its
+ *     life? Name, brief, size, spend, people, memory at a glance; renaming and
+ *     deleting sit in the hero's menu, out of the way.
  *   - **Project profile**: what does Piloti assume about this project in every
  *     answer, and which OIB-Richtlinien follow from that?
  *   - **Members**: who may work in it, in which role?
@@ -14,7 +16,7 @@
  *   - **Documents & index**: who brought which files in, can everyone who should
  *     reach them, and is the index behind the answers current?
  *
- * They used to be one scrolling page holding all of it beside a placeholder
+ * They were one scrolling Settings page holding all of it beside a placeholder
  * "Insights" card that promised numbers it had none of, and a roster shown to
  * every viewer although its endpoint answers them 404. Each is its own route
  * now, and a section exists for a reader only when its API would serve them.
@@ -27,7 +29,7 @@
  */
 
 export const PROJECT_SETTINGS_SECTION_KEYS = [
-  'general',
+  'overview',
   'profile',
   'members',
   'memory',
@@ -54,8 +56,11 @@ export function visibleSettingsSections(
   })
 }
 
-/** The route of a section. General owns the bare `/settings`. */
+/**
+ * The route of a section. The Overview owns the bare `/settings`: the URL kept
+ * its name so every link and bookmark into Settings still lands.
+ */
 export function settingsSectionHref(projectId: string, key: ProjectSettingsSectionKey): string {
   const base = `/app/projects/${encodeURIComponent(projectId)}/settings`
-  return key === 'general' ? base : `${base}/${key}`
+  return key === 'overview' ? base : `${base}/${key}`
 }

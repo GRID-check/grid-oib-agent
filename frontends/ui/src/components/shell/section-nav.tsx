@@ -43,6 +43,12 @@ export interface SectionNavProps {
   /** Shared-layout id of the active pill; one per tier, so two navs never trade it. */
   pillId: string
   /**
+   * `rail` (default): a sticky rail beside the content from `lg`, a strip
+   * below. `tabs`: the strip at every width, above the content, for a tier
+   * whose pages are wide dashboards rather than forms.
+   */
+  orientation?: 'rail' | 'tabs'
+  /**
    * Where the desktop rail sticks. The organization tier scrolls the whole
    * shell, under its header; a project section scrolls its own body, under
    * nothing.
@@ -67,6 +73,7 @@ export function SectionNav({
   items,
   rootHref,
   pillId,
+  orientation = 'rail',
   railTopClassName = 'lg:top-24',
   'data-testid': testId,
 }: SectionNavProps): JSX.Element {
@@ -76,7 +83,7 @@ export function SectionNav({
     <nav aria-label={label} data-testid={testId}>
       {/* Mobile / tablet: a scrolling strip. Wide content scrolls in its own
           container so the page body never scrolls horizontally. */}
-      <ul className="flex gap-1 overflow-x-auto pb-2 lg:hidden">
+      <ul className={cn('flex gap-1 overflow-x-auto pb-2', orientation === 'rail' && 'lg:hidden')}>
         {items.map((item) => (
           <li key={item.key} className="shrink-0">
             <SectionNavLink
@@ -90,18 +97,20 @@ export function SectionNav({
       </ul>
 
       {/* Desktop: a sticky rail beside the content. */}
-      <ul className={cn('hidden lg:sticky lg:flex lg:flex-col lg:gap-0.5', railTopClassName)}>
-        {items.map((item) => (
-          <li key={item.key}>
-            <SectionNavLink
-              item={item}
-              active={isSectionActive(pathname, item.href, rootHref)}
-              pillId={pillId}
-              variant="rail"
-            />
-          </li>
-        ))}
-      </ul>
+      {orientation === 'rail' && (
+        <ul className={cn('hidden lg:sticky lg:flex lg:flex-col lg:gap-0.5', railTopClassName)}>
+          {items.map((item) => (
+            <li key={item.key}>
+              <SectionNavLink
+                item={item}
+                active={isSectionActive(pathname, item.href, rootHref)}
+                pillId={pillId}
+                variant="rail"
+              />
+            </li>
+          ))}
+        </ul>
+      )}
     </nav>
   )
 }
@@ -126,11 +135,14 @@ function SectionNavLink({
       className={cn(
         // `relative isolate` + pill `-z-10` is the app-sidebar rail pattern:
         // the active surface glides on `springGlide` below the ink.
-        'relative isolate items-center rounded-md text-sm transition-colors duration-quick ease-out focus-visible:ring-2 focus-visible:ring-ring/60 focus-visible:outline-none',
+        'duration-quick focus-visible:ring-ring/60 relative isolate items-center rounded-md text-sm transition-colors ease-out focus-visible:outline-none focus-visible:ring-2',
         variant === 'strip' ? 'inline-flex gap-1.5 px-3 py-1.5' : 'flex gap-2 px-3 py-2',
         active
-          ? 'font-medium text-secondary-foreground'
-          : cn('text-muted-foreground hover:bg-accent', variant === 'rail' && 'hover:text-foreground')
+          ? 'text-secondary-foreground font-medium'
+          : cn(
+              'text-muted-foreground hover:bg-accent',
+              variant === 'rail' && 'hover:text-foreground'
+            )
       )}
     >
       {active && (
@@ -138,7 +150,7 @@ function SectionNavLink({
           layoutId={pillId}
           aria-hidden
           data-slot="section-nav-pill"
-          className="absolute inset-0 -z-10 rounded-[inherit] bg-secondary"
+          className="bg-secondary absolute inset-0 -z-10 rounded-[inherit]"
           transition={springGlide}
         />
       )}

@@ -1,10 +1,11 @@
 ---
 features:
   - >
-    Project settings are now split into sections: general, project profile,
-    members, memory, usage and budget, and documents. Project admins can see
-    what the project has used this month and set a limit for it.
+    Each project now opens its Overview on a dashboard: the briefing's progress,
+    this month's usage, the standards that apply, documents, memory and members
+    at a glance, each one click from where you change it. Project admins can set
+    a usage limit for the project.
 fixes:
   - >
-    Opening project settings without permission to manage members no longer
+    Opening a project's settings without permission to manage members no longer
     shows an error, and buttons you are not allowed to use are no longer shown.

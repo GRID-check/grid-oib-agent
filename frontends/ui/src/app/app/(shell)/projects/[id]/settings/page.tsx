@@ -3,9 +3,10 @@ import { type Metadata } from 'next'
 import { notFound } from 'next/navigation'
 import { withPageSession } from '@/lib/auth/require-auth'
 import { requireProjectAccess } from '@/lib/authz/projects'
+import { getProjectUsage } from '@/lib/budgets/service'
 import { getProjectOverviewData } from '@/lib/projects/overview-query'
 import { resolveProjectSettingsAccess } from '@/lib/projects/settings-access'
-import { GeneralSettings } from '@/features/projects/components/settings/general-settings'
+import { ProjectOverview } from '@/features/projects/components/overview/project-overview'
 import { getTranslations } from '@/i18n/server'
 
 interface PageProps {
@@ -17,10 +18,12 @@ export async function generateMetadata(): Promise<Metadata> {
   return { title: t('sections.settings') }
 }
 
-/** Settings → General: the project's name, its size, and its deletion. */
-export default async function ProjectGeneralSettingsPage({
-  params,
-}: PageProps): Promise<JSX.Element> {
+/**
+ * The project Overview: the bento dashboard the hub opens on. The usage tile is
+ * loaded only for a reader who may see the project's spend, which is the same
+ * set the Usage section is open to.
+ */
+export default async function ProjectOverviewPage({ params }: PageProps): Promise<JSX.Element> {
   return withPageSession(async (session) => {
     const { id } = await params
     await requireProjectAccess(session, id, 'project:view')
@@ -31,14 +34,17 @@ export default async function ProjectGeneralSettingsPage({
     ])
     if (!data) notFound()
 
+    const usage = access.manageBudget ? await getProjectUsage(session, id) : null
+
     return (
-      <GeneralSettings
-        projectId={data.id}
-        projectName={data.name}
-        createdAt={data.createdAt}
-        documentCount={data.documentCount}
-        totalFileSize={data.totalFileSize}
-        canManage={access.manage}
+      <ProjectOverview
+        data={data}
+        usage={usage}
+        access={{
+          manage: access.manage,
+          editProfile: access.editProfile,
+          manageMembers: access.manageMembers,
+        }}
       />
     )
   })

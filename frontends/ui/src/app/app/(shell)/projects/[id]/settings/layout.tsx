@@ -6,13 +6,15 @@ import { ProjectSettingsNav } from '@/features/projects/components/settings/proj
 import { visibleSettingsSections } from '@/features/projects/lib/settings-sections'
 
 /**
- * Project Settings tier: the section nav beside whichever section is open.
+ * The project hub: a tab strip over whichever section is open, the Overview
+ * dashboard first.
  *
- * Settings used to be one scrolling page that stacked the profile, the roster,
- * uploads, memory, the index and the danger zone, with a placeholder Insights
- * card. It is now one route per section (`features/projects/lib/settings-sections.ts`
- * argues the split), laid out exactly like the organization tier so both
- * settings surfaces work the same way.
+ * This used to be a Settings page stacking the profile, the roster, uploads,
+ * memory, the index and the danger zone, with a placeholder Insights card. It
+ * is now a dashboard and one route per section
+ * (`features/projects/lib/settings-sections.ts` argues the split). Tabs rather
+ * than the organization tier's side rail, because the dashboard wants the
+ * whole width for its bento.
  *
  * Not a gate beyond `project:view`, which the project layout already enforces:
  * General, Profile, Memory and Documents are readable by every member of the
@@ -33,14 +35,10 @@ export default async function ProjectSettingsLayout({
     const access = await resolveProjectSettingsAccess(session, id)
 
     return (
-      <div className="mx-auto w-full max-w-6xl px-4 py-6 md:px-8 md:py-8">
-        <div className="flex flex-col gap-6 lg:flex-row lg:gap-8">
-          <div className="lg:w-52 lg:shrink-0">
-            <ProjectSettingsNav projectId={id} sections={visibleSettingsSections(access)} />
-          </div>
-          <div className="animate-in fade-in-0 slide-in-from-bottom-1 duration-base ease-entrance min-w-0 flex-1 motion-reduce:animate-none">
-            {children}
-          </div>
+      <div className="mx-auto flex w-full max-w-6xl flex-col gap-6 px-4 py-6 md:px-8 md:py-8">
+        <ProjectSettingsNav projectId={id} sections={visibleSettingsSections(access)} />
+        <div className="animate-in fade-in-0 slide-in-from-bottom-1 duration-base ease-entrance min-w-0 motion-reduce:animate-none">
+          {children}
         </div>
       </div>
     )

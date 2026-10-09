@@ -25,7 +25,7 @@ describe('ProjectSectionFrame', () => {
     expect(screen.getByText('files body')).toBeInTheDocument()
   })
 
-  test('a settings sub-route is still titled Settings, not by its last segment', () => {
+  test('a settings sub-route is still titled by its section, not by its last segment', () => {
     // `/settings/members` ends in `members`, which is also the legacy Members
     // return target; the section is the segment after the project id.
     pathname = '/app/projects/p1/settings/members'
@@ -35,7 +35,7 @@ describe('ProjectSectionFrame', () => {
       </ProjectSectionFrame>,
     )
 
-    expect(screen.getByRole('heading', { level: 1, name: 'Settings' })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { level: 1, name: 'Overview' })).toBeInTheDocument()
   })
 
   test('renders children only on the chat route — no page heading', () => {

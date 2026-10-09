@@ -342,6 +342,19 @@ export const projects = {
     workspace: 'Project workspace',
     askGrid: 'Ask Piloti',
     uploadFiles: 'Upload files',
+    rename: {
+      action: 'Rename project',
+      dialogTitle: 'Rename project',
+      dialogDescription:
+        'Give this project a clear name. It is also the phrase required to confirm deletion.',
+      nameLabel: 'Project name',
+      save: 'Save',
+      saving: 'Saving…',
+      cancel: 'Cancel',
+      success: 'Project renamed.',
+      error: 'Could not rename the project. Please try again.',
+      forbidden: "You don't have permission to rename this project.",
+    },
     brief: {
       heading: 'Project Brief',
       edit: 'Edit brief',

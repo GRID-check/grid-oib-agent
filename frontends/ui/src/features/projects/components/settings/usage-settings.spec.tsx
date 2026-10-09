@@ -12,6 +12,7 @@ const usage = (overrides: Partial<ProjectUsageView> = {}): ProjectUsageView => (
   projectLimit: null,
   orgLimit: { dailyLimit: 100, monthlyLimit: 1000 },
   blockedScope: null,
+  dailyTrend: [],
   ...overrides,
 })
 

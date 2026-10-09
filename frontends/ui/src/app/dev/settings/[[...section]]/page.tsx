@@ -5,15 +5,15 @@
  * rendered through the REAL section organisms with a module-scope fetch shim
  * for what they load in the browser (roster, memory, uploads, summary).
  *
- *   /dev/settings            General
+ *   /dev/settings            Overview (the bento dashboard)
  *   /dev/settings/profile    Project profile + applicable standards
  *   /dev/settings/members    Members
  *   /dev/settings/memory     Memory
  *   /dev/settings/usage      Usage & budget (`?blocked=project` shows the exhausted state)
  *   /dev/settings/documents  Documents & index
  *
- * `?as=viewer` renders what a project viewer gets: no rename, no danger zone, a
- * read-only memory, no reindex, and no Members or Usage section at all.
+ * `?as=viewer` renders what a project viewer gets: no project menu, a read-only
+ * memory, no reindex, and no Members or Usage section or tile at all.
  *
  * Not linked from anywhere; `src/app/dev/layout.tsx` 404s it outside development.
  */
@@ -22,9 +22,9 @@ import type { JSX } from 'react'
 import { use } from 'react'
 import { notFound, useSearchParams } from 'next/navigation'
 import { SectionNav } from '@/components/shell/section-nav'
-import { Brain, ClipboardList, FileStack, Gauge, SlidersHorizontal, Users } from 'lucide-react'
+import { Brain, ClipboardList, FileStack, Gauge, LayoutDashboard, Users } from 'lucide-react'
 import { DocumentsSettings } from '@/features/projects/components/settings/documents-settings'
-import { GeneralSettings } from '@/features/projects/components/settings/general-settings'
+import { ProjectOverview } from '@/features/projects/components/overview/project-overview'
 import { MembersSettings } from '@/features/projects/components/settings/members-settings'
 import { MemorySettings } from '@/features/projects/components/settings/memory-settings'
 import { ProfileSettings } from '@/features/projects/components/settings/profile-settings'
@@ -95,7 +95,49 @@ const usage = (blocked: string | null): ProjectUsageView => ({
   orgLimit: { dailyLimit: 200, monthlyLimit: 4000 },
   blockedScope:
     blocked === 'project' ? 'project' : blocked === 'organization' ? 'organization' : null,
+  dailyTrend: Array.from({ length: 30 }, (_, i) => {
+    const day = new Date(Date.UTC(2026, 8, 10 + i)).toISOString().slice(0, 10)
+    // A working-week rhythm: quiet weekends, a heavier stretch mid-month.
+    const weekday = (i + 3) % 7 < 5
+    const amount = weekday ? 6 + ((i * 7) % 11) + (i > 12 && i < 20 ? 9 : 0) : 0.8
+    return { day, amount, events: Math.round(amount * 1.6) }
+  }),
 })
+
+const OVERVIEW_DATA = {
+  ...PROFILE_DATA,
+  name: 'Wohnbau Mariahilf',
+  collectionName: 'proj_demo',
+  createdAt: '2026-03-01T09:00:00Z',
+  documentCount: 128,
+  totalFileSize: 2_480_000_000,
+  recentDocuments: [
+    {
+      id: 'd1',
+      filename: 'Einreichplan_GR_EG.pdf',
+      fileSize: 2_100_000,
+      contentType: 'application/pdf',
+      status: 'ready',
+      createdAt: new Date('2026-10-08T14:00:00Z'),
+    },
+    {
+      id: 'd2',
+      filename: 'Bebauungsplan_7B.pdf',
+      fileSize: 890_000,
+      contentType: 'application/pdf',
+      status: 'ready',
+      createdAt: new Date('2026-10-07T12:00:00Z'),
+    },
+    {
+      id: 'd3',
+      filename: 'Statik_Vorbemessung.xlsx',
+      fileSize: 120_000,
+      contentType: 'application/vnd.ms-excel',
+      status: 'ready',
+      createdAt: new Date('2026-10-03T09:00:00Z'),
+    },
+  ],
+}
 
 if (typeof window !== 'undefined' && process.env.NODE_ENV === 'development') {
   const w = window as unknown as { __settingsShim?: boolean }
@@ -112,6 +154,8 @@ if (typeof window !== 'undefined' && process.env.NODE_ENV === 'development') {
             {
               assignmentId: 'm1',
               organizationMembershipId: 'me',
+              userId: 'user-anna',
+              profilePictureUrl: null,
               name: 'Anna Berger',
               email: 'anna@buero.at',
               role: 'project-admin',
@@ -119,6 +163,8 @@ if (typeof window !== 'undefined' && process.env.NODE_ENV === 'development') {
             {
               assignmentId: 'm2',
               organizationMembershipId: 'u2',
+              userId: 'user-markus',
+              profilePictureUrl: null,
               name: 'Markus Klein',
               email: 'markus@buero.at',
               role: 'project-editor',
@@ -151,7 +197,7 @@ if (typeof window !== 'undefined' && process.env.NODE_ENV === 'development') {
 }
 
 const ICONS = {
-  general: SlidersHorizontal,
+  overview: LayoutDashboard,
   profile: ClipboardList,
   members: Users,
   memory: Brain,
@@ -160,7 +206,7 @@ const ICONS = {
 } as const
 
 const LABELS: Record<ProjectSettingsSectionKey, string> = {
-  general: 'General',
+  overview: 'Overview',
   profile: 'Project profile',
   members: 'Members',
   memory: 'Memory',
@@ -180,37 +226,35 @@ export default function SettingsDevPage({
   const admin = search.get('as') !== 'viewer'
   const suffix = admin ? '' : '?as=viewer'
   const sections = visibleSettingsSections({ manageMembers: admin, manageBudget: admin })
-  const current = (section?.[0] ?? 'general') as ProjectSettingsSectionKey
+  const current = (section?.[0] ?? 'overview') as ProjectSettingsSectionKey
   if (!sections.includes(current)) notFound()
 
   const items = sections.map((key) => ({
     key,
-    href: `/dev/settings${key === 'general' ? '' : `/${key}`}${suffix}`,
+    href: `/dev/settings${key === 'overview' ? '' : `/${key}`}${suffix}`,
     icon: ICONS[key],
     label: LABELS[key],
   }))
 
   return (
     <main className="mx-auto w-full max-w-6xl px-4 py-8 md:px-8" data-testid="settings-preview">
-      <h1 className="mb-6 text-xl font-semibold tracking-tight">Settings</h1>
-      <div className="flex flex-col gap-6 lg:flex-row lg:gap-8">
-        <div className="lg:w-52 lg:shrink-0">
+      <h1 className="mb-6 text-xl font-semibold tracking-tight">Overview</h1>
+      <div className="flex flex-col gap-6">
+        <div>
           <SectionNav
             label="Project settings"
             items={items}
             rootHref="/dev/settings"
             pillId="dev-settings-pill"
+            orientation="tabs"
           />
         </div>
-        <div className="min-w-0 flex-1">
-          {current === 'general' && (
-            <GeneralSettings
-              projectId={PROJECT_ID}
-              projectName="Wohnbau Mariahilf"
-              createdAt="2026-03-01T09:00:00Z"
-              documentCount={128}
-              totalFileSize={2_480_000_000}
-              canManage={admin}
+        <div className="min-w-0">
+          {current === 'overview' && (
+            <ProjectOverview
+              data={OVERVIEW_DATA}
+              usage={admin ? usage(search.get('blocked')) : null}
+              access={{ manage: admin, editProfile: admin, manageMembers: admin }}
             />
           )}
           {current === 'profile' && <ProfileSettings data={PROFILE_DATA} canEdit={admin} />}

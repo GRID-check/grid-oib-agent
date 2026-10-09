@@ -274,8 +274,9 @@ don't churn):
   workflows   (flagged, gallery + builder)                          [Sidebar]
   archiv      → same Archiv content, project chrome (flagged)       [Sidebar]
   history     NEW: cross-session list + provenance filters          [Sidebar]
-  settings    one route per section (§9.2): general · profile ·
-              members · memory · usage · documents                 [Sidebar, bottom entry]
+  settings    the project hub, labelled Overview (§9.2): a bento
+              dashboard + profile · members · memory · usage ·
+              documents                                             [Sidebar, bottom entry]
   knowledge   stays flagged, linked from Settings (not top-nav)
   research    legacy → redirect into history (completes FB-10)
   intake      unchanged (edit path from Settings)
@@ -386,7 +387,7 @@ Follow-up (optional): the surviving profile card could take the dummy's
 stacked labelled-field look instead of the fact-sheet layout — a pure restyle
 on top of this decision, not a change to the one-surface/one-editor rule.
 
-### 9.2 Project Settings — one route per section (2026-10-09)
+### 9.2 Project hub — a dashboard, then one route per section (2026-10-09)
 
 **Context.** Settings had grown into one scrolling column: identity, the brief
 beside an "Insights" card, applicable standards, the roster, the upload
@@ -397,21 +398,26 @@ existed with no project-side UI. The roster rendered for every viewer although
 its endpoint requires `project:members:manage`, so a viewer got an error toast
 on every visit. And every gate was `role === 'project-admin'`, a role-name check.
 
-**Decision.** Settings is a tier with a section nav, laid out like the
-organization tier (`components/shell/section-nav.tsx` is now shared by both).
-Each section answers one question and is its own route under
-`/app/projects/[id]/settings`:
+**Decision.** The pinned rail entry is the project's hub, labelled **Overview**
+(the `/settings` URL and the `g s` jump are kept). It opens on a **bento
+dashboard** (`components/ui/bento.tsx`, `features/projects/components/overview/`):
+a hero (name, brief summary, Ask Piloti / Files / briefing; rename and delete in
+its menu) and one live tile per section, each with its headline number and a
+link into the section. Behind a tab strip, each section answers one question
+and is its own route under `/app/projects/[id]/settings`:
 
 | Section | Question | Gate |
 |---|---|---|
-| General (bare `/settings`) | What is this project, where is it in its life? Name, size, record, close/reopen, delete | view; writes `project:manage` |
+| Overview (bare `/settings`) | Where does this project stand? Dashboard; rename and delete in the hero menu | view; menu `project:manage` |
 | Project profile | What does Piloti assume here, and which OIB-Richtlinien follow? | view; wizard link `project:edit` |
-| Members | Who works here, in which role? | `project:members:manage` (section hidden otherwise) |
+| Members | Who works here, in which role? | `project:members:manage` (section and tile hidden otherwise) |
 | Memory | What has Piloti learned here? | view; controls `project:memory:write` |
 | Usage & budget | What has it cost, what stops it? Replaces Insights | `project:manage` or org budget admin |
 | Documents & index | Who brought which files in, can everyone reach them, is the index current? | view; reindex `project:documents:write` |
 
 Gates come from `lib/projects/settings-access.ts` (permissions through
-`decide.ts`), and a section a reader cannot use is absent from the nav and 404s
-by URL. §9.1 is unchanged: the profile stays read-only here. New blocks go in
-the section whose question they answer (`features/projects/lib/settings-sections.ts`).
+`decide.ts`), and a section a reader cannot use is absent from the tabs and the
+dashboard and 404s by URL. §9.1 is unchanged: the profile stays read-only here.
+New blocks go in the section whose question they answer
+(`features/projects/lib/settings-sections.ts`); one with a headline number also
+earns a tile.

@@ -6,7 +6,7 @@ import {
   ClipboardList,
   FileStack,
   Gauge,
-  SlidersHorizontal,
+  LayoutDashboard,
   Users,
   type LucideIcon,
 } from 'lucide-react'
@@ -19,7 +19,7 @@ import {
 } from '../../lib/settings-sections'
 
 const ICONS: Record<ProjectSettingsSectionKey, LucideIcon> = {
-  general: SlidersHorizontal,
+  overview: LayoutDashboard,
   profile: ClipboardList,
   members: Users,
   memory: Brain,
@@ -54,9 +54,9 @@ export function ProjectSettingsNav({
     <SectionNav
       label={t('project.nav.label')}
       items={items}
-      rootHref={settingsSectionHref(projectId, 'general')}
+      rootHref={settingsSectionHref(projectId, 'overview')}
       pillId="project-settings-nav-pill"
-      railTopClassName="lg:top-6"
+      orientation="tabs"
       data-testid="project-settings-nav"
     />
   )

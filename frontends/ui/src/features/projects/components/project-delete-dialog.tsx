@@ -2,23 +2,33 @@
 
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { AlertTriangle } from 'lucide-react'
 import { toast } from 'sonner'
-import { Button } from '@/components/ui/button'
 import { TypeToConfirmDialog } from '@/components/ui/type-to-confirm-dialog'
 import { useLocale, useTranslations } from '@/i18n'
 
-export interface ProjectDangerZoneProps {
+export interface ProjectDeleteDialogProps {
   projectId: string
   projectName: string
+  open: boolean
+  onOpenChange: (open: boolean) => void
 }
 
-export function ProjectDangerZone({ projectId, projectName }: ProjectDangerZoneProps) {
+/**
+ * Soft-delete the project behind a type-the-name confirmation, opened from the
+ * Overview hero's menu. It used to be a red "danger zone" box at the foot of
+ * Settings; on a dashboard a destructive control belongs one deliberate click
+ * away, not in the reading flow. The grace-period restore is unchanged.
+ */
+export function ProjectDeleteDialog({
+  projectId,
+  projectName,
+  open,
+  onOpenChange: setOpen,
+}: ProjectDeleteDialogProps) {
   const t = useTranslations('projects')
   const tCommon = useTranslations('common')
   const { locale } = useLocale()
   const router = useRouter()
-  const [open, setOpen] = useState(false)
   const [pending, setPending] = useState(false)
 
   const handleConfirm = async () => {
@@ -59,40 +69,23 @@ export function ProjectDangerZone({ projectId, projectName }: ProjectDangerZoneP
   }
 
   return (
-    <section className="border-destructive/40 bg-destructive/[0.03] rounded-2xl border p-6">
-      <div className="flex items-start gap-3">
-        <span
-          className="bg-destructive/10 text-destructive mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-lg"
-          aria-hidden
-        >
-          <AlertTriangle className="size-[18px]" />
-        </span>
-        <div className="min-w-0">
-          <h3 className="text-destructive text-sm font-semibold">{t('dangerZone.heading')}</h3>
-          <p className="text-muted-foreground mt-1 text-sm">{t('dangerZone.description')}</p>
-        </div>
-      </div>
-      <Button variant="destructive" className="mt-4" onClick={() => setOpen(true)}>
-        {t('dangerZone.deleteButton')}
-      </Button>
-      <TypeToConfirmDialog
-        open={open}
-        onOpenChange={setOpen}
-        title={t('dangerZone.dialogTitle')}
-        description={
-          <p>
-            {t('dangerZone.dialogDescriptionBefore')}
-            <span className="font-semibold">{projectName}</span>
-            {t('dangerZone.dialogDescriptionAfter')}
-          </p>
-        }
-        confirmName={projectName}
-        confirmLabel={t('dangerZone.confirmLabel')}
-        typeToConfirmLabel={t('dangerZone.typeToConfirm')}
-        cancelLabel={tCommon('actions.cancel')}
-        onConfirm={handleConfirm}
-        pending={pending}
-      />
-    </section>
+    <TypeToConfirmDialog
+      open={open}
+      onOpenChange={setOpen}
+      title={t('dangerZone.dialogTitle')}
+      description={
+        <p>
+          {t('dangerZone.dialogDescriptionBefore')}
+          <span className="font-semibold">{projectName}</span>
+          {t('dangerZone.dialogDescriptionAfter')}
+        </p>
+      }
+      confirmName={projectName}
+      confirmLabel={t('dangerZone.confirmLabel')}
+      typeToConfirmLabel={t('dangerZone.typeToConfirm')}
+      cancelLabel={tCommon('actions.cancel')}
+      onConfirm={handleConfirm}
+      pending={pending}
+    />
   )
 }
