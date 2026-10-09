@@ -24,7 +24,6 @@ import { type FC, type ReactNode, useState } from 'react'
 import { cn } from '@/lib/utils'
 import { useTranslations } from '@/i18n'
 import { HoverPeekPanel } from '@/components/ui/hover-peek-panel'
-import { scrollToAnchor } from '@/shared/components/MarkdownRenderer/anchor-context'
 import { citationSnippet, type CitationRef } from '../lib/citations'
 import { useHoverPopover } from '@/hooks/use-hover-popover'
 import { useCitationScope } from './CitationScope'
@@ -33,6 +32,7 @@ import { SourceDocumentDialog, useCitationDownload, useSourcePreviewIndex } from
 import { citedFileName, resolveCitationTarget } from '../lib/citations/target'
 import { useChatStore } from '../store'
 import { PENDING_CITATION_ANCHOR_PREFIX } from '@/features/layout/lib/citation-markers'
+import { useAnswerLive } from './CardSlotArrival'
 
 /**
  * An in-page anchor that the answer recognises as one of its own citations.
@@ -45,9 +45,13 @@ export const CitationMarker: FC<{ href: string; fallback: ReactNode }> = ({ href
   const t = useTranslations('chat')
   const [openDocument, setOpenDocument] = useState<CitationRef | null>(null)
   const peek = useHoverPopover()
+  const live = useAnswerLive()
 
+  // The plugin marks every unresolved `[N]` pending, live or not, so its list
+  // keeps its identity when the answer settles (see `AgentResponse`). Whether
+  // that is a pending pill or the plain text it settles to is decided here.
   const pending = numberFromHref(href, PENDING_CITATION_ANCHOR_PREFIX)
-  if (pending != null) return <PendingCitationMarker number={pending} />
+  if (pending != null) return live ? <PendingCitationMarker number={pending} /> : <>{`[${pending}]`}</>
   const number = scope ? numberFromHref(href, scope.anchorPrefix) : null
   const ref = number != null ? scope?.referenceFor(number) : undefined
   if (!scope || number == null || !ref) return <>{fallback}</>
@@ -64,9 +68,12 @@ export const CitationMarker: FC<{ href: string; fallback: ReactNode }> = ({ href
         {...peek.triggerProps}
         onClick={() => {
           peek.triggerProps.onClick()
-          // Still goes where it always went — but the chip now says so.
+          // Marks the chip below, and does NOT scroll to it: the click also
+          // pins the peek beside the marker, and scrolling the page to the
+          // chip threw that peek off screen (on a phone, entirely). The peek
+          // is the answer to "which source is this"; the chip's mark is there
+          // for a reader who looks down.
           scope.focus(number)
-          scrollToAnchor(`${scope.anchorPrefix}${number}`)
         }}
         aria-label={t('citationPeek.markerAria', {
           number,
@@ -160,9 +167,11 @@ export const CitationMarker: FC<{ href: string; fallback: ReactNode }> = ({ href
 
 /**
  * A citation the model has written and the backend has not settled yet
- * (ADR-0066): the pill in its place and shape, muted and pulsing, with no
+ * (ADR-0066): the pill in its place and shape, muted and still, with no
  * peek and nothing to press. Within seconds the settled text replaces it with
- * the real one, or drops it if its source did not verify.
+ * the real one, or drops it if its source did not verify. Still, not pulsing:
+ * an answer holds dozens of these, and a pulse on each was dozens of ambient
+ * loops beside the one the turn allows (the caret).
  */
 const PendingCitationMarker: FC<{ number: number }> = ({ number }) => {
   const t = useTranslations('chat')
@@ -177,7 +186,7 @@ const PendingCitationMarker: FC<{ number: number }> = ({ number }) => {
         // The live pill's touch sizing too: settling changes the colour and
         // nothing else, or the line re-wraps the moment the source arrives.
         'pointer-coarse:min-h-[26px] pointer-coarse:justify-center pointer-coarse:px-[7px] pointer-coarse:text-[0.78em]',
-        'bg-muted text-muted-foreground motion-safe:animate-pulse'
+        'bg-muted text-muted-foreground'
       )}
     >
       {number}

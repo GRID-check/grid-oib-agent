@@ -57,7 +57,7 @@ Start with [`system-overview.md`](architecture/system-overview.md), then
 | Collaboration and lifecycle | [`collaboration-lifecycle.md`](architecture/collaboration-lifecycle.md), [`adding-a-shareable-resource-type.md`](architecture/adding-a-shareable-resource-type.md), [`deletion-pipeline.md`](architecture/deletion-pipeline.md) |
 | Scale and cost | [`latency-and-caching-audit-2026-09.md`](architecture/latency-and-caching-audit-2026-09.md), where a chat turn's seconds measurably go and what effort, search rounds and startup cost: [`turn-latency-measured-2026-09.md`](architecture/turn-latency-measured-2026-09.md), [`scaling-review-2026-07.md`](architecture/scaling-review-2026-07.md), [`scaling-review-2026-07-phase2.md`](architecture/scaling-review-2026-07-phase2.md), [`rate-limiting-and-load-protection.md`](architecture/rate-limiting-and-load-protection.md), [`usage-budgets.md`](architecture/usage-budgets.md) |
 | Reach | [`country-extensibility.md`](architecture/country-extensibility.md), [`backend-message-localization.md`](architecture/backend-message-localization.md) |
-| Surfaces | [`design/grid-design-language.md`](design/grid-design-language.md), [`design/run-block.md`](design/run-block.md) (what a run looks like in the thread, and how its moves are ordered), [`design/streaming-chat-answer.md`](design/streaming-chat-answer.md), the chat wire being rebuilt on typed events: [`design/chat-wire-v2.md`](design/chat-wire-v2.md), which drawing an answer carries and when: [`design/answer-visuals.md`](design/answer-visuals.md), how rich an answer gets and the block dialect behind it: [`design/answer-richness.md`](design/answer-richness.md), how a diagram is read and drawn: [`architecture/diagrams.md`](architecture/diagrams.md), [`design/project-surfaces.md`](design/project-surfaces.md), [`design/grid-card-charter.md`](design/grid-card-charter.md) |
+| Surfaces | [`design/grid-design-language.md`](design/grid-design-language.md), [`design/run-block.md`](design/run-block.md) (what a run looks like in the thread, and how its moves are ordered), [`design/streaming-chat-answer.md`](design/streaming-chat-answer.md) and every phase and edge of a turn with its fixture and check: [`design/lifecycles/chat-turn.md`](design/lifecycles/chat-turn.md), the chat wire being rebuilt on typed events: [`design/chat-wire-v2.md`](design/chat-wire-v2.md), which drawing an answer carries and when: [`design/answer-visuals.md`](design/answer-visuals.md), how rich an answer gets and the block dialect behind it: [`design/answer-richness.md`](design/answer-richness.md), how a diagram is read and drawn: [`architecture/diagrams.md`](architecture/diagrams.md), [`design/project-surfaces.md`](design/project-surfaces.md), [`design/grid-card-charter.md`](design/grid-card-charter.md) |
 
 ## Working practices
 
@@ -72,6 +72,7 @@ Index: [`contributing/README.md`](contributing/README.md).
 | [Gotchas](contributing/gotchas.md) | Known failures by symptom. Read before debugging a surprise |
 | [Agent onboarding files](contributing/agent-onboarding-files.md) | What `AGENTS.md` and its `CLAUDE.md` bridge are for, and which rules belong where |
 | [Agent skills](contributing/agent-skills.md) | How `.claude/` is generated and which skills are installed |
+| [Lifecycle matrix](contributing/lifecycle-matrix.md) | Every phase and edge of a very heavy surface with its fixture and check; instances in [`design/lifecycles/`](design/lifecycles/README.md) |
 | [Correction ratchet](contributing/correction-ratchet.md) | Closing the layer that allowed an error |
 | [Documentation obligations](contributing/documentation.md) | Which doc to update for which change |
 
@@ -103,6 +104,7 @@ Index: [`contributing/README.md`](contributing/README.md).
 | [Document Ingestion](technical-reference/document-ingestion.md) | SeaweedFS upload, `/v1/ingest`, chunking, embedding, ChromaDB |
 | [OIB Sync](technical-reference/oib-sync.md) | Incremental OIB PDF ingestion with a SHA-256 hash registry |
 | [WebSocket Gateway](technical-reference/websocket-gateway.md) | Gateway proxy, scope resolution, auth forwarding |
+| [Answer-feedback export](technical-reference/answer-feedback-export.md) | The votes workbook and CSV: scope, sheets, every column and where it comes from |
 | [BFF Proxy Pattern](technical-reference/bff-proxy-pattern.md) | Auth, scope injection, error handling, SSE passthrough |
 | [Projects Access Control](technical-reference/projects-access-control.md) | WorkOS FGA project permissions |
 | [UI Layout & Providers](technical-reference/ui-layout-providers.md) | App Router structure, providers, panel system, store |

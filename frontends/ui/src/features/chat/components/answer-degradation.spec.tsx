@@ -25,7 +25,7 @@
  * only copy there ever was. The last describe walks that path.
  */
 
-import { render, screen } from '@/test-utils'
+import { fireEvent, render, screen } from '@/test-utils'
 import { de, en } from '@/i18n/dictionaries'
 import { createTranslator } from '@/i18n/translate'
 import { vi, describe, test, expect } from 'vitest'
@@ -84,13 +84,18 @@ const footerNotes = (): string[] =>
   )
 
 /**
- * The transparency lines live in the answer-details disclosure, which opens
- * ITSELF for a cut-off or degraded turn — so there is nothing to click before
- * asserting on note content, and a test that clicked would close it. Kept as
- * a named step so each test still says where the line lives.
+ * The transparency lines live in the answer-details disclosure. It no longer
+ * opens ITSELF for a cut-off or degraded turn: the warnings land at the
+ * settle, and opening the disclosure then snapped 100-400px in under a reader
+ * who had just reached the end. The trigger carries a warning dot instead,
+ * so this asserts the dot and then opens the details the way the reader does.
  */
 const openAnswerDetails = async (): Promise<void> => {
-  expect(screen.getByTestId('answer-details-trigger')).toHaveAttribute('aria-expanded', 'true')
+  const trigger = screen.getByTestId('answer-details-trigger')
+  expect(trigger).toHaveAttribute('aria-expanded', 'false')
+  expect(screen.getByTestId('answer-details-attention')).toBeInTheDocument()
+  fireEvent.click(trigger)
+  expect(trigger).toHaveAttribute('aria-expanded', 'true')
 }
 
 describe.each(['default', 'inline'] as const)('the %s answer variant', (variant) => {

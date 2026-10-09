@@ -1,9 +1,7 @@
 {"type":"system_response_message","id":"x","conversation_id":"5f5b7a5c-1f0e-4a9d-9c3a-2f2f9a1b7c11","content":{"text":"Hallo"},"status":"in_progress"}
 {"conversation_id":"5f5b7a5c-1f0e-4a9d-9c3a-2f2f9a1b7c11","turn_id":"msg_1759000000000_3","seq":3,"ts":1759000000100,"v":1,"type":"RUN_STARTED","message_id":"m"}
 {"conversation_id":"5f5b7a5c-1f0e-4a9d-9c3a-2f2f9a1b7c11","turn_id":"msg_1759000000000_3","seq":3,"ts":1759000000100,"v":2,"type":"TEXT_MESSAGE_CONTENT","message_id":"m","delta":""}
-{"conversation_id":"5f5b7a5c-1f0e-4a9d-9c3a-2f2f9a1b7c11","turn_id":"msg_1759000000000_3","seq":3,"ts":1759000000100,"v":2,"type":"STEP_FINISHED","step":{"id":"tool:1","kind":"tool","tool":"knowledge_search","status":"ok","payload":"--- Result 1 ---"}}
-{"conversation_id":"5f5b7a5c-1f0e-4a9d-9c3a-2f2f9a1b7c11","turn_id":"msg_1759000000000_3","seq":3,"ts":1759000000100,"v":2,"type":"STEP_FINISHED","step":{"id":"llm:1","kind":"llm","name":"gpt-5"}}
-{"conversation_id":"5f5b7a5c-1f0e-4a9d-9c3a-2f2f9a1b7c11","turn_id":"msg_1759000000000_3","seq":3,"ts":1759000000100,"v":2,"type":"CUSTOM","name":"status","value":{}}
 {"conversation_id":"5f5b7a5c-1f0e-4a9d-9c3a-2f2f9a1b7c11","turn_id":"msg_1759000000000_3","seq":3,"ts":1759000000100,"v":2,"type":"RUN_FINISHED","outcome":"handed_off","result":{"message_id":"m","text":"","run":{"run_id":"r"}}}
 {"conversation_id":"5f5b7a5c-1f0e-4a9d-9c3a-2f2f9a1b7c11","turn_id":"msg_1759000000000_3","seq":-1,"ts":1759000000100,"v":2,"type":"RUN_STARTED","message_id":"m"}
 {"conversation_id":"5f5b7a5c-1f0e-4a9d-9c3a-2f2f9a1b7c11","turn_id":"msg_1759000000000_3","seq":3,"ts":1759000000100,"v":2,"type":"CUSTOM","name":"interaction_request","value":{"interaction_id":"a","input":"approval","text":"OK?","expires_at":1}}
+{"v":2,"type":"REASONING_MESSAGE_START","ts":1759000000100,"message_id":"r"}

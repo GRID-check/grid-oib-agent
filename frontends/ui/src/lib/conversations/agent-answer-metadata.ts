@@ -106,6 +106,9 @@ const BACKEND_ANSWER_KEYS = [
   'escalation_reason',
   'skills_activated',
   'skills_hidden',
+  // The level the turn ran at, resolved server-side (`TurnResult.reasoning_effort`),
+  // bounded into `provenance.reasoningEffort` like the client's own record.
+  'reasoning_effort',
   // The asker pressed Stop (`RUN_FINISHED{outcome: 'cancelled'}`): the row
   // holds the prose so far, and a reload must say it was stopped rather than
   // render a fragment as a finished answer. Same spelling in both dialects,
@@ -397,6 +400,10 @@ export function provenanceFromBackendMetadata(
   if (Array.isArray(metadata.skills_activated))
     candidate.skillsActivated = metadata.skills_activated
   if (Array.isArray(metadata.skills_hidden)) candidate.skillsHidden = metadata.skills_hidden
+  // The level the turn ran at, as the backend resolved it: what a turn the
+  // asking tab never saw finish (a dropped client, a Stop) still offers the
+  // thorough retry from. `sanitizeProvenance` keeps only a chat level.
+  candidate.reasoningEffort = metadata.reasoning_effort
 
   // ── What the run cost the answer ────────────────────────────────────────
   // Presence IS the fact: `=== true`, so a `false` on the wire is read as

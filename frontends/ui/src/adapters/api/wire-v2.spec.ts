@@ -17,6 +17,7 @@
 import { existsSync, readdirSync, readFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { describe, expect, it } from 'vitest'
+import { foldTurnEvents } from '@/features/chat/lib/turn-fold'
 import { clientMessageSchema, parseHello, parseWireEvent, type WireEvent } from './wire-v2'
 
 function fixtureDir(): string {
@@ -119,5 +120,97 @@ describe('chat wire v2 fixtures', () => {
     for (const raw of lines('invalid-client.jsonl')) {
       expect(clientMessageSchema.safeParse(raw).success, JSON.stringify(raw)).toBe(false)
     }
+  })
+})
+
+/**
+ * A tab outlives a deploy, so the bundle reading a frame is often older than the
+ * server that wrote it. `newer-events.jsonl` is drift a newer server may send:
+ * the server's own models refuse it (`test_wire_v2.py`), this side reads it.
+ */
+describe('chat wire v2 frames from a newer server', () => {
+  type Raw = Record<string, unknown>
+  const newer = lines('newer-events.jsonl') as Raw[]
+  const byType = (type: string, name?: string, kind?: string): Raw => {
+    const raw = newer.find(
+      (frame) =>
+        frame.type === type &&
+        (name === undefined || frame.name === name) &&
+        (kind === undefined || (frame.step as Raw | undefined)?.kind === kind)
+    )
+    if (!raw) throw new Error(`newer-events.jsonl has no ${type} ${name ?? ''}`)
+    return raw
+  }
+
+  it.each(newer.map((raw) => [JSON.stringify(raw).slice(0, 80), raw]))('reads %s', (_label, raw) => {
+    expect(parseWireEvent(raw)).not.toBeNull()
+  })
+
+  it('strips an unknown key, in the body and in the result', () => {
+    const event = parseWireEvent(byType('RUN_FINISHED'))
+    if (event?.type !== 'RUN_FINISHED') throw new Error('a RUN_FINISHED with an extra key must parse')
+    expect(event.result.text).toBe('Hallo')
+    expect(event).not.toHaveProperty('replica')
+    expect(event.result).not.toHaveProperty('answer_digest')
+  })
+
+  it('strips a raw payload off a step, so no tool text reaches the fold', () => {
+    const event = parseWireEvent(byType('STEP_FINISHED', undefined, 'tool'))
+    if (event?.type !== 'STEP_FINISHED') throw new Error('a step with an extra key must parse')
+    expect(event.step).not.toHaveProperty('payload')
+  })
+
+  const ENVELOPE = {
+    v: 2,
+    conversation_id: '5f5b7a5c-1f0e-4a9d-9c3a-2f2f9a1b7c11',
+    turn_id: 'msg_1759000000000_3',
+    seq: 3,
+    ts: 1759000000100,
+  }
+
+  it.each([
+    ['a CUSTOM name', byType('CUSTOM', 'answer_outline'), 'CUSTOM:answer_outline'],
+    ['a step kind', byType('STEP_STARTED'), 'STEP_STARTED:plan'],
+    ['a type', byType('REASONING_MESSAGE_START'), 'REASONING_MESSAGE_START'],
+  ])('hands on %s it does not know by its envelope, its body dropped', (_label, raw, of) => {
+    expect(parseWireEvent(raw)).toEqual({ ...ENVELOPE, type: 'UNKNOWN', of })
+  })
+
+  it('still refuses a frame that names only known things and does not parse, or is not a v2 turn event', () => {
+    const custom = byType('CUSTOM', 'answer_outline')
+    expect(parseWireEvent({ ...custom, name: 'heartbeat', value: {} })).toBeNull()
+    expect(parseWireEvent({ ...custom, v: 1 })).toBeNull()
+    const { type: _type, ...untyped } = custom
+    expect(parseWireEvent(untyped)).toBeNull()
+    const { turn_id: _turn, ...unbound } = byType('REASONING_MESSAGE_START')
+    expect(parseWireEvent(unbound)).toBeNull()
+    expect(parseWireEvent({ ...byType('STEP_STARTED'), step: { id: 'tool:1', kind: 'tool' } })).toBeNull()
+  })
+
+  it('folds a recorded turn to the same answer, settled and without a gap, with unknown events and extra keys in it', () => {
+    const recorded = lines('turn-answered.jsonl') as Raw[]
+    const finished = recorded.findIndex((frame) => frame.type === 'RUN_FINISHED')
+    const unknown: Raw[] = [
+      byType('CUSTOM', 'answer_outline'),
+      byType('STEP_STARTED'),
+      byType('STEP_FINISHED', undefined, 'llm'),
+      byType('REASONING_MESSAGE_START'),
+    ].map((frame) => ({ ...frame, turn_id: recorded[0].turn_id }))
+    const drifted = [...recorded.slice(0, finished), ...unknown, ...recorded.slice(finished)].map((frame, index) =>
+      frame.type === 'RUN_FINISHED'
+        ? { ...frame, seq: index + 1, replica: 'aiq-2', result: { ...(frame.result as Raw), answer_digest: 'x' } }
+        : { ...frame, seq: index + 1 }
+    )
+    const fold = (frames: Raw[]) => {
+      const events = frames.map(parseWireEvent)
+      expect(events).not.toContain(null)
+      return foldTurnEvents(undefined, events as WireEvent[])
+    }
+    const expected = fold(recorded)
+    const actual = fold(drifted)
+    expect(actual?.phase).toBe('finished')
+    expect(actual?.gap).toBe(false)
+    expect(actual?.lastSeq).toBe(recorded.length + unknown.length)
+    expect({ ...actual, lastSeq: 0, lastBeatAt: 0 }).toEqual({ ...expected, lastSeq: 0, lastBeatAt: 0 })
   })
 })

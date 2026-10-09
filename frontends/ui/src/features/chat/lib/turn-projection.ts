@@ -6,7 +6,9 @@
  * (its id is the turn id) holds the Herleitung, the answer (the id
  * `RUN_STARTED` named) holds the prose, sources, masthead, cards and, once the
  * terminal lands, everything the result says, and a prompt message holds an
- * open `interaction_request`. Pure: the store decides what to persist.
+ * open `interaction_request`. A turn that commissions a run (ADR-0062) swaps
+ * its answer for the run's message, provisional until the stored row is
+ * adopted. Pure: the store decides what to persist.
  *
  * Identity is the render budget. A message whose projection is unchanged is
  * the same object, and the fields a flush did not touch keep theirs: the cards
@@ -22,8 +24,10 @@ import { citationsFromWireList } from './wire-citation'
 import { reconcileCardInteractions } from '@/features/grid-cards/card-decision'
 import { validateGridCards, type GridCard } from '@/shared/cards/schemas'
 import { sanitizeAnswerMeta } from '@/lib/conversations/message-answer-meta'
+import { isChatEffort } from '@/lib/reasoning-settings/catalog'
 import { sanitizeRetrievalLedger } from '@/lib/conversations/message-retrieval-ledger'
 import { sanitizeQuoteStamps } from '@/lib/conversations/message-quote-stamps'
+import { emptyRunLedger, sanitizeRunTitle } from '@/lib/runs/run-ledger'
 import {
   sanitizeFollowUpsStage,
   sanitizeMemoryReflectionStage,
@@ -118,6 +122,15 @@ const answerOf = (
   put('content', view.text)
   put('isStreaming', view.phase === 'running' ? true : undefined)
   put('stopped', view.outcome === 'cancelled' ? true : undefined)
+  // `RUN_ERROR` under a written answer: the words stay, marked as cut off, in
+  // the same frame the stream ends, so they never settle as a finished answer.
+  put('failed', view.phase === 'failed' ? true : undefined)
+  // The level the turn RAN at: the terminal's report wins, because it is resolved
+  // server-side and reaches an observer too; the asker's own record covers the
+  // turn until then. A reported `none` is no chat level, so the record stands.
+  const reported = view.result?.reasoning_effort
+  const ranAt = isChatEffort(reported) ? reported : view.effort
+  if (ranAt) put('reasoningEffort', ranAt)
   if (fresh || previous.cards !== view.cards) {
     const cards = replaceEqualDeep(base.cards, cardsOf(view))
     if (cards !== base.cards) {
@@ -132,6 +145,33 @@ const answerOf = (
     if (context.answerDurationMs !== undefined) patch.answerDurationMs = context.answerDurationMs
   }
   return Object.keys(patch).length === 0 ? base : { ...base, ...patch }
+}
+
+const PROVISIONAL_UPDATED_AT = new Date(0).toISOString()
+
+/**
+ * The run's message as the open thread can draw it before the stored one
+ * arrives: the id the server wrote it under, and the ledger of a run that has
+ * done nothing yet. An `agent_response`, like the stored row (the mapper's
+ * default), so the turn counts as answered. Never persisted: the server's row
+ * is the record, and the block follows the run's own stream from its id.
+ */
+export const provisionalRunMessage = (runId: string, messageId: string, question?: string): ChatMessage => {
+  // The question is the run's title (`turn/commission.py`), so the header the
+  // stored row brings is, in the common case, the one already on screen.
+  const runTitle = sanitizeRunTitle(question)
+  return {
+    id: messageId,
+    role: 'assistant',
+    content: '',
+    timestamp: new Date(),
+    messageType: 'agent_response',
+    // Stamped older than anything the server writes, so the first real ledger
+    // (adopted, fetched or streamed) wins `useRunLedger`'s newer-only test even
+    // when this browser's clock runs ahead of the server's.
+    runLedger: { ...emptyRunLedger(runId), updatedAt: PROVISIONAL_UPDATED_AT },
+    ...(runTitle ? { runTitle } : {}),
+  }
 }
 
 const promptOf = (view: TurnView): ChatMessage | undefined => {
@@ -204,7 +244,22 @@ export const projectTurn = (
   // A turn that commissioned a run, or that the job queue refused, answers
   // somewhere else: in the run's block, or in a banner.
   const answeredElsewhere = Boolean(view.result?.run || view.result?.job_admission_rejected)
-  if (answeredElsewhere && answerAt >= 0) edit().splice(answerAt, 1)
+  const run = view.result?.run
+  if (run) {
+    // The block takes the answer's place in the same frame, as a provisional
+    // run message under the id the server already wrote it with. Dropping the
+    // answer and waiting for the fetch left the turn with no response for a
+    // round trip, which the Herleitung read as an interrupted turn (and, when
+    // the fetch failed, kept reading so until a reload). `adoptRunMessage`
+    // replaces this row in place when the stored message arrives.
+    const runAt = next.findIndex((message) => message.id === run.run_message_id)
+    if (runAt < 0) {
+      const asked = question >= 0 ? next[question]!.content : undefined
+      const provisional = provisionalRunMessage(run.run_id, run.run_message_id, asked)
+      if (answerAt >= 0) edit()[answerAt] = provisional
+      else edit().push(provisional)
+    } else if (answerAt >= 0) edit().splice(answerAt, 1)
+  } else if (answeredElsewhere && answerAt >= 0) edit().splice(answerAt, 1)
   if (!answeredElsewhere && view.messageId && (answerAt >= 0 || hasSomethingToDraw(view))) {
     const existing = answerAt >= 0 ? next[answerAt] : undefined
     let answer = answerOf(existing, view, previous, context)
