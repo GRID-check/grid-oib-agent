@@ -235,9 +235,9 @@ function markActiveRows(rows: Row[], column: number, text: (cell: Element) => st
  * Every column whose cells are all values or limits (a dash for a missing one
  * allowed, at least one real value) carries `data-numeric`, header included.
  */
-function markNumericColumns(head: Row, rows: Row[], text: (cell: Element) => string): void {
+function markNumericColumns(head: Row, rows: Row[], text: (cell: Element) => string, judged: Row[] = rows): void {
   head.cells.forEach((headCell, column) => {
-    const cells = columnCells(rows, column)
+    const cells = columnCells(judged, column)
     if (!cells || cells.length === 0) return
     let values = 0
     for (const cell of cells) {
@@ -247,7 +247,8 @@ function markNumericColumns(head: Row, rows: Row[], text: (cell: Element) => str
       values += 1
     }
     if (values === 0) return
-    for (const cell of [headCell, ...cells]) cell.properties = { ...cell.properties, dataNumeric: 'true' }
+    const marked = judged === rows ? cells : rows.flatMap((row) => row.cells[column] ?? [])
+    for (const cell of [headCell, ...marked]) cell.properties = { ...cell.properties, dataNumeric: 'true' }
   })
 }
 
@@ -282,10 +283,37 @@ export function markStatusCells(cells: Element[], text: (cell: Element) => strin
   }
 }
 
-function shapeTable(table: Element): void {
+/**
+ * `open`: the table may still be arriving (the last table of the block the
+ * stream is writing). GFM pads a row still being written with empty cells, so
+ * its cells say nothing yet about the whole table, and a decision read off
+ * them toggled per token: the Fundstelle column was lifted, restored and
+ * lifted again, the tally above the table came and went, a column flipped
+ * its alignment (stream audit 2026-10, A5). So an open table:
+ *
+ *  - judges its columns by its complete rows only (every row but the last);
+ *  - lifts no column: a lift is undone by the first row that cites something
+ *    else, and only a closed table cannot get one. It lifts once, when it
+ *    closes;
+ *  - draws no tally, but reserves its line (`data-tally-reserve`) from the
+ *    header on, so the chips fade into a line that was already there instead
+ *    of pushing the table down by a row when it closes. A table that closes
+ *    with no tally after all (too few rows to count, or a last row without a
+ *    status word) says `closed`: the renderer keeps the empty line where the
+ *    table streamed, because dropping it then pulled the table up by a row at
+ *    the very moment it finished. A reload has no line to keep.
+ *
+ * Stacking reads every row, the last included: a cell only grows, so a table
+ * that turns prose-stacked stays so.
+ */
+function shapeTable(table: Element, open: boolean): void {
   const parts = tableParts(table)
-  if (!parts) return
+  if (!parts) {
+    stackHeaderOnly(table, open)
+    return
+  }
   const { head, rows } = parts
+  const complete = open ? rows.slice(0, -1) : rows
   const columnOf = (headers: ReadonlySet<string>) => head.cells.findIndex((cell) => headers.has(key(cellText(cell))))
   const sourceColumn = columnOf(SOURCE_HEADERS)
   // First, so the tally and the lift read the cells as they will be shown: a
@@ -301,14 +329,19 @@ function shapeTable(table: Element): void {
   }
   const statusColumn = columnOf(STATUS_HEADERS)
   if (statusColumn >= 0) {
-    const cells = columnCells(rows, statusColumn)
-    const tally = statusTally(cells, text)
+    // What the open table reserved on its last frame: every row but the one
+    // being written says a status word. Read the same way once it closes.
+    const held = rows
+      .slice(0, -1)
+      .every(({ cells }) => cells[statusColumn] !== undefined && statusTone(text(cells[statusColumn])))
+    const tally = open ? null : statusTally(columnCells(rows, statusColumn), text)
     if (tally) table.properties = { ...table.properties, dataTally: tally }
+    else if (held) table.properties = { ...table.properties, dataTallyReserve: open ? 'true' : 'closed' }
     markStatusCells(rows.flatMap((row) => row.cells[statusColumn] ?? []), text)
     markActiveRows(rows, statusColumn, text)
   }
-  const lifted = liftSharedSource(table, sourceColumn, head, rows, text) ? sourceColumn : -1
-  markNumericColumns(head, rows, text)
+  const lifted = !open && liftSharedSource(table, sourceColumn, head, rows, text) ? sourceColumn : -1
+  markNumericColumns(head, rows, text, complete)
   // Labels AFTER the lift, so a cell names the column it still sits in.
   const kept = <T>(items: T[]) => items.filter((_, index) => index !== lifted)
   const labels = kept(head.cells).map(text)
@@ -328,17 +361,65 @@ function shapeTable(table: Element): void {
   }
 }
 
-function visitTables(node: Root | Element): void {
-  for (const child of node.children) {
-    if (!isElement(child)) continue
-    if (child.tagName === 'table') shapeTable(child)
-    else visitTables(child)
+/**
+ * A table of its header alone (its rows still to come) stacks as it will once
+ * they do. Undecided, it drew its header as a table row on a phone and then,
+ * at the first row, hid it and restacked: the header showed for a frame and
+ * vanished (stream audit 2026-10). Only the column count is known here, so
+ * only the container-width stack is decided; a prose stack waits for a cell.
+ * An open one with a Status column reserves the tally's line already: held
+ * only from the first row on, the line pushed the header down a row there.
+ */
+function stackHeaderOnly(table: Element, open: boolean): void {
+  const thead = elements(table, 'thead')[0]
+  const headRow = thead && elements(thead, 'tr')[0]
+  if (!headRow) return
+  const headers = cellsOf(headRow)
+  if (headers.length >= 3) table.properties = { ...table.properties, dataStack: 'true' }
+  if (open && headers.some((cell) => STATUS_HEADERS.has(key(cellText(cell))))) {
+    table.properties = { ...table.properties, dataTallyReserve: 'true' }
   }
 }
 
+function visitTables(node: Root | Element, open: Element | null): void {
+  for (const child of node.children) {
+    if (!isElement(child)) continue
+    if (child.tagName === 'table') shapeTable(child, child === open)
+    else visitTables(child, open)
+  }
+}
+
+/**
+ * The table a text still arriving may be writing: the one its tree ENDS in,
+ * found down the chain of last children (a table at the end of a list item or
+ * a `:::check` counts). A table with anything after it is finished, and so is
+ * every table but this one; reading "the last table in the tree" instead held
+ * a finished table open while the paragraph after it streamed, and the block
+ * view and the whole document disagreed about it.
+ */
+export function tailTableIn(node: Element | Root): Element | null {
+  let current: Element | Root = node
+  for (;;) {
+    const children = current.children as (RootContent | ElementContent)[]
+    let last: RootContent | ElementContent | undefined
+    for (let index = children.length - 1; index >= 0 && !last; index--) {
+      const child = children[index]
+      if (!(child.type === 'text' && child.value.trim() === '') && child.type !== 'comment') last = child
+    }
+    if (!last || !isElement(last)) return null
+    if (last.tagName === 'table') return last
+    current = last
+  }
+}
+
+export interface TableShapeOptions {
+  /** The text is still arriving and this tree is its last block: its last table may be half-written. */
+  openTail?: boolean
+}
+
 /** The rehype plugin. */
-export function rehypeTableShape() {
-  return (tree: Root) => visitTables(tree)
+export function rehypeTableShape(options: TableShapeOptions = {}) {
+  return (tree: Root) => visitTables(tree, options.openTail === true ? tailTableIn(tree) : null)
 }
 
 /** A `data-tally` value back as `[word, count]` pairs. */

@@ -3,9 +3,12 @@
  * in the source: the model writes the source, so its whitespace is not ours to
  * bound, and the title is read on every render of a drawn view.
  */
-import { describe, expect, it } from 'vitest'
+import { createElement, type ComponentProps } from 'react'
+import { act, renderHook } from '@testing-library/react'
+import { describe, expect, it, vi } from 'vitest'
 import { elapsedMs, growthRatio, LINEAR_BOUND } from '@/test-utils/growth'
-import { titleFromSource } from './use-diagram-filing'
+import { DiagramFilingProvider } from './diagram-filing-context'
+import { titleFromSource, useDiagramFiling } from './use-diagram-filing'
 
 describe('titleFromSource', () => {
   it('reads the title out of the front matter', () => {
@@ -34,5 +37,30 @@ describe('titleFromSource', () => {
     }
     // Quadratic, 8 times the run took ~64 times as long; linear, ~8 times.
     expect(growthRatio(time, { size: 2000, floorMs: 0.05 })).toBeLessThan(LINEAR_BOUND)
+  })
+})
+
+describe('useDiagramFiling — the conversation rides with the filing (ADR-0087)', () => {
+  it('sends the conversation the answer belongs to, so a confined thread is refused an open folder', async () => {
+    const bodies: unknown[] = []
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (_url: string, init?: RequestInit) => {
+        bodies.push(JSON.parse(String(init?.body)))
+        return { ok: true, status: 201, json: async () => ({ svg: { documentId: 'doc-svg' }, pdf: null }) }
+      })
+    )
+    const target = { projectId: 'proj-1', answerId: 'msg-1', conversationId: 's_conv_1' }
+    const { result } = renderHook(() => useDiagramFiling({ source: 'flowchart LR\n  A --> B', fileSvg: '<svg/>' }), {
+      // `children` travels as createElement's third argument; the props type
+      // requires it, so the props object is asserted to the component's own.
+      wrapper: ({ children }) =>
+        createElement(DiagramFilingProvider, { target } as ComponentProps<typeof DiagramFilingProvider>, children),
+    })
+
+    await act(() => result.current.file())
+
+    expect(bodies[0]).toMatchObject({ conversationId: 's_conv_1' })
+    vi.unstubAllGlobals()
   })
 })

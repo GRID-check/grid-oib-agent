@@ -115,6 +115,37 @@ describe('MemoryProposalCard', () => {
     expect(await screen.findByText(/Saved to this project/)).toBeInTheDocument()
   })
 
+  it('stays focused and busy while saving, ignores a second press, then hands focus to the receipt', async () => {
+    let release: () => void = () => {}
+    const posts: string[] = []
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((url: string) => {
+        posts.push(url)
+        return new Promise((resolve) => {
+          release = () => resolve({ ok: true, status: 201, json: async () => ({ item: {} }) })
+        })
+      })
+    )
+    const user = userEvent.setup()
+    render(<MemoryProposalCard {...baseProps} />)
+    const yes = screen.getByRole('button', { name: 'Yes, remember org-wide' })
+
+    await user.click(yes)
+    // Busy, not disabled: a disabled button would have dropped focus to <body>.
+    expect(yes).toHaveFocus()
+    expect(yes).toHaveAttribute('aria-disabled', 'true')
+    expect(yes).toHaveAttribute('aria-busy', 'true')
+    await user.click(yes)
+    expect(posts).toHaveLength(1)
+
+    release()
+    const receipt = await screen.findByText(/Saved to organization memory/)
+    // The pressed button left with the question; the keyboard lands on what
+    // replaced it rather than at the top of the page.
+    await waitFor(() => expect(receipt.closest('[data-proposal-body]')).toHaveFocus())
+  })
+
   it('hides the project action when there is no project in scope', () => {
     mockProjectId = null
     stubFetch()

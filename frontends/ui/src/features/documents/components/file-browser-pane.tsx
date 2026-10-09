@@ -4,6 +4,7 @@ import type { JSX } from 'react'
 import { Fragment, useCallback, useMemo, useState, type ReactNode } from 'react'
 import type { FileItem, FolderItem } from '../file-types'
 import type { CardExtras } from '../lib/file-shelf'
+import { EVERY_PROJECT_MEMBER, type FolderGrantItem } from '@/adapters/api/folder-access-client'
 import { Search, SearchX, FilterX, FolderOpen, Sparkles } from 'lucide-react'
 import { RisoPrint } from '@/components/brand/riso-print'
 import { Button } from '@/components/ui/button'
@@ -47,6 +48,27 @@ export interface FolderNavigation {
    * „Neuer Ordner", no rename or delete, no context menu on a tile.
    */
   readOnly?: boolean
+  /**
+   * Open the folder's access dialog (ADR-0088). Present only for a reader who
+   * manages the project; absent hides „Zugriff…" from the folder menu. A
+   * project's folders only: the Archiv's are governed by who manages it.
+   */
+  onEditFolderAccess?: (folderId: string) => void
+  /** Role slugs → names, for the lock on a folder with its own list. Slugs show as themselves without it. */
+  roleNames?: (slugs: readonly string[]) => string[]
+  /**
+   * What the reader may do at the project root (ADR-0088): `read` hides the
+   * root's upload and new-folder affordances. Absent reads as `write`; each
+   * folder carries its own `access`. The server decides either way.
+   */
+  rootAccess?: 'read' | 'write'
+}
+
+/** Whether the reader may write at `folderId` (null: the root), as the listing reported it. */
+export function mayWriteAt(folderNav: FolderNavigation | undefined, folderId: string | null): boolean {
+  if (!folderNav) return true
+  if (folderId === null) return folderNav.rootAccess !== 'read'
+  return folderNav.folders.find((folder) => folder.id === folderId)?.access !== 'read'
 }
 
 interface FileBrowserPaneProps {
@@ -190,6 +212,9 @@ export function FileBrowserPane({
   }, [orderedFiles, files, searchFiles, query, sort, locale])
 
   const currentFolderId = folderNav?.currentFolderId ?? null
+  // A level the reader may only read offers no upload and no new folder
+  // (ADR-0088); a notice says why. The server refuses either way.
+  const writableHere = mayWriteAt(folderNav, currentFolderId)
   const [createFolderIn, setCreateFolderIn] = useState<string | null | undefined>(undefined)
   const [editingFolderId, setEditingFolderId] = useState<string | null>(null)
 
@@ -210,11 +235,11 @@ export function FileBrowserPane({
         view,
         sort,
         onNewFolder:
-          folderNav && !folderNav.readOnly && !semantic.active && query.trim() === ''
+          folderNav && !folderNav.readOnly && writableHere && !semantic.active && query.trim() === ''
             ? () => setCreateFolderIn(currentFolderId)
             : undefined,
-        onUploadFiles: onPickFiles,
-        onUploadFolder: onPickFolder,
+        onUploadFiles: writableHere ? onPickFiles : undefined,
+        onUploadFolder: writableHere ? onPickFolder : undefined,
         onViewChange,
         onSortChange,
       }),
@@ -226,6 +251,7 @@ export function FileBrowserPane({
       semantic.active,
       query,
       currentFolderId,
+      writableHere,
       onPickFiles,
       onPickFolder,
       onViewChange,
@@ -252,6 +278,16 @@ export function FileBrowserPane({
     return wrapFile ? wrapFile(file, card) : card
   }
 
+  /** A folder's own list as the lock names it: each role (or every member) with what it may do. */
+  const grantLabels = (grants: readonly FolderGrantItem[]): string[] => {
+    const names = folderNav?.roleNames?.(grants.map((grant) => grant.role)) ?? grants.map((grant) => grant.role)
+    return grants.map((grant, index) => {
+      const who = grant.role === EVERY_PROJECT_MEMBER ? t('folders.access.everyMember') : names[index]
+      const what = grant.level === 'write' ? t('folders.access.levelWrite') : t('folders.access.levelRead')
+      return `${who} (${what})`
+    })
+  }
+
   const folderTile = (folder: FolderItem, asRow: boolean) => {
     const props = {
       folder,
@@ -266,6 +302,8 @@ export function FileBrowserPane({
       actions: folderNav ? (folderNav.readOnly ? <Fragment /> : <FolderActionsTrigger />) : undefined,
       editing: editingFolderId === folder.id,
       onEditingChange: (next: boolean) => setEditingFolderId(next ? folder.id : null),
+      restrictedRoleNames: folder.grants?.length ? grantLabels(folder.grants) : undefined,
+      readOnly: folder.access === 'read',
     }
     const tile = asRow ? <FolderRow {...props} /> : <FolderCard {...props} />
     if (!folderNav || folderNav.readOnly) return tile
@@ -282,7 +320,11 @@ export function FileBrowserPane({
             ? (parentId) => void onDropFolderInFolder(folder.id, parentId)
             : undefined
         }
+        onAccess={
+          folderNav.onEditFolderAccess ? () => folderNav.onEditFolderAccess?.(folder.id) : undefined
+        }
         onDelete={() => void folderNav.onDeleteFolder(folder.id)}
+        readOnly={folder.access === 'read'}
       >
         {tile}
       </FolderObjectMenu>
@@ -332,6 +374,8 @@ export function FileBrowserPane({
   const canAcceptFolder = useCallback(
     (draggedId: string, targetId: string | null): boolean => {
       if (draggedId === targetId) return false
+      // A move is a write into the target (ADR-0088): a read-only one never lights up.
+      if (!mayWriteAt(folderNav, targetId)) return false
       const all = folderNav?.folders ?? []
       const dragged = all.find((folder) => folder.id === draggedId)
       if (!dragged) return false
@@ -345,7 +389,7 @@ export function FileBrowserPane({
       }
       return true
     },
-    [folderNav?.folders]
+    [folderNav]
   )
 
   /** The folders directly inside the current level — the drill-down tiles. */
@@ -519,6 +563,7 @@ export function FileBrowserPane({
           onDropDocument={onDropDocumentInFolder}
           onDropFolder={onDropFolderInFolder}
           canAcceptFolder={canAcceptFolder}
+          readOnly={!writableHere}
         />
       )}
 
@@ -669,7 +714,7 @@ export function FileBrowserPane({
             icon={FolderOpen}
             title={t('browser.folderEmptyTitle')}
             description={t('browser.folderEmptyDescription')}
-            action={uploadControl}
+            action={writableHere ? uploadControl : undefined}
           />
         </motion.div>
       ) : view === 'list' ? (
@@ -744,7 +789,7 @@ export function FileBrowserPane({
               {orderedFiles.map((file) => (
                 <Fragment key={file.id}>{fileCard(file)}</Fragment>
               ))}
-              {uploadCard}
+              {writableHere && uploadCard}
             </FileGrid>
         </motion.div>
       )}

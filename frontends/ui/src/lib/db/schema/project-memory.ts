@@ -41,6 +41,9 @@ export const PROJECT_MEMORY_PROVENANCES = [
 ] as const
 export type ProjectMemoryProvenance = (typeof PROJECT_MEMORY_PROVENANCES)[number]
 
+/** At most this many source folders restrict one item: the 0111 CHECK (ADR-0088). */
+export const PROJECT_MEMORY_MAX_RESTRICTED_FOLDERS = 20
+
 /**
  * Memory scope: 'project' items belong to one project; 'organization' items are
  * cross-cutting knowledge shared by every project in the org (project_id NULL).
@@ -78,6 +81,18 @@ export const projectMemory = pgTable(
      * pair and a person can resolve it. Null for the ordinary note.
      */
     conflictsWithId: uuid('conflicts_with_id'),
+    /**
+     * The source folders this item depends on (ADR-0087, ADR-0088, migration
+     * 0112): folders not every project member could read when it was
+     * written. NULL is open memory. A restricted item is served and shown only
+     * to a session that may read ALL of them NOW (`effectiveFolderLevel`), so a
+     * loosened folder opens it and a tightened one closes it; a deleted
+     * folder's tombstone keeps answering, and an id no folder has is read by
+     * nobody. Project scope only, 1–20
+     * entries, stored sorted and de-duplicated (`canonicalRestriction` in
+     * `lib/projects/memory-service.ts`).
+     */
+    restrictedFolderIds: uuid('restricted_folder_ids').array(),
     salience: real('salience').notNull().default(0.5),
     pinned: boolean('pinned').notNull().default(false),
     createdBy: text('created_by'),

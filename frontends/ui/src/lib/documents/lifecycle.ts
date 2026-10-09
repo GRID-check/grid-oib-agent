@@ -53,6 +53,8 @@ import { getBackendUrl } from '@/lib/backend-proxy'
 import { resolvePeople } from '@/lib/sharing/directory'
 import type { Document, DocumentVersion } from '@/lib/db/schema'
 import { getAccessibleDocument } from './access'
+import { requireMayFileFrom, type ConversationOrigin } from '@/lib/conversations/restricted-egress'
+import { findProjectInOrg } from '@/lib/projects/repository'
 import { isAgentDocumentFilename } from './agent-namespace'
 import { collectionFileRef, purgeIngestedChunks } from './collection-file-ref'
 import { documentDisplayName } from './display-name'
@@ -64,7 +66,7 @@ import { discardObject } from '@/lib/storage/discard'
 import { resolveDocumentBucket } from '@/lib/storage/bucket'
 import {
   BACKEND_PURGE_TIMEOUT_MS,
-  readVersionContent,
+  readVersionTextForTask,
   renderVersionBytes,
   writeVersionContent,
 } from './version-content'
@@ -512,7 +514,7 @@ const EFFECT_REGISTRY: Record<DocumentVersionEffect, EffectRunner> = {
       // Read in the REVIEWER's session, which has just been checked against this
       // document — the run itself has no session and the worker holds no
       // envelope, so the bytes have to be fetched by whoever is standing here.
-      const source = await readVersionContent(session, document.id, version.id).catch(() => null)
+      const source = await readVersionTextForTask(session, document.id, version.id).catch(() => null)
       await delegateTask(session, {
         projectId: document.projectId,
         kind: 'revision',
@@ -1060,6 +1062,12 @@ export async function replaceVersionContent(
     request?: Request
     /** False for the agent's internal route and the task outcome path. */
     actingHuman?: boolean
+    /**
+     * The conversation the new content came out of, for the agent's rewrite. Content from a thread that drew on a
+     * restricted folder goes only into a document filed at least as narrowly
+     * (ADR-0087, `restricted-egress.ts`), exactly as a new filing does.
+     */
+    origin?: ConversationOrigin
   } = {},
 ): Promise<DocumentVersion> {
   const document = await getAccessibleDocument(session, documentId, 'write')
@@ -1074,6 +1082,15 @@ export async function replaceVersionContent(
   }
   assertGuards(session, version, transition, { ifMatch, actingHuman: options.actingHuman })
   await requireTransitionPermission(session, document, transition)
+  if (options.origin) {
+    const project = document.projectId ? await findProjectInOrg(document.projectId, session.organizationId) : null
+    await requireMayFileFrom(options.origin, {
+      organizationId: session.organizationId,
+      projectId: project ? project.id : null,
+      projectCollection: project?.collectionName ?? document.collectionName,
+      folderId: document.folderId,
+    })
+  }
 
   const rendered = await renderVersionBytes(document, version, content)
   const swapped = await writeVersionContent({

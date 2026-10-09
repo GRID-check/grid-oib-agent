@@ -37,6 +37,11 @@ vi.mock('@/lib/diagrams/filing', () => ({
   fileDiagramDocuments: (...args: unknown[]) => fileDiagramDocuments(...args),
 }))
 
+const requireResourceAccess = vi.fn()
+vi.mock('@/lib/sharing/access', () => ({
+  requireResourceAccess: (...args: unknown[]) => requireResourceAccess(...args),
+}))
+
 import { createInProcessStore, setLimitStore } from '@/lib/limits'
 import { MAX_DIAGRAM_SVG_BYTES } from '@/lib/diagrams/diagram-sources'
 import { DiagramSvgError } from '@/lib/diagrams/svg'
@@ -152,5 +157,44 @@ describe('the body bounds', () => {
 
     expect(response.status).toBe(413)
     expect(fileDiagramDocuments).not.toHaveBeenCalled()
+  })
+})
+
+describe('a diagram from a conversation (ADR-0087)', () => {
+  it('authorizes the conversation and hands it to the filer, which refuses an open folder for a confined one', async () => {
+    requireResourceAccess.mockReset().mockResolvedValue({})
+    const response = await post(submission({ conversationId: 's_conv_1' }))
+
+    expect(response.status).toBe(201)
+    expect(requireResourceAccess).toHaveBeenCalledWith(
+      expect.objectContaining({ userId: 'user-1' }),
+      'conversation',
+      's_conv_1',
+      'viewer'
+    )
+    expect(fileDiagramDocuments.mock.calls[0][0]).toMatchObject({
+      origin: { conversationId: 's_conv_1', locale: 'de' },
+    })
+  })
+
+  it('relays the refusal as a typed 403 with the reader’s sentence', async () => {
+    requireResourceAccess.mockReset().mockResolvedValue({})
+    const { ConversationConfinedError } = await import('@/lib/api/errors')
+    fileDiagramDocuments.mockRejectedValueOnce(new ConversationConfinedError('filing', de.errors.confinement.filing))
+
+    const response = await post(submission({ conversationId: 's_conv_1' }))
+
+    expect(response.status).toBe(403)
+    expect(await response.json()).toMatchObject({
+      code: 'CONVERSATION_CONFINED',
+      error: de.errors.confinement.filing,
+    })
+  })
+
+  it('files a diagram from a surface that names no conversation without an origin', async () => {
+    requireResourceAccess.mockReset()
+    await post(submission())
+    expect(requireResourceAccess).not.toHaveBeenCalled()
+    expect(fileDiagramDocuments.mock.calls[0][0].origin).toBeUndefined()
   })
 })

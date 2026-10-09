@@ -70,6 +70,9 @@ export const files: typeof en.files = {
     // Erfolg („Zitierbar“ wäre ein Versprechen, das die Suche nicht einlöst)
     // und kein Fehler. Dasselbe Wort wie im Toast nach dem Lauf.
     stored: 'Abgelegt',
+    // Die Inhaltsprüfung (ADR-0086) hat angeschlagen: Die Datei liegt im
+    // Projekt, kein Modell hat sie gesehen, und jemand muss entscheiden.
+    quarantined: 'In Quarantäne',
     unknown: 'Unbekannt',
     // Nur die eigenen Uploads des Büros: Innerhalb eines Büros wird der Reihe
     // nach gelesen, zwischen Büros fair abgewechselt (ADR-0076).
@@ -254,8 +257,23 @@ export const files: typeof en.files = {
     timeout: 'Das Lesen hat zu lange gedauert und wurde abgebrochen. Erneut lesen. Sehr große Dateien besser aufteilen.',
     empty: 'In dieser Datei war kein Text zu finden. Sie ist vielleicht passwortgeschützt, beschädigt oder leer.',
     deleted: 'Die Datei wurde gelöscht, während Piloti sie las.',
+    quarantined:
+      'Diese Datei enthält etwas, das Ihr Büro als sensibel eingestuft hat. Piloti hat sie keinem Modell gezeigt. Die Büro- oder Projektadministration gibt sie frei oder löscht sie.',
     unknown: 'Piloti konnte dieses Dokument nicht lesen, daher findet die Suche es nicht.',
     details: 'Details',
+  },
+  screening: {
+    // Warum eine Datei zurückgehalten wurde – vom Inhaltsfilter (im Text) oder
+    // vom Namensfilter (im Datei- oder Ordnernamen), ADR-0086.
+    reasonTerm: '„{term}“ im Text',
+    reasonIban: 'IBAN {sample}',
+    reasonSvnr: 'Sozialversicherungsnummer {sample}',
+    reasonCard: 'Kreditkartennummer {sample}',
+    reasonPages: '{count, plural, one {Seite {pages}} other {Seiten {pages}}}',
+    nameInFile: 'Dateiname enthält „{term}“',
+    nameInFolder: 'Ordner „{segment}“ enthält „{term}“',
+    partial: 'Einige Seiten hatten keine Textebene und wurden nicht geprüft.',
+    unchecked: 'Der Inhalt ließ sich ohne Modell nicht lesen und wurde nur am Namen geprüft.',
   },
   browser: {
     folderEmptyTitle: 'Dieser Ordner ist leer',
@@ -313,6 +331,56 @@ export const files: typeof en.files = {
     breadcrumb: 'Ordnerpfad',
     movedFolder: '„{name}“ nach „{parent}“ verschoben.',
     moveFolderError: 'Der Ordner konnte nicht verschoben werden. Bitte erneut versuchen.',
+    /** Ordnerzugriff (ADR-0087): einen Ordner auf Rollen einschränken. */
+    access: {
+      menu: 'Zugriff …',
+      restrictedTo: 'Eigene Zugriffsrechte: {roles}',
+      openRestricted: 'Ordner „{name}“ öffnen, Zugriff: {roles}',
+      title: 'Zugriff auf „{name}“',
+      description: 'Wer in diesem Projekt den Ordner, seine Unterordner und deren Dokumente lesen und bearbeiten darf.',
+      inherit: 'Wie der übergeordnete Ordner',
+      inheritHint:
+        'Der Ordner übernimmt den Zugriff des Ordners darüber. Ganz oben gilt das Projekt: Wer lesen darf, liest; wer bearbeiten darf, bearbeitet.',
+      custom: 'Eigene Zugriffsrechte',
+      customHint:
+        'Nur die aufgeführten Rollen kommen in den Ordner, jede mit „Lesen“ oder „Bearbeiten“. Wer nicht aufgeführt ist, sieht ihn nicht. Organisations-Admins dürfen immer alles.',
+      roles: 'Rollen',
+      everyMember: 'Alle Projektmitglieder',
+      customRole: 'Eigene Rolle',
+      levelRead: 'Lesen',
+      levelWrite: 'Bearbeiten',
+      levelFor: 'Zugriff für {role}',
+      remove: '{role} entfernen',
+      add: 'Rolle hinzufügen …',
+      pickOne: 'Fügen Sie mindestens eine Rolle hinzu.',
+      noRoles:
+        'Ihre Organisation hat noch keine Rollen zur Auswahl. Eigene Rollen legen Sie unter Organisation → Personen & Zugriff an.',
+      nesting: 'Ein Unterordner kann nur enger sein als sein übergeordneter Ordner, nie weiter.',
+      ceiling: '„Bearbeiten“ gilt nur für Personen, die im Projekt bearbeiten dürfen; alle anderen lesen.',
+      lockout:
+        'Haben Sie selbst keine dieser Rollen, verschwindet der Ordner nach dem Speichern auch für Sie, außer Sie sind Organisations-Admin.',
+      moveNotice:
+        'Ändert sich, wer lesen darf, verschiebt Piloti die Dokumente des Ordners und liest sie neu ein. Bei einem großen Ordner dauert das einige Minuten; so lange stehen die Dokumente auf „Wird gelesen“.',
+      ifcNotice:
+        'Ordner, die nicht alle Projektmitglieder lesen dürfen, können noch keine Gebäudemodelle (IFC) enthalten. Legen Sie IFC-Modelle in Ordner, die alle lesen dürfen.',
+      /** Der 409 der IFC-Sperre (ADR-0087): einschränken, hochladen oder verschieben in einen eingeschränkten Ordner. */
+      ifcRefused:
+        'Gebäudemodelle (IFC) können noch nicht in einem Ordner liegen, den nicht alle lesen dürfen: Ihre Gebäudedaten schützt der Ordnerzugriff nicht. Legen Sie IFC-Modelle in Ordner, die alle lesen dürfen.',
+      readOnlyBadge: 'Nur lesen',
+      readOnlyHint: 'Sie dürfen diesen Ordner lesen, aber nichts hochladen, umbenennen, verschieben oder löschen.',
+      readOnlyMenu: 'Nur lesen',
+      readOnlyRefused: 'In diesem Ordner dürfen Sie nur lesen.',
+      save: 'Zugriff speichern',
+      saving: 'Wird gespeichert…',
+      loadError: 'Die Rollen konnten nicht geladen werden.',
+      savedCustom: '„{name}“ hat jetzt eigene Zugriffsrechte.',
+      savedInherit: '„{name}“ übernimmt jetzt den Zugriff des übergeordneten Ordners.',
+      moving: '{count, plural, one {# Dokument wird} other {# Dokumente werden}} verschoben und neu eingelesen.',
+      failed:
+        '{count, plural, one {# Dokument konnte} other {# Dokumente konnten}} noch nicht verschoben werden. Speichern Sie erneut, um es noch einmal zu versuchen.',
+      saveError: 'Der Zugriff konnte nicht geändert werden. Bitte versuchen Sie es erneut.',
+      forbidden: 'Nur Projekt-Admins können ändern, wer einen Ordner lesen und bearbeiten darf.',
+    },
   },
   workspace: {
     renameFolderError: 'Der Ordner konnte nicht umbenannt werden. Bitte versuchen Sie es erneut.',
@@ -466,6 +534,12 @@ export const files: typeof en.files = {
     collisions: '{count} Dateien teilen sich einen Namen mit einer anderen Datei in diesem Upload',
     collisionsExplain:
       'Ein Projekt hält pro Dateiname ein Dokument, deshalb werden diese nicht hochgeladen. Benennen Sie sie um und legen Sie sie erneut ab.',
+    // Vom Namensfilter des Büros zurückgehalten (ADR-0086): Die Dateien
+    // verlassen den Rechner nicht, außer jemand gibt eine einzeln frei.
+    excluded: '{count} Datei(en) bleiben auf Ihrem Rechner',
+    excludedExplain:
+      'Ihr Büro hat diese Begriffe als sensibel eingestuft, deshalb werden die Dateien nicht hochgeladen. Gehört eine davon doch nach Piloti, haken Sie sie an.',
+    releaseFile: 'Trotzdem hochladen',
     showAll: 'Alle {count} Dateien anzeigen',
     action: {
       new: 'Neu',
@@ -474,6 +548,7 @@ export const files: typeof en.files = {
       collision: 'Konflikt',
       duplicate: 'Schon vorhanden',
       skipped: 'Übersprungen',
+      excluded: 'Ausgeschlossen',
     },
     confirm: '{count} Datei(en) hochladen',
     confirmMoveOnly: '{count} Dokument(e) verschieben',
@@ -551,7 +626,7 @@ export const files: typeof en.files = {
     errors: {
       unreadable: 'Die Datei konnte nicht als Outlook-Archiv gelesen werden. Exportieren Sie sie in Outlook erneut als .pst-Datei.',
       quota: 'Der Speicher der Organisation ist voll. Was bis dahin importiert war, bleibt.',
-      access: 'Wer den Import gestartet hat, darf in diesem Projekt keine Dokumente mehr ablegen.',
+      access: 'Wer den Import gestartet hat, darf in diesem Projekt oder im Ordner „E-Mail-Import“ keine Dokumente ablegen.',
       requester_left: 'Wer den Import gestartet hat, ist nicht mehr Mitglied der Organisation.',
       stopped: 'Der Import wurde nach wiederholten Fehlern abgebrochen.',
       stalled: 'Der Import ist stehen geblieben, ohne fertig zu werden.',
@@ -562,6 +637,9 @@ export const files: typeof en.files = {
       type: 'Dateityp nicht zugelassen',
       size: 'zu groß',
       unreadable: 'im Archiv beschädigt',
+      screened: 'vom Namensfilter des Büros zurückgehalten',
+      access: 'Ordner nur lesbar',
+      name_taken: 'Name im Projekt schon vergeben',
     },
   },
   upload: {
@@ -571,6 +649,10 @@ export const files: typeof en.files = {
     uploadFiles: 'Dateien auswählen',
   },
   errors: {
+    // Vom Namensfilter des Büros zurückgehalten (ADR-0086), auf einem Weg ohne
+    // Upload-Dialog, etwa im Chat.
+    screenedOut: '{count} Datei(en) nicht hochgeladen, weil Ihr Büro sie als sensibel einstuft: {files}',
+    screenedOutFile: '„{name}“ ({reason})',
     validation: {
       duplicateInBatch: '„{name}“ ist mehrfach in dieser Auswahl',
       duplicateExisting: '„{name}“ wurde bereits hinzugefügt',

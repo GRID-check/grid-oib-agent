@@ -159,9 +159,17 @@ describe('DocumentDraftCard — the draft, before it is filed', () => {
     const user = userEvent.setup()
     render(<DocumentDraftCard {...DRAFT} />)
 
-    await user.click(screen.getByRole('button', { name: 'File into the project' }))
+    const fileButton = screen.getByRole('button', { name: 'File into the project' })
+    fileButton.focus()
+    await user.keyboard('{Enter}')
 
-    expect(await screen.findByRole('button', { name: 'Filing …' })).toBeDisabled()
+    // Locked by `aria-disabled`, not `disabled`, so the press keeps its focus;
+    // a second press while it files does not file twice.
+    const busy = await screen.findByRole('button', { name: 'Filing …' })
+    expect(busy).toHaveAttribute('aria-disabled', 'true')
+    expect(busy).toHaveFocus()
+    await user.keyboard('{Enter}')
+    expect(fetch).toHaveBeenCalledTimes(1)
     resolveFile({
       ok: true,
       status: 201,
@@ -244,6 +252,30 @@ describe('DocumentDraftCard — the draft, before it is filed', () => {
     await waitFor(() => expect(screen.getByTestId('document-draft-error')).toBeInTheDocument())
     expect(screen.getByText('This draft has already been filed. Continue in the Files pane.')).toBeInTheDocument()
     expect(screen.queryByTestId('document-draft-conflict')).not.toBeInTheDocument()
+    expect(setCardDecision).not.toHaveBeenCalled()
+  })
+
+  it('says why a thread that drew on a restricted folder cannot file here (ADR-0087)', async () => {
+    const refusal =
+      'This conversation draws on a folder with restricted access, so nothing from it can be filed there.'
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(() =>
+        Promise.resolve({
+          ok: false,
+          status: 403,
+          json: async () => ({ error: refusal, code: 'CONVERSATION_CONFINED', details: { action: 'filing' } }),
+        }),
+      ),
+    )
+    const user = userEvent.setup()
+    render(<DocumentDraftCard {...DRAFT} />)
+
+    await user.click(screen.getByRole('button', { name: 'File into the project' }))
+
+    await waitFor(() => expect(screen.getByTestId('document-draft-error')).toBeInTheDocument())
+    expect(screen.getByText(refusal)).toBeInTheDocument()
+    expect(screen.queryByText('Filing failed. Please try again.')).not.toBeInTheDocument()
     expect(setCardDecision).not.toHaveBeenCalled()
   })
 

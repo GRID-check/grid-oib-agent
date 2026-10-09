@@ -71,6 +71,7 @@ import {
   type InternalDocumentVersionRequest,
 } from '@/lib/documents/lifecycle-types'
 import type { AuthorizedSession } from '@/lib/auth/types'
+import { AGENT_REFUSAL_LOCALE } from '@/lib/conversations/restricted-egress'
 
 // The identity pair lives in `lib/api/internal-envelope.ts` since this route
 // stopped being the only one that needs it (`POST /api/internal/tasks`). Same
@@ -120,7 +121,14 @@ async function runOp(
       // `transitionDocumentVersion`: `update` is an `either` row, so this
       // changes nothing today — and the day somebody makes it `human` it is
       // the flag, not a second list, that refuses the agent.
-      { request, actingHuman: false },
+      {
+        request,
+        actingHuman: false,
+        origin: {
+          conversationId: context.conversationId,
+          locale: AGENT_REFUSAL_LOCALE,
+        },
+      },
     )
     return { documentId: body.documentId, version: toDocumentVersionView(version) }
   }

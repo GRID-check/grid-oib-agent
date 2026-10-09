@@ -7,7 +7,8 @@ vi.mock('@/lib/db', () => ({
   getDb: vi.fn(),
 }))
 
-import { sql } from 'drizzle-orm'
+import { sql, type SQL } from 'drizzle-orm'
+import { PgDialect } from 'drizzle-orm/pg-core'
 import { getDb } from '@/lib/db'
 import {
   aggregateByKind,
@@ -19,10 +20,29 @@ import {
   aggregateUnavailableTools,
   countObservedTurns,
   countTurnsForTargets,
+  citationScopeWhere,
   insertCitationEvents,
+  listEventsForExport,
+  listRecentDefects,
+  type CitationScopeFilter,
 } from './repository'
 
 const mockGetDb = vi.mocked(getDb)
+
+/** September 2026, every organization and project. */
+const SEPTEMBER: CitationScopeFilter = {
+  start: new Date('2026-09-01T00:00:00.000Z'),
+  endExclusive: new Date('2026-10-01T00:00:00.000Z'),
+  organizationIds: [],
+  projectIds: [],
+}
+
+const PROJECT = '0f0f0f0f-0000-4000-8000-0000000000a1'
+
+/** What Postgres would receive: the SQL text with placeholders, and the bound values. */
+function render(fragment: SQL): { sql: string; params: unknown[] } {
+  return new PgDialect().sqlToQuery(fragment)
+}
 
 /**
  * SELECT-chain stand-in resolving to the rows the pg driver actually hands
@@ -86,38 +106,38 @@ describe('insertCitationEvents', () => {
 describe('aggregate coercion', () => {
   it('coerces string count aggregates from aggregateByKind', async () => {
     mockSelect([{ kind: 'citations_removed', turns: '18', items: '61' }])
-    expect(await aggregateByKind(new Date())).toEqual([
+    expect(await aggregateByKind(SEPTEMBER)).toEqual([
       { kind: 'citations_removed', turns: 18, items: 61 },
     ])
   })
 
   it('coerces the observed-turn count', async () => {
     mockSelect([{ turns: '204' }])
-    expect(await countObservedTurns(new Date())).toBe(204)
+    expect(await countObservedTurns(SEPTEMBER)).toBe(204)
   })
 
   it('returns zero observed turns when the window is empty', async () => {
     mockSelect([])
-    expect(await countObservedTurns(new Date())).toBe(0)
+    expect(await countObservedTurns(SEPTEMBER)).toBe(0)
   })
 
   it('coerces the daily turn series, including the distinct defective turns', async () => {
     mockSelect([{ day: '2026-07-28', turns: '12', defectTurns: '5' }])
-    expect(await aggregateDailyTurns(new Date())).toEqual([
+    expect(await aggregateDailyTurns(SEPTEMBER)).toEqual([
       { day: '2026-07-28', turns: 12, defectTurns: 5 },
     ])
   })
 
   it('shapes the raw reason expansion', async () => {
     mockExecute([{ kind: 'citations_removed', reason: 'duplicate', occurrences: '9' }])
-    expect(await aggregateReasons(new Date())).toEqual([
+    expect(await aggregateReasons(SEPTEMBER)).toEqual([
       { kind: 'citations_removed', reason: 'duplicate', occurrences: 9 },
     ])
   })
 
   it('bounds reasons per kind, so one kind cannot crowd another out of the list', async () => {
     const execute = mockExecute([])
-    await aggregateReasons(new Date())
+    await aggregateReasons(SEPTEMBER)
     expect(sqlText(execute)).toMatch(/partition by kind/)
   })
 
@@ -125,7 +145,7 @@ describe('aggregate coercion', () => {
     mockExecute([
       { organization_id: null, turns: '7', defect_turns: '2', error_turns: '1', total: '64' },
     ])
-    expect(await aggregateByOrganization(new Date())).toEqual({
+    expect(await aggregateByOrganization(SEPTEMBER)).toEqual({
       rows: [{ organizationId: null, turns: 7, defectTurns: 2, errorTurns: 1 }],
       total: 64,
     })
@@ -133,7 +153,7 @@ describe('aggregate coercion', () => {
 
   it('reports zero organizations for an empty window', async () => {
     mockExecute([])
-    expect(await aggregateByOrganization(new Date())).toEqual({ rows: [], total: 0 })
+    expect(await aggregateByOrganization(SEPTEMBER)).toEqual({ rows: [], total: 0 })
   })
 
   it('returns the failed targets with the exact distinct-target total', async () => {
@@ -147,7 +167,7 @@ describe('aggregate coercion', () => {
         total: '1200',
       },
     ])
-    const result = await aggregateFailedTargets(new Date())
+    const result = await aggregateFailedTargets(SEPTEMBER)
     expect(result.total).toBe(1200)
     expect(result.rows[0]).toEqual({
       target: 'a.pdf',
@@ -160,7 +180,7 @@ describe('aggregate coercion', () => {
 
   it('returns the unavailable tools with the exact distinct-tool total', async () => {
     mockExecute([{ tool: 'ris_search_tool', turns: '3', total: '11' }])
-    expect(await aggregateUnavailableTools(new Date())).toEqual({
+    expect(await aggregateUnavailableTools(SEPTEMBER)).toEqual({
       rows: [{ tool: 'ris_search_tool', turns: 3 }],
       total: 11,
     })
@@ -173,7 +193,7 @@ describe('aggregate coercion', () => {
       { dimension: 'origin', label: 'baurecht', turns: '4' },
       { dimension: 'tool', label: 'ris_search_tool', turns: '2' },
     ])
-    expect(await aggregateDefectiveSourceMix(new Date())).toEqual([
+    expect(await aggregateDefectiveSourceMix(SEPTEMBER)).toEqual([
       { dimension: 'lane', label: 'oib', turns: 6 },
       { dimension: 'origin', label: 'baurecht', turns: 4 },
       { dimension: 'tool', label: 'ris_search_tool', turns: 2 },
@@ -187,17 +207,17 @@ describe('countTurnsForTargets', () => {
     // The union, not the sum: three documents rejected on the same turn are
     // three `aggregateFailedTargets` rows of one turn each.
     mockExecute([{ turns: '1' }])
-    expect(await countTurnsForTargets(new Date(), ['a.pdf', 'b.pdf', 'c.pdf'])).toBe(1)
+    expect(await countTurnsForTargets(SEPTEMBER, ['a.pdf', 'b.pdf', 'c.pdf'])).toBe(1)
   })
 
   it('makes no DB round trip for an empty target list', async () => {
-    expect(await countTurnsForTargets(new Date(), [])).toBe(0)
+    expect(await countTurnsForTargets(SEPTEMBER, [])).toBe(0)
     expect(mockGetDb).not.toHaveBeenCalled()
   })
 
   it('binds every target as a parameter rather than interpolating it', async () => {
     const execute = mockExecute([{ turns: '2' }])
-    await countTurnsForTargets(new Date(), ["o'brien.pdf", 'b.pdf'])
+    await countTurnsForTargets(SEPTEMBER, ["o'brien.pdf", 'b.pdf'])
 
     // Walk only the chunk tree (arrays + nested SQL), never arbitrary object
     // properties — `queryChunks` also holds the drizzle table, which is cyclic.
@@ -223,51 +243,100 @@ describe('countTurnsForTargets', () => {
   })
 })
 
-describe('raw-SQL window bounds', () => {
-  /**
-   * Regression guard for a production failure: a raw `db.execute(sql`…`)`
-   * carries no column type, so a bare `Date` parameter reaches postgres-js
-   * unencodable and the query dies at bind time with
-   * `The "string" argument must be of type string … Received an instance of Date`.
-   * The select-builder queries are unaffected — only the raw ones, so every one
-   * of them must bind an ISO string instead.
-   */
-  const RAW_QUERIES: [string, (start: Date) => Promise<unknown>][] = [
-    ['aggregateReasons', aggregateReasons],
-    ['aggregateDefectiveSourceMix', aggregateDefectiveSourceMix],
-    ['aggregateFailedTargets', aggregateFailedTargets],
-    ['aggregateUnavailableTools', aggregateUnavailableTools],
-    ['aggregateByOrganization', aggregateByOrganization],
-    ['countTurnsForTargets', (start: Date) => countTurnsForTargets(start, ['a.pdf'])],
-  ]
-
-  it.each(RAW_QUERIES)('%s binds no Date parameter', async (_name, run) => {
-    const execute = mockExecute([])
-    await run(new Date('2026-06-29T00:00:00.000Z'))
-
-    const query = execute.mock.calls[0][0] as ReturnType<typeof sql>
-    const dateParams = (query.queryChunks as unknown[]).filter(
-      (chunk) => chunk instanceof Date || (chunk as { value?: unknown })?.value instanceof Date
-    )
-    expect(dateParams).toEqual([])
+describe('the scope predicate', () => {
+  it('bounds created_at to [start, endExclusive) as cast ISO strings, never a Date', () => {
+    const { sql: text, params } = render(citationScopeWhere(SEPTEMBER, 'e'))
+    expect(text).toBe('"e".created_at >= $1::timestamptz and "e".created_at < $2::timestamptz')
+    // A raw fragment carries no column type: a bare Date reaches postgres-js
+    // unencodable and the query dies at bind time.
+    expect(params).toEqual(['2026-09-01T00:00:00.000Z', '2026-10-01T00:00:00.000Z'])
   })
 
-  it('still binds the requested window, as an ISO string', async () => {
-    const execute = mockExecute([])
-    await aggregateReasons(new Date('2026-06-29T00:00:00.000Z'))
+  it('binds each organization as a parameter', () => {
+    const { sql: text, params } = render(
+      citationScopeWhere({ ...SEPTEMBER, organizationIds: ['org_1', "o'rg"] })
+    )
+    expect(text).toContain('"citation_events".organization_id in ($3, $4)')
+    expect(params.slice(2)).toEqual(['org_1', "o'rg"])
+    expect(text).not.toContain("o'rg")
+  })
 
-    // Walk the whole SQL object rather than assuming drizzle's chunk shape —
-    // the point is that the timestamp survives as a string, wherever it lands.
-    const seen: unknown[] = []
-    const walk = (node: unknown, depth: number): void => {
-      if (depth > 6 || node === null || typeof node !== 'object') return
-      for (const value of Object.values(node as Record<string, unknown>)) {
-        if (typeof value === 'string' || value instanceof Date) seen.push(value)
-        else walk(value, depth + 1)
-      }
+  it('resolves a project through the conversation, in the same organization', () => {
+    const { sql: text, params } = render(
+      citationScopeWhere({ ...SEPTEMBER, projectIds: [PROJECT] }, 'e')
+    )
+    expect(text).toMatch(/exists \(\s*select 1 from "conversations" scope_c/)
+    expect(text).toContain('scope_c.id = "e".conversation_id')
+    expect(text).toContain('scope_c.organization_id = "e".organization_id')
+    expect(text).toContain('scope_c.project_id in ($3::uuid)')
+    expect(params[2]).toBe(PROJECT)
+  })
+
+  it('matches nothing for a project id that cannot be a project, rather than failing the cast', () => {
+    const { sql: text, params } = render(
+      citationScopeWhere({ ...SEPTEMBER, projectIds: ['not-a-uuid'] })
+    )
+    expect(text).toMatch(/ and false$/)
+    expect(params).not.toContain('not-a-uuid')
+  })
+
+  /**
+   * Every query, select builder or raw, must carry the whole scope: one that
+   * forgot the organization filter would mix tenants into a narrowed view.
+   */
+  const SCOPED: CitationScopeFilter = {
+    ...SEPTEMBER,
+    organizationIds: ['org_scope'],
+    projectIds: [PROJECT],
+  }
+  const RAW_QUERIES: [string, () => Promise<unknown>][] = [
+    ['aggregateReasons', () => aggregateReasons(SCOPED)],
+    ['aggregateDefectiveSourceMix', () => aggregateDefectiveSourceMix(SCOPED)],
+    ['aggregateFailedTargets', () => aggregateFailedTargets(SCOPED)],
+    ['aggregateUnavailableTools', () => aggregateUnavailableTools(SCOPED)],
+    ['aggregateByOrganization', () => aggregateByOrganization(SCOPED)],
+    ['countTurnsForTargets', () => countTurnsForTargets(SCOPED, ['a.pdf'])],
+  ]
+
+  it.each(RAW_QUERIES)('%s filters by range, organization and project', async (_name, run) => {
+    const execute = mockExecute([])
+    await run()
+    const { sql: text, params } = render(execute.mock.calls[0][0] as SQL)
+    expect(text).toContain('"e".created_at <')
+    expect(text).toContain('"e".organization_id in (')
+    expect(text).toContain('scope_c.project_id in (')
+    expect(params).toEqual(
+      expect.arrayContaining(['2026-10-01T00:00:00.000Z', 'org_scope', PROJECT])
+    )
+    expect(params.some((value) => value instanceof Date)).toBe(false)
+  })
+
+  it('scopes the defective-turn CTE AND the baseline rows of the source mix', async () => {
+    const execute = mockExecute([])
+    await aggregateDefectiveSourceMix(SCOPED)
+    const { sql: text } = render(execute.mock.calls[0][0] as SQL)
+    expect(text.match(/scope_c\.project_id in \(/g)).toHaveLength(2)
+  })
+
+  it.each([
+    ['listRecentDefects', () => listRecentDefects(SCOPED)],
+    ['listEventsForExport', () => listEventsForExport(SCOPED)],
+  ])('%s filters by range, organization and project', async (_name, run) => {
+    let where: SQL | undefined
+    const chain = {
+      where: vi.fn((condition: SQL) => {
+        where = condition
+        return chain
+      }),
+      orderBy: vi.fn(() => chain),
+      limit: vi.fn().mockResolvedValue([]),
     }
-    walk(execute.mock.calls[0][0], 0)
-    expect(seen).toContain('2026-06-29T00:00:00.000Z')
-    expect(seen.some((value) => value instanceof Date)).toBe(false)
+    mockGetDb.mockReturnValue({ select: vi.fn(() => ({ from: vi.fn(() => chain) })) } as never)
+    await run()
+    const { sql: text, params } = render(where as SQL)
+    expect(text).toContain('"citation_events".created_at >=')
+    expect(text).toContain('"citation_events".organization_id in (')
+    expect(text).toContain('scope_c.project_id in (')
+    expect(params).toEqual(expect.arrayContaining(['org_scope', PROJECT]))
   })
 })

@@ -50,11 +50,15 @@ export function useDocumentMoves(
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ folderId }),
         })
-        if (!response.ok) throw new Error(`Move failed (${response.status})`)
+        if (!response.ok) throw new Error(`Move failed (${response.status})`, { cause: response.status })
         toast.success(t('actions.moved', { name: documentDisplayName(file), folder: folderName }))
-      } catch {
+      } catch (error) {
         moved(documentId, previousFolderId)
-        toast.error(t('actions.moveError'))
+        // 409: an IFC model bound for a restricted folder (ADR-0087). Retrying
+        // cannot help, so say why.
+        toast.error(
+          error instanceof Error && error.cause === 409 ? t('folders.access.ifcRefused') : t('actions.moveError')
+        )
       }
     },
     [files, folders, moved, t]

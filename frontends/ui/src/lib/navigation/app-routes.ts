@@ -27,8 +27,11 @@ export const APP_ROUTE_URLS: readonly string[] = [
   '/app/organization/access',
   '/app/organization/budgets',
   '/app/organization/compliance',
+  '/app/organization/download-log',
   '/app/organization/enterprise',
   '/app/organization/models',
+  '/app/organization/quarantine',
+  '/app/organization/screening',
   '/app/organization/storage',
   '/app/platform',
   '/app/platform/cards',
@@ -57,4 +60,5 @@ export const APP_ROUTE_URLS: readonly string[] = [
   '/app/projects/[id]/research',
   '/app/projects/[id]/settings',
   '/app/projects/[id]/skills',
+  '/app/uploads/[id]',
 ]

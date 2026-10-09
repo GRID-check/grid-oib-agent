@@ -154,10 +154,20 @@ describe('AgentResponse', () => {
     expect(screen.getByText(/\d{1,2}:\d{2}/)).toBeInTheDocument()
   })
 
-  test('the details open on their own when the research was cut off', () => {
-    // A warning behind a closed trigger is a warning nobody read.
+  test('a cut-off marks the details trigger instead of opening it under the reader', () => {
+    // A warning behind a closed trigger is a warning nobody read, but the
+    // details opening themselves at the settle snapped 100-400px in under a
+    // reader who had just reached the end. The trigger says so instead.
     render(<AgentResponse content="Response" timestamp="2024-01-15T14:30:00Z" researchTruncated />)
-    expect(screen.getByText(/\d{1,2}:\d{2}/)).toBeInTheDocument()
+    const trigger = screen.getByTestId('answer-details-trigger')
+    expect(trigger).toHaveAttribute('aria-expanded', 'false')
+    expect(screen.getByTestId('answer-details-attention')).toBeInTheDocument()
+    expect(trigger).toHaveAccessibleName(/notes|Hinweisen/)
+  })
+
+  test('an answer without a warning carries no mark on its trigger', () => {
+    render(<AgentResponse content="Response" timestamp="2024-01-15T14:30:00Z" />)
+    expect(screen.queryByTestId('answer-details-attention')).toBeNull()
   })
 
   test('handles ISO string timestamp', async () => {
@@ -792,10 +802,18 @@ describe('AgentResponse', () => {
       expect(hasLede(container)).toBe(true)
     })
 
-    test('a short answer is its own lede and gets no enlargement', () => {
-      const { container } = render(<AgentResponse content="Ja, REI 90." />)
-
+    // There is no length gate any more: length is the one thing not known at
+    // the first word, and a gate on it restyled the paragraph the reader was on
+    // mid-stream. The short reply that should not be enlarged is the NOTE (a
+    // direct reply, a conversational turn), and the kind says so up front.
+    test('a note is never a lede, however it opens', () => {
+      const { container } = render(<AgentResponse content={longAnswer} routingDecision="meta" />)
       expect(hasLede(container)).toBe(false)
+
+      const { container: direct } = render(
+        <AgentResponse content={longAnswer} answerMeta={{ v: 1, kind: 'direct' }} />
+      )
+      expect(hasLede(direct)).toBe(false)
     })
 
     test('an answer that opens with a heading is left alone', () => {
@@ -804,19 +822,51 @@ describe('AgentResponse', () => {
       expect(hasLede(container)).toBe(false)
     })
 
-    test('a streaming answer takes its lede once it has earned it (ADR-0066)', () => {
-      // Decided at the end, the lede reflowed the top of an answer the reader
-      // was already halfway down; decided as it streams, it only ever grows.
+    test('a streaming answer decides its lede at its first words and never restyles it', () => {
+      // Decided once 600 characters had arrived, the first paragraph the
+      // reader was on grew from 16 to 17px mid-stream.
       const { container, rerender } = render(
-        <AgentResponse content={longAnswer.slice(0, 200)} isStreaming />
+        <AgentResponse content={longAnswer.slice(0, 20)} isStreaming />
       )
-      expect(hasLede(container)).toBe(false)
+      expect(hasLede(container)).toBe(true)
 
       rerender(<AgentResponse content={longAnswer} isStreaming />)
       expect(hasLede(container)).toBe(true)
 
       rerender(<AgentResponse content={longAnswer} />)
       expect(hasLede(container)).toBe(true)
+    })
+
+    test('a streaming answer waits until its opening can be read before deciding', () => {
+      // `##` alone may yet be a heading.
+      const { container, rerender } = render(<AgentResponse content="##" isStreaming />)
+      expect(hasLede(container)).toBe(false)
+
+      rerender(<AgentResponse content={`## Ergebnis\n\n${longAnswer}`} isStreaming />)
+      expect(hasLede(container)).toBe(false)
+
+      rerender(<AgentResponse content={`## Ergebnis\n\n${longAnswer}`} />)
+      expect(hasLede(container)).toBe(false)
+    })
+
+    test('a summary shown while the answer streams is not taken back when the prose repeats it', () => {
+      const summary = 'Für GK 4 gilt REI 90 für tragende Bauteile.'
+      const meta = { v: 1 as const, summary, verdict: { value: 'REI 90', subject: 'Feuerwiderstand' } }
+      const { rerender } = render(<AgentResponse content="" answerMeta={meta} isStreaming />)
+      expect(screen.getByText(summary)).toBeInTheDocument()
+
+      rerender(<AgentResponse content={longAnswer} answerMeta={meta} isStreaming />)
+      rerender(<AgentResponse content={longAnswer} answerMeta={meta} />)
+      // Once in the masthead, it stays for this view (and the prose repeats it).
+      expect(screen.getAllByText(summary).length).toBeGreaterThanOrEqual(1)
+      expect(document.querySelector('header')?.textContent).toContain(summary)
+    })
+
+    test('a summary that repeats the opening is dropped before it is ever shown', () => {
+      const summary = 'Für GK 4 gilt REI 90 für tragende Bauteile.'
+      const meta = { v: 1 as const, summary, verdict: { value: 'REI 90', subject: 'Feuerwiderstand' } }
+      render(<AgentResponse content={longAnswer} answerMeta={meta} />)
+      expect(document.querySelector('header')?.textContent).not.toContain(summary)
     })
   })
   // Getting the answer OUT: the copy actions live in the merged footer's meta
@@ -1116,5 +1166,50 @@ describe('AgentResponse', () => {
       const finished = render(<AgentResponse content="Die Antwort." cards={cards} />)
       expect(finished.container.textContent).toContain('Nachgestellte Karte')
     })
+  })
+})
+
+// L23: after Stop, nothing that was not on screen at the press arrives.
+describe('a stopped answer', () => {
+  test('draws no card and no „without source" row that were not shown before the press', () => {
+    const { rerender, container } = render(<AgentResponse content="Die Antwort so weit." isStreaming />)
+    rerender(
+      <AgentResponse content="Die Antwort so weit." cards={[calculationCard('Nachgestellte Karte')]} stopped />
+    )
+    expect(container.textContent).not.toContain('Nachgestellte Karte')
+    expect(screen.queryByText('Without source citation')).toBeNull()
+    expect(screen.getByTestId('answer-stopped')).toBeInTheDocument()
+  })
+
+  test('keeps the unplaced cards the reader already had', () => {
+    const cards = [calculationCard('Nachgestellte Karte')]
+    const { rerender, container } = render(<AgentResponse content="Die Antwort." cards={cards} isStreaming />)
+    expect(container.textContent).toContain('Nachgestellte Karte')
+    rerender(<AgentResponse content="Die Antwort." cards={cards} stopped />)
+    expect(container.textContent).toContain('Nachgestellte Karte')
+  })
+
+  test('restored from the thread, is drawn whole', () => {
+    const { container } = render(
+      <AgentResponse content="Die Antwort." cards={[calculationCard('Nachgestellte Karte')]} stopped />
+    )
+    expect(container.textContent).toContain('Nachgestellte Karte')
+  })
+})
+
+// L19: a turn that failed under its answer keeps the words, dimmed, and
+// offers nothing a finished answer would.
+describe('a failed answer', () => {
+  test('keeps the words, dimmed, without the check, the copy action or feedback', () => {
+    const { rerender } = render(
+      <AgentResponse content="Fluchtwege müssen nach OIB-Richtlinie 2" isStreaming messageId="m-1" />
+    )
+    rerender(<AgentResponse content="Fluchtwege müssen nach OIB-Richtlinie 2" failed messageId="m-1" />)
+    const article = screen.getByTestId('answer-failed')
+    expect(article).toHaveTextContent('Fluchtwege müssen nach OIB-Richtlinie 2')
+    expect(article.querySelector('.bg-card')).toHaveClass('opacity-60')
+    expect(screen.getByTestId('role-tab-pending')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Copy answer' })).toBeNull()
+    expect(screen.queryByText('Without source citation')).toBeNull()
   })
 })

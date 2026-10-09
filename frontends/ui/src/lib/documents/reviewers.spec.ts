@@ -21,9 +21,12 @@ vi.mock('@/lib/authz/project-membership', () => ({
   filterUsersWithProjectPermission: vi.fn(),
 }))
 
+vi.mock('@/lib/authz/folder-access', () => ({ filterUsersWhoMayReadFolder: vi.fn() }))
+
 import { listAssignmentsForResources } from '@/lib/assignments/repository'
 import { loadOrganizationDirectory } from '@/lib/sharing/directory'
 import { filterUsersWithProjectPermission } from '@/lib/authz/project-membership'
+import { filterUsersWhoMayReadFolder } from '@/lib/authz/folder-access'
 import { listReviewCandidates, matchReviewCandidate, resolveReviewers } from './reviewers'
 
 const session: AuthorizedSession = {
@@ -61,6 +64,8 @@ beforeEach(() => {
   vi.mocked(filterUsersWithProjectPermission).mockResolvedValue(
     new Set(['user_anna', 'user_bernd']),
   )
+  // An open project: whoever is asked about may read the folder.
+  vi.mocked(filterUsersWhoMayReadFolder).mockImplementation(async (_org, _project, _folder, userIds) => new Set(userIds))
 })
 
 describe('listReviewCandidates', () => {
@@ -80,6 +85,32 @@ describe('listReviewCandidates', () => {
   it('never offers the person asking', async () => {
     const candidates = await listReviewCandidates(session, document)
     expect(candidates.map((entry) => entry.userId)).toEqual(['user_anna', 'user_bernd'])
+  })
+
+  it('offers only editors who may read the folder the document is filed in (ADR-0088)', async () => {
+    // Bernd edits the project but the folder is restricted to other roles: a round
+    // in front of him is one he cannot open, on a document he was never to know.
+    vi.mocked(filterUsersWhoMayReadFolder).mockResolvedValue(new Set(['user_anna']))
+    const filed = makeDocument({ id: 'doc_3', projectId: 'proj_1', folderId: 'folder_restricted' })
+
+    const candidates = await listReviewCandidates(session, filed)
+
+    expect(candidates.map((entry) => entry.userId)).toEqual(['user_anna'])
+    expect(filterUsersWhoMayReadFolder).toHaveBeenCalledWith(
+      'org_1',
+      'proj_1',
+      'folder_restricted',
+      expect.arrayContaining(['user_anna', 'user_bernd']),
+    )
+  })
+
+  it('asks the folder question only of people who already may edit, and resolves the open round to the readers', async () => {
+    vi.mocked(filterUsersWithProjectPermission).mockResolvedValue(new Set(['user_anna']))
+    vi.mocked(filterUsersWhoMayReadFolder).mockResolvedValue(new Set(['user_anna']))
+    const filed = makeDocument({ id: 'doc_3', projectId: 'proj_1', folderId: 'folder_restricted' })
+
+    expect(await resolveReviewers(session, filed, undefined)).toEqual({ reviewers: ['user_anna'], selfReview: false })
+    expect(filterUsersWhoMayReadFolder).toHaveBeenCalledWith('org_1', 'proj_1', 'folder_restricted', ['user_anna'])
   })
 
   it('has nobody to offer for a document with no project', async () => {
