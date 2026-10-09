@@ -67,6 +67,16 @@ describe('AnswerFeedback', () => {
     })
   })
 
+  describe('while the answer is still arriving', () => {
+    test('holds its place but cannot be seen, reached or pressed', () => {
+      const { container } = render(<AnswerFeedback messageId="msg_1" pending />)
+      const row = container.querySelector('.min-h-6') as HTMLElement
+      expect(row).toHaveAttribute('inert')
+      expect(row).toHaveAttribute('aria-hidden', 'true')
+      expect(row.className).toContain('opacity-0')
+    })
+  })
+
   describe('up-vote path', () => {
     test('persists the vote and confirms it — with no form left open', async () => {
       const user = userEvent.setup()
@@ -79,8 +89,12 @@ describe('AnswerFeedback', () => {
       // The vote IS the transaction: nothing is left pending beside the thanks.
       expect(screen.queryByRole('radiogroup')).not.toBeInTheDocument()
       expect(screen.queryByRole('textbox')).not.toBeInTheDocument()
-      // The answered question steps aside for the answer.
-      expect(screen.queryByText('Was this helpful?')).not.toBeInTheDocument()
+      // The answered question steps aside for the answer: it fades out of the
+      // slot the receipt fades into, so the thumbs beside it never move.
+      expect(screen.getByText('Was this helpful?')).toHaveAttribute('aria-hidden', 'true')
+      expect(screen.getByText('Was this helpful?').parentElement).toBe(
+        screen.getByRole('status').parentElement
+      )
 
       await waitFor(() => expect(postCalls()).toHaveLength(1))
       const [url, init] = postCalls()[0] as [string, RequestInit]
@@ -275,6 +289,8 @@ describe('AnswerFeedback', () => {
       await waitFor(() => expect(screen.queryByRole('textbox')).not.toBeInTheDocument())
       expect(screen.getByRole('radio', { name: 'Inaccurate' })).toHaveAttribute('aria-checked', 'true')
       expect(screen.getByRole('status')).toHaveTextContent('Rating saved.')
+      // The form folded away under the focus; the receipt holds it now.
+      expect(screen.getByRole('status')).toHaveFocus()
     })
 
     test('retracting the down-vote takes the whole second act with it', async () => {
@@ -286,7 +302,8 @@ describe('AnswerFeedback', () => {
 
       await user.click(downThumb())
 
-      expect(screen.queryByRole('radiogroup')).not.toBeInTheDocument()
+      // The disclosure folds away before it unmounts.
+      await waitFor(() => expect(screen.queryByRole('radiogroup')).not.toBeInTheDocument())
       expect(screen.getByRole('status')).toHaveTextContent('')
       expect(screen.getByText('Was this helpful?')).toBeInTheDocument()
     })

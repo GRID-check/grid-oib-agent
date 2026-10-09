@@ -50,6 +50,9 @@ import { startDocumentDownload } from '@/lib/documents/download'
 import { isOfficeRenditionSource } from '@/lib/documents/preview-types'
 import { SectionLabel } from '@/components/ui/section-label'
 import { HoverPeekPanel } from '@/components/ui/hover-peek-panel'
+import { FOCUS_RING } from '@/components/ui/focus-ring'
+import { PRESSABLE } from '@/components/ui/press'
+import { Spinner } from '@/components/ui/spinner'
 import { PdfViewerDialog } from '@/features/knowledge/components/pdf-viewer-dialog'
 import { RisDocumentDialog } from '@/features/knowledge/components/ris-document-dialog'
 import {
@@ -61,9 +64,10 @@ import {
 import type { SourceTint } from '@/features/layout/lib/source-presets'
 import { useChatStore } from '../store'
 import { useHoverPopover } from '@/hooks/use-hover-popover'
-import { CitationPeek } from './CitationPeek'
+import { useDelayedFlag } from '@/hooks/use-transient-flag'
+import { CitationPeek, PEEK_ACTION_CLASSES, PeekDownloadButton } from './CitationPeek'
+import { COPY_ACTION_CLASSES, CopySourceCitationButton } from './CopyCitation'
 import { isPrecedent } from '../lib/precedent'
-import { CopySourceCitationButton } from './CopyCitation'
 import { toQuoteList } from '../lib/source-citation'
 import { CopyCitationLinkButton } from './CopyCitationLink'
 import {
@@ -266,12 +270,17 @@ const useConversationId = (): string | null =>
 // SourceSignalChip" by hand; it now comes from `iconForTint`, so the accent
 // families cannot drift between the chip and the preview.)
 
-const chipButtonClasses =
-  'inline-flex h-6 max-w-full shrink-0 cursor-pointer items-center gap-1 truncate whitespace-nowrap pointer-coarse:h-11 ' +
-  'rounded-md border px-2.5 text-xs font-medium transition-[color,background-color,transform] duration-quick ease-out ' +
-  '[&>svg]:size-3 [&>svg]:shrink-0 hover:brightness-95 dark:hover:brightness-125 active:scale-95 ' +
-  'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 ' +
-  'disabled:cursor-progress disabled:opacity-70 motion-reduce:transition-none motion-reduce:active:scale-100'
+// The press and the ring are the shared ones (`PRESSABLE`, `FOCUS_RING`): this
+// chip used to dip to 0.95 on the colour's 180ms while the card beside it
+// dipped to 0.99, and both drew a third focus ring. Busy is `aria-busy`, never
+// `disabled` — see `DocumentPreviewChip`.
+const chipButtonClasses = cn(
+  'inline-flex h-6 max-w-full shrink-0 cursor-pointer items-center gap-1 truncate whitespace-nowrap pointer-coarse:h-11',
+  'rounded-md border px-2.5 text-xs font-medium outline-none',
+  '[&>svg]:size-3 [&>svg]:shrink-0 hover:brightness-95 dark:hover:brightness-125 aria-busy:cursor-progress',
+  PRESSABLE,
+  FOCUS_RING
+)
 
 // ---------------------------------------------------------------------------
 // Layout variants — ONE behaviour, two shapes
@@ -306,11 +315,12 @@ export type CitationDetail = 'full' | 'name-only'
  * gained provenance (a tinted icon and an authority badge) and its behaviour
  * became real.
  */
-const cardButtonClasses =
-  'flex w-full cursor-pointer gap-3 rounded-lg border bg-card p-3 text-left ' +
-  'transition-[color,background-color,transform] duration-quick ease-out hover:bg-accent active:scale-[0.99] ' +
-  'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60 ' +
-  'disabled:cursor-progress disabled:opacity-70 motion-reduce:transition-none motion-reduce:active:scale-100'
+const cardButtonClasses = cn(
+  'flex w-full cursor-pointer gap-3 rounded-lg border bg-card p-3 text-left outline-none hover:bg-accent',
+  'aria-busy:cursor-progress',
+  PRESSABLE,
+  FOCUS_RING
+)
 
 const faceClasses = (variant: CitationVariant): string =>
   variant === 'card' ? cardButtonClasses : cn(chipButtonClasses, 'max-w-56')
@@ -370,6 +380,25 @@ interface CitationFaceProps {
   trailing?: ReactNode
   /** Card layout only — see {@link SourcePreviewChipProps.detail}. */
   detail?: CitationDetail
+  /**
+   * Opening has taken long enough to say so: the leading icon becomes a
+   * spinner in the same slot, so nothing else in the face moves.
+   */
+  busy?: boolean
+}
+
+/** The provenance icon, or the spinner standing in its slot while busy. */
+const LeadingIcon: FC<{ signal: SourceTint; busy?: boolean; className?: string }> = ({
+  signal,
+  busy,
+  className,
+}) => {
+  const Icon = iconForTint(signal)
+  return busy ? (
+    <Spinner size="xs" aria-hidden="true" className={cn('[&_svg]:size-[inherit]', className)} />
+  ) : (
+    <Icon aria-hidden="true" className={className} />
+  )
 }
 
 /**
@@ -386,14 +415,13 @@ const CitationFace: FC<CitationFaceProps> = ({
   citation,
   trailing,
   detail = 'full',
+  busy,
 }) => {
-  const Icon = iconForTint(signal)
-
   if (variant !== 'card') {
     return (
       <>
         <CitationIndex index={index} />
-        <Icon aria-hidden="true" />
+        <LeadingIcon signal={signal} busy={busy} className="size-3 shrink-0" />
         {authority && <AuthorityTag>{authority}</AuthorityTag>}
         <span className="truncate">{label}</span>
       </>
@@ -444,7 +472,7 @@ const CitationFace: FC<CitationFaceProps> = ({
               className="shrink-0"
               style={{ color: `var(--source-${signal}, var(--muted-foreground))` }}
             >
-              <Icon className="size-4" aria-hidden="true" />
+              <LeadingIcon signal={signal} busy={busy} className="size-4" />
             </span>
           )}
           {full && authority && <AuthorityTag>{authority}</AuthorityTag>}
@@ -849,6 +877,7 @@ export const CitationDocumentDialog: FC<{
   const { isDownloading, download } = useCitationDownload(
     rendition ? asDownloadTarget(target) : null
   )
+  const downloadBusy = useDelayedFlag(isDownloading)
 
   return (
     <PdfViewerDialog
@@ -904,15 +933,24 @@ export const CitationDocumentDialog: FC<{
                 <span className="text-muted-foreground text-xs font-normal" data-rendition-note="">
                   {t('sourcePreview.renditionNote')}
                 </span>
+                {/* Busy, not disabled, for the reason the chip gives: the
+                    reader's focus stays on the control they pressed. */}
                 <button
                   type="button"
-                  onClick={() => void download()}
-                  disabled={isDownloading}
+                  onClick={() => {
+                    if (!isDownloading) void download()
+                  }}
+                  aria-disabled={isDownloading || undefined}
+                  aria-busy={isDownloading || undefined}
                   data-citation-download-original=""
-                  className="text-muted-foreground duration-quick hover:text-foreground focus-visible:ring-ring/50 touch-target inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-xs font-medium transition-[color,transform] ease-out focus-visible:outline-none focus-visible:ring-2 active:scale-95 disabled:cursor-progress disabled:opacity-70 motion-reduce:transition-none motion-reduce:active:scale-100"
+                  className={cn(COPY_ACTION_CLASSES, isDownloading && 'cursor-progress')}
                 >
-                  <Download aria-hidden="true" className="size-3" />
-                  {t(isDownloading ? 'citationPeek.downloading' : 'sourcePreview.downloadOriginal')}
+                  {downloadBusy ? (
+                    <Spinner size="xs" aria-hidden="true" className="[&_svg]:size-3" />
+                  ) : (
+                    <Download aria-hidden="true" className="size-3" />
+                  )}
+                  {t(downloadBusy ? 'citationPeek.downloading' : 'sourcePreview.downloadOriginal')}
                 </button>
               </>
             )}
@@ -1097,8 +1135,12 @@ const DocumentPreviewChip: FC<{
   const t = useTranslations('chat')
   const { isResolving, openPreview, dialog } = useDocumentPreview(target, citation)
   const peek = useHoverPopover()
+  const showBusy = useDelayedFlag(isResolving)
 
   const open = (): void => {
+    // Ignored, not refused, while the presign is in flight: a second click
+    // must not race a second fetch (see `aria-busy` on the face below).
+    if (isResolving) return
     // The dialog supersedes the peek — the peek's question is "what is this?",
     // and the document answers it far better than a panel floating over it.
     peek.dismiss()
@@ -1114,11 +1156,18 @@ const DocumentPreviewChip: FC<{
       style={faceStyle(variant, signal)}
       {...peek.triggerProps}
       onClick={open}
-      disabled={isResolving}
-      aria-busy={isResolving}
+      // BUSY, NOT DISABLED. `disabled` on the button the reader just pressed
+      // dropped their keyboard focus to <body> (a disabled element cannot hold
+      // it) and flashed the chip to 70% for a presign that usually answers in
+      // under a tenth of a second. It stays focusable and pressable; `open`
+      // ignores the press, and only a wait past the Doherty threshold
+      // (`useDelayedFlag`) shows — as a spinner in the icon's own slot.
+      aria-busy={isResolving || undefined}
       aria-haspopup="dialog"
       aria-label={t('sourcePreview.chipAria', { label })}
-      title={t('sourcePreview.chipAria', { label })}
+      // A native `title` only where there is no peek: with one, the browser's
+      // tooltip arrived ~1s in and sat on top of the panel saying less.
+      title={citation ? undefined : t('sourcePreview.chipAria', { label })}
     >
       <CitationFace
         variant={variant}
@@ -1129,6 +1178,7 @@ const DocumentPreviewChip: FC<{
         citation={citation}
         trailing={trailing}
         detail={detail}
+        busy={showBusy}
       />
     </button>
   )
@@ -1232,7 +1282,6 @@ const DownloadPreviewChip: FC<{
         style={faceStyle(variant, signal)}
         {...peek.triggerProps}
         aria-label={t('sourcePreview.chipAria', { label })}
-        title={t('sourcePreview.chipAria', { label })}
       >
         <CitationFace
           variant={variant}
@@ -1328,7 +1377,7 @@ const RisPreviewChip: FC<{
       onClick={open}
       aria-haspopup="dialog"
       aria-label={t('sourcePreview.chipAria', { label })}
-      title={t('sourcePreview.chipAria', { label })}
+      title={citation ? undefined : t('sourcePreview.chipAria', { label })}
     >
       <CitationFace
         variant={variant}
@@ -1434,7 +1483,6 @@ const InfoPreviewChip: FC<{
         style={faceStyle(variant, signal)}
         {...peek.triggerProps}
         aria-label={t('sourcePreview.chipAria', { label })}
-        title={t('sourcePreview.chipAria', { label })}
       >
         <CitationFace
           variant={variant}
@@ -1487,23 +1535,13 @@ const InfoPreviewChip: FC<{
         )}
         <div className="flex items-center justify-between gap-2">
           {onDownload ? (
-            <button
-              type="button"
-              onClick={onDownload}
-              disabled={downloadPending}
-              data-citation-download=""
-              className="inline-flex items-center gap-1 text-xs font-medium hover:underline disabled:cursor-progress disabled:opacity-70"
-              style={{ color: `var(--source-${signal}-text, var(--foreground))` }}
-            >
-              <Download aria-hidden="true" className="size-3" />
-              {t(downloadPending ? 'citationPeek.downloading' : 'citationPeek.download')}
-            </button>
+            <PeekDownloadButton tint={signal} onDownload={onDownload} pending={downloadPending} />
           ) : url ? (
             <a
               href={url}
               target="_blank"
               rel="noopener noreferrer"
-              className="inline-flex items-center gap-1 text-xs font-medium hover:underline"
+              className={PEEK_ACTION_CLASSES}
               style={{ color: `var(--source-${signal}-text, var(--foreground))` }}
             >
               {t('sourcePreview.openExternal')}

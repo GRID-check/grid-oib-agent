@@ -9,7 +9,6 @@ vi.mock('@/lib/db', () => ({
 }))
 
 import { getDb } from '@/lib/db'
-import { CONVERSATION_TAG_KEYS } from '@/lib/conversations/tags'
 import {
   CONVERSATION_FEEDBACK_LIST_LIMIT,
   FEEDBACK_EXPORT_ROW_CAP,
@@ -24,7 +23,9 @@ import {
   listAnswerFeedbackForConversation,
   listFeedbackTurns,
   upsertAnswerFeedback,
+  WEEKLY_APPLIED_RATINGS_FILTERS,
 } from './repository'
+import { NO_RATINGS_FILTERS, type FeedbackQuery, type RatingsFilters } from './filters'
 
 const mockGetDb = vi.mocked(getDb)
 
@@ -102,105 +103,78 @@ describe('listAnswerFeedbackForConversation', () => {
   })
 })
 
+/** Every vote of 2026-09-10..2026-10-09, no filters. */
+const ALL: FeedbackQuery = {
+  scope: { from: '2026-09-10', to: '2026-10-09', organizationIds: [], projectIds: [] },
+  ratings: NO_RATINGS_FILTERS,
+}
+const narrowed = (ratings: Partial<RatingsFilters>, scope: Partial<FeedbackQuery['scope']> = {}): FeedbackQuery => ({
+  scope: { ...ALL.scope, ...scope },
+  ratings: { ...NO_RATINGS_FILTERS, ...ratings },
+})
+const sqlOf = (fragment: unknown) => new PgDialect().sqlToQuery(fragment as never)
+
 /**
  * The drill-in serves BOTH directions from one query. These are the guards on
  * that: a second, near-identical query for the praised answers would drift, and
  * the half that drifts is always the one nobody is watching.
  */
 describe('listFeedbackTurns', () => {
-  /**
-   * Every bound value in a drizzle `sql` fragment, in order.
-   *
-   * Interpolated primitives sit in `queryChunks` as themselves; the literal SQL
-   * around them is a `StringChunk`, and the conditional `and …` clauses are
-   * nested `SQL` objects with chunks of their own — hence the recursion.
-   */
-  const params = (fragment: unknown): unknown[] => {
-    if (fragment === null || typeof fragment !== 'object') return [fragment]
-    const chunks = (fragment as { queryChunks?: unknown[] }).queryChunks
-    return Array.isArray(chunks) ? chunks.flatMap(params) : []
-  }
-
-  /** The literal SQL of a fragment, nested fragments included. */
-  const sqlText = (fragment: unknown): string => {
-    if (fragment === null || typeof fragment !== 'object') return ''
-    const value = (fragment as { value?: unknown }).value
-    if (Array.isArray(value)) return value.join('')
-    const chunks = (fragment as { queryChunks?: unknown[] }).queryChunks
-    return Array.isArray(chunks) ? chunks.map(sqlText).join('') : ''
-  }
-
   const capture = () => {
     const execute = vi.fn().mockResolvedValue([])
     mockGetDb.mockReturnValue({ execute } as never)
     return execute
   }
 
-  it('binds the verdict rather than baking it into the SQL', async () => {
+  it('lists both directions unless the filters name one, and binds the one they name', async () => {
     const execute = capture()
-    await listFeedbackTurns({ verdict: 'up' })
-    expect(params(execute.mock.calls[0][0])).toContain('up')
+    await listFeedbackTurns(ALL)
+    expect(sqlOf(execute.mock.calls[0][0]).sql).not.toMatch(/f\.verdict = \$/)
 
-    await listFeedbackTurns({ verdict: 'down' })
-    expect(params(execute.mock.calls[1][0])).toContain('down')
+    await listFeedbackTurns(narrowed({ verdict: 'up' }))
+    const { sql, params } = sqlOf(execute.mock.calls[1][0])
+    expect(sql).toMatch(/f\.verdict = \$\d+/)
+    expect(params).toContain('up')
   })
 
-  it('defaults to the failures when no direction is asked for', async () => {
+  /** The digest samples each direction; an override may narrow a request, never widen it. */
+  it('narrows to a direction on request, but never widens a filtered one', async () => {
     const execute = capture()
-    await listFeedbackTurns({})
-    expect(params(execute.mock.calls[0][0])).toContain('down')
+    await listFeedbackTurns(ALL, { verdict: 'down' })
+    expect(sqlOf(execute.mock.calls[0][0]).params).toContain('down')
+
+    expect(await listFeedbackTurns(narrowed({ verdict: 'up' }), { verdict: 'down' })).toEqual([])
+    expect(await listFeedbackTurns(narrowed({ reasons: ['inaccurate'] }), { verdict: 'up' })).toEqual([])
+    expect(execute).toHaveBeenCalledOnce()
   })
 
-  /**
-   * A reason only exists on a down-vote. Applying it to `up` would return
-   * nothing and read as "nobody liked anything" — a wrong answer that looks
-   * like a real one.
-   */
   it('never reads more than one row past the export cap, whatever it is asked for', async () => {
     const execute = capture()
-    await listFeedbackTurns({ limit: 1_000_000 })
-    expect(params(execute.mock.calls[0][0])).toContain(FEEDBACK_EXPORT_ROW_CAP + 1)
+    await listFeedbackTurns(ALL, { limit: 1_000_000 })
+    expect(sqlOf(execute.mock.calls[0][0]).params).toContain(FEEDBACK_EXPORT_ROW_CAP + 1)
   })
 
   /** A chip-less down-vote counts as `other` in the aggregate, so the filter must find it there too. */
   it('filters `other` with chip-less down-votes included', async () => {
     const execute = capture()
-    await listFeedbackTurns({ verdict: 'down', reason: 'other' })
-    const text = new PgDialect().sqlToQuery(execute.mock.calls[0][0]).sql
-
-    expect(text).toContain("coalesce(f.reason, 'other') =")
+    await listFeedbackTurns(narrowed({ reasons: ['other'] }))
+    expect(sqlOf(execute.mock.calls[0][0]).sql).toContain("coalesce(f.reason, 'other') in (")
   })
 
-  /**
-   * The window used to be `now - N x 24h`, which starts mid-day: the headline
-   * then counted part of a day the chart (UTC calendar days) does not draw.
-   */
-  it('starts the window at UTC midnight, on the first day the chart draws', async () => {
-    vi.useFakeTimers()
-    vi.setSystemTime(new Date('2026-07-30T15:45:00Z'))
-    try {
-      const execute = capture()
-      await listFeedbackTurns({ windowDays: 7 })
-      expect(params(execute.mock.calls[0][0])).toContain('2026-07-24T00:00:00.000Z')
-    } finally {
-      vi.useRealTimers()
-    }
+  /** The range is UTC calendar days, both ends inclusive: `[from, to + 1 day)`. */
+  it('reads the range as UTC days, the last one included', async () => {
+    const execute = capture()
+    await listFeedbackTurns(narrowed({}, { from: '2026-07-24', to: '2026-07-30' }))
+    expect(sqlOf(execute.mock.calls[0][0]).params).toEqual(
+      expect.arrayContaining(['2026-07-24T00:00:00.000Z', '2026-07-31T00:00:00.000Z'])
+    )
   })
 
   /** `100%` used to match every answer starting with "100"; `_` matched any character. */
   it('searches the free text literally, with LIKE wildcards escaped', async () => {
     const execute = capture()
-    await listFeedbackTurns({ query: '100%_R\\60' })
-    expect(params(execute.mock.calls[0][0])).toContain('%100\\%\\_R\\\\60%')
-  })
-
-  it('drops a reason filter on the praised list', async () => {
-    const execute = capture()
-    await listFeedbackTurns({ verdict: 'up', reason: 'inaccurate' })
-    expect(params(execute.mock.calls[0][0])).not.toContain('inaccurate')
-
-    await listFeedbackTurns({ verdict: 'down', reason: 'inaccurate' })
-    expect(params(execute.mock.calls[1][0])).toContain('inaccurate')
+    await listFeedbackTurns(narrowed({ query: '100%_R\\60' }))
+    expect(sqlOf(execute.mock.calls[0][0]).params).toContain('%100\\%\\_R\\\\60%')
   })
 
   /**
@@ -211,8 +185,8 @@ describe('listFeedbackTurns', () => {
    */
   it('leaves out votes the database\'s one rule answers yes for, asked of the whole vote', async () => {
     const execute = capture()
-    await listFeedbackTurns({})
-    expect(sqlText(execute.mock.calls[0][0])).toMatch(
+    await listFeedbackTurns(ALL)
+    expect(sqlOf(execute.mock.calls[0][0]).sql).toMatch(
       /not grid_feedback_restricted_use\(f\.organization_id, f\.message_id, f\.conversation_id\)/
     )
   })
@@ -225,8 +199,8 @@ describe('listFeedbackTurns', () => {
    */
   it('anchors the question to the answer row, never to "any user message"', async () => {
     const execute = capture()
-    await listFeedbackTurns({})
-    const text = new PgDialect().sqlToQuery(execute.mock.calls[0][0]).sql
+    await listFeedbackTurns(ALL)
+    const text = sqlOf(execute.mock.calls[0][0]).sql
 
     expect(text).not.toMatch(/m\.created_at is null/)
     expect(text).toContain('qm.conversation_id = m.conversation_id')
@@ -234,44 +208,54 @@ describe('listFeedbackTurns', () => {
   })
 
   /**
-   * The vote's `conversation_id` is whatever the client sent (ADR-0092). Read
-   * through it, a vote naming a restricted chat would show that chat's title
-   * and question under an unmarked answer.
+   * `message_id` is client text. Joined on the id alone, a vote that named
+   * another tenant's answer showed (and exported, and distilled) that tenant's
+   * text under the voter's row. Proven against Postgres in the integration spec.
    */
-  it('reads the title and the question through the voted message, never the vote\'s conversation id', async () => {
+  it("pins every join to the voter's organization", async () => {
     const execute = capture()
-    await listFeedbackTurns({ topic: CONVERSATION_TAG_KEYS[0] })
-    const text = sqlText(execute.mock.calls[0][0])
-    expect(text).not.toContain('f.conversation_id =')
-    expect(text).not.toContain('= f.conversation_id')
-    expect(text).toMatch(/left join conversations c\s+on c\.id = m\.conversation_id\s+and c\.organization_id = f\.organization_id/)
-    expect(text).toMatch(/on m\.id::text = f\.message_id\s+and m\.organization_id = f\.organization_id/)
-    expect(text).toMatch(/where qm\.conversation_id = m\.conversation_id\s+and qm\.organization_id = f\.organization_id/)
+    await listFeedbackTurns(ALL)
+    const text = sqlOf(execute.mock.calls[0][0]).sql
+
+    expect(text).toContain('m.organization_id = f.organization_id')
+    expect(text).toContain('qm.organization_id = m.organization_id')
+    expect(text).toContain('c.organization_id = f.organization_id')
+    expect(text).toContain('tr.organization_id = m.organization_id')
+  })
+
+  /** The client sends `conversation_id`; the answer row is the authority when it exists. */
+  it("takes the conversation from the persisted answer, inside the voter's organization", async () => {
+    const execute = capture()
+    await listFeedbackTurns(ALL)
+    const text = sqlOf(execute.mock.calls[0][0]).sql
+
+    expect(text).toContain('c.id = coalesce(m.conversation_id, f.conversation_id)')
+    expect(text).not.toMatch(/c\.id = f\.conversation_id/)
   })
 
   it('coerces the raw row — `sql` results are not runtime-validated', async () => {
     const execute = vi.fn().mockResolvedValue([
-        {
-          id: 'fb_1',
-          organization_id: 'org_1',
-          project_id: null,
-          conversation_id: 'conv_1',
-          message_id: 'msg_1',
-          verdict: 'down',
-          reason: 'inaccurate',
-          expected_answer: '  ',
-          created_at: '2026-07-30T09:00:00.000Z',
-          answer: 'A',
-          question: 'Q',
-          conversation_title: 'T',
-          // A tag the vocabulary does not know — written by an LLM, or a row
-          // that predates the current keys. The UI has no label for it.
-          topics: ['brandschutz', 'not_a_real_tag'],
-        },
+      {
+        id: 'fb_1',
+        organization_id: 'org_1',
+        project_id: null,
+        conversation_id: 'conv_1',
+        message_id: 'msg_1',
+        verdict: 'down',
+        reason: 'inaccurate',
+        expected_answer: '  ',
+        created_at: '2026-07-30T09:00:00.000Z',
+        answer: 'A',
+        question: 'Q',
+        conversation_title: 'T',
+        // A tag the vocabulary does not know — written by an LLM, or a row
+        // that predates the current keys. The UI has no label for it.
+        topics: ['brandschutz', 'not_a_real_tag'],
+      },
     ])
     mockGetDb.mockReturnValue({ execute } as never)
 
-    const [row] = await listFeedbackTurns({})
+    const [row] = await listFeedbackTurns(ALL)
 
     expect(row.createdAt).toBeInstanceOf(Date)
     expect(row.topics).toEqual(['brandschutz'])
@@ -280,35 +264,75 @@ describe('listFeedbackTurns', () => {
 })
 
 describe('getFeedbackWeeklySummary', () => {
-  const params = (fragment: unknown): unknown[] => {
-    if (fragment === null || typeof fragment !== 'object') return [fragment]
-    const chunks = (fragment as { queryChunks?: unknown[] }).queryChunks
-    return Array.isArray(chunks) ? chunks.flatMap(params) : []
-  }
-
   it('coerces counts, which the driver returns as strings', async () => {
     const execute = vi.fn().mockResolvedValue([
-      { organization_id: 'org_1', iso_week: '2026-W41', week_start: '2026-10-05', answers: '40', up: '6', down: null },
+      {
+        organization_id: 'org_1',
+        iso_week: '2026-W41',
+        week_start: '2026-10-05',
+        answers: '40',
+        rated_answers: '8',
+        up: '6',
+        down: null,
+      },
     ])
     mockGetDb.mockReturnValue({ execute } as never)
 
-    const rows = await getFeedbackWeeklySummary({})
+    const summary = await getFeedbackWeeklySummary(ALL)
 
-    expect(rows).toEqual([
-      { organizationId: 'org_1', isoWeek: '2026-W41', weekStart: '2026-10-05', answers: 40, up: 6, down: 0 },
+    expect(summary.weeks).toEqual([
+      { organizationId: 'org_1', isoWeek: '2026-W41', weekStart: '2026-10-05', answers: 40, ratedAnswers: 8, up: 6, down: 0 },
     ])
+    expect(summary.truncated).toBe(false)
   })
 
-  it('is bounded and scopes to one organization only when asked', async () => {
+  /** It used to stop at the cap and say nothing; a reader saw a complete-looking quarter. */
+  it('reads one row past the cap, reports the cut and keeps the newest weeks', async () => {
+    const rows = Array.from({ length: FEEDBACK_WEEKLY_SUMMARY_LIMIT + 1 }, (_, index) => ({
+      organization_id: `org_${index}`,
+      iso_week: '2026-W41',
+      week_start: '2026-10-05',
+      answers: '1',
+      up: '0',
+      down: '0',
+    }))
+    const execute = vi.fn().mockResolvedValue(rows)
+    mockGetDb.mockReturnValue({ execute } as never)
+
+    const summary = await getFeedbackWeeklySummary(ALL)
+    const query = sqlOf(execute.mock.calls[0][0])
+
+    expect(summary.truncated).toBe(true)
+    expect(summary.weeks).toHaveLength(FEEDBACK_WEEKLY_SUMMARY_LIMIT)
+    expect(query.params).toContain(FEEDBACK_WEEKLY_SUMMARY_LIMIT + 1)
+    expect(query.sql).toContain('order by week_start desc')
+  })
+
+  /**
+   * A rate needs both verdicts and every answer: the scope and the topic narrow
+   * answers and votes alike, and nothing that only describes a vote reaches it.
+   */
+  it('applies the scope and the topic to both halves, and no vote-only filter', async () => {
     const execute = vi.fn().mockResolvedValue([])
     mockGetDb.mockReturnValue({ execute } as never)
 
-    await getFeedbackWeeklySummary({ organizationId: 'org_9' })
-    await getFeedbackWeeklySummary({})
+    await getFeedbackWeeklySummary(
+      narrowed(
+        { verdict: 'down', reasons: ['inaccurate'], topics: ['statik'], hasComment: true, query: 'GK' },
+        { from: '2026-10-07', to: '2026-10-09', organizationIds: ['org_9'], projectIds: ['0b6f2a1e-5c3d-4e8f-9a7b-1c2d3e4f5a61'] }
+      )
+    )
+    const { sql, params } = sqlOf(execute.mock.calls[0][0])
 
-    expect(params(execute.mock.calls[0][0])).toContain(FEEDBACK_WEEKLY_SUMMARY_LIMIT)
-    expect(params(execute.mock.calls[0][0])).toContain('org_9')
-    expect(params(execute.mock.calls[1][0])).not.toContain('org_9')
+    expect(sql.match(/organization_id in \(/g)).toHaveLength(2)
+    expect(sql).toContain('c.project_id in (')
+    expect(sql).toContain('coalesce(f.project_id, c.project_id) in (')
+    expect(sql.match(/c\.tags && array\[/g)).toHaveLength(2)
+    expect(params).toEqual(expect.arrayContaining(['org_9', 'statik', '2026-10-05T00:00:00.000Z', '2026-10-10T00:00:00.000Z']))
+    expect(params).not.toContain('inaccurate')
+    expect(params).not.toContain('%GK%')
+    expect(sql).not.toContain('btrim')
+    expect(WEEKLY_APPLIED_RATINGS_FILTERS).toEqual(['topics'])
   })
 
   it('starts the window on the Monday of an ISO week', () => {
@@ -319,38 +343,42 @@ describe('getFeedbackWeeklySummary', () => {
 })
 
 /**
- * The file header promises every list is bounded. The two rollups group by
- * values nothing bounds (customers, LLM-written tags), and had no LIMIT.
+ * Every figure on the tab is read over the same votes as the list, so a filter
+ * on the tab is a filter on all of it; and the rollups group by values nothing
+ * bounds (customers, LLM-written tags), so each carries a LIMIT.
  */
-describe('getFeedbackHealth rollups', () => {
-  /** A drizzle builder double: every call chains, awaiting it yields no rows. */
-  function chain(calls: { method: string; args: unknown[] }[]) {
-    const builder: Record<string, unknown> = {}
-    for (const method of ['select', 'from', 'innerJoin', 'where', 'groupBy', 'orderBy', 'limit']) {
-      builder[method] = (...args: unknown[]) => {
-        calls.push({ method, args })
-        return builder
-      }
-    }
-    builder.then = (resolve: (rows: unknown[]) => unknown) => resolve([])
-    return builder
+describe('getFeedbackHealth', () => {
+  const run = async (query: FeedbackQuery) => {
+    const execute = vi.fn().mockResolvedValue([])
+    mockGetDb.mockReturnValue({ execute } as never)
+    const health = await getFeedbackHealth(query, { turnLimit: 0 })
+    return { health, queries: execute.mock.calls.map(([fragment]) => sqlOf(fragment)) }
   }
 
-  it('bounds the organization and the topic rollups', async () => {
-    const calls: { method: string; args: unknown[] }[] = []
-    const execute = vi.fn().mockResolvedValue([])
-    mockGetDb.mockReturnValue({ ...chain(calls), execute } as never)
-
-    await getFeedbackHealth({ limit: 0 })
-
-    expect(calls.filter((call) => call.method === 'limit').map((call) => call.args[0])).toContain(
-      FEEDBACK_ORG_ROLLUP_LIMIT,
+  it('applies every filter to every aggregate, not only to the list', async () => {
+    const { queries } = await run(
+      narrowed({ reasons: ['wrong_source'], modes: ['deep'], hasExpectedAnswer: true }, { organizationIds: ['org_9'] })
     )
-    const topicQuery = execute.mock.calls
-      .map(([query]) => new PgDialect().sqlToQuery(query))
-      .find((query) => query.sql.includes('unnest(c.tags)'))
-    expect(topicQuery?.sql).toMatch(/limit \$\d+\s*$/)
-    expect(topicQuery?.params).toContain(FEEDBACK_TOPIC_ROLLUP_LIMIT)
+    // coverage, totals, reasons, daily, organizations, topics
+    expect(queries).toHaveLength(6)
+    for (const query of queries) {
+      expect(query.params).toEqual(expect.arrayContaining(['org_9', 'wrong_source', 'deep']))
+      expect(query.sql).toContain("nullif(btrim(f.expected_answer), '') is not null")
+    }
+  })
+
+  it('bounds the organization and the topic rollups', async () => {
+    const { queries } = await run(ALL)
+    const organizations = queries.find((query) => query.sql.includes('group by f.organization_id'))
+    const topics = queries.find((query) => query.sql.includes('unnest(c.tags)'))
+    expect(organizations?.params).toContain(FEEDBACK_ORG_ROLLUP_LIMIT)
+    expect(topics?.sql).toMatch(/limit \$\d+\s*$/)
+    expect(topics?.params).toContain(FEEDBACK_TOPIC_ROLLUP_LIMIT)
+  })
+
+  it('names the range it was read for', async () => {
+    const { health } = await run(narrowed({}, { from: '2026-10-01', to: '2026-10-09' }))
+    expect(health).toMatchObject({ from: '2026-10-01', to: '2026-10-09', windowDays: 9 })
   })
 })
 

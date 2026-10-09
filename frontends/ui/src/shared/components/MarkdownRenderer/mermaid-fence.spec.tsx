@@ -24,10 +24,10 @@ const DRAWN = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10"><rect
  *
  * `MermaidDiagram` is behind `next/dynamic` with `ssr: false`, and the chunk
  * behind that boundary pulls mermaid itself — 214 KB gzipped, measured. Until
- * it resolves the fence renders NOTHING (a deliberate choice, documented on the
- * `dynamic` call: the block is about to be replaced and a spinner would read as
- * a fault), so there is no intermediate element to assert on and the wait has to
- * cover the whole import. Testing Library's default is 1000 ms, and the import
+ * it resolves the fence holds the drawing's place (`mermaid-place`, the frame
+ * and skeleton the diagram itself starts in), so a drawn diagram is only there
+ * once the whole import is, and the wait has to cover it. Testing Library's
+ * default is 1000 ms, and the import
  * plus two renders — the screen copy and the paper copy that gets filed — lands
  * either side of it, which made these two tests fail by the calendar rather
  * than by a defect.

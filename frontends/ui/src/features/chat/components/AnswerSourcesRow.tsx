@@ -145,6 +145,14 @@ export const AnswerSourcesRow: FC<AnswerSourcesRowProps> = ({
   const scope = useCitationScope()
 
   const [expanded, setExpanded] = useState(false)
+  // Whether the reader watches this answer's sources arrive. Only then do the
+  // chips and the gap row enter: a stored answer, restored on thread open,
+  // switch or reload, is drawn as it stands (a CSS entrance replays on every
+  // mount).
+  const [arrivesLive] = useState(isStreaming)
+  const entrance = arrivesLive
+    ? 'animate-in fade-in-0 duration-base ease-entrance motion-reduce:animate-none'
+    : undefined
   const documents = answerDocuments(allDocuments)
   // Never drop a document the prose numbered: dropping one would leave an
   // inline [N] pointing at an anchor that does not exist.
@@ -175,7 +183,10 @@ export const AnswerSourcesRow: FC<AnswerSourcesRowProps> = ({
       <div
         className={cn(
           'flex min-h-6 flex-wrap items-center gap-1.5',
-          withDivider && 'border-t pt-2'
+          withDivider && 'border-t pt-2',
+          // Faded in at the settle rather than popped: the reserved row above
+          // kept its height, so the fade is the whole change.
+          entrance
         )}
         role="note"
         aria-label={t('answerSources.gapAria')}
@@ -210,31 +221,37 @@ export const AnswerSourcesRow: FC<AnswerSourcesRowProps> = ({
           <span
             role="listitem"
             key={doc.id}
-            data-focused={isFocused || undefined}
             className={cn(
-              // `rounded-md`, matching the chip button inside: the highlight is
-              // drawn on this wrapper, so a pill radius here traced a capsule
-              // around a rounded rectangle — round on square, the shape of two
-              // elements disagreeing rather than one element being marked.
-              'inline-flex max-w-full scroll-mt-6 rounded-md',
-              // Single fade for the whole row after the answer body (which has
-              // its own fade/slide) instead of a per-chip cascade: the stagger
-              // held late chips invisible behind `backwards` fill for up to
-              // ~200ms to communicate an ordering nobody was counting, and every
-              // chip flashing in sequence drew the eye down the row instead of
-              // to the prose. A FOCUSED chip skips the entrance: it
-              // belongs to an already-rendered message the reader jumped to, and
-              // a delay there would stall the citation pulse that must fire now.
-              !isFocused &&
-                'animate-in fade-in-0 slide-in-from-bottom-1 duration-base ease-entrance [animation-fill-mode:backwards] motion-reduce:animate-none',
-              isFocused && 'animate-citation-pulse motion-reduce:animate-none'
+              'inline-flex max-w-full',
+              // Single fade for the whole row after the answer body instead of
+              // a per-chip cascade: the stagger held late chips invisible
+              // behind `backwards` fill for up to ~200ms to communicate an
+              // ordering nobody was counting, and every chip flashing in
+              // sequence drew the eye down the row instead of to the prose.
+              // Only on an answer arriving in front of the reader.
+              arrivesLive &&
+                'animate-in fade-in-0 slide-in-from-bottom-1 duration-base ease-entrance [animation-fill-mode:backwards] motion-reduce:animate-none'
             )}
-            style={
-              isFocused
-                ? ({ ['--citation-pulse' as string]: `var(--source-${doc.tint})` } as CSSProperties)
-                : undefined
-            }
           >
+            {/* The mark lives on an INNER element. On the list item it swapped
+              the entrance class for the pulse and back, and removing the pulse
+              re-added the entrance, so the chip played its entrance again
+              2.2s after a citation click. */}
+            <span
+              data-focused={isFocused || undefined}
+              className={cn(
+                // `rounded-md`, matching the chip button inside: the highlight is
+                // drawn on this wrapper, so a pill radius here traced a capsule
+                // around a rounded rectangle.
+                'inline-flex max-w-full scroll-mt-6 rounded-md',
+                isFocused && 'animate-citation-pulse motion-reduce:animate-none'
+              )}
+              style={
+                isFocused
+                  ? ({ ['--citation-pulse' as string]: `var(--source-${doc.tint})` } as CSSProperties)
+                  : undefined
+              }
+            >
             {/* One anchor per [N] this document carries, all resolving to this
               chip. A document cited as [2] and [7] is one chip that both
               markers scroll to — which is the truth, and what the 1:1 shape
@@ -251,6 +268,7 @@ export const AnswerSourcesRow: FC<AnswerSourcesRowProps> = ({
                 <span className="sr-only">{closedNoteFor(doc)}</span>
               </span>
             )}
+            </span>
           </span>
         )
       })}

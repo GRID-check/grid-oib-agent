@@ -320,6 +320,29 @@ export const conversationsClient = {
     if (!res.ok) throw new Error('Failed to update message prompt state')
     return res.json()
   },
+
+  /**
+   * Cut the asker's stopped answer to what was on screen (`shown`), when the
+   * Stop reached the server after it had stored the whole answer. The server
+   * cuts its own stored text by the stop rule and never writes text it does
+   * not hold; a row already stored as stopped is left alone.
+   */
+  async cutStoppedAnswer(
+    conversationId: string,
+    messageId: string,
+    body: { turnId: string; shown: string },
+  ): Promise<Message> {
+    const res = await fetch(
+      `/api/conversations/${encodeURIComponent(conversationId)}/messages/${encodeURIComponent(messageId)}/stopped`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      },
+    )
+    if (!res.ok) throw new Error('Failed to cut the stopped answer')
+    return res.json()
+  },
 }
 
 export type ConversationsClient = typeof conversationsClient
