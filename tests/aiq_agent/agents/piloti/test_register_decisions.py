@@ -219,6 +219,18 @@ class TestTheTurn:
         (record,) = emitted.steps
         assert (record.id, record.detail) == ("status:decision:turn", {"skipped": "too_short"})
 
+    async def test_the_level_the_answering_model_ran_at_is_reported(self):
+        # Read off the resolved provider's model, not the request: the level the
+        # turn actually sent, whichever layer chose it.
+        provider = MagicMock()
+        provider.get.return_value = MagicMock(reasoning_effort="high")
+        with patch.object(register_module, "_active_provider", new_callable=AsyncMock, return_value=provider):
+            _turn, state, _decide = await _run_turn(
+                ResearchAgentConfig(llm="research_llm", tools=["knowledge_search"], skills_enabled=False),
+                TurnDecisions.none(),
+            )
+        assert state.reasoning_effort == "high"
+
     async def test_the_prefetch_reaches_the_turn_config(self):
         decided = TurnDecisions(decided=True, needs_evidence=0.9, corpus="baurecht", corpus_p=0.8)
         turn, _state, decide = await _run_turn(

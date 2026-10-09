@@ -6,6 +6,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 vi.mock('./repository', () => ({
   insertSpans: vi.fn(),
   listProfiledConversations: vi.fn(),
+  findProfiledConversation: vi.fn(),
   getSpansForConversation: vi.fn(),
 }))
 
@@ -21,10 +22,36 @@ vi.mock('@/lib/organizations/display-names', () => ({
 import * as repository from './repository'
 import { getConversationTimeline, listProfiledConversations, recordProfilerSpans } from './service'
 import type { AgentProfilerSpan } from '@/lib/db/schema'
+import type { QualityScope } from '@/lib/quality/scope'
 
 const mockInsertSpans = vi.mocked(repository.insertSpans)
 const mockListProfiledConversations = vi.mocked(repository.listProfiledConversations)
+const mockFindProfiledConversation = vi.mocked(repository.findProfiledConversation)
 const mockGetSpansForConversation = vi.mocked(repository.getSpansForConversation)
+
+const SEPTEMBER: QualityScope = {
+  from: '2026-09-01',
+  to: '2026-09-30',
+  organizationIds: [],
+  projectIds: [],
+}
+/** The repository filter `SEPTEMBER` stands for. */
+const SEPTEMBER_FILTER = {
+  start: new Date('2026-09-01T00:00:00.000Z'),
+  endExclusive: new Date('2026-10-01T00:00:00.000Z'),
+  organizationIds: [],
+  projectIds: [],
+}
+
+const row = (conversationId: string, organizationId: string | null = 'org_1') => ({
+  conversationId,
+  organizationId,
+  title: null,
+  titleWithheld: false,
+  turnCount: 1,
+  totalDurationMs: 10,
+  lastActiveAt: new Date('2026-09-02T00:00:00.000Z'),
+})
 
 beforeEach(() => {
   vi.clearAllMocks()
@@ -79,9 +106,12 @@ describe('listProfiledConversations', () => {
       ],
     })
 
-    const result = await listProfiledConversations('bauantrag')
+    const result = await listProfiledConversations(SEPTEMBER, { query: 'bauantrag' })
 
-    expect(mockListProfiledConversations).toHaveBeenCalledWith('bauantrag')
+    expect(mockListProfiledConversations).toHaveBeenCalledWith(SEPTEMBER_FILTER, 'bauantrag')
+    // Nothing was asked about one conversation, so nothing is answered.
+    expect(mockFindProfiledConversation).not.toHaveBeenCalled()
+    expect(result).not.toHaveProperty('selected')
     expect(result.capped).toBe(true)
     expect(result.conversations).toEqual([
       {
@@ -122,8 +152,40 @@ describe('listProfiledConversations', () => {
       ],
     })
 
-    const result = await listProfiledConversations()
-    expect(result.conversations.map((row) => row.organizationName)).toEqual([null, null])
+    const result = await listProfiledConversations(SEPTEMBER)
+    expect(result.conversations.map((entry) => entry.organizationName)).toEqual([null, null])
+  })
+
+  it('turns the scope into UTC day bounds plus the id lists', async () => {
+    mockListProfiledConversations.mockResolvedValue({ capped: false, rows: [] })
+    await listProfiledConversations({
+      ...SEPTEMBER,
+      organizationIds: ['org_1'],
+      projectIds: ['p_1'],
+    })
+    expect(mockListProfiledConversations).toHaveBeenCalledWith(
+      { ...SEPTEMBER_FILTER, organizationIds: ['org_1'], projectIds: ['p_1'] },
+      undefined
+    )
+  })
+
+  it('answers whether the asked-about conversation is in the scope, named like the list', async () => {
+    mockListProfiledConversations.mockResolvedValue({ capped: true, rows: [row('conv_1')] })
+    mockFindProfiledConversation.mockResolvedValue(row('conv_far'))
+    const inScope = await listProfiledConversations(SEPTEMBER, {
+      query: 'x',
+      conversationId: 'conv_far',
+    })
+    // Asked of the scope alone: the search narrows the list, not membership.
+    expect(mockFindProfiledConversation).toHaveBeenCalledWith(SEPTEMBER_FILTER, 'conv_far')
+    expect(inScope.selected).toMatchObject({
+      conversationId: 'conv_far',
+      organizationName: 'Bauwerk GmbH',
+    })
+
+    mockFindProfiledConversation.mockResolvedValue(null)
+    const outOfScope = await listProfiledConversations(SEPTEMBER, { conversationId: 'conv_old' })
+    expect(outOfScope.selected).toBeNull()
   })
 })
 

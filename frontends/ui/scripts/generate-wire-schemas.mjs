@@ -19,6 +19,19 @@
  * - **Opaque payloads as `unknown`.** A `dict[str, Any]` (a card, a masthead,
  *   whose own contracts validate them downstream) is `z.record(z.unknown())`,
  *   never `z.any()`: nothing downstream may read into it unchecked.
+ * - **Strict one way only.** Every wire model forbids extra fields
+ *   (`additionalProperties: false`), which `json-schema-to-zod` renders as
+ *   `.strict()`. That is right for what the client SENDS: the server refuses an
+ *   unknown field, and so does the spec that holds `client.jsonl` to it. It is
+ *   wrong for what the client RECEIVES: a browser tab outlives a deploy, so the
+ *   bundle reading a frame is often older than the server that wrote it, and a
+ *   strict object turns every additive field (`quote_stamps`,
+ *   `reasoning_effort`) into a frame that does not parse, a dropped `seq`, and a
+ *   turn that never settles. So every `$def` outside `ClientMessage`'s closure
+ *   is emitted without `.strict()`: zod's default strips the keys it does not
+ *   know. Nothing reads an undeclared key, so `.passthrough()` would only carry
+ *   them untyped. Unions still discriminate on their literal (`type`, `name`,
+ *   `kind`), which stripping does not touch.
  */
 
 import { jsonSchemaToZod } from 'json-schema-to-zod'
@@ -27,10 +40,42 @@ import { dirname, resolve } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import {
   exportName,
+  referencedDefNames,
   refParserOverride,
   refToDefName,
   topologicallyOrderedDefNames,
 } from './generate-card-schemas.mjs'
+
+/** The union of everything the client sends; its closure stays strict. */
+const CLIENT_ROOT = 'ClientMessage'
+
+/** `name` and every `$def` it reaches, at any depth. */
+export function defClosure(defs, name) {
+  const seen = new Set()
+  const pending = [name]
+  while (pending.length > 0) {
+    const next = pending.pop()
+    if (seen.has(next) || !defs[next]) continue
+    seen.add(next)
+    pending.push(...referencedDefNames(defs[next]))
+  }
+  return seen
+}
+
+/**
+ * A copy of `node` with every `additionalProperties: false` dropped, so the
+ * object strips unknown keys instead of refusing them. A `$ref` is left alone:
+ * the def it names is decided on its own.
+ */
+export function tolerateUnknownKeys(node) {
+  if (Array.isArray(node)) return node.map(tolerateUnknownKeys)
+  if (!node || typeof node !== 'object') return node
+  return Object.fromEntries(
+    Object.entries(node)
+      .filter(([key, value]) => !(key === 'additionalProperties' && value === false))
+      .map(([key, value]) => [key, tolerateUnknownKeys(value)])
+  )
+}
 
 /** `z.discriminatedUnion` for a discriminated `oneOf`; nested unions joined with `z.union`. */
 export function discriminatedUnionExpr(node) {
@@ -68,8 +113,10 @@ export const wireParserOverride = (node) => {
 /** The whole `wire-v2.generated.ts` module, as text. Pure — no file system. */
 export function buildWireSchemaModule(root) {
   const defs = root.$defs ?? {}
+  const clientBound = defClosure(defs, CLIENT_ROOT)
   const declarations = topologicallyOrderedDefNames(root).map((defName) => {
-    const zodExpr = jsonSchemaToZod(defs[defName], {
+    const def = clientBound.has(defName) ? defs[defName] : tolerateUnknownKeys(defs[defName])
+    const zodExpr = jsonSchemaToZod(def, {
       module: false,
       parserOverride: wireParserOverride,
     })

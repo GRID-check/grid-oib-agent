@@ -27,3 +27,22 @@ export const useAnswerRevealStore = create<AnswerRevealState>()((set) => ({
   begin: (messageId) => set({ revealingId: messageId }),
   end: (messageId) => set((s) => (s.revealingId === messageId ? { revealingId: null } : s)),
 }))
+
+/**
+ * What each answer being revealed has on screen right now, by message id. Not
+ * state: nothing renders from it. Stop reads it once (`stopStreaming`), so the
+ * stopped answer the store keeps and persists is the text the reader saw, not
+ * the text that had arrived up to two seconds ahead of the reveal.
+ */
+const shownTexts = new Map<string, () => string>()
+
+/** Register `read` as the answer's shown text; returns the unregister. */
+export const registerShownText = (messageId: string, read: () => string): (() => void) => {
+  shownTexts.set(messageId, read)
+  return () => {
+    if (shownTexts.get(messageId) === read) shownTexts.delete(messageId)
+  }
+}
+
+/** The text on screen for `messageId`, or `undefined` when it is not being revealed. */
+export const shownTextOf = (messageId: string): string | undefined => shownTexts.get(messageId)?.()

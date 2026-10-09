@@ -35,6 +35,15 @@ import * as repository from './repository'
 import { getOrganizationDisplayNames } from '@/lib/organizations/display-names'
 import { getCitationExport } from './service'
 import type { CitationEvent } from '@/lib/db/schema'
+import type { QualityScope } from '@/lib/quality/scope'
+
+/** The last 7 days ending on the frozen "today", every organization and project. */
+const LAST_7: QualityScope = {
+  from: '2026-07-22',
+  to: '2026-07-28',
+  organizationIds: [],
+  projectIds: [],
+}
 
 const listEventsForExport = vi.mocked(repository.listEventsForExport)
 
@@ -90,21 +99,44 @@ afterEach(() => {
 })
 
 describe('getCitationExport', () => {
-  it('carries a self-describing schema, window and glossary', async () => {
-    const bundle = await getCitationExport({ days: 7 })
+  it('carries a self-describing schema, scope, window and glossary', async () => {
+    const bundle = await getCitationExport(LAST_7)
     expect(bundle.schema).toBe('grid.citation-health.export/v1')
+    expect(bundle.scope).toEqual(LAST_7)
     expect(bundle.windowDays).toBe(7)
     expect(bundle.windowStart).toBe('2026-07-22T00:00:00.000Z')
+    expect(bundle.windowEnd).toBe('2026-07-29T00:00:00.000Z')
     expect(bundle.generatedAt).toBe('2026-07-28T12:00:00.000Z')
-    // An agent reading the file cold must be able to interpret every kind.
-    expect(Object.keys(bundle.glossary)).toContain('answer_ungrounded')
+    // An agent reading the file cold must be able to interpret every kind,
+    // and what the scope it was taken in includes.
+    expect(Object.keys(bundle.glossary)).toEqual(
+      expect.arrayContaining(['answer_ungrounded', 'scope'])
+    )
+  })
+
+  it('reads the events and the summary in the same scope, organizations and projects included', async () => {
+    const scoped: QualityScope = {
+      from: '2026-07-01',
+      to: '2026-07-10',
+      organizationIds: ['org_1'],
+      projectIds: ['0f0f0f0f-0000-4000-8000-0000000000a1'],
+    }
+    await getCitationExport(scoped)
+    const filter = {
+      start: new Date('2026-07-01T00:00:00.000Z'),
+      endExclusive: new Date('2026-07-11T00:00:00.000Z'),
+      organizationIds: ['org_1'],
+      projectIds: ['0f0f0f0f-0000-4000-8000-0000000000a1'],
+    }
+    expect(listEventsForExport).toHaveBeenCalledWith(filter)
+    expect(repository.countObservedTurns).toHaveBeenCalledWith(filter)
   })
 
   it('explains every confidence reason the emitter can write', async () => {
     // The five `CappedReason` values in agents/piloti/markers.py. The glossary
     // used to say there were two, so an agent reading `measurement_only` had
     // nothing to interpret it with.
-    const { glossary } = await getCitationExport()
+    const { glossary } = await getCitationExport(LAST_7)
     for (const reason of [
       'ungrounded',
       'quote_unverified',
@@ -139,7 +171,7 @@ describe('getCitationExport', () => {
       }),
     ])
 
-    const bundle = await getCitationExport()
+    const bundle = await getCitationExport(LAST_7)
     const turn = bundle.turns[0]
     expect(turn.precision).toEqual({
       retrievedCount: 5,
@@ -154,7 +186,7 @@ describe('getCitationExport', () => {
 
   it('reports no precision for a turn that recorded none', async () => {
     listEventsForExport.mockResolvedValue([event({ kind: 'citations_removed', severity: 'warn' })])
-    expect((await getCitationExport()).turns[0].precision).toBeNull()
+    expect((await getCitationExport(LAST_7)).turns[0].precision).toBeNull()
   })
 
   it('names organizations outside the dashboard top list', async () => {
@@ -163,7 +195,7 @@ describe('getCitationExport', () => {
     listEventsForExport.mockResolvedValue([
       event({ organizationId: 'org_far', kind: 'citations_removed', severity: 'warn' }),
     ])
-    expect((await getCitationExport()).turns[0].organization).toBe('Fernbau')
+    expect((await getCitationExport(LAST_7)).turns[0].organization).toBe('Fernbau')
   })
 
   it('joins each flagged turn to its sources and its problems', async () => {
@@ -187,7 +219,7 @@ describe('getCitationExport', () => {
       }),
     ])
 
-    const bundle = await getCitationExport()
+    const bundle = await getCitationExport(LAST_7)
     expect(bundle.turns).toHaveLength(1)
     const turn = bundle.turns[0]
     expect(turn).toMatchObject({
@@ -224,7 +256,7 @@ describe('getCitationExport', () => {
       }),
     ])
 
-    const turn = (await getCitationExport()).turns[0]
+    const turn = (await getCitationExport(LAST_7)).turns[0]
     expect(turn.retrievedSources).toEqual(['OIB-RL6.pdf, p.3', 'https://ris.bka.gv.at/x'])
     expect(turn.citedSources).toEqual(['OIB-RL6.pdf, p.3'])
   })
@@ -236,7 +268,7 @@ describe('getCitationExport', () => {
       event({ id: 'b', turnId: 'turn_bad', kind: 'registry_empty', severity: 'error' }),
     ])
 
-    const bundle = await getCitationExport()
+    const bundle = await getCitationExport(LAST_7)
     expect(bundle.turns.map((turn) => turn.turnId)).toEqual(['turn_bad'])
     // The window's counts still cover every turn.
     expect(bundle.summary.turns).toBe(2)
@@ -253,7 +285,7 @@ describe('getCitationExport', () => {
       }),
     ])
 
-    const turn = (await getCitationExport()).turns[0]
+    const turn = (await getCitationExport(LAST_7)).turns[0]
     expect(turn.problems[0].kind).toBe('registry_empty')
     expect(turn.sourceCount).toBeNull()
   })
@@ -267,14 +299,14 @@ describe('getCitationExport', () => {
       event({ id: '4', turnId: 't4', kind: 'citations_removed', severity: 'warn' }),
     ])
 
-    const bundle = await getCitationExport()
+    const bundle = await getCitationExport(LAST_7)
     expect(bundle.truncated).toBe(true)
     expect(bundle.turns).toHaveLength(3)
   })
 
   it('does not flag truncation when the window fits', async () => {
     listEventsForExport.mockResolvedValue([event({ kind: 'citations_removed', severity: 'warn' })])
-    expect((await getCitationExport()).truncated).toBe(false)
+    expect((await getCitationExport(LAST_7)).truncated).toBe(false)
   })
 
   it('ignores malformed target entries rather than failing the export', async () => {
@@ -286,7 +318,7 @@ describe('getCitationExport', () => {
       }),
     ])
 
-    const turn = (await getCitationExport()).turns[0]
+    const turn = (await getCitationExport(LAST_7)).turns[0]
     expect(turn.problems[0].failedSources).toEqual([{ target: 'ok.pdf', reason: 'unverifiable' }])
   })
 })

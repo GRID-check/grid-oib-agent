@@ -14,16 +14,18 @@
  * the syntax tree, not the text, so a comment naming a column is not a reader.
  *
  * - A **reader** is a unit of `src` (a top-level function, a declarator, a class
- *   member) whose SQL names `answer_feedback` together with `comment`,
- *   `expected_answer` or `*`, or whose drizzle query reads
+ *   member) whose SQL names `comment`, `expected_answer` or `*` together with
+ *   `answer_feedback` or a call to the shared `voteScope` (which supplies
+ *   `from answer_feedback f`), or whose drizzle query reads
  *   `answerFeedback.comment` / `.expectedAnswer` or the whole row (`select()`,
  *   `returning()` without a projection), or that hands the words to Langfuse
  *   (`upsertFeedbackScore`).
  * - A reader is **cross-tenant** when it is reached from the callback of a
  *   `withPlatformAccess(...)`, following calls by name.
  * - Every reader is classified in {@link READERS}: either it applies the rule
- *   (`OUTSIDE_RESTRICTED_USE`, `grid_feedback_restricted_use`, or for the
- *   Langfuse score `isRestrictedUseVote`), or it is tenant-scoped, with the
+ *   (`OUTSIDE_RESTRICTED_USE`, `grid_feedback_restricted_use`, `voteScope`
+ *   with `contentBearing`, or for the Langfuse score `isRestrictedUseVote`),
+ *   or it is tenant-scoped, or it reads only whether a note exists, with the
  *   reason. A tenant-scoped reader reached from a platform callback fails, and
  *   so does a reader nobody classified.
  */
@@ -34,7 +36,7 @@ import { describe, expect, it } from 'vitest'
 
 const SRC = join(process.cwd(), 'src')
 
-type Classification = { rule: true } | { tenant: string }
+type Classification = { rule: true } | { tenant: string } | { presenceOnly: string }
 
 /** `path::unit` → how it keeps a restricted folder's words from a reader outside its audience. */
 const READERS: Record<string, Classification> = {
@@ -48,11 +50,19 @@ const READERS: Record<string, Classification> = {
     tenant: "The caller's own votes in one conversation, for the chat's own hydration.",
   },
   'lib/feedback/repository.ts::listFeedbackTurns': { rule: true },
+  'lib/feedback/export-repository.ts::listFeedbackExportRows': { rule: true },
+  'lib/feedback/export-repository.ts::getFeedbackFacets': {
+    presenceOnly:
+      'Counts the votes with a comment or an expected answer (`nullif(btrim(…)) is not null`); no word of either leaves the query.',
+  },
   'lib/feedback/service.ts::scoreVoteInLangfuse': { rule: true },
   'lib/platform-lessons/repository.ts::listUnprocessedDownvotes': { rule: true },
 }
 
 const RULE = /\bOUTSIDE_RESTRICTED_USE\b|\bgrid_feedback_restricted_use\b|\bisRestrictedUseVote\b/
+
+/** The shared scope applies the rule when asked: `voteScope(…, { contentBearing: true })`. */
+const SCOPED_RULE = /\bcontentBearing:\s*true\b/
 
 interface Unit {
   key: string
@@ -132,7 +142,7 @@ function codeOf(node: ts.Node): {
 function readsWords(unit: Unit): boolean {
   const code = codeOf(unit.node)
   if (
-    /\banswer_feedback\b/i.test(code.sql) &&
+    (/\banswer_feedback\b/i.test(code.sql) || code.calls.includes('voteScope')) &&
     /\bcomment\b|\bexpected_answer\b|\bselect\s+\*|\bf\.\*/i.test(code.sql)
   ) {
     return true
@@ -229,7 +239,10 @@ describe("every reader of a vote's words outside its tenant asks the rule (ADR-0
       .map(([key]) => key)
       .filter((key) => {
         const unit = found.readers.get(key)
-        return !unit || !RULE.test(codeText(unit))
+        if (!unit) return true
+        const text = codeText(unit)
+        const scoped = codeOf(unit.node).calls.includes('voteScope') && SCOPED_RULE.test(unit.node.getText())
+        return !RULE.test(text) && !scoped
       })
     expect(skipping).toEqual([])
   })
@@ -252,13 +265,16 @@ describe("every reader of a vote's words outside its tenant asks the rule (ADR-0
 
   it('keeps the rule one database function, and the Langfuse score asks it too', () => {
     const unit = (key: string) => found.units.find((candidate) => candidate.key === key)
-    const rule = unit('lib/feedback/repository.ts::OUTSIDE_RESTRICTED_USE')
+    const rule = unit('lib/feedback/vote-scope.ts::OUTSIDE_RESTRICTED_USE')
     expect(rule && codeOf(rule.node).sql).toMatch(
       /not grid_feedback_restricted_use\(f\.organization_id, f\.message_id, f\.conversation_id\)/
     )
     // `scoreVoteInLangfuse` applies the rule through this; it must be the same one.
     const langfuse = unit('lib/feedback/repository.ts::isRestrictedUseVote')
     expect(langfuse && identifiersOf(langfuse.node)).toContain('OUTSIDE_RESTRICTED_USE')
+    // `contentBearing` is only a promise until the shared scope keeps it.
+    const scope = unit('lib/feedback/vote-scope.ts::voteScope')
+    expect(scope?.node.getText()).toMatch(/if \(options\.contentBearing\) conditions\.push\(OUTSIDE_RESTRICTED_USE\)/)
   })
 })
 

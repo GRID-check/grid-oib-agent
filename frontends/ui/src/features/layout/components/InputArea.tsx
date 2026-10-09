@@ -20,7 +20,9 @@ import {
   useCallback,
   useRef,
   useEffect,
+  useLayoutEffect,
   useMemo,
+  useId,
   type ClipboardEvent,
   type KeyboardEvent,
   type ReactNode,
@@ -48,7 +50,12 @@ import { Spinner } from '@/components/ui/spinner'
 import { Textarea } from '@/components/ui/textarea'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { cn } from '@/lib/utils'
-import { AnimatePresence, motion, motionQuick, motionEntrance, springPress } from '@/components/motion'
+import {
+  AnimatePresence,
+  motion,
+  motionEntrance,
+  useIconSwapTransition,
+} from '@/components/motion'
 import { useWebSocketChat, useChatStore, useIsCurrentSessionBusy } from '@/features/chat'
 import { ChatScreeningNotice } from '@/features/chat/components/ChatScreeningNotice'
 import { OtherProjectsNotice } from '@/features/chat/components/OtherProjectsNotice'
@@ -187,6 +194,70 @@ function mentionRefusalMessage(
  * silently wins.
  */
 const TEXTAREA_MAX_HEIGHT_PX = 208
+
+/**
+ * How much of the layout viewport the visual viewport must lose before it counts
+ * as an on-screen keyboard. A soft keyboard takes a third of the screen or more;
+ * the shortcut bar iPadOS keeps on screen for a hardware keyboard is a strip,
+ * and that reader keeps typing, so it must not read as one.
+ */
+const SOFT_KEYBOARD_MIN_OCCLUSION_PX = 100
+
+/**
+ * Whether an on-screen keyboard is covering the screen right now. A coarse
+ * pointer alone is not the answer: an iPad with a hardware keyboard is coarse,
+ * has no soft keyboard, and its reader types the follow-up next.
+ *
+ * iOS shrinks only the visual viewport when the keyboard opens, so the
+ * occlusion is measurable. Chromium under `interactiveWidget: 'resizes-content'`
+ * (app/layout.tsx) shrinks both viewports together and leaves nothing to
+ * measure; there a touch-only device (`navigator.virtualKeyboard` marks the
+ * engine) is taken to be typing on glass, which is the overwhelming case.
+ */
+function softKeyboardIsUp(): boolean {
+  if (typeof window.matchMedia !== 'function') return false
+  if (!window.matchMedia('(pointer: coarse)').matches) return false
+  const viewport = window.visualViewport
+  if (
+    viewport &&
+    document.documentElement.clientHeight - viewport.height * viewport.scale >
+      SOFT_KEYBOARD_MIN_OCCLUSION_PX
+  ) {
+    return true
+  }
+  return 'virtualKeyboard' in navigator
+}
+
+/**
+ * Close the on-screen keyboard once a message is sent. It covers half the
+ * screen, and the answer the reader is about to watch arrive is exactly what it
+ * hides. Without one up (a desk, or an iPad on a hardware keyboard) the field
+ * keeps focus: that reader types the follow-up next, and a lost caret is a lost
+ * keystroke.
+ */
+function releaseSoftKeyboard(el: HTMLTextAreaElement | null): void {
+  if (el && softKeyboardIsUp()) el.blur()
+}
+
+/**
+ * How long after Send turns into Stop (or back) the control ignores presses.
+ * One element does both jobs, so the second click of a double click, or a
+ * bounce on a touch screen, lands on the OTHER job: a Stop pressed twice would
+ * send the follow-up typed ahead, and a Send pressed twice would cancel the
+ * turn it just started. Comfortably above a double-click interval, well under
+ * the time anyone takes to decide to stop an answer they have just seen begin.
+ */
+const SEND_CONTROL_SWAP_GUARD_MS = 400
+
+/**
+ * Whether the engine sizes a textarea to its content in CSS. Read once: it is a
+ * property of the browser, not of the render. jsdom has no `CSS.supports`, so
+ * the specs exercise the measuring fallback.
+ */
+const FIELD_SIZING_CONTENT =
+  typeof CSS !== 'undefined' &&
+  typeof CSS.supports === 'function' &&
+  CSS.supports('field-sizing', 'content')
 
 /**
  * Inline removable file chip shown above the composer textarea. Live status:
@@ -404,6 +475,8 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
 
   // Textarea ref for the autosize effect
   const textareaRef = useRef<HTMLTextAreaElement>(null)
+  /** The composer stack, the scope an Escape-to-stop has to come from. */
+  const composerRootRef = useRef<HTMLDivElement>(null)
 
   // Get file upload configuration from app config
   const { fileUpload: fileUploadConfig } = useAppConfig()
@@ -652,10 +725,29 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
   // Check if we're in response mode (responding to a HITL prompt)
   const isResponseMode = !!pendingInteraction
 
+  // The send control's one job at a time, and the glyph that says it.
+  const showStop = isStreaming && !isResponseMode
+  const sendGlyph: 'stop' | 'sending' | 'send' = showStop ? 'stop' : isLoading ? 'sending' : 'send'
+  // When the control last changed job (SEND_CONTROL_SWAP_GUARD_MS). A layout
+  // effect, so the stamp is in place before the browser can deliver the next
+  // click to the re-rendered button; the first render is not a change.
+  const sendControlJobRef = useRef(showStop)
+  const sendControlSwappedAtRef = useRef(Number.NEGATIVE_INFINITY)
+  useLayoutEffect(() => {
+    if (sendControlJobRef.current === showStop) return
+    sendControlJobRef.current = showStop
+    sendControlSwappedAtRef.current = performance.now()
+  }, [showStop])
+  // An icon swap: scale on `springSnap`, opacity on a tween (opacity never
+  // springs), both instant under reduced motion.
+  const { enter: glyphEnter, exit: glyphExit } = useIconSwapTransition()
+
   // DISABLE LOGIC
   // Disable input when:
   // 1. Not authenticated
-  // 2. Session is busy AND not in HITL response mode (user must be able to type approve/reject)
+  // 2. Session is busy AND not in HITL response mode (user must be able to type approve/reject).
+  //    The reader's OWN streaming turn locks only the send: the textarea stays
+  //    live for the follow-up (`canDraft`, `draftLocked` below).
   // 3. Deep research has completed/failed
   // 4. A colleague's turn is running in this shared thread (the socket registry is
   //    one slot per conversation — a second send collides with it), or the reader
@@ -698,6 +790,7 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
     isBusy,
     isResponseMode,
     otherPersonsTurn: Boolean(otherPersonsTurnName),
+    ownTurnStreaming: showStop,
   })
 
   // Composing presence. Only where somebody could actually see it: a shared
@@ -722,9 +815,27 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
   const cannotChatInProject = capabilities.deniedBy === 'no-project-chat-permission'
   const cannotContribute = !capabilities.canContribute
   const disabled = !capabilities.canCompose
+  /**
+   * The textarea's own gate, wider than `disabled` by the reader's own streaming
+   * turn: they may write the follow-up while the answer arrives, and only the
+   * send waits for the settle (`handleSubmit` still guards on `disabled`).
+   */
+  const draftLocked = !capabilities.canDraft
+  /** Typing ahead: the field is live, but Enter will not send until the settle. */
+  const typingAhead = disabled && !draftLocked
+  const typeAheadHintId = useId()
 
-  // Autosize: grow the textarea with content, capped at TEXTAREA_MAX_HEIGHT_PX
-  useEffect(() => {
+  // Autosize: grow the textarea with content, capped at TEXTAREA_MAX_HEIGHT_PX.
+  //
+  // Where the engine has `field-sizing: content` (the Textarea atom sets it, and
+  // `max-h-52` caps it) the browser sizes the box in the same layout pass as the
+  // text, and there is nothing to do here — an inline height would only override
+  // it. Elsewhere this measures, and it is a LAYOUT effect on purpose: a plain
+  // effect runs after paint, so a send that clears a five-line draft painted one
+  // frame of a tall, empty box before snapping shut, and the transcript above
+  // (padded by `--composer-h`) jumped with it.
+  useLayoutEffect(() => {
+    if (FIELD_SIZING_CONTENT) return
     const el = textareaRef.current
     if (!el) return
     el.style.height = 'auto'
@@ -794,6 +905,10 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
   const getPlaceholder = (): string => {
     if (!isAuthenticated) return t('inputArea.signInToStart')
     if (isResponseMode) return t('inputArea.typeResponse')
+    // Before the subject line: while the field is live but Enter waits for the
+    // settle, the placeholder is the one place that says so without a hint
+    // competing with the answer for attention.
+    if (typingAhead) return t('inputArea.typeAhead')
     if (isBusy) return t('inputArea.pleaseWait')
     if (composerSubject) {
       return tFiles('assignment.askingAbout', {
@@ -1095,7 +1210,8 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
     canCollaborate &&
     mentionQuery !== null &&
     !mentionDismissed &&
-    !disabled &&
+    // A mention only edits the draft, so it works while typing ahead too.
+    !draftLocked &&
     (mentionsLoading || mentionData !== null)
 
   /**
@@ -1133,6 +1249,7 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
     // HITL responses always go through immediately — no file-pending check
     if (isResponseMode && respondToInteraction) {
       setMessage('')
+      releaseSoftKeyboard(textareaRef.current)
       onStoppedTyping()
       if (submittingSessionId) clearComposerDraft(submittingSessionId)
       respondToInteraction(currentMessage)
@@ -1166,6 +1283,7 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
 
     setMessage('')
     setMentionQuery(null)
+    releaseSoftKeyboard(textareaRef.current)
     // The draft became a message; the claim has served its purpose and the
     // message itself is the better signal from here on.
     onStoppedTyping()
@@ -1306,8 +1424,10 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
       // Mid-IME-composition, every key below belongs to the input method: the
       // Enter that confirms a CJK candidate must never SEND, and the arrows
       // that move through candidates must not drive the pickers. Same guard the
-      // shell shortcuts use (`keyboard-shortcuts.tsx`).
-      if (e.nativeEvent.isComposing) return
+      // shell shortcuts use (`keyboard-shortcuts.tsx`). Safari ends the
+      // composition BEFORE the keydown that confirmed it, so that key arrives
+      // with `isComposing` false and only keyCode 229 says it was the IME's.
+      if (e.nativeEvent.isComposing || e.keyCode === 229) return
 
       // The `/` picker gets first refusal on the navigation keys. It and the
       // mention picker are mutually exclusive by caret position (a slash query
@@ -1351,14 +1471,103 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
       if (e.key !== 'Enter') return
       // Shift+Enter inserts a newline — let the textarea handle it natively.
       if (e.shiftKey) return
+      // A held Enter sends once. Its repeats would otherwise land on whatever
+      // the send became: swallowed mid-turn, then the typed-ahead draft the
+      // moment the turn settles.
+      if (e.repeat) {
+        e.preventDefault()
+        return
+      }
       // Plain Enter sends; Cmd/Ctrl+Enter also sends as a discoverable power
       // binding. Both funnel through a single handleSubmit call (no double-fire),
       // and handleSubmit enforces the disabled/streaming/HITL guards.
+      //
+      // Typing ahead during the reader's own turn, Enter is swallowed: no newline
+      // lands in the draft and `handleSubmit` refuses on `disabled`, so the text
+      // stays put until the settle turns the button back into Send. Deliberately
+      // silent rather than a "sends after the answer" hint — the placeholder has
+      // already said it, the Stop glyph says the turn is still running, and a
+      // notice flashing under the answer on every Enter is motion competing with
+      // the one thing the reader is watching. Nothing is queued either: a queued
+      // send would fire on a settle the reader may not have read yet.
       e.preventDefault()
       handleSubmit()
     },
     [handleSubmit, mentionPickerOpen, slash]
   )
+
+  // Whether an Escape from <body> is still the composer's: true while the
+  // composer was the last thing focused and the reader has not since clicked
+  // somewhere else. Focus lands on <body> both when a send releases the soft
+  // keyboard and when the reader clicks plain transcript text; only the first
+  // leaves the hands on the composer. A click is the signal rather than a
+  // pointerdown, so scrolling the transcript by touch keeps the claim.
+  const composerHadFocusRef = useRef(false)
+  useEffect(() => {
+    const onFocusIn = (e: FocusEvent) => {
+      composerHadFocusRef.current =
+        e.target instanceof Node && (composerRootRef.current?.contains(e.target) ?? false)
+    }
+    const onClick = (e: MouseEvent) => {
+      if (e.target instanceof Node && composerRootRef.current?.contains(e.target)) return
+      composerHadFocusRef.current = false
+    }
+    document.addEventListener('focusin', onFocusIn)
+    document.addEventListener('click', onClick, true)
+    return () => {
+      document.removeEventListener('focusin', onFocusIn)
+      document.removeEventListener('click', onClick, true)
+    }
+  }, [])
+
+  // Escape stops a streaming turn, from where the hands already are: the
+  // textarea (live while its own turn runs, and focused after a send without a
+  // soft keyboard) or nowhere at all (<body>, after a send released the soft
+  // keyboard). A document listener rather than the textarea's onKeyDown, so both
+  // are covered, scoped to keys from the composer, or from <body> while the
+  // composer was the last thing used, so an Escape meant for a dialog, a menu, a
+  // field elsewhere or a text selection in the transcript never cancels the
+  // answer. Anything that already claimed the key (the `/` and `@` pickers
+  // close themselves and preventDefault) is left alone: with a picker open, the
+  // first Escape closes the picker and only the next one stops the turn. An
+  // IME's Escape is the IME's, including Safari's, which arrives after
+  // compositionend and is marked only by keyCode 229. A draft in the field is
+  // never touched — Escape stops the answer, it does not discard the follow-up
+  // being written.
+  useEffect(() => {
+    if (!showStop || cannotContribute) return
+    const onKeyDown = (e: globalThis.KeyboardEvent) => {
+      if (e.key !== 'Escape' || e.defaultPrevented || e.isComposing || e.keyCode === 229) return
+      const target = e.target
+      const fromComposer =
+        (target === document.body && composerHadFocusRef.current) ||
+        (target instanceof Node && (composerRootRef.current?.contains(target) ?? false))
+      if (!fromComposer) return
+      e.preventDefault()
+      stopStreaming?.()
+    }
+    document.addEventListener('keydown', onKeyDown)
+    return () => document.removeEventListener('keydown', onKeyDown)
+  }, [showStop, cannotContribute, stopStreaming])
+
+  // The send control's press. A press that arrives just after the control
+  // changed job belongs to the gesture that changed it (a double click, a
+  // bounce) and is dropped rather than applied to the other job.
+  const handleSendControlClick = useCallback(() => {
+    if (performance.now() - sendControlSwappedAtRef.current < SEND_CONTROL_SWAP_GUARD_MS) return
+    if (showStop) {
+      stopStreaming?.()
+      return
+    }
+    void handleSubmit()
+  }, [showStop, stopStreaming, handleSubmit])
+
+  // A held Enter on the focused button auto-repeats, and every repeat is a
+  // click: it would run through Stop into Send (or back) as soon as the guard
+  // window closed. Only the first keydown of a press activates the control.
+  const handleSendControlKeyDown = useCallback((e: KeyboardEvent<HTMLButtonElement>) => {
+    if (e.repeat && e.key === 'Enter') e.preventDefault()
+  }, [])
 
   /**
    * Insert the picked candidate: the `@fragment` becomes `@Display `, and the
@@ -1549,7 +1758,15 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
     // rather than a distinct object floating over it. The width difference
     // plus its own glass surface (below) is what makes it legible as "the
     // composer", not "the next message".
-    <div className="mx-auto flex w-full max-w-4xl flex-col px-4 pt-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] sm:px-6 sm:pt-4 sm:pb-4">
+    //
+    // The side gutters are floors under the safe-area insets: the app sets
+    // `viewportFit: 'cover'`, so on a landscape iPhone the notch and the
+    // rounded corner sit inside the viewport, and a plain px-4 put the
+    // composer's edge (and the send button) under them.
+    <div
+      ref={composerRootRef}
+      className="mx-auto flex w-full max-w-4xl flex-col pl-[max(1rem,env(safe-area-inset-left))] pr-[max(1rem,env(safe-area-inset-right))] pt-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] sm:pl-[max(1.5rem,env(safe-area-inset-left))] sm:pr-[max(1.5rem,env(safe-area-inset-right))] sm:pt-4 sm:pb-4"
+    >
       {/* The mention picker is anchored to the composer CARD and opens above it,
           spanning its full width — the Slack/Linear placement. Caret-pixel tracking
           inside a textarea is fragile and buys nothing here. */}
@@ -1729,6 +1946,11 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
             )}
 
             {/* Text Input */}
+            {typingAhead && (
+              <span id={typeAheadHintId} className="sr-only">
+                {t('inputArea.typeAheadHint')}
+              </span>
+            )}
             <Textarea
               ref={textareaRef}
               // 16px on a coarse pointer keeps iOS Safari from zooming the page
@@ -1759,7 +1981,14 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
               onSelect={rememberDictationCaret}
               onBlur={rememberDictationCaret}
               placeholder={getPlaceholder()}
-              disabled={disabled}
+              // `draftLocked`, not `disabled`: during the reader's own turn the
+              // field stays live (and keeps its focus) so the follow-up can be
+              // written while the answer arrives; only the send waits.
+              disabled={draftLocked}
+              // While typing ahead the placeholder says why Enter waits, but only
+              // while the field is empty. A screen reader is told for as long as
+              // the turn runs.
+              aria-describedby={typingAhead ? typeAheadHintId : undefined}
               rows={1}
               // The action key on a phone keyboard, told what it actually does.
               // `handleKeyDown` above sends on a plain Enter and only inserts a
@@ -2057,15 +2286,20 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
                 />
 
                 {/* How hard Piloti thinks, for this chat. A HITL response is
-                    not a question, so the dial has nothing to say there. */}
-                {!isResponseMode && (
-                  <EffortDial conversationId={currentConversationId} disabled={cannotContribute} />
-                )}
+                    not a question, so the dial has nothing to say there. It is
+                    hidden rather than unmounted: it keeps its box, so the
+                    buttons to its right do not shift when a prompt arrives. */}
+                <EffortDial
+                  conversationId={currentConversationId}
+                  disabled={cannotContribute}
+                  hidden={isResponseMode}
+                  focusOnHide={textareaRef}
+                />
 
                 {/* Voice dictation */}
                 <DictationButton
                   locale={locale}
-                  disabled={cannotContribute || disabled}
+                  disabled={cannotContribute || draftLocked}
                   onTranscript={handleTranscript}
                   onError={setDictationError}
                 />
@@ -2089,91 +2323,96 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
                   <Paperclip className="size-4" aria-hidden="true" />
                 </Button>
 
-                {/* Send button. isResponseMode always shows the normal send button so
-                users can submit HITL responses (approve/reject) mid-turn. */}
-                {isStreaming && !isResponseMode ? (
-                  // Stop button (C1): while a shallow-thinking turn streams, replace
-                  // the disabled send button with a stop control that cancels the
-                  // in-flight turn via the chat store's stopStreaming action.
-                  <motion.div
-                    className="inline-flex"
-                    whileTap={{ scale: 0.94 }}
-                    transition={springPress}
-                    tabIndex={-1}
-                  >
-                    <Button
-                      size="icon"
-                      className="size-9 rounded-lg shadow-md"
-                      // `isStreaming` is the LOCAL store's turn flag and a viewer
-                      // never starts a local turn, so this is belt and braces rather
-                      // than a demonstrated hole — but cancelling somebody else's
-                      // turn is the most consequential thing on this row, and it was
-                      // the one control here with no gate at all.
-                      disabled={cannotContribute}
-                      onClick={() => stopStreaming?.()}
-                      aria-label={t('inputArea.stopStreaming')}
-                      title={t('inputArea.stopStreaming')}
+                {/* Send and Stop are ONE control whose glyph morphs. They used to be
+                two buttons swapped by a ternary, so the press target vanished
+                under the pointer the moment a turn started, keyboard focus was
+                dropped with it, and the loading state between them was the
+                literal text "...". Now the button stays put (Fitts: the
+                target the reader just hit is still there, and still focused),
+                only its job changes, and the glyph says which job: arrow to
+                send, square to stop. The square appears as soon as the turn
+                exists in the store, which is when the send is accepted, and the
+                arrow comes back the moment Stop is pressed, because
+                `stopStreaming` settles the turn locally rather than waiting for
+                the server's cancel. The spinner is only the residual case of a
+                turn loading with no stop to offer (a HITL answer in flight).
+                isResponseMode always shows send, so a HITL answer can be
+                submitted mid-turn. */}
+                <Button
+                  size="icon"
+                  className={cn(
+                    // Ink, in both states. The armed button used to fill
+                    // with `accent-pop`, to mark readiness — but the
+                    // disabled/armed pair already reads as readiness
+                    // (the control goes from muted to solid and becomes
+                    // pressable), so the colour was carrying a distinction
+                    // the contrast had already made, in a hue this product
+                    // uses elsewhere to mean provenance.
+                    //
+                    // The press is the Button atom's CSS dip, taken to 0.96
+                    // because this is the screen's primary action. The atom
+                    // runs it on `--motion-snap` with an ease-out, which IS
+                    // `springPress` (ζ = 1, no overshoot, settled in ~126ms;
+                    // see button.tsx), and flattens it under reduced motion.
+                    // Not motion's `whileTap`: that injects tabindex="0", and
+                    // the old `motion.div` wrapper using it dipped to 0.94 ON
+                    // TOP of the atom's own dip, then had to undo the tab stop.
+                    //
+                    // `relative`: popLayout pops the leaving glyph out to
+                    // `position: absolute`, and it must stay centred in this
+                    // box while the new one arrives.
+                    'relative size-9 rounded-lg shadow-md active:scale-[0.96]'
+                  )}
+                  // `isStreaming` is the LOCAL store's turn flag and a viewer
+                  // never starts a local turn, so the stop gate is belt and
+                  // braces rather than a demonstrated hole — but cancelling
+                  // somebody else's turn is the most consequential thing on
+                  // this row, and it was the one control here with no gate.
+                  disabled={showStop ? cannotContribute : !message.trim() || disabled}
+                  onClick={handleSendControlClick}
+                  onKeyDown={handleSendControlKeyDown}
+                  aria-busy={!showStop && isLoading ? true : undefined}
+                  aria-label={
+                    showStop
+                      ? t('inputArea.stopStreaming')
+                      : isResponseMode
+                        ? t('inputArea.sendResponse')
+                        : t('inputArea.sendMessage')
+                  }
+                  aria-keyshortcuts={showStop ? 'Escape' : undefined}
+                  title={
+                    showStop
+                      ? t('inputArea.stopStreamingTitle')
+                      : pendingCount > 0
+                        ? t('inputArea.sendWhilePending')
+                        : t('inputArea.sendQuery')
+                  }
+                >
+                  <AnimatePresence mode="popLayout" initial={false}>
+                    <motion.span
+                      key={sendGlyph}
+                      data-glyph={sendGlyph}
+                      className="inline-flex"
+                      // An icon swap: ≤ 16px of scale travel, so springSnap's
+                      // tick of overshoot lands inside the pixel budget. The
+                      // opacity is a tween (opacity never springs), and the
+                      // leaving glyph accelerates away on motionQuickExit.
+                      // Under reduced motion both are motionInstant: the
+                      // glyph simply changes.
+                      initial={{ opacity: 0, scale: 0.6 }}
+                      animate={{ opacity: 1, scale: 1, transition: glyphEnter }}
+                      exit={{ opacity: 0, scale: 0.6, transition: glyphExit }}
                     >
-                      <Square className="size-3.5 fill-current" aria-hidden="true" />
-                    </Button>
-                  </motion.div>
-                ) : (
-                  <motion.div
-                    className="inline-flex"
-                    whileTap={{ scale: 0.94 }}
-                    transition={springPress}
-                    // whileTap makes framer-motion inject tabindex="0"; the wrapper must
-                    // not be a tab stop — the Button inside is the real control.
-                    tabIndex={-1}
-                  >
-                    <Button
-                      size="icon"
-                      className={cn(
-                        // Ink, in both states. The armed button used to fill
-                        // with `accent-pop`, to mark readiness — but the
-                        // disabled/armed pair already reads as readiness
-                        // (the control goes from muted to solid and becomes
-                        // pressable), so the colour was carrying a distinction
-                        // the contrast had already made, in a hue this product
-                        // uses elsewhere to mean provenance.
-                        'size-9 rounded-lg shadow-md'
+                      {sendGlyph === 'stop' ? (
+                        <Square className="size-3.5 fill-current" aria-hidden="true" />
+                      ) : sendGlyph === 'sending' ? (
+                        <Spinner size="xs" aria-hidden="true" />
+                      ) : (
+                        <ArrowUp className="size-4" aria-hidden="true" />
                       )}
-                      onClick={() => handleSubmit()}
-                      disabled={!message.trim() || disabled}
-                      aria-label={
-                        isResponseMode ? t('inputArea.sendResponse') : t('inputArea.sendMessage')
-                      }
-                      title={
-                        pendingCount > 0
-                          ? t('inputArea.sendWhilePending')
-                          : t('inputArea.sendQuery')
-                      }
-                    >
-                      <AnimatePresence mode="popLayout" initial={false}>
-                        {isLoading ? (
-                          <motion.span
-                            key="loading"
-                            initial={{ opacity: 0, y: -4 }}
-                            animate={{ opacity: 1, y: 0, transition: motionEntrance }}
-                            exit={{ opacity: 0, y: 6, transition: motionQuick }}
-                          >
-                            ...
-                          </motion.span>
-                        ) : (
-                          <motion.span
-                            key="send"
-                            className="inline-flex"
-                            initial={{ opacity: 0, y: -4 }}
-                            animate={{ opacity: 1, y: 0, transition: motionEntrance }}
-                            exit={{ opacity: 0, y: 6, transition: motionQuick }}
-                          >
-                            <ArrowUp className="size-4" aria-hidden="true" />
-                          </motion.span>
-                        )}
-                      </AnimatePresence>
-                    </Button>
-                  </motion.div>
-                )}
+                    </motion.span>
+                  </AnimatePresence>
+                </Button>
               </div>
             </div>
 
