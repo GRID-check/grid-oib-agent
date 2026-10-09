@@ -27,7 +27,8 @@
       dummy's source-color system. Blue now belongs to the Baurecht signal,
       not to actions; --grid-blue is kept as a legacy alias of the law blue.
 
-   Dark mode is driven by the .dark root class (set in app/providers.tsx).
+   Dark mode is driven by the .dark root class (set before the first paint by
+   app/theme-boot.ts, then kept in step by app/providers.tsx).
    The `dark:` Tailwind variant is bound to it in globals.css via
    @custom-variant. Dark mode is a derived warm-charcoal equivalent of the
    paper system (the dummy ships light-only): same warm hues, no cold
@@ -43,6 +44,11 @@
    ============================================================================= */
 
 :root {
+  /* Native UI (scrollbars, form controls, the canvas behind an overscroll)
+     follows the theme. It flips with the same `.dark` class, which the boot
+     script in app/theme-boot.ts sets before the first paint. */
+  color-scheme: light;
+
   /* ---- ink ramp (light) — #1f2023 → #b3b3af ---- */
   --ink: oklch(0.244 0.006 271.2); /* #1f2023 — strongest ink, the action color */
   --ink-hover: oklch(0.31 0.006 271.2); /* lifted ink for hover on ink surfaces */
@@ -176,6 +182,8 @@
 }
 
 .dark {
+  color-scheme: dark;
+
   /* ---- ink ramp (dark) — paper-white acts as "ink" on warm charcoal ---- */
   --ink: oklch(0.958 0.004 91.4); /* #f2f1ee — warm paper white */
   --ink-hover: oklch(0.9 0.004 91.4);
@@ -335,6 +343,43 @@
   --border-color-feedback-danger: oklch(0.672 0.144 31.6 / 60%);
   --border-color-feedback-warning: oklch(0.761 0.125 80.1 / 60%);
   --border-color-feedback-info: oklch(0.711 0.125 266 / 60%);
+}
+
+/* =============================================================================
+   Increased contrast (`prefers-contrast: more`).
+
+   The calm of the paper system is two quiet steps: mid-ink secondary text
+   (#6f706c, 4.6:1 on paper and less on a tint or at reduced opacity) and
+   an 8% hairline that is barely 1.2:1 against the card. Both are a deliberate
+   choice for a reader who can see them, and the wrong one for a reader who
+   asked the OS for more contrast. Under that setting secondary text takes the
+   next ink step up (the `secondary` text colour, 6.8:1 on paper) and
+   every hairline roughly triples, so a card, an input and a divider are edges
+   rather than suggestions. Nothing else changes: the hierarchy stays, it is
+   only drawn harder.
+
+   Both themes are restated in full: inside the query `:root` and `.dark` have
+   equal specificity, so `.dark` must come second and set every variable
+   `:root` sets, or a light value would leak into dark.
+   ============================================================================= */
+@media (prefers-contrast: more) {
+  :root {
+    --muted-foreground: oklch(0.454 0.007 274.9); /* #55565a, the secondary step */
+    --text-color-subtle: oklch(0.454 0.007 274.9);
+    --text-color-placeholder: oklch(0.543 0.006 118); /* the old muted step */
+    --border: color-mix(in oklch, var(--ink-border) 28%, transparent);
+    --input: color-mix(in oklch, var(--ink-border) 40%, transparent);
+    --border-color-base: color-mix(in oklch, var(--ink-border) 28%, transparent);
+  }
+
+  .dark {
+    --muted-foreground: oklch(0.851 0.006 93); /* the dark secondary step */
+    --text-color-subtle: oklch(0.851 0.006 93);
+    --text-color-placeholder: oklch(0.727 0.006 92); /* the old muted step */
+    --border: color-mix(in oklch, var(--foreground) 34%, transparent);
+    --input: color-mix(in oklch, var(--foreground) 45%, transparent);
+    --border-color-base: color-mix(in oklch, var(--foreground) 34%, transparent);
+  }
 }
 
 /* =============================================================================

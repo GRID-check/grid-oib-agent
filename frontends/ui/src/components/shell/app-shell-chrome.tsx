@@ -38,6 +38,7 @@ import { usePathname } from 'next/navigation'
 
 import { ProductTour } from '@/features/onboarding/components/product-tour'
 import { FeedbackProvider } from '@/features/product-feedback/components'
+import { useVisualViewport } from '@/hooks/use-visual-viewport'
 import { cn } from '@/lib/utils'
 import { AppSidebar } from './app-sidebar'
 import { OrgHeader } from './org-header'
@@ -46,7 +47,9 @@ import type { ProjectSwitcherProject } from './project-switcher'
 import type { SidebarUser } from './sidebar-user-menu'
 import type { TourEligibility } from '@/features/onboarding/lib/product-tour'
 
-const OVERLAY_ROUTES = ['/app/archiv', '/app/inbox'] as const
+// `/app/uploads/<id>` is the upload summary's dialog (ADR-0086), opened from
+// the Postfach over the page the reader was on.
+const OVERLAY_ROUTES = ['/app/archiv', '/app/inbox', '/app/uploads'] as const
 
 function isOverlayPath(pathname: string): boolean {
   return OVERLAY_ROUTES.some((route) => pathname === route || pathname.startsWith(`${route}/`))
@@ -88,6 +91,11 @@ export function AppShellChrome({
   const projectId = projectIdFromPathname(solidPathRef.current)
   const inProject = projectId !== null
 
+  // iOS ignores `interactive-widget`, so the shell follows the visual viewport
+  // itself while the keyboard is up (see the hook). Mounted here because this
+  // is the one component that lives for the whole authenticated app.
+  useVisualViewport()
+
   return (
     <ProductTour
       canAccessArchiv={chrome.canAccessArchiv}
@@ -98,7 +106,10 @@ export function AppShellChrome({
     <FeedbackProvider userEmail={chrome.user?.email ?? null}>
     <div
       className={cn(
-        'bg-background text-foreground flex h-dvh overflow-hidden',
+        // The space above the keyboard while one is up on iOS (the variable
+        // is set only then, by useVisualViewport), the dynamic viewport
+        // otherwise. Safe-area insets stay per surface (app/layout.tsx).
+        'bg-background text-foreground flex h-[var(--visual-viewport-height,100dvh)] overflow-hidden',
         inProject ? 'flex-col md:flex-row' : 'flex-col',
       )}
     >

@@ -52,11 +52,21 @@ export const GET = tenantSlotRoute(async function GET(req: Request): Promise<Res
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
 
-    const { scope, scopedCollections, headerValue, projectId: authorizedProjectId } =
-      await buildCollectionScopeFromRequest(session, {
-        projectId,
-        conversationId,
-      })
+    const {
+      scope,
+      scopedCollections,
+      headerValue,
+      projectId: authorizedProjectId,
+    } = await buildCollectionScopeFromRequest(session, {
+      projectId,
+      conversationId,
+      // The upgrade opens an interactive chat socket: the one scope that may
+      // carry the restricted-folder collections this session, and everyone the
+      // conversation is shared with, is cleared for (ADR-0087). Fixed for the
+      // socket's life; a turn draws on one only through an admission that
+      // checks the conversation's audience again.
+      interactiveChat: true,
+    })
 
     const response: Record<string, unknown> = {
       scope,
@@ -125,7 +135,9 @@ export const GET = tenantSlotRoute(async function GET(req: Request): Promise<Res
     // every tool selection — enforcement, not just UI hiding. Best-effort:
     // a lookup failure must not take chat down (web search stays on).
     const webSearchEnabled = organizationId
-      ? await bestEffort('resolve web-search setting', () => isWebSearchEnabledForOrg(organizationId))
+      ? await bestEffort('resolve web-search setting', () =>
+          isWebSearchEnabledForOrg(organizationId)
+        )
       : null
     // Effective runtime model selection — the platform defaults
     // (`platform_model_defaults`) with the org's own active
@@ -143,7 +155,13 @@ export const GET = tenantSlotRoute(async function GET(req: Request): Promise<Res
 
     if (!organizationId || !session?.userId) {
       const [projectContext, projectMemory, orgInstructions] = await Promise.all([
-        effectiveProjectId ? loadProjectPromptView(effectiveProjectId, organizationId) : Promise.resolve(null),
+        effectiveProjectId
+          ? loadProjectPromptView(effectiveProjectId, organizationId)
+          : Promise.resolve(null),
+        // Open memory only (ADR-0087): a restricted note in the prompt is use of
+        // its folders, and only the live per-turn digest admits that use, against
+        // the conversation's audience at that moment. This copy is the fallback
+        // for a turn whose live fetch failed.
         bestEffort('build project memory digest', () =>
           buildProjectMemoryDigest(effectiveProjectId, organizationId ?? undefined)
         ),

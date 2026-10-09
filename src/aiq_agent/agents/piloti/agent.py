@@ -93,6 +93,8 @@ from aiq_agent.common.turn_status import is_retrieval_round
 from aiq_agent.common.turn_status import record_round_announcement
 from aiq_agent.common.turn_status import retrieval_round_scope
 from aiq_agent.knowledge.already_read import merge_digest
+from aiq_agent.knowledge.restricted_use import admit_tool_results
+from aiq_agent.knowledge.restricted_use import report_collections_read
 from aiq_agent.observability.langfuse_trace_attributes import begin_turn_prompt_link
 from aiq_agent.observability.langfuse_trace_attributes import end_turn_prompt_link
 from aiq_agent.tools.bim.measurement_sources import begin_measurement_capture
@@ -1030,7 +1032,11 @@ class PilotiAgent:
             llm_with_tools=self._bind_research_tools(llm, tools),
             tools=tools,
             tools_info=self.tools_info if boot_tools else build_tools_info(tools),
-            tool_node=ToolNode(list(tools), handle_tool_errors=render_tool_error),
+            # Every call reports the collections it read onto its result, which
+            # is what `admit_tool_results` admits in the tools node (ADR-0088).
+            tool_node=ToolNode(
+                list(tools), handle_tool_errors=render_tool_error, awrap_tool_call=report_collections_read
+            ),
             source_tool_names=frozenset(t.name for t in tools),
             ceiling=self.max_tool_iterations,
             max_input_tokens=self.max_input_tokens_per_turn,
@@ -1336,7 +1342,12 @@ class PilotiAgent:
         registry = get_session_registry()
         if registry is None:
             raise RuntimeError("PilotiAgent graph invoked outside run(): no source registry is bound")
-        ran_messages = list(result.get("messages", []))
+        # Restricted content is admitted for the conversation BEFORE anything
+        # reads it (ADR-0087, ADR-0088): a result carrying a restricted
+        # collection that is not admitted (not drawable this turn, refused
+        # because a share raced it, or no restricted use bound) is replaced by a
+        # notice here, so neither the source registry nor the model ever sees it.
+        ran_messages = await admit_tool_results(list(result.get("messages", [])))
         measured = self._capture_round(ran_messages, binding, registry, state)
         # AFTER the capture, which files the sources under the bytes the tool
         # returned: from here on the transcript, the repeat-fetch answers and

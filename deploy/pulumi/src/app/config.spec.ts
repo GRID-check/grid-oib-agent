@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import { schedulerEnv, type AppWiring } from "./config";
+import { purgerEnv, schedulerEnv, type AppWiring } from "./config";
 import type { GridConfig } from "../config";
 
 const here = __dirname;
@@ -10,10 +10,13 @@ const repoRoot = join(here, "..", "..", "..", "..");
 // The whole worker, not just its entrypoint: `db.js` reads the DSN, and the
 // point of this guard is to see every name the process consumes.
 const schedulerDir = join(repoRoot, "frontends", "ui", "scheduler");
-const schedulerSource = readdirSync(schedulerDir)
-  .filter((file) => file.endsWith(".js") && !file.endsWith(".spec.js"))
-  .map((file) => readFileSync(join(schedulerDir, file), "utf8"))
-  .join("\n");
+const schedulerSource = [
+  ...readdirSync(schedulerDir)
+    .filter((file) => file.endsWith(".js") && !file.endsWith(".spec.js"))
+    .map((file) => readFileSync(join(schedulerDir, file), "utf8")),
+  // The retention window is read by the shared Langfuse client the sweep uses.
+  readFileSync(join(repoRoot, "frontends", "ui", "workers", "langfuse-traces.js"), "utf8"),
+].join("\n");
 const configSource = readFileSync(join(here, "config.ts"), "utf8");
 
 /** Every `env.GRID_*` / `process.env.GRID_*` the scheduler actually reads. */
@@ -41,11 +44,20 @@ function envNamesReadBy(source: string): string[] {
  * side alone, which is why this test reads the consumer's source rather than a
  * list someone has to remember to update.
  */
+/** The Secret reference of an env var whose value is a plain (non-Output) literal in this block. */
+function secretRef(env: ReturnType<typeof schedulerEnv>, name: string) {
+  const from = env.find((e) => e.name === name)?.valueFrom as
+    | { secretKeyRef?: { name: string; key: string } }
+    | undefined;
+  return from?.secretKeyRef;
+}
+
 describe("schedulerEnv", () => {
   const cfg = {
     skills: { enabled: true, minIntervalMinutes: 15 },
     auth: { enforceFeatureFlags: false },
     observability: { enabled: false },
+    langfuse: { enabled: true },
   } as unknown as GridConfig;
   const env = schedulerEnv({ cfg } as unknown as AppWiring);
   // `EnvVar.name` is `Input<string>`; every entry in this block is a literal.
@@ -71,6 +83,43 @@ describe("schedulerEnv", () => {
 
   it("passes the skills gate through, so the worker can start at all", () => {
     expect(env.find((e) => e.name === "GRID_SKILLS_ENABLED")?.value).toBe("true");
+  });
+
+  it("gives the trace retention sweep Langfuse's API and a 30-day window when the tier is deployed", () => {
+    expect(env.find((e) => e.name === "LANGFUSE_HOST")?.value).toBe("http://langfuse-web:3000");
+    expect(env.find((e) => e.name === "GRID_LANGFUSE_TRACE_RETENTION_DAYS")?.value).toBe("30");
+    expect(secretRef(env, "LANGFUSE_PUBLIC_KEY")).toEqual({ name: "langfuse-secrets", key: "public-key" });
+    expect(secretRef(env, "LANGFUSE_SECRET_KEY")).toEqual({ name: "langfuse-secrets", key: "secret-key" });
+  });
+
+  it("emits nothing about Langfuse without the tier, so the sweep is its logged no-op", () => {
+    const off = schedulerEnv({
+      cfg: { ...cfg, langfuse: { enabled: false } },
+    } as unknown as AppWiring);
+    expect(off.filter((e) => /LANGFUSE/.test(String(e.name)))).toEqual([]);
+  });
+});
+
+describe("purgerEnv", () => {
+  const wiring = (langfuseEnabled: boolean) =>
+    ({
+      cfg: {
+        observability: { enabled: false },
+        seaweedfs: { accessKey: "a", bucket: "b" },
+        langfuse: { enabled: langfuseEnabled },
+      },
+      seaweedInternalEndpoint: "http://seaweedfs:8333",
+    }) as unknown as AppWiring;
+
+  it("gives the purger Langfuse's API to delete an erased chat's traces", () => {
+    const env = purgerEnv(wiring(true));
+    expect(env.find((e) => e.name === "LANGFUSE_HOST")?.value).toBe("http://langfuse-web:3000");
+    expect(secretRef(env, "LANGFUSE_PUBLIC_KEY")?.key).toBe("public-key");
+    expect(secretRef(env, "LANGFUSE_SECRET_KEY")?.key).toBe("secret-key");
+  });
+
+  it("emits nothing about Langfuse without the tier", () => {
+    expect(purgerEnv(wiring(false)).filter((e) => /LANGFUSE/.test(String(e.name)))).toEqual([]);
   });
 });
 

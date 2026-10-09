@@ -1,0 +1,7 @@
+{"conversation_id":"5f5b7a5c-1f0e-4a9d-9c3a-2f2f9a1b7c11","turn_id":"msg_1759000000000_3","seq":3,"ts":1759000000100,"v":2,"type":"STEP_FINISHED","step":{"id":"tool:1","kind":"tool","tool":"knowledge_search","status":"ok","payload":"--- Result 1 ---"}}
+{"conversation_id":"5f5b7a5c-1f0e-4a9d-9c3a-2f2f9a1b7c11","turn_id":"msg_1759000000000_3","seq":3,"ts":1759000000100,"v":2,"type":"CUSTOM","name":"status","value":{}}
+{"conversation_id":"5f5b7a5c-1f0e-4a9d-9c3a-2f2f9a1b7c11","turn_id":"msg_1759000000000_3","seq":3,"ts":1759000000100,"v":2,"type":"RUN_FINISHED","outcome":"answered","result":{"message_id":"m","text":"Hallo","answer_digest":"sha256:0"},"replica":"aiq-2"}
+{"conversation_id":"5f5b7a5c-1f0e-4a9d-9c3a-2f2f9a1b7c11","turn_id":"msg_1759000000000_3","seq":3,"ts":1759000000100,"v":2,"type":"CUSTOM","name":"answer_outline","value":{"headings":["Brandschutz"]}}
+{"conversation_id":"5f5b7a5c-1f0e-4a9d-9c3a-2f2f9a1b7c11","turn_id":"msg_1759000000000_3","seq":3,"ts":1759000000100,"v":2,"type":"STEP_FINISHED","step":{"id":"llm:1","kind":"llm","name":"gpt-5"}}
+{"conversation_id":"5f5b7a5c-1f0e-4a9d-9c3a-2f2f9a1b7c11","turn_id":"msg_1759000000000_3","seq":3,"ts":1759000000100,"v":2,"type":"STEP_STARTED","step":{"id":"plan:1","kind":"plan","title":"Brandschutz prüfen"}}
+{"conversation_id":"5f5b7a5c-1f0e-4a9d-9c3a-2f2f9a1b7c11","turn_id":"msg_1759000000000_3","seq":3,"ts":1759000000100,"v":2,"type":"REASONING_MESSAGE_START","message_id":"r"}

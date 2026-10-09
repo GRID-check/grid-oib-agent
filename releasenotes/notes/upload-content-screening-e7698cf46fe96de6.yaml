@@ -1,0 +1,7 @@
+---
+features:
+  - >
+    Piloti now checks the text of every upload on its own server before any
+    language model sees it. A file that matches waits in quarantine until an
+    office or project admin releases or deletes it under Organisation →
+    Quarantäne.

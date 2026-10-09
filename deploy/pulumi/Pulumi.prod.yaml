@@ -75,14 +75,14 @@ environment:
   - grid-oib/prod
 config:
   grid-oib:namespace: grid
-  # ── Images (from the publish-images CI workflow → GHCR) ──
+  # ── Images (tagged by CI's publish job → GHCR) ──
 
   grid-oib:imageRegistry: ghcr.io/grid-check
   # This line IS the promotion mechanism: every develop→prod promotion PR must
 
-  # bump it to the new develop-tip sha (publish-images builds every service as
+  # bump it to a develop sha CI passed (CI tags all three images sha-<full sha>
 
-  # sha-<full sha> on every develop push). Do NOT have CI compute this
+  # for every green develop commit, and none for a red one). Do NOT have CI compute this
 
   # dynamically from the merge commit — prod merge shas never have GHCR images;
 

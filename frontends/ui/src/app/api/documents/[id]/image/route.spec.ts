@@ -22,6 +22,15 @@ vi.mock('@/lib/auth/require-auth', () => ({
 
 vi.mock('@/lib/db', () => ({ getDb: vi.fn() }))
 
+// The re-check of the person the URL names is the folder rule's own business
+// (`folder-access.spec.ts`); here it is a switch, and the spec pins WHEN the
+// route flips it and what it does with the answer.
+const isFolderVisibleToMember = vi.fn()
+vi.mock('@/lib/authz/folder-access', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/lib/authz/folder-access')>()),
+  isFolderVisibleToMember: (...args: unknown[]) => isFolderVisibleToMember(...args),
+}))
+
 // Only the CLIENTS are doubled. The key builders come through as the real
 // thing (`importOriginal`) so this spec exercises the production key
 // composition rather than a fixture's idea of it — the `_thumb.jpg` assertion
@@ -41,11 +50,12 @@ vi.mock('@aws-sdk/s3-request-presigner', () => ({
 
 import { GET } from './route'
 import { s3Client } from '@/lib/s3'
-import { buildDocumentImageUrl } from '@/lib/images/signed-image-url'
+import { buildDocumentImageUrl, DOCUMENT_IMAGE_CACHE_CONTROL } from '@/lib/images/signed-image-url'
 import type { getDb as getDbType } from '@/lib/db'
 
 const ORG = 'org-1'
 const DOC = 'doc-1'
+const USER = 'user-1'
 
 const asDb = (stub: Record<string, unknown>): ReturnType<typeof getDbType> =>
   stub as unknown as ReturnType<typeof getDbType>
@@ -68,7 +78,9 @@ const imageRow = {
   contentType: 'image/png',
   filename: 'site.png',
   organizationId: ORG,
+  scope: 'project',
   projectId: 'proj-1',
+  folderId: 'folder-1',
 }
 
 function call(query: string) {
@@ -80,7 +92,7 @@ function call(query: string) {
 
 /** The query half of a genuinely minted URL. */
 function signedQuery(documentId = DOC, variant: 'original' | 'thumb' = 'original') {
-  const url = buildDocumentImageUrl(ORG, documentId, variant)
+  const url = buildDocumentImageUrl(ORG, USER, documentId, variant)
   if (!url) throw new Error('signing unexpectedly disabled')
   return url.slice(url.indexOf('?'))
 }
@@ -89,6 +101,7 @@ describe('GET /api/documents/[id]/image', () => {
   beforeEach(() => {
     vi.stubEnv('GRID_INTERNAL_API_TOKEN', 'test-signing-secret')
     vi.mocked(s3Client.send).mockReset()
+    isFolderVisibleToMember.mockReset().mockResolvedValue(true)
   })
 
   afterEach(() => {
@@ -109,6 +122,33 @@ describe('GET /api/documents/[id]/image', () => {
     expect(response.status).toBe(200)
     expect(response.headers.get('Content-Type')).toBe('image/png')
     expect(response.headers.get('X-Content-Type-Options')).toBe('nosniff')
+    // The optimizer forwards this max-age to the browser; `optimizer-cache.spec.ts`
+    // holds the constant to one token window.
+    expect(response.headers.get('Cache-Control')).toBe(DOCUMENT_IMAGE_CACHE_CONTROL)
+  })
+
+  it('asks again whether the person the URL names may still read the folder', async () => {
+    await stubDocument(imageRow)
+    vi.mocked(s3Client.send).mockResolvedValue({
+      ContentLength: 48211,
+      Body: { transformToWebStream: () => new ReadableStream() },
+    } as never)
+
+    await call(signedQuery())
+
+    expect(isFolderVisibleToMember).toHaveBeenCalledWith(ORG, 'proj-1', 'folder-1', USER)
+  })
+
+  it('404s, and reads no object, once that person has lost the folder', async () => {
+    // The URL is still inside its lifetime and validly signed: only the
+    // re-check can stop it.
+    await stubDocument(imageRow)
+    isFolderVisibleToMember.mockResolvedValue(false)
+
+    const response = await call(signedQuery())
+
+    expect(response.status).toBe(404)
+    expect(s3Client.send).not.toHaveBeenCalled()
   })
 
   it('refuses an unsigned request', async () => {

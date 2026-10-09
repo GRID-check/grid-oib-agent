@@ -217,6 +217,7 @@ describe('GET /api/internal/document-versions/[versionId]/content', () => {
         filename: 'piloti/doc-1/befund.md',
         displayName: 'Befund Fluchtwege',
         content: '# Befund\n\nAbschnitt 3: GK 4.\n',
+        drewOnRestrictedFolder: false,
       })
     })
 

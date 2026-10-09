@@ -26,7 +26,7 @@ import { fetchSemanticHits, joinHitsToFiles, type SearchedDocument } from '@/lib
 import { collectionFileRef, purgeIngestedChunks } from '@/lib/documents/collection-file-ref'
 import { ARCHIV_SHELF } from '@/lib/documents/shelf'
 import { toListedDocuments, toListedPage, type ListedDocument } from '@/lib/documents/shelf-listing'
-import { uploadToShelf, type UploadDocumentResult } from '@/lib/documents/shelf-upload'
+import { uploadToShelf, type ShelfUploadInput, type UploadDocumentResult } from '@/lib/documents/shelf-upload'
 import type { DocumentListCursor } from '@/lib/documents/list-cursor'
 import type { DocumentNameMatchRow } from '@/lib/documents/repository'
 import { eraseDocumentObjectsOrKeepRow } from '@/lib/documents/object-cleanup'
@@ -83,12 +83,16 @@ export async function listArchiv(
  * Document-centric semantic search over the org's shared Archiv. Any org member
  * may read; resolves the org's `archiv_<orgId>` collection, runs the
  * deterministic vector search on the backend, and joins the hits to the
- * Archiv's file rows by filename. Fail-open: a backend error/timeout yields
- * `{ hits: [] }`, never a crash.
+ * Archiv's file rows by collection and filename. Fail-open: a backend
+ * error/timeout yields `{ hits: [] }`, never a crash.
  *
  * The join looks the hit names up directly rather than reading the listing:
  * the listing is paged, and a hit on a document past its first page would
  * otherwise be dropped as if the search had not found it.
+ *
+ * The Archiv is one collection (`archiv_<orgId>`), and every row the lookup
+ * returns is filed in it, so the join's collection key is always met by the
+ * right row.
  */
 export async function searchArchivDocuments(
   session: AuthorizedSession,
@@ -150,9 +154,14 @@ export function uploadArchivDocument(
   session: AuthorizedSession,
   file: File,
   request: Request,
-  { folderId = null, originPath = null }: { folderId?: string | null; originPath?: string | null } = {},
+  {
+    folderId = null,
+    originPath = null,
+    screeningRelease,
+    uploadBatchId,
+  }: Omit<ShelfUploadInput, 'file' | 'folderId'> & { folderId?: string | null } = {},
 ): Promise<UploadArchivDocumentResult> {
-  return uploadToShelf(session, ARCHIV_SHELF, { file, folderId, originPath }, request)
+  return uploadToShelf(session, ARCHIV_SHELF, { file, folderId, originPath, screeningRelease, uploadBatchId }, request)
 }
 
 /**

@@ -82,3 +82,29 @@ def test_the_base_collection_is_read_from_the_environment(monkeypatch) -> None:
     # And the default name is then just another collection, so a scope carrying
     # both is ambiguous rather than silently resolved to one of them.
     assert derive_project_collection(["at_normen", "oib_knowledge", "proj_abc"]) is None
+
+
+# ADR-0087: a restricted folder's documents live in `<project collection>_r<12 hex>`,
+# and a cleared member's chat scope carries it beside the project's own collection.
+_RESTRICTED = "proj_abc_r0123456789ab"
+
+
+def test_a_restricted_folder_collection_is_its_project_not_a_second_one() -> None:
+    """Counted as itself it made the scope ambiguous, and the run recorded no project."""
+    scope = ["oib_knowledge", "archiv_org1", "proj_abc", _RESTRICTED, "s_conv-1"]
+    assert derive_project_collection(scope) == "proj_abc"
+
+
+def test_a_restricted_collection_alone_records_its_base_project() -> None:
+    """Recorded verbatim, the BFF would resolve it to no project and file the report nowhere."""
+    assert derive_project_collection(["oib_knowledge", _RESTRICTED]) == "proj_abc"
+
+
+def test_two_projects_stay_ambiguous_with_a_restricted_collection_in_scope() -> None:
+    assert derive_project_collection(["oib_knowledge", "proj_xyz", _RESTRICTED]) is None
+
+
+def test_only_the_exact_restricted_suffix_is_read_as_one() -> None:
+    """Eleven hex digits, or a non-hex one, is an ordinary (if odd) collection name."""
+    assert derive_project_collection(["oib_knowledge", "proj_abc", "proj_abc_r0123456789a"]) is None
+    assert derive_project_collection(["oib_knowledge", "proj_abc", "proj_abc_r0123456789ag"]) is None

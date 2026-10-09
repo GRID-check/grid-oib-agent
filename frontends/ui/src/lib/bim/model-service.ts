@@ -13,8 +13,10 @@ import 'server-only'
 import { GetObjectCommand, HeadObjectCommand } from '@aws-sdk/client-s3'
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner'
 import { s3Client, signingS3Client } from '@/lib/s3'
+import { recordDocumentAccess } from '@/lib/download-log/service'
 import { resolveDocumentBucket } from '@/lib/storage/bucket'
 import { requireProjectAccess, type ProjectPermission } from '@/lib/authz/projects'
+import { getHiddenFolderIds, isFolderVisibleTo } from '@/lib/authz/folder-access'
 
 /**
  * Confirming or withdrawing a compliance check is a write to the model's own
@@ -112,6 +114,12 @@ async function assertDocumentReadable(
       // there is nothing to authorize against, so it is not found.
       if (document.projectId === null) throw new NotFoundError(notFoundMessage)
       await requireProjectAccess(session, document.projectId, 'project:view')
+      // A model filed under a folder this session is not cleared for does not
+      // exist for it (ADR-0087): not found, never forbidden — the header, the
+      // element query and the presigned source URL all pass through here.
+      if (!(await isFolderVisibleTo(session, document.projectId, document.folderId))) {
+        throw new NotFoundError(notFoundMessage)
+      }
       return
     }
     default: {
@@ -161,7 +169,11 @@ export async function listAccessibleModels(
 ): Promise<BimModelHeader[]> {
   assertIfcModelsEnabled(session)
   await requireProjectAccess(session, projectId, 'project:view')
-  return listBimModels(session.organizationId, { projectId, includeArchiv: true })
+  return listBimModels(session.organizationId, {
+    projectId,
+    includeArchiv: true,
+    hiddenFolderIds: await getHiddenFolderIds(session, projectId),
+  })
 }
 
 /**
@@ -257,6 +269,7 @@ export async function getModelSource(
     new GetObjectCommand({ Bucket: bucket, Key: key }),
     { expiresIn }
   )
+  await recordDocumentAccess(session, document, 'model')
   return { url, filename: document.filename, expiresInSeconds: expiresIn }
 }
 
@@ -381,7 +394,12 @@ async function resolveModelByName(
   // that exists but sits past the 51st-newest model must not come back as
   // "Model not found in this project".
   const models = (
-    await listBimModels(session.organizationId, { projectId, includeArchiv: true, limit: 200 })
+    await listBimModels(session.organizationId, {
+      projectId,
+      includeArchiv: true,
+      limit: 200,
+      hiddenFolderIds: await getHiddenFolderIds(session, projectId),
+    })
   ).filter((model) => model.status === 'ready')
   const needle = name.trim().toLowerCase()
   const model =

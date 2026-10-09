@@ -12,10 +12,19 @@
  *   rolled back to NAT's stock socket accepts the upgrade and ignores `?v=2`):
  *   the attempt failed, and when the ladder is spent the status is
  *   `incompatible`, not `failed`, because the network is fine.
+ * - **Optional fields, by the hello.** The server reads what the client sends
+ *   strictly: an unknown field refuses the message. A field added to a client
+ *   message is therefore sent only to a server whose hello names it in
+ *   `accepts` ({@link forServer}): during a rolling deploy the socket may have
+ *   reached a pod one release older, and a Stop it refused would leave the
+ *   turn running. The check is made on the socket that sends, so a message
+ *   held across a reconnect is shaped for the server it finally reaches.
  * - **Drift.** After the hello, a frame this page cannot parse means the
  *   server speaks a newer v2 than this bundle: `outdated`, as for 4426. It is
  *   never dropped and waited past, because a turn whose next `seq` cannot be
- *   read can never fold another event, its terminal included.
+ *   read can never fold another event, its terminal included. Additive drift
+ *   (an unknown key; an unknown `type`, step `kind` or `CUSTOM` name) parses:
+ *   `parseWireEvent` reads it, and the fold passes over what it does not know.
  * - **Resume.** On every reopen, each running turn is re-`attach`ed from the
  *   last seq its view folded; the server replays from there and continues live.
  *   The caller owns those cursors (`openTurns`), so there is one `lastSeq`.
@@ -41,6 +50,7 @@ import {
   parseHello,
   parseWireEvent,
   type ClientMessage,
+  type Hello,
   type WireEvent,
 } from './wire-v2'
 
@@ -101,6 +111,18 @@ export interface TurnSocket {
  */
 export const HELLO_TIMEOUT_MS = 5_000
 
+/**
+ * `message` as the server whose hello said `accepts` can read it: an optional
+ * field it does not name is left out, and the rest of the message still goes.
+ * Without the field the server does what it did before it existed: a Stop
+ * without `shown` keeps everything streamed so far.
+ */
+export const forServer = (message: ClientMessage, accepts: ReadonlySet<string>): ClientMessage => {
+  if (message.type !== 'cancel_turn' || !message.shown || accepts.has('cancel_turn.shown')) return message
+  const { shown: _unread, ...rest } = message
+  return rest
+}
+
 /** The heartbeat interval assumed until the server states its own. */
 const DEFAULT_BEAT_MS = 20_000
 const DEAD_AFTER_BEATS = 3
@@ -128,6 +150,8 @@ export function createTurnSocket(options: TurnSocketOptions): TurnSocket {
   let stopped = true
   /** The current socket's server said hello: it speaks v2, and `send` may use it. */
   let ready = false
+  /** The optional client fields the current socket's server named in its hello. */
+  let accepts: ReadonlySet<string> = new Set()
   /** Why the last attempt failed, which names the status when the ladder is spent. */
   let lastFailure: 'failed' | 'incompatible' = 'failed'
   let everyMs = DEFAULT_BEAT_MS
@@ -153,6 +177,7 @@ export function createTurnSocket(options: TurnSocketOptions): TurnSocket {
     const current = socket
     socket = null
     ready = false
+    accepts = new Set()
     disarm()
     if (!current) return
     current.onopen = current.onmessage = current.onclose = current.onerror = null
@@ -206,13 +231,14 @@ export function createTurnSocket(options: TurnSocketOptions): TurnSocket {
 
   const send = (message: ClientMessage): boolean => {
     if (!ready || socket?.readyState !== OPEN) return false
-    socket.send(JSON.stringify(message))
+    socket.send(JSON.stringify(forServer(message, accepts)))
     return true
   }
 
   /** The hello: the server speaks v2. Now the socket is open, and every open turn is attached. */
-  const greeted = (): void => {
+  const greeted = (hello: Hello): void => {
     ready = true
+    accepts = new Set(hello.value.accepts ?? [])
     ladder.reset()
     status('open')
     for (const turn of options.openTurns()) {
@@ -224,7 +250,8 @@ export function createTurnSocket(options: TurnSocketOptions): TurnSocket {
   const receive = (data: unknown): void => {
     const raw = jsonOf(data)
     if (!ready) {
-      if (parseHello(raw)) return greeted()
+      const hello = parseHello(raw)
+      if (hello) return greeted(hello)
       warnOnce('opened with something other than a v2 hello', raw)
       return incompatible()
     }

@@ -48,6 +48,11 @@ export function canViewAuditLogs(session: SessionSlice): boolean {
   return hasPermission(session, ORG_PERMISSIONS.auditView)
 }
 
+/** May read the download log: who took which document out (ADR-0088). Reading it is audited. */
+export function canViewDownloadLog(session: SessionSlice): boolean {
+  return hasPermission(session, ORG_PERMISSIONS.downloadLogView)
+}
+
 /**
  * May open the Access tab: the member directory, the role catalog and the
  * WorkOS Users widget that invites, re-roles and removes people.

@@ -5,6 +5,7 @@ Drives the inner ``_remember`` function (the one yielded as a NAT
 result strings can be asserted without a real internal API.
 """
 
+import json
 from unittest.mock import MagicMock
 
 import pytest
@@ -301,3 +302,162 @@ class TestToolVocabulary:
         async with project_memory_remember(ProjectMemoryRememberConfig(), MagicMock()) as info:
             with pytest.raises(ValidationError):
                 info.input_schema(kind="decision", content="x", scope="global")
+
+
+# ADR-0087: a turn whose scope holds a restricted folder's collection still
+# remembers; what it writes is restricted memory, never organization memory, and
+# never a confirmation card (an accepted card is an open write by another door).
+_RESTRICTED = "proj_abc_r0123456789ab"
+_RESTRICTED_SCOPE = ["oib_knowledge", "proj_abc", _RESTRICTED, "s_c1"]
+_CONTRACT_ROW = {"collection": _RESTRICTED, "file_name": "Honorarvertrag.pdf", "summary": "Honorar 184.000 EUR"}
+
+
+def _patch_scope(monkeypatch, scope):
+    from aiq_agent.knowledge import scoping
+
+    monkeypatch.setattr(scoping, "get_collection_scope_from_context", lambda: scope)
+
+
+def _patch_turn(monkeypatch, *, read=(), rows=(_CONTRACT_ROW,), judge=None):
+    """Bind what the turn read and could list, and the judge model it resolves."""
+    from aiq_agent.common import citation_verification as cv
+    from aiq_agent.knowledge import inventory
+
+    monkeypatch.setattr(cv, "get_turn_captures", lambda: [cv.SourceEntry(collection=name) for name in read])
+    monkeypatch.setattr(cv, "get_session_registry", lambda: None)
+    monkeypatch.setattr(inventory, "get_turn_documents", lambda: tuple(rows))
+    monkeypatch.setattr(register, "_turn_judge_llm", lambda _base: judge)
+
+
+class _Judge:
+    def __init__(self, documents_per_note):
+        self._reply = json.dumps({"notes": [{"note": 1, "documents": documents_per_note}]})
+
+    def bind(self, **_kwargs):
+        return self
+
+    async def ainvoke(self, _messages):
+        return type("_R", (), {"content": self._reply})()
+
+
+@pytest.mark.asyncio
+async def test_a_finding_from_a_read_restricted_folder_is_restricted_memory(monkeypatch):
+    _patch_context(monkeypatch)
+    _patch_scope(monkeypatch, _RESTRICTED_SCOPE)
+    _patch_turn(monkeypatch, read=[_RESTRICTED])
+    insert = MagicMock(return_value="item-1")
+    result = await _remember(monkeypatch, insert)
+    assert insert.call_args.kwargs["restricted_collections"] == (_RESTRICTED,)
+    assert insert.call_args.kwargs["scope"] == "project"
+    assert result.startswith("Recorded derived_fact in project memory.")
+    assert "restricted" in result
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("judge", "expected"), [(_Judge([1]), (_RESTRICTED,)), (_Judge([]), None), (None, (_RESTRICTED,))]
+)
+async def test_a_listed_but_unread_folder_is_judged(monkeypatch, judge, expected):
+    """Yes restricts, no leaves it open, no judge at all fails closed."""
+    _patch_context(monkeypatch)
+    _patch_scope(monkeypatch, _RESTRICTED_SCOPE)
+    _patch_turn(monkeypatch, judge=judge)
+    insert = MagicMock(return_value="item-1")
+    await _remember(monkeypatch, insert)
+    assert insert.call_args.kwargs["restricted_collections"] == expected
+
+
+@pytest.mark.asyncio
+async def test_a_paraphrase_of_restricted_memory_in_the_digest_is_restricted(monkeypatch):
+    """The judge sees the digest's restricted lines; drawing on one restricts to all of the scope."""
+    _patch_context(monkeypatch)
+    _patch_scope(monkeypatch, _RESTRICTED_SCOPE)
+    _patch_turn(monkeypatch, rows=({"collection": "proj_abc", "file_name": "Plan.pdf"},), judge=_Judge([1]))
+    token = pm.begin_turn_memory_log('- [restricted | decision | high | unverified] "Honorar pauschal 184.000"')
+    try:
+        insert = MagicMock(return_value="item-1")
+        await _remember(monkeypatch, insert, content="Das Honorar ist pauschal.")
+    finally:
+        pm.end_turn_memory_log(token)
+    assert insert.call_args.kwargs["restricted_collections"] == (_RESTRICTED,)
+
+
+@pytest.mark.asyncio
+async def test_a_restricted_organization_finding_is_kept_as_restricted_project_memory(monkeypatch):
+    _patch_context(monkeypatch)
+    _patch_scope(monkeypatch, _RESTRICTED_SCOPE)
+    _patch_turn(monkeypatch, read=[_RESTRICTED])
+    insert = MagicMock(return_value="item-1")
+    result = await _remember(monkeypatch, insert, scope="organization")
+    kwargs = insert.call_args.kwargs
+    assert (kwargs["scope"], kwargs["project_id"], kwargs["restricted_collections"]) == (
+        "project",
+        "p1",
+        (_RESTRICTED,),
+    )
+    assert "not organization-wide" in result
+
+
+@pytest.mark.asyncio
+async def test_a_restricted_organization_finding_without_a_project_is_not_saved(monkeypatch):
+    _patch_context(monkeypatch, project_id=None)
+    _patch_scope(monkeypatch, _RESTRICTED_SCOPE)
+    _patch_turn(monkeypatch, read=[_RESTRICTED])
+    insert = MagicMock(return_value="item-1")
+    result = await _remember(monkeypatch, insert, scope="organization")
+    assert "NOT saved" in result
+    insert.assert_not_called()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("scope", ["project", "organization"])
+async def test_a_failed_restricted_write_never_becomes_a_card(monkeypatch, scope):
+    from aiq_agent.cards.registry import CardRegistry
+    from aiq_agent.cards.registry import reset_card_registry
+    from aiq_agent.cards.registry import set_card_registry
+
+    _patch_context(monkeypatch)
+    _patch_scope(monkeypatch, _RESTRICTED_SCOPE)
+    _patch_turn(monkeypatch, read=[_RESTRICTED])
+    insert = MagicMock(side_effect=pm.OrgMemoryDisabledError("disabled"))
+    reg = CardRegistry()
+    token = set_card_registry(reg)
+    try:
+        result = await _remember(monkeypatch, insert, scope=scope)
+    finally:
+        reset_card_registry(token)
+    assert "NOT saved" in result
+    assert reg.snapshot() == []
+
+
+@pytest.mark.asyncio
+async def test_an_open_scope_still_records(monkeypatch):
+    _patch_context(monkeypatch)
+    _patch_scope(monkeypatch, ["oib_knowledge", "proj_abc", "s_c1"])
+    insert = MagicMock(return_value="item-1")
+    assert await _remember(monkeypatch, insert) == "Recorded derived_fact in project memory."
+    insert.assert_called_once()
+    assert insert.call_args.kwargs["restricted_collections"] is None
+
+
+@pytest.mark.asyncio
+async def test_a_restricted_note_an_earlier_turn_was_shown_still_restricts(monkeypatch):
+    """ADR-0087: the note is gone from this turn's digest and no restricted row is
+    listable; what earlier turns were shown (bound by `turn_registries`) is still
+    evidence, and a copy of it is restricted to the note's own collection."""
+    from aiq_agent.memory.restriction import RestrictedNote
+    from aiq_agent.memory.shown_notes import ShownNotes
+    from aiq_agent.memory.shown_notes import bind_shown_notes
+    from aiq_agent.memory.shown_notes import unbind_shown_notes
+
+    _patch_context(monkeypatch)
+    _patch_scope(monkeypatch, _RESTRICTED_SCOPE)
+    # The judge answers "nothing": only the deterministic copy check can restrict.
+    _patch_turn(monkeypatch, rows=({"collection": "proj_abc", "file_name": "Plan.pdf"},), judge=_Judge([]))
+    token = bind_shown_notes(ShownNotes(notes=(RestrictedNote("Honorar pauschal 184.000 EUR netto", (_RESTRICTED,)),)))
+    try:
+        insert = MagicMock(return_value="item-1")
+        await _remember(monkeypatch, insert, content="Honorar pauschal 184.000 EUR netto")
+    finally:
+        unbind_shown_notes(token)
+    assert insert.call_args.kwargs["restricted_collections"] == (_RESTRICTED,)

@@ -1,0 +1,7 @@
+---
+security:
+  - >
+    The project file search now shows a passage from a folder not everyone may
+    read under its own document in that folder. When a file of the same name
+    also sat in an open folder, the passage could appear under the open file
+    instead, without the restricted folder it came from.

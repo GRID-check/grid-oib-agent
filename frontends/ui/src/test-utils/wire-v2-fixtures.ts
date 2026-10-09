@@ -44,3 +44,10 @@ export const eventOf = (raw: Record<string, unknown>): WireEvent => {
   if (!event) throw new Error(`not a v2 event: ${JSON.stringify(raw).slice(0, 200)}`)
   return event
 }
+
+/** A fixture file's lines as plain JSON, for files of cases rather than of frames (`stopped-cases.jsonl`). */
+export const wireFixtureLines = <T>(name: string): T[] =>
+  readFileSync(join(DIR, name), 'utf8')
+    .split('\n')
+    .filter((line) => line.trim())
+    .map((line) => JSON.parse(line) as T)

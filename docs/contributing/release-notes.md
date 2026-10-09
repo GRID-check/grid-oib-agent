@@ -10,15 +10,15 @@ register.
 - **Tool:** [reno](https://docs.openstack.org/reno/latest/), OpenStack's release-note
   manager. One YAML file per change, under `releasenotes/notes/`.
 - **Rule:** [AGENTS.md](../../AGENTS.md), the "Change what a customer can notice"
-  row. Enforced on every PR by the **Release note** job in
-  [`ci.yml`](../../.github/workflows/ci.yml), which goes by file, not by what
+  row. Enforced on every PR by the release-note step of the **Repo checks** job
+  in [`ci.yml`](../../.github/workflows/ci.yml), which goes by file, not by what
   the diff does: a PR that touches a product file
   ([`ci/require_release_note.py`](../../ci/require_release_note.py)) and adds
   no note fails. A note in any section counts, an internal one included, so a
   security or severe fix satisfies the check without reaching the page. A
   change no user can notice, a comment or a refactor, takes the
   `no-release-note` label instead. The job reads the label when it runs, so
-  a label added after the push needs only a re-run of the **Release note**
+  a label added after the push needs only a re-run of the **Repo checks**
   job, not a new commit.
 - **Destination:** `https://piloti.at/changelog` (de) and `/en/changelog` (en).
 - **Reader:** the architect using Piloti. Not the reviewer of your diff, and not

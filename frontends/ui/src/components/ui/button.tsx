@@ -26,7 +26,7 @@ const buttonVariants = cva(
   // curve (`--motion-snap`). One `duration-*` utility could not say that, and
   // running the press at the colour's duration is what made the dip read as a
   // lag rather than as the button giving way.
-  "inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-md text-sm font-medium transition-[color,background-color,box-shadow,transform] [transition-duration:var(--motion-quick),var(--motion-quick),var(--motion-quick),var(--motion-snap)] ease-out active:scale-[0.98] motion-reduce:transition-none motion-reduce:active:scale-100 disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4 outline-none pointer-coarse:min-w-11 aria-invalid:ring-destructive/20 aria-invalid:border-destructive " +
+  "inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-md text-sm font-medium transition-[color,background-color,box-shadow,transform] [transition-duration:var(--motion-quick),var(--motion-quick),var(--motion-quick),var(--motion-snap)] ease-out active:scale-[0.98] motion-reduce:transition-none motion-reduce:active:scale-100 disabled:pointer-events-none disabled:opacity-50 aria-busy:cursor-progress [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4 outline-none pointer-coarse:min-w-11 aria-invalid:ring-destructive/20 aria-invalid:border-destructive " +
     FOCUS_RING,
   {
     variants: {
@@ -74,9 +74,12 @@ export interface ButtonProps
    * In-flight. The spinner takes the leading icon's place — same 16px glyph in
    * the same slot — so the label neither moves nor disappears and the button
    * keeps its width; a button that swaps its label for a spinner makes the
-   * reader re-read it to find out what they just triggered. Also implies
-   * `disabled` (a second click would fire the action twice) and `aria-busy`,
-   * which is what actually tells a screen reader the wait is expected.
+   * reader re-read it to find out what they just triggered. A second press is
+   * swallowed (it would fire the action twice), but the button is NOT
+   * `disabled`: Chrome blurs a focused element the moment it is disabled, so
+   * the keyboard reader who pressed it was dropped onto `<body>` and a dialog
+   * opened by it remembered nowhere to return focus to. `aria-disabled` and
+   * `aria-busy` say the same thing to assistive tech and keep the focus.
    *
    * Ignored under `asChild`: Slot takes exactly one child, so there is nowhere
    * to put the spinner without the caller composing it themselves.
@@ -85,8 +88,25 @@ export interface ButtonProps
 }
 
 const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
-  ({ className, variant, size, asChild = false, loading = false, disabled, children, ...props }, ref) => {
+  (
+    {
+      className,
+      variant,
+      size,
+      asChild = false,
+      loading = false,
+      disabled,
+      children,
+      onClick,
+      'aria-disabled': ariaDisabled,
+      'aria-busy': ariaBusy,
+      ...props
+    },
+    ref
+  ) => {
     const Comp = asChild ? Slot : 'button'
+    // `loading` is ignored under `asChild` (see the prop), all of it: no
+    // spinner, no aria state, no swallowed click.
     const showSpinner = loading && !asChild
     // `children` is passed through UNTOUCHED unless the spinner is actually
     // rendered: under `asChild`, Slot demands exactly one element child, and
@@ -113,9 +133,18 @@ const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
           className
         )}
         ref={ref}
-        disabled={disabled || loading || undefined}
-        aria-busy={loading || undefined}
+        disabled={disabled || undefined}
         {...props}
+        // After the spread and merged, never overridden: a caller's explicit
+        // `aria-disabled={false}` must not announce a loading button as
+        // pressable while its press is being swallowed.
+        aria-disabled={showSpinner || ariaDisabled || undefined}
+        aria-busy={showSpinner || ariaBusy || undefined}
+        onClick={
+          showSpinner
+            ? (event: React.MouseEvent<HTMLButtonElement>) => event.preventDefault()
+            : onClick
+        }
       >
         {content}
       </Comp>
