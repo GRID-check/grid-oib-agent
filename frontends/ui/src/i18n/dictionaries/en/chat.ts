@@ -1248,4 +1248,20 @@ export const chat = {
     copied: 'Copied',
     failed: 'Message could not be copied',
   },
+  /**
+   * Sensitive data in chat (ADR-0086): what the composer reports before sending.
+   * The placeholders themselves are domain data and come from `content-screen.ts`.
+   */
+  screening: {
+    title: 'Contains {items} (Sensitive data).',
+    body: 'Piloti does not send this to the answering model.',
+    preview: 'The model sees: “{text}”',
+    iban: '{count, plural, one {an IBAN} other {# IBANs}}',
+    at_svnr: '{count, plural, one {a social security number} other {# social security numbers}}',
+    credit_card: '{count, plural, one {a card number} other {# card numbers}}',
+    term: 'the term “{term}”',
+    withSample: '{item} {sample}',
+    sendMasked: 'Send masked',
+    edit: 'Edit',
+  },
 }

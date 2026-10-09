@@ -60,6 +60,8 @@ class ConversationState(BaseModel):
             withdraws the hand-off before it is proposed.
         tasks_allowed: Whether the tenant may have work handed over via
             `create_task` (the `task-automation` flag, resolved per turn).
+        confined: Whether this turn's signed scope holds a restricted folder's
+            collection (ADR-0087), which withdraws both of the above.
     """
 
     messages: Annotated[list[AnyMessage], add_messages]
@@ -124,6 +126,12 @@ class ConversationState(BaseModel):
     # allowed one and not the other, which is why `task-automation` is its own
     # WorkOS flag rather than a second reading of `deep-research` or of `skills`.
     tasks_allowed: bool = True
+    # PER TURN: the turn's signed scope holds a restricted folder's collection
+    # (ADR-0087). Nothing from such a conversation may reach a colleague not
+    # cleared for the folder, so the register layer also withdraws deep research
+    # and tasks for the turn; this says WHY, so the prompt and the refusal note
+    # give the reader the right reason. Turn-scoped like the two above.
+    confined: bool = False
     project_context: str | None = None
     # The bounded PLATFORM_LESSONS digest — anonymized failure patterns
     # distilled from user down-votes across the whole platform

@@ -57,6 +57,9 @@ import {
   useIconSwapTransition,
 } from '@/components/motion'
 import { useWebSocketChat, useChatStore, useIsCurrentSessionBusy } from '@/features/chat'
+import { ChatScreeningNotice } from '@/features/chat/components/ChatScreeningNotice'
+import { useChatScreening } from '@/features/chat/hooks/use-chat-screening'
+import type { MaskedText } from '@/lib/upload-screening/content-screen'
 import { composerCapabilities } from '@/features/collaboration/lib/composer-capabilities'
 import { resolveAddressee, sendMessageOptions } from '@/features/collaboration/lib/composer-routing'
 import { EffortDial } from '@/features/chat/components/effort-dial'
@@ -101,6 +104,7 @@ import {
   type MentionQuery,
 } from '@/features/collaboration/lib/mention-text'
 import { MENTION_ERROR_REASONS, type MentionCandidate } from '@/lib/mentions/types'
+import { SHARING_ERROR_REASONS } from '@/lib/sharing/types'
 import { InvokedSkillChip } from '@/features/skills/components/InvokedSkillChip'
 import { SlashCommandPicker } from '@/features/skills/components/SlashCommandPicker'
 import { useSlashCommand } from '@/features/skills/hooks/use-slash-command'
@@ -108,6 +112,18 @@ import type { SendMessageOutcome } from '@/features/chat/hooks/use-websocket-cha
 
 /** Connection mode for the chat */
 export type ConnectionMode = 'sse' | 'websocket'
+
+/**
+ * A message the composer did not send because it contains something the
+ * office's „Sensible Daten" policy covers (ADR-0086): what was typed, what it
+ * would be masked to, and — when the send was a resumed upload hold — the
+ * held text it came from.
+ */
+interface ScreeningHold {
+  original: string
+  masked: MaskedText
+  heldText?: string
+}
 
 /**
  * Normalise whatever `sendMessage` returned.
@@ -153,6 +169,12 @@ function mentionRefusalMessage(
       return tCollab('mentions.errors.containerAccessRequired', { name })
     case MENTION_ERROR_REASONS.rateLimited:
       return tCollab('mentions.errors.rateLimited')
+    // Mentioning someone new invites them, and a thread that drew on a
+    // restricted folder reaches only people cleared for it (ADR-0087).
+    case SHARING_ERROR_REASONS.restrictedContent:
+      return name
+        ? tCollab('sharing.errors.restrictedContent', { name })
+        : tCollab('sharing.errors.restrictedContentSomeone')
     default:
       return null
   }
@@ -566,6 +588,10 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
    * and reads as Piloti being careful rather than as Piloti being slow.
    */
   const [heldForUpload, setHeldForUpload] = useState<string | null>(null)
+  // A message that matched the office's „Sensible Daten" (ADR-0086): shown,
+  // not sent, until the person picks „Maskiert senden" or „Bearbeiten".
+  const [screeningHold, setScreeningHold] = useState<ScreeningHold | null>(null)
+  const screenChat = useChatScreening()
 
   // An upload into this chat IS the thing the next send is about. Without a
   // subject the agent never receives focus_file_name and walks project +
@@ -997,6 +1023,9 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
       }
 
       setMessage(value)
+      // The notice describes the text it was raised for; an edit retires it,
+      // and the next send screens the new text.
+      setScreeningHold(null)
       // Persist the draft under the active session (once one exists) so it
       // survives navigating away/back and a reload.
       if (sessionId) setComposerDraft(sessionId, value)
@@ -1181,14 +1210,29 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
    *   `heldForUpload`). Passed explicitly because it is no longer in `message`
    *   by the time the uploads settle, and a state round-trip to put it back
    *   would send whatever the user had started typing since.
+   * @param maskedText  The person's „Maskiert senden" on a screening hold: the
+   *   message with every match replaced, sent instead of what was typed.
    */
-  const handleSubmit = useCallback(async (heldText?: string) => {
-    const source = heldText ?? message
+  const handleSubmit = useCallback(async (heldText?: string, maskedText?: string) => {
+    const source = maskedText ?? heldText ?? message
     if (!source.trim() || disabled) return
     // Backstop for a send that never saw a focus event (prefill, deep link). A no-op
     // when focus already declared it.
     noteSendIntent()
     const currentMessage = source.trim()
+
+    // The office's „Sensible Daten" (ADR-0086). A match is never sent as typed:
+    // the composer says what it found and the person chooses — masked, or back
+    // to the editor with the text untouched. Before the HITL branch, so an
+    // answer to Piloti's question is screened like a question. Masking is
+    // idempotent, so the masked text passes this check when it comes back in.
+    if (maskedText === undefined) {
+      const screened = screenChat(currentMessage)
+      if (screened.findings.length > 0) {
+        setScreeningHold({ original: currentMessage, masked: screened, heldText })
+        return
+      }
+    }
     // Capture the session up front — the draft is cleared against THIS id on a
     // successful send, even if the session changes underneath us mid-await.
     const submittingSessionId = currentConversationId
@@ -1312,6 +1356,7 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
     respondToInteraction,
     sendMessage,
     noteSendIntent,
+    screenChat,
     threadAwaitsHuman,
     // handleSubmit resolves the addressee, which reads the flag — a stale value
     // would route a send against a state the user is no longer in.
@@ -1339,6 +1384,23 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
     setHeldForUpload(null)
     void handleSubmit(text)
   }, [heldForUpload, pendingCount, handleSubmit])
+
+  /** „Maskiert senden": the held message goes out with every match replaced. */
+  const sendScreenedMasked = useCallback(() => {
+    if (screeningHold === null) return
+    setScreeningHold(null)
+    void handleSubmit(screeningHold.heldText, screeningHold.masked.text)
+  }, [screeningHold, handleSubmit])
+
+  /** „Bearbeiten": nothing is sent; the text is where the person left it. */
+  const editScreened = useCallback(() => {
+    if (screeningHold === null) return
+    setScreeningHold(null)
+    // A resumed upload hold had already left the editor: put it back, unless
+    // the person has started something new there since.
+    if (screeningHold.heldText !== undefined && !message.trim()) setMessage(screeningHold.original)
+    textareaRef.current?.focus()
+  }, [screeningHold, message])
 
   /** Give up waiting and ask now, without the file. */
   const sendHeldNow = useCallback(() => {
@@ -1958,6 +2020,18 @@ export const InputArea: FC<InputAreaProps> = memo(function InputArea({
                     : undefined
               }
             />
+
+            {/* „Sensible Daten" (ADR-0086): what the screen found in the message
+            that was not sent, and the only two ways on. Under the textarea, which
+            still holds the text as typed. */}
+            {screeningHold && (
+              <ChatScreeningNotice
+                findings={screeningHold.masked.findings}
+                maskedText={screeningHold.masked.text}
+                onSendMasked={sendScreenedMasked}
+                onEdit={editScreened}
+              />
+            )}
 
             {/* The skill this message invokes, if any. Under the textarea and above
             the control row, where the file chips sit: both answer "what is

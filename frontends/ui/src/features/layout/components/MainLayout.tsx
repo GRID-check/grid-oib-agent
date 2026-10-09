@@ -24,6 +24,7 @@ import { SessionsPanel } from './SessionsPanel'
 import { ChatArea } from './ChatArea'
 import { ComposerScrim } from './ComposerScrim'
 import { InputArea } from './InputArea'
+import { RightsLostPanel } from './RightsLostPanel'
 import { useChatStore, NoSourcesBanner } from '@/features/chat'
 import { useSessionUrl } from '@/hooks/use-session-url'
 import { documentDisplayName } from '@/lib/documents/display-name'
@@ -96,6 +97,7 @@ export const MainLayout: FC<MainLayoutProps> = ({
   const {
     currentConversationId,
     currentConversationTitle,
+    currentConversationLocked,
     messageCount,
     isStreaming,
     pendingInteraction,
@@ -105,6 +107,7 @@ export const MainLayout: FC<MainLayoutProps> = ({
     useShallow((s) => ({
       currentConversationId: s.currentConversation?.id,
       currentConversationTitle: s.currentConversation?.title,
+      currentConversationLocked: s.currentConversation?.contentLocked === true,
       messageCount: s.currentConversation?.messages?.length ?? 0,
       isStreaming: s.isStreaming,
       pendingInteraction: s.pendingInteraction,
@@ -251,54 +254,63 @@ export const MainLayout: FC<MainLayoutProps> = ({
             </button>
           )}
 
-          {/* Chat Area - Scrollable, extends behind the floating composer AND
+          {/* A chat the reader may no longer read has no transcript and no
+              composer here (ADR-0088): nothing of it is mounted, so nothing of
+              it is fetched or drawn. */}
+          {currentConversationLocked ? (
+            <RightsLostPanel />
+          ) : (
+            <>
+              {/* Chat Area - Scrollable, extends behind the floating composer AND
               the floating toolbar */}
-          <ChatArea
-            isAuthenticated={isAuthenticated}
-            onSignIn={onSignIn}
-            showConfidenceChip={showConfidenceChip}
-            showAnswerFeedback={showAnswerFeedback}
-            canCollaborate={canCollaborate}
-          />
+              <ChatArea
+                isAuthenticated={isAuthenticated}
+                onSignIn={onSignIn}
+                showConfidenceChip={showConfidenceChip}
+                showAnswerFeedback={showAnswerFeedback}
+                canCollaborate={canCollaborate}
+              />
 
-          {/* The scrims under and above the floating composer (`ComposerScrim`). */}
-          <ComposerScrim threadEmpty={isThreadEmpty} />
+              {/* The scrims under and above the floating composer (`ComposerScrim`). */}
+              <ComposerScrim threadEmpty={isThreadEmpty} />
 
-          {/* Floating composer stack: overlays the bottom of the chat scroll
+              {/* Floating composer stack: overlays the bottom of the chat scroll
               area instead of docking below it, so messages scroll behind the
               translucent input. ChatArea pads its bottom to keep the last
               message readable above it. Narrower than the message column
               (max-w-4xl inside — see InputArea) and given its own glass
               surface, so it reads as a distinct floating object rather than
               a same-width continuation of the transcript above it. */}
-          <motion.div
-            ref={composerRef}
-            className="absolute inset-x-0 z-10 flex flex-col"
-            style={composerStyle}
-            // The composer TRAVELS between the two places it lives. On an empty
-            // canvas it sits with the greeting in the middle of the column; the
-            // first message sends it to the floor, and before this it got there
-            // between two frames — the input the reader had just been typing in
-            // vanished and an identical one appeared somewhere else. A move is
-            // what says those are the same object. The rules for when that move
-            // is real, and why it is a transform, are in `useComposerMetrics`.
-            {...composerMotion}
-          >
-            {/* No sources warning - shown when no data sources or files available */}
-            <NoSourcesBanner isAuthenticated={isAuthenticated} />
+              <motion.div
+                ref={composerRef}
+                className="absolute inset-x-0 z-10 flex flex-col"
+                style={composerStyle}
+                // The composer TRAVELS between the two places it lives. On an empty
+                // canvas it sits with the greeting in the middle of the column; the
+                // first message sends it to the floor, and before this it got there
+                // between two frames — the input the reader had just been typing in
+                // vanished and an identical one appeared somewhere else. A move is
+                // what says those are the same object. The rules for when that move
+                // is real, and why it is a transform, are in `useComposerMetrics`.
+                {...composerMotion}
+              >
+                {/* No sources warning - shown when no data sources or files available */}
+                <NoSourcesBanner isAuthenticated={isAuthenticated} />
 
-            {/* Input Area - Using WebSocket mode for full HITL (human-in-the-loop) support */}
-            <InputArea
-              isAuthenticated={isAuthenticated}
-              connectionMode="websocket"
-              projectName={projectName ?? undefined}
-              // Gates the composer's addressee statement (and the hand-off read
-              // behind it). False — the default — is byte-for-byte today's
-              // composer (spec NF-8).
-              canCollaborate={canCollaborate}
-              canChatInProject={canChatInProject}
-            />
-          </motion.div>
+                {/* Input Area - Using WebSocket mode for full HITL (human-in-the-loop) support */}
+                <InputArea
+                  isAuthenticated={isAuthenticated}
+                  connectionMode="websocket"
+                  projectName={projectName ?? undefined}
+                  // Gates the composer's addressee statement (and the hand-off read
+                  // behind it). False — the default — is byte-for-byte today's
+                  // composer (spec NF-8).
+                  canCollaborate={canCollaborate}
+                  canChatInProject={canChatInProject}
+                />
+              </motion.div>
+            </>
+          )}
         </div>
       </div>
 

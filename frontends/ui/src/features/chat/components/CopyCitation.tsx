@@ -31,6 +31,7 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuItemText,
   DropdownMenuLabel,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
@@ -224,12 +225,10 @@ export const CopyCitationsMenu: FC<{ citations: CitationRef[] }> = ({ citations 
         </DropdownMenuLabel>
         {CITATION_FORMATS.map((format) => (
           <DropdownMenuItem key={format} onSelect={() => void handleCopy(format)}>
-            <span className="flex min-w-0 flex-col">
-              <span className="text-sm">{t(`answerSources.formats.${format}.label`)}</span>
-              <span className="text-muted-foreground text-xs">
-                {t(`answerSources.formats.${format}.hint`)}
-              </span>
-            </span>
+            <DropdownMenuItemText
+              title={t(`answerSources.formats.${format}.label`)}
+              hint={t(`answerSources.formats.${format}.hint`)}
+            />
           </DropdownMenuItem>
         ))}
       </DropdownMenuContent>

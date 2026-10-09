@@ -183,6 +183,22 @@ describe('ProjectFileWorkspace', () => {
     expect(screen.queryByRole('heading', { name: 'Test' })).toBeNull()
   })
 
+  it('offers no upload where the reader may only read (ADR-0088), and takes no dropped file there', () => {
+    renderWorkspace(
+      <ProjectFileWorkspace
+        projectId="proj-1"
+        projectName="Test"
+        collectionName="test-coll"
+        initialFolders={[]}
+        initialRootAccess="read"
+      />,
+    )
+    expect(screen.queryByTestId('project-upload-input')).toBeNull()
+    const dataTransfer = makeDataTransfer([new File(['x'], 'plan.pdf', { type: 'application/pdf' })])
+    fireEvent.dragEnter(screen.getByTestId('workspace-dropzone'), { dataTransfer })
+    expect(screen.queryByTestId('workspace-drop-overlay')).toBeNull()
+  })
+
   it('shows the drop overlay on dragover of a supported file', () => {
     renderWorkspace(<ProjectFileWorkspace projectId="proj-1" projectName="Test" collectionName="test-coll" />)
     const dropzone = screen.getByTestId('workspace-dropzone')
@@ -210,7 +226,7 @@ describe('ProjectFileWorkspace', () => {
     // the handler captures entries synchronously and hands over the files
     // afterwards. A plain file drop still ends in exactly this call.
     await waitFor(() => expect(mockUploadFiles).toHaveBeenCalledTimes(1))
-    expect(mockUploadFiles).toHaveBeenCalledWith([file])
+    expect(mockUploadFiles).toHaveBeenCalledWith([file], expect.objectContaining({ folderPathFor: expect.any(Function) }))
     // Overlay clears after drop.
     expect(screen.queryByTestId('workspace-drop-overlay')).not.toBeInTheDocument()
   })
@@ -227,7 +243,7 @@ describe('ProjectFileWorkspace', () => {
 
     fireEvent.drop(dropzone, { dataTransfer })
     // Same contract as the button: files still flow to uploadFiles, which validates.
-    await waitFor(() => expect(mockUploadFiles).toHaveBeenCalledWith([badFile]))
+    await waitFor(() => expect(mockUploadFiles).toHaveBeenCalledWith([badFile], expect.objectContaining({ folderPathFor: expect.any(Function) })))
   })
 
   it('uploads a drop made elsewhere in the project once it arrives, and only once', async () => {
@@ -240,7 +256,7 @@ describe('ProjectFileWorkspace', () => {
       <ProjectFileWorkspace projectId="proj-1" projectName="Test" collectionName="test-coll" />
     )
 
-    await waitFor(() => expect(mockUploadFiles).toHaveBeenCalledWith([file]))
+    await waitFor(() => expect(mockUploadFiles).toHaveBeenCalledWith([file], expect.objectContaining({ folderPathFor: expect.any(Function) })))
     unmount()
     renderWorkspace(<ProjectFileWorkspace projectId="proj-1" projectName="Test" collectionName="test-coll" />)
     await new Promise((resolve) => setTimeout(resolve, 0))
@@ -271,6 +287,28 @@ describe('ProjectFileWorkspace', () => {
  * the plan that replaced that: what it says, what the reader decides, and where
  * the files actually go.
  */
+describe('ProjectFileWorkspace — the mail import action', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    searchParams = new URLSearchParams()
+    resetPreviewStore()
+  })
+
+  const workspace = (rootAccess?: 'read' | 'write') => (
+    <ProjectFileWorkspace projectId="proj-1" projectName="Test" collectionName="test-coll" mailImportEnabled initialRootAccess={rootAccess} />
+  )
+
+  it('offers the import to a reader who may write at the project root, where it files its folder', () => {
+    renderWorkspace(workspace('write'))
+    expect(screen.getByTestId('mail-import-trigger')).toBeDefined()
+  })
+
+  it('hides it from a reader whose root access is read (ADR-0088)', () => {
+    renderWorkspace(workspace('read'))
+    expect(screen.queryByTestId('mail-import-trigger')).toBeNull()
+  })
+})
+
 describe('ProjectFileWorkspace — a dropped folder', () => {
   const existing: DocumentWireRow = {
     id: 'doc-eg',
@@ -508,7 +546,7 @@ describe('ProjectFileWorkspace — a dropped folder', () => {
     Object.defineProperty(input, 'files', { value: [file], configurable: true })
     fireEvent.change(input)
 
-    await waitFor(() => expect(mockUploadFiles).toHaveBeenCalledWith([file]))
+    await waitFor(() => expect(mockUploadFiles).toHaveBeenCalledWith([file], expect.objectContaining({ folderPathFor: expect.any(Function) })))
     expect(screen.queryByTestId('folder-upload-dialog')).not.toBeInTheDocument()
   })
 })
@@ -678,7 +716,7 @@ describe('ProjectFileWorkspace — a picked file the project already holds', () 
     const fresh = new File(['x'], 'Neu.pdf', { type: 'application/pdf' })
     pick(fresh)
 
-    await waitFor(() => expect(mockUploadFiles).toHaveBeenCalledWith([fresh]))
+    await waitFor(() => expect(mockUploadFiles).toHaveBeenCalledWith([fresh], expect.objectContaining({ folderPathFor: expect.any(Function) })))
     expect(probedNames).toEqual([['Neu.pdf']])
     expect(screen.queryByTestId('folder-upload-dialog')).not.toBeInTheDocument()
   })
@@ -905,6 +943,25 @@ describe('ProjectFileWorkspace — dragging a file into a folder', () => {
     expect(patched[0]).toMatchObject({ url: 'doc-1', body: { folderId: 'folder-1' } })
   })
 
+  it('says why when the server refuses an IFC model into a restricted folder (ADR-0087)', async () => {
+    server.use(
+      http.patch('/api/documents/:id/folder', () =>
+        HttpResponse.json({ error: 'IFC models cannot be filed in a restricted folder yet', code: 'CONFLICT' }, { status: 409 })
+      )
+    )
+    renderWorkspace(
+      <ProjectFileWorkspace projectId="proj-1" projectName="Test" collectionName="test-coll" />
+    )
+
+    const folder = await screen.findByTestId('folder-card-folder-1')
+    fireEvent.dragOver(folder, { dataTransfer: dragTransfer('doc-1') })
+    fireEvent.drop(folder, { dataTransfer: dragTransfer('doc-1') })
+
+    await waitFor(() =>
+      expect(toastError).toHaveBeenCalledWith(expect.stringContaining('cannot be filed in a folder not everyone may read yet'))
+    )
+  })
+
   it('does not raise the upload overlay for a drag that started in the page', async () => {
     renderWorkspace(
       <ProjectFileWorkspace projectId="proj-1" projectName="Test" collectionName="test-coll" />
@@ -999,6 +1056,23 @@ describe('ProjectFileWorkspace — dragging a folder into a folder', () => {
 
     await waitFor(() => expect(patched).toHaveLength(1))
     expect(patched[0]).toMatchObject({ url: 'f-a', body: { parentId: 'f-b' } })
+  })
+
+  it('says why when the server refuses moving IFC models under a restriction (ADR-0087)', async () => {
+    server.use(
+      http.patch('/api/projects/:projectId/folders/:folderId', () =>
+        HttpResponse.json({ error: 'IFC models cannot be filed in a restricted folder yet', code: 'CONFLICT' }, { status: 409 })
+      )
+    )
+    renderWithFolders()
+    const target = screen.getByTestId('folder-card-f-b')
+
+    fireEvent.dragOver(target, { dataTransfer: folderDragTransfer('f-a') })
+    fireEvent.drop(target, { dataTransfer: folderDragTransfer('f-a') })
+
+    await waitFor(() =>
+      expect(toastError).toHaveBeenCalledWith(expect.stringContaining('cannot be filed in a folder not everyone may read yet'))
+    )
   })
 
   it('refuses a folder dropped on itself', async () => {

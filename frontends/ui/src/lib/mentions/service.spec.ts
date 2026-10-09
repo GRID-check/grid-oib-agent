@@ -17,6 +17,14 @@ vi.mock('@/lib/sharing/access', () => ({
   requireResourceAccess: vi.fn(),
 }))
 
+// Who may read what a conversation recorded is `restricted-use.spec.ts`'s subject;
+// here it is the answer each test sets (default: everybody).
+vi.mock('@/lib/conversations/restricted-use', () => ({
+  peopleWhoMayRead: vi.fn(),
+  assertMayWidenConversation: vi.fn(),
+  widenConversationAudience: vi.fn(),
+}))
+
 vi.mock('@/lib/sharing/service', () => ({
   grantResourceAccess: vi.fn(),
   resolveParticipants: vi.fn(),
@@ -66,6 +74,7 @@ import { BadRequestError, ForbiddenError, NotFoundError } from '@/lib/api/errors
 import type { AuthorizedSession } from '@/lib/auth/types'
 import { filterUsersWithProjectAccess } from '@/lib/authz/project-membership'
 import { findConversationInOrg } from '@/lib/conversations/repository'
+import { peopleWhoMayRead } from '@/lib/conversations/restricted-use'
 import type { MentionRequest, ResourceRole } from '@/lib/db/schema'
 import { publishToUsers } from '@/lib/events/bus'
 import { emitInboxItems, resolveInboxItemsFor } from '@/lib/inbox/service'
@@ -95,6 +104,9 @@ const session = {
   userId: 'user_me',
   organizationId: 'org_1',
   email: 'me@grid.test',
+  role: 'member',
+  roles: ['member'],
+  permissions: [],
 } as unknown as AuthorizedSession
 
 const ANNA = 'user_anna'
@@ -132,6 +144,7 @@ function stubCallerRole(role: ResourceRole): void {
     visibility: 'private',
     container: { organizationId: 'org_1', projectId: 'proj_1' },
     canEscalate: false,
+    contentLocked: false,
   })
 }
 
@@ -147,6 +160,7 @@ function send(mentions: string[], extra: { note?: string; excerpt?: string } = {
 }
 
 beforeEach(() => {
+  vi.mocked(peopleWhoMayRead).mockImplementation(async (_org, _id, userIds) => new Set(userIds))
   stubCallerRole('owner')
   // Anna is already in the room; Bob and Carol are not.
   vi.mocked(resolveParticipants).mockResolvedValue(['user_me', ANNA])
@@ -672,5 +686,50 @@ describe('listShareCandidates', () => {
     await listShareCandidates(session, 'document', 'doc_1')
 
     expect(requireResourceAccess).toHaveBeenCalledWith(session, 'document', 'doc_1', 'owner')
+  })
+})
+
+describe('listShareCandidates: only people who can read what the chat drew on may be invited (ADR-0088)', () => {
+  beforeEach(() => {
+    stubCallerRole('owner')
+    // Anna is in the room; Bob and Carol reach the project, nobody else.
+    vi.mocked(filterUsersWithProjectAccess).mockResolvedValue(new Set([ANNA, BOB, CAROL]))
+  })
+
+  it('flags the person whose roles do not reach every recorded folder, and nobody else', async () => {
+    vi.mocked(peopleWhoMayRead).mockResolvedValue(new Set([BOB]))
+
+    const candidates = await listShareCandidates(session, 'conversation', 'conv_1')
+
+    const flagged = Object.fromEntries(candidates.map((candidate) => [candidate.person.userId, candidate.lacksFolderAccess]))
+    expect(flagged).toEqual({ [ANNA]: false, [BOB]: false, [CAROL]: true })
+  })
+
+  it('asks one bounded question about those who could otherwise be invited, as the caller', async () => {
+    vi.mocked(peopleWhoMayRead).mockResolvedValue(new Set())
+
+    await listShareCandidates(session, 'conversation', 'conv_1')
+
+    // Anna is already a participant; the caller is never a candidate.
+    expect(peopleWhoMayRead).toHaveBeenCalledTimes(1)
+    expect(vi.mocked(peopleWhoMayRead).mock.calls[0].slice(0, 3)).toEqual(['org_1', 'conv_1', [BOB, CAROL]])
+  })
+
+  it('does not ask about people who cannot reach the project at all: that reason comes first', async () => {
+    vi.mocked(filterUsersWithProjectAccess).mockResolvedValue(new Set([ANNA, BOB]))
+    vi.mocked(peopleWhoMayRead).mockResolvedValue(new Set())
+
+    const candidates = await listShareCandidates(session, 'conversation', 'conv_1')
+
+    expect(vi.mocked(peopleWhoMayRead).mock.calls[0][2]).toEqual([BOB])
+    const carol = candidates.find((candidate) => candidate.person.userId === CAROL)
+    expect(carol).toMatchObject({ needsProjectAccess: true, lacksFolderAccess: false })
+  })
+
+  it('says nothing about folders for a document, whose content no record judges', async () => {
+    const candidates = await listShareCandidates(session, 'document', 'doc_1')
+
+    expect(candidates.every((candidate) => candidate.lacksFolderAccess === undefined)).toBe(true)
+    expect(peopleWhoMayRead).not.toHaveBeenCalled()
   })
 })

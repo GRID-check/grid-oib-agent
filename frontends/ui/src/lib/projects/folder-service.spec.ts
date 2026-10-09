@@ -3,6 +3,14 @@
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
+vi.mock('@/lib/authz/folder-access', async () => (await import('@/test-utils/folder-access')).openFolderAccessModule())
+vi.mock('@/lib/authz/folder-access-repository', () => ({
+  listProjectDocumentCollections: vi.fn(async () => []),
+  listProjectFolderTree: vi.fn(async () => []),
+}))
+vi.mock('./collection-placement', () => ({
+  placeProjectDocuments: vi.fn(async () => ({ moved: 0, failed: [] })),
+}))
 vi.mock('@/lib/db', () => ({
   getDb: vi.fn(),
 }))
@@ -48,9 +56,13 @@ const row = (id: string) => ({
   parentId: null,
   name: 'Berichte',
   path: 'Berichte',
+  accessMode: 'inherit' as const,
   createdAt: new Date('2026-08-20T00:00:00Z'),
   updatedAt: new Date('2026-08-20T00:00:00Z'),
 })
+
+/** What the service answers for {@link row}: an inheriting folder has no own list. */
+const { accessMode: _accessMode, ...folderOf } = row('folder-new')
 
 /**
  * Get-or-create is two statements, and migration 0063's
@@ -98,7 +110,7 @@ describe('getOrCreateProjectFolderByName', () => {
 
     const folder = await getOrCreateProjectFolderByName('proj-1', 'Berichte', 'org-1')
 
-    expect(folder).toEqual(row('folder-new'))
+    expect(folder).toEqual(folderOf)
   })
 
   it('recovers the concurrent writer’s folder from a unique violation', async () => {

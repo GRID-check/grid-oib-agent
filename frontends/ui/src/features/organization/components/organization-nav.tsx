@@ -28,8 +28,11 @@ import { usePathname } from 'next/navigation'
 import {
   Building2,
   Cpu,
+  FileDown,
+  FileWarning,
   Gauge,
   HardDrive,
+  ScanSearch,
   ScrollText,
   ShieldCheck,
   Users,
@@ -51,6 +54,9 @@ export const ORGANIZATION_SECTIONS = [
   { key: 'models', href: '/app/organization/models', icon: Cpu },
   { key: 'budgets', href: '/app/organization/budgets', icon: Gauge },
   { key: 'storage', href: '/app/organization/storage', icon: HardDrive },
+  { key: 'screening', href: '/app/organization/screening', icon: ScanSearch },
+  { key: 'quarantine', href: '/app/organization/quarantine', icon: FileWarning },
+  { key: 'downloads', href: '/app/organization/download-log', icon: FileDown },
   { key: 'compliance', href: '/app/organization/compliance', icon: ScrollText },
   { key: 'enterprise', href: '/app/organization/enterprise', icon: ShieldCheck },
 ] as const satisfies readonly { key: string; href: string; icon: LucideIcon }[]

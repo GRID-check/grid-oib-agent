@@ -14,9 +14,11 @@
 import 'server-only'
 import { and, desc, eq, exists, inArray, isNotNull, isNull, ne, or, sql } from 'drizzle-orm'
 import { getDb } from '@/lib/db'
+import type { DbExecutor } from '@/lib/db/executor'
 import { stripJsonNullBytes } from '@/lib/text/jsonb'
 import {
   conversationReads,
+  conversationRestrictedFolders,
   conversations,
   deletionQueue,
   messages,
@@ -298,6 +300,11 @@ export async function conversationIdsExisting(ids: readonly string[]): Promise<S
 export async function findConversationTenancy(
   conversationId: string,
 ): Promise<Pick<Conversation, 'organizationId' | 'projectId' | 'visibility' | 'createdBy' | 'deletedAt'> | null> {
+  // No uuid guard here, unlike `findProjectTenancy`: `conversations.id` is TEXT
+  // and every id the app mints is `s_<uuid with underscores>`, which `isUuid`
+  // rejects. The guard that stood here (#813) answered null for every real
+  // conversation, so sharing 404'd and the WebSocket conversation gate passed
+  // everything as "not created yet". A text column cannot throw 22P02.
   const db = getDb()
   const [row] = await db
     .select({
@@ -321,9 +328,9 @@ export async function updateConversationVisibilityInOrg(
   conversationId: string,
   organizationId: string,
   visibility: ResourceVisibility,
+  executor: DbExecutor = getDb(),
 ): Promise<Conversation | null> {
-  const db = getDb()
-  const [row] = await db
+  const [row] = await executor
     .update(conversations)
     .set({ visibility, updatedAt: new Date() })
     .where(and(eq(conversations.id, conversationId), eq(conversations.organizationId, organizationId)))
@@ -490,15 +497,26 @@ export async function recordConversationErased(
 }
 
 /**
- * Delete a conversation (messages cascade). Tenant isolation lives in the
- * WHERE clause — deleting by id alone would let any signed-in user delete
- * another org's conversation by guessing ids.
+ * Delete a conversation (messages cascade) and the record of the restricted
+ * folders it drew on. Tenant isolation lives in the WHERE clause — deleting by
+ * id alone would let any signed-in user delete another org's conversation by
+ * guessing ids.
  */
 export async function deleteConversationInOrg(conversationId: string, organizationId: string): Promise<void> {
   const db = getDb()
   await db
     .delete(conversations)
     .where(and(eq(conversations.id, conversationId), eq(conversations.organizationId, organizationId)))
+  // The record has no foreign key (a first turn runs before the row exists),
+  // so it goes here, after the row it describes.
+  await db
+    .delete(conversationRestrictedFolders)
+    .where(
+      and(
+        eq(conversationRestrictedFolders.organizationId, organizationId),
+        eq(conversationRestrictedFolders.conversationId, conversationId),
+      ),
+    )
 }
 
 /**
@@ -524,6 +542,9 @@ export async function deleteConversationInOrg(conversationId: string, organizati
  * profile patch is not proposed again next turn (ADR-0030's open question).
  * Tenant-scoped through the conversation's organization, and bounded — a
  * project's whole history of decisions is not what the next turn needs.
+ * Conversations that drew on a restricted folder
+ * (`conversation_restricted_folders`) are left out: their cards may restate
+ * it, and this block is project-wide.
  */
 export async function listRecentMessagesWithCardDecisions(
   projectId: string,
@@ -541,6 +562,10 @@ export async function listRecentMessagesWithCardDecisions(
         eq(conversations.organizationId, organizationId),
         isNull(conversations.deletedAt),
         sql`${messages.metadata} ? 'cardInteractions'`,
+        // A conversation that drew on a restricted folder (ADR-0087) keeps its
+        // proposals to itself: the block is read into every member's digest,
+        // and a card's words can carry what a restricted folder said.
+        sql`not exists (select 1 from ${conversationRestrictedFolders} r where r.organization_id = ${conversations.organizationId} and r.conversation_id = ${conversations.id})`,
       ),
     )
     .orderBy(desc(messages.createdAt), desc(messages.id))

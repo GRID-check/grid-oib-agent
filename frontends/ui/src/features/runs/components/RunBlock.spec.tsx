@@ -598,6 +598,19 @@ describe('RunBlock — the documents the reader named', () => {
     expect(screen.queryByTestId('run-action-add-document')).not.toBeInTheDocument()
   })
 
+  it('says where the add was pressed that the document did not reach the run', () => {
+    const refusal = 'A document you named sits in a folder with restricted access …'
+    const { unmount } = render(
+      <RunBlock ledger={researching()} title={TITLE} onAddDocument={vi.fn()} addDocumentFailure={refusal} />
+    )
+    expect(screen.getByRole('alert')).toHaveTextContent(refusal)
+    expect(screen.getByTestId('run-add-document-failure')).toHaveClass('text-error')
+    unmount()
+
+    render(<RunBlock ledger={researching()} title={TITLE} onAddDocument={vi.fn()} addDocumentFailure={null} />)
+    expect(screen.queryByTestId('run-add-document-failure')).not.toBeInTheDocument()
+  })
+
   it('says nothing about documents when none was named', () => {
     render(<RunBlock ledger={researching()} title={TITLE} />)
     expect(screen.queryByTestId('run-grundlage')).not.toBeInTheDocument()

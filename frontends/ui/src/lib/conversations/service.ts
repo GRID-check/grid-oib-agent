@@ -67,7 +67,9 @@ import {
 import { sanitizeProvenance } from './message-provenance'
 import { answerMessageId, cutStoppedRow } from './stopped-cut'
 import { sanitizeStages } from './message-stages'
-import { sanitizePromptDetail, sanitizePromptState } from './message-prompt'
+import { sanitizePromptDetail, sanitizePromptState, type StoredPromptState } from './message-prompt'
+import { maskAnswerText, maskChatText } from '@/lib/upload-screening/service'
+import { lockedConversationIds } from './restricted-use'
 import { CONVERSATION_TAG_KEYS, normalizeConversationTags } from './tags'
 import {
   deleteConversationInOrg,
@@ -192,13 +194,33 @@ export interface ListConversationsFilter {
 export async function listConversations(
   session: AuthorizedSession,
   filter: ListConversationsFilter = {}
-): Promise<Conversation[]> {
+): Promise<ListedConversation[]> {
   if (filter.projectId) {
     await requireProjectAccess(session, filter.projectId, 'project:view')
   }
-  return listVisibleConversations(session.organizationId, session.userId, {
+  const rows = await listVisibleConversations(session.organizationId, session.userId, {
     projectId: filter.projectId,
   })
+  const locked = await lockedConversationIds(
+    session,
+    rows.map((row) => ({ id: row.id, projectId: row.projectId }))
+  )
+  return rows.map((row) => (locked.has(row.id) ? withheldConversation(row) : { ...row, contentLocked: false }))
+}
+
+/** A listed conversation, and whether its content is withheld from this caller. */
+export type ListedConversation = Conversation & { contentLocked: boolean }
+
+/**
+ * The row of a conversation the caller may no longer read (ADR-0088), as the
+ * list shows it: still theirs, still in the list, and nothing the content could
+ * have written. The title is model-written from the conversation, restricted
+ * folder content included, and the topic tags and the subject file come from the
+ * same place; the client shows its own neutral title. Judged per request, so a
+ * role given back brings the row back whole.
+ */
+function withheldConversation(row: Conversation): ListedConversation {
+  return { ...row, title: null, tags: [], subjectResourceType: null, subjectResourceId: null, contentLocked: true }
 }
 
 /**
@@ -350,9 +372,15 @@ export async function generateConversationTitle(
 ): Promise<GenerateConversationTitleResult> {
   await requireResourceAccess(session, 'conversation', conversationId, 'owner')
 
-  const messages = input.messages
-    .map((m) => ({ role: m.role, content: (m.content ?? '').trim() }))
-    .filter((m) => m.content.length > 0)
+  // The client sends the opening exchange itself, and it goes to a model: every
+  // turn is masked here as it is when stored, whatever role the client gave it.
+  const messages = (
+    await screenedInputs(
+      session.organizationId,
+      input.messages.map((m) => ({ role: m.role, content: (m.content ?? '').trim() })),
+      { wholeText: true }
+    )
+  ).filter((m) => m.content.length > 0)
   if (messages.length === 0) {
     return { title: '', tags: [] }
   }
@@ -446,7 +474,9 @@ async function authorizeConversationDelete(
   conversationId: string
 ): Promise<void> {
   try {
-    await requireResourceAccess(session, 'conversation', conversationId, 'owner')
+    // Deleting what is one's own reads none of it: an owner who may no longer
+    // read what the chat drew on can still remove it (ADR-0088).
+    await requireResourceAccess(session, 'conversation', conversationId, 'owner', { allowLocked: true })
     return
   } catch (error) {
     if (!(error instanceof NotFoundError)) throw error
@@ -728,7 +758,10 @@ export async function updateMessageDetail(
   }
 
   if (patch.promptState !== undefined) {
-    const promptState = sanitizePromptState(patch.promptState)
+    // What the person typed in answer to Piloti's question, or the plan they
+    // edited before approving it: stored masked (ADR-0086), because the stored
+    // thread is what later reaches a model.
+    const promptState = await screenedPromptState(session.organizationId, patch.promptState)
     if (promptState) metadata.promptState = promptState
   }
 
@@ -1005,10 +1038,68 @@ async function prepareMessage(
  * server decides, the client executes (ADR-0034). The array shape is unchanged,
  * so callers that ignore the ruling keep working.
  */
+/**
+ * What a client wrote, as it may be stored and handed on: each message's text
+ * (and the inbox note made from it, and a typed answer it carries) masked
+ * against the office's „Sensible Daten" policy (ADR-0086, "Chat messages are
+ * screened too").
+ *
+ * Every role, not only `user`: the role is the client's word, so a message a
+ * browser labels `assistant` can hold typed numbers like any other. A `user`
+ * message is masked in full; any other role against the number checks only
+ * (`maskAnswerText`), so Piloti's answer that names a listed term („keine
+ * Honorarvereinbarung") is stored as it read live. `wholeText` masks every
+ * role in full, for text that goes to a model (the title).
+ *
+ * The composer already masked and asked the person; this is the backstop for a
+ * client that did not (an old tab, a script, the API). Stored history is what
+ * title generation and memory reflection later send to a model, so it must not
+ * hold what the composer would have removed.
+ */
+async function screenedInputs<
+  T extends { role: string; content: string; mentionNote?: string | null; metadata?: Record<string, unknown> },
+>(organizationId: string, inputs: T[], options: { wholeText?: boolean } = {}): Promise<T[]> {
+  const mask = async (text: string): Promise<string> => (await maskChatText(organizationId, text)).text
+  const maskContent = async (input: T): Promise<string> =>
+    input.role === 'user' || options.wholeText
+      ? mask(input.content)
+      : (await maskAnswerText(organizationId, input.content)).text
+  return Promise.all(
+    inputs.map(async (input) => ({
+      ...input,
+      content: await maskContent(input),
+      ...(input.mentionNote ? { mentionNote: await mask(input.mentionNote) } : {}),
+      ...(input.metadata?.promptState !== undefined
+        ? {
+            metadata: {
+              ...input.metadata,
+              promptState: await screenedPromptState(organizationId, input.metadata.promptState),
+            },
+          }
+        : {}),
+    }))
+  )
+}
+
+/**
+ * A typed answer to Piloti's question (ADR-0037) as it may be stored: bounded
+ * by `sanitizePromptState`, then masked like any message (ADR-0086). The plan
+ * approval's edited plan arrives here too. `undefined` when nothing usable is
+ * left, so a caller writes nothing rather than an empty answer.
+ */
+async function screenedPromptState(
+  organizationId: string,
+  raw: unknown
+): Promise<StoredPromptState | undefined> {
+  const promptState = sanitizePromptState(raw)
+  if (!promptState) return undefined
+  return { ...promptState, response: (await maskChatText(organizationId, promptState.response)).text }
+}
+
 export async function createConversationMessages(
   session: AuthorizedSession,
   conversationId: string,
-  inputs: CreateMessageInput[]
+  unscreened: CreateMessageInput[]
 ): Promise<PersistedMessage[]> {
   const access = await requireResourceAccess(
     session,
@@ -1016,6 +1107,7 @@ export async function createConversationMessages(
     conversationId,
     'collaborator'
   )
+  const inputs = await screenedInputs(session.organizationId, unscreened)
 
   // Shared-ness decides two things: whether anything fans out at all, and whether
   // a plain message can possibly be a remark rather than a question for Piloti
@@ -1338,9 +1430,12 @@ export async function persistInternalConversationMessages(
 ): Promise<Message[]> {
   const conversation = await findConversationInOrg(conversationId, organizationId)
   if (!conversation) throw new NotFoundError()
+  // A job's prompt arrives here as a user turn (`jobs/conversation_output.py`):
+  // stored masked like any other person's message.
+  const screened = await screenedInputs(organizationId, inputs)
 
   const rows = await insertMessages(
-    inputs.map((input) =>
+    screened.map((input) =>
       buildMessageRow(
         conversationId,
         // The backend posts its answer metadata in WIRE spelling (`sources`,

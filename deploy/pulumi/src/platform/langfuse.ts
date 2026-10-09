@@ -20,6 +20,9 @@ import { EDGE_TIMEOUT, LANGFUSE, PORT } from "../constants";
  *  SecurityPolicy spec is a plain (typed) object, not a Pulumi resource input. */
 const SECRETS_NAME = "langfuse-secrets"; // pragma: allowlist secret (Kubernetes Secret resource name, not a credential)
 
+/** {@link SECRETS_NAME}, for the app workers that call Langfuse's API (purger, scheduler). */
+export const LANGFUSE_SECRETS_NAME = SECRETS_NAME;
+
 /**
  * The uid/gid both Langfuse images run as, verified against the pinned
  * revision's Dockerfiles (`ARG UID=1001` / `ARG GID=1001`, `USER nextjs` and

@@ -20,11 +20,12 @@
  */
 
 import 'server-only'
-import { NotFoundError } from '@/lib/api/errors'
+import { NotFoundError, ResourceRightsLostError } from '@/lib/api/errors'
+import { isFolderVisibleTo } from '@/lib/authz/folder-access'
 import { requireProjectAccess, type ProjectRole } from '@/lib/authz/projects'
 import type { AuthorizedSession } from '@/lib/auth/types'
 import type { ResourceRole, ResourceVisibility, ShareableResourceType } from '@/lib/db/schema'
-import { describeResource, roleSatisfies, strongerRole } from './registry'
+import { describeResource, roleSatisfies, strongerRole, type ShareableDescriptor } from './registry'
 import { findGrantForSubject } from './repository'
 
 /** Why a caller has the access they have — surfaced in the roster's "reason" column. */
@@ -54,6 +55,13 @@ export interface ResourceAccess {
    * Escalation is a deliberate, audited act.
    */
   canEscalate: boolean
+  /**
+   * The caller holds `role` but may no longer read what the resource was drawn
+   * from (ADR-0088): a conversation that recorded a folder their roles do not
+   * reach now. Judged here, at read time, for every caller; false for a type
+   * whose content the role alone decides.
+   */
+  contentLocked: boolean
 }
 
 /**
@@ -74,6 +82,16 @@ function roleFromProjectRole(projectRole: ProjectRole): ResourceRole {
     case 'project-admin':
       return 'collaborator'
   }
+}
+
+async function isContentLocked(
+  session: AuthorizedSession,
+  descriptor: ShareableDescriptor,
+  resourceId: string,
+): Promise<boolean> {
+  if (!descriptor.readersAmong) return false
+  const readers = await descriptor.readersAmong(session.organizationId, resourceId, [session.userId], session)
+  return !readers.has(session.userId)
 }
 
 /**
@@ -110,6 +128,12 @@ export async function resolveResourceAccess(
   if (probe.container.kind === 'project' && probe.container.id) {
     const { role } = await requireProjectAccess(session, probe.container.id, 'project:view')
     projectRole = role
+    // Inside the project, a restricted folder narrows further (ADR-0087). It
+    // outranks every grant and the creator's ownership: a hidden folder's
+    // documents do not exist for this session, in the inbox or a share link.
+    if (probe.folderId && !(await isFolderVisibleTo(session, probe.container.id, probe.folderId))) {
+      throw new NotFoundError()
+    }
   }
 
   // (3) Effective role: the strongest of visibility and grant.
@@ -140,11 +164,17 @@ export async function resolveResourceAccess(
     role = merged
   }
 
+  // (4) Content. A role is not the right to read what the resource was drawn
+  // from: a conversation that recorded a folder the caller's roles no longer
+  // reach is theirs to hold and not to read.
+  const contentLocked = role !== null && (await isContentLocked(session, descriptor, resourceId))
+
   return {
     role,
     reason,
     visibility,
     container,
+    contentLocked,
     // Escalation is for a project admin who is NOT already an owner. Offering it
     // to somebody who owns the thread (their own thread, most often) gave them a
     // button that upserts a redundant grant, consumes a roster slot, and writes
@@ -167,6 +197,7 @@ export async function requireResourceAccess(
   resourceType: ShareableResourceType,
   resourceId: string,
   minimum: ResourceRole = 'viewer',
+  options: RequireResourceAccessOptions = {},
 ): Promise<ResourceAccess> {
   const access = await resolveResourceAccess(session, resourceType, resourceId)
   if (!roleSatisfies(access.role, minimum)) {
@@ -174,7 +205,35 @@ export async function requireResourceAccess(
     // does not silently satisfy a check here.
     throw new NotFoundError()
   }
+  // Closed by default: a caller that reads or writes the resource's CONTENT is
+  // refused for someone who may no longer read it (ADR-0088), without being
+  // taught to ask. Only the few that manage the party's own place — leaving,
+  // deleting what is one's own, reading the roster — say they may pass.
+  if (access.contentLocked && !options.allowLocked) throw new ResourceRightsLostError(resourceType)
   return access
+}
+
+/**
+ * Refuse a change to a resource's audience or assignees from someone who may
+ * not write it (ADR-0088): for a project document, a write in its folder.
+ * Asked right after the role check of every sharing and assignment mutation,
+ * before anything is written or a rate limit spent. A no-op for a type whose
+ * role is the whole rule.
+ */
+export async function requireResourceWriteAccess(
+  session: AuthorizedSession,
+  resourceType: ShareableResourceType,
+  resourceId: string,
+): Promise<void> {
+  await describeResource(resourceType).requireWriteAccess?.(session, resourceId)
+}
+
+export interface RequireResourceAccessOptions {
+  /**
+   * Pass for a caller that touches the party's own place in the resource and
+   * none of its content: the roster, leaving, deleting one's own resource.
+   */
+  allowLocked?: boolean
 }
 
 /**

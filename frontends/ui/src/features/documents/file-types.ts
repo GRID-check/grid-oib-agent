@@ -1,4 +1,5 @@
 import type { DocumentAuthor } from '@/lib/db/schema'
+import type { FolderGrantItem } from '@/adapters/api/folder-access-client'
 import type {
   DocumentLifecycle,
   DocumentVersionState,
@@ -11,6 +12,19 @@ export interface FolderItem {
   path: string
   createdAt?: string
   updatedAt?: string
+  /**
+   * The folder's own access list (ADR-0088): roles (and `*`, every project
+   * member), each with `read` or `write`. Null/absent when it inherits its
+   * parent's. The listing only carries folders the reader may read. A
+   * project's folders only: the Archiv's carry none.
+   */
+  grants?: FolderGrantItem[] | null
+  /**
+   * What THIS reader may do here, as the listing reported it: `read` hides the
+   * write affordances. Absent reads as `write`. The server decides every write
+   * again; this only shapes the UI.
+   */
+  access?: 'read' | 'write'
 }
 
 export interface FileItem {
