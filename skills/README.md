@@ -17,7 +17,7 @@ contributor needs as much as an agent is documentation. The rule and the audit
 that applied it:
 [`../docs/contributing/agent-skills.md`](../docs/contributing/agent-skills.md#skill-or-document).
 Today there are none. The last one, `aiq-research`, was an upstream NVIDIA
-catalog skill for driving a blueprint backend, and was removed on request.
+catalog skill for driving a blueprint backend, and was removed.
 
 Piloti's own skills, the ones the product reads at run time, are a different
 thing and live in `src/aiq_agent/skills/` (ADR-0046).

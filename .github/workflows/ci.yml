@@ -368,7 +368,7 @@ jobs:
       # One shard's failure should not hide the others' results.
       fail-fast: false
       # Four, not six: under a runner cap each shard is a slot a queued run
-      # waits for. The price, measured on this PR's first runs (2026-10-09):
+      # waits for. The price, measured on 2026-10-09:
       # the test step took 2:05, 2:45, 2:33 and 4:04 per shard, so shard 4 is
       # the run's critical path, about a minute behind the backend lane (3:16).
       # vitest shards by FILE, so one shard carries the heavy files
