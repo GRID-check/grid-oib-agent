@@ -79,7 +79,7 @@ examples, and a second copy of a rule is sediment rather than reinforcement:
 | `principle-fix-root-causes` | "Fix causes, not symptoms", `AGENTS.md` |
 | `principle-subtract-before-you-add` | "Question necessity first, then simplify", `AGENTS.md` |
 | `principle-never-block-on-the-human` | "Finish the task", `AGENTS.md` |
-| `principle-prove-it-works` | [`aiq-definition-of-done`](../../skills/aiq-definition-of-done/SKILL.md) |
+| `principle-prove-it-works` | [the definition of done](definition-of-done.md) |
 | `principle-type-system-discipline` | the `any` ban, [code-conventions.md](code-conventions.md) |
 | `principle-guard-the-context-window` | [agent-onboarding-files.md](agent-onboarding-files.md) |
 

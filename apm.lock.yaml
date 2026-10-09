@@ -1,5 +1,5 @@
 lockfile_version: '1'
-generated_at: '2026-10-09T09:50:27.271251+00:00'
+generated_at: '2026-10-09T09:59:42.785834+00:00'
 apm_version: 0.28.0
 dependencies:
 - repo_url: _local/aiq-add-data-source
@@ -72,20 +72,6 @@ dependencies:
     .claude/skills/aiq-customize-prompts-models/references/prompt-templates.md: sha256:6651e2ad6afb7b258470d1ac271304efa1c54572756d0785a205c6b25673b2c3
   source: local
   local_path: ./skills/aiq-customize-prompts-models
-- repo_url: _local/aiq-definition-of-done
-  name: aiq-definition-of-done
-  version: 0.0.0
-  package_type: claude_skill
-  deployed_files:
-  - .agents/skills/aiq-definition-of-done
-  - .agents/skills/aiq-definition-of-done/SKILL.md
-  - .claude/skills/aiq-definition-of-done
-  - .claude/skills/aiq-definition-of-done/SKILL.md
-  deployed_file_hashes:
-    .agents/skills/aiq-definition-of-done/SKILL.md: sha256:cf0dc007d169ca21e9ee578cb12d83b36279391a4a327dbdff29e6807d23e19b
-    .claude/skills/aiq-definition-of-done/SKILL.md: sha256:cf0dc007d169ca21e9ee578cb12d83b36279391a4a327dbdff29e6807d23e19b
-  source: local
-  local_path: ./skills/aiq-definition-of-done
 - repo_url: _local/aiq-deploy
   name: aiq-deploy
   version: 0.0.0
@@ -808,24 +794,6 @@ deployments:
   - ./skills/aiq-customize-prompts-models
   active_owner: ./skills/aiq-customize-prompts-models
   content_hash: sha256:6651e2ad6afb7b258470d1ac271304efa1c54572756d0785a205c6b25673b2c3
-- kind: project-relative
-  target: agent-skills
-  value: .agents/skills/aiq-definition-of-done
-  runtime: null
-  scope: project
-  owners:
-  - ./skills/aiq-definition-of-done
-  active_owner: ./skills/aiq-definition-of-done
-  content_hash: null
-- kind: project-relative
-  target: agent-skills
-  value: .agents/skills/aiq-definition-of-done/SKILL.md
-  runtime: null
-  scope: project
-  owners:
-  - ./skills/aiq-definition-of-done
-  active_owner: ./skills/aiq-definition-of-done
-  content_hash: sha256:cf0dc007d169ca21e9ee578cb12d83b36279391a4a327dbdff29e6807d23e19b
 - kind: project-relative
   target: agent-skills
   value: .agents/skills/aiq-deploy
@@ -1843,24 +1811,6 @@ deployments:
   - ./skills/aiq-customize-prompts-models
   active_owner: ./skills/aiq-customize-prompts-models
   content_hash: sha256:6651e2ad6afb7b258470d1ac271304efa1c54572756d0785a205c6b25673b2c3
-- kind: project-relative
-  target: claude
-  value: .claude/skills/aiq-definition-of-done
-  runtime: null
-  scope: project
-  owners:
-  - ./skills/aiq-definition-of-done
-  active_owner: ./skills/aiq-definition-of-done
-  content_hash: null
-- kind: project-relative
-  target: claude
-  value: .claude/skills/aiq-definition-of-done/SKILL.md
-  runtime: null
-  scope: project
-  owners:
-  - ./skills/aiq-definition-of-done
-  active_owner: ./skills/aiq-definition-of-done
-  content_hash: sha256:cf0dc007d169ca21e9ee578cb12d83b36279391a4a327dbdff29e6807d23e19b
 - kind: project-relative
   target: claude
   value: .claude/skills/aiq-deploy

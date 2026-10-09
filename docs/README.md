@@ -66,6 +66,7 @@ Index: [`contributing/README.md`](contributing/README.md).
 | File | Description |
 |---|---|
 | [Working style](contributing/working-style.md) | The cases behind each working-style rule in `AGENTS.md` |
+| [Definition of done](contributing/definition-of-done.md) | The evidence a change needs before anyone calls it done, and the closing checklist |
 | [Testing and verification](contributing/testing-and-verification.md) | `task verify` as the merge gate, CI's sharding, the security stack, visual evidence |
 | [Code conventions](contributing/code-conventions.md) | The `any` ban, coercing raw `sql<T>`, where shared helpers belong, capability doctrine |
 | [Release notes](contributing/release-notes.md) | reno, what makes a note customer copy, publishing |

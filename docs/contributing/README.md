@@ -9,6 +9,7 @@ holds the depth behind it.
 |---|---|
 | [working-style.md](working-style.md) | The cases behind each working-style rule in `AGENTS.md`: what it cost before it was written down |
 | [ci.md](ci.md) | What CI is for, how a run decides what to run, how images reach a deploy, and why each rule exists |
+| [definition-of-done.md](definition-of-done.md) | The bar a change clears before anyone calls it done: the baseline, what to show per kind of change, the revert-check, the closing checklist |
 | [testing-and-verification.md](testing-and-verification.md) | `task verify` as the merge gate, which task to run while iterating, and the traps the task list cannot tell you about |
 | [code-conventions.md](code-conventions.md) | House rules with a history: the `any` ban, coercing raw `sql<T>` results, where a shared helper belongs, the capability doctrine |
 | [release-notes.md](release-notes.md) | reno mechanics, what makes a note customer copy, publishing and the translation cache |

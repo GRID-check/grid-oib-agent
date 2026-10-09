@@ -139,6 +139,7 @@ ones that will fail your PR.
 | Edit anything under `skills/` | Commit the re-locked `apm.lock.yaml` with it — `task agents:audit` rewrites it for you. The deployment is gitignored, so nothing else in your diff shows the lockfile went stale | `task lint:repo` and CI's **Repo checks** job |
 | Change behaviour a doc describes | Update the doc in the same commit | Review. Stale docs are a bug, because an agent acts on them |
 | Change what shapes an answer: the prompt, the card or envelope contract, retrieval, ingestion, the answer pipeline, a model or effort default | Run `task be:eval:answer-suite` before and after yourself and put the report in the PR. [The answer suite](docs/contributing/testing-and-verification.md#the-answer-suite) | Review. Nothing else sees seconds, reasoning spikes or a wrong value in a real answer |
+| Say a change is done, finished or ready, or open a PR | Clear [`definition-of-done.md`](docs/contributing/definition-of-done.md) and put its closing checklist, every line filled with evidence or with why not, in your summary | Review. "Done" without evidence is the one way to fail it |
 | Learn something the repo could have told you | Write it down where the next agent will already be looking, before you carry on | Nothing, once. Then everyone re-earns it. [The ratchet](docs/contributing/correction-ratchet.md#human-intervention-is-a-failure-signal) |
 
 `task verify` is the local gate: host-native, defined once in `Taskfile.yml`. CI
@@ -150,9 +151,7 @@ Two gates sit outside `task verify` and are still required: `task db:test:rls`
 whenever you touch the tenant boundary, and `task pkg:test` whenever you touch
 `packages/`. CI runs both (the Frontend job and the packages job), so a PR cannot merge without them; they stay
 out of `verify` because each needs something a per-commit gate should not pay
-for — PostgreSQL server binaries, and four minutes of IfcOpenShell. (`sources/`
-and `packages/` both used to be in this sentence as covered by *nothing*;
-`sources/` is `task be:test:sources`, `packages/` is CI's `packages` job.)
+for — PostgreSQL server binaries, and four minutes of IfcOpenShell.
 
 ## Two rules that span services
 

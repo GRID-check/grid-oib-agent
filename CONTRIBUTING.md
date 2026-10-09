@@ -10,7 +10,7 @@ from one place.
 - How we work, in detail: [docs/contributing/README.md](docs/contributing/README.md)
 - What an agent must act on while working: [AGENTS.md](AGENTS.md)
 - The bar every change must clear before it is "done":
-  [aiq-definition-of-done skill](skills/aiq-definition-of-done/SKILL.md)
+  [docs/contributing/definition-of-done.md](docs/contributing/definition-of-done.md)
 
 ## Setup (run once)
 
@@ -67,8 +67,9 @@ Full playbook: [docs/contributing/release-notes.md](docs/contributing/release-no
 
 ## Local validation
 
-Run what your change touches before pushing (the full matrix is in the
-[aiq-definition-of-done skill](skills/aiq-definition-of-done/SKILL.md)):
+Run what your change touches before pushing (what you must be able to show
+for each kind of change is in the
+[definition of done](docs/contributing/definition-of-done.md)):
 
 All commands live in the root [`Taskfile.yml`](Taskfile.yml) and are run with
 [go-task](https://taskfile.dev) (`npm i -g @go-task/cli`). CI calls the same
