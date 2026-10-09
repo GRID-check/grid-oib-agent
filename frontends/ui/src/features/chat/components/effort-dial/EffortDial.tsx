@@ -8,16 +8,38 @@
  * right. The level is this chat's (`stores/effort-store.ts`), starts at the
  * organization's default and goes out with every question.
  *
+ * The top stop warns. Maximum thinks far longer and spends far more tokens, and
+ * on an ordinary question it overthinks rather than answers better, so the
+ * popover says so while it is chosen and the chip carries the warning colour.
+ *
+ * The warning appears while the reader may still be dragging, so it must not
+ * move the slider. The popover is pinned at the edge that faces the chip and
+ * grows away from it, so the warning sits on that far side of the slider:
+ * above it when the popover opens upwards (`data-side="top"`, the composer's
+ * case), below it when a short viewport flips it. Nor may the warning flip the
+ * popover: its side is chosen leaving room for it (`WARNING_ROOM`) and then
+ * kept (`useStickySide`). It folds open by height on the tween scale, and
+ * appears without motion for a reader who asked for less.
+ *
  * The slider is a native `<input type="range">`, as in `viewer-slider.tsx`:
- * keyboard- and screen-reader-operable for free, drawn as a wide track whose
- * dot fill thickens toward the thumb. The dial writes on every step
- * because the write is a synchronous store update, never a round trip.
+ * keyboard- and screen-reader-operable for free, drawn as a wide track with a
+ * flat fill up to the thumb. The dial writes on every step because the write
+ * is a synchronous store update, never a round trip.
  */
 
-import { type CSSProperties, type FC, useEffect, useId } from 'react'
-import { ChevronDown, HelpCircle } from 'lucide-react'
+import { type CSSProperties, type FC, useCallback, useEffect, useId, useRef, useState } from 'react'
+import { AlertTriangle, ChevronDown, HelpCircle } from 'lucide-react'
+import { animate, useMotionValue, useReducedMotionConfig, useTransform } from 'motion/react'
 
-import { motion, springGlide } from '@/components/motion'
+import {
+  AnimatePresence,
+  motion,
+  motionBase,
+  motionInstant,
+  motionQuick,
+  springGlide,
+} from '@/components/motion'
+import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
@@ -26,6 +48,18 @@ import { CHAT_EFFORTS, chatEffortFromSettings } from '@/lib/reasoning-settings/c
 import { cn } from '@/lib/utils'
 
 import { effectiveEffort, useEffortStore } from '../../stores/effort-store'
+
+/** The top stop, the one the dial warns about. */
+const MAXIMUM = CHAT_EFFORTS[CHAT_EFFORTS.length - 1]
+
+/**
+ * Room, in px, the popover keeps free above and below while the warning is
+ * hidden: at least the warning's height, which is three lines and its margin,
+ * 82px in either language. Radix flips a popover that no longer fits, and a
+ * warning arriving mid-drag must not be the thing that flips it, so the side
+ * is chosen as if the warning were already there. Longer copy needs more room.
+ */
+const WARNING_ROOM = 96
 
 let orgDefaultRequest: Promise<void> | null = null
 
@@ -40,6 +74,39 @@ function loadOrgDefault(): Promise<void> {
     })
     .catch(() => undefined)
   return orgDefaultRequest
+}
+
+type PopoverSide = 'top' | 'bottom'
+
+/**
+ * Keep the popover on the side it opened on.
+ *
+ * Radix re-runs its flip on every resize and always tries the preferred side
+ * first, so a popover that opened below for lack of room jumps back above the
+ * moment its content shrinks, or its collision padding does. Preferring
+ * whatever side it is on makes the choice sticky: it moves only when that side
+ * stops fitting. Each opening starts from the composer's own side, the top.
+ */
+function useStickySide(): {
+  side: PopoverSide
+  contentRef: (node: HTMLDivElement | null) => void
+  reset: () => void
+} {
+  const [side, setSide] = useState<PopoverSide>('top')
+  const observer = useRef<MutationObserver | null>(null)
+
+  const contentRef = useCallback((node: HTMLDivElement | null) => {
+    observer.current?.disconnect()
+    observer.current = null
+    if (!node) return
+    observer.current = new MutationObserver(() => {
+      const placed = node.dataset.side
+      if (placed === 'top' || placed === 'bottom') setSide(placed)
+    })
+    observer.current.observe(node, { attributes: true, attributeFilter: ['data-side'] })
+  }, [])
+
+  return { side, contentRef, reset: useCallback(() => setSide('top'), []) }
 }
 
 /** Test hook: forget the cached default request. */
@@ -66,11 +133,14 @@ export const EffortDial: FC<EffortDialProps> = ({
     void loadOrgDefault()
   }, [])
 
+  const reducedMotion = useReducedMotionConfig()
+  const { side, contentRef, reset } = useStickySide()
   const index = CHAT_EFFORTS.indexOf(effort)
   const label = t(`effortDial.levels.${effort}`)
+  const isMaximum = effort === MAXIMUM
 
   return (
-    <Popover>
+    <Popover onOpenChange={(open) => !open && reset()}>
       <PopoverTrigger asChild>
         <Button
           variant="ghost"
@@ -78,6 +148,7 @@ export const EffortDial: FC<EffortDialProps> = ({
           data-testid="effort-dial-trigger"
           className={cn(
             'text-muted-foreground h-8 gap-1 rounded-lg px-2.5 text-xs font-semibold',
+            isMaximum && 'text-warning hover:text-warning',
             className
           )}
           disabled={disabled}
@@ -89,10 +160,12 @@ export const EffortDial: FC<EffortDialProps> = ({
         </Button>
       </PopoverTrigger>
       <PopoverContent
-        side="top"
+        ref={contentRef}
+        side={side}
         align="end"
         sideOffset={8}
-        className="w-72 p-4"
+        collisionPadding={isMaximum ? 0 : { top: WARNING_ROOM, bottom: WARNING_ROOM }}
+        className="group/effort flex w-72 flex-col p-4"
         data-testid="effort-dial"
       >
         <div className="flex items-center justify-between gap-2">
@@ -115,6 +188,37 @@ export const EffortDial: FC<EffortDialProps> = ({
             <TooltipContent className="max-w-64">{t('effortDial.help')}</TooltipContent>
           </Tooltip>
         </div>
+
+        <AnimatePresence initial={false}>
+          {isMaximum && (
+            <motion.div
+              key="maximum-warning"
+              className="overflow-hidden group-data-[side=bottom]/effort:order-last"
+              initial={{ height: 0, opacity: 0 }}
+              animate={{
+                height: 'auto',
+                opacity: 1,
+                transition: reducedMotion ? motionInstant : motionBase,
+              }}
+              exit={{
+                height: 0,
+                opacity: 0,
+                transition: reducedMotion ? motionInstant : motionQuick,
+              }}
+            >
+              <Alert
+                variant="warning"
+                data-testid="effort-dial-maximum-warning"
+                className="mt-3 px-3 py-2.5 text-xs"
+              >
+                <AlertTriangle aria-hidden="true" />
+                <AlertDescription className="text-xs">
+                  {t('effortDial.maximumWarning')}
+                </AlertDescription>
+              </Alert>
+            </motion.div>
+          )}
+        </AnimatePresence>
 
         <div className="text-muted-foreground mt-4 flex justify-between text-xs" aria-hidden="true">
           <span>{t('effortDial.faster')}</span>
@@ -148,30 +252,13 @@ const RAIL: CSSProperties = { left: INSET + THUMB / 2, right: INSET + THUMB / 2 
 /** A box as wide as the thumb's travel, starting at the thumb's left edge in the left stop. */
 const TRAVEL: CSSProperties = { left: INSET, width: `calc(100% - ${2 * INSET + THUMB}px)` }
 
-/** The fade that thickens the trail toward the thumb. It ends at the thumb's centre, one track long; the track clips the rest. */
-const TRAIL_WINDOW: CSSProperties = {
+/** Inside the fill's clip, the same travel: the clip is already inset. */
+const FILL_TRAVEL: CSSProperties = { left: 0, width: `calc(100% - ${THUMB}px)` }
+
+/** The fill ends under the thumb's centre and is long enough to reach the left edge from the right stop. */
+const FILL: CSSProperties = {
   right: `calc(100% - ${THUMB / 2}px)`,
-  width: `calc(100% + ${2 * INSET + THUMB}px)`,
-  maskImage: 'linear-gradient(to right, transparent, black 85%)',
-}
-
-/**
- * Inside the window, a box as wide as the travel whose left edge sits at the
- * track's left edge when the thumb is in the left stop. It glides back by the
- * same share the window glides forward, so what it carries stands still.
- */
-const TRAIL_ANCHOR: CSSProperties = {
-  left: `calc(100% - ${INSET + THUMB / 2}px)`,
-  width: `calc(100% - ${2 * INSET + THUMB}px)`,
-}
-
-/** The dots, one track wide and fixed to the track. */
-const TRAIL_DOTS: CSSProperties = {
-  left: 0,
-  width: `calc(100% + ${2 * INSET + THUMB}px)`,
-  backgroundImage: 'radial-gradient(circle, currentColor 1.1px, transparent 1.6px)',
-  backgroundSize: '6px 6px',
-  backgroundPosition: 'left center',
+  width: `calc(100% + ${THUMB}px)`,
 }
 
 /**
@@ -180,73 +267,68 @@ const TRAIL_DOTS: CSSProperties = {
  * thumb keeps the drawn thumb's width, which is what makes the browser's stop
  * positions and the drawn ones the same.
  *
- * Light stops mark the five levels. The thumb glides between them on
- * `springGlide`: the travel is anything from one stop to all four, and the
- * glide is the reader's own input carried through. The dot trail does not
- * travel with it: the dots are fixed to the track and the thumb reveals them,
- * through a window that glides with the thumb while the dots inside glide
- * back by the same share. Everything moves by `transform`, a share of a box
- * exactly as wide as the travel, so the global
- * `<MotionConfig reducedMotion="user">` drops the glide for readers who asked
- * for less motion. A stop the trail has reached fades out, since a grey dot
- * inside the trail reads as a blemish rather than a stop, and the stops sit
- * under both.
+ * Light stops mark the five levels, and a flat, translucent fill runs from the
+ * left edge to the thumb, so a stop reads the same on either side of it. The
+ * fill rides with the thumb inside a clip and is one flat colour, so nothing in
+ * it can be seen to move but its end, which the thumb covers. (It used to be a
+ * dotted trail under a fade, and the fade travelling with the thumb read as the
+ * background sliding.)
+ *
+ * Fill and thumb follow ONE spring: a single motion value, animated on
+ * `springGlide` and read by both, so they cannot drift apart however a drag
+ * retargets it. Each step of a drag retargets the spring from where it is,
+ * velocity and all. The value starts at the chosen stop, so opening the dial
+ * does not glide. `animate()` on a bare motion value does not consult
+ * `<MotionConfig>`, so a reader who asked for less motion gets a jump, read
+ * from `useReducedMotionConfig`, which honours both that config and the OS.
  */
 const EffortSlider: FC<EffortSliderProps> = ({ label, index, valueText, onChoose }) => {
   const sliderId = useId()
+  const reducedMotion = useReducedMotionConfig()
   const share = index / (CHAT_EFFORTS.length - 1)
-  const glide = {
-    initial: false,
-    animate: { x: `${share * 100}%` },
-    transition: springGlide,
-  } as const
-  const holdStill = {
-    initial: false,
-    animate: { x: `${-share * 100}%` },
-    transition: springGlide,
-  } as const
+  const position = useMotionValue(share)
+  const x = useTransform(position, (value) => `${value * 100}%`)
+
+  useEffect(() => {
+    if (reducedMotion) {
+      position.jump(share)
+      return
+    }
+    const glide = animate(position, share, springGlide)
+    return () => glide.stop()
+  }, [position, share, reducedMotion])
 
   return (
     <div className="bg-muted pointer-coarse:h-11 group relative mt-2 h-10 overflow-hidden rounded-xl">
       <div className="pointer-events-none absolute inset-y-0" style={RAIL} aria-hidden="true">
-        {CHAT_EFFORTS.map((level, position) => (
+        {CHAT_EFFORTS.map((level, stop) => (
           <span
             key={level}
             data-testid="effort-dial-stop"
-            data-passed={position <= index}
-            className={cn(
-              'bg-muted-foreground/35 duration-quick absolute top-1/2 size-1.5 -translate-x-1/2 -translate-y-1/2 rounded-full transition-opacity ease-out',
-              position <= index && 'opacity-0'
-            )}
-            style={{ left: `${(position / (CHAT_EFFORTS.length - 1)) * 100}%` }}
+            className="bg-muted-foreground/40 absolute top-1/2 size-1.5 -translate-x-1/2 -translate-y-1/2 rounded-full"
+            style={{ left: `${(stop / (CHAT_EFFORTS.length - 1)) * 100}%` }}
           />
         ))}
       </div>
-      <motion.div
-        className="pointer-events-none absolute inset-y-1"
-        style={TRAVEL}
+      <div
+        className="pointer-events-none absolute inset-1 overflow-hidden rounded-lg"
         aria-hidden="true"
-        {...glide}
       >
-        <span className="absolute inset-y-0 overflow-hidden" style={TRAIL_WINDOW}>
-          <motion.span
-            className="absolute inset-y-0"
-            style={TRAIL_ANCHOR}
-            data-testid="effort-dial-trail"
-            data-share={-share}
-            {...holdStill}
-          >
-            <span className="text-foreground/70 absolute inset-y-0" style={TRAIL_DOTS} />
-          </motion.span>
-        </span>
-      </motion.div>
+        <motion.div
+          className="absolute inset-y-0"
+          style={{ ...FILL_TRAVEL, x }}
+          data-testid="effort-dial-fill"
+          data-share={share}
+        >
+          <span className="bg-foreground/10 absolute inset-y-0" style={FILL} />
+        </motion.div>
+      </div>
       <motion.div
         className="pointer-events-none absolute inset-y-1"
-        style={TRAVEL}
+        style={{ ...TRAVEL, x }}
         aria-hidden="true"
         data-testid="effort-dial-thumb"
         data-share={share}
-        {...glide}
       >
         <span className="bg-foreground group-has-[input:focus-visible]:ring-ring/60 group-has-[input:focus-visible]:ring-offset-muted absolute inset-y-0 left-0 w-7 rounded-lg shadow-sm group-has-[input:focus-visible]:ring-2 group-has-[input:focus-visible]:ring-offset-2" />
       </motion.div>
