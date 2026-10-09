@@ -36,9 +36,3 @@ export interface ProjectOverviewData {
   totalFileSize: number
   recentDocuments: OverviewDocument[]
 }
-
-/** A folder whose own access list names only roles that no longer exist (ADR-0088). */
-export interface FolderWithoutRole {
-  id: string
-  name: string
-}

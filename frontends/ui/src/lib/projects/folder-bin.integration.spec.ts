@@ -15,7 +15,10 @@
  *
  *   Lageplan.pdf                  (project root)
  *   Verwaltung/                   inherits                Protokoll.pdf
- *     Verträge/                   org-gf: write, org-bh: read   Vertrag.pdf
+ *     Verträge/                   gf: write, bh: read     Vertrag.pdf
+ *
+ * Who is on a folder's own list is the folder roles WorkOS reports for each
+ * membership (ADR-0096), faked here per membership (`om_gf`, `om_bh`, `om_pl`).
  *       Alt/                      inherits                Alt.pdf
  *   Pläne/                        inherits                Plan.pdf
  *     Archiv/                     inherits                Archiv.pdf
@@ -77,6 +80,17 @@ vi.mock('@/lib/authz/projects', async () => {
   }
 })
 vi.mock('@/lib/auth/membership-roles', () => ({ resolveMembershipRoles: vi.fn(async () => null) }))
+/** Each custom folder's list: membership → the level of the folder role it holds there. */
+const lists = vi.hoisted(() => new Map<string, Record<string, 'read' | 'write'>>())
+const levelsOf = vi.hoisted(
+  () => (membershipId: string | null) =>
+    Object.fromEntries(
+      [...lists].flatMap(([folderId, list]) => (membershipId && list[membershipId] ? [[folderId, list[membershipId]]] : []))
+    ) as Record<string, 'read' | 'write'>
+)
+vi.mock('@/lib/authz/folder-roles', () => ({
+  heldFolderLevels: vi.fn(async (_org: string, membershipId: string) => levelsOf(membershipId)),
+}))
 // A machine's published document goes back by its version (the lifecycle's
 // specs cover the dispatch itself).
 vi.mock('@/lib/documents/lifecycle', () => ({
@@ -89,20 +103,30 @@ const ORG = `org_bin_${STAMP}`
 const USER = `user_bin_${STAMP}`
 const COLLECTION = `proj_bin_${STAMP}`
 const CHAT = `s_bin_chat_${STAMP}`
-const GF = 'org-gf'
-const BH = 'org-bh'
-const PL = 'org-pl'
+/** Memberships: the Geschäftsführung, the bookkeeper, the project lead. */
+const GF = 'om_gf'
+const BH = 'om_bh'
+const PL = 'om_pl'
 const PROJECT_WRITE = ['project:view', 'project:documents:write', 'project:edit']
 
 /** One documented boundary: a session fixture carries only what these services read. */
-const sessionOf = (userId: string, roles: string[], permissions: string[]): AuthorizedSession =>
-  ({ userId, organizationId: ORG, email: `${userId}@grid.test`, role: 'member', roles, permissions }) as unknown as AuthorizedSession
+const sessionOf = (userId: string, membershipId: string | null, permissions: string[]): AuthorizedSession =>
+  ({
+    userId,
+    organizationId: ORG,
+    organizationMembershipId: membershipId,
+    email: `${userId}@grid.test`,
+    role: 'member',
+    roles: ['member'],
+    permissions,
+  }) as unknown as AuthorizedSession
 
-const gf = sessionOf('user_gf', [GF], PROJECT_WRITE)
-const bh = sessionOf('user_bh', [BH], PROJECT_WRITE)
-const pl = sessionOf('user_pl', [PL], PROJECT_WRITE)
-const manager = sessionOf('user_mgr', [GF], [...PROJECT_WRITE, 'project:manage'])
-const admin = sessionOf('user_admin', [], ['org:projects:administer'])
+const gf = sessionOf('user_gf', GF, PROJECT_WRITE)
+const bh = sessionOf('user_bh', BH, PROJECT_WRITE)
+const pl = sessionOf('user_pl', PL, PROJECT_WRITE)
+/** On the Geschäftsführung's lists, and manages the project. */
+const manager = sessionOf('user_mgr', GF, [...PROJECT_WRITE, 'project:manage'])
+const admin = sessionOf('user_admin', null, ['org:projects:administer'])
 
 class Rollback extends Error {}
 
@@ -142,26 +166,19 @@ describe.skipIf(!url)('the Papierkorb against live Postgres (migration 0115)', (
   }
   const ids = (rows: Iterable<{ id: string }>): string[] => Array.from(rows).map((row) => String(row.id))
 
-  async function insertFolder(name: string, parentId: string | null, path: string, grants: Array<[string, 'read' | 'write']> | null): Promise<string> {
-    const roles = (grants ?? []).map(([role]) => role)
-    const levels = (grants ?? []).map(([, level]) => level)
+  /** A folder; with `list`, its own access list, whose people WorkOS holds (`lists`). */
+  async function insertFolder(name: string, parentId: string | null, path: string, list: Array<[string, 'read' | 'write']> | null): Promise<string> {
     const [id] = ids(
       await inOrg(() =>
         db.execute<{ id: string }>(sql`
-          WITH folder AS (
-            INSERT INTO project_folders (organization_id, project_id, parent_id, name, path, access_mode, access_changed_by, access_changed_at)
-            VALUES (${ORG}, ${projectId}::uuid, ${parentId}::uuid, ${name}, ${path}, ${grants ? 'custom' : 'inherit'},
-                    ${grants ? USER : null}, ${grants ? new Date().toISOString() : null}::timestamptz)
-            RETURNING id, project_id
-          ), listed AS (
-            INSERT INTO project_folder_grants (organization_id, project_id, folder_id, role_slug, level)
-            SELECT ${ORG}, folder.project_id, folder.id, g.role, g.level
-            FROM folder, unnest(${`{${roles.join(',')}}`}::text[], ${`{${levels.join(',')}}`}::text[]) AS g(role, level)
-          )
-          SELECT id FROM folder
+          INSERT INTO project_folders (organization_id, project_id, parent_id, name, path, access_mode, access_changed_by, access_changed_at)
+          VALUES (${ORG}, ${projectId}::uuid, ${parentId}::uuid, ${name}, ${path}, ${list ? 'custom' : 'inherit'},
+                  ${list ? USER : null}, ${list ? new Date().toISOString() : null}::timestamptz)
+          RETURNING id
         `)
       )
     )
+    if (list) lists.set(id, Object.fromEntries(list))
     return id
   }
 
@@ -331,8 +348,6 @@ describe.skipIf(!url)('the Papierkorb against live Postgres (migration 0115)', (
       await db.execute(sql`DELETE FROM resource_shares WHERE organization_id = ${ORG}`)
       await db.execute(sql`DELETE FROM conversations WHERE organization_id = ${ORG} AND id <> ${CHAT}`)
       await db.execute(sql`DELETE FROM documents WHERE organization_id = ${ORG}`)
-      // The grants go with their folders (ON DELETE CASCADE); deleting them
-      // first would leave a custom list empty, which 0110 refuses.
       await db.execute(sql`DELETE FROM project_folders WHERE project_id = ${projectId}::uuid`)
       await db.execute(sql`DELETE FROM legal_holds WHERE organization_id = ${ORG}`)
     })
@@ -727,7 +742,7 @@ describe.skipIf(!url)('the Papierkorb against live Postgres (migration 0115)', (
       await bin.moveFolderToBin(pl, { projectId, folderId: folder.plaene })
       await bin.restoreFolderFromBin(pl, { projectId, folderId: folder.plaene })
       const [job] = await queuedJobs('restore_folder_bin')
-      const revoked = sessionOf('user_pl', [PL], ['project:view'])
+      const revoked = sessionOf('user_pl', PL, ['project:view'])
       await expect(runRestoreJob(revoked, job.payload)).resolves.toMatchObject({ cursor: null })
       expect(documentService.dispatchDocument).not.toHaveBeenCalled()
       expect((await documentRow(doc.plan)).status).toBe('processing')
@@ -892,7 +907,7 @@ describe.skipIf(!url)('the Papierkorb against live Postgres (migration 0115)', (
         SELECT folder_id AS id FROM conversation_restricted_folders WHERE conversation_id = ${id}`)))).toEqual([folder.vertraege])
       await setting.saveDeletedFolderContentPolicy(admin, policy, new Request('http://test'))
 
-      const people = { gf: sessionOf('user_gf', [GF], PROJECT_WRITE), bh, pl, admin }
+      const people = { gf: sessionOf('user_gf', GF, PROJECT_WRITE), bh, pl, admin }
       const locked: Record<string, boolean> = {}
       for (const [name, session] of Object.entries(people)) {
         const answer = await sharing.resolveResourceAccess(session, 'conversation', id)
@@ -912,7 +927,7 @@ describe.skipIf(!url)('the Papierkorb against live Postgres (migration 0115)', (
   })
 
   describe('the purge', () => {
-    it('erases the documents, keeps the folders as tombstones with their grants, and marks what was derived', async () => {
+    it('erases the documents, keeps the folders as tombstones with their lists, and marks what was derived', async () => {
       const cites = await insertAnswer('Laut Plan.pdf ist …', [{ collection: COLLECTION, file_name: 'Plan.pdf', title: 'Plan' }])
       const other = await insertAnswer('Laut Lageplan.pdf …', [{ collection: COLLECTION, file_name: 'Lageplan.pdf' }])
       await bin.moveFolderToBin(gf, { projectId, folderId: folder.plaene })
@@ -938,16 +953,19 @@ describe.skipIf(!url)('the Papierkorb against live Postgres (migration 0115)', (
       expect(await restrictedUse.recordedRestrictedFolders(CHAT, ORG)).toEqual([])
     })
 
-    it('keeps the grants of a purged restricted folder, which still decide who reads what came from it', async () => {
+    it('keeps a purged restricted folder’s own list, which still decides who reads what came from it', async () => {
       await bin.moveFolderToBin(gf, { projectId, folderId: folder.vertraege })
       await makeDue(folder.vertraege)
       await bin.purgeBinnedFolder(ORG, folder.vertraege)
-      const grants = await inOrg(() =>
-        db.execute<{ role_slug: string }>(sql`SELECT role_slug FROM project_folder_grants WHERE folder_id = ${folder.vertraege}::uuid ORDER BY role_slug`)
+      const [row] = await inOrg(() =>
+        db.execute<{ access_mode: string; everyone_reads: boolean }>(
+          sql`SELECT access_mode, everyone_reads FROM project_folders WHERE id = ${folder.vertraege}::uuid`
+        )
       )
-      expect(Array.from(grants).map((row) => row.role_slug)).toEqual([BH, GF])
-      const clearance = { roles: [BH], seesEverything: false }
-      expect(await access.readableFolderIdsFor(ORG, projectId, clearance)).toContain(folder.vertraege)
+      expect(row).toMatchObject({ access_mode: 'custom', everyone_reads: false })
+      const holder = { levels: levelsOf(BH), seesEverything: false }
+      expect(await access.readableFolderIdsFor(ORG, projectId, holder)).toContain(folder.vertraege)
+      expect(await access.readableFolderIdsFor(ORG, projectId, access.ANY_MEMBER)).not.toContain(folder.vertraege)
     })
 
     it('is idempotent: a second run finds it purged and does nothing', async () => {
@@ -1010,7 +1028,7 @@ describe.skipIf(!url)('the Papierkorb against live Postgres (migration 0115)', (
       expect(await claimable()).not.toContain(folder.vertraege)
       const held = { status: 409, details: { reason: 'legal_hold' } }
       await expect(bin.purgeBinnedFolder(ORG, folder.vertraege)).rejects.toMatchObject(held)
-      await expect(bin.purgeFolderFromBinNow(sessionOf('user_mgr', [GF], [...PROJECT_WRITE, 'project:manage']), { projectId, folderId: folder.vertraege })).rejects.toMatchObject(held)
+      await expect(bin.purgeFolderFromBinNow(sessionOf('user_mgr', GF, [...PROJECT_WRITE, 'project:manage']), { projectId, folderId: folder.vertraege })).rejects.toMatchObject(held)
       const refusal = await bin.purgeBinnedFolder(ORG, folder.vertraege).catch((error) => error)
       expect(JSON.stringify(refusal.details)).not.toContain('integration test')
       const left = await inOrg(() => db.execute<{ id: string }>(sql`SELECT id FROM documents WHERE id = ${doc.vertrag}::uuid`))
@@ -1025,8 +1043,10 @@ describe.skipIf(!url)('the Papierkorb against live Postgres (migration 0115)', (
       await bin.moveFolderToBin(gf, { projectId, folderId: folder.vertraege })
       await bin.purgeBinnedFolder(ORG, folder.vertraege)
     }
-    const reads = async (roles: string[], seesEverything = false) =>
-      (await access.readableFolderIdsFor(ORG, projectId, { roles, seesEverything })).includes(folder.vertraege)
+    const reads = async (membershipId: string | null, seesEverything = false) =>
+      (await access.readableFolderIdsFor(ORG, projectId, { levels: levelsOf(membershipId), seesEverything })).includes(
+        folder.vertraege
+      )
 
     it.each([
       ['unchanged', { gf: true, bh: true, pl: false, admin: true }],
@@ -1036,7 +1056,7 @@ describe.skipIf(!url)('the Papierkorb against live Postgres (migration 0115)', (
     ] as const)('%s', async (policy, expected) => {
       await purgeVertraege()
       await setting.saveDeletedFolderContentPolicy(admin, policy, new Request('http://test'))
-      expect({ gf: await reads([GF]), bh: await reads([BH]), pl: await reads([PL]), admin: await reads([], true) }).toEqual(expected)
+      expect({ gf: await reads(GF), bh: await reads(BH), pl: await reads(PL), admin: await reads(null, true) }).toEqual(expected)
     })
 
     it('decides a memory note and a conversation by the same rule', async () => {
@@ -1044,21 +1064,24 @@ describe.skipIf(!url)('the Papierkorb against live Postgres (migration 0115)', (
       const cites = await insertAnswer('Vertrag sagt …', [{ collection: restrictedCollectionName(COLLECTION, folder.vertraege), file_name: 'Vertrag.pdf' }])
       await purgeVertraege()
       const memory = inTenant(await import('./memory-service'))
-      const visibleTo = async (roles: string[]) =>
+      const visibleTo = async (membershipId: string) =>
         (
           await memory.listProjectMemory(projectId, {
             organizationId: ORG,
-            readableFolderIds: await access.readableFolderIdsFor(ORG, projectId, { roles, seesEverything: false }),
+            readableFolderIds: await access.readableFolderIdsFor(ORG, projectId, {
+              levels: levelsOf(membershipId),
+              seesEverything: false,
+            }),
           })
         ).map((item) => item.id)
-      expect(await visibleTo([BH])).toContain(note)
+      expect(await visibleTo(BH)).toContain(note)
       expect(await restrictedUse.recordedRestrictedFolders(CHAT, ORG)).toEqual([folder.vertraege])
       await setting.saveDeletedFolderContentPolicy(admin, 'project', new Request('http://test'))
-      expect(await visibleTo([PL])).toContain(note)
+      expect(await visibleTo(PL)).toContain(note)
       // Readable by every member now: the conversation no longer restricts anyone.
       expect(await restrictedUse.recordedRestrictedFolders(CHAT, ORG)).toEqual([])
       await setting.saveDeletedFolderContentPolicy(admin, 'admins', new Request('http://test'))
-      expect(await visibleTo([BH])).not.toContain(note)
+      expect(await visibleTo(BH)).not.toContain(note)
       expect(cites).not.toBe('')
     })
 

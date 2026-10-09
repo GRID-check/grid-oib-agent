@@ -56,7 +56,7 @@ describe('ProjectMemoryPanel', () => {
     await screen.findByText('Honorar LP 5–8 pauschal 184.000 €.')
     const marks = screen.getAllByTestId('memory-restricted')
     expect(marks).toHaveLength(2)
-    expect(marks[0].querySelector('[data-roles]')?.getAttribute('data-roles')).toBe('Verträge')
+    expect(marks[0].querySelector('[data-names]')?.getAttribute('data-names')).toBe('Verträge')
     expect(screen.getByText('Flachdach extensiv begrünt.')).toBeInTheDocument()
   })
 
@@ -83,6 +83,6 @@ describe('ProjectMemoryPanel', () => {
     expect(judged).toHaveLength(1)
     const mark = judged[0].closest('[data-testid="memory-restricted"]')
     expect(mark?.textContent).toContain('decided with AI')
-    expect(mark?.querySelector('[data-roles]')?.getAttribute('data-roles')).toBe('Personal')
+    expect(mark?.querySelector('[data-names]')?.getAttribute('data-names')).toBe('Personal')
   })
 })

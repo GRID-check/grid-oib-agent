@@ -764,9 +764,9 @@ describe('addRunDocument', () => {
     const PERSONAL = 'folder-personal'
     const OPEN = 'folder-plaene'
     const TREE: AccessFolder[] = [
-      { id: PERSONAL, parentId: null, accessMode: 'custom', grants: [{ role: 'org-gf', level: 'read' }] },
-      { id: 'folder-unter-personal', parentId: PERSONAL, accessMode: 'inherit', grants: [] },
-      { id: OPEN, parentId: null, accessMode: 'inherit', grants: [] },
+      { id: PERSONAL, parentId: null, accessMode: 'custom', everyoneReads: false },
+      { id: 'folder-unter-personal', parentId: PERSONAL, accessMode: 'inherit', everyoneReads: false },
+      { id: OPEN, parentId: null, accessMode: 'inherit', everyoneReads: false },
     ]
     const row = (filename: string, folderId: string | null) =>
       ({ id: `doc-${filename}`, filename, folderId }) as DocumentListRow

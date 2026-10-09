@@ -7,7 +7,6 @@ import { can } from '@/lib/authz/decide'
 import { isProjectKnowledgePageEnabled } from '@/lib/authz/feature-flags'
 import { getProjectOverviewData } from '@/lib/projects/overview-query'
 import { projectOverviewReader } from '@/lib/projects/service'
-import { listFoldersWithoutValidRole } from '@/lib/projects/folder-access-settings'
 import { ProjectSettings } from '@/features/projects/components/project-settings'
 import { getSteckbrief } from '@/lib/projects/steckbrief-service'
 import { loadOrganizationDirectory } from '@/lib/sharing/directory'
@@ -48,9 +47,6 @@ export default async function ProjectSettingsPage({ params }: ProjectSettingsPag
     // open (ADR-0089): only closing and reopening, and the members.
     const managesProject = role === 'project-admin'
     const canManageProject = managesProject && !closed
-    // Folders whose roles were deleted since (ADR-0088). Asked only of a
-    // project manager, who is the one who can set a role again.
-    const foldersWithoutRole = canManageProject ? await listFoldersWithoutValidRole(session, id) : []
     const steckbrief = await getSteckbrief(session, id)
     // The closing debrief writes project memory, so it asks for that permission,
     // not for the role that may close: a custom role can hold one without the other.
@@ -69,7 +65,6 @@ export default async function ProjectSettingsPage({ params }: ProjectSettingsPag
         data={data}
         steckbrief={steckbrief}
         steckbriefAccounts={accounts}
-        foldersWithoutRole={foldersWithoutRole}
         canManageProject={canManageProject}
         canManageMembers={managesProject}
         canChangeStatus={managesProject}

@@ -1,23 +1,25 @@
 /**
  * @vitest-environment node
  *
- * Read/write folder access against a REAL Postgres (ADR-0088, migration 0111),
- * through the restricted runtime role:
+ * Read/write folder access against a REAL Postgres (ADR-0088, migrations 0111
+ * and 0128), through the restricted runtime role:
  *
  *   GRID_TEST_DATABASE_URL=postgres://grid_app_rw@host:port/grid_app \
  *     npx vitest run src/lib/authz/folder-access.integration.spec.ts
  *
  * The unit specs prove the rule and that every read path passes the hidden
  * folders on; this proves the SQL that receives them leaves the documents out,
- * that the tree the decision reads (grants and tombstones included) is the one
- * in the database, that the deferred trigger keeps a custom list from being
- * empty, that the grants are inside the tenant boundary, and that a deleted
- * folder's tombstone frees its name.
+ * that the tree the decision reads (whether everyone reads, and tombstones) is
+ * the one in the database, that a custom folder needs no grant row any more
+ * (who is on its list is WorkOS's, ADR-0096) but still needs who set it, that
+ * the old grants stay inside the tenant boundary, and that a deleted folder's
+ * tombstone frees its name.
  */
 
 import { sql } from 'drizzle-orm'
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
 import { REVIEWER_READER } from '@/lib/documents/document-reader'
+import type { FolderClearance } from './folder-access-rule'
 
 vi.mock('server-only', () => ({}))
 
@@ -27,7 +29,8 @@ const OTHER_ORG = `${ORG}_other`
 const USER = 'user_folders'
 const COLLECTION = `proj_folders_${Date.now()}`
 
-type Grants = Array<[string, 'read' | 'write']>
+/** A folder's own list as the database holds it: whether everyone reads. Its people are WorkOS's. */
+type OwnList = { everyoneReads: boolean }
 
 describe.skipIf(!url)('read/write folder access against Postgres', () => {
   let db: ReturnType<typeof import('@/lib/db').getDb>
@@ -36,28 +39,27 @@ describe.skipIf(!url)('read/write folder access against Postgres', () => {
   let accessRepo: typeof import('./folder-access-repository')
   let documentsRepo: typeof import('@/lib/documents/repository')
   let projectId: string
-  const folder: Record<'verwaltung' | 'vertraege' | 'honorare', string> = { verwaltung: '', vertraege: '', honorare: '' }
+  const folder: Record<'verwaltung' | 'vertraege' | 'honorare' | 'statik', string> = {
+    verwaltung: '',
+    vertraege: '',
+    honorare: '',
+    statik: '',
+  }
 
   const inTenant = <T>(run: () => Promise<T>, organizationId = ORG): Promise<T> =>
     withTenant({ organizationId, userId: USER }, run)
   const firstId = (rows: Iterable<{ id: string }>): string => String(Array.from(rows)[0]?.id)
+  /** What WorkOS would report for someone holding these folder roles in the project. */
+  const holding = (levels: FolderClearance['levels']): FolderClearance => ({ levels, seesEverything: false })
 
-  /** A folder, with its own list in the same statement: the 0110 trigger checks at commit. */
-  async function insertFolder(name: string, parentId: string | null, path: string, grants: Grants | null) {
+  async function insertFolder(name: string, parentId: string | null, path: string, list: OwnList | null) {
     const rows = await inTenant(() =>
       db.execute<{ id: string }>(sql`
-        WITH folder AS (
-          INSERT INTO project_folders (organization_id, project_id, parent_id, name, path, access_mode, access_changed_by, access_changed_at)
-          VALUES (${ORG}, ${projectId}::uuid, ${parentId}::uuid, ${name}, ${path}, ${grants ? 'custom' : 'inherit'},
-                  ${grants ? USER : null}, ${grants ? new Date().toISOString() : null}::timestamptz)
-          RETURNING id, project_id
-        ), listed AS (
-          INSERT INTO project_folder_grants (organization_id, project_id, folder_id, role_slug, level)
-          SELECT ${ORG}, folder.project_id, folder.id, grant_row.role_slug, grant_row.level
-          FROM folder, jsonb_to_recordset(${JSON.stringify((grants ?? []).map(([role_slug, level]) => ({ role_slug, level })))}::jsonb)
-            AS grant_row(role_slug text, level text)
-        )
-        SELECT id FROM folder
+        INSERT INTO project_folders
+          (organization_id, project_id, parent_id, name, path, access_mode, everyone_reads, access_changed_by, access_changed_at)
+        VALUES (${ORG}, ${projectId}::uuid, ${parentId}::uuid, ${name}, ${path}, ${list ? 'custom' : 'inherit'},
+                ${list?.everyoneReads ?? false}, ${list ? USER : null}, ${list ? new Date().toISOString() : null}::timestamptz)
+        RETURNING id
       `)
     )
     return firstId(rows)
@@ -93,22 +95,19 @@ describe.skipIf(!url)('read/write folder access against Postgres', () => {
       )
     )
     //   Verwaltung/                inherits
-    //     Verträge/                GF: write, PL: write, BH: read
-    //       Honorare/              GF: write
+    //     Verträge/                its own list (in WorkOS: GF write, PL write, BH read)
+    //       Honorare/              its own list (in WorkOS: GF write)
+    //   Statik/                    its own list, everyone reads
     folder.verwaltung = await insertFolder('Verwaltung', null, 'Verwaltung', null)
-    folder.vertraege = await insertFolder('Verträge', folder.verwaltung, 'Verwaltung/Verträge', [
-      ['org-geschaeftsfuehrung', 'write'],
-      ['org-projektleitung', 'write'],
-      ['org-buchhaltung', 'read'],
-    ])
-    folder.honorare = await insertFolder('Honorare', folder.vertraege, 'Verwaltung/Verträge/Honorare', [
-      ['org-geschaeftsfuehrung', 'write'],
-    ])
+    folder.vertraege = await insertFolder('Verträge', folder.verwaltung, 'Verwaltung/Verträge', { everyoneReads: false })
+    folder.honorare = await insertFolder('Honorare', folder.vertraege, 'Verwaltung/Verträge/Honorare', { everyoneReads: false })
+    folder.statik = await insertFolder('Statik', null, 'Statik', { everyoneReads: true })
 
     await insertDocument('Lageplan.pdf', null, COLLECTION)
     await insertDocument('Protokoll.pdf', folder.verwaltung, COLLECTION)
     await insertDocument('Werkvertrag.pdf', folder.vertraege, access.restrictedCollectionName(COLLECTION, folder.vertraege))
     await insertDocument('Honorarnote.pdf', folder.honorare, access.restrictedCollectionName(COLLECTION, folder.honorare))
+    await insertDocument('Statik.pdf', folder.statik, COLLECTION)
   })
 
   afterAll(async () => {
@@ -116,27 +115,40 @@ describe.skipIf(!url)('read/write folder access against Postgres', () => {
     await inTenant(() => db.execute(sql`DELETE FROM projects WHERE organization_id = ${ORG}`))
   })
 
-  it('reads the tree the decision needs, grants and all, and finds an own list in one probe', async () => {
+  it('reads the tree the decision needs, whether everyone reads and all, and finds an own list in one probe', async () => {
     expect(await accessRepo.projectHasCustomFolders(ORG, projectId)).toBe(true)
     const tree = await accessRepo.listProjectFolderTree(ORG, projectId)
     expect(tree.find((entry) => entry.id === folder.honorare)).toEqual({
       id: folder.honorare,
       parentId: folder.vertraege,
       accessMode: 'custom',
-      grants: [{ role: 'org-geschaeftsfuehrung', level: 'write' }],
+      everyoneReads: false,
       deleted: false,
     })
-    expect(tree.find((entry) => entry.id === folder.verwaltung)).toMatchObject({ accessMode: 'inherit', grants: [] })
+    expect(tree.find((entry) => entry.id === folder.statik)).toMatchObject({ accessMode: 'custom', everyoneReads: true })
+    expect(tree.find((entry) => entry.id === folder.verwaltung)).toMatchObject({ accessMode: 'inherit', everyoneReads: false })
     expect(await accessRepo.listProjectDocumentCollections(ORG, projectId)).toHaveLength(3)
   })
 
-  it('leaves out of every listing what a member may not read', async () => {
+  it('reads a stale `everyone_reads` on a folder that inherits as nothing', async () => {
+    const stale = await insertFolder('Stale', null, 'Stale', null)
+    try {
+      await inTenant(() => db.execute(sql`UPDATE project_folders SET everyone_reads = true WHERE id = ${stale}::uuid`))
+      const tree = await accessRepo.listProjectFolderTree(ORG, projectId)
+      expect(tree.find((entry) => entry.id === stale)).toMatchObject({ accessMode: 'inherit', everyoneReads: false })
+    } finally {
+      await inTenant(() => db.execute(sql`UPDATE project_folders SET deleted_at = now(), purged_at = now() WHERE id = ${stale}::uuid`))
+    }
+  })
+
+  it('leaves out of every listing what a member on no list may not read, and keeps a list everyone reads', async () => {
     const tree = await accessRepo.listProjectFolderTree(ORG, projectId)
-    const intern = access.computeFolderAccess(tree, { roles: ['member'], seesEverything: false }, COLLECTION)
+    const intern = access.computeFolderAccess(tree, access.ANY_MEMBER, COLLECTION)
     const hiddenFolderIds = [...intern.hiddenFolderIds]
 
     const page = await documentsRepo.listProjectDocumentPage(projectId, ORG, { hiddenFolderIds, reader: REVIEWER_READER })
-    expect(page.rows.map((row) => row.filename).sort()).toEqual(['Lageplan.pdf', 'Protokoll.pdf'])
+    expect(page.rows.map((row) => row.filename).sort()).toEqual(['Lageplan.pdf', 'Protokoll.pdf', 'Statik.pdf'])
+    expect(intern.levelOf(folder.statik)).toBe('read')
 
     const byName = await documentsRepo.findProjectDocumentsByFilenames(
       projectId,
@@ -153,23 +165,23 @@ describe.skipIf(!url)('read/write folder access against Postgres', () => {
     expect(probe).toEqual([])
   })
 
-  it('lists the contracts to Buchhaltung, read-only, and neither the fees; an admin everything', async () => {
+  it('lists the contracts to someone holding folder-reader there, read-only, and not the fees; an admin everything', async () => {
     const tree = await accessRepo.listProjectFolderTree(ORG, projectId)
-    const accountant = access.computeFolderAccess(tree, { roles: ['org-buchhaltung'], seesEverything: false }, COLLECTION)
+    const accountant = access.computeFolderAccess(tree, holding({ [folder.vertraege]: 'read' }), COLLECTION)
     const page = await documentsRepo.listProjectDocumentPage(projectId, ORG, {
       hiddenFolderIds: [...accountant.hiddenFolderIds],
       reader: REVIEWER_READER,
     })
-    expect(page.rows.map((row) => row.filename).sort()).toEqual(['Lageplan.pdf', 'Protokoll.pdf', 'Werkvertrag.pdf'])
+    expect(page.rows.map((row) => row.filename).sort()).toEqual(['Lageplan.pdf', 'Protokoll.pdf', 'Statik.pdf', 'Werkvertrag.pdf'])
     expect(accountant.levelOf(folder.vertraege)).toBe('read')
     expect(accountant.levelOf(folder.honorare)).toBe('none')
 
-    const admin = access.computeFolderAccess(tree, { roles: [], seesEverything: true }, COLLECTION)
+    const admin = access.computeFolderAccess(tree, access.EVERY_FOLDER, COLLECTION)
     const adminPage = await documentsRepo.listProjectDocumentPage(projectId, ORG, {
       hiddenFolderIds: [...admin.hiddenFolderIds],
       reader: REVIEWER_READER,
     })
-    expect(adminPage.rows).toHaveLength(4)
+    expect(adminPage.rows).toHaveLength(5)
   })
 
   it('knows a name is taken under another restriction, which the per-collection index cannot', async () => {
@@ -177,33 +189,28 @@ describe.skipIf(!url)('read/write folder access against Postgres', () => {
     expect(holders).toEqual([access.restrictedCollectionName(COLLECTION, folder.honorare)])
   })
 
-  it('refuses a custom list with no entry, at commit, whichever table the statement touched', async () => {
-    // A folder made custom with nothing listed.
-    await expect(
-      inTenant(() =>
+  it('takes a custom folder with no grant row (0128 dropped the 1–20 trigger), and still refuses one nobody set', async () => {
+    const own = await insertFolder('Eigen', null, 'Eigen', null)
+    try {
+      // Made custom with nothing in project_folder_grants: its people are folder roles in WorkOS.
+      await inTenant(() =>
         db.execute(sql`
           UPDATE project_folders SET access_mode = 'custom', access_changed_by = ${USER}, access_changed_at = now()
-          WHERE id = ${folder.verwaltung}::uuid
+          WHERE id = ${own}::uuid
         `)
       )
-    ).rejects.toThrow()
-    // The last grant of a custom folder taken away.
-    await expect(
-      inTenant(() => db.execute(sql`DELETE FROM project_folder_grants WHERE folder_id = ${folder.honorare}::uuid`))
-    ).rejects.toThrow()
-    // A custom folder nobody set.
-    await expect(
-      inTenant(() =>
-        db.execute(sql`
-          UPDATE project_folders SET access_changed_by = NULL WHERE id = ${folder.honorare}::uuid
-        `)
-      )
-    ).rejects.toThrow()
-    const tree = await accessRepo.listProjectFolderTree(ORG, projectId)
-    expect(tree.find((entry) => entry.id === folder.honorare)?.grants).toHaveLength(1)
+      const tree = await accessRepo.listProjectFolderTree(ORG, projectId)
+      expect(tree.find((entry) => entry.id === own)).toMatchObject({ accessMode: 'custom', everyoneReads: false })
+      // A custom folder nobody set: the 0111 CHECK stays.
+      await expect(
+        inTenant(() => db.execute(sql`UPDATE project_folders SET access_changed_by = NULL WHERE id = ${own}::uuid`))
+      ).rejects.toThrow()
+    } finally {
+      await inTenant(() => db.execute(sql`UPDATE project_folders SET deleted_at = now(), purged_at = now() WHERE id = ${own}::uuid`))
+    }
   })
 
-  it('refuses a level other than read or write, and a slug that could be confused with `*`', async () => {
+  it('refuses a level other than read or write, and a slug that could be confused with `*`, in the grants the conversion reads', async () => {
     const insertGrant = (role: string, level: string) =>
       inTenant(() =>
         db.execute(sql`
@@ -216,7 +223,19 @@ describe.skipIf(!url)('read/write folder access against Postgres', () => {
     await expect(insertGrant('org x', 'read')).rejects.toThrow()
   })
 
-  it('keeps grants inside the tenant: another organization neither sees nor writes them', async () => {
+  it('keeps the old grants inside the tenant: another organization neither sees nor writes them', async () => {
+    await inTenant(() =>
+      db.execute(sql`
+        INSERT INTO project_folder_grants (organization_id, project_id, folder_id, role_slug, level)
+        VALUES (${ORG}, ${projectId}::uuid, ${folder.vertraege}::uuid, 'org-geschaeftsfuehrung', 'write')
+      `)
+    )
+    const own = await inTenant(() =>
+      db.execute<{ n: number }>(
+        sql`SELECT count(*)::int AS n FROM project_folder_grants WHERE folder_id = ${folder.vertraege}::uuid`
+      )
+    )
+    expect(Number(Array.from(own)[0]?.n)).toBe(1)
     const seen = await inTenant(
       () =>
         db.execute<{ n: number }>(
@@ -237,51 +256,8 @@ describe.skipIf(!url)('read/write folder access against Postgres', () => {
     ).rejects.toThrow()
   })
 
-  it('lists the living folders whose own list names a role, with their project, and counts them all (ADR-0088)', async () => {
-    const found = await accessRepo.listFoldersNamingRole(ORG, 'org-geschaeftsfuehrung')
-
-    expect(found.total).toBe(2)
-    expect(found.folders.map((entry) => entry.folderName).sort()).toEqual(['Honorare', 'Verträge'])
-    expect(found.folders[0]).toMatchObject({ projectId, projectName: 'Folders', deleted: null })
-
-    expect((await accessRepo.listFoldersNamingRole(ORG, 'org-buchhaltung')).folders.map((entry) => entry.folderName)).toEqual([
-      'Verträge',
-    ])
-    expect(await accessRepo.listFoldersNamingRole(ORG, 'org-nobody')).toEqual({ folders: [], total: 0 })
-  })
-
-  it('counts a folder in the Papierkorb in a role’s usage, and leaves a purged tombstone and another organization’s folders out', async () => {
-    const temporary = await insertFolder('Zeitweilig', null, 'Zeitweilig', [['org-zeitweilig', 'read']])
-    expect((await accessRepo.listFoldersNamingRole(ORG, 'org-zeitweilig')).total).toBe(1)
-
-    expect((await accessRepo.listFoldersNamingRole(OTHER_ORG, 'org-zeitweilig')).total).toBe(0)
-
-    // In the Papierkorb: a restore brings the list back, so the role is still in use.
-    await inTenant(() => db.execute(sql`UPDATE project_folders SET deleted_at = now() WHERE id = ${temporary}::uuid`))
-    const binned = await accessRepo.listFoldersNamingRole(ORG, 'org-zeitweilig')
-    expect(binned.total).toBe(1)
-    expect(binned.folders.map((entry) => [entry.folderId, entry.deleted])).toEqual([[temporary, 'folder']])
-
-    // Purged: nothing can bring it back.
-    await inTenant(() => db.execute(sql`UPDATE project_folders SET purged_at = now() WHERE id = ${temporary}::uuid`))
-    expect(await accessRepo.listFoldersNamingRole(ORG, 'org-zeitweilig')).toEqual({ folders: [], total: 0 })
-  })
-
-  it('counts the folders of a project pending deletion in a role’s usage: restoring the project brings their lists back', async () => {
-    const pending = await insertFolder('Vorbehalt', null, 'Vorbehalt', [['org-vorbehalt', 'read']])
-    await inTenant(() => db.execute(sql`UPDATE projects SET deleted_at = now() WHERE id = ${projectId}::uuid`))
-    try {
-      const usage = await accessRepo.listFoldersNamingRole(ORG, 'org-vorbehalt')
-      expect(usage.total).toBe(1)
-      expect(usage.folders.map((entry) => [entry.folderId, entry.deleted])).toEqual([[pending, 'project']])
-    } finally {
-      await inTenant(() => db.execute(sql`UPDATE projects SET deleted_at = NULL WHERE id = ${projectId}::uuid`))
-      await inTenant(() => db.execute(sql`UPDATE project_folders SET deleted_at = now(), purged_at = now() WHERE id = ${pending}::uuid`))
-    }
-  })
-
   it('keeps a deleted folder as a tombstone that frees its name and still answers for its access', async () => {
-    const archiv = await insertFolder('Archiv', null, 'Archiv', [['org-geschaeftsfuehrung', 'read']])
+    const archiv = await insertFolder('Archiv', null, 'Archiv', { everyoneReads: false })
     await inTenant(() =>
       db.execute(sql`UPDATE project_folders SET deleted_at = now(), deleted_by = ${USER} WHERE id = ${archiv}::uuid`)
     )
@@ -293,10 +269,10 @@ describe.skipIf(!url)('read/write folder access against Postgres', () => {
     const tombstone = tree.find((entry) => entry.id === archiv)
     expect(tombstone).toMatchObject({ deleted: true, accessMode: 'custom' })
     const lookup = access.folderTree(tree)
-    expect(access.effectiveFolderLevel(lookup, { roles: ['org-geschaeftsfuehrung'], seesEverything: false }, archiv)).toBe('read')
-    expect(access.effectiveFolderLevel(lookup, { roles: ['member'], seesEverything: false }, archiv)).toBe('none')
+    expect(access.effectiveFolderLevel(lookup, holding({ [archiv]: 'read' }), archiv)).toBe('read')
+    expect(access.effectiveFolderLevel(lookup, access.ANY_MEMBER, archiv)).toBe('none')
     // Hidden from every listing, for everyone.
-    expect(access.computeFolderAccess(tree, { roles: [], seesEverything: true }, COLLECTION).isVisible(archiv)).toBe(false)
+    expect(access.computeFolderAccess(tree, access.EVERY_FOLDER, COLLECTION).isVisible(archiv)).toBe(false)
   })
 })
 

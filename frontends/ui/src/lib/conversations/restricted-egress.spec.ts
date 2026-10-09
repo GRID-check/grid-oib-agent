@@ -42,10 +42,10 @@ const CONV = 's_conv_1'
 
 /** Verträge (own list) › Honorare (own list); Offen inherits; Alt is a deleted folder's tombstone. */
 const TREE: AccessFolder[] = [
-  { id: VERTRAEGE, parentId: null, accessMode: 'custom', grants: [{ role: 'org-gf', level: 'write' }] },
-  { id: HONORARE, parentId: VERTRAEGE, accessMode: 'custom', grants: [{ role: 'org-gf', level: 'write' }] },
-  { id: 'open', parentId: null, accessMode: 'inherit', grants: [] },
-  { id: 'alt', parentId: null, accessMode: 'custom', grants: [{ role: 'org-gf', level: 'read' }], deleted: true },
+  { id: VERTRAEGE, parentId: null, accessMode: 'custom', everyoneReads: false },
+  { id: HONORARE, parentId: VERTRAEGE, accessMode: 'custom', everyoneReads: false },
+  { id: 'open', parentId: null, accessMode: 'inherit', everyoneReads: false },
+  { id: 'alt', parentId: null, accessMode: 'custom', everyoneReads: false, deleted: true },
 ]
 
 const destination = (folderId: string | null) => ({
@@ -208,7 +208,7 @@ describe('requirePlanDocumentsOpen — a run’s Unterlagen', () => {
   })
 
   it('asks for no document when no folder of the project has its own list', async () => {
-    vi.mocked(listProjectFolderTree).mockResolvedValue([{ id: 'open', parentId: null, accessMode: 'inherit', grants: [] }])
+    vi.mocked(listProjectFolderTree).mockResolvedValue([{ id: 'open', parentId: null, accessMode: 'inherit', everyoneReads: false }])
     await requirePlanDocumentsOpen(ORG, PROJECT, [{ name: 'a.pdf', shelf: 'project' }], 'de')
     expect(findProjectDocumentsByFilenames).not.toHaveBeenCalled()
   })

@@ -18,7 +18,11 @@ import type { ConversationAudienceRow } from './restricted-use-repository'
 vi.mock('server-only', () => ({}))
 
 const COLLECTION = 'proj_alpha'
-/** Verträge: Geschäftsführung writes, „Verträge" reads. Personal: Geschäftsführung only. */
+/**
+ * Verträge: the Geschäftsführung writes, the contracts clerk reads. Personal:
+ * Geschäftsführung only. Who is on each list is the folder roles WorkOS
+ * reports (ADR-0096), so a clearance is the levels a person holds.
+ */
 const VERTRAEGE_ID = '01234567-89ab-4cde-8f01-23456789abcd'
 const PERSONAL_ID = 'ba987654-3210-4cde-8f01-23456789abcd'
 /** Once restricted, since opened to everyone. */
@@ -27,22 +31,27 @@ const OPENED_ID = 'c0ffee00-0000-4000-8000-000000000001'
 const DELETED_ID = 'dead0000-0000-4000-8000-000000000001'
 const VERTRAEGE = `${COLLECTION}_r0123456789ab`
 const PERSONAL = `${COLLECTION}_rba9876543210`
-const GF: FolderClearance = { roles: ['org-gf'], seesEverything: false }
-const NOBODY: FolderClearance = { roles: [], seesEverything: false }
+/** „Honorare" in another project (ADR-0093): Geschäftsführung only. */
+const HONORARE_ID = 'aaaa0000-0000-4000-8000-0000000000aa'
+/** On every Geschäftsführung list; reads Opened too, once it gets one. */
+const GF: FolderClearance = {
+  levels: { [VERTRAEGE_ID]: 'write', [PERSONAL_ID]: 'write', [DELETED_ID]: 'read', [OPENED_ID]: 'read', [HONORARE_ID]: 'read' },
+  seesEverything: false,
+}
+/** Reads Verträge, and nothing else with a list. */
+const VERTRAEGE_READER: FolderClearance = { levels: { [VERTRAEGE_ID]: 'read' }, seesEverything: false }
+const NOBODY: FolderClearance = { levels: {}, seesEverything: false }
 
 const TREE: AccessFolder[] = [
   {
     id: VERTRAEGE_ID,
     parentId: null,
     accessMode: 'custom',
-    grants: [
-      { role: 'org-gf', level: 'write' },
-      { role: 'org-vertraege', level: 'read' },
-    ],
+    everyoneReads: false,
   },
-  { id: PERSONAL_ID, parentId: null, accessMode: 'custom', grants: [{ role: 'org-gf', level: 'write' }] },
-  { id: OPENED_ID, parentId: null, accessMode: 'inherit', grants: [] },
-  { id: DELETED_ID, parentId: null, accessMode: 'custom', grants: [{ role: 'org-gf', level: 'read' }], deleted: true },
+  { id: PERSONAL_ID, parentId: null, accessMode: 'custom', everyoneReads: false },
+  { id: OPENED_ID, parentId: null, accessMode: 'inherit', everyoneReads: false },
+  { id: DELETED_ID, parentId: null, accessMode: 'custom', everyoneReads: false, deleted: true },
 ]
 
 const state = vi.hoisted(() => ({
@@ -102,7 +111,14 @@ vi.mock('@/lib/authz/projects', () => ({
     return { role: 'project-viewer' }
   }),
 }))
+/** The session paths clear by the real `clearanceOf`: the folder roles of the session's membership. */
+vi.mock('@/lib/authz/folder-roles', () => ({
+  heldFolderLevels: vi.fn(async (_org: string, membershipId: string) =>
+    membershipId === 'om_owner' ? GF.levels : membershipId === 'om_vertraege' ? VERTRAEGE_READER.levels : {}
+  ),
+}))
 vi.mock('@/lib/authz/folder-access-repository', () => ({
+  projectHasCustomFolders: vi.fn(async () => true),
   listProjectFolderTree: vi.fn(async (_org: string, projectId: string) => state.trees.get(projectId) ?? state.tree),
   projectHasCustomOrBinnedFolders: vi.fn(async () => state.tree.some((folder) => folder.accessMode === 'custom')),
 }))
@@ -149,8 +165,9 @@ const OWNER = 'user_owner'
 const session = {
   userId: OWNER,
   organizationId: ORG,
-  role: 'org-gf',
-  roles: ['org-gf'],
+  organizationMembershipId: 'om_owner',
+  role: 'member',
+  roles: ['member'],
   permissions: [],
 } as unknown as AuthorizedSession
 
@@ -178,7 +195,7 @@ beforeEach(() => {
   state.opens = new Set()
   state.members = new Map([
     [OWNER, GF],
-    ['user_vertraege', { roles: ['org-vertraege'], seesEverything: false }],
+    ['user_vertraege', VERTRAEGE_READER],
   ])
 })
 
@@ -186,7 +203,7 @@ describe('foldersEveryoneMayRead', () => {
   const tree = folderTree(TREE)
   const clearances = new Map<string, FolderClearance>([
     ['a', GF],
-    ['b', { roles: ['org-vertraege'], seesEverything: false }],
+    ['b', VERTRAEGE_READER],
   ])
 
   it('keeps what every reader of a private conversation may read — read is enough', () => {
@@ -278,7 +295,7 @@ describe('recordedRestrictedFolders — judged at read time', () => {
     state.recorded = [OPENED_ID]
     expect(await recordedRestrictedFolders(CONV, ORG)).toEqual([])
     state.tree = TREE.map((folder) =>
-      folder.id === OPENED_ID ? { ...folder, accessMode: 'custom' as const, grants: [{ role: 'org-gf', level: 'read' as const }] } : folder
+      folder.id === OPENED_ID ? { ...folder, accessMode: 'custom' as const, everyoneReads: false } : folder
     )
     expect(await recordedRestrictedFolders(CONV, ORG)).toEqual([OPENED_ID])
   })
@@ -318,7 +335,7 @@ describe('widening a conversation — per person', () => {
 
   it('does not name a folder the sharer may not read', async () => {
     state.recorded = [PERSONAL_ID]
-    const sharer = { ...session, roles: ['org-vertraege'], role: 'org-vertraege' } as AuthorizedSession
+    const sharer = { ...session, organizationMembershipId: 'om_vertraege' } as AuthorizedSession
     expect(await refusalOf(assertMayWidenConversation(sharer, CONV, toIna))).toEqual({
       reason: 'restricted-content',
       person: 'Ina',
@@ -352,7 +369,7 @@ describe('widening a conversation — per person', () => {
 
   it('refuses an escalating admin who may not read a recorded folder, without naming it', async () => {
     state.recorded = [PERSONAL_ID]
-    const admin = { ...session, userId: 'user_admin', roles: ['org-vertraege'], role: 'org-vertraege' } as AuthorizedSession
+    const admin = { ...session, userId: 'user_admin', organizationMembershipId: 'om_vertraege' } as AuthorizedSession
     expect(
       await refusalOf(assertMayWidenConversation(admin, CONV, { kind: 'person', userId: 'user_admin', self: true }))
     ).toEqual({ reason: 'restricted-content-self' })
@@ -379,21 +396,21 @@ describe('peopleWhoMayRead: who may read the conversation now (ADR-0088)', () =>
     expect(vi.mocked(clearanceOfMember)).not.toHaveBeenCalled()
   })
 
-  it('answers those whose roles reach EVERY recorded folder, and no one else', async () => {
+  it('answers those whose folder roles reach EVERY recorded folder, and no one else', async () => {
     state.recorded = [VERTRAEGE_ID, PERSONAL_ID]
 
     const readers = await peopleWhoMayRead(ORG, CONV, PEOPLE)
 
-    // Verträge reads „Verträge" and Geschäftsführung; Personal only Geschäftsführung.
+    // Verträge reads the clerk and the Geschäftsführung; Personal only the Geschäftsführung.
     expect([...readers]).toEqual([OWNER])
   })
 
-  it('lets a person back in when their role comes back: nothing was stored about who read it', async () => {
+  it('lets a person back in when their folder role comes back: nothing was stored about who read it', async () => {
     state.recorded = [VERTRAEGE_ID]
-    state.members.set('user_nobody', { roles: [], seesEverything: false })
+    state.members.set('user_nobody', NOBODY)
     expect([...(await peopleWhoMayRead(ORG, CONV, ['user_nobody']))]).toEqual([])
 
-    state.members.set('user_nobody', { roles: ['org-vertraege'], seesEverything: false })
+    state.members.set('user_nobody', VERTRAEGE_READER)
     expect([...(await peopleWhoMayRead(ORG, CONV, ['user_nobody']))]).toEqual(['user_nobody'])
   })
 
@@ -403,7 +420,7 @@ describe('peopleWhoMayRead: who may read the conversation now (ADR-0088)', () =>
 
     state.tree = TREE.map((folder) =>
       folder.id === OPENED_ID
-        ? { ...folder, accessMode: 'custom' as const, grants: [{ role: 'org-gf', level: 'read' as const }] }
+        ? { ...folder, accessMode: 'custom' as const, everyoneReads: false }
         : folder
     )
     expect((await peopleWhoMayRead(ORG, CONV, ['user_nobody'])).has('user_nobody')).toBe(false)
@@ -455,8 +472,8 @@ describe('peopleWhoMayRead: who may read the conversation now (ADR-0088)', () =>
 })
 
 describe('lockedConversationIds: which of a list the session may no longer read (ADR-0088)', () => {
-  const asGf = { ...session, role: 'org-gf', roles: ['org-gf'] } as AuthorizedSession
-  const asNobody = { ...session, userId: 'user_nobody', role: 'member', roles: ['member'] } as AuthorizedSession
+  const asGf = session
+  const asNobody = { ...session, userId: 'user_nobody', organizationMembershipId: 'om_nobody' } as AuthorizedSession
   const list = [
     { id: 'c_plain', projectId: PROJECT },
     { id: 'c_vertraege', projectId: PROJECT },
@@ -474,14 +491,14 @@ describe('lockedConversationIds: which of a list the session may no longer read 
     ])
   })
 
-  it('locks the chats whose recorded folders the roles no longer reach, creator or not, and leaves the rest', async () => {
+  it('locks the chats whose recorded folders the folder roles no longer reach, creator or not, and leaves the rest', async () => {
     expect([...(await lockedConversationIds(asNobody, list))].sort()).toEqual(['c_orphan', 'c_personal', 'c_vertraege'])
     expect([...(await lockedConversationIds(asGf, list))].sort()).toEqual(['c_orphan'])
   })
 
   it('opens a chat again when the folder is opened to everyone, with nothing rewritten', async () => {
     state.tree = TREE.map((folder) =>
-      folder.id === VERTRAEGE_ID ? { ...folder, accessMode: 'inherit' as const, grants: [] } : folder
+      folder.id === VERTRAEGE_ID ? { ...folder, accessMode: 'inherit' as const, everyoneReads: false } : folder
     )
 
     expect([...(await lockedConversationIds(asNobody, list))].sort()).toEqual(['c_orphan', 'c_personal'])
@@ -503,13 +520,11 @@ describe('lockedConversationIds: which of a list the session may no longer read 
 
 describe('a chat that drew on another project (ADR-0093)', () => {
   const OTHER = 'project_2'
-  /** „Honorare" in the other project: Geschäftsführung only. */
-  const HONORARE_ID = 'aaaa0000-0000-4000-8000-0000000000aa'
   /** An open folder of the other project. */
   const PLAENE_ID = 'aaaa0000-0000-4000-8000-0000000000bb'
   const OTHER_TREE: AccessFolder[] = [
-    { id: HONORARE_ID, parentId: null, accessMode: 'custom', grants: [{ role: 'org-gf', level: 'read' }] },
-    { id: PLAENE_ID, parentId: null, accessMode: 'inherit', grants: [] },
+    { id: HONORARE_ID, parentId: null, accessMode: 'custom', everyoneReads: false },
+    { id: PLAENE_ID, parentId: null, accessMode: 'inherit', everyoneReads: false },
   ]
   const toIna = { kind: 'person', userId: 'user_ina', self: false } as const
 
@@ -559,7 +574,7 @@ describe('a chat that drew on another project (ADR-0093)', () => {
     state.projectsFor = new Map([['c_foreign', [OTHER]]])
     state.opens = new Set([`${OWNER}:${OTHER}`])
     const list = [{ id: 'c_foreign', projectId: PROJECT }]
-    const asNobody = { ...session, userId: 'user_nobody', role: 'member', roles: ['member'] } as AuthorizedSession
+    const asNobody = { ...session, userId: 'user_nobody', organizationMembershipId: 'om_nobody' } as AuthorizedSession
 
     expect([...(await lockedConversationIds(asNobody, list))]).toEqual(['c_foreign'])
     expect((await lockedConversationIds(session, list)).size).toBe(0)

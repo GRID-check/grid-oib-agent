@@ -9,8 +9,8 @@
  *
  * `task db:test:rls` (scripts/rls-test-db.sh) builds that database and runs it.
  *
- * Who may open which project and who holds which role are the WorkOS answers,
- * faked; the projects, the folder tree, the conversations, the grants and the
+ * Who may open which project and who holds which folder role are the WorkOS
+ * answers, faked (ADR-0096); the projects, the folder tree, the conversations, the grants and the
  * records are real rows. What it proves:
  *   - a hand-out from the other project and a restricted folder of it records
  *     the project and the folder id;
@@ -46,27 +46,30 @@ vi.mock('server-only', () => ({}))
 const STAMP = Date.now()
 const ORG = `org_xp_${STAMP}`
 const OTHER_ORG = `${ORG}_other`
-/** Owner of every chat: opens both projects, holds the role the restricted folder names. */
+/** Owner of every chat: opens both projects, on every restricted folder's list. */
 const OWNER = `user_xp_owner_${STAMP}`
-/** Opens the other project, holds no role. */
+/** Opens the other project, on no folder's list. */
 const MEMBER = `user_xp_member_${STAMP}`
-/** Opens the other project and holds the role. */
+/** Opens the other project and is on every restricted folder's list. */
 const CLEARED = `user_xp_cleared_${STAMP}`
 /** Opens only the chat's own project. */
 const OUTSIDER = `user_xp_outsider_${STAMP}`
 
-const roles = new Map<string, FolderClearance>([
-  [OWNER, { roles: ['org-gf'], seesEverything: false }],
-  [CLEARED, { roles: ['org-gf'], seesEverything: false }],
-])
+const holders = new Set([OWNER, CLEARED])
+/** Every restricted folder made here: its list in WorkOS holds OWNER and CLEARED as folder-reader. */
+const listed = new Set<string>()
+const clearanceFor = (userId: string): FolderClearance => ({
+  levels: holders.has(userId) ? Object.fromEntries([...listed].map((folderId) => [folderId, 'read' as const])) : {},
+  seesEverything: false,
+})
 /** Who may open the OTHER project: everyone named here (and nobody else). */
 const opensOther = new Set([OWNER, MEMBER, CLEARED])
 const ids = { own: '', other: '', closed: '' }
 
 vi.mock('@/lib/authz/folder-access', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/lib/authz/folder-access')>()),
-  clearanceOfMember: vi.fn(async (_org: string, userId: string) => roles.get(userId) ?? { roles: [], seesEverything: false }),
-  clearanceOf: vi.fn(async (session: { userId: string }) => roles.get(session.userId) ?? { roles: [], seesEverything: false }),
+  clearanceOfMember: vi.fn(async (_org: string, userId: string) => clearanceFor(userId)),
+  clearanceOf: vi.fn(async (session: { userId: string }) => clearanceFor(session.userId)),
 }))
 vi.mock('@/lib/authz/projects', () => ({
   requireProjectAccess: vi.fn(async (session: { userId: string }, projectId: string) => {
@@ -110,8 +113,8 @@ describe.skipIf(!url)('cross-project use against Postgres (migration 0125)', () 
     accessToken: 'token',
     organizationId: ORG,
     organizationMembershipId: `om_${userId}`,
-    role: 'org-gf',
-    roles: ['org-gf'],
+    role: 'member',
+    roles: ['member'],
     permissions: [],
     featureFlags: null,
   })
@@ -171,22 +174,17 @@ describe.skipIf(!url)('cross-project use against Postgres (migration 0125)', () 
     )
     return Number(Array.from(rows)[0]?.n)
   }
-  /** A folder of `projectId` with its own access list (the role `org-gf`), as a folder closed to most of the office. */
+  /** A folder of `projectId` with its own access list (OWNER and CLEARED on it), as a folder closed to most of the office. */
   const restrictedFolder = async (projectId: string, name: string) => {
     const [row] = Array.from(
       await inOrg(ORG, () =>
         db.execute<{ id: string }>(sql`
-          with folder as (
-            insert into project_folders (organization_id, project_id, name, path, access_mode, access_changed_by, access_changed_at)
-            values (${ORG}, ${projectId}::uuid, ${name}, ${name}, 'custom', ${OWNER}, now())
-            returning id, project_id
-          ), grants as (
-            insert into project_folder_grants (organization_id, project_id, folder_id, role_slug, level)
-            select ${ORG}, project_id, id, 'org-gf', 'read' from folder
-          )
-          select id from folder`)
+          insert into project_folders (organization_id, project_id, name, path, access_mode, access_changed_by, access_changed_at)
+          values (${ORG}, ${projectId}::uuid, ${name}, ${name}, 'custom', ${OWNER}, now())
+          returning id`)
       )
     )
+    listed.add(String(row.id))
     return String(row.id)
   }
   /** A project that is closed now with a restricted folder (a closed project takes no new folder, so it closes last). */
@@ -245,21 +243,7 @@ describe.skipIf(!url)('cross-project use against Postgres (migration 0125)', () 
     ids.other = await insertProject('Anderes Projekt', otherCollection)
     ids.closed = await insertProject('Referenzprojekt', `proj_xp_closed_${STAMP}`)
     await setStatus(ids.closed, 'closed')
-    const [folder] = Array.from(
-      await inOrg(ORG, () =>
-        db.execute<{ id: string }>(sql`
-          with folder as (
-            insert into project_folders (organization_id, project_id, name, path, access_mode, access_changed_by, access_changed_at)
-            values (${ORG}, ${ids.other}::uuid, 'Honorare', 'Honorare', 'custom', ${OWNER}, now())
-            returning id, project_id
-          ), grants as (
-            insert into project_folder_grants (organization_id, project_id, folder_id, role_slug, level)
-            select ${ORG}, project_id, id, 'org-gf', 'read' from folder
-          )
-          select id from folder`)
-      )
-    )
-    folderId = String(folder.id)
+    folderId = await restrictedFolder(ids.other, 'Honorare')
   })
 
   afterAll(async () => {
@@ -391,7 +375,6 @@ describe.skipIf(!url)('cross-project use against Postgres (migration 0125)', () 
 
       await inOrg(ORG, async () => {
         await db.execute(sql`update project_folders set access_mode = 'inherit' where id = ${folder}::uuid`)
-        await db.execute(sql`delete from project_folder_grants where folder_id = ${folder}::uuid`)
       })
 
       expect(await inOrg(ORG, () => use.recordedRestrictedFolders(id, ORG))).toEqual([])
@@ -458,7 +441,6 @@ describe.skipIf(!url)('cross-project use against Postgres (migration 0125)', () 
 
       await inOrg(ORG, async () => {
         await db.execute(sql`update project_folders set access_mode = 'inherit' where id = ${folder}::uuid`)
-        await db.execute(sql`delete from project_folder_grants where folder_id = ${folder}::uuid`)
       })
       expect(await listed(id)).toEqual([])
     })

@@ -92,17 +92,11 @@ describe.skipIf(!url)('the files the closing extraction may read, against live P
   /** A folder with its own access list (one role, not every member): it restricts reading. */
   async function restrictedFolder(name: string): Promise<string> {
     return idOf(
-      // One statement: the 0110 trigger wants the list in the same commit.
+      // Its own list; who is on it is WorkOS's (ADR-0096).
       await inserted(sql`
-        with folder as (
-          insert into project_folders (organization_id, project_id, name, path, access_mode, access_changed_by, access_changed_at)
-          values (${ORG}, ${projectId}::uuid, ${name}, ${name}, 'custom', ${USER}, now())
-          returning id, project_id
-        ), grants as (
-          insert into project_folder_grants (organization_id, project_id, folder_id, role_slug, level)
-          select ${ORG}, project_id, id, 'org-gf', 'write' from folder
-        )
-        select id from folder`)
+        insert into project_folders (organization_id, project_id, name, path, access_mode, access_changed_by, access_changed_at)
+        values (${ORG}, ${projectId}::uuid, ${name}, ${name}, 'custom', ${USER}, now())
+        returning id`)
     )
   }
 

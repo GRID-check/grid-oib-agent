@@ -3,10 +3,8 @@
 /**
  * The organization's roles, read once per mount (ADR-0087).
  *
- * Two surfaces need them: the custom-roles section, which edits them, and the
- * project Files view, which names them on a restricted folder's lock and offers
- * them in the folder access dialog. `enabled` lets Files skip the read entirely
- * while nothing on screen is restricted and no dialog is open.
+ * The custom-roles section edits them. `enabled` lets a surface skip the read
+ * while it does not need them.
  */
 
 import { useCallback, useEffect, useState } from 'react'
@@ -40,10 +38,4 @@ export function useOrganizationRoles(enabled = true): OrganizationRolesState {
   }, [enabled, load])
 
   return { data, failed, reload: () => load() }
-}
-
-/** Slug → name, for showing the roles a folder names. An unknown slug shows as itself. */
-export function roleNamesFor(slugs: readonly string[], roles: OrganizationRoles | null): string[] {
-  const names = new Map((roles?.roles ?? []).map((role) => [role.slug, role.name]))
-  return slugs.map((slug) => names.get(slug) ?? slug)
 }

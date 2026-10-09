@@ -9,10 +9,10 @@
  *
  * `task db:test:rls` (scripts/rls-test-db.sh) builds that database and runs it.
  *
- * Who holds which WorkOS role, and the project gate, are the things faked; the
+ * Who holds which folder role in WorkOS, and the project gate, are the things faked; the
  * folders, the document, the task runs and the thread are real rows. What it
  * proves, for a task opened while its document sat in an open folder and the
- * document since moved into a folder only some roles read:
+ * document since moved into a folder only some people read:
  *   - the task list leaves it out for a member who may not read that folder,
  *     opening it answers 404, and the inbox redacts the rows naming its run,
  *     while a cleared member sees and opens it;
@@ -62,16 +62,18 @@ const CLEARED = `user_subj_cleared_${STAMP}`
 const UNCLEARED = `user_subj_uncleared_${STAMP}`
 const THREAD = `s_subj_thread_${STAMP}`
 
-const clearances = new Map<string, FolderClearance>([
-  [CLEARED, { roles: ['org-buchhaltung'], seesEverything: false }],
-  [UNCLEARED, { roles: [], seesEverything: false }],
-])
+/** The restricted folder, once made: CLEARED holds folder-reader on it (ADR-0096), UNCLEARED nothing. */
+const listed = { folderId: '' }
+const clearanceFor = (userId: string): FolderClearance => ({
+  levels: userId === CLEARED && listed.folderId ? { [listed.folderId]: 'read' } : {},
+  seesEverything: false,
+})
 
 vi.mock('@/lib/authz/folder-access', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@/lib/authz/folder-access')>()
   return {
     ...actual,
-    clearanceOf: vi.fn(async (session: AuthorizedSession) => clearances.get(session.userId) ?? { roles: [], seesEverything: false }),
+    clearanceOf: vi.fn(async (session: AuthorizedSession) => clearanceFor(session.userId)),
   }
 })
 vi.mock('@/lib/authz/projects', async (importOriginal) => {
@@ -200,23 +202,18 @@ describe.skipIf(!url)('revision tasks judged by their document’s current folde
         )
       ).id
     )
-    // One statement: the 0110 trigger checks at commit that a custom list is not empty.
+    // Its own list; who is on it is WorkOS's (`listed`).
     restrictedFolder = String(
       first(
         await inOrg(() =>
           db.execute<{ id: string }>(sql`
-            with folder as (
-              insert into project_folders (organization_id, project_id, name, path, access_mode, access_changed_by, access_changed_at)
-              values (${ORG}, ${projectId}::uuid, 'Honorare', 'Honorare', 'custom', ${CLEARED}, now())
-              returning id, project_id
-            ), grants as (
-              insert into project_folder_grants (organization_id, project_id, folder_id, role_slug, level)
-              select ${ORG}, project_id, id, 'org-buchhaltung', 'read' from folder
-            )
-            select id from folder`)
+            insert into project_folders (organization_id, project_id, name, path, access_mode, access_changed_by, access_changed_at)
+            values (${ORG}, ${projectId}::uuid, 'Honorare', 'Honorare', 'custom', ${CLEARED}, now())
+            returning id`)
         )
       ).id
     )
+    listed.folderId = restrictedFolder
     openFolder = String(
       first(
         await inOrg(() =>

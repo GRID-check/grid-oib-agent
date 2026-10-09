@@ -84,7 +84,7 @@ Index: [`contributing/README.md`](contributing/README.md).
 | [Projects](user-guides/projects.md) | Organizing documents and chats into projects with access control |
 | [Documents](user-guides/documents.md) | Uploading, tracking, and downloading documents through the UI |
 | [The download log](user-guides/download-log.md) | Who downloaded which document and who opened one in a folder with its own access list: what is recorded and why, 12 months at most, who sees it, and the works-council note for Austria and Germany |
-| [Sensitive data, quarantine and folder access](user-guides/sensitive-data-and-access.md) | The office's sensitive-data list, the quarantine, the upload summary, the office's own roles, and restricting a folder to them |
+| [Sensitive data, quarantine and folder access](user-guides/sensitive-data-and-access.md) | The office's sensitive-data list, the quarantine, the upload summary, the office's own roles, and restricting a folder to named people |
 | [Sensitive data and the AI Act](user-guides/ai-act.md) | Which screening is rules and which decision is a model, where a person decides, what the audit log records, and how generated content is marked |
 | [Reports Piloti Writes](user-guides/agent-authored-reports.md) | Where a deep-research report is filed, how it is marked as machine-written, why it stays out of the knowledge base, and who is responsible for it |
 | [Knowledge Search](user-guides/knowledge-search.md) | How the AI searches OIB knowledge base and uploaded documents |

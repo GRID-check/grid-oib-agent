@@ -45,19 +45,35 @@ vi.mock('@/lib/authz/projects', async () => {
   }
 })
 vi.mock('@/lib/auth/membership-roles', () => ({ resolveMembershipRoles: vi.fn(async () => null) }))
+/** Each custom folder's list in WorkOS (ADR-0096): membership → level. */
+const lists = vi.hoisted(() => new Map<string, Record<string, 'read' | 'write'>>())
+vi.mock('@/lib/authz/folder-roles', () => ({
+  heldFolderLevels: vi.fn(async (_org: string, membershipId: string) =>
+    Object.fromEntries([...lists].flatMap(([folderId, list]) => (list[membershipId] ? [[folderId, list[membershipId]]] : [])))
+  ),
+}))
 
 const url = process.env.GRID_TEST_DATABASE_URL
 const STAMP = Date.now()
 const ORG = `org_cleanup_${STAMP}`
 const USER = 'user_gf'
 const COLLECTION = `proj_cleanup_${STAMP}`
-const GF = 'org-gf'
+/** The Geschäftsführung's membership. */
+const GF = 'om_gf'
 const PROJECT_WRITE = ['project:view', 'project:documents:write', 'project:edit']
 
-const sessionOf = (userId: string, roles: string[]): AuthorizedSession =>
-  ({ userId, organizationId: ORG, email: `${userId}@grid.test`, role: 'member', roles, permissions: PROJECT_WRITE }) as unknown as AuthorizedSession
-const gf = sessionOf('user_gf', [GF])
-const member = sessionOf('user_member', ['member'])
+const sessionOf = (userId: string, membershipId: string): AuthorizedSession =>
+  ({
+    userId,
+    organizationId: ORG,
+    organizationMembershipId: membershipId,
+    email: `${userId}@grid.test`,
+    role: 'member',
+    roles: ['member'],
+    permissions: PROJECT_WRITE,
+  }) as unknown as AuthorizedSession
+const gf = sessionOf('user_gf', GF)
+const member = sessionOf('user_member', 'om_member')
 
 describe.skipIf(!url)('Ausmisten against Postgres', () => {
   let db: ReturnType<typeof import('@/lib/db').getDb>
@@ -72,24 +88,19 @@ describe.skipIf(!url)('Ausmisten against Postgres', () => {
   const inOrg = <T>(run: () => PromiseLike<T>): Promise<T> => withTenant({ organizationId: ORG, userId: USER }, run) as Promise<T>
   const one = <T>(rows: Iterable<T>): T => Array.from(rows)[0] as T
 
-  async function insertFolder(name: string, grants: Array<[string, 'read' | 'write']> | null): Promise<string> {
+  /** A folder; with `list`, its own access list, whose people WorkOS holds (`lists`). */
+  async function insertFolder(name: string, list: Array<[string, 'read' | 'write']> | null): Promise<string> {
     const rows = await inOrg(() =>
       db.execute<{ id: string }>(sql`
-        WITH folder AS (
-          INSERT INTO project_folders (organization_id, project_id, parent_id, name, path, access_mode, access_changed_by, access_changed_at)
-          VALUES (${ORG}, ${projectId}::uuid, NULL, ${name}, ${name}, ${grants ? 'custom' : 'inherit'},
-                  ${grants ? USER : null}, ${grants ? new Date().toISOString() : null}::timestamptz)
-          RETURNING id, project_id
-        ), listed AS (
-          INSERT INTO project_folder_grants (organization_id, project_id, folder_id, role_slug, level)
-          SELECT ${ORG}, folder.project_id, folder.id, grant_row.role_slug, grant_row.level
-          FROM folder, jsonb_to_recordset(${JSON.stringify((grants ?? []).map(([role_slug, level]) => ({ role_slug, level })))}::jsonb)
-            AS grant_row(role_slug text, level text)
-        )
-        SELECT id FROM folder
+        INSERT INTO project_folders (organization_id, project_id, parent_id, name, path, access_mode, access_changed_by, access_changed_at)
+        VALUES (${ORG}, ${projectId}::uuid, NULL, ${name}, ${name}, ${list ? 'custom' : 'inherit'},
+                ${list ? USER : null}, ${list ? new Date().toISOString() : null}::timestamptz)
+        RETURNING id
       `)
     )
-    return one(rows).id
+    const id = one(rows).id
+    if (list) lists.set(id, Object.fromEntries(list))
+    return id
   }
 
   async function insertDocument(filename: string, folderId: string | null, collection: string): Promise<string> {

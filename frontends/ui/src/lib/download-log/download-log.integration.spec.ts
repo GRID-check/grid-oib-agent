@@ -32,8 +32,15 @@ vi.mock('@/lib/audit/service', () => ({
 vi.mock('@/lib/sharing/directory', () => ({
   resolvePeople: vi.fn(async () => new Map()),
 }))
-// No WorkOS here: clearance falls back to the session's own roles and permissions.
+// No WorkOS here: the admin bypass falls back to the session's own permissions.
 vi.mock('@/lib/auth/membership-roles', () => ({ resolveMembershipRoles: vi.fn(async () => null) }))
+/** The folders whose list in WorkOS names the membership `om_gf` (ADR-0096): Verträge, once made. */
+const gfList = vi.hoisted(() => new Set<string>())
+vi.mock('@/lib/authz/folder-roles', () => ({
+  heldFolderLevels: vi.fn(async (_org: string, membershipId: string) =>
+    membershipId === 'om_gf' ? Object.fromEntries([...gfList].map((folderId) => [folderId, 'write'])) : {}
+  ),
+}))
 
 const url = process.env.GRID_TEST_DATABASE_URL
 const STAMP = Date.now()
@@ -167,18 +174,13 @@ describe.skipIf(!url)('the download log against Postgres', () => {
     folder.own = firstId(
       await inTenant(() =>
         db.execute<{ id: string }>(sql`
-          WITH folder AS (
-            INSERT INTO project_folders (organization_id, project_id, name, path, access_mode, access_changed_by, access_changed_at)
-            VALUES (${ORG}, ${projectId}::uuid, 'Verträge', 'Verträge', 'custom', ${USER}, now())
-            RETURNING id, project_id
-          ), listed AS (
-            INSERT INTO project_folder_grants (organization_id, project_id, folder_id, role_slug, level)
-            SELECT ${ORG}, project_id, id, 'org-geschaeftsfuehrung', 'write' FROM folder
-          )
-          SELECT id FROM folder
+          INSERT INTO project_folders (organization_id, project_id, name, path, access_mode, access_changed_by, access_changed_at)
+          VALUES (${ORG}, ${projectId}::uuid, 'Verträge', 'Verträge', 'custom', ${USER}, now())
+          RETURNING id
         `)
       )
     )
+    gfList.add(folder.own)
     folder.child = firstId(
       await inTenant(() =>
         db.execute<{ id: string }>(sql`
@@ -389,7 +391,7 @@ describe.skipIf(!url)('the download log against Postgres', () => {
       // Not on the Verträge list: every page is full, and only what they may read is found.
       expect(await pages(session({ permissions: ['org:downloads:view'] }))).toEqual([['Gehalt neu.pdf'], ['Gehalt alt.pdf']])
       // On the list: the subfolder's hit too, but not the purged project's, which only an admin reads.
-      expect(await pages(session({ role: 'org-geschaeftsfuehrung', permissions: ['org:downloads:view'] }))).toEqual([
+      expect(await pages(session({ organizationMembershipId: 'om_gf', permissions: ['org:downloads:view'] }))).toEqual([
         ['Gehalt geheim.pdf'],
         ['Gehalt neu.pdf'],
         ['Gehalt alt.pdf'],

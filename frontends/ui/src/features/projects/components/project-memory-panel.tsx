@@ -519,7 +519,7 @@ export function ProjectMemoryPanel({
                               data-testid="memory-restricted"
                             >
                               <FolderAccessMark
-                                roleNames={item.restrictedFolderNames ?? []}
+                                names={item.restrictedFolderNames ?? []}
                                 label={restrictionTitle(item, t)}
                               />
                               {t('memory.restricted.badge')}

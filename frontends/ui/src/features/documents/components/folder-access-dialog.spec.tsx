@@ -1,6 +1,7 @@
 import { fireEvent, render, screen, waitFor, within } from '@/test-utils'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import type { OrganizationRoles } from '@/adapters/api/organization-roles-client'
+import { ApiRequestError } from '@/adapters/api/api-error'
+import type { FolderAccessResult, FolderAccessSetting } from '@/adapters/api/folder-access-client'
 import { FolderAccessDialog } from './folder-access-dialog'
 import { folderActionEntries } from './folder-action-entries'
 import { FolderCard, FolderRow } from './folder-navigation'
@@ -9,123 +10,186 @@ import type { FolderItem } from './project-file-workspace'
 vi.mock('sonner', () => ({ toast: { success: vi.fn(), error: vi.fn(), warning: vi.fn() } }))
 import { toast } from 'sonner'
 
-const ROLES: OrganizationRoles = {
-  roles: [
-    { slug: 'admin', name: 'Admin', description: null, custom: false },
-    { slug: 'org-geschaeftsfuehrung', name: 'Geschäftsführung', description: null, custom: true },
-    { slug: 'org-projektleitung', name: 'Projektleitung', description: null, custom: true },
-  ],
-  assignable: null,
+const client = vi.hoisted(() => ({
+  getFolderAccess: vi.fn(),
+  setFolderAccess: vi.fn(),
+  listProjectPeople: vi.fn(),
+}))
+vi.mock('@/adapters/api/folder-access-client', () => client)
+
+const PEOPLE = [
+  { userId: 'u-claudia', name: 'Claudia Hofer', email: 'c.hofer@buero.example' },
+  { userId: 'u-jana', name: 'Jana Weber', email: null },
+  { userId: 'u-tom', name: 'Tom Berger', email: null },
+]
+
+const INHERITS: FolderItem = { id: 'f-1', parentId: null, name: 'Verträge', path: '/Verträge', ownAccess: null }
+const CUSTOM: FolderItem = { ...INHERITS, ownAccess: { everyoneReads: false } }
+/** What `GET …/access` answers for CUSTOM: Claudia edits. */
+const CUSTOM_LIST: FolderAccessSetting = {
+  mode: 'custom',
+  everyoneReads: false,
+  people: [{ userId: 'u-claudia', level: 'write' }],
 }
 
-const INHERITS: FolderItem = { id: 'f-1', parentId: null, name: 'Verträge', path: '/Verträge', grants: null }
-const CUSTOM: FolderItem = { ...INHERITS, grants: [{ role: 'org-geschaeftsfuehrung', level: 'write' }] }
-
-function stubPut(result: { access: unknown; moved: number; failed: string[] }, status = 200): void {
-  vi.stubGlobal(
-    'fetch',
-    vi.fn(async () =>
-      status === 200
-        ? Response.json({ folderId: 'f-1', ...result })
-        : Response.json({ error: { message: 'no' } }, { status })
-    )
-  )
+function savedAs(access: FolderAccessSetting, moved = 0, failed: string[] = []): void {
+  client.setFolderAccess.mockResolvedValue({ folderId: 'f-1', access, moved, failed } satisfies FolderAccessResult)
 }
 
-const putBody = (): unknown => JSON.parse(String(vi.mocked(fetch).mock.calls[0]?.[1]?.body))
+const saved = (): unknown => client.setFolderAccess.mock.calls[0]?.[2]
 
-function renderDialog(folder: FolderItem, onSaved = vi.fn()) {
-  render(
-    <FolderAccessDialog
-      open
-      onOpenChange={() => {}}
-      projectId="p-1"
-      folder={folder}
-      roles={ROLES}
-      onSaved={onSaved}
-    />
-  )
-  return { dialog: screen.getByTestId('folder-access-dialog'), onSaved }
+async function renderDialog(folder: FolderItem, onSaved = vi.fn()) {
+  render(<FolderAccessDialog open onOpenChange={() => {}} projectId="p-1" folder={folder} onSaved={onSaved} />)
+  const dialog = screen.getByTestId('folder-access-dialog')
+  return { dialog, onSaved }
 }
 
-/** Add a role through the „Rolle hinzufügen" picker (a Radix select). */
-function addRole(dialog: HTMLElement, name: string): void {
+/** Switch to an own list and wait until the people are there to pick from. */
+async function ownList(dialog: HTMLElement): Promise<void> {
+  fireEvent.click(within(dialog).getByTestId('folder-access-custom'))
+  await within(dialog).findByTestId('folder-access-people')
+}
+
+/** Add a person through the „Person hinzufügen" picker (a Radix select). */
+function addPerson(dialog: HTMLElement, name: RegExp): void {
   const trigger = within(dialog).getByTestId('folder-access-add')
   fireEvent.pointerDown(trigger, { button: 0, ctrlKey: false, pointerType: 'mouse' })
   fireEvent.click(screen.getByRole('option', { name }))
 }
 
-describe('FolderAccessDialog (ADR-0088)', () => {
-  beforeEach(() => vi.clearAllMocks())
+describe('FolderAccessDialog (ADR-0088, ADR-0096)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    client.listProjectPeople.mockResolvedValue(PEOPLE)
+    client.getFolderAccess.mockResolvedValue(CUSTOM_LIST)
+  })
   afterEach(() => vi.unstubAllGlobals())
 
-  it('gives an inheriting folder its own list, each role with Read or Edit, and reports the documents moved', async () => {
-    stubPut(
-      {
-        access: {
-          mode: 'custom',
-          grants: [
-            { role: 'org-geschaeftsfuehrung', level: 'write' },
-            { role: '*', level: 'read' },
-          ],
-        },
-        moved: 4,
-        failed: [],
-      },
-    )
-    const { dialog, onSaved } = renderDialog(INHERITS)
+  it('gives an inheriting folder its own list of people, each with Read or Edit, and reports the documents moved', async () => {
+    savedAs({ mode: 'custom', everyoneReads: false, people: [{ userId: 'u-claudia', level: 'write' }] }, 4)
+    const { dialog, onSaved } = await renderDialog(INHERITS)
+    // Nothing to read about a folder that inherits: only the people to pick from.
+    expect(client.getFolderAccess).not.toHaveBeenCalled()
+    expect(client.listProjectPeople).toHaveBeenCalledWith('p-1')
 
     const save = within(dialog).getByTestId('folder-access-save')
     expect(save).toBeDisabled()
-    fireEvent.click(within(dialog).getByTestId('folder-access-custom'))
-    // An own list naming nobody is not a choice the dialog offers.
+    await ownList(dialog)
+    // An own list naming nobody, that everyone does not read, is not a choice.
     expect(within(dialog).getByTestId('folder-access-pick-one')).toBeInTheDocument()
     expect(save).toBeDisabled()
 
-    addRole(dialog, 'Geschäftsführung')
-    addRole(dialog, 'All project members')
-    // A new entry reads; Geschäftsführung is raised to Edit.
-    const row = within(dialog).getByTestId('folder-access-grant-org-geschaeftsfuehrung')
+    addPerson(dialog, /Claudia Hofer/)
+    // A new entry reads; Claudia is raised to Edit.
+    const row = within(dialog).getByTestId('folder-access-person-u-claudia')
+    expect(within(row).getByRole('radio', { name: 'Read' })).toHaveAttribute('aria-checked', 'true')
     fireEvent.click(within(row).getByRole('radio', { name: 'Edit' }))
     expect(within(dialog).getByTestId('folder-access-move-notice')).toHaveTextContent(/reads them again/)
+    expect(within(dialog).getByTestId('folder-access-ifc-notice')).toBeInTheDocument()
     fireEvent.click(save)
 
     await waitFor(() => expect(onSaved).toHaveBeenCalled())
-    expect(vi.mocked(fetch).mock.calls[0][0]).toBe('/api/projects/p-1/folders/f-1/access')
-    expect(putBody()).toEqual({
+    expect(client.setFolderAccess).toHaveBeenCalledWith('p-1', 'f-1', {
       mode: 'custom',
-      grants: [
-        { role: 'org-geschaeftsfuehrung', level: 'write' },
-        { role: '*', level: 'read' },
-      ],
+      everyoneReads: false,
+      people: [{ userId: 'u-claudia', level: 'write' }],
     })
     expect(toast.success).toHaveBeenCalledWith('“Verträge” now has its own access.', {
       description: '4 documents are being moved and read again.',
     })
   })
 
-  it('takes a role off the list, and makes the folder inherit again', async () => {
-    stubPut({ access: { mode: 'inherit' }, moved: 1, failed: ['d-9'] })
-    const { dialog } = renderDialog(CUSTOM)
-    const row = within(dialog).getByTestId('folder-access-grant-org-geschaeftsfuehrung')
-    expect(within(row).getByRole('radio', { name: 'Edit' })).toHaveAttribute('aria-checked', 'true')
+  it('offers only project people not yet on the list', async () => {
+    const { dialog } = await renderDialog(CUSTOM)
+    await within(dialog).findByTestId('folder-access-person-u-claudia')
+    const trigger = within(dialog).getByTestId('folder-access-add')
+    fireEvent.pointerDown(trigger, { button: 0, ctrlKey: false, pointerType: 'mouse' })
+    const options = screen.getAllByRole('option').map((option) => option.textContent)
+    expect(options).toEqual(['Jana Weber', 'Tom Berger'])
+  })
 
-    fireEvent.click(within(row).getByRole('button', { name: 'Remove Geschäftsführung' }))
-    expect(within(dialog).queryByTestId('folder-access-grant-org-geschaeftsfuehrung')).toBeNull()
+  it('lets every project member read with nobody on the list, and the list then decides only who edits', async () => {
+    savedAs({ mode: 'custom', everyoneReads: true, people: [] })
+    const { dialog } = await renderDialog(INHERITS)
+    await ownList(dialog)
+
+    fireEvent.click(within(dialog).getByTestId('folder-access-everyone-reads'))
+    expect(within(dialog).queryByTestId('folder-access-pick-one')).toBeNull()
+    // Everyone still reads: no IFC restriction.
+    expect(within(dialog).queryByTestId('folder-access-ifc-notice')).toBeNull()
+    fireEvent.click(within(dialog).getByTestId('folder-access-save'))
+
+    await waitFor(() => expect(client.setFolderAccess).toHaveBeenCalled())
+    expect(saved()).toEqual({ mode: 'custom', everyoneReads: true, people: [] })
+  })
+
+  it('loads the list of a folder with its own, and saves nothing until something changes', async () => {
+    const { dialog } = await renderDialog(CUSTOM)
+    expect(within(dialog).getByTestId('folder-access-loading')).toBeInTheDocument()
+
+    const row = await within(dialog).findByTestId('folder-access-person-u-claudia')
+    expect(client.getFolderAccess).toHaveBeenCalledWith('p-1', 'f-1')
+    expect(row).toHaveTextContent('Claudia Hofer')
+    expect(within(row).getByRole('radio', { name: 'Edit' })).toHaveAttribute('aria-checked', 'true')
+    const save = within(dialog).getByTestId('folder-access-save')
+    expect(save).toBeDisabled()
+    expect(within(dialog).queryByTestId('folder-access-move-notice')).toBeNull()
+
+    // Edit → Read changes who may write, not who may read: savable, nothing moves.
+    fireEvent.click(within(row).getByRole('radio', { name: 'Read' }))
+    expect(save).toBeEnabled()
+    expect(within(dialog).queryByTestId('folder-access-move-notice')).toBeNull()
+    // Back as it was: nothing to save again.
+    fireEvent.click(within(row).getByRole('radio', { name: 'Edit' }))
+    expect(save).toBeDisabled()
+
+    // Someone else on the list changes who may read.
+    addPerson(dialog, /Tom Berger/)
+    expect(save).toBeEnabled()
+    expect(within(dialog).getByTestId('folder-access-move-notice')).toBeInTheDocument()
+  })
+
+  it('takes a person off the list, and makes the folder inherit again', async () => {
+    savedAs({ mode: 'inherit' }, 1, ['d-9'])
+    const { dialog } = await renderDialog(CUSTOM)
+    const row = await within(dialog).findByTestId('folder-access-person-u-claudia')
+
+    fireEvent.click(within(row).getByRole('button', { name: 'Remove Claudia Hofer' }))
+    expect(within(dialog).queryByTestId('folder-access-person-u-claudia')).toBeNull()
     expect(within(dialog).getByTestId('folder-access-save')).toBeDisabled()
 
     fireEvent.click(within(dialog).getByTestId('folder-access-inherit'))
     fireEvent.click(within(dialog).getByTestId('folder-access-save'))
 
     await waitFor(() => expect(toast.success).toHaveBeenCalled())
-    expect(putBody()).toEqual({ mode: 'inherit' })
+    expect(saved()).toEqual({ mode: 'inherit' })
     // A document that could not move is said out loud, with what to do.
     expect(toast.warning).toHaveBeenCalledWith('1 document could not be moved yet. Save again to retry.')
   })
 
+  it('names someone on the list who is not in the project, so they can be taken off', async () => {
+    client.getFolderAccess.mockResolvedValue({ ...CUSTOM_LIST, people: [{ userId: 'u-gone', level: 'read' }] })
+    const { dialog } = await renderDialog(CUSTOM)
+    const row = await within(dialog).findByTestId('folder-access-person-u-gone')
+    expect(row).toHaveTextContent('Person without project access')
+  })
+
+  it('says when the list could not be read, and reads it again on retry', async () => {
+    client.getFolderAccess.mockRejectedValueOnce(new ApiRequestError('down', 500))
+    const { dialog } = await renderDialog(CUSTOM)
+
+    const alert = await within(dialog).findByTestId('folder-access-load-error')
+    expect(alert).toHaveTextContent('The access list could not be loaded.')
+    expect(within(dialog).getByTestId('folder-access-save')).toBeDisabled()
+
+    fireEvent.click(within(alert).getByRole('button', { name: 'Retry' }))
+    expect(await within(dialog).findByTestId('folder-access-person-u-claudia')).toBeInTheDocument()
+    expect(client.getFolderAccess).toHaveBeenCalledTimes(2)
+  })
+
   it('says only project admins may change access when the route refuses', async () => {
-    stubPut({ access: { mode: 'inherit' }, moved: 0, failed: [] }, 404)
-    const { dialog } = renderDialog(CUSTOM)
+    client.setFolderAccess.mockRejectedValue(new ApiRequestError('no', 404))
+    const { dialog } = await renderDialog(CUSTOM)
     fireEvent.click(within(dialog).getByTestId('folder-access-inherit'))
     fireEvent.click(within(dialog).getByTestId('folder-access-save'))
     await waitFor(() =>
@@ -134,10 +198,10 @@ describe('FolderAccessDialog (ADR-0088)', () => {
   })
 
   it('says why when the folder holds IFC models (ADR-0087)', async () => {
-    stubPut({ access: { mode: 'inherit' }, moved: 0, failed: [] }, 409)
-    const { dialog } = renderDialog(INHERITS)
-    fireEvent.click(within(dialog).getByTestId('folder-access-custom'))
-    addRole(dialog, 'Geschäftsführung')
+    client.setFolderAccess.mockRejectedValue(new ApiRequestError('ifc', 409))
+    const { dialog } = await renderDialog(INHERITS)
+    await ownList(dialog)
+    addPerson(dialog, /Claudia Hofer/)
     fireEvent.click(within(dialog).getByTestId('folder-access-save'))
     await waitFor(() =>
       expect(toast.error).toHaveBeenCalledWith(expect.stringContaining('cannot be filed in a folder not everyone may read'))
@@ -153,11 +217,21 @@ describe('folder tiles under read/write access', () => {
     onDeleteFolder: vi.fn(async () => true),
   }
 
-  it('draw a lock and name the list in the open button', () => {
-    render(<FolderCard folder={CUSTOM} restrictedRoleNames={['Geschäftsführung (Edit)']} {...tile} />)
-    expect(screen.getByTestId('folder-lock-f-1')).toHaveAttribute('data-roles', 'Geschäftsführung (Edit)')
+  it('draw a lock and say in the open button that the folder has its own list', () => {
+    render(<FolderCard folder={CUSTOM} {...tile} />)
+    expect(screen.getByTestId('folder-lock-f-1')).toBeInTheDocument()
     expect(
-      screen.getByRole('button', { name: 'Open folder “Verträge”, access: Geschäftsführung (Edit)' })
+      screen.getByRole('button', { name: 'Open folder “Verträge”. Own access: only the listed people' })
+    ).toBeInTheDocument()
+  })
+
+  it('say when every project member reads a folder with its own list, in the list view too', () => {
+    render(<FolderRow folder={{ ...CUSTOM, ownAccess: { everyoneReads: true } }} {...tile} />)
+    expect(screen.getByTestId('folder-lock-f-1')).toBeInTheDocument()
+    expect(
+      screen.getByRole('button', {
+        name: 'Open folder “Verträge”. Own access: all project members read, only the listed people edit',
+      })
     ).toBeInTheDocument()
   })
 

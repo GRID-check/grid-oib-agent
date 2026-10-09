@@ -57,7 +57,7 @@ vi.mock('@/lib/conversations/cross-project-use', () => ({
 }))
 vi.mock('@/lib/authz/folder-access', () => ({
   getProjectFolderAccess: vi.fn(async () => ({ sourceFolderOf: (collection: string) => state.folders.get(collection) ?? null })),
-  clearanceOf: vi.fn(async () => ({ roles: ['org-gf'], seesEverything: false })),
+  clearanceOf: vi.fn(async () => ({ levels: { 'folder-gf': 'write' }, seesEverything: false })),
   readableFolderIdsFor: vi.fn(async (_org: string, projectId: string) => state.readable.get(projectId) ?? []),
 }))
 vi.mock('./decisions-repository', () => ({

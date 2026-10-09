@@ -176,6 +176,7 @@ export const organization: typeof en.organization = {
       org: 'Organisation',
       project: 'Projekt',
       skill: 'Skill-Zeitplan',
+      folder: 'Ordner',
       platform: 'Plattform',
     },
     notAllowed: {
@@ -186,24 +187,24 @@ export const organization: typeof en.organization = {
   },
   /**
    * Personen & Zugriff → Eigene Rollen (ADR-0087): Rollen, die ein Büro in
-   * WorkOS anlegt, im Reiter „Personen“ zuweist und auf die es Ordner einschränkt.
+   * WorkOS anlegt und im Reiter „Personen“ zuweist.
    */
   customRoles: {
     title: 'Eigene Rollen',
     description:
       'Rollen, die Ihr Büro selbst anlegt, neben denen von Piloti. Eine Rolle fasst Berechtigungen unter einem Namen wie „Geschäftsführung“ zusammen.',
     howTo:
-      'Rollen weisen Sie Personen im Reiter „Personen“ zu. Einen Projektordner können Sie auf eine oder mehrere Rollen einschränken: Dann sehen nur Personen mit einer dieser Rollen den Ordner, seine Dokumente und was Piloti daraus antwortet. Organisations-Admins sehen immer alles.',
+      'Rollen weisen Sie Personen im Reiter „Personen“ zu, und sie gelten in der ganzen Organisation. Wer einen einzelnen Projektordner sehen darf, legen Sie am Ordner unter „Zugriff …“ Person für Person fest.',
     oneRoleTitle: 'Eine Rolle pro Person',
     oneRoleBody:
-      'Solange in Ihrer Organisation nicht mehrere Rollen pro Person eingeschaltet sind, hat jede Person genau eine Rolle. Eine Rolle für Ordner muss dann auch die Berechtigungen tragen, mit denen ihre Inhaber arbeiten.',
+      'Solange in Ihrer Organisation nicht mehrere Rollen pro Person eingeschaltet sind, hat jede Person genau eine Rolle. Eine eigene Rolle muss dann alle Berechtigungen tragen, mit denen ihre Inhaber arbeiten.',
     create: 'Neue Rolle',
     customGroup: 'Rollen Ihres Büros',
     environmentGroup: 'Rollen von Piloti',
     environmentHint: 'Stellt Piloti jeder Organisation bereit. Sie lassen sich hier nicht ändern.',
     emptyTitle: 'Noch keine eigenen Rollen',
     emptyDescription:
-      'Legen Sie eine Rolle wie „Geschäftsführung“ an, um Ordner auf die Personen einzuschränken, die sie haben.',
+      'Legen Sie eine Rolle wie „Geschäftsführung“ an, um Berechtigungen unter einem Namen zusammenzufassen.',
     permissionCount: '{count, plural, one {# Berechtigung} other {# Berechtigungen}}',
     editRole: 'Rolle „{name}“ bearbeiten',
     deleteRole: 'Rolle „{name}“ löschen',
@@ -241,23 +242,9 @@ export const organization: typeof en.organization = {
     },
     deleteDialog: {
       title: 'Rolle „{name}“ löschen?',
-      description:
-        'Löschen geht erst, wenn niemand die Rolle mehr hat. Ein Ordner, der nur auf diese Rolle eingeschränkt ist, ist danach nur noch für Organisations-Admins sichtbar.',
+      description: 'Löschen geht erst, wenn niemand die Rolle mehr hat.',
       confirm: 'Rolle löschen',
       deleted: 'Rolle „{name}“ gelöscht.',
-      foldersCount:
-        '{count, plural, one {# Ordner nennt} other {# Ordner nennen}} diese Rolle in der Zugriffsliste:',
-      foldersEffect:
-        'Nach dem Löschen passen diese Listen auf niemanden mehr: Nur Organisations-Admins können die Ordner lesen, bis eine gültige Rolle eingetragen ist. Die Projekteinstellungen führen sie unter „Ordner ohne gültige Rolle“ auf.',
-      foldersMore: 'und {count} weitere',
-      foldersNamesHidden: 'Welche Ordner das sind, sehen nur Organisations-Admins.',
-      folderInBin: 'im Papierkorb',
-      folderProjectDeleted: 'Projekt gelöscht',
-      foldersDeletedNote:
-        'Ein Ordner im Papierkorb oder in einem gelöschten Projekt steht nicht im Ordnerbaum. Wird er wiederhergestellt, kommt er mit dieser Liste zurück; passen Sie die Liste dann an.',
-      confirmAnyway: 'Trotzdem löschen',
-      usageError: 'Welche Ordner diese Rolle nutzen, konnte nicht geprüft werden. Bitte versuchen Sie es erneut.',
-      usedByFoldersNow: 'Inzwischen nutzen Ordner diese Rolle. Prüfen Sie die Liste und bestätigen Sie erneut.',
       stillAssigned:
         'Diese Rolle hat noch jemand. Geben Sie diesen Personen zuerst im Reiter „Personen“ eine andere Rolle.',
       error: 'Die Rolle konnte nicht gelöscht werden. Bitte versuchen Sie es erneut.',

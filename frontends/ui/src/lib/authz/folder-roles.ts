@@ -216,11 +216,13 @@ export async function replaceFolderRoleHolders(
 
 /**
  * Removes `folderId`'s folder resource and every folder role on it: the folder
- * no longer has its own list. Already gone is not an error. Cached levels
- * expire on their own; with the folder back to inherit, nothing reads them for
- * it.
+ * no longer has its own list. Already gone is not an error. Drops the cached
+ * levels of everyone who held a role on it: the folder may get its own list
+ * again within the cache period, and a level cached from the old list would
+ * otherwise open it to someone the new list leaves out.
  */
 export async function removeFolderResource(organizationId: string, folderId: string): Promise<void> {
+  const holders = await listFolderRoleHolders(organizationId, folderId)
   try {
     await timedWorkOSCall('authorization.deleteResourceByExternalId folder', () =>
       getWorkOS().authorization.deleteResourceByExternalId({
@@ -233,4 +235,7 @@ export async function removeFolderResource(organizationId: string, folderId: str
   } catch (error) {
     if (!isNotFound(error)) throw error
   }
+  await Promise.all(
+    holders.map((holder) => invalidateCachedPrefix(levelsKey(organizationId, holder.organizationMembershipId)))
+  )
 }

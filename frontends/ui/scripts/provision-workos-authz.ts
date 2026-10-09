@@ -31,6 +31,7 @@ import {
   ALL_PERMISSION_SPECS,
   RESOURCE_TYPES,
   ROLES,
+  type PermissionTier,
   type RoleSpec,
 } from '../src/lib/authz/catalog'
 
@@ -75,6 +76,15 @@ async function reconcilePermissions(): Promise<void> {
   for (const spec of OWNED_PERMISSIONS) {
     const found = bySlug.get(spec.slug)
     if (found) {
+      // A permission on the wrong resource type cannot be held by a role of its
+      // tier, and WorkOS cannot move it: the fix is a delete and re-create in
+      // the dashboard, so this only reports it.
+      const expected = resourceTypeSlugFor(spec.tier)
+      if (found.resourceTypeSlug && found.resourceTypeSlug !== expected) {
+        drift.push(`permission ${spec.slug} is on resource type ${found.resourceTypeSlug}, expected ${expected}`)
+        note(`WRONG    ${spec.slug} — on ${found.resourceTypeSlug}, expected ${expected}`)
+        continue
+      }
       note(`ok       ${spec.slug}`)
       continue
     }
@@ -88,6 +98,7 @@ async function reconcilePermissions(): Promise<void> {
         name: spec.name,
         slug: spec.slug,
         description: spec.description,
+        resourceTypeSlug: resourceTypeSlugFor(spec.tier),
       })
       applied.push(`created permission ${spec.slug}`)
       note(`created  ${spec.slug}`)
@@ -193,9 +204,14 @@ async function reconcileRoles(): Promise<void> {
   }
 }
 
-/** Roles attach to the resource type their tier names; org/platform tiers to Organization. */
-function resourceTypeSlugFor(spec: RoleSpec): string {
-  return spec.tier === 'platform' ? 'organization' : spec.tier
+/**
+ * The resource type a permission or role of `tier` attaches to: the type the
+ * tier names, and Organization for the org and platform tiers (the same mapping
+ * `catalog.spec.ts` holds every tier to). A permission created without one lands
+ * on Organization, where a role of another type cannot hold it.
+ */
+function resourceTypeSlugFor(tier: PermissionTier): string {
+  return tier === 'platform' || tier === 'org' ? 'organization' : tier
 }
 
 /** Permissions are set separately from creation — the create endpoints take no list. */
@@ -219,14 +235,14 @@ async function createRole(spec: RoleSpec, platformOrgId: string | null): Promise
         name: spec.name,
         slug: spec.slug,
         description: spec.description,
-        resourceTypeSlug: resourceTypeSlugFor(spec),
+        resourceTypeSlug: resourceTypeSlugFor(spec.tier),
       })
     } else {
       await workos.authorization.createEnvironmentRole({
         name: spec.name,
         slug: spec.slug,
         description: spec.description,
-        resourceTypeSlug: resourceTypeSlugFor(spec),
+        resourceTypeSlug: resourceTypeSlugFor(spec.tier),
       })
     }
     await setPermissions(spec, platformOrgId)

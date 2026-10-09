@@ -100,11 +100,6 @@ export default function SettingsDevPage(): JSX.Element {
       canManageProject
       showKnowledgeLink
       currentMembershipId="me"
-      // ADR-0088: folders whose roles were deleted since; each links to the folder.
-      foldersWithoutRole={[
-        { id: 'f-honorare', name: 'Honorare' },
-        { id: 'f-personal', name: 'Personal' },
-      ]}
     />
   )
 }

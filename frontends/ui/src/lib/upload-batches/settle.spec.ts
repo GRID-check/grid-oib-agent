@@ -1,4 +1,4 @@
-import { isFolderVisibleToClearance } from '@/lib/authz/folder-access'
+import { isFolderVisibleToMember } from '@/lib/authz/folder-access'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 vi.mock('server-only', () => ({}))
@@ -16,7 +16,7 @@ vi.mock('@/lib/authz/project-membership', () => ({
   userHoldsProjectPermission: vi.fn(),
 }))
 vi.mock('@/lib/authz/org-role-permissions', () => ({ orgRoleHoldsPermission: vi.fn() }))
-vi.mock('@/lib/authz/folder-access', () => ({ isFolderVisibleToClearance: vi.fn().mockResolvedValue(true) }))
+vi.mock('@/lib/authz/folder-access', () => ({ isFolderVisibleToMember: vi.fn().mockResolvedValue(true) }))
 // The event itself is `quarantine-audit.spec.ts`'s subject; here, settling hands it over.
 vi.mock('@/lib/upload-screening/quarantine-audit', () => ({
   auditOwedQuarantines: vi.fn().mockResolvedValue(undefined),
@@ -164,18 +164,18 @@ describe('onDocumentsSettled', () => {
     )
     vi.mocked(resolveSubjectMembership).mockImplementation(async (_org, userId) => ({
       organizationMembershipId: `om-${userId}`,
-      role: userId === 'gf' ? 'org-geschaeftsfuehrung' : 'member',
+      role: 'member',
     }))
     vi.mocked(orgRoleHoldsPermission).mockResolvedValue(false)
     vi.mocked(userHoldsProjectPermission).mockResolvedValue(true)
-    vi.mocked(isFolderVisibleToClearance).mockImplementation(async (_o, _p, _f, clearance) =>
-      clearance.roles.includes('org-geschaeftsfuehrung')
-    )
+    // Only gf holds a folder role on Honorare (ADR-0096): asked per person, by their membership as it is now.
+    vi.mocked(isFolderVisibleToMember).mockImplementation(async (_o, _p, _f, userId) => userId === 'gf')
 
     await onDocumentsSettled('org-1', [{ id: 'doc-q', status: 'quarantined' }])
 
     const emitted = vi.mocked(emitInboxItems).mock.calls[0]?.[0] ?? []
     expect(emitted.map((emission) => emission.recipientUserId)).toEqual(['gf'])
+    expect(isFolderVisibleToMember).toHaveBeenCalledWith('org-1', 'proj-1', 'f-honorare', 'lead')
   })
 
   it("sends the content gate's owed decisions to the audit trail before telling the reviewers", async () => {

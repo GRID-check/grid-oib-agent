@@ -154,6 +154,7 @@ Consequences, where a reader looks for them.
 | [0093](0093-the-agent-searches-other-projects-as-the-conversations-audience.md) | The agent searches other projects as the conversation's audience, and a closed project restricts nobody | Accepted |
 | [0094](0094-permitting-memory-is-derived-from-the-documents-at-ingest.md) | Permitting memory is derived from the documents at ingest, read by meaning | Proposed |
 | [0095](0095-a-closed-project-s-experience-is-read-from-its-documents-as-suggestions.md) | A closed project's experience is read from its documents, as suggestions a person confirms | Proposed |
+| [0096](0096-who-holds-a-folder-s-own-list-is-a-workos-folder-role.md) | Who holds a folder's own access list is a WorkOS folder role | Accepted |
 
 > Note: 0027, 0039, 0044 and 0047 were each independently used twice, every
 > time because two people read the next number off this index instead of off

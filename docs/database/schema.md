@@ -23,7 +23,7 @@ All schemas are in `frontends/ui/src/lib/db/schema/` and barrel-exported from `i
 | `messages.ts` | `messages` |
 | `documents.ts` | `documents` |
 | `project-folders.ts` | `project_folders` |
-| `project-folder-grants.ts` | `project_folder_grants` |
+| `project-folder-grants.ts` | `project_folder_grants` (deprecated by ADR-0096, read only by the conversion script) |
 | `user-preferences.ts` | `user_preferences` |
 | `answer-feedback.ts` | `answer_feedback` |
 | `platform-lessons.ts` | `platform_lessons`, `platform_lesson_reports`, `platform_lesson_events` |
@@ -695,11 +695,12 @@ export const projectFolders = pgTable('project_folders', {
 | `parent_id` | `uuid` | | `NULL` for a folder at the root of its shelf |
 | `name` | `varchar(255)` | NOT NULL | |
 | `path` | `varchar(1024)` | NOT NULL | Materialised path, for breadcrumbs and the backend mirror |
-| `access_mode` | `text` | NOT NULL, default `'inherit'`, CHECK `inherit`/`custom` | **Migration `0111`, ADR-0088**: `inherit` takes the parent's access (a root folder the project's); `custom` has its own list in `project_folder_grants`. The rule over a path is one pure function, `effectiveFolderLevel` in `lib/authz/folder-access-rule.ts`: the minimum over the folder and every ancestor with its own list, admins write everywhere, `project:documents:write` caps write. |
+| `access_mode` | `text` | NOT NULL, default `'inherit'`, CHECK `inherit`/`custom` | **Migration `0111`, ADR-0088**: `inherit` takes the parent's access (a root folder the project's); `custom` has its own list. **Since `0128` (ADR-0096)** the people on that list are not stored here: the folder is a WorkOS `folder` resource and each of them holds a folder role on it (`folder-reader`, `folder-editor`; `lib/authz/folder-roles.ts`). The rule over a path is one pure function, `effectiveFolderLevel` in `lib/authz/folder-access-rule.ts`: the minimum over the folder and every ancestor with its own list, admins write everywhere, `project:documents:write` caps write. |
+| `everyone_reads` | `boolean` | NOT NULL, default `false` | **Migration `0128`, ADR-0096**: on a `custom` folder, every project member reads it and the folder roles decide only who may write (what the reserved `*` entry of `project_folder_grants` was). Ignored while `inherit`. A `custom` folder without it is one not every member may read, and only such a folder gets its own retrieval collection. `setFolderAccess` refuses a list that names nobody and does not have it. |
 | `access_changed_by` / `access_changed_at` | `text` / `timestamptz` | set whenever `access_mode = 'custom'` (`project_folders_access_custom_check`) | Who set the list, and when. |
-| `deleted_at` / `deleted_by` | `timestamptz` / `text` | project folders only (`project_folders_bin_state_check`, 0115) | **Migration `0111`**: a deleted PROJECT folder keeps its row (an Archiv folder's delete removes it). It keeps its `access_mode` and grants so the access rule still answers for content recorded from it (a conversation's source folders, restricted memory); every listing, the tree, placement and every read path skip it, and since `0115` what is filed in it is hidden from everyone. |
+| `deleted_at` / `deleted_by` | `timestamptz` / `text` | project folders only (`project_folders_bin_state_check`, 0115) | **Migration `0111`**: a deleted PROJECT folder keeps its row (an Archiv folder's delete removes it). It keeps its `access_mode`, `everyone_reads` and its WorkOS folder resource so the access rule still answers for content recorded from it (a conversation's source folders, restricted memory); every listing, the tree, placement and every read path skip it, and since `0115` what is filed in it is hidden from everyone. |
 | `bin_root_id` | `uuid` | CHECK only with `deleted_at` (`project_folders_bin_state_check`) | **Migration `0115`, the Papierkorb**: the folder a person deleted, on every folder that went to the bin with it (itself included); what a restore puts back together. `NULL` for a living folder and a tombstone older than 0115. |
-| `purged_at` | `timestamptz` | CHECK only with `deleted_at` | **Migration `0115`**: the purge has run; the row is a permanent tombstone with its grants, and content derived from it follows the organization's „Inhalte aus gelöschten Ordnern" setting. `deleted_at` set and `purged_at` `NULL` is a folder in the bin. 0115 backfilled every older tombstone as purged (its contents had been moved out). |
+| `purged_at` | `timestamptz` | CHECK only with `deleted_at` | **Migration `0115`**: the purge has run; the row is a permanent tombstone with its access list, and content derived from it follows the organization's „Inhalte aus gelöschten Ordnern" setting. `deleted_at` set and `purged_at` `NULL` is a folder in the bin. 0115 backfilled every older tombstone as purged (its contents had been moved out). |
 | `created_at` / `updated_at` | `timestamptz` | NOT NULL, `defaultNow()` | |
 
 **Indexes and constraints:**
@@ -708,7 +709,7 @@ export const projectFolders = pgTable('project_folders', {
 - `project_folders_bin_idx` — on `project_id`, **PARTIAL** (`WHERE deleted_at IS NOT NULL AND purged_at IS NULL`): the probe for a folder in the bin on document reads, and the Papierkorb listing (migration `0115`)
 - `project_folders_deleted_parent_guard` and `documents_deleted_folder_guard` — `BEFORE INSERT OR UPDATE OF parent_id` / `folder_id` triggers (`grid_refuse_write_into_deleted_folder`, migration `0115`): filing a document or a folder into a deleted folder raises SQLSTATE `GFD01` (the BFF answers 404). They take the project's bin lock (`grid_folder_bin_lock_key`) shared; moving a folder to or from the bin takes it exclusive, so the check and the insert cannot be split by a deletion.
 - `project_folders_custom_access_idx` — on `project_id`, **PARTIAL** (`WHERE access_mode = 'custom'`): "does this project have any own list" is one probe, the fast path for nearly every project (migration `0111`)
-- `project_folders_access_list` — a DEFERRED constraint trigger: at commit a `custom` folder has 1–20 grants (`grid_folder_access_list_check`, error `check_violation`, constraint name `project_folder_grants_custom_list`). A CHECK cannot count rows of another table; deferred so a list can be replaced (delete, insert) in one transaction. "Nobody" is not a setting.
+- `project_folders_access_list` — **dropped by `0128`**, with its functions. It was a DEFERRED constraint trigger holding a `custom` folder to 1–20 rows in `project_folder_grants`; the people on a list are in WorkOS now, so it would have refused every new list. "Nobody" is still not a setting: `setFolderAccess` refuses a list that names no person and that everyone does not read.
 - `project_folders_id_organization_id_scope_key` — UNIQUE on (`id`, `organization_id`, `scope`), the target of the two shelf keys below (migration `0102`).
 - `project_folders_parent_id_project_id_fkey` — a folder's parent lives in the same project. This replaced an RLS policy that referenced `project_folders` from its own predicate, which Postgres answers with "infinite recursion detected in policy" — and because `documents`' policy joined this table, both became unreadable for the runtime role. MATCH SIMPLE skips an Archiv folder (NULL project); the next key covers it.
 - `project_folders_parent_id_organization_id_scope_fkey` — a folder's parent is on its own **shelf and tenant** (migration `0102`). Skipped for a root folder (NULL parent).
@@ -718,25 +719,39 @@ export const projectFolders = pgTable('project_folders', {
 
 **Why a row has to state its tenant (ADR-0078).** Before the Archiv had folders, "same project" implied "same organization". An Archiv folder has no project, so the tenant is a column and `documents` references the folder through it: see `documents_folder_id_organization_id_scope_fkey`.
 
-### project_folder_grants (migration 0111, ADR-0088)
+### project_folder_grants (migration 0111, ADR-0088; deprecated by ADR-0096)
 
-One role's access to a folder with its own list.
+One role's access to a folder with its own list, as ADR-0088 had it. **Nothing
+in the app reads or writes it since migration `0128`.** Its one reader is the
+conversion script `frontends/ui/scripts/migrate-folder-grants-to-workos.ts`
+(`bun run migrate:folder-grants`), which turns each role entry into folder roles
+of the people who hold that role
+([the rollout](../deployment/workos-provisioning.md#rolling-out-folder-roles-adr-0096)).
+`0128` itself carried the `*` entries over: one that read became
+`project_folders.everyone_reads`, one that wrote turned the folder back to
+`inherit`. A later migration drops the table once the script has run in every
+environment.
 
 | Column | Type | Constraints | Notes |
 |--------|------|-------------|-------|
 | `organization_id` | `text` | NOT NULL, FK (`project_id`, `organization_id`) → `projects` ON DELETE CASCADE | RLS: `organization_id = grid_current_org()` |
 | `project_id` | `uuid` | NOT NULL | |
 | `folder_id` | `uuid` | NOT NULL, PK part, FK (`folder_id`, `project_id`) → `project_folders` ON DELETE CASCADE | A grant cannot point across projects |
-| `role_slug` | `text` | NOT NULL, PK part, CHECK `'*'` or a WorkOS slug (`^[^*[:space:]][^[:space:]]{0,99}$`) | `*` is every project member (`EVERY_PROJECT_MEMBER`); a list without `*` is one not every member may read, and only such a folder gets its own retrieval collection |
+| `role_slug` | `text` | NOT NULL, PK part, CHECK `'*'` or a WorkOS slug (`^[^*[:space:]][^[:space:]]{0,99}$`) | `*` was every project member; `0128` carried it into `project_folders.everyone_reads`, and the script skips it |
 | `level` | `text` | NOT NULL, CHECK `read`/`write` | |
 | `created_at` | `timestamptz` | NOT NULL, `defaultNow()` | |
 
-Index `project_folder_grants_project_idx (project_id)`. Written only by
-`setFolderAccess` (`lib/projects/folder-access-settings.ts`), which replaces the
-list in one transaction. Its down drops every list, the tombstones and the
-columns: open every folder in the product first. Proven against Postgres in
-`folder-access.integration.spec.ts`; constraints and down in
+Index `project_folder_grants_project_idx (project_id)`. Until `0128` it was
+written only by `setFolderAccess`, which replaced the list in one transaction.
+`0111`'s down drops every list, the tombstones and the columns: open every
+folder in the product first. Constraints and down are proven in
 `scripts/rls-test-db.sh`.
+
+`0128`'s down drops `everyone_reads` and is lossy on purpose: a folder `0128`
+turned back to `inherit` stays so (it grants the same), the 1–20 trigger is not
+restored, and an older build reads a list made since as one that matches
+nobody, so only organization admins read it. The folder roles in WorkOS are
+left alone.
 
 > **Applying `0063` to an existing deployment:** nothing ever stopped two sibling folders sharing a name, so the migration first fails loudly with the full list of offenders rather than letting `CREATE UNIQUE INDEX` report one key. It deliberately does not deduplicate — deleting a folder row cascades to `documents.folder_id` and would silently unfile real evidence. Rename or merge through the application, then re-run.
 

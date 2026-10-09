@@ -41,10 +41,10 @@ const run = (id: string, documentId?: string) => ({ id, plan: plan(documentId) }
 beforeEach(() => {
   vi.clearAllMocks()
   vi.mocked(listProjectFolderTree).mockResolvedValue([
-    { id: OPEN, parentId: null, accessMode: 'inherit', grants: [] },
-    { id: FEES, parentId: null, accessMode: 'custom', grants: [{ role: 'org-buchhaltung', level: 'read' }] },
+    { id: OPEN, parentId: null, accessMode: 'inherit', everyoneReads: false },
+    { id: FEES, parentId: null, accessMode: 'custom', everyoneReads: false },
   ])
-  vi.mocked(clearanceOf).mockResolvedValue({ roles: [], seesEverything: false })
+  vi.mocked(clearanceOf).mockResolvedValue({ levels: {}, seesEverything: false })
   vi.mocked(findSubjectDocumentPlaces).mockResolvedValue(
     new Map([
       ['doc-open', { projectId: PROJECT, folderId: OPEN }],
@@ -69,8 +69,8 @@ describe('withoutUnreadableSubjects', () => {
     expect(kept.map((row) => row.id)).toEqual(['plain', 'open', 'root'])
   })
 
-  it('keeps it for a reader whose role reads the folder', async () => {
-    vi.mocked(clearanceOf).mockResolvedValue({ roles: ['org-buchhaltung'], seesEverything: false })
+  it('keeps it for a reader whose folder role reads the folder', async () => {
+    vi.mocked(clearanceOf).mockResolvedValue({ levels: { [FEES]: 'read' }, seesEverything: false })
     const kept = await withoutUnreadableSubjects(session, PROJECT, [run('fees', 'doc-fees')])
     expect(kept.map((row) => row.id)).toEqual(['fees'])
   })

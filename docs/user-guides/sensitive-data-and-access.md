@@ -2,8 +2,9 @@
 
 What an office can keep out of Piloti, what it can keep from some of its own
 people, and how an uploader learns what became of an upload. The decisions
-behind this are ADR-0086 (screening and quarantine), ADR-0087 (folder
-access follows WorkOS roles) and ADR-0088 (read and write per role). Which of
+behind this are ADR-0086 (screening and quarantine), ADR-0087 (restricted
+folders and their own search index), ADR-0088 (read and write per folder) and
+ADR-0096 (a folder's list names people, held in WorkOS). Which of
 this is automated, which part is a language model, where a person decides and
 what the audit log records: [Sensitive data and the AI Act](ai-act.md).
 
@@ -198,19 +199,12 @@ live in WorkOS, where Piloti's own roles live; you assign them to people on the
 **Personen** tab.
 
 - A role can only carry permissions its editor holds.
-- A role can be deleted once nobody holds it. If folders name it in their
-  access list, Piloti shows which folders (organization admins see their
-  names, other role managers how many) and asks you to confirm. Folders a
-  restore could bring back count too, marked „im Papierkorb“ or „Projekt
-  gelöscht“: they are not in the folder tree, so fix their list after a
-  restore. After the
-  deletion those lists match nobody: only organization admins can read the
-  folders until someone sets a valid role, and the project's settings list them
-  under **Ordner ohne gültige Rolle**, with a link to each. Renaming a role
-  changes nothing for folders: they follow its identifier, not its name.
+- A role can be deleted once nobody holds it.
+- Roles do not decide who may open a folder with its own access list: that
+  list names people (next section). Giving someone a role, taking it away,
+  renaming or deleting it changes no folder's list.
 - Until your Piloti installation lets a person hold several roles, everyone
-  holds exactly one. A role you use for folders must then also carry the
-  permissions its holders work with.
+  holds exactly one.
 
 ## Who may read and edit a folder
 
@@ -226,25 +220,35 @@ cannot change who may read or edit it, so they cannot give themselves
 - **Wie der übergeordnete Ordner**: the folder has no list of its own. A
   folder at the top of the project follows the project, so everyone keeps what
   their project permissions allow.
-- **Eigene Zugriffsrechte**: the folder has its own list. Each entry is one of
-  your office's roles, or **Alle Projektmitglieder**, with **Lesen** or
-  **Bearbeiten**. A role that is not on the list gets nothing: for its holders
-  the folder is absent. An own list names at least one entry.
+- **Eigene Zugriffsrechte**: the folder has its own list. You choose people
+  from the project's members, each with **Lesen** or **Bearbeiten**, up to 50.
+  With **Alle Projektmitglieder dürfen lesen** ticked, everyone in the project
+  reads the folder and the people on the list are the ones who may edit it.
+  Someone who is not on the list gets nothing: for them the folder is absent.
+  A list names at least one person, or has every project member reading.
 
-A folder with its own list carries a lock that names the entries. Three rules
-decide what someone may do in it:
+The list names people, not roles. Someone who joins the project later, or is
+given the same role as the people on the list, may not open the folder (unless
+every project member reads it) and may not edit it until they are added to it. When your office's lists were moved from roles to people,
+each list got the people who held its roles on that day.
+
+A folder with its own list carries a lock, which says whether every project
+member may read it. Three rules decide what someone may do in it:
 
 - **A subfolder can only narrow.** Someone may do in a folder the least of what
   every list above it, and its own, allows them. A list inside a folder that
-  only Geschäftsführung may read cannot open it to Buchhaltung.
+  only the two managing partners may read cannot open it to the accounts
+  team.
 - **„Bearbeiten" never goes beyond the project.** It lets someone upload,
   rename, move, delete and file into the folder as far as their project
   permissions already allow; a project reader with „Bearbeiten" still only
   reads.
 - **Organization admins may read and edit every folder.** Whether someone is an
   organization admin is read from your organization's people settings at most a
-  minute ago, like their roles: an admin who is demoted stops reaching every
-  folder within a minute, not when they next sign in.
+  minute ago: an admin who is demoted stops reaching every folder within a
+  minute, not when they next sign in. They need not be on a list, which is also
+  why a folder whose people have all left the office is never locked away for
+  good.
 
 Someone who may only read a folder sees it marked **Nur lesen**: they can open
 and search its documents, and there is no upload, new folder, rename, move or
@@ -258,16 +262,15 @@ out:
   search;
 - its documents do not open from a link, the inbox or a share.
 
-A list with **Alle Projektmitglieder** on it keeps the folder readable by
-everyone, so its documents stay in the project's own index; such a list only
+A list with **Alle Projektmitglieder dürfen lesen** keeps the folder readable
+by everyone, so its documents stay in the project's own index; such a list only
 decides who may edit. Every other own list moves the folder's documents into
 their own index and reads them again when it is saved; for a large folder that
 takes a few minutes, and the documents show „Wird gelesen" meanwhile. Changing
 only who may edit moves nothing.
 
-Who holds which role is read from your organization's people settings at most a
-minute ago, so a role taken from someone stops opening a folder within a
-minute.
+Someone taken off a list stops opening the folder within a minute, usually at
+once.
 
 **Moving a folder** needs „Bearbeiten" on it and on the folder it goes into. A
 move that changes which folder lists apply to it (out from under a folder with
@@ -305,13 +308,13 @@ naming the folder (you may not be allowed to read it either). Piloti still
 refuses the invitation on its own check.
 
 **When access changes after sharing.** A chat whose folders someone may no
-longer read (their role was taken away, or the folder was narrowed) stays in
+longer read (they were taken off a folder's list, or left the project) stays in
 their list as **Geteilter Chat**. Opening it says „Ihnen fehlen inzwischen die
 Rechte, um diesen Chat zu sehen“, and shows no title, message, card or
 attachment. Whoever shared it sees the person marked **Hat keinen Zugriff
 mehr**. This applies to whoever started the chat, too. It is decided each time
-the chat is opened or listed, within a minute of the role change, and nothing
-is deleted: when the person gets the role back or the folder is opened again,
+the chat is opened or listed, within a minute of the change, and nothing
+is deleted: when the person is put back on the list or the folder is opened again,
 the chat is whole again. Their inbox does not show the chat's title either.
 Anything they copied or downloaded earlier stays with them.
 
@@ -332,8 +335,8 @@ whole project sees it. The comment stays on the version for its author. An
 Auftrag opened for a file before its folder was restricted, or before the file
 moved into such a folder, is no longer listed to people who may not read the
 folder now, its chat is closed to them, and its notices in their Eingang show
-neither its title nor a link; when the file moves back or they get the role,
-they see it again.
+neither its title nor a link; when the file moves back or they are put on the
+folder's list, they see it again.
 
 Ratings of answers from such a chat (thumbs down, with what the answer should
 have said) are not shown to the people who run Piloti and are not used for the
@@ -373,8 +376,8 @@ building data is kept per project, not per folder, so a list could not protect
 it. Piloti therefore refuses an IFC model in a folder not every member may
 read: uploading one there, moving one there, moving a folder that holds one
 under such a folder, and giving a folder that holds one such a list all fail
-with a message saying why. A list that includes **Alle Projektmitglieder** is
-fine. A model that was already in such a folder before this check existed is
+with a message saying why. A list with **Alle Projektmitglieder dürfen lesen**
+is fine. A model that was already in such a folder before this check existed is
 hidden from everyone who may not read that folder, in the model list, the
 viewer and the download, and Piloti's model questions do not reach it; its
 summary may still be found by Piloti's search, so move such a model to an open

@@ -8,6 +8,9 @@
  * folder's documents into the collection a change of READ access puts them in
  * before it answers; `moved` counts them and `failed` lists the ones that could
  * not move this time (saving again retries exactly those).
+ *
+ * The people a list may name are the project's members, read from
+ * `GET /api/projects/[id]/members` (`listProjectPeople`).
  */
 
 import { z } from 'zod'
@@ -66,4 +69,37 @@ export async function setFolderAccess(
   })
   if (!response.ok) throw await failure(response, 'Failed to change folder access')
   return FolderAccessResultSchema.parse(await response.json())
+}
+
+const ProjectMembersSchema = z.object({
+  members: z.array(
+    z.object({
+      userId: z.string(),
+      name: z.string(),
+      email: z.string().nullable(),
+      role: z.string().nullable(),
+    })
+  ),
+})
+
+/** Someone a folder's own list may name: a member of the project. */
+export interface ProjectPerson {
+  userId: string
+  name: string
+  email: string | null
+}
+
+/**
+ * The project's members, the people a folder's own list may name. The route
+ * lists the whole organization; a member without a project role (`role: null`)
+ * is left out, because the project gives them nothing to narrow. Needs
+ * `project:members:manage` or `project:manage`, which whoever may change a
+ * folder's list holds.
+ */
+export async function listProjectPeople(projectId: string): Promise<ProjectPerson[]> {
+  const response = await fetch(`/api/projects/${encodeURIComponent(projectId)}/members`)
+  if (!response.ok) throw await failure(response, 'Failed to load the project members')
+  return ProjectMembersSchema.parse(await response.json())
+    .members.filter((member) => member.role !== null)
+    .map(({ userId, name, email }) => ({ userId, name, email }))
 }

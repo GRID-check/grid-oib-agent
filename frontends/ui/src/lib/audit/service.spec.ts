@@ -16,7 +16,7 @@ vi.mock('@/lib/workos/client', () => ({
 }))
 
 const folderVisible = vi.fn<(organizationId: string, projectId: string, folderId: string | null, clearance: unknown) => Promise<boolean>>()
-const ANY_MEMBER_CLEARANCE = { roles: [], seesEverything: false }
+const ANY_MEMBER_CLEARANCE = { levels: {}, seesEverything: false }
 vi.mock('@/lib/authz/folder-access', () => ({
   ANY_MEMBER: ANY_MEMBER_CLEARANCE,
   isFolderVisibleToClearance: folderVisible,

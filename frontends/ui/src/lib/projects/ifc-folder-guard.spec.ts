@@ -29,17 +29,17 @@ import {
 /**
  *   Modelle/              (open)
  *     Archiv/             (open)
- *   Verwaltung/           (Geschäftsführung)
+ *   Verwaltung/           (its own list)
  *   Pläne/                (open)
+ *   Freigaben/            (its own list, everyone reads)
  */
-const GF = [{ role: 'org-geschaeftsfuehrung', level: 'write' as const }]
 const TREE: AccessFolder[] = [
-  { id: 'modelle', parentId: null, accessMode: 'inherit', grants: [] },
-  { id: 'modelle-archiv', parentId: 'modelle', accessMode: 'inherit', grants: [] },
-  { id: 'verwaltung', parentId: null, accessMode: 'custom', grants: GF },
-  { id: 'plaene', parentId: null, accessMode: 'inherit', grants: [] },
+  { id: 'modelle', parentId: null, accessMode: 'inherit', everyoneReads: false },
+  { id: 'modelle-archiv', parentId: 'modelle', accessMode: 'inherit', everyoneReads: false },
+  { id: 'verwaltung', parentId: null, accessMode: 'custom', everyoneReads: false },
+  { id: 'plaene', parentId: null, accessMode: 'inherit', everyoneReads: false },
   // A list that narrows only who writes: every member still reads, so it is no restriction here.
-  { id: 'freigaben', parentId: null, accessMode: 'custom', grants: [{ role: '*', level: 'read' }, ...GF] },
+  { id: 'freigaben', parentId: null, accessMode: 'custom', everyoneReads: true },
 ]
 
 beforeEach(() => {
@@ -66,7 +66,7 @@ describe('assertRestrictionKeepsIfcOpen', () => {
   it('refuses restricting a folder whose subtree holds IFC models, and counts them', async () => {
     vi.mocked(countIfcDocumentsInFolders).mockResolvedValue(2)
 
-    const error = await assertRestrictionKeepsIfcOpen('org-1', 'proj-1', 'modelle', GF).catch(
+    const error = await assertRestrictionKeepsIfcOpen('org-1', 'proj-1', 'modelle', false).catch(
       (caught: unknown) => caught
     )
 
@@ -83,14 +83,15 @@ describe('assertRestrictionKeepsIfcOpen', () => {
 
   it('allows the restriction when the subtree holds no IFC model', async () => {
     await expect(
-      assertRestrictionKeepsIfcOpen('org-1', 'proj-1', 'plaene', GF)
+      assertRestrictionKeepsIfcOpen('org-1', 'proj-1', 'plaene', false)
     ).resolves.toBeUndefined()
     expect(countIfcDocumentsInFolders).toHaveBeenCalledWith('org-1', 'proj-1', ['plaene'])
   })
 
-  it('never refuses opening a folder, and reads nothing to decide that', async () => {
-    await expect(assertRestrictionKeepsIfcOpen('org-1', 'proj-1', 'verwaltung', null)).resolves.toBeUndefined()
-    await expect(assertRestrictionKeepsIfcOpen('org-1', 'proj-1', 'verwaltung', [])).resolves.toBeUndefined()
+  it('never refuses opening a folder, nor a list everyone reads, and reads nothing to decide that', async () => {
+    vi.mocked(countIfcDocumentsInFolders).mockResolvedValue(2)
+    await expect(assertRestrictionKeepsIfcOpen('org-1', 'proj-1', 'modelle', null)).resolves.toBeUndefined()
+    await expect(assertRestrictionKeepsIfcOpen('org-1', 'proj-1', 'modelle', true)).resolves.toBeUndefined()
     expect(listProjectFolderTree).not.toHaveBeenCalled()
     expect(countIfcDocumentsInFolders).not.toHaveBeenCalled()
   })

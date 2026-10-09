@@ -65,25 +65,17 @@ describe.skipIf(!url)('collection placement against Postgres', () => {
       )[0]?.c
     )
   /**
-   * Give the folder its own list of `roles` (each `write`), or make it inherit
-   * again with `null`: one statement, so the 0110 trigger sees the finished
-   * list at commit. `everyone` adds `*: read`, a list every member may read.
+   * Give the folder its own list, or make it inherit again with `null`. Who is
+   * on the list is WorkOS's (ADR-0096) and placement never asks: it keys on
+   * whether every member reads (`everyoneReads`), which a list of people does
+   * not decide.
    */
-  const restrict = (roles: string[] | null, everyone = false) =>
+  const restrict = (list: { everyoneReads: boolean } | null) =>
     inTenant(() =>
       db.execute(sql`
-        WITH cleared AS (
-          DELETE FROM project_folder_grants WHERE folder_id = ${folderId}::uuid
-        ), listed AS (
-          INSERT INTO project_folder_grants (organization_id, project_id, folder_id, role_slug, level)
-          SELECT ${ORG}, ${projectId}::uuid, ${folderId}::uuid, entry.role_slug, entry.level
-          FROM jsonb_to_recordset(${JSON.stringify([
-            ...(roles ?? []).map((role) => ({ role_slug: role, level: 'write' })),
-            ...(roles && everyone ? [{ role_slug: '*', level: 'read' }] : []),
-          ])}::jsonb) AS entry(role_slug text, level text)
-        )
         UPDATE project_folders
-        SET access_mode = ${roles ? 'custom' : 'inherit'},
+        SET access_mode = ${list ? 'custom' : 'inherit'},
+            everyone_reads = ${list?.everyoneReads ?? false},
             access_changed_by = ${USER}, access_changed_at = now()
         WHERE id = ${folderId}::uuid
       `)
@@ -194,7 +186,7 @@ describe.skipIf(!url)('collection placement against Postgres', () => {
   })
 
   it('leaves a document where it is when its old chunks could not be purged, and says so', async () => {
-    await restrict(['org-geschaeftsfuehrung'])
+    await restrict({ everyoneReads: false })
     vi.mocked(purge).mockResolvedValue(false)
 
     const result = await placement.placeProjectDocuments(ORG, projectId)
@@ -258,7 +250,7 @@ describe.skipIf(!url)('collection placement against Postgres', () => {
     vi.mocked(purge).mockResolvedValue(true)
     const target = restrictedCollectionName(COLLECTION, folderId)
     // Waiting since the lift above. Restricted again before its job ran:
-    await restrict(['org-geschaeftsfuehrung'])
+    await restrict({ everyoneReads: false })
     expect(await placement.placeProjectDocuments(ORG, projectId)).toEqual({ moved: 1, failed: [], pending: 0 })
     expect(await collectionOf(documentId)).toBe(target)
     // The lift's job had not started, so it serves this move too.
@@ -275,7 +267,7 @@ describe.skipIf(!url)('collection placement against Postgres', () => {
 
   it('does not move a row the re-read job has already taken', async () => {
     vi.mocked(purge).mockResolvedValue(true)
-    await restrict(['org-geschaeftsfuehrung'])
+    await restrict({ everyoneReads: false })
     expect(await placement.placeProjectDocuments(ORG, projectId)).toEqual({ moved: 1, failed: [], pending: 0 })
     // The job takes the row (its mark goes) and has not dispatched yet when the restriction is lifted.
     await inTenant(() => db.execute(sql`UPDATE documents SET metadata = metadata - 'placementReingest' WHERE id = ${documentId}::uuid`))
@@ -290,8 +282,8 @@ describe.skipIf(!url)('collection placement against Postgres', () => {
     await ingestSettled(documentId)
   })
 
-  it('moves nothing for a list that narrows only who writes: every member still reads (`*`), retrieval keys on read', async () => {
-    await restrict(['org-geschaeftsfuehrung'], true)
+  it('moves nothing for a list that narrows only who writes: every member still reads, retrieval keys on read', async () => {
+    await restrict({ everyoneReads: true })
     vi.mocked(purge).mockResolvedValue(true)
 
     expect(await placement.placeProjectDocuments(ORG, projectId)).toEqual({ moved: 0, failed: [], pending: 0 })
@@ -319,7 +311,7 @@ describe.skipIf(!url)('collection placement against Postgres', () => {
         `)
       )
     )
-    await restrict(['org-geschaeftsfuehrung'])
+    await restrict({ everyoneReads: false })
 
     const result = await placement.placeProjectDocuments(ORG, projectId)
 
@@ -372,15 +364,9 @@ describe.skipIf(!url)('collection placement against Postgres', () => {
       bulkFolderId = firstId(
         await inTenant(() =>
           db.execute<{ id: string }>(sql`
-            WITH folder AS (
-              INSERT INTO project_folders (organization_id, project_id, name, path, access_mode, access_changed_by, access_changed_at)
-              VALUES (${ORG}, ${bulkProjectId}::uuid, 'Angebote', 'Angebote', 'custom', ${USER}, now())
-              RETURNING id, project_id
-            ), listed AS (
-              INSERT INTO project_folder_grants (organization_id, project_id, folder_id, role_slug, level)
-              SELECT ${ORG}, project_id, id, 'org-geschaeftsfuehrung', 'write' FROM folder
-            )
-            SELECT id FROM folder
+            INSERT INTO project_folders (organization_id, project_id, name, path, access_mode, access_changed_by, access_changed_at)
+            VALUES (${ORG}, ${bulkProjectId}::uuid, 'Angebote', 'Angebote', 'custom', ${USER}, now())
+            RETURNING id
           `)
         )
       )
@@ -450,14 +436,9 @@ describe.skipIf(!url)('collection placement against Postgres', () => {
       )
       await inTenant(() =>
         db.execute(sql`
-          WITH folders AS (
-            INSERT INTO project_folders (organization_id, project_id, name, path, access_mode, access_changed_by, access_changed_at)
-            SELECT organization_id, id, 'Verträge', 'Verträge', 'custom', ${USER}, now()
-            FROM projects WHERE organization_id = ${ORG} AND name LIKE 'Sweep %'
-            RETURNING id, project_id
-          )
-          INSERT INTO project_folder_grants (organization_id, project_id, folder_id, role_slug, level)
-          SELECT ${ORG}, project_id, id, 'org-geschaeftsfuehrung', 'write' FROM folders
+          INSERT INTO project_folders (organization_id, project_id, name, path, access_mode, access_changed_by, access_changed_at)
+          SELECT organization_id, id, 'Verträge', 'Verträge', 'custom', ${USER}, now()
+          FROM projects WHERE organization_id = ${ORG} AND name LIKE 'Sweep %'
         `)
       )
       await inTenant(() =>

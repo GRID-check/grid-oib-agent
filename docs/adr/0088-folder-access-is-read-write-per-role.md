@@ -8,6 +8,11 @@ informed: everyone working in this repo
 
 # Folder access is read/write per role
 
+> **Who is on a list is superseded by [ADR-0096](0096-who-holds-a-folder-s-own-list-is-a-workos-folder-role.md)** (2026-10-09):
+> a folder's own list is a WorkOS `folder` resource on which people hold a folder role, not
+> rows of role grants; `*` became `project_folders.everyone_reads`. The rule over the path,
+> the ceiling, the bypass, retrieval and the egress rules below still hold.
+
 ## Context and Problem Statement
 
 ADR-0087 gave a folder one switch: open, or restricted to some WorkOS roles.

@@ -27,6 +27,7 @@
     "ci:quick": "task -d ../.. verify:fast",
     "prepare": "husky",
     "provision:authz": "tsx scripts/provision-workos-authz.ts",
+    "migrate:folder-grants": "tsx scripts/migrate-folder-grants-to-workos.ts",
     "provision:workos-env": "tsx scripts/provision-workos-environment.ts"
   },
   "dependencies": {

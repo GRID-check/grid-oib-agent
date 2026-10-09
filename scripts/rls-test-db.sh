@@ -1044,6 +1044,22 @@ check_in grid_cross_project "SELECT (evidence IS NULL)::text || ',' || (SELECT c
 echo "==> 0127 memory evidence and down migration verified"
 
 # ---------------------------------------------------------------------------
+# Migration 0128: who holds a folder's own list moves to WorkOS (ADR-0096),
+# and its DOWN.
+#
+# On a database of its own migrated through 0127, the spec plants folders with
+# `*` and role grants and checks what 0128 carries over: `*`/read becomes
+# `everyone_reads`, `*`/write goes back to inherit, a role-only list stays
+# custom, the grant rows are kept for the conversion script, the 1–20 trigger
+# is gone, a re-run is idempotent and the down round-trips.
+# ---------------------------------------------------------------------------
+echo "==> verifying the 0128 folder-role carry-over and its down migration on grid_folder_roles"
+migrate_until grid_folder_roles 0127_project_memory_evidence
+GRID_TEST_MIGRATION_0128_DATABASE_URL="postgres://grid_app_owner@127.0.0.1:$PORT/grid_folder_roles" \
+  npx vitest run src/lib/projects/folder-access-in-workos.migration.spec.ts
+echo "==> 0128 folder-role carry-over and down migration verified"
+
+# ---------------------------------------------------------------------------
 # Migration 0102: project_folders become folders of a SHELF (project | archiv),
 # and its DOWN migration.
 #

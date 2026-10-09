@@ -37,12 +37,6 @@ export const settings = {
       notProvided: 'Not provided',
       edit: 'Edit details',
     },
-    foldersWithoutRole: {
-      title: 'Folders without a valid role',
-      description:
-        'The access lists of these folders name only roles that no longer exist. Until a valid role is set there, only organization admins can read them.',
-      open: 'Open folder “{name}”',
-    },
     sections: {
       parameters: 'Project parameters',
       members: 'Members',
