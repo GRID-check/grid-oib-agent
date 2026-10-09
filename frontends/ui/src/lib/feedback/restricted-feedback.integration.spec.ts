@@ -25,11 +25,23 @@
 import { sql } from 'drizzle-orm'
 import { describe, expect, it, vi } from 'vitest'
 import { executeRows } from '@/lib/db/execute-rows'
+import { NO_RATINGS_FILTERS, type FeedbackQuery } from './filters'
 
 vi.mock('server-only', () => ({}))
 
 const STAMP = Date.now()
 const ORG = `org_rfb_${STAMP}`
+
+/** This organization's down-votes, over a range that holds every seeded vote. */
+const DOWN_IN_ORG: FeedbackQuery = {
+  scope: {
+    from: new Date(Date.now() - 86_400_000).toISOString().slice(0, 10),
+    to: new Date(Date.now() + 86_400_000).toISOString().slice(0, 10),
+    organizationIds: [ORG],
+    projectIds: [],
+  },
+  ratings: { ...NO_RATINGS_FILTERS, verdict: 'down' },
+}
 const USER = `user_rfb_${STAMP}`
 const OPEN_CHAT = `s_rfb_open_${STAMP}`
 const RESTRICTED_CHAT = `s_rfb_restricted_${STAMP}`
@@ -103,12 +115,19 @@ describe.skipIf(!url)('answer feedback from a restricted conversation, against P
     await seed()
     const { withPlatformAccess } = await import('@/lib/db/tenant-context')
     const { getFeedbackHealth, listFeedbackTurns } = await import('./repository')
+    const { listFeedbackExportRows } = await import('./export-repository')
     const { listUnprocessedDownvotes } = await import('@/lib/platform-lessons/repository')
 
     const turns = await withPlatformAccess('test: feedback drill-in', () =>
-      listFeedbackTurns({ organizationId: ORG, verdict: 'down' })
+      listFeedbackTurns(DOWN_IN_ORG)
     )
     expect(turns.map((turn) => turn.conversationId)).toEqual([OPEN_CHAT])
+
+    const exported = await withPlatformAccess('test: feedback export', () =>
+      listFeedbackExportRows(DOWN_IN_ORG, 50)
+    )
+    expect(exported.map((row) => row.conversationId)).toEqual([OPEN_CHAT])
+    expect(JSON.stringify(exported)).not.toContain('Zimmerer')
     expect(turns[0].answer).toBe(OPEN_ANSWER)
     expect(JSON.stringify(turns)).not.toContain('Zimmerer')
 
@@ -119,7 +138,7 @@ describe.skipIf(!url)('answer feedback from a restricted conversation, against P
 
     // Counted, never quoted.
     const health = await withPlatformAccess('test: feedback aggregates', () =>
-      getFeedbackHealth({ organizationId: ORG, limit: 0 })
+      getFeedbackHealth(DOWN_IN_ORG, { turnLimit: 0 })
     )
     expect(health.totals.down).toBe(2)
 
@@ -151,7 +170,7 @@ describe.skipIf(!url)('answer feedback from a restricted conversation, against P
     expect(left).toEqual({ records: 0, votes: 1 })
 
     const turns = await withPlatformAccess('test: feedback drill-in', () =>
-      listFeedbackTurns({ organizationId: ORG, verdict: 'down' })
+      listFeedbackTurns(DOWN_IN_ORG)
     )
     expect(turns.map((turn) => turn.conversationId)).not.toContain(DELETED_CHAT)
     expect(JSON.stringify(turns)).not.toContain('Spengler')
@@ -160,7 +179,7 @@ describe.skipIf(!url)('answer feedback from a restricted conversation, against P
     expect(JSON.stringify(reports.filter((report) => report.organizationId === ORG))).not.toContain('Spengler')
 
     const health = await withPlatformAccess('test: feedback aggregates', () =>
-      getFeedbackHealth({ organizationId: ORG, limit: 0 })
+      getFeedbackHealth(DOWN_IN_ORG, { turnLimit: 0 })
     )
     expect(health.totals.down).toBe(3)
     expect(await scoredWithoutWords(DELETED_CHAT)).toBe(true)

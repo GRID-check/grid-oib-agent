@@ -18,18 +18,33 @@
  * paragraph: it is the most prominent copy on the card and the screenshot is the
  * only place anybody reviews it before it ships.
  *
+ * The top section is the ratings tab as the page composes it: the page-wide
+ * scope bar (range, organizations, projects) over the real organism with its
+ * ratings filter row, state held here the way the workspace holds it in the URL.
+ * Every quality endpoint the two call is stubbed, including the scope bar's
+ * options and the per-value counts.
+ *
+ *   /dev/answer-feedback                   every vote in the last 30 days
+ *   /dev/answer-feedback?variant=filtered  two organizations, a project and
+ *                                          ratings filters set
+ *   /dev/answer-feedback?dialog=1          the export dialog open (with
+ *                                          `variant=filtered`: its summary full)
+ *
  * Not linked from anywhere; 404s outside development. Pinned to German — the
  * primary product language — with `fixedLocale`, so the evidence is the copy
  * that ships whoever captures it.
  */
 
-import { useState } from 'react'
-import { notFound } from 'next/navigation'
+import { Suspense, useState } from 'react'
+import { notFound, useSearchParams } from 'next/navigation'
 
 import { AnswerFeedback } from '@/features/chat/components/AnswerFeedback'
 import { AnswerFeedbackHealth } from '@/features/platform/components/answer-feedback-health'
-import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
+import { FeedbackExportDialog } from '@/features/platform/components/feedback-export-dialog'
+import { QualityScopeBar, useQualityScopeOptions } from '@/features/platform/components/quality-scope-bar'
 import { I18nProvider } from '@/i18n'
+import { NO_RATINGS_FILTERS, readRatingsFilters, type RatingsFilters } from '@/lib/feedback/filters'
+import { presetRange, readQualityScope, scopeBounds, type QualityScope } from '@/lib/quality/scope'
 
 const ago = (minutes: number): string => new Date(Date.now() - minutes * 60_000).toISOString()
 
@@ -265,6 +280,94 @@ const TURN_STATES: Record<
   ],
 }
 
+const json = (body: unknown): Response =>
+  new Response(JSON.stringify(body), { status: 200, headers: { 'content-type': 'application/json' } })
+
+/** The fixture's turns under the request's ratings filters and organizations. */
+function previewTurns(params: URLSearchParams): Record<string, unknown>[] {
+  const filters = readRatingsFilters(params)
+  const orgs = params.getAll('org')
+  const pool = filters.verdict === 'up' ? LANDED : filters.verdict === 'down' ? FIXTURE.turns : [...FIXTURE.turns, ...LANDED]
+  const q = (filters.query ?? '').toLowerCase()
+  return pool.filter((turn) => {
+    const record = turn as { reason: string | null; organizationId: string; topics: string[]; question: string | null; answer: string | null }
+    return (
+      (filters.reasons.length === 0 || filters.reasons.some((reason) => reason === (record.reason ?? 'other'))) &&
+      (orgs.length === 0 || orgs.includes(record.organizationId)) &&
+      (filters.topics.length === 0 || filters.topics.some((topic) => record.topics.includes(topic))) &&
+      (!q || `${record.question ?? ''} ${record.answer ?? ''}`.toLowerCase().includes(q))
+    )
+  })
+}
+
+const SCOPE_ORGANIZATIONS = [
+  { id: 'org_arch_buero', name: 'Architekturbüro Hofer & Partner' },
+  { id: 'org_planwerk', name: 'Planwerk Graz' },
+  { id: 'org_stadtplan', name: null },
+  { id: 'org_atelier_nord', name: 'Atelier Nord Ziviltechniker GmbH' },
+]
+
+const SCOPE_PROJECTS = [
+  { id: '0b6f2a1e-5c3d-4e8f-9a7b-1c2d3e4f5a61', name: 'Wohnanlage Innsbruck West', organizationId: 'org_arch_buero' },
+  { id: '0b6f2a1e-5c3d-4e8f-9a7b-1c2d3e4f5a62', name: 'Schule Hötting, Zubau', organizationId: 'org_arch_buero' },
+  { id: '0b6f2a1e-5c3d-4e8f-9a7b-1c2d3e4f5a63', name: 'Stadthaus Lend', organizationId: 'org_planwerk' },
+]
+
+/** Per-value counts over the scope, as `/api/platform/answer-feedback/options` answers. */
+const OPTIONS = {
+  scopeTotal: 147,
+  cap: 5000,
+  overCap: false,
+  verdicts: { up: 128, down: 19 },
+  reasons: [
+    { key: 'inaccurate', votes: 11 },
+    { key: 'wrong_source', votes: 5 },
+    { key: 'too_slow', votes: 0 },
+    { key: 'other', votes: 3 },
+  ],
+  topics: [
+    { key: 'brandschutz', votes: 50 },
+    { key: 'energie', votes: 35 },
+    { key: 'schallschutz', votes: 18 },
+    { key: 'barrierefreiheit', votes: 10 },
+    { key: 'statik', votes: 3 },
+  ],
+  modes: [
+    { key: 'meta', votes: 4 },
+    { key: 'shallow', votes: 102 },
+    { key: 'deep', votes: 31 },
+    { key: 'report', votes: 10 },
+  ],
+  confidences: [
+    { key: 'low', votes: 9 },
+    { key: 'medium', votes: 41 },
+    { key: 'high', votes: 88 },
+  ],
+  withComment: 14,
+  withExpectedAnswer: 6,
+}
+
+/** `?variant=filtered`: what a reader narrowing to two offices and their fire-safety misses sees. */
+function seededState(variant: string | null): { scope: QualityScope; filters: RatingsFilters } {
+  const scope: QualityScope = { ...presetRange(30), organizationIds: [], projectIds: [] }
+  if (variant !== 'filtered') return { scope, filters: NO_RATINGS_FILTERS }
+  return {
+    scope: {
+      ...scope,
+      organizationIds: ['org_arch_buero', 'org_planwerk'],
+      projectIds: [SCOPE_PROJECTS[0].id],
+    },
+    filters: {
+      ...NO_RATINGS_FILTERS,
+      verdict: 'down',
+      reasons: ['inaccurate', 'wrong_source'],
+      topics: ['brandschutz'],
+      modes: ['shallow'],
+      hasComment: true,
+    },
+  }
+}
+
 if (typeof window !== 'undefined') {
   const real = window.fetch.bind(window)
   window.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -284,26 +387,32 @@ if (typeof window !== 'undefined') {
         headers: { 'content-type': 'application/json' },
       })
     }
+    if (url.includes('/api/platform/quality/scope-options')) {
+      const params = new URL(url, 'http://x').searchParams
+      const orgs = params.getAll('org')
+      return json({
+        organizations: SCOPE_ORGANIZATIONS,
+        organizationsTruncated: false,
+        projects: SCOPE_PROJECTS.filter((project) => orgs.includes(project.organizationId)),
+        projectsTruncated: false,
+      })
+    }
+    if (url.includes('/api/platform/answer-feedback/options')) {
+      const params = new URL(url, 'http://x').searchParams
+      const matching = previewTurns(params).length
+      // A filter that matches nothing in the fixture says so: the dialog's zero
+      // state is reachable from the preview by searching for nonsense.
+      return json({ ...OPTIONS, total: params.get('q') === 'nichts' ? 0 : 140 + matching })
+    }
     if (url.includes('/api/platform/answer-feedback')) {
       // Enough of the server's filtering that every control in the preview does
-      // something visible: the window trims the days, the drill-in filters trim
-      // the rows. The aggregates stay whole, which is what the server does for
-      // reason and free text.
+      // something visible: the range trims the days, the filters trim the rows.
       const params = new URL(url, 'http://x').searchParams
-      const windowDays = Number(params.get('days') ?? 30)
-      const q = (params.get('q') ?? '').toLowerCase()
-      const turns = (params.get('verdict') === 'up' ? LANDED : FIXTURE.turns).filter(
-        (turn) =>
-          (!params.get('reason') || turn.reason === params.get('reason')) &&
-          (!params.get('org') || turn.organizationId === params.get('org')) &&
-          (!params.get('topic') || (turn.topics as string[]).includes(params.get('topic') ?? '')) &&
-          (!q || `${turn.question ?? ''} ${turn.answer ?? ''}`.toLowerCase().includes(q))
-      )
-      const daily = FIXTURE.daily.filter((point) => point.day >= daysAgo(windowDays - 1))
-      return new Response(JSON.stringify({ ...FIXTURE, windowDays, daily, turns }), {
-        status: 200,
-        headers: { 'content-type': 'application/json' },
-      })
+      const { start } = scopeBounds(readQualityScope(params))
+      const daily = FIXTURE.daily.filter((point) => point.day >= start.toISOString().slice(0, 10))
+      const turns = previewTurns(params)
+      const windowDays = Math.round((Date.now() - start.getTime()) / 86_400_000)
+      return json({ ...FIXTURE, from: params.get('from'), to: params.get('to'), windowDays, daily, turns })
     }
     return real(input, init)
   }
@@ -356,14 +465,21 @@ const FOOTNOTE_STATES = [
   },
 ] as const
 
-export default function AnswerFeedbackPreviewPage() {
-  // The window belongs to the page (the quality workspace); this stands in for
-  // its control so the preview exercises the `days` prop the way the page does.
-  const [days, setDays] = useState(30)
+function AnswerFeedbackPreview() {
+  const params = useSearchParams()
+  // The workspace keeps these in the URL; the preview keeps them here.
+  const [seed] = useState(() => seededState(params.get('variant')))
+  const [scope, setScope] = useState<QualityScope>(seed.scope)
+  const [filters, setFilters] = useState<RatingsFilters>(seed.filters)
+  const scopeOptions = useQualityScopeOptions(scope)
+  const dialog = params.get('dialog') === '1'
 
   if (process.env.NODE_ENV !== 'development') {
     notFound()
   }
+
+  const nameOf = (id: string): string => SCOPE_ORGANIZATIONS.find((org) => org.id === id)?.name ?? id
+  const projectOf = (id: string): string => SCOPE_PROJECTS.find((project) => project.id === id)?.name ?? id
 
   return (
     <I18nProvider initialLocale="de" fixedLocale>
@@ -372,28 +488,28 @@ export default function AnswerFeedbackPreviewPage() {
         className="mx-auto flex w-full max-w-6xl flex-col gap-10 px-4 py-6 md:px-8 md:py-8"
       >
         <section className="flex flex-col gap-4">
-          <header className="flex flex-wrap items-end justify-between gap-3">
-            <div>
-              <h1 className="text-xl font-semibold tracking-tight">Antwort-Feedback</h1>
-              <p className="text-muted-foreground mt-1 text-sm">
-                Plattform → Antwortqualität → Bewertungen, aus Fixtures.
-              </p>
-            </div>
-            <ToggleGroup
-              type="single"
-              size="sm"
-              value={String(days)}
-              onValueChange={(value) => value && setDays(Number(value))}
-              aria-label="Zeitraum"
-            >
-              {[7, 30, 90].map((option) => (
-                <ToggleGroupItem key={option} value={String(option)}>
-                  {option} Tage
-                </ToggleGroupItem>
-              ))}
-            </ToggleGroup>
+          <header>
+            <h1 className="text-xl font-semibold tracking-tight">Antwortqualität</h1>
+            <p className="text-muted-foreground mt-1 text-sm">
+              Plattform → Antwortqualität → Bewertungen, aus Fixtures.
+            </p>
           </header>
-          <AnswerFeedbackHealth days={days} />
+          <QualityScopeBar scope={scope} onScopeChange={setScope} options={scopeOptions} />
+          <AnswerFeedbackHealth
+            scope={scope}
+            filters={filters}
+            onFiltersChange={setFilters}
+            onScopeChange={setScope}
+            scopeOptions={scopeOptions.options}
+          />
+          {dialog ? (
+            <FeedbackExportDialog
+              defaultOpen
+              query={{ scope, ratings: filters }}
+              organizationName={nameOf}
+              projectName={projectOf}
+            />
+          ) : null}
         </section>
 
         <section data-testid="answer-feedback-states" className="space-y-3">
@@ -443,5 +559,14 @@ export default function AnswerFeedbackPreviewPage() {
         </section>
       </main>
     </I18nProvider>
+  )
+}
+
+export default function AnswerFeedbackPreviewPage() {
+  // `useSearchParams` needs a Suspense boundary above it.
+  return (
+    <Suspense fallback={null}>
+      <AnswerFeedbackPreview />
+    </Suspense>
   )
 }

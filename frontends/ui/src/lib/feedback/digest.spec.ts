@@ -7,6 +7,17 @@ import { setCacheStore, type CacheStore } from '@/lib/cache'
 import { listFeedbackTurns } from './repository'
 import type { FeedbackHealth } from './repository'
 import { getFeedbackDigest } from './digest'
+import { NO_RATINGS_FILTERS, type FeedbackQuery, type RatingsFilters } from './filters'
+
+/** Every vote of the 30 days the health fixture describes. */
+const Q: FeedbackQuery = {
+  scope: { from: '2026-09-10', to: '2026-10-09', organizationIds: [], projectIds: [] },
+  ratings: NO_RATINGS_FILTERS,
+}
+const narrowed = (ratings: Partial<RatingsFilters>, scope: Partial<FeedbackQuery['scope']> = {}): FeedbackQuery => ({
+  scope: { ...Q.scope, ...scope },
+  ratings: { ...NO_RATINGS_FILTERS, ...ratings },
+})
 
 /** A real store, so cache behaviour is exercised rather than mocked away. */
 class MemoryStore implements CacheStore {
@@ -29,6 +40,8 @@ let store: MemoryStore
 
 const health = (overrides: Partial<FeedbackHealth> = {}): FeedbackHealth =>
   ({
+    from: '2026-09-10',
+    to: '2026-10-09',
     windowDays: 30,
     answers: 500,
     ratedAnswers: 45,
@@ -71,7 +84,7 @@ describe('getFeedbackDigest — when there is nothing to say', () => {
     backendReply({})
     const result = await getFeedbackDigest(
       health({ totals: { up: 0, down: 0, voters: 0, downVoters: 0 } }),
-      {},
+      Q,
     )
 
     expect(result).toEqual({ digest: null, error: 'no_feedback' })
@@ -87,7 +100,7 @@ describe('getFeedbackDigest — when there is nothing to say', () => {
     backendReply({})
     const result = await getFeedbackDigest(
       health({ totals: { up: 4, down: 2, voters: 3, downVoters: 2 } }),
-      {},
+      Q,
     )
 
     expect(result).toEqual({ digest: null, error: 'too_few_votes' })
@@ -107,7 +120,7 @@ describe('getFeedbackDigest — what leaves the process', () => {
    * boundary so no later edit to the rollup can widen what is sent.
    */
   it('sends organization vote counts without organization identifiers', async () => {
-    await getFeedbackDigest(health(), {})
+    await getFeedbackDigest(health(), Q)
 
     const body = sentBody()
     expect(body.organizations).toEqual([
@@ -136,7 +149,7 @@ describe('getFeedbackDigest — what leaves the process', () => {
       },
     ] as never)
 
-    await getFeedbackDigest(health(), {})
+    await getFeedbackDigest(health(), Q)
 
     const serialised = JSON.stringify(sentBody())
     expect(serialised).toContain('Wie lang darf ein Fluchtweg sein?')
@@ -159,8 +172,8 @@ describe('getFeedbackDigest — what leaves the process', () => {
       conversationTitle: null,
       topics: [],
     }
-    vi.mocked(listFeedbackTurns).mockImplementation(async (filters) =>
-      filters?.verdict === 'up'
+    vi.mocked(listFeedbackTurns).mockImplementation(async (_query, options) =>
+      options?.verdict === 'up'
         ? ([{ ...turn, verdict: 'up', reason: null, question: 'U-Wert?', comment: 'super' }] as never)
         : ([{ ...turn, verdict: 'down', reason: 'inaccurate', question: 'GK 4?', comment: 'R 60, nicht R 90' }] as never),
     )
@@ -171,7 +184,7 @@ describe('getFeedbackDigest — what leaves the process', () => {
       causes: { wrong_value: 1, bogus: 'x', form: 0 },
     })
 
-    const result = await getFeedbackDigest(health(), {})
+    const result = await getFeedbackDigest(health(), Q)
 
     const samples = sentBody().samples as { verdict: string; comment: string | null }[]
     expect(samples.find((s) => s.verdict === 'down')?.comment).toBe('R 60, nicht R 90')
@@ -180,17 +193,16 @@ describe('getFeedbackDigest — what leaves the process', () => {
   })
 
   /**
-   * `health.turns` holds whichever direction the reader is looking at. A digest
-   * that sampled only that would write a different story depending on which tab
-   * happened to be open, so it fetches both halves itself.
+   * Both directions are sampled separately, so the newest of one cannot crowd
+   * out the other, and under the same filters as the figures.
    */
-  it('samples both directions regardless of which one the page is showing', async () => {
-    await getFeedbackDigest(health(), { verdict: 'down' })
+  it('samples both directions, each under the request’s filters', async () => {
+    const query = narrowed({ topics: ['brandschutz'] }, { organizationIds: ['org_loud'] })
+    await getFeedbackDigest(health(), query)
 
-    const verdicts = vi
-      .mocked(listFeedbackTurns)
-      .mock.calls.map((call) => (call[0] as { verdict?: string }).verdict)
-    expect(verdicts.sort()).toEqual(['down', 'up'])
+    const calls = vi.mocked(listFeedbackTurns).mock.calls
+    expect(calls.map((call) => call[1]?.verdict).sort()).toEqual(['down', 'up'])
+    for (const call of calls) expect(call[0]).toEqual(query)
   })
 })
 
@@ -200,38 +212,37 @@ describe('getFeedbackDigest — caching', () => {
   })
 
   it('asks the model once and serves the rest from the cache', async () => {
-    const first = await getFeedbackDigest(health(), { windowDays: 30 })
-    const second = await getFeedbackDigest(health(), { windowDays: 30 })
+    const first = await getFeedbackDigest(health(), Q)
+    const second = await getFeedbackDigest(health(), Q)
 
     expect(globalThis.fetch).toHaveBeenCalledOnce()
     expect(second.digest?.generatedAt).toBe(first.digest?.generatedAt)
   })
 
-  it('keys on the window and the aggregate filters, not on the drill-in ones', async () => {
-    // The drill-in direction and the reason narrow the LIST; the digest describes
-    // the window. Keying on them would buy four copies of the same paragraph.
-    await getFeedbackDigest(health(), { windowDays: 30, verdict: 'down', reason: 'inaccurate' })
-    await getFeedbackDigest(health(), { windowDays: 30, verdict: 'up', reason: null })
+  /**
+   * The filters narrow the FIGURES now (a reason or a search changes the
+   * headline), so each set of filters is its own digest; the same set in a
+   * different order is not.
+   */
+  it('keys on the range, the organizations and every filter', async () => {
+    await getFeedbackDigest(health(), narrowed({ reasons: ['inaccurate', 'other'] }))
+    await getFeedbackDigest(health(), narrowed({ reasons: ['inaccurate', 'other'] }))
     expect(globalThis.fetch).toHaveBeenCalledOnce()
 
-    // A different window IS a different digest.
-    await getFeedbackDigest({ ...health(), windowDays: 7 }, { windowDays: 7 })
-    expect(globalThis.fetch).toHaveBeenCalledTimes(2)
+    await getFeedbackDigest(health(), narrowed({ reasons: ['inaccurate'] }))
+    await getFeedbackDigest(health(), narrowed({}, { from: '2026-10-03' }))
+    await getFeedbackDigest(health(), narrowed({}, { organizationIds: ['org_b', 'org_a'] }))
+    await getFeedbackDigest(health(), narrowed({}, { organizationIds: ['org_a', 'org_b'] }))
+    expect(globalThis.fetch).toHaveBeenCalledTimes(4)
   })
 
-  /**
-   * The key has to name the window the SENTENCES describe. Filters may omit
-   * `windowDays`; the aggregate always resolved one, and reading the default
-   * from a second place is how an entry gets labelled with the wrong window.
-   */
-  it('keys on the window the aggregate resolved, not the one the filters named', async () => {
-    // Same (empty) filters, two different aggregates: two different digests.
-    await getFeedbackDigest({ ...health(), windowDays: 30 }, {})
-    await getFeedbackDigest({ ...health(), windowDays: 7 }, {})
+  it('names the organizations in the key, and `*` for the platform-wide digest', async () => {
+    await getFeedbackDigest(health(), Q)
+    await getFeedbackDigest(health(), narrowed({}, { organizationIds: ['org_b', 'org_a'] }))
 
-    expect(globalThis.fetch).toHaveBeenCalledTimes(2)
-    expect([...store.entries.keys()].some((k) => k.endsWith(':30:*:*:de'))).toBe(true)
-    expect([...store.entries.keys()].some((k) => k.endsWith(':7:*:*:de'))).toBe(true)
+    const keys = [...store.entries.keys()]
+    expect(keys.some((k) => k.includes(':2026-09-10:2026-10-09:*:'))).toBe(true)
+    expect(keys.some((k) => k.includes(':org_a,org_b:'))).toBe(true)
   })
 
   /**
@@ -240,18 +251,24 @@ describe('getFeedbackDigest — caching', () => {
    * that leaves them out, for the rest of its six hours.
    */
   it('does not serve a digest cached before restricted votes were left out', async () => {
+    // The key this query has today, then the same key one version back.
+    await getFeedbackDigest(health(), Q)
+    const [current] = [...store.entries.keys()]
+    expect(current).toContain(':v3:')
+    store.entries.clear()
+    vi.mocked(globalThis.fetch).mockClear()
     const stale = { headline: 'Zimmerer-Honorar 48.000 EUR falsch.', strengths: [], concerns: [] }
-    await store.set('feedback:digest:v1:30:*:*:de', JSON.stringify(stale))
+    await store.set(current.replace(':v3:', ':v2:'), JSON.stringify(stale))
 
-    const result = await getFeedbackDigest(health(), { windowDays: 30 })
+    const result = await getFeedbackDigest(health(), Q)
 
     expect(globalThis.fetch).toHaveBeenCalledOnce()
     expect(result.digest?.headline).toBe('Mostly fine.')
   })
 
   it('re-asks when the reader presses refresh', async () => {
-    await getFeedbackDigest(health(), { windowDays: 30 })
-    await getFeedbackDigest(health(), { windowDays: 30 }, { refresh: true })
+    await getFeedbackDigest(health(), Q)
+    await getFeedbackDigest(health(), Q, { refresh: true })
 
     expect(globalThis.fetch).toHaveBeenCalledTimes(2)
   })
@@ -260,7 +277,7 @@ describe('getFeedbackDigest — caching', () => {
 describe('getFeedbackDigest — failure', () => {
   it('reports a backend error instead of an empty digest that looks considered', async () => {
     backendReply({ error: 'llm_not_configured' })
-    const result = await getFeedbackDigest(health(), {})
+    const result = await getFeedbackDigest(health(), Q)
 
     expect(result).toEqual({ digest: null, error: 'llm_not_configured' })
   })
@@ -273,7 +290,7 @@ describe('getFeedbackDigest — failure', () => {
       }),
     )
 
-    await expect(getFeedbackDigest(health(), {})).resolves.toEqual({
+    await expect(getFeedbackDigest(health(), Q)).resolves.toEqual({
       digest: null,
       error: 'backend_unreachable',
     })
@@ -286,7 +303,7 @@ describe('getFeedbackDigest — failure', () => {
    */
   it('does not cache a failure for the success TTL', async () => {
     backendReply({}, false)
-    await getFeedbackDigest(health(), {})
+    await getFeedbackDigest(health(), Q)
 
     const cached = [...store.entries.values()]
     expect(cached).toEqual(['null'])
@@ -295,7 +312,7 @@ describe('getFeedbackDigest — failure', () => {
     // A minute later the entry is gone; simulated by dropping it, since the
     // memory store here does not implement expiry.
     store.entries.clear()
-    const second = await getFeedbackDigest(health(), {})
+    const second = await getFeedbackDigest(health(), Q)
     expect(second.digest?.headline).toBe('Now it works.')
   })
 })
