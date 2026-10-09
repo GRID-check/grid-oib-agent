@@ -364,8 +364,8 @@ tasks:
 
   # ── riso art (frontends/web/art/riso — procedural prints for the site) ──────
   # The raw commands are `node art/riso/<script>.mjs` in frontends/web; every
-  # task below is one of them. The workflow and the series rules are the
-  # aiq-piloti-riso skill and frontends/web/art/riso/README.md.
+  # task below is one of them. The workflow and the series rules are in
+  # frontends/web/art/riso/README.md.
 
   art:setup:
     desc: Clone the pinned riso-windowseat kit into the user cache and find a browser (idempotent)

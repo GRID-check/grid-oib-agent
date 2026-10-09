@@ -28,7 +28,6 @@ dependencies:
     # This repo's own skills. Local paths, so editing one and re-running
     # `task agents:setup` republishes it to every target.
     - ./skills/aiq-deploy
-    - ./skills/aiq-piloti-riso
     - ./skills/aiq-research
 
     # Writing documents an agent consumes: skills, AGENTS.md, CLAUDE.md.

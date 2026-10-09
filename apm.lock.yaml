@@ -1,5 +1,5 @@
 lockfile_version: '1'
-generated_at: '2026-10-09T10:04:36.537605+00:00'
+generated_at: '2026-10-09T10:05:50.845500+00:00'
 apm_version: 0.28.0
 dependencies:
 - repo_url: _local/aiq-deploy
@@ -80,20 +80,6 @@ dependencies:
     .claude/skills/aiq-deploy/skill.oms.sig: sha256:b64a14efd045e703d643d31473464ba051244df1134c553f90a7195598dfcc72
   source: local
   local_path: ./skills/aiq-deploy
-- repo_url: _local/aiq-piloti-riso
-  name: aiq-piloti-riso
-  version: 0.0.0
-  package_type: claude_skill
-  deployed_files:
-  - .agents/skills/aiq-piloti-riso
-  - .agents/skills/aiq-piloti-riso/SKILL.md
-  - .claude/skills/aiq-piloti-riso
-  - .claude/skills/aiq-piloti-riso/SKILL.md
-  deployed_file_hashes:
-    .agents/skills/aiq-piloti-riso/SKILL.md: sha256:acec4db24ff995f54647b2307865c772fd603d7cf128f9a0dda9be6a32e9b056
-    .claude/skills/aiq-piloti-riso/SKILL.md: sha256:acec4db24ff995f54647b2307865c772fd603d7cf128f9a0dda9be6a32e9b056
-  source: local
-  local_path: ./skills/aiq-piloti-riso
 - repo_url: _local/aiq-research
   name: aiq-research
   version: 0.0.0
@@ -715,24 +701,6 @@ deployments:
   - ./skills/aiq-deploy
   active_owner: ./skills/aiq-deploy
   content_hash: sha256:b64a14efd045e703d643d31473464ba051244df1134c553f90a7195598dfcc72
-- kind: project-relative
-  target: agent-skills
-  value: .agents/skills/aiq-piloti-riso
-  runtime: null
-  scope: project
-  owners:
-  - ./skills/aiq-piloti-riso
-  active_owner: ./skills/aiq-piloti-riso
-  content_hash: null
-- kind: project-relative
-  target: agent-skills
-  value: .agents/skills/aiq-piloti-riso/SKILL.md
-  runtime: null
-  scope: project
-  owners:
-  - ./skills/aiq-piloti-riso
-  active_owner: ./skills/aiq-piloti-riso
-  content_hash: sha256:acec4db24ff995f54647b2307865c772fd603d7cf128f9a0dda9be6a32e9b056
 - kind: project-relative
   target: agent-skills
   value: .agents/skills/aiq-research
@@ -1534,24 +1502,6 @@ deployments:
   - ./skills/aiq-deploy
   active_owner: ./skills/aiq-deploy
   content_hash: sha256:b64a14efd045e703d643d31473464ba051244df1134c553f90a7195598dfcc72
-- kind: project-relative
-  target: claude
-  value: .claude/skills/aiq-piloti-riso
-  runtime: null
-  scope: project
-  owners:
-  - ./skills/aiq-piloti-riso
-  active_owner: ./skills/aiq-piloti-riso
-  content_hash: null
-- kind: project-relative
-  target: claude
-  value: .claude/skills/aiq-piloti-riso/SKILL.md
-  runtime: null
-  scope: project
-  owners:
-  - ./skills/aiq-piloti-riso
-  active_owner: ./skills/aiq-piloti-riso
-  content_hash: sha256:acec4db24ff995f54647b2307865c772fd603d7cf128f9a0dda9be6a32e9b056
 - kind: project-relative
   target: claude
   value: .claude/skills/aiq-research
