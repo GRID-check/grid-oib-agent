@@ -634,10 +634,12 @@ times stops being a physical cue and becomes texture.
 - **One ambient loop per phase.** Every loop (skeleton shimmer, typing dots,
   progress sweep, text shimmer, the caret breath) runs on `--motion-ambient`
   (or `-slow`) and `--ease-cycle`, and at most one of them is on screen at a
-  time. A chat turn has one per phase: before the answer, the Herleitung
-  header's shimmering label (its icon slot is a static glyph, not a spinner);
-  while the answer streams, the caret, with pending citation pills muted and
-  still; after the settle, none. At rest, only a skeleton. A stagger inside a loop belongs to its `@utility` and derives from
+  time. The working chat turn is the one exception, on purpose: its
+  Herleitung header spins and shimmers, the graph's frontier connectors march
+  and a running step chip pulses, because people watch that panel to see the
+  agent work (2026-10). While the answer streams the label stops shimmering and
+  the caret is the text's one loop, pending citation pills muted and still;
+  after the settle, none. At rest, only a skeleton. A stagger inside a loop belongs to its `@utility` and derives from
   the token (`animate-typing-dot` staggers its own siblings), never to an
   `[animation-delay:…]` at the call site.
 
