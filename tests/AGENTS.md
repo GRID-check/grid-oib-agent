@@ -37,4 +37,4 @@ CI's 65% coverage gate.
 
 - The whole gate, CI's sharding and the security stack:
   [`docs/contributing/testing-and-verification.md`](../docs/contributing/testing-and-verification.md).
-- The bar for "done": [`aiq-definition-of-done`](../skills/aiq-definition-of-done/SKILL.md).
+- The bar for "done": [`definition-of-done.md`](../docs/contributing/definition-of-done.md).

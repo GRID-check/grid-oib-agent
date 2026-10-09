@@ -49,6 +49,30 @@ different models/parameters. Point them all at your endpoint to switch providers
 3. Set the embedder similarly (embeddings must also be OpenAI-compatible).
 4. Set `CONFIG_FILE` to your config and provide the key(s) in `deploy/.env`.
 
+## Which model each role uses
+
+Every agent names its models by `llms:` key, never by model id, so pointing a
+role at another model is a config edit and never a Python one. Each key must
+exist under `llms:`.
+
+Deep research (`deep_research_agent`, `src/aiq_agent/agents/deep_researcher/register.py`)
+binds one model per role:
+
+| Config field | `LLMRole` | Agent group an admin re-points |
+|---|---|---|
+| `orchestrator_llm` (required) | `ORCHESTRATOR`, and the default for every role left unset | `deep_research` |
+| `source_router_llm` | `ROUTER` | `deep_research_router` |
+| `researcher_llm` | `RESEARCHER` | `deep_research` |
+| `planner_llm` | `PLANNER` | `deep_research` |
+| `writer_llm` | `REPORT_WRITER` | `deep_research` |
+
+There is no generic `llm` field on deep research, so changing
+`orchestrator_llm` moves every role you did not set. Piloti reads `llm:`
+(`research_llm`). The clarify step is configured by the `clarifier:` block on
+`chat_deepresearcher_agent` (`ClarifierSettings` in
+`src/aiq_agent/agents/piloti/clarify.py`): `llm` asks the questions and
+`planner_llm` writes the plan, falling back to `llm` when unset.
+
 ## Runtime per-org model overrides (ADR-0014)
 
 The YAML remains the *default* layer. On top of it, org admins can re-point

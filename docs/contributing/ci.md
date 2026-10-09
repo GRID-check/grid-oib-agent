@@ -157,12 +157,43 @@ replace CodeQL. Turning one of them off is a setting
 
 ## Changing CI
 
+The surfaces are the workflows (`.github/workflows/`), the composite actions
+(`.github/actions/`), the tier filter (`.github/filters.yml`), the scripts the
+workflows run (`ci/`), the hooks (`.pre-commit-config.yaml`) and review routing
+(`.github/CODEOWNERS`). Every one of them gates every pull request, so a change
+that does not serve one of the jobs in the first table needs a reason.
+
 - A new job takes its `if:` from a `changes` output, or it runs on every merge
   including the reused ones. [`tests/test_ci_workflows.py`](../../tests/test_ci_workflows.py)
   evaluates every job's condition and fails on one that does not skip.
 - A new job that must pass before images are tagged goes into `publish`'s
   `needs` as well as `CI OK`'s; the same test checks that.
-- Lint workflow changes with `actionlint`; the pre-commit config and the tests
-  above are the rest.
-- The skill [`aiq-maintain-ci`](../../skills/aiq-maintain-ci/SKILL.md) has the
-  checklist.
+- A push diffs against the last green commit (`steps.green.outputs.sha`), never
+  `github.event.before`: the previous push hides a red tier.
+- Only `image-push` and `publish` write to GHCR, and only on a push. No pull
+  request job gets `packages: write`.
+- Image inputs come from the Dockerfiles' `COPY` lines
+  ([`ci/image_inputs.py`](../../ci/image_inputs.py)). Do not hand-list paths.
+- A finding the change did not cause (a new CVE in an untouched pin) belongs in
+  the weekly run, not in a check that blocks every pull request.
+- Make CI pass by fixing the cause. Widening the `.gitleaks.toml` allowlist,
+  loosening auth gating or code-owner review is a design discussion first.
+- A `CODEOWNERS` change goes with the paths it routes, or reviews go to the
+  wrong people.
+
+Verify a change before you push it:
+
+```bash
+actionlint                                  # go install github.com/rhysd/actionlint/cmd/actionlint@v1.7.7
+.venv/bin/pre-commit run --files <changed>
+.venv/bin/pytest tests/test_ci_workflows.py tests/test_reuse_green_run.py \
+  tests/test_last_green.py tests/test_image_inputs.py tests/test_pinned_images.py -q
+```
+
+`pre-commit` is not the whole gate: the backend suites run in the `backend` job,
+not in a hook, so run `task be:verify` when you touch what they cover. Run the
+job's own `task` too, and `bash -n` any `run:` block you edited. When a run
+fails, read the job's log for the failing line rather than the summary, and
+exercise an external call (a registry, an API) against the real service before
+saying the fix works. Some paths only run after the merge, on a push; say
+plainly which ones your change could not prove.

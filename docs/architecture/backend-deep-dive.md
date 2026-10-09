@@ -1896,6 +1896,18 @@ fallback is in the trace METADATA instead, as `prompt_name` and
 [`environment-variables.md`](../deployment/environment-variables.md)
 §Prompt management.
 
+**Editing a template.** Each agent keeps its Jinja2 templates in
+`src/aiq_agent/agents/<agent>/prompts/`; `load_prompt` reads one and
+`render_prompt_template` renders it (`common/prompt_utils.py`). The `.j2` file
+is the authority on the variables it uses, so keep every one the agent passes,
+and keep standing instructions above per-call content so the provider's prompt
+cache keeps hitting. Keep a template task-agnostic: which sources a question
+needs is decided at run time by the data source registry and
+`source_router.j2`, not by names written into the prompt. Editing an existing
+template needs no code change; a new one is used only once the agent's Python
+loads and renders it. Which model each role runs on is config:
+[llm-providers.md](llm-providers.md#which-model-each-role-uses).
+
 ### Project memory (implemented)
 
 The agent can now persist curated findings across turns. Full design:

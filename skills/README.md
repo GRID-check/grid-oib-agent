@@ -1,8 +1,8 @@
 # Skills
 
-Every skill this repo authors, in one place. `apm` publishes them from here into
-the harness directories that actually read them, so this is the only copy you
-edit and the only copy git tracks.
+The skills this repo authors for coding agents. `apm` publishes them from here
+into the harness directories that read them, so this is the only copy you edit
+and the only copy git tracks.
 
 ```bash
 task agents:setup   # publish this folder (and the pinned third-party skills) to every target
@@ -10,45 +10,30 @@ task agents:audit   # drift against the lock, plus a hidden-Unicode scan
 ```
 
 `.claude/` and `.agents/` are generated and gitignored. A skill added here
-reaches every harness by being listed in [`../apm.yml`](../apm.yml); adding a
-harness is one line in that manifest's `targets`.
+reaches every harness by being listed in [`../apm.yml`](../apm.yml).
 
-## Two audiences, one folder
+A procedure is a skill here only when it is agent-specific; everything a
+contributor needs as much as an agent is documentation. The rule and the audit
+that applied it:
+[`../docs/contributing/agent-skills.md`](../docs/contributing/agent-skills.md#skill-or-document).
+Today that leaves `aiq-research`, which drives a running backend through
+`scripts/aiq.py`. Its `skill-card.md`, `skill.oms.sig`, `BENCHMARK.md` and
+`evals/` come from the NVIDIA Skills catalog it was first published to.
 
-| | Maintainer skills | API-consumer skills |
-| :-- | :-- | :-- |
-| **Audience** | Developers changing this repo | Users calling a running AI-Q server |
-| **Examples** | `aiq-add-data-source`, `aiq-add-tool`, `aiq-release-qa`, `aiq-prepare-pr`, `aiq-maintain-ci`, `aiq-customize-prompts-models`, `aiq-definition-of-done` | `aiq-deploy`, `aiq-research` |
-| **Assumes** | A repo checkout and dev toolchain | A reachable AI-Q backend |
-| **Extras** | none | `skill-card.md`, `skill.oms.sig`, `evals/`, authored to be self-contained and exportable to the NVIDIA Skills catalog |
-
-Both kinds are validated the same way and live side by side. The distinction is
-about who reads them, not where they sit.
-
-None of this is an in-product skill runtime. The deployed product remains a
-research blueprint on the NeMo Agent Toolkit; nothing here is loaded or executed
-by it. These exist to help coding agents and contributors work in this
-repository.
-
-## Layout
-
-```
-skills/<aiq-skill-name>/
-  SKILL.md            # required: YAML frontmatter (name, description) + body
-  references/*.md     # optional: linked from SKILL.md, must stay inside the bundle
-```
-
-Names are lowercase, hyphen-separated and `aiq-` prefixed. The validator
-enforces it, and `tests/test_agent_skills.py` runs the validator in CI.
+Piloti's own skills, the ones the product reads at run time, are a different
+thing and live in `src/aiq_agent/skills/` (ADR-0046).
 
 ## Adding one
 
-1. Copy [TEMPLATE.md](TEMPLATE.md) to `skills/<aiq-skill-name>/SKILL.md` and
-   fill in the frontmatter.
-2. Add `- ./skills/<aiq-skill-name>` to the `dependencies.apm` list in
+1. Create `skills/<aiq-skill-name>/SKILL.md` with YAML frontmatter (`name`,
+   `description`) and a body; longer material goes in `references/*.md`
+   beside it, linked from `SKILL.md`, and must stay inside the bundle.
+2. Add `- ./skills/<aiq-skill-name>` to `dependencies.apm` in
    [`../apm.yml`](../apm.yml).
-3. Run `task agents:setup`, which publishes it to every target.
-4. Run `uv run python scripts/validate_skills.py` to check the bundle.
+3. Run `task agents:audit` until it passes, and commit `apm.lock.yaml` with
+   the skill.
+4. Run `.venv/bin/python scripts/validate_skills.py` to check the bundle.
 
-Write it against [`../docs/contributing/`](../docs/contributing/README.md) —
-`writing-for-agents` is installed and fires when you touch a `SKILL.md`.
+Names are lowercase, hyphen-separated and `aiq-` prefixed; the validator
+enforces it, and `tests/test_agent_skills.py` runs the validator in CI. The
+`writing-for-agents` skill fires when you touch a `SKILL.md`.

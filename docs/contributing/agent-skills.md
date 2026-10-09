@@ -31,9 +31,36 @@ like symlinks and were plain text containing a path (git mode `100644`, not
 `120000`). None of them resolved, so none of those skills had ever loaded for
 anyone. Publishing from one source removes the category.
 
-`skills/` holds two audiences, maintainer and API-consumer, side by side. See
-[`../../skills/README.md`](../../skills/README.md) for which is which and how to
-add one.
+How to add one: [`../../skills/README.md`](../../skills/README.md).
+
+## Skill or document
+
+A skill of our own exists only for a procedure that is agent-specific: one only
+an agent carries out, that depends on the agent's tools or harness, or whose
+value is being triggered by its description at the right moment. Everything a
+contributor needs as much as an agent is documentation, and the `AGENTS.md` of
+the area points at it at the moment an agent needs it. A skill that only points
+at documents is a pointer, and a pointer is one line in an `AGENTS.md`.
+
+This applies to the skills we write. The pinned third-party skills below are
+dependencies and are chosen on their own merits.
+
+The October 2026 audit applied the rule to the ten skills `skills/` held then.
+Seven came from the upstream NVIDIA AI-Q blueprint and still described it in
+places: DCO sign-off, copy-pr-bot, a Sphinx docs tree, Helm charts. That content
+was deleted rather than moved.
+
+| Skill | Decision | Why | Now |
+|---|---|---|---|
+| `aiq-research` | kept | Drives a running backend through `scripts/aiq.py`, polls jobs and presents reports: only an agent does this | `skills/aiq-research/` |
+| `aiq-definition-of-done` | moved | The bar for "done" binds people and agents alike | [definition-of-done.md](definition-of-done.md), with a row in `AGENTS.md` |
+| `aiq-prepare-pr` | moved | Opening a pull request is contributor knowledge | [`CONTRIBUTING.md`](../../CONTRIBUTING.md#opening-a-pull-request) |
+| `aiq-release-qa` | deleted | What to run per surface was already [testing-and-verification.md](testing-and-verification.md) and the definition of done; the rest was stale | |
+| `aiq-maintain-ci` | moved | CI maintenance is contributor knowledge, and [ci.md](ci.md) already held most of it | [ci.md, "Changing CI"](ci.md#changing-ci) |
+| `aiq-add-tool`, `aiq-add-data-source` | merged and moved | One procedure, needed by anyone extending the agent | [adding-a-tool.md](../architecture/adding-a-tool.md) |
+| `aiq-customize-prompts-models` | moved | Prompt and model configuration is architecture knowledge | [llm-providers.md](../architecture/llm-providers.md#which-model-each-role-uses) and the prompt section of [backend-deep-dive.md](../architecture/backend-deep-dive.md#prompts-three-layers-and-where-each-is-authored) |
+| `aiq-piloti-riso` | moved | A designer making a print needs the series rules as much as an agent does | [`frontends/web/art/riso/README.md`](../../frontends/web/art/riso/README.md#making-a-print) |
+| `aiq-deploy` | deleted | A deployment runbook, and the upstream blueprint's: it cloned NVIDIA's repository and deployed with Helm | [`docs/deployment/`](../deployment/), [`scripts/README.md`](../../scripts/README.md) |
 
 ## Installed
 
@@ -79,7 +106,7 @@ examples, and a second copy of a rule is sediment rather than reinforcement:
 | `principle-fix-root-causes` | "Fix causes, not symptoms", `AGENTS.md` |
 | `principle-subtract-before-you-add` | "Question necessity first, then simplify", `AGENTS.md` |
 | `principle-never-block-on-the-human` | "Finish the task", `AGENTS.md` |
-| `principle-prove-it-works` | [`aiq-definition-of-done`](../../skills/aiq-definition-of-done/SKILL.md) |
+| `principle-prove-it-works` | [the definition of done](definition-of-done.md) |
 | `principle-type-system-discipline` | the `any` ban, [code-conventions.md](code-conventions.md) |
 | `principle-guard-the-context-window` | [agent-onboarding-files.md](agent-onboarding-files.md) |
 

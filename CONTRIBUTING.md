@@ -10,7 +10,7 @@ from one place.
 - How we work, in detail: [docs/contributing/README.md](docs/contributing/README.md)
 - What an agent must act on while working: [AGENTS.md](AGENTS.md)
 - The bar every change must clear before it is "done":
-  [aiq-definition-of-done skill](skills/aiq-definition-of-done/SKILL.md)
+  [docs/contributing/definition-of-done.md](docs/contributing/definition-of-done.md)
 
 ## Setup (run once)
 
@@ -67,8 +67,9 @@ Full playbook: [docs/contributing/release-notes.md](docs/contributing/release-no
 
 ## Local validation
 
-Run what your change touches before pushing (the full matrix is in the
-[aiq-definition-of-done skill](skills/aiq-definition-of-done/SKILL.md)):
+Run what your change touches before pushing (what you must be able to show
+for each kind of change is in the
+[definition of done](docs/contributing/definition-of-done.md)):
 
 All commands live in the root [`Taskfile.yml`](Taskfile.yml) and are run with
 [go-task](https://taskfile.dev) (`npm i -g @go-task/cli`). CI calls the same
@@ -100,6 +101,18 @@ the PR otherwise. Allowed types:
 Example: `ci: replace SonarQube + CodeQL with a free in-CI security stack`. A PR
 opened from the GitHub UI keeps whatever title it was given — fix the title, not
 just the commits.
+
+## Opening a pull request
+
+- Base it on `develop`, carrying only the files this change needs.
+  `git diff --name-only origin/develop...HEAD` is the list a reviewer will see.
+- Fill every section of the
+  [template](.github/pull_request_template.md). **Validation** holds the
+  commands you ran and their output, or the closing checklist from the
+  [definition of done](docs/contributing/definition-of-done.md); "ran the
+  tests" is not evidence. A UI change carries its captures as attachments
+  ([docs/ux/visual-screenshots.md](docs/ux/visual-screenshots.md)).
+- CI runs on the pull request itself, and every push updates its checks.
 
 ## CI and the merge gate
 
