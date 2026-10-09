@@ -125,3 +125,22 @@ export function foldDiacritics(value: string): string {
 export function latinize(value: string): string {
   return foldDiacritics(transliterateGerman(value))
 }
+
+/**
+ * A filesystem-safe stem for a download name: {@link latinize}d, every run of
+ * anything but ASCII letters and digits one hyphen, no hyphen at either end,
+ * at most `maxLength` characters. `''` when nothing survives, so the caller
+ * picks its own fallback.
+ *
+ * Shared because each download used to carry its own copy (the BCF archive, the
+ * generated documents, the feedback export) and the copies differed in exactly
+ * the part that matters: whether `ß` survived.
+ */
+export function fileSlug(value: string, options: { maxLength?: number; lowercase?: boolean } = {}): string {
+  const { maxLength = 60, lowercase = true } = options
+  const cleaned = latinize(value)
+    .replace(/[^A-Za-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+  const cased = lowercase ? cleaned.toLowerCase() : cleaned
+  return cased.slice(0, maxLength).replace(/-+$/, '')
+}
