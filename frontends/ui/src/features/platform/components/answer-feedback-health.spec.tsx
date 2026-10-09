@@ -591,27 +591,49 @@ describe('AnswerFeedbackHealth — filtering and export', () => {
     expect(digestUrls()[0]).not.toContain('verdict=')
   })
 
-  it('exports exactly what is on screen, filters and direction alike', async () => {
+  /**
+   * The single export button followed the drill-in, which defaults to the
+   * failures: "export the feedback" handed people the down-votes only. Every
+   * vote is the first item now; the screen's filters are an explicit second.
+   */
+  it('exports every vote by default, and the selection only when asked for', async () => {
     stubFetch(health())
     const user = userEvent.setup()
     render(<AnswerFeedbackHealth days={30} />)
 
     await user.click(await screen.findByRole('button', { name: /^Inaccurate,/ }))
+    await user.click(screen.getByTestId('feedback-export'))
 
-    const link = screen.getByRole('link', { name: /Export CSV/ })
-    await waitFor(() =>
-      expect(link).toHaveAttribute('href', expect.stringContaining('reason=inaccurate'))
-    )
-    expect(link).toHaveAttribute('href', expect.stringContaining('/export?'))
-    expect(link).toHaveAttribute('download')
+    const all = await screen.findByRole('menuitem', { name: /Export all votes \(Excel\)/ })
+    expect(all).toHaveAttribute('href', '/api/platform/answer-feedback/export?days=30&format=xlsx')
+    expect(all).toHaveAttribute('download')
 
-    await user.click(screen.getByRole('radio', { name: 'Landed' }))
+    const selection = screen.getByRole('menuitem', { name: /Export current selection \(Excel\)/ })
+    await waitFor(() => expect(selection).toHaveAttribute('href', expect.stringContaining('reason=inaccurate')))
+    expect(selection).toHaveAttribute('href', expect.stringContaining('verdict=down'))
+    expect(selection).toHaveAttribute('href', expect.stringContaining('scope=selection&format=xlsx'))
+    // What the selection holds, in the chips' own words.
+    expect(selection).toHaveTextContent('Reason: Inaccurate')
+
+    const csv = screen.getByRole('menuitem', { name: /As CSV \(for scripts\)/ })
+    expect(csv).toHaveAttribute('href', '/api/platform/answer-feedback/export?days=30&format=csv')
+  })
+
+  it('follows the direction into the selection export', async () => {
+    stubFetch(health())
+    const user = userEvent.setup()
+    render(<AnswerFeedbackHealth days={30} />)
+
+    await user.click(await screen.findByRole('radio', { name: 'Landed' }))
+    await user.click(screen.getByTestId('feedback-export'))
+
     await waitFor(() =>
-      expect(screen.getByRole('link', { name: /Export CSV/ })).toHaveAttribute(
+      expect(screen.getByTestId('feedback-export-selection')).toHaveAttribute(
         'href',
         expect.stringContaining('verdict=up')
       )
     )
+    expect(screen.getByTestId('feedback-export-all')).not.toHaveAttribute('href', expect.stringContaining('verdict'))
   })
 
   it('links the Langfuse project only when the server knows it', async () => {

@@ -31,7 +31,6 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   AlertCircle,
   ChevronRight,
-  Download,
   ExternalLink,
   Filter,
   Gauge,
@@ -73,6 +72,7 @@ import { FeedbackDigest } from './feedback-digest'
 import { FeedbackTrend, FeedbackTrendDirection } from './feedback-trend'
 import { FeedbackBarList, FeedbackBarRow } from './feedback-bar-list'
 import { FeedbackTurnSheet, FeedbackVerdictBadge } from './feedback-turn-sheet'
+import { FeedbackExportMenu } from './feedback-export-menu'
 import {
   excerpt,
   FEEDBACK_REASONS,
@@ -214,6 +214,26 @@ export function AnswerFeedbackHealth({ days }: AnswerFeedbackHealthProps): JSX.E
 
   const busy = loading && data !== null
 
+  /** What "the current selection" holds, in the chips' own words, for the export menu. */
+  const selectionSummary = [
+    t(verdict === 'down' ? 'answerFeedback.showMissed' : 'answerFeedback.showLanded'),
+    reason && verdict === 'down'
+      ? t('answerFeedback.chip.reason', { value: t(`answerFeedback.reasons.${reason}`) })
+      : null,
+    org
+      ? t('answerFeedback.chip.organization', {
+          value: (() => {
+            const row = data?.organizations.find((o) => o.organizationId === org)
+            return row ? orgLabel(row) : org
+          })(),
+        })
+      : null,
+    topic ? t('answerFeedback.chip.topic', { value: t(`answerFeedback.topics.${topic}`) }) : null,
+    committedQuery ? t('answerFeedback.chip.query', { value: committedQuery }) : null,
+  ]
+    .filter(Boolean)
+    .join(' · ')
+
   const header = (
     <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
       <p className="text-muted-foreground text-sm">{t('answerFeedback.lead', { days })}</p>
@@ -245,14 +265,9 @@ export function AnswerFeedbackHealth({ days }: AnswerFeedbackHealthProps): JSX.E
             </a>
           </Button>
         ) : null}
-        {/* A plain link, not a fetch: the route sets Content-Disposition. It
-            carries the SAME query string, so the file matches the screen. */}
-        <Button asChild variant="outline" size="sm">
-          <a href={`/api/platform/answer-feedback/export?${search}`} download>
-            <Download className="size-3.5" aria-hidden />
-            {t('answerFeedback.export')}
-          </a>
-        </Button>
+        {/* Every vote by default; the screen's filters only when asked for,
+            with the SAME query string, so that file matches the screen. */}
+        <FeedbackExportMenu days={days} selectionSearch={search} selectionSummary={selectionSummary} />
       </div>
     </div>
   )
