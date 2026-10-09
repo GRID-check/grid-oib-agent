@@ -469,6 +469,7 @@ export function FileWorkspace({
         onConfirm={shelfUpload.applyFolderPlan}
         pending={shelfUpload.decision.pending}
         kind={shelfUpload.decision.kind}
+        onReleaseChange={shelfUpload.decision.setReleased}
       />
 
       {shelf.preview.kind === 'dialog' && (

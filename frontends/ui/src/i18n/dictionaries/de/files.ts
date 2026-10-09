@@ -70,6 +70,9 @@ export const files: typeof en.files = {
     // Erfolg („Zitierbar“ wäre ein Versprechen, das die Suche nicht einlöst)
     // und kein Fehler. Dasselbe Wort wie im Toast nach dem Lauf.
     stored: 'Abgelegt',
+    // Die Inhaltsprüfung (ADR-0086) hat angeschlagen: Die Datei liegt im
+    // Projekt, kein Modell hat sie gesehen, und jemand muss entscheiden.
+    quarantined: 'In Quarantäne',
     unknown: 'Unbekannt',
     // Nur die eigenen Uploads des Büros: Innerhalb eines Büros wird der Reihe
     // nach gelesen, zwischen Büros fair abgewechselt (ADR-0076).
@@ -258,6 +261,19 @@ export const files: typeof en.files = {
       'Diese Datei enthält etwas, das Ihr Büro als sensibel eingestuft hat. Piloti hat sie keinem Modell gezeigt. Die Büro- oder Projektadministration gibt sie frei oder löscht sie.',
     unknown: 'Piloti konnte dieses Dokument nicht lesen, daher findet die Suche es nicht.',
     details: 'Details',
+  },
+  screening: {
+    // Warum eine Datei zurückgehalten wurde – vom Inhaltsfilter (im Text) oder
+    // vom Namensfilter (im Datei- oder Ordnernamen), ADR-0086.
+    reasonTerm: '„{term}“ im Text',
+    reasonIban: 'IBAN {sample}',
+    reasonSvnr: 'Sozialversicherungsnummer {sample}',
+    reasonCard: 'Kreditkartennummer {sample}',
+    reasonPages: '{count, plural, one {Seite {pages}} other {Seiten {pages}}}',
+    nameInFile: 'Dateiname enthält „{term}“',
+    nameInFolder: 'Ordner „{segment}“ enthält „{term}“',
+    partial: 'Einige Seiten hatten keine Textebene und wurden nicht geprüft.',
+    unchecked: 'Der Inhalt ließ sich ohne Modell nicht lesen und wurde nur am Namen geprüft.',
   },
   browser: {
     folderEmptyTitle: 'Dieser Ordner ist leer',
@@ -468,6 +484,12 @@ export const files: typeof en.files = {
     collisions: '{count} Dateien teilen sich einen Namen mit einer anderen Datei in diesem Upload',
     collisionsExplain:
       'Ein Projekt hält pro Dateiname ein Dokument, deshalb werden diese nicht hochgeladen. Benennen Sie sie um und legen Sie sie erneut ab.',
+    // Vom Namensfilter des Büros zurückgehalten (ADR-0086): Die Dateien
+    // verlassen den Rechner nicht, außer jemand gibt eine einzeln frei.
+    excluded: '{count} Datei(en) bleiben auf Ihrem Rechner',
+    excludedExplain:
+      'Ihr Büro hat diese Begriffe als sensibel eingestuft, deshalb werden die Dateien nicht hochgeladen. Gehört eine davon doch nach Piloti, haken Sie sie an.',
+    releaseFile: 'Trotzdem hochladen',
     showAll: 'Alle {count} Dateien anzeigen',
     action: {
       new: 'Neu',
@@ -476,6 +498,7 @@ export const files: typeof en.files = {
       collision: 'Konflikt',
       duplicate: 'Schon vorhanden',
       skipped: 'Übersprungen',
+      excluded: 'Ausgeschlossen',
     },
     confirm: '{count} Datei(en) hochladen',
     confirmMoveOnly: '{count} Dokument(e) verschieben',
@@ -564,6 +587,7 @@ export const files: typeof en.files = {
       type: 'Dateityp nicht zugelassen',
       size: 'zu groß',
       unreadable: 'im Archiv beschädigt',
+      screened: 'vom Namensfilter des Büros zurückgehalten',
     },
   },
   upload: {
@@ -573,6 +597,10 @@ export const files: typeof en.files = {
     uploadFiles: 'Dateien auswählen',
   },
   errors: {
+    // Vom Namensfilter des Büros zurückgehalten (ADR-0086), auf einem Weg ohne
+    // Upload-Dialog, etwa im Chat.
+    screenedOut: '{count} Datei(en) nicht hochgeladen, weil Ihr Büro sie als sensibel einstuft: {files}',
+    screenedOutFile: '„{name}“ ({reason})',
     validation: {
       duplicateInBatch: '„{name}“ ist mehrfach in dieser Auswahl',
       duplicateExisting: '„{name}“ wurde bereits hinzugefügt',

@@ -26,7 +26,7 @@ import { fetchSemanticHits, joinHitsToFiles, type SearchedDocument } from '@/lib
 import { collectionFileRef, purgeIngestedChunks } from '@/lib/documents/collection-file-ref'
 import { ARCHIV_SHELF } from '@/lib/documents/shelf'
 import { toListedDocuments, toListedPage, type ListedDocument } from '@/lib/documents/shelf-listing'
-import { uploadToShelf, type UploadDocumentResult } from '@/lib/documents/shelf-upload'
+import { uploadToShelf, type ShelfUploadInput, type UploadDocumentResult } from '@/lib/documents/shelf-upload'
 import type { DocumentListCursor } from '@/lib/documents/list-cursor'
 import type { DocumentNameMatchRow } from '@/lib/documents/repository'
 import { eraseDocumentObjectsOrKeepRow } from '@/lib/documents/object-cleanup'
@@ -150,9 +150,13 @@ export function uploadArchivDocument(
   session: AuthorizedSession,
   file: File,
   request: Request,
-  { folderId = null, originPath = null }: { folderId?: string | null; originPath?: string | null } = {},
+  {
+    folderId = null,
+    originPath = null,
+    screeningRelease,
+  }: Omit<ShelfUploadInput, 'file' | 'folderId'> & { folderId?: string | null } = {},
 ): Promise<UploadArchivDocumentResult> {
-  return uploadToShelf(session, ARCHIV_SHELF, { file, folderId, originPath }, request)
+  return uploadToShelf(session, ARCHIV_SHELF, { file, folderId, originPath, screeningRelease }, request)
 }
 
 /**

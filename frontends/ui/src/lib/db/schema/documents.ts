@@ -39,6 +39,10 @@ import { type ResourceVisibility } from './resource-shares'
 export const DOCUMENT_SCOPES = ['project', 'archiv', 'session'] as const
 export type DocumentScope = (typeof DOCUMENT_SCOPES)[number]
 
+/** The content gate's verdict on a document's current bytes (ADR-0086). */
+export const DOCUMENT_SCREENING_OUTCOMES = ['clean', 'partial', 'unchecked', 'quarantined', 'released'] as const
+export type DocumentScreeningOutcome = (typeof DOCUMENT_SCREENING_OUTCOMES)[number]
+
 /**
  * Whose hand wrote the bytes (migration 0063). The members that exist TODAY:
  *
@@ -396,6 +400,20 @@ export const documents = pgTable('documents', {
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   errorMessage: text('error_message'),
   metadata: jsonb('metadata'),
+  /**
+   * What the content gate concluded about the CURRENT bytes (ADR-0086,
+   * migration 0109). NULL: not screened. `quarantined` pairs with
+   * `status = 'quarantined'`; `released` with a complete release below.
+   */
+  screeningOutcome: text('screening_outcome').$type<DocumentScreeningOutcome>(),
+  /**
+   * A reviewer's release from quarantine, of the bytes whose `content_hash`
+   * this names. A re-upload under the same id carries a different hash, so it
+   * is screened again. All three or none (CHECK).
+   */
+  screeningReleasedHash: text('screening_released_hash'),
+  screeningReleasedBy: text('screening_released_by'),
+  screeningReleasedAt: timestamp('screening_released_at', { withTimezone: true }),
   // No inline `.references()`: the real constraint is composite (below).
   folderId: uuid('folder_id'),
 }, (table) => ({

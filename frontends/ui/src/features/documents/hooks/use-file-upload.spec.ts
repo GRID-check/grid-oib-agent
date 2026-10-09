@@ -113,6 +113,13 @@ vi.mock('../persistence', () => ({
   markSessionHasCollection: (...args: unknown[]) => mockMarkSessionHasCollection(...args),
 }))
 
+// The office's upload screening (ADR-0086): Piloti's suggested list, read
+// without a request, so the gate is exercised and nothing else changes.
+vi.mock('@/adapters/api/upload-screening-policy', async () => {
+  const { SUGGESTED_SCREENING_POLICY } = await import('@/lib/upload-screening/policy')
+  return { loadUploadScreeningPolicy: vi.fn().mockResolvedValue(SUGGESTED_SCREENING_POLICY) }
+})
+
 vi.mock('../validation', () => ({
   validateFileUpload: vi.fn((files: File[]) => ({
     validFiles: files,
@@ -530,6 +537,125 @@ describe('useFileUpload — durable document uploads', () => {
     const body = xhr.requests[0].body as FormData
     expect(body.get('projectId')).toBe('proj-1')
     expect(body.get('folderId')).toBe('folder-9')
+  })
+
+  test('does not send a file the office screens out, and says which and why', async () => {
+    const { result } = renderUpload()
+    const invoice = new File(['x'], 'Schlussrechnung 03.pdf', { type: 'application/pdf' })
+    const plan = new File(['x'], 'Grundriss EG.pdf', { type: 'application/pdf' })
+
+    let pending!: Promise<void>
+    await act(async () => {
+      pending = result.current.uploadFiles([invoice, plan])
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+    await act(async () => {
+      xhr.requests.forEach((request, i) => request.respond(200, uploadOk(`doc-${i}`)))
+      await pending
+    })
+
+    expect(xhr.requests.map((request) => (request.body as FormData).get('file'))).toEqual([plan])
+    expect(mockDocumentsStoreState.setError).toHaveBeenCalledWith(expect.stringContaining('Schlussrechnung 03.pdf'))
+    expect(mockDocumentsStoreState.setError).toHaveBeenCalledWith(expect.stringContaining('Rechnung'))
+  })
+
+  test('screens against the folder a file lands in', async () => {
+    const { result } = renderUpload()
+    const scan = new File(['x'], '0042.pdf', { type: 'application/pdf' })
+
+    let pending!: Promise<void>
+    await act(async () => {
+      pending = result.current.uploadFiles([scan], { folderPathFor: () => 'Verwaltung/Honorare' })
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+    // Answered if it was sent, so a missing gate fails this case and no other.
+    await act(async () => {
+      xhr.requests.forEach((request, i) => request.respond(200, uploadOk(`doc-${i}`)))
+      await pending
+    })
+
+    expect(xhr.requests).toHaveLength(0)
+    expect(mockDocumentsStoreState.setError).toHaveBeenCalledWith(expect.stringContaining('Honorare'))
+  })
+
+  test('sends a file the reader released, and tells the server it was released', async () => {
+    const { result } = renderUpload()
+    const contract = new File(['x'], 'Architektenvertrag.pdf', { type: 'application/pdf' })
+
+    let pending!: Promise<void>
+    await act(async () => {
+      pending = result.current.uploadFiles([contract], { screeningReleased: (file) => file === contract })
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+    await act(async () => {
+      xhr.last().respond(200, uploadOk('doc-1'))
+      await pending
+    })
+
+    expect(xhr.requests).toHaveLength(1)
+    expect((xhr.last().body as FormData).get('screeningRelease')).toBe('name')
+  })
+
+  test('records where each file went and what the reader released, for a retry to repeat', async () => {
+    const { result } = renderUpload({ folderId: 'folder-here' })
+    const contract = new File(['x'], 'Architektenvertrag.pdf', { type: 'application/pdf' })
+
+    let pending!: Promise<void>
+    await act(async () => {
+      pending = result.current.uploadFiles([contract], {
+        folderIdFor: () => 'folder-vertraege',
+        folderPathFor: () => 'Verwaltung/Verträge',
+        screeningReleased: (file) => file === contract,
+      })
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+    await act(async () => {
+      xhr.last().respond(200, uploadOk('doc-1'))
+      await pending
+    })
+
+    expect(mockDocumentsStoreState.addTrackedFile).toHaveBeenCalledWith(
+      expect.objectContaining({
+        uploadIntent: { folderId: 'folder-vertraege', folderPath: 'Verwaltung/Verträge', screeningReleased: true },
+      })
+    )
+  })
+
+  test('retries a released file into its own folder, released again, not where the reader stands now', async () => {
+    const contract = new File(['x'], 'Architektenvertrag.pdf', { type: 'application/pdf' })
+    mockDocumentsStoreState.trackedFiles = [
+      {
+        id: 'failed-1',
+        file: contract,
+        fileName: contract.name,
+        fileSize: contract.size,
+        status: 'failed',
+        progress: 0,
+        collectionName: 'proj-collection',
+        uploadedAt: new Date().toISOString(),
+        uploadIntent: { folderId: 'folder-vertraege', folderPath: 'Verwaltung/Verträge', screeningReleased: true },
+      },
+    ]
+    const { result } = renderUpload({ folderId: 'folder-elsewhere' })
+
+    let pending!: Promise<void>
+    await act(async () => {
+      pending = result.current.retryFile('failed-1')
+      for (let i = 0; i < 5; i += 1) await Promise.resolve()
+    })
+    await act(async () => {
+      xhr.last().respond(200, uploadOk('doc-1'))
+      await pending
+    })
+
+    expect(xhr.requests).toHaveLength(1)
+    const body = xhr.last().body as FormData
+    expect(body.get('screeningRelease')).toBe('name')
+    expect(body.get('folderId')).toBe('folder-vertraege')
   })
 
   test('carries the server’s „unchanged" answer onto the row, so it is not shown as a new upload', async () => {

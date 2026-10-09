@@ -50,6 +50,7 @@ describe('POST /api/archiv/documents/upload', () => {
     expect(uploadArchivDocument).toHaveBeenCalledWith(expect.anything(), expect.any(File), expect.any(Request), {
       folderId: 'folder-1',
       originPath: 'Normen/plan.pdf',
+      screeningRelease: false,
     })
   })
 
@@ -59,6 +60,7 @@ describe('POST /api/archiv/documents/upload', () => {
     expect(uploadArchivDocument).toHaveBeenCalledWith(expect.anything(), expect.any(File), expect.any(Request), {
       folderId: null,
       originPath: null,
+      screeningRelease: false,
     })
   })
 

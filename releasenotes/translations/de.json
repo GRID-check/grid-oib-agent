@@ -732,6 +732,10 @@
     "de": "BMP- und TIFF-Bilder zeigen wieder eine Vorschau, statt zu melden, es sei keine verfügbar."
   },
   {
+    "en": "Before an upload starts, you see which files that list holds back and why, and those files never leave your computer. A single file, such as a Bauvertrag in a folder called „Verträge“, can be released with one tick.",
+    "de": "Bevor ein Upload beginnt, sehen Sie, welche Dateien diese Liste zurückhält und warum, und diese Dateien verlassen Ihren Computer nie. Eine einzelne Datei, etwa ein Bauvertrag in einem Ordner namens „Verträge“, lässt sich mit einem Häkchen freigeben."
+  },
+  {
     "en": "Before uploading, Piloti tells you how many documents are new, changed or unchanged, and you decide with a tick whether changed ones are updated. Unchanged files are skipped.",
     "de": "Vor dem Hochladen sagt Piloti, wie viele Dokumente neu, geändert oder unverändert sind, und Sie entscheiden mit einem Häkchen, ob geänderte aktualisiert werden. Unveränderte Dateien werden übersprungen."
   },
@@ -1504,8 +1508,8 @@
     "de": "Piloti antwortet jetzt wie eine Kollegin im Planungsbüro statt wie eine Prüfstelle: Wer einen Plan zusammenfassen oder Zeichnungen ordnen lässt, bekommt kein Urteil mehr. Piloti hilft, eine Regel anzuwenden, und ersetzt weder den Entwurfsverfasser noch die Behörde."
   },
   {
-    "en": "Piloti now checks the text of every upload on its own server before any language model sees it. A file holding something your office marks as sensitive goes to no model and waits until an office or project admin releases or deletes it.",
-    "de": "Piloti prüft jetzt den Text jedes Uploads auf dem eigenen Server, bevor ein Sprachmodell ihn sieht. Eine Datei mit Inhalten, die Ihr Büro als sensibel kennzeichnet, geht an kein Modell und wartet, bis ein Admin des Büros oder des Projekts sie freigibt oder löscht."
+    "en": "Piloti now checks the text of every upload on its own server before any language model sees it. A file that matches waits in quarantine until an office or project admin releases or deletes it under Organisation → Quarantäne.",
+    "de": "Piloti prüft jetzt den Text jedes Uploads auf dem eigenen Server, bevor ein Sprachmodell ihn sieht. Eine Datei mit Treffer wartet in Quarantäne, bis ein Admin des Büros oder des Projekts sie unter Organisation → Quarantäne freigibt oder löscht."
   },
   {
     "en": "Piloti now chooses its source by the question rather than by a fixed order, so a question about the Bauordnung goes where the Bauordnung is. Every value it states still comes from a passage it read in that answer.",
@@ -2510,6 +2514,10 @@
   {
     "en": "You can preview the report as a PDF before you download it, in a panel you can drag as wide as you need. What you see is the document you get.",
     "de": "Sie können den Bericht vor dem Herunterladen als PDF in der Vorschau ansehen – in einem Bereich, den Sie beliebig breit ziehen können. Was Sie sehen, ist das Dokument, das Sie erhalten."
+  },
+  {
+    "en": "Your office now decides what must not be uploaded, under Organisation → Sensible Daten: terms for file and folder names, terms for the content, and checks for IBANs, Austrian social security numbers and card numbers. Piloti starts you on a suggested list you can keep, change or switch off.",
+    "de": "Ihr Büro legt jetzt unter Organisation → Sensible Daten fest, was nicht hochgeladen werden darf: Begriffe für Datei- und Ordnernamen, Begriffe für den Inhalt sowie Prüfungen auf IBANs, österreichische Sozialversicherungsnummern und Kartennummern. Piloti beginnt mit einer vorgeschlagenen Liste, die Sie übernehmen, ändern oder abschalten können."
   },
   {
     "en": "Your organization can now give Piloti standing instructions under Organisation, Anweisungen, such as result first, then reasons, or assume Vienna when no province is named. They apply to every question from everyone in the office.",

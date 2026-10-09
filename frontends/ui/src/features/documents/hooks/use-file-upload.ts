@@ -18,7 +18,7 @@ import { useDocumentsStore } from '../store'
 import { useAuth } from '@/adapters/auth'
 import { useAppConfig } from '@/shared/context'
 import { useLayoutStore } from '@/features/layout/store'
-import type { TrackedFile } from '../types'
+import type { TrackedFile, UploadIntent } from '../types'
 import { mapUploadResponseStatus } from '../utils'
 import { shouldEmitProgress } from '../lib/upload-progress'
 import { isJoblessIngesting } from '../lib/document-status-reads'
@@ -29,6 +29,9 @@ import { UploadOrchestrator } from '../orchestrator'
 import type { PendingJob } from '../orchestrator'
 import { markSessionHasCollection } from '../persistence'
 import { notifyDocumentsChanged } from '@/lib/documents/document-changes'
+import { loadUploadScreeningPolicy } from '@/adapters/api/upload-screening-policy'
+import { screenUploadName, type NameMatch } from '@/lib/upload-screening/name-screen'
+import { describeScreenedOut } from '@/lib/upload-screening/quarantine'
 
 /**
  * The upload endpoints' response: `/api/documents/upload`,
@@ -117,6 +120,18 @@ export interface UploadFilesOptions {
    * returning `undefined`, which defers to the batch's own folder.
    */
   folderIdFor?: (file: File) => string | null | undefined
+  /**
+   * The project folder a file lands in, as a path from the project root, for
+   * the upload screening (ADR-0086). The server screens against it too, so a
+   * caller that knows it must say it — or the browser lets through a file the
+   * server will then refuse, after its bytes have left the office.
+   */
+  folderPathFor?: (file: File) => string | null | undefined
+  /**
+   * The reader released this file from the upload screening in the upload
+   * dialog. Sent to the server as `screeningRelease`, which audits it.
+   */
+  screeningReleased?: (file: File) => boolean
 }
 
 interface UseFileUploadReturn {
@@ -300,10 +315,37 @@ export const useFileUpload = (options: UseFileUploadOptions = {}): UseFileUpload
         return
       }
 
-      const validFiles = validationResult.validFiles
+      /*
+       * The upload screening, last before a byte leaves (ADR-0086).
+       *
+       * The dialog already showed the reader what the office's policy holds
+       * back and took their releases; this is the gate for every path that
+       * does not pass the dialog (a chat attachment, a direct pick that met
+       * nothing) and the backstop for the ones that do. What it holds back is
+       * not sent at all.
+       */
+      const policy = await loadUploadScreeningPolicy()
+      const screenedOut: Array<{ file: File; matches: NameMatch[] }> = []
+      const validFiles = validationResult.validFiles.filter((file) => {
+        if (options?.screeningReleased?.(file)) return true
+        const verdict = screenUploadName(policy, {
+          filename: file.name,
+          originPath: file.webkitRelativePath || null,
+          folderPath: options?.folderPathFor?.(file) ?? null,
+        })
+        if (verdict.blocked) screenedOut.push({ file, matches: verdict.matches })
+        return !verdict.blocked
+      })
+      const screenedMessage = describeScreenedOut(screenedOut, t)
+      if (validFiles.length === 0) {
+        setError(screenedMessage ?? localizedSummary)
+        return
+      }
       setUploading(true)
 
-      if (validationResult.fileErrors.length > 0) {
+      if (screenedMessage) {
+        setError(screenedMessage)
+      } else if (validationResult.fileErrors.length > 0) {
         const skippedCount = validationResult.fileErrors.length
         const uploadingCount = validFiles.length
         setError(
@@ -316,6 +358,14 @@ export const useFileUpload = (options: UseFileUploadOptions = {}): UseFileUpload
         )
       } else {
         clearError()
+      }
+
+      // Per file when the caller filed the batch (a folder upload), otherwise
+      // the folder the reader is standing in. `undefined` defers; `null` is a
+      // deliberate "the shelf's root".
+      const resolvedFolderId = (file: File): string | null => {
+        const target = options?.folderIdFor ? options.folderIdFor(file) : folderId
+        return (target === undefined ? folderId : target) ?? null
       }
 
       // Paired by INDEX, not by filename: two files selected in one batch can
@@ -333,6 +383,11 @@ export const useFileUpload = (options: UseFileUploadOptions = {}): UseFileUpload
           bytesUploaded: 0,
           collectionName: targetCollection,
           uploadedAt: new Date().toISOString(),
+          uploadIntent: {
+            folderId: resolvedFolderId(file),
+            folderPath: options?.folderPathFor?.(file) ?? null,
+            screeningReleased: options?.screeningReleased?.(file) === true,
+          },
         } satisfies TrackedFile as TrackedFile,
       }))
 
@@ -376,14 +431,11 @@ export const useFileUpload = (options: UseFileUploadOptions = {}): UseFileUpload
           // Both durable shelves are filed into folders now (the Archiv's
           // are the office's own).
           if (shelf !== 'session') {
-            // Per file when the caller filed the batch (a folder upload),
-            // otherwise the folder the reader is standing in. `undefined`
-            // defers; `null` is a deliberate "the project root".
-            const target = options?.folderIdFor ? options.folderIdFor(file) : folderId
-            const resolved = target === undefined ? folderId : target
+            const resolved = resolvedFolderId(file)
             if (resolved) formData.append('folderId', resolved)
           }
           formData.append('file', file)
+          if (options?.screeningReleased?.(file)) formData.append('screeningRelease', 'name')
           // Where the file sat before it came here. Set by a folder INPUT
           // (`webkitdirectory`) and stamped onto a dropped tree's files by
           // `asPathStampedFiles`, so one property covers both ways of
@@ -618,6 +670,7 @@ export const useFileUpload = (options: UseFileUploadOptions = {}): UseFileUpload
   // cap. One batch per row put every failed file in flight at once, straight
   // into the rate limit that had failed most of them.
   const pendingRetriesRef = useRef<{ files: File[]; done: Promise<void> } | null>(null)
+  const retryIntentsRef = useRef(new Map<File, UploadIntent>())
   const retryFile = useCallback(
     async (fileId: string) => {
       const file = trackedFiles.find((f) => f.id === fileId)
@@ -629,6 +682,7 @@ export const useFileUpload = (options: UseFileUploadOptions = {}): UseFileUpload
       }
 
       removeTrackedFile(fileId)
+      if (file.uploadIntent) retryIntentsRef.current.set(file.file, file.uploadIntent)
       const pending = pendingRetriesRef.current
       if (pending) {
         pending.files.push(file.file)
@@ -642,8 +696,22 @@ export const useFileUpload = (options: UseFileUploadOptions = {}): UseFileUpload
         // validation although each file passed on its own, after their rows
         // were already removed. There, retry one file at a time; the durable
         // shelves have no batch cap and keep the single capped batch.
-        if (shelf !== 'session') return uploadFiles(files)
-        for (const each of files) await uploadFiles([each])
+        // The same destination and release as the first attempt: a file the
+        // reader released, or filed into a folder of its upload, goes there
+        // again instead of being screened out or landing where they stand now.
+        const intents = retryIntentsRef.current
+        const intentOf = (each: File): UploadIntent | undefined => intents.get(each)
+        const retryOptions: UploadFilesOptions = {
+          folderIdFor: (each) => intentOf(each)?.folderId,
+          folderPathFor: (each) => intentOf(each)?.folderPath,
+          screeningReleased: (each) => intentOf(each)?.screeningReleased === true,
+        }
+        try {
+          if (shelf !== 'session') return await uploadFiles(files, retryOptions)
+          for (const each of files) await uploadFiles([each], retryOptions)
+        } finally {
+          for (const each of files) intents.delete(each)
+        }
       })
       pendingRetriesRef.current = { files, done }
       await done

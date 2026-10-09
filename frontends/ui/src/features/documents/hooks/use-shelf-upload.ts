@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useEffect } from 'react'
+import { useCallback, useEffect, useMemo } from 'react'
 import { toast } from 'sonner'
 import { useTranslations } from '@/i18n'
 import type { FolderItem } from '../file-types'
@@ -36,6 +36,11 @@ export interface ShelfUploadOptions {
  * becomes a new version of that document (ADR-0054), so it asks „Neue Fassung
  * von „X“ hochladen?" — decided by asking the server by name (`probeNames`),
  * never from what this browser happens to have loaded.
+ *
+ * Every path is screened against the office's sensitive-data list (ADR-0086),
+ * on both shelves: the plan shows what the screening holds back and takes the
+ * reader's releases, and each upload names the folder it lands in so the
+ * browser and the server screen the same path.
  */
 export function useShelfUpload({
   shelf,
@@ -52,6 +57,16 @@ export function useShelfUpload({
   const { uploadFiles } = upload
   const { probeNames, handoverKey } = shelf
   const ensureUrl = `${shelf.endpoints.folders}/ensure`
+
+  /**
+   * The path of the folder the reader stands in, from the shelf root, or null
+   * at the root. The upload screening reads it (ADR-0086): a scan dropped into
+   * „Honorare" is screened as a fee document whatever its own name.
+   */
+  const currentFolderPath = useMemo(
+    () => (selectedFolderId ? (folders.find((folder) => folder.id === selectedFolderId)?.path ?? null) : null),
+    [folders, selectedFolderId]
+  )
 
   /**
    * A ZIP is unpacked first and then goes through exactly what a dropped folder
@@ -80,13 +95,19 @@ export function useShelfUpload({
         .then((files) => {
           if (files.length === 0) return undefined
           return propose(
-            { files, documents: probeNames, folders, currentFolderId: selectedFolderId },
-            (direct) => void uploadFiles(direct)
+            {
+              files,
+              documents: probeNames,
+              folders,
+              currentFolderId: selectedFolderId,
+              screeningBasePath: currentFolderPath,
+            },
+            (direct) => void uploadFiles(direct, { folderPathFor: () => currentFolderPath })
           )
         })
         .catch(() => toast.error(t('folderUpload.compareError')))
     },
-    [unpackArchives, propose, probeNames, uploadFiles, folders, selectedFolderId, t]
+    [unpackArchives, propose, probeNames, uploadFiles, folders, selectedFolderId, currentFolderPath, t]
   )
 
   // A drop elsewhere in the app brought the reader here (`ProjectFileDrop`).
@@ -169,12 +190,22 @@ export function useShelfUpload({
             planned.targetPath ? (byPath[planned.targetPath] ?? selectedFolderId) : selectedFolderId
           )
         }
+        // What the server screens each file against: the folder it lands in
+        // (ADR-0086), and whether the reader released it in the dialog.
+        const plannedByFile = new Map(selected.map((planned) => [planned.file, planned]))
         setOpen(false)
         if (moves.length > 0) await applyMoves(moves, byPath)
         if (selected.length > 0) {
           await uploadFiles(
             selected.map((planned) => planned.file),
-            { folderIdFor: (file) => folderIdByFile.get(file) ?? null }
+            {
+              folderIdFor: (file) => folderIdByFile.get(file) ?? null,
+              folderPathFor: (file) => {
+                const target = plannedByFile.get(file)?.targetPath ?? ''
+                return [currentFolderPath, target].filter(Boolean).join('/') || null
+              },
+              screeningReleased: (file) => plannedByFile.get(file)?.screeningReleased === true,
+            }
           )
         }
         // The tree grew and a move wrote rows this page shows; `uploadFiles`
@@ -195,7 +226,19 @@ export function useShelfUpload({
         setPending(false)
       }
     },
-    [plan, selectedFolderId, uploadFiles, loadFolders, loadFiles, ensureFolders, applyMoves, t, setOpen, setPending]
+    [
+      plan,
+      selectedFolderId,
+      currentFolderPath,
+      uploadFiles,
+      loadFolders,
+      loadFiles,
+      ensureFolders,
+      applyMoves,
+      t,
+      setOpen,
+      setPending,
+    ]
   )
 
   return { handleUpload, applyFolderPlan, decision }

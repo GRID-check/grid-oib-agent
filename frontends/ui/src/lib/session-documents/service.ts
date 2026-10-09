@@ -22,6 +22,7 @@
  * `@/lib/api/errors`.
  */
 
+import { assertUploadNameAllowed, auditScreeningOverride } from '@/lib/upload-screening/service'
 import 'server-only'
 import { PutObjectCommand } from '@aws-sdk/client-s3'
 import { s3Client, bucketAdminS3Client, buildSessionStorageKey } from '@/lib/s3'
@@ -98,6 +99,8 @@ export interface UploadSessionDocumentInput {
    */
   projectId?: string | null
   file: File
+  /** See `UploadDocumentInput.screeningRelease`. */
+  screeningRelease?: boolean
 }
 
 export interface UploadSessionDocumentResult {
@@ -139,6 +142,13 @@ export async function uploadSessionDocument(
   // Authorization + the row the document's foreign key needs, in one call.
   await createConversation(session, { id: conversationId, projectId: input.projectId ?? null })
 
+  // The name gate's server-side repeat (ADR-0086), before a byte is stored.
+  // A chat attachment reaches the model as surely as a project file does.
+  const nameGate = await assertUploadNameAllowed(
+    session.organizationId,
+    { filename: file.name },
+    input.screeningRelease === true,
+  )
   await assertUploadTypeAllowed(session, file.name)
   await assertFileSizeAllowed(session.organizationId, file.size, file.name)
   // The same org ceiling as every other shelf: a chat attachment is bytes in
@@ -304,6 +314,11 @@ export async function uploadSessionDocument(
     },
     request,
   })
+  await auditScreeningOverride(
+    session,
+    { documentId, projectId: null, filename, overridden: nameGate.overridden },
+    request,
+  )
 
   return { documentId, jobId, status, filename, collectionName }
 }
