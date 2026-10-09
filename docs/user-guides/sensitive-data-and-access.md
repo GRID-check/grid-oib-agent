@@ -1,7 +1,8 @@
-# Sensitive data and quarantine
+# Sensitive data, quarantine and roles
 
-What an office can keep out of Piloti, and how an uploader learns what became
-of an upload. The decision behind this is ADR-0086 (screening and quarantine).
+What an office can keep out of Piloti, how an uploader learns what became of
+an upload, and the office's own roles. The decisions behind this are ADR-0086
+(screening and quarantine) and ADR-0087 (roles live in WorkOS).
 
 ## The sensitive-data list
 
@@ -115,3 +116,16 @@ failed and why. While files are still being read, the summary updates itself.
 **Project settings → Uploads** lists every upload into the project, newest
 first, with who uploaded it and what became of its files. Each person opens
 the file-by-file summary of their own uploads only.
+
+## Your office's own roles
+
+**Organisation → Personen & Zugriff → Eigene Rollen.** People who may manage
+people and roles create roles such as „Geschäftsführung" or „Buchhaltung",
+choose the permissions each carries, rename them and delete them. The roles
+live in WorkOS, where Piloti's own roles live; you assign them to people on the
+**Personen** tab.
+
+- A role can only carry permissions its editor holds.
+- A role can be deleted once nobody holds it.
+- Until your Piloti installation lets a person hold several roles, everyone
+  holds exactly one.

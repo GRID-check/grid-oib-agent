@@ -111,6 +111,100 @@ export const organization: typeof en.organization = {
         'Für die Verwaltung von Personen und Rollen wird die Berechtigung „Personen und Rollen verwalten“ benötigt. Ein Organisations-Admin kann sie vergeben.',
     },
   },
+  /**
+   * Personen & Zugriff → Eigene Rollen (ADR-0087): Rollen, die ein Büro in
+   * WorkOS anlegt, im Reiter „Personen“ zuweist und auf die es Ordner einschränkt.
+   */
+  customRoles: {
+    title: 'Eigene Rollen',
+    description:
+      'Rollen, die Ihr Büro selbst anlegt, neben denen von Piloti. Eine Rolle fasst Berechtigungen unter einem Namen wie „Geschäftsführung“ zusammen.',
+    howTo:
+      'Rollen weisen Sie Personen im Reiter „Personen“ zu. Einen Projektordner können Sie auf eine oder mehrere Rollen einschränken: Dann sehen nur Personen mit einer dieser Rollen den Ordner, seine Dokumente und was Piloti daraus antwortet. Organisations-Admins sehen immer alles.',
+    oneRoleTitle: 'Eine Rolle pro Person',
+    oneRoleBody:
+      'Solange in Ihrer Organisation nicht mehrere Rollen pro Person eingeschaltet sind, hat jede Person genau eine Rolle. Eine Rolle für Ordner muss dann auch die Berechtigungen tragen, mit denen ihre Inhaber arbeiten.',
+    create: 'Neue Rolle',
+    customGroup: 'Rollen Ihres Büros',
+    environmentGroup: 'Rollen von Piloti',
+    environmentHint: 'Stellt Piloti jeder Organisation bereit. Sie lassen sich hier nicht ändern.',
+    emptyTitle: 'Noch keine eigenen Rollen',
+    emptyDescription:
+      'Legen Sie eine Rolle wie „Geschäftsführung“ an, um Ordner auf die Personen einzuschränken, die sie haben.',
+    permissionCount: '{count, plural, one {# Berechtigung} other {# Berechtigungen}}',
+    editRole: 'Rolle „{name}“ bearbeiten',
+    deleteRole: 'Rolle „{name}“ löschen',
+    loadError: 'Die Rollen konnten gerade nicht geladen werden.',
+    readOnly: 'Eigene Rollen ändern können nur Personen mit der Berechtigung „Personen und Rollen verwalten“.',
+    editor: {
+      createTitle: 'Neue Rolle',
+      editTitle: 'Rolle „{name}“ bearbeiten',
+      createDescription:
+        'Benennen Sie die Rolle und wählen Sie, was sie darf. Zuweisen können Sie sie danach im Reiter „Personen“.',
+      editDescription: 'Die Kennung bleibt gleich, und wer die Rolle hat, behält sie.',
+      name: 'Name',
+      namePlaceholder: 'z. B. Geschäftsführung',
+      nameHint:
+        'Aus dem Namen bildet Piloti beim Anlegen die Kennung der Rolle. Die Kennung bleibt danach gleich, auch wenn Sie die Rolle umbenennen.',
+      nameRequired: 'Geben Sie der Rolle einen Namen.',
+      description: 'Beschreibung (optional)',
+      descriptionPlaceholder: 'Wer diese Rolle hat und wozu',
+      permissions: 'Berechtigungen',
+      permissionsHint:
+        'Diese Berechtigungen gelten in der ganzen Organisation. Zugriff auf einzelne Projekte wird pro Projekt vergeben.',
+      notGrantable: 'Diese Berechtigung haben Sie selbst nicht, daher können Sie sie nicht vergeben.',
+      create: 'Rolle anlegen',
+      save: 'Speichern',
+      saving: 'Wird gespeichert…',
+      created: 'Rolle „{name}“ angelegt. Zuweisen können Sie sie im Reiter „Personen“.',
+      saved: 'Rolle „{name}“ gespeichert.',
+      saveError: 'Die Rolle konnte nicht gespeichert werden. Bitte versuchen Sie es erneut.',
+      nameTaken: 'Eine Rolle mit diesem Namen gibt es schon.',
+      forbidden: 'In eine Rolle können Sie nur Berechtigungen legen, die Sie selbst haben.',
+      discardTitle: 'Änderungen verwerfen?',
+      discardDescription: 'Was Sie für diese Rolle eingegeben haben, ist nicht gespeichert.',
+      discardConfirm: 'Verwerfen',
+      keepEditing: 'Weiter bearbeiten',
+    },
+    deleteDialog: {
+      title: 'Rolle „{name}“ löschen?',
+      description:
+        'Löschen geht erst, wenn niemand die Rolle mehr hat. Ein Ordner, der nur auf diese Rolle eingeschränkt ist, ist danach nur noch für Organisations-Admins sichtbar.',
+      confirm: 'Rolle löschen',
+      deleted: 'Rolle „{name}“ gelöscht.',
+      stillAssigned:
+        'Diese Rolle hat noch jemand. Geben Sie diesen Personen zuerst im Reiter „Personen“ eine andere Rolle.',
+      error: 'Die Rolle konnte nicht gelöscht werden. Bitte versuchen Sie es erneut.',
+    },
+    /** Eine Bezeichnung und eine Zeile je Organisationsberechtigung, Schlüssel = Slug nach `org:`, `:` als `_`. */
+    permission: {
+      settings_manage: {
+        name: 'Organisationseinstellungen verwalten',
+        hint: 'Name, Sprache und Voreinstellungen der Organisation.',
+      },
+      models_manage: { name: 'KI-Modelle verwalten', hint: 'Mit welchem Modell jeder Teil von Piloti arbeitet.' },
+      budgets_manage: { name: 'Budgets verwalten', hint: 'Ausgabenlimits und Verbrauch der ganzen Organisation.' },
+      compliance_manage: { name: 'Compliance verwalten', hint: 'Legal Holds und Löschungen.' },
+      audit_view: { name: 'Audit-Log ansehen', hint: 'Das Protokoll jeder privilegierten Änderung.' },
+      archiv_manage: {
+        name: 'Archiv verwalten',
+        hint: 'Dokumente im Büro-Archiv hochladen, löschen und neu einlesen. Lesen dürfen alle.',
+      },
+      skills_manage: {
+        name: 'Skills verwalten',
+        hint: 'Skills des Büros schreiben, ändern und löschen. Verwenden dürfen sie alle.',
+      },
+      projects_create: { name: 'Projekte anlegen', hint: 'Neue Projekte beginnen.' },
+      projects_administer: {
+        name: 'Alle Projekte verwalten',
+        hint: 'Jedes Projekt erreichen, ohne hinzugefügt zu sein, und jeden eingeschränkten Ordner sehen.',
+      },
+      members_manage: {
+        name: 'Personen und Rollen verwalten',
+        hint: 'Personen einladen, ihre Rollen ändern und hier Rollen anlegen.',
+      },
+    },
+  },
   overview: {
     title: 'Übersicht',
     description: 'Ihre Organisation auf einen Blick.',
