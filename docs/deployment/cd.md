@@ -110,7 +110,7 @@ DNS resolves and a staging cert issues, then flip prod to `false`.
 
 ## Runner → cluster reachability
 Only the **apply** needs the cluster. The **gates** (typecheck, CRD-schema
-validation, CrossGuard) run on Blacksmith/GitHub-hosted runners and only need
+validation, CrossGuard) run on GitHub-hosted runners and only need
 Pulumi Cloud — the plan they check is built from stack config, so they pass with
 a kubeconfig pointing at an unreachable API (see
 [`deploy/pulumi/README.md`](../../deploy/pulumi/README.md) → *Validation*). The

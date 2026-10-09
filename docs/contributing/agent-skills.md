@@ -85,8 +85,9 @@ Third-party skills sit in the same manifest, pinned to a commit and locked in
 
 The last four are one capability. `improve-codebase-architecture` calls the
 Skill tool for the other three by name, so taking it alone leaves three dead
-calls. It also wants a `CONTEXT.md` domain glossary, which this repo does not
-have; the skill creates one lazily the first time a term needs a home.
+calls. It also reads and maintains the root [`CONTEXT.md`](../../CONTEXT.md),
+the domain glossary; the engineering vocabulary is in
+[`docs/glossary.md`](../glossary.md).
 
 Eight are from [pstack](https://github.com/cursor/plugins/tree/main/pstack),
 picked out of its 44, and five from

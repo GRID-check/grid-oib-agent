@@ -18,6 +18,10 @@ with. See the [root README](../README.md) for what Grid is, and
    house rules that already cost somebody an afternoon, and
    [`adr/README.md`](adr/README.md) for the decisions and why they went that way.
 
+A word you do not know: the domain language is in
+[`../CONTEXT.md`](../CONTEXT.md), the engineering vocabulary in
+[`glossary.md`](glossary.md).
+
 ## Where things live
 
 | Directory | What lives there | Go there when |
