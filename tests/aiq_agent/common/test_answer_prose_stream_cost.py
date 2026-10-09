@@ -13,7 +13,10 @@ text, where a linear reader pays about four and a quadratic one sixteen:
   a runner) but never to fail locally.
 - the time, as a ratio of two timings on the same machine, never a wall-clock
   budget. It catches a rescan that allocates nothing: a regex or ``find``
-  over everything so far.
+  over everything so far. The time is this thread's CPU time, not the wall
+  clock: on a shared runner the wall clock also counts the stretches the
+  thread waited for a core, which landed on the large reads more often than
+  the small ones and gave 8.3x for a reader that measures 4.0.
 """
 
 from __future__ import annotations
@@ -35,17 +38,23 @@ _MAX_RATIO = 8.0
 _MAX_ALLOCATION_RATIO = 6.0
 
 
-def _cost(reply: str) -> float:
-    """The fastest of five full reads of ``reply``, token by token."""
-    runs = []
-    for _ in range(5):
-        reader = AnswerProseStream()
-        started = time.perf_counter()
-        for i in range(0, len(reply), _CHUNK):
-            reader.feed(reply[i : i + _CHUNK])
-            reader.take_cards()
-        runs.append(time.perf_counter() - started)
-    return min(runs)
+def _read(reply: str) -> float:
+    """The CPU time one full read of ``reply`` takes, token by token."""
+    reader = AnswerProseStream()
+    started = time.thread_time()
+    for i in range(0, len(reply), _CHUNK):
+        reader.feed(reply[i : i + _CHUNK])
+        reader.take_cards()
+    return time.thread_time() - started
+
+
+def _cost_ratio(small: str, large: str) -> float:
+    """How much longer ``large`` takes than ``small``, each the fastest of seven reads, taken in turn."""
+    smalls, larges = [], []
+    for _ in range(7):
+        smalls.append(_read(small))
+        larges.append(_read(large))
+    return min(larges) / min(smalls)
 
 
 def _allocated(reply: str) -> int:
@@ -90,8 +99,7 @@ def _open_code_line(words: int) -> str:
     ids=["prose", "card", "open-code-line"],
 )
 def test_reading_four_times_the_text_costs_about_four_times_as_much(build, size):
-    small, large = build(size), build(size * _GROWTH)
-    ratio = _cost(large) / _cost(small)
+    ratio = _cost_ratio(build(size), build(size * _GROWTH))
     assert ratio < _MAX_RATIO, f"{ratio:.1f}x the time for {_GROWTH}x the text"
 
 
