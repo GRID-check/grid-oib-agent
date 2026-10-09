@@ -1504,6 +1504,10 @@
     "de": "Piloti antwortet jetzt wie eine Kollegin im Planungsbüro statt wie eine Prüfstelle: Wer einen Plan zusammenfassen oder Zeichnungen ordnen lässt, bekommt kein Urteil mehr. Piloti hilft, eine Regel anzuwenden, und ersetzt weder den Entwurfsverfasser noch die Behörde."
   },
   {
+    "en": "Piloti now checks the text of every upload on its own server before any language model sees it. A file holding something your office marks as sensitive goes to no model and waits until an office or project admin releases or deletes it.",
+    "de": "Piloti prüft jetzt den Text jedes Uploads auf dem eigenen Server, bevor ein Sprachmodell ihn sieht. Eine Datei mit Inhalten, die Ihr Büro als sensibel kennzeichnet, geht an kein Modell und wartet, bis ein Admin des Büros oder des Projekts sie freigibt oder löscht."
+  },
+  {
     "en": "Piloti now chooses its source by the question rather than by a fixed order, so a question about the Bauordnung goes where the Bauordnung is. Every value it states still comes from a passage it read in that answer.",
     "de": "Piloti wählt die Quelle jetzt nach der Frage statt nach einer festen Rangfolge; eine Frage zur Bauordnung landet dort, wo die Bauordnung steht. Jeder genannte Wert stammt weiterhin aus einer Stelle, die in dieser Antwort gelesen wurde."
   },
