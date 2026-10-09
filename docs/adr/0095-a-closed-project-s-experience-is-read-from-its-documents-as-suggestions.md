@@ -69,6 +69,18 @@ it.
   not say it: placement moves a document's chunks some time after its folder
   changes, and a held upload can sit in it. The BFF also drops any evidence
   naming another file before it writes, whatever the backend answered.
+* A decision's evidence names files as they were when it was read, and a
+  document's name is restricted information too (ADR-0087: the audit trail and
+  the download log withhold it). So every read of memory evidence shows a
+  name only while a document of that name in the project is open to the
+  reader NOW: filed where their clearance is served from (the live folder;
+  the Papierkorb never is), visible to their document reader (`SCREENED_ONLY`
+  for the agent), active. One function does it (`withServedEvidence`,
+  `lib/projects/memory-evidence.ts`), called by the two reads of memory
+  evidence: the person's (`getProjectMemory`: the memory panel, the debrief,
+  the similar-projects page) and the agent's (`searchProjectDecisions`). The
+  decision itself stays: it was read while the file was open to every
+  member, and the item's own access decides who reads it.
 * It runs while the project is active. An already-closed project is reopened,
   read and closed; the import imports as active, reads, then closes. No
   closed-project rule changes.
@@ -99,6 +111,11 @@ it.
 * `src/lib/project-experience/readable-files.integration.spec.ts` (live
   Postgres): a held upload, a document in a restricted folder whose chunks have
   not moved, one in the Papierkorb and an archived one are not offered.
+* `src/lib/projects/memory-evidence.integration.spec.ts` (live Postgres): a
+  file moved into a restricted folder after the extraction is cited only to a
+  reader cleared for it; a binned, archived or held one never to the agent;
+  the decision stays. `service.memory-access.spec.ts`: the person's read asks
+  it with their own reader and clearance.
 * `src/lib/project-experience/service.spec.ts`: only the named files are
   sent, evidence from any other is never written, suggestions never over an
   answered key, masked quotes, source-grounded decisions, access refused on a

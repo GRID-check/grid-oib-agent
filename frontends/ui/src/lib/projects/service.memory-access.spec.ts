@@ -38,10 +38,17 @@ vi.mock('./memory-service', () => ({
   updateProjectMemoryItem: vi.fn(async () => ({ id: 'item-1' })),
 }))
 
+// Which evidence names a reader may see is the SQL's subject (memory-evidence.integration.spec.ts);
+// here, that the panel's read asks it, as this person, with this person's clearance.
+vi.mock('./memory-evidence', () => ({
+  withServedEvidence: vi.fn(async (_organizationId: string, items: readonly unknown[]) => [...items]),
+}))
+
 import { customFolderNames, purgedFolderDates, readableFolderIdsFor } from '@/lib/authz/folder-access'
 import type { AuthorizedSession } from '@/lib/auth/types'
 import { NotFoundError } from '@/lib/api/errors'
 import { makeMemoryItem } from '@/test-utils/db-fixtures'
+import { withServedEvidence, type EvidenceReader } from './memory-evidence'
 import { deleteProjectMemoryItem, listProjectMemory, updateProjectMemoryItem } from './memory-service'
 import { editProjectMemoryItem, getProjectMemory, removeProjectMemoryItem } from './service'
 
@@ -112,6 +119,34 @@ describe('getProjectMemory', () => {
       readableFolderIds: [],
     })
     expect(customFolderNames).not.toHaveBeenCalled()
+  })
+})
+
+describe('evidence names', () => {
+  it('shows a note’s evidence only as this person may open it now, with their own reader and clearance', async () => {
+    vi.mocked(readableFolderIdsFor).mockResolvedValue([CONTRACTS])
+    vi.mocked(customFolderNames).mockResolvedValue(new Map())
+    const grounded = makeMemoryItem({
+      id: 'grounded',
+      projectId: 'proj-1',
+      verification: 'source_grounded',
+      evidence: [
+        { fileName: 'Baubeschreibung.pdf', page: '2' },
+        { fileName: 'Honorare.pdf', page: '1' },
+      ],
+    })
+    vi.mocked(listProjectMemory).mockResolvedValue([grounded])
+    vi.mocked(withServedEvidence).mockImplementationOnce(async (_organizationId, items) =>
+      items.map((item) => ({ ...item, evidence: (item.evidence ?? []).filter((entry) => entry.fileName !== 'Honorare.pdf') }))
+    )
+
+    const items = await getProjectMemory(SESSION, 'proj-1')
+
+    expect(items.map((item) => [item.content, item.evidence])).toEqual([[grounded.content, [{ fileName: 'Baubeschreibung.pdf', page: '2' }]]])
+    const [organizationId, , reader] = vi.mocked(withServedEvidence).mock.calls[0] as [string, unknown, EvidenceReader]
+    expect(organizationId).toBe('org_1')
+    expect(reader.reader).toEqual({ kind: 'member', userId: 'user_1' })
+    expect(reader.clearanceIn('proj-1')).toEqual([CONTRACTS])
   })
 })
 

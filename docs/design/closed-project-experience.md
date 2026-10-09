@@ -130,6 +130,17 @@ Response:
   edition it was planned under, marked „aus den Unterlagen, unbestätigt" when
   only suggested. A decision line says „aus den Unterlagen erschlossen: Datei
   S. n" for a source-grounded row.
+* **Evidence names follow the reader, now.** A decision stores the file names
+  it was read from, as they were then. A name is shown, to the agent as to a
+  person, only while a document of that name in the project is open to that
+  reader: filed where their clearance is served from (the live folder; the
+  Papierkorb never is), visible to their document reader (`SCREENED_ONLY` for
+  the agent), active (`withServedEvidence`, `lib/projects/memory-evidence.ts`,
+  called by `getProjectMemory` and `searchProjectDecisions`). A file moved into
+  a restricted folder after the extraction drops out of the line for anyone
+  not cleared for it; the decision stays, since it was read while the file was
+  open to every member. A document's name is restricted information as the
+  audit trail and the download log treat it (ADR-0087).
 * A hit from another project stays kind `projekt`; what marks it is the
   project it carries (`SourceProject`, on the wire `{id, name, status,
   landNote}`). The answer's source chips label it „Präzedenzfall" with the

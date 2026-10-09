@@ -32,6 +32,8 @@ import type {
 import { getProjectOverviewData, type ProjectOverviewReader } from './overview-query'
 import { isProjectClosed, keptWhenClosed, openToOrganizationWhenClosed, type ProjectStatus } from './project-status'
 import { shelfReaderFor } from '@/lib/upload-screening/quarantine-reviewers'
+import { memberReader } from '@/lib/documents/visibility'
+import { withServedEvidence } from './memory-evidence'
 import {
   clearanceOf,
   customFolderNames,
@@ -489,10 +491,15 @@ export async function getProjectMemory(
 ): Promise<ProjectMemoryListItem[]> {
   await requireProjectAccess(session, projectId, 'project:view')
   const { cleared } = await memoryClearance(session, projectId)
-  const items = await listProjectMemory(projectId, {
+  const listed = await listProjectMemory(projectId, {
     ...options,
     organizationId: session.organizationId,
     readableFolderIds: cleared,
+  })
+  // An item's evidence names only the files this person may open now (memory-evidence.ts).
+  const items = await withServedEvidence(session.organizationId, listed, {
+    reader: memberReader(session.userId),
+    clearanceIn: () => cleared,
   })
   return labelRestrictions(session, projectId, items)
 }

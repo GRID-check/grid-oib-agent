@@ -26,6 +26,8 @@ import { contentTokens, jaccardSimilarity, normalizeContentGerman } from '@/lib/
 import { cosineSimilaritySql, embedNote } from '@/lib/knowledge/embeddings'
 import { fuseHybridRelevance } from '@/lib/knowledge/recall-scoring'
 import { projectMemory, type ProjectMemoryKind, type ProjectMemoryVerification } from '@/lib/db/schema'
+import { SCREENED_ONLY } from '@/lib/documents/visibility'
+import { withServedEvidence } from '@/lib/projects/memory-evidence'
 import { memoryVisibleTo } from '@/lib/projects/memory-service'
 import { isConfirmedMemory } from './decision-origin'
 
@@ -113,7 +115,7 @@ export async function searchProjectDecisions(
   const fused = fuseHybridRelevance(dense, lexical)
 
   // Raw values are not runtime-validated: coerced at the boundary.
-  return rows
+  const found = rows
     .map((row, index) => ({ row, score: fused[index] }))
     .filter((entry): entry is { row: (typeof rows)[number]; score: number } => entry.score !== null)
     .sort((a, b) => b.score - a.score)
@@ -128,4 +130,10 @@ export async function searchProjectDecisions(
       updatedAt: new Date(row.updatedAt),
       restrictedFolderIds: row.restrictedFolderIds && row.restrictedFolderIds.length > 0 ? [...row.restrictedFolderIds] : null,
     }))
+  // The evidence names only the files the agent may still be served from each project (memory-evidence.ts).
+  const clearance = new Map(scopes.map((scope) => [scope.projectId, scope.readableFolderIds]))
+  return withServedEvidence(organizationId, found, {
+    reader: SCREENED_ONLY,
+    clearanceIn: (projectId) => clearance.get(projectId) ?? [],
+  })
 }
