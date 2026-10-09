@@ -227,6 +227,15 @@ describe('provenanceFromBackendMetadata', () => {
     expect(provenanceFromBackendMetadata({ stopped: 'true' })).toBeNull()
   })
 
+  it('carries the level the turn ran at, and only a level the dial offers', () => {
+    // Written by the socket-persistence path when the asking tab was gone, so
+    // the thorough retry still steps up from the level the turn really ran at.
+    const result = normalizeAgentAnswerMetadata({ reasoning_effort: 'high' }) ?? {}
+    expect(result).not.toHaveProperty('reasoning_effort')
+    expect(result.provenance).toEqual({ reasoningEffort: 'high' })
+    expect(provenanceFromBackendMetadata({ reasoning_effort: 'none' })).toBeNull()
+  })
+
   it('reads the cause even when the flag was lost, matching the backend extractor', () => {
     // `jobs/runner._extract_answer_transparency` reads the two independently: a
     // state that knows WHY it stopped still knows something true.

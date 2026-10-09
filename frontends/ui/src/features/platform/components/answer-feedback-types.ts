@@ -10,14 +10,15 @@
  */
 
 import type { ConversationTagKey } from '@/lib/conversations/tags'
+import { FEEDBACK_REASON_FILTERS, type FeedbackReasonFilter } from '@/lib/feedback/filters'
 
 /**
  * Down-vote reasons in FIXED order. A reason keeps its row when another drops
- * out of the window, so the bars never reshuffle between loads. Mirrors
- * `ANSWER_FEEDBACK_REASONS`.
+ * out of the window, so the bars never reshuffle between loads. One list with
+ * the filters' (`lib/feedback/filters.ts`), which holds it to `ANSWER_FEEDBACK_REASONS`.
  */
-export const FEEDBACK_REASONS = ['inaccurate', 'wrong_source', 'too_slow', 'other'] as const
-export type FeedbackReason = (typeof FEEDBACK_REASONS)[number]
+export const FEEDBACK_REASONS = FEEDBACK_REASON_FILTERS
+export type FeedbackReason = FeedbackReasonFilter
 
 /** Below this many votes a percentage is noise, not a rate. */
 export const MIN_RATE_VOTES = 5
@@ -56,6 +57,9 @@ export interface FeedbackOrgRow {
 }
 
 export interface FeedbackHealthResponse {
+  /** The scope's first and last day (UTC, inclusive); absent from an older server. */
+  from?: string
+  to?: string
   windowDays: number
   answers: number
   /** Distinct answers that carry a vote (server, when present). */

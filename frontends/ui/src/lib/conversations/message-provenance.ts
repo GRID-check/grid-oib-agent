@@ -34,6 +34,7 @@ import type { Shelf, SourceKind } from '@/features/chat/lib/source-kinds'
 import type { RetrievalLedger } from './message-retrieval-ledger'
 import { sanitizeRetrievalLedger } from './message-retrieval-ledger'
 import { sanitizeQuoteStamps, type QuoteStamp } from './message-quote-stamps'
+import { isChatEffort, type ChatEffort } from '@/lib/reasoning-settings/catalog'
 
 /** The kinds of Herleitung step, one per wire v2 `Step` (`wire_v2.py`). */
 export const STEP_KINDS = [
@@ -188,6 +189,12 @@ export interface MessageProvenance {
   escalationReason?: string
   /** How long the answer took, in whole milliseconds, as the asking browser measured it. */
   answerDurationMs?: number
+  /**
+   * The Aufwand the turn ran at, as the asking browser sent it. Stored so the
+   * thorough retry steps up from this answer's level on any device, not from
+   * wherever the reader's dial stands now.
+   */
+  reasoningEffort?: ChatEffort
   /**
    * The skills the turn activated, and the subset the disclosure de-emphasises.
    * Stored because the disclosure calls itself the RECORD of what shaped the
@@ -466,6 +473,8 @@ export function sanitizeProvenance(input: unknown): MessageProvenance | null {
   ) {
     out.answerDurationMs = Math.round(input.answerDurationMs)
   }
+
+  if (isChatEffort(input.reasoningEffort)) out.reasoningEffort = input.reasoningEffort
 
   const skillsActivated = stringList(input.skillsActivated, MAX_SKILLS, MAX_SKILL_CHARS)
   if (skillsActivated) out.skillsActivated = skillsActivated
