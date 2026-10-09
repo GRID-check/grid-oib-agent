@@ -28,6 +28,13 @@ export interface ResourceAccessEntry {
   role: ResourceRole
   reason: AccessReason
   grantedBy: string | null
+  /**
+   * True when the person is still a party to the resource but can no longer
+   * read what it was drawn from (a folder's access narrowed, a role taken
+   * away; ADR-0088). The roster says so; it never says which folder. Absent
+   * for a resource whose content is judged by the role alone.
+   */
+  lostAccess?: boolean
 }
 
 /** `GET /api/sharing/:resourceType/:resourceId` */
@@ -57,6 +64,13 @@ export interface ShareCandidate {
    * disabled with the reason rather than hidden, so the block is explicable.
    */
   needsProjectAccess: boolean
+  /**
+   * Cannot read every folder this conversation drew on, so cannot be let in
+   * (ADR-0088). Rendered disabled with a reason that never names the folder;
+   * the server's refusal on the grant stays the authority. Absent for a
+   * resource whose content is judged by the role alone.
+   */
+  lacksFolderAccess?: boolean
 }
 
 /** Machine-readable refusal reasons, so the UI can localise without parsing prose. */

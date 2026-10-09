@@ -73,6 +73,14 @@ vi.mock('@/lib/session-documents/repository', () => ({
   SESSION_DOCUMENT_LIST_LIMIT: 100,
 }))
 
+// Which people may read what a conversation recorded is `restricted-use.spec.ts`'s
+// subject (ADR-0088); here nothing it recorded restricts anybody.
+vi.mock('@/lib/conversations/restricted-use', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/lib/conversations/restricted-use')>()),
+  peopleWhoMayRead: vi.fn(async (_org: string, _id: string, userIds: readonly string[]) => new Set(userIds)),
+  lockedConversationIds: vi.fn(async () => new Set<string>()),
+}))
+
 vi.mock('@/lib/conversations/repository', () => ({
   deleteConversationInOrg: vi.fn().mockResolvedValue(undefined),
   findConversationInOrg: vi.fn(),
@@ -234,6 +242,9 @@ const session = {
   userId: 'user_me',
   organizationId: 'org_1',
   email: 'me@grid.test',
+  role: 'member',
+  roles: ['member'],
+  permissions: [],
 } as unknown as AuthorizedSession
 
 /** The registry's one probe: existence, tenancy, container, visibility, creator. */

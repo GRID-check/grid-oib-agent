@@ -12,8 +12,23 @@ vi.mock('@/lib/authz/folder-access', async () => {
   const actual = await vi.importActual<typeof import('@/lib/authz/folder-access')>('@/lib/authz/folder-access')
   const open = (await import('@/test-utils/folder-access')).openFolderAccessModule()
   // The guard runs the decision's pure core over the would-be tree, for real.
-  return { ...open, computeFolderAccess: actual.computeFolderAccess, EVERY_PROJECT_MEMBER: '*' }
+  return {
+    ...open,
+    computeFolderAccess: actual.computeFolderAccess,
+    EVERY_PROJECT_MEMBER: '*',
+    // The tree the project has, and who asks: `listFoldersWithoutValidRole`.
+    loadCustomFolderTree: vi.fn(async () => orphans.tree),
+    clearanceOf: vi.fn(() => ({ roles: orphans.roles, seesEverything: orphans.admin })),
+    customFolderNames: vi.fn(async () => orphans.names),
+  }
 })
+const orphans = vi.hoisted(() => ({
+  tree: null as Array<{ id: string; parentId: string | null; accessMode: 'inherit' | 'custom'; grants: Array<{ role: string; level: 'read' | 'write' }>; deleted?: boolean }> | null,
+  roles: [] as string[],
+  admin: false,
+  names: new Map<string, string>(),
+}))
+
 vi.mock('@/lib/authz/folder-access-repository', () => ({
   projectHasCustomFolders: vi.fn(async () => false),
   listProjectFolderTree: vi.fn(async () => [
@@ -72,7 +87,8 @@ import { getProjectFolderAccess } from '@/lib/authz/folder-access'
 import { requireProjectAccess } from '@/lib/authz/projects'
 import { countIfcDocumentsInFolders } from '@/lib/authz/folder-access-repository'
 import { placeProjectDocuments } from './collection-placement'
-import { setFolderAccess } from './folder-access-settings'
+import { organizationRoleSlugs } from '@/lib/authz/custom-roles'
+import { listFoldersWithoutValidRole, setFolderAccess } from './folder-access-settings'
 
 const SESSION = { organizationId: 'org-1', userId: 'user-1', email: 'a@b.c' } as never
 const request = () => new Request('http://x')
@@ -316,5 +332,52 @@ describe('setFolderAccess', () => {
     ).rejects.toBeInstanceOf(NotFoundError)
     expect(getProjectFolderAccess).not.toHaveBeenCalled()
     writesNothing()
+  })
+})
+
+describe('listFoldersWithoutValidRole (ADR-0088)', () => {
+  beforeEach(() => {
+    orphans.tree = [
+      { id: 'honorare', parentId: null, accessMode: 'custom', grants: [{ role: 'org-gone', level: 'write' }] },
+      { id: 'vertraege', parentId: null, accessMode: 'custom', grants: [{ role: 'org-buchhaltung', level: 'read' }] },
+      { id: 'plaene', parentId: null, accessMode: 'inherit', grants: [] },
+    ]
+    orphans.names = new Map([
+      ['honorare', 'Honorare'],
+      ['vertraege', 'Verträge'],
+    ])
+    orphans.admin = true
+    orphans.roles = []
+  })
+
+  it('names the folders whose list matches no role of the organization, for someone who may read them', async () => {
+    await expect(listFoldersWithoutValidRole(SESSION, 'proj-1')).resolves.toEqual([{ id: 'honorare', name: 'Honorare' }])
+  })
+
+  it('needs project:manage, and asks it before anything else', async () => {
+    vi.mocked(requireProjectAccess).mockRejectedValueOnce(new NotFoundError('Project not found'))
+
+    await expect(listFoldersWithoutValidRole(SESSION, 'proj-1')).rejects.toBeInstanceOf(NotFoundError)
+    expect(requireProjectAccess).toHaveBeenCalledWith(SESSION, 'proj-1', 'project:manage')
+  })
+
+  it('does not name a folder to a project manager who cannot read it', async () => {
+    orphans.admin = false
+
+    await expect(listFoldersWithoutValidRole(SESSION, 'proj-1')).resolves.toEqual([])
+  })
+
+  it('answers none for a project in which no folder has its own list, without asking WorkOS', async () => {
+    orphans.tree = null
+
+    await expect(listFoldersWithoutValidRole(SESSION, 'proj-1')).resolves.toEqual([])
+    expect(organizationRoleSlugs).not.toHaveBeenCalled()
+  })
+
+  it('flags nothing when WorkOS cannot list the roles: an outage is not a deleted role', async () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+    vi.mocked(organizationRoleSlugs).mockRejectedValueOnce(new Error('WorkOS unavailable'))
+
+    await expect(listFoldersWithoutValidRole(SESSION, 'proj-1')).resolves.toEqual([])
   })
 })

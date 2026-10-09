@@ -24,6 +24,7 @@ import {
   effectiveFolderLevel,
   filterUsersWhoMayReadFolder,
   folderTree,
+  foldersWithoutValidRole,
   getProjectFolderAccess,
   getRestrictedFolderIds,
   isRestrictedCollectionOf,
@@ -410,5 +411,67 @@ describe('requireFolderWrite — the one write check', () => {
   it('needs only the project permission at the root', async () => {
     await expect(requireFolderWrite(session([]), 'proj-1', [null])).resolves.toBeUndefined()
     expect(listProjectFolderTree).not.toHaveBeenCalled()
+  })
+})
+
+describe('a role deleted in WorkOS leaves its folders to the admins (ADR-0088)', () => {
+  /** Honorare named only „Geschäftsführung" (`GF`), which was deleted; `PL` still exists. */
+  const GONE = 'org-gone'
+  const DEAD = '99999999-aaaa-4bbb-8ccc-0000000000a1'
+  const MIXED = '99999999-aaaa-4bbb-8ccc-0000000000a2'
+  const OPEN_LIST = '99999999-aaaa-4bbb-8ccc-0000000000a3'
+  const TOMB = '99999999-aaaa-4bbb-8ccc-0000000000a4'
+  const CHILD_OF_DEAD = '99999999-aaaa-4bbb-8ccc-0000000000a5'
+  const folders: AccessFolder[] = [
+    custom(DEAD, null, [{ role: GONE, level: 'write' }]),
+    custom(MIXED, null, [
+      { role: GONE, level: 'write' },
+      { role: PL, level: 'read' },
+    ]),
+    custom(OPEN_LIST, null, [{ role: EVERY_PROJECT_MEMBER, level: 'read' }]),
+    custom(TOMB, null, [{ role: GONE, level: 'read' }], true),
+    inherit(CHILD_OF_DEAD, DEAD),
+    inherit(F.plaene, null),
+  ]
+  const existing = new Set([PL, GF, 'admin', 'member'])
+
+  it('flags a folder whose own list names only roles that no longer exist', () => {
+    expect(foldersWithoutValidRole(folders, existing)).toEqual([DEAD])
+  })
+
+  it('does not flag a list that still names a role that exists, a `*` list, an inheriting folder or a tombstone', () => {
+    const flagged = foldersWithoutValidRole(folders, existing)
+    for (const id of [MIXED, OPEN_LIST, TOMB, CHILD_OF_DEAD, F.plaene]) expect(flagged).not.toContain(id)
+  })
+
+  it('flags nothing once the role exists again (the slug is back, the grants match again)', () => {
+    expect(foldersWithoutValidRole(folders, new Set([...existing, GONE]))).toEqual([])
+  })
+
+  it('is readable by organization admins only: no member and no existing role reads or writes it', () => {
+    const t = folderTree(folders)
+    for (const roles of [[], [PL], [GF], ['member'], [BH]]) {
+      expect(effectiveFolderLevel(t, who(roles), DEAD)).toBe('none')
+    }
+    expect(effectiveFolderLevel(t, who([], true), DEAD)).toBe('write')
+    // What inherits from it is just as closed, and is not flagged: its parent is.
+    expect(effectiveFolderLevel(t, who([PL]), CHILD_OF_DEAD)).toBe('none')
+    expect(effectiveFolderLevel(t, who([], true), CHILD_OF_DEAD)).toBe('write')
+  })
+
+  it('hides it from a project listing for a non-admin and shows it to an admin', () => {
+    expect(computeFolderAccess(folders, who([PL]), COLLECTION).hiddenFolderIds.has(DEAD)).toBe(true)
+    expect(computeFolderAccess(folders, who([], true), COLLECTION).hiddenFolderIds.has(DEAD)).toBe(false)
+  })
+
+  it('keeps matching after a rename: grants name the slug, and a rename leaves the slug', () => {
+    // WorkOS renames change `name`, never `slug` (UpdateOrganizationRoleOptions has no slug).
+    const beforeRename = new Set(['org-geschaeftsfuehrung'])
+    const afterRename = new Set(['org-geschaeftsfuehrung'])
+    const named: AccessFolder[] = [custom(DEAD, null, [{ role: 'org-geschaeftsfuehrung', level: 'write' }])]
+
+    expect(foldersWithoutValidRole(named, beforeRename)).toEqual([])
+    expect(foldersWithoutValidRole(named, afterRename)).toEqual([])
+    expect(effectiveFolderLevel(folderTree(named), who(['org-geschaeftsfuehrung']), DEAD)).toBe('write')
   })
 })

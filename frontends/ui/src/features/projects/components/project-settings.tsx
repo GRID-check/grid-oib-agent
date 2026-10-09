@@ -27,8 +27,9 @@
 import Link from 'next/link'
 import { BarChart3, BookOpenCheck } from 'lucide-react'
 import { useMemo } from 'react'
-import type { ProjectOverviewData } from '../types'
+import type { FolderWithoutRole, ProjectOverviewData } from '../types'
 import { ApplicableStandards } from './applicable-standards'
+import { FoldersWithoutRole } from './folders-without-role'
 import { ProjectBrief } from './project-brief'
 import { ProjectDangerZone } from './project-danger-zone'
 import { ProjectMemoryPanel } from './project-memory-panel'
@@ -45,6 +46,11 @@ import { useLocale, useTranslations } from '@/i18n'
 
 interface ProjectSettingsProps {
   data: ProjectOverviewData
+  /**
+   * Folders whose roles were deleted since (ADR-0088), for a project manager;
+   * empty or omitted shows nothing.
+   */
+  foldersWithoutRole?: readonly FolderWithoutRole[]
   /**
    * Whether the current user manages the project (project:manage). Gates the
    * rename affordance, member management, the danger zone and the brief's
@@ -69,6 +75,7 @@ interface ProjectSettingsProps {
 
 export function ProjectSettings({
   data,
+  foldersWithoutRole = [],
   canManageProject = false,
   showKnowledgeLink = false,
   currentMembershipId = null,
@@ -122,6 +129,13 @@ export function ProjectSettings({
           )}
         </div>
       </StaggerItem>
+
+      {/* Folders left without a valid role: only here, only when there are any. */}
+      {foldersWithoutRole.length > 0 && (
+        <StaggerItem>
+          <FoldersWithoutRole projectId={data.id} folders={foldersWithoutRole} />
+        </StaggerItem>
+      )}
 
       {/* Top grid, the dummy's card chrome: the single project-profile card
           (left) beside the honest Insights card (right). The profile is the

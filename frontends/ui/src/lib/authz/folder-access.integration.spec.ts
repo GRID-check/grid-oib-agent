@@ -233,6 +233,29 @@ describe.skipIf(!url)('read/write folder access against Postgres', () => {
     ).rejects.toThrow()
   })
 
+  it('lists the living folders whose own list names a role, with their project, and counts them all (ADR-0088)', async () => {
+    const found = await accessRepo.listFoldersNamingRole(ORG, 'org-geschaeftsfuehrung')
+
+    expect(found.total).toBe(2)
+    expect(found.folders.map((entry) => entry.folderName).sort()).toEqual(['Honorare', 'Verträge'])
+    expect(found.folders[0]).toMatchObject({ projectId, projectName: 'Folders' })
+
+    expect((await accessRepo.listFoldersNamingRole(ORG, 'org-buchhaltung')).folders.map((entry) => entry.folderName)).toEqual([
+      'Verträge',
+    ])
+    expect(await accessRepo.listFoldersNamingRole(ORG, 'org-nobody')).toEqual({ folders: [], total: 0 })
+  })
+
+  it('leaves a deleted folder’s tombstone and another organization’s folders out of a role’s usage', async () => {
+    const temporary = await insertFolder('Zeitweilig', null, 'Zeitweilig', [['org-zeitweilig', 'read']])
+    expect((await accessRepo.listFoldersNamingRole(ORG, 'org-zeitweilig')).total).toBe(1)
+
+    expect((await accessRepo.listFoldersNamingRole(OTHER_ORG, 'org-zeitweilig')).total).toBe(0)
+
+    await inTenant(() => db.execute(sql`UPDATE project_folders SET deleted_at = now() WHERE id = ${temporary}::uuid`))
+    expect(await accessRepo.listFoldersNamingRole(ORG, 'org-zeitweilig')).toEqual({ folders: [], total: 0 })
+  })
+
   it('keeps a deleted folder as a tombstone that frees its name and still answers for its access', async () => {
     const archiv = await insertFolder('Archiv', null, 'Archiv', [['org-geschaeftsfuehrung', 'read']])
     await inTenant(() =>

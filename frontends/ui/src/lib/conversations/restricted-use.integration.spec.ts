@@ -375,6 +375,99 @@ describe.skipIf(!url)('restricted use against Postgres (migrations 0112, 0111)',
     expect(await reasonOf(shareWith(id, UNCLEARED))).toBe('restricted-content')
   })
 
+  describe('who may still read a chat that recorded the folder (ADR-0088)', () => {
+    /** The same people, with the roles WorkOS reports for them NOW. */
+    const withRoles = (userId: string, roleList: string[]): AuthorizedSession => ({
+      ...session,
+      userId,
+      role: roleList[0] ?? '',
+      roles: roleList,
+    })
+
+    let own = ''
+    beforeAll(async () => {
+      const [created] = Array.from(
+        await inOrg(ORG, () =>
+          db.execute<{ id: string }>(sql`
+            with folder as (
+              insert into project_folders (organization_id, project_id, name, path, access_mode, access_changed_by, access_changed_at)
+              values (${ORG}, ${projectId}::uuid, 'Lesen', 'Lesen', 'custom', ${OWNER}, now())
+              returning id, project_id
+            ), grants as (
+              insert into project_folder_grants (organization_id, project_id, folder_id, role_slug, level)
+              select ${ORG}, project_id, id, 'org-gf', 'write' from folder
+            )
+            select id from folder`)
+        )
+      )
+      own = String(created.id)
+    })
+
+    /** Record that the chat drew on this block's folder. */
+    const admitOwn = (conversationId: string) =>
+      inOrg(ORG, () => use.admitSourceFolders({ organizationId: ORG, conversationId, userId: OWNER, projectId }, [own]))
+
+    it('locks the CREATOR and a grantee who lost the role, leaves the cleared one, and unlocks when the role is back', async () => {
+      // Shared only with a person cleared for it: an admission refuses a folder
+      // somebody in the audience may not read, so this is the chat that has one.
+      const id = await chat([CLEARED])
+      await admitOwn(id)
+      const plain = await chat()
+      const asked = [
+        { id, projectId },
+        { id: plain, projectId },
+      ]
+      const locked = (who: AuthorizedSession) => inOrg(ORG, () => use.lockedConversationIds(who, asked))
+
+      expect([...(await locked(withRoles(OWNER, ['org-gf'])))]).toEqual([])
+      // The creator lost the role: ownership is not the right to read.
+      expect([...(await locked(withRoles(OWNER, ['member'])))]).toEqual([id])
+      expect([...(await locked(withRoles(UNCLEARED, ['member'])))]).toEqual([id])
+      // Given back, with nothing rewritten, the chat opens again.
+      expect([...(await locked(withRoles(OWNER, ['org-gf'])))]).toEqual([])
+    })
+
+    it('answers per person from the folder as it is now: tightened closes, loosened opens', async () => {
+      // Shared only with a person cleared for it: an admission refuses a folder
+      // somebody in the audience may not read, so this is the chat that has one.
+      const id = await chat([CLEARED])
+      await admitOwn(id)
+      const readers = () =>
+        inOrg(ORG, async () => [...(await use.peopleWhoMayRead(ORG, id, [OWNER, CLEARED, UNCLEARED]))].sort())
+
+      expect(await readers()).toEqual([CLEARED, OWNER].sort())
+
+      await inOrg(ORG, () =>
+        db.execute(sql`
+          with gone as (delete from project_folder_grants where folder_id = ${own}::uuid)
+          update project_folders set access_mode = 'inherit' where id = ${own}::uuid`)
+      )
+      expect(await readers()).toEqual([CLEARED, OWNER, UNCLEARED].sort())
+
+      await inOrg(ORG, () =>
+        db.execute(sql`
+          with listed as (
+            insert into project_folder_grants (organization_id, project_id, folder_id, role_slug, level)
+            values (${ORG}, ${projectId}::uuid, ${own}::uuid, 'org-gf', 'write')
+          )
+          update project_folders set access_mode = 'custom' where id = ${own}::uuid`)
+      )
+      expect(await readers()).toEqual([CLEARED, OWNER].sort())
+    })
+
+    it('reads the record of a whole list in one query, and another organization’s list is empty', async () => {
+      const a = await chat()
+      const b = await chat()
+      await admitOwn(a)
+      const read = (organizationId: string) =>
+        inOrg(organizationId, () => use.lockedConversationIds(withRoles(OWNER, ['member']), [{ id: a, projectId }, { id: b, projectId }]))
+
+      expect([...(await read(ORG))]).toEqual([a])
+      // Another organization cannot read the record at all, so it cannot lock anything.
+      expect([...(await read(OTHER_ORG))]).toEqual([])
+    })
+  })
+
   it('takes the record with the conversation when the chat is erased', async () => {
     const id = await chat()
     await admit(id)
