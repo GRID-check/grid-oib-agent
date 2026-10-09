@@ -49,8 +49,8 @@ group.
 
 ## Reference
 
-- Adding a tool: [`aiq-add-tool`](../../skills/aiq-add-tool/SKILL.md).
-  Adding a retrieval source: [`aiq-add-data-source`](../../skills/aiq-add-data-source/SKILL.md).
+- Adding a tool or a retrieval source:
+  [`adding-a-tool.md`](../../docs/architecture/adding-a-tool.md).
 - How the backend fits together:
   [`docs/architecture/backend-deep-dive.md`](../../docs/architecture/backend-deep-dive.md).
 - `common/source_kinds.py`, `cards/registry.py` and `stages/runner.py` carry
