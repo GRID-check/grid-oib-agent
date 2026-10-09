@@ -14,9 +14,9 @@ only and hook in after the model call, which is one step too late.
 Pure: rules in, verdict out. ``ScreeningRules.from_config`` never raises into the job.
 
 The matcher itself (folding, terms, the three detectors, spans, masked samples)
-is ``aiq_agent.common.content_screen``, mirrored in the browser; this module
-turns its spans into a verdict per file. The names callers use are re-exported
-below.
+is ``aiq_agent.common.content_screen``, shared with the chat socket's mask and
+mirrored in the browser; this module turns its spans into a verdict per file.
+The names it used to define are re-exported below, so callers did not move.
 
 Only checksum-valid matches count, so a document full of order numbers is not
 quarantined for looking like one. The verdict never carries a matched value: a

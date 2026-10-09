@@ -443,8 +443,9 @@ export const organization = {
   /** Sensitive data: the lists Piloti checks every upload against (ADR-0086). */
   screening: {
     title: 'Screening list',
-    description: 'Piloti checks every upload against these lists. No model reads what matches.',
-    enabled: 'Screen uploads',
+    description:
+      'Piloti checks every upload against these lists, and chat messages against the content terms and numbers. No model reads what matches.',
+    enabled: 'Screen uploads and chat',
     enabledHint: 'When off, Piloti checks nothing. Your lists stay saved.',
     suggestedTitle: 'Piloti’s suggestion applies',
     suggestedBody:
@@ -458,7 +459,7 @@ export const organization = {
     nameExceptionsHint: 'Words that contain a term but mean something else: “Berechnung” contains “Rechnung”.',
     contentTitle: 'After upload: content',
     contentHint:
-      'Piloti reads the text on its own server and checks it before any model sees it. Matches wait in quarantine until someone releases or deletes them.',
+      'Piloti reads the text on its own server and checks it before any model sees it. Matches wait in quarantine until someone releases or deletes them. The same terms and numbers apply to chat messages: before sending, Piloti shows what it found and sends the message to the answering model only masked. A dictated message is first heard by an external speech model, which transcribes it.',
     contentTerms: 'Content terms',
     contentTermsHint: 'Matches words that start with the term: “Honorar” finds “Honorarnote”.',
     detectors: 'Detect numbers',
@@ -474,7 +475,7 @@ export const organization = {
     removeTerm: 'Remove “{term}”',
     emptyList: 'No terms',
     useSuggestion: 'Use suggestion',
-    saved: 'List saved. It applies from the next upload.',
+    saved: 'List saved. It applies from the next upload, and in chat once the page is reloaded at the latest.',
     saveError: 'Could not save the list. Please try again.',
     saveForbidden: 'You cannot change this list. That needs the “Manage organization settings” permission.',
     invalid: 'A term is too long. A term has at most 80 characters.',

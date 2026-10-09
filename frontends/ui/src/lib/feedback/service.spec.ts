@@ -24,6 +24,18 @@ vi.mock('@/lib/projects/memory-service', () => ({
   implicateMemoryFromFeedback: vi.fn(async () => 0),
 }))
 
+// The office's chat screening (ADR-0086): the REAL matcher over Piloti's
+// suggested list, with no database behind it.
+vi.mock('@/lib/upload-screening/service', async () => {
+  const { chatScreeningRules, maskText } = await import('@/lib/upload-screening/content-screen')
+  const { SUGGESTED_SCREENING_POLICY } = await import('@/lib/upload-screening/policy')
+  return {
+    maskChatText: vi.fn(async (_organizationId: string, text: string) =>
+      maskText(text, chatScreeningRules(SUGGESTED_SCREENING_POLICY))
+    ),
+  }
+})
+
 vi.mock('./digest', () => ({ getFeedbackDigest: vi.fn() }))
 
 // The Langfuse client: its own behaviour is pinned in lib/langfuse/*.spec.ts;
@@ -195,6 +207,28 @@ describe('submitAnswerFeedback', () => {
       projectId: 'proj_1',
       comment: 'OIB 4 falsch zitiert',
     })
+  })
+
+  it("stores a down-vote comment masked against the office's policy (ADR-0086)", async () => {
+    await submitAnswerFeedback(session, {
+      messageId: 'msg_1',
+      verdict: 'down',
+      comment: 'Die IBAN AT61 1904 3002 3457 3201 aus dem Lohnzettel fehlt',
+    })
+    expect(mockUpsert).toHaveBeenCalledWith(
+      expect.objectContaining({ comment: 'Die IBAN [IBAN entfernt] aus dem [Begriff entfernt] fehlt' })
+    )
+  })
+
+  it('stores the expected answer masked too: it becomes an eval case a model answers', async () => {
+    await submitAnswerFeedback(session, {
+      messageId: 'msg_1',
+      verdict: 'down',
+      expectedAnswer: 'Die Honorarnote an IBAN AT61 1904 3002 3457 3201',
+    })
+    expect(mockUpsert).toHaveBeenCalledWith(
+      expect.objectContaining({ expectedAnswer: 'Die [Begriff entfernt] an IBAN [IBAN entfernt]' })
+    )
   })
 
   it('does not implicate memory again for an unchanged re-vote comment', async () => {

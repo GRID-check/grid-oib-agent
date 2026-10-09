@@ -26,6 +26,7 @@ import {
   type EmbeddedNote,
 } from '@/lib/knowledge/embeddings'
 import { daysSince, fuseHybridRelevance, rankByRecallScore } from '@/lib/knowledge/recall-scoring'
+import { maskChatText } from '@/lib/upload-screening/service'
 
 /**
  * Memory service — system-of-record CRUD plus the bounded "core digest"
@@ -412,11 +413,23 @@ async function refreshDuplicate(
   return updated ?? duplicate
 }
 
+/** A note's text as it may be stored, embedded and served: masked (ADR-0086). */
+async function maskedNote(organizationId: string, content: string): Promise<string> {
+  return (await maskChatText(organizationId, content)).text
+}
+
 export async function createProjectMemoryItem(
-  values: NewProjectMemoryItem,
+  input: NewProjectMemoryItem,
   options: CreateMemoryOptions = {}
 ): Promise<ProjectMemoryItem> {
   const db = getDb()
+  // Masked against the office's „Sensible Daten" policy before anything reads
+  // it (ADR-0086): a note rides every turn's digest and goes to the embedder
+  // below, so it must not hold what the chat composer would have removed. Here
+  // rather than at each caller, so the memory panel, the organization route,
+  // the agent's `remember` tool and reflection are all masked by construction.
+  const content = await maskedNote(input.organizationId, input.content)
+  const values: NewProjectMemoryItem = { ...input, content }
 
   // Write-time consolidation (design §3.2). Three outcomes, in order:
   //
@@ -579,8 +592,23 @@ export async function createProjectMemoryItemForProject(
  * Update an item. Tenancy guard: `owner` must match the item's own scope —
  * a projectId for project items, or an organizationId for org items.
  */
+/** Who may touch an item: its project, or its organization for organization memory. */
+export type MemoryOwner =
+  | {
+      projectId: string
+      /** The project's organization: whose „Sensible Daten" policy masks an edit (ADR-0086). */
+      organizationId: string
+    }
+  | { organizationId: string }
+
+function ownerCondition(owner: MemoryOwner) {
+  return 'projectId' in owner
+    ? eq(projectMemory.projectId, owner.projectId)
+    : and(eq(projectMemory.scope, 'organization'), eq(projectMemory.organizationId, owner.organizationId))
+}
+
 export async function updateProjectMemoryItem(
-  owner: { projectId: string } | { organizationId: string },
+  owner: MemoryOwner,
   itemId: string,
   patch: Partial<
     Pick<
@@ -590,36 +618,27 @@ export async function updateProjectMemoryItem(
   >
 ): Promise<ProjectMemoryItem | null> {
   const db = getDb()
-  const ownerCondition =
-    'projectId' in owner
-      ? eq(projectMemory.projectId, owner.projectId)
-      : and(
-          eq(projectMemory.scope, 'organization'),
-          eq(projectMemory.organizationId, owner.organizationId)
-        )
+  // An edited note is typed text like a new one, and masked the same way.
+  const masked =
+    patch.content === undefined
+      ? patch
+      : { ...patch, content: await maskedNote(owner.organizationId, patch.content) }
   const [item] = await db
     .update(projectMemory)
-    .set({ ...patch, updatedAt: new Date() })
-    .where(and(eq(projectMemory.id, itemId), ownerCondition))
+    .set({ ...masked, updatedAt: new Date() })
+    .where(and(eq(projectMemory.id, itemId), ownerCondition(owner)))
     .returning()
   return item ?? null
 }
 
 export async function deleteProjectMemoryItem(
-  owner: { projectId: string } | { organizationId: string },
+  owner: MemoryOwner,
   itemId: string
 ): Promise<boolean> {
   const db = getDb()
-  const ownerCondition =
-    'projectId' in owner
-      ? eq(projectMemory.projectId, owner.projectId)
-      : and(
-          eq(projectMemory.scope, 'organization'),
-          eq(projectMemory.organizationId, owner.organizationId)
-        )
   const deleted = await db
     .delete(projectMemory)
-    .where(and(eq(projectMemory.id, itemId), ownerCondition))
+    .where(and(eq(projectMemory.id, itemId), ownerCondition(owner)))
     .returning({ id: projectMemory.id })
   return deleted.length > 0
 }
