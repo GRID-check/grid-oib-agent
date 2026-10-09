@@ -37,8 +37,8 @@ import {
   type FeedbackHealth,
   type FeedbackOrgRollup,
   type FeedbackTurn,
-  type FeedbackHealthFilters,
 } from './repository'
+import type { FeedbackQuery } from './filters'
 import { getOrganizationDisplayNames } from '@/lib/organizations/display-names'
 import { langfuseProjectUrl, langfuseTraceUrl, langfuseUiConfig } from '@/lib/langfuse/config'
 import {
@@ -248,7 +248,7 @@ export interface AnswerFeedbackHealthView extends Omit<FeedbackHealth, 'organiza
 
 export async function getAnswerFeedbackHealth(
   session: GridSession | null,
-  filters: FeedbackHealthFilters = {}
+  query: FeedbackQuery
 ): Promise<AnswerFeedbackHealthView> {
   await requirePlatformPermission(session, PLATFORM_PERMISSIONS.organizationsView)
   // The read groups BY organization across every tenant, so it must not run
@@ -260,7 +260,7 @@ export async function getAnswerFeedbackHealth(
   // Names come from the same resolver citation health uses, so the two cards
   // never call one tenant two things. It fails soft to an empty map.
   const health = await withPlatformAccess('answer feedback: cross-organization quality view', () =>
-    getFeedbackHealth(filters)
+    getFeedbackHealth(query)
   )
   // Resolved per id, not from one WorkOS list page, so a tenant past the first
   // hundred is still named.
@@ -299,13 +299,14 @@ export async function getAnswerFeedbackHealth(
  */
 export async function getAnswerFeedbackDigest(
   session: GridSession | null,
-  filters: FeedbackHealthFilters = {},
+  query: FeedbackQuery,
   options: FeedbackDigestOptions = {}
 ): Promise<FeedbackDigestResult> {
   await requirePlatformPermission(session, PLATFORM_PERMISSIONS.organizationsView)
-  const health = await withPlatformAccess(
-    'answer feedback digest: cross-organization quality view',
-    () => getFeedbackHealth({ ...filters, limit: 0 })
-  )
-  return getFeedbackDigest(health, filters, options)
+  // The samples are read inside the same bypass as the figures: both are the
+  // cross-organization read the gate above authorizes.
+  return withPlatformAccess('answer feedback digest: cross-organization quality view', async () => {
+    const health = await getFeedbackHealth(query, { turnLimit: 0 })
+    return getFeedbackDigest(health, query, options)
+  })
 }

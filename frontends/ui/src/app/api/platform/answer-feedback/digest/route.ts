@@ -17,14 +17,14 @@ import { ForbiddenError } from '@/lib/api/errors'
 import { apiRoute } from '@/lib/api/handler'
 import { PlatformAccessDeniedError } from '@/lib/authz/platform'
 import { getAnswerFeedbackDigest } from '@/lib/feedback/service'
-import { parseFeedbackFilters } from '@/lib/feedback/query'
+import { requireFeedbackQuery } from '@/lib/feedback/query'
 
 export const GET = apiRoute(
   async ({ request, session }) => {
     const params = new URL(request.url).searchParams
-    const filters = parseFeedbackFilters(params)
+    const query = requireFeedbackQuery(params)
     try {
-      const result = await getAnswerFeedbackDigest(session, filters, {
+      const result = await getAnswerFeedbackDigest(session, query, {
         locale: params.get('locale') ?? 'de',
         refresh: params.get('refresh') === '1',
       })

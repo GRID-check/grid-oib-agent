@@ -148,11 +148,13 @@ describe('the answer-feedback workbook', () => {
       return lines.join('\n')
     }
 
-    it('says what the file is: scope, filters, totals, the cap and the caveats', async () => {
+    it('says what the file is: range, scope, filters, totals, the cap and the caveats', async () => {
       const text = await overviewText(feedbackExport())
 
-      expect(text).toContain('Alle Bewertungen im Zeitraum')
-      expect(text).toContain('Angewendete Filter | keine')
+      expect(text).toContain('Organisationen | alle')
+      expect(text).toContain('Projekte | alle')
+      expect(text).toContain('Bewertungsfilter | keine')
+      expect(text).toContain('Filter im Blatt „Wochen“ | Alle Filter angewendet.')
       expect(text).toContain('Bewertungen | 2')
       expect(text).toContain('Bewertende Personen | 2')
       expect(text).toContain('Zeilenlimit | 5000')
@@ -161,27 +163,39 @@ describe('the answer-feedback workbook', () => {
       expect(text).toContain('gelöschten Unterhaltung')
     })
 
-    it('names the filters of a selection, and a cut', async () => {
+    it('lists every filter by name, what the weekly sheet left out and why, and a cut', async () => {
       const text = await overviewText(
         feedbackExport({
-          scope: 'selection',
           truncated: true,
-          applied: {
-            windowDays: 7,
-            verdict: 'down',
-            reason: 'wrong_source',
-            organizationId: 'org_2',
-            organizationName: 'Ziviltechniker Gruber',
-            topic: 'schallschutz',
-            query: 'Trittschall',
+          query: {
+            scope: { from: '2026-10-03', to: '2026-10-09', organizationIds: ['org_2'], projectIds: ['p_1'] },
+            ratings: {
+              verdict: 'down',
+              reasons: ['inaccurate', 'wrong_source'],
+              topics: ['schallschutz'],
+              modes: ['deep', 'report'],
+              confidences: ['low'],
+              hasComment: true,
+              hasExpectedAnswer: false,
+              query: 'Trittschall',
+            },
           },
+          named: {
+            organizations: [{ id: 'org_2', name: 'Ziviltechniker Gruber' }],
+            projects: [{ id: 'p_1', name: null }],
+          },
+          weeksIgnored: ['verdict', 'reasons', 'modes'],
         })
       )
 
-      expect(text).toContain('Aktuelle Auswahl')
+      expect(text).toContain('Organisationen | Ziviltechniker Gruber')
+      // A project whose name did not resolve is named by its id, never dropped.
+      expect(text).toContain('Projekte | p_1')
       expect(text).toContain(
-        'Organisation: Ziviltechniker Gruber · Thema: Schallschutz · Urteil: nicht hilfreich · Grund: Falsche Quelle · Suche: Trittschall'
+        'Bewertungsfilter | Urteil: nicht hilfreich · Grund: Ungenau oder Falsche Quelle · Thema: Schallschutz · ' +
+          'Antwortmodus: Tiefenrecherche oder Bericht · Konfidenz: Niedrig · nur mit Kommentar · Suche: Trittschall'
       )
+      expect(text).toContain('Nicht angewendet: Urteil, Grund, Antwortmodus.')
       expect(text).toContain('Zeilenlimit erreicht (neueste Bewertungen behalten) | ja')
     })
   })

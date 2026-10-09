@@ -4,6 +4,7 @@
 import { Workbook } from 'exceljs'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { feedbackExport, feedbackWeeklyRecord } from '@/test-utils/feedback-export-fixtures'
+import type { FeedbackQuery } from '@/lib/feedback/filters'
 
 const isOwner = { value: false }
 const locale = { value: 'de' as 'de' | 'en' }
@@ -41,18 +42,26 @@ vi.mock('@/lib/feedback/export-service', async (importOriginal) => {
   }
   return {
     ...actual,
-    getAnswerFeedbackExport: vi.fn().mockImplementation(async (session: unknown, request: { scope: 'all' | 'selection' }) => {
+    getAnswerFeedbackExport: vi.fn().mockImplementation(async (session: unknown, request: { query: FeedbackQuery }) => {
       await gate(session)
-      return feedbackExport({ scope: request.scope })
+      return feedbackExport({
+        query: request.query,
+        named: {
+          organizations: request.query.scope.organizationIds.map((id) => ({ id, name: id === 'org_2' ? 'Ziviltechniker Gruber' : null })),
+          projects: [],
+        },
+      })
     }),
-    getAnswerFeedbackWeeklyExport: vi.fn().mockImplementation(async (session: unknown) => {
+    getAnswerFeedbackWeeklyExport: vi.fn().mockImplementation(async (session: unknown, query: FeedbackQuery) => {
       await gate(session)
       return {
         windowFrom: new Date('2026-08-31T00:00:00.000Z'),
-        windowTo: new Date('2026-10-09T09:30:00.000Z'),
+        query,
+        named: { organizations: [], projects: [] },
         weeks: [feedbackWeeklyRecord()],
         truncated: false,
         cap: 5000,
+        ignored: actual.weeklyIgnoredFilters(query),
       }
     }),
   }
@@ -79,38 +88,61 @@ describe('GET /api/platform/answer-feedback/export', () => {
     }
   })
 
-  /**
-   * The export used to follow the drill-in, which defaults to the failures, and
-   * named the file `answer-feedback-down-…`: "give me the feedback" got half of it.
-   */
-  it('exports every vote in the window by default, whatever the page was filtered to', async () => {
+  /** The file is what the page shows: the page's scope and its ratings filters, by the page's parameters. */
+  it('exports the scope and the ratings filters it is given, named for the one organization', async () => {
     isOwner.value = true
-    const res = await GET(request('?days=7&verdict=down&reason=inaccurate&org=org_2&topic=brandschutz&q=GK'))
-
-    expect(getAnswerFeedbackExport).toHaveBeenCalledWith(
-      expect.anything(),
-      expect.objectContaining({ scope: 'all', filters: expect.objectContaining({ windowDays: 7 }) })
+    const res = await GET(
+      request('?from=2026-10-01&to=2026-10-07&org=org_2&verdict=down&reason=inaccurate&topic=brandschutz&mode=deep&has_comment=1&q=GK&format=xlsx')
     )
+
+    expect(getAnswerFeedbackExport).toHaveBeenCalledWith(expect.anything(), {
+      query: {
+        scope: { from: '2026-10-01', to: '2026-10-07', organizationIds: ['org_2'], projectIds: [] },
+        ratings: expect.objectContaining({
+          verdict: 'down',
+          reasons: ['inaccurate'],
+          topics: ['brandschutz'],
+          modes: ['deep'],
+          hasComment: true,
+          query: 'GK',
+        }),
+      },
+      withSummary: true,
+    })
+    expect(res.headers.get('Content-Disposition')).toBe(
+      'attachment; filename="piloti-bewertungen_ziviltechniker-gruber_2026-10-01_2026-10-07_gefiltert.xlsx"'
+    )
+  })
+
+  it('refuses an unknown filter value with 400, before reading anything', async () => {
+    isOwner.value = true
+    for (const query of ['?reason=nope', '?from=2026-10-09&to=2026-10-01', '?project=1', '?verdict=up&reason=other']) {
+      expect((await GET(request(query))).status, query).toBe(400)
+    }
+    expect(getAnswerFeedbackExport).not.toHaveBeenCalled()
+  })
+
+  /** Older links: `scope=all` is every vote in the scope; `scope=selection` the old drill-in. */
+  it('keeps the old `scope` links working', async () => {
+    isOwner.value = true
+    await GET(request('?scope=all&days=7&verdict=down&reason=inaccurate&org=org_2'))
+    await GET(request('?scope=selection&days=7&topic=brandschutz'))
+
+    const [all, selection] = vi.mocked(getAnswerFeedbackExport).mock.calls.map((call) => call[1].query)
+    expect(all.scope.organizationIds).toEqual(['org_2'])
+    expect(all.ratings).toMatchObject({ verdict: null, reasons: [] })
+    expect(selection.ratings).toMatchObject({ verdict: 'down', topics: ['brandschutz'] })
+  })
+
+  it('names an unfiltered file by its range alone', async () => {
+    isOwner.value = true
+    const res = await GET(request('?from=2026-09-10&to=2026-10-09'))
     expect(res.headers.get('Content-Disposition')).toBe(
       'attachment; filename="piloti-bewertungen_2026-09-10_2026-10-09.csv"'
     )
     const text = new TextDecoder().decode(await bytesOf(res))
     expect(text).toContain('"down"')
     expect(text).toContain('"up"')
-  })
-
-  it('applies the page’s filters only for an explicit selection, and says so in the name', async () => {
-    isOwner.value = true
-    const res = await GET(request('?scope=selection&days=7&verdict=up&topic=brandschutz&org=org_2&q=GK'))
-
-    expect(getAnswerFeedbackExport).toHaveBeenCalledWith(
-      expect.anything(),
-      expect.objectContaining({
-        scope: 'selection',
-        filters: expect.objectContaining({ windowDays: 7, verdict: 'up', topic: 'brandschutz', organizationId: 'org_2', query: 'GK' }),
-      })
-    )
-    expect(res.headers.get('Content-Disposition')).toContain('_auswahl.csv"')
   })
 
   describe('?format=csv (the default)', () => {
@@ -183,7 +215,7 @@ describe('GET /api/platform/answer-feedback/export', () => {
   describe('?summary=weekly', () => {
     it('answers with per-org, per-week counts, the denominator and the rates, and passes the filters', async () => {
       isOwner.value = true
-      const res = await GET(request('?summary=weekly&days=90&org=org_2'))
+      const res = await GET(request('?summary=weekly&from=2026-09-01&to=2026-10-09&org=org_2&topic=statik'))
       const text = new TextDecoder().decode(await bytesOf(res))
       const [header, row] = text.split('\r\n')
 
@@ -198,8 +230,12 @@ describe('GET /api/platform/answer-feedback/export', () => {
       )
       expect(getAnswerFeedbackWeeklyExport).toHaveBeenCalledWith(
         expect.anything(),
-        expect.objectContaining({ windowDays: 90, organizationId: 'org_2' })
+        expect.objectContaining({
+          scope: expect.objectContaining({ from: '2026-09-01', organizationIds: ['org_2'] }),
+          ratings: expect.objectContaining({ topics: ['statik'] }),
+        })
       )
+      expect(res.headers.get('X-Grid-Export-Ignored-Filters')).toBeNull()
       expect(getAnswerFeedbackExport).not.toHaveBeenCalled()
     })
 
@@ -207,15 +243,27 @@ describe('GET /api/platform/answer-feedback/export', () => {
       isOwner.value = true
       vi.mocked(getAnswerFeedbackWeeklyExport).mockResolvedValueOnce({
         windowFrom: new Date('2026-08-31T00:00:00.000Z'),
-        windowTo: new Date('2026-10-09T00:00:00.000Z'),
+        query: {
+          scope: { from: '2026-09-01', to: '2026-10-09', organizationIds: [], projectIds: [] },
+          ratings: { verdict: null, reasons: [], topics: [], modes: [], confidences: [], hasComment: false, hasExpectedAnswer: false, query: null },
+        },
+        named: { organizations: [], projects: [] },
         weeks: [],
         truncated: true,
         cap: 5000,
+        ignored: [],
       })
       const res = await GET(request('?summary=weekly'))
 
       expect(res.headers.get('X-Grid-Export-Truncated')).toBe('5000')
       expect(res.headers.get('Content-Disposition')).toMatch(/_erste-5000\.csv"$/)
+    })
+
+    /** A rate cannot honour a verdict or a reason; the script that asked is told which it lost. */
+    it('names the filters a rate cannot honour in a header', async () => {
+      isOwner.value = true
+      const res = await GET(request('?summary=weekly&verdict=down&reason=inaccurate&topic=statik'))
+      expect(res.headers.get('X-Grid-Export-Ignored-Filters')).toBe('verdict,reason')
     })
   })
 })

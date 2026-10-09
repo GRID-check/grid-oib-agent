@@ -70,6 +70,12 @@ import {
   retractAnswerFeedback,
   submitAnswerFeedback,
 } from './service'
+import { NO_RATINGS_FILTERS, type FeedbackQuery } from './filters'
+
+const Q: FeedbackQuery = {
+  scope: { from: '2026-09-10', to: '2026-10-09', organizationIds: [], projectIds: [] },
+  ratings: NO_RATINGS_FILTERS,
+}
 
 const mockRequireProjectAccess = vi.mocked(requireProjectAccess)
 const mockUpsert = vi.mocked(upsertAnswerFeedback)
@@ -413,7 +419,7 @@ describe('getAnswerFeedbackHealth', () => {
   it('refuses anyone who is not a platform owner, and does not read first', async () => {
     vi.mocked(requirePlatformPermission).mockRejectedValue(new PlatformAccessDeniedError())
 
-    await expect(getAnswerFeedbackHealth({} as never)).rejects.toBeInstanceOf(
+    await expect(getAnswerFeedbackHealth({} as never, Q)).rejects.toBeInstanceOf(
       PlatformAccessDeniedError
     )
     // The guard runs BEFORE the unscoped query — a refusal must not still have
@@ -433,7 +439,7 @@ describe('getAnswerFeedbackHealth', () => {
       turns: [],
     } as never)
 
-    const health = await getAnswerFeedbackHealth({} as never)
+    const health = await getAnswerFeedbackHealth({} as never, Q)
 
     expect(health.totals).toEqual({ up: 4, down: 1 })
     expect(requirePlatformPermission).toHaveBeenCalledOnce()
@@ -464,7 +470,7 @@ describe('getAnswerFeedbackHealth', () => {
     vi.stubEnv('LANGFUSE_PUBLIC_URL', 'https://langfuse.example.at/')
     vi.stubEnv('LANGFUSE_PROJECT_ID', 'grid')
     try {
-      const linked = await getAnswerFeedbackHealth({} as never)
+      const linked = await getAnswerFeedbackHealth({} as never, Q)
       expect(linked.turns.map((turn) => turn.langfuseTraceUrl)).toEqual([
         'https://langfuse.example.at/project/grid/traces/6135ac80f26d5f7dab0f1633fe313293',
         null,
@@ -472,7 +478,7 @@ describe('getAnswerFeedbackHealth', () => {
       expect(linked.langfuse).toEqual({ projectUrl: 'https://langfuse.example.at/project/grid' })
 
       vi.stubEnv('LANGFUSE_PROJECT_ID', '')
-      const unlinked = await getAnswerFeedbackHealth({} as never)
+      const unlinked = await getAnswerFeedbackHealth({} as never, Q)
       expect(unlinked.turns.map((turn) => turn.langfuseTraceUrl)).toEqual([null, null])
       expect(unlinked.langfuse).toBeNull()
     } finally {
@@ -502,7 +508,7 @@ describe('getAnswerFeedbackHealth', () => {
       ],
     } as never)
 
-    const health = await getAnswerFeedbackHealth({} as never)
+    const health = await getAnswerFeedbackHealth({} as never, Q)
 
     expect(health.organizations.map((org) => org.organizationName)).toEqual([
       'Architekturbüro Huber',
@@ -530,7 +536,7 @@ describe('getAnswerFeedbackDigest', () => {
   it('refuses anyone who is not a platform owner, and neither reads nor summarises', async () => {
     vi.mocked(requirePlatformPermission).mockRejectedValue(new PlatformAccessDeniedError())
 
-    await expect(getAnswerFeedbackDigest({} as never)).rejects.toBeInstanceOf(
+    await expect(getAnswerFeedbackDigest({} as never, Q)).rejects.toBeInstanceOf(
       PlatformAccessDeniedError
     )
     expect(getFeedbackHealth).not.toHaveBeenCalled()
@@ -543,12 +549,12 @@ describe('getAnswerFeedbackDigest', () => {
     vi.mocked(getFeedbackHealth).mockResolvedValue(health)
     vi.mocked(getFeedbackDigest).mockResolvedValue({ digest: null, error: 'too_few_votes' })
 
-    const result = await getAnswerFeedbackDigest({} as never, { windowDays: 7 }, { locale: 'en' })
+    const result = await getAnswerFeedbackDigest({} as never, Q, { locale: 'en' })
 
-    // `limit: 0` — the digest samples its own turns in both directions, so the
-    // aggregate read must not also pay for a drill-in nobody will look at.
-    expect(getFeedbackHealth).toHaveBeenCalledWith({ windowDays: 7, limit: 0 })
-    expect(getFeedbackDigest).toHaveBeenCalledWith(health, { windowDays: 7 }, { locale: 'en' })
+    // `turnLimit: 0` — the digest samples its own turns in both directions, so
+    // the aggregate read must not also pay for a list nobody will look at.
+    expect(getFeedbackHealth).toHaveBeenCalledWith(Q, { turnLimit: 0 })
+    expect(getFeedbackDigest).toHaveBeenCalledWith(health, Q, { locale: 'en' })
     expect(result).toEqual({ digest: null, error: 'too_few_votes' })
   })
 })

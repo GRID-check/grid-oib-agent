@@ -15,6 +15,8 @@
 
 import { sql } from 'drizzle-orm'
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
+import { NO_RATINGS_FILTERS, type FeedbackQuery, type RatingsFilters } from './filters'
+import { presetRange } from '@/lib/quality/scope'
 
 vi.mock('server-only', () => ({}))
 
@@ -59,6 +61,17 @@ const CLAIM_A = '0f0f0f0f-0000-4000-8000-000000000021'
 const CLAIM_MISSING = '0f0f0f0f-0000-4000-8000-0000000000fe'
 
 const minutesAgo = (m: number) => new Date(Date.now() - m * 60_000).toISOString()
+
+/** A ratings request over the last `days` days, for the given organizations and filters. */
+const ask = (
+  organizationIds: string | string[],
+  ratings: Partial<RatingsFilters> = {},
+  days = 30,
+  projectIds: string[] = [],
+): FeedbackQuery => ({
+  scope: { ...presetRange(days), organizationIds: [organizationIds].flat(), projectIds },
+  ratings: { ...NO_RATINGS_FILTERS, ...ratings },
+})
 
 describe.skipIf(!url)('answer-feedback platform reads against live Postgres', () => {
   let db: ReturnType<typeof import('@/lib/db').getDb>
@@ -249,7 +262,7 @@ describe.skipIf(!url)('answer-feedback platform reads against live Postgres', ()
       await expect(inOrg(() => repo.getAnswerTraceId(A2, ORG))).resolves.toBeNull()
       await expect(inOrg(() => repo.getAnswerTraceId(A_MISSING, ORG))).resolves.toBeNull()
 
-      const turns = await platform(() => repo.listFeedbackTurns({ organizationId: ORG, verdict: 'down' }))
+      const turns = await platform(() => repo.listFeedbackTurns(ask(ORG, { verdict: 'down' })))
       const traceOf = new Map(turns.map((turn) => [turn.messageId, turn.traceId]))
       expect(traceOf.get(A1)).toBe(TRACE_A1)
       expect(traceOf.get(A2)).toBeNull()
@@ -268,7 +281,7 @@ describe.skipIf(!url)('answer-feedback platform reads against live Postgres', ()
      * another tenant's), one rated twice. Votes over produced answers said 300 %.
      */
     it('counts every answer the window is about, so coverage cannot pass 100 %', async () => {
-      const health = await platform(() => repo.getFeedbackHealth({ organizationId: ORG, windowDays: 7 }))
+      const health = await platform(() => repo.getFeedbackHealth(ask(ORG, {}, 7)))
 
       expect(health.totals.up + health.totals.down).toBe(6)
       expect(health.ratedAnswers).toBe(5) // A1, A2, A_MISSING, A_OLD, OTHER_A
@@ -278,7 +291,7 @@ describe.skipIf(!url)('answer-feedback platform reads against live Postgres', ()
 
     it('reports no coverage, not 0 %, for a window with no answers', async () => {
       const health = await platform(() =>
-        repo.getFeedbackHealth({ organizationId: `${ORG}_nobody`, windowDays: 7 }),
+        repo.getFeedbackHealth(ask(`${ORG}_nobody`, {}, 7)),
       )
       expect(health.answers).toBe(0)
       expect(health.coverage).toBeNull()
@@ -288,7 +301,7 @@ describe.skipIf(!url)('answer-feedback platform reads against live Postgres', ()
   describe('free-text search', () => {
     it('matches what was typed, literally', async () => {
       const search = (query: string) =>
-        platform(() => repo.listFeedbackTurns({ organizationId: ORG, verdict: 'down', query }))
+        platform(() => repo.listFeedbackTurns(ask(ORG, { verdict: 'down', query })))
 
       expect((await search('40 m bei')).map((turn) => turn.messageId)).toEqual([A1])
       // Unescaped, `_` is "any one character" and this matched both answers.
@@ -302,7 +315,7 @@ describe.skipIf(!url)('answer-feedback platform reads against live Postgres', ()
      * `other`, and the digest keyed both as `other`, keeping whichever came last.
      */
     it('folds a missing reason into `other`, so the rows sum to the down-votes', async () => {
-      const health = await platform(() => repo.getFeedbackHealth({ organizationId: ORG }))
+      const health = await platform(() => repo.getFeedbackHealth(ask(ORG)))
       const byReason = Object.fromEntries(health.reasons.map((row) => [row.reason, row.count]))
 
       expect(health.reasons.every((row) => row.reason !== null)).toBe(true)
@@ -312,7 +325,7 @@ describe.skipIf(!url)('answer-feedback platform reads against live Postgres', ()
 
     it('lists a chip-less down-vote under the `other` filter', async () => {
       const turns = await platform(() =>
-        repo.listFeedbackTurns({ organizationId: ORG, verdict: 'down', reason: 'other' }),
+        repo.listFeedbackTurns(ask(ORG, { verdict: 'down', reasons: ['other'] })),
       )
       expect(turns.map((turn) => turn.messageId).sort()).toEqual([A2, A_MISSING].sort())
     })
@@ -324,7 +337,7 @@ describe.skipIf(!url)('answer-feedback platform reads against live Postgres', ()
      * OTHER_A showed OTHER_ORG's answer, question and topic under ORG's row.
      */
     it('is never paired with a vote cast in a different organization', async () => {
-      const turns = await platform(() => repo.listFeedbackTurns({ organizationId: ORG, verdict: 'up' }))
+      const turns = await platform(() => repo.listFeedbackTurns(ask(ORG, { verdict: 'up' })))
       const crossed = turns.find((turn) => turn.messageId === OTHER_A)
 
       expect(crossed).toBeDefined()
@@ -346,7 +359,7 @@ describe.skipIf(!url)('answer-feedback platform reads against live Postgres', ()
      * conversation title and count under its topics.
      */
     it("is the persisted answer's, whatever the client claimed", async () => {
-      const turns = await platform(() => repo.listFeedbackTurns({ organizationId: CLAIM_ORG, verdict: 'down' }))
+      const turns = await platform(() => repo.listFeedbackTurns(ask(CLAIM_ORG, { verdict: 'down' })))
       const byMessage = new Map(turns.map((turn) => [turn.messageId, turn]))
 
       expect(byMessage.get(CLAIM_A)).toMatchObject({
@@ -357,7 +370,7 @@ describe.skipIf(!url)('answer-feedback platform reads against live Postgres', ()
     })
 
     it("is never another organization's, even when no answer row says otherwise", async () => {
-      const turns = await platform(() => repo.listFeedbackTurns({ organizationId: CLAIM_ORG, verdict: 'down' }))
+      const turns = await platform(() => repo.listFeedbackTurns(ask(CLAIM_ORG, { verdict: 'down' })))
       const orphan = turns.find((turn) => turn.messageId === CLAIM_MISSING)
 
       expect(orphan?.conversationTitle).toBeNull()
@@ -365,17 +378,17 @@ describe.skipIf(!url)('answer-feedback platform reads against live Postgres', ()
     })
 
     it('decides the topic rollup and the topic filter the same way', async () => {
-      const health = await platform(() => repo.getFeedbackHealth({ organizationId: CLAIM_ORG, limit: 0 }))
+      const health = await platform(() => repo.getFeedbackHealth(ask(CLAIM_ORG), { turnLimit: 0 }))
       expect(health.topics.map((row) => [row.topic, row.down])).toEqual([['brandschutz', 1]])
 
       const borrowed = await platform(() =>
-        repo.getFeedbackHealth({ organizationId: CLAIM_ORG, topic: 'schallschutz', limit: 0 }),
+        repo.getFeedbackHealth(ask(CLAIM_ORG, { topics: ['schallschutz'] }), { turnLimit: 0 }),
       )
       expect(borrowed.totals.down).toBe(0)
       expect(borrowed.ratedAnswers).toBe(0)
 
       const own = await platform(() =>
-        repo.getFeedbackHealth({ organizationId: CLAIM_ORG, topic: 'brandschutz', limit: 0 }),
+        repo.getFeedbackHealth(ask(CLAIM_ORG, { topics: ['brandschutz'] }), { turnLimit: 0 }),
       )
       expect(own.totals.down).toBe(1)
       expect(own.ratedAnswers).toBe(1)
@@ -383,14 +396,7 @@ describe.skipIf(!url)('answer-feedback platform reads against live Postgres', ()
   })
 
   describe('the export', () => {
-    const everything = {
-      windowDays: 7,
-      verdict: null,
-      reason: null,
-      organizationId: ORG,
-      topic: null,
-      query: null,
-    } as const
+    const everything = ask(ORG, {}, 7)
     const exportRows = () => platform(() => exportRepo.listFeedbackExportRows(everything, 100))
 
     it('lists both verdicts, one row per vote, newest first', async () => {
@@ -476,9 +482,43 @@ describe.skipIf(!url)('answer-feedback platform reads against live Postgres', ()
 
     it('narrows to a selection with the same filters as the page', async () => {
       const selection = await platform(() =>
-        exportRepo.listFeedbackExportRows({ ...everything, verdict: 'down', reason: 'inaccurate', query: '40 m bei' }, 100),
+        exportRepo.listFeedbackExportRows(ask(ORG, { verdict: 'down', reasons: ['inaccurate'], query: '40 m bei' }, 7), 100),
       )
       expect(selection.map((row) => row.messageId)).toEqual([A1])
+    })
+
+    it('narrows to a project, and finds nothing under a project the votes are not in', async () => {
+      const inProject = await platform(() => exportRepo.listFeedbackExportRows(ask(ORG, {}, 7, [PROJECT]), 100))
+      expect(inProject.length).toBeGreaterThan(0)
+      expect(inProject.every((row) => row.projectId === PROJECT)).toBe(true)
+
+      const elsewhere = await platform(() =>
+        exportRepo.listFeedbackExportRows(ask(ORG, {}, 7, ['0f0f0f0f-0000-4000-8000-0000000000a9']), 100),
+      )
+      expect(elsewhere).toEqual([])
+    })
+
+    it('reads several organizations at once, and no others', async () => {
+      const rows = await platform(() => exportRepo.listFeedbackExportRows(ask([ORG, CLAIM_ORG], {}, 7), 100))
+      expect(new Set(rows.map((row) => row.organizationId))).toEqual(new Set([ORG, CLAIM_ORG]))
+    })
+
+    it('filters by how the answer was produced, a research run counting as a report', async () => {
+      const reports = await platform(() => exportRepo.listFeedbackExportRows(ask(ORG, { modes: ['report'] }, 7), 100))
+      expect(reports.length).toBeGreaterThan(0)
+      expect(reports.every((row) => row.answerMode === 'report')).toBe(true)
+    })
+
+    it('counts and breaks down the same votes it lists', async () => {
+      const rows = await exportRows()
+      const counted = await platform(() => exportRepo.countFeedbackVotes(everything, 5000))
+      const facets = await platform(() => exportRepo.getFeedbackFacets(everything))
+
+      expect(counted).toBe(rows.length)
+      expect(facets.verdicts.up + facets.verdicts.down).toBe(rows.length)
+      expect(facets.reasons.reduce((sum, entry) => sum + entry.votes, 0)).toBe(
+        rows.filter((row) => row.verdict === 'down').length,
+      )
     })
 
     it("never pairs a vote with another tenant's answer", async () => {
@@ -491,7 +531,7 @@ describe.skipIf(!url)('answer-feedback platform reads against live Postgres', ()
   describe('the weekly summary', () => {
     it('counts the answers a week is about, so coverage cannot pass 100 %', async () => {
       const { weeks, truncated } = await platform(() =>
-        repo.getFeedbackWeeklySummary({ windowDays: 7, organizationId: ORG }),
+        repo.getFeedbackWeeklySummary(ask(ORG, {}, 7)),
       )
       const total = weeks.reduce(
         (sum, week) => ({ answers: sum.answers + week.answers, rated: sum.rated + week.ratedAnswers, votes: sum.votes + week.up + week.down }),
@@ -507,7 +547,7 @@ describe.skipIf(!url)('answer-feedback platform reads against live Postgres', ()
 
   describe('pairing an answer with its question', () => {
     it('pairs each answer with the user message that preceded it, not the newest one', async () => {
-      const turns = await platform(() => repo.listFeedbackTurns({ organizationId: ORG, verdict: 'down' }))
+      const turns = await platform(() => repo.listFeedbackTurns(ask(ORG, { verdict: 'down' })))
       const byMessage = new Map(turns.map((turn) => [turn.messageId, turn]))
 
       expect(byMessage.get(A1)).toMatchObject({ answer: '40 m bei GK 4.', question: 'Wie lang darf der Fluchtweg sein?' })
@@ -515,7 +555,7 @@ describe.skipIf(!url)('answer-feedback platform reads against live Postgres', ()
     })
 
     it('leaves the question empty when the answer row is missing, rather than guessing', async () => {
-      const turns = await platform(() => repo.listFeedbackTurns({ organizationId: ORG, verdict: 'down' }))
+      const turns = await platform(() => repo.listFeedbackTurns(ask(ORG, { verdict: 'down' })))
       const orphan = turns.find((turn) => turn.messageId === A_MISSING)
 
       expect(orphan).toBeDefined()

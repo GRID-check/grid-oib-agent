@@ -7,8 +7,13 @@
  * the two lesson tables) and that file is already the page's. Same rules: raw
  * SQL coerced at this boundary, every list bounded, and cross-tenant only
  * because the platform owner's export is — reachable solely through
- * `getAnswerFeedbackWorkbookData` / `getAnswerFeedbackExport`, which sit behind
+ * `getAnswerFeedbackExport` / `getAnswerFeedbackFilterOptions`, which sit behind
  * `requirePlatformPermission`.
+ *
+ * **Which votes** is `./vote-scope`, the same FROM and WHERE the page's figures
+ * use, so the file is the set the screen shows. The dialog's live count and the
+ * pickers' per-value counts (`countFeedbackVotes`, `getFeedbackFacets`) are read
+ * here too, because they are questions about the same set.
  *
  * **Bounded and set-based.** The vote rows are selected once (`sel`, capped at
  * `FEEDBACK_EXPORT_ROW_CAP + 1`); usage and lessons are aggregated over that
@@ -17,31 +22,24 @@
  */
 
 import 'server-only'
-import { sql, type SQL } from 'drizzle-orm'
+import { sql } from 'drizzle-orm'
 import { getDb } from '@/lib/db'
 import { executeRows } from '@/lib/db/execute-rows'
 import type { AnswerFeedbackReason, AnswerFeedbackVerdict, PlatformLessonStatus } from '@/lib/db/schema'
 import { isConversationTagKey, type ConversationTagKey } from '@/lib/conversations/tags'
 import { sanitizeProvenance, type MessageProvenance } from '@/lib/conversations/message-provenance'
 import { isTraceId } from '@/lib/langfuse/config'
-import { likeContains } from '@/lib/text/like-pattern'
-import { FEEDBACK_EXPORT_ROW_CAP } from './repository'
-import { feedbackWindowStart } from './trend'
-import { answerIdOf, VOTED_TURN_JOINS } from './turn-join'
-
-/**
- * What the export covers. Unlike the page's filters, every field is explicit:
- * `verdict: null` means BOTH directions, which is what the default export is.
- */
-export interface FeedbackExportFilters {
-  windowDays: number
-  verdict: AnswerFeedbackVerdict | null
-  /** Only applied with `verdict: 'down'`, like the page. */
-  reason: AnswerFeedbackReason | null
-  organizationId: string | null
-  topic: ConversationTagKey | null
-  query: string | null
-}
+import {
+  FEEDBACK_CONFIDENCE_FILTERS,
+  FEEDBACK_MODE_FILTERS,
+  FEEDBACK_REASON_FILTERS,
+  type FeedbackConfidenceFilter,
+  type FeedbackModeFilter,
+  type FeedbackQuery,
+  type FeedbackReasonFilter,
+} from './filters'
+import { FEEDBACK_EXPORT_ROW_CAP, FEEDBACK_TOPIC_ROLLUP_LIMIT } from './repository'
+import { ANSWER_CONFIDENCE, ANSWER_JOB_ID, ANSWER_MODE, sqlList, voteScope } from './vote-scope'
 
 /** How the answer was produced. `report` is a deep-research run's answer. */
 export type FeedbackAnswerMode = NonNullable<MessageProvenance['routingDecision']> | 'report'
@@ -129,46 +127,6 @@ const pickedProvenance = sql.raw(
 )
 
 /**
- * The run an answer is the account of (`messages.run_id`, ADR-0062), for its
- * backend job id when the row's provenance does not carry one. One row per
- * answer at most: `task_runs.id` is the primary key.
- */
-const TASK_RUN_JOIN = sql`
-    left join task_runs tr
-      on tr.id = ${answerIdOf(sql`m.run_id`)}
-     and tr.organization_id = m.organization_id
-`
-
-/**
- * FROM, joins and WHERE shared by the rows and the totals, so the two can never
- * describe different sets. Each join is at most one row per vote (`m` by its
- * primary key, `q` limited to one, `c` by its primary key), so a count over it
- * counts votes.
- */
-function exportScope(filters: FeedbackExportFilters, extraJoins: SQL = sql``): SQL {
-  const since = feedbackWindowStart(filters.windowDays).toISOString()
-  const { verdict, reason, organizationId, topic, query } = filters
-  return sql`
-    from answer_feedback f
-    ${VOTED_TURN_JOINS}
-    left join conversations c
-      on c.id = coalesce(m.conversation_id, f.conversation_id)
-     and c.organization_id = f.organization_id
-    ${extraJoins}
-    where f.created_at >= ${since}::timestamptz
-      ${verdict ? sql`and f.verdict = ${verdict}` : sql``}
-      ${organizationId ? sql`and f.organization_id = ${organizationId}` : sql``}
-      ${topic ? sql`and c.tags @> array[${topic}]::text[]` : sql``}
-      ${reason && verdict === 'down' ? sql`and coalesce(f.reason, 'other') = ${reason}` : sql``}
-      ${
-        query
-          ? sql`and (m.content ilike ${likeContains(query)} or q.content ilike ${likeContains(query)})`
-          : sql``
-      }
-  `
-}
-
-/**
  * The export's rows, newest first vote first, at most `limit` (the service asks
  * for one over the cap to tell "full" from "cut").
  *
@@ -178,7 +136,7 @@ function exportScope(filters: FeedbackExportFilters, extraJoins: SQL = sql``): S
  * a UNION ALL rather than one OR'd join so each can use its own index.
  */
 export async function listFeedbackExportRows(
-  filters: FeedbackExportFilters,
+  query: FeedbackQuery,
   limit: number,
 ): Promise<FeedbackExportRow[]> {
   const bounded = Math.max(0, Math.min(limit, FEEDBACK_EXPORT_ROW_CAP + 1))
@@ -211,8 +169,8 @@ export async function listFeedbackExportRows(
           select count(*) from jsonb_array_elements(m.metadata->'citations'->'sources') s
           where s->'is_cited' is distinct from 'false'::jsonb
         ) end                                          as sources_cited,
-        nullif(coalesce(m.metadata->'provenance'->>'deepResearchJobId', tr.backend_job_id), '') as job_id
-      ${exportScope(filters, TASK_RUN_JOIN)}
+        ${ANSWER_JOB_ID}                               as job_id
+      ${voteScope(query, { question: true })}
       order by f.created_at desc, f.id
       limit ${bounded}
     ),
@@ -264,7 +222,7 @@ export async function listFeedbackExportRows(
 }
 
 /** Votes, verdicts, voters and organizations over the SAME set the rows come from, uncapped. */
-export async function getFeedbackExportTotals(filters: FeedbackExportFilters): Promise<FeedbackExportTotals> {
+export async function getFeedbackExportTotals(query: FeedbackQuery): Promise<FeedbackExportTotals> {
   const db = getDb()
   const [row] = executeRows(
     await db.execute(sql`
@@ -274,7 +232,7 @@ export async function getFeedbackExportTotals(filters: FeedbackExportFilters): P
         count(*) filter (where f.verdict = 'down')   as down,
         count(distinct f.user_id)                    as voters,
         count(distinct f.organization_id)            as organizations
-      ${exportScope(filters)}
+      ${voteScope(query)}
     `),
   )
   return {
@@ -284,6 +242,124 @@ export async function getFeedbackExportTotals(filters: FeedbackExportFilters): P
     voters: Number(row?.voters ?? 0),
     organizations: Number(row?.organizations ?? 0),
   }
+}
+
+/**
+ * How many votes a request covers, counted no further than `cap + 1`: enough to
+ * say "exactly N" up to the cap and "more than the cap" past it, without
+ * counting a year of votes to print one sentence. The dialog's live count and
+ * the export's own cap agree because both stop at the same number.
+ */
+export async function countFeedbackVotes(query: FeedbackQuery, cap: number = FEEDBACK_EXPORT_ROW_CAP): Promise<number> {
+  const bounded = Math.max(0, Math.min(cap, FEEDBACK_EXPORT_ROW_CAP)) + 1
+  const db = getDb()
+  const [row] = executeRows(
+    await db.execute(sql`
+      select count(*) as votes from (
+        select 1
+        ${voteScope(query)}
+        limit ${bounded}
+      ) capped
+    `),
+  )
+  return Number(row?.votes ?? 0)
+}
+
+/** One value of a filter and the votes carrying it. */
+export interface FeedbackFacetCount<Key extends string> {
+  key: Key
+  votes: number
+}
+
+/** What each ratings filter could narrow to, counted over the scope alone. */
+export interface FeedbackFacets {
+  verdicts: { up: number; down: number }
+  reasons: FeedbackFacetCount<FeedbackReasonFilter>[]
+  topics: FeedbackFacetCount<ConversationTagKey>[]
+  modes: FeedbackFacetCount<FeedbackModeFilter>[]
+  confidences: FeedbackFacetCount<FeedbackConfidenceFilter>[]
+  withComment: number
+  withExpectedAnswer: number
+}
+
+/**
+ * The votes behind every value a ratings filter offers, for the pickers'
+ * "Brandschutz · 42".
+ *
+ * Counted over the SCOPE (dates, organizations, projects) and not over the other
+ * ratings filters: a picker whose counts shrink with every pick it makes reads
+ * as if the other values had vanished, and a value with a zero next to it is
+ * still a value somebody may want. One statement: the scoped votes once (`v`),
+ * then one bounded GROUP BY per facet, UNION ALL'd. The topic branch fans a vote
+ * out over its tags on purpose — there the tag is the grouping key.
+ */
+export async function getFeedbackFacets(query: FeedbackQuery): Promise<FeedbackFacets> {
+  const db = getDb()
+  const rows = executeRows(
+    await db.execute(sql`
+      with v as (
+        select
+          f.verdict,
+          coalesce(f.reason, 'other')               as reason,
+          c.tags                                    as tags,
+          ${ANSWER_MODE}                            as mode,
+          ${ANSWER_CONFIDENCE}                      as confidence,
+          nullif(btrim(f.comment), '') is not null          as has_comment,
+          nullif(btrim(f.expected_answer), '') is not null  as has_expected
+        ${voteScope(query, { scopeOnly: true })}
+      )
+      (select 'verdict' as facet, verdict as key, count(*) as votes from v group by verdict)
+      union all
+      (select 'reason', reason, count(*) from v where verdict = 'down' group by reason)
+      union all
+      (select 'mode', mode, count(*) from v where mode in (${sqlList(FEEDBACK_MODE_FILTERS)}) group by mode)
+      union all
+      (select 'confidence', confidence, count(*) from v
+        where confidence in (${sqlList(FEEDBACK_CONFIDENCE_FILTERS)}) group by confidence)
+      union all
+      (select 'topic', tag, count(*) from v cross join lateral unnest(v.tags) as tag
+        group by tag order by count(*) desc limit ${FEEDBACK_TOPIC_ROLLUP_LIMIT})
+      union all
+      (select 'flag', 'has_comment', count(*) filter (where has_comment) from v)
+      union all
+      (select 'flag', 'has_expected', count(*) filter (where has_expected) from v)
+    `),
+  )
+
+  const counts = (facet: string): Map<string, number> =>
+    new Map(rows.filter((row) => row.facet === facet).map((row) => [String(row.key), Number(row.votes ?? 0)]))
+  // Every known value, in the vocabulary's order, zero-filled: a reason nobody
+  // picked is information, and a picker whose options reshuffle is not one.
+  const facet = <Key extends string>(vocabulary: readonly Key[], facetName: string): FeedbackFacetCount<Key>[] => {
+    const byKey = counts(facetName)
+    return vocabulary.map((key) => ({ key, votes: byKey.get(key) ?? 0 }))
+  }
+  const verdicts = counts('verdict')
+  const flags = counts('flag')
+  const topics = counts('topic')
+  return {
+    verdicts: { up: verdicts.get('up') ?? 0, down: verdicts.get('down') ?? 0 },
+    reasons: facet(FEEDBACK_REASON_FILTERS, 'reason'),
+    topics: [...topics.entries()].flatMap(([key, votes]) => (isConversationTagKey(key) ? [{ key, votes }] : [])),
+    modes: facet(FEEDBACK_MODE_FILTERS, 'mode'),
+    confidences: facet(FEEDBACK_CONFIDENCE_FILTERS, 'confidence'),
+    withComment: flags.get('has_comment') ?? 0,
+    withExpectedAnswer: flags.get('has_expected') ?? 0,
+  }
+}
+
+/** Display names of the projects a request names, for the workbook's overview. Bounded by the ids given. */
+export async function getProjectNames(projectIds: readonly string[]): Promise<Map<string, string>> {
+  if (projectIds.length === 0) return new Map()
+  const db = getDb()
+  const rows = executeRows(
+    await db.execute(sql`
+      select id, name from projects
+      where id in (${sqlList(projectIds)})
+      limit ${projectIds.length}
+    `),
+  )
+  return new Map(rows.map((row) => [String(row.id), String(row.name)]))
 }
 
 /* ------------------------------------------------------------------ *

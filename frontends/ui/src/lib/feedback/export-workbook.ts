@@ -12,9 +12,11 @@
  *      text wrapped, the two link columns as hyperlinks;
  *   2. the weeks — per organization and ISO week, with the denominator a rate
  *      needs (answers, rated answers) and the rate itself;
- *   3. the overview — what this file is: when, which window, which filters,
- *      the totals over the whole set, whether a cap cut it, and the two
- *      caveats a number from it must be quoted with;
+ *   3. the overview — what this file is: when, which range, which
+ *      organizations and projects, every rating filter by name, which of them
+ *      the weekly sheet could not apply and why, the totals over the whole
+ *      set, whether a cap cut it, and the caveats a number from it must be
+ *      quoted with;
  *   4. the columns — a data dictionary generated from the same definitions.
  *
  * A text cell is written as a string value, never a formula, so the formula
@@ -35,7 +37,7 @@ import {
   type ExportColumn,
   type ExportFormat,
 } from './export-columns'
-import type { FeedbackExport } from './export-service'
+import type { FeedbackExport, NamedScopeEntry } from './export-service'
 
 /** Excel refuses a cell longer than this; the text is cut and says so. */
 export const XLSX_MAX_CELL_CHARS = 32_767
@@ -105,25 +107,54 @@ function addTable<Row>(
   return sheet
 }
 
-function describeFilters(data: FeedbackExport, dictionary: Dictionary): string {
+/** A list of labels as one phrase: `Brandschutz oder Statik`. */
+function anyOf(values: readonly string[], dictionary: Dictionary): string {
+  return values.join(dictionary.feedbackExport.overview.filterOr)
+}
+
+/** The scope's organizations or projects by name, or "all". */
+function describeNamed(entries: readonly NamedScopeEntry[], dictionary: Dictionary): string {
+  if (entries.length === 0) return dictionary.feedbackExport.overview.scopeEverything
+  return entries.map((entry) => entry.name ?? entry.id).join('; ')
+}
+
+/** Every ratings filter the file was read with, in the reader's words. */
+export function describeRatingsFilters(data: Pick<FeedbackExport, 'query'>, dictionary: Dictionary): string {
   const words = dictionary.feedbackExport.overview
-  const { applied } = data
+  const labels = dictionary.platform.answerFeedback
+  const { ratings } = data.query
   const parts: string[] = []
-  if (applied.organizationId) {
-    parts.push(interpolate(words.filterOrganization, { value: applied.organizationName ?? applied.organizationId }))
+  if (ratings.verdict) {
+    parts.push(interpolate(words.filterVerdict, { value: dictionary.feedbackExport.verdicts[ratings.verdict] }))
   }
-  if (applied.topic) {
-    const topics = dictionary.platform.answerFeedback.topics as Record<string, string>
-    parts.push(interpolate(words.filterTopic, { value: topics[applied.topic] ?? applied.topic }))
+  if (ratings.reasons.length) {
+    const value = anyOf(ratings.reasons.map((key) => labels.reasons[key]), dictionary)
+    parts.push(interpolate(words.filterReasons, { value }))
   }
-  if (applied.verdict) {
-    parts.push(interpolate(words.filterVerdict, { value: dictionary.feedbackExport.verdicts[applied.verdict] }))
+  if (ratings.topics.length) {
+    const value = anyOf(ratings.topics.map((key) => labels.topics[key]), dictionary)
+    parts.push(interpolate(words.filterTopics, { value }))
   }
-  if (applied.reason) {
-    parts.push(interpolate(words.filterReason, { value: dictionary.platform.answerFeedback.reasons[applied.reason] }))
+  if (ratings.modes.length) {
+    const value = anyOf(ratings.modes.map((key) => labels.modes[key]), dictionary)
+    parts.push(interpolate(words.filterModes, { value }))
   }
-  if (applied.query) parts.push(interpolate(words.filterQuery, { value: applied.query }))
+  if (ratings.confidences.length) {
+    const value = anyOf(ratings.confidences.map((key) => labels.confidences[key]), dictionary)
+    parts.push(interpolate(words.filterConfidences, { value }))
+  }
+  if (ratings.hasComment) parts.push(words.filterHasComment)
+  if (ratings.hasExpectedAnswer) parts.push(words.filterHasExpected)
+  if (ratings.query) parts.push(interpolate(words.filterQuery, { value: ratings.query }))
   return parts.length ? parts.join(' · ') : words.filterNone
+}
+
+/** What the weekly sheet applied, and what it could not and why. */
+function describeWeeklyFilters(data: FeedbackExport, dictionary: Dictionary): string {
+  const words = dictionary.feedbackExport.overview
+  if (data.weeksIgnored.length === 0) return words.weeksAllApplied
+  const filters = data.weeksIgnored.map((key) => words.filterNames[key]).join(', ')
+  return interpolate(words.weeksIgnored, { filters })
 }
 
 /** What this file is, and how far to trust a number from it. */
@@ -147,11 +178,17 @@ function addOverview(workbook: Workbook, data: FeedbackExport, dictionary: Dicti
   const title = sheet.addRow([`${PRODUCT_NAME} · ${words.title}`])
   title.font = { bold: true, size: 14 }
   gap()
+  const { scope } = data.query
   add(words.generatedAt, data.generatedAt, NUM_FMT.datetime)
-  add(words.windowFrom, data.windowFrom, NUM_FMT.date)
-  add(words.windowTo, data.windowTo, NUM_FMT.date)
-  add(words.scope, data.scope === 'all' ? words.scopeAll : words.scopeSelection)
-  add(words.filters, describeFilters(data, dictionary))
+  add(words.windowFrom, new Date(`${scope.from}T00:00:00Z`), NUM_FMT.date)
+  add(words.windowTo, new Date(`${scope.to}T00:00:00Z`), NUM_FMT.date)
+  add(words.organizationsScope, describeNamed(data.named.organizations, dictionary))
+  add(words.projectsScope, describeNamed(data.named.projects, dictionary))
+  add(words.filters, describeRatingsFilters(data, dictionary))
+  add(
+    interpolate(words.weeksFilters, { sheet: dictionary.feedbackExport.sheets.weeks }),
+    describeWeeklyFilters(data, dictionary)
+  )
   if (totals) {
     gap()
     add(words.votes, totals.votes, '0')

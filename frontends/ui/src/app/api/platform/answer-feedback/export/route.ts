@@ -1,15 +1,22 @@
 /**
- * Answer-feedback export — every vote in the window, as an Excel workbook for a
- * person or a CSV for a script.
+ * Answer-feedback export — the votes the ratings tab shows, as an Excel
+ * workbook for a person or a CSV for a script.
  *
- *   ?days=7|30|90          the window (UTC calendar days, as on the page)
- *   ?scope=all|selection   `all` (default): every vote in the window, both
- *                          directions. `selection`: the page's own filters —
- *                          `org`, `topic`, `verdict`, `reason`, `q` — read with
- *                          the page's parser, so the file matches the screen.
- *   ?format=xlsx|csv       `csv` (default, what scripts have always fetched) or
- *                          `xlsx`, the four-sheet workbook the page links to.
- *   ?summary=weekly        instead: per organization and ISO week, as CSV.
+ *   scope    from, to (UTC days, inclusive; or days=7|30|90), org, project
+ *            (both repeatable): the page-wide scope every quality view shares.
+ *   filters  verdict, reason, topic, mode, confidence (repeatable where it
+ *            makes sense), has_comment=1, has_expected=1, q: the ratings tab's
+ *            filters. Read by the one strict parser the page's reads use
+ *            (`lib/feedback/query.ts`), so the file is the set on screen; an
+ *            unknown value is a 400.
+ *   ?scope=all            every vote in the scope, ratings filters ignored.
+ *                         (`scope=selection` is the old drill-in export and
+ *                         still means "the filters, down-votes by default".)
+ *   ?format=xlsx|csv      `csv` (default, what scripts have always fetched) or
+ *                         `xlsx`, the four-sheet workbook the page links to.
+ *   ?summary=weekly       instead: per organization and ISO week, as CSV. The
+ *                         scope and the topic apply; the filters a rate cannot
+ *                         honour are named in `X-Grid-Export-Ignored-Filters`.
  *
  * Streams out with `Content-Disposition` rather than being assembled in the
  * browser, so the download costs the bundle nothing and is reachable as a plain
@@ -25,8 +32,9 @@ import { apiRoute } from '@/lib/api/handler'
 import { PlatformAccessDeniedError } from '@/lib/authz/platform'
 import { getLocale } from '@/i18n/server'
 import { getDictionary } from '@/i18n/dictionaries'
-import { parseFeedbackFilters } from '@/lib/feedback/query'
-import { EXPORT_TRUNCATED_HEADER } from '@/lib/feedback/types'
+import { requireFeedbackQuery } from '@/lib/feedback/query'
+import { RATINGS_FILTER_PARAMS } from '@/lib/feedback/filters'
+import { EXPORT_IGNORED_FILTERS_HEADER, EXPORT_TRUNCATED_HEADER } from '@/lib/feedback/types'
 import {
   feedbackExportFileName,
   feedbackWeeklyFileName,
@@ -43,7 +51,7 @@ function download(
   body: string | Uint8Array,
   contentType: string,
   filename: string,
-  truncatedAt: number | null
+  extraHeaders: Record<string, string> = {}
 ): NextResponse {
   return new NextResponse(body as BodyInit, {
     status: 200,
@@ -51,34 +59,36 @@ function download(
       'Content-Type': contentType,
       'Content-Disposition': `attachment; filename="${filename}"`,
       'Cache-Control': 'no-store',
-      ...(truncatedAt === null ? {} : { [EXPORT_TRUNCATED_HEADER]: String(truncatedAt) }),
+      ...extraHeaders,
     },
   })
 }
 
+const truncatedHeader = (truncated: boolean, cap: number): Record<string, string> =>
+  truncated ? { [EXPORT_TRUNCATED_HEADER]: String(cap) } : {}
+
 export const GET = apiRoute(
   async ({ request, session }) => {
     const searchParams = new URL(request.url).searchParams
-    const filters = parseFeedbackFilters(searchParams)
+    const query = requireFeedbackQuery(searchParams)
     const dictionary = getDictionary(await getLocale())
     try {
       if (searchParams.get('summary') === 'weekly') {
-        const weekly = await getAnswerFeedbackWeeklyExport(session, filters)
+        const weekly = await getAnswerFeedbackWeeklyExport(session, query)
+        const ignored = weekly.ignored.map((key) => RATINGS_FILTER_PARAMS[key]).join(',')
         return download(
           renderCsv(FEEDBACK_WEEKLY_COLUMNS, weekly.weeks, dictionary),
           'text/csv; charset=utf-8',
           feedbackWeeklyFileName(weekly),
-          weekly.truncated ? weekly.cap : null
+          {
+            ...truncatedHeader(weekly.truncated, weekly.cap),
+            ...(ignored ? { [EXPORT_IGNORED_FILTERS_HEADER]: ignored } : {}),
+          }
         )
       }
 
       const format = searchParams.get('format') === 'xlsx' ? 'xlsx' : 'csv'
-      const scope = searchParams.get('scope') === 'selection' ? 'selection' : 'all'
-      const exported = await getAnswerFeedbackExport(session, {
-        scope,
-        filters,
-        withSummary: format === 'xlsx',
-      })
+      const exported = await getAnswerFeedbackExport(session, { query, withSummary: format === 'xlsx' })
       const body =
         format === 'xlsx'
           ? await renderFeedbackWorkbook(exported, dictionary)
@@ -87,7 +97,7 @@ export const GET = apiRoute(
         body,
         format === 'xlsx' ? XLSX_TYPE : 'text/csv; charset=utf-8',
         feedbackExportFileName(exported, format),
-        exported.truncated ? exported.cap : null
+        truncatedHeader(exported.truncated, exported.cap)
       )
     } catch (error) {
       if (error instanceof PlatformAccessDeniedError) throw new ForbiddenError()

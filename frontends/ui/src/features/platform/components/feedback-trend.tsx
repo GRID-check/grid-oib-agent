@@ -50,10 +50,18 @@ export interface FeedbackTrendProps {
   points: readonly FeedbackTrendPoint[]
   /** Days of the window, so gaps can be filled rather than skipped. */
   windowDays: number
+  /**
+   * The window's last day, `YYYY-MM-DD` (UTC). Defaults to today; a custom range
+   * that ends in the past fills back from its own end, not from today.
+   */
+  endDay?: string
   /** Below this many votes a day's rate is not treated as a reading. */
   minVotes?: number
   className?: string
 }
+
+/** Noon of the window's last day, so the fill lands on that UTC calendar day; now without one. */
+const endOf = (endDay: string | undefined): Date => (endDay ? new Date(`${endDay}T12:00:00Z`) : new Date())
 
 const FALLBACK_W = 720
 const RATE_H = 132
@@ -103,13 +111,14 @@ function useMeasuredWidth(): [(node: HTMLElement | null) => void, number] {
 export function FeedbackTrendDirection({
   points,
   windowDays,
+  endDay,
   minVotes = MIN_TREND_VOTES,
 }: Omit<FeedbackTrendProps, 'className'>): JSX.Element | null {
   const t = useTranslations('platform')
   const { locale } = useLocale()
   const delta = useMemo(
-    () => feedbackTrendDelta(fillTrendWindow(points, windowDays, minVotes)),
-    [points, windowDays, minVotes]
+    () => feedbackTrendDelta(fillTrendWindow(points, windowDays, minVotes, endOf(endDay))),
+    [points, windowDays, minVotes, endDay]
   )
   if (delta === null) return null
   const better = delta >= 1
@@ -142,6 +151,7 @@ export function FeedbackTrendDirection({
 export function FeedbackTrend({
   points,
   windowDays,
+  endDay,
   minVotes = MIN_TREND_VOTES,
   className,
 }: FeedbackTrendProps): JSX.Element | null {
@@ -152,8 +162,8 @@ export function FeedbackTrend({
   const [plotRef, width] = useMeasuredWidth()
 
   const days = useMemo(
-    () => fillTrendWindow(points, windowDays, minVotes),
-    [points, windowDays, minVotes]
+    () => fillTrendWindow(points, windowDays, minVotes, endOf(endDay)),
+    [points, windowDays, minVotes, endDay]
   )
 
   const readable = days.filter((d) => d.rate !== null)

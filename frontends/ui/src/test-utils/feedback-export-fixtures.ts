@@ -8,6 +8,7 @@
 
 import type { FeedbackExportRecord, FeedbackWeeklyRecord } from '@/lib/feedback/export-columns'
 import type { FeedbackExport } from '@/lib/feedback/export-service'
+import { NO_RATINGS_FILTERS, type FeedbackQuery } from '@/lib/feedback/filters'
 
 /** A down-vote on a stored, researched answer, with everything the joins can reach. */
 export function feedbackExportRecord(overrides: Partial<FeedbackExportRecord> = {}): FeedbackExportRecord {
@@ -115,27 +116,24 @@ export function feedbackWeeklyRecord(overrides: Partial<FeedbackWeeklyRecord> = 
   }
 }
 
+/** The scope a fixture export was read in: every vote, 2026-09-10 to 2026-10-09. */
+export const FIXTURE_FEEDBACK_QUERY: FeedbackQuery = {
+  scope: { from: '2026-09-10', to: '2026-10-09', organizationIds: [], projectIds: [] },
+  ratings: NO_RATINGS_FILTERS,
+}
+
 export function feedbackExport(overrides: Partial<FeedbackExport> = {}): FeedbackExport {
   return {
     generatedAt: new Date('2026-10-09T09:30:00.000Z'),
-    windowFrom: new Date('2026-09-10T00:00:00.000Z'),
-    windowTo: new Date('2026-10-09T09:30:00.000Z'),
-    scope: 'all',
-    applied: {
-      windowDays: 30,
-      verdict: null,
-      reason: null,
-      organizationId: null,
-      topic: null,
-      query: null,
-      organizationName: null,
-    },
+    query: FIXTURE_FEEDBACK_QUERY,
+    named: { organizations: [], projects: [] },
     records: [feedbackExportRecord(), unstoredFeedbackExportRecord()],
     truncated: false,
     cap: 5000,
     totals: { votes: 2, up: 1, down: 1, voters: 2, organizations: 1 },
     weeks: [feedbackWeeklyRecord()],
     weeksTruncated: false,
+    weeksIgnored: [],
     ...overrides,
   }
 }

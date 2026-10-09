@@ -47,11 +47,16 @@ export function answerIdOf(messageId: SQL): SQL {
   return sql`(case when ${messageId} ~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$' then (${messageId})::uuid end)`
 }
 
-export const VOTED_TURN_JOINS = sql`
+/** The voted answer (`m`) alone, for a query that does not need the question. */
+export const VOTED_ANSWER_JOIN = sql`
     left join messages m
       on m.id = ${answerIdOf(sql`f.message_id`)}
      and m.role = 'assistant'
      and m.organization_id = f.organization_id
+`
+
+/** The question that answer replied to (`q`). Needs `VOTED_ANSWER_JOIN` before it. */
+export const VOTED_QUESTION_JOIN = sql`
     left join lateral (
       select qm.content
       from messages qm
@@ -63,6 +68,8 @@ export const VOTED_TURN_JOINS = sql`
       limit 1
     ) q on true
 `
+
+export const VOTED_TURN_JOINS = sql`${VOTED_ANSWER_JOIN}${VOTED_QUESTION_JOIN}`
 
 /**
  * The conversation a vote belongs to: the persisted answer's, falling back to

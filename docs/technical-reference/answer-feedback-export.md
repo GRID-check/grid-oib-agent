@@ -1,30 +1,97 @@
 # Answer-feedback export
 
-The export behind **Plattform → Antwortqualität → Bewertungen → Exportieren**: every
-vote users left on an answer, with the turn it rated, as an Excel workbook for
-a person or a CSV for a script. The column list is defined once in
+The export behind **Plattform → Antwortqualität → Bewertungen → Exportieren…**:
+the votes the ratings tab shows, with the turn each one rated, as an Excel
+workbook for a person or a CSV for a script. The column list is defined once in
 `frontends/ui/src/lib/feedback/export-columns.ts`; both formats and the
 workbook's own data dictionary are rendered from it. The key tables below
 must list the same keys in the same order. `export-columns.spec.ts` fails
 when they disagree.
 
+## Which votes
+
+The file holds exactly what the page shows. The page is read in two layers, and
+the export takes both, by the same parameter names the page URL uses:
+
+- the **scope** every Answer quality view shares (range, organizations,
+  projects), set in the bar under the page header (`lib/quality/scope.ts`);
+- the **ratings filters** of the ratings tab (verdict, reason, topic, answer
+  mode, confidence, notes, search), set in the filter row above the figures
+  (`lib/feedback/filters.ts`).
+
+One strict parser reads them for every endpoint on the tab
+(`lib/feedback/query.ts`): the figures, the digest, the options and count, and
+the export. An unknown value is a `400` that names the parameter, never a silent
+fallback to a different set of votes. All of it is applied in SQL, inside the
+one bounded statement (`lib/feedback/vote-scope.ts`).
+
+The export dialog offers one choice about the votes: **Alle Bewertungen im
+Zeitraum (ohne Bewertungsfilter)**, which drops the ratings filters and keeps
+the scope. The link is then the same query without the ratings parameters.
+
 ## Getting it
 
-`GET /api/platform/answer-feedback/export`, platform owners only
-(`platform:organizations:view`). Route reference: [`docs/api/bff-routes.md`](../api/bff-routes.md).
+`GET /api/platform/answer-feedback/export`, platform staff with
+`platform:organizations:view` (the read-only Platform Support role included).
+Route reference: [`docs/api/bff-routes.md`](../api/bff-routes.md).
 
 | Parameter | Values | Meaning |
 |---|---|---|
-| `days` | `7`, `30` (default), `90` | The window, in UTC calendar days ending today, the same days the page counts. A vote is in it by its first cast (`first_voted_at`). |
-| `scope` | `all` (default), `selection` | `all`: every vote in the window, both verdicts. `selection`: the page's filters as well (`org`, `topic`, `verdict`, `reason`, `q`). |
-| `format` | `csv` (default), `xlsx` | The page's menu links to `xlsx` for both scopes and to `csv` "for scripts". |
-| `summary` | `weekly` | Instead of the votes: the weekly table below as CSV. `days` and `org` apply. |
+| `from`, `to` | `YYYY-MM-DD` | The range, UTC calendar days, both inclusive, at most 366 days. A vote is in it by its first cast (`first_voted_at`). Without both, `days` applies. |
+| `days` | `7`, `30` (default), `90` | Older links: the range of that many days ending today. |
+| `org` | WorkOS organization id, repeatable (max. 200) | Only votes cast in these organizations. |
+| `project` | project UUID, repeatable (max. 200) | Only votes on these projects: the vote's own project, else its conversation's. With `org` as well, a project outside those organizations matches nothing. |
+| `verdict` | `up`, `down`, `all` (default) | One direction, or both. |
+| `reason` | `inaccurate`, `wrong_source`, `too_slow`, `other`, repeatable | Any of these reasons. Implies down-votes; a down-vote without a chosen reason counts as `other`. With `verdict=up` it is a `400`. |
+| `topic` | an OIB topic key, repeatable | The conversation carries any of these tags. |
+| `mode` | `meta`, `shallow`, `deep`, `report`, repeatable | How the answer was produced (`answer_mode`). |
+| `confidence` | `low`, `medium`, `high`, repeatable | The confidence the answer showed. |
+| `has_comment` | `1` | Only votes with a comment. |
+| `has_expected` | `1` | Only votes with an expected answer. |
+| `q` | text, at most 120 characters | Question or answer contains it, literally (`%` and `_` are characters, not wildcards). |
+| `scope` | `all`, `selection` | Older links. `all`: every vote in the scope, ratings filters ignored. `selection`: the old drill-in export, down-votes when no `verdict` is given. |
+| `format` | `csv` (default), `xlsx` | The dialog links to either; scripts have always fetched CSV. |
+| `summary` | `weekly` | Instead of the votes: the weekly table below as CSV. |
 
-File names: `piloti-bewertungen_<from>_<to>.xlsx`, with `_auswahl` for a
-selection and `_erste-5000` when the row cap cut it; the CSV has the same stem.
-At most 5,000 votes, newest first. A cut file also carries
-`X-Grid-Export-Truncated: 5000`. The weekly table has its own cap of 5,000 rows,
-newest week first, so a cut drops the oldest weeks.
+File names: `piloti-bewertungen[_<organization>]_<from>_<to>[_gefiltert][_erste-5000].<ext>`.
+The organization's name, ASCII-spelled (`Planungsbüro Huber` →
+`planungsbuero-huber`), is in the name when exactly one is selected.
+`_gefiltert` says the file holds less than its name promises: a ratings filter,
+a project, or more than one organization. At most 5,000 votes, newest first; a
+cut file says `_erste-5000` and carries `X-Grid-Export-Truncated: 5000`.
+
+### The weekly table and filters
+
+A rate needs both verdicts and every answer as its denominator, so the weekly
+table (the workbook's **Wochen** sheet and `summary=weekly`) applies the scope
+(range, organizations, projects) and the topic, which narrow answers and votes
+alike. It does not apply the verdict, reason, mode, confidence, note or search
+filters: they describe a vote, not an answer. The workbook's overview says which
+were left out; the CSV names them in `X-Grid-Export-Ignored-Filters`
+(`verdict,reason`). The weekly range starts on the Monday of `from`'s ISO week,
+so its first row is a whole week, and ends with `to`. It has its own cap of
+5,000 rows, newest week first, so a cut drops the oldest weeks.
+
+## The count and the pickers' numbers
+
+`GET /api/platform/answer-feedback/options`, the same gate and the same
+parameters as the export (not `format` or `summary`), answers what the filter
+row and the export dialog show before anything is downloaded:
+
+| Field | Meaning |
+|---|---|
+| `total` | Votes matching the whole request, counted no further than `cap` |
+| `overCap` | More than `cap` match; only the newest `cap` would be exported |
+| `cap` | The export's row cap, 5,000 |
+| `scopeTotal` | Votes in the scope alone, ratings filters ignored |
+| `verdicts` | `{ up, down }` in the scope |
+| `reasons`, `modes`, `confidences` | `[{ key, votes }]` for every known value, zero-filled, in fixed order |
+| `topics` | `[{ key, votes }]`, busiest first, at most 100 |
+| `withComment`, `withExpectedAnswer` | Votes with a note of that kind |
+
+The per-value counts are over the scope only, so a picker's numbers do not
+shrink with each pick. Two statements: the capped count, and one UNION ALL of
+bounded GROUP BYs over the scoped votes.
 
 ## The workbook
 
@@ -34,10 +101,11 @@ newest week first, so a cut drops the oldest weeks.
    wraps. The two link columns are hyperlinks.
 2. **Wochen / Weeks**: per organization and ISO week, with the denominator a
    rate needs.
-3. **Übersicht / Overview**: generation time, window, scope and filters,
-   totals over the whole set (votes, verdicts, distinct voters, organizations,
-   uncapped), whether either cap was hit, and the caveats a number from the file
-   must be quoted with.
+3. **Übersicht / Overview**: generation time, range, organizations and
+   projects by name, every ratings filter in the reader's words, which filters
+   the weekly sheet left out and why, totals over the whole set (votes,
+   verdicts, distinct voters, organizations, uncapped), whether either cap was
+   hit, and the caveats a number from the file must be quoted with.
 4. **Spalten / Columns**: this dictionary, in the reader's language.
 
 Labels, descriptions and sheet names come from the `feedbackExport` dictionary
