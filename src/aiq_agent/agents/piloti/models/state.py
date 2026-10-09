@@ -274,6 +274,10 @@ class ResearchAgentState(BaseModel):
     # dropped: the transparency doctrine forbids a class of instruction the
     # product declines to admit ran.
     skills_hidden: list[str] | None = None
+    # The thinking level the answering call ran at (``reasoning_settings.effort_of``
+    # on the turn's resolved model). Set by the register layer after ``run()``,
+    # lifted onto ``TurnResult.reasoning_effort``. None when it sends none.
+    reasoning_effort: str | None = None
     # TRUE when this turn hit its tool-iteration ceiling and was forced into
     # synthesis — i.e. evidence-gathering was CUT OFF rather than finished, and
     # the answer is written from whatever had been gathered by then. Set by

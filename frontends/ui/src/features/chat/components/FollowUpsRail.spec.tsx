@@ -114,4 +114,17 @@ describe('FollowUpsRail — the Aktenvermerk offer', () => {
     expect(prefill.trim().endsWith('.')).toBe(true)
     expect(fetch).not.toHaveBeenCalled()
   })
+
+  it('arrives with its entrance only when asked: a restored rail is simply there', () => {
+    const { container, rerender } = render(<FollowUpsRail items={items} />)
+    expect((container.querySelector('[data-testid="follow-ups-rail"]') as HTMLElement).style.opacity).toBe('0')
+
+    rerender(<FollowUpsRail key="restored" items={items} animateIn={false} />)
+    expect((container.querySelector('[data-testid="follow-ups-rail"]') as HTMLElement).style.opacity).not.toBe('0')
+  })
+
+  it('takes the column width itself, so no wrapper can be left behind empty', () => {
+    const { container } = render(<FollowUpsRail items={items} />)
+    expect(container.querySelector('[data-testid="follow-ups-rail"]')).toHaveClass('w-full')
+  })
 })
