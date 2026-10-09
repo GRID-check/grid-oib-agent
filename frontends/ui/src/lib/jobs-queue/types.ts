@@ -18,15 +18,18 @@ import { BFF_JOB_PRIORITY, type BffJobPriority } from '@/lib/db/schema'
  * payload schema below and in `./handlers.ts`.
  *
  * The first two walk a set of documents a page per slice and run AS the person
- * who asked (their payload carries a `requester`). The other three are one
- * bounded step each and run as the system, because the person's permission was
- * checked when the work was requested and what they do afterwards takes no
- * session: parsing a model, converting a file, rendering and filing a report as
- * the run's own pinned requester.
+ * who asked (their payload carries a `requester`). `placement_reingest` walks
+ * too, as the system: what it re-reads was decided by a change of folder access
+ * the person was authorized for, and the rows it takes say so themselves. The
+ * other three are one bounded step each and run as the system, because the
+ * person's permission was checked when the work was requested and what they do
+ * afterwards takes no session: parsing a model, converting a file, rendering
+ * and filing a report as the run's own pinned requester.
  */
 export const BFF_JOB_KINDS = [
   'reindex_project',
   'reingest_failed',
+  'placement_reingest',
   'bim_extract',
   'office_rendition',
   'file_research_report',
@@ -131,6 +134,17 @@ export const reingestFailedPayloadSchema = z.object({
   counts: countsSchema,
 })
 export type ReingestFailedPayload = z.infer<typeof reingestFailedPayloadSchema>
+
+/**
+ * `placement_reingest`: re-read the documents collection placement moved in one
+ * project (ADR-0087), a page per slice. Its whole state is the project: the
+ * rows it takes are marked on the row (`documents/placement-repository.ts`),
+ * so a job already queued serves rows marked after it.
+ */
+export const placementReingestPayloadSchema = z.object({
+  projectId: z.string().min(1),
+})
+export type PlacementReingestPayload = z.infer<typeof placementReingestPayloadSchema>
 
 /**
  * A stored document to run background work for: what `dispatchDocument` was

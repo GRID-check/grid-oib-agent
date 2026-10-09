@@ -16,7 +16,7 @@
 
 import { chatEffortFromSettings } from '@/lib/reasoning-settings/catalog'
 import type { JSX } from 'react'
-import { Building2, Globe, Mail, MessageSquareText, ShieldAlert, Users } from 'lucide-react'
+import { Building2, FileDown, Globe, Mail, MessageSquareText, ShieldAlert, Users } from 'lucide-react'
 import { withPageSession } from '@/lib/auth/require-auth'
 import { isOrgAdmin } from '@/lib/authz/organizations'
 import {
@@ -25,6 +25,8 @@ import {
   type OrganizationOverview,
 } from '@/lib/organizations/service'
 import { getOrgInstructions } from '@/lib/org-instructions/service'
+import { retentionDaysFromSettings } from '@/lib/download-log/kinds'
+import { DownloadLogRetentionForm } from '@/features/organization/components/download-log-retention-form'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { EmptyState } from '@/components/ui/empty-state'
 import { PageHeader } from '@/components/ui/page-header'
@@ -188,6 +190,20 @@ export default async function OrganizationOverviewPage(): Promise<JSX.Element> {
               ) : (
                 <EmptyState variant="bare" title={t('settings.loadError')} />
               )}
+            </CardContent>
+          </Card>
+        )}
+        {settings && (
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <FileDown className="size-4 text-muted-foreground" aria-hidden />
+                {t('downloadLog.retentionCard.title')}
+              </CardTitle>
+              <CardDescription>{t('downloadLog.retentionCard.description')}</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <DownloadLogRetentionForm initialDays={retentionDaysFromSettings(settings.settings)} />
             </CardContent>
           </Card>
         )}

@@ -62,7 +62,9 @@ describe('POST /api/projects/[id]/runs/[runId]/documents', () => {
       expect.objectContaining({ organizationId: 'org_1' }),
       PROJECT,
       RUN,
-      { name: 'Einreichplan.pdf', title: 'Einreichplan', shelf: 'project' }
+      { name: 'Einreichplan.pdf', title: 'Einreichplan', shelf: 'project' },
+      // A refusal of a restricted-folder document is read by the person who picked it.
+      expect.stringMatching(/^(en|de)$/)
     )
   })
 

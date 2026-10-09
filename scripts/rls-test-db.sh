@@ -12,7 +12,16 @@
 set -euo pipefail
 
 UI_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../frontends/ui" && pwd)"
-PORT="${RLS_TEST_PORT:-55433}"
+# A port nobody holds, unless the caller names one. Parallel runs in one
+# container (two agents, two worktrees) each get their own: a fixed default made
+# the second die at `pg_ctl: could not start server` before any migration ran.
+# TCP on 127.0.0.1 rather than the unix socket alone, because the vitest suites
+# below connect to 127.0.0.1:$PORT. The OS picks an ephemeral port and the
+# probe releases it; the window before `pg_ctl` binds it again is milliseconds.
+PORT="${RLS_TEST_PORT:-$(node -e '
+  const server = require("net").createServer();
+  server.listen(0, "127.0.0.1", () => { console.log(server.address().port); server.close(); });
+')}"
 # `|| true` matters: under `set -e` a glob that matches nothing makes the
 # substitution non-zero and kills the script here, so the friendly "install
 # postgresql, or set PGBIN" message below would never be the thing an operator
@@ -101,23 +110,32 @@ done
 # cosine query — and a mocked drizzle handle cannot disagree with the fixture
 # that mocked it. (The memory suite is the one that found the semantic gate
 # reading `.rows` off a postgres-js array, which every mock had agreed with.)
-echo "==> running the isolation, BIM query, memory consolidation, profile-binding, legal-hold, chat-erasure, run-reconciler, usage-ledger and answer-feedback suites as grid_app_rw"
+echo "==> running the isolation, BIM query, memory consolidation, profile-binding, legal-hold, chat-erasure, restricted-use, run-reconciler, usage-ledger, answer-feedback, restricted memory and download-log suites as grid_app_rw"
 GRID_TEST_DATABASE_URL="postgres://grid_app_rw:$RUNTIME_PASSWORD@127.0.0.1:$PORT/grid_app" \
   npx vitest run \
     src/lib/db/tenant-isolation.integration.spec.ts \
     src/lib/bim/query.integration.spec.ts \
     src/lib/bim/model-shelf.integration.spec.ts \
     src/lib/projects/memory-service.integration.spec.ts \
+    src/lib/projects/memory-restricted.integration.spec.ts \
     src/lib/documents/document-versions.integration.spec.ts \
     src/lib/documents/list-page.integration.spec.ts \
+    src/lib/upload-batches/upload-batches.integration.spec.ts \
+    src/lib/authz/folder-access.integration.spec.ts \
+    src/lib/projects/collection-placement.integration.spec.ts \
+    src/lib/projects/folder-visibility.integration.spec.ts \
     src/lib/documents/shelf-folders.integration.spec.ts \
     src/lib/documents/stuck-processing.integration.spec.ts \
     src/lib/project-profile/profile-bindings.integration.spec.ts \
     src/lib/compliance/legal-hold.integration.spec.ts \
     src/lib/conversations/erasure-queue.integration.spec.ts \
+    src/lib/conversations/restricted-use.integration.spec.ts \
+    src/lib/download-log/download-log.integration.spec.ts \
     src/lib/runs/reconcile.integration.spec.ts \
     src/lib/budgets/service.integration.spec.ts \
-    src/lib/feedback/repository.integration.spec.ts
+    src/lib/feedback/repository.integration.spec.ts \
+    src/lib/citations/repository.integration.spec.ts \
+    src/lib/profiler/repository.integration.spec.ts
 
 # The job-queue suites claim from ONE table, whichever lane a job is in, so run
 # in parallel they claim each other's seeded jobs. One file at a time.
@@ -363,6 +381,213 @@ GRID_TEST_MIGRATION_DATABASE_URL="postgres://grid_app_owner@127.0.0.1:$PORT/grid
   npx vitest run src/lib/conversations/herleitung-steps-v2.migration.spec.ts
 
 echo "==> 0097 step rewrite and down migration verified"
+
+# ---------------------------------------------------------------------------
+# Migrations 0111 to 0114: each on a database of its own.
+#
+# `migrate_until <db> <tag>` creates <db> and applies the journal up to and
+# including <tag>, so every section below starts from exactly the chain it
+# follows and a later migration never changes what an earlier section sees.
+# `check_in` and `refused_in` assert against that database as its owner, which
+# is what runs a migration.
+# ---------------------------------------------------------------------------
+migrate_until() {
+  local db="$1" last="$2"
+  grep -q "\"tag\": \"$last\"" drizzle/meta/_journal.json || {
+    echo "migrate_until: $last is not in the journal" >&2
+    exit 1
+  }
+  $PSQL -q -v ON_ERROR_STOP=1 -c "CREATE DATABASE $db OWNER grid_app_owner;"
+  node -e '
+    const j = require("./drizzle/meta/_journal.json");
+    console.log(j.entries.map((e) => e.tag).join("\n"));
+  ' | while read -r tag; do
+    $PGBIN/psql -h "$WORKDIR" -p "$PORT" -U grid_app_owner -d "$db" -v ON_ERROR_STOP=1 -q -f "drizzle/$tag.sql" >/dev/null || {
+      echo "SETUP OF $db FAILED at $tag — re-run without -q to see the error" >&2
+      exit 1
+    }
+    if [ "$tag" = "$last" ]; then break; fi
+  done
+}
+# Run a migration file (or its down) against <db>, failing loudly.
+apply_in() {
+  $PGBIN/psql -h "$WORKDIR" -p "$PORT" -U grid_app_owner -d "$1" -v ON_ERROR_STOP=1 -q -f "drizzle/$2" >/dev/null || {
+    echo "MIGRATION $2 FAILED on $1 — re-run without -q to see the error" >&2
+    exit 1
+  }
+}
+sql_in() { $PGBIN/psql -h "$WORKDIR" -p "$PORT" -U grid_app_owner -d "$1" -v ON_ERROR_STOP=1 -q >/dev/null; }
+check_in() {
+  local got
+  got=$($PGBIN/psql -h "$WORKDIR" -p "$PORT" -U grid_app_owner -d "$1" -tAc "$2")
+  if [ "$got" != "$3" ]; then
+    echo "MIGRATION ASSERTION FAILED on $1: $4" >&2
+    echo "  query: $2" >&2
+    echo "  got:   $got" >&2
+    echo "  want:  $3" >&2
+    exit 1
+  fi
+}
+# Run SQL that must be REFUSED on <db>, and check the refusal names the rule ($3).
+refused_in() {
+  local out
+  if out=$($PGBIN/psql -h "$WORKDIR" -p "$PORT" -U grid_app_owner -d "$1" -v ON_ERROR_STOP=1 -q 2>&1 <<<"$2"); then
+    echo "MIGRATION ASSERTION FAILED on $1: $4 (the statement was accepted)" >&2
+    exit 1
+  fi
+  if ! grep -q -- "$3" <<<"$out"; then
+    echo "MIGRATION ASSERTION FAILED on $1: $4 (refused for another reason)" >&2
+    echo "  output: $out" >&2
+    exit 1
+  fi
+}
+
+# ---------------------------------------------------------------------------
+# Migration 0111: read/write grants per folder (ADR-0088), and its DOWN.
+#
+# What the database itself holds: a custom list may not be emptied (the
+# deferred trigger), may be REPLACED in one transaction, refuses a level or a
+# slug it does not know, holds at most 20 entries; a folder cannot become
+# custom without a grant; a tombstone keeps its list and frees its name. The
+# down removes the tombstones, the grants table and the columns, and puts
+# develop's non-partial name index back; 0110 then re-applies.
+# ---------------------------------------------------------------------------
+echo "==> verifying the 0111 grants, their constraints and the down migration on grid_grants"
+migrate_until grid_grants 0111_project_folder_grants
+sql_in grid_grants <<'SQL'
+INSERT INTO projects (id, organization_id, name, created_by, collection_name)
+VALUES ('aaaaaaaa-0000-4000-8000-000000000106', 'org_0106', 'Grants 0110', 'user_1', 'proj_0106');
+BEGIN;
+INSERT INTO project_folders (id, organization_id, project_id, name, path, access_mode, access_changed_by, access_changed_at) VALUES
+  ('a1a1a1a1-a1a1-4000-8000-000000000106', 'org_0106', 'aaaaaaaa-0000-4000-8000-000000000106', 'Verträge', 'Verträge', 'custom', 'user_1', now()),
+  ('b2b2b2b2-b2b2-4000-8000-000000000106', 'org_0106', 'aaaaaaaa-0000-4000-8000-000000000106', 'Personal', 'Personal', 'custom', 'user_1', now());
+INSERT INTO project_folders (id, organization_id, project_id, name, path) VALUES
+  ('c3c3c3c3-c3c3-4000-8000-000000000106', 'org_0106', 'aaaaaaaa-0000-4000-8000-000000000106', 'Pläne', 'Pläne');
+INSERT INTO project_folder_grants (organization_id, project_id, folder_id, role_slug, level) VALUES
+  ('org_0106', 'aaaaaaaa-0000-4000-8000-000000000106', 'a1a1a1a1-a1a1-4000-8000-000000000106', 'org-gf', 'write'),
+  ('org_0106', 'aaaaaaaa-0000-4000-8000-000000000106', 'b2b2b2b2-b2b2-4000-8000-000000000106', 'org-gf', 'write');
+COMMIT;
+SQL
+check_in grid_grants "SELECT relrowsecurity FROM pg_class WHERE relname = 'project_folder_grants'" "t" "the grants table is inside the tenant boundary"
+check_in grid_grants "SELECT string_agg(name || '=' || access_mode, ',' ORDER BY name) FROM project_folders WHERE project_id = 'aaaaaaaa-0000-4000-8000-000000000106'" "Personal=custom,Pläne=inherit,Verträge=custom" "a folder inherits unless it has its own list"
+refused_in grid_grants "DELETE FROM project_folder_grants WHERE folder_id = 'a1a1a1a1-a1a1-4000-8000-000000000106';" "it needs 1 to 20" "a custom list may not be emptied"
+refused_in grid_grants "INSERT INTO project_folder_grants (organization_id, project_id, folder_id, role_slug, level) VALUES ('org_0106', 'aaaaaaaa-0000-4000-8000-000000000106', 'a1a1a1a1-a1a1-4000-8000-000000000106', 'org-pl', 'admin');" "project_folder_grants_level_check" "a level is read or write"
+refused_in grid_grants "INSERT INTO project_folder_grants (organization_id, project_id, folder_id, role_slug, level) VALUES ('org_0106', 'aaaaaaaa-0000-4000-8000-000000000106', 'a1a1a1a1-a1a1-4000-8000-000000000106', '*org', 'read');" "project_folder_grants_role_check" "a slug never starts with the reserved *"
+refused_in grid_grants "UPDATE project_folders SET access_mode = 'custom', access_changed_by = 'user_1', access_changed_at = now() WHERE id = 'c3c3c3c3-c3c3-4000-8000-000000000106';" "it needs 1 to 20" "a folder cannot become custom without a grant"
+refused_in grid_grants "UPDATE project_folders SET access_changed_by = NULL WHERE id = 'a1a1a1a1-a1a1-4000-8000-000000000106';" "project_folders_access_custom_check" "a custom folder says who set its list"
+sql_in grid_grants <<'SQL'
+BEGIN;
+-- Replacing a list in one transaction: delete, then insert. Deferred, so allowed.
+DELETE FROM project_folder_grants WHERE folder_id = 'a1a1a1a1-a1a1-4000-8000-000000000106';
+INSERT INTO project_folder_grants (organization_id, project_id, folder_id, role_slug, level) VALUES
+  ('org_0106', 'aaaaaaaa-0000-4000-8000-000000000106', 'a1a1a1a1-a1a1-4000-8000-000000000106', '*', 'read'),
+  ('org_0106', 'aaaaaaaa-0000-4000-8000-000000000106', 'a1a1a1a1-a1a1-4000-8000-000000000106', 'org-gf', 'write');
+-- A new folder with its own list: read for one role, write for another.
+INSERT INTO project_folders (id, organization_id, project_id, name, path, access_mode, access_changed_by, access_changed_at) VALUES
+  ('d4d4d4d4-d4d4-4000-8000-000000000106', 'org_0106', 'aaaaaaaa-0000-4000-8000-000000000106', 'Honorare', 'Honorare', 'custom', 'user_1', now());
+INSERT INTO project_folder_grants (organization_id, project_id, folder_id, role_slug, level) VALUES
+  ('org_0106', 'aaaaaaaa-0000-4000-8000-000000000106', 'd4d4d4d4-d4d4-4000-8000-000000000106', 'org-pl', 'read'),
+  ('org_0106', 'aaaaaaaa-0000-4000-8000-000000000106', 'd4d4d4d4-d4d4-4000-8000-000000000106', 'org-gf', 'write');
+-- Deleting Personal leaves its tombstone with its list; the name is free again.
+UPDATE project_folders SET deleted_at = now(), deleted_by = 'user_1' WHERE id = 'b2b2b2b2-b2b2-4000-8000-000000000106';
+INSERT INTO project_folders (id, organization_id, project_id, name, path) VALUES
+  ('e5e5e5e5-e5e5-4000-8000-000000000106', 'org_0106', 'aaaaaaaa-0000-4000-8000-000000000106', 'Personal', 'Personal');
+COMMIT;
+SQL
+check_in grid_grants "SELECT string_agg(role_slug || ':' || level, ',' ORDER BY role_slug) FROM project_folder_grants WHERE folder_id = 'a1a1a1a1-a1a1-4000-8000-000000000106'" "*:read,org-gf:write" "a list was replaced in one transaction"
+check_in grid_grants "SELECT count(*) FROM project_folder_grants WHERE folder_id = 'b2b2b2b2-b2b2-4000-8000-000000000106'" "1" "a tombstone keeps its list"
+refused_in grid_grants "INSERT INTO project_folder_grants (organization_id, project_id, folder_id, role_slug, level) SELECT 'org_0106', 'aaaaaaaa-0000-4000-8000-000000000106', 'd4d4d4d4-d4d4-4000-8000-000000000106', 'org-extra-' || n, 'read' FROM generate_series(1, 19) AS n;" "it needs 1 to 20" "a list holds at most 20 entries"
+refused_in grid_grants "INSERT INTO project_folders (organization_id, project_id, name, path) VALUES ('org_0106', 'aaaaaaaa-0000-4000-8000-000000000106', 'Personal', 'Personal');" "uniq_project_folders_parent_name" "two living folders still cannot share a name"
+apply_in grid_grants 0111_project_folder_grants.down.sql
+check_in grid_grants "SELECT string_agg(name, ',' ORDER BY name) FROM project_folders WHERE project_id = 'aaaaaaaa-0000-4000-8000-000000000106'" "Honorare,Personal,Pläne,Verträge" "down removed the tombstone and kept every living folder"
+check_in grid_grants "SELECT to_regclass('public.project_folder_grants') IS NULL" "t" "down dropped the grants table"
+check_in grid_grants "SELECT count(*) FROM information_schema.columns WHERE table_name = 'project_folders' AND column_name IN ('access_mode', 'access_changed_by', 'access_changed_at', 'deleted_at', 'deleted_by')" "0" "down dropped the new columns"
+check_in grid_grants "SELECT indexdef LIKE '%WHERE%' FROM pg_indexes WHERE indexname = 'uniq_project_folders_parent_name'" "f" "down put develop's non-partial name index back"
+apply_in grid_grants 0111_project_folder_grants.sql
+check_in grid_grants "SELECT string_agg(name || '=' || access_mode, ',' ORDER BY name) FROM project_folders WHERE project_id = 'aaaaaaaa-0000-4000-8000-000000000106'" "Honorare=inherit,Personal=inherit,Pläne=inherit,Verträge=inherit" "0110 re-applies, every folder inheriting"
+
+echo "==> 0111 grants, constraints and down migration verified"
+
+# ---------------------------------------------------------------------------
+# Migration 0112: the per-folder chat record, and its DOWN.
+#
+# One row per (conversation, source folder): inside the tenant boundary, and
+# `last_at` never before `first_at`. The down drops the table; 0111 re-applies.
+# The admission and read paths are proved against the real chain by
+# restricted-use.integration.spec.ts above.
+# ---------------------------------------------------------------------------
+echo "==> verifying the 0112 chat record and its down migration on grid_chat_folders"
+migrate_until grid_chat_folders 0112_conversation_restricted_folders
+check_in grid_chat_folders "SELECT relrowsecurity FROM pg_class WHERE relname = 'conversation_restricted_folders'" "t" "the table is inside the tenant boundary"
+refused_in grid_chat_folders "INSERT INTO conversation_restricted_folders (organization_id, conversation_id, folder_id, first_at, last_at) VALUES ('org_0107', 's_1', gen_random_uuid(), now(), now() - interval '1 minute');" "conversation_restricted_folders_order" "last_at never comes before first_at"
+sql_in grid_chat_folders <<'SQL'
+INSERT INTO conversation_restricted_folders (organization_id, conversation_id, folder_id)
+VALUES ('org_0107', 's_never_created', 'a1a1a1a1-a1a1-4000-8000-000000000107');
+SQL
+check_in grid_chat_folders "SELECT count(*) FROM conversation_restricted_folders" "1" "a row needs no conversation row yet and no folder row (no foreign keys)"
+apply_in grid_chat_folders 0112_conversation_restricted_folders.down.sql
+check_in grid_chat_folders "SELECT to_regclass('public.conversation_restricted_folders') IS NULL" "t" "down dropped the table"
+apply_in grid_chat_folders 0112_conversation_restricted_folders.sql
+check_in grid_chat_folders "SELECT count(*) FROM conversation_restricted_folders" "0" "0111 re-applies, empty"
+
+echo "==> 0112 chat record and down migration verified"
+
+# ---------------------------------------------------------------------------
+# Migration 0113: restricted memory by folder, and its DOWN.
+#
+# An open and a restricted note with the same text can both be live (the 0112
+# index); an empty folder list and a restricted organization note are refused
+# (the 0112 CHECK). The down is lossy on purpose and in the safe direction:
+# restricted notes are DELETED, because dropping the column alone would serve
+# them to everyone. It restores develop's dedup index; 0112 then re-applies.
+# ---------------------------------------------------------------------------
+echo "==> verifying the 0113 restricted memory and its down migration on grid_memory"
+migrate_until grid_memory 0113_project_memory_restricted_folders
+sql_in grid_memory <<'SQL'
+INSERT INTO projects (id, organization_id, name, created_by, collection_name)
+VALUES ('aaaaaaaa-0000-4000-8000-000000000108', 'org_0108', 'Memory 0112', 'user_1', 'proj_0108');
+INSERT INTO project_memory (scope, project_id, organization_id, kind, content, restricted_folder_ids) VALUES
+  ('project', 'aaaaaaaa-0000-4000-8000-000000000108', 'org_0108', 'decision', 'Honorar pauschal', NULL),
+  ('project', 'aaaaaaaa-0000-4000-8000-000000000108', 'org_0108', 'decision', 'Honorar pauschal', ARRAY['d4d4d4d4-d4d4-4000-8000-000000000108'::uuid]);
+SQL
+check_in grid_memory "SELECT count(*) FROM project_memory WHERE organization_id = 'org_0108' AND status = 'active'" "2" "an open and a restricted note with the same text are both live"
+refused_in grid_memory "INSERT INTO project_memory (scope, project_id, organization_id, kind, content) VALUES ('project', 'aaaaaaaa-0000-4000-8000-000000000108', 'org_0108', 'decision', 'Honorar pauschal');" "uniq_project_memory_project_content_active" "a second open note with the same text is still one too many"
+refused_in grid_memory "INSERT INTO project_memory (scope, project_id, organization_id, kind, content, restricted_folder_ids) VALUES ('project', 'aaaaaaaa-0000-4000-8000-000000000108', 'org_0108', 'decision', 'leer', '{}');" "project_memory_restricted_folders_check" "an empty folder list is not a restriction"
+refused_in grid_memory "INSERT INTO project_memory (scope, organization_id, kind, content, restricted_folder_ids) VALUES ('organization', 'org_0108', 'decision', 'Büroweit', ARRAY['d4d4d4d4-d4d4-4000-8000-000000000108'::uuid]);" "project_memory_restricted_folders_check" "organization memory is never restricted"
+apply_in grid_memory 0113_project_memory_restricted_folders.down.sql
+check_in grid_memory "SELECT count(*) FROM project_memory WHERE organization_id = 'org_0108'" "1" "down deleted the restricted note and kept the open one"
+check_in grid_memory "SELECT count(*) FROM information_schema.columns WHERE table_name = 'project_memory' AND column_name = 'restricted_folder_ids'" "0" "down dropped the column"
+check_in grid_memory "SELECT indexdef LIKE '%coalesce%' FROM pg_indexes WHERE indexname = 'uniq_project_memory_project_content_active'" "f" "down restored develop's dedup index"
+apply_in grid_memory 0113_project_memory_restricted_folders.sql
+check_in grid_memory "SELECT count(*) FROM information_schema.columns WHERE table_name = 'project_memory' AND column_name = 'restricted_folder_ids'" "1" "0112 re-applies"
+
+echo "==> 0113 restricted memory and down migration verified"
+
+# ---------------------------------------------------------------------------
+# Migration 0114: the download log, and its DOWN.
+#
+# The table is inside the tenant boundary, the database refuses an open outside
+# an own list, a shelf that disagrees with its project and any UPDATE, and the
+# down drops the table and its guard function; 0113 then re-applies. The
+# platform role's delete and the retention sweep are proved against the real
+# chain by download-log.integration.spec.ts above.
+# ---------------------------------------------------------------------------
+echo "==> verifying the 0114 download log, its constraints and its down migration on grid_download_log"
+migrate_until grid_download_log 0114_document_access_log
+check_in grid_download_log "SELECT relrowsecurity FROM pg_class WHERE relname = 'document_access_log'" "t" "the download log is inside the tenant boundary"
+check_in grid_download_log "SELECT count(*) FROM pg_indexes WHERE tablename = 'document_access_log'" "5" "the primary key and the four indexes (time, person, document, purge)"
+refused_in grid_download_log "INSERT INTO document_access_log (organization_id, user_id, kind, scope, document_id, document_name, own_list) VALUES ('org_0109', 'u', 'preview', 'archiv', gen_random_uuid(), 'x', false);" "document_access_log_open_needs_own_list" "an open outside an own list is refused"
+refused_in grid_download_log "INSERT INTO document_access_log (organization_id, user_id, kind, scope, document_id, document_name) VALUES ('org_0109', 'u', 'download', 'project', gen_random_uuid(), 'x');" "document_access_log_scope_project" "a project shelf needs a project"
+sql_in grid_download_log <<<"INSERT INTO document_access_log (organization_id, user_id, kind, scope, document_id, document_name) VALUES ('org_0109', 'u', 'download', 'archiv', gen_random_uuid(), 'Plan.pdf');"
+refused_in grid_download_log "UPDATE document_access_log SET user_id = 'v';" "never changed" "a row is never changed, not even by its owner"
+refused_in grid_download_log "DELETE FROM document_access_log;" "deleted only by the retention sweep" "only the platform role deletes"
+apply_in grid_download_log 0114_document_access_log.down.sql
+check_in grid_download_log "SELECT to_regclass('public.document_access_log') IS NULL" "t" "down dropped the download log"
+check_in grid_download_log "SELECT to_regprocedure('grid_document_access_log_guard()') IS NULL" "t" "down dropped the guard function"
+apply_in grid_download_log 0114_document_access_log.sql
+check_in grid_download_log "SELECT count(*) FROM document_access_log" "0" "0113 re-applies, empty"
+
+echo "==> 0114 download log and down migration verified"
 
 # ---------------------------------------------------------------------------
 # Migration 0102: project_folders become folders of a SHELF (project | archiv),

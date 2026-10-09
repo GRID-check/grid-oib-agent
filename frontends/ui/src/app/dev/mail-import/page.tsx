@@ -64,9 +64,10 @@ const HISTORY: MailImportView[] = [
   }),
   row({
     id: 'imp-done',
-    filesSkipped: 3,
+    filesSkipped: 4,
     skippedSamples: [
       { mail: '#2114', file: null, reason: 'unreadable' },
+      { mail: '2025-05-14 11.03 – Kanzlei Weber', file: 'Vertrag_Entwurf.docx', reason: 'screened' },
       { mail: '2025-03-12 14.05 – Statik Huber', file: 'Bewehrung.dwg', reason: 'type' },
       { mail: '2025-04-02 08.40 – Bauamt Wien', file: 'Scan_Gesamt.pdf', reason: 'size' },
       { mail: '2025-04-09 16.22 – Anna Berger', file: 'AW Termin', reason: 'embedded_message' },

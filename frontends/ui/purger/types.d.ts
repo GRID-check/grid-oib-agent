@@ -70,6 +70,12 @@ export interface PurgeDeps {
   } | null;
   deleteStoragePrefix: (bucket: string, prefix: string) => Promise<number>;
   /**
+   * Delete a conversation's Langfuse traces (`workers/langfuse-traces.js`). A
+   * logged no-op when Langfuse is not configured; throws on a failed call, so
+   * the queue row's attempts and backoff are the retry. Idempotent.
+   */
+  eraseConversationTraces: (conversationId: string) => Promise<unknown>;
+  /**
    * Abort every multipart upload still open under `prefix`. Its parts are not
    * objects, so the prefix sweep cannot see them: an Outlook archive half-sent
    * into a project (ADR-0085) would outlive the project's erasure.

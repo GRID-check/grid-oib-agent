@@ -243,6 +243,31 @@ export const INBOX_TYPE_DEFINITIONS: Record<InboxItemType, InboxTypeDefinition> 
     gate: 'platform',
     email: { send: 'if-unread', afterMinutes: 0 },
   },
+  /*
+    An upload of yours has been read (ADR-0086). `per-anchor` on the batch id:
+    two uploads are two summaries. Informational and in-app only: nothing waits
+    on the reader, and the files already show their status where they live.
+  */
+  'upload.completed': {
+    actionable: false,
+    grouping: 'per-anchor',
+    retentionDays: 30,
+    gate: 'operational',
+    email: IN_APP_ONLY,
+  },
+  /*
+    The content check held files back (ADR-0086). `collapse` per organization:
+    a folder of payslips is one row reading "7 Dateien warten", not seven.
+    Informational rather than actionable, because the queue page is where the
+    decision is made and a row nothing can resolve would sit in the badge.
+  */
+  'document.quarantined': {
+    actionable: false,
+    grouping: 'collapse',
+    retentionDays: 30,
+    gate: 'operational',
+    email: IN_APP_ONLY,
+  },
 }
 
 /**

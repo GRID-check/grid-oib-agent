@@ -23,12 +23,14 @@ const client = vi.hoisted(() => ({
   createMessage: vi.fn().mockResolvedValue(undefined),
   updateMessageProvenance: vi.fn().mockResolvedValue(undefined),
   updateMessageStages: vi.fn().mockResolvedValue(undefined),
+  cutStoppedAnswer: vi.fn().mockResolvedValue(undefined),
   generateTitle: vi.fn().mockResolvedValue(undefined),
 }))
 vi.mock('@/adapters/api/conversations-client', () => ({ conversationsClient: client }))
 
 import { useChatStore } from '../store'
 import { registerStopStreamingHandler } from './messages-store'
+import { registerShownText } from './answer-reveal-store'
 import type { ChatMessage, Conversation } from '../types'
 
 const answered = wireEvents('turn-answered.jsonl')
@@ -158,6 +160,27 @@ describe('a turn folded into its thread', () => {
     expect(answerOf(RESULT.message_id)!.answerDurationMs).toBeGreaterThanOrEqual(4_000)
   })
 
+  it('records the Aufwand the question was sent with on its answer, and mirrors it', async () => {
+    ask(answered)
+    useChatStore.getState().beginTurn(CONVERSATION, TURN, 'low')
+    useChatStore.getState().applyTurnEvents(answered)
+
+    expect(answerOf(RESULT.message_id)!.reasoningEffort).toBe('low')
+    await vi.waitFor(() =>
+      expect(client.updateMessageProvenance).toHaveBeenCalledWith(
+        CONVERSATION,
+        RESULT.message_id,
+        expect.objectContaining({ reasoningEffort: 'low' })
+      )
+    )
+  })
+
+  it('records no Aufwand for a turn this page did not open with one', () => {
+    ask(answered)
+    useChatStore.getState().applyTurnEvents(answered)
+    expect(answerOf(RESULT.message_id)!.reasoningEffort).toBeUndefined()
+  })
+
   it('stores the follow-ups but does not draw them under a reader who is typing', async () => {
     ask(answered)
     useChatStore.setState({ composerDrafts: { [CONVERSATION]: 'Und bei GK 5?' } })
@@ -197,8 +220,10 @@ describe('Stop', () => {
 
     useChatStore.getState().stopStreaming()
 
-    expect(cancel).toHaveBeenCalledWith(turnId)
-    expect(answerOf(id)).toMatchObject({ content: partial, stopped: true })
+    expect(cancel).toHaveBeenCalledWith(turnId, { seq: 4, chars: Array.from(partial).length })
+    // Cut by the server's rule (`stopped-answer.ts`), which trims: the row
+    // either side writes is the same text.
+    expect(answerOf(id)).toMatchObject({ content: partial.trim(), stopped: true })
     expect(answerOf(id)!.isStreaming).toBeUndefined()
     expect(useChatStore.getState().isStreaming).toBe(false)
     expect(client.createMessage).not.toHaveBeenCalled()
@@ -217,6 +242,179 @@ describe('Stop', () => {
 })
 
 const CONVERSATION_OF = (events: WireEvent[]) => events[0]!.conversation_id
+
+// L23: what the reader saw at the press is what is kept, in the thread and in
+// the stored message, whatever the stream still had in flight.
+describe('Stop, what was on screen', () => {
+  const cancelled = wireEvents('turn-cancelled.jsonl')
+  const delta = cancelled.find((event) => event.type === 'TEXT_MESSAGE_CONTENT')!
+  const terminal = cancelled.find((event) => event.type === 'RUN_FINISHED')!
+
+  it('keeps the shown text, and takes neither later deltas nor the terminal’s text, sources or cards', async () => {
+    const { turnId } = ask(cancelled)
+    useChatStore.getState().applyTurnEvents(upTo(cancelled, 4))
+    const id = useChatStore.getState().turns[turnId]!.messageId!
+    const arrived = answerOf(id)!.content
+    const shown = arrived.slice(0, arrived.indexOf(' ', 10) + 1)
+    const unregister = registerShownText(id, () => shown)
+    const cancel = vi.fn()
+    registerStopStreamingHandler(cancel)
+
+    useChatStore.getState().stopStreaming()
+    unregister()
+    // The server's rule trims the cut, so the stored row is the same text.
+    expect(answerOf(id)!.content).toBe(shown.trim())
+    // The server is told the same cut, so the row it stores is this text too.
+    expect(cancel).toHaveBeenCalledWith(turnId, { seq: 4, chars: shown.length })
+
+    const late = { ...delta, seq: 5, delta: ' und noch mehr' } as WireEvent
+    const finishedEvent =
+      terminal.type === 'RUN_FINISHED'
+        ? ({
+            ...terminal,
+            seq: 6,
+            result: { ...terminal.result, text: `${arrived} und noch mehr.`, sources: RESULT.sources, cards: RESULT.cards },
+          } as WireEvent)
+        : terminal
+    useChatStore.getState().applyTurnEvents([late, finishedEvent])
+
+    const answer = answerOf(id)!
+    expect(answer).toMatchObject({ content: shown.trim(), stopped: true })
+    expect(answer.cards).toBeUndefined()
+    expect(answer.citations).toBeUndefined()
+    await vi.waitFor(() =>
+      expect(client.createMessage).toHaveBeenCalledWith(
+        CONVERSATION_OF(cancelled),
+        expect.objectContaining({ id, content: shown.trim() })
+      )
+    )
+    expect(client.cutStoppedAnswer).not.toHaveBeenCalled()
+  })
+
+  // The Stop crossed the server's finished answer: its terminal is
+  // `answered`, and the server stored the whole of it.
+  describe('when the Stop crossed the finished answer', () => {
+    const settled = RESULT.text.slice(0, RESULT.text.indexOf('[[card:1]]'))
+    const stopBeforeTheTerminal = (): { turnId: string; conversationId: string; id: string } => {
+      const opened = ask(answered)
+      useChatStore.getState().applyTurnEvents(upTo(answered, finished.seq - 1))
+      const id = useChatStore.getState().turns[opened.turnId]!.messageId!
+      expect(useChatStore.getState().turns[opened.turnId]!.text.startsWith(settled)).toBe(true)
+      const unregister = registerShownText(id, () => settled)
+      registerStopStreamingHandler(vi.fn())
+      useChatStore.getState().stopStreaming()
+      unregister()
+      return { ...opened, id }
+    }
+
+    it('keeps the cut answer, stores it, then asks the BFF to cut the server’s row to what was shown', async () => {
+      const { turnId, conversationId, id } = stopBeforeTheTerminal()
+
+      useChatStore.getState().applyTurnEvents(from(answered, finished.seq))
+
+      const answer = answerOf(id)!
+      expect(answer).toMatchObject({ content: settled.trim(), stopped: true })
+      expect(answer.cards).toBeUndefined()
+      await vi.waitFor(() =>
+        expect(client.cutStoppedAnswer).toHaveBeenCalledWith(conversationId, id, { turnId, shown: settled })
+      )
+      // After this browser's own insert, so the row exists whichever write lands first.
+      expect(client.createMessage.mock.invocationCallOrder[0]).toBeLessThan(
+        client.cutStoppedAnswer.mock.invocationCallOrder[0]!
+      )
+      expect(client.createMessage).toHaveBeenCalledWith(
+        conversationId,
+        expect.objectContaining({ id, content: settled.trim(), metadata: expect.objectContaining({ provenance: { stopped: true } }) })
+      )      // And before the provenance mirror, whose stopped mark would otherwise
+      // reach the server's whole row first.
+      await vi.waitFor(() =>
+        expect(client.updateMessageProvenance).toHaveBeenCalledWith(conversationId, id, expect.objectContaining({ stopped: true }))
+      )
+      const provenanceOfAnswer = client.updateMessageProvenance.mock.calls.findIndex(([, messageId]) => messageId === id)
+      expect(client.cutStoppedAnswer.mock.invocationCallOrder[0]).toBeLessThan(
+        client.updateMessageProvenance.mock.invocationCallOrder[provenanceOfAnswer]!
+      )
+    })
+
+    it('without a terminal (the server answered the Stop with turn_not_found), stores and cuts what is on screen', async () => {
+      const { turnId, conversationId, id } = stopBeforeTheTerminal()
+
+      useChatStore.getState().keepStoppedAnswer(turnId)
+
+      await vi.waitFor(() =>
+        expect(client.cutStoppedAnswer).toHaveBeenCalledWith(conversationId, id, { turnId, shown: settled })
+      )
+      expect(client.createMessage).toHaveBeenCalledWith(conversationId, expect.objectContaining({ id, content: settled.trim() }))
+    })
+
+    it('does nothing more for a turn whose terminal this page folded', async () => {
+      const { turnId } = stopBeforeTheTerminal()
+      useChatStore.getState().applyTurnEvents(from(answered, finished.seq))
+      await vi.waitFor(() => expect(client.cutStoppedAnswer).toHaveBeenCalledTimes(1))
+
+      useChatStore.getState().keepStoppedAnswer(turnId)
+
+      expect(client.cutStoppedAnswer).toHaveBeenCalledTimes(1)
+    })
+  })
+})
+
+// L17-L20: a RUN_ERROR under a written answer keeps the words, marked failed.
+describe('a turn that fails mid-answer', () => {
+  const failure = wireEvents('turn-error.jsonl').find((event) => event.type === 'RUN_ERROR')!
+  const failAt = (seq: number) =>
+    ({ ...failure, seq, turn_id: TURN, conversation_id: CONVERSATION }) as WireEvent
+
+  it('keeps the partial answer, marked failed and no longer streaming, and forgets the turn', () => {
+    ask(answered)
+    useChatStore.getState().applyTurnEvents(upTo(answered, 14))
+    const partial = answerOf(RESULT.message_id)!.content
+    expect(partial.length).toBeGreaterThan(0)
+
+    useChatStore.getState().applyTurnEvents([failAt(15)])
+    expect(answerOf(RESULT.message_id)).toMatchObject({ content: partial, failed: true })
+    expect(answerOf(RESULT.message_id)!.isStreaming).toBeUndefined()
+
+    useChatStore.getState().failTurn(TURN)
+    expect(answerOf(RESULT.message_id)).toMatchObject({ content: partial, failed: true })
+    expect(useChatStore.getState().turns[TURN]).toBeUndefined()
+    expect(useChatStore.getState().isStreaming).toBe(false)
+  })
+
+  it('marks a still-streaming answer failed when the turn is ended from outside the fold', () => {
+    ask(answered)
+    useChatStore.getState().applyTurnEvents(upTo(answered, 14))
+    useChatStore.getState().failTurn(TURN)
+    expect(answerOf(RESULT.message_id)).toMatchObject({ failed: true })
+    expect(answerOf(RESULT.message_id)!.isStreaming).toBeUndefined()
+  })
+
+  it('shows a turn ended from outside the fold as failed before it forgets it, as RUN_ERROR does', () => {
+    // A question the server never acknowledged: no frame, no answer row.
+    ask(answered)
+    const phases: (string | undefined)[] = []
+    const unsubscribe = useChatStore.subscribe((state) => phases.push(state.turns[TURN]?.phase))
+
+    useChatStore.getState().failTurn(TURN)
+    unsubscribe()
+
+    expect(phases).toEqual(['failed', undefined])
+    expect(useChatStore.getState()).toMatchObject({ isStreaming: false, isLoading: false })
+  })
+
+  it('makes way for the retry: the failed words go, the question is sent again', () => {
+    ask(answered)
+    useChatStore.getState().applyTurnEvents([...upTo(answered, 14), failAt(15)])
+    useChatStore.getState().failTurn(TURN)
+    const send = vi.fn()
+    useChatStore.setState({ chatSendFn: send })
+
+    useChatStore.getState().retryLastUserMessage()
+
+    expect(answerOf(RESULT.message_id)).toBeUndefined()
+    expect(send).toHaveBeenCalledWith('Wie lang darf der Fluchtweg sein?')
+  })
+})
 
 describe('a question for the asker, then a run', () => {
   const hitl = wireEvents('turn-hitl-handoff.jsonl')
@@ -244,10 +442,16 @@ describe('a question for the asker, then a run', () => {
     expect(useChatStore.getState().isStreaming).toBe(true)
   })
 
-  it('draws no answer for a turn that handed off to a run', () => {
+  // The run's block takes the answer's place at the terminal, under the id the
+  // server wrote the run's message with, so the turn is never drawn without a
+  // response while that message is fetched (`turn-projection.ts`).
+  it('draws the run’s block, not an answer, for a turn that handed off to a run', () => {
     ask(hitl)
     useChatStore.getState().applyTurnEvents(hitl)
-    expect(messages().some((message) => message.messageType === 'agent_response')).toBe(false)
+    const responses = messages().filter((message) => message.messageType === 'agent_response')
+    expect(responses).toHaveLength(1)
+    expect(responses[0]!.runLedger).toBeDefined()
+    expect(responses[0]!.content).toBe('')
     expect(useChatStore.getState().isStreaming).toBe(false)
   })
 })
