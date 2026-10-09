@@ -133,6 +133,31 @@ vulnerabilities:
       Fixed in 1.31.0; drop when a Langfuse image ships it. Langfuse 4.56.0 (the
       current pin) does not: its pnpm-lock.yaml still resolves 1.29.0.
 
+  # OpenTelemetry Collector contrib 0.161.0 (the pin), Go 1.26.8 standard
+  # library, published after the 2026-10-08 scans (first red on PR #932).
+  # Both name Go 1.26.9 as the fix, and no contrib release carries it yet:
+  # 0.162.0 (2026-10-05, `sha256:39923a8e…`, amd64 binary read with
+  # `go version`) is still go1.26.8, and 0.163.0 exists only as a nightly.
+  # Shared context: the collector's OTLP receivers listen in plaintext inside
+  # the cluster, reachable from pods in the namespace and from no route, and
+  # its exporters speak plain HTTP to the Aspire dashboard and Langfuse.
+  # Bump the pin to the first contrib release built with go >= 1.26.9 and drop
+  # both.
+  - id: CVE-2026-78667
+    expired_at: 2026-10-23
+    statement: |
+      net/http denial of service through crafted Range headers. Range is
+      honoured by http.ServeContent / FileServer; the collector's OTLP/HTTP
+      receiver accepts POSTed telemetry and serves no ranged content, and no
+      route exposes it outside the namespace. See the block note.
+  - id: CVE-2026-97031
+    expired_at: 2026-10-23
+    statement: |
+      crypto/tls denial of service through repeated ECH outer-extension
+      references in a ClientHello. No TLS listener or TLS client is configured
+      on this collector (plaintext in-cluster receivers and exporters), so no
+      ClientHello reaches crypto/tls. See the block note.
+
   # err2issue (debian 12.15 base). Perl and PCRE2 come from the Debian base
   # image; the Python service never shells out to perl and takes no
   # attacker-supplied regular expressions. The fix is a rebuild on a current
