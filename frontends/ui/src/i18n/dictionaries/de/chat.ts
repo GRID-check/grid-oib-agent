@@ -689,13 +689,22 @@ export const chat: typeof en.chat = {
     responseApproved: 'Recherche gestartet',
     responseShallow: 'Kurze Antwort angefordert',
     responseCancelled: 'Recherche abgebrochen',
+    // An answered plan folds to one line; the plan as approved is behind it.
+    planRecord: 'Plan freigegeben · {count, plural, one {# Abschnitt} other {# Abschnitte}}',
+    showPlan: 'Plan anzeigen',
+    hidePlan: 'Plan ausblenden',
   },
   // Die einzelne Aufklappung in der Antwortfußzeile für alles hinter der
   // Quellenzeile und den Kopieraktionen (Konfidenz, Merknotiz, Skills,
   // Prüfhinweise, Bewertung, Zeitstempel).
+  // Under an answer the reader stopped, where the writing ended.
+  answerStoppedMarker: 'Gestoppt',
   answerDetails: {
     trigger: 'Antwortdetails',
     triggerAria: 'Details zu dieser Antwort anzeigen',
+    // The trigger when the details hold a warning (cut-off, salvaged run,
+    // stripped citations, low confidence): the dot beside it says so visually.
+    triggerAriaAttention: 'Details zu dieser Antwort anzeigen, mit Hinweisen zur Antwort',
     // How long the turn took, question sent to answer final.
     duration: 'Antwort nach {duration}',
     // What the answer cost in the organization's unit: the credits billed for
@@ -906,6 +915,17 @@ export const chat: typeof en.chat = {
     recovering: 'Antwort wird geholt',
     recoveringNotice: 'Piloti arbeitet weiter — die Antwort erscheint hier, sobald sie fertig ist …',
     done: 'Fertig',
+    // Die Lesenden haben die Antwort angehalten: kein grünes Häkchen, kein
+    // „Fertig“ — so steht es auch an einem abgebrochenen Lauf.
+    stopped: 'Gestoppt',
+    // Der Zug hat einen Auftrag angelegt: die Arbeit hat erst begonnen, im
+    // Laufblock darunter. Kein grünes Häkchen, kein „Fertig“.
+    // Der Zug ist gescheitert; die Fehlerkarte darunter sagt wie.
+    failed: 'Fehlgeschlagen',
+    handedOff: 'Auftrag angelegt',
+    // Piloti hat die Frage nicht bearbeitet (abgelehnt oder nicht angenommen):
+    // das Banner darunter sagt warum. Neutral, kein „Fertig“.
+    refused: 'Nicht bearbeitet',
     showThinking: 'Denkschritte anzeigen ({count})',
     showThinkingSteps: 'Denkschritte anzeigen ({count})',
     // Die Kopfzeile der Herleitung. Keine Schrittzahl: gezählt wurden rohe
@@ -1057,7 +1077,6 @@ export const chat: typeof en.chat = {
         },
       },
       branchesTab: 'Folgewege',
-      branchesSub: 'Wählen Sie eine Option — das Ergebnis wird für Ihre Wahl zusammengestellt.',
     },
   },
   error: {
@@ -1111,6 +1130,10 @@ export const chat: typeof en.chat = {
       message:
         'Ihre vorherige Anfrage wurde nicht abgeschlossen. Bitte senden Sie Ihre Nachricht erneut.',
     },
+    noResponse: {
+      title: 'Keine Rückmeldung',
+      message: 'Piloti hat auf Ihre Frage nicht reagiert, auch nicht auf einen zweiten Versuch. Senden Sie sie erneut.',
+    },
     zdrRefused: {
       title: 'Modell unter Zero Data Retention nicht verfügbar',
       message:
@@ -1129,6 +1152,7 @@ export const chat: typeof en.chat = {
     // (WP-A `job_admission_rejected`). Warnung, nicht Fehler: erneut senden hilft.
     researchQueueFull: {
       title: 'Recherche ausgelastet',
+      full: 'Die Recherche-Warteschlange ist gerade voll.',
       message:
         'Die Recherche-Warteschlange ist gerade voll. Bitte senden Sie Ihre Anfrage in einem Moment erneut.',
       retryHint:

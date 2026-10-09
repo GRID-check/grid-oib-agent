@@ -22,7 +22,7 @@ import {
   useMemo,
 } from 'react'
 import { ShimmerText } from '@/components/ui/shimmer-text'
-import { ArrowDown, FileText, Lock } from 'lucide-react'
+import { ArrowDown, Check, FileText, Lock, WifiOff } from 'lucide-react'
 import { useShallow } from 'zustand/react/shallow'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
@@ -38,8 +38,9 @@ import {
 } from '@/features/chat'
 import type { ChatMessage } from '@/features/chat'
 import type { StoredThinkingStep } from '@/lib/conversations/message-provenance'
+import type { ThinkingEnding } from '@/features/chat/components/ChatThinking'
+import type { TurnView } from '@/features/chat/lib/turn-fold'
 import { useAnswerRevealStore } from '@/features/chat/stores/answer-reveal-store'
-import type { ChoicePrompt } from '@/features/chat/components/reasoning'
 // Imported from its own module rather than the `@/features/chat` barrel so the
 // shared-thread additions do not depend on that barrel's mock in existing specs.
 import type { UserMessageAuthor } from '@/features/chat/components/UserMessage'
@@ -73,16 +74,113 @@ import { useAwaitingState } from '@/features/collaboration/hooks/use-sharing'
 import {
   AnimatePresence,
   motion,
-  fadeRise,
+  motionEntrance,
+  motionInstant,
   motionQuick,
+  motionQuickExit,
+  motionSheetEnter,
   motionSheetExit,
 } from '@/components/motion'
+import type { Variants } from 'motion/react'
+import { glideScrollTo, type GlideHandle } from '../lib/glide-scroll'
 import { useAuth } from '@/adapters/auth'
 import { useReducedMotion } from '@/hooks/use-reduced-motion'
 import { SectionLabel } from '@/components/ui/section-label'
 import { useTranslations } from '@/i18n'
 import { useShowReasoningSkills } from '@/lib/user-preferences/use-show-reasoning-skills'
 import { WELCOME_OFFSET_FALLBACK } from '../hooks/use-composer-metrics'
+import { isDisplayableMessage, isTransientConnectionError, selectThreadPhase } from '../lib/thread-phase'
+import { readThreadPosition, rememberThreadPosition, type ThreadPosition } from '../lib/thread-positions'
+
+/** How much of an answer the settle announcement reads out. */
+const GIST_MAX_CHARS = 120
+
+/**
+ * What the settle announcement says the answer comes to: the verdict when the
+ * answer earned one, else its first sentence, without Markdown or citation
+ * marks, cut at a word.
+ */
+const answerGist = (answer: ChatMessage): string => {
+  const verdict = answer.answerMeta?.verdict
+  if (verdict) return `${verdict.subject}: ${verdict.value}`
+  const plain = answer.content
+    .replace(/\[\d+\]/g, '')
+    .replace(/[#*_`>|~]+/g, '')
+    .replace(/\[([^\]]*)\]\([^)]*\)/g, '$1')
+    .replace(/\s+/g, ' ')
+    .trim()
+  const sentence = plain.match(/^.*?[.!?](?=\s|$)/)?.[0] ?? plain
+  if (sentence.length <= GIST_MAX_CHARS) return sentence
+  const cut = sentence.slice(0, GIST_MAX_CHARS)
+  return `${cut.slice(0, Math.max(cut.lastIndexOf(' '), 0)) || cut}…`
+}
+
+/** Error cards that say the turn was not taken on, rather than that it failed. */
+const REFUSAL_CODES: ReadonlySet<string> = new Set(['research.queue_full', 'budget.exhausted'])
+
+/**
+ * How a finished turn ended, when it is not simply „done": what the turn's own
+ * terminal said first (a run commissioned, a refusal), then what the thread
+ * shows (a run message, a refusal banner), then a failure.
+ */
+const turnEnding = (
+  view: TurnView | undefined,
+  turnMessages: ChatMessage[],
+  failed: boolean
+): ThinkingEnding | undefined => {
+  if (view?.outcome === 'handed_off' || view?.result?.run || turnMessages.some((m) => m.runLedger)) {
+    return 'handed_off'
+  }
+  const refusedByBanner = turnMessages.some(
+    (m) => m.messageType === 'error' && REFUSAL_CODES.has(m.errorData?.errorCode ?? '')
+  )
+  if (view?.outcome === 'refused' || view?.result?.job_admission_rejected || refusedByBanner) return 'refused'
+  return failed ? 'failed' : undefined
+}
+
+/** How long „Wieder verbunden" stays before the dock goes quiet again. */
+const RECONNECTED_NOTE_MS = 2400
+
+/** A question with no turn yet, without a new array per render. */
+const NO_MESSAGES: ChatMessage[] = []
+
+/** The thread list's `gap-4`, which a leaving row gives back. */
+const ROW_GAP_PX = 16
+
+/**
+ * How long a live answer waits for the Herleitung above it to fold: the fold's
+ * fade, then two frames for the height to drop while nothing is visible.
+ */
+const FOLD_HOLD_MS = (motionQuickExit.duration ?? 0.18) * 1000 + 34
+
+/** `--composer-h` before the composer has measured itself (11rem). */
+const COMPOSER_FALLBACK_PX = 176
+/** The list's breathing room above the composer (its `+ 1.5rem` bottom padding). */
+const LIST_END_GAP_PX = 24
+/** Unseen content below, in px, before the jump button is worth showing. */
+const UNSEEN_SLACK_PX = 24
+/** A scroll this soon after the reader's own input is the reader's. */
+const READER_SCROLL_MS = 300
+/** A wheel or fling is still moving the thread this soon after its last event. */
+const GESTURE_SETTLE_MS = 150
+/** How long after a retry the re-sent question counts as a retry. */
+const RETRY_ANCHOR_WINDOW_MS = 1000
+
+/**
+ * An element's top as laid out, without the vertical translate of an entrance
+ * still playing on it. The thread row rises 4px as it arrives, and the anchor
+ * measured mid-rise put the question 4px off for the rest of the turn.
+ */
+const layoutTop = (el: HTMLElement): number => {
+  const top = el.getBoundingClientRect().top
+  const transform = getComputedStyle(el).transform
+  if (!transform || transform === 'none' || typeof DOMMatrixReadOnly === 'undefined') return top
+  try {
+    return top - new DOMMatrixReadOnly(transform).m42
+  } catch {
+    return top
+  }
+}
 
 interface ChatAreaProps {
   /** Whether the user is authenticated */
@@ -129,32 +227,49 @@ export const ChatArea: FC<ChatAreaProps> = memo(function ChatArea({
     currentConversation,
     isStreaming,
     currentUserMessageId,
-    hasHydrated,
     isRecoveryPending,
   } = useChatStore(
     useShallow((s) => ({
       currentConversation: s.currentConversation,
       isStreaming: s.isStreaming,
       currentUserMessageId: s.currentUserMessageId,
-      hasHydrated: s.hasHydrated,
       isRecoveryPending: s.isRecoveryPending,
     }))
   )
+  // What the thread is: still being read from storage, loading its messages,
+  // the empty canvas, or a thread. The same selector decides whether
+  // `MainLayout` lifts the composer, so the two never disagree.
+  const threadPhase = useChatStore(selectThreadPhase)
   // The stream ends before the answer's text is all on screen: the answer
-  // finishes what its pace held back, then settles. The Herleitung stays live
-  // until then, so it collapses in the same frame the answer settles, not
-  // while the text is still growing (`answer-reveal-store.ts`).
-  const answerRevealing = useAnswerRevealStore((s) => s.revealingId !== null)
-  const turnLive = isStreaming || answerRevealing
+  // finishes what its pace held back, then settles. The Herleitung's header
+  // stays live until then (`answer-reveal-store.ts`); it folded long before,
+  // when the answer's first words arrived, so the settle changes no height.
+  const revealingId = useAnswerRevealStore((s) => s.revealingId)
+  const turnLive = isStreaming || revealingId !== null
+  // How each of this client's turns ENDED. Read for the Herleitung's status:
+  // a turn that has no answer message is not therefore a lost one (a run was
+  // handed off, a question refused, the reader pressed Stop).
+  const turns = useChatStore((s) => s.turns)
+  // Turns that FAILED here. The store drops a failed turn's view in the step
+  // after the fold marks it (`failTurn`), before its error card is added, and
+  // with neither on screen the turn read as lost: „Unterbrochen" and a
+  // recovery spinner flashed in front of a failure. Noted as the fold marks it.
+  const failedTurnIdsRef = useRef(new Set<string>())
+  useEffect(() => {
+    if (typeof useChatStore.subscribe !== 'function') return
+    return useChatStore.subscribe((state) => {
+      for (const view of Object.values(state.turns ?? {})) {
+        if (view.phase === 'failed') failedTurnIdsRef.current.add(view.turnId)
+      }
+    })
+  }, [])
 
-  const respondToInteractionFn = useChatStore((s) => s.respondToInteractionFn)
   // The project this thread is scoped to. Read here for one reason: the
   // „Als Aktenvermerk schreiben" chip is only offered where a draft has
   // somewhere to be filed (ledger 23).
   const activeProjectId = useChatStore((s) => s.projectId)
   const setComposerPrefill = useChatStore((s) => s.setComposerPrefill)
   const stableStepsRef = useRef(new Map<string, StoredThinkingStep[]>())
-  const stableChoicePromptRef = useRef(new WeakMap<ChatMessage, ChoicePrompt>())
   const dismissErrorCard = useChatStore((s) => s.dismissErrorCard)
   const retryLastUserMessage = useChatStore((s) => s.retryLastUserMessage)
   const t = useTranslations('research')
@@ -255,9 +370,34 @@ export const ChatArea: FC<ChatAreaProps> = memo(function ChatArea({
   // the anchor spacer, which the observer itself resizes.
   const scrollContainerRef = useRef<HTMLDivElement>(null)
   const contentRef = useRef<HTMLDivElement>(null)
-  // Kept in a ref (not just state) so the ResizeObserver callback reads a fresh
-  // value without being re-created on every scroll.
-  const isAtBottomRef = useRef(true)
+  // Whether growth below is FOLLOWED (auto-scroll). Kept in a ref (not just
+  // state) so the ResizeObserver callback reads a fresh value without being
+  // re-created on every scroll. Only the reader engages it: a scroll they drove
+  // to the end of the content, or the jump-to-latest button. A scroll the page
+  // caused (a clamp as a collapsing panel shrinks the list, a glide) never
+  // does: reading a clamp as "the reader is at the bottom" chased a reader at
+  // the settle, seven programmatic scrolls in a row (motion audit, 2026-10).
+  const followRef = useRef(true)
+  // When the reader last touched the scroll (wheel, touch, pointer, key), and
+  // the scroll height at the last scroll event: together they tell a scroll the
+  // reader drove from one the layout caused.
+  const lastReaderInputRef = useRef(0)
+  const lastScrollHeightRef = useRef(0)
+  // A finger is on the thread. Following waits until it lifts and the fling's
+  // scroll stops, so a programmatic scroll never fights a hand mid-gesture.
+  const touchActiveRef = useRef(false)
+  // The reader asked to follow the anchored turn by pressing jump-to-latest.
+  const jumpedRef = useRef(false)
+  // The pending follow scroll, so the anchor can cancel one queued before the
+  // send (a stale rAF could otherwise cancel the send's glide).
+  const followRafRef = useRef(0)
+  // The running anchor glide, stopped by the reader's input or a thread swap.
+  const glideRef = useRef<GlideHandle | null>(null)
+  // When the reader last retried an errored answer: the re-sent question is
+  // not glided to when it is already within a viewport of where it would land.
+  const retryAtRef = useRef(-Infinity)
+  // Rows whose removal must not animate (the error card a retry replaces).
+  const instantExitIdsRef = useRef(new Set<string>())
   const [showScrollButton, setShowScrollButton] = useState(false)
 
   // ── New-question top-anchor bookkeeping (ChatGPT/Claude pattern) ────────────
@@ -269,22 +409,52 @@ export const ChatArea: FC<ChatAreaProps> = memo(function ChatArea({
   // forwarded ref synchronously); `anchorSpacerRef` is an invisible min-height
   // block below the list that guarantees there is always enough scroll room to
   // bring the question to the top (imperatively sized, and refitted as the
-  // answer grows, so it needs no extra render); `prevUserMessageIdRef`
+  // answer grows, so it needs no extra render); `prevAnchorIdRef`
   // debounces the anchor so it fires once per newly-sent question (and never
-  // on mount / session restore, where the bottom-jump effect below owns
+  // on mount / session restore, where the opening effect below owns
   // scrolling).
   const anchorSpacerRef = useRef<HTMLDivElement>(null)
   // Whether a sent question is anchored to the top right now: from its send
   // until the thread is swapped. While it is, the spacer is kept FITTED
   // (`fitAnchorSpacer`) rather than a fixed viewport.
   const anchoredRef = useRef(false)
-  const prevUserMessageIdRef = useRef<string | null | undefined>(currentUserMessageId)
   // Latest reduced-motion preference for the anchor scroll (a JS scrollIntoView
   // overrides the CSS scroll-behavior gate, so honour it explicitly). Ref-held so
   // the anchor effect's deps stay tied to the turn id, not this preference.
   const prefersReducedMotion = useReducedMotion()
   const reducedMotionRef = useRef(prefersReducedMotion)
   reducedMotionRef.current = prefersReducedMotion
+
+  // A thread row's motion. Built once; the refs are read when a row enters or
+  // leaves, so a row's removal sees the retry that asked for it to be instant.
+  //
+  // Leaving, the row gives up its height with its opacity (and the list's gap
+  // above it, as a negative margin), clipped while it goes. With
+  // `presenceAffectsLayout={false}` nothing else closes the gap, and an
+  // opacity-only exit left a hole for 180 ms and then snapped every row below.
+  const rowEnter = prefersReducedMotion ? motionInstant : motionEntrance
+  const rowLeave = prefersReducedMotion ? motionInstant : motionQuickExit
+  const rowVariants = useMemo<Variants>(
+    () => ({
+      hidden: { opacity: 0, y: 4 },
+      shown: () => ({
+        opacity: 1,
+        y: 0,
+        transition: reducedMotionRef.current ? motionInstant : motionEntrance,
+      }),
+      leave: (id: string) => ({
+        opacity: 0,
+        height: 0,
+        marginTop: -ROW_GAP_PX,
+        overflow: 'hidden',
+        transition:
+          instantExitIdsRef.current.has(id) || reducedMotionRef.current
+            ? motionInstant
+            : motionQuickExit,
+      }),
+    }),
+    []
+  )
 
   const messages = currentConversation?.messages
   // Commissioning from inside the thread: an open finding to clear, or a
@@ -308,23 +478,55 @@ export const ChatArea: FC<ChatAreaProps> = memo(function ChatArea({
   )
 
   // Filter to only show displayable message types in the chat area
-  // Assistant text messages (full reports) are displayed in the Details Panel instead
+  // Assistant text messages (full reports) are displayed in the Details Panel instead.
+  // A dropped connection is not a message either: it is said by the quiet
+  // status line above the composer (`connectionNote`), not by a card that
+  // collapses out of the thread when the socket comes back.
   const displayableMessages = useMemo(
-    () =>
-      (messages ?? []).filter((msg) => {
-        const messageType = msg.messageType || (msg.role === 'user' ? 'user' : 'assistant')
-        return (
-          messageType === 'user' ||
-          messageType === 'prompt' ||
-          messageType === 'agent_response' ||
-          messageType === 'file' ||
-          messageType === 'error'
-        )
-      }),
+    () => (messages ?? []).filter(isDisplayableMessage),
     [messages]
   )
+  const connectionLost = useMemo(() => (messages ?? []).some(isTransientConnectionError), [messages])
 
   const isEmpty = displayableMessages.length === 0
+  // The skeleton, not the greeting, while the thread's messages are on their
+  // way: from storage, from the server, or (for a first-time recipient of a
+  // shared thread) from the shared read, whose history lands a moment after
+  // the conversation is materialised empty.
+  const showSkeleton =
+    threadPhase === 'hydrating' || threadPhase === 'loading' || (shared && sharedLoading && isEmpty)
+  const listReady = !showSkeleton
+  // Whether the list now on screen replaces the skeleton (the frame before was
+  // the skeleton): only then does it fade in.
+  const skeletonShownRef = useRef(showSkeleton)
+  const listArrivesFromSkeleton = skeletonShownRef.current
+  useEffect(() => {
+    skeletonShownRef.current = showSkeleton
+  }, [showSkeleton])
+
+  // The connection, said quietly in the status dock: lost while this page
+  // reconnects, then „Wieder verbunden" for a moment once it has. Derived from
+  // the thread's transient connection errors, which the recovery hook dismisses
+  // when the socket is back; a thread switch is not a reconnect.
+  const [connectionNote, setConnectionNote] = useState<'lost' | 'restored' | null>(
+    connectionLost ? 'lost' : null
+  )
+  const [connectionSeen, setConnectionSeen] = useState({
+    conversationId: currentConversation?.id,
+    lost: connectionLost,
+  })
+  if (connectionSeen.conversationId !== currentConversation?.id) {
+    setConnectionSeen({ conversationId: currentConversation?.id, lost: connectionLost })
+    setConnectionNote(connectionLost ? 'lost' : null)
+  } else if (connectionSeen.lost !== connectionLost) {
+    setConnectionSeen({ conversationId: currentConversation?.id, lost: connectionLost })
+    setConnectionNote(connectionLost ? 'lost' : 'restored')
+  }
+  useEffect(() => {
+    if (connectionNote !== 'restored') return
+    const timer = setTimeout(() => setConnectionNote(null), RECONNECTED_NOTE_MS)
+    return () => clearTimeout(timer)
+  }, [connectionNote])
 
   /**
    * The other half of an inbox deep link: `#message-<id>` scrolls to the message
@@ -336,7 +538,18 @@ export const ChatArea: FC<ChatAreaProps> = memo(function ChatArea({
     () => displayableMessages.map((m) => m.id),
     [displayableMessages]
   )
-  const highlightedMessageId = useMessageAnchor(anchoredMessageIds)
+  // The thread the link landed in. Its opening position is the link's: the
+  // bottom jump and the follow below must not move the reader off the message
+  // the link was about (they used to, a frame after it landed).
+  const deepLinkedConversationRef = useRef<string | undefined>(undefined)
+  const { highlightedId: highlightedMessageId, isTargetPending } = useMessageAnchor(anchoredMessageIds, {
+    onLand: () => {
+      deepLinkedConversationRef.current = currentConversation?.id
+      glideRef.current?.stop()
+      followRef.current = false
+      jumpedRef.current = false
+    },
+  })
 
   // ── Multi-author bookkeeping (shared threads only) ──────────────────────────
   // Authorship per message, plus whether it CONTINUES a run by the same author.
@@ -524,16 +737,72 @@ export const ChatArea: FC<ChatAreaProps> = memo(function ChatArea({
   // renders (hydration / session switch) must NOT animate in — only messages
   // appended afterwards get the fade-rise entrance. Seeded synchronously so the
   // very first render already knows which ids are "old".
+  //
+  // Seeded again when the thread's messages ARRIVE (the skeleton gives way to
+  // the list): seeded while it loaded, the set was empty, and every message of
+  // a thread opened from the server played its entrance as it landed.
   const hydratedIdsRef = useRef<Set<string> | null>(null)
+  // The follow-ups rails already there at the seed: a restored rail is simply
+  // there, only one a live stage delivers fades in.
+  const hydratedRailIdsRef = useRef(new Set<string>())
   const hydratedConversationIdRef = useRef<string | undefined>(currentConversation?.id)
+  const hydratedListReadyRef = useRef(listReady)
+  // Questions whose Herleitung this view showed live. It stays for them after
+  // the settle even when the turn took no step, because the header was the
+  // working cue from the send: removing it at the settle would pull the answer
+  // up by its height in the frame the turn ends.
+  const liveShownIdsRef = useRef(new Set<string>())
   if (
     hydratedIdsRef.current === null ||
-    hydratedConversationIdRef.current !== currentConversation?.id
+    hydratedConversationIdRef.current !== currentConversation?.id ||
+    hydratedListReadyRef.current !== listReady
   ) {
+    const sameThread = hydratedConversationIdRef.current === currentConversation?.id
     hydratedConversationIdRef.current = currentConversation?.id
+    hydratedListReadyRef.current = listReady
     hydratedIdsRef.current = new Set(displayableMessages.map((m) => m.id))
+    hydratedRailIdsRef.current = new Set(
+      displayableMessages.filter((m) => m.stages?.followUps).map((m) => m.id)
+    )
+    if (!sameThread) liveShownIdsRef.current = new Set()
   }
   const hydratedIds = hydratedIdsRef.current
+  // A colleague's answer, watched live, is swapped for its persisted row when
+  // that lands. The swap is like for like (the same answer surface), so the
+  // row is placed, not entered: an entrance there replayed the answer the
+  // observer had just watched being written.
+  if (spectatedTurn?.messageId) hydratedIds.add(spectatedTurn.messageId)
+
+  // Each question's turn (the messages up to the next question), and the
+  // React key of each row, in one pass over the thread. Derived per row inside
+  // the render loop, it sliced the rest of the thread once per question on
+  // every delta flush.
+  //
+  // A turn's answer row is keyed by its QUESTION, not by its own id: a turn
+  // handed to a run swaps its answer for the run's message, a different id in
+  // the same place, and keyed by id the row left and a new one entered in the
+  // slot the reader was looking at (lifecycle L15).
+  const threadLayout = useMemo(() => {
+    const turnOf = new Map<string, ChatMessage[]>()
+    const rowKeyOf = new Map<string, string>()
+    let question: ChatMessage | null = null
+    let answerKeyed = false
+    for (const message of displayableMessages) {
+      if (message.messageType === 'user' || message.role === 'user') {
+        question = message
+        answerKeyed = false
+        turnOf.set(message.id, [])
+        continue
+      }
+      if (!question) continue
+      turnOf.get(question.id)?.push(message)
+      if (message.messageType === 'agent_response' && !answerKeyed) {
+        answerKeyed = true
+        rowKeyOf.set(message.id, `answer:${question.id}`)
+      }
+    }
+    return { turnOf, rowKeyOf, lastQuestionId: question?.id ?? null }
+  }, [displayableMessages])
 
   /**
    * The Herleitung of a user message: the steps the turn's fold wrote onto it,
@@ -555,29 +824,216 @@ export const ChatArea: FC<ChatAreaProps> = memo(function ChatArea({
     return steps
   }
 
-  // ── Stick-to-bottom scroll controller ──────────────────────────────────────
-  // Replaces the old "scroll on message count grew" effect. It keeps the view
-  // pinned to the newest content ONLY when the user is already near the bottom,
-  // so streaming token growth follows smoothly but a user who scrolled up to
-  // read is never yanked back down.
+  // ── The live turn ──────────────────────────────────────────────────────────
+  // This client's current question and the answer it has drawn so far. Whether
+  // that answer has begun decides the Herleitung's fold and the end of the
+  // steps phase; its id decides which answer row waits for the fold.
+  const currentTurnHasSteps = currentUserMessageId
+    ? getStepsForUserMessage(currentUserMessageId).length > 0
+    : false
+  const currentTurn = useMemo(() => {
+    if (!currentUserMessageId) return null
+    const index = displayableMessages.findIndex((m) => m.id === currentUserMessageId)
+    if (index < 0) return null
+    const rest = displayableMessages.slice(index + 1)
+    const nextQuestion = rest.findIndex((m) => m.messageType === 'user' || m.role === 'user')
+    const answer = (nextQuestion >= 0 ? rest.slice(0, nextQuestion) : rest).find(
+      (m) => m.messageType === 'agent_response'
+    )
+    return {
+      answerId: answer?.id ?? null,
+      // Begun the moment the answer has ANYTHING to draw: its masthead or a
+      // card can arrive before its first word, and an answer that opened with
+      // either used to render under the open panel and jump up by its height.
+      answerBegun: Boolean(
+        answer && (answer.content.trim() || answer.answerMeta || answer.cards?.some(Boolean))
+      ),
+      stopped: answer?.stopped === true,
+      gist: answer ? answerGist(answer) : '',
+    }
+  }, [currentUserMessageId, displayableMessages])
 
-  const scrollToBottom = useCallback((behavior: ScrollBehavior = 'auto') => {
-    const el = scrollContainerRef.current
-    if (!el) return
-    el.scrollTo({ top: el.scrollHeight, behavior })
+  // Whether this turn's answer has EVER begun. A retraction empties the answer
+  // and `answerBegun` goes false again, which reopened the Herleitung over the
+  // answer's held frame (155 → 555 px, the answer pushed down by 248 px) only
+  // to fold it again in one frame at the next round's first word. The answer
+  // holds its own frame through a retraction now, so the panel stays folded.
+  const [answerBegunFor, setAnswerBegunFor] = useState<string | null>(null)
+  if (currentTurn?.answerBegun && currentUserMessageId && answerBegunFor !== currentUserMessageId) {
+    setAnswerBegunFor(currentUserMessageId)
+  }
+  const answerHasBegun = Boolean(currentTurn?.answerBegun) || (currentUserMessageId !== null && answerBegunFor === currentUserMessageId)
+
+  // The answer's first words fold the Herleitung above it, and the answer is
+  // WITHHELD until that fold is done: mounted at once, its first line painted
+  // below an open panel (below the fold, on most screens) and was then yanked
+  // up by the panel's height, 400 px, as the reader started reading it. Held,
+  // it mounts where it stays, directly under the folded bar. Only an answer
+  // this view watched begin, under a Herleitung that had steps to fold.
+  const foldHoldId =
+    turnLive &&
+    currentTurnHasSteps &&
+    currentTurn?.answerBegun &&
+    currentTurn.answerId &&
+    !hydratedIds.has(currentTurn.answerId)
+      ? currentTurn.answerId
+      : null
+  const [releasedHoldId, setReleasedHoldId] = useState<string | null>(null)
+  useEffect(() => {
+    if (!foldHoldId || releasedHoldId === foldHoldId) return
+    const timer = setTimeout(
+      () => setReleasedHoldId(foldHoldId),
+      prefersReducedMotion ? 0 : FOLD_HOLD_MS
+    )
+    return () => clearTimeout(timer)
+  }, [foldHoldId, releasedHoldId, prefersReducedMotion])
+  const heldAnswerId = foldHoldId && releasedHoldId !== foldHoldId ? foldHoldId : null
+
+  // The settle, said once (WCAG 4.1.3). One stable region for the thread's
+  // lifetime, written only when this client's turn ends: a live region that
+  // mounts with its text is not announced, and one written per frame would be
+  // read per frame. The header's own status says what Piloti is doing; this
+  // says the answer is there to be read, and what it comes to.
+  const [turnNote, setTurnNote] = useState({ live: turnLive, text: '' })
+  if (turnNote.live !== turnLive) {
+    let text = ''
+    if (!turnLive && currentTurn?.answerId) {
+      if (currentTurn.stopped) text = t('chatArea.status.stopped')
+      else if (currentTurn.gist) text = t('chatArea.status.answerReadyWith', { gist: currentTurn.gist })
+      else text = t('chatArea.status.answerReady')
+    }
+    setTurnNote({ live: turnLive, text })
+  }
+  // The steps phase of an anchored turn: the reader is watching the Herleitung
+  // grow under their question, and that growth is not "newer content below".
+  const stepsPhaseRef = useRef(false)
+  stepsPhaseRef.current = turnLive && !answerHasBegun
+  const turnLiveRef = useRef(turnLive)
+  turnLiveRef.current = turnLive
+
+  // ── Scroll controller ──────────────────────────────────────────────────────
+  // Follows growth below ONLY while the reader has asked for it (`followRef`),
+  // so a reader who scrolled up to read is never yanked back down, and surfaces
+  // the jump button when there is unseen content below.
+  //
+  // "Below" is measured to the END OF THE CONTENT (the anchor spacer's top),
+  // not to the scroll height: while a question is anchored the spacer's room
+  // sits under the content, and measured against the scroll height every live
+  // turn read as "not at the bottom" and showed the button.
+
+  /** How far the content's end lies below what the reader can see over the composer. */
+  const unseenBelow = useCallback((): number => {
+    const container = scrollContainerRef.current
+    const spacer = anchorSpacerRef.current
+    if (!container || !spacer) return 0
+    const composer = Number.parseFloat(getComputedStyle(container).getPropertyValue('--composer-h'))
+    // The composer floats over the viewport's foot; the list's bottom padding
+    // is its height plus 1.5rem, the same clearance as here.
+    const covered = (Number.isFinite(composer) ? composer : COMPOSER_FALLBACK_PX) + LIST_END_GAP_PX
+    return spacer.getBoundingClientRect().top - (container.getBoundingClientRect().bottom - covered)
   }, [])
 
-  // Recompute "am I near the bottom?" on every scroll. 80px of slack means a
-  // small manual nudge (or the composer's reserved padding) still counts as
-  // "at bottom" and keeps auto-follow engaged.
+  /** Bring the content's end to just above the composer. */
+  const scrollToContentEnd = useCallback(
+    (behavior: ScrollBehavior) => {
+      const el = scrollContainerRef.current
+      if (!el) return
+      const delta = unseenBelow()
+      if (Math.abs(delta) < 1) return
+      el.scrollTo({ top: el.scrollTop + delta, behavior })
+    },
+    [unseenBelow]
+  )
+
+  /** Show the jump button exactly while there is unseen content below. */
+  const updateScrollButton = useCallback(() => {
+    const show = !stepsPhaseRef.current && !followRef.current && unseenBelow() > UNSEEN_SLACK_PX
+    setShowScrollButton((prev) => (prev === show ? prev : show))
+  }, [unseenBelow])
+
+  // The reader's hands on the scroll. A scroll event within READER_SCROLL_MS of
+  // one of these (or of the previous reader-driven scroll, which carries a
+  // touch fling's momentum) is the reader's; anything else the page caused.
+  useEffect(() => {
+    const container = scrollContainerRef.current
+    if (!container) return
+    const touched = () => {
+      lastReaderInputRef.current = performance.now()
+    }
+    const touchStart = () => {
+      touchActiveRef.current = true
+      touched()
+    }
+    const touchEnd = () => {
+      touchActiveRef.current = false
+      touched()
+    }
+    const events = ['wheel', 'touchmove', 'pointerdown'] as const
+    for (const type of events) container.addEventListener(type, touched, { passive: true })
+    container.addEventListener('touchstart', touchStart, { passive: true })
+    container.addEventListener('touchend', touchEnd, { passive: true })
+    container.addEventListener('touchcancel', touchEnd, { passive: true })
+    window.addEventListener('keydown', touched)
+    return () => {
+      for (const type of events) container.removeEventListener(type, touched)
+      container.removeEventListener('touchstart', touchStart)
+      container.removeEventListener('touchend', touchEnd)
+      container.removeEventListener('touchcancel', touchEnd)
+      window.removeEventListener('keydown', touched)
+    }
+  }, [isEmpty, listReady])
+
+  // The thread on screen, as the scroll bookkeeping last saw it (set by the
+  // opening effect, below the anchor's).
+  const shownConversationIdRef = useRef<string | undefined>(undefined)
+
+  /**
+   * Where the reader is, as the first row they can see: kept per thread, so a
+   * thread switched away from and back to reopens where it was left.
+   */
+  const capturePosition = useCallback((): ThreadPosition | null => {
+    const container = scrollContainerRef.current
+    const content = contentRef.current
+    if (!container || !content) return null
+    if (unseenBelow() <= UNSEEN_SLACK_PX) return { atEnd: true }
+    const top = container.getBoundingClientRect().top
+    for (const row of content.querySelectorAll<HTMLElement>(':scope > [id^="message-"]')) {
+      const rect = row.getBoundingClientRect()
+      if (rect.bottom <= top) continue
+      return { atEnd: false, messageId: row.id.slice('message-'.length), offsetTop: rect.top - top }
+    }
+    return null
+  }, [unseenBelow])
+  const positionRafRef = useRef(0)
+
   const handleScroll = useCallback(() => {
     const el = scrollContainerRef.current
     if (!el) return
-    const distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight
-    const atBottom = distanceFromBottom <= 80
-    isAtBottomRef.current = atBottom
-    setShowScrollButton((prev) => (prev !== !atBottom ? !atBottom : prev))
-  }, [])
+    const now = performance.now()
+    const heightChanged = el.scrollHeight !== lastScrollHeightRef.current
+    lastScrollHeightRef.current = el.scrollHeight
+    const readerDriven = !heightChanged && now - lastReaderInputRef.current < READER_SCROLL_MS
+    if (readerDriven) {
+      lastReaderInputRef.current = now
+      // 80px of slack: a small nudge short of the end still counts as there.
+      // While a question is anchored, reaching the end does not start
+      // following on its own: the anchored layout is what the reader chose
+      // by sending, and only the jump button trades it for following.
+      const atEnd = unseenBelow() <= 80
+      followRef.current = atEnd && (!anchoredRef.current || jumpedRef.current)
+    }
+    updateScrollButton()
+    // Once a frame at most, and for the thread this scroll happened in: a
+    // capture that ran after a swap would file the new thread's rows under it.
+    const conversationId = shownConversationIdRef.current
+    if (!conversationId || positionRafRef.current) return
+    positionRafRef.current = requestAnimationFrame(() => {
+      positionRafRef.current = 0
+      if (shownConversationIdRef.current !== conversationId) return
+      const position = capturePosition()
+      if (position) rememberThreadPosition(conversationId, position)
+    })
+  }, [unseenBelow, updateScrollButton, capturePosition])
 
   // The spacer holds exactly the room the anchored turn has not filled yet: a
   // viewport minus the height from the question's top to the end of the list.
@@ -589,165 +1045,312 @@ export const ChatArea: FC<ChatAreaProps> = memo(function ChatArea({
   // never released when the answer lands: what is left below a short answer
   // is the space that keeps its question at the top, and the next question or
   // a thread swap takes it. Idempotent, so the resize it causes settles on the
-  // next observation.
+  // next observation. Measured without the row's entrance rise, which is a
+  // transform the layout does not have.
   const fitAnchorSpacer = useCallback(() => {
     const container = scrollContainerRef.current
     const spacer = anchorSpacerRef.current
     if (!anchoredRef.current || !container || !spacer) return
     const target = container.querySelector<HTMLElement>('[data-chat-anchor="true"]')
     if (!target) return
-    const filled = spacer.getBoundingClientRect().top - target.getBoundingClientRect().top
-    const room = `${Math.max(0, Math.round(container.clientHeight - filled))}px`
+    // The list's bottom padding (the composer's height plus a gap) is scroll
+    // room as well. Counted, the spacer absorbs a composer that changes height
+    // (it shrinks after a send): the padding gives up what the spacer takes,
+    // the scroll height holds, and nothing is clamped.
+    const padding = Number.parseFloat(getComputedStyle(spacer.parentElement ?? spacer).paddingBottom) || 0
+    const filled = spacer.getBoundingClientRect().top - layoutTop(target)
+    const room = `${Math.max(0, Math.round(container.clientHeight - filled - padding))}px`
     if (spacer.style.minHeight !== room) spacer.style.minHeight = room
   }, [])
 
   // Follow height growth (streaming tokens AND newly appended messages) via a
-  // ResizeObserver on the list. rAF + behavior:'auto' means we ride the growth
-  // frame-by-frame instead of firing competing 'smooth' animations. When the
-  // user is scrolled up we don't move them — we just surface the jump button.
-  // The viewport is observed too: its height is the other input of the
-  // anchor spacer, so a window resize refits it.
+  // ResizeObserver on the list, while the reader follows. rAF + behavior:'auto'
+  // rides a live answer's growth frame by frame; growth after the turn ended
+  // (a post-answer stage, the follow-ups rail) glides instead of jumping, since
+  // the reader is reading by then. When the reader is not following we don't
+  // move them — the jump button surfaces instead. The viewport is observed
+  // too: its height is the other input of the anchor spacer.
   useEffect(() => {
     const content = contentRef.current
+    const viewport = scrollContainerRef.current
     if (!content) return
-    let raf = 0
     // Only GROWTH means "newer content below". The observer also fires when the
-    // list shrinks — collapsing a Herleitung or a code block above the viewport
-    // — and surfacing the jump button then claims an arrival that never was.
+    // list shrinks — collapsing a Herleitung or a code block above the viewport.
     let lastHeight = content.getBoundingClientRect().height
     const observer = new ResizeObserver((entries) => {
       let height = lastHeight
+      let viewportResized = false
       for (const entry of entries) {
         if (entry.target === content) height = entry.contentRect.height
+        else if (entry.target === viewport) viewportResized = true
       }
       const grew = height > lastHeight
       lastHeight = height
       fitAnchorSpacer()
-      if (isAtBottomRef.current) {
-        cancelAnimationFrame(raf)
-        raf = requestAnimationFrame(() => scrollToBottom('auto'))
-      } else if (grew) {
-        setShowScrollButton(true)
+      // A deep link still waiting for its message owns the position.
+      if (followRef.current && (grew || viewportResized) && !isTargetPending()) {
+        cancelAnimationFrame(followRafRef.current)
+        followRafRef.current = requestAnimationFrame(() => {
+          // Re-read at run time: the reader may have left, or a send anchored,
+          // since this was queued. And not under a hand: while a finger is
+          // down or a wheel/fling is still moving the thread, the reader's
+          // scroll wins; the next growth after it ends follows again.
+          if (!followRef.current) return
+          const handOnScroll =
+            touchActiveRef.current ||
+            performance.now() - lastReaderInputRef.current < GESTURE_SETTLE_MS
+          if (handOnScroll) return
+          scrollToContentEnd(turnLiveRef.current || reducedMotionRef.current ? 'auto' : 'smooth')
+        })
       }
+      updateScrollButton()
     })
     observer.observe(content)
-    if (scrollContainerRef.current) observer.observe(scrollContainerRef.current)
+    if (viewport) observer.observe(viewport)
+    // The composer's height reaches the list as `--composer-h` on an ancestor's
+    // style, which no ResizeObserver here sees change: watch the attribute.
+    let host: HTMLElement | null = viewport
+    while (host && !host.style.getPropertyValue('--composer-h')) host = host.parentElement
+    const composerWatch = new MutationObserver(() => fitAnchorSpacer())
+    if (host) composerWatch.observe(host, { attributes: true, attributeFilter: ['style'] })
     return () => {
-      cancelAnimationFrame(raf)
+      cancelAnimationFrame(followRafRef.current)
       observer.disconnect()
+      composerWatch.disconnect()
     }
-    // Re-attach when the list mounts/unmounts (skeleton ↔ list ↔ welcome).
-  }, [scrollToBottom, fitAnchorSpacer, isEmpty, hasHydrated])
+    // Re-attach when the list mounts/unmounts (skeleton ↔ list ↔ welcome), and
+    // per thread: the list's height measured in the last thread is not this
+    // one's, and its first growth read as a shrink.
+  }, [
+    scrollToContentEnd,
+    fitAnchorSpacer,
+    updateScrollButton,
+    isTargetPending,
+    isEmpty,
+    listReady,
+    currentConversation?.id,
+  ])
 
-  // On conversation switch, jump straight to the newest message and re-engage
-  // auto-follow (no smooth animation across a full thread swap). Also release
-  // any stale top-anchor spacer so a swapped-in thread starts flush at bottom.
-  //
-  // Not when the conversation is the one this send just created. The first
-  // question of a new chat brings the conversation id in the same commit that
-  // anchors the question (the layout effect below runs first), and a reset
-  // here undid the anchor: the view chased the bottom of the growing
-  // Herleitung, the question 2,900 px above it on a phone (Herleitung audit,
-  // 2026-09).
-  const shownConversationIdRef = useRef<string | undefined>(undefined)
+  useEffect(() => () => glideRef.current?.stop(), [])
+
+  // A colleague's turn, watched live, is anchored like the reader's own: its
+  // question at the top, the answer filling downward. Without it the observer
+  // who was following the end chased the bottom of an answer they had not
+  // asked for, the question scrolling off above. Only for an observer who was
+  // following: one reading further up is not moved. The reader's own send
+  // takes the anchor back.
+  const spectatorLive = isForeignTurn && spectatingLive
+  const [spectatorAnchor, setSpectatorAnchor] = useState<{
+    id: string
+    sentId: string | null | undefined
+  } | null>(null)
   useEffect(() => {
-    const id = currentConversation?.id
-    const createdBySend = shownConversationIdRef.current === undefined && anchoredRef.current
-    shownConversationIdRef.current = id
-    if (createdBySend) return
-    isAtBottomRef.current = true
-    setShowScrollButton(false)
-    anchoredRef.current = false
-    if (anchorSpacerRef.current) anchorSpacerRef.current.style.minHeight = '0px'
-    const raf = requestAnimationFrame(() => scrollToBottom('auto'))
-    return () => cancelAnimationFrame(raf)
-  }, [currentConversation?.id, scrollToBottom])
+    const questionId = threadLayout.lastQuestionId
+    if (!spectatorLive || !questionId || !followRef.current) return
+    setSpectatorAnchor((previous) =>
+      previous?.id === questionId ? previous : { id: questionId, sentId: currentUserMessageId }
+    )
+  }, [spectatorLive, threadLayout.lastQuestionId, currentUserMessageId])
+  const anchorId =
+    spectatorAnchor && spectatorAnchor.sentId === currentUserMessageId
+      ? spectatorAnchor.id
+      : currentUserMessageId
+  const prevAnchorIdRef = useRef<string | null | undefined>(anchorId)
 
   // Anchor a NEWLY-sent user question near the TOP of the viewport and DISENGAGE
-  // the bottom auto-follow, so the streaming answer fills downward from the
-  // question instead of the controller chasing the bottom (which scrolled the
-  // question off-screen). Runs only when `currentUserMessageId` transitions to a
-  // brand-new id — never on mount / restore (prevUserMessageIdRef is seeded with
-  // the mount value). useLayoutEffect so `isAtBottomRef` flips to false BEFORE
-  // the ResizeObserver's post-layout callback reads it, so growth never yanks
-  // the view down for this turn. Near-bottom auto-follow re-engages naturally
-  // the moment the user scrolls back down (handleScroll), the jump-to-latest
-  // button still surfaces while scrolled up, and a user reading up-thread is
-  // never moved — all preserved.
+  // following, so the streaming answer fills downward from the question instead
+  // of the controller chasing the bottom (which scrolled the question
+  // off-screen). Runs only when `currentUserMessageId` transitions to a
+  // brand-new id — never on mount / restore (prevAnchorIdRef is seeded with
+  // the mount value). A layout effect so following stops, and a follow scroll
+  // queued before the send is cancelled, BEFORE the ResizeObserver's
+  // post-layout callback can act on the send's own growth. The scroll itself
+  // waits a frame, so the question is measured where it landed (an error card
+  // a retry removed has given up its height by then).
   useLayoutEffect(() => {
-    const id = currentUserMessageId
-    if (!id || id === prevUserMessageIdRef.current) return
-    prevUserMessageIdRef.current = id
+    const id = anchorId
+    if (!id || id === prevAnchorIdRef.current) return
+    prevAnchorIdRef.current = id
     const container = scrollContainerRef.current
-    const target = container?.querySelector<HTMLElement>('[data-chat-anchor="true"]')
-    if (!container || !target) return
-    isAtBottomRef.current = false
+    if (!container?.querySelector('[data-chat-anchor="true"]')) return
+    followRef.current = false
+    jumpedRef.current = false
+    cancelAnimationFrame(followRafRef.current)
+    glideRef.current?.stop()
     setShowScrollButton(false)
     // Guarantee the question can actually reach the top: reserve the scroll
     // room below it (imperative — no extra render). The streaming answer
     // consumes that room as it grows (`fitAnchorSpacer`).
     anchoredRef.current = true
     fitAnchorSpacer()
-    // scroll-mt on the anchored turn keeps clearance for the floating toolbar
-    // pills so the question lands just below them, not behind them.
-    target.scrollIntoView?.({
-      behavior: reducedMotionRef.current ? 'auto' : 'smooth',
-      block: 'start',
+    const retry = performance.now() - retryAtRef.current < RETRY_ANCHOR_WINDOW_MS
+    const raf = requestAnimationFrame(() => {
+      const target = container.querySelector<HTMLElement>('[data-chat-anchor="true"]')
+      if (!target) return
+      fitAnchorSpacer()
+      // scroll-mt on the anchored turn keeps clearance for the floating
+      // toolbar pills, so the question lands just below them.
+      const margin = Number.parseFloat(getComputedStyle(target).scrollMarginTop) || 0
+      const top =
+        container.scrollTop + layoutTop(target) - container.getBoundingClientRect().top - margin
+      // A retried question is usually already in view, one card above where
+      // its error was: moving it the last few hundred pixels reads as a jolt.
+      if (retry && Math.abs(top - container.scrollTop) < container.clientHeight) return
+      // Already there: a write would still count as a scroll the reader saw.
+      if (Math.abs(top - container.scrollTop) < 1) return
+      glideRef.current = glideScrollTo(container, top, {
+        reducedMotion: reducedMotionRef.current,
+      })
     })
-  }, [currentUserMessageId, fitAnchorSpacer])
+    return () => cancelAnimationFrame(raf)
+  }, [anchorId, fitAnchorSpacer])
+
+  // ── Opening a thread ───────────────────────────────────────────────────────
+  // On a switch, the anchor and the follow state of the thread left go with it.
+  // A layout effect, and the position set directly: a frame later (as this
+  // was), the new thread painted once at the old one's scroll position and
+  // then jumped.
+  //
+  // Not when the conversation is the one this send just created. The first
+  // question of a new chat brings the conversation id in the same commit that
+  // anchors the question (the anchor's layout effect, above, runs first), and
+  // a reset here undid the anchor: the view chased the bottom of the growing
+  // Herleitung, the question 2,900 px above it on a phone (Herleitung audit,
+  // 2026-09).
+  //
+  // Where the thread opens, once its messages are here, in this order: the
+  // message a deep link names (`useMessageAnchor` puts it there); in a shared
+  // thread, where the reader left off (the unread divider); where the reader
+  // was when they left it this session; else its end, or, when the last
+  // turn is taller than the viewport, that turn's question, so a long answer
+  // is read from its start rather than from its last line.
+  const positionedConversationRef = useRef<string | null | undefined>(null)
+  useLayoutEffect(() => {
+    const id = currentConversation?.id
+    if (shownConversationIdRef.current !== id) {
+      const createdBySend = shownConversationIdRef.current === undefined && anchoredRef.current
+      shownConversationIdRef.current = id
+      cancelAnimationFrame(positionRafRef.current)
+      positionRafRef.current = 0
+      if (createdBySend) {
+        positionedConversationRef.current = id
+        return
+      }
+      glideRef.current?.stop()
+      followRef.current = true
+      jumpedRef.current = false
+      setShowScrollButton(false)
+      anchoredRef.current = false
+      setSpectatorAnchor(null)
+      if (anchorSpacerRef.current) anchorSpacerRef.current.style.minHeight = '0px'
+      positionedConversationRef.current = null
+    }
+    const container = scrollContainerRef.current
+    if (!id || !listReady || isEmpty || !container || positionedConversationRef.current === id) return
+    positionedConversationRef.current = id
+
+    if (isTargetPending() || deepLinkedConversationRef.current === id) {
+      followRef.current = false
+      return
+    }
+    const viewportTop = container.getBoundingClientRect().top
+    // A row's scroll position, less its scroll margin (the floating toolbar's
+    // clearance) when it is to land at the top.
+    const rowTop = (rowId: string, { clearToolbar }: { clearToolbar: boolean }): number | null => {
+      const row = document.getElementById(`message-${rowId}`)
+      if (!row || !container.contains(row)) return null
+      const margin = clearToolbar ? Number.parseFloat(getComputedStyle(row).scrollMarginTop) || 0 : 0
+      return container.scrollTop + layoutTop(row) - viewportTop - margin
+    }
+    // One write, and none where the thread already is: each is a scroll the
+    // reader did not make.
+    const openAt = (top: number, { follow }: { follow: boolean } = { follow: false }) => {
+      followRef.current = follow
+      if (Math.abs(container.scrollTop - top) >= 1) container.scrollTop = top
+    }
+    // A thread switched back to mid-turn is anchored again, as it was: its
+    // question held at the top and the answer filling down from it. Opened
+    // at its end and following, it scrolled with every flush of the answer
+    // (25 scrolls in one switch-and-back, motion audit 2026-10).
+    const liveQuestion = turnLiveRef.current && anchorId ? rowTop(anchorId, { clearToolbar: true }) : null
+    if (liveQuestion !== null) {
+      anchoredRef.current = true
+      fitAnchorSpacer()
+    }
+    if (unreadDividerBeforeId) {
+      const top = rowTop(unreadDividerBeforeId, { clearToolbar: true })
+      if (top !== null) return openAt(top)
+    }
+    const saved = readThreadPosition(id)
+    if (saved && !saved.atEnd) {
+      const top = rowTop(saved.messageId, { clearToolbar: false })
+      if (top !== null) return openAt(top - saved.offsetTop)
+    }
+    if (liveQuestion !== null) return openAt(liveQuestion)
+    const end = container.scrollHeight - container.clientHeight
+    const lastQuestion = saved ? null : threadLayout.lastQuestionId
+    const questionTop = lastQuestion ? rowTop(lastQuestion, { clearToolbar: true }) : null
+    if (questionTop !== null && questionTop < end) openAt(Math.max(0, questionTop))
+    else openAt(end, { follow: true })
+    // Each input is read when its thread opens, not tracked: a later change of
+    // the divider or the saved position must not move a thread being read.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentConversation?.id, listReady, isEmpty])
 
   const handleScrollToLatest = useCallback(() => {
-    isAtBottomRef.current = true
+    glideRef.current?.stop()
+    followRef.current = true
+    jumpedRef.current = true
     setShowScrollButton(false)
-    scrollToBottom('smooth')
-  }, [scrollToBottom])
+    scrollToContentEnd(reducedMotionRef.current ? 'auto' : 'smooth')
+  }, [scrollToContentEnd])
 
-  // A choice picked in the Herleitung's branches node answers the open
-  // question with the option's id, as the prompt card's own pick does.
-  const handleChoiceRespond = useCallback(
-    (promptId: string, label: string) => {
-      const prompt = currentConversation?.messages.find((m) => m.promptId === promptId)
-      const option = prompt?.promptOptions?.find((candidate) => candidate.label === label)
-      if (option) respondToInteractionFn?.(option.id)
-    },
-    [currentConversation, respondToInteractionFn]
-  )
-
-  // Retry an errored answer: resend the last user message through the live send
-  // path (or prefill the composer as a fallback), then clear the stale error
-  // card so the turn reads as freshly retried rather than doubled up.
+  // Retry an errored answer: clear the stale error card, then resend the last
+  // user message through the live send path (or prefill the composer as a
+  // fallback). The card goes FIRST and without its exit: it sits above where
+  // the re-sent question lands, and a card that faded for 180 ms and then gave
+  // up its height moved the just-anchored question up after it had arrived.
   const handleErrorRetry = useCallback(
     (messageId: string) => {
-      retryLastUserMessage()
+      instantExitIdsRef.current.add(messageId)
+      // The retry also takes the failed turn's cut-off answer: it leaves with
+      // the card, at once, for the same reason.
+      for (const message of messages ?? []) {
+        if (message.failed) instantExitIdsRef.current.add(message.id)
+      }
+      retryAtRef.current = performance.now()
       dismissErrorCard(messageId)
+      retryLastUserMessage()
     },
-    [retryLastUserMessage, dismissErrorCard]
+    [retryLastUserMessage, dismissErrorCard, messages]
   )
 
-  // Latency-gap typing indicator, shown at the bottom of the thread while
-  // streaming and nothing has come back yet — two distinct gaps, both silent
-  // without this:
+  // Latency-gap typing indicator, shown at the bottom of the thread while a
+  // HITL prompt (clarification, a Folgewege choice, a plan decision) the user
+  // just answered waits for the turn to resume.
   //
-  //   1. The just-sent user message, before its first thinking step or token.
-  //   2. A HITL prompt (clarification, a Folgewege choice, a plan decision)
-  //      the user just answered. `respondToPrompt` flips it to "received"
-  //      optimistically and `isStreaming` goes true the moment the reply is
-  //      sent, but that only says the answer LANDED — it says nothing about
-  //      Piloti having resumed. The Herleitung spinner for the turn, if any,
-  //      sits back at the TOP of the exchange (attached to the ORIGINAL user
-  //      message, not to whichever prompt is currently last), so on a
-  //      multi-round exchange it can be scrolled well out of view by the time
-  //      the reader answers the second or third question. Without a bottom
-  //      cue, an answered prompt just sits there looking finished — nothing
-  //      on screen says the turn is still going — until the next thing
-  //      eventually appears.
+  // Not for a just-sent question any more: from the send, the question's own
+  // Herleitung header is the working cue (one object from send to settle, in
+  // the place the reasoning will grow), so a typing bubble that a Herleitung
+  // later replaced was a box swap.
+  //
+  // The answered prompt: `respondToPrompt` flips it to "received"
+  // optimistically and `isStreaming` goes true the moment the reply is
+  // sent, but that only says the answer LANDED — it says nothing about
+  // Piloti having resumed. The Herleitung spinner for the turn, if any,
+  // sits back at the TOP of the exchange (attached to the ORIGINAL user
+  // message, not to whichever prompt is currently last), so on a
+  // multi-round exchange it can be scrolled well out of view by the time
+  // the reader answers the second or third question. Without a bottom
+  // cue, an answered prompt just sits there looking finished — nothing
+  // on screen says the turn is still going — until the next thing
+  // eventually appears.
   const showTypingPlaceholder = useMemo(() => {
     if (!isStreaming) return false
     const last = displayableMessages[displayableMessages.length - 1]
     if (!last) return false
-    if (last.id === currentUserMessageId) return !last.thinkingSteps?.length
     return last.messageType === 'prompt' && !!last.isPromptResponded
-  }, [isStreaming, currentUserMessageId, displayableMessages])
+  }, [isStreaming, displayableMessages])
 
   return (
     // Mentions in message text resolve to a person through this, so a pill can
@@ -766,6 +1369,12 @@ export const ChatArea: FC<ChatAreaProps> = memo(function ChatArea({
           ref={scrollContainerRef}
           onScroll={handleScroll}
           className="scrollbar-hide flex flex-1 flex-col overflow-y-auto overscroll-contain"
+          // A named, focusable region, so a keyboard reader can scroll the
+          // thread. Not `role="log"`: a log announces every addition, and the
+          // live answer adds words every frame. The settle is announced once,
+          // below.
+          role="region"
+          tabIndex={0}
           aria-label={t('chatArea.ariaMessages')}
         >
           {/* Access revoked while viewing: the fallback shows the local copy, so
@@ -778,16 +1387,29 @@ export const ChatArea: FC<ChatAreaProps> = memo(function ChatArea({
               {tCollaboration('thread.accessLost')}
             </div>
           )}
-          {!hasHydrated || (shared && sharedLoading && isEmpty) ? (
-            // Hydration skeleton (C5): the persisted thread hasn't rehydrated yet.
-            // Show a lightweight grey-bubble placeholder — never flash WelcomeState
-            // for a returning user whose conversation is about to load in. The same
-            // holds for a first-time RECIPIENT of a shared thread: the conversation
-            // is materialised empty and the server history lands a moment later, so
-            // without the second clause a shared-thread invitee got a flash of the
-            // greeting before their colleague's messages snapped in.
-            <MessageListSkeleton />
-          ) : (
+          {/* Loading skeleton (C5): the persisted thread hasn't rehydrated yet,
+              or the open thread's messages are on their way (`showSkeleton`).
+              A lightweight grey-bubble placeholder — never a flash of the
+              WelcomeState for a reader whose conversation is about to load in.
+              The same holds for a first-time RECIPIENT of a shared thread: the
+              conversation is materialised empty and the server history lands a
+              moment later.
+
+              It leaves as the list arrives, the two overlapping (`popLayout`):
+              the skeleton fades on the exit easing while the list fades in over
+              it, so the swap is a cross-fade, not a cut. */}
+          <AnimatePresence initial={false} mode="popLayout">
+            {showSkeleton && (
+              <motion.div
+                key="skeleton"
+                className="flex flex-1 flex-col"
+                exit={{ opacity: 0, transition: rowLeave }}
+              >
+                <MessageListSkeleton />
+              </motion.div>
+            )}
+          </AnimatePresence>
+          {!showSkeleton && (
             <>
               {/* The greeting LEAVES rather than disappearing. Sending the first
                 message swaps this whole plane in one commit — greeting out,
@@ -810,8 +1432,18 @@ export const ChatArea: FC<ChatAreaProps> = memo(function ChatArea({
                   <motion.div
                     key="welcome"
                     className="flex flex-1 flex-col"
+                    // Its arrival mirrors its exit: a new chat brings the greeting
+                    // UP as the composer rises to meet it, the reverse of the drift
+                    // down a first send gives it. Opening on an empty canvas plays
+                    // nothing (`initial={false}` on the presence above).
+                    initial={{ opacity: 0, y: 16 }}
+                    animate={{
+                      opacity: 1,
+                      y: 0,
+                      transition: prefersReducedMotion ? motionInstant : motionSheetEnter,
+                    }}
                     exit={{ opacity: 0, y: 16 }}
-                    transition={motionSheetExit}
+                    transition={prefersReducedMotion ? motionInstant : motionSheetExit}
                   >
                     <WelcomeState
                       isAuthenticated={isAuthenticated}
@@ -826,12 +1458,18 @@ export const ChatArea: FC<ChatAreaProps> = memo(function ChatArea({
                 // as --composer-h by MainLayout's ResizeObserver) plus a breathing gap,
                 // so the last message/Herleitung never renders behind the composer no
                 // matter how tall it grows. The 11rem fallback matches the old pb-44.
-                <div
+                <motion.div
                   // Top padding reserves clearance for the floating toolbar pills that
                   // overlay the top of this scroll plane, so the first message never
                   // renders behind them — a little extra on mobile where the pills sit
                   // edge-to-edge over the full-width column.
-                  className="mx-auto flex w-full max-w-5xl flex-col gap-4 px-4 pt-20 sm:px-6 sm:pt-14"
+                  // The side padding keeps clear of a landscape phone's notch.
+                  //
+                  // Fades in when it replaces the loading skeleton (the other half
+                  // of that cross-fade); otherwise it is simply there.
+                  initial={listArrivesFromSkeleton ? { opacity: 0 } : false}
+                  animate={{ opacity: 1, transition: rowEnter }}
+                  className="mx-auto flex w-full max-w-5xl flex-col gap-4 pl-[max(1rem,env(safe-area-inset-left))] pr-[max(1rem,env(safe-area-inset-right))] pt-20 sm:pl-[max(1.5rem,env(safe-area-inset-left))] sm:pr-[max(1.5rem,env(safe-area-inset-right))] sm:pt-14"
                   style={{ paddingBottom: 'calc(var(--composer-h, 11rem) + 1.5rem)' }}
                 >
                   {/* The observed list holds the messages and nothing else. The
@@ -846,31 +1484,38 @@ export const ChatArea: FC<ChatAreaProps> = memo(function ChatArea({
                         past MessageRenderer's memo: 920 fibers and 69 ms per delta
                         flush in a 40-message thread on a 4× throttled phone
                         (React performance audit, 2026-09). */}
-                    <AnimatePresence initial={false} presenceAffectsLayout={false}>
-                      {displayableMessages.map((message, index) => {
+                    {/* Keyed by the conversation: a thread swap replaces the whole
+                        presence, so the rows of the thread left are gone in the
+                        same commit. Keyed per row only, they all played their exit
+                        for 180 ms beside the new thread's rows. */}
+                    <AnimatePresence
+                      key={currentConversation?.id ?? 'draft'}
+                      initial={false}
+                      presenceAffectsLayout={false}
+                    >
+                      {displayableMessages.map((message) => {
                         const isUserMessage =
                           message.messageType === 'user' || message.role === 'user'
                         const messageSteps = isUserMessage ? getStepsForUserMessage(message.id) : []
                         const hasThinkingSteps = messageSteps.length > 0
 
-                        // Derive post-thinking state for user messages with thinking steps.
-                        // Priority: isThinking (active) > isWaiting (HITL) > isInterrupted > done
+                        // The asker's live turn shows its Herleitung FROM THE SEND:
+                        // its header is the working cue, and the reasoning grows
+                        // into the same object. One object from send to settle,
+                        // never a typing bubble swapped for a panel.
                         const isCurrentlyStreaming =
-                          turnLive && message.id === currentUserMessageId
-                        const shouldCheckPostState =
-                          isUserMessage && hasThinkingSteps && !isCurrentlyStreaming
-                        const remaining = shouldCheckPostState
-                          ? displayableMessages.slice(index + 1)
-                          : []
-                        const nextUserMessageIndex = remaining.findIndex(
-                          (m) => m.messageType === 'user' || m.role === 'user'
-                        )
-                        // Only evaluate status within this message turn (until next user message).
-                        // This prevents later turns from overriding interrupted/waiting state.
-                        const turnMessages =
-                          nextUserMessageIndex >= 0
-                            ? remaining.slice(0, nextUserMessageIndex)
-                            : remaining
+                          isUserMessage && turnLive && message.id === currentUserMessageId
+                        if (isCurrentlyStreaming) liveShownIdsRef.current.add(message.id)
+                        const showHerleitung =
+                          isUserMessage &&
+                          (hasThinkingSteps || liveShownIdsRef.current.has(message.id))
+
+                        // This question's turn: the messages up to the next question.
+                        const turnMessages = (isUserMessage && threadLayout.turnOf.get(message.id)) || NO_MESSAGES
+
+                        // Derive post-thinking state. Priority: isThinking (active) >
+                        // isWaiting (HITL) > isInterrupted > stopped > done.
+                        const shouldCheckPostState = isUserMessage && !isCurrentlyStreaming
 
                         // Waiting: an unresponded HITL prompt follows this user message
                         const isWaiting =
@@ -879,61 +1524,93 @@ export const ChatArea: FC<ChatAreaProps> = memo(function ChatArea({
                             (m) => m.messageType === 'prompt' && !m.isPromptResponded
                           )
 
-                        // Interrupted: no actual response AND not waiting for HITL
-                        const hasResponse = turnMessages.some(
-                          (m) => m.messageType === 'assistant' || m.messageType === 'agent_response'
-                        )
-                        const isInterrupted = shouldCheckPostState && !isWaiting && !hasResponse
+                        // Real data threaded into the Herleitung's assessment node:
+                        // the turn's answer (confidence + citations). The live turn's
+                        // answer is left out: that node describes a finished answer.
+                        const agentMsg = shouldCheckPostState
+                          ? turnMessages.find(
+                              (m) => m.messageType === 'assistant' || m.messageType === 'agent_response'
+                            )
+                          : undefined
 
-                        // Real data threaded into the Herleitung assessment/next-steps
-                        // nodes: the turn's answer (confidence + citations) and any live
-                        // multiple-choice HITL prompt. Absent on streaming/shallow turns —
-                        // those nodes then hide themselves.
-                        const agentMsg = turnMessages.find(
-                          (m) => m.messageType === 'assistant' || m.messageType === 'agent_response'
-                        )
-                        const choicePromptMsg = turnMessages.find(
+                        // Interrupted means LOST: the turn ended with no answer and
+                        // nothing that explains why. The turn's own ending decides
+                        // when this client saw it — any outcome it recorded
+                        // (answered, refused, handed off to a run, stopped, a queue
+                        // rejection) or a failure, which has its own error card. Only
+                        // a turn this client lost track of (it drops those) falls back
+                        // to the thread: a run's message is a response, and an error
+                        // card other than the "connection lost" one already says what
+                        // went wrong.
+                        const turnView = turns?.[message.id]
+                        const explainedByError = turnMessages.some(
                           (m) =>
-                            m.messageType === 'prompt' &&
-                            m.promptInputType === 'choice' &&
-                            (m.promptOptions?.length ?? 0) > 0
+                            m.messageType === 'error' &&
+                            m.errorData?.errorCode !== 'agent.response_interrupted'
                         )
-                        // One object per prompt message, so ChatThinking's memo holds.
-                        let choicePrompt: ChoicePrompt | undefined
-                        if (choicePromptMsg) {
-                          choicePrompt = stableChoicePromptRef.current.get(choicePromptMsg)
-                          if (!choicePrompt) {
-                            choicePrompt = {
-                              promptId: choicePromptMsg.promptId ?? choicePromptMsg.id,
-                              text: choicePromptMsg.content,
-                              options: (choicePromptMsg.promptOptions ?? []).map((option) => option.label),
-                              isResponded: !!choicePromptMsg.isPromptResponded,
-                              selected: choicePromptMsg.promptOptions?.find(
-                                (option) => option.id === choicePromptMsg.promptResponse
-                              )?.label,
-                            }
-                            stableChoicePromptRef.current.set(choicePromptMsg, choicePrompt)
-                          }
-                        }
+                        const hasResponse =
+                          agentMsg !== undefined || turnMessages.some((m) => m.runLedger)
+                        // A failed answer (or a failed phase) is a failure, never
+                        // an interruption: the fold drops a failed turn's view, and
+                        // until the error card landed the header read
+                        // „Unterbrochen" with a recovery spinner, the wrong cause.
+                        const failedHere =
+                          Boolean(agentMsg?.failed) ||
+                          turnView?.phase === 'failed' ||
+                          failedTurnIdsRef.current.has(message.id)
+                        const isInterrupted =
+                          shouldCheckPostState &&
+                          !isWaiting &&
+                          !hasResponse &&
+                          turnView === undefined &&
+                          !explainedByError &&
+                          !failedHere
+                        const isStopped =
+                          shouldCheckPostState &&
+                          (agentMsg?.stopped === true || turnView?.outcome === 'cancelled')
+                        // A turn that ended without an answer of its own is not
+                        // „Fertig": a failed one has its error card below, one
+                        // handed to a run has only started that run's work, and
+                        // a refused one did none.
+                        const endedAs = shouldCheckPostState
+                          ? turnEnding(turnView, turnMessages, failedHere || explainedByError)
+                          : undefined
 
-                        // Whether this turn earns the „Als Aktenvermerk schreiben"
+                        // The answer has begun on the live turn: the Herleitung folds
+                        // to its header, which stays live until the settle.
+                        const answering = isCurrentlyStreaming && answerHasBegun
+
+                        // Whether this ANSWER earns the „Als Aktenvermerk schreiben"
                         // chip — a walkthrough or a ruling, in a project, long enough
                         // that the reader is already thinking about where to put it
-                        // (`features/chat/lib/aktenvermerk-chip`).
-                        const aktenvermerk = offersAktenvermerk({
-                          kind: agentMsg?.answerMeta?.kind,
-                          projectId: activeProjectId,
-                          body: agentMsg?.content,
-                        })
+                        // (`features/chat/lib/aktenvermerk-chip`). Decided in the
+                        // answer's own row, once it has settled: decided in the
+                        // question's row, the chip's rail mounted BETWEEN the
+                        // Herleitung and the answer at the settle and pushed the
+                        // answer down by its height.
+                        const answerSettled =
+                          message.messageType === 'agent_response' &&
+                          !message.isStreaming &&
+                          revealingId !== message.id
+                        const aktenvermerk =
+                          answerSettled &&
+                          offersAktenvermerk({
+                            kind: message.answerMeta?.kind,
+                            projectId: activeProjectId,
+                            body: message.content,
+                          })
+
+                        // Withheld while the Herleitung above it folds (`heldAnswerId`).
+                        if (message.id === heldAnswerId) return null
 
                         // The just-sent question's turn is the top-anchor target on send.
-                        const isAnchorTarget = isUserMessage && message.id === currentUserMessageId
+                        const isAnchorTarget = isUserMessage && message.id === anchorId
 
                         const messageAuthorship = authorship.get(message.id)
 
                         return (
                           <motion.div
-                            key={message.id}
+                            key={threadLayout.rowKeyOf.get(message.id) ?? message.id}
                             // The deep-link target (`#message-<id>`). Every message carries
                             // it, not just mentions: an inbox item can point at any message,
                             // and a link that resolves for some rows and not others is worse
@@ -944,16 +1621,24 @@ export const ChatArea: FC<ChatAreaProps> = memo(function ChatArea({
                               'flex scroll-mt-20 flex-col gap-4 sm:scroll-mt-14',
                               // The arrival mark: says "this is the one" for a beat, then
                               // fades. A ring rather than a background, so it reads on the
-                              // user bubble and the answer card alike.
-                              highlightedMessageId === message.id &&
-                                'ring-warning/50 ring-offset-background duration-quick rounded-xl ring-2 ring-offset-4 transition-shadow ease-out motion-reduce:transition-none'
+                              // user bubble and the answer card alike. The transition is
+                              // on every row and only the ring toggles: carried by the
+                              // marked state alone, the transition left with the mark,
+                              // and the ring vanished in one frame instead of fading.
+                              'ring-offset-background duration-quick rounded-xl ring-offset-4 transition-shadow ease-out motion-reduce:transition-none',
+                              highlightedMessageId === message.id && 'ring-warning/50 ring-2'
                             )}
-                            variants={fadeRise}
-                            // Animate only genuinely new messages; hydrated ones render in place.
+                            // The row OWNS the turn's entrance: a fade and a 4px rise on
+                            // the entrance pair, for genuinely new messages only —
+                            // hydrated ones render in place. Its children carry none: a
+                            // CSS `animate-in` plays on every mount, so a restored
+                            // thread replayed every bubble's entrance, and on a new
+                            // message it stacked with this one.
+                            custom={message.id}
+                            variants={rowVariants}
                             initial={hydratedIds.has(message.id) ? false : 'hidden'}
-                            animate="visible"
-                            exit={{ opacity: 0, transition: motionQuick }}
-                            transition={motionQuick}
+                            animate="shown"
+                            exit="leave"
                           >
                             {/* Where the reader left off, in a shared thread (spec CC-19). */}
                             {unreadDividerBeforeId === message.id && (
@@ -992,24 +1677,31 @@ export const ChatArea: FC<ChatAreaProps> = memo(function ChatArea({
                             {/* Assistant-side thread spine: the Herleitung shares the
                         answer card's width and left alignment, so the reasoning and
                         the answer stack as ONE left column (the user bubble stays
-                        right-aligned). Auto-expanded while the turn is live, it
-                        collapses to a one-line bar once the answer lands. */}
-                            {isUserMessage && hasThinkingSteps && (
+                        right-aligned). Shown from the send, open while the turn
+                        works, folded to its one-line bar when the answer's first
+                        words arrive; the bar stays live until the settle, which
+                        then changes only its status. */}
+                            {showHerleitung && (
                               <div className="w-full">
                                 <ChatThinking
                                   steps={messageSteps}
                                   isThinking={isCurrentlyStreaming}
-                                  autoOpen={isCurrentlyStreaming || isWaiting}
+                                  // Open while the turn works and has steps to show;
+                                  // folded the moment the answer begins.
+                                  autoOpen={isCurrentlyStreaming && hasThinkingSteps && !answering}
+                                  answering={answering}
+                                  since={message.timestamp}
+                                  answerDurationMs={agentMsg?.answerDurationMs}
                                   isWaiting={isWaiting}
                                   isInterrupted={isInterrupted}
+                                  isStopped={isStopped}
+                                  endedAs={endedAs}
                                   isRecoveryPending={isRecoveryPending}
                                   enabledDataSources={message.enabledDataSources}
                                   messageFiles={message.messageFiles}
                                   userQuestion={message.content}
                                   answerConfidence={agentMsg?.answerConfidence}
                                   citations={agentMsg?.citations}
-                                  choicePrompt={choicePrompt}
-                                  onChoiceRespond={handleChoiceRespond}
                                   escalationReason={agentMsg?.escalationReason}
                                   retrievalLedger={agentMsg?.retrievalLedger}
                                 />
@@ -1035,16 +1727,20 @@ export const ChatArea: FC<ChatAreaProps> = memo(function ChatArea({
                         rail rather than getting a surface of its own, because it
                         is the same gesture the questions are (fill the composer,
                         the reader presses send) and a second block under the
-                        answer would be a second thing to learn. `agentMsg` is
-                        only resolved once the turn has an answer, so the chip
-                        cannot appear mid-stream. */}
+                        answer would be a second thing to learn. Decided in the
+                        answer's row once it has settled, so the chip cannot
+                        appear mid-stream, and appears below the answer. */}
                             {(message.stages?.followUps || aktenvermerk) && (
-                              <div className="w-full">
-                                <FollowUpsRail
-                                  items={message.stages?.followUps?.items ?? []}
-                                  offerAktenvermerk={aktenvermerk}
-                                />
-                              </div>
+                              <FollowUpsRail
+                                items={message.stages?.followUps?.items}
+                                offerAktenvermerk={aktenvermerk}
+                                // Only a rail that arrives under the reader fades in:
+                                // on a restored or reopened thread it is simply there.
+                                animateIn={
+                                  !hydratedIds.has(message.id) ||
+                                  (Boolean(message.stages?.followUps) && !hydratedRailIdsRef.current.has(message.id))
+                                }
+                              />
                             )}
                           </motion.div>
                         )
@@ -1079,26 +1775,47 @@ export const ChatArea: FC<ChatAreaProps> = memo(function ChatArea({
                 Mutually exclusive with the hand-back offer by construction: this
                 returns null once `pending` is empty, which is exactly when the offer
                 becomes eligible. */}
-                    {shared && (
-                      <AwaitingBanner
-                        awaiting={awaiting}
-                        onRelease={release}
-                        onAskAgent={handleAskAgent}
-                        onAskBack={handleAskBack}
-                      />
-                    )}
+                    {/* Entrance owned here, like a thread row's: only a wait that
+                        begins while the thread is open arrives; one already
+                        pending when it opens is simply there. */}
+                    <AnimatePresence initial={false}>
+                      {shared && threadAwaitsHuman && (
+                        <motion.div
+                          key="awaiting"
+                          initial={{ opacity: 0, y: 4 }}
+                          animate={{ opacity: 1, y: 0, transition: rowEnter }}
+                          exit={{ opacity: 0, transition: rowLeave }}
+                        >
+                          <AwaitingBanner
+                            awaiting={awaiting}
+                            onRelease={release}
+                            onAskAgent={handleAskAgent}
+                            onAskBack={handleAskBack}
+                          />
+                        </motion.div>
+                      )}
+                    </AnimatePresence>
 
                     {/* The colleague has answered and Piloti is out of the loop — the one
                 moment the thread is worth handing on, and until now the only
                 transition with no affordance on screen (see HandbackOffer). Anchored
                 here, directly under the answer it is about. */}
-                    {showHandback && handback && (
-                      <HandbackOffer
-                        people={handback.people}
-                        onAccept={handleHandback}
-                        onDismiss={() => setHandbackDismissedFor(handback.anchorId)}
-                      />
-                    )}
+                    <AnimatePresence initial={false}>
+                      {showHandback && handback && (
+                        <motion.div
+                          key="handback"
+                          initial={{ opacity: 0, y: 4 }}
+                          animate={{ opacity: 1, y: 0, transition: rowEnter }}
+                          exit={{ opacity: 0, transition: rowLeave }}
+                        >
+                          <HandbackOffer
+                            people={handback.people}
+                            onAccept={handleHandback}
+                            onDismiss={() => setHandbackDismissedFor(handback.anchorId)}
+                          />
+                        </motion.div>
+                      )}
+                    </AnimatePresence>
 
                     {/* Latency-gap typing indicator (before the first token arrives) */}
                     {showTypingPlaceholder && <TypingIndicator />}
@@ -1121,15 +1838,16 @@ export const ChatArea: FC<ChatAreaProps> = memo(function ChatArea({
                       !isStreaming &&
                       !showTypingPlaceholder &&
                       (spectatingLive && spectatedTurn ? (
-                        <SpectatedTurn turn={spectatedTurn} label={turnInFlightLabel} />
+                        <SpectatedTurn
+                          turn={spectatedTurn}
+                          label={turnInFlightLabel}
+                          // The turn's id is its question's: the observer's
+                          // timer counts from the question, as the asker's does.
+                          since={messages?.find((m) => m.id === spectatedTurn.turnId)?.timestamp}
+                        />
                       ) : (
                         <TurnInFlightBanner label={turnInFlightLabel} />
                       ))}
-
-                    {/* A colleague at a keyboard. Distinct vocabulary from the agent's
-                banner above (see TypingPresence), and independent of it: somebody may
-                well start writing while Piloti is still answering. */}
-                    {shared && <TypingPresence typists={typists} />}
 
                     {/* A colleague writing while you are reading is a change you must be able
                 to learn about without eyes. Polite, so it never interrupts. Keyed on
@@ -1151,6 +1869,11 @@ export const ChatArea: FC<ChatAreaProps> = memo(function ChatArea({
                           })
                         : ''}
                     </div>
+
+                    {/* This client's own turn ending, said once (`turnNote`). */}
+                    <div className="sr-only" role="status" aria-live="polite" aria-atomic="true">
+                      {turnNote.text}
+                    </div>
                   </div>
 
                   {/* Top-anchor spacer: invisible, zero-height by default. While a
@@ -1158,25 +1881,96 @@ export const ChatArea: FC<ChatAreaProps> = memo(function ChatArea({
               answer has not filled yet (`fitAnchorSpacer`), shrinking as the
               answer grows. It is kept, fitted, when the stream ends; the next
               question or a thread swap takes it. */}
-                  <div ref={anchorSpacerRef} aria-hidden="true" style={{ minHeight: 0 }} />
-                </div>
+                  {/* `overflow-anchor: none`: the browser must never pick the
+              spacer as its scroll anchor. It is resized every frame of a live
+              answer, and an anchor on it scrolled the page to follow it. */}
+                  <div
+                    ref={anchorSpacerRef}
+                    aria-hidden="true"
+                    style={{ minHeight: 0, overflowAnchor: 'none' }}
+                  />
+                </motion.div>
               )}
             </>
           )}
         </div>
 
+        {/* The status dock: one quiet line just above the composer, in the gap
+            the list always keeps there (its bottom padding is the composer's
+            height plus 1.5rem). Out of the thread's flow, so nothing in it moves
+            the thread: a colleague at a keyboard (the line used to sit at the
+            end of the list and bobbed it by its height every time someone
+            started or stopped typing) and the connection's state (the card it
+            replaces collapsed out of the thread on reconnect). */}
+        <div
+          className="pointer-events-none absolute inset-x-0 z-10 mx-auto flex w-full max-w-5xl items-end pl-[max(1rem,env(safe-area-inset-left))] pr-[max(1rem,env(safe-area-inset-right))] sm:pl-[max(1.5rem,env(safe-area-inset-left))] sm:pr-[max(1.5rem,env(safe-area-inset-right))]"
+          style={{ bottom: 'calc(var(--composer-h, 11rem) + 0.125rem)' }}
+          data-testid="thread-status-dock"
+        >
+          <AnimatePresence initial={false} mode="popLayout">
+            {connectionNote ? (
+              <motion.div
+                key={connectionNote}
+                className="bg-background/85 text-muted-foreground flex h-6 items-center gap-1.5 rounded-md px-2 text-xs"
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1, transition: rowEnter }}
+                exit={{ opacity: 0, transition: rowLeave }}
+              >
+                {connectionNote === 'restored' ? (
+                  <Check className="text-success size-3.5" aria-hidden="true" />
+                ) : (
+                  <WifiOff className="size-3.5" aria-hidden="true" />
+                )}
+                {connectionNote === 'restored'
+                  ? t('chatArea.connection.restored')
+                  : t('chatArea.connection.lost')}
+              </motion.div>
+            ) : (
+              shared &&
+              typists.length > 0 && (
+                <motion.div
+                  key="typing"
+                  className="bg-background/85 rounded-md px-2"
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1, transition: rowEnter }}
+                  exit={{ opacity: 0, transition: rowLeave }}
+                >
+                  {/* A colleague at a keyboard. Distinct vocabulary from the
+                      agent's banner (see TypingPresence), and independent of it:
+                      somebody may well start writing while Piloti is answering. */}
+                  <TypingPresence typists={typists} className="py-0" />
+                </motion.div>
+              )
+            )}
+          </AnimatePresence>
+          {/* Said once per change, politely; mounted for the thread's life so
+              a change is announced (a region that mounts with its text is not).
+              A live region, not a `status` role: it says nothing about the
+              thread's content and must not read as one of its messages. */}
+          <span className="sr-only" aria-live="polite" aria-atomic="true">
+            {connectionNote === 'restored'
+              ? t('chatArea.connection.restored')
+              : connectionNote === 'lost'
+                ? t('chatArea.connection.lost')
+                : ''}
+          </span>
+        </div>
+
         {/* Floating "scroll to latest" button — appears when the user has scrolled
           up and newer content is below. Pinned to the wrapper (not the scroll
-          content) so it stays put while the thread scrolls behind it. */}
+          content) so it stays put while the thread scrolls behind it. Above the
+          status dock while it speaks. */}
         <AnimatePresence>
           {showScrollButton && (
             <motion.div
               className="pointer-events-none absolute inset-x-0 z-10 flex justify-center"
-              style={{ bottom: 'calc(var(--composer-h, 11rem) + 1rem)' }}
+              style={{
+                bottom: `calc(var(--composer-h, 11rem) + ${connectionNote || (shared && typists.length > 0) ? '2.25rem' : '1rem'})`,
+              }}
               initial={{ opacity: 0, y: 6 }}
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: 6 }}
-              transition={motionQuick}
+              transition={prefersReducedMotion ? motionInstant : motionQuick}
             >
               <button
                 type="button"
@@ -1319,6 +2113,10 @@ const MessageRendererComponent: FC<MessageRendererProps> = ({
           messageId={message.id}
           showAnswerFeedback={showAnswerFeedback}
           isStreaming={message.isStreaming}
+          stopped={message.stopped === true}
+          // A turn that failed under a written answer: the words stay, marked
+          // as cut off, and stop typing at the failure.
+          failed={message.failed === true}
           routingDecision={message.routingDecision}
           retrievalLedger={message.retrievalLedger}
           quoteStamps={message.quoteStamps}
@@ -1506,15 +2304,14 @@ const TurnInFlightBanner: FC<{ label: string }> = ({ label }) => (
 )
 
 /**
- * Latency-gap typing indicator (three pulsing dots) shown after the just-sent
- * user message until the first token / thinking step arrives. Left-aligned to
- * match assistant bubbles.
+ * Latency-gap typing indicator (three pulsing dots) shown under an answered
+ * HITL prompt until the turn resumes. Left-aligned to match assistant bubbles.
  */
 const TypingIndicator: FC = () => {
   const t = useTranslations('research')
   const label = t('chatArea.status.thinking')
-  // This bubble is only mounted before the first step arrives, so counting from
-  // mount gives the true "time since send" for the earliest, quietest wait.
+  // Mounted when the reader answers the prompt, so counting from mount is the
+  // true time since that answer.
   const elapsed = useElapsedSeconds(true)
   return (
     <div
@@ -1526,11 +2323,11 @@ const TypingIndicator: FC = () => {
         {/* CSS, not a JS loop: transform and opacity run on the compositor,
             so the dots cost the main thread nothing while a phone waits. */}
         <span className="animate-typing-dot bg-muted-foreground/70 size-1.5 rounded-full" />
-        <span className="animate-typing-dot bg-muted-foreground/70 size-1.5 rounded-full [animation-delay:160ms]" />
-        <span className="animate-typing-dot bg-muted-foreground/70 size-1.5 rounded-full [animation-delay:320ms]" />
+        <span className="animate-typing-dot bg-muted-foreground/70 size-1.5 rounded-full" />
+        <span className="animate-typing-dot bg-muted-foreground/70 size-1.5 rounded-full" />
       </span>
       <span
-        className="text-muted-foreground/70 hidden text-xs motion-reduce:inline"
+        className="text-muted-foreground hidden text-xs motion-reduce:inline"
         aria-hidden="true"
       >
         …
@@ -1538,8 +2335,10 @@ const TypingIndicator: FC = () => {
       {/* Always word the wait (shimmering), and surface elapsed seconds once
           past a couple of seconds so a slow first token never feels stalled. */}
       <ShimmerText className="text-xs font-medium">{label}</ShimmerText>
+      {/* aria-hidden: inside a status region, a figure that changes every
+          second was re-announced every second. */}
       {elapsed > 2 && (
-        <span className="text-muted-foreground/80 text-xs tabular-nums">
+        <span className="text-muted-foreground text-xs tabular-nums" aria-hidden="true">
           {formatElapsed(elapsed)}
         </span>
       )}

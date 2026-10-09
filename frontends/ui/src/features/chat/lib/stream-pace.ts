@@ -90,8 +90,22 @@ export function isCleanCut(text: string): boolean {
   // delimiter row: GFM pads a short row with empty cells, so the row appears
   // and fills cell by cell. Holding it until it was whole stalled the reveal
   // 0.5–1 s per row and then dropped 170–260 characters at once (stream
-  // audit, 2026-09).
-  if (/^\s*\|/.test(line)) return /\|\s*$/.test(line) && tableHasDelimiter(text, lineStart)
+  // audit, 2026-09). But a row with no cell written yet (`| `) is not one: it
+  // drew as a blank row whose cells then grew one by one as their words came,
+  // each step pushing everything below it down (a stacked row on a phone grew
+  // 64 → 84 → 87 → 90 px, stream audit 2026-10). The row appears with its
+  // first cell.
+  if (/^\s*\|/.test(line)) return /\|\s*$/.test(line) && /[^|\s]/.test(line) && tableHasDelimiter(text, lineStart)
+  // Just past a table line, on a new one: clean only once the table has its
+  // delimiter row. Before it, the header line renders as a paragraph of
+  // pipes (`stabilizeStreamingMarkdown` escapes it) until the delimiter
+  // arrives and it turns into a table, the one moment raw markdown showed.
+  // Nor just past the delimiter row itself: a table of its header alone is
+  // drawn as a table for a frame and, on a phone, restacked into rows (the
+  // header hidden) as soon as its first row comes. It appears with that row.
+  if (line === '' && lineStart > 0 && /^\s*\|/.test(lineBefore(text, lineStart))) {
+    return tableHasDelimiter(text, lineStart) && !isDelimiterRow(lineBefore(text, lineStart))
+  }
   if ((line.match(/`/g)?.length ?? 0) % 2 === 1) return false
   // An open `**` is fine: the renderer closes it while the answer streams
   // (`stabilizeStreamingMarkdown`), so the phrase is bold from its first word.
@@ -99,6 +113,10 @@ export function isCleanCut(text: string): boolean {
   if ((line.match(/\(/g)?.length ?? 0) > (line.match(/\)/g)?.length ?? 0)) return false
   return true
 }
+
+/** The line that ends just before `lineStart`. */
+const lineBefore = (text: string, lineStart: number): string =>
+  text.slice(text.lastIndexOf('\n', lineStart - 2) + 1, lineStart - 1)
 
 /** Do the table lines above `lineStart` include the delimiter row (`| --- |`)? */
 function tableHasDelimiter(text: string, lineStart: number): boolean {

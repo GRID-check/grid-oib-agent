@@ -65,6 +65,7 @@ import {
   type EngagementState,
 } from './engagement'
 import { sanitizeProvenance } from './message-provenance'
+import { answerMessageId, cutStoppedRow } from './stopped-cut'
 import { sanitizeStages } from './message-stages'
 import { sanitizePromptDetail, sanitizePromptState } from './message-prompt'
 import { CONVERSATION_TAG_KEYS, normalizeConversationTags } from './tags'
@@ -81,6 +82,7 @@ import {
   markConversationDeleting,
   mergeMessageMetadata,
   recordConversationErased,
+  reviseMessage,
   updateConversationMetaInOrg,
   updateConversationTitleInOrg,
   upsertConversationRead,
@@ -757,6 +759,39 @@ export async function updateMessageDetail(
   // Deep-merged per card key: a second client PATCHing the map it knows about
   // must not erase a decision it never saw (see `mergeMessageMetadata`).
   const row = await mergeMessageMetadata(conversationId, messageId, metadata, deepMergeKeys)
+  if (!row) throw new NotFoundError()
+  return row
+}
+
+/**
+ * Cut the asker's own answer to what they had on screen when they pressed
+ * Stop, when the Stop crossed the agent tier's finished answer and the row
+ * holds all of it (`stopped-cut.ts` says when that happens and what the cut
+ * keeps).
+ *
+ * Narrow on purpose, because it rewrites an answer's text: the caller must be
+ * a collaborator on the conversation, the message must be the answer of
+ * `turnId` (the id the agent tier derives from it), and the question that
+ * opened the turn must be the caller's own. Only the person who asked may
+ * stop a turn on the wire (`not_asker`), and the same holds here. The cut
+ * only shortens the stored text, within minutes of its writing, and leaves a
+ * row already stored as stopped alone, so a retry is harmless.
+ */
+export async function cutStoppedAnswer(
+  session: AuthorizedSession,
+  conversationId: string,
+  messageId: string,
+  input: { turnId: string; shown: string }
+): Promise<Message> {
+  await requireResourceAccess(session, 'conversation', conversationId, 'collaborator')
+  if (answerMessageId(conversationId, input.turnId) !== messageId) throw new NotFoundError()
+  const question = await findMessageInConversation(conversationId, input.turnId)
+  if (!question || question.role !== 'user') throw new NotFoundError()
+  if (question.authorUserId !== session.userId) {
+    throw new ForbiddenError('Only the person who asked can stop this answer.')
+  }
+  const now = Date.now()
+  const row = await reviseMessage(conversationId, messageId, (existing) => cutStoppedRow(existing, input.shown, now))
   if (!row) throw new NotFoundError()
   return row
 }

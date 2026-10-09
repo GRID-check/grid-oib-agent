@@ -46,6 +46,36 @@ import { useCallback, useEffect, useRef, useState, type PointerEvent, type RefOb
 const OPEN_DELAY_MS = 130
 /** Long enough to travel from the trigger into the panel without it vanishing. */
 const CLOSE_DELAY_MS = 220
+/**
+ * How long after a peek closed the next one still opens at once.
+ *
+ * Reading a run of citations is moving from one marker to the next, and the
+ * open delay that stops a passing pointer from firing a peek is the wrong
+ * question once the reader is already reading peeks: the second marker waited
+ * 130ms for nothing, while the first one's panel lingered through its 220ms
+ * close grace on top of it. Radix's tooltip calls this `skipDelayDuration`.
+ * A little over the close grace, so the hop survives the old panel's timer.
+ */
+const WARM_WINDOW_MS = 300
+
+/**
+ * The one peek a pointer or the keyboard has open, across every trigger on
+ * the page. Module-level because the triggers are siblings in unrelated
+ * subtrees (a marker in the prose, a chip in the sources row) with no common
+ * owner to hold it, and there is only ever one pointer.
+ */
+interface OpenPeek {
+  /** Close with no exit animation: the next panel is already taking its place. */
+  replace: () => void
+  isPinned: () => boolean
+}
+let currentPeek: OpenPeek | null = null
+let lastClosedAt = Number.NEGATIVE_INFINITY
+
+/** Another peek is open, or one closed a moment ago: the reader is reading peeks. */
+const isWarm = (self: OpenPeek): boolean =>
+  (currentPeek !== null && currentPeek !== self && !currentPeek.isPinned()) ||
+  performance.now() - lastClosedAt < WARM_WINDOW_MS
 
 interface TriggerProps {
   /** The element the panel anchors to. A callback, so any trigger element type fits. */
@@ -64,6 +94,7 @@ interface ContentProps {
   onPointerEnter: () => void
   onPointerLeave: () => void
   onOpenAutoFocus: (event: Event) => void
+  onInteractOutside: (event: Event) => void
 }
 
 export interface HoverPopover {
@@ -83,11 +114,17 @@ export interface HoverPopover {
   engaged: boolean
   /** The trigger element, for the panel's `PopoverAnchor virtualRef`. */
   anchorRef: RefObject<HTMLElement | null>
+  /**
+   * This panel is closing because another one replaced it: skip the exit, so
+   * the two never stand on screen together.
+   */
+  skipExit: boolean
 }
 
 export const useHoverPopover = (): HoverPopover => {
   const [open, setOpen] = useState(false)
   const [engaged, setEngaged] = useState(false)
+  const [skipExit, setSkipExit] = useState(false)
   const anchorRef = useRef<HTMLElement | null>(null)
   // A ref, not state: every handler below needs the CURRENT pinning, and a
   // pointer leaving mid-render must not read a stale one and close a panel the
@@ -116,6 +153,7 @@ export const useHoverPopover = (): HoverPopover => {
       cancel()
       timer.current = window.setTimeout(() => {
         timer.current = null
+        if (next) setSkipExit(false)
         setOpen(next)
       }, delay)
     },
@@ -132,8 +170,50 @@ export const useHoverPopover = (): HoverPopover => {
   // and set state on nothing.
   useEffect(() => cancel, [cancel])
 
+  // This trigger's entry in the page-wide registry. Created once, so
+  // `currentPeek === self` is an identity check, not a comparison of freshly
+  // built objects. Everything it closes over is stable (refs, setters, `cancel`).
+  const [self] = useState<OpenPeek>(() => ({
+    replace: () => {
+      cancel()
+      pinned.current = false
+      setSkipExit(true)
+      setOpen(false)
+    },
+    isPinned: () => pinned.current,
+  }))
+
+  // Opening takes the page's one slot and closes whichever transient peek held
+  // it; closing gives the slot up and starts the warm window.
+  useEffect(() => {
+    if (open) {
+      if (currentPeek && currentPeek !== self && !currentPeek.isPinned()) currentPeek.replace()
+      currentPeek = self
+      return
+    }
+    if (currentPeek === self) {
+      currentPeek = null
+      lastClosedAt = performance.now()
+    }
+  }, [open, self])
+
+  // Unmounted while open (the answer re-rendered under the pointer): free the
+  // slot rather than leave a dead entry that every later peek would try to close.
+  useEffect(
+    () => () => {
+      if (currentPeek === self) currentPeek = null
+    },
+    [self]
+  )
+
+  const show = (): void => {
+    setSkipExit(false)
+    setOpen(true)
+  }
+
   return {
     open,
+    skipExit,
     onOpenChange: (next) => {
       if (!next) dismiss()
     },
@@ -153,6 +233,11 @@ export const useHoverPopover = (): HoverPopover => {
         // them the "hover" is the tap that is about to arrive, and opening here
         // would make the panel appear before the finger lands.
         if (event.pointerType !== 'mouse') return
+        if (isWarm(self)) {
+          cancel()
+          show()
+          return
+        }
         schedule(true, OPEN_DELAY_MS)
       },
       onPointerLeave: (event) => {
@@ -169,7 +254,7 @@ export const useHoverPopover = (): HoverPopover => {
       onFocus: () => {
         engage()
         cancel()
-        setOpen(true)
+        show()
       },
       onBlur: () => {
         // Scheduled, not immediate: clicking a button inside the panel blurs
@@ -184,7 +269,7 @@ export const useHoverPopover = (): HoverPopover => {
           return
         }
         pinned.current = true
-        setOpen(true)
+        show()
       },
     },
     contentProps: {
@@ -196,6 +281,15 @@ export const useHoverPopover = (): HoverPopover => {
         // A panel that appeared because the pointer passed over something must
         // not take the keyboard with it. A pinned one asked for focus.
         if (!pinned.current) event.preventDefault()
+      },
+      // The trigger is not "outside". It is an anchor, not a Radix trigger, so
+      // to the dismissable layer a press on it is a press elsewhere: the
+      // reader hovered a chip, its peek opened, they clicked to pin it — and
+      // the click pinned it while the pointerdown that preceded it closed it.
+      // The trigger's own `onClick` owns what a press on it means.
+      onInteractOutside: (event) => {
+        const target = event.target
+        if (target instanceof Node && anchorRef.current?.contains(target)) event.preventDefault()
       },
     },
   }

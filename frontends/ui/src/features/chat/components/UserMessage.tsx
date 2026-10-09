@@ -48,7 +48,7 @@
 import { type FC, useState } from 'react'
 import { User, Copy, Check } from 'lucide-react'
 import { toast } from 'sonner'
-import { AnimatePresence, motion, springSnap } from '@/components/motion'
+import { AnimatePresence, motion, useIconSwapTransition } from '@/components/motion'
 import { SectionLabel } from '@/components/ui/section-label'
 import { MarkdownRenderer } from '@/shared/components/MarkdownRenderer'
 import { formatTime } from '@/shared/utils/format-time'
@@ -130,6 +130,7 @@ export const UserMessage: FC<UserMessageProps> = ({
   currentUserId,
 }) => {
   const t = useTranslations('chat')
+  const swap = useIconSwapTransition()
   const [copied, setCopied] = useState(false)
   // `formatTime` without a locale falls back to the RUNTIME default, so a
   // German user on an en-US browser read "03:35 PM" here while the HITL prompt
@@ -164,8 +165,11 @@ export const UserMessage: FC<UserMessageProps> = ({
 
   // ── Solo thread: today's rendering, untouched ───────────────────────────────
   if (!author) {
+    // No entrance of its own: the thread row (`ChatArea`) owns it, gated so a
+    // restored message does not replay it. A CSS `animate-in` here played on
+    // every mount, reloads and thread switches included.
     return (
-      <div className="animate-in fade-in-0 slide-in-from-bottom-1 flex w-full flex-col items-end duration-base ease-entrance motion-reduce:animate-none">
+      <div className="flex w-full flex-col items-end">
         {/* "Eingabe" role tab — uppercase 10.5/600, inset from the bubble edge */}
         <SectionLabel as="div" className="mr-[14px] inline-flex items-center gap-1.5 rounded-t-md bg-accent px-2.5 py-1">
           <User className="size-2.5" aria-hidden="true" />
@@ -188,9 +192,8 @@ export const UserMessage: FC<UserMessageProps> = ({
               <motion.span
                 key={copied ? 'check' : 'copy'}
                 initial={{ opacity: 0, scale: 0.6 }}
-                animate={{ opacity: 1, scale: 1 }}
-                exit={{ opacity: 0, scale: 0.6 }}
-                transition={springSnap}
+                animate={{ opacity: 1, scale: 1, transition: swap.enter }}
+                exit={{ opacity: 0, scale: 0.6, transition: swap.exit }}
                 className="inline-flex"
                 aria-hidden="true"
               >
@@ -217,7 +220,7 @@ export const UserMessage: FC<UserMessageProps> = ({
   return (
     <div
       className={cn(
-        'animate-in fade-in-0 slide-in-from-bottom-1 flex w-full flex-col items-end duration-base ease-entrance motion-reduce:animate-none',
+        'flex w-full flex-col items-end',
         // Rhythm carries the run: a grouped follow-up tucks up under its
         // predecessor, a new speaker gets a little more air than the thread's
         // default gap. That contrast is what replaces side-switching.
@@ -269,9 +272,8 @@ export const UserMessage: FC<UserMessageProps> = ({
             <motion.span
               key={copied ? 'check' : 'copy'}
               initial={{ opacity: 0, scale: 0.6 }}
-              animate={{ opacity: 1, scale: 1 }}
-              exit={{ opacity: 0, scale: 0.6 }}
-              transition={springSnap}
+              animate={{ opacity: 1, scale: 1, transition: swap.enter }}
+              exit={{ opacity: 0, scale: 0.6, transition: swap.exit }}
               className="inline-flex"
               aria-hidden="true"
             >

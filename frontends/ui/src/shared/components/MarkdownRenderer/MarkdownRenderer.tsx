@@ -12,6 +12,7 @@ import remarkDirective from 'remark-directive'
 import remarkGfm from 'remark-gfm'
 import remarkMath from 'remark-math'
 import { CodeBlock } from '@/shared/components/CodeBlock'
+import { DrawingSkeleton } from '@/features/diagrams/components/drawing-skeleton'
 import { Chip } from '@/components/ui/chip'
 import type { MarkdownRendererProps } from './types'
 import { scrollToAnchor, useInPageAnchorRenderer } from './anchor-context'
@@ -26,7 +27,7 @@ import {
 } from './markdown-blocks'
 import { getLanguageFromClassName, headingAnchorId, isMermaidFence } from './utils'
 import { isStatusTone, statusTone } from './status-marks'
-import { parseTally, rehypeTableShape } from './table-shape'
+import { parseTally, rehypeTableShape, textOf } from './table-shape'
 import { isDelimiterRow } from '@/lib/text/markdown-table'
 import { normalizeDirectiveFences } from '@/lib/text/answer-directives'
 import {
@@ -99,6 +100,7 @@ import {
   tableVariant,
 } from './answer-atoms'
 import { useRowActionRenderer } from './answer-block-context'
+import { MarkdownCaret, STREAMING_CARET_TAG, StreamingCaretProvider, rehypeStreamingCaret } from './streaming-caret'
 
 /** Module-level so the list keeps one identity: a new array re-parses the document. */
 /**
@@ -109,10 +111,13 @@ import { useRowActionRenderer } from './answer-block-context'
  */
 const KATEX_OPTIONS = { throwOnError: false, maxSize: 20, maxExpand: 200 }
 const REHYPE_PLUGINS: PluggableList = [[rehypeKatex, KATEX_OPTIONS], rehypeTableShape, rehypeDirectiveShape]
-/** The last block of a text still arriving: its last table row may be half-written (`directive-shape.ts`). */
+/**
+ * The last block of a text still arriving: its last table row may be
+ * half-written (`table-shape.ts`, `directive-shape.ts`).
+ */
 const REHYPE_PLUGINS_OPEN: PluggableList = [
   [rehypeKatex, KATEX_OPTIONS],
-  rehypeTableShape,
+  [rehypeTableShape, { openTail: true }],
   [rehypeDirectiveShape, { openTail: true }],
 ]
 
@@ -126,17 +131,37 @@ const REHYPE_PLUGINS_OPEN: PluggableList = [
  * that has no diagram in it. Measured: mermaid's first flowchart render pulls
  * 214 KB gzipped, and a reader who never meets a fence pays none of it.
  *
- * The fallback while the chunk loads is deliberately nothing rather than a
- * spinner: the block below it is about to be replaced, and a spinner that
- * resolves in one frame reads as a fault.
+ * The fallback while the chunk loads is the place the drawing will be drawn
+ * in ({@link DiagramPlace}), not a spinner and not nothing. It was nothing,
+ * and the paced reveal shows a closed fence together with the first words
+ * after it: those words were drawn first, and the figure then opened 156 px
+ * above the line being read when the chunk resolved (stream audit 2026-10,
+ * an answer opening with a table: `dy 180` on the paragraph after it).
  */
 const MermaidDiagram = dynamic(
   () =>
     import('@/features/diagrams/components/mermaid-diagram').then(
       (module) => module.MermaidDiagram
     ),
-  { ssr: false }
+  { ssr: false, loading: () => <DiagramPlace /> }
 )
+
+/**
+ * The drawing's place while its component loads: the frame and skeleton
+ * `MermaidDiagram` itself shows while it parses, so the swap to it changes
+ * nothing on screen. The plane of the product's own views, the frame most
+ * fences are drawn in; a fence mermaid draws itself has a hairline frame of
+ * the same height instead.
+ */
+function DiagramPlace() {
+  return (
+    <figure data-testid="mermaid-place" className="my-4" aria-busy="true">
+      <div className="bg-muted/40 rounded-xl p-3">
+        <DrawingSkeleton />
+      </div>
+    </figure>
+  )
+}
 
 /**
  * The text alignment a GFM table wrote into its delimiter row (`|---:|`).
@@ -444,7 +469,7 @@ function MarkdownH2({ children, node, id: givenId, className: givenClass }: Head
   return (
     <h2
       id={givenId ?? derived}
-      className={`mb-3 mt-8 block scroll-mt-4 text-lg font-semibold tracking-tight text-foreground${givenClass ? ` ${givenClass}` : ''}`}
+      className={`mb-3 mt-8 block scroll-mt-4 text-lg font-semibold tracking-tight text-foreground hyphens-manual${givenClass ? ` ${givenClass}` : ''}`}
     >
       {children}
     </h2>
@@ -456,7 +481,7 @@ function MarkdownH3({ children, node }: HeadingProps) {
   return (
     <h3
       id={id}
-      className="text-foreground mb-2 mt-6 block scroll-mt-4 text-base font-semibold tracking-tight"
+      className="text-foreground mb-2 mt-6 block scroll-mt-4 text-base font-semibold tracking-tight hyphens-manual"
     >
       {children}
     </h3>
@@ -643,16 +668,29 @@ function MarkdownTable({ children, node }: React.ComponentPropsWithoutRef<'table
   const { streaming, streamedHere } = useMarkdownRenderState()
   const passed =
     node?.properties?.dataCollapsed === 'true' && !streaming && !streamedHere ? Number(node.properties.dataPassCount) : 0
+  // A table still arriving draws no tally (its counts would tick and its
+  // words change per row) but holds the tally's line, so the chips fade into
+  // it when the table closes instead of pushing the rows down (`table-shape.ts`).
+  const reserved = tally.length === 0 && node?.properties?.dataTallyReserve === 'true'
   const frame = (
     <div className={tableFrameClass(variant)} data-variant={variant === 'plain' ? undefined : variant}>
       {tally.length > 0 && !passed && (
-        <p className="flex flex-wrap items-center gap-1.5" data-testid="status-tally">
+        <p
+          className={`flex flex-wrap items-center gap-1.5${streamedHere ? ` ${CHIP_ENTER}` : ''}`}
+          data-testid="status-tally"
+        >
           <span className="sr-only">{t('markdown.statusTally')}: </span>
           {tally.map(([word, count]) => (
             <Chip key={word} size="sm" variant={outcomeTone(word) ?? 'muted'}>
               <span className="font-semibold tabular-nums">{count}</span> {outcomeLabel(word, 'tally')}
             </Chip>
           ))}
+        </p>
+      )}
+      {reserved && (
+        // One invisible chip: the line is exactly as tall as the tally's.
+        <p className="invisible flex items-center" aria-hidden="true" data-testid="status-tally-reserve">
+          <Chip size="sm" variant="muted">0</Chip>
         </p>
       )}
       <HorizontalScroll className="border-base rounded-xl border" aria-label={t('markdown.scrollTable')}>
@@ -669,6 +707,9 @@ function MarkdownTable({ children, node }: React.ComponentPropsWithoutRef<'table
   if (passed > 0) return <PassedCheck passed={passed}>{frame}</PassedCheck>
   return hasCases(node) ? <CasesScope node={node}>{frame}</CasesScope> : frame
 }
+
+/** A mark arriving in a table that is still being written. */
+const CHIP_ENTER = 'animate-in fade-in-0 duration-base ease-entrance motion-reduce:animate-none'
 
 /** A tally word's tone: the renderer's own outcomes, else the status word's. */
 const outcomeTone = (word: string) =>
@@ -739,6 +780,7 @@ function MarkdownCell({ children, align, style, node }: React.ComponentPropsWith
   const ask = typeof properties.dataAsk === 'string' ? properties.dataAsk : null
   const outcome = typeof properties.dataOutcome === 'string' ? properties.dataOutcome : null
   const outcomeLabel = useOutcomeLabel()
+  const { streaming } = useMarkdownRenderState()
   if (properties.dataCell === TASK_CELL) {
     return (
       <td className="w-0 whitespace-nowrap px-2 py-1.5 align-top print:hidden" data-cell={TASK_CELL}>
@@ -786,7 +828,9 @@ function MarkdownCell({ children, align, style, node }: React.ComponentPropsWith
         data-tone={tone}
         data-outcome={outcome ?? undefined}
         title={outcome ? getTextFromChildren(children) : undefined}
-        className={cellChipClass}
+        // A status word turns into its mark the moment its last letter is
+        // written; while the answer streams the mark fades in over the word.
+        className={streaming ? `${cellChipClass} ${CHIP_ENTER}` : cellChipClass}
       >
         {outcome ? outcomeLabel(outcome, 'cell') : children}
       </Chip>
@@ -804,6 +848,7 @@ function MarkdownCell({ children, align, style, node }: React.ComponentPropsWith
       })}
     >
       {content}
+      {node && isBlankCell(node) && BLANK_CELL_LINE}
       {holds && properties.dataCaseLead && <MarkChip>{t('markdown.caseApplies')}</MarkChip>}
       {bar && <ValueBar {...bar} valueText={getTextFromChildren(children)} />}
       {ask !== null && renderRowAction && (
@@ -814,6 +859,23 @@ function MarkdownCell({ children, align, style, node }: React.ComponentPropsWith
     </td>
   )
 }
+
+/**
+ * A cell with nothing written in it: GFM pads a row still arriving with empty
+ * cells, and a table may leave one blank. The caret node holds no text, so a
+ * cell holding only the caret is blank too.
+ */
+const isBlankCell = (node: NonNullable<ExtraProps['node']>): boolean => node.children.every((child) => textOf(child).trim() === '')
+
+/**
+ * A blank cell's line: a zero-width space, so the cell is one line tall
+ * before its first word as after it. Without it a stacked row on a phone
+ * grew as its cells filled (an empty title cell is its padding alone, an
+ * empty value cell its label's smaller line), and every step pushed the
+ * rows and the prose below it down (stream audit 2026-10). Invisible to a
+ * reader and to `visibleText`, which drops it.
+ */
+const BLANK_CELL_LINE = '\u200B'
 
 /** The bar a check row's value cell carries (`directive-shape.ts`), or null. */
 function valueBarOf(properties: Record<string, unknown>) {
@@ -831,8 +893,8 @@ function MarkdownUnorderedList({ children, className: listClassName, node }: Rea
     <ul
       className={
         listClassName?.includes('contains-task-list')
-          ? 'text-foreground mb-3 list-none space-y-1 pl-1'
-          : 'text-foreground mb-3 list-outside list-disc space-y-1 pl-5'
+          ? 'text-foreground mb-3 max-w-[72ch] list-none space-y-1 pl-1'
+          : 'text-foreground mb-3 max-w-[72ch] list-outside list-disc space-y-1 pl-5'
       }
     >
       {children}
@@ -843,7 +905,7 @@ function MarkdownUnorderedList({ children, className: listClassName, node }: Rea
 
 function MarkdownOrderedList({ children, node }: React.ComponentPropsWithoutRef<'ol'> & ExtraProps) {
   if (node?.properties?.dataVariant === 'steps') return <StepList ordered>{children}</StepList>
-  const list = <ol className="text-foreground mb-3 list-outside list-decimal space-y-1 pl-5">{children}</ol>
+  const list = <ol className="text-foreground mb-3 max-w-[72ch] list-outside list-decimal space-y-1 pl-5">{children}</ol>
   return hasCases(node) ? <CasesScope node={node}>{list}</CasesScope> : list
 }
 
@@ -856,6 +918,7 @@ function MarkdownOrderedList({ children, node }: React.ComponentPropsWithoutRef<
  */
 const MARKDOWN_COMPONENTS = {
   [MARKDOWN_SLOT_TAG]: MarkdownSlot,
+  [STREAMING_CARET_TAG]: MarkdownCaret,
   code: MarkdownCode,
   // Skip default pre rendering since CodeBlock handles it
   pre: ({ children }: React.ComponentPropsWithoutRef<'pre'>) => <>{children}</>,
@@ -944,6 +1007,16 @@ const isSameOriginPath = (src: string): boolean => /^\/(?![\/\\])/.test(src)
 /** The rehype list of every block after the first: the document's own, then the separator the whole document puts before a block. */
 const REHYPE_PLUGINS_AFTER_FIRST: PluggableList = [...REHYPE_PLUGINS, rehypeBlockSeparator]
 const REHYPE_PLUGINS_OPEN_AFTER_FIRST: PluggableList = [...REHYPE_PLUGINS_OPEN, rehypeBlockSeparator]
+/** The open block with the caret after its last word: last, so no pass before it reads the caret as text. */
+const REHYPE_PLUGINS_CARET: PluggableList = [...REHYPE_PLUGINS_OPEN, rehypeStreamingCaret]
+const REHYPE_PLUGINS_CARET_AFTER_FIRST: PluggableList = [...REHYPE_PLUGINS_OPEN_AFTER_FIRST, rehypeStreamingCaret]
+
+/** The rehype list of one block: by whether it is the first, and whether it is the open one (and carries the caret). */
+function rehypePluginsFor(first: boolean, open: boolean, caret: boolean): PluggableList {
+  if (!open) return first ? REHYPE_PLUGINS : REHYPE_PLUGINS_AFTER_FIRST
+  if (caret) return first ? REHYPE_PLUGINS_CARET : REHYPE_PLUGINS_CARET_AFTER_FIRST
+  return first ? REHYPE_PLUGINS_OPEN : REHYPE_PLUGINS_OPEN_AFTER_FIRST
+}
 
 type FootnoteOptions = NonNullable<Options['remarkRehypeOptions']>
 
@@ -1049,7 +1122,7 @@ function headingIdsByBlock(content: string, blocks: readonly MarkdownBlock[]): s
  * @param remarkPlugins - Extra remark plugins, run after GFM and math
  */
 export const MarkdownRenderer: FC<MarkdownRendererProps> = memo(
-  ({ content, className = '', compact = false, isStreaming = false, remarkPlugins }) => {
+  ({ content, className = '', compact = false, isStreaming = false, remarkPlugins, caret }) => {
     const t = useTranslations('common')
     // Set during render, the documented way to derive state from a prop's history.
     const [streamedHere, setStreamedHere] = useState(isStreaming)
@@ -1086,38 +1159,41 @@ export const MarkdownRenderer: FC<MarkdownRendererProps> = memo(
     )
     const headingIds = useMemo(() => headingIdsByBlock(renderedContent, blocks), [renderedContent, blocks])
 
+    const withCaret = isStreaming && caret !== undefined && caret !== null && caret !== false
+
+    // `hyphens-auto`: German compounds („Brandabschnittsfläche") left a ragged
+    // right edge and, in a narrow table column, a line of their own. Only
+    // words of ten letters or more, at least four on each side of the break,
+    // and not in the section headings (h2/h3, `hyphens-manual`), which read
+    // as one phrase. The dictionary is the document's `lang`. Not `text-wrap: pretty`: Chromium
+    // re-breaks the lines above the last as words are appended, so the lines
+    // the reader has read would jitter while the answer streams.
     return (
-      <div
-        className={`markdown-content break-words [overflow-wrap:anywhere] [&>*:last-child]:mb-0 ${className}`}
-      >
-        {blocks.map((block, index) => {
-          const last = index === blocks.length - 1
-          return (
-            <MarkdownBlockView
-              // By position: the block the reveal is writing keeps its place,
-              // and everything drawn in it, while it grows.
-              key={index}
-              source={block.source}
-              headingIds={headingIds[index] ?? ''}
-              compact={compact}
-              open={isStreaming && last}
-              streaming={isStreaming}
-              streamedHere={streamedHere}
-              remarkPlugins={last ? plugins.last : plugins.notLast}
-              rehypePlugins={
-                isStreaming && last
-                  ? index === 0
-                    ? REHYPE_PLUGINS_OPEN
-                    : REHYPE_PLUGINS_OPEN_AFTER_FIRST
-                  : index === 0
-                    ? REHYPE_PLUGINS
-                    : REHYPE_PLUGINS_AFTER_FIRST
-              }
-              footnoteOptions={footnoteOptions}
-            />
-          )
-        })}
-      </div>
+      <StreamingCaretProvider value={withCaret ? caret : null}>
+        <div
+          className={`markdown-content hyphens-auto [hyphenate-limit-chars:10_4_4] break-words [overflow-wrap:anywhere] [&>*:last-child]:mb-0 ${className}`}
+        >
+          {blocks.map((block, index) => {
+            const last = index === blocks.length - 1
+            return (
+              <MarkdownBlockView
+                // By position: the block the reveal is writing keeps its place,
+                // and everything drawn in it, while it grows.
+                key={index}
+                source={block.source}
+                headingIds={headingIds[index] ?? ''}
+                compact={compact}
+                open={isStreaming && last}
+                streaming={isStreaming}
+                streamedHere={streamedHere}
+                remarkPlugins={last ? plugins.last : plugins.notLast}
+                rehypePlugins={rehypePluginsFor(index === 0, isStreaming && last, withCaret)}
+                footnoteOptions={footnoteOptions}
+              />
+            )
+          })}
+        </div>
+      </StreamingCaretProvider>
     )
   }
 )

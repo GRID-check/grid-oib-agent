@@ -17,13 +17,15 @@
  * it cannot be naming a file, and most answers are that answer, so most answers
  * cost nothing at all.
  *
- * ## Not while it is arriving
+ * ## While it is arriving, too
  *
- * A streaming body changes on every token, and half a filename is not a file
- * reference — so a chip would appear mid-word, or (worse) a name would match a
- * DIFFERENT file until its distinguishing tail arrived. Nothing is scanned
- * until the answer is finished, which in this product is a frame or two after
- * the first delta.
+ * The index is fetched as soon as the body mentions a file type, streaming or
+ * not, and names are linked as they appear. Waiting for the finished answer
+ * started the fetch at the settle, so the chips arrived a round trip later and
+ * re-parsed and re-wrapped an answer the reader had just finished. Half a
+ * filename is not a risk here: the body this reads is the PACED one, which
+ * grows a whole word at a time, and the match is the literal name the reader
+ * owns, so a name is linked once all of it is on screen and not before.
  */
 
 import { useEffect, useMemo, useState } from 'react'
@@ -51,11 +53,9 @@ export function useAnswerFileReferences(options: {
   body: string
   projectId: string | null
   conversationId: string | null
-  /** Nothing is scanned or fetched while the answer is still arriving. */
-  isStreaming?: boolean
 }): AnswerFileReferences {
-  const { body, projectId, conversationId, isStreaming } = options
-  const worthLooking = !isStreaming && mentionsAnyFileType(body)
+  const { body, projectId, conversationId } = options
+  const worthLooking = mentionsAnyFileType(body)
   const [index, setIndex] = useState<Map<string, StoredFile> | null>(null)
 
   useEffect(() => {

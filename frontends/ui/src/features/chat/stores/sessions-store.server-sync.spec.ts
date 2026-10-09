@@ -198,6 +198,46 @@ describe('selectConversation message repopulation', () => {
     ])
     expect(isAwaitingServerMessages(conv.id)).toBe(false)
   })
+
+  it('names the opening thread as pending until its history lands, in the same set as the messages', async () => {
+    // The awaiting set is not reactive: the thread showed the greeting while
+    // a server-only conversation's messages were on their way.
+    const conv = makeConversation({ messages: [] })
+    useChatStore.setState({ conversations: [conv] })
+    markAwaitingServerMessages(conv.id)
+    let resolveFetch: (rows: unknown[]) => void = () => {}
+    mockConversationsClient.listMessages.mockReturnValue(new Promise((resolve) => (resolveFetch = resolve)))
+    const seen: Array<{ pending: string | null; count: number }> = []
+    const unsubscribe = useChatStore.subscribe((state) =>
+      seen.push({ pending: state.pendingMessagesFor, count: state.currentConversation?.messages.length ?? 0 })
+    )
+
+    useChatStore.getState().selectConversation(conv.id)
+    expect(useChatStore.getState().pendingMessagesFor).toBe(conv.id)
+
+    resolveFetch([serverRow(conv.id, 'm1', 'user', 'earlier question')])
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    unsubscribe()
+
+    expect(useChatStore.getState().pendingMessagesFor).toBeNull()
+    // Never a state with the messages AND the thread still loading.
+    expect(seen.some((s) => s.pending === conv.id && s.count > 0)).toBe(false)
+  })
+
+  it('a failed fetch stops naming the thread as pending', async () => {
+    const conv = makeConversation({ messages: [] })
+    useChatStore.setState({ conversations: [conv] })
+    markAwaitingServerMessages(conv.id)
+    mockConversationsClient.listMessages.mockRejectedValue(new Error('offline'))
+    vi.spyOn(console, 'warn').mockImplementation(() => {})
+
+    useChatStore.getState().selectConversation(conv.id)
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    await new Promise((resolve) => setTimeout(resolve, 0))
+
+    expect(useChatStore.getState().pendingMessagesFor).toBeNull()
+  })
 })
 
 describe('server row lifecycle sync', () => {

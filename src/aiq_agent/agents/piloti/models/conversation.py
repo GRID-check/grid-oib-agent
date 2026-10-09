@@ -190,6 +190,9 @@ class ConversationState(BaseModel):
     # lifted from Piloti's state and onto ``TurnResult.quote_stamps``. None when
     # the answer quotes nothing.
     quote_stamps: list[dict[str, Any]] | None = None
+    # The thinking level the answering call ran at, lifted from Piloti's state
+    # onto ``TurnResult.reasoning_effort``. None when no answering call ran.
+    reasoning_effort: str | None = None
     # --- Transparency extras (WP-A) -------------------------------------------
     # All optional/additive: absent means "unknown/not applicable". Lifted onto
     # ``RUN_FINISHED``'s ``TurnResult`` (``turn.response.build_result``), same

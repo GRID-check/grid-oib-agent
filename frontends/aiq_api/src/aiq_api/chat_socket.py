@@ -64,10 +64,10 @@ from starlette.websockets import WebSocketDisconnect
 
 from aiq_agent.common.human_prompt import human_response
 from aiq_agent.common.human_prompt import interaction_request
+from aiq_agent.common.wire_v2 import ACCEPTED_CLIENT_FIELDS
 from aiq_agent.common.wire_v2 import CLIENT_MESSAGE
 from aiq_agent.common.wire_v2 import CLOSE_CLIENT_OUTDATED
 from aiq_agent.common.wire_v2 import WIRE_VERSION
-from aiq_agent.common.wire_v2 import AnswerRetractedBody
 from aiq_agent.common.wire_v2 import Attach
 from aiq_agent.common.wire_v2 import CancelTurn
 from aiq_agent.common.wire_v2 import EventBody
@@ -84,12 +84,11 @@ from aiq_agent.common.wire_v2 import RejectedValue
 from aiq_agent.common.wire_v2 import RunErrorBody
 from aiq_agent.common.wire_v2 import RunFinishedBody
 from aiq_agent.common.wire_v2 import RunStartedBody
+from aiq_agent.common.wire_v2 import ShownAnswer
 from aiq_agent.common.wire_v2 import StageBody
 from aiq_agent.common.wire_v2 import StageValue
-from aiq_agent.common.wire_v2 import StateSnapshotBody
 from aiq_agent.common.wire_v2 import TurnResult
 from aiq_agent.common.wire_v2 import UserMessage
-from aiq_agent.common.wire_v2 import WireSource
 from aiq_agent.common.wire_v2 import stamp
 from aiq_agent.common.wire_v2 import to_frame
 from aiq_agent.common.write_fence import TurnFenced
@@ -482,6 +481,9 @@ class TurnWire:
         self._lock = asyncio.Lock()
         self._held_stages: list[StageBody] = []
         self._frames: deque[dict[str, Any]] = deque(maxlen=LOCAL_REPLAY_FRAMES)
+        #: Told each body with the seq it was stamped, under the lock: so a fold
+        #: of them sees exactly the frames a reader saw, in their order.
+        self.on_stamp: Callable[[EventBody, int], None] | None = None
 
     def replay(self) -> list[dict[str, Any]]:
         """Every frame this sequencer stamped (the last ``LOCAL_REPLAY_FRAMES``), in ``seq`` order."""
@@ -513,6 +515,8 @@ class TurnWire:
 
     async def _stamp_and_publish(self, body: EventBody) -> bool:
         self.seq += 1
+        if self.on_stamp is not None:
+            self.on_stamp(body, self.seq)
         event = stamp(body, conversation_id=self.conversation_id, turn_id=self.turn_id, seq=self.seq, ts=_now_ms())
         frame = to_frame(event)
         self._frames.append(frame)
@@ -605,16 +609,26 @@ class RunningTurn:
     asker_subject: str | None
     organization_id: str | None = None
     task: asyncio.Task[None] | None = None
-    #: The prose so far, for a stopped turn's result, and the sources of the
-    #: last settle, which are the ones a settled text's ``[N]`` resolve to.
+    #: The answer so far, folded from the frames as they are stamped, for a stopped turn's result.
     fold: TurnTextFold = field(default_factory=TurnTextFold)
-    settled_sources: list[WireSource] = field(default_factory=list)
+    #: What the asker had on screen when they pressed Stop, when their cancel said (``cancel_turn.shown``).
+    shown: ShownAnswer | None = None
     pending: PendingInteraction | None = None
     deadline: TurnDeadline = field(default_factory=TurnDeadline)
     #: This turn holds the conversation's running marker: it renews it while it runs and deletes it when it ends.
     holds_marker: bool = False
     #: Its own clock on that marker, with affinity off: every write to the conversation asks it first.
     guard: TurnFence | None = None
+    #: The level the asker stated, for a stopped turn's result: the graph's state
+    #: is gone by then, and a stated level is the one the answering call runs at
+    #: (``request_llm_context.with_turn_effort``). None when none was stated.
+    reasoning_effort: str | None = None
+
+    def __post_init__(self) -> None:
+        # Folded as stamped, not as yielded: a body the wire drops (a fenced
+        # turn, after the terminal) never reached a reader, and a ``seq`` the
+        # asker's Stop names must mean the text it meant on their screen.
+        self.wire.on_stamp = self.fold.add
 
     @property
     def message_id(self) -> str:
@@ -622,9 +636,6 @@ class RunningTurn:
 
     async def publish(self, body: EventBody) -> None:
         """Send one body the workflow yielded; the terminal is also persisted."""
-        self.fold.add(body)
-        if isinstance(body, StateSnapshotBody | AnswerRetractedBody):
-            self.settled_sources = list(body.snapshot.sources) if isinstance(body, StateSnapshotBody) else []
         if isinstance(body, RunFinishedBody):
             await self.finish(body)
             return
@@ -682,19 +693,36 @@ class RunningTurn:
         pending.answer.set_result(response)
         return None
 
-    def cancel(self, *, subject: str | None, internal: bool) -> str | None:
-        """Stop the turn's task. The refusal code, or None when it was cancelled."""
+    def cancel(self, *, subject: str | None, internal: bool, shown: ShownAnswer | None = None) -> str | None:
+        """Stop the turn's task. The refusal code, or None when it was cancelled.
+
+        ``shown`` is what the asker had on screen. It is kept before the task
+        is cancelled, so the terminal the cancel unwinds to is cut to it.
+        """
         if not may_act_for(self.asker_subject, subject, internal=internal):
             return "not_asker"
+        if shown is not None:
+            self.shown = shown
         if self.task is not None:
             self.task.cancel()
         return None
 
     async def finish_cancelled(self) -> None:
-        """The terminal of a stopped turn: what the reader saw when they pressed Stop, persisted and marked stopped."""
-        text = self.fold.partial().strip()
-        sources = self.settled_sources if text == (self.fold.settled or "").strip() else []
-        result = TurnResult(message_id=self.message_id, text=text, sources=sources)
+        """The terminal of a stopped turn: what the reader saw when they pressed Stop, persisted and marked stopped.
+
+        Cut to ``shown`` when the asker's cancel said what was on screen, so
+        the row the server writes is the text the asker's own client keeps
+        (``stopStreaming``), whichever of the two writes reaches the BFF first.
+        """
+        kept = self.fold.stopped(self.shown)
+        result = TurnResult(
+            message_id=self.message_id,
+            text=kept.text,
+            sources=kept.sources,
+            cards=kept.cards,
+            answer_meta=kept.answer_meta,
+            reasoning_effort=self.reasoning_effort,
+        )
         await self.finish(RunFinishedBody(outcome="cancelled", result=result))
 
 
@@ -1057,12 +1085,21 @@ class ChatRegistry:
         if turn is None or not isinstance(message, InteractionResponse | CancelTurn):
             return
         refusal = (
-            turn.cancel(subject=subject, internal=internal)
+            turn.cancel(subject=subject, internal=internal, shown=_relayed_shown(payload))
             if isinstance(message, CancelTurn)
             else turn.answer(message, subject=subject, internal=internal)
         )
         if refusal is not None:
             logger.warning("Refused a relayed %s for turn %s: %s", message.type, message.turn_id, refusal)
+
+
+def _relayed_shown(payload: dict[str, Any]) -> ShownAnswer | None:
+    """The asker's ``shown`` beside a relayed Stop, or None when absent or malformed (the Stop still counts)."""
+    try:
+        return ShownAnswer.model_validate(payload["shown"]) if payload.get("shown") is not None else None
+    except ValidationError:
+        logger.warning("Dropping a malformed shown position from a relayed Stop", exc_info=True)
+        return None
 
 
 #: How soon a renewal that failed is tried again, when that is sooner than the interval.
@@ -1283,6 +1320,11 @@ async def _ensure_terminal(turn: RunningTurn) -> None:
 # ---------------------------------------------------------------------------
 
 
+def _relayable(message: InteractionResponse | CancelTurn) -> dict[str, Any]:
+    """The message as every replica still running can parse it: without the fields only newer ones read."""
+    return message.model_dump(mode="json", exclude={"shown"} if isinstance(message, CancelTurn) else None)
+
+
 def _client_type(raw: object) -> str | None:
     kind = raw.get("type") if isinstance(raw, dict) else None
     return kind if kind in {"user_message", "interaction_response", "cancel_turn", "attach"} else None
@@ -1324,7 +1366,8 @@ class ChatSocket:
             return
         self.caller = user
         try:
-            await self.socket.send_json(to_frame(Hello(ts=_now_ms(), value=HelloValue(build=deployed_sha()))))
+            hello = HelloValue(build=deployed_sha(), accepts=list(ACCEPTED_CLIENT_FIELDS))
+            await self.socket.send_json(to_frame(Hello(ts=_now_ms(), value=hello)))
             await self._serve_messages()
         except WebSocketDisconnect:
             logger.debug("Chat socket closed for conversation %s", self.bound)
@@ -1412,6 +1455,7 @@ class ChatSocket:
             organization_id=_org_id_from_scope(self.socket.scope),
             holds_marker=fence.held,
             guard=fence.guard,
+            reasoning_effort=message.reasoning_effort,
         )
         await wire.send(RunStartedBody(message_id=turn.message_id))
         if fence.refusal is not None:
@@ -1452,7 +1496,7 @@ class ChatSocket:
         if turn is None:
             await self._to_owner(CANCEL, message)
             return
-        refusal = turn.cancel(subject=self.subject, internal=self.internal)
+        refusal = turn.cancel(subject=self.subject, internal=self.internal, shown=message.shown)
         if refusal is not None:
             await self._reject(
                 message.model_dump(), "cancel_turn", refusal, "Only the person who asked can stop this turn."
@@ -1475,7 +1519,13 @@ class ChatSocket:
         if not is_multi_replica_bus():
             await self._reject(message.model_dump(), of, "turn_not_found")
             return
-        payload = {"message": message.model_dump(mode="json"), "subject": self.subject, "internal": self.internal}
+        payload = {"message": _relayable(message), "subject": self.subject, "internal": self.internal}
+        if isinstance(message, CancelTurn) and message.shown is not None:
+            # Beside the message, not in it: the owner may be a pod one release
+            # older, whose strict ``CancelTurn`` would refuse the field and drop
+            # the Stop with it. An older owner ignores the key and keeps
+            # everything streamed so far, as it always did.
+            payload["shown"] = message.shown.model_dump(mode="json")
         try:
             await self.registry.bus().publish_input(message.conversation_id, input_type, payload)
         except BusUnavailable:

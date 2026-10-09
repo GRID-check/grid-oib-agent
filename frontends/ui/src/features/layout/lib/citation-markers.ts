@@ -48,10 +48,12 @@ export interface CitationMarkerOptions {
   /** Anchor id prefix of the rows being linked to. */
   anchorPrefix?: string
   /**
-   * The answer is still streaming (ADR-0066): a `[N]` with no source entry YET
-   * is a citation the backend has not settled, not a stray bracket. It becomes
-   * a link to {@link PENDING_CITATION_ANCHOR_PREFIX}, rendered as a pending
-   * pill until the settled text names its source.
+   * The answer may still be streaming (ADR-0066): a `[N]` with no source entry
+   * YET may be a citation the backend has not settled, not a stray bracket. It
+   * becomes a link to {@link PENDING_CITATION_ANCHOR_PREFIX}, and the renderer
+   * decides from the answer's live state whether that is a pending pill or
+   * plain text. AgentResponse passes it always, so the plugin list keeps its
+   * identity when the answer settles and no block re-parses for it.
    */
   pending?: boolean
 }

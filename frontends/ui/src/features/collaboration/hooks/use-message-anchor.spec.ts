@@ -58,7 +58,7 @@ describe('useMessageAnchor', () => {
   test('does nothing without a message hash', () => {
     mountMessage('msg_7')
 
-    const { result } = renderHook(() => useMessageAnchor(['msg_7']))
+    const { result } = renderHook(() => useMessageAnchor(['msg_7']).highlightedId)
 
     expect(result.current).toBeNull()
     expect(scrollIntoView).not.toHaveBeenCalled()
@@ -69,7 +69,7 @@ describe('useMessageAnchor', () => {
 
     // First render: the thread has not loaded. This is the case that was broken —
     // a plain browser hash resolves to nothing here and is then gone.
-    const { result, rerender } = renderHook(({ ids }) => useMessageAnchor(ids), {
+    const { result, rerender } = renderHook(({ ids }) => useMessageAnchor(ids).highlightedId, {
       initialProps: { ids: [] as string[] },
     })
     expect(result.current).toBeNull()
@@ -86,7 +86,7 @@ describe('useMessageAnchor', () => {
   test('holds the target while the id is known but not yet painted', () => {
     setHash('#message-msg_7')
 
-    const { result, rerender } = renderHook(({ ids }) => useMessageAnchor(ids), {
+    const { result, rerender } = renderHook(({ ids }) => useMessageAnchor(ids).highlightedId, {
       initialProps: { ids: ['msg_7'] },
     })
 
@@ -103,11 +103,19 @@ describe('useMessageAnchor', () => {
     setHash('#message-msg_7')
     mountMessage('msg_7')
 
-    const { result } = renderHook(() => useMessageAnchor(['msg_7']))
+    const { result } = renderHook(() => useMessageAnchor(['msg_7']).highlightedId)
     expect(result.current).toBe('msg_7')
 
+    // Counted from the frame the mark is painted, then its full time.
     act(() => {
-      vi.advanceTimersByTime(3000)
+      vi.advanceTimersByTime(16)
+    })
+    act(() => {
+      vi.advanceTimersByTime(2500)
+    })
+    expect(result.current).toBe('msg_7')
+    act(() => {
+      vi.advanceTimersByTime(200)
     })
 
     expect(result.current).toBeNull()
@@ -117,7 +125,7 @@ describe('useMessageAnchor', () => {
     setHash('#message-msg_7')
     mountMessage('msg_7')
 
-    renderHook(() => useMessageAnchor(['msg_7']))
+    renderHook(() => useMessageAnchor(['msg_7']).highlightedId)
 
     expect(window.location.hash).toBe('')
     // …and the session parameter survives: the hash is dropped, not the URL.
@@ -128,11 +136,54 @@ describe('useMessageAnchor', () => {
     setHash('#message-msg_missing')
     mountMessage('msg_7')
 
-    const { result } = renderHook(() => useMessageAnchor(['msg_7']))
+    const { result } = renderHook(() => useMessageAnchor(['msg_7']).highlightedId)
 
     expect(result.current).toBeNull()
     expect(scrollIntoView).not.toHaveBeenCalled()
     // The hash is left alone — nothing was consumed, so nothing is rewritten.
     expect(window.location.hash).toBe('#message-msg_missing')
+  })
+
+  test('lands at once, not with a smooth scroll the mark fades during', () => {
+    setHash('#message-msg_7')
+    mountMessage('msg_7')
+
+    renderHook(() => useMessageAnchor(['msg_7']))
+
+    expect(scrollIntoView).toHaveBeenCalledWith({ behavior: 'auto', block: 'center' })
+  })
+
+  test('tells the thread a target is pending, and when it landed', () => {
+    // The thread's bottom jump and follow ran after the landing and took the
+    // reader to the bottom after all: they ask first now.
+    setHash('#message-msg_7')
+    const onLand = vi.fn()
+
+    const { result, rerender } = renderHook(({ ids }) => useMessageAnchor(ids, { onLand }), {
+      initialProps: { ids: [] as string[] },
+    })
+    expect(result.current.isTargetPending()).toBe(true)
+    expect(onLand).not.toHaveBeenCalled()
+
+    mountMessage('msg_7')
+    rerender({ ids: ['msg_7'] })
+
+    expect(onLand).toHaveBeenCalledWith('msg_7')
+    expect(result.current.isTargetPending()).toBe(false)
+  })
+
+  test('takes up a hash that changes while the thread is open', () => {
+    mountMessage('msg_7')
+    mountMessage('msg_8')
+    const { result } = renderHook(() => useMessageAnchor(['msg_7', 'msg_8']).highlightedId)
+    expect(result.current).toBeNull()
+
+    act(() => {
+      window.history.replaceState(null, '', '/app/projects/p1/chat?session=s1#message-msg_8')
+      window.dispatchEvent(new HashChangeEvent('hashchange'))
+    })
+
+    expect(result.current).toBe('msg_8')
+    expect(scrollIntoView).toHaveBeenCalledTimes(1)
   })
 })

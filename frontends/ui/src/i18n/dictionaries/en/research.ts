@@ -16,8 +16,20 @@ export const research = {
     ariaMessages: 'Chat messages',
     loading: 'Loading conversation',
     scrollToLatest: 'Scroll to latest',
+    // A quiet line above the composer instead of an error card in the thread:
+    // the page reconnects on its own, and the reader has nothing to do.
+    connection: {
+      lost: 'Connection lost · Piloti is reconnecting …',
+      restored: 'Reconnected',
+    },
     status: {
       thinking: 'Thinking …',
+      // Once, politely, when the answer is all on screen.
+      answerReady: 'Answer ready',
+      // With the answer's gist: its verdict, or its first sentence.
+      answerReadyWith: 'Answer ready: {gist}',
+      // The reader stopped the answer.
+      stopped: 'Stopped',
     },
     loggedOutTitle: 'Piloti opens after your organization is verified.',
     loggedOutBody:
@@ -193,6 +205,8 @@ export const research = {
     signInToStart: 'Sign in to start working',
     typeResponse: 'Type your response to Piloti...',
     pleaseWait: 'Please wait...',
+    typeAhead: 'Type your next question …',
+    typeAheadHint: 'You can send once the answer is finished.',
     messageNotSent: 'Message not sent',
     messageNotSentDesc: 'Something went wrong sending your message. Please try again.',
     unsupportedFileType: 'Unsupported file type',
@@ -210,6 +224,7 @@ export const research = {
     responseInput: 'Response input',
     chatMessageInput: 'Chat message input',
     stopStreaming: 'Stop response',
+    stopStreamingTitle: 'Stop response (Esc)',
     sendWhilePending: 'Not every file has been read yet. Send anyway?',
     heldForUpload: 'Sending as soon as the file has been read.',
     heldForUploadSendNow: 'Ask now without it',

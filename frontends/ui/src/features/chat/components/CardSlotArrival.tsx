@@ -11,11 +11,14 @@
  * a remounted slot (the Markdown renderer keys blocks by position), a reload, a
  * finished answer and reduced motion show it at once. `live` comes through
  * context, so the settle hands no slot a new renderer.
+ *
+ * A place held for a card that never comes (refused, or the answer settled
+ * without it) folds away on the exit curve instead of vanishing.
  */
 
 import { createContext, useCallback, useContext, useState, type ReactNode } from 'react'
 import { AnimatePresence, motion, useReducedMotion } from 'motion/react'
-import { motionDeliberate, motionInstant } from '@/components/motion'
+import { motionDeliberateEntrance, motionInstant, motionQuickExit } from '@/components/motion'
 import { CARD_PLACEHOLDER_HEIGHT, CardPlaceholder } from '@/features/grid-cards/components/CardPlaceholder'
 import { DrawnProvider } from '@/features/a2ui/catalog'
 import { cn } from '@/lib/utils'
@@ -25,14 +28,49 @@ const arrived = new Set<string>()
 
 const LiveContext = createContext(false)
 
-/** Whether the answer the slots below belong to is still arriving. */
+/**
+ * Whether the answer the slots below belong to is still arriving. The citation
+ * marker reads it too (`useAnswerLive`): what is pending is decided at render
+ * time from here, never by the remark plugins, so the plugin list keeps its
+ * identity when the answer settles and the settle frame re-parses nothing.
+ */
 export const CardSlotLiveProvider = LiveContext.Provider
 
-/** `arrivalKey` is `messageId:index`; `children` the card, absent until it arrives. */
-export const CardSlot = ({ arrivalKey, children }: { arrivalKey: string; children?: ReactNode }) => {
+/** Whether the answer this element is rendered into is still arriving. */
+export const useAnswerLive = (): boolean => useContext(LiveContext)
+
+export const CardSlot = ({
+  arrivalKey,
+  children,
+  refused = false,
+  arriving,
+}: {
+  /** `messageId:index`. */
+  arrivalKey: string
+  /** The card, absent until it arrives. */
+  children?: ReactNode
+  /**
+   * The card will never come: the validator refused it, or this reader may
+   * not see it. A slot that has been holding its place goes, rather than
+   * vanishing (see below); one that never showed renders nothing.
+   */
+  refused?: boolean
+  /**
+   * Whether the card arrives in front of the reader, defaulting to the
+   * answer's `live`. The unplaced cards pass it explicitly: they mount when
+   * "unplaced" becomes final, which can be the settle frame of an answer the
+   * reader watched arrive.
+   */
+  arriving?: boolean
+}) => {
   const live = useContext(LiveContext)
   const reducedMotion = useReducedMotion()
-  const [arrives] = useState(() => live && !reducedMotion && !arrived.has(arrivalKey))
+  const [arrives] = useState(() => (arriving ?? live) && !reducedMotion && !arrived.has(arrivalKey))
+  // Whether the reader saw this slot hold a place. Only such a slot animates
+  // away when its card turns out never to be coming: a 120px placeholder that
+  // vanished in one frame pulled everything under it up by as much.
+  const [heldPlace] = useState(() => live && !reducedMotion && !refused)
+  const [gone, setGone] = useState(false)
   const [drawn, setDrawn] = useState(false)
   const [standing, setStanding] = useState(!arrives)
   const reveal = useCallback(() => {
@@ -40,24 +78,30 @@ export const CardSlot = ({ arrivalKey, children }: { arrivalKey: string; childre
     setDrawn(true)
   }, [arrivalKey])
 
-  const hasCard = children !== undefined && children !== null
-  if (!hasCard && !live) return null
+  const hasCard = !refused && children !== undefined && children !== null
+  const neverComing = refused || (!hasCard && !live)
+  if (neverComing && (!heldPlace || gone)) return null
   const shown = hasCard && (drawn || !arrives)
-  const transition = arrives ? motionDeliberate : motionInstant
+  // Arrival is an entrance: decided at the start, settling at the end.
+  const transition = arrives ? motionDeliberateEntrance : motionInstant
 
   return (
     // `mb-3` is the paragraph rhythm of the markdown body: the card replaced a
-    // paragraph. `block!` beats the streaming caret's `*:last-child]:inline`
-    // rule, which would collapse a card that ends a still-arriving answer.
-    // Clipped until the card stands, so its popovers are not cut off after.
+    // paragraph. Clipped until the card stands, so its popovers are not cut off after.
     <motion.div
-      className={cn('block! relative mb-3', !standing && 'overflow-hidden')}
+      className={cn('relative mb-3', (!standing || neverComing) && 'overflow-hidden')}
       data-testid={hasCard ? undefined : 'pending-card-slot'}
-      aria-busy={shown ? undefined : true}
+      aria-busy={shown || neverComing ? undefined : true}
       initial={false}
-      animate={{ height: shown ? 'auto' : CARD_PLACEHOLDER_HEIGHT }}
-      transition={transition}
-      onAnimationComplete={() => setStanding(shown)}
+      // A place that turns out to hold nothing folds away, its paragraph
+      // margin with it, on the exit curve; it unmounts once it has.
+      animate={
+        neverComing
+          ? { height: 0, opacity: 0, marginBottom: 0 }
+          : { height: shown ? 'auto' : CARD_PLACEHOLDER_HEIGHT }
+      }
+      transition={neverComing ? motionQuickExit : transition}
+      onAnimationComplete={() => (neverComing ? setGone(true) : setStanding(shown))}
     >
       {hasCard && (
         <motion.div initial={false} animate={{ opacity: shown ? 1 : 0 }} transition={transition}>

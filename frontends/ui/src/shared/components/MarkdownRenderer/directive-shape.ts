@@ -57,6 +57,7 @@ import {
   columnCells,
   elements,
   isElement,
+  tailTableIn,
   markStatusCells,
   tableParts,
   textOf,
@@ -232,7 +233,13 @@ function shapeCheckTable(table: Element, { openTail }: CheckOptions): void {
     })
   })
   const tally = rows.length >= 2 && outcomes.length === rows.length ? tallyOf(outcomes) : null
-  setProps(table, { dataTally: openTail ? undefined : (tally ?? table.properties?.dataTally) })
+  // An open check reserves the tally's line from its header on: a check is
+  // read for its outcome, so it nearly always has one, and a line inserted
+  // above the rows when the block closed pushed the whole table down.
+  setProps(table, {
+    dataTally: openTail ? undefined : (tally ?? table.properties?.dataTally),
+    dataTallyReserve: openTail ? 'true' : undefined,
+  })
   // A check every row of which passes says so in one line; the rows stay one click away.
   if (tally && outcomes.every((word) => outcomeTone(word) === 'success')) {
     setProps(table, { dataCollapsed: 'true', dataPassCount: String(outcomes.length) })
@@ -708,7 +715,7 @@ function excerptCitation(quote: Element): { number: string; href: string } | nul
 interface ShapeOptions {
   /** The text is still arriving and this tree is its last block. */
   openTail: boolean
-  /** The last table of the tree, which is the one an open tail may still be writing. */
+  /** The table the tree ends in, the one an open tail may still be writing (`tailTableIn`). */
   lastTable: Element | null
 }
 
@@ -740,17 +747,6 @@ function shapeBlocks(node: Element | Root, options: ShapeOptions): void {
   }
 }
 
-/** The last `table` element in document order, or null. */
-function lastTableIn(node: Element | Root): Element | null {
-  let last: Element | null = null
-  for (const child of node.children as (RootContent | ElementContent)[]) {
-    if (!isElement(child)) continue
-    if (child.tagName === 'table') last = child
-    last = lastTableIn(child) ?? last
-  }
-  return last
-}
-
 export interface DirectiveShapeOptions {
   /** The text is still arriving and this is its last block: its last table row may be half-written. */
   openTail?: boolean
@@ -761,6 +757,6 @@ export function rehypeDirectiveShape(options: DirectiveShapeOptions = {}) {
   return (tree: Root) => {
     consumeMarkers(tree, [])
     const openTail = options.openTail === true
-    shapeBlocks(tree, { openTail, lastTable: openTail ? lastTableIn(tree) : null })
+    shapeBlocks(tree, { openTail, lastTable: openTail ? tailTableIn(tree) : null })
   }
 }

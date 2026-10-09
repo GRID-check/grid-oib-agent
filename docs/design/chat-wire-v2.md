@@ -228,7 +228,7 @@ are the models. What follows is the decision, per event.
 | `TEXT_MESSAGE_START` / `_CONTENT` / `_END` | `message_id`; `delta` (min 1 char) | AG-UI's names and semantics. START is the first prose of a streamed call, CONTENT appends, END marks the envelope's `answer` string as closed. The producer coalesces deltas to at most one per `RELAY_WINDOW_S` (50 ms) |
 | `STATE_SNAPSHOT` | `snapshot: {text, sources[], answer_meta?}` | ADR-0066's settle. AG-UI's STATE_SNAPSHOT means "replace the state you hold", and that is exactly this: text, citations and masthead are replaced, and an absent `answer_meta` removes the masthead. Cards are untouched. It is chosen over MESSAGES_SNAPSHOT, which has no place for sources. It is not a STATE_DELTA, because the settled text is rewritten, not patched |
 | `STEP_STARTED` / `STEP_FINISHED` | `step`: a typed `Step` (below) | One event family for every Herleitung row. A step with a duration (a tool call) sends STARTED, then FINISHED with the same `id`. An instant step (a status line, a round, a skill) sends only FINISHED. The same `id` again replaces the row, newest wins, which is the old name-dedupe made explicit. AG-UI's `TOOL_CALL_*` is deliberately **not** used: it implies streamed arguments and results, and a step must never carry either |
-| `RUN_FINISHED` | `outcome: answered \| refused \| handed_off \| cancelled`, `result: TurnResult` | AG-UI's name. The result is authoritative and is what the server persists: text, keyed cards, sources, read_sources, masthead, confidence and its reasons, routing, escalation reason, citations removed, truncation, queue refusal and retry hint, skills, retrieval ledger, and the `run` hand-off `{run_id, run_message_id}` (both or neither, structurally) |
+| `RUN_FINISHED` | `outcome: answered \| refused \| handed_off \| cancelled`, `result: TurnResult` | AG-UI's name. The result is authoritative and is what the server persists: text, keyed cards, sources, read_sources, masthead, confidence and its reasons, routing, escalation reason, citations removed, truncation, queue refusal and retry hint, skills, retrieval ledger, the thinking level the answering call ran at (`reasoning_effort`), and the `run` hand-off `{run_id, run_message_id}` (both or neither, structurally) |
 | `RUN_ERROR` | `code: workflow_error \| auth_error \| interaction_expired`, `message`, `details?` | AG-UI's name, used only for failures that **end** the turn. Nothing is persisted, and the client asks the server for a finished answer before it shows the banner |
 | `CUSTOM` `masthead` | `{answer_meta}` | ADR-0066's masthead before the first word. A custom event, not a state delta, because it is set once and the text does not change |
 | `CUSTOM` `card` | `{index, key, card}` | One card, the moment its JSON closes. `index` is its position in the terminal's order (`[[card:N]]` is index N−1). `key` is `card_key(card)`, a hash of its canonical JSON, and the terminal carries the same key, so the client reconciles cards by key rather than by comparing trees. The event may arrive before its marker, which lets the UI pre-size the slot (§f) |
@@ -241,7 +241,7 @@ are the models. What follows is the decision, per event.
 | `CUSTOM` `rejected` | `{of, code, message?}`, with `seq: 0` | A client message was refused (`auth_expired`, `conversation_mismatch`, `duplicate_turn`, `not_asker`, `no_pending_interaction`, `turn_not_found`, `invalid_message`). It is out of band and never ends a turn. That is why an unauthorised Stop is not a `RUN_ERROR`. `of: unknown` answers a frame with no type this wire has, which used to be dropped: a client never waits on silence |
 
 **One frame is not a turn's: `hello`.** `{v: 2, type: CUSTOM, name: hello, ts,
-value: {build}}` is the server's first frame on every socket, sent once the
+value: {build, accepts}}` is the server's first frame on every socket, sent once the
 version and the caller have passed (`ChatSocket.serve`). It is not in the
 `WireEvent` union and carries no `conversation_id`, `turn_id` or `seq`, because
 nothing about it belongs to a turn: the fold never sees it, the stream never
@@ -251,7 +251,9 @@ dev deploy that rolled the agent back to NAT's stock socket proved it: that
 server accepted the upgrade, ignored `?v=2`, answered `user_message` with a
 frame the page could not read, and the page showed „Denkt nach…" forever. The
 client now sends nothing before the hello, and treats a socket that stays
-silent, or opens with anything else, as a failed attempt (§e.2).
+silent, or opens with anything else, as a failed attempt (§e.2). `accepts`
+lists the optional client fields this server reads, as `<type>.<field>`
+(`ACCEPTED_CLIENT_FIELDS`, today `cancel_turn.shown`); see Compatibility below.
 
 **Not in the set, on purpose.** There is no `run_handoff` event, because the
 commission is the turn's last act and `RUN_FINISHED.result.run` carries it
@@ -282,7 +284,7 @@ The client sends four messages, all with `v: 2` and `conversation_id`.
 |---|---|---|
 | `user_message` | `message_id` (becomes `turn_id`), `text`, `data_sources[]`, `context_only?`, `author_name?`, `focus_file_name?`, `focus_shelf?`, `source_preset?`, `focus_document_id?`, `focus_version_id?`, `focus_version_state?` | The fields are flat, where they used to be a JSON string inside a NAT text part. The type name stays `user_message` because the gateway's turn limiter (`lib/limits/ws-frames.js`) counts turns by it, so it needs no change. `include_shelves` does not exist: the contract refuses it |
 | `interaction_response` | `turn_id`, `interaction_id`, `answer: {text} \| {option_id}` | Exactly one answer, and the contract enforces that structurally |
-| `cancel_turn` | `turn_id` | Stop. Authorised: only the asker's verified subject, or an internal caller, may cancel. Anyone else gets `rejected{not_asker}` |
+| `cancel_turn` | `turn_id`, `shown?: {seq, chars}` | Stop. Authorised: only the asker's verified subject, or an internal caller, may cancel. Anyone else gets `rejected{not_asker}`. `shown` is how much of the answer was on screen: the first `chars` code points of the text the client had folded through `seq`. A position, not the text, so the server keeps only what the model wrote and the frame stays small enough for the gateway's limiter to read whole (`ws-frames.js` peeks 512 bytes and charges a longer message as a turn). Sent only when the hello accepts `cancel_turn.shown` |
 | `attach` | `turn_id`, `after_seq` | After a reconnect or a reload: replay the turn from `after_seq + 1`, then continue live |
 
 The socket asks for the version on the upgrade (`?v=2`). Any other version is
@@ -290,6 +292,40 @@ closed with `4426` (`CLOSE_CLIENT_OUTDATED`), and the client turns that into
 "Piloti was updated, reload". Today's old bundle gets nothing better than its
 existing connection-failed banner: telling it anything in its own dialect would
 be the shim the product owner ruled out. A deploy restarts every socket anyway.
+
+### Compatibility: additive changes are safe
+
+A tab outlives a deploy, so the bundle that reads a frame is often older than
+the server that wrote it. The rule is one-sided. **What the server sends, the
+client reads leniently:**
+
+- An unknown key, in a body or anywhere inside it, is stripped: the generator
+  emits every server-to-client schema without `.strict()`.
+- A v2 turn event (`v: 2`, `conversation_id`, `turn_id`, `seq`, `ts`) whose
+  `type`, step `kind` or `CUSTOM` name this bundle does not know comes back
+  from `parseWireEvent` as `{type: 'UNKNOWN', of, ...envelope}`, its body
+  dropped. The fold passes over it, so its `seq` still counts and the turn
+  settles; the Herleitung draws nothing for it.
+
+So a new field on `TurnResult`, a new step kind, a new `CUSTOM` or a new event
+type needs no client release first. An old tab simply does not show it, and
+`RUN_FINISHED` stays authoritative for the answer. A new *terminal* type is the
+exception in effect: an old tab would pass over it and wait for the watchdog,
+so a turn must keep ending with `RUN_FINISHED` or `RUN_ERROR`. **What the
+client sends, the server reads strictly:** the Pydantic models keep
+`extra="forbid"`, and the server never writes a field, type, kind or name its
+own models do not name. So a new optional field on a client message is sent
+only to a server that says it reads it: the hello's `accepts` names it, and the
+socket (`turn-socket.ts`, `forServer`) leaves it out for a server whose hello
+does not. During a rolling deploy a tab's socket may reach a pod one release
+older, and that pod would refuse the whole message, a Stop included. Without the
+field the server does what it did before the field existed. Between replicas
+the same holds: a relayed Stop carries `shown` beside the message on the bus,
+not inside it, so an older owner still parses the Stop. A frame that names only
+known things and still does not parse remains a break that asks an open tab to reload: a renamed or retyped
+field, a new required field, a known `CUSTOM` whose value no longer parses.
+`shared/wire/v2/newer-events.jsonl` holds the tolerated drift; the UI spec
+reads it, the Python test refuses it.
 
 ## b. Producers: where every one of them emits
 
@@ -458,9 +494,31 @@ cancelled. Otherwise `bus.publish_control(conv, CANCEL, {turn_id, subject})`
 and the owner checks the subject again. The task's `CancelledError` unwinds
 through `aclosing`, so LangGraph cancels the run and the ledgers still flush in
 `_run`'s `finally`. The handler then sends
-`RUN_FINISHED{outcome: "cancelled", result: {text: <prose so far, pending [N] removed>}}`
-and persists it with `metadata.stopped = true`. A reload shows what the reader
-saw when they pressed Stop, marked as stopped. A superseding `user_message`
+`RUN_FINISHED{outcome: "cancelled", result}` and persists it with
+`metadata.stopped = true`. With `cancel_turn.shown`, `result` is what the asker
+had on screen (`TurnTextFold.stopped`): the text cut to `shown.chars` of the
+stretch they were reading at `shown.seq` (the fold keeps the stretch a snapshot
+or retraction replaced, since those frames may still have been on their way to
+the reader), a marker cut in half dropped, the masthead and the cards that had
+reached them by then, a card only where its `[[card:N]]` is in the kept text.
+Without it, the prose so far and no cards. Either way a settled text keeps its
+`[N]` and sources and a streamed one loses its pending `[N]`. The fold runs on
+the frames as the wire stamps them (`TurnWire.on_stamp`), so a `seq` names the
+same text on both sides. The client stores the same cut (`stopStreaming`,
+`stopTurnView`), so a reload shows what the reader saw when they pressed Stop,
+whichever of the two writes of the row reaches the BFF first (both insert under
+one id and the second no-ops). The rule has one copy per language,
+`TurnTextFold.stopped` and `features/chat/lib/stopped-answer.ts`, and
+`shared/wire/v2/stopped-cases.jsonl` holds both to the same cases. A Stop that
+crosses the finished answer (the reveal runs up to about a second behind the
+wire) finds no turn to cancel: the server has stored the whole answer and
+answers `turn_not_found`. The client then cuts its own copy where the text on
+screen and the terminal's part (`stoppedLate`, or `keepStoppedAnswer` when no
+terminal reached it), stores it, and asks the BFF to cut the stored row:
+`POST /api/conversations/{id}/messages/{messageId}/stopped` with the turn and
+the text on screen. Only the asker may, within ten minutes of the row, and the
+BFF applies the same rule to the text it holds, so it can only shorten it; a
+row already stored as stopped is left alone. A superseding `user_message`
 still cancels a stale turn, as `set_workflow_task` does today.
 
 **HITL.** `RunningTurn.ask(prompt) -> HumanResponse` registers the pending
@@ -539,7 +597,10 @@ The rules follow the event table in §a. A duplicate `seq` returns the same
 object, so identity is kept and nothing re-renders. `STATE_SNAPSHOT` replaces
 text, sources and masthead. `answer_retracted` clears text, sources, masthead
 and cards. `RUN_FINISHED` replaces text, cards (keyed), sources and masthead
-with the result, and ends streaming. **Lanes are derived once, at fold time**:
+with the result, and ends streaming, except after a Stop pressed on this page
+(`stoppedHere`): the asker's view then records the cancelled terminal but keeps
+its own text, sources, masthead and cards, which are what was on screen
+(§c, Cancel). A replay or a spectator folds the terminal as sent. **Lanes are derived once, at fold time**:
 a `sources` step's `TraceLane[]` becomes the stored `TraceLaneCard[]` (with its
 `SourceSignal`) when the step is folded, never during a render. The fold ignores
 `seq: 0`: the driver routes `rejected`.
@@ -555,11 +616,13 @@ with anything else fails the attempt; a spent ladder then ends `incompatible`,
 not `failed`. The watchdog declares the socket dead after 3 × `every_ms` of
 silence during a running turn, counting only frames it could parse. Close code
 `4426` means reload, and so does a frame this bundle cannot parse after the
-hello: dropping it would leave its turn unable to fold another `seq`. Before
+hello: dropping it would leave its turn unable to fold another `seq`. An
+unknown key, or an unknown `type`, step `kind` or `CUSTOM` name, is not
+such a frame (§a, Compatibility). Before
 `RUN_STARTED` the socket watches nothing; the driver does. A question has
 `ACK_TIMEOUT_MS` (15 s) to be answered, by `RUN_STARTED`, a `rejected` or any
-frame of its turn, or the socket is reopened; a second miss ends the turn with
-an error card. A running turn the watchdog finds silent on two sockets in a row
+frame of its turn, or the socket is reopened; a second miss fails the turn with
+`agent.no_response` (a warning card with its retry, the Herleitung „Fehlgeschlagen"). A running turn the watchdog finds silent on two sockets in a row
 is ended as interrupted. The full table is in
 [`websocket-protocol.md`](../api/websocket-protocol.md#the-client). **Buy, don't build:** use `partysocket`'s `ReconnectingWebSocket` (MIT,
 pure TypeScript, async URL provider for the auth refresh) for connect, backoff
@@ -577,7 +640,10 @@ flush folds every buffered event and projects the view onto the assistant
 entry point, where the card-arrival slice keeps identity with `reuseEqualCards`
 and now keys on `card_key`. At `RUN_FINISHED`, the driver calls that slice's
 `settleTurn`, which batches the end-of-turn updates and defers persistence.
-Neither is re-implemented here.
+Neither is re-implemented here. A `handed_off` terminal projects a provisional
+run message under `result.run.run_message_id` in the answer's place, which
+`adoptRunMessage` replaces in place with the stored row
+([streaming-chat-answer.md, The end of a turn](streaming-chat-answer.md#the-end-of-a-turn)).
 
 Deleted actions: `appendAgentResponseDelta`, `replaceStreamingAgentResponse`,
 `finalizeAgentResponse`, `addAgentResponseWithMeta`, `addThinkingStep`,
@@ -677,8 +743,8 @@ and a reader-order change, nothing more.
 
 | Layer | What | Where |
 |---|---|---|
-| Contract | Every recorded event is valid **and** is byte for byte the frame the server writes. Turns are ordered: seq 1..n, one terminal, only stages after it. Every client message parses. Old NAT frames, `v: 1`, empty deltas, raw payloads on steps, unknown kinds and names, a half run hand-off, and a both-answers interaction response are refused. The committed schema is fresh | `tests/aiq_agent/common/test_wire_v2.py` (committed) |
-| Contract, UI side | The same files through the generated zod: every event parses to its type, defaults restored, and every invalid frame refused. The generated module is the generator's output | `src/adapters/api/wire-v2.spec.ts`, `scripts/generate-wire-schemas.spec.mjs` (committed) |
+| Contract | Every recorded event is valid **and** is byte for byte the frame the server writes. Turns are ordered: seq 1..n, one terminal, only stages after it. Every client message parses. Old NAT frames, `v: 1`, empty deltas, raw payloads on steps, unknown kinds and names, a half run hand-off, and a both-answers interaction response are refused, and so is the newer server's drift in `newer-events.jsonl`, which this server never writes. The committed schema is fresh | `tests/aiq_agent/common/test_wire_v2.py` (committed) |
+| Contract, UI side | The same files through the generated zod: every event parses to its type, defaults restored, and every invalid frame refused. `newer-events.jsonl` parses, its unknown keys stripped and its unknown types, step kinds and `CUSTOM` names folded as no-ops (§a, Compatibility). The generated module is the generator's output | `src/adapters/api/wire-v2.spec.ts`, `scripts/generate-wire-schemas.spec.mjs` (committed) |
 | Generation | Pydantic → `shared/wire/v2.schema.json` → `wire-v2.generated.ts`. A `wire-schemas` pre-commit hook fails the commit when either artifact would change, the same arrangement as `card-schemas` | `.pre-commit-config.yaml` (committed) |
 | Producers | One test per producer that goes **through the compiled graph** under `astream` and asserts the body it wrote. The most important: the writer reaches the Piloti inner graph through the real NAT function boundary, which `test_stream_writer_reach.py` stands in for with a plain async function. Also: setup steps are yielded, `ToolStepCallback` emits basename only, a `sources` step equals the records' lanes, and prose deltas are coalesced | `tests/aiq_agent/turn/`, `…/agents/piloti/`, `…/common/test_turn_status.py`, `…/skills/` |
 | Handler | Auth, binding, rejection codes, cancel authorisation (asker yes, colleague `not_asker`, bus path), HITL round trip and expiry, attach replay and splice with no duplicate or missing seq, stage stamping after the terminal, persistence built from `TurnResult`. A test that builds the app and asserts NAT's `websocket_endpoint` and `WebSocketMessageHandler` are NAT's own objects. A ruff `banned-api` for `nat.data_models.api_server` everywhere, and for the internal modules `nat.plugin_api` covers | `frontends/aiq_api/tests/test_chat_socket.py` |

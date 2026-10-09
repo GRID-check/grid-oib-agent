@@ -2,7 +2,7 @@
  * ReasoningFlow — the Herleitung rendered as a real node graph (@xyflow/react).
  *
  * Framing → (for two or more fetches: each checkpoint, then the files THAT
- * fetch returned) → findings → (live HITL) branches. One retrieval stays the
+ * fetch returned) → findings. One retrieval stays the
  * old fan. A second search is a new layer: conclusion, tools, then its own
  * fan. Each layer speaks the model's thought when it wrote one, never the
  * search query. Every layer is numbered in execution order (`Schritt N`) with
@@ -109,9 +109,11 @@
  *
  * ## What moves
  *
- * Only React Flow's own `animated` edge: while the turn is live, the
- * connectors INTO the newest row march (`.react-flow__edge.animated`, the
- * library's `dashdraw`). Everything else simply appears. See `renderedEdges`.
+ * Nothing loops. A new row simply appears, and the pane's height glides to
+ * take it. The connectors into the newest row used to march (React Flow's
+ * `animated` edge, the library's `dashdraw`); while the turn works the header's
+ * shimmer is its one ambient motion, and a second loop beside it competed for
+ * the same glance. See `renderedEdges`.
  */
 
 'use client'
@@ -147,7 +149,6 @@ import { buildCitationModel, citedLoci, totalHits, type CitedDocument, type Cita
 import { documentShortName } from '../../lib/document-names'
 import { BareSourceCard, SourceCard } from './SourceCard'
 import { SectionLabel } from '@/components/ui/section-label'
-import { BranchOptions } from './BranchOptions'
 import { citationChips } from './citations'
 import {
   answerDegradations,
@@ -159,7 +160,6 @@ import {
 import { stepNameLabel } from '../../lib/executed-steps'
 import { retrievalRounds, roundFan, type FanCard, type RetrievalRound } from '../../lib/retrieval-rounds'
 import type { RetrievalLedger } from '@/lib/conversations/message-retrieval-ledger'
-import type { ChoicePrompt } from './citations'
 
 /** Hidden connection handle (edges anchor to it; the dot itself is invisible). */
 const H = { opacity: 0, width: 1, height: 1, minWidth: 0, minHeight: 0, border: 'none', background: 'transparent' } as const
@@ -275,14 +275,12 @@ type FindingsData = {
   /** Top (target) handles — one per incoming column, or a single centre. */
   targets: HandleSpec[]
   /**
-   * Bottom (source) handle. Rendered whether or not a branches node follows: a
-   * live turn grows the branches prompt UNDER an assessment that is already
-   * measured, and a handle added at that point gets no handle bounds — the
-   * findings→branches connector would simply not draw.
+   * Bottom (source) handle. Always rendered, though nothing hangs below the
+   * assessment today: a handle added to a node already measured gets no handle
+   * bounds, so one added later would never draw its connector.
    */
   source: HandleSpec
 }
-type BranchesData = { prompt: ChoicePrompt; onRespond: (id: string, choice: string) => void; sub: string; targets: HandleSpec[] }
 type RoundData = {
   /** `Schritt N` — one counter for every layer, in 1-based execution order. */
   label: string
@@ -341,7 +339,7 @@ const FramingFlowNode: FC<NodeProps<Node<FramingData>>> = ({ data }) => (
  * a control name) and reports the state through `aria-expanded`, which is what
  * makes it keyboard-operable at all: React Flow is configured with
  * `nodesFocusable={false}` and `disableKeyboardA11y`, so a node is only ever
- * reachable through a real `<button>` inside it, exactly as `BranchOptions` is.
+ * reachable through a real `<button>` inside it.
  *
  * There is deliberately no `aria-controls`: the fan is a SIBLING node in the
  * React Flow pane, not a descendant of this card, and its column elements carry
@@ -529,28 +527,11 @@ const FindingsFlowNode: FC<NodeProps<Node<FindingsData>>> = ({ data }) => (
   </div>
 )
 
-const BranchesFlowNode: FC<NodeProps<Node<BranchesData>>> = ({ data }) => (
-  <div className="w-[var(--banner-w)] max-w-full rounded-xl border border-input bg-card px-4 py-3 text-left shadow-xs">
-    {data.targets.map((h) => (
-      <Handle key={h.id} id={h.id} type="target" position={Position.Top} style={{ ...H, left: h.left }} />
-    ))}
-    <div className="text-sm font-semibold text-foreground">{data.prompt.text.trim() || data.sub}</div>
-    <div className="mb-3 mt-0.5 text-xs leading-relaxed text-muted-foreground">{data.sub}</div>
-    <BranchOptions
-      options={data.prompt.options}
-      selected={data.prompt.selected}
-      isResponded={data.prompt.isResponded}
-      onSelect={(option) => data.onRespond(data.prompt.promptId, option)}
-    />
-  </div>
-)
-
 const nodeTypes = {
   framing: FramingFlowNode,
   round: RoundFlowNode,
   sourceColumn: SourceColumnFlowNode,
   findings: FindingsFlowNode,
-  branches: BranchesFlowNode,
 }
 
 export interface ReasoningFlowProps {
@@ -558,8 +539,6 @@ export interface ReasoningFlowProps {
   userQuestion: string
   answerConfidence?: 'low' | 'medium' | 'high'
   citations?: CitationSource[]
-  choicePrompt?: ChoicePrompt
-  onChoiceRespond?: (promptId: string, choice: string) => void
   escalationReason?: string
   /**
    * The backend's own account of this turn's retrieval rounds. When a round is
@@ -592,7 +571,7 @@ const MAX_COL_W = 236
  */
 const GROUPED_MAX_W = 420
 const COL_GAP = 14
-/** Vertical gap between graph rows (framing / sources / assessment / branches). */
+/** Vertical gap between graph rows (framing / sources / assessment). */
 const ROW_GAP = 40
 /**
  * Container bottom padding below the last row.
@@ -999,7 +978,6 @@ export function buildGraph(
 ): BuiltGraph {
   const { columns, colW, gap, fanX, grouped } = layout
   const hasSources = cards.length > 0 && columns.length > 0
-  const hasBranches = Boolean(props.choicePrompt && props.choicePrompt.options.length > 0)
   const hasVerdict = Boolean(props.answerConfidence) || (props.citations?.length ?? 0) > 0
   /**
    * While the turn streams there is no verdict yet, but the graph still gets
@@ -1008,7 +986,7 @@ export function buildGraph(
    * instant the answer lands. A proof of work should look like work in
    * progress, not like a broken diagram.
    */
-  const pendingFindings = !hasVerdict && !hasBranches && Boolean(props.live) && hasSources
+  const pendingFindings = !hasVerdict && Boolean(props.live) && hasSources
   /**
    * The turn hit its research ceiling. Read from the step stream, which is
    * where the process record lives — the answer frame carries the reader-facing
@@ -1041,7 +1019,7 @@ export function buildGraph(
   const columnIds = columns.map((_, i) => `col-${i}`)
   const columnX = (i: number) => fanX + i * (colW + gap)
 
-  const convergeId = hasFindings ? 'findings' : hasBranches ? 'branches' : null
+  const convergeId = hasFindings ? 'findings' : null
 
   // ONE centred anchor on each banner, both directions. Every column edge
   // leaves the framing card from the same point and lands on the assessment at
@@ -1121,20 +1099,6 @@ export function buildGraph(
         source: CENTRE_OUT,
       }
     : null
-  const branchesData: BranchesData | null =
-    hasBranches && props.choicePrompt
-      ? {
-          prompt: props.choicePrompt,
-          onRespond: props.onChoiceRespond ?? (() => {}),
-          sub: t('thinking.node.branchesSub'),
-          // Branches receives the fan-in only when it IS the converge target
-          // (no findings); otherwise it takes a single feed from findings —
-          // either way the same centred anchor, so the node's handle set never
-          // depends on which.
-          targets: convergeTargets,
-        }
-      : null
-
   const nodes: Node[] = []
   const edges: Edge[] = []
 
@@ -1264,9 +1228,6 @@ export function buildGraph(
   if (findingsData) {
     nodes.push({ id: 'findings', type: 'findings', position: { x: 0, y: 0 }, data: findingsData as Record<string, unknown> })
   }
-  if (branchesData) {
-    nodes.push({ id: 'branches', type: 'branches', position: { x: 0, y: 0 }, data: branchesData as Record<string, unknown> })
-  }
 
   // Wiring: a single retrieval still fans framing → columns → assessment
   // (parallel, never a source-to-source chain). Two or more retrievals put
@@ -1294,7 +1255,6 @@ export function buildGraph(
       edges.push(edge(fanFrom, 'c-bottom', convergeId, 'c-top'))
     }
   }
-  if (findingsData && branchesData) edges.push(edge('findings', 'out', 'branches', 'c-top'))
 
   // Row groups for the measured stacking pass — every column of one fan
   // shares a row, so the next checkpoint clears the TALLEST column of this
@@ -1309,7 +1269,6 @@ export function buildGraph(
     rows.push(columnIds)
   }
   if (findingsData) rows.push(['findings'])
-  if (branchesData) rows.push(['branches'])
 
   return { nodes, edges, rows }
 }
@@ -1356,17 +1315,6 @@ export function sameNodeData(a: unknown, b: unknown): boolean {
 const DEFAULT_VIEWPORT = { x: 0, y: 0, zoom: 1 }
 const PRO_OPTIONS = { hideAttribution: true }
 
-/**
- * The edges as React Flow draws them: the connectors INTO `newestRow` get the
- * library's own `animated` flag (the marching `dashdraw` dash), every other
- * connector stays solid. Pass an empty row for a settled graph. Exported for
- * its spec.
- */
-export function animateFrontier(edges: Edge[], newestRow: readonly string[]): Edge[] {
-  if (newestRow.length === 0) return edges
-  const frontier = new Set(newestRow)
-  return edges.map((e) => (frontier.has(e.target) ? { ...e, animated: true } : e))
-}
 
 /**
  * Keep the previous edge object wherever a rebuilt edge says the same thing.
@@ -1423,7 +1371,7 @@ const FlowInner: FC<{ built: BuiltGraph; layout: FanLayout; live: boolean }> = (
         const old = prevById.get(n.id)
         if (!old) {
           // A node in a row that has never been measured (the assessment
-          // landing, the branches prompt arriving) seeds at the sentinel the
+          // landing) seeds at the sentinel the
           // place pass leaves one past the last row — BELOW the graph — rather
           // than at y=0 on top of the framing card.
           const rowY = rowYRef.current[rowIndexById.get(n.id) ?? -1]
@@ -1472,23 +1420,20 @@ const FlowInner: FC<{ built: BuiltGraph; layout: FanLayout; live: boolean }> = (
     if (changed.length > 0) updateNodeInternals(changed)
   }, [handleSigs, updateNodeInternals])
 
-  // The connectors are solid. While the turn streams, the ones into the newest
-  // row are React Flow's own `animated` edges, and nothing else in the graph
-  // moves. That dash loop repaints on the main thread (a marching connector
-  // measured ~245 ms of main thread per second on a 4x throttled phone,
-  // Herleitung audit, 2026-09), so it is held to the frontier and to a live
-  // turn: a settled graph draws no animated edge at all.
-  const frontierKey = live ? (rows.at(-1) ?? []).join('|') : ''
+  // The connectors are solid, live or settled. The marching dash they had at
+  // the frontier was a second loop beside the header's shimmer, and it
+  // repainted on the main thread (~245 ms per second on a 4x throttled phone,
+  // Herleitung audit, 2026-09).
+  //
   // The last edges handed to React Flow, so an unchanged edge keeps its object
   // (`keepEdgeIdentity`). Rewritten only when the memo recomputes, and the
   // write is idempotent, so a double render lands on the same array.
   const keptEdgesRef = useRef<Edge[]>([])
   const renderedEdges = useMemo(() => {
-    const newestRow = frontierKey ? frontierKey.split('|') : []
-    const kept = keepEdgeIdentity(keptEdgesRef.current, animateFrontier(edges, newestRow))
+    const kept = keepEdgeIdentity(keptEdgesRef.current, edges)
     keptEdgesRef.current = kept
     return kept
-  }, [edges, frontierKey])
+  }, [edges])
 
   const rowsKey = useMemo(() => rows.map((r) => r.join('|')).join('/'), [rows])
 
@@ -1571,6 +1516,11 @@ const FlowInner: FC<{ built: BuiltGraph; layout: FanLayout; live: boolean }> = (
       // React Flow's stylesheet takes and this graph never uses. See the rule in
       // globals.css — without it the whole Herleitung is a dead zone under a
       // finger, and it is the tallest thing in a turn.
+      //
+      // The height is set, not transitioned: a live graph that gains a row
+      // grows inside the Herleitung's capped, bottom-pinned scroller
+      // (`ChatThinking`), so the growth reads as the newest row arriving
+      // rather than as the page moving.
       className="reasoning-flow-scrollable w-full overflow-hidden"
       data-testid="reasoning-flow"
       role="group"
@@ -1593,7 +1543,7 @@ const FlowInner: FC<{ built: BuiltGraph; layout: FanLayout; live: boolean }> = (
         // or deletable. Leaving nodes/edges focusable makes every node an inert
         // keyboard tab stop and has the screen reader announce "press enter to
         // select / delete to remove" on content where those keys do nothing. The
-        // real interactive content (branch-option buttons) are native <button>s
+        // real interactive content (fold toggles, „Quelle ansehen") are native <button>s
         // and stay reachable regardless.
         nodesFocusable={false}
         edgesFocusable={false}
@@ -1616,8 +1566,6 @@ export const ReasoningFlow: FC<ReasoningFlowProps> = (props) => {
     userQuestion,
     answerConfidence,
     citations,
-    choicePrompt,
-    onChoiceRespond,
     escalationReason,
     retrievalLedger,
     live,
@@ -1705,8 +1653,6 @@ export const ReasoningFlow: FC<ReasoningFlowProps> = (props) => {
           userQuestion,
           answerConfidence,
           citations,
-          choicePrompt,
-          onChoiceRespond,
           escalationReason,
           // The backend's account of the rounds, when this message carries one:
           // it decides what hangs under each checkpoint.
@@ -1726,8 +1672,6 @@ export const ReasoningFlow: FC<ReasoningFlowProps> = (props) => {
       userQuestion,
       answerConfidence,
       citations,
-      choicePrompt,
-      onChoiceRespond,
       escalationReason,
       retrievalLedger,
       live,

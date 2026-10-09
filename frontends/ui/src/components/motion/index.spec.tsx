@@ -10,16 +10,21 @@
  * two springs this kit replaced.
  */
 
-import { describe, expect, it } from 'vitest'
+import { renderHook } from '@testing-library/react'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import {
   easeQuiet,
+  iconSwapExitTransition,
+  iconSwapTransition,
   motionBase,
   motionDeliberate,
+  motionDeliberateEntrance,
   motionEntrance,
   motionInstant,
   motionQuick,
   motionQuickExit,
+  motionSheetEnter,
   motionSnap,
   springDrawer,
   springGlide,
@@ -35,6 +40,8 @@ import {
   staggerMaxSteps,
   staggerParent,
   staggerStepSeconds,
+  useIconSwapTransition,
+  useMotionToken,
   type SpringTransition,
 } from './index'
 
@@ -139,7 +146,7 @@ describe('spring configs', () => {
     })
 
     /** Same arrival time as the drawer; only the landing differs. */
-    it('shares springDrawer\'s natural frequency', () => {
+    it("shares springDrawer's natural frequency", () => {
       const wn = (s: SpringTransition) => Math.sqrt(s.stiffness / (s.mass ?? 1))
       expect(wn(springGlide)).toBeCloseTo(wn(springDrawer), 6)
     })
@@ -154,8 +161,18 @@ describe('spring configs', () => {
 
 describe('linear() equivalents', () => {
   const cases = [
-    { name: 'springSnapLinear', css: springSnapLinear, spring: springSnap, duration: springSnapLinearDuration },
-    { name: 'springDrawerLinear', css: springDrawerLinear, spring: springDrawer, duration: springDrawerLinearDuration },
+    {
+      name: 'springSnapLinear',
+      css: springSnapLinear,
+      spring: springSnap,
+      duration: springSnapLinearDuration,
+    },
+    {
+      name: 'springDrawerLinear',
+      css: springDrawerLinear,
+      spring: springDrawer,
+      duration: springDrawerLinearDuration,
+    },
   ] as const
 
   it.each(cases)('$name is a well-formed linear() function', ({ css }) => {
@@ -232,7 +249,9 @@ describe('stagger cap', () => {
   const delayFor = (index: number): number => {
     const visible = staggerParent.visible
     const delayChildren =
-      typeof visible === 'object' && visible !== null ? visible.transition?.delayChildren : undefined
+      typeof visible === 'object' && visible !== null
+        ? visible.transition?.delayChildren
+        : undefined
     expect(typeof delayChildren).toBe('function')
     return (delayChildren as (i: number, total: number) => number)(index, 12)
   }
@@ -254,5 +273,89 @@ describe('stagger cap', () => {
     // list reads as one arrival, not as a queue. The seven-item caller that
     // used to hold its last section back by 350ms now waits 200ms.
     expect(delayFor(30)).toBeLessThanOrEqual(motionBase.duration as number)
+  })
+})
+
+describe('useMotionToken', () => {
+  // motion/react reads `prefers-reduced-motion` through matchMedia; jsdom has
+  // none, so each case installs the answer it is testing.
+  const stubReducedMotion = (reduce: boolean) =>
+    vi.stubGlobal(
+      'matchMedia',
+      (query: string) =>
+        ({
+          matches: reduce && query.includes('reduce'),
+          media: query,
+          addEventListener: () => {},
+          removeEventListener: () => {},
+          addListener: () => {},
+          removeListener: () => {},
+        }) as unknown as MediaQueryList
+    )
+
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  it('hands back the token itself when motion is allowed', () => {
+    stubReducedMotion(false)
+    const { result } = renderHook(() => useMotionToken(motionDeliberateEntrance))
+    expect(result.current).toBe(motionDeliberateEntrance)
+  })
+
+  it('hands back motionInstant, delay included, under reduced motion', () => {
+    stubReducedMotion(true)
+    const { result } = renderHook(() => useMotionToken({ ...motionBase, delay: 0.3 }))
+    expect(result.current).toBe(motionInstant)
+  })
+})
+
+describe('iconSwapTransition', () => {
+  // Opacity never springs: on a spring it ran ~500ms as a WAAPI linear() curve,
+  // and reduced motion (which drops transforms only) kept it.
+  it('springs the scale on springSnap and tweens opacity on motionQuick', () => {
+    const { opacity, ...scale } = iconSwapTransition as Record<string, unknown>
+    expect(scale).toEqual(springSnap)
+    expect(opacity).toBe(motionQuick)
+  })
+
+  it('leaves on the exit tween, never on the spring', () => {
+    expect(iconSwapExitTransition).toBe(motionQuickExit)
+  })
+
+  const stubReducedMotion = (reduce: boolean) =>
+    vi.stubGlobal(
+      'matchMedia',
+      (query: string) =>
+        ({
+          matches: reduce && query.includes('reduce'),
+          media: query,
+          addEventListener: () => {},
+          removeEventListener: () => {},
+        }) as unknown as MediaQueryList
+    )
+
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  it('hands back the pair when motion is allowed', () => {
+    stubReducedMotion(false)
+    const { result } = renderHook(() => useIconSwapTransition())
+    expect(result.current).toEqual({ enter: iconSwapTransition, exit: iconSwapExitTransition })
+  })
+
+  it('makes both halves instant under reduced motion', () => {
+    stubReducedMotion(true)
+    const { result } = renderHook(() => useIconSwapTransition())
+    expect(result.current).toEqual({ enter: motionInstant, exit: motionInstant })
+  })
+})
+
+describe('motionDeliberateEntrance', () => {
+  it('is the deliberate ceiling on the entrance curve, and the sheet uses the same pair', () => {
+    expect(motionDeliberateEntrance.duration).toBe(motionDeliberate.duration)
+    expect(motionDeliberateEntrance.ease).toEqual(motionEntrance.ease)
+    expect(motionSheetEnter).toBe(motionDeliberateEntrance)
   })
 })

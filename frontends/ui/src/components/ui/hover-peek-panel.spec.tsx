@@ -142,6 +142,23 @@ describe('HoverPeekPanel', () => {
     expect(screen.getByText('Anna body')).toBeInTheDocument()
   })
 
+  test('clicking a trigger whose peek the hover already opened pins it', async () => {
+    const user = userEvent.setup()
+    render(<Page />)
+    const anna = trigger('Anna')
+
+    // The ordinary reader: rest on the chip, read, then click to keep it.
+    // The pointerdown before that click used to count as a press OUTSIDE the
+    // panel (the trigger is an anchor, not a Radix trigger) and closed it
+    // underneath the pin.
+    await user.hover(anna)
+    expect(await screen.findByText('Anna body')).toBeInTheDocument()
+    await user.click(anna)
+    await user.unhover(anna)
+    await new Promise((resolve) => setTimeout(resolve, 300))
+    expect(screen.getByText('Anna body')).toBeInTheDocument()
+  })
+
   test('Escape closes a pinned peek', async () => {
     const user = userEvent.setup()
     render(<Page />)
@@ -174,5 +191,41 @@ describe('HoverPeekPanel', () => {
     // Radix names the anchored content by its wrapper; one open panel, Ben's.
     expect(body.closest('[data-radix-popper-content-wrapper]')).not.toBeNull()
     expect(screen.queryByText('Anna body')).toBeNull()
+  })
+
+  test('moving from one open peek to the next swaps them at once, with no overlap', async () => {
+    const user = userEvent.setup()
+    render(<Page />)
+
+    await user.hover(trigger('Anna'))
+    expect(await screen.findByText('Anna body')).toBeInTheDocument()
+
+    // The hop: Ben opens on the pointer's arrival rather than after the open
+    // delay, and Anna is gone in the same commit instead of lingering through
+    // her close grace underneath him.
+    await user.hover(trigger('Ben'))
+    expect(screen.getByText('Ben body')).toBeInTheDocument()
+    expect(screen.queryByText('Anna body')).toBeNull()
+    expect(trigger('Anna')).toHaveAttribute('aria-expanded', 'false')
+  })
+
+  test('a pinned peek is not closed by hovering another trigger', async () => {
+    const user = userEvent.setup()
+    render(<Page />)
+
+    await user.click(trigger('Anna'))
+    expect(await screen.findByText('Anna body')).toBeInTheDocument()
+    await user.hover(trigger('Ben'))
+    expect(await screen.findByText('Ben body')).toBeInTheDocument()
+    expect(screen.getByText('Anna body')).toBeInTheDocument()
+  })
+
+  test('keeps a gutter from the viewport edge and never outgrows a phone', async () => {
+    const user = userEvent.setup()
+    render(<Page />)
+
+    await user.click(trigger('Anna'))
+    const panel = (await screen.findByText('Anna body')).closest('[data-slot="popover-content"]')
+    expect(panel).toHaveClass('max-w-[calc(100vw-24px)]')
   })
 })

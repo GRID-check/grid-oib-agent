@@ -64,11 +64,13 @@ export interface CardMarkerOptions {
    */
   callout?: boolean
   /**
-   * Whether the answer is still arriving. A marker naming a card that has not
-   * arrived yet then keeps its slot, so the surface can hold the card's place
-   * (`CardSlot`) instead of letting the card shove the prose below it
-   * down when it lands (ADR-0066). Once the answer is final, such a marker
-   * renders nothing, as before.
+   * Whether the answer may still be arriving. A marker naming a card that has
+   * not arrived yet then keeps its slot, so the surface can hold the card's
+   * place (`CardSlot`) instead of letting the card shove the prose below it
+   * down when it lands (ADR-0066). The slot itself decides from the answer's
+   * live state (`CardSlotLiveProvider`): once the answer is final, a slot with
+   * no card renders nothing. AgentResponse passes it always, so the plugin list
+   * keeps its identity through the settle.
    */
   pending?: boolean
 }

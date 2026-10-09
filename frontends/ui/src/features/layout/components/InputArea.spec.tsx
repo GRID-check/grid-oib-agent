@@ -1,6 +1,6 @@
 import { act, render, screen, waitFor, within } from '@/test-utils'
 import userEvent from '@testing-library/user-event'
-import { vi, describe, test, expect, beforeEach } from 'vitest'
+import { vi, describe, test, expect, beforeEach, afterEach } from 'vitest'
 import { toast } from 'sonner'
 import type { ComposerPrefill, ComposerSubject } from '@/features/chat/types'
 import { InputArea } from './InputArea'
@@ -11,6 +11,7 @@ import {
   bumpThreadRevision,
   publishThreadRole,
   publishThreadSharing,
+  publishTurnActor,
   resetThreadSharing,
 } from '@/shared/collaboration/thread-sharing'
 import { useAwaitingState } from '@/features/collaboration/hooks/use-sharing'
@@ -534,9 +535,11 @@ describe('InputArea', () => {
     expect(input).toHaveValue('line one\nline two')
   })
 
-  test('disables input when session is busy (streaming)', () => {
-    // InputArea uses useIsCurrentSessionBusy() for disable logic.
-    // When isBusy is true (e.g. streaming), input is disabled with "Please wait..." placeholder.
+  test('disables input when the session is busy with no local turn of its own', () => {
+    // Busy without a local stream and without response mode (a HITL prompt
+    // restored from storage before the socket hands it over): nothing the
+    // reader may type into yet. Their OWN streaming turn is the one busy case
+    // that keeps the field live — see "typing ahead during the reader's own turn".
     vi.mocked(useIsCurrentSessionBusy).mockReturnValue(true)
 
     render(<InputArea isAuthenticated={true} connectionMode="sse" />)
@@ -1116,6 +1119,240 @@ describe('InputArea', () => {
       const stop = screen.getByRole('button', { name: /stop response/i })
       await user.click(stop)
       expect(mockStopStreaming).toHaveBeenCalledTimes(1)
+    })
+
+    test('send and stop are one control: the same element changes job, label and glyph', () => {
+      // Two buttons swapped by a ternary dropped focus and the press target
+      // the moment a turn started. One element keeps both.
+      // InputArea is memoised, so the rerender changes a prop to reach it.
+      const { rerender } = render(<InputArea isAuthenticated={true} connectionMode="sse" />)
+      const send = screen.getByRole('button', { name: /send message/i })
+      expect(send.querySelector('[data-glyph="send"]')).not.toBeNull()
+      expect(send).not.toHaveAttribute('aria-keyshortcuts')
+
+      mockIsStreaming = true
+      vi.mocked(useIsCurrentSessionBusy).mockReturnValue(true)
+      rerender(<InputArea isAuthenticated={true} connectionMode="sse" projectName="Wohnbau" />)
+
+      const stop = screen.getByRole('button', { name: /stop response/i })
+      expect(stop).toBe(send)
+      expect(stop).toHaveAttribute('aria-keyshortcuts', 'Escape')
+      expect(stop).toHaveAttribute('title', 'Stop response (Esc)')
+      expect(stop.querySelector('[data-glyph="stop"]')).not.toBeNull()
+      // The loading state is a glyph, never the literal "..." it used to be.
+      expect(stop).not.toHaveTextContent('...')
+    })
+
+    test('Escape stops a streaming turn with focus on <body>', async () => {
+      // A coarse pointer releases the keyboard after a send, so the focus is
+      // on <body>. That is where the key has to work too.
+      const user = userEvent.setup()
+      mockIsStreaming = true
+      vi.mocked(useIsCurrentSessionBusy).mockReturnValue(true)
+      render(<InputArea isAuthenticated={true} connectionMode="sse" />)
+
+      expect(document.activeElement).toBe(document.body)
+      await user.keyboard('{Escape}')
+      expect(mockStopStreaming).toHaveBeenCalledTimes(1)
+    })
+
+    test('Escape meant for something else on the page leaves the turn running', async () => {
+      const user = userEvent.setup()
+      mockIsStreaming = true
+      vi.mocked(useIsCurrentSessionBusy).mockReturnValue(true)
+      render(
+        <>
+          <input aria-label="elsewhere" />
+          <InputArea isAuthenticated={true} connectionMode="sse" />
+        </>
+      )
+
+      await user.click(screen.getByRole('textbox', { name: 'elsewhere' }))
+      await user.keyboard('{Escape}')
+      expect(mockStopStreaming).not.toHaveBeenCalled()
+    })
+
+    test('Escape does nothing to the turn when nothing is streaming', async () => {
+      const user = userEvent.setup()
+      render(<InputArea isAuthenticated={true} connectionMode="sse" />)
+
+      await user.click(screen.getByRole('textbox'))
+      await user.keyboard('{Escape}')
+      expect(mockStopStreaming).not.toHaveBeenCalled()
+    })
+
+    describe("typing ahead during the reader's own turn", () => {
+      /** The reader's own turn is streaming: the local store runs it, no HITL. */
+      const startOwnTurn = () => {
+        mockIsStreaming = true
+        vi.mocked(useIsCurrentSessionBusy).mockReturnValue(true)
+      }
+
+      test('tells a screen reader why Enter waits, for as long as the turn runs', () => {
+        startOwnTurn()
+        render(<InputArea isAuthenticated={true} connectionMode="websocket" />)
+        expect(screen.getByRole('textbox')).toHaveAccessibleDescription(
+          'You can send once the answer is finished.'
+        )
+      })
+      /** The turn settles. InputArea is memoised, so callers rerender with a new prop. */
+      const settle = () => {
+        mockIsStreaming = false
+        vi.mocked(useIsCurrentSessionBusy).mockReturnValue(false)
+      }
+      /** jsdom has no matchMedia, so the pointer kind is stubbed per test. */
+      const pointer = (coarse: boolean) =>
+        vi.stubGlobal(
+          'matchMedia',
+          (query: string) =>
+            ({
+              matches: coarse && query === '(pointer: coarse)',
+              media: query,
+              addEventListener: vi.fn(),
+              removeEventListener: vi.fn(),
+            }) as unknown as MediaQueryList
+        )
+      afterEach(() => {
+        vi.unstubAllGlobals()
+      })
+
+      test('the field stays live and says the next question can be written now', () => {
+        startOwnTurn()
+        render(<InputArea isAuthenticated={true} connectionMode="sse" />)
+
+        const input = screen.getByRole('textbox')
+        expect(input).not.toBeDisabled()
+        expect(input).toHaveAttribute('placeholder', 'Type your next question …')
+        expect(screen.getByRole('button', { name: /stop response/i })).toBeInTheDocument()
+      })
+
+      test('Enter does not send while the turn runs, and the draft is kept as typed', async () => {
+        const user = userEvent.setup()
+        startOwnTurn()
+        render(<InputArea isAuthenticated={true} connectionMode="sse" />)
+
+        const input = screen.getByRole('textbox')
+        await user.click(input)
+        await user.keyboard('Und die Brandschutzklasse?{Enter}')
+
+        expect(mockSendMessage).not.toHaveBeenCalled()
+        expect(mockStopStreaming).not.toHaveBeenCalled()
+        // No newline slipped in from the swallowed Enter.
+        expect(input).toHaveValue('Und die Brandschutzklasse?')
+        expect(mockDrafts['session-1']).toBe('Und die Brandschutzklasse?')
+      })
+
+      test('after the settle the button is Send again and Enter sends exactly once', async () => {
+        const user = userEvent.setup()
+        mockSendMessage.mockReturnValue(true)
+        startOwnTurn()
+        const { rerender } = render(
+          <InputArea isAuthenticated={true} connectionMode="sse" placeholder="a" />
+        )
+        const input = screen.getByRole('textbox')
+        await user.click(input)
+        await user.keyboard('Folgefrage{Enter}')
+        expect(mockSendMessage).not.toHaveBeenCalled()
+
+        settle()
+        rerender(<InputArea isAuthenticated={true} connectionMode="sse" placeholder="b" />)
+        expect(screen.getByRole('button', { name: /send message/i })).not.toBeDisabled()
+
+        await user.keyboard('{Enter}{Enter}')
+        expect(mockSendMessage).toHaveBeenCalledTimes(1)
+        expect(mockSendMessage).toHaveBeenCalledWith('Folgefrage')
+        expect(input).toHaveValue('')
+      })
+
+      test('Escape in the field stops the turn and keeps the draft', async () => {
+        const user = userEvent.setup()
+        startOwnTurn()
+        render(<InputArea isAuthenticated={true} connectionMode="sse" />)
+
+        const input = screen.getByRole('textbox')
+        await user.click(input)
+        await user.keyboard('halb geschrieben')
+        await user.keyboard('{Escape}')
+
+        expect(mockStopStreaming).toHaveBeenCalledTimes(1)
+        expect(input).toHaveValue('halb geschrieben')
+        expect(mockDrafts['session-1']).toBe('halb geschrieben')
+      })
+
+      test('with the @ picker open, Escape closes the picker and leaves the turn running', async () => {
+        const user = userEvent.setup()
+        startOwnTurn()
+        render(<InputArea isAuthenticated={true} canCollaborate connectionMode="sse" />)
+
+        await user.click(screen.getByRole('textbox'))
+        await user.keyboard('Frage an @')
+        expect(await screen.findByTestId('mention-picker')).toBeInTheDocument()
+
+        await user.keyboard('{Escape}')
+        expect(screen.queryByTestId('mention-picker')).not.toBeInTheDocument()
+        expect(mockStopStreaming).not.toHaveBeenCalled()
+
+        // The next Escape is the turn's.
+        await user.keyboard('{Escape}')
+        expect(mockStopStreaming).toHaveBeenCalledTimes(1)
+      })
+
+      test('on a fine pointer the field keeps its focus through the send and the turn', async () => {
+        const user = userEvent.setup()
+        pointer(false)
+        mockSendMessage.mockReturnValue(true)
+        const { rerender } = render(
+          <InputArea isAuthenticated={true} connectionMode="sse" placeholder="a" />
+        )
+        const input = screen.getByRole('textbox')
+        await user.click(input)
+        await user.keyboard('Erste Frage{Enter}')
+        expect(mockSendMessage).toHaveBeenCalledTimes(1)
+
+        startOwnTurn()
+        rerender(<InputArea isAuthenticated={true} connectionMode="sse" placeholder="b" />)
+        expect(input).not.toBeDisabled()
+        expect(document.activeElement).toBe(input)
+      })
+
+      test('on a coarse pointer the send still releases the keyboard', async () => {
+        const user = userEvent.setup()
+        pointer(true)
+        mockSendMessage.mockReturnValue(true)
+        render(<InputArea isAuthenticated={true} connectionMode="sse" />)
+        const input = screen.getByRole('textbox')
+        await user.click(input)
+        await user.keyboard('Erste Frage{Enter}')
+
+        expect(mockSendMessage).toHaveBeenCalledTimes(1)
+        expect(document.activeElement).not.toBe(input)
+      })
+
+      test("a colleague's turn keeps the field closed", () => {
+        startOwnTurn()
+        publishThreadSharing('session-1', true)
+        publishTurnActor('session-1', 'Anna Weber')
+        render(<InputArea isAuthenticated={true} canCollaborate connectionMode="sse" />)
+
+        expect(screen.getByRole('textbox')).toBeDisabled()
+      })
+
+      test('a HITL answer still sends mid-turn', async () => {
+        const user = userEvent.setup()
+        startOwnTurn()
+        vi.mocked(useWebSocketChat).mockReturnValue({
+          sendMessage: mockSendMessage,
+          isStreaming: true,
+          isLoading: false,
+          respondToInteraction: mockRespondToInteraction,
+          noteSendIntent: mockNoteSendIntent,
+          pendingInteraction: { id: 'p-1' },
+        } as unknown as ReturnType<typeof useWebSocketChat>)
+        render(<InputArea isAuthenticated={true} connectionMode="sse" />)
+
+        await user.type(screen.getByRole('textbox'), 'ja{Enter}')
+        expect(mockRespondToInteraction).toHaveBeenCalledWith('ja')
+      })
     })
 
     test('nothing in the composer offers to choose deep research', () => {

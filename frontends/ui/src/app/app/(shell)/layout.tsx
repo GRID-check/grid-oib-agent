@@ -24,7 +24,9 @@
  * would lock them out of the one surface that can fix their environment. Every
  * page below still runs its own guard.
  *
- * ONE SCROLL MODEL. The frame is `h-dvh overflow-hidden`; `<main>` is
+ * ONE SCROLL MODEL. The frame is `h-[var(--visual-viewport-height,100dvh)]
+ * overflow-hidden` (`useVisualViewport`: iOS keeps the layout viewport behind
+ * the keyboard); `<main>` is
  * `min-h-0 flex-1 overflow-y-auto`. No surface below may set `min-h-dvh` — the
  * document itself never scrolls, so the scrollbar cannot appear and disappear
  * between sections. `<main id="main-content">` and `<RouteFocus />` are declared

@@ -41,6 +41,9 @@ const expandToSteps = async (user: ReturnType<typeof userEvent.setup>) => {
  *  executed-step chips above it repeat the same step names. */
 const stepList = () => screen.getByRole('list', { name: 'Thinking steps' })
 
+/** The visible header line. The phase also sits in a status region outside it. */
+const header = () => within(screen.getAllByRole('button')[0])
+
 describe('ChatThinking', () => {
   beforeEach(() => {
     vi.clearAllMocks()
@@ -89,12 +92,113 @@ describe('ChatThinking', () => {
       await waitFor(() => expect(screen.queryByText('Attached files:')).not.toBeInTheDocument())
     })
 
-    // NB: the "a manual toggle in between is not stomped" guarantee (the
-    // prevAutoOpen ref only re-drives `open` when autoOpen actually CHANGES) is
-    // covered by the transition test above plus the ref-guard logic; a UI-level
-    // manual-collapse assertion proved flaky against the controlled Collapsible
-    // in jsdom, so it is intentionally not asserted here.
-})
+    test('the fold: the turn closes what it opened, in the render the prop changes', () => {
+      const { rerender } = render(
+        <ChatThinking steps={[createStep()]} isThinking autoOpen messageFiles={files} />
+      )
+      rerender(
+        <ChatThinking steps={[createStep()]} isThinking answering autoOpen={false} messageFiles={files} />
+      )
+      // The content is leaving (its exit runs), and the header is still live.
+      expect(screen.getByLabelText('Thinking in progress')).toBeInTheDocument()
+      expect(screen.getByRole('button', { expanded: false })).toBeInTheDocument()
+    })
+
+    test('a HITL wait does not force the panel open: the choice is answered in its prompt card', () => {
+      const { rerender } = render(
+        <ChatThinking steps={[createStep()]} isThinking autoOpen={false} messageFiles={files} />
+      )
+      rerender(
+        <ChatThinking steps={[createStep()]} isThinking={false} isWaiting autoOpen={false} messageFiles={files} />
+      )
+      expect(screen.queryByText('Attached files:')).not.toBeInTheDocument()
+    })
+
+    test('a panel the reader opened while live keeps its cap through the settle', async () => {
+      const user = userEvent.setup()
+      const { rerender, container } = render(
+        <ChatThinking steps={[createStep()]} isThinking autoOpen={false} messageFiles={files} />
+      )
+      await user.click(screen.getByRole('button', { expanded: false }))
+      const capped = () => container.querySelector('[class*="max-h-[min(50svh,420px)]"]')
+      expect(capped()).not.toBeNull()
+      rerender(<ChatThinking steps={[createStep()]} isThinking={false} autoOpen={false} messageFiles={files} />)
+      expect(capped()).not.toBeNull()
+    })
+
+    test('a panel the reader opened is not folded or reopened by the turn', async () => {
+      const user = userEvent.setup()
+      const { rerender } = render(
+        <ChatThinking steps={[createStep()]} isThinking autoOpen={false} messageFiles={files} />
+      )
+      await user.click(screen.getByRole('button', { expanded: false }))
+      expect(screen.getByText('Attached files:')).toBeVisible()
+      rerender(<ChatThinking steps={[createStep()]} isThinking autoOpen messageFiles={files} />)
+      rerender(
+        <ChatThinking steps={[createStep()]} isThinking answering autoOpen={false} messageFiles={files} />
+      )
+      expect(screen.getByText('Attached files:')).toBeVisible()
+    })
+  })
+
+  describe('the header from the send to the settle', () => {
+    test('while the answer streams it stays live, names the panel, and does not shimmer', () => {
+      const { container } = render(<ChatThinking steps={[createStep()]} isThinking answering />)
+
+      expect(screen.getByLabelText('Thinking in progress')).toBeInTheDocument()
+      expect(screen.getByText('Trace')).toBeInTheDocument()
+      expect(header().queryByText('Working on a response …')).not.toBeInTheDocument()
+      // The caret is the turn's one moving thing now: no shimmer, no spinner.
+      expect(container.querySelector('[data-slot="spinner"]')).toBeNull()
+    })
+
+    test('a stopped turn shows „Stopped", never the green check', () => {
+      render(<ChatThinking steps={[createStep()]} isThinking={false} isStopped />)
+
+      expect(screen.getByText('Stopped')).toBeInTheDocument()
+      expect(screen.queryByText('Done')).not.toBeInTheDocument()
+    })
+
+    test('the timer counts from the question, so a late mount does not restart it', () => {
+      const since = new Date(Date.now() - 12_000)
+      render(<ChatThinking steps={[createStep()]} isThinking since={since} />)
+
+      expect(screen.getByText('12s')).toBeInTheDocument()
+    })
+
+    test('at the settle the timer freezes on the answer\'s own duration instead of vanishing', () => {
+      const since = new Date(Date.now() - 12_000)
+      const { rerender } = render(<ChatThinking steps={[createStep()]} isThinking since={since} />)
+      rerender(
+        <ChatThinking steps={[createStep()]} isThinking={false} since={since} answerDurationMs={12_400} />
+      )
+      expect(screen.getByText('12s')).toBeInTheDocument()
+    })
+
+    test('the trigger is named by the phase, not the per-step phrase, which is never announced', () => {
+      const steps = [
+        storedStep({
+          id: 'status:retrieval:0',
+          kind: 'retrieval',
+          round: 0,
+          key: 'status.retrieval.withQuery',
+          values: { corpus: 'knowledge', query: 'Fluchtweg' },
+        }),
+      ]
+      render(<ChatThinking steps={steps} isThinking />)
+
+      const trigger = screen.getAllByRole('button')[0]
+      expect(trigger).toHaveAccessibleName('Thinking in progress · Trace')
+      const status = screen.getAllByRole('status').find((el) => el.getAttribute('aria-live') === 'polite')
+      expect(status).toHaveTextContent('Thinking in progress')
+      expect(status).not.toHaveTextContent('Fluchtweg')
+    })
+
+    test('a restored turn grows no timer', () => {
+      render(<ChatThinking steps={[createStep()]} isThinking={false} answerDurationMs={11_600} />)
+      expect(screen.queryByText('12s')).not.toBeInTheDocument()
+    })
+  })
 
   describe('empty state', () => {
     test('renders nothing when no steps provided', () => {
@@ -136,13 +240,76 @@ describe('ChatThinking', () => {
       expect(screen.getByText('Searching the knowledge base: “Fluchtweg”')).toBeInTheDocument()
     })
 
-    test('shows check icon and done text when isThinking is false', () => {
+    test('settled, the label stays the summary: no „Done" word moves it', () => {
+      // The settle swaps only the glyph and freezes the figure. „Done" in the
+      // label's place moved the summary from the left of the row to the right
+      // in the frame the turn ended.
       const steps = [createStep()]
 
       render(<ChatThinking steps={steps} isThinking={false} />)
 
       expect(screen.queryByLabelText('Thinking in progress')).not.toBeInTheDocument()
-      expect(screen.getByText('Done')).toBeInTheDocument()
+      const trigger = screen.getByRole('button')
+      expect(trigger).toHaveAccessibleName(/Done · Trace/)
+      expect(within(trigger).queryByText('Done')).not.toBeInTheDocument()
+      expect(within(trigger).getAllByText(/^Trace/)).toHaveLength(1)
+    })
+
+    test('the answer streaming and the settle show the summary in the same place', () => {
+      const steps = [createStep()]
+      const { rerender } = render(<ChatThinking steps={steps} isThinking answering />)
+      const before = within(screen.getByRole('button')).getByText(/^Trace/)
+
+      rerender(<ChatThinking steps={steps} isThinking={false} answering />)
+
+      // The same node: not re-keyed, so not cross-faded either.
+      expect(within(screen.getByRole('button')).getByText(/^Trace/)).toBe(before)
+    })
+
+    test.each([
+      ['handed_off', 'Run commissioned'],
+      ['refused', 'Not handled'],
+      ['failed', 'Failed'],
+    ] as const)('a turn that ended %s is not „Done"', (endedAs, word) => {
+      render(<ChatThinking steps={[createStep()]} isThinking={false} endedAs={endedAs} />)
+
+      const trigger = screen.getByRole('button')
+      expect(within(trigger).getByText(word)).toBeInTheDocument()
+      expect(trigger).not.toHaveAccessibleName(/Done/)
+    })
+
+    test('the frozen figure is never below the last live one', () => {
+      vi.useFakeTimers()
+      try {
+        const since = new Date(Date.now() - 7_600)
+        const { rerender } = render(
+          <ChatThinking steps={[createStep()]} isThinking answering since={since} />
+        )
+        expect(screen.getByText('7s')).toBeInTheDocument()
+
+        // The footer's duration, measured from the send, a little shorter.
+        rerender(
+          <ChatThinking steps={[createStep()]} isThinking={false} answering since={since} answerDurationMs={6_900} />
+        )
+        expect(screen.getByText('7s')).toBeInTheDocument()
+      } finally {
+        vi.useRealTimers()
+      }
+    })
+
+    test('the trigger is marked for the lifecycle fixtures', () => {
+      render(<ChatThinking steps={[createStep()]} isThinking />)
+      expect(screen.getByRole('button')).toHaveAttribute('data-herleitung-trigger')
+    })
+
+    test('while live, the executed-steps row is held before its first chip', () => {
+      // The row arrives with the first tool; held, it does not push the graph
+      // below it down by its height in the middle of the steps phase.
+      const status = storedStep({ id: 'status:a', kind: 'status', slot: 'a', key: 'status.nope' })
+      const { container } = render(<ChatThinking steps={[status]} isThinking autoOpen />)
+
+      const held = container.querySelector('[aria-hidden="true"].invisible')
+      expect(held).not.toBeNull()
     })
 
     test('defaults to isThinking true', () => {
@@ -166,7 +333,7 @@ describe('ChatThinking', () => {
 
       render(<ChatThinking steps={steps} isThinking={false} isInterrupted={true} />)
 
-      expect(screen.getByText('Interrupted')).toBeInTheDocument()
+      expect(header().getByText('Interrupted')).toBeInTheDocument()
       expect(screen.queryByText('Done')).not.toBeInTheDocument()
       expect(screen.queryByLabelText('Thinking in progress')).not.toBeInTheDocument()
     })
@@ -193,7 +360,7 @@ describe('ChatThinking', () => {
       )
 
       // Header chip + inline notice both show the reconnecting/checking copy …
-      expect(screen.getByText('Fetching the answer')).toBeInTheDocument()
+      expect(header().getByText('Fetching the answer')).toBeInTheDocument()
       expect(
         screen.getByText('Piloti is still working — the answer appears here as soon as it is ready …')
       ).toBeInTheDocument()
@@ -216,7 +383,7 @@ describe('ChatThinking', () => {
         />
       )
 
-      expect(screen.getByText('Interrupted')).toBeInTheDocument()
+      expect(header().getByText('Interrupted')).toBeInTheDocument()
       expect(
         screen.getByText('Connection briefly lost — the answer was dropped. Please resend.')
       ).toBeInTheDocument()
@@ -228,7 +395,7 @@ describe('ChatThinking', () => {
 
       render(<ChatThinking steps={steps} isThinking={false} isWaiting={true} />)
 
-      expect(screen.getByText('Waiting for response')).toBeInTheDocument()
+      expect(header().getByText('Waiting for response')).toBeInTheDocument()
       expect(screen.queryByText('Done')).not.toBeInTheDocument()
       expect(screen.queryByText('Interrupted')).not.toBeInTheDocument()
       expect(screen.queryByLabelText('Thinking in progress')).not.toBeInTheDocument()
@@ -239,7 +406,7 @@ describe('ChatThinking', () => {
 
       render(<ChatThinking steps={steps} isThinking={false} isWaiting={true} isInterrupted={true} />)
 
-      expect(screen.getByText('Waiting for response')).toBeInTheDocument()
+      expect(header().getByText('Waiting for response')).toBeInTheDocument()
       expect(screen.queryByText('Interrupted')).not.toBeInTheDocument()
     })
 
@@ -622,42 +789,6 @@ describe('ChatThinking', () => {
       await expandChain(user)
 
       expect(screen.queryByText('Backed by')).not.toBeInTheDocument()
-    })
-
-    test('next-steps node renders a live choice prompt and responds', async () => {
-      const user = userEvent.setup()
-      const onChoiceRespond = vi.fn()
-      const steps = [createStep()]
-
-      render(
-        <ChatThinking
-          steps={steps}
-          choicePrompt={{
-            promptId: 'p1',
-            text: 'How do you want to proceed?',
-            options: ['Option Alpha', 'Option Beta'],
-            isResponded: false,
-          }}
-          onChoiceRespond={onChoiceRespond}
-        />
-      )
-
-      await expandChain(user)
-
-      expect(screen.getByText('Option Alpha')).toBeVisible()
-      await user.click(screen.getByText('Option Beta'))
-      expect(onChoiceRespond).toHaveBeenCalledWith('p1', 'Option Beta')
-    })
-
-    test('next-steps node is hidden without a choice prompt', async () => {
-      const user = userEvent.setup()
-      const steps = [createStep()]
-
-      render(<ChatThinking steps={steps} userQuestion="Frage?" />)
-
-      await expandChain(user)
-
-      expect(screen.queryByText('Option Alpha')).not.toBeInTheDocument()
     })
   })
 })

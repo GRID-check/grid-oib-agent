@@ -63,6 +63,19 @@ export type SessionsSlice = {
    */
   serverConversationsLoaded: boolean
 
+  /**
+   * The thread being opened whose messages are not here yet: a fetch of its
+   * server history is in flight, or a `?session=` deep link names it and the
+   * server list that resolves it has not landed. Reactive, unlike the awaiting
+   * set in `chat-storage.ts`, because the thread draws from it: an open thread
+   * with no messages shows the loading skeleton while this names it, and the
+   * empty canvas only once it does not. Read through `selectThreadPhase`.
+   */
+  pendingMessagesFor: string | null
+
+  /** Name (or, with null, clear) the thread a deep link is about to open. */
+  setPendingMessagesFor: (conversationId: string | null) => void
+
   loadServerConversations: (projectId?: string) => Promise<void>
   hydrateConversationMessages: (conversationId: string) => Promise<void>
   setCurrentUser: (userId: string | null) => void
@@ -117,6 +130,14 @@ export type SessionsSlice = {
    * is the last thing that will ever happen to it.
    */
   _persistStageOutput: (messageId: string, stages: MessageStages) => Promise<void>
+  /**
+   * Ask the BFF to cut a stopped answer's stored row to what was on screen
+   * (`shown`). For a Stop that crossed the server's finished answer: the
+   * server stored all of it, and a reload must show what the reader saw. The
+   * BFF only ever cuts the row it holds (`cutStoppedAnswer`), and does nothing
+   * to a row already stored as stopped.
+   */
+  _cutStoppedAnswer: (conversationId: string, messageId: string, turnId: string, shown: string) => Promise<void>
 }
 
 // Helper functions
@@ -350,6 +371,7 @@ export const initialSessionsState = {
   isRecoveryPending: false,
   resumableTurn: null as ResumableTurn | null,
   serverConversationsLoaded: false,
+  pendingMessagesFor: null as string | null,
 }
 
 export const createSessionsSlice: StateCreator<
@@ -359,6 +381,11 @@ export const createSessionsSlice: StateCreator<
   SessionsSlice
 > = (set, get) => ({
   ...initialSessionsState,
+
+  setPendingMessagesFor: (conversationId: string | null) => {
+    if (get().pendingMessagesFor === conversationId) return
+    set({ pendingMessagesFor: conversationId }, false, 'setPendingMessagesFor')
+  },
 
   loadServerConversations: async (projectId?: string) => {
     try {
@@ -453,6 +480,14 @@ export const createSessionsSlice: StateCreator<
     if (conversation.messages.length > 0 && !isAwaitingServerMessages(conversationId)) return
     if (hydratingConversationIds.has(conversationId)) return
     hydratingConversationIds.add(conversationId)
+    // Set before the first await, so the commit that opened the thread already
+    // shows it loading rather than the empty canvas.
+    if (get().currentConversation?.id === conversationId) get().setPendingMessagesFor(conversationId)
+    // Cleared in the same `set` that brings the messages: a render with the
+    // messages and the thread still "loading" would seed their entrance
+    // bookkeeping as empty and play every row's entrance.
+    const settledPending = (): Pick<SessionsSlice, 'pendingMessagesFor'> | Record<string, never> =>
+      get().pendingMessagesFor === conversationId ? { pendingMessagesFor: null } : {}
 
     try {
       const conversationsClient = await getConversationsClient()
@@ -480,6 +515,7 @@ export const createSessionsSlice: StateCreator<
         {
           conversations: updateConversationInList(conversations, hydrated),
           ...(isCurrent && { currentConversation: hydrated }),
+          ...settledPending(),
         },
         false,
         'hydrateConversationMessages'
@@ -494,6 +530,11 @@ export const createSessionsSlice: StateCreator<
       console.warn('[hydrateConversationMessages] Failed to load messages from server:', err)
     } finally {
       hydratingConversationIds.delete(conversationId)
+      // Confirmed empty, failed, or gone: the thread is what it is now. A
+      // failed fetch shows the thread as it stands rather than a skeleton
+      // that never resolves.
+      const pending = settledPending()
+      if ('pendingMessagesFor' in pending) set(pending, false, 'hydrateConversationMessages/settled')
     }
   },
 
@@ -603,6 +644,7 @@ export const createSessionsSlice: StateCreator<
         isLoading: false,
         currentUserMessageId: null,
         pendingInteraction: null,
+        pendingMessagesFor: null,
       },
       false,
       'startNewSessionDraft'
@@ -662,6 +704,10 @@ export const createSessionsSlice: StateCreator<
       set(
         {
           currentConversation: conversation,
+          // A deep link waiting for this thread has it now; one waiting for
+          // another thread was overruled by the reader's choice. A history
+          // fetch below names this thread again in the same tick.
+          pendingMessagesFor: null,
           // The id ONLY. `conversation.title` was the filename just long enough
           // to be overwritten by the first user message (addUserMessage), so
           // reusing it here restored the subject as "summarize this" and sent
@@ -1096,6 +1142,10 @@ export const createSessionsSlice: StateCreator<
           // The answer's structured anatomy — sanitized at the wire boundary
           // on write and re-sanitized by the mapper on read, like `cards`.
           ...(message.answerMeta && { answerMeta: message.answerMeta }),
+          // Marked at insert, not only by the provenance mirror after it: a
+          // stored stopped row is what tells the BFF's cut it has nothing to do
+          // (`cutStoppedAnswer`), and a reload says it was stopped.
+          ...(message.stopped && { provenance: { stopped: true } }),
           ...(message.cardInteractions && { cardInteractions: message.cardInteractions }),
           ...(message.enabledDataSources && { enabledDataSources: message.enabledDataSources }),
           ...(message.messageFiles && { messageFiles: message.messageFiles }),
@@ -1217,6 +1267,9 @@ export const createSessionsSlice: StateCreator<
       if (assistantMessage.answerDurationMs) {
         provenance.answerDurationMs = assistantMessage.answerDurationMs
       }
+      if (assistantMessage.reasoningEffort) {
+        provenance.reasoningEffort = assistantMessage.reasoningEffort
+      }
       if (assistantMessage.citationsRemoved) {
         provenance.citationsRemoved = assistantMessage.citationsRemoved
       }
@@ -1227,6 +1280,10 @@ export const createSessionsSlice: StateCreator<
         provenance.skillsHidden = assistantMessage.skillsHidden
       }
       if (assistantMessage.researchTruncated) provenance.researchTruncated = true
+      // The PATCH replaces the row's provenance whole, so a stopped answer
+      // must say so here too, or the mirror unmarks the row the server
+      // stored as stopped and a reload renders a fragment as a finished answer.
+      if (assistantMessage.stopped) provenance.stopped = true
       // Mirrored so a reload of a LIVE turn shows what the turn showed. The
       // sanitizer in message-provenance already accepts both; nothing was
       // calling it with them.
@@ -1270,6 +1327,18 @@ export const createSessionsSlice: StateCreator<
       // from the store; losing the mirror costs a colleague's view and the
       // cross-device replay, not this turn.
       console.warn('[persistTurnProvenance] Failed:', err)
+    }
+  },
+
+  _cutStoppedAnswer: async (conversationId: string, messageId: string, turnId: string, shown: string) => {
+    try {
+      const conversationsClient = await getConversationsClient()
+      await conversationsClient.cutStoppedAnswer(conversationId, messageId, { turnId, shown })
+    } catch (err) {
+      // Never surfaced: the reader has the answer they stopped on screen. A
+      // failed cut costs a reload that shows the rest of it, marked as a
+      // whole answer, which is what it was before this existed.
+      console.warn('[cutStoppedAnswer] Failed:', err)
     }
   },
 

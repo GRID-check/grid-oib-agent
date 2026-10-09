@@ -63,6 +63,7 @@
  */
 
 import { useCallback, useRef, useState, type CSSProperties } from 'react'
+import { flushSync } from 'react-dom'
 import type { Transition } from 'motion/react'
 import { springGlide } from '@/components/motion'
 
@@ -157,7 +158,15 @@ export function useComposerMetrics(isThreadEmpty: boolean): ComposerMetrics {
       if (column) setColumnHeight(column.clientHeight)
     }
     update()
-    const ro = new ResizeObserver(update)
+    // Every LATER change arrives through the observer, and its callback runs
+    // after layout but before paint. A plain setState there is scheduled, so
+    // React commits it after the frame has painted: the composer has already
+    // grown (or shrunk, as a send clears the draft) while the transcript's
+    // bottom padding is still the old `--composer-h`, and the thread jumps by
+    // the difference one frame later. `flushSync` commits the new variable in
+    // the same frame as the box it describes. It only runs on a real resize (a
+    // line wrap, a chip row, a banner), never per keystroke.
+    const ro = new ResizeObserver(() => flushSync(update))
     ro.observe(node)
     if (column) ro.observe(column)
     observerRef.current = ro

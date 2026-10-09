@@ -4,13 +4,26 @@
  * Two shapes exist: `text` (answered in the composer, or with the inline plan
  * buttons when the text is the research-plan envelope) and `choice` (answered
  * by picking an option, which sends the option's `id`).
+ *
+ * ## How an answer lands
+ *
+ * The decision (the plan's controls, the instruction and the buttons) and the
+ * receipt share one slot: the decision fades out, the slot takes the receipt's
+ * height in the frame nothing is visible, and the receipt fades in. A plan the
+ * reader answered folds to one line, „Plan freigegeben · 5 Abschnitte", with
+ * the plan as approved behind a disclosure, because a tall card of disabled
+ * controls above the run it started is a dead weight the reader scrolls past.
+ * A choice prompt keeps its options in place: the chosen one is the receipt.
  */
 
 'use client'
 
-import { type FC, useCallback, useMemo, useState } from 'react'
-import { MessageSquare } from 'lucide-react'
+import { type FC, type ReactNode, useCallback, useMemo, useState } from 'react'
+import { ChevronDown, MessageSquare } from 'lucide-react'
+import { AnimatePresence, motion, motionInstant, motionQuick, motionQuickExit } from '@/components/motion'
 import { Button } from '@/components/ui/button'
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
+import { useReducedMotion } from '@/hooks/use-reduced-motion'
 import { useLocale, useTranslations } from '@/i18n'
 import { formatTime } from '@/shared/utils/format-time'
 import { MarkdownRenderer } from '@/shared/components/MarkdownRenderer'
@@ -21,6 +34,7 @@ import {
   approvalReply,
   parsePlanFence,
   PlanChecklist,
+  planFromReply,
   stripPlanFence,
   type PlanShape,
 } from './PlanChecklist'
@@ -164,6 +178,18 @@ export const AgentPrompt: FC<AgentPromptProps> = ({
     respondToInteractionFn?.('cancel')
   }, [respondToInteractionFn])
 
+  // The plan as it was decided: the reader's edits while this mount holds
+  // them, else what the reply carried (a reload has only the reply).
+  const decidedPlan = useMemo(
+    () => (plan ? (editedPlan ?? planFromReply(plan, response)) : null),
+    [plan, editedPlan, response]
+  )
+  const approved = responseKey === APPROVAL_RESPONSE_KEYS.approve
+  const recordLabel =
+    plan && approved && decidedPlan
+      ? t('agentPrompt.planRecord', { count: decidedPlan.sections.length })
+      : responseLabel
+
   const optionLabels = useMemo(() => options.map((option) => option.label), [options])
   const selectedLabel = options.find((option) => option.id === response)?.label
   const handleSelect = useCallback(
@@ -175,7 +201,10 @@ export const AgentPrompt: FC<AgentPromptProps> = ({
   )
 
   return (
-    <div className="animate-in fade-in-0 slide-in-from-bottom-1 duration-base ease-entrance flex w-full justify-start motion-reduce:animate-none">
+    // No entrance of its own: the thread row owns it, gated on whether the
+    // message is new. A CSS entrance here replayed on every mount, so a
+    // restored prompt rose again on every thread switch.
+    <div className="flex w-full justify-start">
       <div className="flex max-w-[85%] flex-col">
         <div className="bg-card flex flex-col gap-3 overflow-hidden break-words rounded-2xl rounded-bl-md p-4">
           {/* Agent icon and label */}
@@ -211,70 +240,83 @@ export const AgentPrompt: FC<AgentPromptProps> = ({
             />
           )}
 
-          {shownPlan && (
-            <PlanChecklist
-              plan={shownPlan}
-              disabled={isResponded || !isAddressee || !respondToInteractionFn}
-              rahmen={rahmen}
-              onChange={setEditedPlan}
-            />
-          )}
+          {/* The decision and its receipt, one slot (see the module note). */}
+          <AnswerSlot answered={isResponded}>
+            {isResponded ? (
+              <>
+                {/* A colleague's settled list for a choice prompt is the options
+                    above; every other prompt echoes its answer here. */}
+                {options.length === 0 && plan && decidedPlan ? (
+                  <PlanRecord label={recordLabel} plan={decidedPlan} rahmen={rahmen} />
+                ) : (
+                  options.length === 0 && <ResponseDisplay response={responseLabel} />
+                )}
+              </>
+            ) : (
+              <>
+                {shownPlan && (
+                  <PlanChecklist
+                    plan={shownPlan}
+                    disabled={!isAddressee || !respondToInteractionFn}
+                    rahmen={rahmen}
+                    onChange={setEditedPlan}
+                  />
+                )}
 
-          {/* Why a colleague has no buttons. Without a line here the card reads as
-              broken rather than as somebody else's turn. */}
-          {!isAddressee && !isResponded && (
-            <p data-testid="agent-prompt-awaiting-other" className="text-muted-foreground text-xs">
-              {addresseeName
-                ? t('agentPrompt.awaitingOther', { name: addresseeName })
-                : t('agentPrompt.awaitingSomeone')}
-            </p>
-          )}
+                {/* Why a colleague has no buttons. Without a line here the card
+                    reads as broken rather than as somebody else's turn. */}
+                {!isAddressee && (
+                  <p data-testid="agent-prompt-awaiting-other" className="text-muted-foreground text-xs">
+                    {addresseeName
+                      ? t('agentPrompt.awaitingOther', { name: addresseeName })
+                      : t('agentPrompt.awaitingSomeone')}
+                  </p>
+                )}
 
-          {/* Localized instruction + duration/cost expectation for plan
-              approval prompts, shown at the decision point (before approval). */}
-          {isApprovalPrompt && !isResponded && isAddressee && (
-            <div className="flex flex-col gap-1">
-              <span className="text-foreground text-sm">
-                {t('agentPrompt.approvalInstructionThreeWay')}
-              </span>
-              <span className="text-muted-foreground text-xs">{t('agentPrompt.durationHint')}</span>
-            </div>
-          )}
+                {/* Localized instruction + duration/cost expectation for plan
+                    approval prompts, shown at the decision point. */}
+                {isApprovalPrompt && isAddressee && (
+                  <div className="flex flex-col gap-1">
+                    <span className="text-foreground text-sm">
+                      {t('agentPrompt.approvalInstructionThreeWay')}
+                    </span>
+                    <span className="text-muted-foreground text-xs">{t('agentPrompt.durationHint')}</span>
+                  </div>
+                )}
 
-          {/* The plan decision: cancel outright, a quick shallow answer
-              instead, or the deep run. */}
-          {showApprovalButtons && (
-            <div className="flex flex-wrap justify-end gap-2">
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={handleCancel}
-                aria-label={t('agentPrompt.cancelResearchAria')}
-              >
-                {t('agentPrompt.cancelResearch')}
-              </Button>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={handleShallow}
-                aria-label={t('agentPrompt.answerShallowAria')}
-              >
-                {t('agentPrompt.answerShallow')}
-              </Button>
-              <Button
-                variant="default"
-                size="sm"
-                onClick={handleApprove}
-                aria-label={t('agentPrompt.approvePlan')}
-              >
-                {t('agentPrompt.startResearch')}
-              </Button>
-            </div>
-          )}
-
-          {/* Response display for NON-choice prompts (text/approval). Choice
-              prompts show their answer via the selected branch card above. */}
-          {isResponded && options.length === 0 && <ResponseDisplay response={responseLabel} />}
+                {/* The plan decision: cancel outright, a quick shallow answer
+                    instead, or the deep run. */}
+                {showApprovalButtons && (
+                  <div className="flex flex-wrap justify-end gap-2">
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={handleCancel}
+                      aria-label={t('agentPrompt.cancelResearchAria')}
+                    >
+                      {t('agentPrompt.cancelResearch')}
+                    </Button>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={handleShallow}
+                      aria-label={t('agentPrompt.answerShallowAria')}
+                    >
+                      {t('agentPrompt.answerShallow')}
+                    </Button>
+                    <Button
+                      variant="default"
+                      size="sm"
+                      onClick={handleApprove}
+                      aria-label={t('agentPrompt.approvePlan')}
+                    >
+                      {t('agentPrompt.startResearch')}
+                    </Button>
+                  </div>
+                )}
+              </>
+            )}
+          </AnswerSlot>
         </div>
 
         {/* Timestamp outside bubble, right-aligned */}
@@ -302,5 +344,69 @@ const ResponseDisplay: FC<{ response?: string }> = ({ response }) => {
         {t('agentPrompt.yourResponse')} <span className="text-primary">{response}</span>
       </span>
     </div>
+  )
+}
+
+/**
+ * One slot for the decision and the receipt that replaces it. Out on the exit
+ * curve, in on the quick one, never both at once (`mode="wait"`): the slot's
+ * height changes in the frame between, while nothing in it is visible, so the
+ * card resizes once instead of sliding two contents over each other. Mounted
+ * already answered (a restored thread), it paints the receipt with no motion.
+ */
+const AnswerSlot: FC<{ answered: boolean; children: ReactNode }> = ({ answered, children }) => {
+  const reduced = useReducedMotion()
+  return (
+    <AnimatePresence mode="wait" initial={false}>
+      <motion.div
+        key={answered ? 'answered' : 'open'}
+        className="flex flex-col gap-3 empty:hidden"
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1, transition: reduced ? motionInstant : motionQuick }}
+        exit={{ opacity: 0, transition: reduced ? motionInstant : motionQuickExit }}
+      >
+        {children}
+      </motion.div>
+    </AnimatePresence>
+  )
+}
+
+/**
+ * An answered plan as one line: what was decided, and the plan as approved
+ * behind a disclosure the reader opens (a user-initiated expand, the one kind
+ * of height change the thread animates).
+ */
+const PlanRecord: FC<{
+  label?: string
+  plan: PlanShape
+  rahmen?: { ids: string[]; labels: string[] }
+}> = ({ label, plan, rahmen }) => {
+  const t = useTranslations('chat')
+  const [open, setOpen] = useState(false)
+  return (
+    <Collapsible open={open} onOpenChange={setOpen} className="flex flex-col gap-3">
+      <div className="bg-muted flex items-center gap-2 rounded-xl px-3 py-2" data-testid="plan-record">
+        <MessageSquare className="text-subtle size-4 shrink-0" aria-hidden />
+        <span className="text-subtle min-w-0 flex-1 text-sm">{label}</span>
+        <CollapsibleTrigger asChild>
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            className="text-muted-foreground group h-7 shrink-0 gap-1 px-2 text-xs"
+            data-testid="plan-record-toggle"
+          >
+            {open ? t('agentPrompt.hidePlan') : t('agentPrompt.showPlan')}
+            <ChevronDown
+              className="duration-quick size-3.5 transition-transform ease-out group-data-[state=open]:rotate-180 motion-reduce:transition-none"
+              aria-hidden
+            />
+          </Button>
+        </CollapsibleTrigger>
+      </div>
+      <CollapsibleContent>
+        <PlanChecklist plan={plan} disabled rahmen={rahmen} onChange={() => undefined} />
+      </CollapsibleContent>
+    </Collapsible>
   )
 }

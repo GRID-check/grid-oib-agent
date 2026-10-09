@@ -80,10 +80,27 @@ describe('AgentPrompt', () => {
     )
 
     // Branch cards stay visible after answering — the chosen one remains and
-    // every card is locked (disabled), so the picker doubles as the response.
+    // every card is locked (aria-disabled, so a focused pick keeps its focus),
+    // and the picker doubles as the response.
     expect(screen.getByText('Option A')).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: /option a/i })).toBeDisabled()
-    expect(screen.getByRole('button', { name: /option b/i })).toBeDisabled()
+    expect(screen.getByRole('button', { name: /option a/i })).toHaveAttribute('aria-disabled', 'true')
+    expect(screen.getByRole('button', { name: /option b/i })).toHaveAttribute('aria-disabled', 'true')
+  })
+
+  test('the pick keeps keyboard focus when the cards lock, and a locked card sends nothing', async () => {
+    const user = userEvent.setup()
+    const respond = vi.fn()
+    useChatStore.setState({ respondToInteractionFn: respond })
+    const options = opts('Option A', 'Option B')
+    const { rerender } = render(<AgentPrompt content="Choose one:" options={options} />)
+    const pick = screen.getByRole('button', { name: /option a/i })
+    pick.focus()
+    await user.keyboard('{Enter}')
+    expect(respond).toHaveBeenCalledWith('o1')
+    rerender(<AgentPrompt content="Choose one:" options={options} isResponded response="o1" />)
+    expect(screen.getByRole('button', { name: /option a/i })).toHaveFocus()
+    await user.click(screen.getByRole('button', { name: /option b/i }))
+    expect(respond).toHaveBeenCalledTimes(1)
   })
 
   test('displays user response when responded', () => {
@@ -203,9 +220,9 @@ describe('AgentPrompt', () => {
   test('options render read-only (disabled) when no response callback is registered', () => {
     render(<AgentPrompt content="Choose one:" options={opts('Option A')} />)
 
-    // Branch cards still render, but locked (disabled) with no responder.
+    // Branch cards still render, but locked with no responder.
     expect(screen.getByText('Option A')).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: /option a/i })).toBeDisabled()
+    expect(screen.getByRole('button', { name: /option a/i })).toHaveAttribute('aria-disabled', 'true')
   })
 
   test('keeps non-approval prompt content untouched', () => {
@@ -504,14 +521,52 @@ describe('AgentPrompt — the plan card', () => {
     })
   })
 
-  test('the receipt of an edited approval still reads as approved', () => {
+  // An answered plan folds to one line; it used to keep the whole card of
+  // disabled controls standing above the run it started.
+  test('an edited approval folds to one line naming the approved plan', () => {
     render(
       <AgentPrompt
         content={CONTENT}
         isResponded
-        response='approve {"depth":"gutachten"}'
+        response='approve {"sections":["Gebäudeklasse","Fluchtwege","Brandabschnitte"],"depth":"gutachten"}'
       />
     )
-    expect(screen.getByText(en.chat.agentPrompt.responseApproved)).toBeInTheDocument()
+    expect(screen.getByTestId('plan-record')).toHaveTextContent('Plan approved · 3 sections')
+    expect(screen.queryByTestId('plan-checklist')).not.toBeInTheDocument()
+  })
+
+  test('the approved plan opens behind the record, read-only and as approved', async () => {
+    const user = userEvent.setup()
+    render(<AgentPrompt content={CONTENT} isResponded response='approve {"sections":["Nur Fluchtwege"]}' />)
+    await user.click(screen.getByTestId('plan-record-toggle'))
+    const points = screen.getAllByTestId('plan-point').map((row) => row.textContent)
+    expect(points).toEqual(['Nur Fluchtwege'])
+    expect(screen.queryByRole('textbox')).not.toBeInTheDocument()
+  })
+
+  test('a bare approval counts the plan it was shown', () => {
+    render(<AgentPrompt content={CONTENT} isResponded response="approve" />)
+    expect(screen.getByTestId('plan-record')).toHaveTextContent('Plan approved · 2 sections')
+  })
+
+  test('a shallow answer to a plan says so, not that the plan was approved', () => {
+    render(<AgentPrompt content={CONTENT} isResponded response="shallow" />)
+    expect(screen.getByTestId('plan-record')).toHaveTextContent(en.chat.agentPrompt.responseShallow)
+  })
+
+  test('answering swaps the decision for the receipt in one slot', async () => {
+    const respond = vi.fn()
+    useChatStore.setState({ respondToInteractionFn: respond })
+    const { rerender } = render(<AgentPrompt content={CONTENT} />)
+    expect(screen.getByRole('button', { name: /approve plan/i })).toBeInTheDocument()
+    rerender(<AgentPrompt content={CONTENT} isResponded response="approve" />)
+    // The receipt waits for the decision to leave (`mode="wait"`).
+    expect(await screen.findByTestId('plan-record')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /approve plan/i })).not.toBeInTheDocument()
+  })
+
+  test('has no entrance of its own: the thread row owns it', () => {
+    const { container } = render(<AgentPrompt content={CONTENT} />)
+    expect(container.innerHTML).not.toMatch(/animate-in/)
   })
 })

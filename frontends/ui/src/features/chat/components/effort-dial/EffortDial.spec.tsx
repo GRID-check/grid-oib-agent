@@ -96,4 +96,37 @@ describe('EffortDial', () => {
     await waitFor(() => expect(fetch).toHaveBeenCalled())
     expect(screen.getByTestId('effort-dial-trigger')).toHaveTextContent('Medium')
   })
+
+  it('keeps the chip one width: every level is laid out, only the current one shows', async () => {
+    mockOrgSettings({ chatReasoningEffort: 'low' })
+    render(<EffortDial conversationId="c1" />)
+
+    await waitFor(() =>
+      expect(screen.getByTestId('effort-dial-trigger')).toHaveAccessibleName(expect.stringContaining('Low'))
+    )
+    const labels = Array.from(screen.getByTestId('effort-dial-label').children)
+    expect(labels).toHaveLength(5)
+    const shown = labels.filter((label) => label.getAttribute('aria-hidden') !== 'true')
+    expect(shown.map((label) => label.textContent)).toEqual(['Low'])
+  })
+
+  it('stays mounted when hidden: invisible, out of the tab order, silent', () => {
+    mockOrgSettings({})
+    render(<EffortDial conversationId="c1" hidden />)
+
+    const trigger = screen.getByTestId('effort-dial-trigger')
+    expect(trigger).toHaveClass('invisible')
+    expect(trigger).toHaveAttribute('aria-hidden', 'true')
+    expect(trigger).toHaveAttribute('tabindex', '-1')
+  })
+
+  it('closes its popover when it hides', async () => {
+    mockOrgSettings({})
+    const { rerender } = render(<EffortDial conversationId="c1" />)
+    fireEvent.click(screen.getByTestId('effort-dial-trigger'))
+    expect(await screen.findByTestId('effort-dial')).toBeInTheDocument()
+
+    rerender(<EffortDial conversationId="c1" hidden />)
+    await waitFor(() => expect(screen.queryByTestId('effort-dial')).not.toBeInTheDocument())
+  })
 })

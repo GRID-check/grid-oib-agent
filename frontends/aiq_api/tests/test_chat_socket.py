@@ -33,11 +33,14 @@ from starlette.websockets import WebSocketDisconnect
 from aiq_agent.common.fenced_checkpointer import FencedCheckpointer
 from aiq_agent.common.human_prompt import build_human_prompt
 from aiq_agent.common.human_prompt import extract_user_response
+from aiq_agent.common.wire_v2 import ACCEPTED_CLIENT_FIELDS
 from aiq_agent.common.wire_v2 import HELLO
 from aiq_agent.common.wire_v2 import WIRE_EVENT
 from aiq_agent.common.wire_v2 import AnswerSnapshot
+from aiq_agent.common.wire_v2 import CancelTurn
 from aiq_agent.common.wire_v2 import KeyedCard
 from aiq_agent.common.wire_v2 import RunFinishedBody
+from aiq_agent.common.wire_v2 import ShownAnswer
 from aiq_agent.common.wire_v2 import StageValue
 from aiq_agent.common.wire_v2 import StateSnapshotBody
 from aiq_agent.common.wire_v2 import StatusStep
@@ -344,7 +347,7 @@ async def test_the_first_frame_is_hello_before_any_client_message(harness, monke
     assert hello["v"] == 2
     assert hello["type"] == "CUSTOM"
     assert hello["name"] == "hello"
-    assert hello["value"] == {"build": "abc1234"}
+    assert hello["value"] == {"build": "abc1234", "accepts": ["cancel_turn.shown"]}
     # A connection frame, not a turn's: nothing a fold or a cursor could key on.
     assert not {"conversation_id", "turn_id", "seq"} & hello.keys()
     assert sock.sent == []
@@ -359,7 +362,7 @@ async def test_a_build_without_a_sha_says_unknown_like_health(harness, monkeypat
     sock = harness().connect()
     await until(lambda: sock.frames)
 
-    assert sock.frames[0]["value"] == {"build": "unknown"}
+    assert sock.frames[0]["value"]["build"] == "unknown"
 
 
 async def test_an_unauthenticated_socket_gets_no_hello(harness):
@@ -649,6 +652,103 @@ async def test_the_asker_s_stop_cancels_the_run_and_keeps_what_was_read(harness,
     assert terminal["result"]["text"] == "Nach § 87"  # the pending [2] has no source
     assert persisted[0]["metadata"] == {"stopped": True, "trace_id": uuid.UUID(answer_message_id(CONV, "t1")).hex}
     assert persisted[0]["text"] == "Nach § 87"
+
+
+class Reading:
+    """A turn that streams two sentences and then thinks: the asker has read only the first."""
+
+    SEEN, UNSEEN = "Gesehen [2] bis hier.", " Was der Leser nie sah."
+
+    def __init__(self) -> None:
+        self.streamed = asyncio.Event()
+
+    async def turn(self, request, ask):
+        yield TextMessageStartBody(message_id="m")
+        yield TextMessageContentBody(message_id="m", delta=self.SEEN)
+        yield TextMessageContentBody(message_id="m", delta=self.UNSEEN)
+        self.streamed.set()
+        await asyncio.sleep(3600)
+
+    @classmethod
+    def shown(cls, sock: FakeSocket) -> dict:
+        """Where the asker was: through the first sentence's frame, all of it on screen."""
+        first = next(e for e in sock.events() if e.get("delta") == cls.SEEN)
+        return {"seq": first["seq"], "chars": len(cls.SEEN)}
+
+
+async def test_the_asker_s_stop_keeps_exactly_what_was_on_their_screen(harness, persisted):
+    """The cancel says how much was shown; the terminal and the stored row are cut to it, not to what streamed."""
+    reading = Reading()
+    sock = harness(reading.turn).connect()
+    sock.client(type="user_message", message_id="t1", text="?")
+    await until(reading.streamed.is_set)
+    await until(lambda: any(e.get("delta") == Reading.UNSEEN for e in sock.events()))
+
+    sock.client(type="cancel_turn", turn_id="t1", shown=Reading.shown(sock))
+    await until(lambda: persisted)
+
+    terminal = sock.events()[-1]
+    assert (terminal["outcome"], terminal["result"]["text"]) == ("cancelled", "Gesehen bis hier.")
+    assert persisted[0]["text"] == "Gesehen bis hier."
+    assert persisted[0]["metadata"]["stopped"] is True
+
+
+async def test_a_stop_that_says_nothing_shown_keeps_everything_streamed(harness, persisted):
+    """An older page sends no ``shown``: the server keeps the prose so far, as it always did."""
+    reading = Reading()
+    sock = harness(reading.turn).connect()
+    sock.client(type="user_message", message_id="t1", text="?")
+    await until(reading.streamed.is_set)
+
+    sock.client(type="cancel_turn", turn_id="t1")
+    await until(lambda: persisted)
+
+    assert persisted[0]["text"] == "Gesehen bis hier. Was der Leser nie sah."
+
+
+async def test_a_stop_relayed_to_the_owner_keeps_what_the_asker_saw(harness, persisted):
+    owner, relay, _ = _replicas()
+    reading = Reading()
+    asker = harness(reading.turn, owner).connect()
+    asker_elsewhere = harness(reading.turn, relay).connect()
+    asker.client(type="user_message", message_id="t1", text="?")
+    await until(reading.streamed.is_set)
+    await asyncio.sleep(0.02)  # the owner's input subscription lands
+
+    asker_elsewhere.client(type="cancel_turn", turn_id="t1", shown=Reading.shown(asker))
+    await until(lambda: persisted)
+
+    assert persisted[0]["text"] == "Gesehen bis hier."
+
+
+def test_a_relayed_stop_carries_shown_beside_the_message_so_an_older_owner_still_parses_it():
+    """An owner one release older reads ``CancelTurn`` strictly: the field inside the message would drop the Stop."""
+    message = CancelTurn(conversation_id=CONV, turn_id="t1", shown=ShownAnswer(seq=3, chars=10))
+
+    relayed = chat_socket._relayable(message)
+
+    assert "shown" not in relayed
+    assert relayed == {"v": 2, "type": "cancel_turn", "conversation_id": CONV, "turn_id": "t1"}
+
+
+@pytest.mark.parametrize(
+    ("payload", "shown"),
+    [
+        ({"shown": {"seq": 3, "chars": 10}}, ShownAnswer(seq=3, chars=10)),
+        ({}, None),  # an older relay
+        ({"shown": {"seq": -1}}, None),  # malformed: the Stop still counts, the cut does not
+    ],
+)
+def test_the_owner_reads_the_relayed_shown_position_leniently(payload, shown):
+    assert chat_socket._relayed_shown(payload) == shown
+
+
+def test_the_hello_names_the_shown_position_among_what_this_server_accepts():
+    """The page sends ``cancel_turn.shown`` only to a server whose hello names it: never to an older pod."""
+    assert "cancel_turn.shown" in ACCEPTED_CLIENT_FIELDS
+    assert CancelTurn.model_validate(
+        {"v": 2, "type": "cancel_turn", "conversation_id": CONV, "turn_id": "t1", "shown": {"seq": 1, "chars": 0}}
+    ).shown == ShownAnswer(seq=1, chars=0)
 
 
 async def test_a_colleague_s_stop_is_refused_and_the_turn_runs_on(harness):
@@ -1493,6 +1593,26 @@ def test_the_row_is_the_typed_result_in_wire_spelling():
         "routing_decision": "shallow",
         "skills_activated": ["brandschutz"],
     }
+
+
+def test_the_level_the_turn_ran_at_is_kept_on_the_row():
+    # ``agent-answer-metadata.ts`` reads it back as ``reasoning_effort``, so a
+    # turn the asking tab never saw finish still offers the right thorough retry.
+    finished = RunFinishedBody(outcome="answered", result=_result(reasoning_effort="low"))
+
+    assert turn_row_metadata(finished) == {"reasoning_effort": "low"}
+
+
+async def test_a_stopped_turn_keeps_the_level_the_asker_stated(persisted):
+    registry = ChatRegistry()
+    wire = chat_socket.TurnWire(CONV, "t1", registry.publish)
+    turn = chat_socket.RunningTurn(wire=wire, asker_subject=None, reasoning_effort="xhigh")
+    await turn.publish(TextMessageContentBody(message_id="m", delta="Teil"))
+
+    await turn.finish_cancelled()
+    await asyncio.gather(*chat_socket._PERSIST_TASKS)
+
+    assert persisted[0]["metadata"]["reasoning_effort"] == "xhigh"
 
 
 def test_the_quote_stamps_are_kept_on_the_row_in_wire_spelling():

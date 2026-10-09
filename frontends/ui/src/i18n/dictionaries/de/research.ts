@@ -16,8 +16,20 @@ export const research: typeof en.research = {
     ariaMessages: 'Chat-Nachrichten',
     loading: 'Unterhaltung wird geladen',
     scrollToLatest: 'Zum neuesten Beitrag springen',
+    // Eine leise Zeile über der Eingabe, statt einer Fehlerkarte im Verlauf:
+    // die Seite verbindet sich von selbst neu, die Lesenden müssen nichts tun.
+    connection: {
+      lost: 'Verbindung unterbrochen · Piloti verbindet sich neu …',
+      restored: 'Wieder verbunden',
+    },
     status: {
       thinking: 'Denkt nach …',
+      // Einmal, höflich, wenn die Antwort vollständig dasteht.
+      answerReady: 'Antwort fertig',
+      // Mit dem Kern der Antwort: dem Ergebnis oder ihrem ersten Satz.
+      answerReadyWith: 'Antwort fertig: {gist}',
+      // Die Lesenden haben die Antwort angehalten.
+      stopped: 'Gestoppt',
     },
     loggedOutTitle: 'Piloti wird verfügbar, sobald Ihre Organisation verifiziert ist.',
     loggedOutBody:
@@ -196,6 +208,8 @@ export const research: typeof en.research = {
     signInToStart: 'Melden Sie sich an, um zu beginnen',
     typeResponse: 'Geben Sie Ihre Antwort an Piloti ein...',
     pleaseWait: 'Bitte warten...',
+    typeAhead: 'Nächste Frage schon eingeben …',
+    typeAheadHint: 'Senden ist möglich, sobald die Antwort fertig ist.',
     messageNotSent: 'Nachricht nicht gesendet',
     messageNotSentDesc:
       'Beim Senden Ihrer Nachricht ist ein Fehler aufgetreten. Bitte versuchen Sie es erneut.',
@@ -214,6 +228,7 @@ export const research: typeof en.research = {
     responseInput: 'Antworteingabe',
     chatMessageInput: 'Chat-Nachrichteneingabe',
     stopStreaming: 'Antwort stoppen',
+    stopStreamingTitle: 'Antwort stoppen (Esc)',
     sendWhilePending: 'Noch sind nicht alle Dateien gelesen. Trotzdem senden?',
     heldForUpload: 'Wird gesendet, sobald die Datei gelesen ist.',
     heldForUploadSendNow: 'Jetzt ohne die Datei fragen',

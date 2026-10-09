@@ -469,10 +469,12 @@ function liveLine(t: Translator, phase: RunPhase): string | null {
 const PhaseActs: FC<{
   ledger: RunLedger
   live: boolean
-  now: number | null
   tallies: RunTallies
-}> = ({ ledger, live, now, tallies }) => {
+}> = ({ ledger, live, tallies }) => {
   const t = useTranslations('runs')
+  // Its own clock, like `RunElapsed`: only a phase without an end measures to
+  // now, and only this list says so.
+  const now = useRunClock(live)
   const { locale } = useLocale()
   const rows = RUN_PHASES.flatMap((phase) => {
     const state = phaseState(ledger, phase)
@@ -517,6 +519,33 @@ const PhaseActs: FC<{
   )
 }
 
+/**
+ * The elapsed figure in the stand, with the run's clock inside it.
+ *
+ * A leaf on purpose: the clock ticks once a second while the run is live, and
+ * at the block's root every tick re-rendered the whole block (the rounds, the
+ * chips, the footer) for one changed number. A terminal run's figure is on the
+ * ledger and shows from the first paint; a live one waits for the mounted
+ * clock (see useRunClock).
+ */
+const RunElapsed: FC<{ ledger: RunLedger; live: boolean }> = ({ ledger, live }) => {
+  const t = useTranslations('runs')
+  const now = useRunClock(live)
+  const elapsedSeconds =
+    ledger.finishedAt || now !== null ? Math.floor(elapsedMs(ledger, now ?? 0) / 1000) : 0
+  if (elapsedSeconds <= 0) return null
+  const elapsed = formatElapsed(elapsedSeconds)
+  return (
+    <span
+      className="text-muted-foreground text-[11px] tabular-nums"
+      aria-label={t('block.elapsedAria', { elapsed })}
+      data-testid="run-elapsed"
+    >
+      {elapsed}
+    </span>
+  )
+}
+
 export function RunBlock({
   ledger,
   title,
@@ -541,7 +570,6 @@ export function RunBlock({
   const reduced = useReducedMotion()
   const status = runDisplayStatus(ledger)
   const live = isLiveStatus(status)
-  const now = useRunClock(live)
 
   // The landing. A status that CHANGES while the block is on screen is a turn
   // in the run's story, and its moves are queued so they read in order
@@ -596,12 +624,6 @@ export function RunBlock({
     userToggledRef.current = true
     setOpen(next)
   }
-
-  // The clock: a terminal run's figure is on the ledger and shows from the
-  // first paint; a live one waits for the mounted clock (see useRunClock).
-  const elapsedSeconds =
-    ledger.finishedAt || now !== null ? Math.floor(elapsedMs(ledger, now ?? 0) / 1000) : 0
-  const elapsed = elapsedSeconds > 0 ? formatElapsed(elapsedSeconds) : null
 
   // The ONE action that fits the state, and the quiet way out beside it — both
   // at the document panel's own button weight (`h-7 text-xs`), so neither
@@ -762,7 +784,11 @@ export function RunBlock({
       data-testid="run-block"
       data-status={status}
       className={cn(
-        'animate-in fade-in-0 slide-in-from-bottom-1 border-border bg-card duration-base ease-entrance w-full overflow-hidden rounded-xl border motion-reduce:animate-none',
+        // No entrance of its own: the thread row that holds the block owns it,
+        // gated on whether the message is new. A CSS entrance on this root
+        // replayed on every mount, so a restored run rose again on every
+        // thread switch.
+        'border-border bg-card w-full overflow-hidden rounded-xl border',
         className
       )}
     >
@@ -795,15 +821,7 @@ export function RunBlock({
               </button>
             </CollapsibleTrigger>
             <span className="ml-auto flex shrink-0 items-center gap-1">
-              {elapsed && (
-                <span
-                  className="text-muted-foreground text-[11px] tabular-nums"
-                  aria-label={t('block.elapsedAria', { elapsed })}
-                  data-testid="run-elapsed"
-                >
-                  {elapsed}
-                </span>
-              )}
+              <RunElapsed ledger={ledger} live={live} />
               {writeNow}
               {addDocument}
               {stop}
@@ -869,11 +887,16 @@ export function RunBlock({
             does not animate its way there. */}
         <AnimatePresence initial={false}>
           {open && (
+            // eslint-disable-next-line grid/motion-vocabulary -- a fold the reader opened, below the stand they pressed; instant under reduced motion
             <motion.div
               key="run-body"
               initial={{ height: 0, opacity: 0 }}
-              animate={{ height: 'auto', opacity: 1, transition: motionBase }}
-              exit={{ height: 0, opacity: 0, transition: motionQuick }}
+              animate={{
+                height: 'auto',
+                opacity: 1,
+                transition: reduced ? motionInstant : motionBase,
+              }}
+              exit={{ height: 0, opacity: 0, transition: reduced ? motionInstant : motionQuick }}
               className="overflow-hidden"
               data-testid="run-body"
             >
@@ -954,62 +977,67 @@ export function RunBlock({
                 </ItemList>
               )}
 
-              <PhaseActs ledger={ledger} live={live} now={now} tallies={tallies} />
-
-              {closing && (
-                <motion.div
-                  key={`closing-${status}`}
-                  initial={landing ? { opacity: 0, y: 4 } : false}
-                  animate={{
-                    opacity: 1,
-                    y: 0,
-                    transition:
-                      reduced || !landing
-                        ? motionInstant
-                        : { ...motionEntrance, delay: landing.footer },
-                  }}
-                  className="border-border flex flex-col gap-1.5 border-t px-3 py-2"
-                  data-testid="run-footer"
-                >
-                  {before && (
-                    <p
-                      className="text-muted-foreground text-[11px] leading-relaxed"
-                      data-testid="run-completed-before"
-                    >
-                      {before}
-                    </p>
-                  )}
-                  {reviewLine && review && (
-                    /* The reviewer's words, quoted on the run they are about —
-                       the same adjunct a version row renders under itself. */
-                    <p
-                      className="text-foreground flex items-start gap-1.5 border-l-2 pl-2 text-[11px] leading-[1.5]"
-                      data-testid="run-review"
-                      data-decision={review.decision}
-                    >
-                      {review.decision === 'accepted' ? (
-                        <CheckCircle2 className="text-success mt-0.5 size-3 shrink-0" aria-hidden />
-                      ) : (
-                        <XCircle className="text-error mt-0.5 size-3 shrink-0" aria-hidden />
-                      )}
-                      <span>{reviewLine}</span>
-                    </p>
-                  )}
-                  {connectionLine && (
-                    <p
-                      className="text-muted-foreground text-[11px] leading-relaxed"
-                      role="status"
-                      data-testid="run-connection"
-                      data-connection={connection}
-                    >
-                      {connectionLine}
-                    </p>
-                  )}
-                </motion.div>
-              )}
+              <PhaseActs ledger={ledger} live={live} tallies={tallies} />
             </motion.div>
           )}
         </AnimatePresence>
+
+        {/* The closing rows sit BELOW the body, not inside it. A failed or
+            cancelled run folds its body once it has said how it ended, and
+            the sentence saying what it had finished by then (and a review)
+            went with the fold: the reader was left with the verdict and not
+            the reason. Outside, they rise after the fold and stay. */}
+        {closing && (
+          <motion.div
+            key={`closing-${status}`}
+            initial={landing ? { opacity: 0, y: 4 } : false}
+            animate={{
+              opacity: 1,
+              y: 0,
+              transition:
+                reduced || !landing
+                  ? motionInstant
+                  : { ...motionEntrance, delay: landing.footer },
+            }}
+            className="border-border flex flex-col gap-1.5 border-t px-3 py-2"
+            data-testid="run-footer"
+          >
+            {before && (
+              <p
+                className="text-muted-foreground text-[11px] leading-relaxed"
+                data-testid="run-completed-before"
+              >
+                {before}
+              </p>
+            )}
+            {reviewLine && review && (
+              /* The reviewer's words, quoted on the run they are about —
+                 the same adjunct a version row renders under itself. */
+              <p
+                className="text-foreground flex items-start gap-1.5 border-l-2 pl-2 text-[11px] leading-[1.5]"
+                data-testid="run-review"
+                data-decision={review.decision}
+              >
+                {review.decision === 'accepted' ? (
+                  <CheckCircle2 className="text-success mt-0.5 size-3 shrink-0" aria-hidden />
+                ) : (
+                  <XCircle className="text-error mt-0.5 size-3 shrink-0" aria-hidden />
+                )}
+                <span>{reviewLine}</span>
+              </p>
+            )}
+            {connectionLine && (
+              <p
+                className="text-muted-foreground text-[11px] leading-relaxed"
+                role="status"
+                data-testid="run-connection"
+                data-connection={connection}
+              >
+                {connectionLine}
+              </p>
+            )}
+          </motion.div>
+        )}
       </Collapsible>
 
       {/* Asked once, and phrased around what survives: the rounds already

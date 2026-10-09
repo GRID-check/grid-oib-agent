@@ -331,6 +331,12 @@ class TurnResult(_Model):
     quote_stamps: list[QuoteStamp] = Field(default_factory=list)
     #: ADR-0062: the run this turn commissioned instead of answering itself.
     run: RunHandoff | None = None
+    #: The thinking level the answering call RAN at, resolved (the asker's level,
+    #: else the platform's, else the role's configured one). Absent when the turn
+    #: made no answering call or its model sends none. The client records the
+    #: level it asked for, but only the asking tab has that; this reaches
+    #: observers and the persisted row too.
+    reasoning_effort: Literal["none", "minimal", "low", "medium", "high", "xhigh"] | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -547,8 +553,22 @@ class RejectedBody(_CustomBody):
     value: RejectedValue
 
 
+#: The optional client fields this server reads, as ``<type>.<field>``, named in
+#: the hello. The server reads client messages strictly (``extra="forbid"``), so
+#: a client sends an optional field only to a server whose hello names it: a tab
+#: that outlives a rolling deploy may be talking to a pod one release older.
+ACCEPTED_CLIENT_FIELDS: tuple[str, ...] = ("cancel_turn.shown",)
+
+
 class HelloValue(_Model):
     build: str = Field(min_length=1, description="The deployed commit (GRID_GIT_SHA), or 'unknown', as /health has it.")
+    accepts: list[str] = Field(
+        default_factory=list,
+        description=(
+            "The optional client fields this server reads, as '<type>.<field>' (ACCEPTED_CLIENT_FIELDS). "
+            "Free strings, not an enum: a newer server's entry must not make an older page refuse its hello."
+        ),
+    )
 
 
 class Hello(_Model):
@@ -789,11 +809,31 @@ class OptionAnswer(_Model):
     option_id: str = Field(min_length=1)
 
 
+class ShownAnswer(_Model):
+    """How much of the answer the asker had on screen when they pressed Stop.
+
+    The first ``chars`` characters (Unicode code points) of the answer's text
+    as the client had folded it through ``seq``. A position, not the text: the
+    server keeps only what the model wrote, and the frame stays a few dozen
+    bytes, which the gateway's frame limiter reads in full (``ws-frames.js``).
+    """
+
+    seq: int = Field(ge=0, description="The last seq of the turn the client had folded when Stop was pressed.")
+    chars: int = Field(ge=0, description="How many characters of that text were on screen, in code points.")
+
+
 class CancelTurn(_ClientBase):
     """Stop. Authorised: only the asker (or an internal caller) may cancel a turn."""
 
     type: Literal["cancel_turn"] = "cancel_turn"
     turn_id: str = Field(min_length=1)
+    shown: ShownAnswer | None = Field(
+        default=None,
+        description=(
+            "What the asker saw: the stopped answer is cut to it. Sent only to a server whose hello "
+            "accepts 'cancel_turn.shown'."
+        ),
+    )
 
 
 class Attach(_ClientBase):

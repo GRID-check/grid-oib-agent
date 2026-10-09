@@ -1,0 +1,34 @@
+---
+# One entry per user-visible change. This text is PUBLISHED, in English and in
+# German machine translation, to https://piloti.at/changelog — write it for the
+# architect using Piloti, not for the reviewer of your diff.
+features:
+  - >
+    You can write your next question while Piloti is still answering. Enter
+    sends it once the answer is complete, and Escape stops the answer without
+    touching your draft.
+improvements:
+  - >
+    An answer now writes itself in calmly where you are reading: the Herleitung
+    folds away before the first word, nothing above the line you are on moves,
+    and the sources, actions and cards arrive together when the answer is done.
+  - >
+    Stopping an answer keeps exactly the text you saw at that moment, marked
+    „Gestoppt“, and a reload shows the same text.
+  - >
+    When an answer fails partway, the words already written stay on screen,
+    dimmed above the error, and Erneut versuchen replaces them with a fresh answer.
+  - >
+    Switching to another conversation and back, or reloading during an answer,
+    shows the text that had already arrived at once instead of typing it out
+    again, and each conversation reopens where you left it.
+  - >
+    A dropped connection is now a quiet line above the input field instead of
+    a card in the conversation, and the Herleitung says Fehlgeschlagen,
+    Gestoppt or Auftrag angelegt instead of a green Fertig when the answer did
+    not simply finish.
+fixes:
+  - >
+    Piloti in dark mode no longer flashes white while the page loads.
+  - >
+    On an iPhone, the input field no longer hides behind the keyboard.

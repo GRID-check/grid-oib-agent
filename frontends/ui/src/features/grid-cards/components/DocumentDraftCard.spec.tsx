@@ -159,9 +159,17 @@ describe('DocumentDraftCard — the draft, before it is filed', () => {
     const user = userEvent.setup()
     render(<DocumentDraftCard {...DRAFT} />)
 
-    await user.click(screen.getByRole('button', { name: 'File into the project' }))
+    const fileButton = screen.getByRole('button', { name: 'File into the project' })
+    fileButton.focus()
+    await user.keyboard('{Enter}')
 
-    expect(await screen.findByRole('button', { name: 'Filing …' })).toBeDisabled()
+    // Locked by `aria-disabled`, not `disabled`, so the press keeps its focus;
+    // a second press while it files does not file twice.
+    const busy = await screen.findByRole('button', { name: 'Filing …' })
+    expect(busy).toHaveAttribute('aria-disabled', 'true')
+    expect(busy).toHaveFocus()
+    await user.keyboard('{Enter}')
+    expect(fetch).toHaveBeenCalledTimes(1)
     resolveFile({
       ok: true,
       status: 201,

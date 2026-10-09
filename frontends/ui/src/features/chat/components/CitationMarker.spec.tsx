@@ -146,6 +146,21 @@ describe('an inline citation marker', () => {
     expect(within(focused as HTMLElement).getByText(/OIB-Richtlinie 2\.1/)).toBeInTheDocument()
   })
 
+  test('does not scroll the page to the chip, which would throw the pinned peek off screen', async () => {
+    const user = userEvent.setup()
+    const scroll = vi.fn()
+    const original = Element.prototype.scrollIntoView
+    Element.prototype.scrollIntoView = scroll
+    try {
+      renderAnswer()
+      await user.click(screen.getByRole('button', { name: /Source 2: OIB-Richtlinie 2\.1/i }))
+      expect(await screen.findByRole('dialog')).toBeInTheDocument()
+      expect(scroll).not.toHaveBeenCalled()
+    } finally {
+      Element.prototype.scrollIntoView = original
+    }
+  })
+
   test('a marker for each page of one document resolves to that page', async () => {
     const user = userEvent.setup()
     renderAnswer()
@@ -444,5 +459,20 @@ describe('a citation still being settled (ADR-0066)', () => {
         .filter((c) => /^(inline-flex|items-center|rounded-sm|px-|relative|-top-|text-\[|font-|leading-|tabular-|pointer-coarse:)/.test(c))
         .sort()
     expect(box(pending as Element)).toEqual(box(live))
+  })
+
+  test('stands still: no pulse on a pill an answer may hold dozens of', () => {
+    render(<AgentResponse content="Zwei Fluchtwege sind erforderlich [1]" messageId="m1" isStreaming routingDecision="deep" />)
+    const pending = document.querySelector('[data-citation-pending="1"]')
+    expect(pending?.className).not.toMatch(/animate-pulse/)
+  })
+
+  test('settles to the plain "[N]" when its source never came, without a new plugin list', () => {
+    const { rerender } = render(
+      <AgentResponse content="Zwei Fluchtwege sind erforderlich [1]" messageId="m1" isStreaming routingDecision="deep" />
+    )
+    rerender(<AgentResponse content="Zwei Fluchtwege sind erforderlich [1]" messageId="m1" routingDecision="deep" />)
+    expect(document.querySelector('[data-citation-pending]')).toBeNull()
+    expect(screen.getByText(/Zwei Fluchtwege sind erforderlich \[1\]/)).toBeInTheDocument()
   })
 })

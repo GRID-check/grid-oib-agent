@@ -186,4 +186,44 @@ describe('CardSlot', () => {
     const { container } = render(<CardSlot arrivalKey={nextKey()} />)
     expect(container.firstElementChild).toBeNull()
   })
+
+  test('a place held for a card that never came folds away at the settle, then is gone', async () => {
+    const arrivalKey = nextKey()
+    const { container, rerender } = render(live(<CardSlot arrivalKey={arrivalKey} />))
+    const frame = container.firstElementChild
+    expect(frame).not.toBeNull()
+    rerender(
+      <CardSlotLiveProvider value={false}>
+        <CardSlot arrivalKey={arrivalKey} />
+      </CardSlotLiveProvider>
+    )
+    // Not dropped in one frame: the same element folds first.
+    expect(container.firstElementChild).toBe(frame)
+    expect(frame).not.toHaveAttribute('aria-busy')
+    await waitFor(() => expect(container.firstElementChild).toBeNull())
+  })
+
+  test('a card refused while the answer still arrives folds its place away too', async () => {
+    const arrivalKey = nextKey()
+    const { container, rerender } = render(live(<CardSlot arrivalKey={arrivalKey} />))
+    rerender(live(<CardSlot arrivalKey={arrivalKey} refused />))
+    expect(container.firstElementChild).not.toBeNull()
+    await waitFor(() => expect(container.firstElementChild).toBeNull())
+  })
+
+  test('a refused card that never held a place renders nothing at all', () => {
+    const { container } = render(live(<CardSlot arrivalKey={nextKey()} refused />))
+    expect(container.firstElementChild).toBeNull()
+  })
+
+  test('an unplaced card the reader watches arrive comes in like a placed one', () => {
+    // Mounted outside the live provider (the settle frame), told it arrives.
+    render(
+      <CardSlot arrivalKey={nextKey()} arriving>
+        <Card drawn={false} />
+      </CardSlot>
+    )
+    expect(placeholder()).not.toBeNull()
+    expect(cardShown()).toBe(false)
+  })
 })

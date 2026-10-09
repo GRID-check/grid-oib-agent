@@ -1,38 +1,52 @@
 /**
  * useElapsedSeconds
  *
- * Whole seconds elapsed since `active` most recently became true. Ticks once a
- * second while active and resets to 0 when it goes inactive, so a status line
- * can surface a live "12s" during a slow response and set the user's
- * expectation that work is ongoing.
+ * Whole seconds elapsed while `active`, ticking once a second, so a status
+ * line can surface a live "12s" during a slow response and set the user's
+ * expectation that work is ongoing. 0 until it has been active; when it goes
+ * inactive it FREEZES on its last figure rather than dropping to 0, so a
+ * finished turn's header does not lose its timer in the frame it lands.
  *
- * The start instant is captured on activation (not on mount), so toggling
- * active restarts the count cleanly.
+ * The count runs from `since` when the caller has a start instant of its own
+ * (a turn's question was sent at its message's timestamp), and otherwise from
+ * the moment `active` became true. `since` is what keeps the figure continuous
+ * across a remount: the live turn's status line is one element from the send
+ * to the settle, but anything that remounts it (a list re-key, a restored live
+ * turn) would otherwise start again at 0 in front of a reader who has been
+ * watching it count.
  */
 
 'use client'
 
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useState } from 'react'
 
-export const useElapsedSeconds = (active: boolean): number => {
-  const [seconds, setSeconds] = useState(0)
-  const startRef = useRef<number | null>(null)
+/** A start instant as callers hold one: a `Date`, an ISO string, epoch ms. */
+export type ElapsedSince = Date | string | number
+
+const startOf = (since: ElapsedSince | undefined): number | null => {
+  if (since === undefined) return null
+  const ms = since instanceof Date ? since.getTime() : new Date(since).getTime()
+  return Number.isFinite(ms) ? ms : null
+}
+
+const secondsSince = (start: number): number =>
+  Math.max(0, Math.floor((Date.now() - start) / 1000))
+
+export const useElapsedSeconds = (active: boolean, since?: ElapsedSince): number => {
+  const sinceMs = startOf(since)
+  // Seeded at mount, so a status line that mounts mid-turn shows the true
+  // figure in its first paint rather than 0 for a second.
+  const [seconds, setSeconds] = useState(() =>
+    active && sinceMs !== null ? secondsSince(sinceMs) : 0
+  )
 
   useEffect(() => {
-    if (!active) {
-      startRef.current = null
-      setSeconds(0)
-      return
-    }
-    startRef.current = Date.now()
-    setSeconds(0)
-    const id = setInterval(() => {
-      if (startRef.current != null) {
-        setSeconds(Math.floor((Date.now() - startRef.current) / 1000))
-      }
-    }, 1000)
+    if (!active) return
+    const start = sinceMs ?? Date.now()
+    setSeconds(secondsSince(start))
+    const id = setInterval(() => setSeconds(secondsSince(start)), 1000)
     return () => clearInterval(id)
-  }, [active])
+  }, [active, sinceMs])
 
   return seconds
 }

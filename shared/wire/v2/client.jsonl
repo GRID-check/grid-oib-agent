@@ -4,4 +4,5 @@
 {"v":2,"type":"interaction_response","conversation_id":"5f5b7a5c-1f0e-4a9d-9c3a-2f2f9a1b7c11","turn_id":"msg_1759000200000_7","interaction_id":"ask_01J9Z6","answer":{"option_id":"2"}}
 {"v":2,"type":"interaction_response","conversation_id":"5f5b7a5c-1f0e-4a9d-9c3a-2f2f9a1b7c11","turn_id":"msg_1759000200000_7","interaction_id":"ask_01J9Z6","answer":{"text":"skip"}}
 {"v":2,"type":"cancel_turn","conversation_id":"5f5b7a5c-1f0e-4a9d-9c3a-2f2f9a1b7c11","turn_id":"msg_1759000300000_9"}
+{"v":2,"type":"cancel_turn","conversation_id":"5f5b7a5c-1f0e-4a9d-9c3a-2f2f9a1b7c11","turn_id":"msg_1759000300000_9","shown":{"seq":42,"chars":318}}
 {"v":2,"type":"attach","conversation_id":"5f5b7a5c-1f0e-4a9d-9c3a-2f2f9a1b7c11","turn_id":"msg_1759000000000_3","after_seq":14}

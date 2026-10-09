@@ -60,6 +60,14 @@ class TestBuildResult:
             research_truncated=True,
             answer_meta={"kind": "ruling", "verdict": "40 m"},
             retrieval_ledger=ledger,
+            reasoning_effort="high",
+        )
+        assert result.reasoning_effort == "high"
+        assert (
+            to_frame(stamp(finished(result), conversation_id="c", turn_id="t", seq=0, ts=0))["result"][
+                "reasoning_effort"
+            ]
+            == "high"
         )
         assert result.routing_decision == "shallow"
         assert result.answer_confidence == "low"

@@ -57,6 +57,15 @@ describe('isCleanCut', () => {
     expect(isCleanCut('| Spalte | ')).toBe(false)
   })
 
+  it('holds a cut after a whole header line until its delimiter row has arrived', () => {
+    // The header alone would render as a paragraph of pipes for a moment.
+    expect(isCleanCut('Die Werte:\n\n| Spalte | Wert |\n')).toBe(false)
+    expect(isCleanCut('Die Werte:\n\n| Spalte | Wert |\n| --- | --- |\n| Treppe | ')).toBe(true)
+    expect(isCleanCut('| Spalte | Wert |\n| --- | --- |\n| Treppe | offen |\n')).toBe(true)
+    // A blank line after it ends the run: whatever the pipes were, they are drawn.
+    expect(isCleanCut('| Spalte | Wert |\n\n')).toBe(true)
+  })
+
   it('accepts the same constructs once they are closed', () => {
     expect(isCleanCut('Das ist **wichtig** ')).toBe(true)
     expect(isCleanCut('Siehe [OIB-RL 2](https://example.org) ')).toBe(true)
@@ -122,6 +131,34 @@ describe('advancePace', () => {
     const start = noteArrival(initialPace(0), text.length, 0)
     const { shown } = run(start, text, FRAME_MS)
     expect(shown[0]).toBe('**Die '.length)
+  })
+
+  it('shows a table with its first row, never its header alone', () => {
+    // A header-only table drew as a table for a frame and, on a phone, was
+    // restacked (header hidden) when its first row came.
+    expect(isCleanCut('Die Werte:\n\n| Spalte | Wert |\n| --- | --- |\n')).toBe(false)
+    // A table that really has no rows is drawn once the blank line ends it.
+    expect(isCleanCut('| Spalte | Wert |\n| --- | --- |\n\n')).toBe(true)
+  })
+
+  it('shows a row with its first cell, never as a blank row', () => {
+    // `| ` is a row GFM pads with empty cells: it drew blank and grew per cell.
+    expect(isCleanCut('| Spalte | Wert |\n| --- | --- |\n| ')).toBe(false)
+    expect(isCleanCut('| Spalte | Wert |\n| --- | --- |\n| Treppe | offen |\n| ')).toBe(false)
+    expect(isCleanCut('| Spalte | Wert |\n| --- | --- |\n|  | offen | ')).toBe(true)
+  })
+
+  it('reveals each table row with its first cell already written', () => {
+    const head = '| Nachweis | Anforderung | Fundstelle |\n|---|---|---|\n'
+    const text = `Vorab:\n\n${head}| Tragende Bauteile | R 60 | Tabelle 1b |\n| Trennwände | REI 60 | Tabelle 1b |\n`
+    const start = noteArrival(initialPace(0), text.length, 0)
+    const { shown } = run(start, text, 1000)
+    for (const n of shown) {
+      const lastLine = text.slice(0, n).split('\n').at(-1) ?? ''
+      // Never a bare `| `, never the header and delimiter without a row.
+      expect(/^\|\s*$/.test(lastLine)).toBe(false)
+      expect(text.slice(0, n).endsWith('|---|---|---|\n')).toBe(false)
+    }
   })
 
   it('fills a table cell by cell instead of holding each row back', () => {
