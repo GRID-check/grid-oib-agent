@@ -9,6 +9,7 @@ vi.mock('@/lib/workos/client', () => ({
 }))
 
 import { checkResourcePermission } from './resource-check'
+import { TransientAuthzError } from './errors'
 import { setCacheStore, type CacheStore } from '@/lib/cache'
 
 /** Same controllable store as `projects.spec.ts`: no TTL expiry, full key visibility. */
@@ -56,6 +57,15 @@ describe('checkResourcePermission', () => {
     await expect(checkResourcePermission({ ...INPUT })).resolves.toBe(false)
     await expect(checkResourcePermission({ ...INPUT })).resolves.toBe(true)
     expect(check).toHaveBeenCalledTimes(2)
+  })
+
+  it('raises TransientAuthzError instead of denying when asked to, and caches nothing', async () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => {})
+    check.mockRejectedValueOnce(new Error('workos unreachable'))
+    await expect(checkResourcePermission({ ...INPUT }, { onError: 'throw' })).rejects.toBeInstanceOf(
+      TransientAuthzError
+    )
+    expect(store.map.size).toBe(0)
   })
 
   it('caches a completed denial (only errors bypass the cache)', async () => {

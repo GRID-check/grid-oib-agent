@@ -1,0 +1,22 @@
+{
+  "$comment": "The project mail address contract between the Email Worker (deploy/pulumi/src/platform/inbound-mail-worker.js, which routes on it) and the BFF (frontends/ui/src/lib/inbound-mail/address.ts, which parses and mints it). A recipient is a project address when, after ASCII lowercasing, stripping surrounding angle brackets and quotes and a +detail subaddress, the text after the LAST dot of the local part (or the whole local part) matches tokenPattern. Both sides run every case below in their specs (inbound-mail-worker.spec.ts, address.spec.ts), so neither can change the rule alone.",
+  "tokenPattern": "^[a-z2-7]{12}$",
+  "cases": [
+    { "recipient": "wohnbau-hietzing.k3m7q2xw4pab@piloti.at", "project": true },
+    { "recipient": "k3m7q2xw4pab@piloti.at", "project": true, "note": "a project whose name has nothing Latin in it: the bare token" },
+    { "recipient": "Wohnbau.K3M7Q2XW4PAB@piloti.at", "project": true, "note": "senders' clients change case" },
+    { "recipient": "wohnbau.k3m7q2xw4pab+plaene@piloti.at", "project": true, "note": "a subaddress is dropped before the split" },
+    { "recipient": "\"wohnbau.k3m7q2xw4pab\"@piloti.at", "project": true, "note": "a quoted local part" },
+    { "recipient": "<wohnbau.k3m7q2xw4pab@piloti.at>", "project": true },
+    { "recipient": "jonathanuhle@piloti.at", "project": true, "note": "twelve base32 letters look like a token; a company address like this needs its own literal routing rule, which Cloudflare matches before the catch-all" },
+    { "recipient": "kontakt@piloti.at", "project": false },
+    { "recipient": "info@piloti.at", "project": false },
+    { "recipient": "office.team@piloti.at", "project": false },
+    { "recipient": "wohnbau.k3m7q2xw4pa@piloti.at", "project": false, "note": "eleven characters" },
+    { "recipient": "wohnbau.k3m7q2xw4pabc@piloti.at", "project": false, "note": "thirteen characters" },
+    { "recipient": "wohnbau.k3m7q2xw4pa1@piloti.at", "project": false, "note": "1 is not in the base32 alphabet" },
+    { "recipient": "wohnbau.k3m7q2xw4pab.alt@piloti.at", "project": false, "note": "only the text after the last dot counts" },
+    { "recipient": "wohnbau.K3m7q2xw4pab@piloti.at", "project": false, "note": "the Kelvin sign must not fold onto k" },
+    { "recipient": "+k3m7q2xw4pab@piloti.at", "project": false, "note": "everything after the plus is the subaddress" }
+  ]
+}

@@ -10,10 +10,10 @@
 
 'use client'
 
-import { type FC, type ReactNode } from 'react'
+import type { FC, ReactNode } from 'react'
 import { toast } from 'sonner'
+import { useCopyToClipboard } from '@/hooks/use-copy-to-clipboard'
 import { useTranslations } from '@/i18n'
-import { useTransientFlag } from '@/hooks/use-transient-flag'
 import { citationShareUrl, type CitationRef } from '../lib/citations'
 import { COPY_ACTION_CLASSES, CopiedAnnouncement, CopyActionFace } from './CopyCitation'
 
@@ -22,7 +22,7 @@ export const CopyCitationLinkButton: FC<{ citation: CitationRef; icon?: ReactNod
   icon,
 }) => {
   const t = useTranslations('chat')
-  const [copied, flashCopied] = useTransientFlag()
+  const { copied, copy } = useCopyToClipboard()
 
   const handleCopy = async (): Promise<void> => {
     // Read the location here rather than in `citationShareUrl`, which stays
@@ -32,12 +32,7 @@ export const CopyCitationLinkButton: FC<{ citation: CitationRef; icon?: ReactNod
       pathname: window.location.pathname,
       search: window.location.search,
     })
-    try {
-      await navigator.clipboard.writeText(url)
-      flashCopied()
-    } catch {
-      toast.error(t('answerSources.copyFailed'))
-    }
+    if (!(await copy(url))) toast.error(t('answerSources.copyFailed'))
   }
 
   // The same face as the citation copy beside it: the icon swaps to a check

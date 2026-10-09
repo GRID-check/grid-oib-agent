@@ -20,9 +20,10 @@
 
 import 'server-only'
 import type { AuthorizedSession } from '@/lib/auth/types'
-import { resolveSubjectMembership } from '@/lib/authz/project-membership'
-import { permissionsForOrgRole } from '@/lib/authz/permissions'
+import type { AuthzLookupOptions } from '@/lib/authz/errors'
 import { enforcementOn } from '@/lib/authz/feature-flags'
+import { tenantRolePermissions } from '@/lib/authz/org-role-permissions'
+import { resolveSubjectMembership } from '@/lib/authz/project-membership'
 import { enabledFlagsForOrganization } from '@/lib/workos/feature-flags'
 
 export interface PinnedRequester {
@@ -35,7 +36,11 @@ export interface PinnedRequester {
  * The session the requester would have if they were signed in right now, or
  * `null` when they are no longer a member of the organization.
  *
- * Feature flags: under enforcement the flags are resolved per organization
+ * Permissions: what WorkOS says the requester's role holds, unioned with the
+ * catalog, the same answer `hasPermission` gives a signed-in session. Reading
+ * the catalog alone denied every custom role.
+ *
+ * Feature flags: under enforcement, EVERY flag enabled for the organization
  * (the JWT claim a live session carries is per user+org, and the org-level
  * answer is what the fleet-wide kill switch means); without enforcement the
  * gates read the environment and ignore the session, so `null` there is the
@@ -47,27 +52,38 @@ export interface PinnedRequester {
  * no flags at all. A scheduled report could then never file
  * (`isAgentAuthoredDocumentsEnabled` read the empty set), and the mail import
  * (ADR-0085), which files through the upload path's `image-upload` gate, would
- * have refused every picture.
+ * have refused every picture. A flag lookup that fails throws, so the
+ * background work retries instead of acting with none.
+ *
+ * A membership lookup that could not complete fails closed by default (no
+ * membership reads as "left"). An unattended caller that can retry passes
+ * `{ onError: 'throw' }` and gets a `TransientAuthzError` instead, so a blip
+ * never reads as a definite no.
  */
 export async function resolvePinnedRequesterSession(
   requester: PinnedRequester,
+  options: AuthzLookupOptions = {},
 ): Promise<AuthorizedSession | null> {
-  const membership = await resolveSubjectMembership(requester.organizationId, requester.userId)
+  const { organizationId, userId } = requester
+  const membership = await resolveSubjectMembership(organizationId, userId, options)
   // No membership, or a membership without a role, is a person who holds
   // nothing here today; the caller refuses rather than guesses a role.
   if (!membership || !membership.role) return null
 
-  const featureFlags = enforcementOn() ? await enabledFlagsForOrganization(requester.organizationId) : null
+  const [permissions, featureFlags] = await Promise.all([
+    tenantRolePermissions(organizationId, membership.role),
+    enforcementOn() ? enabledFlagsForOrganization(organizationId) : Promise.resolve(null),
+  ])
 
   return {
-    userId: requester.userId,
+    userId,
     email: requester.email ?? '',
     name: null,
     accessToken: '',
-    organizationId: requester.organizationId,
+    organizationId,
     organizationMembershipId: membership.organizationMembershipId,
     role: membership.role,
-    permissions: [...permissionsForOrgRole(membership.role)],
+    permissions: [...permissions],
     featureFlags,
   }
 }

@@ -3,6 +3,7 @@ import { type Metadata } from 'next'
 import { notFound } from 'next/navigation'
 import { withPageSession } from '@/lib/auth/require-auth'
 import { requireProjectAccess } from '@/lib/authz/projects'
+import { can } from '@/lib/authz/decide'
 import { isProjectKnowledgePageEnabled } from '@/lib/authz/feature-flags'
 import { getProjectOverviewData } from '@/lib/projects/overview-query'
 import { getHiddenFolderIds } from '@/lib/authz/folder-access'
@@ -27,7 +28,8 @@ export async function generateMetadata(): Promise<Metadata> {
  *
  * View access gates the page (same guard the layout applies); manager-only
  * affordances (member management, rename, danger zone) are gated by the
- * derived role, matching the old pages exactly.
+ * derived role, matching the old pages exactly. The E-Mail-Eingang section is
+ * gated on document write, the permission its API enforces.
  */
 export default async function ProjectSettingsPage({ params }: ProjectSettingsPageProps): Promise<JSX.Element> {
   return withPageSession(async (session) => {
@@ -35,9 +37,17 @@ export default async function ProjectSettingsPage({ params }: ProjectSettingsPag
 
     const { role } = await requireProjectAccess(session, id, 'project:view')
 
-    const data = await getProjectOverviewData(id, session.organizationId, {
-      hiddenFolderIds: await getHiddenFolderIds(session, id),
-    })
+    // Document write is asked as the permission (any-of the ADR-0038 umbrella),
+    // not read off the derived role: `project-editor` also means "holds only
+    // `project:memory:write`", and that caller may not see the mail address.
+    const project = { type: 'project', id } as const
+    const [data, writesDocuments, editsProject] = await Promise.all([
+      getHiddenFolderIds(session, id).then((hiddenFolderIds) =>
+        getProjectOverviewData(id, session.organizationId, { hiddenFolderIds })
+      ),
+      can(session, 'project:documents:write', project),
+      can(session, 'project:edit', project),
+    ])
     if (!data) {
       notFound()
     }
@@ -52,6 +62,7 @@ export default async function ProjectSettingsPage({ params }: ProjectSettingsPag
         data={data}
         foldersWithoutRole={foldersWithoutRole}
         canManageProject={canManageProject}
+        canWriteDocuments={writesDocuments || editsProject}
         // Knowledge left the top-level nav (spec §5) but stays reachable from
         // Settings while its feature flag is on.
         showKnowledgeLink={isProjectKnowledgePageEnabled(session)}

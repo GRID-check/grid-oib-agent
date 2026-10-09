@@ -42,6 +42,7 @@ import {
   Clock,
   EyeOff,
   HardDrive,
+  Mail,
   Megaphone,
   MessageSquare,
   ShieldAlert,
@@ -82,6 +83,7 @@ import {
 import type { DocumentVersionView } from '@/lib/documents/lifecycle-types'
 import { DiscussDocumentButton } from '@/features/documents/components/discuss-document-button'
 import { projectIdFromDocumentHref } from '@/features/documents/lib/document-question'
+import { InboundMailSkippedFiles } from './InboundMailSkippedFiles'
 
 /**
  * The ONE place the registry's icon names become components. Keeping the map here
@@ -98,16 +100,29 @@ const ICONS: Record<(typeof INBOX_TYPE_PRESENTATION)[keyof typeof INBOX_TYPE_PRE
     'alert-triangle': AlertTriangle,
     clock: Clock,
     megaphone: Megaphone,
+    mail: Mail,
     'shield-alert': ShieldAlert,
   }
+
+/** The params a template can interpolate: strings and numbers, not lists. */
+function scalarParams(params: InboxItemView['params']): Record<string, string | number> {
+  if (!params) return {}
+  return Object.fromEntries(
+    Object.entries(params).filter(
+      (entry): entry is [string, string | number] =>
+        typeof entry[1] === 'string' || typeof entry[1] === 'number',
+    ),
+  )
+}
 
 /** Dictionary root for the item-type entries. */
 const TYPES_PATH = 'collaboration.inbox.types'
 
 /**
- * Pick the counted title key by hand, because this i18n layer interpolates but
- * has no plural rules (see the dictionary header): counted types ship
- * `titleOne`/`titleMany`, uncounted ones a single `title`. Reading the dictionary
+ * Pick the first title leaf a type ships from `candidates`. The older counted
+ * types predate plural blocks (`i18n/translate.ts`) and ship
+ * `titleOne`/`titleMany`; newer ones a single `title` that counts in the
+ * template, and optionally `titleUntitled`/`titleWithheld`. Reading the dictionary
  * directly — rather than calling `t()` and sniffing the returned key — keeps a
  * type that legitimately has no `titleOne` from logging a missing-key warning on
  * every render.
@@ -194,21 +209,30 @@ export const InboxItemRow = forwardRef<HTMLLIElement, InboxItemRowProps>(functio
   const redacted = !item.href
 
   const vars = {
+    // A type's own values first, so the three shared names below always mean
+    // what every other type's copy means by them. Only the scalar ones: a list
+    // (a mail's skipped files) is drawn, not interpolated.
+    ...scalarParams(item.params),
     actor: item.actorName ?? t('inbox.unknownActor'),
     subject: item.subject ?? t(redacted ? 'inbox.inert' : 'inbox.untitledConversation'),
     count: item.count,
   }
 
+  // `count` is occurrences SINCE THE ROW WAS LAST READ, so 0 is the ordinary
+  // state of a read row — and picking `titleOne` for it made a group of
+  // twenty that had been read claim "1 new message". Three cases, not two.
+  const countLeaves =
+    item.count > 1 ? ['titleMany', 'title'] : item.count === 1 ? ['titleOne', 'title'] : ['titleNone', 'titleOne', 'title']
   const titleLeaf =
-    pickKey(
-      dictionary,
-      presentation.i18nKey,
-      // `count` is occurrences SINCE THE ROW WAS LAST READ, so 0 is the ordinary
-      // state of a read row — and picking `titleOne` for it made a group of
-      // twenty that had been read claim "1 new message". Three cases, not two.
-      item.count > 1 ? ['titleMany', 'title'] : item.count === 1 ? ['titleOne', 'title'] : ['titleNone', 'titleOne', 'title'],
-    ) ??
-    'title'
+    pickKey(dictionary, presentation.i18nKey, [
+      // A type whose copy names its params may ship a title for a row whose
+      // params were withheld (redacted) or no longer parse, and one for a row
+      // with no subject, so neither renders a blank count or quotes a
+      // placeholder as if it were the subject („Nicht mehr verfügbar“).
+      ...(item.params === undefined ? ['titleWithheld'] : []),
+      ...(item.subject === null ? ['titleUntitled'] : []),
+      ...countLeaves,
+    ]) ?? 'title'
   const title = t(`inbox.types.${presentation.i18nKey}.${titleLeaf}`, vars)
   // A row whose payload names no subject (an upload to the Büroablage or a
   // chat) reads the sentence written without one, where its type has it.
@@ -448,6 +472,13 @@ export const InboxItemRow = forwardRef<HTMLLIElement, InboxItemRowProps>(functio
           </ItemTitle>
 
           {body && <ItemDescription className="mt-0.5">{body}</ItemDescription>}
+
+          {/* A mail's skipped files: a list, so it is drawn rather than
+              interpolated. Keyed on the params' shape, which the registry's
+              schema fixed, not on the type name. */}
+          {item.params && 'skippedFiles' in item.params && (
+            <InboundMailSkippedFiles params={item.params} />
+          )}
 
           {item.excerpt && (
             <p className="mt-1.5 line-clamp-2 border-l border-border pl-2.5 text-sm leading-relaxed text-muted-foreground">

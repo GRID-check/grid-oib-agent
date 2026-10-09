@@ -1,5 +1,7 @@
 /**
- * What an imported mail is called, and what its note says (ADR-0085). Pure.
+ * What a mail filed into a project is called, and what an imported mail's note
+ * says. Pure. One naming for both ways a mail arrives: an Outlook archive
+ * (ADR-0085) and the project mail inbox (ADR-0075).
  *
  * **No subject in a name.** A folder name and a filename become storage keys,
  * audit targets and search titles, and a subject is the one header that carries
@@ -7,6 +9,14 @@
  * and the sender, as the project mail inbox (#831) decided; the subject is
  * inside the note, which is a document like any other and goes where documents
  * go.
+ *
+ * **The sender is a name, never a domain.** The display name, else the
+ * address's local part: a folder name is shown to everyone in the project and
+ * reaches the assistant's grounding block, and the local part is enough to tell
+ * two senders apart (data minimisation, inbound-mail review F5). It is somebody
+ * else's text, so invisible format characters go (a bidi override, U+202E,
+ * makes `Rechnung<U+202E>fdp.exe` read `Rechnungexe.pdf`) and a cut falls
+ * between graphemes.
  *
  * **Names are unique per project, not per folder.** A document is identified by
  * its filename across the whole project (`uniq_documents_live_name_per_collection`),
@@ -16,10 +26,13 @@
  */
 
 import { normalizeFolderName } from '@/lib/projects/folders'
+import { stripFormatControls, truncateGraphemes } from '@/lib/text/graphemes'
 
 const VIENNA = 'Europe/Vienna'
 const MAX_FOLDER_NAME = 120
 const MAX_FILENAME = 240
+/** The sender part of a folder name: with the 19-character stamp, the name stays under 100. */
+const MAX_SENDER = 80
 
 export interface MailAddress {
   name: string
@@ -57,9 +70,22 @@ export function mailTimestamp(iso: string | null): string {
 
 /** The mail's folder: `<date time> – <sender>`. */
 export function mailFolderName(when: string | null, sender: MailAddress | null): string {
-  const stamp = mailTimestamp(when)
-  const who = cleanSegment(sender?.name || sender?.address || '') || 'Unbekannt'
-  return `${stamp} – ${who}`.slice(0, MAX_FOLDER_NAME).trim()
+  return `${mailTimestamp(when)} – ${senderLabel(sender)}`.slice(0, MAX_FOLDER_NAME).trim()
+}
+
+/** The sender as a name shows them: the display name, else the address's local part. */
+export function senderLabel(sender: MailAddress | null): string {
+  const name = senderSegment(sender?.name ?? '')
+  if (name) return name
+  const address = sender?.address ?? ''
+  const at = address.lastIndexOf('@')
+  return senderSegment(at > 0 ? address.slice(0, at) : address) || 'Unbekannt'
+}
+
+/** A display name or local part as one name segment: one Unicode form, no edge dots, cut by grapheme. */
+function senderSegment(raw: string): string {
+  const clean = cleanSegment(stripFormatControls(raw)).normalize('NFC').replace(/^[.\s]+|[.\s]+$/g, '')
+  return truncateGraphemes(clean, MAX_SENDER, '…')
 }
 
 /**

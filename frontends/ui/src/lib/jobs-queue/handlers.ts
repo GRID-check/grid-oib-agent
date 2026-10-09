@@ -27,6 +27,7 @@ import {
   runReindexSlice,
   runReingestFailedSlice,
 } from '@/lib/documents/service'
+import { runInboundMailJob } from '@/lib/inbound-mail/job'
 import { runPlacementReingestSlice } from '@/lib/projects/collection-placement'
 import { runMailImportSlice } from '@/lib/mail-import/job'
 import { runReportFilingJob } from '@/lib/tasks/service'
@@ -34,6 +35,7 @@ import { isLastAttempt } from './attempts'
 import {
   bimExtractPayloadSchema,
   fileResearchReportPayloadSchema,
+  inboundMailPayloadSchema,
   mailImportPayloadSchema,
   officeRenditionPayloadSchema,
   placementReingestPayloadSchema,
@@ -122,6 +124,18 @@ const mailImportHandler: JobHandler = async ({ organizationId, payload }) => {
   return runMailImportSlice(session, parsed, organizationId)
 }
 
+/**
+ * A mail a project's address accepted. Not {@link systemHandler}: its retries
+ * are its own, like the mail import's (`lib/inbound-mail/job.ts`), because a
+ * mail must survive an outage of most of a day and the queue's backoff is
+ * minutes. The job hands the delivery on to a fresh job and always ends.
+ */
+const inboundMailHandler: JobHandler = async ({ organizationId, payload }) => {
+  const parsed = inboundMailPayloadSchema.parse(payload)
+  await runInboundMailJob(organizationId, parsed)
+  return { done: true, payload: parsed }
+}
+
 /** One handler per kind; the record's type makes a kind without one a compile error. */
 export const JOB_HANDLERS: Record<BffJobKind, JobHandler> = {
   reindex_project: handler(reindexProjectPayloadSchema, runReindexSlice),
@@ -131,4 +145,5 @@ export const JOB_HANDLERS: Record<BffJobKind, JobHandler> = {
   office_rendition: systemHandler(officeRenditionPayloadSchema, runOfficeRenditionJob),
   file_research_report: systemHandler(fileResearchReportPayloadSchema, runReportFilingJob),
   mail_import: mailImportHandler,
+  inbound_mail: inboundMailHandler,
 }

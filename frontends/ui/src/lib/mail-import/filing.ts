@@ -2,6 +2,11 @@
  * File one archived mail into the project (ADR-0085): a folder for the mail,
  * its attachments, and a Markdown note with its headers and text.
  *
+ * The folder with a free name and the upload of one file under a free name
+ * ({@link createFolderWithFreeName}, {@link fileBytes}) are also how the project
+ * mail inbox files a mail (`lib/inbound-mail/job.ts`, ADR-0075): one filer for
+ * every mail that reaches a project, whichever way it came.
+ *
  * Everything goes through the ordinary upload path as the person who started
  * the import, so the same type, size, quota and permission gates apply as when
  * they drop a file, and the audit trail names them. What a person could not
@@ -33,9 +38,15 @@ import { FOLDER_READ_ONLY_REASON } from '@/lib/authz/folder-access-rule'
 import type { AuthorizedSession } from '@/lib/auth/types'
 import type { MailImport, MailImportSkippedSample, MailImportSkipReason } from '@/lib/db/schema'
 import { resolveShelfFolderPath } from '@/lib/documents/folder-path'
+import type { UploadAuditChannel } from '@/lib/documents/shelf-upload'
 import { documentNameKey } from '@/lib/documents/name-match'
 import { findLiveDocumentByFilename, findProjectCollectionsHoldingFilename } from '@/lib/documents/repository'
-import { assertFileSizeAllowed, assertUploadTypeAllowed, uploadDocument } from '@/lib/documents/service'
+import {
+  assertFileSizeAllowed,
+  assertUploadTypeAllowed,
+  uploadDocument,
+  type IngestPriority,
+} from '@/lib/documents/service'
 import { projectShelf } from '@/lib/documents/shelf'
 import { FOLDER_NAME_TAKEN } from '@/lib/documents/shelf-folders'
 import { createProjectFolder, ensureProjectFolderPaths } from '@/lib/projects/folder-service'
@@ -87,13 +98,23 @@ export class MailImportQuotaError extends Error {
   }
 }
 
-export interface FilingContext {
+/** Where a mail's files go and who files them: what any mail filing needs, wherever the mail came from. */
+export interface MailFilingTarget {
   session: AuthorizedSession
+  projectId: string
+  /** For the audit trail's IP and user agent; a job has neither, so it names itself. */
+  request: Request
+  /** The ingest queue's priority for the files (see `ShelfUploadInput.priority`). */
+  priority: IngestPriority
+  /** The intake channel the audit trail records, for a mail no person dropped at a screen. */
+  audit?: UploadAuditChannel
+}
+
+export interface FilingContext extends MailFilingTarget {
   mailImport: MailImport
   archive: ArchiveRef
   /** The folder the archive's tree is mirrored under. */
   archiveFolderId: string
-  request: Request
   /** Outlook folder path → project folder id, for this slice. */
   folders: Map<string, string>
   /** `Date.now()` past which no new attachment is started. */
@@ -111,9 +132,15 @@ export interface FiledMail {
 
 /** Build the context a slice files with. */
 export function filingContext(
-  input: Omit<FilingContext, 'folders' | 'deadline'> & { deadline?: number },
+  input: Omit<FilingContext, 'folders' | 'deadline' | 'projectId' | 'priority'> & { deadline?: number },
 ): FilingContext {
-  return { deadline: Number.POSITIVE_INFINITY, ...input, folders: new Map() }
+  return {
+    deadline: Number.POSITIVE_INFINITY,
+    ...input,
+    projectId: input.mailImport.projectId,
+    priority: 'bulk',
+    folders: new Map(),
+  }
 }
 
 /**
@@ -156,7 +183,7 @@ export async function fileMail(context: FilingContext, mail: ArchiveMail): Promi
     filedNames,
   )
   const noteName = noteFilename(folder.name)
-  const filedNote = await fileBytes(context, folder.id, noteName, new TextEncoder().encode(note), 'text/markdown', claimed)
+  const filedNote = await fileImported(context, folder.id, noteName, new TextEncoder().encode(note), 'text/markdown', claimed)
   if (!filedNote.filed) {
     result.filesSkipped += 1
     result.skipped.push({ mail: folder.name, file: noteName, reason: filedNote.reason })
@@ -164,7 +191,7 @@ export async function fileMail(context: FilingContext, mail: ArchiveMail): Promi
   return result
 }
 
-interface MailFolder {
+export interface MailFolder {
   id: string
   name: string
 }
@@ -198,7 +225,7 @@ async function outlookFolder(context: FilingContext, outlookPath: readonly strin
   if (known) return known
 
   const ensured = await ensureProjectFolderPaths(
-    { projectId: context.mailImport.projectId, parentId: context.archiveFolderId, paths: [path] },
+    { projectId: context.projectId, parentId: context.archiveFolderId, paths: [path] },
     context.session,
   )
   const id = ensured.ok ? ensured.folderIdByPath[path] : undefined
@@ -209,23 +236,22 @@ async function outlookFolder(context: FilingContext, outlookPath: readonly strin
 
 /** Create `name` under `parentId`, or `name (2)`, `name (3)`… when a sibling has it. */
 export async function createFolderWithFreeName(
-  context: Pick<FilingContext, 'session' | 'mailImport'>,
+  target: Pick<MailFilingTarget, 'session' | 'projectId'>,
   parentId: string | null,
   name: string,
 ): Promise<MailFolder> {
   for (let n = 1; n <= MAX_NAME_ATTEMPTS; n += 1) {
     const candidate = numbered(name, n)
-    const created = await createProjectFolder(
-      { projectId: context.mailImport.projectId, parentId, name: candidate },
-      context.session,
-    )
+    const created = await createProjectFolder({ projectId: target.projectId, parentId, name: candidate }, target.session)
     if (created.ok) return { id: created.folder.id, name: created.folder.name }
     if (created.error !== FOLDER_NAME_TAKEN) throw new Error(`could not create the folder ${candidate}: ${created.error}`)
   }
   throw new Error(`no free folder name for ${name} after ${MAX_NAME_ATTEMPTS} attempts`)
 }
 
-type AttachmentOutcome = { filed: true; filename: string } | { filed: false; reason: MailImportSkipReason }
+export type AttachmentOutcome =
+  | { filed: true; filename: string; unchanged: boolean }
+  | { filed: false; reason: MailImportSkipReason }
 
 async function fileAttachment(
   context: FilingContext,
@@ -247,7 +273,7 @@ async function fileAttachment(
     if (error instanceof AttachmentUnreadableError) return { filed: false, reason: 'unreadable' }
     throw error
   }
-  return fileBytes(context, folder.id, desired, bytes, attachment.content_type ?? '', claimed)
+  return fileImported(context, folder.id, desired, bytes, attachment.content_type ?? '', claimed)
 }
 
 /** What the upload gates would refuse, asked before the bytes are fetched from the archive. */
@@ -293,11 +319,10 @@ function isFolderReadOnly(details: unknown): boolean {
 }
 
 /**
- * Upload `bytes` into the mail's folder under the first name free in the
- * project: the name used, or why the upload path refused the file. A refusal
- * is one a retry would repeat, so it is a skip, not a failed slice.
+ * {@link fileBytes} for an import: stamped with the import's open upload batch
+ * (`./upload-batch`), which moves on to the next generation when full.
  */
-async function fileBytes(
+async function fileImported(
   context: FilingContext,
   folderId: string,
   desired: string,
@@ -305,25 +330,46 @@ async function fileBytes(
   contentType: string,
   claimed: Set<string>,
 ): Promise<AttachmentOutcome> {
+  context.uploadBatch = await importBatchWithRoom(context.session, context.mailImport, context.uploadBatch)
+  const outcome = await fileBytes(context, folderId, desired, bytes, contentType, claimed, context.uploadBatch.id)
+  // Unchanged bytes write nothing, so the document does not join the batch.
+  if (outcome.filed && !outcome.unchanged) context.uploadBatch.documents += 1
+  return outcome
+}
+
+/**
+ * Upload `bytes` into the mail's folder under the first name free in the
+ * project: the name used, or why the upload path refused the file. A refusal
+ * is one a retry would repeat, so it is a skip, not a failed slice. A full
+ * quota throws {@link MailImportQuotaError}: no later file fits either.
+ */
+export async function fileBytes(
+  context: MailFilingTarget,
+  folderId: string,
+  desired: string,
+  bytes: Uint8Array,
+  contentType: string,
+  claimed: Set<string>,
+  uploadBatchId: string | null = null,
+): Promise<AttachmentOutcome> {
   const filename = await freeFilename(context, folderId, desired, claimed)
   claimed.add(filename)
   const file = new File([bytes as Uint8Array<ArrayBuffer>], filename, { type: contentType })
-  context.uploadBatch = await importBatchWithRoom(context.session, context.mailImport, context.uploadBatch)
+  let unchanged: boolean
   try {
     const uploaded = await uploadDocument(
       context.session,
-      { projectId: context.mailImport.projectId, folderId, file, priority: 'bulk', uploadBatchId: context.uploadBatch.id },
+      { projectId: context.projectId, folderId, file, priority: context.priority, audit: context.audit, uploadBatchId },
       context.request,
     )
-    // Unchanged bytes write nothing, so the document does not join the batch.
-    if (!uploaded.unchanged) context.uploadBatch.documents += 1
+    unchanged = uploaded.unchanged === true
   } catch (error) {
     if (error instanceof InsufficientStorageError) throw new MailImportQuotaError()
     const reason = refusalReason(error)
     if (reason) return { filed: false, reason }
     throw error
   }
-  return { filed: true, filename }
+  return { filed: true, filename, unchanged }
 }
 
 /**
@@ -332,7 +378,7 @@ async function fileBytes(
  * only the one in this very folder has (a retry of this mail).
  */
 async function freeFilename(
-  context: FilingContext,
+  context: MailFilingTarget,
   folderId: string,
   desired: string,
   claimed: ReadonlySet<string>,
@@ -346,9 +392,9 @@ async function freeFilename(
 }
 
 /** No document of the project holds `filename`, or only the one already in `folderId`. */
-async function nameIsFreeFor(context: FilingContext, folderId: string, filename: string): Promise<boolean> {
+async function nameIsFreeFor(context: MailFilingTarget, folderId: string, filename: string): Promise<boolean> {
   const { organizationId } = context.session
-  const holders = await findProjectCollectionsHoldingFilename(organizationId, context.mailImport.projectId, filename)
+  const holders = await findProjectCollectionsHoldingFilename(organizationId, context.projectId, filename)
   if (holders.length === 0) return true
   if (holders.length > 1) return false
   const existing = await findLiveDocumentByFilename(organizationId, holders[0], filename)

@@ -45,10 +45,11 @@
 
 'use client'
 
-import { type FC, useState } from 'react'
+import type { FC } from 'react'
 import { User, Copy, Check } from 'lucide-react'
 import { toast } from 'sonner'
 import { AnimatePresence, motion, useIconSwapTransition } from '@/components/motion'
+import { useCopyToClipboard } from '@/hooks/use-copy-to-clipboard'
 import { SectionLabel } from '@/components/ui/section-label'
 import { MarkdownRenderer } from '@/shared/components/MarkdownRenderer'
 import { formatTime } from '@/shared/utils/format-time'
@@ -131,20 +132,14 @@ export const UserMessage: FC<UserMessageProps> = ({
 }) => {
   const t = useTranslations('chat')
   const swap = useIconSwapTransition()
-  const [copied, setCopied] = useState(false)
+  const { copied, copy } = useCopyToClipboard()
   // `formatTime` without a locale falls back to the RUNTIME default, so a
   // German user on an en-US browser read "03:35 PM" here while the HITL prompt
   // directly below it read "15:35". Every research card already passes it.
   const { locale } = useLocale()
 
   const handleCopyMessage = async () => {
-    try {
-      await navigator.clipboard.writeText(content)
-      setCopied(true)
-      window.setTimeout(() => setCopied(false), 1500)
-    } catch {
-      toast.error(t('copyMessage.failed'))
-    }
+    if (!(await copy(content))) toast.error(t('copyMessage.failed'))
   }
 
   /**

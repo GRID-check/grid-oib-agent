@@ -34,6 +34,7 @@ export const BFF_JOB_KINDS = [
   'office_rendition',
   'file_research_report',
   'mail_import',
+  'inbound_mail',
 ] as const
 export type BffJobKind = (typeof BFF_JOB_KINDS)[number]
 
@@ -222,6 +223,18 @@ export const mailImportPayloadSchema = z.object({
   requester: requesterSchema,
 })
 export type MailImportPayload = z.infer<typeof mailImportPayloadSchema>
+
+/**
+ * `inbound_mail`: file one mail a project's address accepted (ADR-0075), as
+ * the member who sent it. Everything else (the staged files, the folder, the
+ * attempts so far) is on the `inbound_mail_messages` row, which is also the
+ * fence: a job whose row is no longer `queued` does nothing.
+ */
+export const inboundMailPayloadSchema = z.object({
+  deliveryId: z.string().uuid(),
+  projectId: z.string().uuid(),
+})
+export type InboundMailPayload = z.infer<typeof inboundMailPayloadSchema>
 
 /** What a one-step job is told about the attempt it is running. */
 export interface JobAttempt {

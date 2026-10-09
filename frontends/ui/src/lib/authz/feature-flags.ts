@@ -173,6 +173,31 @@ export const FEATURE_FLAGS = {
    *  and the scheduler container's start gate. Jobs ride this one flag: they
    *  ship as one feature, so a second flag could only let them disagree. */
   skills: 'skills',
+  /**
+   * The project email address: mail sent to a project's own address files its
+   * attachments into the project as the sender (`lib/inbound-mail`).
+   *
+   * Per ORGANIZATION and default-OFF in both directions, the `collaboration`
+   * shape: mail from outside reaches a tenant's file system, so an
+   * organization gets it after it has been told, never by inheriting a
+   * default. With enforcement on it follows the per-org flag; without, the
+   * deployment opts in with `GRID_PROJECT_MAIL_INBOX_ENABLED=true`.
+   *
+   * Gates the address surface (`/api/projects/[id]/inbound-address`), the
+   * webhook (a refusal the sender's server does not retry) and the filing job. The
+   * webhook and the filing job have no session, so they read the org-level half,
+   * `isProjectMailInboxEnabledForOrg` in `lib/workos/feature-flags.ts`.
+   */
+  projectMailInbox: 'project-mail-inbox',
+  /**
+   * The async post-answer memory-reflection stage. Read per org, without a
+   * session, by `lib/workos/feature-flags.ts` (`POST_ANSWER_STAGE_FLAGS`).
+   * Listed here so provisioning checks it exists in WorkOS like every other
+   * slug the code evaluates: under enforcement a slug absent from WorkOS is off.
+   */
+  memoryReflection: 'memory-reflection',
+  /** The post-answer follow-up-questions stage; same reader as the entry above. */
+  postAnswerFollowUps: 'post-answer-follow-ups',
   /** Outlook archive (.pst/.ost) import into a project (ADR-0085). Dark-launched:
    *  the WorkOS flag when enforcement is on, else the GRID_MAIL_IMPORT_ENABLED env
    *  opt-in (default off). It files the correspondence of everyone who wrote to
@@ -181,6 +206,13 @@ export const FEATURE_FLAGS = {
 } as const
 
 export type KnownFeatureFlag = (typeof FEATURE_FLAGS)[keyof typeof FEATURE_FLAGS]
+
+/**
+ * A flag slug the registry knows. The type every org-level reader takes, so a
+ * slug and an organization id, both plain strings, cannot be passed in each
+ * other's place: `isOrgFeatureEnabled(orgId, slug)` does not compile.
+ */
+export type FeatureFlagSlug = KnownFeatureFlag
 
 /**
  * Whether WorkOS flag enforcement is on for this deployment. Exported so
@@ -335,6 +367,40 @@ export function isAgentAuthoredDocumentsEnabled(
 export function agentAuthoredDocumentsEnvEnabled(): boolean {
   const raw = (process.env.GRID_AGENT_AUTHORED_DOCUMENTS_ENABLED ?? '').trim().toLowerCase()
   return raw === '' || !['false', '0', 'no', 'off'].includes(raw)
+}
+
+/**
+ * Default-OFF gate for the project email address. With enforcement it follows
+ * the per-org `project-mail-inbox` flag; without, it needs the deployment
+ * opt-in `GRID_PROJECT_MAIL_INBOX_ENABLED=true`. See the registry entry.
+ */
+export function isProjectMailInboxEnabled(session: Pick<GridSession, 'featureFlags'>): boolean {
+  if (enforcementOn()) {
+    return isFeatureEnabled(session, FEATURE_FLAGS.projectMailInbox)
+  }
+  return projectMailInboxEnvEnabled()
+}
+
+/**
+ * The env half of {@link isProjectMailInboxEnabled}, shared with the
+ * session-less org reader so the two cannot disagree. Opt-in: only `true`.
+ */
+export function projectMailInboxEnvEnabled(): boolean {
+  return (process.env.GRID_PROJECT_MAIL_INBOX_ENABLED ?? '').trim().toLowerCase() === 'true'
+}
+
+/**
+ * Route guard for the project email address: stable-coded 403 when off, null
+ * when allowed.
+ */
+export function requireProjectMailInboxEnabled(
+  session: Pick<GridSession, 'featureFlags'>
+): Response | null {
+  if (isProjectMailInboxEnabled(session)) return null
+  return NextResponse.json(
+    { error: 'feature-disabled', feature: FEATURE_FLAGS.projectMailInbox },
+    { status: 403 }
+  )
 }
 
 /**

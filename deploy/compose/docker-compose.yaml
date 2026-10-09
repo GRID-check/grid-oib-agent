@@ -630,6 +630,19 @@ services:
       - GRID_ADMIN_TOKEN=${GRID_ADMIN_TOKEN:-}
       # Corpus tarball (/api/internal/oib-corpus). No caller since the answer-suite CI workflow was removed. Unset = disabled.
       - GRID_CORPUS_EXPORT_TOKEN=${GRID_CORPUS_EXPORT_TOKEN:-}
+      # Project mail inbox. It is on only when both halves are: the domain
+      # (the deployment's half; unset = off, the UI shows no address) and the
+      # organization's `project-mail-inbox` switch, which is the WorkOS flag
+      # under GRID_ENFORCE_FEATURE_FLAGS and GRID_PROJECT_MAIL_INBOX_ENABLED
+      # (only the literal `true`) without it. The token is what the Cloudflare
+      # Email Worker presents to /api/internal/inbound-mail (unset = that route
+      # answers 503).
+      # The Worker itself runs only on Cloudflare and has no service here; on
+      # Kubernetes Pulumi deploys it (deploy/pulumi/src/platform/inbound-mail.ts).
+      # Locally, `frontends/ui/scripts/send-test-mail.ts` stands in for it.
+      - GRID_INBOUND_MAIL_DOMAIN=${GRID_INBOUND_MAIL_DOMAIN:-}
+      - GRID_INBOUND_MAIL_TOKEN=${GRID_INBOUND_MAIL_TOKEN:-}
+      - GRID_PROJECT_MAIL_INBOX_ENABLED=${GRID_PROJECT_MAIL_INBOX_ENABLED:-false}
       - WORKOS_CLIENT_ID=${WORKOS_CLIENT_ID}
       - WORKOS_API_KEY=${WORKOS_API_KEY}
       - NEXT_PUBLIC_WORKOS_REDIRECT_URI=${NEXT_PUBLIC_WORKOS_REDIRECT_URI:-${WORKOS_REDIRECT_URI:-http://localhost:3000/api/auth/callback}}

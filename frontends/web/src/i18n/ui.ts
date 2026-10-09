@@ -56,6 +56,16 @@ const de = {
         description:
           'Wie die Piloti-Website mit Ihren Daten umgeht: keine Cookies, kein Tracking, welche Dienste beteiligt sind und welche Anbieter die Piloti-Anwendung nutzt.',
       },
+      mailInbox: {
+        title: 'E-Mail-Eingang: Dateien per E-Mail ins Projekt – Piloti',
+        description:
+          'Jedes Projekt in Piloti hat eine eigene E-Mail-Adresse. Wer senden darf, was mit Anhängen passiert, warum eine E-Mail zurückkommt und wie Sie DKIM einschalten.',
+      },
+      kontakt: {
+        title: 'Kontakt: Planungsfrage schicken oder Gespräch anfragen – Piloti',
+        description:
+          'Schreiben Sie den Gründern von Piloti: eine Planungsfrage aus Ihrem Projekt, eine Frage zur Pilotphase oder ein Gesprächswunsch. Wir antworten per E-Mail.',
+      },
       warum: {
         title: 'Warum Piloti: KI für Architekturbüros in Österreich',
         description:
@@ -402,7 +412,6 @@ const de = {
     title: 'Bringen Sie eine echte Frage mit.',
     body: 'Schicken Sie uns eine Planungsfrage aus einem laufenden Projekt, gern mit den Unterlagen dazu. Wir zeigen Ihnen, wie Piloti sie beantwortet, mit Quellen, die Sie am Original prüfen. Passt es, planen Sie als Pilotbüro mit: früher Zugang, ein direkter Draht zu uns Gründern und Einfluss darauf, was wir als Nächstes bauen.',
     primary: 'Mit einer echten Frage testen',
-    secondary: 'Gespräch anfragen',
     stepsLabel: 'So geht es weiter',
     steps: [
       { title: 'Sie schicken eine Frage', body: 'Eine echte aus Ihrem Projekt, dazu Ort und Gebäudeart. Unterlagen, wenn Sie mögen.' },
@@ -410,10 +419,39 @@ const de = {
       { title: 'Sie planen mit Piloti', body: 'Als Pilotbüro, mit Ihren Fragen aus dem Alltag, und Sie sagen uns, was fehlt.' },
     ],
     subjectPilot: 'Planungsfrage für Piloti',
-    subjectCall: 'Gespräch',
     bodyPilot:
       'Guten Tag,\n\nhier ist eine Frage aus einem unserer Projekte.\n\nUnsere Frage:\nBundesland und Ort:\nGebäudeart (z.\u00a0B. Wohnbau, Schule, Bestand):\nBüro und Planer:innen im Team:\n\n',
-    bodyCall: 'Guten Tag,\n\nwir würden gern mit Ihnen sprechen.\n\nBüro:\nTermine, die uns passen:\n\n',
+  },
+  // The contact form (ContactForm.astro), in the #kontakt section and on
+  // /kontakt/. `{email}` becomes a mailto link, `{max}` the field's limit.
+  contact: {
+    label: 'Kontaktformular',
+    name: 'Name',
+    email: 'E-Mail',
+    office: 'Büro oder Firma',
+    optional: 'optional',
+    message: 'Ihre Nachricht',
+    messageHint: 'Eine Planungsfrage aus einem laufenden Projekt, mit Ort und Gebäudeart, oder ein Terminwunsch für ein Gespräch.',
+    submit: 'Nachricht senden',
+    sending: 'Wird gesendet …',
+    privacy: 'Wir verwenden Ihre Angaben, um Ihre Anfrage zu beantworten. Mehr dazu in der {link}.',
+    privacyLink: 'Datenschutzerklärung',
+    alternative: 'Mit Unterlagen, oder lieber per E-Mail: {email}',
+    honeypot: 'Dieses Feld bitte leer lassen',
+    errors: {
+      required: 'Bitte füllen Sie dieses Feld aus.',
+      email: 'Bitte geben Sie eine gültige E-Mail-Adresse an.',
+      too_long: 'Bitte kürzen Sie auf höchstens {max} Zeichen.',
+    },
+    status: {
+      sent: 'Danke, Ihre Nachricht ist angekommen. Wir antworten Ihnen per E-Mail.',
+      invalid: 'Bitte prüfen Sie die markierten Felder.',
+      retry: 'Bitte senden Sie die Nachricht noch einmal ab. Ihre Angaben sind noch da.',
+      rateLimited: 'Von Ihrer Verbindung kamen gerade mehrere Nachrichten. Versuchen Sie es in zehn Minuten wieder oder schreiben Sie direkt an {email}.',
+      failed: 'Die Nachricht ließ sich gerade nicht senden. Schreiben Sie uns bitte direkt an {email}.',
+    },
+    pageHeading: 'Schreiben Sie uns.',
+    pageLede: 'Eine Planungsfrage, eine Frage zur Pilotphase oder ein Gesprächswunsch: Die Nachricht geht direkt an uns Gründer.',
   },
   // The one line that closes a subpage (EndInvite), before the footer. Each
   // says only what the landing page already stands behind.
@@ -422,6 +460,7 @@ const de = {
     changelog: 'Was hier als Nächstes steht, bestimmen die Pilotbüros mit.',
     rechenweg: 'Gemessen hat das noch niemand. Messen wir es in Ihrem Büro.',
     warum: 'Die beste Probe ist eine Frage aus Ihrem laufenden Projekt. Schicken Sie uns eine.',
+    mailInbox: 'Die Pläne kommen per E-Mail, die Fragen dazu beantwortet Piloti. Schicken Sie uns eine aus Ihrem laufenden Projekt.',
   },
   chat: {
     fictional: 'Fiktives Beispiel',
@@ -516,6 +555,7 @@ const de = {
     data: 'Quellen und Daten',
     value: 'Wertrechner',
     working: 'Rechenweg',
+    mailInbox: 'E-Mail-Eingang',
     team: 'Team',
     why: 'Warum Piloti',
     blog: 'Blog',
@@ -601,12 +641,13 @@ const de = {
           html: 'Aufrufe von <em>www.piloti.at</em> werden über Cloudflare, Inc. (USA) auf <em>piloti.at</em> weitergeleitet. Dabei verarbeitet Cloudflare Ihre IP-Adresse. Cloudflare ist unter dem EU-US Data Privacy Framework zertifiziert (Art.&nbsp;45 DSGVO). Rufen Sie <em>piloti.at</em> direkt auf, ist Cloudflare nicht beteiligt.',
         },
         {
-          heading: 'Kontaktaufnahme per E-Mail',
-          html: 'Schreiben Sie uns, verarbeiten wir die übermittelten Daten (Name, E-Mail-Adresse, Inhalt der Anfrage), um Ihre Anfrage zu beantworten (Art.&nbsp;6 Abs.&nbsp;1 lit.&nbsp;b DSGVO bzw. lit.&nbsp;f bei allgemeinen Anfragen). Ihre Nachricht landet in den Postfächern der Gründer und wird bei deren E-Mail-Anbietern gespeichert. Wir löschen sie, sobald sie für die Bearbeitung nicht mehr erforderlich ist und keine gesetzliche Aufbewahrungspflicht besteht.',
+          id: 'kontakt',
+          heading: 'Kontaktformular und E-Mail',
+          html: 'Schreiben Sie uns über das Kontaktformular oder an <a href="mailto:kontakt@piloti.at">kontakt@piloti.at</a>, verarbeiten wir Ihre Angaben (Name, E-Mail-Adresse, Büro oder Firma, falls angegeben, und Ihre Nachricht), um Ihre Anfrage zu beantworten. Rechtsgrundlage ist Art.&nbsp;6 Abs.&nbsp;1 lit.&nbsp;b DSGVO, soweit Ihre Anfrage einen Vertrag oder dessen Anbahnung betrifft, sonst unser berechtigtes Interesse, Anfragen zu beantworten (lit.&nbsp;f). Zum Schutz vor Missbrauch wird beim Absenden des Formulars Ihre IP-Adresse verarbeitet: Wir zählen Absendungen je Adresse höchstens zehn Minuten lang im Arbeitsspeicher. Die IP-Adresse wird nicht gespeichert und nicht mit Ihrer Nachricht übermittelt. Die Nachricht aus dem Formular stellt Cloudflare, Inc. (USA) per E-Mail zu, und Mails an kontakt@piloti.at leitet Cloudflare weiter; Cloudflare ist unter dem EU-US Data Privacy Framework zertifiziert (Art.&nbsp;45 DSGVO). Beides landet in den E-Mail-Postfächern der Gründer; auf dieser Website wird nichts davon gespeichert. Wir löschen Ihre Nachricht, sobald Ihre Anfrage erledigt ist, spätestens nach zwölf Monaten, es sei denn, es kommt ein Vertrag zustande.',
         },
         {
           heading: 'Anmeldung und Piloti-Anwendung',
-          html: 'Mit „Anmelden“ verlassen Sie diese Website und gelangen zur Piloti-Anwendung; dort gilt deren eigene Datenschutzerklärung. Kurz vorab: Die Anmeldung läuft über WorkOS, Inc. (USA). KI-Anfragen werden über OpenRouter, Inc. (USA) an Modellanbieter weitergeleitet, die ihren Sitz auch außerhalb der EU haben können. Wir selbst trainieren keine KI-Modelle mit Ihren Daten.',
+          html: 'Mit „Anmelden“ verlassen Sie diese Website und gelangen zur Piloti-Anwendung; dort gilt deren eigene Datenschutzerklärung. Kurz vorab: Die Anmeldung läuft über WorkOS, Inc. (USA). KI-Anfragen werden über OpenRouter, Inc. (USA) an Modellanbieter weitergeleitet, die ihren Sitz auch außerhalb der EU haben können. E-Mails an die E-Mail-Adresse eines Projekts nimmt Cloudflare, Inc. (USA) entgegen und reicht sie an die Anwendung weiter; lehnt die Anwendung eine solche E-Mail ab, verarbeiten wir sie nur, um sie abzulehnen, und speichern nichts davon (berechtigtes Interesse, Art.&nbsp;6 Abs.&nbsp;1 lit.&nbsp;f DSGVO). Wir selbst trainieren keine KI-Modelle mit Ihren Daten.',
         },
         {
           heading: 'Redaktionsbereich',
@@ -698,6 +739,16 @@ const en: typeof de = {
         title: 'Privacy policy – Piloti',
         description:
           'How the Piloti website handles your data: no cookies, no tracking, which services are involved, and which providers the Piloti application relies on.',
+      },
+      mailInbox: {
+        title: 'Project mail inbox: send files to a project by email – Piloti',
+        description:
+          'Every Piloti project has its own email address. Who can send, what happens to attachments, why a mail bounces, and how to switch on DKIM for your domain.',
+      },
+      kontakt: {
+        title: 'Contact: send a planning question or request a call – Piloti',
+        description:
+          'Write to the founders of Piloti: a planning question from your project, a question about the pilot phase or a request for a call. We answer by email.',
       },
       warum: {
         title: 'Why Piloti: AI for architecture firms in Austria',
@@ -1032,7 +1083,6 @@ const en: typeof de = {
     title: 'Bring us a real question.',
     body: 'Send us a planning question from a current project, with the documents if you like. We will show you how Piloti answers it, with sources you check against the original. If it fits, you plan with us as a pilot office: early access, a direct line to us founders and a say in what we build next.',
     primary: 'Try it with a real question',
-    secondary: 'Request a call',
     stepsLabel: 'What happens next',
     steps: [
       { title: 'You send a question', body: 'A real one from your project, with the location and building type. Documents if you like.' },
@@ -1040,16 +1090,44 @@ const en: typeof de = {
       { title: 'You plan with Piloti', body: 'As a pilot office, on questions from your working day, and you tell us what is missing.' },
     ],
     subjectPilot: 'A planning question for Piloti',
-    subjectCall: 'Call',
     bodyPilot:
       'Hello,\n\nhere is a question from one of our projects.\n\nOur question:\nState and location:\nBuilding type (e.g. housing, school, existing building):\nOffice and planners on the team:\n\n',
-    bodyCall: 'Hello,\n\nwe would like to talk to you.\n\nOffice:\nTimes that suit us:\n\n',
+  },
+  contact: {
+    label: 'Contact form',
+    name: 'Name',
+    email: 'Email',
+    office: 'Office or company',
+    optional: 'optional',
+    message: 'Your message',
+    messageHint: 'A planning question from a current project, with the location and building type, or times that suit you for a call.',
+    submit: 'Send message',
+    sending: 'Sending …',
+    privacy: 'We use what you enter to answer your enquiry. More in our {link}.',
+    privacyLink: 'privacy policy',
+    alternative: 'With documents, or if you prefer email: {email}',
+    honeypot: 'Please leave this field empty',
+    errors: {
+      required: 'Please fill in this field.',
+      email: 'Please enter a valid email address.',
+      too_long: 'Please shorten this to {max} characters or fewer.',
+    },
+    status: {
+      sent: 'Thank you, your message has arrived. We will answer you by email.',
+      invalid: 'Please check the marked fields.',
+      retry: 'Please send the message once more. What you entered is still there.',
+      rateLimited: 'Several messages just came from your connection. Try again in ten minutes, or write to {email} directly.',
+      failed: 'The message could not be sent just now. Please write to us directly at {email}.',
+    },
+    pageHeading: 'Write to us.',
+    pageLede: 'A planning question, a question about the pilot phase or a request for a call: the message goes straight to us founders.',
   },
   invite: {
     blog: 'We are building Piloti with a few pilot offices. If yours should be one of them, write to us.',
     changelog: 'The pilot offices help decide what comes next on this list.',
     rechenweg: 'Nobody has measured this yet. Let us measure it in your office.',
     warum: 'The best test is a question from your current project. Send us one.',
+    mailInbox: 'The drawings arrive by email; Piloti answers the questions about them. Send us one from your current project.',
   },
   chat: {
     fictional: 'Fictional example',
@@ -1140,6 +1218,7 @@ const en: typeof de = {
     data: 'Sources and data',
     value: 'Value calculator',
     working: 'The maths',
+    mailInbox: 'Project mail inbox',
     team: 'Team',
     why: 'Why Piloti',
     blog: 'Blog',
@@ -1217,12 +1296,13 @@ const en: typeof de = {
           html: 'Requests to <em>www.piloti.at</em> are redirected to <em>piloti.at</em> by Cloudflare, Inc. (USA), which processes your IP address in doing so. Cloudflare is certified under the EU-US Data Privacy Framework (Art. 45 GDPR). If you open <em>piloti.at</em> directly, Cloudflare is not involved.',
         },
         {
-          heading: 'Contacting us by email',
-          html: 'If you write to us, we process the data you send (name, email address, content of your enquiry) to answer it (Art. 6(1)(b) GDPR, or (f) for general enquiries). Your message arrives in the founders’ mailboxes and is stored by their email providers. We delete it once it is no longer needed and no statutory retention period applies.',
+          id: 'kontakt',
+          heading: 'Contact form and email',
+          html: 'If you write to us through the contact form or at <a href="mailto:kontakt@piloti.at">kontakt@piloti.at</a>, we process what you enter (name, email address, office or company if given, and your message) to answer your enquiry. The legal basis is Art. 6(1)(b) GDPR where your enquiry concerns a contract or steps towards one, and otherwise our legitimate interest in answering enquiries (Art. 6(1)(f) GDPR). To protect against abuse, your IP address is processed when you send the form: we count submissions per address in memory for at most ten minutes. The IP address is not stored and not passed on with your message. Cloudflare, Inc. (USA) delivers the message from the form by email and forwards mail sent to kontakt@piloti.at; Cloudflare is certified under the EU-US Data Privacy Framework (Art. 45 GDPR). Both arrive in the founders’ email mailboxes; nothing of it is stored on this website. We delete your message once your enquiry is dealt with, at the latest after twelve months, unless a contract follows.',
         },
         {
           heading: 'Sign-in and the Piloti application',
-          html: '“Sign in” takes you from this website to the Piloti application, which has its own privacy policy. In short: sign-in is handled by WorkOS, Inc. (USA). AI requests are routed through OpenRouter, Inc. (USA) to model providers that may be based outside the EU. We do not train AI models on your data.',
+          html: '“Sign in” takes you from this website to the Piloti application, which has its own privacy policy. In short: sign-in is handled by WorkOS, Inc. (USA). AI requests are routed through OpenRouter, Inc. (USA) to model providers that may be based outside the EU. Mail sent to a project’s email address is received by Cloudflare, Inc. (USA) and passed on to the application; if the application refuses such a mail, we process it only to refuse it and store none of it (legitimate interest, Art. 6(1)(f) GDPR). We do not train AI models on your data.',
         },
         {
           heading: 'Editorial area',

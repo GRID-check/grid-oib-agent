@@ -134,6 +134,7 @@ Consequences, where a reader looks for them.
 | [0072](0072-the-knowledge-layer-has-one-backend-llamaindex.md) | The knowledge layer has one backend: llamaindex | Accepted |
 | [0073](0073-a-coverage-gap-is-stated-never-enforced.md) | A coverage gap is stated in the block, never enforced on the pool | Accepted |
 | [0074](0074-zero-data-retention-is-the-default-enforced-at-one-seam.md) | Zero data retention is the default, enforced at one OpenRouter seam | Accepted |
+| [0075](0075-project-mail-inbox-via-cloudflare-email-routing.md) | Project mail inbox: receive through Cloudflare Email Routing and file through `uploadDocument` | Accepted |
 | [0076](0076-ingestion-is-claimed-fairly-from-a-durable-queue.md) | Ingestion is claimed fairly from a durable queue, by a tier that scales on its depth | Proposed |
 | [0077](0077-prompt-context-is-loaded-over-http-not-websocket-headers.md) | Prompt context is loaded over HTTP, not carried in WebSocket headers | Accepted |
 | [0078](0078-folders-are-a-property-of-a-shelf-not-of-a-project.md) | Folders are a property of a shelf, not of a project: the Archiv gains folders through the one folder implementation | Accepted |
@@ -148,6 +149,7 @@ Consequences, where a reader looks for them.
 | [0087](0087-folder-access-follows-workos-roles-and-a-restricted-folder-is-its-own-collection.md) | Folder access follows WorkOS roles, and a restricted folder is its own retrieval collection (partly superseded by 0088) | Accepted |
 | [0088](0088-folder-access-is-read-write-per-role.md) | Folder access is read/write per role | Accepted |
 | [0089](0089-langfuse-is-the-observability-platform-and-everything-is-observable.md) | Langfuse is the observability platform, and everything the product does is observable in it | Accepted |
+| [0090](0090-contact-form-via-cloudflare-email-sending.md) | Contact form: send through Cloudflare Email Sending to verified addresses only | Accepted |
 
 > Note: 0027, 0039, 0044 and 0047 were each independently used twice, every
 > time because two people read the next number off this index instead of off
@@ -157,7 +159,11 @@ Consequences, where a reader looks for them.
 > four keep the pre-template shape they were written in — a number is metadata,
 > a decision is not, so renumbering one does not rewrite it.
 > Take the next number from `python3 scripts/check_adrs.py --next`, which reads
-> the directory, not from this table.
+> the directory, not from this table. It cannot see another open branch: on
+> 2026-10-01 0074 and then 0076 were each taken twice that way, and the branch
+> that merged later renumbered its records (the project mail inbox to 0075, the
+> contact form to 0077). The check fails on the merge, so the later branch
+> finds out there; migration numbers collide the same way (`0101`).
 
 ## Related documents
 

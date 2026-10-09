@@ -159,3 +159,33 @@ export async function organizationRolePermissions(
   }
   return permissionsForPlatformRole(roleSlug)
 }
+
+/**
+ * Every permission the role `roleSlug` holds in the TENANT organization
+ * `organizationId`: the twin of {@link organizationRolePermissions}, for the
+ * tier a session lives in.
+ *
+ * For a session built without a sign-in (`lib/auth/pinned-session.ts`), which
+ * has no JWT `permissions` claim to read. The environment roles answer first,
+ * then the organization's own custom roles, each unioned with what the catalog
+ * says the role holds, for the same reason as above: the catalog covers what
+ * provisioning has not caught up to, WorkOS covers the roles the catalog has
+ * never heard of. A lookup that fails leaves the catalog's answer, which is
+ * what this session carried before it asked WorkOS at all.
+ */
+export async function tenantRolePermissions(
+  organizationId: string,
+  roleSlug: string | null | undefined
+): Promise<ReadonlySet<string>> {
+  if (!roleSlug) return new Set()
+  const catalog = permissionsForOrgRole(roleSlug)
+  try {
+    const held =
+      (await environmentRolePermissionMap())[roleSlug] ??
+      (await organizationRolePermissionMap(organizationId))[roleSlug]
+    if (held) return new Set([...held, ...catalog])
+  } catch (error) {
+    console.warn(`[authz] tenant role lookup failed for ${roleSlug}:`, error)
+  }
+  return catalog
+}

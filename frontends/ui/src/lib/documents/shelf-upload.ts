@@ -77,6 +77,18 @@ export interface ShelfUploadInput {
    * behalf, the mail import (ADR-0085), says `bulk` so it yields to them.
    */
   priority?: IngestPriority
+  /**
+   * The intake channel, for an upload no person made at a screen, recorded on
+   * the upload's audit event as `channel` and `channelRef`, so the trail tells
+   * a mailed attachment from a dropped file.
+   */
+  audit?: UploadAuditChannel
+}
+
+export interface UploadAuditChannel {
+  channel: 'inbound-mail'
+  /** The channel's own id for the delivery: the inbound-mail message row. */
+  ref: string
 }
 
 export interface UploadDocumentResult {
@@ -122,7 +134,14 @@ async function uploadAuditEvent(
   session: AuthorizedSession,
   shelf: DocumentShelf,
   request: Request,
-  event: { documentId: string; filename: string; fileSize: number; collectionName: string; replaced: boolean },
+  event: {
+    documentId: string
+    filename: string
+    fileSize: number
+    collectionName: string
+    replaced: boolean
+    audit?: UploadAuditChannel
+  },
 ): Promise<void> {
   const located =
     shelf.kind === 'project' ? { projectId: shelf.projectId } : { collectionName: event.collectionName }
@@ -140,6 +159,7 @@ async function uploadAuditEvent(
       filename: event.filename.slice(0, 200),
       fileSize: event.fileSize,
       ...(event.replaced ? { replaced: true } : {}),
+      ...(event.audit ? { channel: event.audit.channel, channelRef: event.audit.ref.slice(0, 200) } : {}),
     },
     request,
   })
@@ -506,6 +526,7 @@ export async function uploadToShelf(
     fileSize: file.size,
     collectionName,
     replaced: placed.replaced,
+    audit: input.audit,
   })
   await auditScreeningOverride(
     session,

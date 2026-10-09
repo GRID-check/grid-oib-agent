@@ -14,6 +14,7 @@ import 'server-only'
 import { getCached } from '@/lib/cache'
 import { getWorkOS } from '@/lib/workos/client'
 import { timedWorkOSCall } from '@/lib/workos/instrumentation'
+import { TransientAuthzError, type AuthzLookupOptions } from './errors'
 
 export interface ResourceCheckInput {
   /** The (user, organization) identity WorkOS resolves roles against. */
@@ -69,7 +70,15 @@ export function authzCacheTtlMs(): number {
  * Every round-trip is timed, so a stalled check names itself in the logs (the
  * fast path stays silent — see `timedWorkOSCall`).
  */
-export async function checkResourcePermission(input: ResourceCheckInput): Promise<boolean> {
+export async function checkResourcePermission(
+  input: ResourceCheckInput,
+  /**
+   * `{ onError: 'throw' }` raises {@link TransientAuthzError} instead of the
+   * fail-closed `false` when the check could not complete, for an unattended
+   * caller that can retry. The default is unchanged: deny.
+   */
+  options: AuthzLookupOptions = {}
+): Promise<boolean> {
   const {
     organizationMembershipId,
     organizationId,
@@ -104,6 +113,9 @@ export async function checkResourcePermission(input: ResourceCheckInput): Promis
       liveCheck
     )
   } catch (error) {
+    if (options.onError === 'throw') {
+      throw new TransientAuthzError('fga-check', { cause: error })
+    }
     // Fail closed. A check that did not complete is not an allow — and, by
     // construction above, this `false` is never cached.
     console.warn(

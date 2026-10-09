@@ -69,6 +69,14 @@ const edgeRetry: IRetry = {
 export const WEB_COMPRESSOR: ICompression[] = [{ type: "Brotli" }, { type: "Gzip" }];
 
 /**
+ * Which requests a rule applies to: all of them, one prefix (`only`), all but
+ * one prefix (`except`), or the paths a regular expression matches (`regex`).
+ * `methods` narrows any of these to those HTTP methods.
+ */
+type PathScope = { only?: string; except?: string; regex?: string; methods?: HttpMethod[] };
+type HttpMethod = "GET" | "HEAD" | "POST" | "PUT" | "DELETE" | "PATCH" | "OPTIONS";
+
+/**
  * One per-client-IP rate limit rule (ADR-0040 layer L1).
  *
  * `sourceCIDR` with `type: Distinct` is what makes the bucket PER CLIENT rather
@@ -77,23 +85,35 @@ export const WEB_COMPRESSOR: ICompression[] = [{ type: "Brotli" }, { type: "Gzip
  * decided by `clientIPDetection` on the ClientTrafficPolicy
  * (`platform/gateway.ts`); this rule is only as meaningful as that setting.
  *
- * `path` is optional and narrows the rule to a prefix. Rules are NOT mutually
- * exclusive: Envoy evaluates every matching rule and refuses if any one of them
- * is over, so a request to `/api/auth/x` counts against both the auth rule and
- * the catch-all. That is the intent — a narrow rule tightens a surface, it does
- * not exempt it from the route's overall budget.
+ * `only` narrows the rule to a prefix. Rules are NOT mutually exclusive: Envoy
+ * evaluates every matching rule and refuses if any one of them is over, so a
+ * request to `/api/auth/x` counts against both the auth rule and the
+ * catch-all. That is the intent — a narrow rule tightens a surface, it does not
+ * exempt it from the route's overall budget. `except` is the one exemption,
+ * an inverted path match, used where the catch-all's idea of "a client" is
+ * wrong for a path.
  */
 function perClientIpRule(
   cfg: GridConfig,
   requestsPerMinute: number,
   cidr: string,
-  pathPrefix?: string,
+  scope: PathScope,
 ): IRateLimitRule {
+  const path =
+    scope.only !== undefined
+      ? { type: "PathPrefix" as const, value: scope.only }
+      : scope.except !== undefined
+        ? { type: "PathPrefix" as const, value: scope.except, invert: true }
+        : scope.regex !== undefined
+          ? { type: "RegularExpression" as const, value: scope.regex }
+          : undefined;
+  const methods = scope.methods?.map((value) => ({ value }));
   return {
     clientSelectors: [
       {
         sourceCIDR: { value: cidr, type: "Distinct" },
-        ...(pathPrefix ? { path: { type: "PathPrefix", value: pathPrefix } } : {}),
+        ...(path ? { path } : {}),
+        ...(methods ? { methods } : {}),
       },
     ],
     limit: { requests: requestsPerMinute, unit: "Minute" },
@@ -138,11 +158,11 @@ function edgeRateLimit(cfg: GridConfig, rules: IRateLimitRule[]): { rateLimit?: 
 function perClientRules(
   cfg: GridConfig,
   requestsPerMinute: number,
-  pathPrefix?: string,
+  scope: PathScope = {},
 ): IRateLimitRule[] {
   return [
-    perClientIpRule(cfg, requestsPerMinute, "0.0.0.0/0", pathPrefix),
-    perClientIpRule(cfg, requestsPerMinute, "::/0", pathPrefix),
+    perClientIpRule(cfg, requestsPerMinute, "0.0.0.0/0", scope),
+    perClientIpRule(cfg, requestsPerMinute, "::/0", scope),
   ];
 }
 
@@ -191,20 +211,37 @@ export function installHttpRoutes(
     // Ride out the endpoint-programming race on every frontend rolling update
     // instead of surfacing it to the browser.
     retry: edgeRetry,
-    // Three budgets, narrowest threat first:
+    // Four budgets, narrowest threat first:
     //   - `/api/auth/*` is the credential-stuffing surface, and no honest client
     //     touches it in a loop.
     //   - `/websocket` is where a reconnect storm turns into session resolution,
     //     FGA lookups and budget reads in the BFF — the amplification
     //     `server.js`'s own limiter was added for. Same number, so moving the
     //     limit here is a like-for-like swap rather than a behaviour change.
+    //   - `/api/internal/inbound-mail` is the project mail inbox's webhook. All
+    //     of it comes from Cloudflare's Email Worker, i.e. from Cloudflare's
+    //     egress addresses, which other Cloudflare traffic (other Workers, WARP
+    //     users) shares. In the catch-all those addresses would share one
+    //     bucket with that traffic, so a busy neighbour turns into deferred
+    //     mail. It gets its own bucket and is EXEMPT from the catch-all. The
+    //     limits that mean something are the BFF's own, per address and per
+    //     organization (ADR-0040 L2, `frontends/ui/src/lib/limits`); a 429 here
+    //     or there makes the Worker throw, and the sender retries.
     //   - everything else gets a deliberately loose catch-all: a chat session is
     //     chatty (inbox polling, presence, conversation reads) and this rule
     //     exists to stop a runaway client, not to shape normal traffic.
+    //
+    // No request-body limit anywhere on this route, which the mail webhook
+    // depends on (up to 25 MiB): no `requestBuffer` here, no `bufferLimit` on
+    // the ClientTrafficPolicy, so Envoy streams the body. The BFF's own ceiling
+    // is Next's `proxyClientMaxBodySize` (frontends/ui/next.config.ts).
     ...edgeRateLimit(cfg, [
-      ...perClientRules(cfg, cfg.rateLimit.limits.appAuth, EDGE_RATE_LIMIT.paths.auth),
-      ...perClientRules(cfg, cfg.rateLimit.limits.appWsUpgrade, EDGE_RATE_LIMIT.paths.ws),
-      ...perClientRules(cfg, cfg.rateLimit.limits.app),
+      ...perClientRules(cfg, cfg.rateLimit.limits.appAuth, { only: EDGE_RATE_LIMIT.paths.auth }),
+      ...perClientRules(cfg, cfg.rateLimit.limits.appWsUpgrade, { only: EDGE_RATE_LIMIT.paths.ws }),
+      ...perClientRules(cfg, cfg.rateLimit.limits.appInboundMail, {
+        only: EDGE_RATE_LIMIT.paths.inboundMail,
+      }),
+      ...perClientRules(cfg, cfg.rateLimit.limits.app, { except: EDGE_RATE_LIMIT.paths.inboundMail }),
     ]),
   };
   new k8s.apiextensions.CustomResource(
@@ -288,7 +325,19 @@ export function installHttpRoutes(
     // Prerendered marketing pages: a human reads a few per minute, a scraper
     // reads hundreds. This is the one route where the honest and abusive
     // patterns are far enough apart that a tight number is safe.
-    ...edgeRateLimit(cfg, perClientRules(cfg, cfg.rateLimit.limits.web)),
+    //
+    // The contact form gets a tighter bucket of its own on top: each POST
+    // sends a mail to the founders, so the flood to bound is mail, not load.
+    // On every stack, configured or not, because the endpoint is in the image
+    // either way; unconfigured it answers 503, which is no reason to let a
+    // script hammer it.
+    ...edgeRateLimit(cfg, [
+      ...perClientRules(cfg, cfg.rateLimit.limits.web),
+      ...perClientRules(cfg, cfg.rateLimit.limits.webContact, {
+        regex: EDGE_RATE_LIMIT.paths.webContact,
+        methods: ["POST"],
+      }),
+    ]),
   };
   new k8s.apiextensions.CustomResource(
     "grid-web-backend-traffic-policy",

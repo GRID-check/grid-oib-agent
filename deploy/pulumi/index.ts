@@ -52,6 +52,9 @@ import { installObservabilityDashboard } from "./src/platform/observability";
 import { installOtelCollector } from "./src/platform/otel-collector";
 import { installErr2Issue } from "./src/platform/err2issue";
 import { installDns, managedRecordNames } from "./src/platform/dns";
+import { installInboundMail } from "./src/platform/inbound-mail";
+import { installContactMail } from "./src/platform/contact-mail";
+import { installMailZones } from "./src/platform/email-routing";
 import { installLangfuse } from "./src/platform/langfuse";
 import { LANGFUSE } from "./src/constants";
 
@@ -260,12 +263,27 @@ if (cfg.storage.legacyCorpusClaim) {
 }
 
 const workers = installWorkers(wiring, cfg, secrets, [migrations]);
+// Cloudflare Email Routing, once per zone that routes mail: the app zone for
+// the contact address and, normally, the project mail inbox too (both on the
+// product's own apex). Nothing in the cluster waits on it.
+const mailZones = installMailZones(cfg);
+
+// The contact address (`kontakt@<zone apex>`) at Cloudflare, created only
+// when `contactAddress` is set. Before the web tier because the contact form's
+// account id comes from its zone lookup.
+const contactMail = installContactMail(cfg, mailZones.contact);
+
 // Landing site + blog (Astro, frontends/web) — static-first, no app secrets,
-// but it pulls from the same registry, so it gets the pull Secret too.
-const web = installWeb(cfg, provider, namespace, wiring.imagePullSecrets, [
-  ns,
-  ...(pullSecret ? [pullSecret] : []),
-]);
+// but it pulls from the same registry, so it gets the pull Secret too. With
+// the contact address on, it also gets the contact form's env and Secret.
+const web = installWeb(
+  cfg,
+  provider,
+  namespace,
+  wiring.imagePullSecrets,
+  [ns, ...(pullSecret ? [pullSecret] : [])],
+  contactMail?.accountId,
+);
 
 // KEDA scales the research and ingest workers and the BFF job pool (queue depth,
 // ADR-0079/0076) and the chat tier (running turns, ADR-0080).
@@ -420,6 +438,13 @@ if (cfg.observability.enabled) {
 // this exists to prevent.
 const dns = installDns(cfg);
 
+// ── Project mail inbox ───────────────────────────────────────────────────────
+//
+// Cloudflare-only as well, for the same reason: a Worker posting to a frontend
+// that is not up yet gets a connection error, throws, and the sending MTA
+// retries. Created only when `inboundMailDomain` is set.
+const inboundMail = installInboundMail(cfg, mailZones.inbound);
+
 // ── Stack outputs ────────────────────────────────────────────────────────────
 export const appUrl = pulumi.interpolate`https://${cfg.ingress.appDomain}`;
 export const s3Url = pulumi.interpolate`https://${cfg.ingress.s3Domain}`;
@@ -451,6 +476,12 @@ export const errorIssueRepo = cfg.err2issue.enabled
 export const dnsRecords = dns
   ? pulumi.all(managedRecordNames(dns)).apply((names) => names.join(", "))
   : pulumi.output("(none: dnsEnabled=false — records are maintained by hand)");
+export const inboundMailWorker = inboundMail
+  ? inboundMail.script.scriptName
+  : pulumi.output("(none: inboundMailDomain unset)");
+export const contactAddress = contactMail
+  ? pulumi.output(`${cfg.contact.address} -> ${cfg.contact.forwardTo.join(", ")}`)
+  : pulumi.output("(none: contactAddress unset)");
 // The image refs this update deployed. `deploy.yml` reads them back before the
 // next staging deploy and refuses one that would move a service to an older
 // commit (`scripts/resolve-image-refs.sh`). The stack file cannot answer that:

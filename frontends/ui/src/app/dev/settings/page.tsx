@@ -81,6 +81,13 @@ if (typeof window !== 'undefined' && process.env.NODE_ENV === 'development') {
           ],
         })
       }
+      if (/\/api\/projects\/[^/]+\/inbound-address$/.test(url)) {
+        return Response.json({
+          enabled: true,
+          address: 'wohnbau-mariahilf.k7m2qx4hz9ab@piloti.at',
+          canRotate: true,
+        })
+      }
       // Summary auto-generate / profile patches — no-op for the preview.
       if (/\/(generate-summary|profile\/patches)$/.test(url)) return Response.json({})
       return real(input, init)
@@ -96,6 +103,7 @@ export default function SettingsDevPage(): JSX.Element {
     <ProjectSettings
       data={DATA}
       canManageProject
+      canWriteDocuments
       showKnowledgeLink
       currentMembershipId="me"
       // ADR-0088: folders whose roles were deleted since; each links to the folder.

@@ -225,6 +225,63 @@ export interface GridConfig {
   };
 
   /**
+   * Project mail inbox (`platform/inbound-mail.ts`): Cloudflare Email Routing
+   * on `domain`, a catch-all to one Email Worker, which streams every message
+   * to the BFF's `/api/internal/inbound-mail`.
+   *
+   * OFF unless `inboundMailDomain` is set. Off means no Cloudflare resource,
+   * no `GRID_INBOUND_MAIL_DOMAIN` on the frontend (the UI shows nothing), and
+   * an empty `GRID_INBOUND_MAIL_TOKEN` (the route answers 503).
+   */
+  inboundMail: {
+    enabled: boolean;
+    /**
+     * The address domain, and the APEX of the zone `zoneId` names: the app
+     * zone's own apex (the product domain, the recommended setup) or a domain
+     * of its own. Not a subdomain: Cloudflare's catch-all only exists for a
+     * zone's apex (see the module header of `platform/inbound-mail.ts`).
+     */
+    domain: string;
+    /** Cloudflare zone whose apex is `domain`; `dns.zoneId` when `domain` is `dns.zoneName`. */
+    zoneId: string;
+    /** Shared secret between the Worker and the BFF (`x-grid-internal-token`). */
+    token: pulumi.Output<string>;
+    /** The same `cloudflareApiToken` DNS uses, with the scopes the module header lists. */
+    apiToken: pulumi.Output<string>;
+  };
+
+  /**
+   * The company's contact address (`platform/contact-mail.ts`), e.g.
+   * `kontakt@piloti.at`: Cloudflare Email Routing on the app zone's apex with
+   * ONE literal rule forwarding that address to `forwardTo`, and the landing
+   * site's contact form, which sends to the same verified addresses through
+   * Cloudflare's Email Service.
+   *
+   * OFF unless `contactAddress` is set. Off means no Cloudflare resource and
+   * none of the five contact env vars on the web pods (the form then answers
+   * 503 and shows the address instead).
+   */
+  contact: {
+    enabled: boolean;
+    /** The address, lowercased. Its domain is `dns.zoneName`, the app zone's apex. */
+    address: string;
+    /** Where mail to `address` and the form's messages go. Each must be verified once. */
+    forwardTo: string[];
+    /** The app zone (`dns.zoneId`) and its apex (`dns.zoneName`). */
+    zoneId: string;
+    domain: string;
+    /** The stack's `cloudflareApiToken`, for Pulumi. Never given to a pod. */
+    apiToken: pulumi.Output<string>;
+    /**
+     * `contactEmailToken`: a token of its own, Account · Email Sending · Edit
+     * and nothing else, for the web pods (`CLOUDFLARE_EMAIL_TOKEN`).
+     */
+    emailToken: pulumi.Output<string>;
+    /** `contactFormSecret`: the HMAC key for the form's timestamp (`CONTACT_FORM_SECRET`). */
+    formSecret: pulumi.Output<string>;
+  };
+
+  /**
    * Edge rate limiting — ADR-0040 layer L1. Enforced by Envoy Gateway's global
    * rate limit service against a dedicated counter store, so no application
    * implements it.
@@ -266,10 +323,22 @@ export interface GridConfig {
       appAuth: number;
       /** `/websocket` upgrades. Mirrors `GRID_WS_UPGRADE_RATE_LIMIT`. */
       appWsUpgrade: number;
+      /**
+       * `/api/internal/inbound-mail`, a bucket of its own and exempt from the
+       * `app` catch-all. Every inbound mail arrives from Cloudflare's egress
+       * addresses, which other Cloudflare traffic shares.
+       */
+      appInboundMail: number;
       /** Presigned S3 preview/download URLs. */
       s3: number;
       /** The public landing site + blog. */
       web: number;
+      /**
+       * Contact-form submissions on the landing site (`EDGE_RATE_LIMIT.paths.webContact`),
+       * POST only, one bucket across the form's three endpoints. Counts against
+       * `web` as well.
+       */
+      webContact: number;
     };
     /** Counter-store dataset cap. Counters are tiny and expire on their own. */
     /**
@@ -1508,6 +1577,21 @@ function requireSecretsTogether(
   );
 }
 
+/** The local part of a plain ASCII mail address; nothing quoted, nothing exotic. */
+const ADDRESS_LOCAL = /^[a-z0-9](?:[a-z0-9._+-]*[a-z0-9])?$/;
+
+/**
+ * A comma-separated list of mail addresses, as a stack key holds it: trimmed,
+ * lowercased, blanks dropped, duplicates removed, order kept.
+ */
+export function parseAddressList(raw: string): string[] {
+  const addresses = raw
+    .split(",")
+    .map((a) => a.trim().toLowerCase())
+    .filter((a) => a !== "");
+  return [...new Set(addresses)];
+}
+
 export function loadConfig(): GridConfig {
   const cfg = new pulumi.Config();
 
@@ -2358,6 +2442,121 @@ export function loadConfig(): GridConfig {
     }
   }
 
+  // ── Project mail inbox (Cloudflare Email Routing) ────────────────────────────
+  //
+  // Opt-in by setting the domain; everything else is then required together,
+  // because each half alone fails silently: a domain without the BFF token is a
+  // Worker whose every delivery answers 503 (the sender retries for days, then
+  // bounces), and a domain without the zone has nowhere to enable routing.
+  const inboundMailDomain = (cfg.get("inboundMailDomain") ?? "").trim().toLowerCase().replace(/\.$/, "");
+  // On the app zone's apex (the recommended setup: addresses on the product's
+  // own domain), the zone is the DNS zone and needs no second key.
+  const inboundMailZoneId =
+    cfg.get("inboundMailZoneId") ??
+    (inboundMailDomain !== "" && inboundMailDomain === dnsZoneName ? dnsZoneId : "");
+  if (inboundMailDomain !== "") {
+    requireSecretsTogether(
+      cfg,
+      ["inboundMailToken", "cloudflareApiToken"],
+      "when grid-oib:inboundMailDomain is set (the token the Worker presents to the BFF, " +
+        "and a Cloudflare token that may write the Worker and the zone's Email Routing)",
+    );
+    if (inboundMailZoneId === "") {
+      throw new Error(
+        "grid-oib:inboundMailZoneId is required when grid-oib:inboundMailDomain is set: the " +
+          "Cloudflare zone (dashboard → the zone → Overview → API) whose apex is that domain. " +
+          "It may be left out when the domain is grid-oib:dnsZoneName.",
+      );
+    }
+    if (!/^(?:[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\.)+[a-z]{2,}$/.test(inboundMailDomain)) {
+      throw new Error(
+        `grid-oib:inboundMailDomain must be a bare domain name like "piloti.at" ` +
+          `(got "${inboundMailDomain}"): no scheme, no "@", no path.`,
+      );
+    }
+    // The one mistake this can see without calling Cloudflare. The catch-all
+    // is an apex-only feature, so a subdomain of the DNS zone gets routing
+    // enabled, MX records and a Worker, and then drops every message to an
+    // address nobody listed. `inbound-mail.ts` checks the general case against
+    // the zone's real name at preview time.
+    if (inboundMailZoneId === dnsZoneId && dnsZoneName !== "" && inboundMailDomain !== dnsZoneName) {
+      throw new Error(
+        `grid-oib:inboundMailDomain "${inboundMailDomain}" is not the apex of its zone ` +
+          `("${dnsZoneName}"). Cloudflare Email Routing has no catch-all for subdomains, so ` +
+          "mail to project addresses there would be refused. Use the zone's apex " +
+          `("${dnsZoneName}") or a domain that is a zone apex of its own (see ` +
+          "docs/deployment/kubernetes.md, \"Project mail inbox\").",
+      );
+    }
+    // On the app zone the catch-all is a zone-level object beside the apex's
+    // MX and `_dmarc`: it belongs to the one stack that owns the zone, as the
+    // contact address's routing does. A second stack would silently repoint
+    // the catch-all at its own Worker.
+    if (inboundMailZoneId === dnsZoneId && (!dnsEnabled || !dnsZoneBaseline)) {
+      throw new Error(
+        "grid-oib:inboundMailDomain on the app zone needs grid-oib:dnsEnabled and " +
+          "grid-oib:dnsZoneBaseline: the catch-all and the apex's mail routing are zone-level, " +
+          "and only the stack owning the zone may manage them.",
+      );
+    }
+  }
+
+  // ── Contact address and form (Cloudflare Email Routing on the app zone) ────
+  //
+  // Opt-in by setting the address. Everything is checked here because each
+  // mistake deploys cleanly: a forward target nobody verifies is a rule that
+  // drops mail, a missing token is a form that answers 503, and a second stack
+  // routing mail on the same apex silently takes it over.
+  const contactAddress = (cfg.get("contactAddress") ?? "").trim().toLowerCase();
+  const contactForwardTo = parseAddressList(cfg.get("contactForwardTo") ?? "");
+  if (contactAddress !== "") {
+    requireSecretsTogether(
+      cfg,
+      ["contactEmailToken", "contactFormSecret"],
+      "when grid-oib:contactAddress is set (the Email Sending token the web pods send the " +
+        "form with, and the key that signs the form's timestamp)",
+    );
+    // Mail routing on the apex is zone-level, like the `_dmarc` record: it
+    // belongs to the one stack that owns the zone (`stack-files.spec.ts`
+    // allows one). And the app zone is only known, and the Cloudflare token
+    // only present, when this stack manages DNS.
+    if (!dnsEnabled || !dnsZoneBaseline) {
+      throw new Error(
+        "grid-oib:contactAddress needs grid-oib:dnsEnabled and grid-oib:dnsZoneBaseline: the " +
+          "address lives on the app zone's apex, and mail routing there is a zone-level " +
+          "record that only the stack owning the zone may manage.",
+      );
+    }
+    const [local, domain, ...rest] = contactAddress.split("@");
+    if (rest.length > 0 || !ADDRESS_LOCAL.test(local ?? "") || domain !== dnsZoneName) {
+      throw new Error(
+        `grid-oib:contactAddress must be an address on the app zone's apex, like ` +
+          `"kontakt@${dnsZoneName}" (got "${contactAddress}"). Email Routing is enabled on the ` +
+          "apex only; a subdomain would need routing of its own.",
+      );
+    }
+    if (contactForwardTo.length === 0) {
+      throw new Error(
+        "grid-oib:contactForwardTo is required when grid-oib:contactAddress is set: the " +
+          "comma-separated mailboxes that receive it, e.g. \"a@example.com,b@example.org\".",
+      );
+    }
+    const badTargets = contactForwardTo.filter(
+      (a) => !/^[^@\s]+@(?:[a-z0-9-]+\.)+[a-z]{2,}$/.test(a) || a.endsWith(`@${dnsZoneName}`),
+    );
+    if (badTargets.length > 0) {
+      throw new Error(
+        `grid-oib:contactForwardTo holds ${badTargets.join(", ")}: each target must be a ` +
+          `mailbox outside "${dnsZoneName}". An address on the routed apex has no mailbox ` +
+          "behind it, and the contact address itself would loop.",
+      );
+    }
+    // The project mail inbox may share this zone: its catch-all takes only
+    // what no literal rule claims, and Cloudflare matches the contact rule
+    // first. `platform/email-routing.ts` (`installMailZones`) enables routing
+    // on a shared zone once, for both.
+  }
+
   // ── err2issue (ADR-0031): same availability = flag AND capability rule ─────
   // Opt-in (default false) because turning it on starts writing to a GitHub
   // repo — a side effect outside the cluster, unlike every other component
@@ -2464,6 +2663,30 @@ export function loadConfig(): GridConfig {
       apexRedirectTo: dnsApexRedirectTo,
     },
 
+    inboundMail: {
+      enabled: inboundMailDomain !== "",
+      domain: inboundMailDomain,
+      zoneId: inboundMailZoneId,
+      // `??` only reached when disabled: the guard above requires both
+      // whenever the domain is set. The empty token is what the frontend then
+      // receives, and the BFF answers 503 on it.
+      token: cfg.getSecret("inboundMailToken") ?? pulumi.output(""),
+      apiToken: cloudflareApiToken ?? pulumi.secret(""),
+    },
+
+    contact: {
+      enabled: contactAddress !== "",
+      address: contactAddress,
+      forwardTo: contactForwardTo,
+      zoneId: dnsZoneId,
+      domain: dnsZoneName,
+      // `??` only reached when disabled: the guards above require all three
+      // whenever the address is set.
+      apiToken: cloudflareApiToken ?? pulumi.secret(""),
+      emailToken: cfg.getSecret("contactEmailToken") ?? pulumi.secret(""),
+      formSecret: cfg.getSecret("contactFormSecret") ?? pulumi.secret(""),
+    },
+
     postgres: {
       instances: num(cfg, "pgInstances", 1),
       pooler: {
@@ -2518,8 +2741,19 @@ export function loadConfig(): GridConfig {
         app: num(cfg, "rateLimitApp", 600),
         appAuth: num(cfg, "rateLimitAppAuth", 20),
         appWsUpgrade: num(cfg, "rateLimitAppWsUpgrade", 30),
+        // Per Cloudflare egress address, not per sender: every mail from every
+        // tenant arrives from that shared pool. The real limits are the BFF's,
+        // per address and per organization (ADR-0040 L2); this one only has to
+        // stay out of their way while still bounding an unauthenticated flood
+        // of 25 MiB POSTs.
+        appInboundMail: num(cfg, "rateLimitAppInboundMail", 600),
         s3: num(cfg, "rateLimitS3", 300),
         web: num(cfg, "rateLimitWeb", 120),
+        // A person sends the form once; ten a minute from one address is
+        // already a script. The form's own per-IP limit (5 per 10 minutes, in
+        // memory per pod) is the finer one; this bounds the flood before it
+        // reaches a pod at all.
+        webContact: num(cfg, "rateLimitWebContact", 10),
       },
       storeMaxmemory: cfg.get("rateLimitStoreMaxmemory") ?? "256mb",
       storeMemoryLimit: cfg.get("rateLimitStoreMemoryLimit") ?? "384Mi",

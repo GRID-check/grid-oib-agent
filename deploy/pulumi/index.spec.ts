@@ -235,6 +235,22 @@ describe("the program constructs in the split topology", () => {
     );
   });
 
+  it("leaves the project mail inbox off while inboundMailDomain is unset", () => {
+    // Off means nothing at Cloudflare and no domain on the frontend, which is
+    // what hides the address in the UI. The token is still wired (empty), so
+    // the BFF route answers 503 rather than reading an unset variable.
+    expect(RESOURCES.filter((r) => r.type.startsWith("cloudflare:"))).toEqual([]);
+    const frontend = RESOURCES.find(
+      (r) => r.type === "kubernetes:apps/v1:Deployment" && r.name === "frontend",
+    );
+    const spec = frontend?.inputs.spec as {
+      template: { spec: { containers: Array<{ env: Array<{ name: string }> }> } };
+    };
+    const names = spec.template.spec.containers[0].env.map((e) => e.name);
+    expect(names).not.toContain("GRID_INBOUND_MAIL_DOMAIN");
+    expect(names).toContain("GRID_INBOUND_MAIL_TOKEN");
+  });
+
   it("keeps the S3 endpoint on the name the app tier already uses", () => {
     // A rename here silently removes the `allow-edge-to-seaweedfs` NetworkPolicy
     // from the pods that serve S3, and breaks `SEAWEED_ENDPOINT` for every tier.

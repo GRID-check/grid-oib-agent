@@ -69,7 +69,7 @@ import type { Document, DocumentAuthor } from '@/lib/db/schema'
 import { reconcileDocumentStatuses, describeBackendIngestState } from './reconcile-status'
 import { toListedDocuments, toListedPage, type ListedDocument } from './shelf-listing'
 import { projectShelf } from './shelf'
-import { uploadToShelf, type UploadDocumentResult } from './shelf-upload'
+import { uploadToShelf, type UploadAuditChannel, type UploadDocumentResult } from './shelf-upload'
 import { resolveDocumentFolderPath } from './folder-path'
 import {
   collectionFileRef,
@@ -871,6 +871,8 @@ export interface UploadDocumentInput {
   uploadBatchId?: string | null
   /** See `ShelfUploadInput.priority`: `bulk` for a machine filing on a person's behalf. */
   priority?: IngestPriority
+  /** See `ShelfUploadInput.audit`: the intake channel of an upload no person made at a screen. */
+  audit?: UploadAuditChannel
 }
 
 export type { UploadDocumentResult }

@@ -12,8 +12,10 @@
  * change and never a new component.
  */
 
+import { z } from 'zod'
 import { INBOX_ITEM_TYPES, type InboxItemType, type InboxTargetType } from '@/lib/db/schema'
 import { PLATFORM_PERMISSIONS } from '@/lib/authz/permissions'
+import type { SkipReason } from '@/lib/inbound-mail/types'
 
 /**
  * Which product gate a type lives behind.
@@ -268,6 +270,142 @@ export const INBOX_TYPE_DEFINITIONS: Record<InboxItemType, InboxTypeDefinition> 
     gate: 'operational',
     email: IN_APP_ONLY,
   },
+  /*
+    A mail the reader sent to a project's inbox address was filed (ADR-0075).
+    `per-anchor` on the DELIVERY (the `inbound_mail_messages` row), so two
+    mails are two rows and a redelivery of the same one folds into its own.
+    Operational: the mail inbox is not a collaboration feature. Never mailed —
+    telling somebody by email that their email arrived is the loop v1 exists to
+    avoid, and the row is the whole receipt.
+  */
+  'inbound_mail.filed': {
+    actionable: false,
+    grouping: 'per-anchor',
+    retentionDays: 30,
+    gate: 'operational',
+    email: IN_APP_ONLY,
+  },
+  /*
+    The inbox gave up on a mail the reader sent (every retry spent). Same frame
+    as `inbound_mail.filed`, anchored on the same delivery row. Never mailed,
+    for the same reason; the row is the only word the sender gets, since the
+    mail was accepted and so never bounced.
+  */
+  'inbound_mail.failed': {
+    actionable: false,
+    grouping: 'per-anchor',
+    retentionDays: 30,
+    gate: 'operational',
+    email: IN_APP_ONLY,
+  },
+}
+
+/**
+ * Every {@link SkipReason}, as a value zod can check. `satisfies` holds each
+ * entry to the union, and the assertion below fails `tsc` when the union gains
+ * a member this list lacks.
+ */
+const SKIP_REASONS = [
+  'embedded',
+  'tnef',
+  'signature',
+  'encrypted',
+  'calendar',
+  'empty',
+  'unknown-type',
+  'limit',
+  'type',
+  'size',
+  'screened',
+  'quota',
+] as const satisfies readonly SkipReason[]
+const SKIP_REASONS_EXHAUSTIVE: Exclude<SkipReason, (typeof SKIP_REASONS)[number]> extends never
+  ? true
+  : never = true
+void SKIP_REASONS_EXHAUSTIVE
+
+/** How many skipped files one notification names; the count says the rest. */
+export const INBOX_SKIPPED_FILES_MAX = 10
+/** How long a skipped file's name may be in a notification, in UTF-16 units. */
+export const INBOX_SKIPPED_NAME_MAX = 120
+/** How long a project name may be in a notification. */
+export const INBOX_PROJECT_NAME_MAX = 200
+
+const count = z.number().int().nonnegative()
+const projectName = z.string().max(INBOX_PROJECT_NAME_MAX)
+
+/**
+ * The interpolation values each type's copy may name, per type (review finding
+ * D11). A type absent here carries no params.
+ *
+ * Checked on BOTH sides. `emitInboxItems` parses what an emitter sends and
+ * throws on a mismatch, so a renamed or dropped value fails the emitter's tests
+ * instead of rendering as a blank. The read path parses again, because the
+ * payload is stored JSON that an older deploy may have written, and drops what
+ * does not fit rather than rendering it.
+ *
+ * Emitters cap `skippedFiles` and the names themselves (with a grapheme-safe
+ * cut): these bounds only refuse what they did not cap.
+ */
+export const INBOX_PARAMS_SCHEMAS = {
+  'inbound_mail.filed': z
+    .object({
+      filed: count,
+      skipped: count,
+      project: projectName,
+      skippedFiles: z
+        .array(
+          z
+            .object({
+              name: z.string().min(1).max(INBOX_SKIPPED_NAME_MAX),
+              reason: z.enum(SKIP_REASONS),
+            })
+            .strict()
+        )
+        .max(INBOX_SKIPPED_FILES_MAX),
+    })
+    .strict(),
+  'inbound_mail.failed': z.object({ project: projectName }).strict(),
+} as const satisfies Partial<Record<InboxItemType, z.ZodTypeAny>>
+
+export type InboxParamsByType = {
+  [T in keyof typeof INBOX_PARAMS_SCHEMAS]: z.infer<(typeof INBOX_PARAMS_SCHEMAS)[T]>
+}
+export type InboxTypeWithParams = keyof InboxParamsByType
+
+function hasParamsSchema(type: InboxItemType): type is InboxTypeWithParams {
+  return Object.prototype.hasOwnProperty.call(INBOX_PARAMS_SCHEMAS, type)
+}
+
+/**
+ * The params an emitter sends for `type`, validated. Throws when they do not
+ * match the type's schema, or when a type without one is sent any.
+ */
+export function assertInboxParams(type: InboxItemType, params: unknown): void {
+  if (!hasParamsSchema(type)) {
+    if (params !== undefined) {
+      throw new Error(`[inbox] type "${type}" takes no params`)
+    }
+    return
+  }
+  const parsed = INBOX_PARAMS_SCHEMAS[type].safeParse(params)
+  if (!parsed.success) {
+    const where = parsed.error.issues.map((issue) => issue.path.join('.') || '(root)').join(', ')
+    throw new Error(`[inbox] params for "${type}" do not match its schema at: ${where}`)
+  }
+}
+
+/**
+ * Stored params read back for display: the type's schema, or nothing. A row
+ * whose params no longer parse renders without them rather than with a part.
+ */
+export function readInboxParams(
+  type: InboxItemType,
+  params: unknown
+): InboxParamsByType[InboxTypeWithParams] | undefined {
+  if (!hasParamsSchema(type)) return undefined
+  const parsed = INBOX_PARAMS_SCHEMAS[type].safeParse(params)
+  return parsed.success ? parsed.data : undefined
 }
 
 /**

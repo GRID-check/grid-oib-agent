@@ -240,7 +240,7 @@ async function ensureArchiveFolder(session: AuthorizedSession, row: MailImport):
   await requireFolderWrite(session, row.projectId, [existing?.id ?? null])
   const root = await getOrCreateProjectFolderByName(row.projectId, MAIL_IMPORT_ROOT_FOLDER, row.organizationId)
   if (root.id !== existing?.id) await requireFolderWrite(session, row.projectId, [root.id])
-  const folder = await createFolderWithFreeName({ session, mailImport: row }, root.id, archiveFolderName(row.filename))
+  const folder = await createFolderWithFreeName({ session, projectId: row.projectId }, root.id, archiveFolderName(row.filename))
   await repository.updateMailImport(row.organizationId, row.id, ['importing'], { rootFolderId: folder.id })
   return folder.id
 }

@@ -18,6 +18,9 @@ vi.mock('./project-memory-panel', () => ({
 vi.mock('./project-danger-zone', () => ({
   ProjectDangerZone: () => <div data-testid="project-danger-zone" />,
 }))
+vi.mock('./project-inbound-mail-card', () => ({
+  ProjectInboundMailCard: () => <div data-testid="project-inbound-mail-card" />,
+}))
 vi.mock('./project-rename-button', () => ({
   ProjectRenameButton: () => <button data-testid="project-rename-button" />,
 }))
@@ -85,6 +88,14 @@ describe('ProjectSettings', () => {
     expect(screen.getByTestId('project-rename-button')).toBeInTheDocument()
     expect(screen.getByTestId('project-danger-zone')).toBeInTheDocument()
     expect(screen.getByTestId('project-members-form')).toHaveAttribute('data-can-manage', 'true')
+  })
+
+  test('the mail inbox section is only for document writers', () => {
+    const { rerender } = render(<ProjectSettings data={data} />)
+    expect(screen.queryByTestId('project-inbound-mail-card')).not.toBeInTheDocument()
+
+    rerender(<ProjectSettings data={data} canWriteDocuments />)
+    expect(screen.getByTestId('project-inbound-mail-card')).toBeInTheDocument()
   })
 
   test('flags folders whose roles were deleted, with a link to each, only when there are any (ADR-0088)', () => {

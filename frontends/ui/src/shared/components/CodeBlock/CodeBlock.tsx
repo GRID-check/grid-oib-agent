@@ -12,6 +12,7 @@ import { type FC, useMemo, useState } from 'react'
 import { toast } from 'sonner'
 import { Check, ChevronDown, ChevronUp, Copy } from 'lucide-react'
 import { AnimatePresence, motion, useIconSwapTransition } from '@/components/motion'
+import { useCopyToClipboard } from '@/hooks/use-copy-to-clipboard'
 import { useTranslations } from '@/i18n'
 
 export interface CodeBlockProps {
@@ -36,23 +37,17 @@ export const CodeBlock: FC<CodeBlockProps> = ({
 }) => {
   const t = useTranslations('common')
   const swap = useIconSwapTransition()
-  const [copied, setCopied] = useState(false)
+  const { copied, copy } = useCopyToClipboard()
   const [expanded, setExpanded] = useState(false)
 
   const lines = useMemo(() => value.split('\n'), [value])
   const isCollapsible = collapsible && lines.length > maxLines
   const displayValue = isCollapsible && !expanded ? lines.slice(0, maxLines).join('\n') : value
 
-  const handleCopy = async () => {
-    try {
-      await navigator.clipboard.writeText(value)
-      setCopied(true)
-      window.setTimeout(() => setCopied(false), 1500)
-    } catch {
-      // Clipboard API unavailable or blocked (e.g. insecure context, denied
-      // permission) — surface the failure instead of swallowing it silently.
-      toast.error(t('states.copyFailed'))
-    }
+  const handleCopy = async (): Promise<void> => {
+    // Clipboard API unavailable or blocked (e.g. insecure context, denied
+    // permission): surface the failure instead of swallowing it silently.
+    if (!(await copy(value))) toast.error(t('states.copyFailed'))
   }
 
   return (
@@ -63,7 +58,7 @@ export const CodeBlock: FC<CodeBlockProps> = ({
         </span>
         <button
           type="button"
-          onClick={handleCopy}
+          onClick={() => void handleCopy()}
           aria-label={copied ? t('codeBlock.copied') : t('codeBlock.copyCode')}
           className="text-subtle hover:text-primary inline-flex min-h-7 items-center gap-1 rounded-full px-2 text-xs transition-colors duration-quick ease-out focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60"
         >

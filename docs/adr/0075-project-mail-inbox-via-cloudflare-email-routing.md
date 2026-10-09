@@ -1,0 +1,318 @@
+---
+status: accepted
+date: 2026-09-30
+decision-makers: Grid engineering
+consulted: product owner
+informed: everyone working in this repo
+---
+
+# Project mail inbox: receive through Cloudflare Email Routing and file through `uploadDocument`
+
+## Context and Problem Statement
+
+Planning offices get most of their files by email: plans from the engineer,
+permits from the authority forwarded by the client, specifications from
+manufacturers. Today every one of those is downloaded from the mail client and
+uploaded again into the project, by hand. We want each project to have an
+address a member can forward mail to, with the attachments filed in the project
+as if that member had uploaded them.
+
+Receiving mail needs an MX somewhere. The question is whose, and what sits
+between it and the project.
+
+## Decision Drivers
+
+* Buy, don't build. Port 25, spam, TLS and delivery retries are someone else's
+  domain.
+* One upload path (ADR-0055). Permission, type allowlist, size, quota
+  (ADR-0042), versioning, audit and ingest must be the ones a UI upload gets.
+* Tenant isolation on a domain every organization shares (ADR-0041).
+* Data minimisation: nothing raw stored, no mail body stored.
+* Cost at our volume, which is small: a few hundred mails a day at most.
+
+## Considered Options
+
+1. Self-hosted inbound SMTP (Postfix, Haraka or aiosmtpd) in the cluster.
+2. Cloudflare Email Routing with an Email Worker.
+3. Mailgun inbound routes, EU region.
+4. Amazon SES inbound in eu-central-1.
+
+## Decision Outcome
+
+Chosen option: 2, Cloudflare Email Routing with an Email Worker, because
+receiving is free, the operator already has a Cloudflare account and Pulumi
+provider for DNS, and a Worker can hand the raw message to our own webhook
+without any storage in between. Project addresses live on the product's own
+domain, `piloti.at` (amended 2026-10-01, see
+[the amendment](#amendment-2026-10-01-project-addresses-on-pilotiat)), whose
+apex already runs Email Routing for `kontakt@piloti.at` (ADR-0090).
+
+* **Transport.** The zone's catch-all routes every address on
+  `GRID_INBOUND_MAIL_DOMAIN` that no literal rule claims to one Worker.
+  Cloudflare matches literal rules first, so `kontakt@piloti.at`, and any
+  later company address given its own rule, never reaches it. The Worker does
+  not parse the message. It streams the raw bytes to
+  `POST /api/internal/inbound-mail` with its own token
+  (`GRID_INBOUND_MAIL_TOKEN`), the envelope recipient in `x-envelope-to` and
+  the size in `x-inbound-raw-size`.
+* **The one thing the Worker decides: is this a project address.** It applies
+  the shape rule the BFF's parser applies (ASCII lowercase, drop surrounding
+  quotes and a `+detail` subaddress, take what follows the last dot, which
+  must be 12 characters of `[a-z2-7]`). That rule is a contract recorded in
+  `shared/inbound-address.json`. An address of any other shape (a typo of
+  `kontakt@`, `info@` with no rule, a spammer's guess) is refused by the
+  Worker itself with `Unbekannte Adresse: Diese Nachricht wurde nicht
+  zugestellt. / Unknown address: this message was not delivered.`, without
+  calling the BFF. That is the answer such an address got before the
+  catch-all existed, when Cloudflare refused it, and it keeps spam off the
+  webhook and its edge rate-limit bucket. Everything else stays in the BFF.
+* **The verdict contract.** For a project-shaped address, the Worker bounces a
+  mail only when the BFF answers a 4xx carrying `x-inbound-verdict: reject`,
+  and the BFF sets that header only on a permanent refusal: an unknown or
+  revoked address in our domain, the
+  organization's switch off, a sender that fails verification, is not a member
+  or may not write documents, or a message over 26 MiB. A 2xx accepts. Every
+  other answer (401, 403, 404 or 5xx without the header, 409, 429, a redirect,
+  a network error) makes the Worker throw, so Cloudflare answers the sending
+  server with a temporary failure and it retries. A status alone never bounces:
+  a rotated Worker token or a misrouted `BFF_URL` delays mail, it does not lose
+  it.
+* **Addresses.** An address is `<slug>.<token>@<domain>`. Only the 12-character
+  base32 token resolves; the slug is decoration.
+* **Accept, then file from the job queue.** The webhook resolves the token in one
+  `withPlatformAccess` lookup before reading the body, then works inside
+  `withTenant`. It checks the switch, verifies the sender, looks them up in the
+  target organization only, requires `project:documents:write` or
+  `project:edit` on that project (the same `requireProjectAccess` call
+  `uploadDocument` makes), selects the attachments in memory, stages them in
+  the organization's bucket under the project's prefix, queues one row in
+  `inbound_mail_messages`, enqueues one `inbound_mail` job on the BFF's one
+  job queue (`bff_job_queue`, ADR-0079), and answers 202. It never stores the
+  `.eml` or the body. A `bff-jobs` worker runs the job inside the delivery's
+  organization; it files each staged object through the one mail filer the
+  Outlook import uses (`lib/mail-import/filing.ts`, ADR-0085), which uploads
+  through `uploadDocument` as the pinned sender, into one folder per mail
+  (`E-Mail-Eingang/<YYYY-MM-DD HH.mm> – <sender>`, no subject) with each file
+  named after the folder and numbered where a name is taken, then deletes the
+  staging and notifies the sender in the app. Every write is conditional on the
+  row still being `queued`. A failed attempt counts on the row and hands the
+  delivery to a fresh job after a backoff; after eight the row is `failed` and
+  the sender told. The background-work sweep gives a queued delivery whose job
+  is gone a new one. Staging lives at most 7 days and rows 30.
+* **Sender trust is DKIM only.** Cloudflare does not give a Worker its SPF, DKIM
+  or DMARC verdicts
+  ([workerd#6740](https://github.com/cloudflare/workerd/issues/6740), open
+  since 2026-05-07), so the BFF decides from the raw bytes. A mail is authentic
+  only when one DKIM signature on it verifies (`mailauth`), is aligned with the
+  single From domain, has no `l=` tag, signs From, Subject and To or Cc, and
+  signs a To or Cc that names this project's address. That last rule stops a
+  signed mail from being replayed into another project, and it refuses a Bcc.
+  There is no rule admitting a domain for its DMARC policy: "the domain
+  publishes `p=reject`, so Cloudflare already enforced it" admitted unsigned
+  spoofs whenever the policy was not enforced and whenever someone posted to
+  the webhook past Cloudflare. A DNS failure is a `temperror` and a retry,
+  never a bounce.
+* **Per-organization switch.** The WorkOS feature flag `project-mail-inbox` is
+  off by default. Until it is enabled for an organization, that organization
+  sees no address, the webhook refuses its mail and the filing job holds what
+  was already queued. An organization gets the inbox after it has been told about
+  the new sub-processor, never by default.
+
+### Consequences
+
+* Good, because there is one upload path. Everything a UI upload enforces, an
+  emailed attachment gets without a second implementation.
+* Good, because nothing runs on port 25 in our cluster, and the only mail data
+  we hold is the selected attachments for the minutes between accept and
+  filing (7 days at most).
+* Good, because filing happens outside the sender's SMTP transaction: a mail of
+  a hundred files, or a WorkOS or storage outage of most of a day, does not
+  turn into a bounce.
+* Good, because it costs nothing on the free Workers plan, and $5 a month on
+  the paid plan if the handler outgrows the free CPU limit.
+* Good, because a leaked address alone files nothing: the sender must be a
+  verified member with write access, and the signed To or Cc must name the
+  address.
+* Good, because the addresses are on Piloti's own domain, which customers
+  already know, and mail to addresses that are not project-shaped is refused
+  at Cloudflare without reaching the cluster.
+* Bad, because `piloti.at`'s mail has to stay on Cloudflare Email Routing. If
+  the company moves it to Microsoft 365 or Google Workspace, the inbox must
+  move to a domain of its own at that point (the separate-zone setup is still
+  supported), and every project gets a new address by rotation.
+* Bad, because every new named company address on `piloti.at` needs its own
+  literal Email Routing rule. Without one the Worker refuses it as unknown.
+  That was already true before the catch-all: Cloudflare refused it.
+* Bad, because Cloudflare becomes a sub-processor for mail content in transit,
+  under the EU-US Data Privacy Framework, and processes it in the nearest data
+  centre with no EU guarantee. A customer that requires EU-only processing
+  cannot use this inbox.
+* Bad, because senders without an aligned DKIM signature are refused, whatever
+  their DMARC policy says. That includes Microsoft 365 and Google Workspace
+  domains without custom DKIM. Their admins must enable it, or the member
+  uploads by hand.
+* Bad, because a Bcc to the project address bounces; members must put it in To
+  or Cc.
+* Bad, because the sender learns of success only in the app. v1 sends no mail,
+  so there is no confirmation reply; a refusal is Cloudflare's bounce with our
+  fixed text, which links the help and privacy pages.
+* Bad, because the message size is capped at Cloudflare's 25 MiB, which after
+  MIME encoding leaves about 18 MB of attachments, below what a plan set
+  sometimes reaches.
+* Bad, because two runtime facts the design relies on cannot be proven from the
+  repository: that `DKIM-Signature` survives into the Worker's `message.raw`,
+  and that a thrown Worker becomes an SMTP 4xx. Both are launch gates in the
+  deploy guide.
+* Neutral, because the DSGVO review is
+  [`inbound-mail-review-2026-09.md`](../compliance/inbound-mail-review-2026-09.md),
+  with the Datenschutzberater sign-off still open.
+
+### Confirmation
+
+* `frontends/ui/src/app/api/authz-coverage.spec.ts`: every handler must come
+  from a route factory, so the webhook has to be an `internalApiRoute` behind
+  its token, and the two project address routes must state their
+  authorization posture.
+* `frontends/ui/src/lib/db/rls-coverage.spec.ts`: both new tables must be
+  registered with `grid_secure_table`, and `task db:test:rls` runs the
+  policies against PostgreSQL.
+* `frontends/ui/src/lib/inbound-mail/repository.integration.spec.ts` (the
+  fence on `queued`, the stalled-delivery listing, retention, tenant
+  isolation against PostgreSQL).
+* The unit specs beside the code: `sender-auth.spec.ts` (DKIM-only trust,
+  alignment, `l=`, signed headers, the signed recipient, duplicate headers,
+  `temperror`), `mime.spec.ts` (which parts are files, the skip reasons, the
+  delivery key), `receive.spec.ts` and
+  `frontends/ui/src/app/api/internal/inbound-mail/route.spec.ts` (the order of
+  work, the verdict header on exactly the permanent refusals), `job.spec.ts`
+  (the attempt, the backoff by fresh jobs, the give-up, the hold, the sweep),
+  `staging.spec.ts`, `notify.spec.ts`, the shared filer's
+  `frontends/ui/src/lib/mail-import/filing.spec.ts` and `naming.spec.ts`, `address.spec.ts`, `service.spec.ts`, and
+  `frontends/ui/src/lib/auth/pinned-session.spec.ts` (the sender's flags and
+  permissions).
+* `frontends/ui/bunfig.toml`: `minimumReleaseAge = 604800` makes `bun add`
+  refuse a version younger than 7 days, so `mailauth`, `postal-mime` and
+  `file-type` cannot be bumped to a release hours old.
+* `deploy/pulumi/src/platform/inbound-mail-worker.spec.ts`: the Worker refuses
+  an address that is not project-shaped with the unknown-address text and
+  makes no request, bounces a project address only on the verdict header, and
+  throws on everything else.
+* The address-shape contract: `shared/inbound-address.json` holds the token
+  pattern and sample addresses. `inbound-mail-worker.spec.ts` checks the
+  Worker against it, and `frontends/ui/src/lib/inbound-mail/address.spec.ts`
+  checks `parseInboundAddress`, so the Worker cannot refuse an address the BFF
+  would resolve.
+* `inbound-mail.spec.ts` and `email-routing.spec.ts`: the domain must be its
+  zone's apex, and `pulumi preview` refuses an apex whose MX records point
+  anywhere but `*.mx.cloudflare.net`. `deploy/pulumi/src/config.spec.ts`: the
+  zone id defaults to `dnsZoneId` when `inboundMailDomain` equals
+  `dnsZoneName`, and an inbox on the app zone requires `dnsEnabled` and
+  `dnsZoneBaseline`, like the contact address.
+  `deploy/pulumi/src/platform/mail-zones.spec.ts`: the contact address and an
+  inbox on the app apex share one zone's Email Routing, and an inbox on a zone
+  of its own gets its own. `index-inbound-mail.spec.ts`:
+  nothing is created when the domain is unset, and no edge buffer limit caps
+  the body. `stack-files.spec.ts`: one stack per inbound zone.
+* Nothing enforces that Cloudflare's "Email preview" stays off for
+  `piloti.at`. It is an Email Sending setting, and `piloti.at` is onboarded
+  for sending for the contact form (ADR-0090). Cloudflare describes it as
+  covering messages sent while it is on; it does not describe it as covering
+  mail received through Email Routing. It is a dashboard setting. The deploy
+  guide says so; review is the only gate.
+* Nothing enforces the two launch gates (`DKIM-Signature` in `message.raw`, a
+  thrown Worker as an SMTP 4xx). They are manual steps in
+  `docs/deployment/kubernetes.md` §3c.
+
+## Pros and Cons of the Options
+
+### Self-hosted inbound SMTP
+
+* Good, because mail never leaves infrastructure we run, which answers the EU
+  question outright.
+* Bad, because we would own port 25 exposure, spam and abuse filtering, TLS
+  certificates for the MX, queueing and retries, and uptime. That is the
+  "buy, don't build" case the root guide warns about.
+* Bad, because several cloud providers block or throttle port 25, and a new IP
+  has no reputation.
+
+### Cloudflare Email Routing with an Email Worker
+
+* Good, because free, and the operator's Cloudflare account and Pulumi
+  provider already exist for DNS. The inbox runs on the app zone that account
+  already holds, managed by the stack that owns it.
+* Good, because the Worker streams the raw message to our webhook; there is no
+  mailbox or bucket in between.
+* Bad, because 25 MiB per message, no EU processing guarantee, and no
+  authentication verdicts passed to the Worker.
+
+### Mailgun inbound routes, EU region
+
+* Good, because an EU region with EU processing, and a route that POSTs a
+  parsed message to a webhook.
+* Neutral, because about 25 MB per message.
+* Bad, because a paid plan from about $15 a month, and a new vendor, DPA and
+  API key to manage.
+
+### Amazon SES inbound, eu-central-1
+
+* Good, because Frankfurt, a 40 MB limit, and cost in cents at our volume.
+* Bad, because inbound SES writes to S3 and notifies through SNS, so we would
+  run SES, S3 and SNS plumbing plus a new AWS account and its IAM, for one
+  feature.
+
+## More Information
+
+Revisit when:
+
+* a customer requires EU-only processing (switch to Mailgun EU or SES
+  Frankfurt; the webhook contract stays);
+* workerd#6740 is fixed and a Worker receives Cloudflare's verdicts (the
+  own DKIM check still stays: the signed-recipient rule is ours, not
+  Cloudflare's);
+* v2 admits external senders, which needs malware scanning and a quarantine
+  before it can ship;
+* the company moves `piloti.at` mail off Cloudflare Email Routing (the inbox
+  moves to a domain of its own first, and every project's address rotates);
+* Cloudflare extends Email preview, or any other content retention, to mail
+  received through Email Routing.
+
+## Amendment (2026-10-01): project addresses on piloti.at
+
+The first version of this record put the addresses on a separate inbound
+domain, the apex of a Cloudflare zone of its own (example `piloti-post.at`).
+Two facts forced that: Email Routing's catch-all exists only on a zone apex,
+and a catch-all on the company domain would have taken all company mail. The
+product owner decided on 2026-10-01 to put the addresses on `piloti.at`
+instead, as described above. What makes that safe: `piloti.at` already runs
+Email Routing for `kontakt@piloti.at`, literal rules win over the catch-all,
+and the Worker refuses every address that is not project-shaped. The apex MX
+guard is unchanged, and `piloti.at`'s MX already points only at Cloudflare.
+
+In Pulumi, when the inbox and the contact address are on the same zone, one
+module owns that zone's Email Routing (the provider, the zone and MX guards,
+the `EmailRoutingDns` enablement), and the contact rule and the inbox's
+catch-all and Worker hang off it. `inboundMailZoneId` may be omitted when
+`inboundMailDomain` equals `dnsZoneName`. The earlier refusal of the contact
+address and the inbox on one zone is gone.
+
+### Where the addresses live: options considered
+
+* **The product domain, `piloti.at`, with the Worker filtering by shape.**
+  Chosen. The trade-offs are in Consequences above.
+* **A separate domain, a zone of its own.** Works; it was this record's first
+  decision, and the code still supports it. Rejected because addresses on a
+  second domain read as foreign to customers.
+* **A subdomain catch-all (`eingang.piloti.at`).** Not possible below
+  Enterprise. "Catch-all rules are only available for the apex domain"
+  ([Subdomains](https://developers.cloudflare.com/email-service/configuration/subdomains/)),
+  and a subdomain as a zone of its own is Enterprise-only
+  ([subdomain setup](https://developers.cloudflare.com/dns/zone-setups/subdomain-setup/)).
+* **Plus-addressing (`projekt+<slug>.<token>@piloti.at`).** Works on the apex,
+  but some systems reject `+` in an address, Cloudflare's docs do not say it
+  works on subdomains, and the Terraform and Pulumi provider ignores the
+  `support_subaddress` setting
+  ([cloudflare/terraform-provider-cloudflare#7386](https://github.com/cloudflare/terraform-provider-cloudflare/issues/7386)).
+* **Amazon SES inbound on a subdomain.** A new sub-processor and a rebuilt
+  receiving path, for a cosmetic gain.
+
+User guide: [`project-mail-inbox.md`](../user-guides/project-mail-inbox.md).

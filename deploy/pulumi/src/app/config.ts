@@ -153,6 +153,10 @@ export function buildSecrets(w: AppWiring): AppSecrets {
     GRID_INTERNAL_API_TOKEN: cfg.internal.apiToken,
     GRID_ADMIN_TOKEN: cfg.internal.adminToken,
     GRID_CORPUS_EXPORT_TOKEN: cfg.internal.corpusExportToken,
+    // The project mail inbox's Worker presents this (`platform/inbound-mail.ts`).
+    // Its own secret for the reason the corpus token is: it lives outside the
+    // cluster, in a Cloudflare Worker binding. Empty = the route answers 503.
+    GRID_INBOUND_MAIL_TOKEN: cfg.inboundMail.token,
     GRID_JOB_PAYLOAD_KEK: cfg.internal.jobPayloadKek,
     WORKOS_API_KEY: cfg.auth.workosApiKey,
     WORKOS_COOKIE_PASSWORD: cfg.auth.workosCookiePassword,
@@ -471,6 +475,14 @@ export function frontendEnv(w: AppWiring): EnvVar[] {
     // The corpus export (`/api/internal/oib-corpus`). No caller since the
     // answer-suite CI workflow was removed; unset disables it.
     sref("GRID_CORPUS_EXPORT_TOKEN"),
+    // Project mail inbox: the token the Cloudflare Email Worker presents to
+    // `/api/internal/inbound-mail`, and the address domain. The domain is
+    // absent rather than empty while the feature is off, which is what hides
+    // the address in the UI; the token is always wired, and empty fails closed.
+    sref("GRID_INBOUND_MAIL_TOKEN"),
+    ...(cfg.inboundMail.enabled
+      ? [{ name: "GRID_INBOUND_MAIL_DOMAIN", value: cfg.inboundMail.domain }]
+      : []),
     { name: "GRID_ALLOW_AGENT_ORG_MEMORY", value: String(cfg.auth.allowAgentOrgMemory) },
     // WorkOS AuthKit.
     { name: "WORKOS_CLIENT_ID", value: cfg.auth.workosClientId },

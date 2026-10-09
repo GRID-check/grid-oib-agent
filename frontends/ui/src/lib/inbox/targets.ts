@@ -69,6 +69,11 @@ export interface InboxTargetLinkContext {
    * the question or the error is. Without them the task drawer is the fallback.
    */
   run?: RunMessageRef | null
+  /**
+   * The project folder the row is about, when the payload names one
+   * (`inbound_mail.filed`: the folder the mail's files were filed into).
+   */
+  folderId?: string | null
 }
 
 /** Where a run narrates itself: its thread, its id, its message. */
@@ -201,12 +206,17 @@ const projectTarget: InboxTargetDescriptor = {
     }
     return {
       deepLink: (context) => {
+        // A mail's row opens its folder: the files that landed, or for a mail
+        // the inbox gave up on, whatever landed before it did (the row names
+        // the folder when there is one, else the file root).
+        if (context.itemType === 'inbound_mail.filed' || context.itemType === 'inbound_mail.failed') {
+          return filesDeepLink(resourceId, context.folderId)
+        }
         // A mail import lands on the folder it filed into: the row's anchor,
         // unless the import ended before making one (anchored `import:<id>`).
         if (context.itemType === 'mail_import.completed' || context.itemType === 'mail_import.failed') {
           const anchor = context.anchorId?.trim()
-          const folder = anchor && !anchor.startsWith('import:') ? anchor : null
-          return `/app/projects/${resourceId}/files${folder ? `?folder=${encodeURIComponent(folder)}` : ''}`
+          return filesDeepLink(resourceId, anchor && !anchor.startsWith('import:') ? anchor : null)
         }
         if (context.run) return runDeepLink(resourceId, context.run)
         const taskId = context.taskId?.trim() ? context.taskId.trim() : null
@@ -217,6 +227,17 @@ const projectTarget: InboxTargetDescriptor = {
       },
     }
   },
+}
+
+/**
+ * The project's files, opened on one folder when the row names it — the
+ * `?folder=` parameter `project-file-workspace` reads. A mail whose every
+ * attachment was skipped created no folder, and lands on the file root.
+ */
+function filesDeepLink(projectId: string, folderId: string | null | undefined): string {
+  const base = `/app/projects/${projectId}/files`
+  const folder = folderId?.trim()
+  return folder ? `${base}?folder=${encodeURIComponent(folder)}` : base
 }
 
 /** The thread at the run: the shape `features/tasks/lib/task-view.ts` builds. */

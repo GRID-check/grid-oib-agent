@@ -268,6 +268,27 @@ const DEFAULT_MUTATION_LIMIT = {
 const FEEDBACK_REPORT_LIMIT = { name: 'feedback-report', limit: 10, windowMs: 60 * 60 * 1000 }
 
 /**
+ * Mail delivered to ONE project mail address (ADR-0075), charged per address
+ * after the sender was verified and authorized, so a stranger's spam cannot
+ * spend a project's budget.
+ *
+ * Every accepted mail becomes uploads, ingest jobs and an inbox row. Sixty an
+ * hour is a scanner emptying its tray into a project, not a person; a runaway
+ * forwarding rule stops here. A refusal answers 429, which the Worker turns
+ * into a temporary failure: the sending server retries later and nothing is
+ * lost.
+ * @type {LimitRule}
+ */
+const INBOUND_MAIL_ADDRESS_LIMIT = { name: 'inbound-mail-address', limit: 60, windowMs: 60 * 60 * 1000 }
+
+/**
+ * The same, per ORGANIZATION: ten busy project addresses at once, and the
+ * blast-radius bound on one tenant's ingest queue from mail alone.
+ * @type {LimitRule}
+ */
+const INBOUND_MAIL_ORG_LIMIT = { name: 'inbound-mail-org', limit: 600, windowMs: 60 * 60 * 1000 }
+
+/**
  * Dictating into the chat composer.
  *
  * Every call is a paid transcription the member is never billed for and no
@@ -288,6 +309,8 @@ const DICTATION_LIMIT = {
 module.exports = {
   DICTATION_LIMIT,
   FEEDBACK_REPORT_LIMIT,
+  INBOUND_MAIL_ADDRESS_LIMIT,
+  INBOUND_MAIL_ORG_LIMIT,
   BIM_QUERY_LIMIT,
   BIM_EXPORT_LIMIT,
   RIS_DOCUMENT_LIMIT,

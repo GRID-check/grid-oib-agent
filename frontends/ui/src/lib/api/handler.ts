@@ -522,6 +522,42 @@ export async function parseFormData(request: Request): Promise<FormData> {
   }
 }
 
+/**
+ * The raw request body, refused with a 413 the moment it passes `limit` rather
+ * than after all of it has been buffered.
+ *
+ * For a route that takes bytes rather than a form or JSON (the inbound-mail
+ * webhook). A declared `Content-Length` over the limit is refused before a
+ * byte is read; a stream without one, or one that lies, is cut off at the
+ * limit and cancelled. Beside {@link parseFormData} because it is the same
+ * question: what does this tier do with a body that is too big.
+ */
+export async function readBoundedBody(request: Request, limit: number): Promise<Uint8Array> {
+  const declared = Number(request.headers.get('content-length'))
+  if (Number.isFinite(declared) && declared > limit) throw new PayloadTooLargeError(limit)
+  if (!request.body) return new Uint8Array(0)
+  const reader = request.body.getReader()
+  const chunks: Uint8Array[] = []
+  let total = 0
+  for (;;) {
+    const { done, value } = await reader.read()
+    if (done) break
+    total += value.byteLength
+    if (total > limit) {
+      await reader.cancel().catch(() => undefined)
+      throw new PayloadTooLargeError(limit)
+    }
+    chunks.push(value)
+  }
+  const body = new Uint8Array(total)
+  let offset = 0
+  for (const chunk of chunks) {
+    body.set(chunk, offset)
+    offset += chunk.byteLength
+  }
+  return body
+}
+
 /** Parse and validate URL query params against a zod schema (400 on failure). */
 export function parseQuery<TSchema extends ZodType>(
   request: Request,

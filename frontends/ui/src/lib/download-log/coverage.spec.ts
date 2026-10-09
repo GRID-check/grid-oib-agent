@@ -80,6 +80,10 @@ const OBJECT_READERS: Record<string, Disposition> = {
     exempt:
       'presigns the person’s own staged .pst for the filing job to hand the backend, whose range reader opens it for libpff: a machine reading an upload in flight, not a document’s bytes. Nobody downloads it; the mails it files are documents, logged when a person opens them.',
   },
+  'lib/inbound-mail/staging.ts::readStagedObject': {
+    exempt:
+      'reads a mailed attachment the webhook staged, for the filing job to upload as its sender: a machine reading an upload in flight, not a document’s bytes. Nobody downloads it; the files it becomes are documents, logged when a person opens them.',
+  },
   'lib/s3.ts::presignForBackend': {
     exempt:
       'signs, against the in-network endpoint, the command its caller built for the backend, a machine. A caller that reads builds the GetObjectCommand itself and is classified here in its own right.',

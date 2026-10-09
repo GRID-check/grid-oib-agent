@@ -4,7 +4,7 @@
  * (ui.ts, the blog collection, founders.ts), never kept as a copy, so the two
  * cannot drift and nothing reaches them that `npm run check` did not lint.
  */
-import { CONTACT_EMAIL, SITE_NAME } from '../consts'
+import { CONTACT_EMAIL, MAIL_INBOX_PATH, SITE_NAME } from '../consts'
 import { ui, languages, type Locale } from '../i18n/ui'
 import { blogPath, CATEGORIES } from './categories'
 import { getBlogPosts, postSlug, type BlogPost } from './posts'
@@ -23,6 +23,7 @@ const PAGE_PATHS: [PageKey | 'home', string][] = [
   ['changelog', '/changelog/'],
   ['warum', '/warum-piloti/'],
   ['rechenweg', '/rechenweg/'],
+  ['mailInbox', MAIL_INBOX_PATH],
   ['impressum', '/impressum/'],
   ['datenschutz', '/datenschutz/'],
 ]

@@ -40,6 +40,7 @@ All schemas are in `frontends/ui/src/lib/db/schema/` and barrel-exported from `i
 | `tasks.ts` | `tasks` — LEGACY since 0086, same |
 | `task-model.ts` | `task_definitions`, `task_runs` — the collapsed model (migration 0086) |
 | `bff-job-queue.ts` | `bff_job_queue`, `bff_job_lane_turns` — the BFF's durable background work (migration 0104, ADR-0079) |
+| `inbound-mail.ts` | `inbound_mail_addresses`, `inbound_mail_messages` — the project mail inbox (migration 0115, ADR-0075) |
 
 ---
 
@@ -824,6 +825,63 @@ the index, the CHECK and the down in `scripts/rls-test-db.sh`.
 
 ---
 
+## inbound_mail_addresses / inbound_mail_messages (migration 0115, ADR-0075)
+
+The project mail inbox. A member mails files to `<slug>.<token>@<GRID_INBOUND_MAIL_DOMAIN>`
+and the attachments are filed into the project as if that member had uploaded them
+(`lib/inbound-mail/receive.ts` accepts, `lib/inbound-mail/job.ts` files). **Neither
+table holds the mail**: the webhook parses it in memory, stages only the attachments it
+selected as objects under the project's storage prefix, queues one delivery row and
+enqueues an `inbound_mail` job on `bff_job_queue` (ADR-0079); the job files them as
+ordinary `documents` rows and deletes the staging.
+
+`inbound_mail_addresses` — one row per address a project has had:
+
+| Column | Type | Constraints | Notes |
+|--------|------|-------------|-------|
+| `id` | `uuid` | PK, `defaultRandom()` | |
+| `organization_id` | `text` | NOT NULL | Tenant column; inside both foreign keys below |
+| `project_id` | `uuid` | NOT NULL, FK (`project_id`, `organization_id`) → `projects` (`id`, `organization_id`) ON DELETE CASCADE | The project the address files into |
+| `token` | `text` | NOT NULL, CHECK `^[a-z2-7]{12}$`, **UNIQUE across all organizations** | The only part of the address that resolves. 60 bits from `crypto.randomBytes`. Global because the webhook looks it up before any organization is known (under the platform bypass): two orgs can both have a `wohnbau-hietzing` project, so the slug must never be what resolves |
+| `slug` | `text` | NOT NULL, DEFAULT `''`, CHECK `^[a-z0-9-]{0,30}$` | Decoration from the project name, frozen at mint time so a copied address keeps reading the same after a rename. No dots: the parser takes what follows the LAST dot as the token |
+| `created_by` | `text` | NOT NULL | WorkOS user id |
+| `created_at` | `timestamptz` | NOT NULL | |
+| `revoked_at` / `revoked_by` | `timestamptz` / `text` | CHECK both-or-neither | Set by rotation. A revoked token answers exactly like an unknown one |
+
+- `uniq_inbound_mail_addresses_active_project` — UNIQUE (`project_id`) WHERE `revoked_at IS NULL`: one active address per project. Partial, so it lives only in the migration. Lazy minting on first read races; the loser's 23505 is answered by re-reading the winner.
+- `inbound_mail_addresses_id_project_org_key` — UNIQUE (`id`, `project_id`, `organization_id`), the target of the message rows' composite FK.
+
+`inbound_mail_messages` — one row per delivery to an address: what its jobs file from
+and are fenced on (every write is conditional on `status = 'queued'`), and the
+idempotency record. Deleted 30 days after `received_at`:
+
+| Column | Type | Constraints | Notes |
+|--------|------|-------------|-------|
+| `id` | `uuid` | PK | Also the staging path segment and the anchor of the sender's `inbound_mail.filed` / `inbound_mail.failed` inbox item |
+| `organization_id`, `project_id` | `text`, `uuid` | NOT NULL, FK → `projects` (`id`, `organization_id`) ON DELETE CASCADE | |
+| `address_id` | `uuid` | NOT NULL, FK (`address_id`, `project_id`, `organization_id`) → `inbound_mail_addresses` ON DELETE CASCADE | A row cannot claim one tenant while pointing at another's address |
+| `delivery_key` | `text` | NOT NULL, CHECK `^[0-9a-f]{64}$` | sha256 of the normalized Message-ID and the sorted attachment digests (`deliveryKey` in `lib/inbound-mail/mime.ts`). Stable across redeliveries of one mail; different for a device that reuses Message-IDs |
+| `sender_user_id` | `text` | NOT NULL | WorkOS user id the mail is filed as. Known before the row exists: only a verified member with write access is queued |
+| `status` | `text` | NOT NULL, DEFAULT `'queued'`, CHECK `queued \| filed \| failed` | A redelivery of a `queued` or `filed` mail is answered as a duplicate; a `failed` one may be queued again |
+| `folder_name` | `text` | NOT NULL | The leaf under `E-Mail-Eingang/`: `<YYYY-MM-DD HH.mm> – <sender>`, Europe/Vienna time from `received_at`. Never the subject |
+| `folder_id` | `uuid` | FK (`folder_id`, `project_id`) → `project_folders` ON DELETE SET NULL (`folder_id`) | The folder the first filing attempt created; every later attempt reuses it |
+| `subject` | `text` | | For the one notification only. NULL once the row is `filed` or `failed` |
+| `staging_bucket` | `text` | CHECK set whenever `staged` is not empty | The bucket the staged objects went to (ADR-0043: recorded, never recomputed) |
+| `staged` | `jsonb` | NOT NULL, DEFAULT `[]`, CHECK array | `[{ key, filename, contentType, sha256, size }]`. Emptied when the job has deleted the objects |
+| `skipped` | `jsonb` | NOT NULL, DEFAULT `[]`, CHECK array | `[{ filename, reason }]` while queued; `[{ reason }]` once terminal |
+| `filed_count`, `skipped_count` | `integer` | NOT NULL, DEFAULT 0, non-negative | |
+| `attempts` | `integer` | NOT NULL, DEFAULT 0, non-negative | Failed filing attempts so far. A failed attempt hands the delivery to a fresh job that waits out a backoff (1 minute to 12 hours); the eighth gives up |
+| `last_error` | `text` | | A class or reason code of the last failed attempt, never an error message (drizzle puts query parameters into those) |
+| `received_at`, `created_at` | `timestamptz` | NOT NULL | Retention runs on `received_at` |
+| `updated_at` | `timestamptz` | NOT NULL | Progress: touched after each file. A `queued` row without progress for 15 minutes and without an open job is given a new one by the background-work sweep |
+
+- `uniq_inbound_mail_messages_address_delivery` — UNIQUE (`address_id`, `delivery_key`). Keyed by ADDRESS, not by the mail alone: one mail CC'd to projects in two organizations is two deliveries and both are filed.
+- `inbound_mail_messages_queued_idx` (`updated_at`) WHERE `status = 'queued'`, the sweep's; `inbound_mail_messages_received_idx` (`received_at`), the 30-day retention and the 7-day staging backstop; `inbound_mail_messages_project_created_idx` (`project_id`, `created_at`).
+
+Both are secured `organization_id = grid_current_org()` (the `document_roles` shape: the tenant is inside every key, so the predicate needs no join) and both cascade from the project, so the project purge takes them along. There is no organization purge; an organization's projects are purged one by one. The purger also deletes the staged objects (they are under the project's prefix, in the bucket `staging_bucket` names) and the `inbox_items` whose target is the project itself (`resource_type = 'project'`), which include the `inbound_mail.*` rows quoting a mail's subject.
+
+---
+
 ## user_preferences
 
 ```typescript
@@ -1191,7 +1249,8 @@ The BFF's durable background work: one row is one job a `bff-jobs` replica
 claims and runs (project reindex, failed-ingestion rescan, the re-read of the
 documents collection placement moved `placement_reingest`; and, one step each,
 IFC extraction `bim_extract`, office conversion `office_rendition` and research
-report filing `file_research_report`). The claim is SQL in
+report filing `file_research_report`; the Outlook import `mail_import` and the
+project mail inbox's `inbound_mail`, one delivery per job). The claim is SQL in
 `frontends/ui/workers/job-queue.js`, in the order ADR-0076 proved for
 ingestion: the lane with the fewest live claims, then the lane served longest
 ago (`bff_job_lane_turns`), then inside a lane `priority` (0 interactive, 1
